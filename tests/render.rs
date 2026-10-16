@@ -1,5 +1,12 @@
-use std::path::Path;
+use std::collections::HashMap;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 
+use base64::Engine;
+use image::{Rgba, RgbaImage};
+use kiri::images::{ImageError, Images, Source};
+use kiri::kitty::graphics::{DIACRITICS, PLACEHOLDER};
+use kiri::model::Document;
 use kiri::term::Capabilities;
 use kiri::theme::Theme;
 
@@ -16,7 +23,8 @@ fn render_with(fixture: &str, caps: &Capabilities, theme: &Theme) -> String {
     let source = std::fs::read_to_string(&path).expect("fixture is readable");
     let document = kiri::parse::parse(&source);
     let mut out = Vec::new();
-    kiri::render::render(&document, caps, theme, &mut out).expect("rendering to memory succeeds");
+    kiri::render::render(&document, &Images::new(), caps, theme, &mut out)
+        .expect("rendering to memory succeeds");
     String::from_utf8(out).expect("output is UTF-8")
 }
 
@@ -118,7 +126,7 @@ fn heading_background_reaches_the_right_edge() {
     for theme in &themes {
         for terminal_width in [46, 47, 48, 49] {
             let caps = Capabilities::kitty(terminal_width);
-            let lines = kiri::render::layout::layout(&document, &caps, theme);
+            let lines = kiri::render::layout::layout(&document, &Images::new(), &caps, theme);
             for line in lines.iter().filter(|line| line.scale > 1) {
                 let cells = width(&line.lead)
                     + width(&line.spans) * usize::from(line.scale)
@@ -154,7 +162,14 @@ fn rules_span_the_terminal_past_max_width() {
     let theme = kiri::theme::parse("max_width = 20\n[h1]\nrule = true\n").unwrap();
     let document = kiri::parse::parse("# Title\n\nText\n\n---\n");
     let mut out = Vec::new();
-    kiri::render::render(&document, &Capabilities::ansi(30), &theme, &mut out).unwrap();
+    kiri::render::render(
+        &document,
+        &Images::new(),
+        &Capabilities::ansi(30),
+        &theme,
+        &mut out,
+    )
+    .unwrap();
     let rules: Vec<usize> = String::from_utf8(out)
         .unwrap()
         .lines()
@@ -170,7 +185,14 @@ fn nested_headings_are_not_indented() {
     let theme = example_theme("indent.toml");
     let document = kiri::parse::parse("# Top\n\n> # Quoted\n\n- # Listed\n");
     let mut out = Vec::new();
-    kiri::render::render(&document, &Capabilities::ansi(40), &theme, &mut out).unwrap();
+    kiri::render::render(
+        &document,
+        &Images::new(),
+        &Capabilities::ansi(40),
+        &theme,
+        &mut out,
+    )
+    .unwrap();
     // The indent stays on the top-level heading only; nested ones start
     // right after the quote bar or the bullet.
     insta::assert_snapshot!(visible(&String::from_utf8(out).unwrap()));
@@ -179,7 +201,7 @@ fn nested_headings_are_not_indented() {
 fn render_source(source: &str, caps: &Capabilities, theme: &Theme) -> String {
     let document = kiri::parse::parse(source);
     let mut out = Vec::new();
-    kiri::render::render(&document, caps, theme, &mut out).unwrap();
+    kiri::render::render(&document, &Images::new(), caps, theme, &mut out).unwrap();
     String::from_utf8(out).unwrap()
 }
 
@@ -438,6 +460,7 @@ fn no_color_keeps_everything_but_colours() {
     // Layout on its own gives no colours either.
     let lines = kiri::render::layout::layout(
         &kiri::parse::parse("# Heading\n\nSome `code`\n"),
+        &Images::new(),
         &caps,
         &example_theme("background.toml"),
     );
@@ -473,6 +496,7 @@ fn escape_sequences_in_the_document_are_neutralised() {
     let mut out = Vec::new();
     kiri::render::render(
         &document,
+        &Images::new(),
         &Capabilities::kitty(WIDTH),
         &Theme::default(),
         &mut out,
@@ -538,7 +562,14 @@ fn control_characters_in_the_document_do_not_reach_the_terminal() {
         Capabilities::kitty(WIDTH),
     ] {
         let mut out = Vec::new();
-        kiri::render::render(&document, &caps, &Theme::default(), &mut out).unwrap();
+        kiri::render::render(
+            &document,
+            &Images::new(),
+            &caps,
+            &Theme::default(),
+            &mut out,
+        )
+        .unwrap();
         let out = String::from_utf8(out).unwrap();
         if caps.hyperlinks {
             // The link target is still written, without the controls.
@@ -574,9 +605,9 @@ fn the_visual_check_document_fits_every_mode() {
         ] {
             for theme in &themes {
                 let mut out = Vec::new();
-                kiri::render::render(&document, &caps, theme, &mut out).unwrap();
+                kiri::render::render(&document, &Images::new(), &caps, theme, &mut out).unwrap();
                 assert!(!out.is_empty());
-                for line in kiri::render::layout::layout(&document, &caps, theme) {
+                for line in kiri::render::layout::layout(&document, &Images::new(), &caps, theme) {
                     let cells = width(&line.lead)
                         + width(&line.spans) * usize::from(line.scale)
                         + width(&line.trail);
@@ -617,4 +648,355 @@ fn stacked_tables_nest_in_quotes_and_list_items() {
          - City: Helsinki\n    Notes: Capital\n    ──────────────────\n    \
          City: Oulu\n    Notes: North\n"
     );
+}
+
+// Images
+
+fn fixtures() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
+}
+
+/// Opaque quadrants: red, green, blue and yellow from the top left.
+fn quadrants(width: u32, height: u32) -> RgbaImage {
+    RgbaImage::from_fn(width, height, |x, y| {
+        Rgba(match (x < width / 2, y < height / 2) {
+            (true, true) => [255, 0, 0, 255],
+            (false, true) => [0, 255, 0, 255],
+            (true, false) => [0, 0, 255, 255],
+            (false, false) => [255, 255, 0, 255],
+        })
+    })
+}
+
+fn one_image(url: &str, image: RgbaImage) -> Images {
+    let mut images = Images::new();
+    images.insert(url, Ok(Source::Raster(image)));
+    images
+}
+
+/// The images of `document` as kiri loads them from the fixtures, with each
+/// one that loads replaced by quadrants of the same size. Snapshots then
+/// show real sizes and errors, but not the decoders' work, and the image
+/// data compresses to a few bytes.
+fn fixture_images(document: &Document) -> Images {
+    let loaded = kiri::images::load(document, &fixtures());
+    let mut images = Images::new();
+    for (url, image) in loaded.iter() {
+        let image = match image {
+            Ok(source) => {
+                let (width, height) = source.size();
+                Ok(Source::Raster(quadrants(width, height)))
+            }
+            Err(error) => Err(error.clone()),
+        };
+        images.insert(url, image);
+    }
+    images
+}
+
+fn render_document(document: &Document, images: &Images, caps: &Capabilities) -> String {
+    let mut out = Vec::new();
+    kiri::render::render(document, images, caps, &Theme::default(), &mut out).unwrap();
+    String::from_utf8(out).unwrap()
+}
+
+fn render_images(fixture: &str, caps: &Capabilities) -> String {
+    let source = std::fs::read_to_string(fixtures().join(fixture)).unwrap();
+    let document = kiri::parse::parse(&source);
+    render_document(&document, &fixture_images(&document), caps)
+}
+
+fn render_with_images(source: &str, images: &Images, caps: &Capabilities) -> String {
+    render_document(&kiri::parse::parse(source), images, caps)
+}
+
+/// The keys and base64 data of every graphics command in `output`.
+fn graphics_commands(output: &str) -> Vec<(String, String)> {
+    let mut commands = Vec::new();
+    let mut rest = output;
+    while let Some(start) = rest.find("\x1b_G") {
+        let body = &rest[start + 3..];
+        let end = body.find("\x1b\\").expect("terminated graphics command");
+        let (keys, data) = body[..end].split_once(';').expect("keys and data");
+        commands.push((keys.to_owned(), data.to_owned()));
+        rest = &body[end + 2..];
+    }
+    commands
+}
+
+/// `visible`, with kitty's graphics made readable: the base64 data of each
+/// graphics command becomes its length, and each run of placeholders shows
+/// the image row it draws and how many cells it covers. Panics on
+/// placeholders that do not count their columns up from the left.
+fn readable(output: &str) -> String {
+    let mut commands = String::new();
+    let mut rest = output;
+    while let Some(start) = rest.find("\x1b_G") {
+        commands.push_str(&rest[..start]);
+        let body = &rest[start + 3..];
+        let end = body.find("\x1b\\").expect("terminated graphics command");
+        let (keys, data) = body[..end].split_once(';').expect("keys and data");
+        commands.push_str(&format!("\x1b_G{keys};<{} bytes>\x1b\\", data.len()));
+        rest = &body[end + 2..];
+    }
+    commands.push_str(rest);
+
+    let position = |c: Option<char>| {
+        let c = c.expect("placeholder with its diacritics");
+        DIACRITICS
+            .iter()
+            .position(|&d| d == c)
+            .expect("a diacritic")
+    };
+    let mut out = String::new();
+    let mut chars = commands.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != PLACEHOLDER {
+            out.push(c);
+            continue;
+        }
+        let row = position(chars.next());
+        assert_eq!(position(chars.next()), 0, "a row starts at column 0");
+        let mut cells = 1;
+        while chars.next_if_eq(&PLACEHOLDER).is_some() {
+            assert_eq!(position(chars.next()), row);
+            assert_eq!(position(chars.next()), cells);
+            cells += 1;
+        }
+        out.push_str(&format!("⟦row {row}: {cells} cells⟧"));
+    }
+    visible(&out)
+}
+
+/// The placeholder rows in `output`, as `readable` shows them.
+fn drawn(output: &str) -> Vec<String> {
+    readable(output)
+        .split('⟦')
+        .skip(1)
+        .map(|rest| format!("⟦{}", &rest[..rest.find('⟧').unwrap() + '⟧'.len_utf8()]))
+        .collect()
+}
+
+/// One image sent to the terminal: the keys of its first command, and its
+/// pixels decoded from all of its commands.
+struct Sent {
+    keys: HashMap<String, String>,
+    rgba: Vec<u8>,
+}
+
+fn sent(output: &str) -> Vec<Sent> {
+    let mut images = Vec::new();
+    let mut keys = HashMap::new();
+    let mut data = String::new();
+    for (command_keys, chunk) in graphics_commands(output) {
+        let command: HashMap<String, String> = (command_keys.split(','))
+            .map(|pair| {
+                let (key, value) = pair.split_once('=').unwrap();
+                (key.to_owned(), value.to_owned())
+            })
+            .collect();
+        if command.contains_key("a") {
+            keys = command.clone();
+        }
+        data.push_str(&chunk);
+        if command["m"] == "0" {
+            let compressed = base64::engine::general_purpose::STANDARD
+                .decode(&data)
+                .unwrap();
+            let mut rgba = Vec::new();
+            flate2::read::ZlibDecoder::new(&compressed[..])
+                .read_to_end(&mut rgba)
+                .unwrap();
+            images.push(Sent {
+                keys: std::mem::take(&mut keys),
+                rgba,
+            });
+            data.clear();
+        }
+    }
+    images
+}
+
+#[test]
+fn kitty_images() {
+    insta::assert_snapshot!(readable(&render_images(
+        "images.md",
+        &Capabilities::kitty(WIDTH)
+    )));
+}
+
+#[test]
+fn ansi_images() {
+    insta::assert_snapshot!(visible(&render_images(
+        "images.md",
+        &Capabilities::ansi(WIDTH)
+    )));
+}
+
+#[test]
+fn plain_images() {
+    insta::assert_snapshot!(render_images("images.md", &Capabilities::plain(WIDTH)));
+}
+
+#[test]
+fn an_image_alone_in_a_paragraph_is_drawn() {
+    let images = one_image("p.png", quadrants(40, 30));
+    let out = render_with_images("![alone](p.png)\n", &images, &Capabilities::kitty(WIDTH));
+    assert_eq!(sent(&out).len(), 1);
+    assert_eq!(drawn(&out), ["⟦row 0: 4 cells⟧", "⟦row 1: 4 cells⟧"]);
+    assert!(!out.contains("[image: alone]"), "{out:?}");
+}
+
+#[test]
+fn a_linked_image_is_drawn_but_cannot_be_clicked() {
+    let images = one_image("p.png", quadrants(40, 30));
+    let source = "[![linked](p.png)](https://example.com)\n";
+    let out = render_with_images(source, &images, &Capabilities::kitty(WIDTH));
+    assert_eq!(drawn(&out), ["⟦row 0: 4 cells⟧", "⟦row 1: 4 cells⟧"]);
+    assert!(!out.contains("\x1b]8;"), "{out:?}");
+}
+
+#[test]
+fn images_in_running_text_tables_and_headings_stay_alt_text() {
+    let images = one_image("p.png", quadrants(40, 30));
+    let source = "Text ![inline](p.png) here.\n\n\
+        [![with words](p.png) and words](https://example.com)\n\n\
+        | ![cell](p.png) |\n|---|\n| x |\n\n\
+        # ![heading](p.png)\n";
+    let out = render_with_images(source, &images, &Capabilities::kitty(WIDTH));
+    assert!(sent(&out).is_empty(), "{out:?}");
+    assert!(drawn(&out).is_empty(), "{out:?}");
+    for alt in ["inline", "with words", "cell", "heading"] {
+        assert!(out.contains(&format!("[image: {alt}]")), "{alt}: {out:?}");
+    }
+}
+
+#[test]
+fn images_stay_alt_text_without_graphics_or_pixels() {
+    let source = "![alone](p.png)\n";
+    let loaded = one_image("p.png", quadrants(40, 30));
+    let mut missing = Images::new();
+    missing.insert("p.png", Err(ImageError::Missing("p.png".into())));
+    let cases = [
+        (Capabilities::plain(WIDTH), &loaded),
+        (Capabilities::ansi(WIDTH), &loaded),
+        (Capabilities::kitty(WIDTH), &Images::new()),
+        (Capabilities::kitty(WIDTH), &missing),
+    ];
+    for (caps, images) in cases {
+        let out = render_with_images(source, images, &caps);
+        assert!(out.contains("[image: alone]"), "{caps:?}: {out:?}");
+        assert!(
+            !out.contains('\u{10EEEE}') && !out.contains("\x1b_G"),
+            "{out:?}"
+        );
+    }
+}
+
+#[test]
+fn images_indent_with_margins_lists_and_quotes() {
+    use kiri::render::wrap::width;
+    let images = one_image("p.png", quadrants(40, 30));
+    let source = "![top](p.png)\n\n- ![listed](p.png)\n\n> ![quoted](p.png)\n";
+    let lines = kiri::render::layout::layout(
+        &kiri::parse::parse(source),
+        &images,
+        &Capabilities::kitty(WIDTH),
+        &Theme::default(),
+    );
+    let rows: Vec<(String, u16, u16)> = (lines.iter())
+        .filter_map(|line| {
+            let image = line.image.as_ref()?;
+            let before: String = (line.lead.iter().chain(&line.spans))
+                .map(|span| span.text.as_str())
+                .collect();
+            assert_eq!(width(&line.trail), 0);
+            Some((before, image.row, image.placement.size.columns))
+        })
+        .collect();
+    let expected = [
+        ("  ", 0, 4),
+        ("  ", 1, 4),
+        ("  • ", 0, 4),
+        ("    ", 1, 4),
+        ("  │ ", 0, 4),
+        ("  │ ", 1, 4),
+    ]
+    .map(|(before, row, columns)| (before.to_owned(), row, columns));
+    assert_eq!(rows, expected);
+}
+
+#[test]
+fn images_never_reach_past_the_width() {
+    use kiri::render::wrap::width;
+    let images = one_image("p.png", quadrants(2000, 100));
+    let source = "![top](p.png)\n\n- ![listed](p.png)\n\n> > ![quoted](p.png)\n";
+    let document = kiri::parse::parse(source);
+    for terminal_width in [12, 16, 24, 40, 80] {
+        let caps = Capabilities::kitty(terminal_width);
+        let lines = kiri::render::layout::layout(&document, &images, &caps, &Theme::default());
+        let image_rows: Vec<_> = lines.iter().filter(|line| line.image.is_some()).collect();
+        let first_rows = image_rows
+            .iter()
+            .filter(|line| line.image.as_ref().unwrap().row == 0);
+        assert_eq!(first_rows.count(), 3, "{lines:?}");
+        for line in image_rows {
+            let columns = line.image.as_ref().unwrap().placement.size.columns;
+            let cells = width(&line.lead) + width(&line.spans) + usize::from(columns);
+            assert!(cells <= usize::from(terminal_width), "{line:?}");
+        }
+    }
+}
+
+#[test]
+fn an_image_is_sent_once_for_each_size_it_is_shown_at() {
+    // As wide as the text at the top level, so it shrinks in the quote.
+    let images = one_image("p.png", quadrants(440, 40));
+    let source = "![a](p.png)\n\n![again](p.png)\n\n> ![quoted](p.png)\n";
+    let out = render_with_images(source, &images, &Capabilities::kitty(WIDTH));
+    let sent = sent(&out);
+    let sizes: Vec<(&str, &str)> = (sent.iter())
+        .map(|image| (image.keys["c"].as_str(), image.keys["r"].as_str()))
+        .collect();
+    assert_eq!(sizes, [("44", "2"), ("42", "2")]);
+    assert_ne!(sent[0].keys["i"], sent[1].keys["i"]);
+    assert_eq!(drawn(&out).len(), 6);
+}
+
+#[test]
+fn sent_pixels_are_the_image_at_its_shown_size() {
+    let images = one_image("p.png", quadrants(50, 30));
+    // Cells 40 pixels high double the CSS pixels: 100 × 60 pixels in ten
+    // columns and two rows, the last 20 pixels of which stay transparent.
+    let caps = Capabilities {
+        cell_pixels: Some((10, 40)),
+        ..Capabilities::kitty(WIDTH)
+    };
+    let out = render_with_images("![p](p.png)\n", &images, &caps);
+    let sent = sent(&out);
+    assert_eq!(sent.len(), 1);
+    let keys = &sent[0].keys;
+    for (key, value) in [
+        ("a", "T"),
+        ("f", "32"),
+        ("o", "z"),
+        ("s", "100"),
+        ("v", "80"),
+        ("c", "10"),
+        ("r", "2"),
+    ] {
+        assert_eq!(keys[key], value, "{key}");
+    }
+    let image = RgbaImage::from_raw(100, 80, sent[0].rgba.clone()).expect("100 × 80 RGBA");
+    assert_eq!(image.get_pixel(25, 15).0, [255, 0, 0, 255]);
+    assert_eq!(image.get_pixel(75, 15).0, [0, 255, 0, 255]);
+    assert_eq!(image.get_pixel(25, 45).0, [0, 0, 255, 255]);
+    assert_eq!(image.get_pixel(75, 45).0, [255, 255, 0, 255]);
+    assert_eq!(image.get_pixel(50, 70).0[3], 0);
+    assert_eq!(image.get_pixel(99, 79).0[3], 0);
+    // The placeholders carry the id as their colour.
+    let id: u32 = keys["i"].parse().unwrap();
+    let [_, red, green, blue] = id.to_be_bytes();
+    let colour = format!("\x1b[38;2;{red};{green};{blue}m{PLACEHOLDER}");
+    assert_eq!(out.matches(&colour).count(), 2, "{out:?}");
 }

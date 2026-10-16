@@ -6,17 +6,25 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use super::highlight;
+use super::image::{self, Placement};
 use super::style::{Line, Spaces, Span, Style, push};
 use super::table::{self, Cells};
 use super::wrap::wrap;
 use crate::color::{Color, Underline};
+use crate::images::Images;
+use crate::kitty::graphics;
 use crate::model::{Block, Document, Inline, List, Table};
 use crate::term::Capabilities;
 use crate::theme::{CodeBackground, Theme};
 
 const BULLETS: [&str; 3] = ["•", "◦", "▪"];
 
-pub fn layout(document: &Document, caps: &Capabilities, theme: &Theme) -> Vec<Line> {
+pub fn layout(
+    document: &Document,
+    images: &Images,
+    caps: &Capabilities,
+    theme: &Theme,
+) -> Vec<Line> {
     // Without colours, the layout leaves out what only shows a colour, such
     // as heading fills and the padding around inline code.
     let colorless;
@@ -31,7 +39,11 @@ pub fn layout(document: &Document, caps: &Capabilities, theme: &Theme) -> Vec<Li
         width = width.min(usize::from(theme.max_width));
     }
     let width = width.max(10);
-    let layout = Layout { caps, theme };
+    let layout = Layout {
+        images,
+        caps,
+        theme,
+    };
 
     // Headings stay at the edge and thematic breaks span the terminal;
     // everything else keeps text_margin free on both sides.
@@ -44,7 +56,7 @@ pub fn layout(document: &Document, caps: &Capabilities, theme: &Theme) -> Vec<Li
             _ => {
                 let mut block_lines = layout.block(block, width - 2 * margin, Context::default());
                 for line in &mut block_lines {
-                    if margin > 0 && !line.spans.is_empty() {
+                    if margin > 0 && !line.is_blank() {
                         line.lead
                             .insert(0, Span::new(&" ".repeat(margin), Style::default()));
                     }
@@ -81,6 +93,7 @@ struct Context {
 }
 
 struct Layout<'a> {
+    images: &'a Images,
     caps: &'a Capabilities,
     theme: &'a Theme,
 }
@@ -189,6 +202,7 @@ impl Layout<'_> {
                     Line {
                         lead: lead.clone(),
                         spans,
+                        image: None,
                         trail,
                         scale,
                     }
@@ -209,9 +223,52 @@ impl Layout<'_> {
     }
 
     fn paragraph(&self, content: &[Inline], style: &Style, width: usize) -> Vec<Line> {
+        if let Some(lines) = self.image_block(content, width) {
+            return lines;
+        }
         let mut spans = Vec::new();
         self.inlines(content, style, &mut spans);
         wrap(&spans, width).into_iter().map(Line::new).collect()
+    }
+
+    /// A paragraph of only an image, or of only a link around an image,
+    /// shown as the image itself when the terminal can and it loaded.
+    /// The image inside a link is not clickable: OSC 8 around placeholders
+    /// is not written yet.
+    fn image_block(&self, content: &[Inline], width: usize) -> Option<Vec<Line>> {
+        if !(self.caps.graphics && self.caps.styling) {
+            return None;
+        }
+        let url = match content {
+            [Inline::Image { url, .. }] => url,
+            [Inline::Link { content, .. }] => match content.as_slice() {
+                [Inline::Image { url, .. }] => url,
+                _ => return None,
+            },
+            _ => return None,
+        };
+        let Some(Ok(source)) = self.images.get(url) else {
+            return None;
+        };
+        // kitty's placeholders count at most this many rows and columns.
+        let max_columns = u16::try_from(width)
+            .unwrap_or(u16::MAX)
+            .min(graphics::MAX_CELLS);
+        let size = image::size(
+            source.size(),
+            image::cell_size(self.caps),
+            max_columns,
+            graphics::MAX_CELLS,
+        )?;
+        let placement = Rc::new(Placement {
+            url: url.clone(),
+            size,
+        });
+        Some(
+            (0..size.rows)
+                .map(|row| Line::image(Rc::clone(&placement), row))
+                .collect(),
+        )
     }
 
     fn code_block(&self, language: Option<&str>, code: &str, width: usize) -> Vec<Line> {
@@ -320,11 +377,7 @@ impl Layout<'_> {
         let mut lines = self.blocks(blocks, width.saturating_sub(2).max(1), inner);
         for line in &mut lines {
             // A blank line gets the bar without the space after it.
-            let bar = if line.spans.is_empty() {
-                bar.trim_end()
-            } else {
-                bar
-            };
+            let bar = if line.is_blank() { bar.trim_end() } else { bar };
             line.prepend(Span::new(bar, bar_style.clone()));
         }
         lines
@@ -379,7 +432,7 @@ impl Layout<'_> {
                 if line_index == 0 {
                     let mut first = first.clone();
                     // An empty item ends at its marker, without the space.
-                    if line.spans.is_empty()
+                    if line.is_blank()
                         && let Some(last) = first.last_mut()
                     {
                         last.text.truncate(last.text.trim_end().len());
@@ -387,7 +440,7 @@ impl Layout<'_> {
                     for span in first.into_iter().rev() {
                         line.prepend(span);
                     }
-                } else if !line.spans.is_empty() {
+                } else if !line.is_blank() {
                     line.prepend(Span::new(&" ".repeat(prefix_width), Style::default()));
                 }
             }

@@ -207,3 +207,75 @@ goes on the lines under its header instead.
 The link at the end of this sentence is long enough to wrap onto the next
 line: [a link whose text goes on long enough to span two lines in most windows](https://example.com/visual-check).
 Every line of it is underlined and opens the same page.
+
+## Images
+
+Images show in kitty; elsewhere, and when an image cannot be loaded, its
+alt text appears in brackets. An image is as large next to the text as in
+a browser, never enlarged, and never wider than the text. kiri warns on
+stderr about the images it cannot load: here only the missing file at the
+end.
+
+Red, green, blue and yellow quadrants on a black grid, about 32 columns
+wide and 12 rows high:
+
+![Test pattern](../tests/fixtures/images/pattern.png)
+
+A checkered icon of about two cells:
+
+![Icon](../tests/fixtures/images/icon.png)
+
+A gradient from blue to yellow, as wide as the text:
+
+![Panorama](../tests/fixtures/images/panorama.png)
+
+A tall gradient from yellow to blue, about 20 columns wide:
+
+![Portrait](../tests/fixtures/images/portrait.png)
+
+A red disc and a half-transparent blue square, with the background showing
+around them and through the square:
+
+![Transparent](../tests/fixtures/images/transparent.png)
+
+A compass rose without a background of its own:
+
+![Compass rose](../tests/fixtures/images/compass-rose.png)
+
+A lake under clouds, as wide as the text, then the same photo stored on
+its side, smaller and upright like the first, and in CMYK, with the same
+colours:
+
+![Landscape](../tests/fixtures/images/photo-landscape.jpg)
+
+![Turned by EXIF](../tests/fixtures/images/exif-6.jpg)
+
+![CMYK](../tests/fixtures/images/photo-cmyk.jpg)
+
+A lake in portrait format, and a large photo of a fern, 4845 pixels wide,
+shrunk to the text width:
+
+![Portrait photo](../tests/fixtures/images/photo-portrait.jpg)
+
+![Fern](../tests/fixtures/images/photo-large.jpg)
+
+The first frame of an animated GIF, standing still, and a lossy WebP:
+
+![Animated GIF](../tests/fixtures/images/jiggy.gif)
+
+![Lossy WebP](../tests/fixtures/images/lossy.webp)
+
+Images in a list and a quote start after the bullet and the bar:
+
+- ![Icon in a list](../tests/fixtures/images/icon.png)
+
+> ![Pattern in a quote](../tests/fixtures/images/pattern.png)
+
+A linked image shows, but clicking it does nothing yet:
+
+[![Linked icon](../tests/fixtures/images/icon.png)](https://example.com)
+
+In running text, ![an icon](../tests/fixtures/images/icon.png) stays alt
+text, as does a missing file:
+
+![Missing image](../tests/fixtures/images/no-such-file.png)

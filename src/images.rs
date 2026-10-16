@@ -102,6 +102,8 @@ impl std::error::Error for ImageError {}
 #[derive(Debug, Default)]
 pub struct Images {
     by_url: HashMap<String, Result<Source, ImageError>>,
+    /// The URLs in the order they were first inserted, the document's order.
+    order: Vec<String>,
 }
 
 impl Images {
@@ -111,7 +113,11 @@ impl Images {
 
     /// Records the outcome of loading `url`, replacing an earlier one.
     pub fn insert(&mut self, url: impl Into<String>, image: Result<Source, ImageError>) {
-        self.by_url.insert(url.into(), image);
+        let url = url.into();
+        if !self.by_url.contains_key(&url) {
+            self.order.push(url.clone());
+        }
+        self.by_url.insert(url, image);
     }
 
     /// The outcome for `url`, or `None` when it was never loaded.
@@ -126,6 +132,29 @@ impl Images {
 
     pub fn is_empty(&self) -> bool {
         self.by_url.is_empty()
+    }
+
+    /// Every URL and its outcome, in the order they were first inserted.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &Result<Source, ImageError>)> {
+        (self.order.iter()).map(|url| (url.as_str(), &self.by_url[url]))
+    }
+
+    /// One message for each image that did not load, in document order.
+    pub fn warnings(&self) -> Vec<String> {
+        self.iter()
+            .filter_map(|(url, image)| match image {
+                Ok(_) => None,
+                // These name the file, resolved against the document.
+                Err(error @ (ImageError::Missing(_) | ImageError::Unreadable { .. })) => {
+                    Some(error.to_string())
+                }
+                // A data: URL is the image itself, too long for a message.
+                Err(error) if scheme(url).is_some_and(|s| s.eq_ignore_ascii_case("data")) => {
+                    Some(format!("data: URL: {error}"))
+                }
+                Err(error) => Some(format!("{url}: {error}")),
+            })
+            .collect()
     }
 }
 
@@ -568,6 +597,35 @@ mod tests {
             Some(&Err(ImageError::Remote))
         );
         assert!(images.get("https://example.com").is_none());
+    }
+
+    #[test]
+    fn keeps_the_document_order() {
+        let mut images = Images::new();
+        for url in ["b.png", "a.png", "c.png"] {
+            images.insert(url, Err(ImageError::Remote));
+        }
+        images.insert("a.png", Err(ImageError::InvalidData));
+        let urls: Vec<&str> = images.iter().map(|(url, _)| url).collect();
+        assert_eq!(urls, ["b.png", "a.png", "c.png"]);
+        assert_eq!(images.get("a.png"), Some(&Err(ImageError::InvalidData)));
+    }
+
+    #[test]
+    fn warns_about_each_image_that_did_not_load_in_document_order() {
+        let mut images = Images::new();
+        images.insert("https://example.com/a.png", Err(ImageError::Remote));
+        images.insert("ok.png", Ok(Source::Raster(RgbaImage::new(1, 1))));
+        images.insert("gone.png", Err(ImageError::Missing("/doc/gone.png".into())));
+        images.insert("data:image/png;base64,AAAA", Err(ImageError::UnknownFormat));
+        assert_eq!(
+            images.warnings(),
+            [
+                "https://example.com/a.png: remote images are not loaded",
+                "/doc/gone.png: file not found",
+                "data: URL: not an image format kiri knows",
+            ]
+        );
     }
 
     #[test]

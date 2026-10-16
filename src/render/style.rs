@@ -2,6 +2,7 @@
 
 use std::rc::Rc;
 
+use super::image::Placement;
 use crate::color::{Color, Underline};
 
 /// How the wrapper treats spaces in a span, much like CSS `white-space`.
@@ -74,6 +75,14 @@ impl Span {
     }
 }
 
+/// One row of an image shown as a block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageRow {
+    pub placement: Rc<Placement>,
+    /// Counted from 0 at the top of the image.
+    pub row: u16,
+}
+
 /// One output line. A line with `scale` above 1 is drawn with kitty's text
 /// sizing protocol and occupies that many terminal rows.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,6 +91,9 @@ pub struct Line {
     /// occupies, so an indent keeps its colour beside scaled text.
     pub lead: Vec<Span>,
     pub spans: Vec<Span>,
+    /// A row of an image after the spans, which then hold only what goes
+    /// before it, such as a quote bar or a list marker.
+    pub image: Option<ImageRow>,
     /// Normal-size cells after the text on every row the line occupies, so
     /// a background reaches the edge when the scaled text cannot.
     pub trail: Vec<Span>,
@@ -93,6 +105,7 @@ impl Line {
         Self {
             lead: Vec::new(),
             spans,
+            image: None,
             trail: Vec::new(),
             scale: 1,
         }
@@ -100,6 +113,19 @@ impl Line {
 
     pub fn blank() -> Self {
         Self::new(Vec::new())
+    }
+
+    /// A line of one image row.
+    pub fn image(placement: Rc<Placement>, row: u16) -> Self {
+        Self {
+            image: Some(ImageRow { placement, row }),
+            ..Self::blank()
+        }
+    }
+
+    /// Nothing to show: no text and no image.
+    pub fn is_blank(&self) -> bool {
+        self.spans.is_empty() && self.image.is_none()
     }
 
     pub fn prepend(&mut self, span: Span) {

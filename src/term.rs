@@ -79,15 +79,8 @@ pub fn detect(width: Option<u16>) -> Capabilities {
     if !rustix::termios::isatty(&stdout) {
         return Capabilities::plain(width);
     }
-    let size = rustix::termios::tcgetwinsize(&stdout).ok();
     let mut caps = Capabilities::ansi(width);
-    caps.cell_pixels = size.and_then(|size| {
-        let (w, h) = (
-            size.ws_xpixel / size.ws_col.max(1),
-            size.ws_ypixel / size.ws_row.max(1),
-        );
-        (w > 0 && h > 0).then_some((w, h))
-    });
+    caps.cell_pixels = cell_pixels();
     caps.truecolor = std::env::var("COLORTERM").is_ok_and(|v| v == "truecolor" || v == "24bit");
     caps.hyperlinks = hyperlinks_by_environment();
 
@@ -121,6 +114,17 @@ fn no_color_in(value: Option<&std::ffi::OsStr>) -> bool {
 pub fn terminal_width() -> Option<u16> {
     let size = rustix::termios::tcgetwinsize(std::io::stdout()).ok()?;
     (size.ws_col > 0).then_some(size.ws_col)
+}
+
+/// Size of one cell in pixels of the terminal on stdout, if stdout is a
+/// terminal that reports its size in pixels.
+pub fn cell_pixels() -> Option<(u16, u16)> {
+    let size = rustix::termios::tcgetwinsize(std::io::stdout()).ok()?;
+    let (w, h) = (
+        size.ws_xpixel / size.ws_col.max(1),
+        size.ws_ypixel / size.ws_row.max(1),
+    );
+    (w > 0 && h > 0).then_some((w, h))
 }
 
 /// Terminals known to support OSC 8 that cannot be recognised by a probe.

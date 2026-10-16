@@ -1,8 +1,9 @@
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, ValueEnum};
+use kiri::images::Images;
 use kiri::term::Capabilities;
 use kiri::theme::Theme;
 
@@ -61,8 +62,22 @@ fn main() -> ExitCode {
     };
     let caps = capabilities(&cli);
     let document = kiri::parse::parse(&source);
+    // Only a terminal that can show images needs their pixels; elsewhere
+    // they are alt text.
+    let images = if caps.graphics {
+        let base = cli.file.parent().unwrap_or(Path::new(""));
+        let images = kiri::images::load(&document, base);
+        for warning in images.warnings() {
+            eprintln!("kiri: {warning}");
+        }
+        images
+    } else {
+        Images::new()
+    };
     let mut out = io::stdout().lock();
-    match kiri::render::render(&document, &caps, &theme, &mut out).and_then(|()| out.flush()) {
+    match kiri::render::render(&document, &images, &caps, &theme, &mut out)
+        .and_then(|()| out.flush())
+    {
         Ok(()) => ExitCode::SUCCESS,
         // A closed pipe (kiri file.md | head) is not an error.
         Err(error) if error.kind() == io::ErrorKind::BrokenPipe => ExitCode::SUCCESS,
@@ -89,7 +104,11 @@ fn capabilities(cli: &Cli) -> Capabilities {
         Mode::Auto => kiri::term::detect(cli.width),
         Mode::Plain => Capabilities::plain(width()),
         Mode::Ansi => Capabilities::ansi(width()),
-        Mode::Kitty => Capabilities::kitty(width()),
+        // The cell size is not a probe: the window size reports it.
+        Mode::Kitty => Capabilities {
+            cell_pixels: kiri::term::cell_pixels(),
+            ..Capabilities::kitty(width())
+        },
     };
     // In every mode, including the forced ones.
     if kiri::term::no_color() {

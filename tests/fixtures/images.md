@@ -1,0 +1,43 @@
+# Images
+
+An image alone in a paragraph is shown at its natural size:
+
+![Test pattern](images/pattern.png)
+
+A small image is not enlarged:
+
+![Icon](images/icon.png)
+
+A wide image shrinks to the text width:
+
+![Panorama](images/panorama.png)
+
+A linked image is shown, but cannot be clicked yet:
+
+[![Linked icon](images/icon.png)](https://example.com)
+
+- An image in a list:
+
+  ![Transparent in a list](images/transparent.png)
+
+- ![Alone in a list item](images/icon.png)
+
+> An image in a quote:
+>
+> ![Quoted panorama](images/panorama.png)
+
+In running text, ![an inline icon](images/icon.png) stays alt text, and so
+does [![an icon](images/icon.png) with words](https://example.com) in a link.
+
+| Image | Note |
+|---|---|
+| ![Icon in a cell](images/icon.png) | Alt text in a table |
+
+A missing file, a file that is no image and a remote image show their alt
+text:
+
+![Missing image](images/no-such-file.png)
+
+![Not an image](images/not-an-image.png)
+
+![Remote image](https://example.com/image.png)
