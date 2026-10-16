@@ -5,8 +5,9 @@ use std::rc::Rc;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::style::{Line, Span, Style, push};
+use super::table::{self, Cells};
 use super::wrap::wrap;
-use crate::model::{Block, Document, Inline, List};
+use crate::model::{Block, Document, Inline, List, Table};
 use crate::term::Capabilities;
 use crate::theme::Theme;
 
@@ -54,7 +55,7 @@ impl Layout<'_> {
             Block::CodeBlock { code, .. } => self.code_block(code, width),
             Block::BlockQuote(blocks) => self.quote(blocks, width, context),
             Block::List(list) => self.list(list, width, context),
-            Block::Table(_) => Vec::new(),
+            Block::Table(table) => self.table(table, width),
             Block::ThematicBreak => vec![self.rule(width)],
             Block::Html(html) => {
                 let style = self.style(Style {
@@ -193,6 +194,34 @@ impl Layout<'_> {
             lines.extend(item_lines);
         }
         lines
+    }
+
+    fn table(&self, table: &Table, width: usize) -> Vec<Line> {
+        let header_style = self.style(Style {
+            bold: true,
+            ..Style::default()
+        });
+        let spans = |content: &[Inline], style: &Style| {
+            let mut spans = Vec::new();
+            self.inlines(content, style, &mut spans);
+            spans
+        };
+        let cells = Cells {
+            header: table
+                .header
+                .iter()
+                .map(|c| spans(c, &header_style))
+                .collect(),
+            rows: (table.rows.iter())
+                .map(|row| row.iter().map(|c| spans(c, &Style::default())).collect())
+                .collect(),
+            alignments: table.alignments.clone(),
+        };
+        table::layout(
+            &cells,
+            width,
+            &self.style(Style::fg(self.theme.table_border)),
+        )
     }
 
     fn rule(&self, width: usize) -> Line {

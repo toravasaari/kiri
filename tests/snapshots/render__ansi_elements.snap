@@ -43,6 +43,17 @@ break.
       println!("tab-indented");
   }
 
+␛[0;1mTables␛[0m
+
+␛[0;90m╭──────────┬────────┬──────────────────────────╮␛[0m
+␛[0;90m│␛[0m ␛[0;1mElement␛[0m  ␛[0;90m│␛[0m ␛[0;1mStatus␛[0m ␛[0;90m│␛[0m                    ␛[0;1mNotes␛[0m ␛[0;90m│␛[0m
+␛[0;90m├──────────┼────────┼──────────────────────────┤␛[0m
+␛[0;90m│␛[0m Headings ␛[0;90m│␛[0m  done  ␛[0;90m│␛[0m    Scaled with OSC 66 in ␛[0;90m│␛[0m
+␛[0;90m│␛[0m          ␛[0;90m│␛[0m        ␛[0;90m│␛[0m kitty, bold and coloured ␛[0;90m│␛[0m
+␛[0;90m│␛[0m          ␛[0;90m│␛[0m        ␛[0;90m│␛[0m                elsewhere ␛[0;90m│␛[0m
+␛[0;90m│␛[0m Tables   ␛[0;90m│␛[0m  ␛[0;35mnew␛[0m   ␛[0;90m│␛[0m                    right ␛[0;90m│␛[0m
+␛[0;90m╰──────────┴────────┴──────────────────────────╯␛[0m
+
 ␛[0;1mImages and HTML␛[0m
 
 ␛[0;2;3m[image: A diagram]␛[0m

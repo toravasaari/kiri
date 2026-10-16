@@ -3,6 +3,7 @@
 pub mod layout;
 pub mod output;
 pub mod style;
+pub mod table;
 pub mod wrap;
 
 use std::io::{self, Write};

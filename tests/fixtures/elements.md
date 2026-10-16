@@ -37,6 +37,13 @@ fn main() {
 }
 ```
 
+#### Tables
+
+| Element | Status | Notes |
+|:--------|:------:|------:|
+| Headings | done | Scaled with OSC 66 in kitty, bold and coloured elsewhere |
+| Tables | `new` | right |
+
 ##### Images and HTML
 
 ![A diagram](diagram.png)
