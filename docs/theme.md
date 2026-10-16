@@ -54,6 +54,9 @@ inline_code = "magenta"
 inline_code_background = "code-block"
 # A space of background colour on each side of inline code.
 inline_code_padding = true
+# Inline code may wrap at its spaces; false moves it to the next line
+# instead, unless it is longer than a line.
+inline_code_wrap = true
 quote_bar = "bright-black"
 rule = "bright-black"
 list_marker = "bright-black"

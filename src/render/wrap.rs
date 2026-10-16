@@ -20,7 +20,7 @@ pub fn width(spans: &[Span]) -> usize {
 /// Wraps at spaces to lines of at most `max` cells. `\n` forces a break, and
 /// a word longer than a line is split. Runs of spaces collapse to one unless
 /// their style keeps them; either way, the spaces where a line breaks are
-/// dropped.
+/// dropped. See `Spaces` for spaces that keep text together.
 pub fn wrap(spans: &[Span], max: usize) -> Vec<Vec<Span>> {
     let mut wrapper = Wrapper {
         max: max.max(1),
@@ -29,7 +29,7 @@ pub fn wrap(spans: &[Span], max: usize) -> Vec<Vec<Span>> {
         used: 0,
         gap: Vec::new(),
     };
-    for token in tokenize(spans) {
+    for token in tokenize(spans, false) {
         wrapper.token(token);
     }
     let Wrapper {
@@ -92,6 +92,11 @@ impl Wrapper {
             self.break_line();
             append(&mut self.line, word);
             self.used = word_width;
+        } else if keeps_together(word) {
+            // Too long for one line: it breaks at its spaces after all.
+            for token in tokenize(word, true) {
+                self.token(token);
+            }
         } else {
             // The gap needs room for the word's first character after it,
             // or the word starts on a new line.
@@ -148,26 +153,37 @@ fn first_width(word: &[Span]) -> usize {
         .map_or(0, UnicodeWidthStr::width)
 }
 
-fn tokenize(spans: &[Span]) -> Vec<Token> {
+/// Whether the word holds spaces that break only a line too long without
+/// them.
+fn keeps_together(word: &[Span]) -> bool {
+    (word.iter()).any(|span| span.style.spaces == Spaces::KeepTogether && span.text.contains(' '))
+}
+
+/// With `split_together`, spaces kept together break like any other.
+fn tokenize(spans: &[Span], split_together: bool) -> Vec<Token> {
     let mut tokens = Vec::new();
     let mut word: Vec<Span> = Vec::new();
     for span in spans {
-        let mut rest = span.text.as_str();
-        while let Some(c) = rest.chars().next() {
-            if c == ' ' || c == '\n' {
-                if !word.is_empty() {
-                    tokens.push(Token::Word(std::mem::take(&mut word)));
-                }
-                tokens.push(if c == ' ' {
-                    Token::Space(span.style.clone())
+        for (text, style) in pieces(span, split_together) {
+            let spaces_break = style.spaces != Spaces::KeepTogether;
+            let is_break = |c: char| c == '\n' || (c == ' ' && spaces_break);
+            let mut rest = text;
+            while let Some(c) = rest.chars().next() {
+                if is_break(c) {
+                    if !word.is_empty() {
+                        tokens.push(Token::Word(std::mem::take(&mut word)));
+                    }
+                    tokens.push(if c == ' ' {
+                        Token::Space(style.clone())
+                    } else {
+                        Token::Break
+                    });
+                    rest = &rest[1..];
                 } else {
-                    Token::Break
-                });
-                rest = &rest[1..];
-            } else {
-                let end = rest.find([' ', '\n']).unwrap_or(rest.len());
-                push(&mut word, &rest[..end], &span.style);
-                rest = &rest[end..];
+                    let end = rest.find(is_break).unwrap_or(rest.len());
+                    push(&mut word, &rest[..end], &style);
+                    rest = &rest[end..];
+                }
             }
         }
     }
@@ -175,6 +191,31 @@ fn tokenize(spans: &[Span]) -> Vec<Token> {
         tokens.push(Token::Word(word));
     }
     tokens
+}
+
+/// Splits a span whose spaces are kept together into its leading spaces,
+/// the text they join and its trailing spaces. The spaces at the edges join
+/// nothing, so they break like kept spaces; with `split_together`, all of
+/// them do.
+fn pieces(span: &Span, split_together: bool) -> Vec<(&str, Style)> {
+    if span.style.spaces != Spaces::KeepTogether {
+        return vec![(&span.text, span.style.clone())];
+    }
+    let kept = Style {
+        spaces: Spaces::Keep,
+        ..span.style.clone()
+    };
+    if split_together {
+        return vec![(&span.text, kept)];
+    }
+    let text = span.text.as_str();
+    let start = text.len() - text.trim_start_matches(' ').len();
+    let end = start.max(text.trim_end_matches(' ').len());
+    vec![
+        (&text[..start], kept.clone()),
+        (&text[start..end], span.style.clone()),
+        (&text[end..], kept),
+    ]
 }
 
 #[cfg(test)]
@@ -405,6 +446,47 @@ mod tests {
         assert_eq!(texts(&wrap(&spans, 5)), vec!["y"]);
         let spans = vec![kept(&spaces), Span::new("abcdefgh", Style::default())];
         assert_eq!(texts(&wrap(&spans, 5)), vec!["abcde", "fgh"]);
+    }
+
+    fn together(text: &str) -> Span {
+        let style = Style {
+            spaces: Spaces::KeepTogether,
+            ..Style::default()
+        };
+        Span::new(text, style)
+    }
+
+    #[test]
+    fn spaces_kept_together_move_the_text_to_a_new_line() {
+        // Punctuation attached to the text moves with it.
+        let spans = vec![
+            Span::new("ab ", Style::default()),
+            together("c  d"),
+            Span::new(", e", Style::default()),
+        ];
+        assert_eq!(texts(&wrap(&spans, 6)), vec!["ab", "c  d,", "e"]);
+        assert_eq!(texts(&wrap(&spans, 20)), vec!["ab c  d, e"]);
+    }
+
+    #[test]
+    fn spaces_kept_together_break_a_text_longer_than_the_line() {
+        // At its spaces first, then inside a word that is still too long.
+        let spans = vec![together("aa bbbbbbb c")];
+        assert_eq!(texts(&wrap(&spans, 5)), vec!["aa bb", "bbbbb", "c"]);
+    }
+
+    #[test]
+    fn spaces_at_the_edges_of_text_kept_together_join_nothing() {
+        // They break like kept spaces, so no line starts with one.
+        let spans = vec![Span::new("aaaa ", Style::default()), together(" bb")];
+        assert_eq!(texts(&wrap(&spans, 5)), vec!["aaaa", "bb"]);
+        // A trailing one does not tie the next word to the text.
+        let spans = vec![
+            Span::new("x ", Style::default()),
+            together("aa bb "),
+            Span::new("cc", Style::default()),
+        ];
+        assert_eq!(texts(&wrap(&spans, 8)), vec!["x aa bb", "cc"]);
     }
 
     #[test]

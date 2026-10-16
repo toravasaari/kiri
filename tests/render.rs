@@ -237,6 +237,40 @@ fn inline_code_keeps_its_spaces() {
 }
 
 #[test]
+fn inline_code_wraps_at_its_spaces_unless_the_theme_keeps_it_together() {
+    let plain = Capabilities::plain(16);
+    let source = "Type `git commit` here.\n";
+    assert_eq!(
+        render_source(source, &plain, &Theme::default()),
+        "  Type `git\n  commit`\n  here.\n"
+    );
+    let together = kiri::theme::parse("inline_code_wrap = false\n").unwrap();
+    assert_eq!(
+        render_source(source, &plain, &together),
+        "  Type\n  `git commit`\n  here.\n"
+    );
+    // Code longer than a line still breaks at its spaces.
+    let source = "Type `git commit --amend` here.\n";
+    assert_eq!(
+        render_source(source, &plain, &together),
+        "  Type `git\n  commit\n  --amend`\n  here.\n"
+    );
+}
+
+#[test]
+fn inline_code_kept_together_in_a_narrow_table_cell() {
+    let source = "| A | B |\n|---|---|\n| see (`a b`). | x |\n";
+    let together = kiri::theme::parse("inline_code_wrap = false\n").unwrap();
+    // The first column is nine cells wide.
+    let plain = Capabilities::plain(21);
+    let out = render_source(source, &plain, &together);
+    assert!(out.contains("│ see       │"), "{out}");
+    assert!(out.contains("│ (`a b`).  │"), "{out}");
+    let out = render_source(source, &plain, &Theme::default());
+    assert!(out.contains("│ see (`a   │"), "{out}");
+}
+
+#[test]
 fn no_margins_puts_text_and_code_at_the_edge() {
     let theme = Theme::default().without_margins();
     insta::assert_snapshot!(visible(&render_with(

@@ -25,6 +25,9 @@ pub struct Theme {
     pub inline_code_background: CodeBackground,
     /// A space of background colour on each side of inline code.
     pub inline_code_padding: bool,
+    /// Inline code may wrap at its spaces. Without it, code moves to the
+    /// next line instead, unless it is longer than a line.
+    pub inline_code_wrap: bool,
     pub quote_bar: Option<Color>,
     pub rule: Option<Color>,
     pub list_marker: Option<Color>,
@@ -103,6 +106,7 @@ impl Default for Theme {
             inline_code: MAGENTA,
             inline_code_background: CodeBackground::CodeBlock,
             inline_code_padding: true,
+            inline_code_wrap: true,
             quote_bar: GREY,
             rule: GREY,
             list_marker: GREY,
@@ -184,6 +188,9 @@ pub fn parse(text: &str) -> Result<Theme, String> {
     if let Some(padding) = file.inline_code_padding {
         theme.inline_code_padding = padding;
     }
+    if let Some(wrap) = file.inline_code_wrap {
+        theme.inline_code_wrap = wrap;
+    }
     if let Some(padding) = file.code_padding {
         theme.code_padding = padding;
     }
@@ -259,6 +266,7 @@ struct ThemeFile {
     inline_code: Option<String>,
     inline_code_background: Option<String>,
     inline_code_padding: Option<bool>,
+    inline_code_wrap: Option<bool>,
     quote_bar: Option<String>,
     rule: Option<String>,
     list_marker: Option<String>,
@@ -374,6 +382,16 @@ mod tests {
         assert!(!theme.heading(2).rule);
         assert_eq!(theme.heading(2).color, Theme::default().heading(2).color);
         assert_eq!(theme.heading(1), Theme::default().heading(1));
+    }
+
+    #[test]
+    fn inline_code_can_stay_on_one_line() {
+        assert!(Theme::default().inline_code_wrap);
+        assert!(
+            !parse("inline_code_wrap = false\n")
+                .unwrap()
+                .inline_code_wrap
+        );
     }
 
     #[test]

@@ -409,8 +409,13 @@ impl Layout<'_> {
             Inline::Text(text) => push(out, text, style),
             Inline::Code(code) => {
                 // Spaces in code are kept as written, so it copies as it is.
+                let spaces = if self.theme.inline_code_wrap {
+                    Spaces::Keep
+                } else {
+                    Spaces::KeepTogether
+                };
                 let style = &Style {
-                    spaces: Spaces::Keep,
+                    spaces,
                     ..style.clone()
                 };
                 if self.caps.styling {

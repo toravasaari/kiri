@@ -28,6 +28,9 @@ pub enum Spaces {
     Collapse,
     /// Kept as written; the line can break at any of them.
     Keep,
+    /// Kept as written; the line breaks at them only when the text they
+    /// join is longer than a line.
+    KeepTogether,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
