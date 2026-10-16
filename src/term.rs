@@ -119,7 +119,7 @@ mod probe {
     use std::time::{Duration, Instant};
 
     use rustix::event::{PollFd, PollFlags, Timespec, poll};
-    use rustix::termios::{OptionalActions, tcgetattr, tcsetattr};
+    use rustix::termios::{OptionalActions, Termios, tcgetattr, tcsetattr};
 
     /// Long enough for a terminal over SSH, short enough not to notice when
     /// a terminal ignores the queries entirely.
@@ -148,25 +148,47 @@ mod probe {
     /// Sends the queries on the controlling terminal and collects the
     /// answers. `None` if the terminal cannot be used or does not answer.
     pub fn run() -> Option<Vec<u8>> {
-        let mut tty = File::options()
+        let tty = File::options()
             .read(true)
             .write(true)
             .open("/dev/tty")
             .ok()?;
-        let original = tcgetattr(&tty).ok()?;
-        let mut raw = original.clone();
-        raw.make_raw();
-        tcsetattr(&tty, OptionalActions::Now, &raw).ok()?;
-
-        let answers = exchange(&mut tty);
-
+        let raw = RawMode::enter(&tty)?;
+        let answers = exchange(&tty);
         // Erase whatever the OSC 66 tests drew before restoring the mode.
-        let _ = tty.write_all(b"\r\x1b[2K");
-        let _ = tcsetattr(&tty, OptionalActions::Now, &original);
+        let _ = (&tty).write_all(b"\r\x1b[2K");
+        drop(raw);
         answers
     }
 
-    fn exchange(tty: &mut File) -> Option<Vec<u8>> {
+    /// Raw mode on a terminal until dropped, also when a panic unwinds.
+    struct RawMode<'a> {
+        tty: &'a File,
+        original: Termios,
+    }
+
+    impl<'a> RawMode<'a> {
+        fn enter(tty: &'a File) -> Option<Self> {
+            let original = tcgetattr(tty).ok()?;
+            let mut raw = original.clone();
+            raw.make_raw();
+            tcsetattr(tty, OptionalActions::Now, &raw).ok()?;
+            Some(Self { tty, original })
+        }
+    }
+
+    impl Drop for RawMode<'_> {
+        fn drop(&mut self) {
+            // Flush also discards input that arrived but was not read, such
+            // as answers after the timeout, so they do not show up at the
+            // shell prompt. Keys typed during the probe go with them. Answers
+            // that arrive later still can show up; nothing here can wait for
+            // a terminal that may never answer.
+            let _ = tcsetattr(self.tty, OptionalActions::Flush, &self.original);
+        }
+    }
+
+    fn exchange(mut tty: &File) -> Option<Vec<u8>> {
         tty.write_all(QUERIES.as_bytes()).ok()?;
         tty.flush().ok()?;
         let deadline = Instant::now() + TIMEOUT;
@@ -178,7 +200,7 @@ mod probe {
                 tv_sec: left.as_secs() as i64,
                 tv_nsec: i64::from(left.subsec_nanos()),
             };
-            let mut fds = [PollFd::new(&*tty, PollFlags::IN)];
+            let mut fds = [PollFd::new(tty, PollFlags::IN)];
             if poll(&mut fds, Some(&timeout)).ok()? == 0 {
                 return None;
             }
@@ -282,6 +304,63 @@ mod probe {
         fn needs_both_width_and_scale_for_text_sizing() {
             let answers = "\x1b[5;1R\x1b[5;3R\x1b[5;3R\x1b[?62;c";
             assert!(!interpret(answers.as_bytes()).text_sizing);
+        }
+
+        /// A pseudo-terminal: the terminal side, and kiri's side.
+        fn pty() -> (File, File) {
+            use std::ffi::OsStr;
+            use std::os::unix::ffi::OsStrExt;
+            use std::os::unix::fs::OpenOptionsExt;
+
+            use rustix::fs::OFlags;
+            use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
+
+            let terminal = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).unwrap();
+            grantpt(&terminal).unwrap();
+            unlockpt(&terminal).unwrap();
+            let name = ptsname(&terminal, Vec::new()).unwrap();
+            let tty = File::options()
+                .read(true)
+                .write(true)
+                .custom_flags(OFlags::NOCTTY.bits() as i32)
+                .open(OsStr::from_bytes(name.as_bytes()))
+                .unwrap();
+            (File::from(terminal), tty)
+        }
+
+        #[test]
+        fn raw_mode_ends_when_a_panic_unwinds() {
+            use rustix::termios::LocalModes;
+
+            let (_terminal, tty) = pty();
+            let original = tcgetattr(&tty).unwrap();
+            let result = std::panic::catch_unwind(|| {
+                let _raw = RawMode::enter(&tty).unwrap();
+                let modes = tcgetattr(&tty).unwrap().local_modes;
+                assert!(!modes.contains(LocalModes::ICANON));
+                panic!("the probe fails while the terminal is raw");
+            });
+            assert!(result.is_err());
+            let restored = tcgetattr(&tty).unwrap();
+            assert_eq!(restored.local_modes, original.local_modes);
+            assert_eq!(restored.input_modes, original.input_modes);
+        }
+
+        #[test]
+        fn ending_raw_mode_discards_unread_answers() {
+            let (mut terminal, tty) = pty();
+            {
+                let _raw = RawMode::enter(&tty).unwrap();
+                // A late answer that nothing reads.
+                terminal.write_all(b"\x1b[?62;c\n").unwrap();
+                let mut fds = [PollFd::new(&tty, PollFlags::IN)];
+                let timeout = Timespec {
+                    tv_sec: 1,
+                    tv_nsec: 0,
+                };
+                assert_eq!(poll(&mut fds, Some(&timeout)).unwrap(), 1);
+            }
+            assert_eq!(rustix::io::ioctl_fionread(&tty).unwrap(), 0);
         }
 
         #[test]

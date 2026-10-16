@@ -25,3 +25,5 @@ unicode-width = "0.2.2"
 
 [dev-dependencies]
 insta = "1.49"
+# Pseudo-terminals for testing capability detection.
+rustix = { version = "1.1.5", features = ["pty"] }
