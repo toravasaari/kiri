@@ -19,6 +19,10 @@ pub struct Capabilities {
     pub text_sizing: bool,
     /// kitty's graphics protocol.
     pub graphics: bool,
+    /// Underline styles other than single (SGR `4:x`), which kitty
+    /// introduced; without them every underline is single. Only the probe
+    /// sets it, apart from `--mode kitty`.
+    pub styled_underlines: bool,
     /// Size of one cell in pixels, when the terminal reports it.
     pub cell_pixels: Option<(u16, u16)>,
     /// Whether the background is dark; `None` when unknown.
@@ -36,6 +40,7 @@ impl Capabilities {
             hyperlinks: false,
             text_sizing: false,
             graphics: false,
+            styled_underlines: false,
             cell_pixels: None,
             dark_background: None,
         }
@@ -59,6 +64,7 @@ impl Capabilities {
             hyperlinks: true,
             text_sizing: true,
             graphics: true,
+            styled_underlines: true,
             ..Self::plain(width)
         }
     }
@@ -91,10 +97,11 @@ pub fn detect(width: Option<u16>) -> Capabilities {
         caps.graphics = probe.graphics;
         caps.dark_background = probe.dark_background;
         // Only kitty-compatible terminals implement these protocols, and all
-        // of them also do 24-bit colour and OSC 8.
+        // of them also do 24-bit colour, OSC 8 and underline styles.
         if probe.text_sizing || probe.graphics {
             caps.truecolor = true;
             caps.hyperlinks = true;
+            caps.styled_underlines = true;
         }
     }
     caps

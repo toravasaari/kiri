@@ -145,13 +145,12 @@ fn sgr_codes(style: &Style, caps: &Capabilities) -> Vec<String> {
 }
 
 /// Underline styles other than single use the `4:n` form that kitty
-/// introduced; terminals without kitty's protocols get a plain underline.
+/// introduced; other terminals get a single underline.
 fn underline_code(underline: Underline, caps: &Capabilities) -> Option<&'static str> {
-    let extended = caps.text_sizing || caps.graphics;
     match underline {
         Underline::None => None,
         Underline::Single => Some("4"),
-        _ if !extended => Some("4"),
+        _ if !caps.styled_underlines => Some("4"),
         Underline::Double => Some("4:2"),
         Underline::Curly => Some("4:3"),
         Underline::Dotted => Some("4:4"),
@@ -219,6 +218,21 @@ mod tests {
         .unwrap();
         let out = String::from_utf8(out).unwrap();
         assert!(!out.contains("\x1b[0C"), "{out:?}");
+    }
+
+    #[test]
+    fn underline_styles_follow_their_own_capability() {
+        let styled = Capabilities {
+            styled_underlines: true,
+            ..Capabilities::ansi(20)
+        };
+        assert_eq!(underline_code(Underline::Dotted, &styled), Some("4:4"));
+        let single = Capabilities {
+            styled_underlines: false,
+            ..Capabilities::kitty(20)
+        };
+        assert_eq!(underline_code(Underline::Dotted, &single), Some("4"));
+        assert_eq!(underline_code(Underline::None, &single), None);
     }
 
     #[test]

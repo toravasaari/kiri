@@ -34,11 +34,13 @@ terminals arrive later as new backends instead of rewrites.
 
 `src/term.rs` is the only place that talks to the terminal to find out what
 it can do: size in cells and pixels (`TIOCGWINSZ`), whether the text sizing
-and graphics protocols work, and the background colour. 24-bit colour and
-hyperlinks follow from either protocol working, or else from environment
-variables such as `COLORTERM`. `NO_COLOR` turns colours off in every mode.
-The result is a plain value passed to the renderer, so tests can render for
-any terminal without having one.
+and graphics protocols work, and the background colour. 24-bit colour,
+hyperlinks and underline styles follow from either protocol working. Without
+them, 24-bit colour can still come from `COLORTERM` and hyperlinks from
+`TERM_PROGRAM` or `VTE_VERSION`; underline styles come only from the probe.
+`NO_COLOR` turns colours off in every mode. The result is a
+plain value passed to the renderer, so tests can render for any terminal
+without having one.
 
 ## kitty features used
 
