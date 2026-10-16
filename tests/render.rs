@@ -241,6 +241,41 @@ fn an_empty_heading_keeps_its_rule() {
 }
 
 #[test]
+fn blank_lines_in_quotes_end_at_the_bar() {
+    let source = "> a\n>\n> > b\n> >\n> > c\n\n- item\n\n  > d\n  >\n  > e\n";
+    for caps in [Capabilities::ansi(WIDTH), Capabilities::kitty(WIDTH)] {
+        let text = strip_own_sequences(&render_source(source, &caps, &Theme::default()));
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(lines.iter().all(|line| !line.ends_with(' ')), "{lines:#?}");
+        assert!(lines.contains(&"  │"), "{lines:#?}");
+        assert!(lines.contains(&"  │ │"), "{lines:#?}");
+        assert!(lines.contains(&"    │"), "{lines:#?}");
+    }
+    // On an opaque document, the background still reaches the edge.
+    let out = render_source(
+        "> a\n>\n> b\n",
+        &Capabilities::kitty(WIDTH),
+        &example_theme("opaque.toml"),
+    );
+    let blank = out.lines().nth(1).unwrap();
+    assert!(
+        blank.ends_with("│\x1b[0;48;2;28;31;38m\x1b[K\x1b[0m"),
+        "{blank:?}"
+    );
+}
+
+#[test]
+fn empty_list_items_end_at_the_marker() {
+    let source = "- a\n-\n- b\n\n1. a\n2.\n";
+    for caps in [Capabilities::ansi(WIDTH), Capabilities::kitty(WIDTH)] {
+        let text = strip_own_sequences(&render_source(source, &caps, &Theme::default()));
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(lines.contains(&"  •"), "{lines:#?}");
+        assert!(lines.contains(&"  2."), "{lines:#?}");
+    }
+}
+
+#[test]
 fn tiny_widths_do_not_underflow() {
     // A wide character in a heading scaled to one character per line.
     let theme = kiri::theme::parse("[h1]\nscale = 7\nbackground = \"blue\"\n").unwrap();

@@ -318,6 +318,12 @@ impl Layout<'_> {
         };
         let mut lines = self.blocks(blocks, width.saturating_sub(2).max(1), inner);
         for line in &mut lines {
+            // A blank line gets the bar without the space after it.
+            let bar = if line.spans.is_empty() {
+                bar.trim_end()
+            } else {
+                bar
+            };
             line.prepend(Span::new(bar, bar_style.clone()));
         }
         lines
@@ -370,8 +376,15 @@ impl Layout<'_> {
             }
             for (line_index, line) in item_lines.iter_mut().enumerate() {
                 if line_index == 0 {
-                    for span in first.iter().rev() {
-                        line.prepend(span.clone());
+                    let mut first = first.clone();
+                    // An empty item ends at its marker, without the space.
+                    if line.spans.is_empty()
+                        && let Some(last) = first.last_mut()
+                    {
+                        last.text.truncate(last.text.trim_end().len());
+                    }
+                    for span in first.into_iter().rev() {
+                        line.prepend(span);
                     }
                 } else if !line.spans.is_empty() {
                     line.prepend(Span::new(&" ".repeat(prefix_width), Style::default()));

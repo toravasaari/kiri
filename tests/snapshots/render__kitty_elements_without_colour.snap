@@ -31,7 +31,7 @@ expression: "visible(&render(\"elements.md\", &caps))"
 
 
   │ A quote with ␛[0;1mbold␛[0m text.
-  │ 
+  │
   │ │ Nested quote.
 
   Hard
