@@ -58,13 +58,23 @@ The network is strict there: crates.io and rustup work, GitHub does not.
 - Review new or changed snapshots before accepting them; a snapshot that
   nobody looked at is not a test.
 - Fixes and behaviour changes start with a test that fails on the current
-  code. Show that failing run before making the change.
+  code. Show that failing run before making the change. The run must fail
+  on an assertion, not only on a compile error, wherever possible: stub the
+  new code first if needed.
 - Before rewriting code, pin its current behaviour with tests that pass on
   the old code, then keep them passing.
 - Fixture documents live in `tests/fixtures/`. Add one when you add support
   for a Markdown element.
 - Visual output still needs a look in a real kitty window. Say so when you
   could not do that check.
+
+## Review
+
+- Code is reviewed by a different agent running a different model from
+  the one that wrote it.
+- A small review before every commit, and a larger one when a part of the
+  [roadmap](docs/roadmap.md) is finished.
+- Report the findings to the maintainer; fix only what is agreed.
 
 ## Commits
 
