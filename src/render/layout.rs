@@ -144,7 +144,14 @@ impl Layout<'_> {
             })
             .collect();
         if heading.rule && self.caps.styling {
-            lines.push(self.rule(width));
+            // A top-level heading's rule spans the whole terminal, past
+            // max_width, to mark the section boundary.
+            let rule_width = if context.nested {
+                width
+            } else {
+                usize::from(self.caps.width).max(width)
+            };
+            lines.push(self.rule(rule_width));
         }
         lines
     }

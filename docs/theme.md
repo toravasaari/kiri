@@ -67,7 +67,7 @@ code_theme_light = "InspiredGitHub"
 
 # scale: size as a multiple of the normal font (1-7). It needs kitty's
 # text sizing protocol; other terminals show headings at normal size.
-# rule: draw a line under the heading.
+# rule: draw a line under the heading, across the whole terminal width.
 # underline: none, single, double, curly, dotted or dashed. Styles other
 #   than single need a kitty-compatible terminal.
 # background: a colour filled across the whole width, or none.

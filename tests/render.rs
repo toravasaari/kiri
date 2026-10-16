@@ -93,6 +93,22 @@ fn text_indent_moves_everything_but_headings() {
 }
 
 #[test]
+fn heading_rules_span_the_terminal_past_max_width() {
+    let theme = kiri::theme::parse("max_width = 20\n").unwrap();
+    let document = kiri::parse::parse("# Title\n\nText\n\n---\n");
+    let mut out = Vec::new();
+    kiri::render::render(&document, &Capabilities::ansi(30), &theme, &mut out).unwrap();
+    let rules: Vec<usize> = String::from_utf8(out)
+        .unwrap()
+        .lines()
+        .map(|line| line.matches('─').count())
+        .filter(|&count| count > 0)
+        .collect();
+    // The heading rule fills the terminal; the thematic break keeps to max_width.
+    assert_eq!(rules, vec![30, 20]);
+}
+
+#[test]
 fn all_example_themes_load() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/themes");
     for entry in std::fs::read_dir(dir).unwrap() {
