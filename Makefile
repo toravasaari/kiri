@@ -1,4 +1,4 @@
-.PHONY: check fmt fmt-check clippy test
+.PHONY: check fmt fmt-check clippy test release
 
 # The definition of done; CI runs the same target.
 check: fmt-check clippy test
@@ -14,3 +14,7 @@ clippy:
 
 test:
 	cargo test
+
+# Optimised binary in target/release/kiri.
+release:
+	cargo build --release

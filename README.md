@@ -19,7 +19,7 @@ around those features, and falls back to plain text in other terminals.
 ## Usage
 
 ```sh
-cargo build --release
+make release
 target/release/kiri README.md
 ```
 

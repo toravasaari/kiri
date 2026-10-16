@@ -44,6 +44,7 @@ Run everything through `make` so local runs match CI:
 - `make check` runs formatting check, clippy with warnings as errors, and the
   test suite. This is the definition of done.
 - `make fmt` formats the code.
+- `make release` builds the optimised binary, `target/release/kiri`.
 - `cargo run -- <file.md>` renders a document in the current terminal.
 
 Isolated agent work runs in [jailbee](https://jailbee.gisgro.io)
