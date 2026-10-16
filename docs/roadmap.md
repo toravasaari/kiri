@@ -4,13 +4,13 @@ kiri grows in phases. Each phase leaves the project in a working state, and
 review and refactoring are part of every phase rather than a phase of their
 own. Later phases may be reordered or split as the work shows what matters.
 
-## Phase 1 – Foundations
+## Phase 1 – Foundations (done)
 
 - README, this roadmap, [architecture](architecture.md), [AGENTS.md](../AGENTS.md).
 - A walking skeleton: Cargo project, `make check` (rustfmt, clippy, tests),
   one snapshot test, and a jailbee configuration for isolated agent work.
 
-## Phase 2 – Print mode (proof of concept)
+## Phase 2 – Print mode (done)
 
 `kiri file.md` renders the document to standard output and exits, like
 `kitten icat`.
