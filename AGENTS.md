@@ -57,6 +57,10 @@ The network is strict there: crates.io and rustup work, GitHub does not.
   the escape-sequence stream, so tests run without a terminal.
 - Review new or changed snapshots before accepting them; a snapshot that
   nobody looked at is not a test.
+- Fixes and behaviour changes start with a test that fails on the current
+  code. Show that failing run before making the change.
+- Before rewriting code, pin its current behaviour with tests that pass on
+  the old code, then keep them passing.
 - Fixture documents live in `tests/fixtures/`. Add one when you add support
   for a Markdown element.
 - Visual output still needs a look in a real kitty window. Say so when you
