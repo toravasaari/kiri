@@ -1,16 +1,15 @@
 # Example themes
 
-Variations on the default theme for trying out heading and code styles.
-Each file changes only what its name says; compare them with:
+Variations on the default theme. Each file changes only what its name says;
+compare them with:
 
 ```sh
-kiri --theme examples/themes/underline.toml tests/fixtures/headings.md
+kiri --theme examples/themes/rules.toml tests/fixtures/headings.md
 ```
 
 | File | Idea |
 |---|---|
-| `underline.toml` | Underlined headings instead of a rule below |
-| `background.toml` | Headings on a coloured band, indented by one character |
-| `indent.toml` | Default headings indented by one cell |
+| `rules.toml` | GitHub-style rules under the top two levels instead of underlines |
+| `background.toml` | Headings on a coloured band, indented by one cell |
+| `indent.toml` | Headings indented by one cell |
 | `opaque.toml` | A solid document background instead of the terminal's |
-| `scaled-h3.toml` | Level three at double size without bold |

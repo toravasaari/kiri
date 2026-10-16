@@ -1,6 +1,0 @@
-# Level three at double size like level two, but without bold, so the size
-# carries the hierarchy and weight separates two from three.
-
-[h3]
-scale = 2
-bold = false

@@ -1,0 +1,20 @@
+# GitHub-style headings: a rule under levels one and two instead of an
+# underline, and bold, unscaled levels from three on.
+
+[headings]
+underline = "none"
+bold = true
+
+[h1]
+rule = true
+
+[h2]
+rule = true
+
+[h3]
+scale = 1
+color = "cyan"
+
+[h6]
+italic = false
+color = "bright-black"

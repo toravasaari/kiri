@@ -42,7 +42,7 @@ max_width = 100
 
 # Cells kept free on both sides of paragraphs, lists, quotes, tables and
 # code blocks. Headings start at the edge; rules span the whole terminal.
-text_margin = 0
+text_margin = 2
 
 # A colour painted behind the whole document, or none to let the
 # terminal's own (possibly transparent) background show.
@@ -77,8 +77,8 @@ scale = 3
 color = "blue"
 bold = true
 italic = false
-rule = true
-underline = "none"
+rule = false
+underline = "single"
 background = "none"
 indent = 0
 
@@ -87,48 +87,48 @@ scale = 2
 color = "blue"
 bold = true
 italic = false
-rule = true
-underline = "none"
+rule = false
+underline = "single"
 background = "none"
 indent = 0
 
 [h3]
-scale = 1
-color = "cyan"
-bold = true
+scale = 2
+color = "blue"
+bold = false
 italic = false
 rule = false
-underline = "none"
+underline = "dotted"
 background = "none"
 indent = 0
 
 [h4]
 scale = 1
-color = "none"
+color = "blue"
 bold = true
 italic = false
 rule = false
-underline = "none"
+underline = "single"
 background = "none"
 indent = 0
 
 [h5]
 scale = 1
-color = "none"
-bold = true
+color = "blue"
+bold = false
 italic = false
 rule = false
-underline = "none"
+underline = "dotted"
 background = "none"
 indent = 0
 
 [h6]
 scale = 1
-color = "bright-black"
-bold = true
-italic = false
+color = "cyan"
+bold = false
+italic = true
 rule = false
-underline = "none"
+underline = "dotted"
 background = "none"
 indent = 0
 ```

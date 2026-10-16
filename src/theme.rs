@@ -58,14 +58,14 @@ pub enum CodeBackground {
 }
 
 impl HeadingTheme {
-    fn new(scale: u8, color: Option<Color>, rule: bool) -> Self {
+    fn new(scale: u8, color: Option<Color>, bold: bool, underline: Underline) -> Self {
         Self {
             scale,
             color,
-            bold: true,
+            bold,
             italic: false,
-            rule,
-            underline: Underline::None,
+            rule: false,
+            underline,
             background: None,
             indent: 0,
         }
@@ -82,14 +82,19 @@ impl Default for Theme {
         Self {
             max_width: 100,
             background: None,
-            text_margin: 0,
+            text_margin: 2,
+            // Size carries the hierarchy; bold and the underline style tell
+            // apart levels of the same size.
             headings: [
-                HeadingTheme::new(3, BLUE, true),
-                HeadingTheme::new(2, BLUE, true),
-                HeadingTheme::new(1, CYAN, false),
-                HeadingTheme::new(1, None, false),
-                HeadingTheme::new(1, None, false),
-                HeadingTheme::new(1, GREY, false),
+                HeadingTheme::new(3, BLUE, true, Underline::Single),
+                HeadingTheme::new(2, BLUE, true, Underline::Single),
+                HeadingTheme::new(2, BLUE, false, Underline::Dotted),
+                HeadingTheme::new(1, BLUE, true, Underline::Single),
+                HeadingTheme::new(1, BLUE, false, Underline::Dotted),
+                HeadingTheme {
+                    italic: true,
+                    ..HeadingTheme::new(1, CYAN, false, Underline::Dotted)
+                },
             ],
             link: BLUE,
             inline_code: MAGENTA,

@@ -53,8 +53,8 @@ fn kitty_elements() {
 }
 
 #[test]
-fn kitty_headings_underlined() {
-    let theme = example_theme("underline.toml");
+fn kitty_headings_with_rules() {
+    let theme = example_theme("rules.toml");
     insta::assert_snapshot!(visible(&render_with(
         "headings.md",
         &Capabilities::kitty(WIDTH),
@@ -94,7 +94,7 @@ fn text_margin_narrows_everything_but_headings() {
 
 #[test]
 fn rules_span_the_terminal_past_max_width() {
-    let theme = kiri::theme::parse("max_width = 20\n").unwrap();
+    let theme = kiri::theme::parse("max_width = 20\n[h1]\nrule = true\n").unwrap();
     let document = kiri::parse::parse("# Title\n\nText\n\n---\n");
     let mut out = Vec::new();
     kiri::render::render(&document, &Capabilities::ansi(30), &theme, &mut out).unwrap();

@@ -1,13 +1,14 @@
-# Headings on a coloured band across the width, indented by one character.
+# Headings on a coloured band across the width, indented by one cell.
 # The colours suit a dark terminal background.
 
+[headings]
+underline = "none"
+
 [h1]
-rule = false
 background = "#2b303b"
 indent = 1
 
 [h2]
-rule = false
 background = "#232830"
 indent = 1
 
