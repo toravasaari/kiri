@@ -1,6 +1,7 @@
 //! kiri renders Markdown documents for the terminal.
 
 pub mod color;
+pub mod images;
 pub mod kitty;
 pub mod model;
 pub mod parse;
