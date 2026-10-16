@@ -7,7 +7,7 @@ use syntect::highlighting::{FontStyle, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 
-use super::style::{Color, Span, Style, push};
+use super::style::{Color, Span, Style, Underline, push};
 
 /// Highlighted code: one list of spans per source line, and the theme's
 /// background colour.
@@ -35,8 +35,8 @@ pub fn theme_names() -> Vec<&'static str> {
 
 /// `None` if `theme` is not a bundled theme name. Unknown languages are
 /// shown in the theme's colours without highlighting.
-pub fn highlight(code: &str, language: Option<&str>, theme: &str) -> Option<Highlighted> {
-    let theme = themes().themes.get(theme)?;
+pub fn highlight(code: &str, language: Option<&str>, theme_name: &str) -> Option<Highlighted> {
+    let theme = themes().themes.get(theme_name)?;
     let syntaxes = syntaxes();
     let syntax = language
         .and_then(|token| syntaxes.find_syntax_by_token(token))
@@ -57,18 +57,32 @@ pub fn highlight(code: &str, language: Option<&str>, theme: &str) -> Option<High
                     fg: Some(Color::Rgb(fg.r, fg.g, fg.b)),
                     bold: style.font_style.contains(FontStyle::BOLD),
                     italic: style.font_style.contains(FontStyle::ITALIC),
-                    underline: style.font_style.contains(FontStyle::UNDERLINE),
+                    underline: if style.font_style.contains(FontStyle::UNDERLINE) {
+                        Underline::Single
+                    } else {
+                        Underline::None
+                    },
                     ..Style::default()
                 },
             );
         }
         lines.push(spans);
     }
-    let background = theme
-        .settings
-        .background
-        .map(|bg| Color::Rgb(bg.r, bg.g, bg.b));
-    Some(Highlighted { lines, background })
+    Some(Highlighted {
+        lines,
+        background: background(theme_name)?,
+    })
+}
+
+/// Background colour of a bundled theme; `None` if there is no such theme.
+pub fn background(theme: &str) -> Option<Option<Color>> {
+    let theme = themes().themes.get(theme)?;
+    Some(
+        theme
+            .settings
+            .background
+            .map(|bg| Color::Rgb(bg.r, bg.g, bg.b)),
+    )
 }
 
 #[cfg(test)]

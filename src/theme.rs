@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use crate::render::highlight;
-use crate::render::style::Color;
+use crate::render::style::{Color, Underline};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Theme {
@@ -18,6 +18,9 @@ pub struct Theme {
     pub headings: [HeadingTheme; 6],
     pub link: Option<Color>,
     pub inline_code: Option<Color>,
+    pub inline_code_background: CodeBackground,
+    /// A space of background colour on each side of inline code.
+    pub inline_code_padding: bool,
     pub quote_bar: Option<Color>,
     pub rule: Option<Color>,
     pub list_marker: Option<Color>,
@@ -35,6 +38,18 @@ pub struct HeadingTheme {
     pub bold: bool,
     /// Draw a rule under the heading, as GitHub does for levels 1 and 2.
     pub rule: bool,
+    pub underline: Underline,
+    /// Filled across the whole width.
+    pub background: Option<Color>,
+    /// Indent in characters of the heading's own size.
+    pub indent: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodeBackground {
+    /// The background of the code block colour theme.
+    CodeBlock,
+    Color(Option<Color>),
 }
 
 impl HeadingTheme {
@@ -44,6 +59,9 @@ impl HeadingTheme {
             color,
             bold: true,
             rule,
+            underline: Underline::None,
+            background: None,
+            indent: 0,
         }
     }
 }
@@ -67,6 +85,8 @@ impl Default for Theme {
             ],
             link: BLUE,
             inline_code: MAGENTA,
+            inline_code_background: CodeBackground::CodeBlock,
+            inline_code_padding: true,
             quote_bar: GREY,
             rule: GREY,
             list_marker: GREY,
@@ -127,9 +147,25 @@ pub fn parse(text: &str) -> Result<Theme, String> {
         if let Some(rule) = overrides.rule {
             heading.rule = rule;
         }
+        if let Some(underline) = overrides.underline {
+            heading.underline = parse_underline(&underline)?;
+        }
+        set_color(&mut heading.background, overrides.background)?;
+        if let Some(indent) = overrides.indent {
+            heading.indent = indent;
+        }
     }
     set_color(&mut theme.link, file.link)?;
     set_color(&mut theme.inline_code, file.inline_code)?;
+    if let Some(background) = file.inline_code_background {
+        theme.inline_code_background = match background.as_str() {
+            "code-block" => CodeBackground::CodeBlock,
+            color => CodeBackground::Color(parse_color(color)?),
+        };
+    }
+    if let Some(padding) = file.inline_code_padding {
+        theme.inline_code_padding = padding;
+    }
     set_color(&mut theme.quote_bar, file.quote_bar)?;
     set_color(&mut theme.rule, file.rule)?;
     set_color(&mut theme.list_marker, file.list_marker)?;
@@ -163,6 +199,8 @@ struct ThemeFile {
     h6: Option<HeadingFile>,
     link: Option<String>,
     inline_code: Option<String>,
+    inline_code_background: Option<String>,
+    inline_code_padding: Option<bool>,
     quote_bar: Option<String>,
     rule: Option<String>,
     list_marker: Option<String>,
@@ -178,6 +216,9 @@ struct HeadingFile {
     color: Option<String>,
     bold: Option<bool>,
     rule: Option<bool>,
+    underline: Option<String>,
+    background: Option<String>,
+    indent: Option<u8>,
 }
 
 fn set_color(target: &mut Option<Color>, value: Option<String>) -> Result<(), String> {
@@ -185,6 +226,22 @@ fn set_color(target: &mut Option<Color>, value: Option<String>) -> Result<(), St
         *target = parse_color(&value)?;
     }
     Ok(())
+}
+
+fn parse_underline(value: &str) -> Result<Underline, String> {
+    Ok(match value {
+        "none" => Underline::None,
+        "single" => Underline::Single,
+        "double" => Underline::Double,
+        "curly" => Underline::Curly,
+        "dotted" => Underline::Dotted,
+        "dashed" => Underline::Dashed,
+        _ => {
+            return Err(format!(
+                "unknown underline \"{value}\"; use none, single, double, curly, dotted or dashed"
+            ));
+        }
+    })
 }
 
 const COLOR_NAMES: [&str; 8] = [

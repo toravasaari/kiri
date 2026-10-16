@@ -2,7 +2,7 @@
 
 use std::io::{self, Write};
 
-use super::style::{Color, Line, Style};
+use super::style::{Color, Line, Style, Underline};
 use crate::kitty;
 use crate::term::Capabilities;
 
@@ -49,7 +49,7 @@ fn transition(
     }
     if from.attributes() != to.attributes() {
         out.write_all(b"\x1b[0")?;
-        for code in sgr_codes(to, caps.truecolor) {
+        for code in sgr_codes(to, caps) {
             write!(out, ";{code}")?;
         }
         out.write_all(b"m")?;
@@ -57,19 +57,22 @@ fn transition(
     Ok(())
 }
 
-fn sgr_codes(style: &Style, truecolor: bool) -> Vec<String> {
+fn sgr_codes(style: &Style, caps: &Capabilities) -> Vec<String> {
     let mut codes = Vec::new();
     for (on, code) in [
         (style.bold, "1"),
         (style.dim, "2"),
         (style.italic, "3"),
-        (style.underline, "4"),
         (style.strike, "9"),
     ] {
         if on {
             codes.push(code.to_owned());
         }
     }
+    if let Some(code) = underline_code(style.underline, caps) {
+        codes.push(code.to_owned());
+    }
+    let truecolor = caps.truecolor;
     if let Some(color) = style.fg {
         codes.push(color_code(color, 30, truecolor));
     }
@@ -77,6 +80,21 @@ fn sgr_codes(style: &Style, truecolor: bool) -> Vec<String> {
         codes.push(color_code(color, 40, truecolor));
     }
     codes
+}
+
+/// Underline styles other than single use the `4:n` form that kitty
+/// introduced; terminals without kitty's protocols get a plain underline.
+fn underline_code(underline: Underline, caps: &Capabilities) -> Option<&'static str> {
+    let extended = caps.text_sizing || caps.graphics;
+    match underline {
+        Underline::None => None,
+        Underline::Single => Some("4"),
+        _ if !extended => Some("4"),
+        Underline::Double => Some("4:2"),
+        Underline::Curly => Some("4:3"),
+        Underline::Dotted => Some("4:4"),
+        Underline::Dashed => Some("4:5"),
+    }
 }
 
 /// `base` is 30 for foreground and 40 for background.

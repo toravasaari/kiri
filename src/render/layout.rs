@@ -5,12 +5,12 @@ use std::rc::Rc;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::highlight;
-use super::style::{Line, Span, Style, push};
+use super::style::{Color, Line, Span, Style, Underline, push};
 use super::table::{self, Cells};
 use super::wrap::wrap;
 use crate::model::{Block, Document, Inline, List, Table};
 use crate::term::Capabilities;
-use crate::theme::Theme;
+use crate::theme::{CodeBackground, Theme};
 
 const BULLETS: [&str; 3] = ["•", "◦", "▪"];
 
@@ -82,6 +82,13 @@ impl Layout<'_> {
         let style = self.style(Style {
             bold: heading.bold,
             fg: heading.color,
+            bg: heading.background,
+            underline: heading.underline,
+            ..Style::default()
+        });
+        // Indent and fill carry the background but not the underline.
+        let background = self.style(Style {
+            bg: heading.background,
             ..Style::default()
         });
         let mut spans = Vec::new();
@@ -93,9 +100,21 @@ impl Layout<'_> {
             );
         }
         self.inlines(content, &style, &mut spans);
-        let mut lines: Vec<Line> = wrap(&spans, width / usize::from(scale))
+        // Widths here are in characters of the heading's size.
+        let available = width / usize::from(scale);
+        let indent = usize::from(heading.indent).min(available / 2);
+        let mut lines: Vec<Line> = wrap(&spans, available - indent)
             .into_iter()
-            .map(|spans| Line { spans, scale })
+            .map(|mut spans| {
+                if indent > 0 {
+                    spans.insert(0, Span::new(&" ".repeat(indent), background.clone()));
+                }
+                if background.bg.is_some() {
+                    let used = super::wrap::width(&spans);
+                    push(&mut spans, &" ".repeat(available - used), &background);
+                }
+                Line { spans, scale }
+            })
             .collect();
         if heading.rule && self.caps.styling {
             lines.push(self.rule(width));
@@ -163,6 +182,13 @@ impl Layout<'_> {
         }
         lines.push(padded(Vec::new()));
         lines
+    }
+
+    fn inline_code_background(&self) -> Option<Color> {
+        match self.theme.inline_code_background {
+            CodeBackground::CodeBlock => highlight::background(self.code_theme()).flatten(),
+            CodeBackground::Color(color) => color,
+        }
     }
 
     fn code_theme(&self) -> &str {
@@ -293,11 +319,18 @@ impl Layout<'_> {
             Inline::Text(text) => push(out, text, style),
             Inline::Code(code) => {
                 if self.caps.styling {
+                    let bg = self.inline_code_background().or(style.bg);
                     let code_style = Style {
                         fg: self.theme.inline_code.or(style.fg),
+                        bg,
                         ..style.clone()
                     };
-                    push(out, code, &code_style);
+                    if self.theme.inline_code_padding && bg.is_some() {
+                        // No-break spaces keep the padding attached to the code.
+                        push(out, &format!("\u{a0}{code}\u{a0}"), &code_style);
+                    } else {
+                        push(out, code, &code_style);
+                    }
                 } else {
                     push(out, &format!("`{code}`"), style);
                 }
@@ -355,7 +388,7 @@ impl Layout<'_> {
     fn link(&self, url: &str, content: &[Inline], style: &Style, out: &mut Vec<Span>) {
         let link_style = self.style(Style {
             fg: self.theme.link.or(style.fg),
-            underline: true,
+            underline: Underline::Single,
             link: self.caps.hyperlinks.then(|| Rc::from(url)),
             ..style.clone()
         });

@@ -8,7 +8,7 @@ expression: "visible(&render(\"elements.md\", &Capabilities::kitty(WIDTH)))"
 ␛[0;90m────────────────────────────────────────────────␛[0m
 
 Body text with ␛[0;3memphasis␛[0m, ␛[0;1mstrong␛[0m, ␛[0;9mstruck␛[0m and
-␛[0;35minline code␛[0m, long enough to wrap at the narrow
+␛[0;35;48;2;43;48;59m inline code ␛[0m, long enough to wrap at the narrow
 test width. A ␛]8;;https://example.com␛\␛[0;4;34mlink␛]8;;␛\␛[0m and an autolink:
 ␛]8;;https://example.com/path␛\␛[0;4;34mhttps://example.com/path␛]8;;␛\␛[0m.
 
@@ -56,7 +56,7 @@ break.
 ␛[0;90m│␛[0m Headings ␛[0;90m│␛[0m  done  ␛[0;90m│␛[0m    Scaled with OSC 66 in ␛[0;90m│␛[0m
 ␛[0;90m│␛[0m          ␛[0;90m│␛[0m        ␛[0;90m│␛[0m kitty, bold and coloured ␛[0;90m│␛[0m
 ␛[0;90m│␛[0m          ␛[0;90m│␛[0m        ␛[0;90m│␛[0m                elsewhere ␛[0;90m│␛[0m
-␛[0;90m│␛[0m Tables   ␛[0;90m│␛[0m  ␛[0;35mnew␛[0m   ␛[0;90m│␛[0m                    right ␛[0;90m│␛[0m
+␛[0;90m│␛[0m Tables   ␛[0;90m│␛[0m ␛[0;35;48;2;43;48;59m new ␛[0m  ␛[0;90m│␛[0m                    right ␛[0;90m│␛[0m
 ␛[0;90m╰──────────┴────────┴──────────────────────────╯␛[0m
 
 ␛[0;1mImages and HTML␛[0m

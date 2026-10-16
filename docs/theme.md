@@ -27,6 +27,10 @@ max_width = 100
 
 link = "blue"
 inline_code = "magenta"
+# A colour, none, or code-block for the code block theme's background.
+inline_code_background = "code-block"
+# A space of background colour on each side of inline code.
+inline_code_padding = true
 quote_bar = "bright-black"
 rule = "bright-black"
 list_marker = "bright-black"
@@ -41,39 +45,64 @@ code_theme_light = "InspiredGitHub"
 # scale: size as a multiple of the normal font (1-7). It needs kitty's
 # text sizing protocol; other terminals show headings at normal size.
 # rule: draw a line under the heading.
+# underline: none, single, double, curly, dotted or dashed. Styles other
+#   than single need a kitty-compatible terminal.
+# background: a colour filled across the whole width, or none.
+# indent: in characters of the heading's own size.
 [h1]
 scale = 3
 color = "blue"
 bold = true
 rule = true
+underline = "none"
+background = "none"
+indent = 0
 
 [h2]
 scale = 2
 color = "blue"
 bold = true
 rule = true
+underline = "none"
+background = "none"
+indent = 0
 
 [h3]
 scale = 1
 color = "cyan"
 bold = true
 rule = false
+underline = "none"
+background = "none"
+indent = 0
 
 [h4]
 scale = 1
 color = "none"
 bold = true
 rule = false
+underline = "none"
+background = "none"
+indent = 0
 
 [h5]
 scale = 1
 color = "none"
 bold = true
 rule = false
+underline = "none"
+background = "none"
+indent = 0
 
 [h6]
 scale = 1
 color = "bright-black"
 bold = true
 rule = false
+underline = "none"
+background = "none"
+indent = 0
 ```
+
+The [example themes](../examples/themes/README.md) try out variations of the
+heading and code styles.

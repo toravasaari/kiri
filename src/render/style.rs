@@ -9,12 +9,23 @@ pub enum Color {
     Rgb(u8, u8, u8),
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Underline {
+    #[default]
+    None,
+    Single,
+    Double,
+    Curly,
+    Dotted,
+    Dashed,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Style {
     pub bold: bool,
     pub dim: bool,
     pub italic: bool,
-    pub underline: bool,
+    pub underline: Underline,
     pub strike: bool,
     pub fg: Option<Color>,
     pub bg: Option<Color>,
