@@ -7,7 +7,8 @@ use syntect::highlighting::{FontStyle, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 
-use super::style::{Color, Span, Style, Underline, push};
+use super::style::{Span, Style, push};
+use crate::color::{Color, Underline};
 
 /// Highlighted code: one list of spans per source line, and the theme's
 /// background colour.
@@ -26,11 +27,6 @@ fn syntaxes() -> &'static SyntaxSet {
 fn themes() -> &'static ThemeSet {
     static THEMES: OnceLock<ThemeSet> = OnceLock::new();
     THEMES.get_or_init(ThemeSet::load_defaults)
-}
-
-/// Names of the bundled colour themes.
-pub fn theme_names() -> Vec<&'static str> {
-    themes().themes.keys().map(String::as_str).collect()
 }
 
 /// `None` if `theme` is not a bundled theme name. Unknown languages are
@@ -108,6 +104,11 @@ mod tests {
     #[test]
     fn rejects_unknown_themes() {
         assert!(highlight("a", None, "no-such-theme").is_none());
-        assert!(theme_names().contains(&"InspiredGitHub"));
+    }
+
+    #[test]
+    fn bundles_the_code_themes_a_theme_can_name() {
+        let bundled: Vec<&str> = themes().themes.keys().map(String::as_str).collect();
+        assert_eq!(bundled, crate::theme::CODE_THEMES);
     }
 }

@@ -5,9 +5,10 @@ use std::rc::Rc;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::highlight;
-use super::style::{Color, Line, Spaces, Span, Style, Underline, push};
+use super::style::{Line, Spaces, Span, Style, push};
 use super::table::{self, Cells};
 use super::wrap::wrap;
+use crate::color::{Color, Underline};
 use crate::model::{Block, Document, Inline, List, Table};
 use crate::term::Capabilities;
 use crate::theme::{CodeBackground, Theme};

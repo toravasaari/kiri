@@ -2,8 +2,9 @@
 
 use std::io::{self, Write};
 
-use super::style::{Color, Line, Span, Style, Underline};
+use super::style::{Line, Span, Style};
 use super::wrap::width;
+use crate::color::{Color, Underline};
 use crate::kitty;
 use crate::term::Capabilities;
 

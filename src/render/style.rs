@@ -2,23 +2,7 @@
 
 use std::rc::Rc;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Color {
-    /// An entry of the terminal's 256-colour palette; 0-15 follow its theme.
-    Palette(u8),
-    Rgb(u8, u8, u8),
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Underline {
-    #[default]
-    None,
-    Single,
-    Double,
-    Curly,
-    Dotted,
-    Dashed,
-}
+use crate::color::{Color, Underline};
 
 /// How the wrapper treats spaces in a span, much like CSS `white-space`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

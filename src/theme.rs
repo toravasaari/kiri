@@ -7,8 +7,18 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::render::highlight;
-use crate::render::style::{Color, Underline};
+use crate::color::{Color, Underline};
+
+/// The code block colour themes bundled with the highlighter.
+pub const CODE_THEMES: [&str; 7] = [
+    "InspiredGitHub",
+    "Solarized (dark)",
+    "Solarized (light)",
+    "base16-eighties.dark",
+    "base16-mocha.dark",
+    "base16-ocean.dark",
+    "base16-ocean.light",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Theme {
@@ -35,7 +45,7 @@ pub struct Theme {
     /// A box of background colour around code blocks, with one cell and one
     /// line of padding. Without it, code starts at the margin.
     pub code_padding: bool,
-    /// Code block colour themes by background; see `highlight::theme_names`.
+    /// Code block colour themes by background, from `CODE_THEMES`.
     pub code_theme_dark: String,
     pub code_theme_light: String,
 }
@@ -220,11 +230,10 @@ pub fn parse(text: &str) -> Result<Theme, String> {
         (&mut theme.code_theme_light, file.code_theme_light),
     ] {
         let Some(name) = name else { continue };
-        let known = highlight::theme_names();
-        if !known.contains(&name.as_str()) {
+        if !CODE_THEMES.contains(&name.as_str()) {
             return Err(format!(
                 "unknown code theme \"{name}\"; available: {}",
-                known.join(", ")
+                CODE_THEMES.join(", ")
             ));
         }
         *target = name;
@@ -433,6 +442,30 @@ mod tests {
         assert!(parse_color("#+12345").is_err());
         assert!(parse_color("+12").is_err());
         assert!(parse_color("purple").is_err());
+    }
+
+    #[test]
+    fn accepts_every_bundled_code_theme_and_lists_them_on_a_mistake() {
+        let names = [
+            "InspiredGitHub",
+            "Solarized (dark)",
+            "Solarized (light)",
+            "base16-eighties.dark",
+            "base16-mocha.dark",
+            "base16-ocean.dark",
+            "base16-ocean.light",
+        ];
+        for name in names {
+            let theme = parse(&format!("code_theme_light = \"{name}\"\n")).unwrap();
+            assert_eq!(theme.code_theme_light, name);
+        }
+        assert_eq!(
+            parse("code_theme_dark = \"nope\"\n").unwrap_err(),
+            format!(
+                "unknown code theme \"nope\"; available: {}",
+                names.join(", ")
+            )
+        );
     }
 
     #[test]
