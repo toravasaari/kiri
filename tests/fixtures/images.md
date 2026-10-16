@@ -12,6 +12,14 @@ A wide image shrinks to the text width:
 
 ![Panorama](images/panorama.png)
 
+An SVG is drawn at its natural size, here given in millimetres:
+
+![Sunset icon](images/sunset-icon.svg)
+
+Text in an SVG is drawn with the system's fonts:
+
+![Keynesian cross](images/keynesian-cross.svg)
+
 A linked image is shown, but cannot be clicked yet:
 
 [![Linked icon](images/icon.png)](https://example.com)
@@ -33,11 +41,13 @@ does [![an icon](images/icon.png) with words](https://example.com) in a link.
 |---|---|
 | ![Icon in a cell](images/icon.png) | Alt text in a table |
 
-A missing file, a file that is no image and a remote image show their alt
-text:
+A missing file, a file that is no image, a broken SVG and a remote image
+show their alt text:
 
 ![Missing image](images/no-such-file.png)
 
 ![Not an image](images/not-an-image.png)
+
+![Broken SVG](images/truncated.svg)
 
 ![Remote image](https://example.com/image.png)

@@ -5,13 +5,13 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 
 use image::RgbaImage;
-use image::imageops::{self, FilterType};
+use image::imageops;
 
 use super::image::{Placement, Size, cell_size};
 use super::style::{ImageRow, Line, Span, Style};
 use super::wrap::width;
 use crate::color::{Color, Underline};
-use crate::images::Images;
+use crate::images::{Images, Source};
 use crate::kitty;
 use crate::kitty::graphics;
 use crate::term::Capabilities;
@@ -121,8 +121,7 @@ fn send(
             format!("no pixels for image {}", placement.url),
         ));
     };
-    let crate::images::Source::Raster(image) = source;
-    let pixels = fit(image, placement.size, cell_size(caps));
+    let pixels = fit(source, placement.size, cell_size(caps));
     let cells = graphics::Cells {
         columns: placement.size.columns,
         rows: placement.size.rows,
@@ -138,21 +137,16 @@ fn send(
     Ok(id)
 }
 
-/// `image` scaled to `size` and placed at the top left of the cells it
+/// `source` drawn at `size` and placed at the top left of the cells it
 /// covers, the rest transparent. The terminal then shows it pixel for pixel
 /// when the cells are `cell` pixels, and scales it as a whole when they are
 /// not.
-fn fit(image: &RgbaImage, size: Size, cell: (u16, u16)) -> RgbaImage {
+fn fit(source: &Source, size: Size, cell: (u16, u16)) -> RgbaImage {
     let mut canvas = RgbaImage::new(
         u32::from(size.columns) * u32::from(cell.0),
         u32::from(size.rows) * u32::from(cell.1),
     );
-    if image.dimensions() == (size.width, size.height) {
-        imageops::replace(&mut canvas, image, 0, 0);
-    } else {
-        let scaled = imageops::resize(image, size.width, size.height, FilterType::CatmullRom);
-        imageops::replace(&mut canvas, &scaled, 0, 0);
-    }
+    imageops::replace(&mut canvas, &source.render(size.width, size.height), 0, 0);
     canvas
 }
 

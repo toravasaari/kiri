@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine;
 use image::{Rgba, RgbaImage};
-use kiri::images::{ImageError, Images, Source};
+use kiri::images::{Fonts, ImageError, Images, Source};
 use kiri::kitty::graphics::{DIACRITICS, PLACEHOLDER};
 use kiri::model::Document;
 use kiri::term::Capabilities;
@@ -999,4 +999,35 @@ fn sent_pixels_are_the_image_at_its_shown_size() {
     let [_, red, green, blue] = id.to_be_bytes();
     let colour = format!("\x1b[38;2;{red};{green};{blue}m{PLACEHOLDER}");
     assert_eq!(out.matches(&colour).count(), 2, "{out:?}");
+}
+
+#[test]
+fn an_svg_is_drawn_at_its_shown_size_not_scaled() {
+    let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" width="50" height="30">
+        <rect width="25" height="30" fill="#ff0000"/>
+        <rect x="25" width="25" height="30" fill="#0000ff"/></svg>"##;
+    let source = kiri::images::decode(svg, &Fonts::none()).unwrap();
+    let mut images = Images::new();
+    images.insert("p.svg", Ok(source));
+    // Cells 40 pixels high double the CSS pixels: 100 × 60 pixels. Drawn at
+    // that size, the edge between the halves stays sharp; a scaled raster
+    // would blur it.
+    let caps = Capabilities {
+        cell_pixels: Some((10, 40)),
+        ..Capabilities::kitty(WIDTH)
+    };
+    let out = render_with_images("![p](p.svg)\n", &images, &caps);
+    let sent = sent(&out);
+    assert_eq!(sent.len(), 1);
+    assert_eq!(
+        (sent[0].keys["s"].as_str(), sent[0].keys["v"].as_str()),
+        ("100", "80")
+    );
+    let image = RgbaImage::from_raw(100, 80, sent[0].rgba.clone()).expect("100 × 80 RGBA");
+    assert_eq!(image.get_pixel(0, 0).0, [255, 0, 0, 255]);
+    assert_eq!(image.get_pixel(49, 30).0, [255, 0, 0, 255]);
+    assert_eq!(image.get_pixel(50, 30).0, [0, 0, 255, 255]);
+    assert_eq!(image.get_pixel(99, 59).0, [0, 0, 255, 255]);
+    assert_eq!(image.get_pixel(50, 60).0[3], 0);
+    assert_eq!(drawn(&out), ["⟦row 0: 10 cells⟧", "⟦row 1: 10 cells⟧"]);
 }

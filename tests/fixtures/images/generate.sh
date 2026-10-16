@@ -63,10 +63,22 @@ magick -delay 50 -size 64x64 xc:'#ff0000' xc:'#00ff00' xc:'#0000ff' \
 magick -delay 50 -size 64x64 xc:'#ff0000' xc:'#00ff00' xc:'#0000ff' \
     -loop 0 -define webp:lossless=true animated.webp
 
+# The test pattern as an SVG of the same size, without the grid: drawn at
+# any size, its quadrants keep sharp edges.
+cat > pattern.svg <<'EOF'
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240">
+  <rect x="0" y="0" width="160" height="120" fill="#ff0000"/>
+  <rect x="160" y="0" width="160" height="120" fill="#00ff00"/>
+  <rect x="0" y="120" width="160" height="120" fill="#0000ff"/>
+  <rect x="160" y="120" width="160" height="120" fill="#ffff00"/>
+</svg>
+EOF
+
 # Broken files: cut short, not an image at all, and too large to decode
 # (a 1-bit 20000 x 20000 PNG compresses to a few kilobytes).
 half() { head -c "$(($(wc -c < "$1") / 2))" "$1"; }
 half pattern.png > truncated.png
+half pattern.svg > truncated.svg
 half photo-landscape.jpg > truncated.jpg
 printf 'This is text, not an image.\n' > not-an-image.png
 magick -size 20000x20000 xc:white -depth 1 -strip PNG:huge.png

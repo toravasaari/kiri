@@ -17,6 +17,16 @@ expression: "render_images(\"images.md\", &Capabilities::plain(WIDTH))"
 
   [image: Panorama]
 
+  An SVG is drawn at its natural size, here
+  given in millimetres:
+
+  [image: Sunset icon]
+
+  Text in an SVG is drawn with the system's
+  fonts:
+
+  [image: Keynesian cross]
+
   A linked image is shown, but cannot be
   clicked yet:
 
@@ -43,11 +53,14 @@ expression: "render_images(\"images.md\", &Capabilities::plain(WIDTH))"
   │ cell]               │ table              │
   ╰─────────────────────┴────────────────────╯
 
-  A missing file, a file that is no image and
-  a remote image show their alt text:
+  A missing file, a file that is no image, a
+  broken SVG and a remote image show their alt
+  text:
 
   [image: Missing image]
 
   [image: Not an image]
+
+  [image: Broken SVG]
 
   [image: Remote image]

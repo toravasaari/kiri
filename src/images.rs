@@ -6,17 +6,22 @@
 //! error for the whole document, because the renderer still shows the alt
 //! text in place of an image it could not load.
 
-use std::collections::HashMap;
+use std::cell::OnceCell;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io::{self, Cursor};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use base64::Engine;
 use base64::engine::DecodePaddingMode;
 use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig};
 use image::error::{ImageFormatHint, UnsupportedErrorKind};
+use image::imageops::{self, FilterType};
 use image::metadata::Orientation;
 use image::{DynamicImage, ImageDecoder, ImageReader, Limits, RgbaImage};
+use resvg::tiny_skia;
+use resvg::usvg::{self, fontdb};
 
 use crate::model::{Block, Document, Inline};
 
@@ -39,14 +44,189 @@ const BASE64: GeneralPurpose = GeneralPurpose::new(
 pub enum Source {
     /// Pixels in 8-bit RGBA, already turned upright.
     Raster(RgbaImage),
+    /// A vector image, drawn at whatever size it is shown.
+    Svg(Svg),
 }
 
 impl Source {
-    /// Width and height in pixels.
+    /// Width and height in pixels; for an SVG, in CSS pixels.
     pub fn size(&self) -> (u32, u32) {
         match self {
             Source::Raster(image) => image.dimensions(),
+            Source::Svg(svg) => svg.size,
         }
+    }
+
+    /// The image drawn `width` × `height` pixels large: a raster image
+    /// scaled, an SVG drawn at that size.
+    pub fn render(&self, width: u32, height: u32) -> RgbaImage {
+        match self {
+            Source::Raster(image) if image.dimensions() == (width, height) => image.clone(),
+            Source::Raster(image) => imageops::resize(image, width, height, FilterType::CatmullRom),
+            Source::Svg(svg) => svg.render(width, height),
+        }
+    }
+}
+
+/// A parsed SVG document.
+#[derive(Clone)]
+pub struct Svg {
+    tree: Arc<usvg::Tree>,
+    /// The file it was parsed from, which tells two SVGs apart.
+    bytes: Arc<[u8]>,
+    /// The natural size in whole CSS pixels.
+    size: (u32, u32),
+}
+
+impl Svg {
+    fn render(&self, width: u32, height: u32) -> RgbaImage {
+        let mut image = RgbaImage::new(width, height);
+        let Some(mut pixmap) = tiny_skia::Pixmap::new(width, height) else {
+            // Too large for the renderer; left transparent.
+            return image;
+        };
+        let size = self.tree.size();
+        let transform = tiny_skia::Transform::from_scale(
+            width as f32 / size.width(),
+            height as f32 / size.height(),
+        );
+        resvg::render(&self.tree, transform, &mut pixmap.as_mut());
+        // The renderer works in premultiplied alpha, the terminal does not.
+        for (pixel, drawn) in image.pixels_mut().zip(pixmap.pixels()) {
+            let colour = drawn.demultiply();
+            pixel.0 = [colour.red(), colour.green(), colour.blue(), colour.alpha()];
+        }
+        image
+    }
+}
+
+impl PartialEq for Svg {
+    fn eq(&self, other: &Self) -> bool {
+        self.bytes == other.bytes
+    }
+}
+
+impl fmt::Debug for Svg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Svg").field("size", &self.size).finish()
+    }
+}
+
+/// The fonts that text in SVG images is drawn with. They are loaded when
+/// the first SVG needs them, so a document without SVGs never reads the
+/// system's fonts.
+pub struct Fonts {
+    load: fn() -> fontdb::Database,
+    database: OnceCell<Arc<fontdb::Database>>,
+}
+
+impl Fonts {
+    /// The fonts installed on the system.
+    pub fn system() -> Self {
+        Self::new(|| {
+            let mut database = fontdb::Database::new();
+            database.load_system_fonts();
+            choose_generic_families(&mut database);
+            database
+        })
+    }
+
+    /// No fonts at all: text in SVGs is left out.
+    pub fn none() -> Self {
+        Self::new(fontdb::Database::new)
+    }
+
+    fn new(load: fn() -> fontdb::Database) -> Self {
+        Self {
+            load,
+            database: OnceCell::new(),
+        }
+    }
+
+    /// Whether an SVG has needed the fonts yet.
+    pub fn loaded(&self) -> bool {
+        self.database.get().is_some()
+    }
+
+    fn database(&self) -> Arc<fontdb::Database> {
+        Arc::clone(self.database.get_or_init(|| Arc::new((self.load)())))
+    }
+}
+
+/// Installed fonts for the generic families, in fontconfig's order of
+/// preference and then the usual ones on macOS and Windows.
+const SERIF: &[&str] = &[
+    "Noto Serif",
+    "DejaVu Serif",
+    "Liberation Serif",
+    "Times New Roman",
+    "Nimbus Roman",
+    "Times",
+];
+const SANS_SERIF: &[&str] = &[
+    "Noto Sans",
+    "DejaVu Sans",
+    "Liberation Sans",
+    "Verdana",
+    "Arial",
+    "Nimbus Sans",
+    "Helvetica",
+];
+const MONOSPACE: &[&str] = &[
+    "Noto Sans Mono",
+    "DejaVu Sans Mono",
+    "Liberation Mono",
+    "Courier New",
+    "Nimbus Mono PS",
+    "Menlo",
+    "Courier",
+];
+
+/// Makes `serif`, `sans-serif` and `monospace` name installed fonts. The
+/// database takes them from fontconfig's aliases, which may name a font
+/// that is not installed, and then SVG text would vanish; a browser always
+/// finds one.
+fn choose_generic_families(database: &mut fontdb::Database) {
+    let installed: HashSet<&str> = (database.faces())
+        .flat_map(|face| face.families.iter().map(|(name, _)| name.as_str()))
+        .collect();
+    let choose = |family, candidates| {
+        generic_family(database.family_name(&family), candidates, &installed).map(str::to_owned)
+    };
+    // Text in another generic family falls back to serif, so serif takes
+    // any font at all when none of the usual ones is there.
+    let any = installed.iter().min().map(|name| (*name).to_owned());
+    let serif = choose(fontdb::Family::Serif, SERIF).or(any);
+    let sans_serif = choose(fontdb::Family::SansSerif, SANS_SERIF);
+    let monospace = choose(fontdb::Family::Monospace, MONOSPACE);
+    if let Some(name) = serif {
+        database.set_serif_family(name);
+    }
+    if let Some(name) = sans_serif {
+        database.set_sans_serif_family(name);
+    }
+    if let Some(name) = monospace {
+        database.set_monospace_family(name);
+    }
+}
+
+/// `configured` when it is installed, otherwise the first installed of
+/// `candidates`.
+fn generic_family<'a>(
+    configured: &'a str,
+    candidates: &[&'a str],
+    installed: &HashSet<&str>,
+) -> Option<&'a str> {
+    std::iter::once(configured)
+        .chain(candidates.iter().copied())
+        .find(|name| installed.contains(name))
+}
+
+impl fmt::Debug for Fonts {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Fonts")
+            .field("loaded", &self.loaded())
+            .finish()
     }
 }
 
@@ -159,14 +339,20 @@ impl Images {
 }
 
 /// Loads every image in `document` once, resolving relative paths against
-/// `base`, the directory of the Markdown file.
+/// `base`, the directory of the Markdown file. Text in SVGs is drawn with
+/// the system's fonts.
 pub fn load(document: &Document, base: &Path) -> Images {
+    load_with(document, base, &Fonts::system())
+}
+
+/// `load`, drawing text in SVGs with `fonts`.
+pub fn load_with(document: &Document, base: &Path, fonts: &Fonts) -> Images {
     let mut urls = Vec::new();
     collect_blocks(&document.blocks, &mut urls);
     let mut images = Images::new();
     for url in urls {
         if images.get(url).is_none() {
-            images.insert(url, load_url(url, base));
+            images.insert(url, load_url(url, base, fonts));
         }
     }
     images
@@ -213,9 +399,9 @@ fn collect_inlines<'a>(inlines: &'a [Inline], urls: &mut Vec<&'a str>) {
 
 /// Loads the image at `url`: a `data:` URL, or a path that is absolute or
 /// relative to `base`. Paths may use URL percent escapes, as in a browser.
-pub fn load_url(url: &str, base: &Path) -> Result<Source, ImageError> {
+pub fn load_url(url: &str, base: &Path, fonts: &Fonts) -> Result<Source, ImageError> {
     match scheme(url) {
-        Some(scheme) if scheme.eq_ignore_ascii_case("data") => decode(&data_url(url)?),
+        Some(scheme) if scheme.eq_ignore_ascii_case("data") => decode(&data_url(url)?, fonts),
         Some(scheme)
             if scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https") =>
         {
@@ -226,7 +412,7 @@ pub fn load_url(url: &str, base: &Path) -> Result<Source, ImageError> {
             let decoded = percent_decode(url.as_bytes());
             let path = base.join(String::from_utf8(decoded).as_deref().unwrap_or(url));
             match std::fs::read(&path) {
-                Ok(bytes) => decode(&bytes),
+                Ok(bytes) => decode(&bytes, fonts),
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {
                     Err(ImageError::Missing(path))
                 }
@@ -294,7 +480,48 @@ fn percent_decode(input: &[u8]) -> Vec<u8> {
 
 /// Decodes an image file's bytes, whatever the format, and turns it upright
 /// according to its EXIF orientation. Animations give their first frame.
-pub fn decode(bytes: &[u8]) -> Result<Source, ImageError> {
+/// Text in SVGs is drawn with `fonts`.
+pub fn decode(bytes: &[u8], fonts: &Fonts) -> Result<Source, ImageError> {
+    if looks_like_svg(bytes) {
+        decode_svg(bytes, fonts)
+    } else {
+        decode_raster(bytes)
+    }
+}
+
+/// SVG has no magic number: it is XML with an `<svg` element, or that
+/// compressed with gzip.
+fn looks_like_svg(bytes: &[u8]) -> bool {
+    const GZIP: &[u8] = &[0x1f, 0x8b];
+    let text = bytes.strip_prefix("\u{feff}".as_bytes()).unwrap_or(bytes);
+    let text = text.trim_ascii_start();
+    bytes.starts_with(GZIP)
+        || (text.starts_with(b"<") && text.windows(4).any(|window| window == b"<svg"))
+}
+
+fn decode_svg(bytes: &[u8], fonts: &Fonts) -> Result<Source, ImageError> {
+    let options = usvg::Options {
+        // Like an image in a browser, an SVG loads no files of its own;
+        // images embedded in data: URLs still show.
+        image_href_resolver: usvg::ImageHrefResolver {
+            resolve_string: Box::new(|_, _| None),
+            ..usvg::ImageHrefResolver::default()
+        },
+        fontdb: fonts.database(),
+        ..usvg::Options::default()
+    };
+    let tree = usvg::Tree::from_data(bytes, &options)
+        .map_err(|error| ImageError::Corrupt(error.to_string()))?;
+    let natural = |length: f32| (length.round() as u32).max(1);
+    let size = (natural(tree.size().width()), natural(tree.size().height()));
+    Ok(Source::Svg(Svg {
+        tree: Arc::new(tree),
+        bytes: bytes.into(),
+        size,
+    }))
+}
+
+fn decode_raster(bytes: &[u8]) -> Result<Source, ImageError> {
     let mut reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .expect("reading from memory does not fail");
@@ -347,14 +574,36 @@ mod tests {
     }
 
     fn fixture(name: &str) -> Result<Source, ImageError> {
-        load_url(name, &fixtures().join("images"))
+        load_url(name, &fixtures().join("images"), &Fonts::none())
     }
 
     fn raster(name: &str) -> RgbaImage {
         match fixture(name) {
             Ok(Source::Raster(image)) => image,
+            Ok(other) => panic!("{name} is not a raster image: {other:?}"),
             Err(error) => panic!("{name} does not load: {error:?}"),
         }
+    }
+
+    /// `bytes` decoded, which must give an SVG.
+    fn svg(bytes: &[u8], fonts: &Fonts) -> Source {
+        match decode(bytes, fonts) {
+            Ok(source @ Source::Svg(_)) => source,
+            other => panic!("not an SVG: {other:?}"),
+        }
+    }
+
+    fn svg_fixture(name: &str, fonts: &Fonts) -> Source {
+        svg(
+            &std::fs::read(fixtures().join("images").join(name)).unwrap(),
+            fonts,
+        )
+    }
+
+    /// How many pixels differ between two images of the same size.
+    fn differing_pixels(a: &RgbaImage, b: &RgbaImage) -> usize {
+        assert_eq!(a.dimensions(), b.dimensions());
+        a.pixels().zip(b.pixels()).filter(|(x, y)| x != y).count()
     }
 
     fn rgba(image: &RgbaImage, x: u32, y: u32) -> [u8; 4] {
@@ -455,10 +704,145 @@ mod tests {
     }
 
     #[test]
+    fn decodes_svg_at_its_natural_size_in_css_pixels() {
+        let none = Fonts::none();
+        let size = |name| svg_fixture(name, &none).size();
+        assert_eq!(size("pattern.svg"), (320, 240));
+        assert_eq!(size("keynesian-cross.svg"), (1183, 720));
+        // Millimetres at 96 CSS pixels to the inch, rounded.
+        assert_eq!(size("sunset-icon.svg"), (358, 210));
+        assert_eq!(size("soccer-ball.svg"), (114, 110));
+        assert_eq!(size("utp-cable.svg"), (408, 299));
+        // Without a width and height, the viewBox gives the size.
+        assert_eq!(size("speedway.svg"), (3000, 2013));
+        assert_eq!(size("silhouette.svg"), (2689, 1560));
+    }
+
+    #[test]
+    fn draws_an_svg_at_the_size_it_is_shown_with_sharp_edges() {
+        let pattern = svg_fixture("pattern.svg", &Fonts::none());
+        let large = pattern.render(640, 480);
+        assert_eq!(large.dimensions(), (640, 480));
+        assert_eq!(rgba(&large, 319, 239), [255, 0, 0, 255]);
+        assert_eq!(rgba(&large, 320, 239), [0, 255, 0, 255]);
+        assert_eq!(rgba(&large, 319, 240), [0, 0, 255, 255]);
+        assert_eq!(rgba(&large, 320, 240), [255, 255, 0, 255]);
+        let small = pattern.render(32, 24);
+        assert_eq!(rgba(&small, 15, 11), [255, 0, 0, 255]);
+        assert_eq!(rgba(&small, 16, 12), [255, 255, 0, 255]);
+    }
+
+    #[test]
+    fn draws_svg_transparency_unpremultiplied() {
+        let half = br##"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4">
+            <rect width="4" height="4" fill="#0000ff" fill-opacity="0.5"/></svg>"##;
+        let pixel = rgba(&svg(half, &Fonts::none()).render(4, 4), 1, 1);
+        assert_eq!(pixel[..3], [0, 0, 255]);
+        assert!((126..=129).contains(&pixel[3]), "{pixel:?}");
+    }
+
+    #[test]
+    fn reports_a_broken_svg() {
+        assert!(
+            matches!(fixture("truncated.svg"), Err(ImageError::Corrupt(_))),
+            "{:?}",
+            fixture("truncated.svg")
+        );
+    }
+
+    #[test]
+    fn loads_svg_data_urls() {
+        let bytes = std::fs::read(fixtures().join("images/pattern.svg")).unwrap();
+        let url = format!("data:image/svg+xml;base64,{}", STANDARD.encode(&bytes));
+        let loaded = load_url(&url, Path::new("/"), &Fonts::none());
+        assert_eq!(loaded, fixture("pattern.svg"));
+        assert!(loaded.is_ok());
+        let inline = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' \
+            width='2' height='1'/>";
+        let loaded = load_url(inline, Path::new("/"), &Fonts::none());
+        assert_eq!(loaded.map(|source| source.size()), Ok((2, 1)));
+    }
+
+    #[test]
+    fn loads_fonts_only_for_a_document_with_an_svg() {
+        let fonts = Fonts::none();
+        let without = "![a](images/pattern.png)\n\n![b](images/missing.svg)\n\n\
+            ![c](images/not-an-image.png)\n";
+        load_with(&crate::parse::parse(without), &fixtures(), &fonts);
+        assert!(!fonts.loaded());
+        let with = "![d](images/pattern.svg)\n";
+        load_with(&crate::parse::parse(with), &fixtures(), &fonts);
+        assert!(fonts.loaded());
+    }
+
+    #[test]
+    fn leaves_out_svg_text_without_fonts() {
+        let text = br##"<svg xmlns="http://www.w3.org/2000/svg" width="80" height="30">
+            <text x="5" y="25" font-size="24" font-family="sans-serif">Kiri</text></svg>"##;
+        let image = svg(text, &Fonts::none()).render(80, 30);
+        assert!(image.pixels().all(|pixel| pixel.0[3] == 0));
+    }
+
+    #[test]
+    fn draws_svg_text_with_the_system_fonts() {
+        let fonts = Fonts::system();
+        if fonts.database().is_empty() {
+            // Nothing to draw the text with, as on a minimal container.
+            eprintln!("no system fonts: SVG text left unchecked");
+            return;
+        }
+        // Cyrillic text in a font that is rarely installed, Calibri, with
+        // sans-serif to fall back on.
+        let without = svg_fixture("keynesian-cross.svg", &Fonts::none()).render(1183, 720);
+        let with = svg_fixture("keynesian-cross.svg", &fonts).render(1183, 720);
+        let text = differing_pixels(&without, &with);
+        assert!(text > 5000, "{text} pixels of text");
+    }
+
+    #[test]
+    fn generic_families_take_the_first_installed_font() {
+        let installed = HashSet::from(["DejaVu Sans", "Arial", "Noto Serif"]);
+        assert_eq!(
+            generic_family("Noto Serif", SERIF, &installed),
+            Some("Noto Serif")
+        );
+        assert_eq!(
+            generic_family("FreeSans", SANS_SERIF, &installed),
+            Some("DejaVu Sans")
+        );
+        assert_eq!(generic_family("FreeMono", MONOSPACE, &installed), None);
+    }
+
+    #[test]
+    fn does_not_load_files_an_svg_refers_to() {
+        // An image in a browser does not load anything further either.
+        let path = fixtures().join("images/pattern.png");
+        let linked = format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="32" height="24">
+            <image width="32" height="24" href="{}"/></svg>"#,
+            path.display()
+        );
+        let image = svg(linked.as_bytes(), &Fonts::none()).render(32, 24);
+        assert!(image.pixels().all(|pixel| pixel.0[3] == 0));
+    }
+
+    #[test]
+    fn draws_images_embedded_in_an_svg() {
+        let png = std::fs::read(fixtures().join("images/pattern.png")).unwrap();
+        let embedded = format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="32" height="24">
+            <image width="32" height="24" href="data:image/png;base64,{}"/></svg>"#,
+            STANDARD.encode(&png)
+        );
+        let image = svg(embedded.as_bytes(), &Fonts::none()).render(32, 24);
+        assert_eq!(rgba(&image, 8, 6), [255, 0, 0, 255]);
+    }
+
+    #[test]
     fn loads_base64_data_urls() {
         let bytes = std::fs::read(fixtures().join("images/pattern.png")).unwrap();
         let url = format!("data:image/png;base64,{}", STANDARD.encode(&bytes));
-        let loaded = load_url(&url, Path::new("/nonexistent"));
+        let loaded = load_url(&url, Path::new("/nonexistent"), &Fonts::none());
         assert_eq!(loaded, fixture("pattern.png"));
         assert!(loaded.is_ok());
     }
@@ -467,7 +851,11 @@ mod tests {
     fn loads_percent_encoded_data_urls() {
         let bytes = std::fs::read(fixtures().join("images/pattern.png")).unwrap();
         let escaped: String = bytes.iter().map(|byte| format!("%{byte:02X}")).collect();
-        let loaded = load_url(&format!("data:image/png,{escaped}"), Path::new("/"));
+        let loaded = load_url(
+            &format!("data:image/png,{escaped}"),
+            Path::new("/"),
+            &Fonts::none(),
+        );
         assert_eq!(loaded, fixture("pattern.png"));
         assert!(loaded.is_ok());
     }
@@ -476,11 +864,11 @@ mod tests {
     fn rejects_broken_data_urls() {
         let base = Path::new("/");
         assert_eq!(
-            load_url("data:image/png;base64,no*base64", base),
+            load_url("data:image/png;base64,no*base64", base, &Fonts::none()),
             Err(ImageError::InvalidData)
         );
         assert_eq!(
-            load_url("data:image/png;base64", base),
+            load_url("data:image/png;base64", base, &Fonts::none()),
             Err(ImageError::InvalidData)
         );
     }
@@ -488,9 +876,16 @@ mod tests {
     #[test]
     fn resolves_paths_against_the_base_and_keeps_absolute_ones() {
         let base = fixtures();
-        assert!(load_url("images/pattern.png", &base).is_ok());
+        assert!(load_url("images/pattern.png", &base, &Fonts::none()).is_ok());
         let absolute = base.join("images/pattern.png");
-        assert!(load_url(absolute.to_str().unwrap(), Path::new("/nonexistent")).is_ok());
+        assert!(
+            load_url(
+                absolute.to_str().unwrap(),
+                Path::new("/nonexistent"),
+                &Fonts::none()
+            )
+            .is_ok()
+        );
     }
 
     #[test]
@@ -502,7 +897,7 @@ mod tests {
     fn reports_a_missing_file_with_its_resolved_path() {
         let base = fixtures().join("images");
         assert_eq!(
-            load_url("no-such.png", &base),
+            load_url("no-such.png", &base, &Fonts::none()),
             Err(ImageError::Missing(base.join("no-such.png")))
         );
     }
@@ -519,15 +914,15 @@ mod tests {
     fn does_not_fetch_remote_images() {
         let base = fixtures();
         assert_eq!(
-            load_url("https://example.com/a.png", &base),
+            load_url("https://example.com/a.png", &base, &Fonts::none()),
             Err(ImageError::Remote)
         );
         assert_eq!(
-            load_url("HTTP://example.com/a.png", &base),
+            load_url("HTTP://example.com/a.png", &base, &Fonts::none()),
             Err(ImageError::Remote)
         );
         assert_eq!(
-            load_url("ftp://example.com/a.png", &base),
+            load_url("ftp://example.com/a.png", &base, &Fonts::none()),
             Err(ImageError::UnsupportedScheme("ftp".into()))
         );
     }
@@ -563,7 +958,7 @@ mod tests {
     fn reports_a_format_this_build_cannot_decode() {
         let farbfeld = b"farbfeld\0\0\0\x01\0\0\0\x01\0\0\0\0\0\0\0\0";
         assert_eq!(
-            decode(farbfeld),
+            decode(farbfeld, &Fonts::none()),
             Err(ImageError::UnsupportedFormat("Farbfeld".into()))
         );
     }
@@ -583,7 +978,7 @@ mod tests {
 |---|
 | ![d](https://example.com/d.png) |
 ";
-        let images = load(&crate::parse::parse(source), &fixtures());
+        let images = load_with(&crate::parse::parse(source), &fixtures(), &Fonts::none());
         assert_eq!(images.len(), 5);
         assert!(images.get("images/icon.png").unwrap().is_ok());
         assert!(images.get("images/pattern.png").unwrap().is_ok());

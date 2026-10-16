@@ -1,0 +1,13 @@
+<svg width="108mm" height="79mm" version="1.1" viewBox="0 0 108 79" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><rect width="108" height="79" fill="#fff"/><circle cx="38" cy="41" r="36" fill="#999"/><circle cx="38" cy="41" r="28" fill="#fff"/>
+ <g stroke="#000" stroke-width=".2">
+ <g id="f"><circle cx="32" cy="35" r="6" fill="#0bf"/><circle cx="32" cy="35" r="3" fill="#f95"/></g>
+ <use transform="translate(-9-8)" xlink:href="#f"/><path id="b" d="m26 27c0-1.7-1.3-3-3-3v-3c3.3 0 6 2.6 6 6 0 3.3-2.7 6-6 6v-3c1.5 0 3-1.3 3-3" fill="#fff"/>
+ <g id="e"><circle cx="44" cy="35" r="6" fill="#f63"/><circle cx="44" cy="35" r="3" fill="#f95"/></g>
+ <use transform="translate(9-8)" xlink:href="#e"/><use id="a" transform="translate(30)" xlink:href="#b"/>
+ <g id="d"><circle cx="44" cy="47" r="6" fill="#742"/><circle cx="44" cy="47" r="3" fill="#f95"/></g>
+ <use transform="translate(9 8)" xlink:href="#d"/><use transform="translate(0 28)" xlink:href="#a"/>
+ <g id="c"><circle cx="32" cy="47" r="6" fill="#3c6"/><circle cx="32" cy="47" r="3" fill="#f95"/></g>
+ <use transform="translate(-8 9)" xlink:href="#c"/><use transform="translate(-29 29)" xlink:href="#a"/><path d="m69 45 6-1m-19-14 19 6-26-1m8-6h18m-20-2 20-5" fill="none"/></g>
+ <g font-family="Times">
+ <g font-size="6.5px"><text x="76" y="23">проводник</text><text x="76" y="30">изоляция</text><text x="76" y="37">витая пара</text><text x="76" y="45">оболочка</text></g>
+ <text x="2" y="8" font-size="10px">UTP</text></g></svg>

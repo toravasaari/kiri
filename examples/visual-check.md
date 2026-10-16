@@ -265,6 +265,27 @@ The first frame of an animated GIF, standing still, and a lossy WebP:
 
 ![Lossy WebP](../tests/fixtures/images/lossy.webp)
 
+SVG images are drawn at the size they are shown, with sharp edges: a
+sunset in gradients, about 36 columns wide, and a small soccer ball:
+
+![Sunset icon](../tests/fixtures/images/sunset-icon.svg)
+
+![Soccer ball](../tests/fixtures/images/soccer-ball.svg)
+
+Their text is set in the system's fonts: a diagram with Cyrillic labels in
+a sans-serif font, and a cable cross-section with labels on the right:
+
+![Keynesian cross](../tests/fixtures/images/keynesian-cross.svg)
+
+![UTP cable](../tests/fixtures/images/utp-cable.svg)
+
+A racetrack and a silhouette with softly blurred edges, both as wide as
+the text:
+
+![Speedway](../tests/fixtures/images/speedway.svg)
+
+![Silhouette](../tests/fixtures/images/silhouette.svg)
+
 Images in a list and a quote start after the bullet and the bar:
 
 - ![Icon in a list](../tests/fixtures/images/icon.png)

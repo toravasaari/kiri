@@ -19,7 +19,8 @@ ones made from `photo-landscape.jpg` are under CC0 1.0 like the photo.
 | `photo-cmyk.jpg` | A CMYK JPEG, from `photo-landscape.jpg` |
 | `photo-progressive.jpg` | A progressive JPEG, from `photo-landscape.jpg` |
 | `animated.gif`, `animated.webp` | Three frames, red, green and blue; only the red first frame is shown |
-| `truncated.png`, `truncated.jpg` | The first half of `pattern.png` and `photo-landscape.jpg` |
+| `pattern.svg` | The test pattern as an SVG of the same size, without the grid; drawn at any size, its quadrants keep sharp edges |
+| `truncated.png`, `truncated.jpg`, `truncated.svg` | The first half of `pattern.png`, `photo-landscape.jpg` and `pattern.svg` |
 | `not-an-image.png` | Text with an image's file name |
 | `huge.png` | 20000 × 20000 pixels, more than kiri decodes |
 
@@ -38,4 +39,10 @@ otherwise; the links go to each file's description page.
 | `jiggy.gif` | [Jiggy](https://commons.wikimedia.org/wiki/File:Jiggy.gif), an animated GIF | Agdm-arthur | CC0 1.0 |
 | `lossless.webp` | [Static](https://commons.wikimedia.org/wiki/File:Static.webp), lossless WebP | RytoTechnic | CC0 1.0 |
 | `lossy.webp` | [Website accessibility](https://commons.wikimedia.org/wiki/File:Website_accessibility.webp), lossy WebP | Thesweetdonkey | CC0 1.0 |
+| `sunset-icon.svg` | [Icon sunset](https://commons.wikimedia.org/wiki/File:Icon_sunset.svg): gradients, sized in millimetres | BirgitLachner | CC0 1.0 |
+| `soccer-ball.svg` | [Simple soccer ball (gradient)](https://commons.wikimedia.org/wiki/File:Simple_soccer_ball_(gradient).svg): a small drawing in millimetres | Deltaspace42 | CC0 1.0 |
+| `keynesian-cross.svg` | [Keynescross RU](https://commons.wikimedia.org/wiki/File:Keynescross_RU.svg): Cyrillic text in Calibri, falling back to sans-serif | Vladusty | CC0 1.0 |
+| `utp-cable.svg` | [UTP-cable-ru](https://commons.wikimedia.org/wiki/File:UTP-cable-ru.svg): text in the default font, and reused shapes | Д. Ильин, after Uwe Schwöbel | CC0 1.0 |
+| `speedway.svg` | [Sunset Speedway 2025](https://commons.wikimedia.org/wiki/File:Sunset_Speedway_2025.svg): a viewBox without a width or height, and CSS classes | Phillipdh | CC0 1.0 |
+| `silhouette.svg` | [Woman sitting sunset silhouette](https://commons.wikimedia.org/wiki/File:Woman-Sitting-Sunset-Silhouette.svg): a blur filter, and only a viewBox | GDJ, from Open Clip Art | CC0 1.0 |
 | `pngsuite/*.png` | [PngSuite](http://www.schaik.com/pngsuite/): 16-bit grey, 8-bit palette, 16-bit RGBA, interlaced, and palette with transparency | Willem van Schaik | Free use, see [`pngsuite/LICENSE`](pngsuite/LICENSE) |

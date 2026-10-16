@@ -32,6 +32,39 @@ expression: "readable(&render_images(\"images.md\", &Capabilities::kitty(WIDTH))
   ␛[38;2;143;135;170m⟦row 1: 44 cells⟧␛[39m
   ␛[38;2;143;135;170m⟦row 2: 44 cells⟧␛[39m
 
+  An SVG is drawn at its natural size, here
+  given in millimetres:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=5482393,s=360,v=220,c=36,r=11,m=0;<1804 bytes>␛\  ␛[38;2;83;167;153m⟦row 0: 36 cells⟧␛[39m
+  ␛[38;2;83;167;153m⟦row 1: 36 cells⟧␛[39m
+  ␛[38;2;83;167;153m⟦row 2: 36 cells⟧␛[39m
+  ␛[38;2;83;167;153m⟦row 3: 36 cells⟧␛[39m
+  ␛[38;2;83;167;153m⟦row 4: 36 cells⟧␛[39m
+  ␛[38;2;83;167;153m⟦row 5: 36 cells⟧␛[39m
+  ␛[38;2;83;167;153m⟦row 6: 36 cells⟧␛[39m
+  ␛[38;2;83;167;153m⟦row 7: 36 cells⟧␛[39m
+  ␛[38;2;83;167;153m⟦row 8: 36 cells⟧␛[39m
+  ␛[38;2;83;167;153m⟦row 9: 36 cells⟧␛[39m
+  ␛[38;2;83;167;153m⟦row 10: 36 cells⟧␛[39m
+
+  Text in an SVG is drawn with the system's
+  fonts:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=9608693,s=440,v=280,c=44,r=14,m=0;<2816 bytes>␛\  ␛[38;2;146;157;245m⟦row 0: 44 cells⟧␛[39m
+  ␛[38;2;146;157;245m⟦row 1: 44 cells⟧␛[39m
+  ␛[38;2;146;157;245m⟦row 2: 44 cells⟧␛[39m
+  ␛[38;2;146;157;245m⟦row 3: 44 cells⟧␛[39m
+  ␛[38;2;146;157;245m⟦row 4: 44 cells⟧␛[39m
+  ␛[38;2;146;157;245m⟦row 5: 44 cells⟧␛[39m
+  ␛[38;2;146;157;245m⟦row 6: 44 cells⟧␛[39m
+  ␛[38;2;146;157;245m⟦row 7: 44 cells⟧␛[39m
+  ␛[38;2;146;157;245m⟦row 8: 44 cells⟧␛[39m
+  ␛[38;2;146;157;245m⟦row 9: 44 cells⟧␛[39m
+  ␛[38;2;146;157;245m⟦row 10: 44 cells⟧␛[39m
+  ␛[38;2;146;157;245m⟦row 11: 44 cells⟧␛[39m
+  ␛[38;2;146;157;245m⟦row 12: 44 cells⟧␛[39m
+  ␛[38;2;146;157;245m⟦row 13: 44 cells⟧␛[39m
+
   A linked image is shown, but cannot be
   clicked yet:
 
@@ -69,11 +102,14 @@ expression: "readable(&render_images(\"images.md\", &Capabilities::kitty(WIDTH))
   ␛[0;90m│␛[0m ␛[0;2;3mcell]␛[0m               ␛[0;90m│␛[0m table              ␛[0;90m│␛[0m
   ␛[0;90m╰─────────────────────┴────────────────────╯␛[0m
 
-  A missing file, a file that is no image and
-  a remote image show their alt text:
+  A missing file, a file that is no image, a
+  broken SVG and a remote image show their alt
+  text:
 
   ␛[0;2;3m[image: Missing image]␛[0m
 
   ␛[0;2;3m[image: Not an image]␛[0m
+
+  ␛[0;2;3m[image: Broken SVG]␛[0m
 
   ␛[0;2;3m[image: Remote image]␛[0m
