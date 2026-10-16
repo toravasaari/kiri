@@ -1,0 +1,16 @@
+# Headings on a coloured band across the width, indented by one character.
+# The colours suit a dark terminal background.
+
+[h1]
+rule = false
+background = "#2b303b"
+indent = 1
+
+[h2]
+rule = false
+background = "#232830"
+indent = 1
+
+[h3]
+background = "#1c2026"
+indent = 1

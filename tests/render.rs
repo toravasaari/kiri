@@ -6,15 +6,25 @@ use kiri::theme::Theme;
 const WIDTH: u16 = 48;
 
 fn render(fixture: &str, caps: &Capabilities) -> String {
+    render_with(fixture, caps, &Theme::default())
+}
+
+fn render_with(fixture: &str, caps: &Capabilities, theme: &Theme) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures")
         .join(fixture);
     let source = std::fs::read_to_string(&path).expect("fixture is readable");
     let document = kiri::parse::parse(&source);
     let mut out = Vec::new();
-    kiri::render::render(&document, caps, &Theme::default(), &mut out)
-        .expect("rendering to memory succeeds");
+    kiri::render::render(&document, caps, theme, &mut out).expect("rendering to memory succeeds");
     String::from_utf8(out).expect("output is UTF-8")
+}
+
+fn example_theme(name: &str) -> Theme {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("examples/themes")
+        .join(name);
+    kiri::theme::load(&path).expect("example theme loads")
 }
 
 /// Escape characters made visible, so snapshots can be read and diffed.
@@ -40,6 +50,37 @@ fn ansi_elements() {
 #[test]
 fn kitty_elements() {
     insta::assert_snapshot!(visible(&render("elements.md", &Capabilities::kitty(WIDTH))));
+}
+
+#[test]
+fn kitty_headings_underlined() {
+    let theme = example_theme("underline.toml");
+    insta::assert_snapshot!(visible(&render_with(
+        "headings.md",
+        &Capabilities::kitty(WIDTH),
+        &theme
+    )));
+}
+
+#[test]
+fn kitty_headings_on_a_background() {
+    let theme = example_theme("background.toml");
+    insta::assert_snapshot!(visible(&render_with(
+        "headings.md",
+        &Capabilities::kitty(WIDTH),
+        &theme
+    )));
+}
+
+#[test]
+fn all_example_themes_load() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/themes");
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_some_and(|ext| ext == "toml") {
+            kiri::theme::load(&path).unwrap_or_else(|error| panic!("{error}"));
+        }
+    }
 }
 
 #[test]
