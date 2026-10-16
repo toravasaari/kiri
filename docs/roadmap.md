@@ -4,6 +4,10 @@ kiri grows in phases. Each phase leaves the project in a working state, and
 review and refactoring are part of every phase rather than a phase of their
 own. Later phases may be reordered or split as the work shows what matters.
 
+Larger phases are split into numbered parts, each marked done on its own.
+The numbers name the parts rather than fix their order: images (4.1), for
+example, come before the rest of phase 3.
+
 ## Phase 1 – Foundations (done)
 
 - README, this roadmap, [architecture](architecture.md), [AGENTS.md](../AGENTS.md).
@@ -27,32 +31,80 @@ own. Later phases may be reordered or split as the work shows what matters.
 
 ## Phase 3 – Project hygiene
 
+### 3.1 License
+
+- Choose a license and add it to the repository.
+
+### 3.2 Repository and CI
+
 - GitHub repository, CI running `make check`, cargo-deny, Dependabot.
+
+### 3.3 Releases
+
 - Semantic versioning (0.x until the command line settles), a changelog in
   Keep a Changelog format, and release binaries.
 - Documented minimum versions for kitty and Rust.
+
+### 3.4 Render check
+
 - A `render-check` skill that renders the fixture documents in kitty and
-  captures a screenshot for review.
-- License.
+  captures a screenshot for review. Built together with images (4.1), which
+  are the first output that needs a visual check.
 
 ## Phase 4 – Rich content and the pager
 
-- Images (PNG, JPEG, SVG) through the graphics protocol, placed with Unicode
+### 4.1 Images
+
+- Local images through the graphics protocol, placed with Unicode
   placeholders so they scroll with the text.
-- Formulas (`$…$`, `$$…$$`) rendered to images through Typst's math engine.
-- Mermaid diagrams through an external renderer when one is installed.
+- Formats: PNG, JPEG, GIF (first frame), WebP and SVG, plus the other
+  formats the image decoders support cheaply.
+- A paragraph that holds only an image is drawn as a block; images inside
+  running text stay as alt text for now.
+- Sizes follow the browser: CSS pixels, never upscaled, no wider than the
+  text. Options for one image pixel per terminal pixel, and for fitting the
+  window like `kitten icat`.
+- `kiri image.png` shows an image on its own.
+- HTML `<img>` tags with `src`, `alt`, `width` and `height`.
+- Cargo features for a minimal build and a full build with every format.
+
+### 4.2 Formulas
+
+- `$…$` and `$$…$$` in LaTeX syntax, as GitHub Markdown writes them, and in
+  Typst syntax, rendered to images through Typst's math engine.
 - A cache for rendered images.
-- Links: relative links become `file://` URLs, so kitty's `open-actions.conf`
-  can open Markdown targets in kiri.
+
+### 4.3 Diagrams
+
+- Mermaid diagrams through an external renderer when one is installed.
+
+### 4.4 Animation and video
+
+- Animated GIF, WebP and APNG, played by kitty itself.
+- Video (WebM, MP4, AVI and others) through ffmpeg when it is installed.
+
+### 4.5 Links
+
+- Relative links become `file://` URLs, so kitty's `open-actions.conf` can
+  open Markdown targets in kiri.
+
+### 4.6 Pager
+
 - Interactive pager (`kiri -i`): scrolling, search, a table of contents,
   link selection, anchor jumps, back history, reload on file change.
 - Pager status line with key hints and a `?` help panel.
-- Other input formats (reStructuredText, Org, AsciiDoc), possibly through
-  pandoc.
+
+### 4.7 Other input formats
+
+- reStructuredText, Org, AsciiDoc, possibly through pandoc.
 
 ## Phase 5 – Beyond kitty
 
 - Other terminals: sixel and iTerm2 images, plain styling for headings.
+- Images as coloured Unicode block characters where no image protocol
+  works.
+- Remote images, off by default because fetching one tells its server that
+  the document was opened.
 - An HTML backend and `kiri serve` for reading in a browser with live reload.
 - Pixel rendering: a headless browser screenshot (`--browser`), and possibly
   a native layout and rasterising engine later.
