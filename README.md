@@ -48,6 +48,8 @@ planned.
 - [Roadmap](docs/roadmap.md)
 - [Architecture](docs/architecture.md)
 - [Theme](docs/theme.md)
+- [Visual check](examples/visual-check.md) – a document for checking the
+  output by eye
 - [AGENTS.md](AGENTS.md) – conventions for coding agents and contributors
 
 ## License

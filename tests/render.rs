@@ -528,3 +528,37 @@ fn control_characters_in_the_document_do_not_reach_the_terminal() {
         );
     }
 }
+
+#[test]
+fn the_visual_check_document_fits_every_mode() {
+    use kiri::render::wrap::width;
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/visual-check.md");
+    let document = kiri::parse::parse(&std::fs::read_to_string(path).unwrap());
+    let themes = [
+        Theme::default(),
+        example_theme("background.toml"),
+        example_theme("rules.toml"),
+    ];
+    for terminal_width in [40, 80, 120] {
+        for caps in [
+            Capabilities::plain(terminal_width),
+            Capabilities::ansi(terminal_width),
+            Capabilities::kitty(terminal_width),
+        ] {
+            for theme in &themes {
+                let mut out = Vec::new();
+                kiri::render::render(&document, &caps, theme, &mut out).unwrap();
+                assert!(!out.is_empty());
+                for line in kiri::render::layout::layout(&document, &caps, theme) {
+                    let cells = width(&line.lead)
+                        + width(&line.spans) * usize::from(line.scale)
+                        + width(&line.trail);
+                    assert!(
+                        cells <= usize::from(terminal_width),
+                        "{caps:?}: {cells} cells in {line:?}"
+                    );
+                }
+            }
+        }
+    }
+}

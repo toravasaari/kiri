@@ -13,3 +13,6 @@ kiri --theme examples/themes/rules.toml tests/fixtures/headings.md
 | `background.toml` | Headings on a coloured band, indented by one cell |
 | `indent.toml` | Headings indented by one cell |
 | `opaque.toml` | A solid document background instead of the terminal's |
+
+To check a theme by eye on the cases that have broken before, render
+[`examples/visual-check.md`](../visual-check.md) with it.
