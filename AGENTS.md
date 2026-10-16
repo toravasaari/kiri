@@ -46,6 +46,10 @@ Run everything through `make` so local runs match CI:
 - `make fmt` formats the code.
 - `cargo run -- <file.md>` renders a document in the current terminal.
 
+Isolated agent work runs in [jailbee](https://jailbee.gisgro.io)
+containers; `.jailbee/` holds the configuration and the rustup install step.
+The network is strict there: crates.io and rustup work, GitHub does not.
+
 ## Testing
 
 - Renderer output is tested with snapshot tests (`insta`). The snapshot is
