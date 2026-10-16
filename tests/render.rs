@@ -109,6 +109,16 @@ fn rules_span_the_terminal_past_max_width() {
 }
 
 #[test]
+fn no_margins_puts_text_and_code_at_the_edge() {
+    let theme = Theme::default().without_margins();
+    insta::assert_snapshot!(visible(&render_with(
+        "elements.md",
+        &Capabilities::kitty(WIDTH),
+        &theme
+    )));
+}
+
+#[test]
 fn all_example_themes_load() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/themes");
     for entry in std::fs::read_dir(dir).unwrap() {

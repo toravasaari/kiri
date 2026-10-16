@@ -175,11 +175,14 @@ impl Layout<'_> {
         } else {
             None
         };
+        let padding = self.theme.code_padding;
         let Some(highlighted) = highlighted else {
-            let indent = "  ";
+            let indent = if padding { "  " } else { "" };
             return code
                 .lines()
-                .flat_map(|line| split_to_width(&[Span::new(line, Style::default())], width - 2))
+                .flat_map(|line| {
+                    split_to_width(&[Span::new(line, Style::default())], width - indent.len())
+                })
                 .map(|mut spans| {
                     spans.insert(0, Span::new(indent, Style::default()));
                     Line::new(spans)
@@ -204,7 +207,24 @@ impl Layout<'_> {
             );
             Line::new(spans)
         };
-        let mut lines = vec![padded(Vec::new())];
+        // Without padding the code starts at the margin and nothing but the
+        // code itself is copied along with it.
+        let padded = |content: Vec<Span>| {
+            if padding {
+                padded(content)
+            } else {
+                Line::new(content)
+            }
+        };
+        let inner = if padding {
+            width.saturating_sub(2)
+        } else {
+            width
+        };
+        let mut lines = Vec::new();
+        if padding {
+            lines.push(padded(Vec::new()));
+        }
         for source_line in highlighted.lines {
             let with_background: Vec<Span> = source_line
                 .into_iter()
@@ -216,11 +236,13 @@ impl Layout<'_> {
                     ..span
                 })
                 .collect();
-            for chunk in split_to_width(&with_background, width.saturating_sub(2).max(1)) {
+            for chunk in split_to_width(&with_background, inner.max(1)) {
                 lines.push(padded(chunk));
             }
         }
-        lines.push(padded(Vec::new()));
+        if padding {
+            lines.push(padded(Vec::new()));
+        }
         lines
     }
 

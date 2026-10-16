@@ -59,6 +59,10 @@ rule = "bright-black"
 list_marker = "bright-black"
 table_border = "bright-black"
 
+# A box of background colour around code blocks, one cell and one line
+# wide. Without it, code starts at the margin and copies cleanly.
+code_padding = true
+
 # Code block colours, chosen by the terminal's background.
 # Available: base16-eighties.dark, base16-mocha.dark, base16-ocean.dark,
 # base16-ocean.light, InspiredGitHub, Solarized (dark), Solarized (light).

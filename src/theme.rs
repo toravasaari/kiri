@@ -29,6 +29,9 @@ pub struct Theme {
     pub rule: Option<Color>,
     pub list_marker: Option<Color>,
     pub table_border: Option<Color>,
+    /// A box of background colour around code blocks, with one cell and one
+    /// line of padding. Without it, code starts at the margin.
+    pub code_padding: bool,
     /// Code block colour themes by background; see `highlight::theme_names`.
     pub code_theme_dark: String,
     pub code_theme_light: String,
@@ -104,6 +107,7 @@ impl Default for Theme {
             rule: GREY,
             list_marker: GREY,
             table_border: GREY,
+            code_padding: true,
             code_theme_dark: "base16-ocean.dark".into(),
             code_theme_light: "InspiredGitHub".into(),
         }
@@ -114,6 +118,19 @@ impl Theme {
     pub fn heading(&self, level: u8) -> &HeadingTheme {
         let index = usize::from(level.clamp(1, 6)) - 1;
         &self.headings[index]
+    }
+
+    /// Drops every margin, indent and code padding, so text and code start
+    /// at the left edge and copy cleanly. List nesting stays. Inline code
+    /// loses its padding too: copied no-break spaces break shell commands.
+    pub fn without_margins(mut self) -> Self {
+        self.text_margin = 0;
+        self.code_padding = false;
+        self.inline_code_padding = false;
+        for heading in &mut self.headings {
+            heading.indent = 0;
+        }
+        self
     }
 }
 
@@ -166,6 +183,9 @@ pub fn parse(text: &str) -> Result<Theme, String> {
     }
     if let Some(padding) = file.inline_code_padding {
         theme.inline_code_padding = padding;
+    }
+    if let Some(padding) = file.code_padding {
+        theme.code_padding = padding;
     }
     set_color(&mut theme.quote_bar, file.quote_bar)?;
     set_color(&mut theme.rule, file.rule)?;
@@ -243,6 +263,7 @@ struct ThemeFile {
     rule: Option<String>,
     list_marker: Option<String>,
     table_border: Option<String>,
+    code_padding: Option<bool>,
     code_theme_dark: Option<String>,
     code_theme_light: Option<String>,
 }

@@ -24,6 +24,10 @@ struct Cli {
     /// Theme file; defaults to ~/.config/kiri/theme.toml when it exists.
     #[arg(long)]
     theme: Option<PathBuf>,
+
+    /// No margins, heading indents or code block padding, for copying text.
+    #[arg(short = 'M', long)]
+    no_margins: bool,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -48,6 +52,7 @@ fn main() -> ExitCode {
         }
     };
     let theme = match load_theme(&cli) {
+        Ok(theme) if cli.no_margins => theme.without_margins(),
         Ok(theme) => theme,
         Err(error) => {
             eprintln!("kiri: {error}");

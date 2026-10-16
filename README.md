@@ -32,6 +32,7 @@ text when the output is a pipe.
 | `--mode auto\|plain\|ansi\|kitty` | Override what kiri detects |
 | `--width N` | Render for `N` cells instead of the terminal width |
 | `--theme FILE` | Colours and heading sizes; see [Theme](docs/theme.md) |
+| `-M`, `--no-margins` | No margins or padding, so text and code copy cleanly |
 
 An interactive pager (`kiri -i`) with search and link navigation is
 planned.
