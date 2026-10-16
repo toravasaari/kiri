@@ -109,6 +109,17 @@ fn rules_span_the_terminal_past_max_width() {
 }
 
 #[test]
+fn nested_headings_are_not_indented() {
+    let theme = example_theme("indent.toml");
+    let document = kiri::parse::parse("# Top\n\n> # Quoted\n\n- # Listed\n");
+    let mut out = Vec::new();
+    kiri::render::render(&document, &Capabilities::ansi(40), &theme, &mut out).unwrap();
+    // The indent stays on the top-level heading only; nested ones start
+    // right after the quote bar or the bullet.
+    insta::assert_snapshot!(visible(&String::from_utf8(out).unwrap()));
+}
+
+#[test]
 fn no_margins_puts_text_and_code_at_the_edge() {
     let theme = Theme::default().without_margins();
     insta::assert_snapshot!(visible(&render_with(

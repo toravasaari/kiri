@@ -51,7 +51,8 @@ pub fn layout(document: &Document, caps: &Capabilities, theme: &Theme) -> Vec<Li
 
 #[derive(Debug, Clone, Copy, Default)]
 struct Context {
-    /// Inside a quote or list, where scaled headings would break the prefix.
+    /// Inside a quote or list, where scaled or indented headings would break
+    /// the prefix.
     nested: bool,
     list_depth: usize,
     /// Tight list item: no blank lines between its blocks.
@@ -127,7 +128,13 @@ impl Layout<'_> {
             );
         }
         self.inlines(content, &style, &mut spans);
-        let indent = usize::from(heading.indent).min(width / 4);
+        // A nested heading's indent would land before the quote bar or the
+        // list marker, which are prepended later.
+        let indent = if context.nested {
+            0
+        } else {
+            usize::from(heading.indent).min(width / 4)
+        };
         let lead = if indent > 0 {
             vec![Span::new(&" ".repeat(indent), background.clone())]
         } else {

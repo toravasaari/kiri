@@ -1,0 +1,9 @@
+---
+source: tests/render.rs
+expression: "visible(&String::from_utf8(out).unwrap())"
+---
+ ␛[0;1;4;34mTop␛[0m
+
+  ␛[0;90m│ ␛[0;1;4;34mQuoted␛[0m
+
+  ␛[0;90m• ␛[0;1;4;34mListed␛[0m

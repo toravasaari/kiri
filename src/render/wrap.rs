@@ -52,11 +52,16 @@ pub fn wrap(spans: &[Span], max: usize) -> Vec<Vec<Span>> {
                     used = word_width;
                     space = None;
                 } else {
-                    if let Some(style) = space.take()
-                        && used + 1 < max
-                    {
-                        push(&mut line, " ", &style);
-                        used += 1;
+                    if let Some(style) = space.take() {
+                        // The space needs room for the word's first character
+                        // after it, or the word starts on a new line.
+                        if used + 1 + first_width(&word) <= max {
+                            push(&mut line, " ", &style);
+                            used += 1;
+                        } else {
+                            lines.push(std::mem::take(&mut line));
+                            used = 0;
+                        }
                     }
                     split_long_word(&word, max, &mut lines, &mut line, &mut used);
                 }
@@ -73,6 +78,13 @@ fn append(line: &mut Vec<Span>, word: &[Span]) {
     for span in word {
         push(line, &span.text, &span.style);
     }
+}
+
+fn first_width(word: &[Span]) -> usize {
+    (word.iter())
+        .flat_map(|span| span.text.graphemes(true))
+        .next()
+        .map_or(0, UnicodeWidthStr::width)
 }
 
 /// Breaks a word between graphemes wherever the line is full.
@@ -171,6 +183,22 @@ mod tests {
     fn splits_words_longer_than_the_line() {
         let lines = wrap(&plain("abcdefgh"), 3);
         assert_eq!(texts(&lines), vec!["abc", "def", "gh"]);
+    }
+
+    #[test]
+    fn keeps_the_space_before_a_word_longer_than_the_line() {
+        let lines = wrap(&plain("ab verylongword"), 10);
+        assert_eq!(texts(&lines), vec!["ab verylon", "gword"]);
+        // Exactly one cell left for the first character after the space.
+        let lines = wrap(&plain("abcdefgh verylongword"), 10);
+        assert_eq!(texts(&lines), vec!["abcdefgh v", "erylongwor", "d"]);
+        let lines = wrap(&plain("abcdefg 日本語日本語"), 10);
+        assert_eq!(texts(&lines), vec!["abcdefg 日", "本語日本語"]);
+        // No room for the space and a character: the word starts a new line.
+        let lines = wrap(&plain("abcdefghi verylongwordxx"), 10);
+        assert_eq!(texts(&lines), vec!["abcdefghi", "verylongwo", "rdxx"]);
+        let lines = wrap(&plain("abcdefgh 日本語日本語"), 10);
+        assert_eq!(texts(&lines), vec!["abcdefgh", "日本語日本", "語"]);
     }
 
     #[test]
