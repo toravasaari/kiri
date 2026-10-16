@@ -1,0 +1,65 @@
+---
+source: tests/render.rs
+expression: "visible(&render(\"elements.md\", &caps))"
+---
+␛[0;1;4m␛]66;s=3;Every element␛\␛[0m
+
+
+
+  Body text with ␛[0;3memphasis␛[0m, ␛[0;1mstrong␛[0m, ␛[0;9mstruck␛[0m and
+  `inline code`, long enough to wrap at the
+  narrow test width. A ␛]8;;https://example.com␛\␛[0;4mlink␛]8;;␛\␛[0m and an autolink:
+  ␛]8;;https://example.com/path␛\␛[0;4mhttps://example.com/path␛]8;;␛\␛[0m.
+
+␛[0;1;4m␛]66;s=2;Lists␛\␛[0m
+
+
+  • First bullet
+  • Second bullet with text that is long
+    enough to wrap onto the next line
+    ◦ Nested bullet
+      1. Ordered inside
+      2. Second ordered
+
+  3. Starts at three
+  4. Four
+
+  ☑ Done task
+  ☐ Open task
+
+␛[0;4:4m␛]66;s=2;Quotes and breaks␛\␛[0m
+
+
+  │ A quote with ␛[0;1mbold␛[0m text.
+  │ 
+  │ │ Nested quote.
+
+  Hard
+  break.
+
+────────────────────────────────────────────────
+
+␛[0;1;4mCode␛[0m
+
+    fn main() {
+        println!("tab-indented");
+    }
+
+␛[0;1;4mTables␛[0m
+
+  ╭──────────┬────────┬──────────────────────╮
+  │ ␛[0;1mElement␛[0m  │ ␛[0;1mStatus␛[0m │                ␛[0;1mNotes␛[0m │
+  ├──────────┼────────┼──────────────────────┤
+  │ Headings │  done  │   Scaled with OSC 66 │
+  │          │        │   in kitty, bold and │
+  │          │        │   coloured elsewhere │
+  │ Tables   │ `new`  │                right │
+  ╰──────────┴────────┴──────────────────────╯
+
+␛[0;4:4mImages and HTML␛[0m
+
+  ␛[0;2;3m[image: A diagram]␛[0m
+
+  ␛[0;2m<details>raw html</details>␛[0m
+
+␛[0;3;4:4mSmallest heading␛[0m

@@ -17,7 +17,7 @@ struct Cli {
     #[arg(long)]
     width: Option<u16>,
 
-    /// Which terminal features to use.
+    /// Which terminal features to use. Colours stay off when NO_COLOR is set.
     #[arg(long, value_enum, default_value_t = Mode::Auto)]
     mode: Mode,
 
@@ -85,10 +85,15 @@ fn load_theme(cli: &Cli) -> Result<Theme, String> {
 
 fn capabilities(cli: &Cli) -> Capabilities {
     let width = || cli.width.or_else(kiri::term::terminal_width).unwrap_or(80);
-    match cli.mode {
+    let mut caps = match cli.mode {
         Mode::Auto => kiri::term::detect(cli.width),
         Mode::Plain => Capabilities::plain(width()),
         Mode::Ansi => Capabilities::ansi(width()),
         Mode::Kitty => Capabilities::kitty(width()),
+    };
+    // In every mode, including the forced ones.
+    if kiri::term::no_color() {
+        caps.color = false;
     }
+    caps
 }

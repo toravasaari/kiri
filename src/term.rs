@@ -8,6 +8,9 @@ pub struct Capabilities {
     pub width: u16,
     /// Colours and text attributes through escape sequences.
     pub styling: bool,
+    /// Foreground and background colours, with `styling`. Off when the user
+    /// sets `NO_COLOR`; text attributes, links and sizes stay.
+    pub color: bool,
     /// 24-bit colour; without it, RGB colours are approximated.
     pub truecolor: bool,
     /// OSC 8 hyperlinks.
@@ -28,6 +31,7 @@ impl Capabilities {
         Self {
             width,
             styling: false,
+            color: false,
             truecolor: false,
             hyperlinks: false,
             text_sizing: false,
@@ -41,6 +45,7 @@ impl Capabilities {
     pub fn ansi(width: u16) -> Self {
         Self {
             styling: true,
+            color: true,
             ..Self::plain(width)
         }
     }
@@ -49,6 +54,7 @@ impl Capabilities {
     pub fn kitty(width: u16) -> Self {
         Self {
             styling: true,
+            color: true,
             truecolor: true,
             hyperlinks: true,
             text_sizing: true,
@@ -94,6 +100,16 @@ pub fn detect(width: Option<u16>) -> Capabilities {
     caps
 }
 
+/// Whether the user asked for output without colour: `NO_COLOR` set and not
+/// empty, as <https://no-color.org> defines it.
+pub fn no_color() -> bool {
+    no_color_in(std::env::var_os("NO_COLOR").as_deref())
+}
+
+fn no_color_in(value: Option<&std::ffi::OsStr>) -> bool {
+    value.is_some_and(|value| !value.is_empty())
+}
+
 /// Width of the terminal on stdout in cells, if stdout is a terminal.
 pub fn terminal_width() -> Option<u16> {
     let size = rustix::termios::tcgetwinsize(std::io::stdout()).ok()?;
@@ -110,6 +126,21 @@ fn hyperlinks_by_environment() -> bool {
         .ok()
         .and_then(|v| v.parse::<u32>().ok())
         .is_some_and(|v| v >= 5000)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::OsStr;
+
+    use super::*;
+
+    #[test]
+    fn no_color_needs_a_value() {
+        assert!(!no_color_in(None));
+        assert!(!no_color_in(Some(OsStr::new(""))));
+        assert!(no_color_in(Some(OsStr::new("1"))));
+        assert!(no_color_in(Some(OsStr::new("0"))));
+    }
 }
 
 /// Escape-sequence queries and their answers.

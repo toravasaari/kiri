@@ -277,6 +277,86 @@ fn no_margins_puts_text_and_code_at_the_edge() {
     )));
 }
 
+/// SGR colour codes in the output: 30-37, 38, 40-47, 48, 58, 90-97 and
+/// 100-107. Default-colour codes (39, 49, 59) are not counted.
+fn colour_codes(output: &str) -> Vec<String> {
+    let mut codes = Vec::new();
+    for sequence in output.split("\x1b[").skip(1) {
+        let Some(end) = sequence.find(|c: char| !c.is_ascii_digit() && c != ';' && c != ':') else {
+            continue;
+        };
+        if !sequence[end..].starts_with('m') {
+            continue;
+        }
+        for code in sequence[..end].split(';') {
+            let number: u32 = code.split(':').next().unwrap().parse().unwrap_or(0);
+            if matches!(number, 30..=38 | 40..=48 | 58 | 90..=97 | 100..=107) {
+                codes.push(sequence[..end].to_owned());
+                break;
+            }
+        }
+    }
+    codes
+}
+
+#[test]
+fn kitty_elements_without_colour() {
+    let caps = Capabilities {
+        color: false,
+        ..Capabilities::kitty(WIDTH)
+    };
+    insta::assert_snapshot!(visible(&render("elements.md", &caps)));
+}
+
+#[test]
+fn no_color_keeps_everything_but_colours() {
+    let caps = Capabilities {
+        color: false,
+        ..Capabilities::kitty(WIDTH)
+    };
+    let themes = [
+        ("elements.md", Theme::default()),
+        ("headings.md", example_theme("background.toml")),
+        ("headings.md", example_theme("opaque.toml")),
+    ];
+    for (fixture, theme) in themes {
+        let out = render_with(fixture, &caps, &theme);
+        assert_eq!(colour_codes(&out), Vec::<String>::new(), "{fixture}");
+        assert!(out.contains("\x1b]66;s="), "{fixture}: heading sizes stay");
+        assert!(out.contains("\x1b[0;1"), "{fixture}: bold stays");
+    }
+    let out = render_with("elements.md", &caps, &Theme::default());
+    assert!(out.contains("\x1b]8;;https://example.com"), "links stay");
+    assert!(out.contains(";4:4"), "underline styles stay");
+    assert!(out.contains("\x1b[0;9m"), "strikethrough stays");
+    // Backticks mark inline code instead of its colours.
+    assert!(out.contains("`inline code`"), "{out:?}");
+    let ansi = Capabilities {
+        color: false,
+        ..Capabilities::ansi(WIDTH)
+    };
+    assert!(colour_codes(&render("elements.md", &ansi)).is_empty());
+    // Layout on its own gives no colours either.
+    let lines = kiri::render::layout::layout(
+        &kiri::parse::parse("# Heading\n\nSome `code`\n"),
+        &caps,
+        &example_theme("background.toml"),
+    );
+    let mut spans =
+        (lines.iter()).flat_map(|line| line.lead.iter().chain(&line.spans).chain(&line.trail));
+    assert!(
+        spans.all(|span| span.style.fg.is_none() && span.style.bg.is_none()),
+        "{lines:?}"
+    );
+    // The colour check itself finds colours when they are on.
+    let coloured = render_with(
+        "elements.md",
+        &Capabilities::kitty(WIDTH),
+        &Theme::default(),
+    );
+    assert!(!colour_codes(&coloured).is_empty());
+}
+
 #[test]
 fn all_example_themes_load() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/themes");

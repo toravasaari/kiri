@@ -28,6 +28,11 @@ kiri asks the terminal what it supports and uses the best it gets: kitty's
 large headings and clickable links, plain ANSI colours elsewhere, and plain
 text when the output is a pipe.
 
+With [`NO_COLOR`](https://no-color.org) set to anything but an empty value,
+kiri uses no colours in any mode. Bold, italic, underlines, links and heading
+sizes stay; code blocks are not highlighted, and inline code is shown in
+backticks.
+
 | Option | Meaning |
 |---|---|
 | `--mode auto\|plain\|ansi\|kitty` | Override what kiri detects |

@@ -36,8 +36,9 @@ terminals arrive later as new backends instead of rewrites.
 it can do: size in cells and pixels (`TIOCGWINSZ`), whether the text sizing
 and graphics protocols work, and the background colour. 24-bit colour and
 hyperlinks follow from either protocol working, or else from environment
-variables such as `COLORTERM`. The result is a plain value passed to the
-renderer, so tests can render for any terminal without having one.
+variables such as `COLORTERM`. `NO_COLOR` turns colours off in every mode.
+The result is a plain value passed to the renderer, so tests can render for
+any terminal without having one.
 
 ## kitty features used
 

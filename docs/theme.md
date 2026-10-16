@@ -32,7 +32,8 @@ A colour is one of:
 - `none` for the terminal's default colour.
 
 Palette colours follow your terminal's colour scheme, which is why the
-defaults use them.
+defaults use them. With `NO_COLOR` set, kiri ignores every colour in the
+theme.
 
 ## Defaults
 

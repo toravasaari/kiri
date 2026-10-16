@@ -136,6 +136,23 @@ impl Theme {
         }
         self
     }
+
+    /// Every colour set to the terminal's default, for `NO_COLOR`.
+    pub fn without_colors(mut self) -> Self {
+        self.background = None;
+        self.link = None;
+        self.inline_code = None;
+        self.inline_code_background = CodeBackground::Color(None);
+        self.quote_bar = None;
+        self.rule = None;
+        self.list_marker = None;
+        self.table_border = None;
+        for heading in &mut self.headings {
+            heading.color = None;
+            heading.background = None;
+        }
+        self
+    }
 }
 
 /// `$XDG_CONFIG_HOME/kiri/theme.toml`, or `~/.config/kiri/theme.toml`.

@@ -15,6 +15,7 @@ pub fn write(
     background: Option<Color>,
     out: &mut impl Write,
 ) -> io::Result<()> {
+    let background = background.filter(|_| caps.color);
     let fill = Style {
         bg: background,
         ..Style::default()
@@ -129,6 +130,9 @@ fn sgr_codes(style: &Style, caps: &Capabilities) -> Vec<String> {
     }
     if let Some(code) = underline_code(style.underline, caps) {
         codes.push(code.to_owned());
+    }
+    if !caps.color {
+        return codes;
     }
     let truecolor = caps.truecolor;
     if let Some(color) = style.fg {

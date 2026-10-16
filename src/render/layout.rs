@@ -15,6 +15,15 @@ use crate::theme::{CodeBackground, Theme};
 const BULLETS: [&str; 3] = ["•", "◦", "▪"];
 
 pub fn layout(document: &Document, caps: &Capabilities, theme: &Theme) -> Vec<Line> {
+    // Without colours, the layout leaves out what only shows a colour, such
+    // as heading fills and the padding around inline code.
+    let colorless;
+    let theme = if caps.color {
+        theme
+    } else {
+        colorless = theme.clone().without_colors();
+        &colorless
+    };
     let mut width = usize::from(caps.width);
     if theme.max_width > 0 {
         width = width.min(usize::from(theme.max_width));
@@ -197,7 +206,8 @@ impl Layout<'_> {
 
     fn code_block(&self, language: Option<&str>, code: &str, width: usize) -> Vec<Line> {
         let code: String = code.lines().map(|line| expand_tabs(line) + "\n").collect();
-        let highlighted = if self.caps.styling {
+        // Highlighting is all colour, down to the box around the code.
+        let highlighted = if self.caps.styling && self.caps.color {
             highlight::highlight(&code, language, self.code_theme())
         } else {
             None
@@ -418,7 +428,8 @@ impl Layout<'_> {
                     spaces,
                     ..style.clone()
                 };
-                if self.caps.styling {
+                // Without colour nothing else would mark the code.
+                if self.caps.styling && self.caps.color {
                     let bg = self.inline_code_background().or(style.bg);
                     let code_style = Style {
                         fg: self.theme.inline_code.or(style.fg),
