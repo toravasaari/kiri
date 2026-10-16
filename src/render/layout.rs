@@ -4,6 +4,7 @@ use std::rc::Rc;
 
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+use super::highlight;
 use super::style::{Line, Span, Style, push};
 use super::table::{self, Cells};
 use super::wrap::wrap;
@@ -52,7 +53,9 @@ impl Layout<'_> {
         match block {
             Block::Heading { level, content } => self.heading(*level, content, width, context),
             Block::Paragraph(content) => self.paragraph(content, &Style::default(), width),
-            Block::CodeBlock { code, .. } => self.code_block(code, width),
+            Block::CodeBlock { language, code } => {
+                self.code_block(language.as_deref(), code, width)
+            }
             Block::BlockQuote(blocks) => self.quote(blocks, width, context),
             Block::List(list) => self.list(list, width, context),
             Block::Table(table) => self.table(table, width),
@@ -106,20 +109,68 @@ impl Layout<'_> {
         wrap(&spans, width).into_iter().map(Line::new).collect()
     }
 
-    fn code_block(&self, code: &str, width: usize) -> Vec<Line> {
-        let indent = "  ";
-        let inner = width.saturating_sub(indent.len()).max(1);
-        let mut lines = Vec::new();
-        for source_line in code.lines() {
-            let text = expand_tabs(source_line);
-            for chunk in split_to_width(&text, inner) {
-                lines.push(Line::new(vec![Span::new(
-                    &format!("{indent}{chunk}"),
-                    Style::default(),
-                )]));
+    fn code_block(&self, language: Option<&str>, code: &str, width: usize) -> Vec<Line> {
+        let code: String = code.lines().map(|line| expand_tabs(line) + "\n").collect();
+        let highlighted = if self.caps.styling {
+            highlight::highlight(&code, language, self.code_theme())
+        } else {
+            None
+        };
+        let Some(highlighted) = highlighted else {
+            let indent = "  ";
+            return code
+                .lines()
+                .flat_map(|line| split_to_width(&[Span::new(line, Style::default())], width - 2))
+                .map(|mut spans| {
+                    spans.insert(0, Span::new(indent, Style::default()));
+                    Line::new(spans)
+                })
+                .collect();
+        };
+
+        // A box in the theme's background colour, one cell of padding on
+        // each side and one line above and below.
+        let background = Style {
+            bg: highlighted.background,
+            ..Style::default()
+        };
+        let padded = |content: Vec<Span>| {
+            let used = super::wrap::width(&content);
+            let mut spans = vec![Span::new(" ", background.clone())];
+            spans.extend(content);
+            push(
+                &mut spans,
+                &" ".repeat(width.saturating_sub(used + 1)),
+                &background,
+            );
+            Line::new(spans)
+        };
+        let mut lines = vec![padded(Vec::new())];
+        for source_line in highlighted.lines {
+            let with_background: Vec<Span> = source_line
+                .into_iter()
+                .map(|span| Span {
+                    style: Style {
+                        bg: highlighted.background,
+                        ..span.style
+                    },
+                    ..span
+                })
+                .collect();
+            for chunk in split_to_width(&with_background, width.saturating_sub(2).max(1)) {
+                lines.push(padded(chunk));
             }
         }
+        lines.push(padded(Vec::new()));
         lines
+    }
+
+    fn code_theme(&self) -> &str {
+        if self.caps.dark_background.unwrap_or(true) {
+            &self.theme.code_theme_dark
+        } else {
+            &self.theme.code_theme_light
+        }
     }
 
     fn quote(&self, blocks: &[Block], width: usize, context: Context) -> Vec<Line> {
@@ -351,18 +402,22 @@ fn expand_tabs(line: &str) -> String {
     out
 }
 
-/// Splits code into pieces of at most `max` cells, keeping every character.
-fn split_to_width(text: &str, max: usize) -> Vec<String> {
-    let mut pieces = vec![String::new()];
+/// Splits styled code into lines of at most `max` cells, keeping every
+/// character, spaces included.
+fn split_to_width(spans: &[Span], max: usize) -> Vec<Vec<Span>> {
+    let mut lines = vec![Vec::new()];
     let mut used = 0;
-    for c in text.chars() {
-        let char_width = c.width().unwrap_or(0);
-        if used + char_width > max && used > 0 {
-            pieces.push(String::new());
-            used = 0;
+    for span in spans {
+        for c in span.text.chars() {
+            let char_width = c.width().unwrap_or(0);
+            if used + char_width > max && used > 0 {
+                lines.push(Vec::new());
+                used = 0;
+            }
+            let line = lines.last_mut().expect("lines is never empty");
+            push(line, c.encode_utf8(&mut [0; 4]), &span.style);
+            used += char_width;
         }
-        pieces.last_mut().expect("pieces is never empty").push(c);
-        used += char_width;
     }
-    pieces
+    lines
 }

@@ -90,18 +90,31 @@ fn color_code(color: Color, base: u8, truecolor: bool) -> String {
     }
 }
 
-/// Nearest entry in the 6×6×6 colour cube of the 256-colour palette.
+/// Nearest entry of the 256-colour palette, from the 6×6×6 colour cube or
+/// the grey ramp. The first 16 entries are skipped: they follow the theme.
 fn rgb_to_256(r: u8, g: u8, b: u8) -> u8 {
-    let level = |v: u8| -> u8 {
-        if v < 48 {
-            0
-        } else if v < 115 {
-            1
-        } else {
-            (v - 35) / 40
-        }
+    const LEVELS: [i32; 6] = [0, 95, 135, 175, 215, 255];
+    let nearest_level = |v: u8| {
+        (0..LEVELS.len())
+            .min_by_key(|&i| (LEVELS[i] - i32::from(v)).abs())
+            .expect("LEVELS is not empty")
     };
-    16 + 36 * level(r) + 6 * level(g) + level(b)
+    let distance = |(r2, g2, b2): (i32, i32, i32)| {
+        let (r, g, b) = (i32::from(r), i32::from(g), i32::from(b));
+        (r - r2).pow(2) + (g - g2).pow(2) + (b - b2).pow(2)
+    };
+
+    let (ri, gi, bi) = (nearest_level(r), nearest_level(g), nearest_level(b));
+    let cube = (LEVELS[ri], LEVELS[gi], LEVELS[bi]);
+    let average = (i32::from(r) + i32::from(g) + i32::from(b)) / 3;
+    let grey_index = ((average - 8) / 10).clamp(0, 23);
+    let grey_value = 8 + 10 * grey_index;
+
+    if distance((grey_value, grey_value, grey_value)) < distance(cube) {
+        232 + grey_index as u8
+    } else {
+        16 + 36 * ri as u8 + 6 * gi as u8 + bi as u8
+    }
 }
 
 #[cfg(test)]
@@ -120,5 +133,7 @@ mod tests {
         assert_eq!(color_code(Color::Rgb(255, 0, 0), 30, true), "38;2;255;0;0");
         assert_eq!(color_code(Color::Rgb(255, 0, 0), 30, false), "38;5;196");
         assert_eq!(color_code(Color::Rgb(0, 0, 0), 30, false), "38;5;16");
+        // Dark grey goes to the grey ramp, not to a dark teal in the cube.
+        assert_eq!(color_code(Color::Rgb(43, 48, 59), 40, false), "48;5;236");
     }
 }

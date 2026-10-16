@@ -17,6 +17,9 @@ pub struct Theme {
     pub rule: Option<Color>,
     pub list_marker: Option<Color>,
     pub table_border: Option<Color>,
+    /// Code block colour themes by background; see `highlight::theme_names`.
+    pub code_theme_dark: String,
+    pub code_theme_light: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +66,8 @@ impl Default for Theme {
             rule: GREY,
             list_marker: GREY,
             table_border: GREY,
+            code_theme_dark: "base16-ocean.dark".into(),
+            code_theme_light: "InspiredGitHub".into(),
         }
     }
 }
