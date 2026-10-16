@@ -83,6 +83,16 @@ fn kitty_headings_on_an_opaque_document() {
 }
 
 #[test]
+fn text_indent_moves_everything_but_headings() {
+    let theme = kiri::theme::parse("text_indent = 2\n").unwrap();
+    insta::assert_snapshot!(render_with(
+        "elements.md",
+        &Capabilities::plain(WIDTH),
+        &theme
+    ));
+}
+
+#[test]
 fn all_example_themes_load() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/themes");
     for entry in std::fs::read_dir(dir).unwrap() {

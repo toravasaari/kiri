@@ -19,8 +19,29 @@ pub fn layout(document: &Document, caps: &Capabilities, theme: &Theme) -> Vec<Li
     if theme.max_width > 0 {
         width = width.min(usize::from(theme.max_width));
     }
+    let width = width.max(10);
     let layout = Layout { caps, theme };
-    layout.blocks(&document.blocks, width.max(10), Context::default())
+
+    // Headings stay at the margin; everything else moves in by text_indent.
+    let indent = usize::from(theme.text_indent).min(width / 4);
+    let mut lines = Vec::new();
+    for (index, block) in document.blocks.iter().enumerate() {
+        if index > 0 {
+            lines.push(Line::blank());
+        }
+        if indent == 0 || matches!(block, Block::Heading { .. }) {
+            lines.extend(layout.block(block, width, Context::default()));
+            continue;
+        }
+        for mut line in layout.block(block, width - indent, Context::default()) {
+            if !line.spans.is_empty() {
+                line.lead
+                    .insert(0, Span::new(&" ".repeat(indent), Style::default()));
+            }
+            lines.push(line);
+        }
+    }
+    lines
 }
 
 #[derive(Debug, Clone, Copy, Default)]
