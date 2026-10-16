@@ -33,10 +33,11 @@ terminals arrive later as new backends instead of rewrites.
 ## Terminal capabilities
 
 `src/term.rs` is the only place that talks to the terminal to find out what
-it can do: size in cells and pixels (`TIOCGWINSZ`, falling back to
-`CSI 16 t`), whether it is kitty, and whether the text sizing and graphics
-protocols work. The result is a plain value passed to the renderer, so tests
-can render for any terminal without having one.
+it can do: size in cells and pixels (`TIOCGWINSZ`), whether the text sizing
+and graphics protocols work, and the background colour. 24-bit colour and
+hyperlinks follow from either protocol working, or else from environment
+variables such as `COLORTERM`. The result is a plain value passed to the
+renderer, so tests can render for any terminal without having one.
 
 ## kitty features used
 
@@ -50,15 +51,24 @@ can render for any terminal without having one.
 
 All escape sequences for these live under `src/kitty/`.
 
-## Planned modules
+## Modules
 
 ```
-src/main.rs        command line (clap)
-src/term.rs        capability detection
-src/model.rs       document model
-src/parse.rs       comrak tree -> document model
-src/render/        layout and output for terminals
-src/kitty/         kitty escape sequences
+src/main.rs                command line (clap)
+src/lib.rs                 library root
+src/model.rs               document model
+src/parse.rs               comrak tree -> document model
+src/term.rs                capability detection
+src/theme.rs               colours and sizes, theme files
+src/render/mod.rs          document model -> terminal output
+src/render/layout.rs       document model -> styled lines of a fixed width
+src/render/wrap.rs         word wrapping for styled text
+src/render/table.rs        tables with box-drawing characters
+src/render/style.rs        styled text between layout and output
+src/render/output.rs       styled lines -> bytes (SGR, OSC 8, scaled text)
+src/render/highlight.rs    syntax highlighting for code blocks (syntect)
+src/kitty/mod.rs           kitty escape sequences
+src/kitty/text.rs          text sizing protocol (OSC 66)
 ```
 
 ## Choices
