@@ -1,10 +1,12 @@
 ---
 source: tests/render.rs
-expression: "render_plain(\"basic.md\")"
+expression: "render(\"basic.md\", &Capabilities::plain(WIDTH))"
 ---
 # kiri
 
-A paragraph with emphasis, strong text and inline code, continued on a second source line.
+A paragraph with emphasis, strong text and
+`inline code`, continued on a second source
+line.
 
 ## Second level
 
