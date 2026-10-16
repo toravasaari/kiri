@@ -22,23 +22,28 @@ pub fn layout(document: &Document, caps: &Capabilities, theme: &Theme) -> Vec<Li
     let width = width.max(10);
     let layout = Layout { caps, theme };
 
-    // Headings stay at the margin; everything else moves in by text_indent.
-    let indent = usize::from(theme.text_indent).min(width / 4);
+    // Headings stay at the edge and thematic breaks span the terminal;
+    // everything else keeps text_margin free on both sides.
+    let margin = usize::from(theme.text_margin).min(width / 4);
     let mut lines = Vec::new();
     for (index, block) in document.blocks.iter().enumerate() {
         if index > 0 {
             lines.push(Line::blank());
         }
-        if indent == 0 || matches!(block, Block::Heading { .. }) {
-            lines.extend(layout.block(block, width, Context::default()));
-            continue;
-        }
-        for mut line in layout.block(block, width - indent, Context::default()) {
-            if !line.spans.is_empty() {
-                line.lead
-                    .insert(0, Span::new(&" ".repeat(indent), Style::default()));
+        match block {
+            Block::ThematicBreak => {
+                lines.push(layout.rule(usize::from(caps.width).max(width)));
             }
-            lines.push(line);
+            Block::Heading { .. } => lines.extend(layout.block(block, width, Context::default())),
+            _ => {
+                for mut line in layout.block(block, width - 2 * margin, Context::default()) {
+                    if margin > 0 && !line.spans.is_empty() {
+                        line.lead
+                            .insert(0, Span::new(&" ".repeat(margin), Style::default()));
+                    }
+                    lines.push(line);
+                }
+            }
         }
     }
     lines

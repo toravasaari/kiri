@@ -16,8 +16,8 @@ pub struct Theme {
     pub max_width: u16,
     /// Painted behind the whole document; `None` shows the terminal's own.
     pub background: Option<Color>,
-    /// Cells by which everything but headings is indented.
-    pub text_indent: u8,
+    /// Cells kept free on both sides of everything but headings and rules.
+    pub text_margin: u8,
     /// Styles for heading levels 1 to 6.
     pub headings: [HeadingTheme; 6],
     pub link: Option<Color>,
@@ -80,7 +80,7 @@ impl Default for Theme {
         Self {
             max_width: 100,
             background: None,
-            text_indent: 0,
+            text_margin: 0,
             headings: [
                 HeadingTheme::new(3, BLUE, true),
                 HeadingTheme::new(2, BLUE, true),
@@ -133,8 +133,8 @@ pub fn parse(text: &str) -> Result<Theme, String> {
     if let Some(max_width) = file.max_width {
         theme.max_width = max_width;
     }
-    if let Some(indent) = file.text_indent {
-        theme.text_indent = indent;
+    if let Some(margin) = file.text_margin {
+        theme.text_margin = margin;
     }
     set_color(&mut theme.background, file.background)?;
     // [headings] applies to every level, then [h1] to [h6] refine it.
@@ -217,7 +217,7 @@ fn apply_heading(
 struct ThemeFile {
     max_width: Option<u16>,
     background: Option<String>,
-    text_indent: Option<u8>,
+    text_margin: Option<u8>,
     headings: Option<HeadingFile>,
     h1: Option<HeadingFile>,
     h2: Option<HeadingFile>,

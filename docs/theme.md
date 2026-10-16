@@ -40,9 +40,9 @@ defaults use them.
 # Maximum text width in cells; 0 means the full terminal width.
 max_width = 100
 
-# Cells by which everything but headings is indented: paragraphs, lists,
-# quotes, tables and code blocks.
-text_indent = 0
+# Cells kept free on both sides of paragraphs, lists, quotes, tables and
+# code blocks. Headings start at the edge; rules span the whole terminal.
+text_margin = 0
 
 # A colour painted behind the whole document, or none to let the
 # terminal's own (possibly transparent) background show.

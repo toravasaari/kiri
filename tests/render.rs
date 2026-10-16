@@ -83,8 +83,8 @@ fn kitty_headings_on_an_opaque_document() {
 }
 
 #[test]
-fn text_indent_moves_everything_but_headings() {
-    let theme = kiri::theme::parse("text_indent = 2\n").unwrap();
+fn text_margin_narrows_everything_but_headings() {
+    let theme = kiri::theme::parse("text_margin = 2\n").unwrap();
     insta::assert_snapshot!(render_with(
         "elements.md",
         &Capabilities::plain(WIDTH),
@@ -93,7 +93,7 @@ fn text_indent_moves_everything_but_headings() {
 }
 
 #[test]
-fn heading_rules_span_the_terminal_past_max_width() {
+fn rules_span_the_terminal_past_max_width() {
     let theme = kiri::theme::parse("max_width = 20\n").unwrap();
     let document = kiri::parse::parse("# Title\n\nText\n\n---\n");
     let mut out = Vec::new();
@@ -104,8 +104,8 @@ fn heading_rules_span_the_terminal_past_max_width() {
         .map(|line| line.matches('─').count())
         .filter(|&count| count > 0)
         .collect();
-    // The heading rule fills the terminal; the thematic break keeps to max_width.
-    assert_eq!(rules, vec![30, 20]);
+    // Both the heading rule and the thematic break fill the terminal.
+    assert_eq!(rules, vec![30, 30]);
 }
 
 #[test]
