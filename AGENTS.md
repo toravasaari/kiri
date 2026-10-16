@@ -72,8 +72,12 @@ The network is strict there: crates.io and rustup work, GitHub does not.
 
 - Code is reviewed by a different agent running a different model from
   the one that wrote it.
-- A small review before every commit, and a larger one when a part of the
-  [roadmap](docs/roadmap.md) is finished.
+- Agents work on their own branch in the main checkout, one commit per
+  logical change, and the branch is reviewed before it is merged to
+  `master`. Review fixes go in as fixup commits squashed before the
+  merge.
+- A small review of every commit before the merge, and a larger one when a
+  part of the [roadmap](docs/roadmap.md) is finished.
 - Report the findings to the maintainer; fix only what is agreed.
 
 ## Commits
