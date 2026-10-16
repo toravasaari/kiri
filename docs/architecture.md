@@ -83,7 +83,7 @@ src/color.rs               colours and underline styles for theme and render
 src/render/mod.rs          document model -> terminal output
 src/render/layout.rs       document model -> styled lines of a fixed width
 src/render/wrap.rs         word wrapping for styled text
-src/render/table.rs        tables with box-drawing characters
+src/render/table.rs        tables with box-drawing characters, or stacked
 src/render/style.rs        styled text between layout and output
 src/render/output.rs       styled lines -> bytes (SGR, OSC 8, CSI C/K, OSC 66)
 src/render/highlight.rs    syntax highlighting for code blocks (syntect)

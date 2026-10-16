@@ -539,7 +539,7 @@ fn the_visual_check_document_fits_every_mode() {
         example_theme("background.toml"),
         example_theme("rules.toml"),
     ];
-    for terminal_width in [40, 80, 120] {
+    for terminal_width in [16, 24, 40, 80, 120] {
         for caps in [
             Capabilities::plain(terminal_width),
             Capabilities::ansi(terminal_width),
@@ -561,4 +561,33 @@ fn the_visual_check_document_fits_every_mode() {
             }
         }
     }
+}
+
+#[test]
+fn plain_tables() {
+    insta::assert_snapshot!(render("tables.md", &Capabilities::plain(WIDTH)));
+}
+
+#[test]
+fn kitty_tables() {
+    insta::assert_snapshot!(visible(&render("tables.md", &Capabilities::kitty(WIDTH))));
+}
+
+#[test]
+fn stacked_tables_nest_in_quotes_and_list_items() {
+    let table = "| City | Notes |\n|---|---|\n| Helsinki | Capital |\n| Oulu | North |\n";
+    let quoted: String = table.lines().map(|line| format!("> {line}\n")).collect();
+    let listed = table
+        .replacen("| City", "- | City", 1)
+        .replace("\n|", "\n  |");
+    let source = format!("{quoted}\n{listed}");
+    // Eighteen cells inside the quote and the item: too few for the
+    // borders, enough for a header and a value on one line.
+    assert_eq!(
+        render_source(&source, &Capabilities::plain(24), &Theme::default()),
+        "  > City: Helsinki\n  > Notes: Capital\n  > ──────────────────\n  \
+         > City: Oulu\n  > Notes: North\n\n  \
+         - City: Helsinki\n    Notes: Capital\n    ──────────────────\n    \
+         City: Oulu\n    Notes: North\n"
+    );
 }

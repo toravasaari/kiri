@@ -417,11 +417,11 @@ impl Layout<'_> {
                 .collect(),
             alignments: table.alignments.clone(),
         };
-        table::layout(
-            &cells,
-            width,
-            &self.style(Style::fg(self.theme.table_border)),
-        )
+        let styles = table::Styles {
+            border: self.style(Style::fg(self.theme.table_border)),
+            header: header_style,
+        };
+        table::layout(&cells, width, &styles)
     }
 
     fn rule(&self, width: usize) -> Line {

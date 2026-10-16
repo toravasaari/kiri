@@ -1,0 +1,47 @@
+---
+source: tests/render.rs
+expression: "visible(&render(\"tables.md\", &Capabilities::kitty(WIDTH)))"
+---
+␛[0;1;4;34m␛]66;s=3;Tables␛\␛[0m
+
+
+
+  A table that fits:
+
+  ␛[0;90m╭─────┬───────╮␛[0m
+  ␛[0;90m│␛[0m ␛[0;1mKey␛[0m ␛[0;90m│␛[0m ␛[0;1mValue␛[0m ␛[0;90m│␛[0m
+  ␛[0;90m├─────┼───────┤␛[0m
+  ␛[0;90m│␛[0m a   ␛[0;90m│␛[0m     1 ␛[0;90m│␛[0m
+  ␛[0;90m╰─────┴───────╯␛[0m
+
+  A table too wide to fit, stacked:
+
+  ␛[0;1mCity:␛[0m Helsinki
+  ␛[0;1mCountry:␛[0m Finland
+  ␛[0;1mPopulation:␛[0m 674500
+  ␛[0;1mNotes:␛[0m Capital, on the ␛[0;3mcoast␛[0m, see ␛]8;;https://www.hel.fi␛\␛[0;4;34mthe city␛]8;;␛\␛[0m
+  ␛[0;90m────────────────────────────────────────────␛[0m
+  ␛[0;1mCity:␛[0m Tampere
+  ␛[0;1mCountry:␛[0m Finland
+  ␛[0;1mPopulation:␛[0m 255000
+  ␛[0;1mNotes:␛[0m ␛[0;35;48;2;43;48;59m⍽inland⍽␛[0m
+  ␛[0;90m────────────────────────────────────────────␛[0m
+  ␛[0;1mCity:␛[0m Oulu
+  ␛[0;1mCountry:␛[0m
+  ␛[0;1mPopulation:␛[0m 215000
+  ␛[0;1mNotes:␛[0m
+
+  ␛[0;90m│ ␛[0;1mDescription:␛[0m sunny
+  ␛[0;90m│ ␛[0;1mTemperature:␛[0m 21 °C
+  ␛[0;90m│ ␛[0;1mMeasurement:␛[0m thermometer
+  ␛[0;90m│ ␛[0;1mObservation:␛[0m clear
+  ␛[0;90m│ ──────────────────────────────────────────␛[0m
+  ␛[0;90m│ ␛[0;1mDescription:␛[0m rain
+  ␛[0;90m│ ␛[0;1mTemperature:␛[0m 14 °C
+  ␛[0;90m│ ␛[0;1mMeasurement:␛[0m thermometer
+  ␛[0;90m│ ␛[0;1mObservation:␛[0m cloudy
+
+  ␛[0;90m• ␛[0;1mDescription:␛[0m snow
+    ␛[0;1mTemperature:␛[0m −5 °C
+    ␛[0;1mMeasurement:␛[0m thermometer
+    ␛[0;1mObservation:␛[0m ␛[0;1mwhite␛[0m

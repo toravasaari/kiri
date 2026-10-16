@@ -19,16 +19,15 @@ expression: "render(\"wide.md\", &Capabilities::plain(12))"
   narrow
   width.
 
-  ╭────┬────╮
-  │ 名 │ Em │
-  │ 前 │ oj │
-  │    │ i  │
-  ├────┼────┤
-  │ 東 │ 🦀 │
-  │ 京 │    │
-  │ Os │ 🌲 │
-  │ lo │ 🌲 │
-  ╰────┴────╯
+  名前:
+  東京
+  Emoji:
+  🦀
+  ────────
+  名前:
+  Oslo
+  Emoji:
+  🌲🌲
 
     let 名
     前 = "

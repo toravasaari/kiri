@@ -1,9 +1,8 @@
-//! Tables drawn with box-drawing characters.
+//! Tables drawn with box-drawing characters, or stacked when too narrow.
 
-use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use super::style::{Line, Span, Style};
+use super::style::{Line, Span, Style, push};
 use super::wrap::{width, wrap};
 use crate::model::Alignment;
 
@@ -14,9 +13,21 @@ pub struct Cells {
     pub alignments: Vec<Alignment>,
 }
 
+pub struct Styles {
+    pub border: Style,
+    /// For the colon after a header in a stacked table.
+    pub header: Style,
+}
+
+/// A word up to this many cells is split only when the table cannot fit
+/// otherwise; longer ones, such as URLs, may be split to make room.
+const SHORT_WORD: usize = 10;
+
 /// Columns shrink, widest first, until the table fits in `max` cells; cell
-/// text then wraps inside its column.
-pub fn layout(cells: &Cells, max: usize, border: &Style) -> Vec<Line> {
+/// text then wraps inside its column. A table that would have to split
+/// short words is stacked instead.
+pub fn layout(cells: &Cells, max: usize, styles: &Styles) -> Vec<Line> {
+    let border = &styles.border;
     let columns = cells
         .rows
         .iter()
@@ -27,7 +38,9 @@ pub fn layout(cells: &Cells, max: usize, border: &Style) -> Vec<Line> {
     if columns == 0 {
         return Vec::new();
     }
-    let widths = column_widths(cells, columns, max);
+    let Some(widths) = column_widths(cells, columns, max) else {
+        return stacked(cells, columns, max, styles);
+    };
 
     let mut lines = vec![border_line(&widths, ["╭", "┬", "╮"], border)];
     lines.extend(row_lines(&cells.header, &widths, &cells.alignments, border));
@@ -39,35 +52,98 @@ pub fn layout(cells: &Cells, max: usize, border: &Style) -> Vec<Line> {
     lines
 }
 
-fn column_widths(cells: &Cells, columns: usize, max: usize) -> Vec<usize> {
+/// Widths that fit in `max` without splitting short words, or `None`.
+fn column_widths(cells: &Cells, columns: usize, max: usize) -> Option<Vec<usize>> {
     let mut widths = vec![1; columns];
-    // A column narrower than its widest character, two cells for CJK and
-    // emoji, would push its borders out of line. When the minimums do not
-    // fit, the table is wider than `max` instead.
+    // No column is narrower than its longest short word. That covers its
+    // widest character too, two cells for CJK and emoji, which would push
+    // its borders out of line.
     let mut minimums = vec![1; columns];
     for row in std::iter::once(&cells.header).chain(&cells.rows) {
         for (column, cell) in row.iter().enumerate() {
             widths[column] = widths[column].max(width(cell));
-            minimums[column] = minimums[column].max(widest_grapheme(cell));
+            minimums[column] = minimums[column].max(longest_word(cell).min(SHORT_WORD));
         }
     }
     // Each column costs its padding and one border, plus the closing border.
-    let available = max.saturating_sub(3 * columns + 1).max(columns);
+    let available = max.checked_sub(3 * columns + 1)?;
+    if minimums.iter().sum::<usize>() > available {
+        return None;
+    }
     while widths.iter().sum::<usize>() > available {
-        let Some(widest) = (0..columns)
+        let widest = (0..columns)
             .filter(|&column| widths[column] > minimums[column])
             .max_by_key(|&column| widths[column])
-        else {
-            break;
-        };
+            .expect("the minimums fit");
         widths[widest] -= 1;
     }
-    widths
+    Some(widths)
 }
 
-fn widest_grapheme(cell: &[Span]) -> usize {
-    (cell.iter())
-        .flat_map(|span| span.text.graphemes(true))
+/// Each body row as a block of `Header: value` lines, separated by rules.
+/// When the longest header leaves too little room for its value, every
+/// value goes on the lines under its header.
+fn stacked(cells: &Cells, columns: usize, max: usize, styles: &Styles) -> Vec<Line> {
+    let empty = Vec::new();
+    let labels: Vec<Vec<Span>> = (0..columns)
+        .map(|column| {
+            let header = cells.header.get(column).unwrap_or(&empty);
+            let mut label = header.clone();
+            if !is_empty(header) {
+                push(&mut label, ":", &styles.header);
+            }
+            label
+        })
+        .collect();
+    let longest = labels.iter().map(|label| width(label)).max().unwrap_or(0);
+    let tight = max < longest + 1 + SHORT_WORD;
+    // A table with a header only still shows its headers.
+    let rows: &[Vec<Vec<Span>>] = if cells.rows.is_empty() {
+        &[Vec::new()]
+    } else {
+        &cells.rows
+    };
+
+    let mut lines = Vec::new();
+    for (index, row) in rows.iter().enumerate() {
+        if index > 0 {
+            lines.push(Line::new(vec![Span::new(
+                &"─".repeat(max),
+                styles.border.clone(),
+            )]));
+        }
+        for (label, value) in labels
+            .iter()
+            .zip(row.iter().chain(std::iter::repeat(&empty)))
+        {
+            let mut parts: Vec<Vec<Span>> = Vec::new();
+            match (is_empty(label), is_empty(value)) {
+                (true, true) => {}
+                (true, false) => parts.push(value.clone()),
+                (false, true) => parts.push(label.clone()),
+                (false, false) if tight => parts.extend([label.clone(), value.clone()]),
+                (false, false) => {
+                    let mut spans = label.clone();
+                    push(&mut spans, " ", &Style::default());
+                    spans.extend(value.iter().cloned());
+                    parts.push(spans);
+                }
+            }
+            for part in parts {
+                lines.extend(wrap(&part, max).into_iter().map(Line::new));
+            }
+        }
+    }
+    lines
+}
+
+fn is_empty(cell: &[Span]) -> bool {
+    cell.iter().all(|span| span.text.trim().is_empty())
+}
+
+fn longest_word(cell: &[Span]) -> usize {
+    let text: String = cell.iter().map(|span| span.text.as_str()).collect();
+    text.split([' ', '\n'])
         .map(UnicodeWidthStr::width)
         .max()
         .unwrap_or(0)
@@ -123,6 +199,13 @@ mod tests {
         vec![Span::new(text, Style::default())]
     }
 
+    fn styles() -> Styles {
+        Styles {
+            border: Style::default(),
+            header: Style::default(),
+        }
+    }
+
     fn text(lines: &[Line]) -> Vec<String> {
         lines
             .iter()
@@ -138,7 +221,7 @@ mod tests {
             alignments: vec![Alignment::Left, Alignment::Right],
         };
         assert_eq!(
-            text(&layout(&cells, 80, &Style::default())),
+            text(&layout(&cells, 80, &styles())),
             vec![
                 "╭──────┬───────╮",
                 "│ left │ right │",
@@ -156,34 +239,26 @@ mod tests {
             rows: vec![vec![cell("1"), cell("a long piece of text")]],
             alignments: vec![],
         };
-        let lines = text(&layout(&cells, 20, &Style::default()));
+        let lines = text(&layout(&cells, 20, &styles()));
         assert!(lines.iter().all(|line| line.width() <= 20), "{lines:#?}");
         assert_eq!(lines[3], "│ 1  │ a long      │");
         assert_eq!(lines[4], "│    │ piece of    │");
     }
 
     #[test]
-    fn a_column_is_never_narrower_than_its_widest_character() {
+    fn an_odd_width_column_of_wide_characters_keeps_its_borders_in_line() {
+        // A word of twelve cells may split; at eleven cells, five of its
+        // characters fit and the borders stay in line.
         let cells = Cells {
-            header: vec![cell("名前"), cell("Emoji")],
-            rows: vec![
-                vec![cell("東京"), cell("🦀")],
-                vec![cell("Oslo"), cell("x")],
-            ],
+            header: vec![cell("名前名前名前"), cell("ab")],
+            rows: vec![vec![cell("東京"), cell("🦀")]],
             alignments: vec![],
         };
-        let lines = text(&layout(&cells, 8, &Style::default()));
+        let lines = text(&layout(&cells, 20, &styles()));
         let widths: Vec<usize> = lines.iter().map(|line| line.width()).collect();
-        assert!(widths.iter().all(|&w| w == widths[0]), "{lines:#?}");
-        assert!(lines.contains(&"│ 東 │ 🦀 │".to_owned()), "{lines:#?}");
-        // A column of narrow characters still shrinks to one cell.
-        let cells = Cells {
-            header: vec![cell("名前"), cell("ab")],
-            rows: vec![],
-            alignments: vec![],
-        };
-        let lines = text(&layout(&cells, 8, &Style::default()));
-        assert_eq!(lines[1], "│ 名 │ a │");
+        assert!(widths.iter().all(|&w| w == 20), "{lines:#?}");
+        assert_eq!(lines[1], "│ 名前名前名  │ ab │");
+        assert_eq!(lines[2], "│ 前          │    │");
     }
 
     #[test]
@@ -193,6 +268,129 @@ mod tests {
             rows: vec![vec![cell("1")]],
             alignments: vec![],
         };
-        assert_eq!(text(&layout(&cells, 80, &Style::default()))[3], "│ 1 │   │");
+        assert_eq!(text(&layout(&cells, 80, &styles()))[3], "│ 1 │   │");
+    }
+
+    fn table(header: &[&str], rows: &[&[&str]]) -> Cells {
+        Cells {
+            header: header.iter().map(|text| cell(text)).collect(),
+            rows: (rows.iter())
+                .map(|row| row.iter().map(|text| cell(text)).collect())
+                .collect(),
+            alignments: vec![],
+        }
+    }
+
+    #[test]
+    fn narrows_other_columns_before_splitting_a_short_word() {
+        let cells = table(
+            &["Name", "Notes"],
+            &[&["Wonderful things happen", "x y z w v u t s r q p"]],
+        );
+        let lines = text(&layout(&cells, 21, &styles()));
+        assert!(lines.iter().all(|line| line.width() <= 21), "{lines:#?}");
+        assert_eq!(lines[0], "╭───────────┬───────╮");
+        assert_eq!(lines[3], "│ Wonderful │ x y z │");
+    }
+
+    #[test]
+    fn a_long_url_alone_does_not_stack_the_table() {
+        let cells = table(&["Link"], &[&["https://example.com/a/very/long/path"]]);
+        let lines = text(&layout(&cells, 20, &styles()));
+        assert!(lines.iter().all(|line| line.width() <= 20), "{lines:#?}");
+        assert_eq!(lines[3], "│ https://example. │");
+    }
+
+    #[test]
+    fn stacks_a_table_whose_short_words_do_not_fit() {
+        let cells = table(
+            &["Name", "Notes"],
+            &[
+                &["Helsinki", "Capital of Finland since 1812"],
+                &["Tampere", "Inland"],
+            ],
+        );
+        assert_eq!(
+            text(&layout(&cells, 20, &styles())),
+            vec![
+                "Name: Helsinki",
+                "Notes: Capital of",
+                "Finland since 1812",
+                "────────────────────",
+                "Name: Tampere",
+                "Notes: Inland",
+            ]
+        );
+    }
+
+    #[test]
+    fn puts_values_under_headers_that_leave_too_little_room() {
+        let cells = table(&["Population", "Capital"], &[&["5600000", "Helsinki"]]);
+        assert_eq!(
+            text(&layout(&cells, 16, &styles())),
+            vec!["Population:", "5600000", "Capital:", "Helsinki"]
+        );
+    }
+
+    #[test]
+    fn stacked_cells_without_a_header_or_a_value() {
+        let cells = table(&["", "City", "Notes"], &[&["10th", "Helsinki", ""]]);
+        assert_eq!(
+            text(&layout(&cells, 18, &styles())),
+            vec!["10th", "City: Helsinki", "Notes:"]
+        );
+        // A row longer than the header, and a cell empty on both sides.
+        let cells = table(&["City", ""], &[&["Helsinki", "", "Finland"]]);
+        assert_eq!(
+            text(&layout(&cells, 18, &styles())),
+            vec!["City: Helsinki", "Finland"]
+        );
+        // A table with a header only shows its headers.
+        let cells = table(&["Population", "Capital"], &[]);
+        assert_eq!(
+            text(&layout(&cells, 16, &styles())),
+            vec!["Population:", "Capital:"]
+        );
+    }
+
+    #[test]
+    fn stacked_cells_keep_their_styles() {
+        let bold = Style {
+            bold: true,
+            ..Style::default()
+        };
+        let code = Style {
+            italic: true,
+            ..Style::default()
+        };
+        let border = Style {
+            dim: true,
+            ..Style::default()
+        };
+        let cells = Cells {
+            header: vec![
+                vec![Span::new("Name", bold.clone())],
+                vec![Span::new("Notes", bold.clone())],
+            ],
+            rows: vec![
+                vec![cell("Helsinki"), vec![Span::new("capital", code.clone())]],
+                vec![cell("Tampere"), cell("inland")],
+            ],
+            alignments: vec![],
+        };
+        let styles = Styles {
+            border: border.clone(),
+            header: bold.clone(),
+        };
+        let lines = layout(&cells, 20, &styles);
+        assert_eq!(
+            lines[1].spans,
+            vec![
+                Span::new("Notes:", bold),
+                Span::new(" ", Style::default()),
+                Span::new("capital", code),
+            ]
+        );
+        assert_eq!(lines[2].spans, vec![Span::new(&"─".repeat(20), border)]);
     }
 }
