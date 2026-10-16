@@ -1,4 +1,5 @@
-//! Styled lines to bytes: SGR attributes, OSC 8 hyperlinks, scaled text.
+//! Styled lines to bytes: SGR attributes, OSC 8 hyperlinks, cursor movement,
+//! and scaled text through `kitty::text`.
 
 use std::io::{self, Write};
 
