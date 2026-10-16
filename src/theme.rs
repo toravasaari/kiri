@@ -40,6 +40,7 @@ pub struct HeadingTheme {
     pub scale: u8,
     pub color: Option<Color>,
     pub bold: bool,
+    pub italic: bool,
     /// Draw a rule under the heading, as GitHub does for levels 1 and 2.
     pub rule: bool,
     pub underline: Underline,
@@ -62,6 +63,7 @@ impl HeadingTheme {
             scale,
             color,
             bold: true,
+            italic: false,
             rule,
             underline: Underline::None,
             background: None,
@@ -199,6 +201,9 @@ fn apply_heading(
     if let Some(bold) = overrides.bold {
         heading.bold = bold;
     }
+    if let Some(italic) = overrides.italic {
+        heading.italic = italic;
+    }
     if let Some(rule) = overrides.rule {
         heading.rule = rule;
     }
@@ -243,6 +248,7 @@ struct HeadingFile {
     scale: Option<u8>,
     color: Option<String>,
     bold: Option<bool>,
+    italic: Option<bool>,
     rule: Option<bool>,
     underline: Option<String>,
     background: Option<String>,

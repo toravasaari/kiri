@@ -107,6 +107,7 @@ impl Layout<'_> {
         };
         let style = self.style(Style {
             bold: heading.bold,
+            italic: heading.italic,
             fg: heading.color,
             bg: heading.background,
             underline: heading.underline,
