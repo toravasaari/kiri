@@ -140,6 +140,9 @@ impl Layout<'_> {
             bg: heading.background,
             ..Style::default()
         });
+        let mut text = Vec::new();
+        self.inlines(content, &style, &mut text);
+        let empty = text.is_empty();
         let mut spans = Vec::new();
         if !self.caps.styling {
             push(
@@ -148,7 +151,7 @@ impl Layout<'_> {
                 &style,
             );
         }
-        self.inlines(content, &style, &mut spans);
+        spans.extend(text);
         // A nested heading's indent would land before the quote bar or the
         // list marker, which are prepended later.
         let indent = if context.nested {
@@ -163,29 +166,34 @@ impl Layout<'_> {
         };
         // In characters of the heading's size.
         let available = (width - indent) / usize::from(scale);
-        let mut lines: Vec<Line> = wrap(&spans, available)
-            .into_iter()
-            .map(|mut spans| {
-                let mut trail = Vec::new();
-                if background.bg.is_some() {
-                    let used = super::wrap::width(&spans);
-                    // A wide character can overflow a very narrow heading.
-                    let fill = available.saturating_sub(used);
-                    push(&mut spans, &" ".repeat(fill), &background);
-                    // Scaled text covers a multiple of the scale; cells of
-                    // normal size fill the rest of the width.
-                    let scaled = (used + fill) * usize::from(scale);
-                    let rest = (width - indent).saturating_sub(scaled);
-                    push(&mut trail, &" ".repeat(rest), &background);
-                }
-                Line {
-                    lead: lead.clone(),
-                    spans,
-                    trail,
-                    scale,
-                }
-            })
-            .collect();
+        // An empty heading takes no room, but keeps its rule.
+        let mut lines: Vec<Line> = if empty {
+            Vec::new()
+        } else {
+            wrap(&spans, available)
+                .into_iter()
+                .map(|mut spans| {
+                    let mut trail = Vec::new();
+                    if background.bg.is_some() {
+                        let used = super::wrap::width(&spans);
+                        // A wide character can overflow a very narrow heading.
+                        let fill = available.saturating_sub(used);
+                        push(&mut spans, &" ".repeat(fill), &background);
+                        // Scaled text covers a multiple of the scale; cells of
+                        // normal size fill the rest of the width.
+                        let scaled = (used + fill) * usize::from(scale);
+                        let rest = (width - indent).saturating_sub(scaled);
+                        push(&mut trail, &" ".repeat(rest), &background);
+                    }
+                    Line {
+                        lead: lead.clone(),
+                        spans,
+                        trail,
+                        scale,
+                    }
+                })
+                .collect()
+        };
         if heading.rule && self.caps.styling {
             // A top-level heading's rule spans the whole terminal, past
             // max_width, to mark the section boundary.

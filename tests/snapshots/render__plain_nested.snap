@@ -40,7 +40,5 @@ expression: "render(\"nested.md\", &Capabilities::plain(WIDTH))"
   -
   - Item after an empty one
 
-#
-
     let line = "long enough to wrap at the tes
     t width, spaces and all";

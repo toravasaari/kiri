@@ -203,6 +203,44 @@ fn empty_blocks_get_no_separator() {
 }
 
 #[test]
+fn empty_headings_disappear() {
+    let theme = Theme::default();
+    let source = "Before\n\n#\n\n##\n\nAfter\n\n> #\n";
+    for caps in [
+        Capabilities::plain(WIDTH),
+        Capabilities::ansi(WIDTH),
+        Capabilities::kitty(WIDTH),
+    ] {
+        let out = render_source(source, &caps, &theme);
+        assert_eq!(
+            strip_own_sequences(&out),
+            "  Before\n\n  After\n",
+            "{caps:?}"
+        );
+        assert!(!out.contains("\x1b]66;"), "{out:?}");
+    }
+}
+
+#[test]
+fn a_heading_that_renders_nothing_disappears() {
+    // An empty link shows nothing when links are clickable.
+    let source = "Before\n\n# [](https://example.com)\n\nAfter\n";
+    let out = render_source(source, &Capabilities::kitty(WIDTH), &Theme::default());
+    assert_eq!(strip_own_sequences(&out), "  Before\n\n  After\n");
+}
+
+#[test]
+fn an_empty_heading_keeps_its_rule() {
+    let theme = kiri::theme::parse("[h1]\nrule = true\n").unwrap();
+    let out = render_source("Before\n\n#\n\nAfter\n", &Capabilities::kitty(20), &theme);
+    let rule = "─".repeat(20);
+    assert_eq!(
+        strip_own_sequences(&out),
+        format!("  Before\n\n{rule}\n\n  After\n")
+    );
+}
+
+#[test]
 fn tiny_widths_do_not_underflow() {
     // A wide character in a heading scaled to one character per line.
     let theme = kiri::theme::parse("[h1]\nscale = 7\nbackground = \"blue\"\n").unwrap();

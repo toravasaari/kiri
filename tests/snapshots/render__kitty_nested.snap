@@ -46,10 +46,6 @@ expression: "visible(&render(\"nested.md\", &Capabilities::kitty(WIDTH)))"
   ␛[0;90m• ␛[0m
   ␛[0;90m• ␛[0mItem after an empty one
 
-
-
-
-
   ␛[0;48;2;43;48;59m                                            ␛[0m
   ␛[0;48;2;43;48;59m                                            ␛[0m
 
