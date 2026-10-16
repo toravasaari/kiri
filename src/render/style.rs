@@ -82,6 +82,9 @@ pub struct Line {
     /// occupies, so an indent keeps its colour beside scaled text.
     pub lead: Vec<Span>,
     pub spans: Vec<Span>,
+    /// Normal-size cells after the text on every row the line occupies, so
+    /// a background reaches the edge when the scaled text cannot.
+    pub trail: Vec<Span>,
     pub scale: u8,
 }
 
@@ -90,6 +93,7 @@ impl Line {
         Self {
             lead: Vec::new(),
             spans,
+            trail: Vec::new(),
             scale: 1,
         }
     }

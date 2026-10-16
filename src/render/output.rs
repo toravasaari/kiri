@@ -2,7 +2,7 @@
 
 use std::io::{self, Write};
 
-use super::style::{Color, Line, Style, Underline};
+use super::style::{Color, Line, Span, Style, Underline};
 use super::wrap::width;
 use crate::kitty;
 use crate::term::Capabilities;
@@ -28,7 +28,7 @@ pub fn write(
     };
     for line in lines {
         if !caps.styling {
-            let text: String = (line.lead.iter().chain(&line.spans))
+            let text: String = (line.lead.iter().chain(&line.spans).chain(&line.trail))
                 .map(|span| span.text.as_str())
                 .collect();
             writeln!(out, "{}", text.trim_end())?;
@@ -36,16 +36,12 @@ pub fn write(
         }
         let scale = line.scale.max(1);
         // A scaled line occupies `scale` rows but is written only on the
-        // first; the rows below get the lead and the fill around it.
+        // first; the rows below get the lead, the trail and the fill around
+        // it.
         let block_width = width(&line.spans) * usize::from(scale);
         for row in 0..scale {
             let mut current = Style::default();
-            for span in &line.lead {
-                let style = paint(&span.style);
-                transition(&current, &style, caps, out)?;
-                out.write_all(span.text.as_bytes())?;
-                current = style;
-            }
+            write_spans(&line.lead, paint, &mut current, caps, out)?;
             if row == 0 {
                 for span in &line.spans {
                     let style = paint(&span.style);
@@ -57,11 +53,12 @@ pub fn write(
                     }
                     current = style;
                 }
-            } else if background.is_some() && block_width > 0 {
-                // Step over the scaled text to fill the rest of the row.
-                // `CSI 0 C` would still move one cell.
+            } else if (background.is_some() || !line.trail.is_empty()) && block_width > 0 {
+                // Step over the scaled text to write the trail and fill the
+                // rest of the row. `CSI 0 C` would still move one cell.
                 write!(out, "\x1b[{block_width}C")?;
             }
+            write_spans(&line.trail, paint, &mut current, caps, out)?;
             if background.is_some() {
                 // Erase to the end of the line in the background colour.
                 transition(&current, &fill, caps, out)?;
@@ -71,6 +68,23 @@ pub fn write(
             transition(&current, &Style::default(), caps, out)?;
             out.write_all(b"\n")?;
         }
+    }
+    Ok(())
+}
+
+/// Writes normal-size spans, leaving `current` at the last one's style.
+fn write_spans(
+    spans: &[Span],
+    paint: impl Fn(&Style) -> Style,
+    current: &mut Style,
+    caps: &Capabilities,
+    out: &mut impl Write,
+) -> io::Result<()> {
+    for span in spans {
+        let style = paint(&span.style);
+        transition(current, &style, caps, out)?;
+        out.write_all(span.text.as_bytes())?;
+        *current = style;
     }
     Ok(())
 }
@@ -188,6 +202,7 @@ mod tests {
         let line = Line {
             lead: Vec::new(),
             spans: Vec::new(),
+            trail: Vec::new(),
             scale: 2,
         };
         let mut out = Vec::new();

@@ -107,6 +107,32 @@ fn kitty_headings_on_a_background() {
 }
 
 #[test]
+fn heading_background_reaches_the_right_edge() {
+    use kiri::render::wrap::width;
+    let document = kiri::parse::parse("# One\n\n## Two\n");
+    // Indented by one cell, and at the edge on an opaque document.
+    let unindented = "background = \"#1c1f26\"\n\
+        [h1]\nbackground = \"#2b303b\"\n[h2]\nbackground = \"#232830\"\n";
+    let themes = [
+        example_theme("background.toml"),
+        kiri::theme::parse(unindented).unwrap(),
+    ];
+    // Scales 3 and 2 leave a remainder at most of these widths.
+    for theme in &themes {
+        for terminal_width in [46, 47, 48, 49] {
+            let caps = Capabilities::kitty(terminal_width);
+            let lines = kiri::render::layout::layout(&document, &caps, theme);
+            for line in lines.iter().filter(|line| line.scale > 1) {
+                let cells = width(&line.lead)
+                    + width(&line.spans) * usize::from(line.scale)
+                    + width(&line.trail);
+                assert_eq!(cells, usize::from(terminal_width), "{line:?}");
+            }
+        }
+    }
+}
+
+#[test]
 fn kitty_headings_on_an_opaque_document() {
     let theme = example_theme("opaque.toml");
     insta::assert_snapshot!(visible(&render_with(

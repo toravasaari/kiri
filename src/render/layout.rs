@@ -156,15 +156,22 @@ impl Layout<'_> {
         let mut lines: Vec<Line> = wrap(&spans, available)
             .into_iter()
             .map(|mut spans| {
+                let mut trail = Vec::new();
                 if background.bg.is_some() {
                     let used = super::wrap::width(&spans);
                     // A wide character can overflow a very narrow heading.
                     let fill = available.saturating_sub(used);
                     push(&mut spans, &" ".repeat(fill), &background);
+                    // Scaled text covers a multiple of the scale; cells of
+                    // normal size fill the rest of the width.
+                    let scaled = (used + fill) * usize::from(scale);
+                    let rest = (width - indent).saturating_sub(scaled);
+                    push(&mut trail, &" ".repeat(rest), &background);
                 }
                 Line {
                     lead: lead.clone(),
                     spans,
+                    trail,
                     scale,
                 }
             })
