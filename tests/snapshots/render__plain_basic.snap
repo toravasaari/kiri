@@ -1,0 +1,11 @@
+---
+source: tests/render.rs
+expression: "render_plain(\"basic.md\")"
+---
+# kiri
+
+A paragraph with emphasis, strong text and inline code, continued on a second source line.
+
+## Second level
+
+Another paragraph.

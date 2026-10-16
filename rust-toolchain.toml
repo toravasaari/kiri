@@ -1,0 +1,4 @@
+# Read by rustup only; it installs the components `make check` needs.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

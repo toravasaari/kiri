@@ -1,0 +1,21 @@
+[package]
+name = "kiri-md"
+version = "0.1.0"
+edition = "2024"
+description = "Markdown reader for the kitty terminal"
+readme = "README.md"
+publish = false
+
+[lib]
+name = "kiri"
+
+[[bin]]
+name = "kiri"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.6", features = ["derive"] }
+comrak = { version = "0.56", default-features = false }
+
+[dev-dependencies]
+insta = "1.49"
