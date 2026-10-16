@@ -3,10 +3,11 @@
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use super::style::{Span, Style, push};
+use super::style::{Spaces, Span, Style, push};
 
 enum Token {
     Word(Vec<Span>),
+    /// One space; its style says whether it collapses.
     Space(Style),
     Break,
 }
@@ -16,62 +17,122 @@ pub fn width(spans: &[Span]) -> usize {
     spans.iter().map(|span| span.text.width()).sum()
 }
 
-/// Wraps at spaces to lines of at most `max` cells. Runs of spaces collapse
-/// to one, `\n` forces a break, and a word longer than a line is split.
+/// Wraps at spaces to lines of at most `max` cells. `\n` forces a break, and
+/// a word longer than a line is split. Runs of spaces collapse to one unless
+/// their style keeps them; either way, the spaces where a line breaks are
+/// dropped.
 pub fn wrap(spans: &[Span], max: usize) -> Vec<Vec<Span>> {
-    let max = max.max(1);
-    let mut lines = Vec::new();
-    let mut line = Vec::new();
-    let mut used = 0;
-    let mut space: Option<Style> = None;
-
+    let mut wrapper = Wrapper {
+        max: max.max(1),
+        lines: Vec::new(),
+        line: Vec::new(),
+        used: 0,
+        gap: Vec::new(),
+    };
     for token in tokenize(spans) {
-        match token {
-            Token::Break => {
-                lines.push(std::mem::take(&mut line));
-                used = 0;
-                space = None;
-            }
-            Token::Space(style) => {
-                if used > 0 {
-                    space = Some(style);
-                }
-            }
-            Token::Word(word) => {
-                let word_width = width(&word);
-                let gap = usize::from(space.is_some());
-                if used + gap + word_width <= max {
-                    if let Some(style) = space.take() {
-                        push(&mut line, " ", &style);
-                    }
-                    append(&mut line, &word);
-                    used += gap + word_width;
-                } else if word_width <= max {
-                    lines.push(std::mem::take(&mut line));
-                    append(&mut line, &word);
-                    used = word_width;
-                    space = None;
-                } else {
-                    if let Some(style) = space.take() {
-                        // The space needs room for the word's first character
-                        // after it, or the word starts on a new line.
-                        if used + 1 + first_width(&word) <= max {
-                            push(&mut line, " ", &style);
-                            used += 1;
-                        } else {
-                            lines.push(std::mem::take(&mut line));
-                            used = 0;
-                        }
-                    }
-                    split_long_word(&word, max, &mut lines, &mut line, &mut used);
-                }
-            }
-        }
+        wrapper.token(token);
     }
+    let Wrapper {
+        mut lines, line, ..
+    } = wrapper;
     if !line.is_empty() || lines.is_empty() {
         lines.push(line);
     }
     lines
+}
+
+struct Wrapper {
+    max: usize,
+    lines: Vec<Vec<Span>>,
+    line: Vec<Span>,
+    used: usize,
+    /// Spaces waiting for the next word on the line.
+    gap: Vec<Span>,
+}
+
+impl Wrapper {
+    fn token(&mut self, token: Token) {
+        match token {
+            Token::Break => {
+                self.lines.push(std::mem::take(&mut self.line));
+                self.used = 0;
+                self.gap.clear();
+            }
+            Token::Space(style) => {
+                if !self.collapses(&style) {
+                    push(&mut self.gap, " ", &style);
+                }
+            }
+            Token::Word(word) => self.word(&word),
+        }
+    }
+
+    /// Whether a space in `style` adds nothing to the gap. A kept space
+    /// always counts. An ordinary one disappears after another ordinary
+    /// space, counts after a kept one, and with nothing in the gap counts
+    /// only after text on the line.
+    fn collapses(&self, style: &Style) -> bool {
+        if style.spaces != Spaces::Collapse {
+            return false;
+        }
+        match self.gap.last() {
+            Some(last) => last.style.spaces == Spaces::Collapse,
+            None => self.used == 0,
+        }
+    }
+
+    fn word(&mut self, word: &[Span]) {
+        let word_width = width(word);
+        let gap = width(&self.gap);
+        if self.used + gap + word_width <= self.max {
+            self.place_gap();
+            append(&mut self.line, word);
+            self.used += word_width;
+        } else if word_width <= self.max {
+            self.break_line();
+            append(&mut self.line, word);
+            self.used = word_width;
+        } else {
+            // The gap needs room for the word's first character after it,
+            // or the word starts on a new line.
+            if self.used + gap + first_width(word) <= self.max {
+                self.place_gap();
+            } else {
+                self.break_line();
+            }
+            self.split_long_word(word);
+        }
+    }
+
+    fn place_gap(&mut self) {
+        self.used += width(&self.gap);
+        append(&mut self.line, &std::mem::take(&mut self.gap));
+    }
+
+    /// Starts a new line unless the current one is empty. The gap goes: a
+    /// line never starts with the spaces it broke at.
+    fn break_line(&mut self) {
+        if !self.line.is_empty() {
+            self.lines.push(std::mem::take(&mut self.line));
+        }
+        self.used = 0;
+        self.gap.clear();
+    }
+
+    /// Breaks a word between graphemes wherever the line is full.
+    fn split_long_word(&mut self, word: &[Span]) {
+        for span in word {
+            for grapheme in span.text.graphemes(true) {
+                let grapheme_width = grapheme.width();
+                if self.used + grapheme_width > self.max && self.used > 0 {
+                    self.lines.push(std::mem::take(&mut self.line));
+                    self.used = 0;
+                }
+                push(&mut self.line, grapheme, &span.style);
+                self.used += grapheme_width;
+            }
+        }
+    }
 }
 
 fn append(line: &mut Vec<Span>, word: &[Span]) {
@@ -85,27 +146,6 @@ fn first_width(word: &[Span]) -> usize {
         .flat_map(|span| span.text.graphemes(true))
         .next()
         .map_or(0, UnicodeWidthStr::width)
-}
-
-/// Breaks a word between graphemes wherever the line is full.
-fn split_long_word(
-    word: &[Span],
-    max: usize,
-    lines: &mut Vec<Vec<Span>>,
-    line: &mut Vec<Span>,
-    used: &mut usize,
-) {
-    for span in word {
-        for grapheme in span.text.graphemes(true) {
-            let grapheme_width = grapheme.width();
-            if *used + grapheme_width > max && *used > 0 {
-                lines.push(std::mem::take(line));
-                *used = 0;
-            }
-            push(line, grapheme, &span.style);
-            *used += grapheme_width;
-        }
-    }
 }
 
 fn tokenize(spans: &[Span]) -> Vec<Token> {
@@ -205,6 +245,183 @@ mod tests {
     fn counts_wide_characters_as_two_cells() {
         let lines = wrap(&plain("日本 語"), 4);
         assert_eq!(texts(&lines), vec!["日本", "語"]);
+    }
+
+    #[test]
+    fn keeps_spaces_whose_style_keeps_them() {
+        let kept = Style {
+            spaces: Spaces::Keep,
+            ..Style::default()
+        };
+        let spans = vec![
+            Span::new("run ", Style::default()),
+            Span::new("git  commit", kept.clone()),
+            Span::new(" now", Style::default()),
+        ];
+        assert_eq!(texts(&wrap(&spans, 40)), vec!["run git  commit now"]);
+        // An ordinary space next to kept ones stays as well.
+        let spans = vec![
+            Span::new("a ", Style::default()),
+            Span::new("  b", kept.clone()),
+        ];
+        assert_eq!(texts(&wrap(&spans, 40)), vec!["a   b"]);
+        // At a break the spaces go, however many there are.
+        let spans = vec![Span::new("aaa   bbb  c", kept)];
+        assert_eq!(texts(&wrap(&spans, 6)), vec!["aaa", "bbb  c"]);
+    }
+
+    #[test]
+    fn fills_a_line_to_exactly_the_width() {
+        let lines = wrap(&plain("aaa bbb ccc"), 7);
+        assert_eq!(texts(&lines), vec!["aaa bbb", "ccc"]);
+        // A width of zero counts as one.
+        let lines = wrap(&plain("ab"), 0);
+        assert_eq!(texts(&lines), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn empty_text_is_one_empty_line() {
+        assert_eq!(texts(&wrap(&plain(""), 10)), vec![""]);
+        assert_eq!(texts(&wrap(&plain("   "), 10)), vec![""]);
+    }
+
+    #[test]
+    fn hard_breaks_keep_empty_lines_and_drop_the_spaces_around_them() {
+        let lines = wrap(&plain("one \n\n  two"), 20);
+        assert_eq!(texts(&lines), vec!["one", "", "two"]);
+        let lines = wrap(&plain("one\n"), 20);
+        assert_eq!(texts(&lines), vec!["one"]);
+    }
+
+    #[test]
+    fn a_run_of_spaces_in_several_styles_is_one_space() {
+        let bold = Style {
+            bold: true,
+            ..Style::default()
+        };
+        let spans = vec![
+            Span::new("a ", Style::default()),
+            Span::new(" ", bold),
+            Span::new(" b", Style::default()),
+        ];
+        assert_eq!(texts(&wrap(&spans, 20)), vec!["a b"]);
+        assert_eq!(texts(&wrap(&spans, 2)), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn styles_carry_across_a_break() {
+        let bold = Style {
+            bold: true,
+            ..Style::default()
+        };
+        let spans = vec![
+            Span::new("aa ", Style::default()),
+            Span::new("bold words", bold.clone()),
+            Span::new(" cc", Style::default()),
+        ];
+        let lines = wrap(&spans, 7);
+        assert_eq!(texts(&lines), vec!["aa bold", "words", "cc"]);
+        assert_eq!(lines[1], vec![Span::new("words", bold)]);
+        assert_eq!(lines[2], vec![Span::new("cc", Style::default())]);
+    }
+
+    #[test]
+    fn a_link_keeps_its_target_on_every_line() {
+        let link = Style {
+            link: Some("https://example.com".into()),
+            ..Style::default()
+        };
+        let spans = vec![Span::new("click here now", link.clone())];
+        let lines = wrap(&spans, 6);
+        assert_eq!(texts(&lines), vec!["click", "here", "now"]);
+        assert!(lines.iter().flatten().all(|span| span.style == link));
+    }
+
+    #[test]
+    fn a_long_word_keeps_its_styles_when_split() {
+        let bold = Style {
+            bold: true,
+            ..Style::default()
+        };
+        let spans = vec![
+            Span::new("abc", Style::default()),
+            Span::new("def", bold.clone()),
+        ];
+        let lines = wrap(&spans, 4);
+        assert_eq!(texts(&lines), vec!["abcd", "ef"]);
+        assert_eq!(lines[1], vec![Span::new("ef", bold)]);
+        // After a hard break, too.
+        let lines = wrap(&plain("x\nabcdefg"), 3);
+        assert_eq!(texts(&lines), vec!["x", "abc", "def", "g"]);
+    }
+
+    #[test]
+    fn wide_characters_break_before_they_would_overflow() {
+        let lines = wrap(&plain("日本語"), 5);
+        assert_eq!(texts(&lines), vec!["日本", "語"]);
+        let lines = wrap(&plain("ab 日本"), 4);
+        assert_eq!(texts(&lines), vec!["ab", "日本"]);
+        // Known limitation: one cell is too narrow for a wide character.
+        let lines = wrap(&plain("日本"), 1);
+        assert_eq!(texts(&lines), vec!["日", "本"]);
+    }
+
+    fn kept(text: &str) -> Span {
+        let style = Style {
+            spaces: Spaces::Keep,
+            ..Style::default()
+        };
+        Span::new(text, style)
+    }
+
+    #[test]
+    fn keeps_spaces_at_the_start_of_a_paragraph_and_after_a_hard_break() {
+        assert_eq!(texts(&wrap(&[kept("  x")], 10)), vec!["  x"]);
+        let spans = vec![Span::new("a\n", Style::default()), kept("  b")];
+        assert_eq!(texts(&wrap(&spans, 10)), vec!["a", "  b"]);
+    }
+
+    #[test]
+    fn a_kept_gap_before_a_word_longer_than_the_line() {
+        let long = Span::new("verylongword", Style::default());
+        // Room for the gap and the first character: the word starts here.
+        let spans = vec![Span::new("ab", Style::default()), kept("  "), long.clone()];
+        assert_eq!(texts(&wrap(&spans, 10)), vec!["ab  verylo", "ngword"]);
+        // No room: the gap goes and the word starts a new line.
+        let spans = vec![Span::new("abcdefgh", Style::default()), kept("  "), long];
+        assert_eq!(
+            texts(&wrap(&spans, 10)),
+            vec!["abcdefgh", "verylongwo", "rd"]
+        );
+    }
+
+    #[test]
+    fn a_kept_run_wider_than_the_line_disappears_at_the_break() {
+        let spaces = " ".repeat(12);
+        let spans = vec![kept(&format!("x{spaces}y"))];
+        assert_eq!(texts(&wrap(&spans, 5)), vec!["x", "y"]);
+        // At the start of a paragraph it leaves no empty line behind.
+        let spans = vec![kept(&format!("{spaces}y"))];
+        assert_eq!(texts(&wrap(&spans, 5)), vec!["y"]);
+        let spans = vec![kept(&spaces), Span::new("abcdefgh", Style::default())];
+        assert_eq!(texts(&wrap(&spans, 5)), vec!["abcde", "fgh"]);
+    }
+
+    #[test]
+    fn a_run_of_spaces_takes_the_first_style() {
+        let bold = Style {
+            bold: true,
+            ..Style::default()
+        };
+        let spans = vec![
+            Span::new("a ", Style::default()),
+            Span::new(" b", bold.clone()),
+        ];
+        let lines = wrap(&spans, 20);
+        assert_eq!(
+            lines[0],
+            vec![Span::new("a ", Style::default()), Span::new("b", bold)]
+        );
     }
 
     #[test]

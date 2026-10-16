@@ -219,6 +219,24 @@ fn tiny_widths_do_not_underflow() {
 }
 
 #[test]
+fn inline_code_keeps_its_spaces() {
+    let source = "Run `git  commit   -m` now.\n";
+    let theme = Theme::default();
+    assert_eq!(
+        render_source(source, &Capabilities::plain(WIDTH), &theme),
+        "  Run `git  commit   -m` now.\n"
+    );
+    let kitty = render_source(source, &Capabilities::kitty(WIDTH), &theme);
+    assert!(kitty.contains("\u{a0}git  commit   -m\u{a0}"), "{kitty:?}");
+    // Code still wraps at its spaces, and the next line does not start with
+    // the ones it broke at.
+    assert_eq!(
+        render_source(source, &Capabilities::plain(20), &theme),
+        "  Run `git  commit\n  -m` now.\n"
+    );
+}
+
+#[test]
 fn no_margins_puts_text_and_code_at_the_edge() {
     let theme = Theme::default().without_margins();
     insta::assert_snapshot!(visible(&render_with(

@@ -20,6 +20,16 @@ pub enum Underline {
     Dashed,
 }
 
+/// How the wrapper treats spaces in a span, much like CSS `white-space`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Spaces {
+    /// Runs collapse to one, and the line can break at any of them.
+    #[default]
+    Collapse,
+    /// Kept as written; the line can break at any of them.
+    Keep,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Style {
     pub bold: bool,
@@ -31,6 +41,7 @@ pub struct Style {
     pub bg: Option<Color>,
     /// Target of an OSC 8 hyperlink.
     pub link: Option<Rc<str>>,
+    pub spaces: Spaces,
 }
 
 impl Style {
@@ -41,10 +52,12 @@ impl Style {
         }
     }
 
-    /// The same style without the hyperlink, for comparing attributes only.
+    /// The same style without the hyperlink and the wrapping, for comparing
+    /// attributes only.
     pub fn attributes(&self) -> Self {
         Self {
             link: None,
+            spaces: Spaces::Collapse,
             ..self.clone()
         }
     }

@@ -5,7 +5,7 @@ use std::rc::Rc;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::highlight;
-use super::style::{Color, Line, Span, Style, Underline, push};
+use super::style::{Color, Line, Spaces, Span, Style, Underline, push};
 use super::table::{self, Cells};
 use super::wrap::wrap;
 use crate::model::{Block, Document, Inline, List, Table};
@@ -408,6 +408,11 @@ impl Layout<'_> {
         match inline {
             Inline::Text(text) => push(out, text, style),
             Inline::Code(code) => {
+                // Spaces in code are kept as written, so it copies as it is.
+                let style = &Style {
+                    spaces: Spaces::Keep,
+                    ..style.clone()
+                };
                 if self.caps.styling {
                     let bg = self.inline_code_background().or(style.bg);
                     let code_style = Style {
