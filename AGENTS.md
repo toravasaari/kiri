@@ -78,6 +78,8 @@ The network is strict there: crates.io and rustup work, GitHub does not.
   merge.
 - A small review of every commit before the merge, and a larger one when a
   part of the [roadmap](docs/roadmap.md) is finished.
+- Reviewers never change the working tree or git state; experiments go in
+  a scratch copy.
 - Report the findings to the maintainer; fix only what is agreed.
 
 ## Commits
