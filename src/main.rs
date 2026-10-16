@@ -20,6 +20,10 @@ struct Cli {
     /// Which terminal features to use.
     #[arg(long, value_enum, default_value_t = Mode::Auto)]
     mode: Mode,
+
+    /// Theme file; defaults to ~/.config/kiri/theme.toml when it exists.
+    #[arg(long)]
+    theme: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -43,12 +47,17 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    let theme = match load_theme(&cli) {
+        Ok(theme) => theme,
+        Err(error) => {
+            eprintln!("kiri: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
     let caps = capabilities(&cli);
     let document = kiri::parse::parse(&source);
     let mut out = io::stdout().lock();
-    match kiri::render::render(&document, &caps, &Theme::default(), &mut out)
-        .and_then(|()| out.flush())
-    {
+    match kiri::render::render(&document, &caps, &theme, &mut out).and_then(|()| out.flush()) {
         Ok(()) => ExitCode::SUCCESS,
         // A closed pipe (kiri file.md | head) is not an error.
         Err(error) if error.kind() == io::ErrorKind::BrokenPipe => ExitCode::SUCCESS,
@@ -56,6 +65,16 @@ fn main() -> ExitCode {
             eprintln!("kiri: {error}");
             ExitCode::FAILURE
         }
+    }
+}
+
+fn load_theme(cli: &Cli) -> Result<Theme, String> {
+    if let Some(path) = &cli.theme {
+        return kiri::theme::load(path);
+    }
+    match kiri::theme::default_path() {
+        Some(path) if path.exists() => kiri::theme::load(&path),
+        _ => Ok(Theme::default()),
     }
 }
 

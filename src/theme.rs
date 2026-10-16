@@ -1,8 +1,13 @@
-//! Colours and sizes the renderer uses.
+//! Colours and sizes the renderer uses, and the theme file that changes them.
 //!
 //! Colours default to the terminal's own 16-colour palette, so kiri follows
 //! the user's kitty theme instead of imposing one.
 
+use std::path::{Path, PathBuf};
+
+use serde::Deserialize;
+
+use crate::render::highlight;
 use crate::render::style::Color;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,5 +81,198 @@ impl Theme {
     pub fn heading(&self, level: u8) -> &HeadingTheme {
         let index = usize::from(level.clamp(1, 6)) - 1;
         &self.headings[index]
+    }
+}
+
+/// `$XDG_CONFIG_HOME/kiri/theme.toml`, or `~/.config/kiri/theme.toml`.
+pub fn default_path() -> Option<PathBuf> {
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
+    Some(config.join("kiri").join("theme.toml"))
+}
+
+/// Reads a theme file. Keys it leaves out keep their default values.
+pub fn load(path: &Path) -> Result<Theme, String> {
+    let text =
+        std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    parse(&text).map_err(|error| format!("{}: {error}", path.display()))
+}
+
+pub fn parse(text: &str) -> Result<Theme, String> {
+    let file: ThemeFile = toml::from_str(text).map_err(|error| error.to_string())?;
+    let mut theme = Theme::default();
+
+    if let Some(max_width) = file.max_width {
+        theme.max_width = max_width;
+    }
+    let headings = [file.h1, file.h2, file.h3, file.h4, file.h5, file.h6];
+    for (level, (heading, overrides)) in theme.headings.iter_mut().zip(headings).enumerate() {
+        let Some(overrides) = overrides else { continue };
+        if let Some(scale) = overrides.scale {
+            // The text sizing protocol accepts scales 1 to 7.
+            if !(1..=7).contains(&scale) {
+                return Err(format!(
+                    "h{}.scale must be between 1 and 7, not {scale}",
+                    level + 1
+                ));
+            }
+            heading.scale = scale;
+        }
+        set_color(&mut heading.color, overrides.color)?;
+        if let Some(bold) = overrides.bold {
+            heading.bold = bold;
+        }
+        if let Some(rule) = overrides.rule {
+            heading.rule = rule;
+        }
+    }
+    set_color(&mut theme.link, file.link)?;
+    set_color(&mut theme.inline_code, file.inline_code)?;
+    set_color(&mut theme.quote_bar, file.quote_bar)?;
+    set_color(&mut theme.rule, file.rule)?;
+    set_color(&mut theme.list_marker, file.list_marker)?;
+    set_color(&mut theme.table_border, file.table_border)?;
+    for (target, name) in [
+        (&mut theme.code_theme_dark, file.code_theme_dark),
+        (&mut theme.code_theme_light, file.code_theme_light),
+    ] {
+        let Some(name) = name else { continue };
+        let known = highlight::theme_names();
+        if !known.contains(&name.as_str()) {
+            return Err(format!(
+                "unknown code theme \"{name}\"; available: {}",
+                known.join(", ")
+            ));
+        }
+        *target = name;
+    }
+    Ok(theme)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ThemeFile {
+    max_width: Option<u16>,
+    h1: Option<HeadingFile>,
+    h2: Option<HeadingFile>,
+    h3: Option<HeadingFile>,
+    h4: Option<HeadingFile>,
+    h5: Option<HeadingFile>,
+    h6: Option<HeadingFile>,
+    link: Option<String>,
+    inline_code: Option<String>,
+    quote_bar: Option<String>,
+    rule: Option<String>,
+    list_marker: Option<String>,
+    table_border: Option<String>,
+    code_theme_dark: Option<String>,
+    code_theme_light: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HeadingFile {
+    scale: Option<u8>,
+    color: Option<String>,
+    bold: Option<bool>,
+    rule: Option<bool>,
+}
+
+fn set_color(target: &mut Option<Color>, value: Option<String>) -> Result<(), String> {
+    if let Some(value) = value {
+        *target = parse_color(&value)?;
+    }
+    Ok(())
+}
+
+const COLOR_NAMES: [&str; 8] = [
+    "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
+];
+
+/// A palette colour by name (`blue`, `bright-blue`) or number (`0`-`255`),
+/// `#rrggbb`, or `none` for the terminal's default colour.
+fn parse_color(value: &str) -> Result<Option<Color>, String> {
+    if value == "none" {
+        return Ok(None);
+    }
+    if let Some(hex) = value.strip_prefix('#')
+        && hex.len() == 6
+        && let Ok(rgb) = u32::from_str_radix(hex, 16)
+    {
+        let [_, r, g, b] = rgb.to_be_bytes();
+        return Ok(Some(Color::Rgb(r, g, b)));
+    }
+    if let Ok(index) = value.parse::<u8>() {
+        return Ok(Some(Color::Palette(index)));
+    }
+    let (bright, name) = match value.strip_prefix("bright-") {
+        Some(name) => (8, name),
+        None => (0, value),
+    };
+    match COLOR_NAMES.iter().position(|&known| known == name) {
+        Some(index) => Ok(Some(Color::Palette(bright + index as u8))),
+        None => Err(format!(
+            "unknown colour \"{value}\"; use a name such as blue or bright-blue, 0-255, #rrggbb or none"
+        )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_documented_defaults_are_the_defaults() {
+        let docs = include_str!("../docs/theme.md");
+        let start = docs
+            .find("```toml\n")
+            .expect("docs/theme.md has a TOML block")
+            + 8;
+        let end = start + docs[start..].find("```").expect("the TOML block ends");
+        assert_eq!(parse(&docs[start..end]).unwrap(), Theme::default());
+    }
+
+    #[test]
+    fn an_empty_file_gives_the_defaults() {
+        assert_eq!(parse("").unwrap(), Theme::default());
+    }
+
+    #[test]
+    fn overrides_only_the_given_keys() {
+        let theme =
+            parse("max_width = 0\nlink = \"#ff8000\"\n[h2]\nscale = 1\nrule = false\n").unwrap();
+        assert_eq!(theme.max_width, 0);
+        assert_eq!(theme.link, Some(Color::Rgb(255, 128, 0)));
+        assert_eq!(theme.heading(2).scale, 1);
+        assert!(!theme.heading(2).rule);
+        assert_eq!(theme.heading(2).color, Theme::default().heading(2).color);
+        assert_eq!(theme.heading(1), Theme::default().heading(1));
+    }
+
+    #[test]
+    fn parses_colour_names_and_numbers() {
+        assert_eq!(parse_color("cyan"), Ok(Some(Color::Palette(6))));
+        assert_eq!(parse_color("bright-black"), Ok(Some(Color::Palette(8))));
+        assert_eq!(parse_color("208"), Ok(Some(Color::Palette(208))));
+        assert_eq!(parse_color("none"), Ok(None));
+        assert!(parse_color("#12345").is_err());
+        assert!(parse_color("purple").is_err());
+    }
+
+    #[test]
+    fn rejects_mistakes_with_a_reason() {
+        assert!(
+            parse("[h1]\nscale = 9\n")
+                .unwrap_err()
+                .contains("between 1 and 7")
+        );
+        assert!(
+            parse("code_theme_dark = \"nope\"\n")
+                .unwrap_err()
+                .contains("InspiredGitHub")
+        );
+        assert!(parse("colour = \"blue\"\n").is_err());
     }
 }
