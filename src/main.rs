@@ -1,4 +1,4 @@
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -24,7 +24,7 @@ struct Cli {
 
 #[derive(Clone, Copy, ValueEnum)]
 enum Mode {
-    /// Styled output on a terminal, plain text in a pipe.
+    /// Ask the terminal; plain text in a pipe.
     Auto,
     /// Text only, no escape sequences.
     Plain,
@@ -60,16 +60,11 @@ fn main() -> ExitCode {
 }
 
 fn capabilities(cli: &Cli) -> Capabilities {
-    let width = cli.width.unwrap_or_else(|| {
-        std::env::var("COLUMNS")
-            .ok()
-            .and_then(|columns| columns.parse().ok())
-            .unwrap_or(80)
-    });
+    let width = || cli.width.or_else(kiri::term::terminal_width).unwrap_or(80);
     match cli.mode {
-        Mode::Auto if io::stdout().is_terminal() => Capabilities::ansi(width),
-        Mode::Auto | Mode::Plain => Capabilities::plain(width),
-        Mode::Ansi => Capabilities::ansi(width),
-        Mode::Kitty => Capabilities::kitty(width),
+        Mode::Auto => kiri::term::detect(cli.width),
+        Mode::Plain => Capabilities::plain(width()),
+        Mode::Ansi => Capabilities::ansi(width()),
+        Mode::Kitty => Capabilities::kitty(width()),
     }
 }

@@ -1,4 +1,4 @@
-//! What the output terminal can do.
+//! What the output terminal can do, and asking it.
 
 /// Terminal features the renderer may use. Built once at start-up and passed
 /// to the renderer, so rendering itself never talks to the terminal.
@@ -54,6 +54,240 @@ impl Capabilities {
             text_sizing: true,
             graphics: true,
             ..Self::plain(width)
+        }
+    }
+}
+
+/// Asks the terminal on stdout what it supports. Falls back to plain text
+/// when stdout is not a terminal, and to ANSI styling when it does not
+/// answer. `width` overrides the terminal's own width.
+pub fn detect(width: Option<u16>) -> Capabilities {
+    let stdout = std::io::stdout();
+    let width = width.or_else(terminal_width).unwrap_or(80);
+    if !rustix::termios::isatty(&stdout) {
+        return Capabilities::plain(width);
+    }
+    let size = rustix::termios::tcgetwinsize(&stdout).ok();
+    let mut caps = Capabilities::ansi(width);
+    caps.cell_pixels = size.and_then(|size| {
+        let (w, h) = (
+            size.ws_xpixel / size.ws_col.max(1),
+            size.ws_ypixel / size.ws_row.max(1),
+        );
+        (w > 0 && h > 0).then_some((w, h))
+    });
+    caps.truecolor = std::env::var("COLORTERM").is_ok_and(|v| v == "truecolor" || v == "24bit");
+    caps.hyperlinks = hyperlinks_by_environment();
+
+    if let Some(answers) = probe::run() {
+        let probe = probe::interpret(&answers);
+        caps.text_sizing = probe.text_sizing;
+        caps.graphics = probe.graphics;
+        caps.dark_background = probe.dark_background;
+        // Only kitty-compatible terminals implement these protocols, and all
+        // of them also do 24-bit colour and OSC 8.
+        if probe.text_sizing || probe.graphics {
+            caps.truecolor = true;
+            caps.hyperlinks = true;
+        }
+    }
+    caps
+}
+
+/// Width of the terminal on stdout in cells, if stdout is a terminal.
+pub fn terminal_width() -> Option<u16> {
+    let size = rustix::termios::tcgetwinsize(std::io::stdout()).ok()?;
+    (size.ws_col > 0).then_some(size.ws_col)
+}
+
+/// Terminals known to support OSC 8 that cannot be recognised by a probe.
+fn hyperlinks_by_environment() -> bool {
+    let program = std::env::var("TERM_PROGRAM").unwrap_or_default();
+    matches!(
+        program.as_str(),
+        "WezTerm" | "iTerm.app" | "vscode" | "ghostty" | "Hyper"
+    ) || std::env::var("VTE_VERSION")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .is_some_and(|v| v >= 5000)
+}
+
+/// Escape-sequence queries and their answers.
+mod probe {
+    use std::fs::File;
+    use std::io::{Read, Write};
+    use std::time::{Duration, Instant};
+
+    use rustix::event::{PollFd, PollFlags, Timespec, poll};
+    use rustix::termios::{OptionalActions, tcgetattr, tcsetattr};
+
+    /// Long enough for a terminal over SSH, short enough not to notice when
+    /// a terminal ignores the queries entirely.
+    const TIMEOUT: Duration = Duration::from_millis(500);
+
+    /// Cursor position reports around two OSC 66 test strings, as kitty's
+    /// documentation recommends, then a graphics protocol query, the
+    /// background colour, and primary device attributes. Every terminal
+    /// answers the last one, so its answer marks the end.
+    const QUERIES: &str = concat!(
+        "\r\x1b[6n",
+        "\x1b]66;w=2; \x1b\\\x1b[6n",
+        "\x1b]66;s=2; \x1b\\\x1b[6n",
+        "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\",
+        "\x1b]11;?\x1b\\",
+        "\x1b[c",
+    );
+
+    #[derive(Debug, Default, PartialEq, Eq)]
+    pub struct Probe {
+        pub text_sizing: bool,
+        pub graphics: bool,
+        pub dark_background: Option<bool>,
+    }
+
+    /// Sends the queries on the controlling terminal and collects the
+    /// answers. `None` if the terminal cannot be used or does not answer.
+    pub fn run() -> Option<Vec<u8>> {
+        let mut tty = File::options()
+            .read(true)
+            .write(true)
+            .open("/dev/tty")
+            .ok()?;
+        let original = tcgetattr(&tty).ok()?;
+        let mut raw = original.clone();
+        raw.make_raw();
+        tcsetattr(&tty, OptionalActions::Now, &raw).ok()?;
+
+        let answers = exchange(&mut tty);
+
+        // Erase whatever the OSC 66 tests drew before restoring the mode.
+        let _ = tty.write_all(b"\r\x1b[2K");
+        let _ = tcsetattr(&tty, OptionalActions::Now, &original);
+        answers
+    }
+
+    fn exchange(tty: &mut File) -> Option<Vec<u8>> {
+        tty.write_all(QUERIES.as_bytes()).ok()?;
+        tty.flush().ok()?;
+        let deadline = Instant::now() + TIMEOUT;
+        let mut answers = Vec::new();
+        let mut buffer = [0; 1024];
+        while !has_device_attributes(&answers) {
+            let left = deadline.checked_duration_since(Instant::now())?;
+            let timeout = Timespec {
+                tv_sec: left.as_secs() as i64,
+                tv_nsec: i64::from(left.subsec_nanos()),
+            };
+            let mut fds = [PollFd::new(&*tty, PollFlags::IN)];
+            if poll(&mut fds, Some(&timeout)).ok()? == 0 {
+                return None;
+            }
+            let read = tty.read(&mut buffer).ok()?;
+            answers.extend_from_slice(&buffer[..read]);
+        }
+        Some(answers)
+    }
+
+    /// The primary device attributes answer: `ESC [ ? … c`.
+    fn has_device_attributes(answers: &[u8]) -> bool {
+        answers
+            .windows(3)
+            .position(|w| w == b"\x1b[?")
+            .is_some_and(|start| answers[start..].contains(&b'c'))
+    }
+
+    pub fn interpret(answers: &[u8]) -> Probe {
+        let text = String::from_utf8_lossy(answers);
+        let columns = cursor_columns(&text);
+        let text_sizing = matches!(columns.as_slice(), [a, b, c, ..] if *b == a + 2 && *c == b + 2);
+        Probe {
+            text_sizing,
+            graphics: text.contains("\x1b_Gi=31;OK"),
+            dark_background: background_is_dark(&text),
+        }
+    }
+
+    /// Columns from cursor position reports: `ESC [ row ; column R`.
+    fn cursor_columns(text: &str) -> Vec<u32> {
+        text.split("\x1b[")
+            .filter_map(|part| {
+                let report = &part[..part.find('R')?];
+                let (row, column) = report.split_once(';')?;
+                row.parse::<u32>().ok()?;
+                column.parse().ok()
+            })
+            .collect()
+    }
+
+    /// From `ESC ] 11 ; rgb:RRRR/GGGG/BBBB`, with one to four hex digits
+    /// per channel.
+    fn background_is_dark(text: &str) -> Option<bool> {
+        let start = text.find("\x1b]11;rgb:")? + "\x1b]11;rgb:".len();
+        let rest = &text[start..];
+        let end = rest.find(|c: char| !(c.is_ascii_hexdigit() || c == '/'))?;
+        let channels: Vec<f64> = rest[..end]
+            .split('/')
+            .map(|hex| {
+                let max = 16f64.powi(hex.len() as i32) - 1.0;
+                u32::from_str_radix(hex, 16)
+                    .ok()
+                    .map(|v| f64::from(v) / max)
+            })
+            .collect::<Option<_>>()?;
+        let [r, g, b] = channels[..] else {
+            return None;
+        };
+        Some(0.2126 * r + 0.7152 * g + 0.0722 * b < 0.5)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        const KITTY: &str = concat!(
+            "\x1b[5;1R\x1b[5;3R\x1b[5;5R",
+            "\x1b_Gi=31;OK\x1b\\",
+            "\x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\",
+            "\x1b[?62;c",
+        );
+
+        #[test]
+        fn recognises_kitty() {
+            let probe = interpret(KITTY.as_bytes());
+            assert_eq!(
+                probe,
+                Probe {
+                    text_sizing: true,
+                    graphics: true,
+                    dark_background: Some(true),
+                }
+            );
+            assert!(has_device_attributes(KITTY.as_bytes()));
+        }
+
+        #[test]
+        fn recognises_a_terminal_without_kitty_protocols() {
+            let answers = "\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1b]11;rgb:ffff/ffff/ffff\x07\x1b[?1;2c";
+            assert_eq!(
+                interpret(answers.as_bytes()),
+                Probe {
+                    text_sizing: false,
+                    graphics: false,
+                    dark_background: Some(false),
+                }
+            );
+        }
+
+        #[test]
+        fn needs_both_width_and_scale_for_text_sizing() {
+            let answers = "\x1b[5;1R\x1b[5;3R\x1b[5;3R\x1b[?62;c";
+            assert!(!interpret(answers.as_bytes()).text_sizing);
+        }
+
+        #[test]
+        fn waits_for_device_attributes() {
+            assert!(!has_device_attributes(b"\x1b[5;1R\x1b[5;3R"));
+            assert!(!has_device_attributes(b"\x1b[?62;"));
         }
     }
 }
