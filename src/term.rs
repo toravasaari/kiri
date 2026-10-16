@@ -152,22 +152,38 @@ mod probe {
     use rustix::event::{PollFd, PollFlags, Timespec, poll};
     use rustix::termios::{OptionalActions, Termios, tcgetattr, tcsetattr};
 
+    use crate::kitty::query;
+
     /// Long enough for a terminal over SSH, short enough not to notice when
     /// a terminal ignores the queries entirely.
     const TIMEOUT: Duration = Duration::from_millis(500);
 
-    /// Cursor position reports around two OSC 66 test strings, as kitty's
-    /// documentation recommends, then a graphics protocol query, the
-    /// background colour, and primary device attributes. Every terminal
-    /// answers the last one, so its answer marks the end.
-    const QUERIES: &str = concat!(
-        "\r\x1b[6n",
-        "\x1b]66;w=2; \x1b\\\x1b[6n",
-        "\x1b]66;s=2; \x1b\\\x1b[6n",
-        "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\",
-        "\x1b]11;?\x1b\\",
-        "\x1b[c",
-    );
+    /// Cursor position report.
+    const CURSOR_POSITION: &str = "\x1b[6n";
+    /// Background colour, OSC 11.
+    const BACKGROUND: &str = "\x1b]11;?\x1b\\";
+    /// Primary device attributes.
+    const DEVICE_ATTRIBUTES: &str = "\x1b[c";
+
+    /// Cursor position reports around kitty's two text sizing tests, then a
+    /// graphics protocol query, the background colour, and primary device
+    /// attributes. Every terminal answers the last one, so its answer marks
+    /// the end.
+    fn queries() -> String {
+        let [width, scale] = query::text_sizing();
+        [
+            "\r",
+            CURSOR_POSITION,
+            &width,
+            CURSOR_POSITION,
+            &scale,
+            CURSOR_POSITION,
+            query::GRAPHICS,
+            BACKGROUND,
+            DEVICE_ATTRIBUTES,
+        ]
+        .concat()
+    }
 
     #[derive(Debug, Default, PartialEq, Eq)]
     pub struct Probe {
@@ -220,7 +236,7 @@ mod probe {
     }
 
     fn exchange(mut tty: &File) -> Option<Vec<u8>> {
-        tty.write_all(QUERIES.as_bytes()).ok()?;
+        tty.write_all(queries().as_bytes()).ok()?;
         tty.flush().ok()?;
         let deadline = Instant::now() + TIMEOUT;
         let mut answers = Vec::new();
@@ -251,11 +267,9 @@ mod probe {
 
     pub fn interpret(answers: &[u8]) -> Probe {
         let text = String::from_utf8_lossy(answers);
-        let columns = cursor_columns(&text);
-        let text_sizing = matches!(columns.as_slice(), [a, b, c, ..] if *b == a + 2 && *c == b + 2);
         Probe {
-            text_sizing,
-            graphics: text.contains("\x1b_Gi=31;OK"),
+            text_sizing: query::text_sizing_answered(&cursor_columns(&text)),
+            graphics: text.contains(query::GRAPHICS_ANSWER),
             dark_background: background_is_dark(&text),
         }
     }
@@ -303,6 +317,15 @@ mod probe {
             "\x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\",
             "\x1b[?62;c",
         );
+
+        #[test]
+        fn sends_the_queries_in_order() {
+            assert_eq!(
+                queries(),
+                "\r\x1b[6n\x1b]66;w=2; \x1b\\\x1b[6n\x1b]66;s=2; \x1b\\\x1b[6n\
+                 \x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b]11;?\x1b\\\x1b[c"
+            );
+        }
 
         #[test]
         fn recognises_kitty() {
