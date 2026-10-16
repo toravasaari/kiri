@@ -14,6 +14,8 @@ use crate::render::style::{Color, Underline};
 pub struct Theme {
     /// Maximum text width in cells; long lines are hard to read. 0 = none.
     pub max_width: u16,
+    /// Painted behind the whole document; `None` shows the terminal's own.
+    pub background: Option<Color>,
     /// Styles for heading levels 1 to 6.
     pub headings: [HeadingTheme; 6],
     pub link: Option<Color>,
@@ -41,7 +43,7 @@ pub struct HeadingTheme {
     pub underline: Underline,
     /// Filled across the whole width.
     pub background: Option<Color>,
-    /// Indent in characters of the heading's own size.
+    /// Indent in normal-size cells.
     pub indent: u8,
 }
 
@@ -75,6 +77,7 @@ impl Default for Theme {
     fn default() -> Self {
         Self {
             max_width: 100,
+            background: None,
             headings: [
                 HeadingTheme::new(3, BLUE, true),
                 HeadingTheme::new(2, BLUE, true),
@@ -127,32 +130,17 @@ pub fn parse(text: &str) -> Result<Theme, String> {
     if let Some(max_width) = file.max_width {
         theme.max_width = max_width;
     }
-    let headings = [file.h1, file.h2, file.h3, file.h4, file.h5, file.h6];
-    for (level, (heading, overrides)) in theme.headings.iter_mut().zip(headings).enumerate() {
-        let Some(overrides) = overrides else { continue };
-        if let Some(scale) = overrides.scale {
-            // The text sizing protocol accepts scales 1 to 7.
-            if !(1..=7).contains(&scale) {
-                return Err(format!(
-                    "h{}.scale must be between 1 and 7, not {scale}",
-                    level + 1
-                ));
-            }
-            heading.scale = scale;
+    set_color(&mut theme.background, file.background)?;
+    // [headings] applies to every level, then [h1] to [h6] refine it.
+    if let Some(all) = &file.headings {
+        for heading in &mut theme.headings {
+            apply_heading(heading, all, "headings")?;
         }
-        set_color(&mut heading.color, overrides.color)?;
-        if let Some(bold) = overrides.bold {
-            heading.bold = bold;
-        }
-        if let Some(rule) = overrides.rule {
-            heading.rule = rule;
-        }
-        if let Some(underline) = overrides.underline {
-            heading.underline = parse_underline(&underline)?;
-        }
-        set_color(&mut heading.background, overrides.background)?;
-        if let Some(indent) = overrides.indent {
-            heading.indent = indent;
+    }
+    let levels = [file.h1, file.h2, file.h3, file.h4, file.h5, file.h6];
+    for (level, (heading, overrides)) in theme.headings.iter_mut().zip(levels).enumerate() {
+        if let Some(overrides) = overrides {
+            apply_heading(heading, &overrides, &format!("h{}", level + 1))?;
         }
     }
     set_color(&mut theme.link, file.link)?;
@@ -187,10 +175,43 @@ pub fn parse(text: &str) -> Result<Theme, String> {
     Ok(theme)
 }
 
+fn apply_heading(
+    heading: &mut HeadingTheme,
+    overrides: &HeadingFile,
+    table: &str,
+) -> Result<(), String> {
+    if let Some(scale) = overrides.scale {
+        // The text sizing protocol accepts scales 1 to 7.
+        if !(1..=7).contains(&scale) {
+            return Err(format!(
+                "{table}.scale must be between 1 and 7, not {scale}"
+            ));
+        }
+        heading.scale = scale;
+    }
+    set_color(&mut heading.color, overrides.color.clone())?;
+    if let Some(bold) = overrides.bold {
+        heading.bold = bold;
+    }
+    if let Some(rule) = overrides.rule {
+        heading.rule = rule;
+    }
+    if let Some(underline) = &overrides.underline {
+        heading.underline = parse_underline(underline)?;
+    }
+    set_color(&mut heading.background, overrides.background.clone())?;
+    if let Some(indent) = overrides.indent {
+        heading.indent = indent;
+    }
+    Ok(())
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ThemeFile {
     max_width: Option<u16>,
+    background: Option<String>,
+    headings: Option<HeadingFile>,
     h1: Option<HeadingFile>,
     h2: Option<HeadingFile>,
     h3: Option<HeadingFile>,
@@ -283,9 +304,13 @@ mod tests {
     #[test]
     fn the_documented_defaults_are_the_defaults() {
         let docs = include_str!("../docs/theme.md");
-        let start = docs
-            .find("```toml\n")
-            .expect("docs/theme.md has a TOML block")
+        let defaults = docs
+            .find("## Defaults")
+            .expect("docs/theme.md has a Defaults section");
+        let start = defaults
+            + docs[defaults..]
+                .find("```toml\n")
+                .expect("the Defaults section has a TOML block")
             + 8;
         let end = start + docs[start..].find("```").expect("the TOML block ends");
         assert_eq!(parse(&docs[start..end]).unwrap(), Theme::default());
@@ -306,6 +331,14 @@ mod tests {
         assert!(!theme.heading(2).rule);
         assert_eq!(theme.heading(2).color, Theme::default().heading(2).color);
         assert_eq!(theme.heading(1), Theme::default().heading(1));
+    }
+
+    #[test]
+    fn headings_table_applies_to_all_levels_before_each_level() {
+        let theme = parse("[headings]\nindent = 1\nrule = false\n[h2]\nindent = 2\n").unwrap();
+        let indents: Vec<u8> = theme.headings.iter().map(|h| h.indent).collect();
+        assert_eq!(indents, vec![1, 2, 1, 1, 1, 1]);
+        assert!(theme.headings.iter().all(|h| !h.rule));
     }
 
     #[test]

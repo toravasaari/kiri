@@ -20,5 +20,5 @@ pub fn render(
     out: &mut impl Write,
 ) -> io::Result<()> {
     let lines = layout::layout(document, caps, theme);
-    output::write(&lines, caps, out)
+    output::write(&lines, caps, theme.background, out)
 }

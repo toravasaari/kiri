@@ -6,6 +6,21 @@ file exists, or from the file given with `--theme`. Every key is optional;
 the ones you leave out keep the defaults below. A mistake in the file is an
 error, not silently ignored.
 
+## All headings at once
+
+A `[headings]` table sets keys for every level; `[h1]` to `[h6]` then
+change single levels:
+
+```toml
+[headings]
+indent = 1
+rule = false
+underline = "single"
+
+[h3]
+underline = "dotted"
+```
+
 ## Colours
 
 A colour is one of:
@@ -24,6 +39,10 @@ defaults use them.
 ```toml
 # Maximum text width in cells; 0 means the full terminal width.
 max_width = 100
+
+# A colour painted behind the whole document, or none to let the
+# terminal's own (possibly transparent) background show.
+background = "none"
 
 link = "blue"
 inline_code = "magenta"
@@ -48,7 +67,7 @@ code_theme_light = "InspiredGitHub"
 # underline: none, single, double, curly, dotted or dashed. Styles other
 #   than single need a kitty-compatible terminal.
 # background: a colour filled across the whole width, or none.
-# indent: in characters of the heading's own size.
+# indent: in normal-size cells, whatever the heading's scale.
 [h1]
 scale = 3
 color = "blue"

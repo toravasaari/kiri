@@ -1,0 +1,38 @@
+---
+source: tests/render.rs
+expression: "visible(&render_with(\"headings.md\", &Capabilities::kitty(WIDTH), &theme))"
+---
+␛[0;1;34;48;2;28;31;38m␛]66;s=3;Heading level␛\␛[0;48;2;28;31;38m␛[K␛[0m
+␛[39C␛[0;48;2;28;31;38m␛[K␛[0m
+␛[39C␛[0;48;2;28;31;38m␛[K␛[0m
+␛[0;1;34;48;2;28;31;38m␛]66;s=3;one␛\␛[0;48;2;28;31;38m␛[K␛[0m
+␛[9C␛[0;48;2;28;31;38m␛[K␛[0m
+␛[9C␛[0;48;2;28;31;38m␛[K␛[0m
+␛[0;90;48;2;28;31;38m────────────────────────────────────────────────␛[0;48;2;28;31;38m␛[K␛[0m
+␛[0;48;2;28;31;38m␛[K␛[0m
+␛[0;48;2;28;31;38mA paragraph under the first level, with ␛[0;35;48;2;43;48;59m inline␛[0;48;2;28;31;38m␛[K␛[0m
+␛[0;35;48;2;43;48;59mcode ␛[0;48;2;28;31;38m and a ␛]8;;https://example.com␛\␛[0;4;34;48;2;28;31;38mlink␛]8;;␛\␛[0;48;2;28;31;38m, to show how body text sits␛[K␛[0m
+␛[0;48;2;28;31;38munder each level.␛[K␛[0m
+␛[0;48;2;28;31;38m␛[K␛[0m
+␛[0;1;34;48;2;28;31;38m␛]66;s=2;Heading level two␛\␛[0;48;2;28;31;38m␛[K␛[0m
+␛[34C␛[0;48;2;28;31;38m␛[K␛[0m
+␛[0;90;48;2;28;31;38m────────────────────────────────────────────────␛[0;48;2;28;31;38m␛[K␛[0m
+␛[0;48;2;28;31;38m␛[K␛[0m
+␛[0;48;2;28;31;38mBody text under level two, long enough to wrap␛[K␛[0m
+␛[0;48;2;28;31;38monto a second line when the terminal is narrow.␛[K␛[0m
+␛[0;48;2;28;31;38m␛[K␛[0m
+␛[0;1;36;48;2;28;31;38mHeading level three␛[0;48;2;28;31;38m␛[K␛[0m
+␛[0;48;2;28;31;38m␛[K␛[0m
+␛[0;48;2;28;31;38mBody text under level three.␛[K␛[0m
+␛[0;48;2;28;31;38m␛[K␛[0m
+␛[0;1;48;2;28;31;38mHeading level four␛[0;48;2;28;31;38m␛[K␛[0m
+␛[0;48;2;28;31;38m␛[K␛[0m
+␛[0;48;2;28;31;38mBody text under level four.␛[K␛[0m
+␛[0;48;2;28;31;38m␛[K␛[0m
+␛[0;1;48;2;28;31;38mHeading level five␛[0;48;2;28;31;38m␛[K␛[0m
+␛[0;48;2;28;31;38m␛[K␛[0m
+␛[0;48;2;28;31;38mBody text under level five.␛[K␛[0m
+␛[0;48;2;28;31;38m␛[K␛[0m
+␛[0;1;90;48;2;28;31;38mHeading level six␛[0;48;2;28;31;38m␛[K␛[0m
+␛[0;48;2;28;31;38m␛[K␛[0m
+␛[0;48;2;28;31;38mBody text under level six.␛[K␛[0m

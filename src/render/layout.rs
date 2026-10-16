@@ -100,20 +100,26 @@ impl Layout<'_> {
             );
         }
         self.inlines(content, &style, &mut spans);
-        // Widths here are in characters of the heading's size.
-        let available = width / usize::from(scale);
-        let indent = usize::from(heading.indent).min(available / 2);
-        let mut lines: Vec<Line> = wrap(&spans, available - indent)
+        let indent = usize::from(heading.indent).min(width / 4);
+        let lead = if indent > 0 {
+            vec![Span::new(&" ".repeat(indent), background.clone())]
+        } else {
+            Vec::new()
+        };
+        // In characters of the heading's size.
+        let available = (width - indent) / usize::from(scale);
+        let mut lines: Vec<Line> = wrap(&spans, available)
             .into_iter()
             .map(|mut spans| {
-                if indent > 0 {
-                    spans.insert(0, Span::new(&" ".repeat(indent), background.clone()));
-                }
                 if background.bg.is_some() {
                     let used = super::wrap::width(&spans);
                     push(&mut spans, &" ".repeat(available - used), &background);
                 }
-                Line { spans, scale }
+                Line {
+                    lead: lead.clone(),
+                    spans,
+                    scale,
+                }
             })
             .collect();
         if heading.rule && self.caps.styling {

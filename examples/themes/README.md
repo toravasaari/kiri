@@ -11,5 +11,6 @@ kiri --theme examples/themes/underline.toml tests/fixtures/headings.md
 |---|---|
 | `underline.toml` | Underlined headings instead of a rule below |
 | `background.toml` | Headings on a coloured band, indented by one character |
-| `indent.toml` | Default headings indented by one character |
+| `indent.toml` | Default headings indented by one cell |
+| `opaque.toml` | A solid document background instead of the terminal's |
 | `scaled-h3.toml` | Level three at double size without bold |

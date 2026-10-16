@@ -73,6 +73,16 @@ fn kitty_headings_on_a_background() {
 }
 
 #[test]
+fn kitty_headings_on_an_opaque_document() {
+    let theme = example_theme("opaque.toml");
+    insta::assert_snapshot!(visible(&render_with(
+        "headings.md",
+        &Capabilities::kitty(WIDTH),
+        &theme
+    )));
+}
+
+#[test]
 fn all_example_themes_load() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/themes");
     for entry in std::fs::read_dir(dir).unwrap() {

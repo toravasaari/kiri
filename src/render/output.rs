@@ -3,28 +3,71 @@
 use std::io::{self, Write};
 
 use super::style::{Color, Line, Style, Underline};
+use super::wrap::width;
 use crate::kitty;
 use crate::term::Capabilities;
 
-pub fn write(lines: &[Line], caps: &Capabilities, out: &mut impl Write) -> io::Result<()> {
+/// `background` paints the whole terminal width behind the document; `None`
+/// leaves the terminal's own background showing through.
+pub fn write(
+    lines: &[Line],
+    caps: &Capabilities,
+    background: Option<Color>,
+    out: &mut impl Write,
+) -> io::Result<()> {
+    let fill = Style {
+        bg: background,
+        ..Style::default()
+    };
+    let paint = |style: &Style| match style.bg {
+        None if background.is_some() => Style {
+            bg: background,
+            ..style.clone()
+        },
+        _ => style.clone(),
+    };
     for line in lines {
         if !caps.styling {
-            let text: String = line.spans.iter().map(|span| span.text.as_str()).collect();
+            let text: String = (line.lead.iter().chain(&line.spans))
+                .map(|span| span.text.as_str())
+                .collect();
             writeln!(out, "{}", text.trim_end())?;
             continue;
         }
-        let mut current = Style::default();
-        for span in &line.spans {
-            transition(&current, &span.style, caps, out)?;
-            current = span.style.clone();
-            if line.scale > 1 {
-                kitty::text::write_scaled(out, line.scale, &span.text)?;
-            } else {
+        let scale = line.scale.max(1);
+        // A scaled line occupies `scale` rows but is written only on the
+        // first; the rows below get the lead and the fill around it.
+        let block_width = width(&line.spans) * usize::from(scale);
+        for row in 0..scale {
+            let mut current = Style::default();
+            for span in &line.lead {
+                let style = paint(&span.style);
+                transition(&current, &style, caps, out)?;
                 out.write_all(span.text.as_bytes())?;
+                current = style;
             }
-        }
-        transition(&current, &Style::default(), caps, out)?;
-        for _ in 0..line.scale.max(1) {
+            if row == 0 {
+                for span in &line.spans {
+                    let style = paint(&span.style);
+                    transition(&current, &style, caps, out)?;
+                    if scale > 1 {
+                        kitty::text::write_scaled(out, scale, &span.text)?;
+                    } else {
+                        out.write_all(span.text.as_bytes())?;
+                    }
+                    current = style;
+                }
+            } else if background.is_some() {
+                // Step over the scaled text to fill the rest of the row.
+                write!(out, "\x1b[{block_width}C")?;
+            }
+            if background.is_some() {
+                // Erase to the end of the line in the background colour.
+                transition(&current, &fill, caps, out)?;
+                out.write_all(b"\x1b[K")?;
+                current = fill.clone();
+            }
+            transition(&current, &Style::default(), caps, out)?;
             out.write_all(b"\n")?;
         }
     }

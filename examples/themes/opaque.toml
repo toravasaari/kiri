@@ -1,0 +1,4 @@
+# A solid background behind the whole document, for terminals with a
+# transparent or image background. The colour suits a dark code theme.
+
+background = "#1c1f26"

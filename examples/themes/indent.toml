@@ -1,19 +1,4 @@
-# The default headings, indented by one character of their own size.
+# The default headings, indented by one normal-size cell.
 
-[h1]
-indent = 1
-
-[h2]
-indent = 1
-
-[h3]
-indent = 1
-
-[h4]
-indent = 1
-
-[h5]
-indent = 1
-
-[h6]
+[headings]
 indent = 1

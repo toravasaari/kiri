@@ -78,13 +78,20 @@ impl Span {
 /// sizing protocol and occupies that many terminal rows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Line {
+    /// Normal-size cells repeated at the start of every row the line
+    /// occupies, so an indent keeps its colour beside scaled text.
+    pub lead: Vec<Span>,
     pub spans: Vec<Span>,
     pub scale: u8,
 }
 
 impl Line {
     pub fn new(spans: Vec<Span>) -> Self {
-        Self { spans, scale: 1 }
+        Self {
+            lead: Vec::new(),
+            spans,
+            scale: 1,
+        }
     }
 
     pub fn blank() -> Self {
