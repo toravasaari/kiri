@@ -1,0 +1,29 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+
+# insta snapshots waiting for review
+*.snap.new
+*.pending-snap
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local working notes: plans, specs, scratch files
+.local/
+.superpowers/
+docs/superpowers/
+
+# Personal agent settings. CLAUDE.local.md would also stop Claude Code from
+# reading AGENTS.md, which it only loads when no CLAUDE*.md exists.
+.claude/settings.local.json
+CLAUDE.local.md
