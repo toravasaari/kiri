@@ -166,6 +166,19 @@ room.
 | Headings | done | Scaled with OSC 66 in kitty, bold and coloured elsewhere, with a rule or a band from the theme |
 | Tables | `new` | Wrapped inside their columns when the window is narrow, keeping *inline* styles and [links](https://example.com) |
 
+## Inline code in tables
+
+The commands in this table wrap at their spaces like the text beside
+them, and the table stays a box down to about 35 columns. With
+`inline_code_wrap = false` in your theme, each command stays on one line
+while the last column keeps room for its text, at about 70 columns and
+wider; in a narrower window the table looks the same as by default.
+
+| Step | Command | What it does |
+|------|---------|--------------|
+| Stage | `git add -p` | Picks the changes to commit, hunk by hunk |
+| Commit | `git commit -m "Fix the parser"` | Records them with a message |
+
 ## Stacked tables
 
 This table cannot fit without splitting short words, so each row becomes

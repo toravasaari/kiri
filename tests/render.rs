@@ -341,6 +341,32 @@ fn inline_code_kept_together_in_a_narrow_table_cell() {
 }
 
 #[test]
+fn a_table_stacks_only_when_spaced_inline_code_cannot_wrap_in_it() {
+    let source = "| Notes | Command |\n|---|---|\n\
+                  | a fairly long note about the step | `git commit -m message` |\n";
+    // By default the code wraps at its spaces like the text beside it.
+    let out = render_source(source, &Capabilities::plain(28), &Theme::default());
+    assert!(out.contains("│ a fairly  │ `git     │"), "{out}");
+    assert!(out.contains("│ long note │ commit   │"), "{out}");
+    // Kept together, the code stays whole while the notes keep room,
+    let together = kiri::theme::parse("inline_code_wrap = false\n").unwrap();
+    let out = render_source(source, &Capabilities::plain(50), &together);
+    assert!(
+        out.contains("│ a fairly long    │ `git commit -m message` │"),
+        "{out}"
+    );
+    // then wraps at its spaces like by default before the table stacks,
+    let narrow = Capabilities::plain(30);
+    let out = render_source(source, &narrow, &together);
+    assert!(out.contains("│ a fairly   │ `git      │"), "{out}");
+    assert!(out.contains("│ long note  │ commit -m │"), "{out}");
+    assert_eq!(out, render_source(source, &narrow, &Theme::default()));
+    // and stacks only when not even its words fit.
+    let out = render_source(source, &Capabilities::plain(24), &together);
+    assert!(out.starts_with("  Notes: a fairly long\n"), "{out}");
+}
+
+#[test]
 fn no_margins_puts_text_and_code_at_the_edge() {
     let theme = Theme::default().without_margins();
     insta::assert_snapshot!(visible(&render_with(
@@ -538,6 +564,7 @@ fn the_visual_check_document_fits_every_mode() {
         Theme::default(),
         example_theme("background.toml"),
         example_theme("rules.toml"),
+        kiri::theme::parse("inline_code_wrap = false\n").unwrap(),
     ];
     for terminal_width in [16, 24, 40, 80, 120] {
         for caps in [

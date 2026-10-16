@@ -153,9 +153,20 @@ fn first_width(word: &[Span]) -> usize {
         .map_or(0, UnicodeWidthStr::width)
 }
 
+/// The words the wrapper keeps on one line when they fit: text whose spaces
+/// are kept together is one word, with the punctuation attached to it.
+pub(super) fn words(spans: &[Span]) -> Vec<Vec<Span>> {
+    (tokenize(spans, false).into_iter())
+        .filter_map(|token| match token {
+            Token::Word(word) => Some(word),
+            Token::Space(_) | Token::Break => None,
+        })
+        .collect()
+}
+
 /// Whether the word holds spaces that break only a line too long without
 /// them.
-fn keeps_together(word: &[Span]) -> bool {
+pub(super) fn keeps_together(word: &[Span]) -> bool {
     (word.iter()).any(|span| span.style.spaces == Spaces::KeepTogether && span.text.contains(' '))
 }
 

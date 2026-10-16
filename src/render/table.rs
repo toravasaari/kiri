@@ -3,7 +3,7 @@
 use unicode_width::UnicodeWidthStr;
 
 use super::style::{Line, Span, Style, push};
-use super::wrap::{width, wrap};
+use super::wrap::{keeps_together, width, words, wrap};
 use crate::model::Alignment;
 
 /// Cells as styled spans; rows may be shorter than the header.
@@ -22,6 +22,11 @@ pub struct Styles {
 /// A word up to this many cells is split only when the table cannot fit
 /// otherwise; longer ones, such as URLs, may be split to make room.
 const SHORT_WORD: usize = 10;
+
+/// Text kept together, such as inline code with `inline_code_wrap` off,
+/// stays whole only while every other column keeps this many cells, or
+/// its own width when that is less.
+const COMFORT: usize = 16;
 
 /// Columns shrink, widest first, until the table fits in `max` cells; cell
 /// text then wraps inside its column. A table that would have to split
@@ -59,10 +64,12 @@ fn column_widths(cells: &Cells, columns: usize, max: usize) -> Option<Vec<usize>
     // widest character too, two cells for CJK and emoji, which would push
     // its borders out of line.
     let mut minimums = vec![1; columns];
+    let mut together = vec![0; columns];
     for row in std::iter::once(&cells.header).chain(&cells.rows) {
         for (column, cell) in row.iter().enumerate() {
             widths[column] = widths[column].max(width(cell));
             minimums[column] = minimums[column].max(longest_word(cell).min(SHORT_WORD));
+            together[column] = together[column].max(longest_together(cell));
         }
     }
     // Each column costs its padding and one border, plus the closing border.
@@ -70,14 +77,34 @@ fn column_widths(cells: &Cells, columns: usize, max: usize) -> Option<Vec<usize>
     if minimums.iter().sum::<usize>() > available {
         return None;
     }
+    // Without room for that, the table is laid out as if the text wrapped
+    // at its spaces.
+    let comfortable: Vec<usize> = (0..columns)
+        .map(|column| together[column].max(widths[column].min(COMFORT)))
+        .collect();
+    let mut kept = widths.clone();
+    if shrink(&mut kept, &comfortable, available) {
+        return Some(kept);
+    }
+    let fits = shrink(&mut widths, &minimums, available);
+    debug_assert!(fits, "the minimums fit");
+    Some(widths)
+}
+
+/// Narrows the widest column above its floor, one cell at a time, until
+/// the widths fit in `available`. False if every column reaches its floor
+/// first.
+fn shrink(widths: &mut [usize], floors: &[usize], available: usize) -> bool {
     while widths.iter().sum::<usize>() > available {
-        let widest = (0..columns)
-            .filter(|&column| widths[column] > minimums[column])
+        let Some(widest) = (0..widths.len())
+            .filter(|&column| widths[column] > floors[column])
             .max_by_key(|&column| widths[column])
-            .expect("the minimums fit");
+        else {
+            return false;
+        };
         widths[widest] -= 1;
     }
-    Some(widths)
+    true
 }
 
 /// Each body row as a block of `Header: value` lines, separated by rules.
@@ -141,10 +168,21 @@ fn is_empty(cell: &[Span]) -> bool {
     cell.iter().all(|span| span.text.trim().is_empty())
 }
 
+/// The longest run without spaces, so code is measured by its words even
+/// where the theme keeps its spaces together.
 fn longest_word(cell: &[Span]) -> usize {
     let text: String = cell.iter().map(|span| span.text.as_str()).collect();
     text.split([' ', '\n'])
         .map(UnicodeWidthStr::width)
+        .max()
+        .unwrap_or(0)
+}
+
+/// The longest text kept together, as the wrapper places it on a line.
+fn longest_together(cell: &[Span]) -> usize {
+    (words(cell).iter())
+        .filter(|word| keeps_together(word))
+        .map(|word| width(word))
         .max()
         .unwrap_or(0)
 }
@@ -194,6 +232,7 @@ fn row_lines(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::style::Spaces;
 
     fn cell(text: &str) -> Vec<Span> {
         vec![Span::new(text, Style::default())]
@@ -299,6 +338,84 @@ mod tests {
         let lines = text(&layout(&cells, 20, &styles()));
         assert!(lines.iter().all(|line| line.width() <= 20), "{lines:#?}");
         assert_eq!(lines[3], "│ https://example. │");
+    }
+
+    fn code(text: &str, spaces: Spaces) -> Vec<Span> {
+        let style = Style {
+            spaces,
+            ..Style::default()
+        };
+        vec![Span::new(text, style)]
+    }
+
+    fn command_table(spaces: Spaces) -> Cells {
+        Cells {
+            header: vec![cell("Notes"), cell("Command")],
+            rows: vec![vec![
+                cell("a fairly long note about the step"),
+                code("git commit -m message", spaces),
+            ]],
+            alignments: vec![],
+        }
+    }
+
+    #[test]
+    fn code_wraps_at_its_spaces_like_text() {
+        // Its longest word is seven cells, so the table fits as a box.
+        let lines = text(&layout(&command_table(Spaces::Keep), 20, &styles()));
+        assert_eq!(lines[0], "╭────────┬─────────╮");
+        assert_eq!(lines[3], "│ a      │ git     │");
+        assert_eq!(lines[4], "│ fairly │ commit  │");
+    }
+
+    #[test]
+    fn code_kept_together_stays_whole_while_other_columns_keep_room() {
+        let cells = command_table(Spaces::KeepTogether);
+        let lines = text(&layout(&cells, 44, &styles()));
+        assert!(lines.iter().all(|line| line.width() <= 44), "{lines:#?}");
+        assert_eq!(lines[3], "│ a fairly long    │ git commit -m message │");
+        // The same table wraps the code at its spaces when its spaces are
+        // ordinary break points.
+        let lines = text(&layout(&command_table(Spaces::Keep), 44, &styles()));
+        assert_eq!(lines[3], "│ a fairly long note  │ git commit -m      │");
+    }
+
+    #[test]
+    fn code_kept_together_does_not_squeeze_the_other_columns() {
+        // Too narrow for the code and a comfortable description: the table
+        // is laid out as if the code wrapped at its spaces.
+        let together = command_table(Spaces::KeepTogether);
+        let wrapping = command_table(Spaces::Keep);
+        let lines = text(&layout(&together, 38, &styles()));
+        assert_eq!(lines[3], "│ a fairly long    │ git commit -m   │");
+        assert_eq!(lines, text(&layout(&wrapping, 38, &styles())));
+    }
+
+    #[test]
+    fn code_kept_together_splits_at_its_spaces_before_the_table_stacks() {
+        let cells = command_table(Spaces::KeepTogether);
+        let lines = text(&layout(&cells, 24, &styles()));
+        assert!(lines.iter().all(|line| line.width() <= 24), "{lines:#?}");
+        assert_eq!(lines[3], "│ a fairly  │ git      │");
+        assert_eq!(lines[4], "│ long note │ commit   │");
+        // Narrower than its longest words, the table stacks.
+        let lines = text(&layout(&cells, 19, &styles()));
+        assert_eq!(lines[0], "Notes: a fairly");
+    }
+
+    #[test]
+    fn a_long_url_beside_code_kept_together_may_still_split() {
+        let cells = Cells {
+            header: vec![cell("Link"), cell("Command")],
+            rows: vec![vec![
+                cell("https://example.com/a/very/long/path"),
+                code("git commit", Spaces::KeepTogether),
+            ]],
+            alignments: vec![],
+        };
+        let lines = text(&layout(&cells, 33, &styles()));
+        assert!(lines.iter().all(|line| line.width() <= 33), "{lines:#?}");
+        assert_eq!(lines[3], "│ https://example. │ git commit │");
     }
 
     #[test]

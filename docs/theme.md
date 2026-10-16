@@ -56,7 +56,8 @@ inline_code_background = "code-block"
 # A space of background colour on each side of inline code.
 inline_code_padding = true
 # Inline code may wrap at its spaces; false moves it to the next line
-# instead, unless it is longer than a line.
+# instead, unless it is longer than a line. In a table, false keeps it
+# whole while the other columns keep room for their text.
 inline_code_wrap = true
 quote_bar = "bright-black"
 rule = "bright-black"
