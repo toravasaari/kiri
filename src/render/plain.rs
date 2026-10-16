@@ -15,16 +15,12 @@ pub fn render(document: &Document, out: &mut impl Write) -> io::Result<()> {
                 writeln!(out, "{marker} {}", text(content))?;
             }
             Block::Paragraph(content) => writeln!(out, "{}", text(content))?,
+            _ => {}
         }
     }
     Ok(())
 }
 
 fn text(content: &[Inline]) -> String {
-    content
-        .iter()
-        .map(|inline| match inline {
-            Inline::Text(text) => text.as_str(),
-        })
-        .collect()
+    Inline::plain_text(content)
 }
