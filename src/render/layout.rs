@@ -26,27 +26,37 @@ pub fn layout(document: &Document, caps: &Capabilities, theme: &Theme) -> Vec<Li
     // everything else keeps text_margin free on both sides.
     let margin = usize::from(theme.text_margin).min(width / 4);
     let mut lines = Vec::new();
-    for (index, block) in document.blocks.iter().enumerate() {
-        if index > 0 {
-            lines.push(Line::blank());
-        }
-        match block {
-            Block::ThematicBreak => {
-                lines.push(layout.rule(usize::from(caps.width).max(width)));
-            }
-            Block::Heading { .. } => lines.extend(layout.block(block, width, Context::default())),
+    for block in &document.blocks {
+        let block_lines = match block {
+            Block::ThematicBreak => vec![layout.rule(usize::from(caps.width).max(width))],
+            Block::Heading { .. } => layout.block(block, width, Context::default()),
             _ => {
-                for mut line in layout.block(block, width - 2 * margin, Context::default()) {
+                let mut block_lines = layout.block(block, width - 2 * margin, Context::default());
+                for line in &mut block_lines {
                     if margin > 0 && !line.spans.is_empty() {
                         line.lead
                             .insert(0, Span::new(&" ".repeat(margin), Style::default()));
                     }
-                    lines.push(line);
                 }
+                block_lines
             }
-        }
+        };
+        append_block(&mut lines, block_lines, true);
     }
     lines
+}
+
+/// Appends a block's lines, after a blank line if `blank` and something
+/// came before. A block without lines, such as an empty code block, gets
+/// no separator either.
+fn append_block(lines: &mut Vec<Line>, block_lines: Vec<Line>, blank: bool) {
+    if block_lines.is_empty() {
+        return;
+    }
+    if blank && !lines.is_empty() {
+        lines.push(Line::blank());
+    }
+    lines.extend(block_lines);
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -67,11 +77,12 @@ struct Layout<'a> {
 impl Layout<'_> {
     fn blocks(&self, blocks: &[Block], width: usize, context: Context) -> Vec<Line> {
         let mut lines = Vec::new();
-        for (index, block) in blocks.iter().enumerate() {
-            if index > 0 && !context.tight {
-                lines.push(Line::blank());
-            }
-            lines.extend(self.block(block, width, context));
+        for block in blocks {
+            append_block(
+                &mut lines,
+                self.block(block, width, context),
+                !context.tight,
+            );
         }
         lines
     }
@@ -147,7 +158,9 @@ impl Layout<'_> {
             .map(|mut spans| {
                 if background.bg.is_some() {
                     let used = super::wrap::width(&spans);
-                    push(&mut spans, &" ".repeat(available - used), &background);
+                    // A wide character can overflow a very narrow heading.
+                    let fill = available.saturating_sub(used);
+                    push(&mut spans, &" ".repeat(fill), &background);
                 }
                 Line {
                     lead: lead.clone(),
@@ -188,7 +201,8 @@ impl Layout<'_> {
             return code
                 .lines()
                 .flat_map(|line| {
-                    split_to_width(&[Span::new(line, Style::default())], width - indent.len())
+                    let max = width.saturating_sub(indent.len()).max(1);
+                    split_to_width(&[Span::new(line, Style::default())], max)
                 })
                 .map(|mut spans| {
                     spans.insert(0, Span::new(indent, Style::default()));

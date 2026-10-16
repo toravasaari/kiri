@@ -57,8 +57,9 @@ pub fn write(
                     }
                     current = style;
                 }
-            } else if background.is_some() {
+            } else if background.is_some() && block_width > 0 {
                 // Step over the scaled text to fill the rest of the row.
+                // `CSI 0 C` would still move one cell.
                 write!(out, "\x1b[{block_width}C")?;
             }
             if background.is_some() {
@@ -181,6 +182,25 @@ fn rgb_to_256(r: u8, g: u8, b: u8) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_scaled_line_does_not_step_over_anything() {
+        let line = Line {
+            lead: Vec::new(),
+            spans: Vec::new(),
+            scale: 2,
+        };
+        let mut out = Vec::new();
+        write(
+            &[line],
+            &Capabilities::kitty(20),
+            Some(Color::Rgb(0, 0, 0)),
+            &mut out,
+        )
+        .unwrap();
+        let out = String::from_utf8(out).unwrap();
+        assert!(!out.contains("\x1b[0C"), "{out:?}");
+    }
 
     #[test]
     fn maps_palette_colours_to_short_codes() {

@@ -314,14 +314,18 @@ fn parse_color(value: &str) -> Result<Option<Color>, String> {
     if value == "none" {
         return Ok(None);
     }
+    // Digits only: from_str_radix and parse would also take a leading `+`.
     if let Some(hex) = value.strip_prefix('#')
         && hex.len() == 6
+        && hex.bytes().all(|b| b.is_ascii_hexdigit())
         && let Ok(rgb) = u32::from_str_radix(hex, 16)
     {
         let [_, r, g, b] = rgb.to_be_bytes();
         return Ok(Some(Color::Rgb(r, g, b)));
     }
-    if let Ok(index) = value.parse::<u8>() {
+    if value.bytes().all(|b| b.is_ascii_digit())
+        && let Ok(index) = value.parse::<u8>()
+    {
         return Ok(Some(Color::Palette(index)));
     }
     let (bright, name) = match value.strip_prefix("bright-") {
@@ -386,7 +390,13 @@ mod tests {
         assert_eq!(parse_color("bright-black"), Ok(Some(Color::Palette(8))));
         assert_eq!(parse_color("208"), Ok(Some(Color::Palette(208))));
         assert_eq!(parse_color("none"), Ok(None));
+        assert_eq!(
+            parse_color("#1a2B3c"),
+            Ok(Some(Color::Rgb(0x1a, 0x2b, 0x3c)))
+        );
         assert!(parse_color("#12345").is_err());
+        assert!(parse_color("#+12345").is_err());
+        assert!(parse_color("+12").is_err());
         assert!(parse_color("purple").is_err());
     }
 

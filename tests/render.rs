@@ -119,6 +119,45 @@ fn nested_headings_are_not_indented() {
     insta::assert_snapshot!(visible(&String::from_utf8(out).unwrap()));
 }
 
+fn render_source(source: &str, caps: &Capabilities, theme: &Theme) -> String {
+    let document = kiri::parse::parse(source);
+    let mut out = Vec::new();
+    kiri::render::render(&document, caps, theme, &mut out).unwrap();
+    String::from_utf8(out).unwrap()
+}
+
+#[test]
+fn empty_blocks_get_no_separator() {
+    let plain = Capabilities::plain(WIDTH);
+    let theme = Theme::default();
+    let source = "```\n```\n\nBefore\n\n```\n```\n\nAfter\n";
+    assert_eq!(
+        render_source(source, &plain, &theme),
+        "  Before\n\n  After\n"
+    );
+    let quoted = "> Before\n>\n> ```\n> ```\n>\n> After\n";
+    assert_eq!(
+        render_source(quoted, &plain, &theme),
+        "  > Before\n  >\n  > After\n"
+    );
+    // Without padding, a highlighted empty code block has no lines either.
+    let ansi = render_source(source, &Capabilities::ansi(WIDTH), &theme.without_margins());
+    assert_eq!(ansi.matches('\n').count(), 3, "{ansi:?}");
+}
+
+#[test]
+fn tiny_widths_do_not_underflow() {
+    // A wide character in a heading scaled to one character per line.
+    let theme = kiri::theme::parse("[h1]\nscale = 7\nbackground = \"blue\"\n").unwrap();
+    let out = render_source("# 日本\n", &Capabilities::kitty(10), &theme);
+    assert!(out.contains('日'), "{out:?}");
+    // Quotes nested until a code block's padding is wider than its room.
+    let quotes = "> ".repeat(6);
+    let source = format!("{quotes}```\n{quotes}code\n{quotes}```\n");
+    let out = render_source(&source, &Capabilities::plain(10), &Theme::default());
+    assert!(out.contains('c'), "{out:?}");
+}
+
 #[test]
 fn no_margins_puts_text_and_code_at_the_edge() {
     let theme = Theme::default().without_margins();
