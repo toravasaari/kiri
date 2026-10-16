@@ -1,5 +1,8 @@
 //! Tables drawn with box-drawing characters.
 
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
+
 use super::style::{Line, Span, Style};
 use super::wrap::{width, wrap};
 use crate::model::Alignment;
@@ -38,23 +41,36 @@ pub fn layout(cells: &Cells, max: usize, border: &Style) -> Vec<Line> {
 
 fn column_widths(cells: &Cells, columns: usize, max: usize) -> Vec<usize> {
     let mut widths = vec![1; columns];
+    // A column narrower than its widest character, two cells for CJK and
+    // emoji, would push its borders out of line. When the minimums do not
+    // fit, the table is wider than `max` instead.
+    let mut minimums = vec![1; columns];
     for row in std::iter::once(&cells.header).chain(&cells.rows) {
         for (column, cell) in row.iter().enumerate() {
             widths[column] = widths[column].max(width(cell));
+            minimums[column] = minimums[column].max(widest_grapheme(cell));
         }
     }
     // Each column costs its padding and one border, plus the closing border.
     let available = max.saturating_sub(3 * columns + 1).max(columns);
     while widths.iter().sum::<usize>() > available {
-        let widest = (0..columns)
+        let Some(widest) = (0..columns)
+            .filter(|&column| widths[column] > minimums[column])
             .max_by_key(|&column| widths[column])
-            .expect("there is at least one column");
-        if widths[widest] == 1 {
+        else {
             break;
-        }
+        };
         widths[widest] -= 1;
     }
     widths
+}
+
+fn widest_grapheme(cell: &[Span]) -> usize {
+    (cell.iter())
+        .flat_map(|span| span.text.graphemes(true))
+        .map(UnicodeWidthStr::width)
+        .max()
+        .unwrap_or(0)
 }
 
 fn border_line(widths: &[usize], [left, middle, right]: [&str; 3], style: &Style) -> Line {
@@ -101,8 +117,6 @@ fn row_lines(
 
 #[cfg(test)]
 mod tests {
-    use unicode_width::UnicodeWidthStr;
-
     use super::*;
 
     fn cell(text: &str) -> Vec<Span> {
@@ -146,6 +160,30 @@ mod tests {
         assert!(lines.iter().all(|line| line.width() <= 20), "{lines:#?}");
         assert_eq!(lines[3], "│ 1  │ a long      │");
         assert_eq!(lines[4], "│    │ piece of    │");
+    }
+
+    #[test]
+    fn a_column_is_never_narrower_than_its_widest_character() {
+        let cells = Cells {
+            header: vec![cell("名前"), cell("Emoji")],
+            rows: vec![
+                vec![cell("東京"), cell("🦀")],
+                vec![cell("Oslo"), cell("x")],
+            ],
+            alignments: vec![],
+        };
+        let lines = text(&layout(&cells, 8, &Style::default()));
+        let widths: Vec<usize> = lines.iter().map(|line| line.width()).collect();
+        assert!(widths.iter().all(|&w| w == widths[0]), "{lines:#?}");
+        assert!(lines.contains(&"│ 東 │ 🦀 │".to_owned()), "{lines:#?}");
+        // A column of narrow characters still shrinks to one cell.
+        let cells = Cells {
+            header: vec![cell("名前"), cell("ab")],
+            rows: vec![],
+            alignments: vec![],
+        };
+        let lines = text(&layout(&cells, 8, &Style::default()));
+        assert_eq!(lines[1], "│ 名 │ a │");
     }
 
     #[test]

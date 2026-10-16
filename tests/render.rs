@@ -78,9 +78,6 @@ fn kitty_wide_characters() {
     insta::assert_snapshot!(visible(&render("wide.md", &Capabilities::kitty(WIDTH))));
 }
 
-// Known bug, kept as current behaviour: the column width floor is one cell,
-// so each column holding a wide character renders one cell too wide and the
-// borders of that row do not line up.
 #[test]
 fn plain_wide_characters_narrow() {
     insta::assert_snapshot!(render("wide.md", &Capabilities::plain(12)));

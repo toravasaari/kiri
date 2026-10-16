@@ -402,7 +402,8 @@ mod tests {
         assert_eq!(texts(&lines), vec!["日本", "語"]);
         let lines = wrap(&plain("ab 日本"), 4);
         assert_eq!(texts(&lines), vec!["ab", "日本"]);
-        // Known limitation: one cell is too narrow for a wide character.
+        // One cell is too narrow for a wide character: it overflows on a
+        // line of its own.
         let lines = wrap(&plain("日本"), 1);
         assert_eq!(texts(&lines), vec!["日", "本"]);
     }
