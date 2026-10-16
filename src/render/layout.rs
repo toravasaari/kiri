@@ -2,7 +2,8 @@
 
 use std::rc::Rc;
 
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 use super::highlight;
 use super::style::{Line, Spaces, Span, Style, push};
@@ -569,21 +570,69 @@ fn expand_tabs(line: &str) -> String {
 }
 
 /// Splits styled code into lines of at most `max` cells, keeping every
-/// character, spaces included.
+/// character, spaces included. Lines break between graphemes, measured as
+/// the wrapper measures them, so a flag or a joined emoji stays whole. A
+/// grapheme wider than `max` gets a line of its own and overflows it.
 fn split_to_width(spans: &[Span], max: usize) -> Vec<Vec<Span>> {
     let mut lines = vec![Vec::new()];
     let mut used = 0;
     for span in spans {
-        for c in span.text.chars() {
-            let char_width = c.width().unwrap_or(0);
-            if used + char_width > max && used > 0 {
+        for grapheme in span.text.graphemes(true) {
+            let grapheme_width = grapheme.width();
+            if used + grapheme_width > max && used > 0 {
                 lines.push(Vec::new());
                 used = 0;
             }
             let line = lines.last_mut().expect("lines is never empty");
-            push(line, c.encode_utf8(&mut [0; 4]), &span.style);
-            used += char_width;
+            push(line, grapheme, &span.style);
+            used += grapheme_width;
         }
     }
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn texts(spans: &str, max: usize) -> Vec<String> {
+        split_to_width(&[Span::new(spans, Style::default())], max)
+            .iter()
+            .map(|line| line.iter().map(|span| span.text.as_str()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn splits_code_between_graphemes() {
+        // A flag is two regional indicators, two cells together.
+        assert_eq!(texts("ab🇫🇮", 3), vec!["ab", "🇫🇮"]);
+        // An emoji joined from three, two cells wide.
+        assert_eq!(texts("ab👨‍👩‍👧", 3), vec!["ab", "👨‍👩‍👧"]);
+        // A heart made an emoji by a variation selector, two cells wide.
+        assert_eq!(texts("a❤️", 2), vec!["a", "❤️"]);
+        // A letter with a combining accent.
+        assert_eq!(texts("abe\u{301}", 2), vec!["ab", "e\u{301}"]);
+        // Spaces are kept.
+        assert_eq!(texts("a  b", 2), vec!["a ", " b"]);
+    }
+
+    #[test]
+    fn a_grapheme_wider_than_the_line_gets_a_line_of_its_own() {
+        assert_eq!(texts("日本", 1), vec!["日", "本"]);
+        assert_eq!(texts("a日", 1), vec!["a", "日"]);
+    }
+
+    #[test]
+    fn a_leading_zero_width_grapheme_stays_with_what_follows() {
+        assert_eq!(texts("\u{200b}ab", 1), vec!["\u{200b}a", "b"]);
+    }
+
+    #[test]
+    fn measures_code_like_the_wrapper() {
+        for text in ["ab🇫🇮cd", "a❤️b👨‍👩‍👧c", "日本語"] {
+            for line in split_to_width(&[Span::new(text, Style::default())], 3) {
+                assert!(super::super::wrap::width(&line) <= 3, "{line:?}");
+            }
+        }
+    }
 }
