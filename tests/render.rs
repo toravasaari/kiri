@@ -27,9 +27,10 @@ fn example_theme(name: &str) -> Theme {
     kiri::theme::load(&path).expect("example theme loads")
 }
 
-/// Escape characters made visible, so snapshots can be read and diffed.
+/// Escape characters and no-break spaces made visible, so snapshots can be
+/// read and diffed.
 fn visible(output: &str) -> String {
-    output.replace('\x1b', "␛")
+    output.replace('\x1b', "␛").replace('\u{a0}', "⍽")
 }
 
 #[test]
@@ -50,6 +51,39 @@ fn ansi_elements() {
 #[test]
 fn kitty_elements() {
     insta::assert_snapshot!(visible(&render("elements.md", &Capabilities::kitty(WIDTH))));
+}
+
+#[test]
+fn plain_nested() {
+    insta::assert_snapshot!(render("nested.md", &Capabilities::plain(WIDTH)));
+}
+
+#[test]
+fn kitty_nested() {
+    insta::assert_snapshot!(visible(&render("nested.md", &Capabilities::kitty(WIDTH))));
+}
+
+#[test]
+fn plain_nested_narrow() {
+    insta::assert_snapshot!(render("nested.md", &Capabilities::plain(12)));
+}
+
+#[test]
+fn plain_wide_characters() {
+    insta::assert_snapshot!(render("wide.md", &Capabilities::plain(WIDTH)));
+}
+
+#[test]
+fn kitty_wide_characters() {
+    insta::assert_snapshot!(visible(&render("wide.md", &Capabilities::kitty(WIDTH))));
+}
+
+// Known bug, kept as current behaviour: the column width floor is one cell,
+// so each column holding a wide character renders one cell too wide and the
+// borders of that row do not line up.
+#[test]
+fn plain_wide_characters_narrow() {
+    insta::assert_snapshot!(render("wide.md", &Capabilities::plain(12)));
 }
 
 #[test]
@@ -192,4 +226,77 @@ fn escape_sequences_in_the_document_are_neutralised() {
     .unwrap();
     let out = String::from_utf8(out).unwrap();
     assert!(!out.contains("\x1b]0;"), "{out:?}");
+}
+
+/// Removes the sequences kiri writes itself: CSI (SGR, erase, cursor
+/// forward), OSC 8 hyperlinks and OSC 66 scaled text. Panics on any other
+/// escape, and on a control character inside an OSC payload.
+fn strip_own_sequences(output: &str) -> String {
+    let mut out = String::new();
+    let mut rest = output;
+    while let Some(start) = rest.find('\x1b') {
+        out.push_str(&rest[..start]);
+        let sequence = &rest[start..];
+        let end = if let Some(csi) = sequence.strip_prefix("\x1b[") {
+            let params = csi
+                .find(|c: char| !c.is_ascii_digit() && c != ';' && c != ':')
+                .unwrap_or_else(|| panic!("unterminated CSI: {sequence:?}"));
+            assert!(
+                matches!(csi.as_bytes()[params], b'm' | b'K' | b'C'),
+                "unexpected CSI: {sequence:?}"
+            );
+            2 + params + 1
+        } else if sequence.starts_with("\x1b]8;;") || sequence.starts_with("\x1b]66;") {
+            let payload = sequence
+                .find("\x1b\\")
+                .unwrap_or_else(|| panic!("unterminated OSC: {sequence:?}"));
+            assert!(
+                !sequence[1..payload].chars().any(char::is_control),
+                "control character in an OSC: {sequence:?}"
+            );
+            payload + 2
+        } else {
+            panic!("escape from the document: {sequence:?}");
+        };
+        rest = &sequence[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+#[test]
+fn control_characters_in_the_document_do_not_reach_the_terminal() {
+    // ESC and the C1 string terminator U+009C in a heading, a link target,
+    // image alt text, a table cell, a code fence's info string and a code
+    // block.
+    let source = "# Head \x1b]0;evil\x07 \u{9c}\n\n\
+        [link](<https://example.com/\x1b]0;evil\x07\u{9c}>) and \
+        ![alt \x1bc \u{9c}](image.png)\n\n\
+        | Cell |\n|---|\n| \x1b]0;evil\x07 \u{9c} |\n\n\
+        ```rust\x1b]0;evil\x07\u{9c}\ncode \x1b[2J \u{9c}\n```\n";
+    let document = kiri::parse::parse(source);
+    // The control characters survive parsing, so the renderer sees them.
+    assert_eq!(format!("{document:?}").matches("\\u{1b}").count(), 6);
+    assert_eq!(format!("{document:?}").matches("\\u{9c}").count(), 6);
+    for caps in [
+        Capabilities::plain(WIDTH),
+        Capabilities::ansi(WIDTH),
+        Capabilities::kitty(WIDTH),
+    ] {
+        let mut out = Vec::new();
+        kiri::render::render(&document, &caps, &Theme::default(), &mut out).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        if caps.hyperlinks {
+            // The link target is still written, without the controls.
+            assert!(
+                out.contains("\x1b]8;;https://example.com/]0;evil\x1b\\"),
+                "{out:?}"
+            );
+        }
+        let text = strip_own_sequences(&out);
+        assert!(
+            !text.chars().any(|c| c.is_control() && c != '\n'),
+            "{caps:?}: {out:?}"
+        );
+    }
 }

@@ -1,0 +1,40 @@
+---
+source: tests/render.rs
+expression: "render(\"wide.md\", &Capabilities::plain(12))"
+---
+# 日本語の見
+出し 🦀
+
+  Mixed
+  text 日
+  本語のテ
+  キストと
+  漢字
+  with an
+  emoji 🦀
+  and more
+  words to
+  wrap at
+  the
+  narrow
+  width.
+
+  ╭───┬───╮
+  │ 名 │ E │
+  │ 前 │ m │
+  │   │ o │
+  │   │ j │
+  │   │ i │
+  ├───┼───┤
+  │ 東 │ 🦀 │
+  │ 京 │   │
+  │ O │ 🌲 │
+  │ s │ 🌲 │
+  │ l │   │
+  │ o │   │
+  ╰───┴───╯
+
+    let 名
+    前 = "
+    東京";
+     // 🦀

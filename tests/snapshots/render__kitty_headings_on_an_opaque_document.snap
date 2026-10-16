@@ -10,7 +10,7 @@ expression: "visible(&render_with(\"headings.md\", &Capabilities::kitty(WIDTH), 
 ␛[9C␛[0;48;2;28;31;38m␛[K␛[0m
 ␛[0;48;2;28;31;38m␛[K␛[0m
 ␛[0;48;2;28;31;38m  A paragraph under the first level, with␛[K␛[0m
-␛[0;48;2;28;31;38m  ␛[0;35;48;2;43;48;59m inline code ␛[0;48;2;28;31;38m and a ␛]8;;https://example.com␛\␛[0;4;34;48;2;28;31;38mlink␛]8;;␛\␛[0;48;2;28;31;38m, to show how body␛[K␛[0m
+␛[0;48;2;28;31;38m  ␛[0;35;48;2;43;48;59m⍽inline code⍽␛[0;48;2;28;31;38m and a ␛]8;;https://example.com␛\␛[0;4;34;48;2;28;31;38mlink␛]8;;␛\␛[0;48;2;28;31;38m, to show how body␛[K␛[0m
 ␛[0;48;2;28;31;38m  text sits under each level.␛[K␛[0m
 ␛[0;48;2;28;31;38m␛[K␛[0m
 ␛[0;1;4;34;48;2;28;31;38m␛]66;s=2;Heading level two␛\␛[0;48;2;28;31;38m␛[K␛[0m

@@ -11,7 +11,7 @@ expression: "visible(&render_with(\"headings.md\", &Capabilities::kitty(WIDTH), 
 ␛[0;90m────────────────────────────────────────────────␛[0m
 
   A paragraph under the first level, with
-  ␛[0;35;48;2;43;48;59m inline code ␛[0m and a ␛]8;;https://example.com␛\␛[0;4;34mlink␛]8;;␛\␛[0m, to show how body
+  ␛[0;35;48;2;43;48;59m⍽inline code⍽␛[0m and a ␛]8;;https://example.com␛\␛[0;4;34mlink␛]8;;␛\␛[0m, to show how body
   text sits under each level.
 
 ␛[0;1;34m␛]66;s=2;Heading level two␛\␛[0m

@@ -1,0 +1,111 @@
+---
+source: tests/render.rs
+expression: "render(\"nested.md\", &Capabilities::plain(12))"
+---
+# Nested
+blocks
+
+  > ## Hea
+  > ding
+  > in a
+  > quote
+  >
+  >   let
+  >   quot
+  >   ed =
+  >    tru
+  >   e;
+  >
+  > ╭───┬───╮
+  > │ K │ V │
+  > │ e │ a │
+  > │ y │ l │
+  > │   │ u │
+  > │   │ e │
+  > ├───┼───┤
+  > │ a │ 1 │
+  > ╰───┴───╯
+  >
+  > - Item
+  >   in a
+  >   quot
+  >   e
+  >   - De
+  >     ep
+  >     er
+  >     it
+  >     em
+
+  - ### He
+    ading
+    in an
+    item
+
+      code
+       in
+      an i
+      tem
+
+    ╭───┬───╮
+    │ K │ V │
+    │ e │ a │
+    │ y │ l │
+    │   │ u │
+    │   │ e │
+    ├───┼───┤
+    │ b │ 2 │
+    ╰───┴───╯
+
+    > Quot
+    > e in
+    > an
+    > item
+
+  1. First
+     parag
+     raph
+     of a
+     loose
+     item.
+
+     Secon
+     d par
+     agrap
+     h of
+     the
+     same
+     item.
+
+  2. Secon
+     d
+     item.
+
+     - Nes
+       ted
+       in
+       a l
+       oos
+       e i
+       tem
+
+  -
+  - Item
+    after
+    an
+    empty
+    one
+
+#
+
+    let li
+    ne = "
+    long e
+    nough
+    to wra
+    p at t
+    he tes
+    t widt
+    h, spa
+    ces an
+    d all"
+    ;
