@@ -110,3 +110,12 @@ example, come before the rest of phase 3.
   a native layout and rasterising engine later.
 - Editing support: an editor and kiri side by side in kitty with live reload,
   and a key to open the editor at the current position.
+
+## Extras
+
+Smaller polish that fits in whenever there is time, in any phase.
+
+- A fenced code block with a language, such as `python`, shows the
+  language name in its top-right corner, on a background colour of its own
+  (a new theme key). With code padding on, the name sits on the top
+  padding row; without it, on a line above the block.
