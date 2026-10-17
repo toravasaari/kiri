@@ -1087,6 +1087,26 @@ fn images_sit_on_the_document_background() {
 }
 
 #[test]
+fn text_after_an_image_takes_the_paper_foreground_again() {
+    let images = one_image("p.png", quadrants(40, 30));
+    let out = render_images_with_theme(
+        "![p](p.png)\n\nText after the image\n",
+        &images,
+        &Capabilities::kitty(WIDTH),
+        &Theme::paper(Paper::Light),
+    );
+    assert_eq!(drawn(&out), ["⟦row 0: 4 cells⟧", "⟦row 1: 4 cells⟧"]);
+    // The placeholders carry the image id in their foreground; the text
+    // after them is in the paper's grey #1f1f1f again.
+    let line = (out.lines())
+        .find(|line| line.contains("Text after"))
+        .expect("the text line");
+    let before = &line[..line.find("Text after").unwrap()];
+    let last = before.rfind("\x1b[").map_or("", |start| &before[start..]);
+    assert!(last.contains("38;2;31;31;31"), "{line:?}");
+}
+
+#[test]
 fn no_color_draws_images_without_other_colours() {
     let images = one_image("p.png", quadrants(40, 30));
     let caps = Capabilities {
