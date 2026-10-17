@@ -76,8 +76,8 @@ The network is strict there: crates.io and rustup work, GitHub does not.
   the one that wrote it.
 - Agents work on their own branch in the main checkout, one commit per
   logical change, and the branch is reviewed before it is merged to
-  `master`. Review fixes go in as fixup commits squashed before the
-  merge.
+  `master`. Review fixes go in as ordinary commits on the branch;
+  commits are never squashed or rewritten.
 - A small review of every commit before the merge, and a larger one when a
   part of the [roadmap](docs/roadmap.md) is finished.
 - Reviewers never change the working tree or git state; experiments go in
