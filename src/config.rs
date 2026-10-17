@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::theme::Paper;
+
 /// The environment variables kiri reads for its settings.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Environment {
@@ -128,14 +130,25 @@ pub enum ThemeSource {
     DefaultFile(PathBuf),
     /// The built-in theme.
     BuiltIn,
+    /// A built-in paper theme, from `--light` or `--dark`.
+    Paper(Paper),
 }
 
-/// Chooses the theme, strongest first: `--theme`, `KIRI_THEME` when it is
-/// not empty, the configuration file, `theme.toml` in the configuration
-/// directory, the built-in theme.
-pub fn theme_source(cli: Option<&Path>, env: &Environment, config: &Config) -> ThemeSource {
+/// Chooses the theme, strongest first: `--theme`, a paper theme from
+/// `--light` or `--dark`, `KIRI_THEME` when it is not empty, the
+/// configuration file, `theme.toml` in the configuration directory, the
+/// built-in theme.
+pub fn theme_source(
+    cli: Option<&Path>,
+    paper: Option<Paper>,
+    env: &Environment,
+    config: &Config,
+) -> ThemeSource {
     if let Some(path) = cli {
         return ThemeSource::File(path.to_owned());
+    }
+    if let Some(paper) = paper {
+        return ThemeSource::Paper(paper);
     }
     if let Some(path) = env.kiri_theme.as_ref().filter(|path| !path.is_empty()) {
         return ThemeSource::File(PathBuf::from(path));
@@ -268,7 +281,12 @@ mod tests {
     fn the_command_line_theme_is_strongest() {
         let env = env(Some("/home/u"), None);
         assert_eq!(
-            theme_source(Some(Path::new("cli.toml")), &env, &with_theme("/c/t.toml")),
+            theme_source(
+                Some(Path::new("cli.toml")),
+                None,
+                &env,
+                &with_theme("/c/t.toml")
+            ),
             ThemeSource::File(PathBuf::from("cli.toml"))
         );
     }
@@ -277,7 +295,7 @@ mod tests {
     fn the_configuration_file_theme_comes_before_theme_toml() {
         let env = env(Some("/home/u"), None);
         assert_eq!(
-            theme_source(None, &env, &with_theme("/c/t.toml")),
+            theme_source(None, None, &env, &with_theme("/c/t.toml")),
             ThemeSource::File(PathBuf::from("/c/t.toml"))
         );
     }
@@ -287,7 +305,7 @@ mod tests {
         let mut env = env(Some("/home/u"), None);
         env.kiri_theme = Some("env.toml".into());
         assert_eq!(
-            theme_source(Some(Path::new("cli.toml")), &env, &Config::default()),
+            theme_source(Some(Path::new("cli.toml")), None, &env, &Config::default()),
             ThemeSource::File(PathBuf::from("cli.toml"))
         );
     }
@@ -297,7 +315,7 @@ mod tests {
         let mut env = env(Some("/home/u"), None);
         env.kiri_theme = Some("env.toml".into());
         assert_eq!(
-            theme_source(None, &env, &with_theme("/c/t.toml")),
+            theme_source(None, None, &env, &with_theme("/c/t.toml")),
             ThemeSource::File(PathBuf::from("env.toml"))
         );
     }
@@ -307,19 +325,48 @@ mod tests {
         let mut env = env(Some("/home/u"), None);
         env.kiri_theme = Some("".into());
         assert_eq!(
-            theme_source(None, &env, &with_theme("/c/t.toml")),
+            theme_source(None, None, &env, &with_theme("/c/t.toml")),
             ThemeSource::File(PathBuf::from("/c/t.toml"))
+        );
+    }
+
+    #[test]
+    fn a_paper_theme_comes_after_the_command_line_theme() {
+        let env = env(Some("/home/u"), None);
+        let config = Config::default();
+        assert_eq!(
+            theme_source(
+                Some(Path::new("cli.toml")),
+                Some(Paper::Light),
+                &env,
+                &config
+            ),
+            ThemeSource::File(PathBuf::from("cli.toml"))
+        );
+        assert_eq!(
+            theme_source(None, Some(Paper::Dark), &env, &config),
+            ThemeSource::Paper(Paper::Dark)
+        );
+    }
+
+    #[test]
+    fn a_paper_theme_comes_before_kiri_theme_and_the_configuration_file() {
+        let mut env = env(Some("/home/u"), None);
+        env.kiri_theme = Some("env.toml".into());
+        assert_eq!(
+            theme_source(None, Some(Paper::Light), &env, &with_theme("/c/t.toml")),
+            ThemeSource::Paper(Paper::Light)
         );
     }
 
     #[test]
     fn theme_toml_in_the_directory_comes_before_the_built_in_theme() {
         assert_eq!(
-            theme_source(None, &env(Some("/home/u"), None), &Config::default()),
+            theme_source(None, None, &env(Some("/home/u"), None), &Config::default()),
             ThemeSource::DefaultFile(PathBuf::from("/home/u/.config/kiri/theme.toml"))
         );
         assert_eq!(
-            theme_source(None, &env(None, None), &Config::default()),
+            theme_source(None, None, &env(None, None), &Config::default()),
             ThemeSource::BuiltIn
         );
     }

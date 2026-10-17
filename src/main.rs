@@ -6,7 +6,7 @@ use clap::{Parser, ValueEnum};
 use kiri::config::{Environment, ThemeSource};
 use kiri::images::Images;
 use kiri::term::Capabilities;
-use kiri::theme::Theme;
+use kiri::theme::{Paper, Theme};
 
 /// Render a Markdown document in the terminal.
 #[derive(Parser)]
@@ -23,9 +23,20 @@ struct Cli {
     #[arg(long, value_enum, default_value_t = Mode::Auto)]
     mode: Mode,
 
-    /// Theme file; overrides KIRI_THEME and the configuration file.
+    /// Theme file; overrides --light, --dark, KIRI_THEME and the
+    /// configuration file.
     #[arg(long)]
     theme: Option<PathBuf>,
+
+    /// A light page in greys, whatever the terminal's colours; code colours
+    /// for a light background.
+    #[arg(long, conflicts_with = "dark")]
+    light: bool,
+
+    /// A dark page in greys, whatever the terminal's colours; code colours
+    /// for a dark background.
+    #[arg(long)]
+    dark: bool,
 
     /// No margins, heading indents or code block padding, for copying text.
     #[arg(short = 'M', long)]
@@ -78,7 +89,12 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let theme_source = kiri::config::theme_source(cli.theme.as_deref(), &env, &config);
+    let paper = match (cli.light, cli.dark) {
+        (true, _) => Some(Paper::Light),
+        (_, true) => Some(Paper::Dark),
+        _ => None,
+    };
+    let theme_source = kiri::config::theme_source(cli.theme.as_deref(), paper, &env, &config);
     let theme = match load_theme(theme_source) {
         Ok(theme) if cli.no_margins => theme.without_margins(),
         Ok(theme) => theme,
@@ -87,7 +103,11 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let caps = capabilities(&cli);
+    let mut caps = capabilities(&cli);
+    // The page decides, whatever the terminal's background is.
+    if let Some(paper) = paper {
+        caps.dark_background = Some(paper == Paper::Dark);
+    }
     let document = kiri::parse::parse(&source);
     // Images are read only when the user wants them and the terminal can
     // show them; otherwise they are alt text, without warnings.
@@ -122,6 +142,7 @@ fn load_theme(source: ThemeSource) -> Result<Theme, String> {
         ThemeSource::File(path) => kiri::theme::load(&path),
         ThemeSource::DefaultFile(path) if path.exists() => kiri::theme::load(&path),
         ThemeSource::DefaultFile(_) | ThemeSource::BuiltIn => Ok(Theme::default()),
+        ThemeSource::Paper(paper) => Ok(Theme::paper(paper)),
     }
 }
 

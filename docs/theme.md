@@ -1,8 +1,8 @@
 # Theme
 
-kiri reads its colours and heading sizes from a theme file: the one given
-with `--theme`, `KIRI_THEME` or the [configuration file](config.md), or
-else `~/.config/kiri/theme.toml` (or `$XDG_CONFIG_HOME/kiri/theme.toml`)
+kiri takes its colours and heading sizes from a theme: a file given with
+`--theme`, `KIRI_THEME` or the [configuration file](config.md), a built-in
+[paper theme](#paper-themes) chosen with `--light` or `--dark`, or else `~/.config/kiri/theme.toml` (or `$XDG_CONFIG_HOME/kiri/theme.toml`)
 when it exists. [Configuration](config.md#theme) gives the order. Every key
 is optional; the ones you leave out keep the defaults below. A mistake in
 the file is an error, not silently ignored.
@@ -72,7 +72,8 @@ table_border = "bright-black"
 # wide. Without it, code starts at the margin and copies cleanly.
 code_padding = true
 
-# Code block colours, chosen by the terminal's background.
+# Code block colours, chosen by the terminal's background, or by --light
+# and --dark.
 # Available: base16-eighties.dark, base16-mocha.dark, base16-ocean.dark,
 # base16-ocean.light, InspiredGitHub, Solarized (dark), Solarized (light).
 code_theme_dark = "base16-ocean.dark"

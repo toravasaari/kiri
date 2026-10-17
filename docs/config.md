@@ -28,14 +28,18 @@ images = true
 The first of these that is given chooses the [theme](theme.md):
 
 1. `--theme FILE`
-2. `KIRI_THEME`, when it is not empty
-3. `theme` in the configuration file
-4. `theme.toml` in the configuration directory
+2. `--light` or `--dark`, the [paper themes](theme.md#paper-themes)
+3. `KIRI_THEME`, when it is not empty
+4. `theme` in the configuration file
+5. `theme.toml` in the configuration directory
    (`$XDG_CONFIG_HOME/kiri/theme.toml` or `~/.config/kiri/theme.toml`),
    when it exists
-5. the built-in theme
+6. the built-in theme
 
-A file named in the first three must exist.
+A file named by `--theme`, `KIRI_THEME` or the configuration file must
+exist. `--light` and `--dark` cannot be given together. Even when another
+theme wins, they choose the code colours for a light or a dark background
+instead of the terminal's background.
 
 ## Images
 

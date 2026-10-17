@@ -28,6 +28,12 @@ kiri asks the terminal what it supports and uses the best it gets: kitty's
 large headings and clickable links, plain ANSI colours elsewhere, and plain
 text when the output is a pipe.
 
+kiri follows your terminal's colour scheme. `--light` and `--dark` draw
+the document on a page of fixed colours instead, white or dark grey, like
+a page in a browser: text and everything around it in greys, and colour
+only in code blocks. They also choose code colours for a light or dark
+background, which kiri otherwise takes from the terminal's background.
+
 With [`NO_COLOR`](https://no-color.org) set to anything but an empty value,
 kiri uses no colours in any mode. Bold, italic, underlines, links and heading
 sizes stay; code blocks are not highlighted, and inline code is shown in
@@ -48,6 +54,7 @@ decompressed, and does not fetch remote images.
 | `--mode auto\|plain\|ansi\|kitty` | Override what kiri detects |
 | `--width N` | Render for `N` cells instead of the terminal width |
 | `--theme FILE` | Colours and heading sizes; see [Theme](docs/theme.md) |
+| `--light`, `--dark` | A light or dark page in greys; see [Paper themes](docs/theme.md#paper-themes) |
 | `-M`, `--no-margins` | No margins or padding, so text and code copy cleanly |
 | `-I`, `--no-images` | Show images as their alt text, without reading them |
 | `--max-image-size MB` | Largest image file to read: 10 MB unless set, at most 100 |

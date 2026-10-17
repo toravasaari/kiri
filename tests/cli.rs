@@ -332,6 +332,85 @@ fn kiri_theme_comes_between_the_option_and_the_configuration_file() {
     assert_fails_naming(&out, &option_theme);
 }
 
+/// The background colour code of the light and the dark paper theme.
+const LIGHT_PAGE: &str = "48;2;255;255;255m";
+const DARK_PAGE: &str = "48;2;30;30;30m";
+
+#[test]
+fn light_and_dark_draw_the_document_on_a_page() {
+    let dir = Scratch::new("paper");
+    for (option, page) in [("--light", LIGHT_PAGE), ("--dark", DARK_PAGE)] {
+        let out = kiri(&dir, "Text\n", &["--mode", "kitty", option]);
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        let stdout = text(&out.stdout);
+        assert!(stdout.contains(page), "{option}: {stdout:?}");
+    }
+}
+
+#[test]
+fn light_and_dark_cannot_be_given_together() {
+    let dir = Scratch::new("paper-both");
+    let out = kiri(&dir, "Text\n", &["--light", "--dark"]);
+    assert!(!out.status.success());
+    let stderr = text(&out.stderr);
+    assert!(stderr.contains("cannot be used with"), "{stderr}");
+}
+
+#[test]
+fn a_paper_theme_comes_before_kiri_theme_and_the_configuration_file() {
+    let dir = Scratch::new("paper-before-env");
+    broken_theme(&dir.join("config/kiri/mine.toml"));
+    write(
+        &dir.join("config/kiri/config.toml"),
+        "theme = \"mine.toml\"\n",
+    );
+    let env_theme = broken_theme(&dir.join("env.toml"));
+    let document = dir.join("document.md");
+    std::fs::write(&document, "Text\n").unwrap();
+    let out = command(&dir)
+        .env("KIRI_THEME", &env_theme)
+        .args(["--mode", "kitty", "--light"])
+        .arg(&document)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(text(&out.stdout).contains(LIGHT_PAGE));
+}
+
+#[test]
+fn the_theme_option_comes_before_a_paper_theme() {
+    let dir = Scratch::new("theme-before-paper");
+    let theme = broken_theme(&dir.join("option.toml"));
+    let out = kiri(
+        &dir,
+        "Text\n",
+        &["--light", "--theme", theme.to_str().unwrap()],
+    );
+    assert_fails_naming(&out, &theme);
+}
+
+#[test]
+fn light_and_dark_choose_the_code_colours_for_another_theme_too() {
+    let dir = Scratch::new("paper-code");
+    let theme = dir.join("mine.toml");
+    write(
+        &theme,
+        "code_theme_light = \"InspiredGitHub\"\ncode_theme_dark = \"base16-ocean.dark\"\n",
+    );
+    let code = "```\ncode\n```\n";
+    let theme = theme.to_str().unwrap();
+    // The background of InspiredGitHub and of base16-ocean.dark.
+    for (option, background) in [
+        ("--light", "48;2;255;255;255m"),
+        ("--dark", "48;2;43;48;59m"),
+    ] {
+        let out = kiri(&dir, code, &["--mode", "kitty", "--theme", theme, option]);
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        let stdout = text(&out.stdout);
+        assert!(stdout.contains(background), "{option}: {stdout:?}");
+    }
+}
+
 /// A document with an image that loads and one that does not, in `dir`.
 fn images_document(dir: &Path) -> PathBuf {
     let icon = fixtures().join("images/icon.png");
