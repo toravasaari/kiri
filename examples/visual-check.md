@@ -8,14 +8,22 @@ you see. Other terminals show less, and without colours (`NO_COLOR` or
 plain text) inline code is shown in backticks.
 
 View it with the default theme, then with the example themes that draw
-heading bands and rules, and without colours:
+heading bands and rules, on the light and dark paper themes, and without
+colours:
 
 ```sh
 cargo run -- examples/visual-check.md
 cargo run -- --theme examples/themes/background.toml examples/visual-check.md
 cargo run -- --theme examples/themes/rules.toml examples/visual-check.md
+cargo run -- --light examples/visual-check.md
+cargo run -- --dark examples/visual-check.md
 NO_COLOR=1 cargo run -- examples/visual-check.md
 ```
+
+On paper, the document lies on a white or dark grey page as wide as the
+window, and everything
+but the code blocks and the images is in greys: no blue headings or
+links, no magenta inline code.
 
 Try a wide window and a narrow one (about 40 columns), where the commands
 above wrap like any long code line. No line reaches past the right edge of

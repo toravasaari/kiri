@@ -10,14 +10,20 @@ be loaded, its alt text appears in brackets. An image is as large next to the te
 browser, never enlarged, and never wider than the text. kiri warns on stderr
 about the images it cannot load: here the five in the last section.
 
-View it with the default theme, on a document background, and without
-colours:
+View it with the default theme, on a document background, on the light
+and dark paper themes, and without colours:
 
 ```sh
 cargo run -- examples/visual-check-images.md
 cargo run -- --theme examples/themes/opaque.toml examples/visual-check-images.md
+cargo run -- --light examples/visual-check-images.md
+cargo run -- --dark examples/visual-check-images.md
 NO_COLOR=1 cargo run -- examples/visual-check-images.md
 ```
+
+Transparent parts of images show the page behind them: the terminal's
+background, the theme's `background`, or the white or dark grey page of
+`--light` and `--dark`.
 
 Try a wide window and a narrow one (about 40 columns), where the wide images
 shrink to the narrower text and the small ones keep their size.
@@ -158,7 +164,7 @@ Their text is set in the system's fonts: the forces on an airfoil, labelled
 in Greek in a sans-serif font, and a gearset diagram with English labels in
 the default serif font. The labels and arrows are black on a transparent
 background, as in a browser, so they show only on a light background: a
-light terminal, or a theme with a light `background`.
+light terminal, `--light`, or another theme with a light `background`.
 
 ![Forces on an airfoil](../tests/fixtures/images/airfoil-forces.svg)
 
