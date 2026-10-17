@@ -46,6 +46,10 @@ Run everything through `make` so local runs match CI:
 - `make fmt` formats the code.
 - `make release` builds the optimised binary, `target/release/kiri`.
 - `cargo run -- <file.md>` renders a document in the current terminal.
+- A build outside the main checkout, such as a scratch copy for a review,
+  uses a `CARGO_TARGET_DIR` of its own, never the checkout's `target/`, and
+  removes it when done. Test binaries bake in their source path, so a shared
+  `target/` ends up running stale binaries.
 
 Isolated agent work runs in [jailbee](https://jailbee.gisgro.io)
 containers; `.jailbee/` holds the configuration and the rustup install step.
@@ -116,3 +120,8 @@ The network is strict there: crates.io and rustup work, GitHub does not.
 
 Report failures as failures and skipped steps as skipped. If `make check`
 fails, show the output instead of summarising it away.
+
+In a run nobody is watching, such as a non-interactive agent in a jailbee
+container, stop at a decision that belongs to the maintainer instead of
+guessing, and write the question in the run's report,
+`.local/reports/<branch>.md`.
