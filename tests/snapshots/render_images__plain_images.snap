@@ -46,12 +46,12 @@ expression: "render_fixture(\"images.md\",\n&with_images(&Capabilities::plain(WI
   stays alt text, and so does [image: an icon]
   with words <https://example.com> in a link.
 
-  ╭─────────────────────┬────────────────────╮
-  │ Image               │ Note               │
-  ├─────────────────────┼────────────────────┤
-  │ [image: Icon in a   │ Alt text in a      │
-  │ cell]               │ table              │
-  ╰─────────────────────┴────────────────────╯
+  ╭──────────────────────┬───────────────────╮
+  │ Image                │ Note              │
+  ├──────────────────────┼───────────────────┤
+  │ [image: Icon in a    │ Alt text in a     │
+  │ cell]                │ table             │
+  ╰──────────────────────┴───────────────────╯
 
   A missing file, a file that is no image, a
   broken SVG and a remote image show their alt

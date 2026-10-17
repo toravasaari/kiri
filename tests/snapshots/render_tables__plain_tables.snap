@@ -12,6 +12,24 @@ expression: "render_for(\"tables.md\", Capabilities::plain(WIDTH))"
   │ a   │     1 │
   ╰─────┴───────╯
 
+  A table too wide to fit, its columns
+  narrowed in proportion to their text:
+
+  ╭──────────┬────────────────────┬──────────╮
+  │ Topic    │ Summary            │ Status   │
+  ├──────────┼────────────────────┼──────────┤
+  │ Parser   │ Turns Markdown     │ done     │
+  │          │ into the document  │          │
+  │          │ model and knows    │          │
+  │          │ nothing about      │          │
+  │          │ terminals or their │          │
+  │          │ escape sequences   │          │
+  │ Kitty    │ Draws headings,    │ in       │
+  │ backend  │ images and links   │ progress │
+  │          │ with kitty's       │          │
+  │          │ protocols          │          │
+  ╰──────────┴────────────────────┴──────────╯
+
   A table too wide to fit, stacked:
 
   City: Helsinki
