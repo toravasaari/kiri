@@ -306,3 +306,28 @@ fn renders_with_an_empty_configuration_file() {
     assert!(out.status.success(), "{}", text(&out.stderr));
     assert_eq!(text(&out.stdout).trim(), "Text");
 }
+
+#[test]
+fn kiri_theme_comes_between_the_option_and_the_configuration_file() {
+    let dir = Scratch::new("kiri-theme");
+    broken_theme(&dir.join("config/kiri/mine.toml"));
+    write(
+        &dir.join("config/kiri/config.toml"),
+        "theme = \"mine.toml\"\n",
+    );
+    let env_theme = broken_theme(&dir.join("env.toml"));
+    let option_theme = broken_theme(&dir.join("option.toml"));
+    let document = dir.join("document.md");
+    std::fs::write(&document, "Text\n").unwrap();
+    let run = |args: &[&std::ffi::OsStr]| {
+        command(&dir)
+            .env("KIRI_THEME", &env_theme)
+            .args(args)
+            .arg(&document)
+            .output()
+            .unwrap()
+    };
+    assert_fails_naming(&run(&[]), &env_theme);
+    let out = run(&["--theme".as_ref(), option_theme.as_os_str()]);
+    assert_fails_naming(&out, &option_theme);
+}

@@ -17,6 +17,8 @@ pub struct Environment {
     pub xdg_config_home: Option<OsString>,
     /// `KIRI_CONFIG`: the configuration file to read instead of the default.
     pub kiri_config: Option<OsString>,
+    /// `KIRI_THEME`: a theme file.
+    pub kiri_theme: Option<OsString>,
 }
 
 impl Environment {
@@ -26,6 +28,7 @@ impl Environment {
             home: std::env::var_os("HOME"),
             xdg_config_home: std::env::var_os("XDG_CONFIG_HOME"),
             kiri_config: std::env::var_os("KIRI_CONFIG"),
+            kiri_theme: std::env::var_os("KIRI_THEME"),
         }
     }
 }
@@ -120,11 +123,15 @@ pub enum ThemeSource {
     BuiltIn,
 }
 
-/// Chooses the theme, strongest first: `--theme`, the configuration file,
-/// `theme.toml` in the configuration directory, the built-in theme.
+/// Chooses the theme, strongest first: `--theme`, `KIRI_THEME` when it is
+/// not empty, the configuration file, `theme.toml` in the configuration
+/// directory, the built-in theme.
 pub fn theme_source(cli: Option<&Path>, env: &Environment, config: &Config) -> ThemeSource {
     if let Some(path) = cli {
         return ThemeSource::File(path.to_owned());
+    }
+    if let Some(path) = env.kiri_theme.as_ref().filter(|path| !path.is_empty()) {
+        return ThemeSource::File(PathBuf::from(path));
     }
     if let Some(path) = &config.theme {
         return ThemeSource::File(path.clone());
@@ -242,6 +249,36 @@ mod tests {
     #[test]
     fn the_configuration_file_theme_comes_before_theme_toml() {
         let env = env(Some("/home/u"), None);
+        assert_eq!(
+            theme_source(None, &env, &with_theme("/c/t.toml")),
+            ThemeSource::File(PathBuf::from("/c/t.toml"))
+        );
+    }
+
+    #[test]
+    fn the_command_line_theme_comes_before_kiri_theme() {
+        let mut env = env(Some("/home/u"), None);
+        env.kiri_theme = Some("env.toml".into());
+        assert_eq!(
+            theme_source(Some(Path::new("cli.toml")), &env, &Config::default()),
+            ThemeSource::File(PathBuf::from("cli.toml"))
+        );
+    }
+
+    #[test]
+    fn kiri_theme_comes_before_the_configuration_file() {
+        let mut env = env(Some("/home/u"), None);
+        env.kiri_theme = Some("env.toml".into());
+        assert_eq!(
+            theme_source(None, &env, &with_theme("/c/t.toml")),
+            ThemeSource::File(PathBuf::from("env.toml"))
+        );
+    }
+
+    #[test]
+    fn an_empty_kiri_theme_is_unset() {
+        let mut env = env(Some("/home/u"), None);
+        env.kiri_theme = Some("".into());
         assert_eq!(
             theme_source(None, &env, &with_theme("/c/t.toml")),
             ThemeSource::File(PathBuf::from("/c/t.toml"))
