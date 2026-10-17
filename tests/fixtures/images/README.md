@@ -5,8 +5,10 @@ They are committed at full size.
 
 ## Made for kiri
 
-[`generate.sh`](generate.sh) makes these with ImageMagick and exiv2. The
-ones made from `photo-landscape.jpg` are under CC0 1.0 like the photo.
+[`generate.sh`](generate.sh) makes these with ImageMagick and exiv2. All of
+them are dedicated to the public domain under
+[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/), like
+`photo-landscape.jpg`, which some are made from.
 
 | File | What it tests |
 |---|---|
