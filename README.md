@@ -57,6 +57,7 @@ decompressed, and does not fetch remote images.
 | `--light`, `--dark` | A light or dark page in greys; see [Paper themes](docs/theme.md#paper-themes) |
 | `-M`, `--no-margins` | No margins or padding, so text and code copy cleanly |
 | `-I`, `--no-images` | Show images as their alt text, without reading them |
+| `--images` | Show images, whatever the environment and configuration say |
 | `--max-image-size MB` | Largest image file to read: 10 MB unless set, at most 100 |
 
 A [configuration file](docs/config.md), `~/.config/kiri/config.toml`, can

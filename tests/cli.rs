@@ -164,12 +164,13 @@ fn reads_the_theme_from_the_configuration_directory() {
 }
 
 #[test]
-fn help_explains_max_image_size() {
+fn help_explains_max_image_size_and_images() {
     let dir = Scratch::new("help");
     let out = command(&dir).arg("--help").output().unwrap();
     let help = text(&out.stdout);
     assert!(help.contains("--max-image-size <MB>"), "{help}");
     assert!(help.contains("[default: 10]"), "{help}");
+    assert!(help.contains("--images"), "{help}");
 }
 
 #[test]
@@ -523,4 +524,43 @@ fn no_images_comes_before_the_environment_and_the_configuration_file() {
         .output()
         .unwrap();
     assert_images_off(&out);
+}
+
+#[test]
+fn images_comes_before_the_environment_and_the_configuration_file() {
+    let dir = Scratch::new("images-first");
+    let document = images_document(&dir);
+    write(&dir.join("config/kiri/config.toml"), "images = false\n");
+    let run = |env: Option<&str>| {
+        let mut command = command(&dir);
+        if let Some(value) = env {
+            command.env("KIRI_NO_IMAGES", value);
+        }
+        command
+            .args(["--mode", "kitty", "--images"])
+            .arg(&document)
+            .output()
+            .unwrap()
+    };
+    assert_images_on(&run(None));
+    assert_images_on(&run(Some("1")));
+}
+
+#[test]
+fn images_and_no_images_cannot_be_given_together() {
+    let dir = Scratch::new("images-both");
+    let document = images_document(&dir);
+    for no_images in ["-I", "--no-images"] {
+        let out = command(&dir)
+            .args(["--mode", "kitty", "--images", no_images])
+            .arg(&document)
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "{no_images}");
+        assert!(
+            text(&out.stderr).contains("cannot be used with"),
+            "{}",
+            text(&out.stderr)
+        );
+    }
 }

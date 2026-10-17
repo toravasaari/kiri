@@ -43,10 +43,11 @@ instead of the terminal's background.
 
 ## Images
 
-Images are shown unless one of these turns them off, the first that is
-given deciding:
+Images are shown by default. The first of these that is given decides
+instead:
 
-1. `-I` or `--no-images`
+1. `--images` turns them on, `-I` or `--no-images` off; the two cannot be
+   given together
 2. `KIRI_NO_IMAGES`: any value but `0` turns images off, and `0` turns them
    on whatever the configuration file says; an empty value counts as unset
 3. `images` in the configuration file
