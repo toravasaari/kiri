@@ -19,7 +19,7 @@ use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig};
 use image::error::{ImageFormatHint, UnsupportedErrorKind};
 use image::imageops::{self, FilterType};
 use image::metadata::Orientation;
-use image::{DynamicImage, ImageDecoder, ImageReader, Limits, RgbaImage};
+use image::{DynamicImage, ImageBuffer, ImageDecoder, ImageReader, Limits, Rgba, RgbaImage};
 use resvg::tiny_skia;
 use resvg::usvg::{self, fontdb};
 
@@ -68,10 +68,51 @@ impl Source {
     pub fn render(&self, width: u32, height: u32) -> RgbaImage {
         match self {
             Source::Raster(image) if image.dimensions() == (width, height) => image.clone(),
-            Source::Raster(image) => imageops::resize(image, width, height, FilterType::CatmullRom),
+            Source::Raster(image) => scale(image, width, height),
             Source::Svg(svg) => svg.render(width, height),
         }
     }
+}
+
+/// `image` scaled to `width` × `height`. Transparent pixels still have a
+/// colour, often white or black, which a plain resize would blend into the
+/// edges around them as a halo. Scaling in premultiplied alpha, where a
+/// pixel counts as much as it covers, leaves that colour out.
+fn scale(image: &RgbaImage, width: u32, height: u32) -> RgbaImage {
+    const FILTER: FilterType = FilterType::CatmullRom;
+    if image.pixels().all(|pixel| pixel[3] == u8::MAX) {
+        return imageops::resize(image, width, height, FILTER);
+    }
+    // Sixteen bits per channel keep the colour of faint pixels.
+    let premultiplied: ImageBuffer<Rgba<u16>, Vec<u16>> =
+        ImageBuffer::from_fn(image.width(), image.height(), |x, y| {
+            let [red, green, blue, alpha] = image.get_pixel(x, y).0;
+            let times_alpha = |channel: u8| {
+                let product = u32::from(channel) * u32::from(alpha);
+                // From 0..=255², rounded to 0..=65535.
+                ((u64::from(product) * 65535 + 65025 / 2) / 65025) as u16
+            };
+            Rgba([
+                times_alpha(red),
+                times_alpha(green),
+                times_alpha(blue),
+                u16::from(alpha) * 257,
+            ])
+        });
+    let scaled = imageops::resize(&premultiplied, width, height, FILTER);
+    RgbaImage::from_fn(width, height, |x, y| {
+        let [red, green, blue, alpha] = scaled.get_pixel(x, y).0;
+        if alpha == 0 {
+            return Rgba([0, 0, 0, 0]);
+        }
+        // The filter can overshoot, so a channel may exceed its alpha.
+        let divided = |channel: u16| {
+            let value = (u32::from(channel) * 255 + u32::from(alpha) / 2) / u32::from(alpha);
+            value.min(255) as u8
+        };
+        let alpha = ((u32::from(alpha) + 128) / 257) as u8;
+        Rgba([divided(red), divided(green), divided(blue), alpha])
+    })
 }
 
 /// A parsed SVG document.
@@ -818,6 +859,39 @@ mod tests {
         let pixel = rgba(&svg(half, &Fonts::none()).render(4, 4), 1, 1);
         assert_eq!(pixel[..3], [0, 0, 255]);
         assert!((126..=129).contains(&pixel[3]), "{pixel:?}");
+    }
+
+    #[test]
+    fn scales_transparency_without_a_halo() {
+        // Dark blue on the left; on the right, fully transparent pixels
+        // whose colour is white, as many image editors save them.
+        let image = RgbaImage::from_fn(16, 16, |x, _| {
+            if x < 8 {
+                image::Rgba([0, 0, 128, 255])
+            } else {
+                image::Rgba([255, 255, 255, 0])
+            }
+        });
+        let small = Source::Raster(image).render(4, 4);
+        for (x, y, pixel) in small.enumerate_pixels() {
+            // Allowing for rounding and the filter's slight ringing.
+            let [red, green, blue, alpha] = pixel.0;
+            if alpha > 0 {
+                let close = red <= 2 && green <= 2 && blue.abs_diff(128) <= 2;
+                assert!(close, "({x}, {y}) is {pixel:?}");
+            }
+        }
+        // The edge is still there: the transparent side stays transparent.
+        assert_eq!(rgba(&small, 0, 0)[3], 255);
+        assert_eq!(rgba(&small, 3, 0)[3], 0);
+    }
+
+    #[test]
+    fn scales_opaque_raster_images_as_before() {
+        let image = raster("pattern.png");
+        let small = Source::Raster(image.clone()).render(32, 24);
+        let plain = imageops::resize(&image, 32, 24, FilterType::CatmullRom);
+        assert_eq!(small, plain);
     }
 
     #[test]
