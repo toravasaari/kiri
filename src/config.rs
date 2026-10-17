@@ -212,8 +212,12 @@ pub struct Options {
 /// together.
 #[derive(Debug)]
 pub struct Settings {
+    /// The theme, loaded, without margins if the options say so.
     pub theme: Theme,
+    /// The paper from `--light` or `--dark`, which also decides whether
+    /// the background counts as dark.
     pub paper: Option<Paper>,
+    /// Whether images are shown.
     pub images: bool,
 }
 

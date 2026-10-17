@@ -22,7 +22,9 @@ pub struct Inputs {
     /// The images loaded for the document; images that are not here, or
     /// that the terminal cannot show, appear as their alt text.
     pub images: Images,
+    /// What the terminal can show, and how wide it is.
     pub caps: Capabilities,
+    /// Colours, sizes and margins.
     pub theme: Theme,
 }
 

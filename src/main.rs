@@ -119,8 +119,8 @@ fn run(cli: &Cli) -> Result<(), String> {
     };
     let inputs = Inputs {
         images,
-        caps,
         theme: settings.theme,
+        ..Inputs::new(caps)
     };
     let mut out = io::stdout().lock();
     match kiri::render::render(&document, &inputs, &mut out).and_then(|()| out.flush()) {
