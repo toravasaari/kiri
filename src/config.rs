@@ -1,5 +1,6 @@
 //! Settings from the command line, the environment and the configuration
-//! file, read once at start-up.
+//! file, read once at start-up. The environment also holds the variables
+//! that capability detection reads.
 //!
 //! Everything here takes the environment as a value, so the rules can be
 //! tested without touching the process environment.
@@ -23,6 +24,15 @@ pub struct Environment {
     pub kiri_theme: Option<OsString>,
     /// `KIRI_NO_IMAGES`: images off unless empty or `0`.
     pub kiri_no_images: Option<OsString>,
+    /// `NO_COLOR`: colours off unless empty.
+    pub no_color: Option<OsString>,
+    /// `COLORTERM`: 24-bit colour when `truecolor` or `24bit`.
+    pub colorterm: Option<OsString>,
+    /// `TERM_PROGRAM`: names some of the terminals known to support
+    /// hyperlinks.
+    pub term_program: Option<OsString>,
+    /// `VTE_VERSION`: terminals built on VTE, with hyperlinks from 5000 on.
+    pub vte_version: Option<OsString>,
 }
 
 impl Environment {
@@ -34,6 +44,10 @@ impl Environment {
             kiri_config: std::env::var_os("KIRI_CONFIG"),
             kiri_theme: std::env::var_os("KIRI_THEME"),
             kiri_no_images: std::env::var_os("KIRI_NO_IMAGES"),
+            no_color: std::env::var_os("NO_COLOR"),
+            colorterm: std::env::var_os("COLORTERM"),
+            term_program: std::env::var_os("TERM_PROGRAM"),
+            vte_version: std::env::var_os("VTE_VERSION"),
         }
     }
 }

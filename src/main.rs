@@ -98,7 +98,7 @@ fn run(cli: &Cli) -> Result<(), String> {
     let env = Environment::from_process();
     let config = kiri::config::load(&env)?;
     let settings = kiri::config::settings(&options(cli), &env, &config)?;
-    let mut caps = capabilities(cli);
+    let mut caps = capabilities(cli, &env);
     // The page decides, whatever the terminal's background is.
     if let Some(paper) = settings.paper {
         caps.dark_background = Some(paper == Paper::Dark);
@@ -148,10 +148,10 @@ fn options(cli: &Cli) -> Options {
     }
 }
 
-fn capabilities(cli: &Cli) -> Capabilities {
+fn capabilities(cli: &Cli, env: &Environment) -> Capabilities {
     let width = || cli.width.or_else(kiri::term::terminal_width).unwrap_or(80);
     let mut caps = match cli.mode {
-        Mode::Auto => kiri::term::detect(cli.width),
+        Mode::Auto => kiri::term::detect(cli.width, env),
         Mode::Plain => Capabilities::plain(width()),
         Mode::Ansi => Capabilities::ansi(width()),
         // The cell size is not a probe: the window size reports it.
@@ -161,7 +161,7 @@ fn capabilities(cli: &Cli) -> Capabilities {
         },
     };
     // In every mode, including the forced ones.
-    if kiri::term::no_color() {
+    if kiri::term::no_color(env) {
         caps.color = false;
     }
     caps
