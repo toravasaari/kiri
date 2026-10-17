@@ -193,6 +193,11 @@ autostart:
     # Strict network is enough: egress_allow covers the crate hosts.
     - name: cargo-fetch
       run: "cargo fetch"
+    # In the background, so an agent can start reading while this compiles;
+    # its own cargo commands wait for the build directory lock meanwhile.
+    - name: warm-build
+      run: "make build"
+      background: true
   on_start: []
   # Example:
   # on_create:
