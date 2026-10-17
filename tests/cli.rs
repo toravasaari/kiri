@@ -331,3 +331,117 @@ fn kiri_theme_comes_between_the_option_and_the_configuration_file() {
     let out = run(&["--theme".as_ref(), option_theme.as_os_str()]);
     assert_fails_naming(&out, &option_theme);
 }
+
+/// A document with an image that loads and one that does not, in `dir`.
+fn images_document(dir: &Path) -> PathBuf {
+    let icon = fixtures().join("images/icon.png");
+    let broken = fixtures().join("images/not-an-image.png");
+    let document = dir.join("document.md");
+    std::fs::write(
+        &document,
+        format!(
+            "![Icon]({})\n\n![Broken]({})\n",
+            icon.display(),
+            broken.display()
+        ),
+    )
+    .unwrap();
+    document
+}
+
+/// Fails unless both images of `images_document` are alt text, without
+/// warnings: neither was read.
+fn assert_images_off(out: &Output) {
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert_eq!(text(&out.stderr), "");
+    let stdout = text(&out.stdout);
+    assert!(stdout.contains("[image: Icon]"), "{stdout:?}");
+    assert!(stdout.contains("[image: Broken]"), "{stdout:?}");
+    assert!(!stdout.contains("\x1b_G"), "{stdout:?}");
+}
+
+/// Fails unless the icon of `images_document` is drawn.
+fn assert_images_on(out: &Output) {
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(text(&out.stderr).contains("not-an-image.png"));
+    assert!(text(&out.stdout).contains("\x1b_G"));
+}
+
+#[test]
+fn draws_images_unless_turned_off() {
+    let dir = Scratch::new("images-on");
+    let document = images_document(&dir);
+    let out = command(&dir)
+        .args(["--mode", "kitty"])
+        .arg(&document)
+        .output()
+        .unwrap();
+    assert_images_on(&out);
+}
+
+#[test]
+fn no_images_shows_alt_text_without_reading_images() {
+    let dir = Scratch::new("no-images");
+    let document = images_document(&dir);
+    for option in ["--no-images", "-I"] {
+        let out = command(&dir)
+            .args(["--mode", "kitty", option])
+            .arg(&document)
+            .output()
+            .unwrap();
+        assert_images_off(&out);
+    }
+}
+
+#[test]
+fn kiri_no_images_turns_images_off_unless_empty_or_0() {
+    let dir = Scratch::new("kiri-no-images");
+    let document = images_document(&dir);
+    let run = |value: &str| {
+        command(&dir)
+            .env("KIRI_NO_IMAGES", value)
+            .args(["--mode", "kitty"])
+            .arg(&document)
+            .output()
+            .unwrap()
+    };
+    assert_images_off(&run("1"));
+    assert_images_on(&run(""));
+    assert_images_on(&run("0"));
+}
+
+#[test]
+fn the_configuration_file_can_turn_images_off() {
+    let dir = Scratch::new("config-images");
+    let document = images_document(&dir);
+    write(&dir.join("config/kiri/config.toml"), "images = false\n");
+    let run = |env: Option<&str>| {
+        let mut command = command(&dir);
+        if let Some(value) = env {
+            command.env("KIRI_NO_IMAGES", value);
+        }
+        command
+            .args(["--mode", "kitty"])
+            .arg(&document)
+            .output()
+            .unwrap()
+    };
+    assert_images_off(&run(None));
+    assert_images_off(&run(Some("")));
+    // The environment comes first.
+    assert_images_on(&run(Some("0")));
+}
+
+#[test]
+fn no_images_comes_before_the_environment_and_the_configuration_file() {
+    let dir = Scratch::new("no-images-first");
+    let document = images_document(&dir);
+    write(&dir.join("config/kiri/config.toml"), "images = true\n");
+    let out = command(&dir)
+        .env("KIRI_NO_IMAGES", "0")
+        .args(["--mode", "kitty", "-I"])
+        .arg(&document)
+        .output()
+        .unwrap();
+    assert_images_off(&out);
+}

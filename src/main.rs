@@ -31,6 +31,10 @@ struct Cli {
     #[arg(short = 'M', long)]
     no_margins: bool,
 
+    /// Show images as their alt text, without reading them.
+    #[arg(short = 'I', long)]
+    no_images: bool,
+
     /// Largest image file to read, in megabytes (at most 100); larger
     /// images show their alt text.
     #[arg(long, value_name = "MB", default_value_t = 10, value_parser = max_image_size)]
@@ -85,9 +89,10 @@ fn main() -> ExitCode {
     };
     let caps = capabilities(&cli);
     let document = kiri::parse::parse(&source);
-    // Only a terminal that can show images needs their pixels; elsewhere
-    // they are alt text.
-    let images = if caps.draws_images() {
+    // Images are read only when the user wants them and the terminal can
+    // show them; otherwise they are alt text, without warnings.
+    let images_on = kiri::config::images(cli.no_images, &env, &config);
+    let images = if images_on && caps.draws_images() {
         let base = cli.file.parent().unwrap_or(Path::new(""));
         let max_file_size = cli.max_image_size * kiri::images::MB;
         let images = kiri::images::load(&document, base, max_file_size);

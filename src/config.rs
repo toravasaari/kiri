@@ -19,6 +19,8 @@ pub struct Environment {
     pub kiri_config: Option<OsString>,
     /// `KIRI_THEME`: a theme file.
     pub kiri_theme: Option<OsString>,
+    /// `KIRI_NO_IMAGES`: images off unless empty or `0`.
+    pub kiri_no_images: Option<OsString>,
 }
 
 impl Environment {
@@ -29,6 +31,7 @@ impl Environment {
             xdg_config_home: std::env::var_os("XDG_CONFIG_HOME"),
             kiri_config: std::env::var_os("KIRI_CONFIG"),
             kiri_theme: std::env::var_os("KIRI_THEME"),
+            kiri_no_images: std::env::var_os("KIRI_NO_IMAGES"),
         }
     }
 }
@@ -54,6 +57,8 @@ pub fn directory(env: &Environment) -> Option<PathBuf> {
 pub struct Config {
     /// A theme file, relative to the configuration file's directory.
     pub theme: Option<PathBuf>,
+    /// Whether images are shown, or only their alt text.
+    pub images: Option<bool>,
 }
 
 /// Where the configuration file is.
@@ -103,6 +108,7 @@ pub fn parse(text: &str, dir: &Path) -> Result<Config, String> {
     let file: ConfigToml = toml::from_str(text).map_err(|error| error.to_string())?;
     Ok(Config {
         theme: file.theme.map(|theme| dir.join(theme)),
+        images: file.images,
     })
 }
 
@@ -110,6 +116,7 @@ pub fn parse(text: &str, dir: &Path) -> Result<Config, String> {
 #[serde(deny_unknown_fields)]
 struct ConfigToml {
     theme: Option<PathBuf>,
+    images: Option<bool>,
 }
 
 /// Where the theme comes from.
@@ -139,6 +146,25 @@ pub fn theme_source(cli: Option<&Path>, env: &Environment, config: &Config) -> T
     match directory(env) {
         Some(dir) => ThemeSource::DefaultFile(dir.join("theme.toml")),
         None => ThemeSource::BuiltIn,
+    }
+}
+
+/// Whether images are shown, strongest first: `--no-images`, then
+/// `KIRI_NO_IMAGES`, then the configuration file; on unless one turns them
+/// off. `KIRI_NO_IMAGES` turns them off when it is set to anything but an
+/// empty value or `0`, and `0` turns them on whatever the configuration
+/// file says.
+pub fn images(no_images: bool, env: &Environment, config: &Config) -> bool {
+    if no_images {
+        return false;
+    }
+    match env
+        .kiri_no_images
+        .as_ref()
+        .filter(|value| !value.is_empty())
+    {
+        Some(value) => value == "0",
+        None => config.images.unwrap_or(true),
     }
 }
 
@@ -234,6 +260,7 @@ mod tests {
     fn with_theme(theme: &str) -> Config {
         Config {
             theme: Some(PathBuf::from(theme)),
+            ..Config::default()
         }
     }
 
@@ -295,5 +322,60 @@ mod tests {
             theme_source(None, &env(None, None), &Config::default()),
             ThemeSource::BuiltIn
         );
+    }
+
+    #[test]
+    fn the_images_key_turns_images_on_or_off() {
+        let config = parse("images = false\n", Path::new("/c")).unwrap();
+        assert_eq!(config.images, Some(false));
+        let config = parse("images = true\n", Path::new("/c")).unwrap();
+        assert_eq!(config.images, Some(true));
+        assert!(parse("images = \"no\"\n", Path::new("/c")).is_err());
+    }
+
+    fn with_images(on: bool) -> Config {
+        Config {
+            images: Some(on),
+            ..Config::default()
+        }
+    }
+
+    fn no_images_env(value: &str) -> Environment {
+        Environment {
+            kiri_no_images: Some(value.into()),
+            ..Environment::default()
+        }
+    }
+
+    #[test]
+    fn images_are_on_by_default() {
+        assert!(images(false, &Environment::default(), &Config::default()));
+    }
+
+    #[test]
+    fn the_no_images_option_is_strongest() {
+        assert!(!images(true, &no_images_env("0"), &with_images(true)));
+    }
+
+    #[test]
+    fn kiri_no_images_turns_images_off_with_any_value_but_empty_or_0() {
+        for value in ["1", "yes", "false"] {
+            assert!(!images(false, &no_images_env(value), &with_images(true)));
+        }
+        assert!(images(false, &no_images_env(""), &Config::default()));
+        assert!(images(false, &no_images_env("0"), &Config::default()));
+    }
+
+    #[test]
+    fn kiri_no_images_comes_before_the_configuration_file() {
+        assert!(!images(false, &no_images_env("1"), &with_images(true)));
+        assert!(images(false, &no_images_env("0"), &with_images(false)));
+    }
+
+    #[test]
+    fn an_empty_kiri_no_images_leaves_it_to_the_configuration_file() {
+        assert!(!images(false, &no_images_env(""), &with_images(false)));
+        assert!(!images(false, &Environment::default(), &with_images(false)));
+        assert!(images(false, &Environment::default(), &with_images(true)));
     }
 }
