@@ -14,6 +14,24 @@ expression: "visible(&render_for(\"tables.md\", Capabilities::kitty(WIDTH)))"
   ␛[0;90m│␛[0m a   ␛[0;90m│␛[0m     1 ␛[0;90m│␛[0m
   ␛[0;90m╰─────┴───────╯␛[0m
 
+  A table too wide to fit, its columns
+  narrowed in proportion to their text:
+
+  ␛[0;90m╭──────────┬────────────────────┬──────────╮␛[0m
+  ␛[0;90m│␛[0m ␛[0;1mTopic␛[0m    ␛[0;90m│␛[0m ␛[0;1mSummary␛[0m            ␛[0;90m│␛[0m ␛[0;1mStatus␛[0m   ␛[0;90m│␛[0m
+  ␛[0;90m├──────────┼────────────────────┼──────────┤␛[0m
+  ␛[0;90m│␛[0m Parser   ␛[0;90m│␛[0m Turns Markdown     ␛[0;90m│␛[0m done     ␛[0;90m│␛[0m
+  ␛[0;90m│␛[0m          ␛[0;90m│␛[0m into the document  ␛[0;90m│␛[0m          ␛[0;90m│␛[0m
+  ␛[0;90m│␛[0m          ␛[0;90m│␛[0m model and knows    ␛[0;90m│␛[0m          ␛[0;90m│␛[0m
+  ␛[0;90m│␛[0m          ␛[0;90m│␛[0m nothing about      ␛[0;90m│␛[0m          ␛[0;90m│␛[0m
+  ␛[0;90m│␛[0m          ␛[0;90m│␛[0m terminals or their ␛[0;90m│␛[0m          ␛[0;90m│␛[0m
+  ␛[0;90m│␛[0m          ␛[0;90m│␛[0m escape sequences   ␛[0;90m│␛[0m          ␛[0;90m│␛[0m
+  ␛[0;90m│␛[0m Kitty    ␛[0;90m│␛[0m Draws headings,    ␛[0;90m│␛[0m in       ␛[0;90m│␛[0m
+  ␛[0;90m│␛[0m backend  ␛[0;90m│␛[0m images and links   ␛[0;90m│␛[0m progress ␛[0;90m│␛[0m
+  ␛[0;90m│␛[0m          ␛[0;90m│␛[0m with kitty's       ␛[0;90m│␛[0m          ␛[0;90m│␛[0m
+  ␛[0;90m│␛[0m          ␛[0;90m│␛[0m protocols          ␛[0;90m│␛[0m          ␛[0;90m│␛[0m
+  ␛[0;90m╰──────────┴────────────────────┴──────────╯␛[0m
+
   A table too wide to fit, stacked:
 
   ␛[0;1mCity:␛[0m Helsinki

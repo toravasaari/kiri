@@ -6,6 +6,13 @@ A table that fits:
 |-----|------:|
 | a   | 1     |
 
+A table too wide to fit, its columns narrowed in proportion to their text:
+
+| Topic | Summary | Status |
+|---|---|---|
+| Parser | Turns Markdown into the document model and knows nothing about terminals or their escape sequences | done |
+| Kitty backend | Draws headings, images and links with kitty's protocols | in progress |
+
 A table too wide to fit, stacked:
 
 | City | Country | Population | Notes |
