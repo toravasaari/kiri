@@ -33,8 +33,10 @@ insta = "1.49"
 rustix = { version = "1.1.5", features = ["pty"] }
 
 # Decoding images without optimisation is slow: a 4845 × 2980 JPEG takes
-# about 3 s instead of 0.07 s. Debug builds optimise the image decoders and
-# the SVG renderer, and keep kiri's own code easy to debug.
+# about 3 s instead of 0.07 s. Debug builds optimise the image decoders, the
+# SVG parser and renderer and the fonts and text shaping for SVG text, and
+# keep kiri's own code easy to debug. An SVG with 400 lines of text takes
+# 0.7 s instead of 1.2 s. flate2 and moxcms made no measurable difference.
 [profile.dev.package]
 zune-jpeg.opt-level = 3
 zune-core.opt-level = 3
@@ -50,3 +52,13 @@ crc32fast.opt-level = 3
 resvg.opt-level = 3
 tiny-skia.opt-level = 3
 tiny-skia-path.opt-level = 3
+usvg.opt-level = 3
+roxmltree.opt-level = 3
+svgtypes.opt-level = 3
+simplecss.opt-level = 3
+kurbo.opt-level = 3
+fontdb.opt-level = 3
+harfrust.opt-level = 3
+skrifa.opt-level = 3
+read-fonts.opt-level = 3
+font-types.opt-level = 3
