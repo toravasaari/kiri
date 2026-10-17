@@ -39,11 +39,13 @@ they work.
 
 `src/term.rs` is the only place that talks to the terminal to find out what
 it can do: size in cells and pixels (`TIOCGWINSZ`), whether the text sizing
-and graphics protocols work, and the background colour. 24-bit colour,
-hyperlinks and underline styles follow from either protocol working.
-Images need the graphics protocol's Unicode placeholders, which no query
-reveals; kiri assumes them only when both protocols work, since text sizing
-came to kitty long after placeholders. Elsewhere images are alt text.
+and graphics protocols work, the background colour, and the terminal's
+name and version (XTVERSION). 24-bit colour, hyperlinks and underline
+styles follow from either protocol working. Images need the graphics
+protocol's Unicode placeholders, which no query reveals; kiri assumes them
+when the graphics protocol works and the terminal is kitty 0.28 or later,
+or when both protocols work, since text sizing came to kitty long after
+placeholders. Elsewhere images are alt text.
 Without them, 24-bit colour can still come from `COLORTERM` and hyperlinks
 from `TERM_PROGRAM` or `VTE_VERSION`; underline styles come only from the
 probe. `NO_COLOR` turns colours off in every mode. The result is a plain
@@ -62,7 +64,7 @@ having one.
 | Text attributes and colours | SGR | `src/render/output.rs` | Bold, italic, colours |
 | Styled underlines | SGR 4:x | `src/render/output.rs` | Heading underline styles |
 | Cursor movement, erase | CSI C, CSI K | `src/render/output.rs` | Backgrounds beside scaled headings and across the width |
-| Generic queries | CSI 6n, OSC 11, CSI c | `src/term.rs` | Cursor position, background colour, end of the answers |
+| Generic queries | CSI 6n, OSC 11, CSI > q, CSI c | `src/term.rs` | Cursor position, background colour, terminal version, end of the answers |
 
 Sequences that only kitty's protocols define live under `src/kitty/`:
 text sizing, graphics, Unicode placeholders and the queries that detect

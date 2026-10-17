@@ -183,6 +183,19 @@ mod tests {
     }
 
     #[test]
+    fn a_probed_kitty_0_28_draws_images_without_text_sizing() {
+        let answers = "\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1b_Gi=31;OK\x1b\\\
+                       \x1bP>|kitty(0.28.0)\x1b\\\x1b[?62;c";
+        let caps = with_probe(
+            Capabilities::ansi(80),
+            &probe::interpret(answers.as_bytes()),
+        );
+        assert!(caps.draws_images());
+        assert!(!caps.text_sizing);
+        assert_eq!(caps.max_image_cells, graphics::MAX_CELLS);
+    }
+
+    #[test]
     fn a_terminal_without_placeholders_draws_no_images() {
         let answers = "\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1b_Gi=31;OK\x1b\\\x1b[?62;c";
         let caps = with_probe(
@@ -233,13 +246,18 @@ mod probe {
     const CURSOR_POSITION: &str = "\x1b[6n";
     /// Background colour, OSC 11.
     const BACKGROUND: &str = "\x1b]11;?\x1b\\";
+    /// The terminal's name and version, XTVERSION.
+    const VERSION: &str = "\x1b[>q";
+    /// Start of the answer to [`VERSION`]: `ESC P > | name(version) ST`.
+    const VERSION_ANSWER: &str = "\x1bP>|";
     /// Primary device attributes.
     const DEVICE_ATTRIBUTES: &str = "\x1b[c";
 
     /// Cursor position reports around kitty's two text sizing tests, then a
-    /// graphics protocol query, the background colour, and primary device
-    /// attributes. Every terminal answers the last one, so its answer marks
-    /// the end.
+    /// graphics protocol query, the background colour, the terminal's
+    /// version, and primary device attributes. Every terminal answers the
+    /// last one, so its answer marks the end, also when a terminal ignores
+    /// the others.
     fn queries() -> String {
         let [width, scale] = query::text_sizing();
         [
@@ -251,6 +269,7 @@ mod probe {
             CURSOR_POSITION,
             query::GRAPHICS,
             BACKGROUND,
+            VERSION,
             DEVICE_ATTRIBUTES,
         ]
         .concat()
@@ -340,18 +359,29 @@ mod probe {
     pub fn interpret(answers: &[u8]) -> Probe {
         let text = String::from_utf8_lossy(answers);
         // No query tells whether a terminal supports Unicode placeholders,
-        // and some that answer the graphics query do not. Text sizing came
-        // to kitty in 0.40, long after placeholders in 0.28, so kiri takes a
-        // terminal with both protocols to be a kitty that has placeholders.
-        // Other terminals with placeholders get alt text for now.
+        // and some that answer the graphics query do not. A kitty from 0.28
+        // on has them, which its version answer tells. Text sizing came to
+        // kitty in 0.40, so kiri also takes a terminal with both protocols
+        // to be a kitty that has placeholders. Other terminals with
+        // placeholders get alt text for now.
         let text_sizing = query::text_sizing_answered(&cursor_columns(&text));
         let graphics = text.contains(query::GRAPHICS_ANSWER);
+        let placeholders_by_version = version(&text).is_some_and(query::placeholders_by_version);
         Probe {
             text_sizing,
             graphics,
-            image_placeholders: graphics && text_sizing,
+            image_placeholders: graphics && (text_sizing || placeholders_by_version),
             dark_background: background_is_dark(&text),
         }
+    }
+
+    /// The terminal's name and version from the answer to [`VERSION`],
+    /// ended by ST or BEL.
+    fn version(text: &str) -> Option<&str> {
+        let start = text.find(VERSION_ANSWER)? + VERSION_ANSWER.len();
+        let rest = &text[start..];
+        let end = rest.find(['\x1b', '\x07'])?;
+        Some(&rest[..end])
     }
 
     /// Columns from cursor position reports: `ESC [ row ; column R`.
@@ -403,7 +433,8 @@ mod probe {
             assert_eq!(
                 queries(),
                 "\r\x1b[6n\x1b]66;w=2; \x1b\\\x1b[6n\x1b]66;s=2; \x1b\\\x1b[6n\
-                 \x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b]11;?\x1b\\\x1b[c"
+                 \x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b]11;?\x1b\\\
+                 \x1b[>q\x1b[c"
             );
         }
 
@@ -445,6 +476,65 @@ mod probe {
             let probe = interpret(answers.as_bytes());
             assert!(probe.graphics);
             assert!(!probe.image_placeholders);
+        }
+
+        /// Answers from a kitty that names itself `version` in its
+        /// XTVERSION answer, with or without text sizing.
+        fn kitty_answers(version: &str, text_sizing: bool) -> String {
+            let columns = if text_sizing {
+                "\x1b[5;1R\x1b[5;3R\x1b[5;5R"
+            } else {
+                "\x1b[5;1R\x1b[5;1R\x1b[5;1R"
+            };
+            format!(
+                "{columns}\x1b_Gi=31;OK\x1b\\\x1b]11;rgb:0000/0000/0000\x1b\\\
+                 \x1bP>|kitty({version})\x1b\\\x1b[?62;c"
+            )
+        }
+
+        #[test]
+        fn kitty_0_28_has_placeholders_without_text_sizing() {
+            let probe = interpret(kitty_answers("0.28.0", false).as_bytes());
+            assert!(!probe.text_sizing);
+            assert!(probe.graphics);
+            assert!(probe.image_placeholders);
+        }
+
+        #[test]
+        fn kitty_0_27_has_no_placeholders() {
+            let probe = interpret(kitty_answers("0.27.1", false).as_bytes());
+            assert!(probe.graphics);
+            assert!(!probe.image_placeholders);
+        }
+
+        #[test]
+        fn kitty_0_47_1_has_placeholders_and_text_sizing() {
+            let answers = kitty_answers("0.47.1", true);
+            let probe = interpret(answers.as_bytes());
+            assert!(probe.text_sizing);
+            assert!(probe.image_placeholders);
+            assert!(has_device_attributes(answers.as_bytes()));
+        }
+
+        #[test]
+        fn a_kitty_version_without_graphics_has_no_placeholders() {
+            let answers = "\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1bP>|kitty(0.30.0)\x1b\\\x1b[?62;c";
+            assert!(!interpret(answers.as_bytes()).image_placeholders);
+        }
+
+        #[test]
+        fn an_unknown_terminal_version_promises_no_placeholders() {
+            let answers = "\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1b_Gi=31;OK\x1b\\\
+                           \x1bP>|WezTerm 20240203-110809-5046fc22\x1b\\\x1b[?62;c";
+            let probe = interpret(answers.as_bytes());
+            assert!(probe.graphics);
+            assert!(!probe.image_placeholders);
+        }
+
+        #[test]
+        fn reads_a_version_answer_ended_by_bel() {
+            let answers = "\x1b_Gi=31;OK\x1b\\\x1bP>|kitty(0.28.0)\x07\x1b[?62;c";
+            assert!(interpret(answers.as_bytes()).image_placeholders);
         }
 
         #[test]
