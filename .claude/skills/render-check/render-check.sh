@@ -14,6 +14,8 @@
 #
 # Each FILE.md gives OUT/NAME.png, cropped below the last drawn row, and,
 # when it is taller than a page, OUT/NAME-p01.png, OUT/NAME-p02.png and so on.
+# If kiri fails or crashes on a document, its screenshot is still saved and
+# the script exits with kiri's status after the other documents.
 # Needs Xvfb, kitty, ImageMagick (import, magick) and Mesa's llvmpipe.
 
 set -euo pipefail
@@ -94,14 +96,14 @@ done
 [ -s "$work/display" ] || { cat "$work/xvfb.log" >&2; die "Xvfb did not start"; }
 display=:$(cat "$work/display")
 
-# Runs inside kitty: "$0" is the file to create when kiri has finished, the
+# Runs inside kitty: "$0" is the file to write kiri's exit status to, the
 # rest is kiri's command line. kitty is slow to answer while it starts, so
 # kiri's probe could time out and fall back to text; an answer to a query
 # first means kitty is ready.
 inner='ask() { printf "%b" "$1"; IFS= read -r -s -d "$2" -t 60 reply; }
 ask "\033[c" c
 "$@"
-touch "$0"
+echo $? >"$0"
 exec sleep 600'
 
 # Take screenshots until two in a row are equal, so kitty has drawn
@@ -120,6 +122,7 @@ settle() {
 	echo "render-check: screen did not settle; saved the last screenshot" >&2
 }
 
+failed=0
 for file in "${files[@]}"; do
 	name=$(basename "$file" .md)
 	shot=$out/$name.png
@@ -138,13 +141,23 @@ for file in "${files[@]}"; do
 	kitty_pid=$!
 
 	for _ in $(seq 200); do
-		[ -e "$work/done" ] && break
+		[ -s "$work/done" ] && break
 		kill -0 "$kitty_pid" 2>/dev/null || break
 		sleep 0.1
 	done
-	if [ ! -e "$work/done" ]; then
+	if [ ! -s "$work/done" ]; then
 		cat "$work/kitty.log" >&2
 		die "$file: kiri did not finish in kitty"
+	fi
+	read -r status <"$work/done"
+	if [ "$status" -gt 128 ]; then
+		echo "render-check: $file: kiri was killed by signal" \
+			"$((status - 128)) (status $status)" >&2
+	elif [ "$status" -ne 0 ]; then
+		echo "render-check: $file: kiri exited with status $status" >&2
+	fi
+	if [ "$status" -ne 0 ] && [ "$failed" -eq 0 ]; then
+		failed=$status
 	fi
 	settle "$work/full.ppm"
 	kill "$kitty_pid" 2>/dev/null
@@ -168,3 +181,4 @@ for file in "${files[@]}"; do
 		ls "$out/$name"-p[0-9][0-9].png
 	fi
 done
+exit "$failed"

@@ -44,6 +44,11 @@ positions of images, wrapping, indentation, colours, anything cut off or
 overlapping. Compare with what a browser would show; that is kiri's goal.
 kiri's warnings on stderr appear at the top of the screenshot.
 
+If kiri exits with an error or crashes, the script says so, still saves
+that document's screenshot with the error on it, goes on with the other
+documents and then exits with kiri's status, 128 plus the signal number
+for a crash. Treat that as a failed check.
+
 Report what you could not judge. The screenshots come from kitty's software
 renderer (Mesa llvmpipe) with default fonts, so font rendering, colours of
 the maintainer's theme and HiDPI scaling still need a look in the real
