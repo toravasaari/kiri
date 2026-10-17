@@ -192,3 +192,117 @@ fn reads_the_theme_from_home_without_a_configuration_directory() {
         assert!(stderr.contains(&theme.display().to_string()), "{stderr}");
     }
 }
+
+/// A theme file at `path` that kiri refuses, so its error message tells
+/// which theme kiri chose.
+fn broken_theme(path: &Path) -> PathBuf {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, "not a theme").unwrap();
+    path.to_owned()
+}
+
+/// Writes `text` to `path`, creating its directory.
+fn write(path: &Path, text: &str) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, text).unwrap();
+}
+
+/// Fails unless kiri failed with an error that names `path`.
+fn assert_fails_naming(out: &Output, path: &Path) {
+    assert!(!out.status.success());
+    let stderr = text(&out.stderr);
+    assert!(
+        stderr.starts_with(&format!("kiri: {}: ", path.display())),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn the_configuration_file_chooses_the_theme_relative_to_itself() {
+    let dir = Scratch::new("config-theme");
+    let theme = broken_theme(&dir.join("config/kiri/themes/mine.toml"));
+    write(
+        &dir.join("config/kiri/config.toml"),
+        "theme = \"themes/mine.toml\"\n",
+    );
+    assert_fails_naming(&kiri(&dir, "Text\n", &[]), &theme);
+}
+
+#[test]
+fn the_configuration_file_theme_comes_before_theme_toml() {
+    let dir = Scratch::new("config-before-theme-toml");
+    broken_theme(&dir.join("config/kiri/theme.toml"));
+    let theme = broken_theme(&dir.join("mine.toml"));
+    write(
+        &dir.join("config/kiri/config.toml"),
+        &format!("theme = \"{}\"\n", theme.display()),
+    );
+    assert_fails_naming(&kiri(&dir, "Text\n", &[]), &theme);
+}
+
+#[test]
+fn the_theme_option_comes_before_the_configuration_file() {
+    let dir = Scratch::new("option-before-config");
+    broken_theme(&dir.join("config/kiri/mine.toml"));
+    write(
+        &dir.join("config/kiri/config.toml"),
+        "theme = \"mine.toml\"\n",
+    );
+    let theme = broken_theme(&dir.join("option.toml"));
+    let out = kiri(&dir, "Text\n", &["--theme", theme.to_str().unwrap()]);
+    assert_fails_naming(&out, &theme);
+}
+
+#[test]
+fn kiri_config_names_another_configuration_file() {
+    let dir = Scratch::new("kiri-config");
+    broken_theme(&dir.join("config/kiri/default.toml"));
+    write(
+        &dir.join("config/kiri/config.toml"),
+        "theme = \"default.toml\"\n",
+    );
+    let theme = broken_theme(&dir.join("other/theme.toml"));
+    let config = dir.join("other/kiri.toml");
+    write(&config, "theme = \"theme.toml\"\n");
+    let document = dir.join("document.md");
+    std::fs::write(&document, "Text\n").unwrap();
+    let out = command(&dir)
+        .env("KIRI_CONFIG", &config)
+        .arg(&document)
+        .output()
+        .unwrap();
+    assert_fails_naming(&out, &theme);
+}
+
+#[test]
+fn a_configuration_file_that_kiri_config_names_must_exist() {
+    let dir = Scratch::new("kiri-config-missing");
+    let config = dir.join("missing.toml");
+    let document = dir.join("document.md");
+    std::fs::write(&document, "Text\n").unwrap();
+    let out = command(&dir)
+        .env("KIRI_CONFIG", &config)
+        .arg(&document)
+        .output()
+        .unwrap();
+    assert_fails_naming(&out, &config);
+}
+
+#[test]
+fn a_mistake_in_the_configuration_file_is_an_error() {
+    let dir = Scratch::new("config-mistake");
+    let config = dir.join("config/kiri/config.toml");
+    write(&config, "colour = \"blue\"\n");
+    let out = kiri(&dir, "Text\n", &[]);
+    assert_fails_naming(&out, &config);
+    assert!(text(&out.stderr).contains("unknown field `colour`"));
+}
+
+#[test]
+fn renders_with_an_empty_configuration_file() {
+    let dir = Scratch::new("config-empty");
+    write(&dir.join("config/kiri/config.toml"), "");
+    let out = kiri(&dir, "Text\n", &["--mode", "plain"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert_eq!(text(&out.stdout).trim(), "Text");
+}

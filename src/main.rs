@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, ValueEnum};
-use kiri::config::Environment;
+use kiri::config::{Environment, ThemeSource};
 use kiri::images::Images;
 use kiri::term::Capabilities;
 use kiri::theme::Theme;
@@ -23,7 +23,7 @@ struct Cli {
     #[arg(long, value_enum, default_value_t = Mode::Auto)]
     mode: Mode,
 
-    /// Theme file; defaults to ~/.config/kiri/theme.toml when it exists.
+    /// Theme file, instead of the one the configuration chooses.
     #[arg(long)]
     theme: Option<PathBuf>,
 
@@ -67,7 +67,15 @@ fn main() -> ExitCode {
         }
     };
     let env = Environment::from_process();
-    let theme = match load_theme(&cli, &env) {
+    let config = match kiri::config::load(&env) {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("kiri: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let theme_source = kiri::config::theme_source(cli.theme.as_deref(), &env, &config);
+    let theme = match load_theme(theme_source) {
         Ok(theme) if cli.no_margins => theme.without_margins(),
         Ok(theme) => theme,
         Err(error) => {
@@ -104,13 +112,11 @@ fn main() -> ExitCode {
     }
 }
 
-fn load_theme(cli: &Cli, env: &Environment) -> Result<Theme, String> {
-    if let Some(path) = &cli.theme {
-        return kiri::theme::load(path);
-    }
-    match kiri::config::directory(env).map(|dir| dir.join("theme.toml")) {
-        Some(path) if path.exists() => kiri::theme::load(&path),
-        _ => Ok(Theme::default()),
+fn load_theme(source: ThemeSource) -> Result<Theme, String> {
+    match source {
+        ThemeSource::File(path) => kiri::theme::load(&path),
+        ThemeSource::DefaultFile(path) if path.exists() => kiri::theme::load(&path),
+        ThemeSource::DefaultFile(_) | ThemeSource::BuiltIn => Ok(Theme::default()),
     }
 }
 
