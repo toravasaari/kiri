@@ -1,0 +1,271 @@
+//! The kiri binary end to end: turning images on and off, the size limit
+//! and warnings.
+
+use std::path::{Path, PathBuf};
+use std::process::Output;
+
+mod common;
+
+use common::{Scratch, command, fixtures, kiri, text, write};
+
+#[test]
+fn warns_about_an_image_that_does_not_load_and_shows_its_alt_text() {
+    let dir = Scratch::new("missing");
+    let out = kiri(&dir, "![Lost](no-such.png)\n", &["--mode", "kitty"]);
+    assert!(out.status.success());
+    let missing = dir.join("no-such.png");
+    assert_eq!(
+        text(&out.stderr),
+        format!("kiri: {}: file not found\n", missing.display())
+    );
+    let stdout = text(&out.stdout);
+    // Dim and italic, as everywhere else an image is not drawn.
+    assert!(stdout.contains("\x1b[0;2;3m[image: Lost]"), "{stdout:?}");
+    assert!(!stdout.contains("\x1b_G"), "{stdout:?}");
+}
+
+#[test]
+fn warns_about_an_image_url_without_a_file() {
+    let dir = Scratch::new("no-path");
+    let out = kiri(&dir, "![Nothing](file://)\n", &["--mode", "kitty"]);
+    assert!(out.status.success());
+    assert_eq!(text(&out.stderr), "kiri: file://: the URL names no file\n");
+}
+
+#[test]
+fn does_not_warn_about_images_shown_as_alt_text() {
+    let dir = Scratch::new("alt-text");
+    let source = "Text ![Lost](no-such.png) here.\n\n| ![Cell](no-such.png) |\n|---|\n";
+    let out = kiri(&dir, source, &["--mode", "kitty"]);
+    assert!(out.status.success());
+    assert_eq!(text(&out.stderr), "");
+    let stdout = text(&out.stdout);
+    assert!(stdout.contains("[image: Lost]"), "{stdout:?}");
+    assert!(stdout.contains("[image: Cell]"), "{stdout:?}");
+}
+
+#[test]
+fn refuses_image_files_above_ten_megabytes_by_default() {
+    let dir = Scratch::new("default-limit");
+    // Sparse: the size is all that is read.
+    let big = std::fs::File::create(dir.join("big.png")).unwrap();
+    big.set_len(10_000_001).unwrap();
+    let out = kiri(&dir, "![Big](big.png)\n", &["--mode", "kitty"]);
+    assert!(out.status.success());
+    assert_eq!(
+        text(&out.stderr),
+        format!(
+            "kiri: {}: larger than the 10 MB limit; see --max-image-size\n",
+            dir.join("big.png").display()
+        )
+    );
+}
+
+#[test]
+fn max_image_size_changes_the_limit() {
+    let dir = Scratch::new("option");
+    let photo = fixtures().join("images/photo-cmyk.jpg");
+    let source = format!("![Photo]({})\n", photo.display());
+    let refused = kiri(&dir, &source, &["--mode", "kitty", "--max-image-size", "1"]);
+    let loaded = kiri(&dir, &source, &["--mode", "kitty", "--max-image-size", "2"]);
+    assert!(refused.status.success());
+    assert_eq!(
+        text(&refused.stderr),
+        format!(
+            "kiri: {}: larger than the 1 MB limit; see --max-image-size\n",
+            photo.display()
+        )
+    );
+    assert!(loaded.status.success());
+    assert_eq!(text(&loaded.stderr), "");
+    assert!(text(&loaded.stdout).contains("\x1b_G"));
+}
+
+#[test]
+fn max_image_size_is_at_most_a_hundred_megabytes() {
+    let dir = Scratch::new("too-large");
+    for value in ["101", "0", "ten"] {
+        let out = kiri(&dir, "Text\n", &["--max-image-size", value]);
+        assert_eq!(out.status.code(), Some(2), "{value}");
+        let stderr = text(&out.stderr);
+        assert!(
+            stderr.contains(&format!(
+                "invalid value '{value}' for '--max-image-size <MB>'"
+            )),
+            "{stderr}"
+        );
+        assert!(
+            stderr.contains("whole number of MB from 1 to 100"),
+            "{stderr}"
+        );
+    }
+    let out = kiri(&dir, "Text\n", &["--max-image-size", "100"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+}
+
+#[test]
+fn help_explains_max_image_size_and_images() {
+    let dir = Scratch::new("help");
+    let out = command(&dir).arg("--help").output().unwrap();
+    let help = text(&out.stdout);
+    assert!(help.contains("--max-image-size <MB>"), "{help}");
+    assert!(help.contains("[default: 10]"), "{help}");
+    assert!(help.contains("--images"), "{help}");
+    assert!(
+        help.contains("Images are drawn only in terminals"),
+        "{help}"
+    );
+}
+
+/// A document with an image that loads and one that does not, in `dir`.
+fn images_document(dir: &Path) -> PathBuf {
+    let icon = fixtures().join("images/icon.png");
+    let broken = fixtures().join("images/not-an-image.png");
+    let document = dir.join("document.md");
+    std::fs::write(
+        &document,
+        format!(
+            "![Icon]({})\n\n![Broken]({})\n",
+            icon.display(),
+            broken.display()
+        ),
+    )
+    .unwrap();
+    document
+}
+
+/// Fails unless both images of `images_document` are alt text, without
+/// warnings: neither was read.
+fn assert_images_off(out: &Output) {
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert_eq!(text(&out.stderr), "");
+    let stdout = text(&out.stdout);
+    assert!(stdout.contains("[image: Icon]"), "{stdout:?}");
+    assert!(stdout.contains("[image: Broken]"), "{stdout:?}");
+    assert!(!stdout.contains("\x1b_G"), "{stdout:?}");
+}
+
+/// Fails unless the icon of `images_document` is drawn.
+fn assert_images_on(out: &Output) {
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(text(&out.stderr).contains("not-an-image.png"));
+    assert!(text(&out.stdout).contains("\x1b_G"));
+}
+
+#[test]
+fn draws_images_unless_turned_off() {
+    let dir = Scratch::new("images-on");
+    let document = images_document(&dir);
+    let out = command(&dir)
+        .args(["--mode", "kitty"])
+        .arg(&document)
+        .output()
+        .unwrap();
+    assert_images_on(&out);
+}
+
+#[test]
+fn no_images_shows_alt_text_without_reading_images() {
+    let dir = Scratch::new("no-images");
+    let document = images_document(&dir);
+    for option in ["--no-images", "-I"] {
+        let out = command(&dir)
+            .args(["--mode", "kitty", option])
+            .arg(&document)
+            .output()
+            .unwrap();
+        assert_images_off(&out);
+    }
+}
+
+#[test]
+fn kiri_no_images_turns_images_off_unless_empty_or_0() {
+    let dir = Scratch::new("kiri-no-images");
+    let document = images_document(&dir);
+    let run = |value: &str| {
+        command(&dir)
+            .env("KIRI_NO_IMAGES", value)
+            .args(["--mode", "kitty"])
+            .arg(&document)
+            .output()
+            .unwrap()
+    };
+    assert_images_off(&run("1"));
+    assert_images_on(&run(""));
+    assert_images_on(&run("0"));
+}
+
+#[test]
+fn the_configuration_file_can_turn_images_off() {
+    let dir = Scratch::new("config-images");
+    let document = images_document(&dir);
+    write(&dir.join("config/kiri/config.toml"), "images = false\n");
+    let run = |env: Option<&str>| {
+        let mut command = command(&dir);
+        if let Some(value) = env {
+            command.env("KIRI_NO_IMAGES", value);
+        }
+        command
+            .args(["--mode", "kitty"])
+            .arg(&document)
+            .output()
+            .unwrap()
+    };
+    assert_images_off(&run(None));
+    assert_images_off(&run(Some("")));
+    // The environment comes first.
+    assert_images_on(&run(Some("0")));
+}
+
+#[test]
+fn no_images_comes_before_the_environment_and_the_configuration_file() {
+    let dir = Scratch::new("no-images-first");
+    let document = images_document(&dir);
+    write(&dir.join("config/kiri/config.toml"), "images = true\n");
+    let out = command(&dir)
+        .env("KIRI_NO_IMAGES", "0")
+        .args(["--mode", "kitty", "-I"])
+        .arg(&document)
+        .output()
+        .unwrap();
+    assert_images_off(&out);
+}
+
+#[test]
+fn images_comes_before_the_environment_and_the_configuration_file() {
+    let dir = Scratch::new("images-first");
+    let document = images_document(&dir);
+    write(&dir.join("config/kiri/config.toml"), "images = false\n");
+    let run = |env: Option<&str>| {
+        let mut command = command(&dir);
+        if let Some(value) = env {
+            command.env("KIRI_NO_IMAGES", value);
+        }
+        command
+            .args(["--mode", "kitty", "--images"])
+            .arg(&document)
+            .output()
+            .unwrap()
+    };
+    assert_images_on(&run(None));
+    assert_images_on(&run(Some("1")));
+}
+
+#[test]
+fn images_and_no_images_cannot_be_given_together() {
+    let dir = Scratch::new("images-both");
+    let document = images_document(&dir);
+    for no_images in ["-I", "--no-images"] {
+        let out = command(&dir)
+            .args(["--mode", "kitty", "--images", no_images])
+            .arg(&document)
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "{no_images}");
+        assert!(
+            text(&out.stderr).contains("cannot be used with"),
+            "{}",
+            text(&out.stderr)
+        );
+    }
+}

@@ -1,10 +1,11 @@
-//! Helpers shared by the rendering tests.
+//! Helpers shared by the integration tests.
 
 #![allow(dead_code)]
 
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
 
 use base64::Engine;
 use image::{Rgba, RgbaImage};
@@ -287,4 +288,61 @@ pub fn render_images_with_theme(
     let mut out = Vec::new();
     kiri::render::render(&kiri::parse::parse(source), images, caps, theme, &mut out).unwrap();
     String::from_utf8(out).unwrap()
+}
+
+// The kiri binary
+
+/// A directory of its own for one test, removed when the test ends.
+pub struct Scratch(PathBuf);
+
+impl Scratch {
+    pub fn new(name: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!("kiri-cli-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        Self(dir)
+    }
+}
+
+impl std::ops::Deref for Scratch {
+    type Target = Path;
+
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// The kiri binary with nothing from the environment of the tests: no
+/// colour settings, and the home and configuration directories in `dir`,
+/// so the user's theme stays out.
+pub fn command(dir: &Path) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_kiri"));
+    command
+        .env_clear()
+        .env("HOME", dir.join("home"))
+        .env("XDG_CONFIG_HOME", dir.join("config"));
+    command
+}
+
+/// Runs kiri on a document of `source` in `dir`, with `args` before the file.
+pub fn kiri(dir: &Path, source: &str, args: &[&str]) -> Output {
+    let document = dir.join("document.md");
+    std::fs::write(&document, source).unwrap();
+    command(dir).args(args).arg(&document).output().unwrap()
+}
+
+pub fn text(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// Writes `text` to `path`, creating its directory.
+pub fn write(path: &Path, text: &str) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, text).unwrap();
 }
