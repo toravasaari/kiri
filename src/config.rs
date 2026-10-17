@@ -57,7 +57,8 @@ pub fn directory(env: &Environment) -> Option<PathBuf> {
 /// What the configuration file sets; `None` for what it leaves out.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Config {
-    /// A theme file, relative to the configuration file's directory.
+    /// A theme file, relative to the configuration file's directory unless
+    /// it starts with `~/`, the home directory.
     pub theme: Option<PathBuf>,
     /// Whether images are shown, or only their alt text.
     pub images: Option<bool>,
@@ -102,14 +103,24 @@ pub fn load(env: &Environment) -> Result<Config, String> {
         Err(error) => return Err(format!("{}: {error}", path.display())),
     };
     let dir = path.parent().unwrap_or(Path::new(""));
-    parse(&text, dir).map_err(|error| format!("{}: {error}", path.display()))
+    parse(&text, dir, env).map_err(|error| format!("{}: {error}", path.display()))
 }
 
 /// Parses a configuration file in `dir`.
-pub fn parse(text: &str, dir: &Path) -> Result<Config, String> {
+pub fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String> {
     let file: ConfigToml = toml::from_str(text).map_err(|error| error.to_string())?;
+    let theme = match file.theme {
+        Some(theme) => Some(match theme.strip_prefix("~") {
+            Ok(rest) => match env.home.as_ref().filter(|home| !home.is_empty()) {
+                Some(home) => Path::new(home).join(rest),
+                None => return Err(format!("theme {}: HOME is not set", theme.display())),
+            },
+            Err(_) => dir.join(theme),
+        }),
+        None => None,
+    };
     Ok(Config {
-        theme: file.theme.map(|theme| dir.join(theme)),
+        theme,
         images: file.images,
     })
 }
@@ -251,22 +262,68 @@ mod tests {
 
     #[test]
     fn an_empty_file_sets_nothing() {
-        assert_eq!(parse("", Path::new("/c")), Ok(Config::default()));
+        assert_eq!(
+            parse("", Path::new("/c"), &Environment::default()),
+            Ok(Config::default())
+        );
     }
 
     #[test]
     fn a_relative_theme_is_in_the_configuration_files_directory() {
-        let config = parse("theme = \"themes/paper.toml\"\n", Path::new("/c")).unwrap();
+        let config = parse(
+            "theme = \"themes/paper.toml\"\n",
+            Path::new("/c"),
+            &Environment::default(),
+        )
+        .unwrap();
         assert_eq!(config.theme, Some(PathBuf::from("/c/themes/paper.toml")));
-        let config = parse("theme = \"/abs/paper.toml\"\n", Path::new("/c")).unwrap();
+        let config = parse(
+            "theme = \"/abs/paper.toml\"\n",
+            Path::new("/c"),
+            &Environment::default(),
+        )
+        .unwrap();
         assert_eq!(config.theme, Some(PathBuf::from("/abs/paper.toml")));
     }
 
     #[test]
+    fn a_theme_under_tilde_is_in_the_home_directory() {
+        let home = env(Some("/home/u"), Some("/xdg"));
+        let config = parse("theme = \"~/themes/paper.toml\"\n", Path::new("/c"), &home).unwrap();
+        assert_eq!(
+            config.theme,
+            Some(PathBuf::from("/home/u/themes/paper.toml"))
+        );
+        // Only a leading `~/` is the home directory.
+        let config = parse("theme = \"~user/t.toml\"\n", Path::new("/c"), &home).unwrap();
+        assert_eq!(config.theme, Some(PathBuf::from("/c/~user/t.toml")));
+        let config = parse("theme = \"a/~/t.toml\"\n", Path::new("/c"), &home).unwrap();
+        assert_eq!(config.theme, Some(PathBuf::from("/c/a/~/t.toml")));
+    }
+
+    #[test]
+    fn a_theme_under_tilde_needs_home() {
+        for home in [None, Some("")] {
+            let error = parse(
+                "theme = \"~/t.toml\"\n",
+                Path::new("/c"),
+                &env(home, Some("/xdg")),
+            )
+            .unwrap_err();
+            assert!(error.contains("HOME"), "{error}");
+        }
+    }
+
+    #[test]
     fn rejects_unknown_keys_and_wrong_types() {
-        let error = parse("colour = \"blue\"\n", Path::new("/c")).unwrap_err();
+        let error = parse(
+            "colour = \"blue\"\n",
+            Path::new("/c"),
+            &Environment::default(),
+        )
+        .unwrap_err();
         assert!(error.contains("unknown field `colour`"), "{error}");
-        let error = parse("theme = 1\n", Path::new("/c")).unwrap_err();
+        let error = parse("theme = 1\n", Path::new("/c"), &Environment::default()).unwrap_err();
         assert!(error.contains("invalid type"), "{error}");
     }
 
@@ -373,11 +430,18 @@ mod tests {
 
     #[test]
     fn the_images_key_turns_images_on_or_off() {
-        let config = parse("images = false\n", Path::new("/c")).unwrap();
+        let config = parse("images = false\n", Path::new("/c"), &Environment::default()).unwrap();
         assert_eq!(config.images, Some(false));
-        let config = parse("images = true\n", Path::new("/c")).unwrap();
+        let config = parse("images = true\n", Path::new("/c"), &Environment::default()).unwrap();
         assert_eq!(config.images, Some(true));
-        assert!(parse("images = \"no\"\n", Path::new("/c")).is_err());
+        assert!(
+            parse(
+                "images = \"no\"\n",
+                Path::new("/c"),
+                &Environment::default()
+            )
+            .is_err()
+        );
     }
 
     fn with_images(on: bool) -> Config {

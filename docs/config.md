@@ -16,7 +16,7 @@ Every key is optional:
 
 ```toml
 # A theme file. A relative path is relative to the directory of this
-# file; ~ is not expanded.
+# file, and a leading ~/ is your home directory.
 theme = "themes/mine.toml"
 
 # false shows every image as its alt text, without reading it.
