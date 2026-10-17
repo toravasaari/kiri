@@ -289,6 +289,9 @@ pub enum ImageError {
     NotAFile(PathBuf),
     /// The file is larger than the limit, in bytes.
     FileTooLarge { path: PathBuf, limit: u64 },
+    /// A compressed SVG that grows past the limit, in bytes, when it is
+    /// decompressed.
+    DecompressedTooLarge { limit: u64 },
     /// `http:` and `https:` images are not fetched.
     Remote,
     /// A URL scheme other than `http`, `https`, `data` or `file`.
@@ -320,6 +323,9 @@ impl fmt::Display for ImageError {
                     path.display(),
                     size(*limit)
                 )
+            }
+            ImageError::DecompressedTooLarge { limit } => {
+                write!(f, "decompresses to more than the {} limit", size(*limit))
             }
             ImageError::Remote => f.write_str("remote images are not loaded"),
             ImageError::UnsupportedScheme(scheme) => write!(f, "{scheme}: URLs are not loaded"),
@@ -466,7 +472,9 @@ pub fn load_url(
     fonts: &Fonts,
 ) -> Result<Source, ImageError> {
     match scheme(url) {
-        Some(scheme) if scheme.eq_ignore_ascii_case("data") => decode(&data_url(url)?, fonts),
+        Some(scheme) if scheme.eq_ignore_ascii_case("data") => {
+            decode(&data_url(url)?, max_file_size, fonts)
+        }
         Some(scheme)
             if scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https") =>
         {
@@ -474,10 +482,14 @@ pub fn load_url(
         }
         Some(scheme) if scheme.eq_ignore_ascii_case("file") => {
             let path = file_url_path(&url[scheme.len() + 1..]).ok_or(ImageError::Remote)?;
-            decode(&read_file(&local_path(path, base), max_file_size)?, fonts)
+            let bytes = read_file(&local_path(path, base), max_file_size)?;
+            decode(&bytes, max_file_size, fonts)
         }
         Some(scheme) => Err(ImageError::UnsupportedScheme(scheme.to_ascii_lowercase())),
-        None => decode(&read_file(&local_path(url, base), max_file_size)?, fonts),
+        None => {
+            let bytes = read_file(&local_path(url, base), max_file_size)?;
+            decode(&bytes, max_file_size, fonts)
+        }
     }
 }
 
@@ -597,37 +609,59 @@ fn percent_decode(input: &[u8]) -> Vec<u8> {
 
 /// Decodes an image file's bytes, whatever the format, and turns it upright
 /// according to its EXIF orientation. Animations give their first frame.
-/// Text in SVGs is drawn with `fonts`.
-pub fn decode(bytes: &[u8], fonts: &Fonts) -> Result<Source, ImageError> {
+/// A compressed SVG may decompress to at most `max_size` bytes, the limit
+/// on a file. Text in SVGs is drawn with `fonts`.
+pub fn decode(bytes: &[u8], max_size: u64, fonts: &Fonts) -> Result<Source, ImageError> {
     if looks_like_svg(bytes) {
-        decode_svg(bytes, fonts)
+        decode_svg(bytes, max_size, fonts)
     } else {
         decode_raster(bytes)
     }
 }
 
+/// The magic number of gzip, which compresses `.svgz` files.
+const GZIP: &[u8] = &[0x1f, 0x8b];
+
 /// SVG has no magic number: it is XML with an `<svg` element, or that
 /// compressed with gzip.
 fn looks_like_svg(bytes: &[u8]) -> bool {
-    const GZIP: &[u8] = &[0x1f, 0x8b];
     let text = bytes.strip_prefix("\u{feff}".as_bytes()).unwrap_or(bytes);
     let text = text.trim_ascii_start();
     bytes.starts_with(GZIP)
         || (text.starts_with(b"<") && text.windows(4).any(|window| window == b"<svg"))
 }
 
-fn decode_svg(bytes: &[u8], fonts: &Fonts) -> Result<Source, ImageError> {
+fn decode_svg(bytes: &[u8], max_size: u64, fonts: &Fonts) -> Result<Source, ImageError> {
+    // usvg would decompress without a limit: a few kilobytes of gzip can
+    // grow to gigabytes.
+    let plain;
+    let text = if bytes.starts_with(GZIP) {
+        plain = gunzip(bytes, max_size)?;
+        &plain[..]
+    } else {
+        bytes
+    };
+    let text = std::str::from_utf8(text)
+        .map_err(|_| ImageError::Corrupt(usvg::Error::NotAnUtf8Str.to_string()))?;
+    let embedded = usvg::ImageHrefResolver::default_data_resolver();
     let options = usvg::Options {
-        // Like an image in a browser, an SVG loads no files of its own;
-        // images embedded in data: URLs still show.
         image_href_resolver: usvg::ImageHrefResolver {
+            // Images embedded in data: URLs show, but not compressed SVGs,
+            // which nothing would limit; a browser does not show them
+            // either.
+            resolve_data: Box::new(move |mime, data, options| {
+                (!data.starts_with(GZIP))
+                    .then(|| embedded(mime, data, options))
+                    .flatten()
+            }),
+            // Like an image in a browser, an SVG loads no files of its own.
             resolve_string: Box::new(|_, _| None),
-            ..usvg::ImageHrefResolver::default()
         },
         fontdb: fonts.database(),
         ..usvg::Options::default()
     };
-    let tree = usvg::Tree::from_data(bytes, &options)
+    // From text, so usvg never decompresses anything itself.
+    let tree = usvg::Tree::from_str(text, &options)
         .map_err(|error| ImageError::Corrupt(error.to_string()))?;
     let natural = |length: f32| (length.round() as u32).max(1);
     let size = (natural(tree.size().width()), natural(tree.size().height()));
@@ -636,6 +670,16 @@ fn decode_svg(bytes: &[u8], fonts: &Fonts) -> Result<Source, ImageError> {
         bytes: bytes.into(),
         size,
     }))
+}
+
+/// `bytes` decompressed with gzip, if that gives at most `limit` bytes.
+fn gunzip(bytes: &[u8], limit: u64) -> Result<Vec<u8>, ImageError> {
+    match read_at_most(flate2::read::GzDecoder::new(bytes), limit) {
+        Ok(Some(plain)) => Ok(plain),
+        Ok(None) => Err(ImageError::DecompressedTooLarge { limit }),
+        Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => Err(ImageError::Truncated),
+        Err(error) => Err(ImageError::Corrupt(format!("gzip: {error}"))),
+    }
 }
 
 fn decode_raster(bytes: &[u8]) -> Result<Source, ImageError> {
@@ -709,7 +753,7 @@ mod tests {
 
     /// `bytes` decoded, which must give an SVG.
     fn svg(bytes: &[u8], fonts: &Fonts) -> Source {
-        match decode(bytes, fonts) {
+        match decode(bytes, DEFAULT_MAX_FILE_SIZE, fonts) {
             Ok(source @ Source::Svg(_)) => source,
             other => panic!("not an SVG: {other:?}"),
         }
@@ -938,6 +982,66 @@ mod tests {
         // A .svgz file on disk.
         let svgz = svg_fixture("pattern.svgz", &Fonts::none());
         assert_eq!(svgz.render(32, 24), expected);
+    }
+
+    /// `svg` compressed with gzip.
+    fn gzip(svg: &[u8]) -> Vec<u8> {
+        let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+        io::Write::write_all(&mut gzip, svg).unwrap();
+        gzip.finish().unwrap()
+    }
+
+    #[test]
+    fn refuses_a_compressed_svg_that_decompresses_past_the_limit() {
+        // Just over the default limit of spaces, which compress to a few
+        // kilobytes.
+        let mut large =
+            br#"<svg xmlns="http://www.w3.org/2000/svg" width="2" height="1">"#.to_vec();
+        large.resize(DEFAULT_MAX_FILE_SIZE as usize, b' ');
+        large.extend_from_slice(b"</svg>");
+        let compressed = gzip(&large);
+        assert!(compressed.len() < 64 * 1024, "{}", compressed.len());
+        let fonts = Fonts::none();
+        assert_eq!(
+            decode(&compressed, DEFAULT_MAX_FILE_SIZE, &fonts),
+            Err(ImageError::DecompressedTooLarge {
+                limit: DEFAULT_MAX_FILE_SIZE
+            })
+        );
+        // At the limit, it still loads.
+        let size = large.len() as u64;
+        assert_eq!(
+            decode(&compressed, size, &fonts).map(|svg| svg.size()),
+            Ok((2, 1))
+        );
+        assert_eq!(
+            decode(&compressed[..compressed.len() / 2], size, &fonts),
+            Err(ImageError::Truncated)
+        );
+        // The limit on files applies to data: URLs too.
+        let url = format!("data:image/svg+xml;base64,{}", STANDARD.encode(&compressed));
+        assert_eq!(
+            load_url(&url, Path::new("/"), size - 1, &fonts),
+            Err(ImageError::DecompressedTooLarge { limit: size - 1 })
+        );
+    }
+
+    #[test]
+    fn does_not_draw_a_compressed_svg_inside_an_svg() {
+        // Nothing would limit how large it grows; a browser does not show
+        // it either.
+        let red = br##"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4">
+            <rect width="4" height="4" fill="#ff0000"/></svg>"##;
+        let nested = |bytes: &[u8]| {
+            let outer = format!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4">
+                <image width="4" height="4" href="data:image/svg+xml;base64,{}"/></svg>"#,
+                STANDARD.encode(bytes)
+            );
+            svg(outer.as_bytes(), &Fonts::none()).render(4, 4)
+        };
+        assert_eq!(rgba(&nested(red), 2, 2), [255, 0, 0, 255]);
+        assert_eq!(rgba(&nested(&gzip(red)), 2, 2)[3], 0);
     }
 
     #[test]
@@ -1289,7 +1393,7 @@ mod tests {
     fn reports_a_format_this_build_cannot_decode() {
         let farbfeld = b"farbfeld\0\0\0\x01\0\0\0\x01\0\0\0\0\0\0\0\0";
         assert_eq!(
-            decode(farbfeld, &Fonts::none()),
+            decode(farbfeld, DEFAULT_MAX_FILE_SIZE, &Fonts::none()),
             Err(ImageError::UnsupportedFormat("Farbfeld".into()))
         );
     }
@@ -1390,6 +1494,7 @@ Text ![inline](images/pattern.png) and words.
                 limit: 1500,
             }
             .to_string(),
+            ImageError::DecompressedTooLarge { limit: 10 * MB }.to_string(),
             ImageError::TooLarge {
                 width: 20000,
                 height: 20000,
@@ -1404,6 +1509,7 @@ Text ![inline](images/pattern.png) and words.
                 "/dev/zero: not a regular file",
                 "big.png: larger than the 10 MB limit",
                 "big.png: larger than the 1500-byte limit",
+                "decompresses to more than the 10 MB limit",
                 "20000 × 20000 pixels is too large to load",
             ]
         );

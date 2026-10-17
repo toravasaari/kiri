@@ -1118,7 +1118,7 @@ fn an_svg_is_drawn_at_its_shown_size_not_scaled() {
     let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" width="50" height="30">
         <rect width="25" height="30" fill="#ff0000"/>
         <rect x="25" width="25" height="30" fill="#0000ff"/></svg>"##;
-    let source = kiri::images::decode(svg, &Fonts::none()).unwrap();
+    let source = kiri::images::decode(svg, DEFAULT_MAX_FILE_SIZE, &Fonts::none()).unwrap();
     let mut images = Images::new();
     images.insert("p.svg", Ok(source));
     // Cells 40 pixels high double the CSS pixels: 100 × 60 pixels. Drawn at
