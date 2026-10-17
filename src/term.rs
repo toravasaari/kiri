@@ -88,6 +88,40 @@ impl Capabilities {
     }
 }
 
+/// Which terminal features to use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// Ask the terminal; plain text in a pipe.
+    Auto,
+    /// Text only, no escape sequences.
+    Plain,
+    /// Colours and attributes, no kitty extensions.
+    Ansi,
+    /// All kitty features, without asking the terminal.
+    Kitty,
+}
+
+/// The capabilities to render with in `mode`. `width` overrides the
+/// terminal's own width. `NO_COLOR` turns colours off in every mode,
+/// including the forced ones.
+pub fn capabilities(mode: Mode, width: Option<u16>, env: &Environment) -> Capabilities {
+    let width_or_terminal = || width.or_else(terminal_width).unwrap_or(80);
+    let mut caps = match mode {
+        Mode::Auto => detect(width, env),
+        Mode::Plain => Capabilities::plain(width_or_terminal()),
+        Mode::Ansi => Capabilities::ansi(width_or_terminal()),
+        // The cell size is not a probe: the window size reports it.
+        Mode::Kitty => Capabilities {
+            cell_pixels: cell_pixels(),
+            ..Capabilities::kitty(width_or_terminal())
+        },
+    };
+    if no_color(env) {
+        caps.color = false;
+    }
+    caps
+}
+
 /// Asks the terminal on stdout what it supports. Falls back to plain text
 /// when stdout is not a terminal, and to ANSI styling when it does not
 /// answer. `width` overrides the terminal's own width.
@@ -238,6 +272,31 @@ mod tests {
         assert!(!no_color(Some("")));
         assert!(no_color(Some("1")));
         assert!(no_color(Some("0")));
+    }
+
+    #[test]
+    fn no_color_turns_colours_off_in_the_forced_modes() {
+        let no_color = env_with(|env| env.no_color = Some("1".into()));
+        for mode in [Mode::Plain, Mode::Ansi, Mode::Kitty] {
+            assert!(!capabilities(mode, Some(40), &no_color).color, "{mode:?}");
+        }
+        let env = Environment::default();
+        assert!(capabilities(Mode::Ansi, Some(40), &env).color);
+        assert!(capabilities(Mode::Kitty, Some(40), &env).color);
+    }
+
+    #[test]
+    fn a_forced_mode_takes_the_width_it_is_given() {
+        let env = Environment::default();
+        assert_eq!(
+            capabilities(Mode::Plain, Some(40), &env),
+            Capabilities::plain(40)
+        );
+        assert_eq!(
+            capabilities(Mode::Ansi, Some(40), &env),
+            Capabilities::ansi(40)
+        );
+        assert_eq!(capabilities(Mode::Kitty, Some(40), &env).width, 40);
     }
 
     #[test]

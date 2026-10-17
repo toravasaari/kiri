@@ -6,7 +6,6 @@ use clap::{Parser, ValueEnum};
 use kiri::config::{Environment, Options};
 use kiri::images::Images;
 use kiri::render::Inputs;
-use kiri::term::Capabilities;
 use kiri::theme::Paper;
 
 /// Render a Markdown document in the terminal.
@@ -70,6 +69,7 @@ fn max_image_size(value: &str) -> Result<u64, String> {
     }
 }
 
+/// `term::Mode` for clap, which takes its help from these comments.
 #[derive(Clone, Copy, ValueEnum)]
 enum Mode {
     /// Ask the terminal; plain text in a pipe.
@@ -80,6 +80,17 @@ enum Mode {
     Ansi,
     /// All kitty features, without asking the terminal.
     Kitty,
+}
+
+impl From<Mode> for kiri::term::Mode {
+    fn from(mode: Mode) -> Self {
+        match mode {
+            Mode::Auto => Self::Auto,
+            Mode::Plain => Self::Plain,
+            Mode::Ansi => Self::Ansi,
+            Mode::Kitty => Self::Kitty,
+        }
+    }
 }
 
 fn main() -> ExitCode {
@@ -98,7 +109,7 @@ fn run(cli: &Cli) -> Result<(), String> {
     let env = Environment::from_process();
     let config = kiri::config::load(&env)?;
     let settings = kiri::config::settings(&options(cli), &env, &config)?;
-    let mut caps = capabilities(cli, &env);
+    let mut caps = kiri::term::capabilities(cli.mode.into(), cli.width, &env);
     // The page decides, whatever the terminal's background is.
     if let Some(paper) = settings.paper {
         caps.dark_background = Some(paper == Paper::Dark);
@@ -146,23 +157,4 @@ fn options(cli: &Cli) -> Options {
             _ => None,
         },
     }
-}
-
-fn capabilities(cli: &Cli, env: &Environment) -> Capabilities {
-    let width = || cli.width.or_else(kiri::term::terminal_width).unwrap_or(80);
-    let mut caps = match cli.mode {
-        Mode::Auto => kiri::term::detect(cli.width, env),
-        Mode::Plain => Capabilities::plain(width()),
-        Mode::Ansi => Capabilities::ansi(width()),
-        // The cell size is not a probe: the window size reports it.
-        Mode::Kitty => Capabilities {
-            cell_pixels: kiri::term::cell_pixels(),
-            ..Capabilities::kitty(width())
-        },
-    };
-    // In every mode, including the forced ones.
-    if kiri::term::no_color(env) {
-        caps.color = false;
-    }
-    caps
 }
