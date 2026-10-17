@@ -41,8 +41,8 @@ otherwise; the links go to each file's description page.
 | `lossy.webp` | [Website accessibility](https://commons.wikimedia.org/wiki/File:Website_accessibility.webp), lossy WebP | Thesweetdonkey | CC0 1.0 |
 | `sunset-icon.svg` | [Icon sunset](https://commons.wikimedia.org/wiki/File:Icon_sunset.svg): gradients, sized in millimetres | BirgitLachner | CC0 1.0 |
 | `soccer-ball.svg` | [Simple soccer ball (gradient)](https://commons.wikimedia.org/wiki/File:Simple_soccer_ball_(gradient).svg): a small drawing in millimetres | Deltaspace42 | CC0 1.0 |
-| `keynesian-cross.svg` | [Keynescross RU](https://commons.wikimedia.org/wiki/File:Keynescross_RU.svg): Cyrillic text in Calibri, falling back to sans-serif | Vladusty | CC0 1.0 |
-| `utp-cable.svg` | [UTP-cable-ru](https://commons.wikimedia.org/wiki/File:UTP-cable-ru.svg): text in the default font, and reused shapes | Д. Ильин, after Uwe Schwöbel | CC0 1.0 |
+| `airfoil-forces.svg` | [Aeroforces-el](https://commons.wikimedia.org/wiki/File:Aeroforces-el.svg): Greek text in sans-serif from a style sheet, a gradient and arrow markers | Dipa1965, after [Aeroforces](https://commons.wikimedia.org/wiki/File:Aeroforces.svg) by Amada44 (public domain) | CC0 1.0 |
+| `planetary-gearset.svg` | [Simpson Planetary Gearset Schematic Diagram](https://commons.wikimedia.org/wiki/File:Simpson_Planetary_Gearset_Schematic_Diagram.svg): English text in the default font, and a pattern fill | Extemporalist | CC0 1.0 |
 | `speedway.svg` | [Sunset Speedway 2025](https://commons.wikimedia.org/wiki/File:Sunset_Speedway_2025.svg): a viewBox without a width or height, and CSS classes | Phillipdh | CC0 1.0 |
 | `silhouette.svg` | [Woman sitting sunset silhouette](https://commons.wikimedia.org/wiki/File:Woman-Sitting-Sunset-Silhouette.svg): a blur filter, and only a viewBox | GDJ, from Open Clip Art | CC0 1.0 |
 | `pngsuite/*.png` | [PngSuite](http://www.schaik.com/pngsuite/): 16-bit grey, 8-bit palette, 16-bit RGBA, interlaced, and palette with transparency | Willem van Schaik | Free use, see [`pngsuite/LICENSE`](pngsuite/LICENSE) |

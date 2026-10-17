@@ -18,7 +18,7 @@ An SVG is drawn at its natural size, here given in millimetres:
 
 Text in an SVG is drawn with the system's fonts:
 
-![Keynesian cross](images/keynesian-cross.svg)
+![Forces on an airfoil](images/airfoil-forces.svg)
 
 A linked image is shown, but cannot be clicked yet:
 

@@ -25,7 +25,7 @@ expression: "visible(&render_images(\"images.md\", &Capabilities::ansi(WIDTH)))"
   Text in an SVG is drawn with the system's
   fonts:
 
-  ␛[0;2;3m[image: Keynesian cross]␛[0m
+  ␛[0;2;3m[image: Forces on an airfoil]␛[0m
 
   A linked image is shown, but cannot be
   clicked yet:

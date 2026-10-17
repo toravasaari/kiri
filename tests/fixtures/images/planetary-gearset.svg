@@ -1,0 +1,104 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" 
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg width="4000" height="3000" viewBox="100 100 3850 2800"
+     xmlns="http://www.w3.org/2000/svg" version="1.1">
+
+ <defs>
+<pattern id="hatching" patternUnits="userSpaceOnUse" width="80" height="40" stroke="black" stroke-width="16">
+  <rect width="80" height="40" fill="grey" fill-opacity="0.8" stroke="none" stroke-width="0"/>
+  <path stroke-opacity="0.8" d="M-20,10 l40,-20 M0,40 l80,-40 M60,50 l40,-20" />
+</pattern>
+
+ </defs>
+      
+<g stroke="black" stroke-width="4" fill-opacity="1" transform="translate(-225,0) scale(1.1)" >
+
+  <!-- Clutch 1 --> 
+  <line x1="1180" y1="840" x2="1180" y2="1240" stroke="black" stroke-width="28"/>
+  <line x1="1220" y1="880" x2="1220" y2="1280" stroke="black" stroke-width="28"/>
+  <line x1="1260" y1="840" x2="1260" y2="1240" stroke="black" stroke-width="28"/>
+  <line x1="1300" y1="880" x2="1300" y2="1280" stroke="black" stroke-width="28"/>
+  <line x1="1340" y1="840" x2="1340" y2="1240" stroke="black" stroke-width="28"/>
+  <line x1="1380" y1="880" x2="1380" y2="1280" stroke="black" stroke-width="28"/>
+
+  <line x1="1180" y1="1780" x2="1180" y2="2180" stroke="black" stroke-width="28"/>
+  <line x1="1220" y1="1740" x2="1220" y2="2140" stroke="black" stroke-width="28"/>
+  <line x1="1260" y1="1780" x2="1260" y2="2180" stroke="black" stroke-width="28"/>
+  <line x1="1300" y1="1740" x2="1300" y2="2140" stroke="black" stroke-width="28"/>
+  <line x1="1340" y1="1780" x2="1340" y2="2180" stroke="black" stroke-width="28"/>
+  <line x1="1380" y1="1740" x2="1380" y2="2140" stroke="black" stroke-width="28"/>
+
+  <!-- Clutch 2 --> 
+  <line x1="1530" y1="860" x2="1530" y2="1260" stroke="black" stroke-width="28"/>
+  <line x1="1570" y1="900" x2="1570" y2="1300" stroke="black" stroke-width="28"/>
+  <line x1="1610" y1="860" x2="1610" y2="1260" stroke="black" stroke-width="28"/>
+  <line x1="1650" y1="900" x2="1650" y2="1300" stroke="black" stroke-width="28"/>
+  <line x1="1690" y1="860" x2="1690" y2="1260" stroke="black" stroke-width="28"/>
+  <line x1="1730" y1="900" x2="1730" y2="1300" stroke="black" stroke-width="28"/>
+
+  <line x1="1530" y1="1710" x2="1530" y2="2120" stroke="black" stroke-width="28"/>
+  <line x1="1570" y1="1670" x2="1570" y2="2080" stroke="black" stroke-width="28"/>
+  <line x1="1610" y1="1710" x2="1610" y2="2120" stroke="black" stroke-width="28"/>
+  <line x1="1650" y1="1670" x2="1650" y2="2080" stroke="black" stroke-width="28"/>
+  <line x1="1690" y1="1710" x2="1690" y2="2120" stroke="black" stroke-width="28"/>
+  <line x1="1730" y1="1670" x2="1730" y2="2080" stroke="black" stroke-width="28"/>
+                    
+                    
+  <path  fill="rgb(63, 154, 255)" d="M 1128,1400 L 1128,800 1368,800 1368,840 1176,840 1168,838 1168,1400 1472,1400 1472,840 1708,840 1708,880 1512,880 1512,2120 1711,2120 1711,2160 1472,2160 1472,1600 1168,1600 1168,2160 1371,2160 1371,2200 1128,2200 1128,1600 400,1600 399,1400 z" />
+  <path  fill="rgb(154, 34, 34)" d="M 1552,1344 L 1776,1344 1776,840 1896,840 1896,920 2260,920 2260,800 1736,800 1736,1304 1552,1304 z" />
+  <path  fill="rgb(154, 34, 34)" d="M 1552,1656 L 1776,1656 1776,2160 1896,2160 1896,2079 2260,2079 2260,2200 1736,2200 1736,1696 1552,1696 z" />
+  <path  fill="rgb(255, 154, 63)" d="M 3040,1360 L 3040,1216 2418,1216 2418,720 1392,720 1392,1264 1200,1264 1200,1304 1432,1304 1432,760 2377,760 2377,1216 1896,1216 1896,1360 z" />
+  <path  fill="rgb(255, 154, 63)" d="M 3040,1640 L 3040,1784 2418,1784 2418,2280 1392,2280 1392,1736 1200,1736 1200,1696 1432,1696 1432,2240 2377,2240 2377,1784 1896,1784 1896,1640 z" />
+  <path  fill="rgb(154, 34, 154)" d="M 2656,1908 L 2656,1876 2616,1876 2616,2280 3040,2280 3040,2240 2656,2240 2656,1948 3060,1948 3060,1980 3100,1980 3100,1876 3060,1876 3060,1908 z" />
+  <path  fill="rgb(154, 34, 154)" d="M 2656,1092 L 2656,1124 2616,1124 2616,720 3040,720 3040,760 2656,760 2656,1052 3060,1052 3060,1020 3100,1020 3100,1124 3060,1124 3060,1092 z" />
+  <path  fill="rgb(34, 154, 34)" d="M 2280,1052 L 1871,1052 1871,1012 1834,1012 1834,1988 1871,1988 1871,1948 2280,1948 2280,1988 2320,1988 2320,1868 2280,1868 2280,1908 1871,1908 1871,1600 3120,1600 3120,2159 3040,2159 3040,2080 2680,2080 2680,2198 3160,2198 3160,1600 3600,1600 3600,1400 3160,1400 3160,801 2680,801 2680,920 3040,920 3040,840 3120,840 3120,1400 1871,1400 1871,1092 2280,1092 2280,1132 2320,1132 2320,1012 2280,1012 z" />
+
+  <rect x="1896" y="1784" width="364" height="296"  fill="url(#hatching)"  />
+  <rect x="1896" y="920" width="364" height="296"  fill="url(#hatching)"  />
+  <rect x="2680" y="1784" width="364" height="296"  fill="url(#hatching)"  />
+  <rect x="2680" y="920" width="364" height="296"  fill="url(#hatching)"  />
+
+  <rect x="2050" y="640" height="48" width="360" fill="silver"/>
+  <rect x="2050" y="2320" height="48" width="360" fill="silver"/>
+  <rect x="2620" y="640" height="48" width="360" fill="silver"/>
+  <rect x="2620" y="2320" height="48" width="360" fill="silver"/>
+  
+  <text font-size="160" fill="black">
+    <tspan x="360" y="200">Simpson Planetary Gearset</tspan>
+    <tspan x="360" y="360">Schematic Diagram</tspan>
+  </text>
+    
+  <text font-size="96" fill="black">
+    <tspan x="1900" y="450">FIRST</tspan>
+    <tspan x="1900" y="550" >GEARSET</tspan>
+  </text>
+  <text font-size="96" fill="black">
+    <tspan x="2700" y="450">SECOND</tspan>
+    <tspan x="2700" y="550">GEARSET</tspan>
+  </text>
+
+  <text x="500" y="1550" font-size="12em" fill="black">INPUT SHAFT</text>
+  <text x="2500" y="1550" font-size="12em" fill="black">OUTPUT SHAFT</text>
+
+  <text font-size="72" fill="black">
+    <tspan x="1150" y="2500">CLUTCH</tspan>
+    <tspan x="1150" y="2600" >ONE</tspan>
+  </text>
+  <text font-size="72" fill="black">
+    <tspan x="1500" y="2500">CLUTCH</tspan>
+    <tspan x="1500" y="2600">TWO</tspan>
+  </text>
+
+  <text font-size="72" fill="black">
+    <tspan x="2100" y="2500">BRAKE</tspan>
+    <tspan x="2100" y="2600" >ONE</tspan>
+  </text>
+  <text font-size="72" fill="black">
+    <tspan x="2650" y="2500">BRAKE</tspan>
+    <tspan x="2650" y="2600">TWO</tspan>
+  </text>
+
+</g>
+
+</svg>

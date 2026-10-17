@@ -828,11 +828,11 @@ mod tests {
         let none = Fonts::none();
         let size = |name| svg_fixture(name, &none).size();
         assert_eq!(size("pattern.svg"), (320, 240));
-        assert_eq!(size("keynesian-cross.svg"), (1183, 720));
+        assert_eq!(size("airfoil-forces.svg"), (791, 333));
         // Millimetres at 96 CSS pixels to the inch, rounded.
         assert_eq!(size("sunset-icon.svg"), (358, 210));
         assert_eq!(size("soccer-ball.svg"), (114, 110));
-        assert_eq!(size("utp-cable.svg"), (408, 299));
+        assert_eq!(size("planetary-gearset.svg"), (4000, 3000));
         // Without a width and height, the viewBox gives the size.
         assert_eq!(size("speedway.svg"), (3000, 2013));
         assert_eq!(size("silhouette.svg"), (2689, 1560));
@@ -954,12 +954,11 @@ mod tests {
             eprintln!("no system fonts: SVG text left unchecked");
             return;
         }
-        // Cyrillic text in a font that is rarely installed, Calibri, with
-        // sans-serif to fall back on.
-        let without = svg_fixture("keynesian-cross.svg", &Fonts::none()).render(1183, 720);
-        let with = svg_fixture("keynesian-cross.svg", &fonts).render(1183, 720);
+        // Greek words in sans-serif, set by a style sheet.
+        let without = svg_fixture("airfoil-forces.svg", &Fonts::none()).render(791, 333);
+        let with = svg_fixture("airfoil-forces.svg", &fonts).render(791, 333);
         let text = differing_pixels(&without, &with);
-        assert!(text > 5000, "{text} pixels of text");
+        assert!(text > 1000, "{text} pixels of text");
     }
 
     #[test]

@@ -272,12 +272,13 @@ sunset in gradients, about 36 columns wide, and a small soccer ball:
 
 ![Soccer ball](../tests/fixtures/images/soccer-ball.svg)
 
-Their text is set in the system's fonts: a diagram with Cyrillic labels in
-a sans-serif font, and a cable cross-section with labels on the right:
+Their text is set in the system's fonts: the forces on an airfoil, labelled
+in Greek in a sans-serif font, and a gearset diagram with English labels in
+the default serif font:
 
-![Keynesian cross](../tests/fixtures/images/keynesian-cross.svg)
+![Forces on an airfoil](../tests/fixtures/images/airfoil-forces.svg)
 
-![UTP cable](../tests/fixtures/images/utp-cable.svg)
+![Planetary gearset](../tests/fixtures/images/planetary-gearset.svg)
 
 A racetrack and a silhouette with softly blurred edges, both as wide as
 the text:
