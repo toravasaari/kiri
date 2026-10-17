@@ -105,15 +105,14 @@ pub enum Mode {
 /// terminal's own width. `NO_COLOR` turns colours off in every mode,
 /// including the forced ones.
 pub fn capabilities(mode: Mode, width: Option<u16>, env: &Environment) -> Capabilities {
-    let width_or_terminal = || width.or_else(terminal_width).unwrap_or(80);
     let mut caps = match mode {
         Mode::Auto => detect(width, env),
-        Mode::Plain => Capabilities::plain(width_or_terminal()),
-        Mode::Ansi => Capabilities::ansi(width_or_terminal()),
+        Mode::Plain => Capabilities::plain(width_or_terminal(width)),
+        Mode::Ansi => Capabilities::ansi(width_or_terminal(width)),
         // The cell size is not a probe: the window size reports it.
         Mode::Kitty => Capabilities {
             cell_pixels: cell_pixels(),
-            ..Capabilities::kitty(width_or_terminal())
+            ..Capabilities::kitty(width_or_terminal(width))
         },
     };
     if no_color(env) {
@@ -127,7 +126,7 @@ pub fn capabilities(mode: Mode, width: Option<u16>, env: &Environment) -> Capabi
 /// answer. `width` overrides the terminal's own width.
 pub fn detect(width: Option<u16>, env: &Environment) -> Capabilities {
     let stdout = std::io::stdout();
-    let width = width.or_else(terminal_width).unwrap_or(80);
+    let width = width_or_terminal(width);
     if !rustix::termios::isatty(&stdout) {
         return Capabilities::plain(width);
     }
@@ -175,6 +174,12 @@ pub fn no_color(env: &Environment) -> bool {
     env.no_color
         .as_deref()
         .is_some_and(|value| !value.is_empty())
+}
+
+/// `width` when given, otherwise the width of the terminal on stdout, and
+/// 80 cells when stdout is not a terminal.
+fn width_or_terminal(width: Option<u16>) -> u16 {
+    width.or_else(terminal_width).unwrap_or(80)
 }
 
 /// Width of the terminal on stdout in cells, if stdout is a terminal.
