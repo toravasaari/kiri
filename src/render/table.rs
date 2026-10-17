@@ -320,6 +320,15 @@ mod tests {
     }
 
     #[test]
+    fn a_column_at_its_floor_keeps_its_width_while_others_shrink() {
+        // The first column wants nothing above its floor; the others share
+        // the 11 cells of room 30:20, 6.6 and 4.4 rounded to 7 and 4.
+        let mut widths = vec![6, 40, 30];
+        assert!(shrink(&mut widths, &[6, 10, 10], 37));
+        assert_eq!(widths, [6, 17, 14]);
+    }
+
+    #[test]
     fn an_odd_width_column_of_wide_characters_keeps_its_borders_in_line() {
         // A word of twelve cells may split; at eleven cells, five of its
         // characters fit and the borders stay in line.
