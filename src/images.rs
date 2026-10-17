@@ -9,7 +9,7 @@
 use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::io::{self, Cursor};
+use std::io::{self, Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -32,6 +32,12 @@ const MAX_PIXELS: u64 = 64 * 1024 * 1024;
 /// The most memory a decoder may allocate, a guard for decoders that would
 /// otherwise need more than the pixels themselves.
 const MAX_ALLOC: u64 = 512 * 1024 * 1024;
+
+/// A megabyte, the unit of the image file size limit.
+pub const MB: u64 = 1_000_000;
+
+/// The largest image file kiri reads unless told otherwise.
+pub const DEFAULT_MAX_FILE_SIZE: u64 = 10 * MB;
 
 /// Standard base64 that does not insist on the trailing `=`.
 const BASE64: GeneralPurpose = GeneralPurpose::new(
@@ -240,6 +246,8 @@ pub enum ImageError {
     /// A directory, device, pipe or anything else that is not a regular
     /// file.
     NotAFile(PathBuf),
+    /// The file is larger than the limit, in bytes.
+    FileTooLarge { path: PathBuf, limit: u64 },
     /// `http:` and `https:` images are not fetched.
     Remote,
     /// A URL scheme other than `http`, `https` or `data`.
@@ -264,6 +272,14 @@ impl fmt::Display for ImageError {
             ImageError::Missing(path) => write!(f, "{}: file not found", path.display()),
             ImageError::Unreadable { path, reason } => write!(f, "{}: {reason}", path.display()),
             ImageError::NotAFile(path) => write!(f, "{}: not a regular file", path.display()),
+            ImageError::FileTooLarge { path, limit } => {
+                write!(
+                    f,
+                    "{}: larger than the {} limit",
+                    path.display(),
+                    size(*limit)
+                )
+            }
             ImageError::Remote => f.write_str("remote images are not loaded"),
             ImageError::UnsupportedScheme(scheme) => write!(f, "{scheme}: URLs are not loaded"),
             ImageError::InvalidData => f.write_str("invalid data: URL"),
@@ -281,6 +297,15 @@ impl fmt::Display for ImageError {
 }
 
 impl std::error::Error for ImageError {}
+
+/// A size in bytes for people: whole megabytes when it is that.
+fn size(bytes: u64) -> String {
+    if bytes >= MB && bytes.is_multiple_of(MB) {
+        format!("{} MB", bytes / MB)
+    } else {
+        format!("{bytes} bytes")
+    }
+}
 
 /// Every image of a document by URL, loaded or not.
 #[derive(Debug, Default)]
@@ -332,7 +357,8 @@ impl Images {
                 Err(
                     error @ (ImageError::Missing(_)
                     | ImageError::Unreadable { .. }
-                    | ImageError::NotAFile(_)),
+                    | ImageError::NotAFile(_)
+                    | ImageError::FileTooLarge { .. }),
                 ) => Some(error.to_string()),
                 // A data: URL is the image itself, too long for a message.
                 Err(error) if scheme(url).is_some_and(|s| s.eq_ignore_ascii_case("data")) => {
@@ -345,20 +371,21 @@ impl Images {
 }
 
 /// Loads every image in `document` once, resolving relative paths against
-/// `base`, the directory of the Markdown file. Text in SVGs is drawn with
-/// the system's fonts.
+/// `base`, the directory of the Markdown file. Files above the default size
+/// limit are refused, and text in SVGs is drawn with the system's fonts.
 pub fn load(document: &Document, base: &Path) -> Images {
-    load_with(document, base, &Fonts::system())
+    load_with(document, base, DEFAULT_MAX_FILE_SIZE, &Fonts::system())
 }
 
-/// `load`, drawing text in SVGs with `fonts`.
-pub fn load_with(document: &Document, base: &Path, fonts: &Fonts) -> Images {
+/// `load`, refusing files larger than `max_file_size` bytes and drawing
+/// text in SVGs with `fonts`.
+pub fn load_with(document: &Document, base: &Path, max_file_size: u64, fonts: &Fonts) -> Images {
     let mut urls = Vec::new();
     collect_blocks(&document.blocks, &mut urls);
     let mut images = Images::new();
     for url in urls {
         if images.get(url).is_none() {
-            images.insert(url, load_url(url, base, fonts));
+            images.insert(url, load_url(url, base, max_file_size, fonts));
         }
     }
     images
@@ -405,7 +432,13 @@ fn collect_inlines<'a>(inlines: &'a [Inline], urls: &mut Vec<&'a str>) {
 
 /// Loads the image at `url`: a `data:` URL, or a path that is absolute or
 /// relative to `base`. Paths may use URL percent escapes, as in a browser.
-pub fn load_url(url: &str, base: &Path, fonts: &Fonts) -> Result<Source, ImageError> {
+/// Only regular files of at most `max_file_size` bytes are read.
+pub fn load_url(
+    url: &str,
+    base: &Path,
+    max_file_size: u64,
+    fonts: &Fonts,
+) -> Result<Source, ImageError> {
     match scheme(url) {
         Some(scheme) if scheme.eq_ignore_ascii_case("data") => decode(&data_url(url)?, fonts),
         Some(scheme)
@@ -417,7 +450,7 @@ pub fn load_url(url: &str, base: &Path, fonts: &Fonts) -> Result<Source, ImageEr
         None => {
             let decoded = percent_decode(url.as_bytes());
             let path = base.join(String::from_utf8(decoded).as_deref().unwrap_or(url));
-            let bytes = read_file(&path)?;
+            let bytes = read_file(&path, max_file_size)?;
             decode(&bytes, fonts)
         }
     }
@@ -425,8 +458,9 @@ pub fn load_url(url: &str, base: &Path, fonts: &Fonts) -> Result<Source, ImageEr
 
 /// The contents of the regular file at `path`. Directories, devices and
 /// pipes are refused before they are opened: reading `/dev/zero` never
-/// ends, and opening a pipe waits for a writer.
-fn read_file(path: &Path) -> Result<Vec<u8>, ImageError> {
+/// ends, and opening a pipe waits for a writer. So is a file larger than
+/// `limit` bytes, without reading more of it than that.
+fn read_file(path: &Path, limit: u64) -> Result<Vec<u8>, ImageError> {
     let unreadable = |error: io::Error| match error.kind() {
         io::ErrorKind::NotFound => ImageError::Missing(path.to_owned()),
         _ => ImageError::Unreadable {
@@ -438,7 +472,28 @@ fn read_file(path: &Path) -> Result<Vec<u8>, ImageError> {
     if !metadata.is_file() {
         return Err(ImageError::NotAFile(path.to_owned()));
     }
-    std::fs::read(path).map_err(unreadable)
+    let too_large = || ImageError::FileTooLarge {
+        path: path.to_owned(),
+        limit,
+    };
+    if metadata.len() > limit {
+        return Err(too_large());
+    }
+    // The file may have grown since.
+    let file = std::fs::File::open(path).map_err(unreadable)?;
+    read_at_most(file, limit)
+        .map_err(unreadable)?
+        .ok_or_else(too_large)
+}
+
+/// Everything `reader` gives, or `None` when that is more than `limit`
+/// bytes; then it reads no further than one byte past the limit.
+fn read_at_most(reader: impl Read, limit: u64) -> io::Result<Option<Vec<u8>>> {
+    let mut bytes = Vec::new();
+    reader
+        .take(limit.saturating_add(1))
+        .read_to_end(&mut bytes)?;
+    Ok((bytes.len() as u64 <= limit).then_some(bytes))
 }
 
 /// The URL's scheme, such as `https`, or `None` for a path. A single letter
@@ -589,8 +644,13 @@ mod tests {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
     }
 
+    /// The image at `url` with the default size limit and no fonts.
+    fn open(url: &str, base: &Path) -> Result<Source, ImageError> {
+        load_url(url, base, DEFAULT_MAX_FILE_SIZE, &Fonts::none())
+    }
+
     fn fixture(name: &str) -> Result<Source, ImageError> {
-        load_url(name, &fixtures().join("images"), &Fonts::none())
+        open(name, &fixtures().join("images"))
     }
 
     fn raster(name: &str) -> RgbaImage {
@@ -770,12 +830,12 @@ mod tests {
     fn loads_svg_data_urls() {
         let bytes = std::fs::read(fixtures().join("images/pattern.svg")).unwrap();
         let url = format!("data:image/svg+xml;base64,{}", STANDARD.encode(&bytes));
-        let loaded = load_url(&url, Path::new("/"), &Fonts::none());
+        let loaded = open(&url, Path::new("/"));
         assert_eq!(loaded, fixture("pattern.svg"));
         assert!(loaded.is_ok());
         let inline = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' \
             width='2' height='1'/>";
-        let loaded = load_url(inline, Path::new("/"), &Fonts::none());
+        let loaded = open(inline, Path::new("/"));
         assert_eq!(loaded.map(|source| source.size()), Ok((2, 1)));
     }
 
@@ -784,10 +844,20 @@ mod tests {
         let fonts = Fonts::none();
         let without = "![a](images/pattern.png)\n\n![b](images/missing.svg)\n\n\
             ![c](images/not-an-image.png)\n";
-        load_with(&crate::parse::parse(without), &fixtures(), &fonts);
+        load_with(
+            &crate::parse::parse(without),
+            &fixtures(),
+            DEFAULT_MAX_FILE_SIZE,
+            &fonts,
+        );
         assert!(!fonts.loaded());
         let with = "![d](images/pattern.svg)\n";
-        load_with(&crate::parse::parse(with), &fixtures(), &fonts);
+        load_with(
+            &crate::parse::parse(with),
+            &fixtures(),
+            DEFAULT_MAX_FILE_SIZE,
+            &fonts,
+        );
         assert!(fonts.loaded());
     }
 
@@ -858,7 +928,7 @@ mod tests {
     fn loads_base64_data_urls() {
         let bytes = std::fs::read(fixtures().join("images/pattern.png")).unwrap();
         let url = format!("data:image/png;base64,{}", STANDARD.encode(&bytes));
-        let loaded = load_url(&url, Path::new("/nonexistent"), &Fonts::none());
+        let loaded = open(&url, Path::new("/nonexistent"));
         assert_eq!(loaded, fixture("pattern.png"));
         assert!(loaded.is_ok());
     }
@@ -867,11 +937,7 @@ mod tests {
     fn loads_percent_encoded_data_urls() {
         let bytes = std::fs::read(fixtures().join("images/pattern.png")).unwrap();
         let escaped: String = bytes.iter().map(|byte| format!("%{byte:02X}")).collect();
-        let loaded = load_url(
-            &format!("data:image/png,{escaped}"),
-            Path::new("/"),
-            &Fonts::none(),
-        );
+        let loaded = open(&format!("data:image/png,{escaped}"), Path::new("/"));
         assert_eq!(loaded, fixture("pattern.png"));
         assert!(loaded.is_ok());
     }
@@ -880,11 +946,11 @@ mod tests {
     fn rejects_broken_data_urls() {
         let base = Path::new("/");
         assert_eq!(
-            load_url("data:image/png;base64,no*base64", base, &Fonts::none()),
+            open("data:image/png;base64,no*base64", base),
             Err(ImageError::InvalidData)
         );
         assert_eq!(
-            load_url("data:image/png;base64", base, &Fonts::none()),
+            open("data:image/png;base64", base),
             Err(ImageError::InvalidData)
         );
     }
@@ -892,16 +958,9 @@ mod tests {
     #[test]
     fn resolves_paths_against_the_base_and_keeps_absolute_ones() {
         let base = fixtures();
-        assert!(load_url("images/pattern.png", &base, &Fonts::none()).is_ok());
+        assert!(open("images/pattern.png", &base).is_ok());
         let absolute = base.join("images/pattern.png");
-        assert!(
-            load_url(
-                absolute.to_str().unwrap(),
-                Path::new("/nonexistent"),
-                &Fonts::none()
-            )
-            .is_ok()
-        );
+        assert!(open(absolute.to_str().unwrap(), Path::new("/nonexistent")).is_ok());
     }
 
     #[test]
@@ -913,7 +972,7 @@ mod tests {
     fn reports_a_missing_file_with_its_resolved_path() {
         let base = fixtures().join("images");
         assert_eq!(
-            load_url("no-such.png", &base, &Fonts::none()),
+            open("no-such.png", &base),
             Err(ImageError::Missing(base.join("no-such.png")))
         );
     }
@@ -927,7 +986,7 @@ mod tests {
         );
         // A device that never ends.
         assert_eq!(
-            load_url("/dev/zero", Path::new("/"), &Fonts::none()),
+            open("/dev/zero", Path::new("/")),
             Err(ImageError::NotAFile("/dev/zero".into()))
         );
     }
@@ -945,24 +1004,63 @@ mod tests {
             .unwrap();
         assert!(made.success());
         // Opening a pipe that nobody writes to would block.
-        let loaded = load_url("image.png", &dir, &Fonts::none());
+        let loaded = open("image.png", &dir);
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(loaded, Err(ImageError::NotAFile(fifo)));
+    }
+
+    #[test]
+    fn refuses_a_file_above_the_size_limit() {
+        let base = fixtures().join("images");
+        let size = std::fs::metadata(base.join("pattern.png")).unwrap().len();
+        let fonts = Fonts::none();
+        assert!(load_url("pattern.png", &base, size, &fonts).is_ok());
+        assert_eq!(
+            load_url("pattern.png", &base, size - 1, &fonts),
+            Err(ImageError::FileTooLarge {
+                path: base.join("pattern.png"),
+                limit: size - 1
+            })
+        );
+    }
+
+    #[test]
+    fn reads_no_more_than_one_byte_past_the_limit() {
+        assert_eq!(
+            read_at_most(&b"12345"[..], 5).unwrap(),
+            Some(b"12345".to_vec())
+        );
+        assert_eq!(read_at_most(&b"123456"[..], 5).unwrap(), None);
+        // An endless stream ends at the limit.
+        let mut counted = Counted(io::repeat(0), 0);
+        assert_eq!(read_at_most(&mut counted, 1000).unwrap(), None);
+        assert_eq!(counted.1, 1001);
+    }
+
+    /// A reader that counts the bytes read through it.
+    struct Counted<R>(R, u64);
+
+    impl<R: Read> Read for Counted<R> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let n = self.0.read(buf)?;
+            self.1 += n as u64;
+            Ok(n)
+        }
     }
 
     #[test]
     fn does_not_fetch_remote_images() {
         let base = fixtures();
         assert_eq!(
-            load_url("https://example.com/a.png", &base, &Fonts::none()),
+            open("https://example.com/a.png", &base),
             Err(ImageError::Remote)
         );
         assert_eq!(
-            load_url("HTTP://example.com/a.png", &base, &Fonts::none()),
+            open("HTTP://example.com/a.png", &base),
             Err(ImageError::Remote)
         );
         assert_eq!(
-            load_url("ftp://example.com/a.png", &base, &Fonts::none()),
+            open("ftp://example.com/a.png", &base),
             Err(ImageError::UnsupportedScheme("ftp".into()))
         );
     }
@@ -1018,7 +1116,12 @@ mod tests {
 |---|
 | ![d](https://example.com/d.png) |
 ";
-        let images = load_with(&crate::parse::parse(source), &fixtures(), &Fonts::none());
+        let images = load_with(
+            &crate::parse::parse(source),
+            &fixtures(),
+            DEFAULT_MAX_FILE_SIZE,
+            &Fonts::none(),
+        );
         assert_eq!(images.len(), 5);
         assert!(images.get("images/icon.png").unwrap().is_ok());
         assert!(images.get("images/pattern.png").unwrap().is_ok());
@@ -1069,6 +1172,16 @@ mod tests {
             ImageError::Missing("a/b.png".into()).to_string(),
             ImageError::Remote.to_string(),
             ImageError::NotAFile("/dev/zero".into()).to_string(),
+            ImageError::FileTooLarge {
+                path: "big.png".into(),
+                limit: 10 * MB,
+            }
+            .to_string(),
+            ImageError::FileTooLarge {
+                path: "big.png".into(),
+                limit: 1500,
+            }
+            .to_string(),
             ImageError::TooLarge {
                 width: 20000,
                 height: 20000,
@@ -1081,6 +1194,8 @@ mod tests {
                 "a/b.png: file not found",
                 "remote images are not loaded",
                 "/dev/zero: not a regular file",
+                "big.png: larger than the 10 MB limit",
+                "big.png: larger than the 1500 bytes limit",
                 "20000 × 20000 pixels is too large to load",
             ]
         );
