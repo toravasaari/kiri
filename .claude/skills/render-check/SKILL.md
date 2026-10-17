@@ -55,7 +55,9 @@ kiri's warnings on stderr appear at the top of the screenshot.
 If kiri exits with an error or crashes, the script says so, still saves
 that document's screenshot with the error on it, goes on with the other
 documents and then exits with kiri's status, 128 plus the signal number
-for a crash. Treat that as a failed check.
+for a crash. Treat that as a failed check. When kitty does not answer its
+first query within 60 s, or a screenshot cannot be compared, the script
+stops at once with status 1 and starts no more documents.
 
 Report what you could not judge. The screenshots come from kitty's software
 renderer (Mesa llvmpipe) with default fonts, so font rendering, colours of

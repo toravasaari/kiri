@@ -103,12 +103,12 @@ display=:$(cat "$work/display")
 # Runs inside kitty: "$0" is the file to report to, the rest is kiri's
 # command line. kitty is slow to answer while it starts, so kiri's probe
 # could time out and fall back to text; an answer to a query first means
-# kitty is ready. kitty answers in order, so when it reports the cursor
-# position after kiri, it has read all of kiri's output. The report is
-# kiri's exit status, the cursor's row and column and the cell size in
-# pixels.
+# kitty is ready, and without one kiri is not started. kitty answers in
+# order, so when it reports the cursor position after kiri, it has read all
+# of kiri's output. The report is kiri's exit status, the cursor's row and
+# column and the cell size in pixels.
 inner='ask() { printf "%b" "$1"; IFS= read -r -s -d "$2" -t 60 reply; }
-ask "\033[c" c
+ask "\033[c" c || { echo "no answer" >"$0"; exit 1; }
 "$@"
 status=$?
 ask "\033[6n" R; position=${reply##*\[}
@@ -120,15 +120,27 @@ exec sleep 600'
 # cell differs from its neighbour on the same, otherwise empty, line. kitty
 # moves the cursor there only after all of kiri's output, so a screenshot
 # that shows it has the whole document, unless the document scrolled.
+# magick compare exits with 0 when the cells are equal, 1 when they differ
+# and 2 when it cannot compare them, which stops the script.
 cursor_drawn() {
 	local shot=$1 x=$(((col - 1) * cell_w)) y=$(((row - 1) * cell_h)) other
+	local status=0
 	if [ $((x + 2 * cell_w)) -le "$width" ]; then
 		other=$((x + cell_w))
 	else
 		other=$((x - cell_w))
 	fi
-	! magick compare -metric AE "$shot[${cell_w}x${cell_h}+$x+$y]" \
-		"$shot[${cell_w}x${cell_h}+$other+$y]" null: 2>/dev/null
+	magick compare -metric AE "$shot[${cell_w}x${cell_h}+$x+$y]" \
+		"$shot[${cell_w}x${cell_h}+$other+$y]" null: \
+		2>"$work/compare.log" || status=$?
+	case $status in
+	0) return 1 ;;
+	1) return 0 ;;
+	*)
+		cat "$work/compare.log" >&2
+		die "cannot compare the cursor's cell (magick compare status $status)"
+		;;
+	esac
 }
 
 # Take screenshots until the cursor shows that kitty has drawn all of kiri's
@@ -181,6 +193,9 @@ for file in "${files[@]}"; do
 		die "$file: kiri did not finish in kitty within $timeout s" \
 			"(--timeout)"
 	fi
+	[ "$(cat "$work/done")" != "no answer" ] ||
+		die "$file: kitty did not answer the device attributes query" \
+			"within 60 s, so kiri was not started"
 	read -r status row col cell_h cell_w <"$work/done"
 	[[ "$status $row $col $cell_h $cell_w" =~ ^[0-9]+( [1-9][0-9]*){4}$ ]] ||
 		die "$file: kitty did not report the cursor and cell size" \
