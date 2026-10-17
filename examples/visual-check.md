@@ -21,9 +21,8 @@ NO_COLOR=1 cargo run -- examples/visual-check.md
 ```
 
 On paper, the document lies on a white or dark grey page as wide as the
-window, and everything
-but the code blocks and the images is in greys: no blue headings or
-links, no magenta inline code.
+window, and everything but the code blocks and the images is in greys: no
+blue headings or links, no magenta inline code.
 
 Try a wide window and a narrow one (about 40 columns), where the commands
 above wrap like any long code line. No line reaches past the right edge of
