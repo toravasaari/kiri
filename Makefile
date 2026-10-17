@@ -1,19 +1,20 @@
 .PHONY: check fmt fmt-check clippy test release
 
-# The definition of done; CI runs the same target.
+# The definition of done; CI runs the same target. Every target covers
+# all crates in the workspace.
 check: fmt-check clippy test
 
 fmt:
-	cargo fmt
+	cargo fmt --all
 
 fmt-check:
-	cargo fmt --check
+	cargo fmt --all --check
 
 clippy:
-	cargo clippy --all-targets -- -D warnings
+	cargo clippy --workspace --all-targets -- -D warnings
 
 test:
-	cargo test
+	cargo test --workspace
 
 # Optimised binary in target/release/kiri.
 release:

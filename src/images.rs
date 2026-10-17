@@ -16,9 +16,6 @@ use std::sync::Arc;
 use base64::Engine;
 use base64::engine::DecodePaddingMode;
 use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig};
-use fast_image_resize::images::{TypedImage, TypedImageRef};
-use fast_image_resize::pixels::{U8x4, U16x4};
-use fast_image_resize::{self as fir, PixelTrait, ResizeAlg, ResizeOptions, Resizer};
 use image::error::{ImageFormatHint, UnsupportedErrorKind};
 use image::metadata::Orientation;
 use image::{DynamicImage, ImageDecoder, ImageReader, Limits, RgbaImage};
@@ -76,74 +73,13 @@ impl Source {
     }
 }
 
-/// `image` scaled to `width` × `height`. Transparent pixels still have a
-/// colour, often white or black, which a plain resize would blend into the
-/// edges around them as a halo. Scaling in premultiplied alpha, where a
-/// pixel counts as much as it covers, leaves that colour out.
+/// `image` scaled to `width` × `height`, in premultiplied alpha so that
+/// the colour of transparent pixels does not show as a halo.
 fn scale(image: &RgbaImage, width: u32, height: u32) -> RgbaImage {
-    if image.pixels().all(|pixel| pixel[3] == u8::MAX) {
-        // Straight from one buffer to the other: copying pixels in kiri's
-        // own code is slow in debug builds.
-        let (from_width, from_height) = image.dimensions();
-        let source = TypedImageRef::<U8x4>::from_buffer(from_width, from_height, image.as_raw())
-            .expect("width × height pixels");
-        let mut bytes = vec![0; width as usize * height as usize * 4];
-        let mut scaled =
-            TypedImage::<U8x4>::from_buffer(width, height, &mut bytes).expect("enough bytes");
-        resize(&source, &mut scaled);
-        return RgbaImage::from_raw(width, height, bytes).expect("width × height pixels");
-    }
-    // Sixteen bits per channel keep the colour of faint pixels.
-    let premultiplied: Vec<U16x4> = image
-        .pixels()
-        .map(|pixel| {
-            let [red, green, blue, alpha] = pixel.0;
-            let times_alpha = |channel: u8| {
-                let product = u32::from(channel) * u32::from(alpha);
-                // From 0..=255², rounded to 0..=65535.
-                ((u64::from(product) * 65535 + 65025 / 2) / 65025) as u16
-            };
-            U16x4::new([
-                times_alpha(red),
-                times_alpha(green),
-                times_alpha(blue),
-                u16::from(alpha) * 257,
-            ])
-        })
-        .collect();
-    let source = TypedImageRef::new(image.width(), image.height(), &premultiplied)
-        .expect("width × height pixels");
-    let mut scaled = TypedImage::<U16x4>::new(width, height);
-    resize(&source, &mut scaled);
-    let bytes = scaled
-        .pixels()
-        .iter()
-        .flat_map(|pixel| {
-            let [red, green, blue, alpha] = pixel.0;
-            if alpha == 0 {
-                return [0, 0, 0, 0];
-            }
-            // The filter can overshoot, so a channel may exceed its alpha.
-            let divided = |channel: u16| {
-                let value = (u32::from(channel) * 255 + u32::from(alpha) / 2) / u32::from(alpha);
-                value.min(255) as u8
-            };
-            let alpha = ((u32::from(alpha) + 128) / 257) as u8;
-            [divided(red), divided(green), divided(blue), alpha]
-        })
-        .collect();
+    let (from_width, from_height) = image.dimensions();
+    let bytes =
+        kiri_image_scale::scale_rgba8(image.as_raw(), from_width, from_height, width, height);
     RgbaImage::from_raw(width, height, bytes).expect("width × height pixels")
-}
-
-/// `source` resized with a Catmull-Rom filter to the size of `scaled`. Any
-/// alpha is left alone: the caller has already multiplied it in.
-fn resize<P: PixelTrait>(source: &TypedImageRef<P>, scaled: &mut TypedImage<P>) {
-    let options = ResizeOptions::new()
-        .resize_alg(ResizeAlg::Convolution(fir::FilterType::CatmullRom))
-        .use_alpha(false);
-    Resizer::new()
-        .resize_typed(source, scaled, &options)
-        .expect("source and destination of the same pixel type");
 }
 
 /// A parsed SVG document.
