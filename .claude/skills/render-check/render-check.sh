@@ -100,24 +100,51 @@ done
 [ -s "$work/display" ] || { cat "$work/xvfb.log" >&2; die "Xvfb did not start"; }
 display=:$(cat "$work/display")
 
-# Runs inside kitty: "$0" is the file to write kiri's exit status to, the
-# rest is kiri's command line. kitty is slow to answer while it starts, so
-# kiri's probe could time out and fall back to text; an answer to a query
-# first means kitty is ready.
+# Runs inside kitty: "$0" is the file to report to, the rest is kiri's
+# command line. kitty is slow to answer while it starts, so kiri's probe
+# could time out and fall back to text; an answer to a query first means
+# kitty is ready. kitty answers in order, so when it reports the cursor
+# position after kiri, it has read all of kiri's output. The report is
+# kiri's exit status, the cursor's row and column and the cell size in
+# pixels.
 inner='ask() { printf "%b" "$1"; IFS= read -r -s -d "$2" -t 60 reply; }
 ask "\033[c" c
 "$@"
-echo $? >"$0"
+status=$?
+ask "\033[6n" R; position=${reply##*\[}
+ask "\033[16t" t; cell=${reply##*\[6;}
+echo "$status ${position/;/ } ${cell/;/ }" >"$0"
 exec sleep 600'
 
-# Take screenshots until two in a row are equal, so kitty has drawn
-# everything kiri wrote.
+# Whether kitty draws the cursor at the cell where kiri's output ended: the
+# cell differs from its neighbour on the same, otherwise empty, line. kitty
+# moves the cursor there only after all of kiri's output, so a screenshot
+# that shows it has the whole document, unless the document scrolled.
+cursor_drawn() {
+	local shot=$1 x=$(((col - 1) * cell_w)) y=$(((row - 1) * cell_h)) other
+	if [ $((x + 2 * cell_w)) -le "$width" ]; then
+		other=$((x + cell_w))
+	else
+		other=$((x - cell_w))
+	fi
+	! magick compare -metric AE "$shot[${cell_w}x${cell_h}+$x+$y]" \
+		"$shot[${cell_w}x${cell_h}+$other+$y]" null: 2>/dev/null
+}
+
+# Take screenshots until the cursor shows that kitty has drawn all of kiri's
+# output, and two of those in a row are equal. kitty can take seconds to
+# draw large images with the software renderer, more on a busy machine,
+# and meanwhile shows the last frame it drew.
 settle() {
-	local shot=$1 prev=$work/prev.ppm
+	local shot=$1 prev=$work/prev.ppm deadline=$((SECONDS + 60))
 	rm -f "$prev"
-	for _ in $(seq 40); do
+	while [ "$SECONDS" -lt "$deadline" ]; do
 		sleep 0.25
 		DISPLAY=$display import -window root "$shot"
+		if ! cursor_drawn "$shot"; then
+			rm -f "$prev"
+			continue
+		fi
 		if [ -e "$prev" ] && cmp -s "$shot" "$prev"; then
 			return 0
 		fi
@@ -154,7 +181,10 @@ for file in "${files[@]}"; do
 		die "$file: kiri did not finish in kitty within $timeout s" \
 			"(--timeout)"
 	fi
-	read -r status <"$work/done"
+	read -r status row col cell_h cell_w <"$work/done"
+	[[ "$status $row $col $cell_h $cell_w" =~ ^[0-9]+( [1-9][0-9]*){4}$ ]] ||
+		die "$file: kitty did not report the cursor and cell size" \
+			"($(cat "$work/done"))"
 	if [ "$status" -gt 128 ]; then
 		echo "render-check: $file: kiri was killed by signal" \
 			"$((status - 128)) (status $status)" >&2

@@ -36,6 +36,11 @@ From the repository root:
   scrolling. A narrower width checks wrapping and image shrinking. If a
   document is taller than the window, the script says so; the screen
   cannot be taller than about 16384 pixels.
+- The screenshot is taken once kitty shows the cursor where kiri's output
+  ended and two screenshots in a row are equal. kitty's software renderer
+  can take seconds to draw large images, and until then shows its last
+  frame, which may look finished. A document that fills the screen
+  scrolls, which weakens that check.
 - kitty starts with its built-in defaults (`--config NONE`, 11 pt
   `monospace` font, 96 dpi, so a cell is about 9 × 20 pixels). Pass
   `--kitty-config FILE` to see the document with another configuration.
