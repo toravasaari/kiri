@@ -29,6 +29,19 @@ struct Cli {
     /// No margins, heading indents or code block padding, for copying text.
     #[arg(short = 'M', long)]
     no_margins: bool,
+
+    /// Largest image file to read, in megabytes (at most 100); larger
+    /// images show their alt text.
+    #[arg(long, value_name = "MB", default_value_t = 10, value_parser = max_image_size)]
+    max_image_size: u64,
+}
+
+/// The `--max-image-size` value: whole megabytes, from 1 to 100.
+fn max_image_size(value: &str) -> Result<u64, String> {
+    match value.parse() {
+        Ok(megabytes @ 1..=100) => Ok(megabytes),
+        _ => Err("give a whole number of MB from 1 to 100".to_owned()),
+    }
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -66,7 +79,8 @@ fn main() -> ExitCode {
     // they are alt text.
     let images = if caps.graphics {
         let base = cli.file.parent().unwrap_or(Path::new(""));
-        let images = kiri::images::load(&document, base);
+        let max_file_size = cli.max_image_size * kiri::images::MB;
+        let images = kiri::images::load(&document, base, max_file_size);
         for warning in images.warnings() {
             eprintln!("kiri: {warning}");
         }

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine;
 use image::{Rgba, RgbaImage};
-use kiri::images::{Fonts, ImageError, Images, Source};
+use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, ImageError, Images, Source};
 use kiri::kitty::graphics::{DIACRITICS, PLACEHOLDER};
 use kiri::model::Document;
 use kiri::term::Capabilities;
@@ -679,7 +679,7 @@ fn one_image(url: &str, image: RgbaImage) -> Images {
 /// show real sizes and errors, but not the decoders' work, and the image
 /// data compresses to a few bytes.
 fn fixture_images(document: &Document) -> Images {
-    let loaded = kiri::images::load(document, &fixtures());
+    let loaded = kiri::images::load(document, &fixtures(), DEFAULT_MAX_FILE_SIZE);
     let mut images = Images::new();
     for (url, image) in loaded.iter() {
         let image = match image {

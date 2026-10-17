@@ -371,14 +371,14 @@ impl Images {
 }
 
 /// Loads every image in `document` once, resolving relative paths against
-/// `base`, the directory of the Markdown file. Files above the default size
-/// limit are refused, and text in SVGs is drawn with the system's fonts.
-pub fn load(document: &Document, base: &Path) -> Images {
-    load_with(document, base, DEFAULT_MAX_FILE_SIZE, &Fonts::system())
+/// `base`, the directory of the Markdown file. Files larger than
+/// `max_file_size` bytes are refused, and text in SVGs is drawn with the
+/// system's fonts.
+pub fn load(document: &Document, base: &Path, max_file_size: u64) -> Images {
+    load_with(document, base, max_file_size, &Fonts::system())
 }
 
-/// `load`, refusing files larger than `max_file_size` bytes and drawing
-/// text in SVGs with `fonts`.
+/// `load`, drawing text in SVGs with `fonts`.
 pub fn load_with(document: &Document, base: &Path, max_file_size: u64, fonts: &Fonts) -> Images {
     let mut urls = Vec::new();
     collect_blocks(&document.blocks, &mut urls);

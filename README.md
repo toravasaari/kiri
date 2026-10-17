@@ -43,6 +43,7 @@ is shown as its own block of `Header: value` lines instead.
 | `--width N` | Render for `N` cells instead of the terminal width |
 | `--theme FILE` | Colours and heading sizes; see [Theme](docs/theme.md) |
 | `-M`, `--no-margins` | No margins or padding, so text and code copy cleanly |
+| `--max-image-size MB` | Largest image file to read: 10 MB unless set, at most 100 |
 
 An interactive pager (`kiri -i`) with search and link navigation is
 planned.
