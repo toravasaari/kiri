@@ -33,15 +33,23 @@ impl Drop for Scratch {
     }
 }
 
+/// The kiri binary with nothing from the environment of the tests: no
+/// colour settings, and the home and configuration directories in `dir`,
+/// so the user's theme stays out.
+fn command(dir: &Path) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_kiri"));
+    command
+        .env_clear()
+        .env("HOME", dir.join("home"))
+        .env("XDG_CONFIG_HOME", dir.join("config"));
+    command
+}
+
 /// Runs kiri on a document of `source` in `dir`, with `args` before the file.
 fn kiri(dir: &Path, source: &str, args: &[&str]) -> Output {
     let document = dir.join("document.md");
     std::fs::write(&document, source).unwrap();
-    Command::new(env!("CARGO_BIN_EXE_kiri"))
-        .args(args)
-        .arg(&document)
-        .output()
-        .unwrap()
+    command(dir).args(args).arg(&document).output().unwrap()
 }
 
 fn text(bytes: &[u8]) -> String {
@@ -141,11 +149,21 @@ fn max_image_size_is_at_most_a_hundred_megabytes() {
 }
 
 #[test]
+fn reads_the_theme_from_the_configuration_directory() {
+    let dir = Scratch::new("theme");
+    let theme = dir.join("config/kiri/theme.toml");
+    std::fs::create_dir_all(theme.parent().unwrap()).unwrap();
+    std::fs::write(&theme, "not a theme").unwrap();
+    let out = kiri(&dir, "Text\n", &[]);
+    assert!(!out.status.success());
+    let stderr = text(&out.stderr);
+    assert!(stderr.contains(&theme.display().to_string()), "{stderr}");
+}
+
+#[test]
 fn help_explains_max_image_size() {
-    let out = Command::new(env!("CARGO_BIN_EXE_kiri"))
-        .arg("--help")
-        .output()
-        .unwrap();
+    let dir = Scratch::new("help");
+    let out = command(&dir).arg("--help").output().unwrap();
     let help = text(&out.stdout);
     assert!(help.contains("--max-image-size <MB>"), "{help}");
     assert!(help.contains("[default: 10]"), "{help}");
