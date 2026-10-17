@@ -75,9 +75,17 @@ The network is strict there: crates.io and rustup work, GitHub does not.
 - Code is reviewed by a different agent running a different model from
   the one that wrote it.
 - Agents work on their own branch in the main checkout, one commit per
-  logical change, and the branch is reviewed before it is merged to
-  `master`. Review fixes go in as ordinary commits on the branch;
-  commits are never squashed or rewritten.
+  logical change. Review fixes go in as ordinary commits on the branch.
+  Agents never rewrite history; only the maintainer may rebase an
+  unfinished branch.
+- Merging a finished branch:
+  1. Merge `master` into the branch (a fast-forward is fine) and resolve
+     any conflicts there.
+  2. Review the branch, conflict resolutions included.
+  3. Bring the branch to the host and run `make check` and the visual
+     check there: its tree is the same as the merge result.
+  4. If `master` has not moved since step 1, merge the branch into
+     `master` with `git merge --no-ff`; otherwise go back to step 1.
 - A small review of every commit before the merge, and a larger one when a
   part of the [roadmap](docs/roadmap.md) is finished.
 - Reviewers never change the working tree or git state; experiments go in
