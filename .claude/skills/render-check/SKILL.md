@@ -25,7 +25,9 @@ From the repository root:
   screenshots are also sliced into `NAME-p01.png`, `NAME-p02.png`, … of
   1600 pixels (`--page-height`), small enough to read one at a time.
 - Arguments after `--` go to kiri. Without them kiri runs in `auto` mode
-  and detects kitty the way it does for the user.
+  and detects kitty the way it does for the user. kiri starts only when
+  kitty answers a query, so its probe does not time out while kitty is
+  still starting, which would show images as alt text.
 - The window is 1280 × 16000 pixels (`--size WxH`): wide enough for the
   default text width and tall enough that most documents fit without
   scrolling. A narrower width checks wrapping and image shrinking. If a

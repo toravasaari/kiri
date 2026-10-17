@@ -94,6 +94,16 @@ done
 [ -s "$work/display" ] || { cat "$work/xvfb.log" >&2; die "Xvfb did not start"; }
 display=:$(cat "$work/display")
 
+# Runs inside kitty: "$0" is the file to create when kiri has finished, the
+# rest is kiri's command line. kitty is slow to answer while it starts, so
+# kiri's probe could time out and fall back to text; an answer to a query
+# first means kitty is ready.
+inner='ask() { printf "%b" "$1"; IFS= read -r -s -d "$2" -t 60 reply; }
+ask "\033[c" c
+"$@"
+touch "$0"
+exec sleep 600'
+
 # Take screenshots until two in a row are equal, so kitty has drawn
 # everything kiri wrote.
 settle() {
@@ -123,8 +133,7 @@ for file in "${files[@]}"; do
 		kitty --config "$kitty_config" -o linux_display_server=x11 \
 		-o remember_window_size=no -o cursor_blink_interval=0 \
 		-o initial_window_width="$width" -o initial_window_height="$height" \
-		sh -c '"$@"; touch "$0"; exec sleep 600' "$work/done" \
-		"$kiri" "${kiri_args[@]}" "$file" \
+		bash -c "$inner" "$work/done" "$kiri" "${kiri_args[@]}" "$file" \
 		>"$work/kitty.log" 2>&1 &
 	kitty_pid=$!
 
