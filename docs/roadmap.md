@@ -126,6 +126,9 @@ Smaller polish that fits in whenever there is time, in any phase.
   compressed formats such as JPEG cannot be passed through as they are;
   this needs thought on what to send and when.
 - Images inside table cells, which now show their alt text.
+- Table columns share the width by their content, as in a browser: a
+  table too wide for the terminal narrows each column in proportion to
+  its text, instead of narrowing the widest column first.
 - The paper themes can be changed with `theme.light.toml` and
   `theme.dark.toml` in the configuration directory, which `--light` and
   `--dark` read on top of the built-in paper themes.

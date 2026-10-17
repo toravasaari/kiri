@@ -57,8 +57,8 @@ having one.
 | Feature | Escape sequence | Written by | Used for |
 |---|---|---|---|
 | Text sizing | OSC 66 (kitty 0.40+) | `src/kitty/text.rs` | Headings in a larger font |
-| Graphics | APC `_G` | `src/kitty/` (later) | Images, formulas, diagrams |
-| Unicode placeholders | U+10EEEE with graphics | `src/kitty/` (later) | Images that scroll with text, work in pagers and tmux |
+| Graphics | APC `_G` | `src/kitty/graphics.rs` | Images, later formulas and diagrams |
+| Unicode placeholders | U+10EEEE with graphics | `src/kitty/graphics.rs` | Images that scroll with text, work in pagers and tmux |
 | Protocol queries | OSC 66 tests, APC `_G` query | `src/kitty/query.rs` | Telling whether kitty's protocols work |
 | Hyperlinks | OSC 8 | `src/render/output.rs` | Clickable links |
 | Text attributes and colours | SGR | `src/render/output.rs` | Bold, italic, colours |
@@ -71,7 +71,8 @@ text sizing, graphics, Unicode placeholders and the queries that detect
 them; `src/term.rs` sends those along with the generic queries it spells
 out itself. OSC 8 hyperlinks, SGR attributes, underline styles and cursor
 movement are general terminal features that `src/render/output.rs` writes
-itself; for scaled text it calls `src/kitty/text.rs`.
+itself; for scaled text it calls `src/kitty/text.rs`, and for images
+`src/kitty/graphics.rs`.
 Underline styles began in kitty but are now common; kiri uses them only
 when the probe finds kitty's protocols or `--mode kitty` asks for them.
 
@@ -85,16 +86,19 @@ src/parse.rs               comrak tree -> document model
 src/term.rs                capability detection, the only terminal queries
 src/config.rs              configuration file and environment variables
 src/theme.rs               colours and sizes, theme files
+src/images.rs              loading images: file and data URLs, raster and SVG
 src/color.rs               colours and underline styles for theme and render
 src/render/mod.rs          document model -> terminal output
 src/render/layout.rs       document model -> styled lines of a fixed width
 src/render/wrap.rs         word wrapping for styled text
 src/render/table.rs        tables with box-drawing characters, or stacked
+src/render/image.rs        image sizes in pixels and terminal cells
 src/render/style.rs        styled text between layout and output
 src/render/output.rs       styled lines -> bytes (SGR, OSC 8, CSI C/K, OSC 66)
 src/render/highlight.rs    syntax highlighting for code blocks (syntect)
 src/kitty/mod.rs           kitty-specific escape sequences
 src/kitty/text.rs          text sizing protocol (OSC 66)
+src/kitty/graphics.rs      graphics protocol with Unicode placeholders
 src/kitty/query.rs         queries that detect kitty's protocols
 crates/kiri-image-scale    image scaling, a crate of its own in the workspace
 ```
