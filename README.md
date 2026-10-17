@@ -37,6 +37,12 @@ Tables too wide for the window wrap the text inside their cells, without
 splitting any word of ten cells or fewer. When that is not enough, each row
 is shown as its own block of `Header: value` lines instead.
 
+Images come from `data:` URLs and local files: absolute paths, paths
+relative to the document and `file:` URLs, with any `?query` or `#fragment`
+left out as in a browser. kiri reads only regular files up to the
+`--max-image-size` limit, which also caps a compressed SVG once
+decompressed, and does not fetch remote images.
+
 | Option | Meaning |
 |---|---|
 | `--mode auto\|plain\|ansi\|kitty` | Override what kiri detects |
