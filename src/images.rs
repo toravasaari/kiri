@@ -16,10 +16,12 @@ use std::sync::Arc;
 use base64::Engine;
 use base64::engine::DecodePaddingMode;
 use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig};
+use fast_image_resize::images::{TypedImage, TypedImageRef};
+use fast_image_resize::pixels::{U8x4, U16x4};
+use fast_image_resize::{self as fir, PixelTrait, ResizeAlg, ResizeOptions, Resizer};
 use image::error::{ImageFormatHint, UnsupportedErrorKind};
-use image::imageops::{self, FilterType};
 use image::metadata::Orientation;
-use image::{DynamicImage, ImageBuffer, ImageDecoder, ImageReader, Limits, Rgba, RgbaImage};
+use image::{DynamicImage, ImageDecoder, ImageReader, Limits, RgbaImage};
 use resvg::tiny_skia;
 use resvg::usvg::{self, fontdb};
 
@@ -79,40 +81,69 @@ impl Source {
 /// edges around them as a halo. Scaling in premultiplied alpha, where a
 /// pixel counts as much as it covers, leaves that colour out.
 fn scale(image: &RgbaImage, width: u32, height: u32) -> RgbaImage {
-    const FILTER: FilterType = FilterType::CatmullRom;
     if image.pixels().all(|pixel| pixel[3] == u8::MAX) {
-        return imageops::resize(image, width, height, FILTER);
+        // Straight from one buffer to the other: copying pixels in kiri's
+        // own code is slow in debug builds.
+        let (from_width, from_height) = image.dimensions();
+        let source = TypedImageRef::<U8x4>::from_buffer(from_width, from_height, image.as_raw())
+            .expect("width × height pixels");
+        let mut bytes = vec![0; width as usize * height as usize * 4];
+        let mut scaled =
+            TypedImage::<U8x4>::from_buffer(width, height, &mut bytes).expect("enough bytes");
+        resize(&source, &mut scaled);
+        return RgbaImage::from_raw(width, height, bytes).expect("width × height pixels");
     }
     // Sixteen bits per channel keep the colour of faint pixels.
-    let premultiplied: ImageBuffer<Rgba<u16>, Vec<u16>> =
-        ImageBuffer::from_fn(image.width(), image.height(), |x, y| {
-            let [red, green, blue, alpha] = image.get_pixel(x, y).0;
+    let premultiplied: Vec<U16x4> = image
+        .pixels()
+        .map(|pixel| {
+            let [red, green, blue, alpha] = pixel.0;
             let times_alpha = |channel: u8| {
                 let product = u32::from(channel) * u32::from(alpha);
                 // From 0..=255², rounded to 0..=65535.
                 ((u64::from(product) * 65535 + 65025 / 2) / 65025) as u16
             };
-            Rgba([
+            U16x4::new([
                 times_alpha(red),
                 times_alpha(green),
                 times_alpha(blue),
                 u16::from(alpha) * 257,
             ])
-        });
-    let scaled = imageops::resize(&premultiplied, width, height, FILTER);
-    RgbaImage::from_fn(width, height, |x, y| {
-        let [red, green, blue, alpha] = scaled.get_pixel(x, y).0;
-        if alpha == 0 {
-            return Rgba([0, 0, 0, 0]);
-        }
-        // The filter can overshoot, so a channel may exceed its alpha.
-        let divided = |channel: u16| {
-            let value = (u32::from(channel) * 255 + u32::from(alpha) / 2) / u32::from(alpha);
-            value.min(255) as u8
-        };
-        let alpha = ((u32::from(alpha) + 128) / 257) as u8;
-        Rgba([divided(red), divided(green), divided(blue), alpha])
-    })
+        })
+        .collect();
+    let source = TypedImageRef::new(image.width(), image.height(), &premultiplied)
+        .expect("width × height pixels");
+    let mut scaled = TypedImage::<U16x4>::new(width, height);
+    resize(&source, &mut scaled);
+    let bytes = scaled
+        .pixels()
+        .iter()
+        .flat_map(|pixel| {
+            let [red, green, blue, alpha] = pixel.0;
+            if alpha == 0 {
+                return [0, 0, 0, 0];
+            }
+            // The filter can overshoot, so a channel may exceed its alpha.
+            let divided = |channel: u16| {
+                let value = (u32::from(channel) * 255 + u32::from(alpha) / 2) / u32::from(alpha);
+                value.min(255) as u8
+            };
+            let alpha = ((u32::from(alpha) + 128) / 257) as u8;
+            [divided(red), divided(green), divided(blue), alpha]
+        })
+        .collect();
+    RgbaImage::from_raw(width, height, bytes).expect("width × height pixels")
+}
+
+/// `source` resized with a Catmull-Rom filter to the size of `scaled`. Any
+/// alpha is left alone: the caller has already multiplied it in.
+fn resize<P: PixelTrait>(source: &TypedImageRef<P>, scaled: &mut TypedImage<P>) {
+    let options = ResizeOptions::new()
+        .resize_alg(ResizeAlg::Convolution(fir::FilterType::CatmullRom))
+        .use_alpha(false);
+    Resizer::new()
+        .resize_typed(source, scaled, &options)
+        .expect("source and destination of the same pixel type");
 }
 
 /// A parsed SVG document.
@@ -971,23 +1002,36 @@ mod tests {
             let scaled = Source::Raster(image.clone()).render(width, height);
             let expected = scale_with_the_image_crate(&image, width, height);
             assert_eq!(scaled.dimensions(), (width, height), "{name}");
+            // Colour weighed by alpha: a faint pixel may change hue without
+            // anyone seeing it.
+            let shown = |pixel: [u8; 4]| {
+                let alpha = u32::from(pixel[3]);
+                pixel
+                    .map(|channel| u32::from(channel) * alpha / 255)
+                    .map(|value| value as u8)
+            };
+            let mut differences = Vec::new();
             for (x, y, pixel) in scaled.enumerate_pixels() {
-                let [red, green, blue, alpha] = pixel.0;
-                let [red_0, green_0, blue_0, alpha_0] = rgba(&expected, x, y);
-                // Colour weighed by alpha: a faint pixel may change hue
-                // without anyone seeing it.
-                let shown = |channel: u8, alpha: u8| u32::from(channel) * u32::from(alpha) / 255;
-                let close = |a: u8, b: u8| shown(a, alpha).abs_diff(shown(b, alpha_0)) <= 2;
-                assert!(
-                    close(red, red_0)
-                        && close(green, green_0)
-                        && close(blue, blue_0)
-                        && alpha.abs_diff(alpha_0) <= 2,
-                    "{name} at {width} × {height}: ({x}, {y}) is {:?}, not {:?}",
-                    pixel.0,
-                    [red_0, green_0, blue_0, alpha_0],
-                );
+                let (a, b) = (shown(pixel.0), shown(rgba(&expected, x, y)));
+                let alpha = pixel[3].abs_diff(rgba(&expected, x, y)[3]);
+                differences.extend((0..3).map(|channel| a[channel].abs_diff(b[channel])));
+                differences.push(alpha);
             }
+            // Ringing where hard edges cross comes out a little different,
+            // because fast_image_resize rounds and clamps between its two
+            // passes; elsewhere the two agree to rounding.
+            let largest = differences.iter().max().unwrap();
+            let rounding = differences.iter().filter(|&&d| d <= 2).count();
+            assert!(
+                *largest <= 16,
+                "{name} at {width} × {height}: off by {largest}"
+            );
+            assert!(
+                rounding * 100 >= differences.len() * 99,
+                "{name} at {width} × {height}: {} of {} values off by more than 2",
+                differences.len() - rounding,
+                differences.len(),
+            );
         }
     }
 
@@ -996,6 +1040,7 @@ mod tests {
     /// opaque.
     fn scale_with_the_image_crate(image: &RgbaImage, width: u32, height: u32) -> RgbaImage {
         use image::imageops::{self, FilterType};
+        use image::{ImageBuffer, Rgba};
         const FILTER: FilterType = FilterType::CatmullRom;
         if image.pixels().all(|pixel| pixel[3] == u8::MAX) {
             return imageops::resize(image, width, height, FILTER);

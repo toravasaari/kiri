@@ -17,6 +17,7 @@ path = "src/main.rs"
 base64 = "0.22.1"
 clap = { version = "4.6", features = ["derive"] }
 comrak = { version = "0.56", default-features = false }
+fast_image_resize = "6.1.0"
 flate2 = "1.1.10"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 resvg = "0.48.1"
@@ -37,6 +38,8 @@ rustix = { version = "1.1.5", features = ["pty"] }
 # SVG parser and renderer and the fonts and text shaping for SVG text, and
 # keep kiri's own code easy to debug. An SVG with 400 lines of text takes
 # 0.7 s instead of 1.2 s. flate2 and moxcms made no measurable difference.
+# Most of fast_image_resize is generic and so compiled as part of kiri:
+# shrinking that JPEG to 800 pixels still takes 1.7 s instead of 2.2 s.
 [profile.dev.package]
 zune-jpeg.opt-level = 3
 zune-core.opt-level = 3
@@ -62,3 +65,4 @@ harfrust.opt-level = 3
 skrifa.opt-level = 3
 read-fonts.opt-level = 3
 font-types.opt-level = 3
+fast_image_resize.opt-level = 3

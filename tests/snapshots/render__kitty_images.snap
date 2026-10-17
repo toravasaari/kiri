@@ -28,9 +28,9 @@ expression: "readable(&render_images(\"images.md\", &Capabilities::kitty(WIDTH))
 
   A wide image shrinks to the text width:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=9406378,s=440,v=60,c=44,r=3,m=0;<784 bytes>␛\  ␛[38;2;143;135;170m⟦row 0: 44 cells⟧␛[39m
-  ␛[38;2;143;135;170m⟦row 1: 44 cells⟧␛[39m
-  ␛[38;2;143;135;170m⟦row 2: 44 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=12037004,s=440,v=60,c=44,r=3,m=0;<660 bytes>␛\  ␛[38;2;183;171;140m⟦row 0: 44 cells⟧␛[39m
+  ␛[38;2;183;171;140m⟦row 1: 44 cells⟧␛[39m
+  ␛[38;2;183;171;140m⟦row 2: 44 cells⟧␛[39m
 
   An SVG is drawn at its natural size, here
   given in millimetres:
@@ -50,16 +50,16 @@ expression: "readable(&render_images(\"images.md\", &Capabilities::kitty(WIDTH))
   Text in an SVG is drawn with the system's
   fonts:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=1677226,s=440,v=200,c=44,r=10,m=0;<1996 bytes>␛\  ␛[38;2;25;151;170m⟦row 0: 44 cells⟧␛[39m
-  ␛[38;2;25;151;170m⟦row 1: 44 cells⟧␛[39m
-  ␛[38;2;25;151;170m⟦row 2: 44 cells⟧␛[39m
-  ␛[38;2;25;151;170m⟦row 3: 44 cells⟧␛[39m
-  ␛[38;2;25;151;170m⟦row 4: 44 cells⟧␛[39m
-  ␛[38;2;25;151;170m⟦row 5: 44 cells⟧␛[39m
-  ␛[38;2;25;151;170m⟦row 6: 44 cells⟧␛[39m
-  ␛[38;2;25;151;170m⟦row 7: 44 cells⟧␛[39m
-  ␛[38;2;25;151;170m⟦row 8: 44 cells⟧␛[39m
-  ␛[38;2;25;151;170m⟦row 9: 44 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=4919288,s=440,v=200,c=44,r=10,m=0;<1988 bytes>␛\  ␛[38;2;75;15;248m⟦row 0: 44 cells⟧␛[39m
+  ␛[38;2;75;15;248m⟦row 1: 44 cells⟧␛[39m
+  ␛[38;2;75;15;248m⟦row 2: 44 cells⟧␛[39m
+  ␛[38;2;75;15;248m⟦row 3: 44 cells⟧␛[39m
+  ␛[38;2;75;15;248m⟦row 4: 44 cells⟧␛[39m
+  ␛[38;2;75;15;248m⟦row 5: 44 cells⟧␛[39m
+  ␛[38;2;75;15;248m⟦row 6: 44 cells⟧␛[39m
+  ␛[38;2;75;15;248m⟦row 7: 44 cells⟧␛[39m
+  ␛[38;2;75;15;248m⟦row 8: 44 cells⟧␛[39m
+  ␛[38;2;75;15;248m⟦row 9: 44 cells⟧␛[39m
 
   A linked image is shown, but cannot be
   clicked yet:
@@ -83,9 +83,9 @@ expression: "readable(&render_images(\"images.md\", &Capabilities::kitty(WIDTH))
 
   ␛[0;90m│ ␛[0mAn image in a quote:
   ␛[0;90m│␛[0m
-␛_Ga=T,U=1,q=2,f=32,o=z,i=7024211,s=420,v=60,c=42,r=3,m=0;<800 bytes>␛\  ␛[0;90m│ ␛[0m␛[38;2;107;46;83m⟦row 0: 42 cells⟧␛[39m
-  ␛[0;90m│ ␛[0m␛[38;2;107;46;83m⟦row 1: 42 cells⟧␛[39m
-  ␛[0;90m│ ␛[0m␛[38;2;107;46;83m⟦row 2: 42 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=11070978,s=420,v=60,c=42,r=3,m=0;<656 bytes>␛\  ␛[0;90m│ ␛[0m␛[38;2;168;238;2m⟦row 0: 42 cells⟧␛[39m
+  ␛[0;90m│ ␛[0m␛[38;2;168;238;2m⟦row 1: 42 cells⟧␛[39m
+  ␛[0;90m│ ␛[0m␛[38;2;168;238;2m⟦row 2: 42 cells⟧␛[39m
 
   In running text, ␛[0;2;3m[image: an inline icon]␛[0m
   stays alt text, and so does ␛]8;;https://example.com␛\␛[0;2;3;4;34m[image: an icon]␛]8;;␛\␛[0m
