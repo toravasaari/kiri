@@ -126,3 +126,10 @@ Smaller polish that fits in whenever there is time, in any phase.
   compressed formats such as JPEG cannot be passed through as they are;
   this needs thought on what to send and when.
 - Images inside table cells, which now show their alt text.
+- The paper themes can be changed with `theme.light.toml` and
+  `theme.dark.toml` in the configuration directory, which `--light` and
+  `--dark` read on top of the built-in paper themes.
+- GitHub alert blocks, quotes that start with `[!NOTE]`, `[!TIP]`,
+  `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]`, drawn with a colour and an
+  icon of their own and a title such as "Note". The colours stay even in
+  the paper themes, which are otherwise grey.
