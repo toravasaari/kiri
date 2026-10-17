@@ -3,7 +3,8 @@
 
 use std::path::Path;
 
-use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, Images};
+use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts};
+use kiri::render::Inputs;
 use kiri::term::Capabilities;
 use kiri::theme::{Paper, Theme};
 
@@ -15,14 +16,8 @@ use common::{WIDTH, example_theme, strip_own_sequences};
 fn escape_sequences_in_the_document_are_neutralised() {
     let document = kiri::parse::parse("text \x1b]0;evil\x07 here\n");
     let mut out = Vec::new();
-    kiri::render::render(
-        &document,
-        &Images::new(),
-        &Capabilities::kitty(WIDTH),
-        &Theme::default(),
-        &mut out,
-    )
-    .unwrap();
+    let inputs = Inputs::new(Capabilities::kitty(WIDTH));
+    kiri::render::render(&document, &inputs, &mut out).unwrap();
     let out = String::from_utf8(out).unwrap();
     assert!(!out.contains("\x1b]0;"), "{out:?}");
 }
@@ -46,15 +41,9 @@ fn control_characters_in_the_document_do_not_reach_the_terminal() {
         Capabilities::ansi(WIDTH),
         Capabilities::kitty(WIDTH),
     ] {
+        let inputs = Inputs::new(caps.clone());
         let mut out = Vec::new();
-        kiri::render::render(
-            &document,
-            &Images::new(),
-            &caps,
-            &Theme::default(),
-            &mut out,
-        )
-        .unwrap();
+        kiri::render::render(&document, &inputs, &mut out).unwrap();
         let out = String::from_utf8(out).unwrap();
         if caps.hyperlinks {
             // The link target is still written, without the controls.
@@ -94,6 +83,11 @@ fn the_visual_check_documents_fit_every_mode() {
         let images =
             kiri::images::load_with(&document, &examples, DEFAULT_MAX_FILE_SIZE, &Fonts::none());
         assert_eq!(images.warnings().len(), warnings, "{name}: {images:?}");
+        let mut without_images = Inputs::new(Capabilities::plain(16));
+        let mut with_images = Inputs {
+            images,
+            ..Inputs::new(Capabilities::plain(16))
+        };
         for terminal_width in [16, 24, 40, 80, 120] {
             for caps in [
                 Capabilities::plain(terminal_width),
@@ -101,11 +95,14 @@ fn the_visual_check_documents_fit_every_mode() {
                 Capabilities::kitty(terminal_width),
             ] {
                 for theme in &themes {
+                    without_images.caps = caps.clone();
+                    without_images.theme = theme.clone();
                     let mut out = Vec::new();
-                    kiri::render::render(&document, &Images::new(), &caps, theme, &mut out)
-                        .unwrap();
+                    kiri::render::render(&document, &without_images, &mut out).unwrap();
                     assert!(!out.is_empty());
-                    for line in kiri::render::layout::layout(&document, &images, &caps, theme) {
+                    with_images.caps = caps.clone();
+                    with_images.theme = theme.clone();
+                    for line in kiri::render::layout::layout(&document, &with_images) {
                         let image = (line.image.as_ref())
                             .map_or(0, |image| usize::from(image.placement.size.columns));
                         let cells = width(&line.lead)

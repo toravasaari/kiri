@@ -3,6 +3,7 @@
 use image::RgbaImage;
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, ImageError, Images};
 use kiri::kitty::graphics::{DIACRITICS, PLACEHOLDER};
+use kiri::render::Inputs;
 use kiri::term::Capabilities;
 use kiri::theme::{Paper, Theme};
 
@@ -37,7 +38,7 @@ fn plain_images() {
 #[test]
 fn an_image_alone_in_a_paragraph_is_drawn() {
     let images = one_image("p.png", quadrants(40, 30));
-    let out = render_with_images("![alone](p.png)\n", &images, &Capabilities::kitty(WIDTH));
+    let out = render_with_images("![alone](p.png)\n", images, &Capabilities::kitty(WIDTH));
     assert_eq!(sent(&out).len(), 1);
     assert_eq!(drawn(&out), ["⟦row 0: 4 cells⟧", "⟦row 1: 4 cells⟧"]);
     assert!(!out.contains("[image: alone]"), "{out:?}");
@@ -47,7 +48,7 @@ fn an_image_alone_in_a_paragraph_is_drawn() {
 fn a_linked_image_is_drawn_but_cannot_be_clicked() {
     let images = one_image("p.png", quadrants(40, 30));
     let source = "[![linked](p.png)](https://example.com)\n";
-    let out = render_with_images(source, &images, &Capabilities::kitty(WIDTH));
+    let out = render_with_images(source, images, &Capabilities::kitty(WIDTH));
     assert_eq!(drawn(&out), ["⟦row 0: 4 cells⟧", "⟦row 1: 4 cells⟧"]);
     assert!(!out.contains("\x1b]8;"), "{out:?}");
 }
@@ -59,7 +60,7 @@ fn images_in_running_text_tables_and_headings_stay_alt_text() {
         [![with words](p.png) and words](https://example.com)\n\n\
         | ![cell](p.png) |\n|---|\n| x |\n\n\
         # ![heading](p.png)\n";
-    let out = render_with_images(source, &images, &Capabilities::kitty(WIDTH));
+    let out = render_with_images(source, images, &Capabilities::kitty(WIDTH));
     assert!(sent(&out).is_empty(), "{out:?}");
     assert!(drawn(&out).is_empty(), "{out:?}");
     for alt in ["inline", "with words", "cell", "heading"] {
@@ -70,21 +71,21 @@ fn images_in_running_text_tables_and_headings_stay_alt_text() {
 #[test]
 fn images_stay_alt_text_without_graphics_placeholders_or_pixels() {
     let source = "![alone](p.png)\n";
-    let loaded = one_image("p.png", quadrants(40, 30));
+    let loaded = || one_image("p.png", quadrants(40, 30));
     let mut missing = Images::new();
     missing.insert("p.png", Err(ImageError::Missing("p.png".into())));
     let cases = [
-        (Capabilities::plain(WIDTH), &loaded),
-        (Capabilities::ansi(WIDTH), &loaded),
+        (Capabilities::plain(WIDTH), loaded()),
+        (Capabilities::ansi(WIDTH), loaded()),
         (
             Capabilities {
                 max_image_cells: 0,
                 ..Capabilities::kitty(WIDTH)
             },
-            &loaded,
+            loaded(),
         ),
-        (Capabilities::kitty(WIDTH), &Images::new()),
-        (Capabilities::kitty(WIDTH), &missing),
+        (Capabilities::kitty(WIDTH), Images::new()),
+        (Capabilities::kitty(WIDTH), missing),
     ];
     for (caps, images) in cases {
         let out = render_with_images(source, images, &caps);
@@ -101,7 +102,7 @@ fn images_sit_on_the_document_background() {
     let images = one_image("p.png", quadrants(40, 30));
     let out = render_images_with_theme(
         "Text\n\n![p](p.png)\n",
-        &images,
+        images,
         &Capabilities::kitty(WIDTH),
         &example_theme("opaque.toml"),
     );
@@ -125,7 +126,7 @@ fn text_after_an_image_takes_the_paper_foreground_again() {
     let images = one_image("p.png", quadrants(40, 30));
     let out = render_images_with_theme(
         "![p](p.png)\n\nText after the image\n",
-        &images,
+        images,
         &Capabilities::kitty(WIDTH),
         &Theme::paper(Paper::Light),
     );
@@ -142,13 +143,17 @@ fn text_after_an_image_takes_the_paper_foreground_again() {
 
 #[test]
 fn no_color_draws_images_without_other_colours() {
-    let images = one_image("p.png", quadrants(40, 30));
     let caps = Capabilities {
         color: false,
         ..Capabilities::kitty(WIDTH)
     };
     for theme in [Theme::default(), example_theme("opaque.toml")] {
-        let out = render_images_with_theme("Text\n\n![p](p.png)\n", &images, &caps, &theme);
+        let out = render_images_with_theme(
+            "Text\n\n![p](p.png)\n",
+            one_image("p.png", quadrants(40, 30)),
+            &caps,
+            &theme,
+        );
         let sent = sent(&out);
         assert_eq!(sent.len(), 1);
         assert_eq!(drawn(&out), ["⟦row 0: 4 cells⟧", "⟦row 1: 4 cells⟧"]);
@@ -167,12 +172,11 @@ fn images_indent_with_margins_lists_and_quotes() {
     use kiri::render::wrap::width;
     let images = one_image("p.png", quadrants(40, 30));
     let source = "![top](p.png)\n\n- ![listed](p.png)\n\n> ![quoted](p.png)\n";
-    let lines = kiri::render::layout::layout(
-        &kiri::parse::parse(source),
-        &images,
-        &Capabilities::kitty(WIDTH),
-        &Theme::default(),
-    );
+    let inputs = Inputs {
+        images,
+        ..Inputs::new(Capabilities::kitty(WIDTH))
+    };
+    let lines = kiri::render::layout::layout(&kiri::parse::parse(source), &inputs);
     let rows: Vec<(String, u16, u16)> = (lines.iter())
         .filter_map(|line| {
             let image = line.image.as_ref()?;
@@ -201,9 +205,13 @@ fn images_never_reach_past_the_width() {
     let images = one_image("p.png", quadrants(2000, 100));
     let source = "![top](p.png)\n\n- ![listed](p.png)\n\n> > ![quoted](p.png)\n";
     let document = kiri::parse::parse(source);
+    let mut inputs = Inputs {
+        images,
+        ..Inputs::new(Capabilities::kitty(WIDTH))
+    };
     for terminal_width in [12, 16, 24, 40, 80] {
-        let caps = Capabilities::kitty(terminal_width);
-        let lines = kiri::render::layout::layout(&document, &images, &caps, &Theme::default());
+        inputs.caps = Capabilities::kitty(terminal_width);
+        let lines = kiri::render::layout::layout(&document, &inputs);
         let image_rows: Vec<_> = lines.iter().filter(|line| line.image.is_some()).collect();
         let first_rows = image_rows
             .iter()
@@ -220,10 +228,14 @@ fn images_never_reach_past_the_width() {
 #[test]
 fn images_taller_than_the_cell_limit_are_clamped() {
     // 2000 CSS pixels high, a hundred rows at their natural size.
-    let tall = one_image("p.png", quadrants(400, 2000));
+    let tall = || one_image("p.png", quadrants(400, 2000));
     let document = kiri::parse::parse("![tall](p.png)\n");
-    let image_sizes = |caps: &Capabilities, images: &Images| -> Vec<(u16, u16)> {
-        let lines = kiri::render::layout::layout(&document, images, caps, &Theme::default());
+    let image_sizes = |caps: Capabilities, images: Images| -> Vec<(u16, u16)> {
+        let inputs = Inputs {
+            images,
+            ..Inputs::new(caps)
+        };
+        let lines = kiri::render::layout::layout(&document, &inputs);
         (lines.iter())
             .filter_map(|line| line.image.as_ref())
             .filter(|image| image.row == 0)
@@ -235,20 +247,17 @@ fn images_taller_than_the_cell_limit_are_clamped() {
         ..Capabilities::kitty(WIDTH)
     };
     // Ten rows of 20 pixels, and the width shrinks with them: 40 pixels.
-    assert_eq!(image_sizes(&limited, &tall), [(4, 10)]);
-    assert_eq!(image_sizes(&Capabilities::kitty(WIDTH), &tall), [(40, 100)]);
+    assert_eq!(image_sizes(limited, tall()), [(4, 10)]);
+    assert_eq!(image_sizes(Capabilities::kitty(WIDTH), tall()), [(40, 100)]);
     // kitty's own limit, one row for each placeholder diacritic.
     let taller = one_image("p.png", quadrants(10, 8000));
     let max = DIACRITICS.len() as u16;
-    assert_eq!(
-        image_sizes(&Capabilities::kitty(WIDTH), &taller),
-        [(1, max)]
-    );
+    assert_eq!(image_sizes(Capabilities::kitty(WIDTH), taller), [(1, max)]);
     let none = Capabilities {
         max_image_cells: 0,
         ..Capabilities::kitty(WIDTH)
     };
-    assert_eq!(image_sizes(&none, &tall), []);
+    assert_eq!(image_sizes(none, tall()), []);
 }
 
 #[test]
@@ -256,7 +265,7 @@ fn an_image_is_sent_once_for_each_size_it_is_shown_at() {
     // As wide as the text at the top level, so it shrinks in the quote.
     let images = one_image("p.png", quadrants(440, 40));
     let source = "![a](p.png)\n\n![again](p.png)\n\n> ![quoted](p.png)\n";
-    let out = render_with_images(source, &images, &Capabilities::kitty(WIDTH));
+    let out = render_with_images(source, images, &Capabilities::kitty(WIDTH));
     let sent = sent(&out);
     let sizes: Vec<(&str, &str)> = (sent.iter())
         .map(|image| (image.keys["c"].as_str(), image.keys["r"].as_str()))
@@ -275,7 +284,7 @@ fn sent_pixels_are_the_image_at_its_shown_size() {
         cell_pixels: Some((10, 40)),
         ..Capabilities::kitty(WIDTH)
     };
-    let out = render_with_images("![p](p.png)\n", &images, &caps);
+    let out = render_with_images("![p](p.png)\n", images, &caps);
     let sent = sent(&out);
     assert_eq!(sent.len(), 1);
     let keys = &sent[0].keys;
@@ -319,7 +328,7 @@ fn an_svg_is_drawn_at_its_shown_size_not_scaled() {
         cell_pixels: Some((10, 40)),
         ..Capabilities::kitty(WIDTH)
     };
-    let out = render_with_images("![p](p.svg)\n", &images, &caps);
+    let out = render_with_images("![p](p.svg)\n", images, &caps);
     let sent = sent(&out);
     assert_eq!(sent.len(), 1);
     assert_eq!(

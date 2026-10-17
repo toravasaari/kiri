@@ -12,6 +12,7 @@ use image::{Rgba, RgbaImage};
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, Images, Source};
 use kiri::kitty::graphics::{DIACRITICS, PLACEHOLDER};
 use kiri::model::Document;
+use kiri::render::Inputs;
 use kiri::term::Capabilities;
 use kiri::theme::Theme;
 
@@ -28,8 +29,11 @@ pub fn render_with(fixture: &str, caps: &Capabilities, theme: &Theme) -> String 
     let source = std::fs::read_to_string(&path).expect("fixture is readable");
     let document = kiri::parse::parse(&source);
     let mut out = Vec::new();
-    kiri::render::render(&document, &Images::new(), caps, theme, &mut out)
-        .expect("rendering to memory succeeds");
+    let inputs = Inputs {
+        theme: theme.clone(),
+        ..Inputs::new(caps.clone())
+    };
+    kiri::render::render(&document, &inputs, &mut out).expect("rendering to memory succeeds");
     String::from_utf8(out).expect("output is UTF-8")
 }
 
@@ -49,7 +53,11 @@ pub fn visible(output: &str) -> String {
 pub fn render_source(source: &str, caps: &Capabilities, theme: &Theme) -> String {
     let document = kiri::parse::parse(source);
     let mut out = Vec::new();
-    kiri::render::render(&document, &Images::new(), caps, theme, &mut out).unwrap();
+    let inputs = Inputs {
+        theme: theme.clone(),
+        ..Inputs::new(caps.clone())
+    };
+    kiri::render::render(&document, &inputs, &mut out).unwrap();
     String::from_utf8(out).unwrap()
 }
 
@@ -155,19 +163,23 @@ pub fn fixture_images(document: &Document) -> Images {
     images
 }
 
-pub fn render_document(document: &Document, images: &Images, caps: &Capabilities) -> String {
+pub fn render_document(document: &Document, images: Images, caps: &Capabilities) -> String {
+    let inputs = Inputs {
+        images,
+        ..Inputs::new(caps.clone())
+    };
     let mut out = Vec::new();
-    kiri::render::render(document, images, caps, &Theme::default(), &mut out).unwrap();
+    kiri::render::render(document, &inputs, &mut out).unwrap();
     String::from_utf8(out).unwrap()
 }
 
 pub fn render_images(fixture: &str, caps: &Capabilities) -> String {
     let source = std::fs::read_to_string(fixtures().join(fixture)).unwrap();
     let document = kiri::parse::parse(&source);
-    render_document(&document, &fixture_images(&document), caps)
+    render_document(&document, fixture_images(&document), caps)
 }
 
-pub fn render_with_images(source: &str, images: &Images, caps: &Capabilities) -> String {
+pub fn render_with_images(source: &str, images: Images, caps: &Capabilities) -> String {
     render_document(&kiri::parse::parse(source), images, caps)
 }
 
@@ -281,12 +293,17 @@ pub fn sent(output: &str) -> Vec<Sent> {
 /// `source` with `images`, rendered with `theme`.
 pub fn render_images_with_theme(
     source: &str,
-    images: &Images,
+    images: Images,
     caps: &Capabilities,
     theme: &Theme,
 ) -> String {
+    let inputs = Inputs {
+        images,
+        caps: caps.clone(),
+        theme: theme.clone(),
+    };
     let mut out = Vec::new();
-    kiri::render::render(&kiri::parse::parse(source), images, caps, theme, &mut out).unwrap();
+    kiri::render::render(&kiri::parse::parse(source), &inputs, &mut out).unwrap();
     String::from_utf8(out).unwrap()
 }
 

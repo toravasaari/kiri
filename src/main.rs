@@ -5,6 +5,7 @@ use std::process::ExitCode;
 use clap::{Parser, ValueEnum};
 use kiri::config::{Config, Environment, ThemeSource};
 use kiri::images::Images;
+use kiri::render::Inputs;
 use kiri::term::Capabilities;
 use kiri::theme::{Paper, Theme};
 
@@ -116,10 +117,13 @@ fn run(cli: &Cli) -> Result<(), String> {
     } else {
         Images::new()
     };
+    let inputs = Inputs {
+        images,
+        caps,
+        theme: settings.theme,
+    };
     let mut out = io::stdout().lock();
-    match kiri::render::render(&document, &images, &caps, &settings.theme, &mut out)
-        .and_then(|()| out.flush())
-    {
+    match kiri::render::render(&document, &inputs, &mut out).and_then(|()| out.flush()) {
         // A closed pipe (kiri file.md | head) is not an error.
         Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
         result => result.map_err(|error| error.to_string()),

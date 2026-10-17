@@ -5,6 +5,7 @@ use std::rc::Rc;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+use super::Inputs;
 use super::highlight;
 use super::image::{self, Placement};
 use super::style::{Line, Spaces, Span, Style, push};
@@ -18,12 +19,12 @@ use crate::theme::{CodeBackground, Theme};
 
 const BULLETS: [&str; 3] = ["•", "◦", "▪"];
 
-pub fn layout(
-    document: &Document,
-    images: &Images,
-    caps: &Capabilities,
-    theme: &Theme,
-) -> Vec<Line> {
+pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
+    let Inputs {
+        images,
+        caps,
+        theme,
+    } = inputs;
     // Without colours, the layout leaves out what only shows a colour, such
     // as heading fills and the padding around inline code.
     let colorless;

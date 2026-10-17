@@ -1,6 +1,6 @@
 //! Headings: sizes, rules, backgrounds and indentation.
 
-use kiri::images::Images;
+use kiri::render::Inputs;
 use kiri::term::Capabilities;
 use kiri::theme::Theme;
 
@@ -42,8 +42,11 @@ fn heading_background_reaches_the_right_edge() {
     // Scales 3 and 2 leave a remainder at most of these widths.
     for theme in &themes {
         for terminal_width in [46, 47, 48, 49] {
-            let caps = Capabilities::kitty(terminal_width);
-            let lines = kiri::render::layout::layout(&document, &Images::new(), &caps, theme);
+            let inputs = Inputs {
+                theme: theme.clone(),
+                ..Inputs::new(Capabilities::kitty(terminal_width))
+            };
+            let lines = kiri::render::layout::layout(&document, &inputs);
             for line in lines.iter().filter(|line| line.scale > 1) {
                 let cells = width(&line.lead)
                     + width(&line.spans) * usize::from(line.scale)
@@ -69,14 +72,11 @@ fn rules_span_the_terminal_past_max_width() {
     let theme = kiri::theme::parse("max_width = 20\n[h1]\nrule = true\n").unwrap();
     let document = kiri::parse::parse("# Title\n\nText\n\n---\n");
     let mut out = Vec::new();
-    kiri::render::render(
-        &document,
-        &Images::new(),
-        &Capabilities::ansi(30),
-        &theme,
-        &mut out,
-    )
-    .unwrap();
+    let inputs = Inputs {
+        theme,
+        ..Inputs::new(Capabilities::ansi(30))
+    };
+    kiri::render::render(&document, &inputs, &mut out).unwrap();
     let rules: Vec<usize> = String::from_utf8(out)
         .unwrap()
         .lines()
@@ -92,14 +92,11 @@ fn nested_headings_are_not_indented() {
     let theme = example_theme("indent.toml");
     let document = kiri::parse::parse("# Top\n\n> # Quoted\n\n- # Listed\n");
     let mut out = Vec::new();
-    kiri::render::render(
-        &document,
-        &Images::new(),
-        &Capabilities::ansi(40),
-        &theme,
-        &mut out,
-    )
-    .unwrap();
+    let inputs = Inputs {
+        theme,
+        ..Inputs::new(Capabilities::ansi(40))
+    };
+    kiri::render::render(&document, &inputs, &mut out).unwrap();
     // The indent stays on the top-level heading only; nested ones start
     // right after the quote bar or the bullet.
     insta::assert_snapshot!(visible(&String::from_utf8(out).unwrap()));

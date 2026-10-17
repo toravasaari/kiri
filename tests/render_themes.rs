@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use kiri::images::Images;
+use kiri::render::Inputs;
 use kiri::term::Capabilities;
 use kiri::theme::{Paper, Theme};
 
@@ -179,12 +179,12 @@ fn no_color_keeps_everything_but_colours() {
     };
     assert!(colour_codes(&render("elements.md", &ansi)).is_empty());
     // Layout on its own gives no colours either.
-    let lines = kiri::render::layout::layout(
-        &kiri::parse::parse("# Heading\n\nSome `code`\n"),
-        &Images::new(),
-        &caps,
-        &example_theme("background.toml"),
-    );
+    let inputs = Inputs {
+        theme: example_theme("background.toml"),
+        ..Inputs::new(caps.clone())
+    };
+    let lines =
+        kiri::render::layout::layout(&kiri::parse::parse("# Heading\n\nSome `code`\n"), &inputs);
     let mut spans =
         (lines.iter()).flat_map(|line| line.lead.iter().chain(&line.spans).chain(&line.trail));
     assert!(
