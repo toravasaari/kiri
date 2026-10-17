@@ -250,7 +250,7 @@ pub enum ImageError {
     FileTooLarge { path: PathBuf, limit: u64 },
     /// `http:` and `https:` images are not fetched.
     Remote,
-    /// A URL scheme other than `http`, `https` or `data`.
+    /// A URL scheme other than `http`, `https`, `data` or `file`.
     UnsupportedScheme(String),
     /// A `data:` URL without a comma or with broken base64.
     InvalidData,
@@ -412,10 +412,10 @@ fn collect_blocks<'a>(blocks: &'a [Block], urls: &mut Vec<&'a str>) {
     }
 }
 
-/// Loads the image at `url`: a `data:` URL, or a path that is absolute or
-/// relative to `base`. Paths may use URL percent escapes and end in a
-/// `?query` or `#fragment`, as in a browser. Only regular files of at most
-/// `max_file_size` bytes are read.
+/// Loads the image at `url`: a `data:` URL, a local `file:` URL, or a path
+/// that is absolute or relative to `base`. Paths may use URL percent
+/// escapes and end in a `?query` or `#fragment`, as in a browser. Only
+/// regular files of at most `max_file_size` bytes are read.
 pub fn load_url(
     url: &str,
     base: &Path,
@@ -429,16 +429,34 @@ pub fn load_url(
         {
             Err(ImageError::Remote)
         }
-        Some(scheme) => Err(ImageError::UnsupportedScheme(scheme.to_ascii_lowercase())),
-        None => {
-            // A query or fragment does not name the file.
-            let url = url.split(['?', '#']).next().unwrap_or(url);
-            let decoded = percent_decode(url.as_bytes());
-            let path = base.join(String::from_utf8(decoded).as_deref().unwrap_or(url));
-            let bytes = read_file(&path, max_file_size)?;
-            decode(&bytes, fonts)
+        Some(scheme) if scheme.eq_ignore_ascii_case("file") => {
+            let path = file_url_path(&url[scheme.len() + 1..]).ok_or(ImageError::Remote)?;
+            decode(&read_file(&local_path(path, base), max_file_size)?, fonts)
         }
+        Some(scheme) => Err(ImageError::UnsupportedScheme(scheme.to_ascii_lowercase())),
+        None => decode(&read_file(&local_path(url, base), max_file_size)?, fonts),
     }
+}
+
+/// The path of a `file:` URL, given what follows `file:`, or `None` when
+/// it names another host. The host may be left out, empty or `localhost`.
+fn file_url_path(rest: &str) -> Option<&str> {
+    let Some(authority_and_path) = rest.strip_prefix("//") else {
+        return Some(rest);
+    };
+    let (host, path) = match authority_and_path.find(['/', '?', '#']) {
+        Some(end) => authority_and_path.split_at(end),
+        None => (authority_and_path, ""),
+    };
+    (host.is_empty() || host.eq_ignore_ascii_case("localhost")).then_some(path)
+}
+
+/// The file a path in a URL names: without a query or fragment, with
+/// percent escapes decoded, and relative to `base` unless it is absolute.
+fn local_path(url_path: &str, base: &Path) -> PathBuf {
+    let url_path = url_path.split(['?', '#']).next().unwrap_or(url_path);
+    let decoded = percent_decode(url_path.as_bytes());
+    base.join(String::from_utf8(decoded).as_deref().unwrap_or(url_path))
 }
 
 /// The contents of the regular file at `path`. Directories, devices and
@@ -973,6 +991,38 @@ mod tests {
         assert_eq!(
             fixture("pattern%23top.png"),
             Err(ImageError::Missing(base.join("pattern#top.png")))
+        );
+    }
+
+    #[test]
+    fn loads_file_urls_as_local_files() {
+        let pattern = fixture("pattern.png");
+        assert!(pattern.is_ok());
+        let path = fixtures().join("images/pattern.png");
+        let path = path.to_str().unwrap();
+        let elsewhere = Path::new("/nonexistent");
+        for url in [
+            format!("file://{path}"),
+            format!("file://localhost{path}"),
+            format!("FILE://LocalHost{path}"),
+            // RFC 8089 allows leaving out the empty host.
+            format!("file:{path}"),
+            format!("file://{path}?v=2#top"),
+            format!("file://{}", path.replace(".png", "%2Epng")),
+        ] {
+            assert_eq!(open(&url, elsewhere), pattern, "{url}");
+        }
+        assert_eq!(
+            open("file:///no/such.png", elsewhere),
+            Err(ImageError::Missing("/no/such.png".into()))
+        );
+    }
+
+    #[test]
+    fn does_not_load_file_urls_from_other_hosts() {
+        assert_eq!(
+            open("file://server/share/a.png", Path::new("/")),
+            Err(ImageError::Remote)
         );
     }
 
