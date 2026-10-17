@@ -956,11 +956,77 @@ mod tests {
     }
 
     #[test]
-    fn scales_opaque_raster_images_as_before() {
-        let image = raster("pattern.png");
-        let small = Source::Raster(image.clone()).render(32, 24);
-        let plain = imageops::resize(&image, 32, 24, FilterType::CatmullRom);
-        assert_eq!(small, plain);
+    fn scales_raster_images_like_the_image_crate() {
+        let cases = [
+            ("pattern.png", 32, 24),
+            ("pattern.png", 213, 160),
+            ("photo-landscape.jpg", 300, 200),
+            ("transparent.png", 64, 64),
+            ("transparent.png", 150, 150),
+            ("compass-rose.png", 225, 200),
+            ("icon.png", 23, 23),
+        ];
+        for (name, width, height) in cases {
+            let image = raster(name);
+            let scaled = Source::Raster(image.clone()).render(width, height);
+            let expected = scale_with_the_image_crate(&image, width, height);
+            assert_eq!(scaled.dimensions(), (width, height), "{name}");
+            for (x, y, pixel) in scaled.enumerate_pixels() {
+                let [red, green, blue, alpha] = pixel.0;
+                let [red_0, green_0, blue_0, alpha_0] = rgba(&expected, x, y);
+                // Colour weighed by alpha: a faint pixel may change hue
+                // without anyone seeing it.
+                let shown = |channel: u8, alpha: u8| u32::from(channel) * u32::from(alpha) / 255;
+                let close = |a: u8, b: u8| shown(a, alpha).abs_diff(shown(b, alpha_0)) <= 2;
+                assert!(
+                    close(red, red_0)
+                        && close(green, green_0)
+                        && close(blue, blue_0)
+                        && alpha.abs_diff(alpha_0) <= 2,
+                    "{name} at {width} × {height}: ({x}, {y}) is {:?}, not {:?}",
+                    pixel.0,
+                    [red_0, green_0, blue_0, alpha_0],
+                );
+            }
+        }
+    }
+
+    /// How kiri scaled images with the image crate's resize: in
+    /// premultiplied alpha with 16 bits per channel, unless the image is
+    /// opaque.
+    fn scale_with_the_image_crate(image: &RgbaImage, width: u32, height: u32) -> RgbaImage {
+        use image::imageops::{self, FilterType};
+        const FILTER: FilterType = FilterType::CatmullRom;
+        if image.pixels().all(|pixel| pixel[3] == u8::MAX) {
+            return imageops::resize(image, width, height, FILTER);
+        }
+        let premultiplied: ImageBuffer<Rgba<u16>, Vec<u16>> =
+            ImageBuffer::from_fn(image.width(), image.height(), |x, y| {
+                let [red, green, blue, alpha] = image.get_pixel(x, y).0;
+                let times_alpha = |channel: u8| {
+                    let product = u32::from(channel) * u32::from(alpha);
+                    ((u64::from(product) * 65535 + 65025 / 2) / 65025) as u16
+                };
+                Rgba([
+                    times_alpha(red),
+                    times_alpha(green),
+                    times_alpha(blue),
+                    u16::from(alpha) * 257,
+                ])
+            });
+        let scaled = imageops::resize(&premultiplied, width, height, FILTER);
+        RgbaImage::from_fn(width, height, |x, y| {
+            let [red, green, blue, alpha] = scaled.get_pixel(x, y).0;
+            if alpha == 0 {
+                return Rgba([0, 0, 0, 0]);
+            }
+            let divided = |channel: u16| {
+                let value = (u32::from(channel) * 255 + u32::from(alpha) / 2) / u32::from(alpha);
+                value.min(255) as u8
+            };
+            let alpha = ((u32::from(alpha) + 128) / 257) as u8;
+            Rgba([divided(red), divided(green), divided(blue), alpha])
+        })
     }
 
     #[test]
