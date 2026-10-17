@@ -31,3 +31,22 @@ unicode-width = "0.2.2"
 insta = "1.49"
 # Pseudo-terminals for testing capability detection.
 rustix = { version = "1.1.5", features = ["pty"] }
+
+# Decoding images without optimisation is slow: a 4845 × 2980 JPEG takes
+# about 3 s instead of 0.07 s. Debug builds optimise the image decoders and
+# the SVG renderer, and keep kiri's own code easy to debug.
+[profile.dev.package]
+zune-jpeg.opt-level = 3
+zune-core.opt-level = 3
+image.opt-level = 3
+image-webp.opt-level = 3
+png.opt-level = 3
+gif.opt-level = 3
+weezl.opt-level = 3
+fdeflate.opt-level = 3
+miniz_oxide.opt-level = 3
+simd-adler32.opt-level = 3
+crc32fast.opt-level = 3
+resvg.opt-level = 3
+tiny-skia.opt-level = 3
+tiny-skia-path.opt-level = 3
