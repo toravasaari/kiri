@@ -16,6 +16,12 @@ name = "kiri"
 name = "kiri"
 path = "src/main.rs"
 
+# Optional parts of kiri; `full` turns them all on. Nothing is optional
+# yet, but `make check` already tests without them.
+[features]
+default = ["full"]
+full = []
+
 [dependencies]
 base64 = "0.22.1"
 clap = { version = "4.6", features = ["derive"] }

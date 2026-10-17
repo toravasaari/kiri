@@ -13,8 +13,11 @@ fmt-check:
 clippy:
 	cargo clippy --workspace --all-targets -- -D warnings
 
+# Also without the default features, so a build with only some of them
+# keeps working.
 test:
 	cargo test --workspace
+	cargo test --workspace --no-default-features
 
 # Optimised binary in target/release/kiri.
 release:
