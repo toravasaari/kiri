@@ -946,19 +946,35 @@ mod tests {
         assert!(image.pixels().all(|pixel| pixel.0[3] == 0));
     }
 
+    /// DejaVu Sans from the fixtures and nothing else, so text in SVGs
+    /// looks the same on every machine.
+    fn fixture_fonts() -> Fonts {
+        Fonts::new(|| {
+            let mut database = fontdb::Database::new();
+            let font =
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fonts/DejaVuSans.ttf");
+            database
+                .load_font_file(font)
+                .expect("the fixture font loads");
+            choose_generic_families(&mut database);
+            database
+        })
+    }
+
     #[test]
-    fn draws_svg_text_with_the_system_fonts() {
-        let fonts = Fonts::system();
-        if fonts.database().is_empty() {
-            // Nothing to draw the text with, as on a minimal container.
-            eprintln!("no system fonts: SVG text left unchecked");
-            return;
+    fn draws_svg_text_with_the_fonts_it_is_given() {
+        let fonts = fixture_fonts();
+        // Greek words in sans-serif, set by a style sheet, and English ones
+        // in the default font.
+        for (name, width, height) in [
+            ("airfoil-forces.svg", 791, 333),
+            ("planetary-gearset.svg", 800, 600),
+        ] {
+            let without = svg_fixture(name, &Fonts::none()).render(width, height);
+            let with = svg_fixture(name, &fonts).render(width, height);
+            let text = differing_pixels(&without, &with);
+            assert!(text > 1000, "{name}: {text} pixels of text");
         }
-        // Greek words in sans-serif, set by a style sheet.
-        let without = svg_fixture("airfoil-forces.svg", &Fonts::none()).render(791, 333);
-        let with = svg_fixture("airfoil-forces.svg", &fonts).render(791, 333);
-        let text = differing_pixels(&without, &with);
-        assert!(text > 1000, "{text} pixels of text");
     }
 
     #[test]
