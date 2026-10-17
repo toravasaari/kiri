@@ -48,9 +48,11 @@ or when both protocols work, since text sizing came to kitty long after
 placeholders. Elsewhere images are alt text.
 Without them, 24-bit colour can still come from `COLORTERM` and hyperlinks
 from `TERM_PROGRAM` or `VTE_VERSION`; underline styles come only from the
-probe. `NO_COLOR` turns colours off in every mode. The result is a plain
-value passed to the renderer, so tests can render for any terminal without
-having one.
+probe. `NO_COLOR` turns colours off in every mode. These variables come
+in as part of `config::Environment`, read once at start-up with kiri's
+own, so the rules are tested without the process environment. The result
+is a plain value passed to the renderer, so tests can render for any
+terminal without having one.
 
 ## Terminal features used
 
