@@ -86,7 +86,9 @@ src/parse.rs               comrak tree -> document model
 src/term.rs                capability detection, the only terminal queries
 src/config.rs              configuration file and environment variables
 src/theme.rs               colours and sizes, theme files
-src/images.rs              loading images: file and data URLs, raster and SVG
+src/images/mod.rs          loading and decoding the images a document shows
+src/images/url.rs          data URLs, file URLs and paths, read up to a limit
+src/images/svg.rs          SVG images and the fonts for their text
 src/color.rs               colours and underline styles for theme and render
 src/render/mod.rs          document model -> terminal output
 src/render/layout.rs       document model -> styled lines of a fixed width
