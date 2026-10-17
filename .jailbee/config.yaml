@@ -43,9 +43,9 @@
 
 # Repo-specific host bind-mounts (per-project credentials/caches).
 # Personal mounts (~/.gnupg, ~/.gitconfig, JetBrains/Toolbox) live in
-# ~/.config/jailbee/global.yaml — the lists are appended at load time.
+# ~/.config/jailbee/global.yaml — the lists are appended at load time, but
+# an empty list here would reset them, so kiri sets no `host_mounts` key.
 # ~/.ssh is seeded into <shared_dir>/ssh by `jailbee init`, not bind-mounted.
-host_mounts: []
 
 # Shared across this repo's containers. Setting the key replaces the built-in
 # list, so the default `ssh` entry is restated. The cargo registry keeps
