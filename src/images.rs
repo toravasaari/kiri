@@ -292,6 +292,9 @@ pub enum ImageError {
     /// A compressed SVG that grows past the limit, in bytes, when it is
     /// decompressed.
     DecompressedTooLarge { limit: u64 },
+    /// The URL is empty or only a query or fragment, or a `file:` URL
+    /// without a path.
+    NoPath,
     /// `http:` and `https:` images are not fetched.
     Remote,
     /// A URL scheme other than `http`, `https`, `data` or `file`.
@@ -327,6 +330,7 @@ impl fmt::Display for ImageError {
             ImageError::DecompressedTooLarge { limit } => {
                 write!(f, "decompresses to more than the {} limit", size(*limit))
             }
+            ImageError::NoPath => f.write_str("the URL names no file"),
             ImageError::Remote => f.write_str("remote images are not loaded"),
             ImageError::UnsupportedScheme(scheme) => write!(f, "{scheme}: URLs are not loaded"),
             ImageError::InvalidData => f.write_str("invalid data: URL"),
@@ -409,6 +413,9 @@ impl Images {
                     | ImageError::NotAFile(_)
                     | ImageError::FileTooLarge { .. }),
                 ) => Some(error.to_string()),
+                Err(ImageError::NoPath) if url.is_empty() => {
+                    Some("an image URL is empty".to_owned())
+                }
                 // A data: URL is the image itself, too long for a message.
                 Err(error) if scheme(url).is_some_and(|s| s.eq_ignore_ascii_case("data")) => {
                     Some(format!("data: URL: {error}"))
@@ -482,12 +489,12 @@ pub fn load_url(
         }
         Some(scheme) if scheme.eq_ignore_ascii_case("file") => {
             let path = file_url_path(&url[scheme.len() + 1..]).ok_or(ImageError::Remote)?;
-            let bytes = read_file(&local_path(path, base), max_file_size)?;
+            let bytes = read_file(&local_path(path, base)?, max_file_size)?;
             decode(&bytes, max_file_size, fonts)
         }
         Some(scheme) => Err(ImageError::UnsupportedScheme(scheme.to_ascii_lowercase())),
         None => {
-            let bytes = read_file(&local_path(url, base), max_file_size)?;
+            let bytes = read_file(&local_path(url, base)?, max_file_size)?;
             decode(&bytes, max_file_size, fonts)
         }
     }
@@ -495,6 +502,8 @@ pub fn load_url(
 
 /// The path of a `file:` URL, given what follows `file:`, or `None` when
 /// it names another host. The host may be left out, empty or `localhost`.
+/// Without `//` and a host, the path may be relative too: `file:a.png`
+/// is resolved against the document, like a plain path.
 fn file_url_path(rest: &str) -> Option<&str> {
     let Some(authority_and_path) = rest.strip_prefix("//") else {
         return Some(rest);
@@ -508,10 +517,15 @@ fn file_url_path(rest: &str) -> Option<&str> {
 
 /// The file a path in a URL names: without a query or fragment, with
 /// percent escapes decoded, and relative to `base` unless it is absolute.
-fn local_path(url_path: &str, base: &Path) -> PathBuf {
+/// Escapes are decoded before the path is split, so `%2F` separates
+/// directories like `/` does.
+fn local_path(url_path: &str, base: &Path) -> Result<PathBuf, ImageError> {
     let url_path = url_path.split(['?', '#']).next().unwrap_or(url_path);
+    if url_path.is_empty() {
+        return Err(ImageError::NoPath);
+    }
     let decoded = percent_decode(url_path.as_bytes());
-    base.join(String::from_utf8(decoded).as_deref().unwrap_or(url_path))
+    Ok(base.join(String::from_utf8(decoded).as_deref().unwrap_or(url_path)))
 }
 
 /// The contents of the regular file at `path`. Directories, devices and
@@ -1208,6 +1222,8 @@ mod tests {
     #[test]
     fn decodes_percent_escapes_in_paths() {
         assert!(fixture("pattern%2Epng").is_ok());
+        // An escaped slash separates directories too.
+        assert!(fixture("pngsuite%2Fbasn0g16.png").is_ok());
     }
 
     #[test]
@@ -1255,6 +1271,28 @@ mod tests {
             open("file:///no/such.png", elsewhere),
             Err(ImageError::Missing("/no/such.png".into()))
         );
+    }
+
+    #[test]
+    fn reports_a_url_without_a_path() {
+        for base in [Path::new(""), &fixtures()] {
+            for url in [
+                "file://",
+                "file://?x",
+                "file://#top",
+                "file:",
+                "file://localhost",
+                "",
+                "?v=2",
+                "#top",
+            ] {
+                assert_eq!(
+                    open(url, base),
+                    Err(ImageError::NoPath),
+                    "{url:?} in {base:?}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -1468,12 +1506,16 @@ Text ![inline](images/pattern.png) and words.
         images.insert("ok.png", Ok(Source::Raster(RgbaImage::new(1, 1))));
         images.insert("gone.png", Err(ImageError::Missing("/doc/gone.png".into())));
         images.insert("data:image/png;base64,AAAA", Err(ImageError::UnknownFormat));
+        images.insert("file://?x", Err(ImageError::NoPath));
+        images.insert("", Err(ImageError::NoPath));
         assert_eq!(
             images.warnings(),
             [
                 "https://example.com/a.png: remote images are not loaded",
                 "/doc/gone.png: file not found",
                 "data: URL: not an image format kiri knows",
+                "file://?x: the URL names no file",
+                "an image URL is empty",
             ]
         );
     }

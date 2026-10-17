@@ -65,6 +65,14 @@ fn warns_about_an_image_that_does_not_load_and_shows_its_alt_text() {
 }
 
 #[test]
+fn warns_about_an_image_url_without_a_file() {
+    let dir = Scratch::new("no-path");
+    let out = kiri(&dir, "![Nothing](file://)\n", &["--mode", "kitty"]);
+    assert!(out.status.success());
+    assert_eq!(text(&out.stderr), "kiri: file://: the URL names no file\n");
+}
+
+#[test]
 fn does_not_warn_about_images_shown_as_alt_text() {
     let dir = Scratch::new("alt-text");
     let source = "Text ![Lost](no-such.png) here.\n\n| ![Cell](no-such.png) |\n|---|\n";
