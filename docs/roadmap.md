@@ -133,3 +133,10 @@ Smaller polish that fits in whenever there is time, in any phase.
   `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]`, drawn with a colour and an
   icon of their own and a title such as "Note". The colours stay even in
   the paper themes, which are otherwise grey.
+
+## Bugs
+
+Known bugs, fixed in whatever phase is under way.
+
+- With `--mode auto`, a heading is drawn out of place when kiri prints a
+  warning before the document.
