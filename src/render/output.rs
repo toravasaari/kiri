@@ -1,33 +1,52 @@
 //! Styled lines to bytes: SGR attributes, OSC 8 hyperlinks, cursor movement,
-//! and scaled text through `kitty::text`.
+//! scaled text through `kitty::text` and images through `kitty::graphics`.
 
+use std::collections::HashMap;
 use std::io::{self, Write};
 
-use super::style::{Line, Span, Style};
+use image::RgbaImage;
+use image::imageops;
+
+use super::image::{Placement, Size, cell_size};
+use super::style::{ImageRow, Line, Span, Style};
 use super::wrap::width;
 use crate::color::{Color, Underline};
+use crate::images::{Images, Source};
 use crate::kitty;
+use crate::kitty::graphics;
 use crate::term::Capabilities;
 
-/// `background` paints the whole terminal width behind the document; `None`
-/// leaves the terminal's own background showing through.
+/// The colours of the page the document is drawn on. `None` leaves the
+/// terminal's own showing through.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Page {
+    /// Painted across the whole terminal width behind the document.
+    pub background: Option<Color>,
+    /// For text that has no colour of its own.
+    pub foreground: Option<Color>,
+}
+
+/// Writes `lines` on `page`. `images` holds the pixels of the images the
+/// lines show; each is sent before its first row.
 pub fn write(
     lines: &[Line],
+    images: &Images,
     caps: &Capabilities,
-    background: Option<Color>,
+    page: Page,
     out: &mut impl Write,
 ) -> io::Result<()> {
-    let background = background.filter(|_| caps.color);
+    let background = page.background.filter(|_| caps.color);
+    let foreground = page.foreground.filter(|_| caps.color);
+    // The images sent so far, by where and how large they are shown.
+    let mut sent: HashMap<&Placement, graphics::ImageId> = HashMap::new();
     let fill = Style {
         bg: background,
         ..Style::default()
     };
-    let paint = |style: &Style| match style.bg {
-        None if background.is_some() => Style {
-            bg: background,
-            ..style.clone()
-        },
-        _ => style.clone(),
+    let paint = |style: &Style| Style {
+        fg: style.fg.or(foreground),
+        bg: style.bg.or(background),
+        ..style.clone()
     };
     for line in lines {
         if !caps.styling {
@@ -37,6 +56,20 @@ pub fn write(
             writeln!(out, "{}", text.trim_end())?;
             continue;
         }
+        let image = match &line.image {
+            Some(ImageRow { placement, row }) => {
+                let id = match sent.get(placement.as_ref()) {
+                    Some(&id) => id,
+                    None => {
+                        let id = send(placement, images, caps, out)?;
+                        sent.insert(placement, id);
+                        id
+                    }
+                };
+                Some((id, *row, placement.size.columns))
+            }
+            None => None,
+        };
         let scale = line.scale.max(1);
         // A scaled line occupies `scale` rows but is written only on the
         // first; the rows below get the lead, the trail and the fill around
@@ -56,6 +89,15 @@ pub fn write(
                     }
                     current = style;
                 }
+                if let Some((id, image_row, columns)) = image {
+                    // Placeholders are neither underlined nor links, and
+                    // their foreground colour is the image id.
+                    let plain = paint(&Style::default());
+                    transition(&current, &plain, caps, out)?;
+                    graphics::write_row(out, id, image_row, columns)?;
+                    // The placeholders leave the terminal's foreground.
+                    current = Style { fg: None, ..plain };
+                }
             } else if (background.is_some() || !line.trail.is_empty()) && block_width > 0 {
                 // Step over the scaled text to write the trail and fill the
                 // rest of the row. `CSI 0 C` would still move one cell.
@@ -73,6 +115,48 @@ pub fn write(
         }
     }
     Ok(())
+}
+
+/// Scales the image `placement` shows to its size and sends it.
+fn send(
+    placement: &Placement,
+    images: &Images,
+    caps: &Capabilities,
+    out: &mut impl Write,
+) -> io::Result<graphics::ImageId> {
+    let Some(Ok(source)) = images.get(&placement.url) else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("no pixels for image {}", placement.url),
+        ));
+    };
+    let pixels = fit(source, placement.size, cell_size(caps));
+    let cells = graphics::Cells {
+        columns: placement.size.columns,
+        rows: placement.size.rows,
+    };
+    let (width, height) = pixels.dimensions();
+    let id = graphics::ImageId::new(pixels.as_raw(), width, height, cells);
+    let pixels = graphics::Pixels {
+        width,
+        height,
+        rgba: pixels.as_raw(),
+    };
+    graphics::transmit(out, id, &pixels, cells)?;
+    Ok(id)
+}
+
+/// `source` drawn at `size` and placed at the top left of the cells it
+/// covers, the rest transparent. The terminal then shows it pixel for pixel
+/// when the cells are `cell` pixels, and scales it as a whole when they are
+/// not.
+fn fit(source: &Source, size: Size, cell: (u16, u16)) -> RgbaImage {
+    let mut canvas = RgbaImage::new(
+        u32::from(size.columns) * u32::from(cell.0),
+        u32::from(size.rows) * u32::from(cell.1),
+    );
+    imageops::replace(&mut canvas, &source.render(size.width, size.height), 0, 0);
+    canvas
 }
 
 /// Writes normal-size spans, leaving `current` at the last one's style.
@@ -207,14 +291,19 @@ mod tests {
         let line = Line {
             lead: Vec::new(),
             spans: Vec::new(),
+            image: None,
             trail: Vec::new(),
             scale: 2,
         };
         let mut out = Vec::new();
         write(
             &[line],
+            &Images::new(),
             &Capabilities::kitty(20),
-            Some(Color::Rgb(0, 0, 0)),
+            Page {
+                background: Some(Color::Rgb(0, 0, 0)),
+                ..Page::default()
+            },
             &mut out,
         )
         .unwrap();

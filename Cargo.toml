@@ -6,6 +6,9 @@ description = "Markdown reader for the kitty terminal"
 readme = "README.md"
 publish = false
 
+[workspace]
+members = ["crates/kiri-image-scale"]
+
 [lib]
 name = "kiri"
 
@@ -14,8 +17,13 @@ name = "kiri"
 path = "src/main.rs"
 
 [dependencies]
+base64 = "0.22.1"
 clap = { version = "4.6", features = ["derive"] }
 comrak = { version = "0.56", default-features = false }
+flate2 = "1.1.10"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+kiri-image-scale = { version = "0.1.0", path = "crates/kiri-image-scale" }
+resvg = "0.48.1"
 rustix = { version = "1.1.5", features = ["termios", "event"] }
 serde = { version = "1.0.229", features = ["derive"] }
 syntect = { version = "5.3.0", default-features = false, features = ["default-fancy"] }
@@ -27,3 +35,38 @@ unicode-width = "0.2.2"
 insta = "1.49"
 # Pseudo-terminals for testing capability detection.
 rustix = { version = "1.1.5", features = ["pty"] }
+
+# Decoding images without optimisation is slow: a 4845 × 2980 JPEG takes
+# about 3 s instead of 0.07 s. Debug builds optimise the image decoders, the
+# SVG parser and renderer and the fonts and text shaping for SVG text, and
+# keep kiri's own code easy to debug. An SVG with 400 lines of text takes
+# 0.7 s instead of 1.2 s. flate2 and moxcms made no measurable difference.
+# Most of fast_image_resize is generic and so compiled in the crate that
+# uses it, kiri-image-scale, which is optimised for that reason.
+[profile.dev.package]
+zune-jpeg.opt-level = 3
+zune-core.opt-level = 3
+image.opt-level = 3
+image-webp.opt-level = 3
+png.opt-level = 3
+gif.opt-level = 3
+weezl.opt-level = 3
+fdeflate.opt-level = 3
+miniz_oxide.opt-level = 3
+simd-adler32.opt-level = 3
+crc32fast.opt-level = 3
+resvg.opt-level = 3
+tiny-skia.opt-level = 3
+tiny-skia-path.opt-level = 3
+usvg.opt-level = 3
+roxmltree.opt-level = 3
+svgtypes.opt-level = 3
+simplecss.opt-level = 3
+kurbo.opt-level = 3
+fontdb.opt-level = 3
+harfrust.opt-level = 3
+skrifa.opt-level = 3
+read-fonts.opt-level = 3
+font-types.opt-level = 3
+fast_image_resize.opt-level = 3
+kiri-image-scale.opt-level = 3

@@ -17,6 +17,16 @@ pub fn text_sizing() -> [String; 2] {
     ]
 }
 
+/// Erases what the [`text_sizing`] tests drew: their row, and the rows
+/// below it that the space at scale [`STEP`] also covers. Erasing only the
+/// first row leaves the rest of that space in place, and kitty then draws
+/// a scaled character on the next row to the right of it. The cursor ends
+/// at the start of the tests' row.
+pub fn erase_text_sizing_tests() -> String {
+    let below = "\x1b[B\x1b[2K".repeat(STEP as usize - 1);
+    format!("\r\x1b[2K\x1b7{below}\x1b8")
+}
+
 /// Whether the cursor columns reported around the [`text_sizing`] tests
 /// show that the terminal moved the cursor for both.
 pub fn text_sizing_answered(columns: &[u32]) -> bool {
@@ -31,9 +41,62 @@ pub const GRAPHICS: &str = "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\";
 /// The start of a successful answer to [`GRAPHICS`], for the same image id.
 pub const GRAPHICS_ANSWER: &str = "\x1b_Gi=31;OK";
 
+/// The first kitty release with the graphics protocol's Unicode
+/// placeholders, as major and minor version.
+const PLACEHOLDERS_SINCE: (u32, u32) = (0, 28);
+
+/// Whether a terminal that names itself `name_version` in its XTVERSION
+/// answer, such as `kitty(0.47.1)`, has the graphics protocol's Unicode
+/// placeholders. Only kitty's own name counts; other terminals that have
+/// them are not recognised yet.
+pub fn placeholders_by_version(name_version: &str) -> bool {
+    let Some(version) = name_version
+        .strip_prefix("kitty(")
+        .and_then(|rest| rest.strip_suffix(')'))
+    else {
+        return false;
+    };
+    let mut parts = version.split('.').map(str::parse::<u32>);
+    match (parts.next(), parts.next()) {
+        (Some(Ok(major)), Some(Ok(minor))) => (major, minor) >= PLACEHOLDERS_SINCE,
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kitty_has_placeholders_from_0_28() {
+        assert!(placeholders_by_version("kitty(0.28.0)"));
+        assert!(placeholders_by_version("kitty(0.47.1)"));
+        assert!(placeholders_by_version("kitty(0.100.0)"));
+        assert!(placeholders_by_version("kitty(1.0.0)"));
+        assert!(!placeholders_by_version("kitty(0.27.1)"));
+        assert!(!placeholders_by_version("kitty(0.9.0)"));
+    }
+
+    #[test]
+    fn other_names_and_versions_promise_no_placeholders() {
+        assert!(!placeholders_by_version("WezTerm 20240203-110809-5046fc22"));
+        assert!(!placeholders_by_version("foot(1.16.2)"));
+        assert!(!placeholders_by_version("kitty"));
+        assert!(!placeholders_by_version("kitty()"));
+        assert!(!placeholders_by_version("kitty(next)"));
+        assert!(!placeholders_by_version("kitty(0.28.0"));
+        assert!(!placeholders_by_version("notkitty(0.30.0)"));
+    }
+
+    #[test]
+    fn erasing_the_tests_clears_every_row_the_scaled_space_covers() {
+        // The space at scale 2 is two rows tall. Its lower half, left on
+        // the next row, pushes a scaled heading drawn there to the right.
+        assert_eq!(
+            erase_text_sizing_tests(),
+            "\r\x1b[2K\x1b7\x1b[B\x1b[2K\x1b8"
+        );
+    }
 
     #[test]
     fn text_sizing_needs_both_tests_to_move_the_cursor() {

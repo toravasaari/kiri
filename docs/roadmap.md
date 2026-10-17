@@ -119,3 +119,21 @@ Smaller polish that fits in whenever there is time, in any phase.
   language name in its top-right corner, on a background colour of its own
   (a new theme key). With code padding on, the name sits on the top
   padding row; without it, on a line above the block.
+- AVIF and JPEG XL images.
+- An image inside a link can be clicked: the image's placeholder cells are
+  wrapped in the link's OSC 8 hyperlink, as text is.
+- Less image data over SSH. kitty only takes raw pixels or PNG, so
+  compressed formats such as JPEG cannot be passed through as they are;
+  this needs thought on what to send and when.
+- Images inside table cells, which now show their alt text.
+- The paper themes can be changed with `theme.light.toml` and
+  `theme.dark.toml` in the configuration directory, which `--light` and
+  `--dark` read on top of the built-in paper themes.
+- GitHub alert blocks, quotes that start with `[!NOTE]`, `[!TIP]`,
+  `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]`, drawn with a colour and an
+  icon of their own and a title such as "Note". The colours stay even in
+  the paper themes, which are otherwise grey.
+
+## Bugs
+
+Known bugs, fixed in whatever phase is under way. None at the moment.

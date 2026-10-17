@@ -1,10 +1,12 @@
 # Theme
 
-kiri reads its colours and heading sizes from
-`~/.config/kiri/theme.toml` (or `$XDG_CONFIG_HOME/kiri/theme.toml`) when the
-file exists, or from the file given with `--theme`. Every key is optional;
-the ones you leave out keep the defaults below. A mistake in the file is an
-error, not silently ignored.
+kiri takes its colours and heading sizes from a theme: a file given with
+`--theme`, `KIRI_THEME` or the [configuration file](config.md), a built-in
+[paper theme](#paper-themes) chosen with `--light` or `--dark`, or else
+`~/.config/kiri/theme.toml` (or `$XDG_CONFIG_HOME/kiri/theme.toml`) when it
+exists. [Configuration](config.md#theme) gives the order. Every key is
+optional; the ones you leave out keep the defaults below. A mistake in the
+file is an error, not silently ignored.
 
 ## All headings at once
 
@@ -48,6 +50,12 @@ text_margin = 2
 # A colour painted behind the whole document, or none to let the
 # terminal's own (possibly transparent) background show.
 background = "none"
+# The colour of text that has no colour of its own, or none for the
+# terminal's.
+foreground = "none"
+# The colour of text kiri plays down: image alt text, raw HTML and link
+# targets written out. none dims it instead.
+muted = "none"
 
 link = "blue"
 inline_code = "magenta"
@@ -68,7 +76,8 @@ table_border = "bright-black"
 # wide. Without it, code starts at the margin and copies cleanly.
 code_padding = true
 
-# Code block colours, chosen by the terminal's background.
+# Code block colours, chosen by the terminal's background, or by --light
+# and --dark.
 # Available: base16-eighties.dark, base16-mocha.dark, base16-ocean.dark,
 # base16-ocean.light, InspiredGitHub, Solarized (dark), Solarized (light).
 code_theme_dark = "base16-ocean.dark"
@@ -140,6 +149,65 @@ rule = false
 underline = "dotted"
 background = "none"
 indent = 0
+```
+
+## Paper themes
+
+`--light` and `--dark` choose a built-in theme that draws the document on a
+page of fixed colours, as a browser does, whatever your terminal's colour
+scheme. The page is in greys only: headings, links, quotes, rules, tables
+and inline code differ in shade, weight and underline, not in colour. Code
+blocks keep their colours, from a code theme that matches the page. Muted
+text, such as image alt text, is a grey that keeps a contrast of at least
+4.5:1 against the page, instead of the terminal's dim text.
+
+The paper themes are the defaults above with these changes. To change one,
+start a theme file of your own from its keys.
+
+### Light paper
+
+```toml
+background = "#ffffff"
+foreground = "#1f1f1f"
+muted = "#6e6e6e"
+link = "#000000"
+inline_code = "#1f1f1f"
+inline_code_background = "#ebebeb"
+quote_bar = "#c8c8c8"
+rule = "#c8c8c8"
+list_marker = "#707070"
+table_border = "#b4b4b4"
+code_theme_dark = "base16-ocean.light"
+code_theme_light = "base16-ocean.light"
+
+[headings]
+color = "#000000"
+
+[h6]
+color = "#555555"
+```
+
+### Dark paper
+
+```toml
+background = "#1e1e1e"
+foreground = "#d4d4d4"
+muted = "#8e8e8e"
+link = "#ffffff"
+inline_code = "#d4d4d4"
+inline_code_background = "#353535"
+quote_bar = "#505050"
+rule = "#505050"
+list_marker = "#9a9a9a"
+table_border = "#5a5a5a"
+code_theme_dark = "base16-eighties.dark"
+code_theme_light = "base16-eighties.dark"
+
+[headings]
+color = "#ffffff"
+
+[h6]
+color = "#a0a0a0"
 ```
 
 The [example themes](../examples/themes/README.md) try out variations of the

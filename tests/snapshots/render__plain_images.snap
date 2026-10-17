@@ -1,0 +1,66 @@
+---
+source: tests/render.rs
+expression: "render_images(\"images.md\", &Capabilities::plain(WIDTH))"
+---
+# Images
+
+  An image alone in a paragraph is shown at
+  its natural size:
+
+  [image: Test pattern]
+
+  A small image is not enlarged:
+
+  [image: Icon]
+
+  A wide image shrinks to the text width:
+
+  [image: Panorama]
+
+  An SVG is drawn at its natural size, here
+  given in millimetres:
+
+  [image: Sunset icon]
+
+  Text in an SVG is drawn with the system's
+  fonts:
+
+  [image: Forces on an airfoil]
+
+  A linked image is shown, but cannot be
+  clicked yet:
+
+  [image: Linked icon] <https://example.com>
+
+  - An image in a list:
+
+    [image: Transparent in a list]
+
+  - [image: Alone in a list item]
+
+  > An image in a quote:
+  >
+  > [image: Quoted panorama]
+
+  In running text, [image: an inline icon]
+  stays alt text, and so does [image: an icon]
+  with words <https://example.com> in a link.
+
+  ╭─────────────────────┬────────────────────╮
+  │ Image               │ Note               │
+  ├─────────────────────┼────────────────────┤
+  │ [image: Icon in a   │ Alt text in a      │
+  │ cell]               │ table              │
+  ╰─────────────────────┴────────────────────╯
+
+  A missing file, a file that is no image, a
+  broken SVG and a remote image show their alt
+  text:
+
+  [image: Missing image]
+
+  [image: Not an image]
+
+  [image: Broken SVG]
+
+  [image: Remote image]

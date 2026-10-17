@@ -66,16 +66,26 @@ The network is strict there: crates.io and rustup work, GitHub does not.
 - Fixture documents live in `tests/fixtures/`. Add one when you add support
   for a Markdown element.
 - Visual output still needs a look in a real kitty window. Say so when you
-  could not do that check.
+  could not do that check. For a first look, the render-check skill
+  (`.claude/skills/render-check/`) screenshots documents rendered in kitty
+  on a virtual display.
 
 ## Review
 
 - Code is reviewed by a different agent running a different model from
   the one that wrote it.
 - Agents work on their own branch in the main checkout, one commit per
-  logical change, and the branch is reviewed before it is merged to
-  `master`. Review fixes go in as fixup commits squashed before the
-  merge.
+  logical change. Review fixes go in as ordinary commits on the branch.
+  Agents never rewrite history; only the maintainer may rebase an
+  unfinished branch.
+- Merging a finished branch:
+  1. Merge `master` into the branch (a fast-forward is fine) and resolve
+     any conflicts there.
+  2. Review the branch, conflict resolutions included.
+  3. Bring the branch to the host and run `make check` and the visual
+     check there: its tree is the same as the merge result.
+  4. If `master` has not moved since step 1, merge the branch into
+     `master` with `git merge --no-ff`; otherwise go back to step 1.
 - A small review of every commit before the merge, and a larger one when a
   part of the [roadmap](docs/roadmap.md) is finished.
 - Reviewers never change the working tree or git state; experiments go in
@@ -85,7 +95,7 @@ The network is strict there: crates.io and rustup work, GitHub does not.
 ## Commits
 
 - Conventional Commits: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`,
-  `chore:`, `style:`, with an optional scope such as `feat(kitty):`.
+  `perf:`, `chore:`, `style:`, with an optional scope such as `feat(kitty):`.
 - Keep messages clear, easy to understand and short. Subject in the
   imperative. A body only when the reason is not obvious; longer text is for
   exceptional cases.

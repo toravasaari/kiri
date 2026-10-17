@@ -2,19 +2,27 @@
 
 A document for checking kiri's output by eye in a real kitty window. Each
 section says what you should see there with the default theme; anything
-else is a bug. A theme of your own in `~/.config/kiri/theme.toml` changes
-what you see. Other terminals show less, and without colours (`NO_COLOR`
-or plain text) inline code is shown in backticks.
+else is a bug. A theme of your own, from `~/.config/kiri/theme.toml`,
+`KIRI_THEME` or the [configuration file](../docs/config.md), changes what
+you see. Other terminals show less, and without colours (`NO_COLOR` or
+plain text) inline code is shown in backticks.
 
 View it with the default theme, then with the example themes that draw
-heading bands and rules, and without colours:
+heading bands and rules, on the light and dark paper themes, and without
+colours:
 
 ```sh
 cargo run -- examples/visual-check.md
 cargo run -- --theme examples/themes/background.toml examples/visual-check.md
 cargo run -- --theme examples/themes/rules.toml examples/visual-check.md
+cargo run -- --light examples/visual-check.md
+cargo run -- --dark examples/visual-check.md
 NO_COLOR=1 cargo run -- examples/visual-check.md
 ```
+
+On paper, the document lies on a white or dark grey page as wide as the
+window, and everything but the code blocks and the images is in greys: no
+blue headings or links, no magenta inline code.
 
 Try a wide window and a narrow one (about 40 columns), where the commands
 above wrap like any long code line. No line reaches past the right edge of
@@ -207,3 +215,50 @@ goes on the lines under its header instead.
 The link at the end of this sentence is long enough to wrap onto the next
 line: [a link whose text goes on long enough to span two lines in most windows](https://example.com/visual-check).
 Every line of it is underlined and opens the same page.
+
+## Images
+
+One image of each format, and a few special cases;
+[`visual-check-images.md`](visual-check-images.md) has the rest. Images
+show in kitty; elsewhere, and when an image cannot be loaded, its alt text
+appears in brackets. An image is as large next to the text as in a
+browser, never enlarged, and never wider than the text. kiri warns on
+stderr about the images it cannot load: here only the missing file at the
+end.
+
+A PNG: red, green, blue and yellow quadrants on a black grid, about 32
+columns wide and 12 rows high:
+
+![Test pattern](../tests/fixtures/images/pattern.png)
+
+A JPEG: a lake under clouds, about 60 columns wide:
+
+![Lake](../tests/fixtures/images/exif-1.jpg)
+
+A GIF, its first frame standing still: a green puzzle piece with eyes,
+about 51 columns wide:
+
+![Animated GIF](../tests/fixtures/images/jiggy.gif)
+
+A lossy WebP, about 30 columns wide:
+
+![Lossy WebP](../tests/fixtures/images/lossy.webp)
+
+An SVG, drawn at the size it is shown with sharp edges: a sunset in
+gradients, about 36 columns wide:
+
+![Sunset icon](../tests/fixtures/images/sunset-icon.svg)
+
+A compass rose without a background of its own, as wide as the text, with
+no light or dark halo around its thin lines:
+
+![Compass rose](../tests/fixtures/images/compass-rose.png)
+
+An image in a quote starts after the bar, which runs beside every row:
+
+> ![Pattern in a quote](../tests/fixtures/images/pattern.png)
+
+In running text, ![an icon](../tests/fixtures/images/icon.png) stays alt
+text, as does a missing file:
+
+![Missing image](../tests/fixtures/images/no-such-file.png)

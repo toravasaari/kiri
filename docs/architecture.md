@@ -39,8 +39,13 @@ they work.
 
 `src/term.rs` is the only place that talks to the terminal to find out what
 it can do: size in cells and pixels (`TIOCGWINSZ`), whether the text sizing
-and graphics protocols work, and the background colour. 24-bit colour,
-hyperlinks and underline styles follow from either protocol working.
+and graphics protocols work, the background colour, and the terminal's
+name and version (XTVERSION). 24-bit colour, hyperlinks and underline
+styles follow from either protocol working. Images need the graphics
+protocol's Unicode placeholders, which no query reveals; kiri assumes them
+when the graphics protocol works and the terminal is kitty 0.28 or later,
+or when both protocols work, since text sizing came to kitty long after
+placeholders. Elsewhere images are alt text.
 Without them, 24-bit colour can still come from `COLORTERM` and hyperlinks
 from `TERM_PROGRAM` or `VTE_VERSION`; underline styles come only from the
 probe. `NO_COLOR` turns colours off in every mode. The result is a plain
@@ -59,7 +64,7 @@ having one.
 | Text attributes and colours | SGR | `src/render/output.rs` | Bold, italic, colours |
 | Styled underlines | SGR 4:x | `src/render/output.rs` | Heading underline styles |
 | Cursor movement, erase | CSI C, CSI K | `src/render/output.rs` | Backgrounds beside scaled headings and across the width |
-| Generic queries | CSI 6n, OSC 11, CSI c | `src/term.rs` | Cursor position, background colour, end of the answers |
+| Generic queries | CSI 6n, OSC 11, CSI > q, CSI c | `src/term.rs` | Cursor position, background colour, terminal version, end of the answers |
 
 Sequences that only kitty's protocols define live under `src/kitty/`:
 text sizing, graphics, Unicode placeholders and the queries that detect
@@ -78,6 +83,7 @@ src/lib.rs                 library root
 src/model.rs               document model
 src/parse.rs               comrak tree -> document model
 src/term.rs                capability detection, the only terminal queries
+src/config.rs              configuration file and environment variables
 src/theme.rs               colours and sizes, theme files
 src/color.rs               colours and underline styles for theme and render
 src/render/mod.rs          document model -> terminal output
@@ -90,7 +96,14 @@ src/render/highlight.rs    syntax highlighting for code blocks (syntect)
 src/kitty/mod.rs           kitty-specific escape sequences
 src/kitty/text.rs          text sizing protocol (OSC 66)
 src/kitty/query.rs         queries that detect kitty's protocols
+crates/kiri-image-scale    image scaling, a crate of its own in the workspace
 ```
+
+Image scaling lives in its own crate, a path dependency of kiri, because
+most of fast_image_resize is generic and compiled in the crate that calls
+it. As a separate crate it can be optimised in debug builds, where it
+scales a large photo in tenths of a second at most instead of seconds,
+while kiri's own code stays easy to debug.
 
 ## Choices
 

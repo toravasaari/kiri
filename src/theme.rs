@@ -3,7 +3,7 @@
 //! Colours default to the terminal's own 16-colour palette, so kiri follows
 //! the user's kitty theme instead of imposing one.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::Deserialize;
 
@@ -26,6 +26,11 @@ pub struct Theme {
     pub max_width: u16,
     /// Painted behind the whole document; `None` shows the terminal's own.
     pub background: Option<Color>,
+    /// Text that has no colour of its own; `None` uses the terminal's.
+    pub foreground: Option<Color>,
+    /// Text kiri plays down, such as image alt text, raw HTML and link
+    /// targets; `None` dims it instead.
+    pub muted: Option<Color>,
     /// Cells kept free on both sides of everything but headings and rules.
     pub text_margin: u8,
     /// Styles for heading levels 1 to 6.
@@ -98,6 +103,8 @@ impl Default for Theme {
         Self {
             max_width: 100,
             background: None,
+            foreground: None,
+            muted: None,
             text_margin: 2,
             // Size carries the hierarchy; bold and the underline style tell
             // apart levels of the same size.
@@ -128,7 +135,85 @@ impl Default for Theme {
     }
 }
 
+/// The built-in themes that draw the document as a page of fixed colours,
+/// whatever the terminal's palette.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Paper {
+    Light,
+    Dark,
+}
+
+/// The greys of a paper theme, from the page to the text.
+struct PaperColors {
+    background: Option<Color>,
+    text: Option<Color>,
+    /// Alt text, raw HTML and link targets.
+    muted: Option<Color>,
+    /// Headings and links.
+    strong: Option<Color>,
+    /// The smallest heading.
+    quiet: Option<Color>,
+    marker: Option<Color>,
+    border: Option<Color>,
+    /// Quote bars and rules.
+    line: Option<Color>,
+    code_background: Option<Color>,
+    code_theme: &'static str,
+}
+
 impl Theme {
+    /// A light or dark page in greys, with colour only in code blocks.
+    pub fn paper(paper: Paper) -> Self {
+        let grey = |level: u8| Some(Color::Rgb(level, level, level));
+        let colors = match paper {
+            Paper::Light => PaperColors {
+                background: grey(0xff),
+                text: grey(0x1f),
+                muted: grey(0x6e),
+                strong: grey(0x00),
+                quiet: grey(0x55),
+                marker: grey(0x70),
+                border: grey(0xb4),
+                line: grey(0xc8),
+                code_background: grey(0xeb),
+                code_theme: "base16-ocean.light",
+            },
+            Paper::Dark => PaperColors {
+                background: grey(0x1e),
+                text: grey(0xd4),
+                muted: grey(0x8e),
+                strong: grey(0xff),
+                quiet: grey(0xa0),
+                marker: grey(0x9a),
+                border: grey(0x5a),
+                line: grey(0x50),
+                code_background: grey(0x35),
+                code_theme: "base16-eighties.dark",
+            },
+        };
+        let mut theme = Self {
+            background: colors.background,
+            foreground: colors.text,
+            muted: colors.muted,
+            link: colors.strong,
+            inline_code: colors.text,
+            inline_code_background: CodeBackground::Color(colors.code_background),
+            quote_bar: colors.line,
+            rule: colors.line,
+            list_marker: colors.marker,
+            table_border: colors.border,
+            // The page is the same whatever the terminal's background.
+            code_theme_dark: colors.code_theme.into(),
+            code_theme_light: colors.code_theme.into(),
+            ..Self::default()
+        };
+        for heading in &mut theme.headings {
+            heading.color = colors.strong;
+        }
+        theme.headings[5].color = colors.quiet;
+        theme
+    }
+
     pub fn heading(&self, level: u8) -> &HeadingTheme {
         let index = usize::from(level.clamp(1, 6)) - 1;
         &self.headings[index]
@@ -150,6 +235,8 @@ impl Theme {
     /// Every colour set to the terminal's default, for `NO_COLOR`.
     pub fn without_colors(mut self) -> Self {
         self.background = None;
+        self.foreground = None;
+        self.muted = None;
         self.link = None;
         self.inline_code = None;
         self.inline_code_background = CodeBackground::Color(None);
@@ -163,15 +250,6 @@ impl Theme {
         }
         self
     }
-}
-
-/// `$XDG_CONFIG_HOME/kiri/theme.toml`, or `~/.config/kiri/theme.toml`.
-pub fn default_path() -> Option<PathBuf> {
-    let config = std::env::var_os("XDG_CONFIG_HOME")
-        .filter(|dir| !dir.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
-    Some(config.join("kiri").join("theme.toml"))
 }
 
 /// Reads a theme file. Keys it leaves out keep their default values.
@@ -192,6 +270,8 @@ pub fn parse(text: &str) -> Result<Theme, String> {
         theme.text_margin = margin;
     }
     set_color(&mut theme.background, file.background)?;
+    set_color(&mut theme.foreground, file.foreground)?;
+    set_color(&mut theme.muted, file.muted)?;
     // [headings] applies to every level, then [h1] to [h6] refine it.
     if let Some(all) = &file.headings {
         for heading in &mut theme.headings {
@@ -280,6 +360,8 @@ fn apply_heading(
 struct ThemeFile {
     max_width: Option<u16>,
     background: Option<String>,
+    foreground: Option<String>,
+    muted: Option<String>,
     text_margin: Option<u8>,
     headings: Option<HeadingFile>,
     h1: Option<HeadingFile>,
@@ -391,6 +473,132 @@ mod tests {
             + 8;
         let end = start + docs[start..].find("```").expect("the TOML block ends");
         assert_eq!(parse(&docs[start..end]).unwrap(), Theme::default());
+    }
+
+    /// The TOML block after `heading` in docs/theme.md.
+    fn documented(heading: &str) -> &'static str {
+        let docs = include_str!("../docs/theme.md");
+        let section = docs
+            .find(heading)
+            .unwrap_or_else(|| panic!("docs/theme.md has {heading}"));
+        let start = section
+            + docs[section..]
+                .find("```toml\n")
+                .expect("the section has a TOML block")
+            + 8;
+        let end = start + docs[start..].find("```").expect("the TOML block ends");
+        &docs[start..end]
+    }
+
+    #[test]
+    fn the_documented_paper_themes_are_the_paper_themes() {
+        assert_eq!(
+            parse(documented("### Light paper")).unwrap(),
+            Theme::paper(Paper::Light)
+        );
+        assert_eq!(
+            parse(documented("### Dark paper")).unwrap(),
+            Theme::paper(Paper::Dark)
+        );
+    }
+
+    /// Every colour of `theme` outside code blocks.
+    fn colors(theme: &Theme) -> Vec<Option<Color>> {
+        let mut colors = vec![
+            theme.background,
+            theme.foreground,
+            theme.muted,
+            theme.link,
+            theme.inline_code,
+            theme.quote_bar,
+            theme.rule,
+            theme.list_marker,
+            theme.table_border,
+        ];
+        match theme.inline_code_background {
+            CodeBackground::Color(color) => colors.push(color),
+            CodeBackground::CodeBlock => panic!("inline code takes the code block's colour"),
+        }
+        for heading in &theme.headings {
+            colors.push(heading.color);
+            colors.push(heading.background);
+        }
+        colors
+    }
+
+    fn lightness(color: Option<Color>) -> u8 {
+        match color {
+            Some(Color::Rgb(r, g, b)) if r == g && g == b => r,
+            _ => panic!("{color:?} is not a fixed grey"),
+        }
+    }
+
+    #[test]
+    fn paper_themes_are_fixed_greys_outside_code_blocks() {
+        for paper in [Paper::Light, Paper::Dark] {
+            let theme = Theme::paper(paper);
+            // Anything else may be none: the page's colours show then.
+            for (index, color) in colors(&theme).into_iter().enumerate() {
+                if color.is_some() || index < 2 {
+                    lightness(color);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn light_paper_is_dark_text_on_a_light_page_and_dark_paper_the_reverse() {
+        let light = Theme::paper(Paper::Light);
+        assert!(lightness(light.background) > 0xf0);
+        assert!(lightness(light.foreground) < 0x40);
+        let dark = Theme::paper(Paper::Dark);
+        assert!(lightness(dark.background) < 0x30);
+        assert!(lightness(dark.foreground) > 0xc0);
+    }
+
+    /// The WCAG contrast ratio of two greys.
+    fn contrast(a: Option<Color>, b: Option<Color>) -> f64 {
+        let luminance = |color| {
+            let c = f64::from(lightness(color)) / 255.0;
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        let (a, b) = (luminance(a), luminance(b));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    #[test]
+    fn paper_themes_mute_text_in_a_readable_grey() {
+        for paper in [Paper::Light, Paper::Dark] {
+            let theme = Theme::paper(paper);
+            let ratio = contrast(theme.muted, theme.background);
+            assert!(ratio >= 4.5, "{paper:?}: {ratio}");
+            // Muted, but not as strong as the text.
+            assert!(ratio < contrast(theme.foreground, theme.background));
+        }
+    }
+
+    #[test]
+    fn muted_text_is_dimmed_unless_the_theme_gives_it_a_colour() {
+        assert_eq!(Theme::default().muted, None);
+        assert_eq!(
+            parse("muted = \"#808080\"\n").unwrap().muted,
+            Some(Color::Rgb(0x80, 0x80, 0x80))
+        );
+        assert_eq!(Theme::paper(Paper::Light).without_colors().muted, None);
+    }
+
+    #[test]
+    fn paper_themes_highlight_code_to_match_the_page() {
+        let light = Theme::paper(Paper::Light);
+        assert_eq!(light.code_theme_light, "base16-ocean.light");
+        assert_eq!(light.code_theme_dark, light.code_theme_light);
+        let dark = Theme::paper(Paper::Dark);
+        assert_eq!(dark.code_theme_dark, "base16-eighties.dark");
+        assert_eq!(dark.code_theme_light, dark.code_theme_dark);
     }
 
     #[test]

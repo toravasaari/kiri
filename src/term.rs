@@ -1,5 +1,7 @@
 //! What the output terminal can do, and asking it.
 
+use crate::kitty::graphics;
+
 /// Terminal features the renderer may use. Built once at start-up and passed
 /// to the renderer, so rendering itself never talks to the terminal.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,8 +19,14 @@ pub struct Capabilities {
     pub hyperlinks: bool,
     /// kitty's text sizing protocol (OSC 66).
     pub text_sizing: bool,
-    /// kitty's graphics protocol.
+    /// kitty's graphics protocol: the terminal answered its query.
     pub graphics: bool,
+    /// The most rows and the most columns one image may cover, placed with
+    /// the graphics protocol's Unicode placeholders, which is how kiri shows
+    /// every image; for kitty, the number of placeholder diacritics. 0 when
+    /// the terminal has no placeholders: not all that answer the graphics
+    /// query do.
+    pub max_image_cells: u16,
     /// Underline styles other than single (SGR `4:x`), which kitty
     /// introduced; without them every underline is single. Only the probe
     /// sets it, apart from `--mode kitty`.
@@ -40,10 +48,16 @@ impl Capabilities {
             hyperlinks: false,
             text_sizing: false,
             graphics: false,
+            max_image_cells: 0,
             styled_underlines: false,
             cell_pixels: None,
             dark_background: None,
         }
+    }
+
+    /// Whether images are drawn rather than shown as alt text.
+    pub fn draws_images(&self) -> bool {
+        self.styling && self.graphics && self.max_image_cells > 0
     }
 
     /// Colours and attributes that any modern terminal understands.
@@ -64,6 +78,7 @@ impl Capabilities {
             hyperlinks: true,
             text_sizing: true,
             graphics: true,
+            max_image_cells: graphics::MAX_CELLS,
             styled_underlines: true,
             ..Self::plain(width)
         }
@@ -79,30 +94,33 @@ pub fn detect(width: Option<u16>) -> Capabilities {
     if !rustix::termios::isatty(&stdout) {
         return Capabilities::plain(width);
     }
-    let size = rustix::termios::tcgetwinsize(&stdout).ok();
     let mut caps = Capabilities::ansi(width);
-    caps.cell_pixels = size.and_then(|size| {
-        let (w, h) = (
-            size.ws_xpixel / size.ws_col.max(1),
-            size.ws_ypixel / size.ws_row.max(1),
-        );
-        (w > 0 && h > 0).then_some((w, h))
-    });
+    caps.cell_pixels = cell_pixels();
     caps.truecolor = std::env::var("COLORTERM").is_ok_and(|v| v == "truecolor" || v == "24bit");
     caps.hyperlinks = hyperlinks_by_environment();
 
-    if let Some(answers) = probe::run() {
-        let probe = probe::interpret(&answers);
-        caps.text_sizing = probe.text_sizing;
-        caps.graphics = probe.graphics;
-        caps.dark_background = probe.dark_background;
-        // Only kitty-compatible terminals implement these protocols, and all
-        // of them also do 24-bit colour, OSC 8 and underline styles.
-        if probe.text_sizing || probe.graphics {
-            caps.truecolor = true;
-            caps.hyperlinks = true;
-            caps.styled_underlines = true;
-        }
+    match probe::run() {
+        Some(answers) => with_probe(caps, &probe::interpret(&answers)),
+        None => caps,
+    }
+}
+
+/// `caps` with what the terminal's answers to the probe tell.
+fn with_probe(mut caps: Capabilities, probe: &probe::Probe) -> Capabilities {
+    caps.text_sizing = probe.text_sizing;
+    caps.graphics = probe.graphics;
+    caps.max_image_cells = if probe.image_placeholders {
+        graphics::MAX_CELLS
+    } else {
+        0
+    };
+    caps.dark_background = probe.dark_background;
+    // Only kitty-compatible terminals implement these protocols, and all
+    // of them also do 24-bit colour, OSC 8 and underline styles.
+    if probe.text_sizing || probe.graphics {
+        caps.truecolor = true;
+        caps.hyperlinks = true;
+        caps.styled_underlines = true;
     }
     caps
 }
@@ -123,6 +141,17 @@ pub fn terminal_width() -> Option<u16> {
     (size.ws_col > 0).then_some(size.ws_col)
 }
 
+/// Size of one cell in pixels of the terminal on stdout, if stdout is a
+/// terminal that reports its size in pixels.
+pub fn cell_pixels() -> Option<(u16, u16)> {
+    let size = rustix::termios::tcgetwinsize(std::io::stdout()).ok()?;
+    let (w, h) = (
+        size.ws_xpixel / size.ws_col.max(1),
+        size.ws_ypixel / size.ws_row.max(1),
+    );
+    (w > 0 && h > 0).then_some((w, h))
+}
+
 /// Terminals known to support OSC 8 that cannot be recognised by a probe.
 fn hyperlinks_by_environment() -> bool {
     let program = std::env::var("TERM_PROGRAM").unwrap_or_default();
@@ -140,6 +169,54 @@ mod tests {
     use std::ffi::OsStr;
 
     use super::*;
+
+    #[test]
+    fn a_probed_kitty_draws_images_up_to_the_placeholder_limit() {
+        let answers = "\x1b[5;1R\x1b[5;3R\x1b[5;5R\x1b_Gi=31;OK\x1b\\\x1b[?62;c";
+        let caps = with_probe(
+            Capabilities::ansi(80),
+            &probe::interpret(answers.as_bytes()),
+        );
+        assert!(caps.draws_images());
+        assert_eq!(caps.max_image_cells, graphics::MAX_CELLS);
+        assert_eq!(caps, Capabilities::kitty(80));
+    }
+
+    #[test]
+    fn a_probed_kitty_0_28_draws_images_without_text_sizing() {
+        let answers = "\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1b_Gi=31;OK\x1b\\\
+                       \x1bP>|kitty(0.28.0)\x1b\\\x1b[?62;c";
+        let caps = with_probe(
+            Capabilities::ansi(80),
+            &probe::interpret(answers.as_bytes()),
+        );
+        assert!(caps.draws_images());
+        assert!(!caps.text_sizing);
+        assert_eq!(caps.max_image_cells, graphics::MAX_CELLS);
+    }
+
+    #[test]
+    fn a_terminal_without_placeholders_draws_no_images() {
+        let answers = "\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1b_Gi=31;OK\x1b\\\x1b[?62;c";
+        let caps = with_probe(
+            Capabilities::ansi(80),
+            &probe::interpret(answers.as_bytes()),
+        );
+        assert!(caps.graphics);
+        assert!(!caps.draws_images());
+        assert_eq!(caps.max_image_cells, 0);
+    }
+
+    #[test]
+    fn draws_images_only_when_an_image_may_cover_a_cell() {
+        // Images would be loaded and then not drawn.
+        let caps = Capabilities {
+            max_image_cells: 0,
+            ..Capabilities::kitty(80)
+        };
+        assert!(!caps.draws_images());
+        assert!(Capabilities::kitty(80).draws_images());
+    }
 
     #[test]
     fn no_color_needs_a_value() {
@@ -169,13 +246,18 @@ mod probe {
     const CURSOR_POSITION: &str = "\x1b[6n";
     /// Background colour, OSC 11.
     const BACKGROUND: &str = "\x1b]11;?\x1b\\";
+    /// The terminal's name and version, XTVERSION.
+    const VERSION: &str = "\x1b[>q";
+    /// Start of the answer to [`VERSION`]: `ESC P > | name(version) ST`.
+    const VERSION_ANSWER: &str = "\x1bP>|";
     /// Primary device attributes.
     const DEVICE_ATTRIBUTES: &str = "\x1b[c";
 
     /// Cursor position reports around kitty's two text sizing tests, then a
-    /// graphics protocol query, the background colour, and primary device
-    /// attributes. Every terminal answers the last one, so its answer marks
-    /// the end.
+    /// graphics protocol query, the background colour, the terminal's
+    /// version, and primary device attributes. Every terminal answers the
+    /// last one, so its answer marks the end, also when a terminal ignores
+    /// the others.
     fn queries() -> String {
         let [width, scale] = query::text_sizing();
         [
@@ -187,6 +269,7 @@ mod probe {
             CURSOR_POSITION,
             query::GRAPHICS,
             BACKGROUND,
+            VERSION,
             DEVICE_ATTRIBUTES,
         ]
         .concat()
@@ -196,6 +279,7 @@ mod probe {
     pub struct Probe {
         pub text_sizing: bool,
         pub graphics: bool,
+        pub image_placeholders: bool,
         pub dark_background: Option<bool>,
     }
 
@@ -210,7 +294,7 @@ mod probe {
         let raw = RawMode::enter(&tty)?;
         let answers = exchange(&tty);
         // Erase whatever the OSC 66 tests drew before restoring the mode.
-        let _ = (&tty).write_all(b"\r\x1b[2K");
+        let _ = (&tty).write_all(query::erase_text_sizing_tests().as_bytes());
         drop(raw);
         answers
     }
@@ -274,11 +358,30 @@ mod probe {
 
     pub fn interpret(answers: &[u8]) -> Probe {
         let text = String::from_utf8_lossy(answers);
+        // No query tells whether a terminal supports Unicode placeholders,
+        // and some that answer the graphics query do not. A kitty from 0.28
+        // on has them, which its version answer tells. Text sizing came to
+        // kitty in 0.40, so kiri also takes a terminal with both protocols
+        // to be a kitty that has placeholders. Other terminals with
+        // placeholders get alt text for now.
+        let text_sizing = query::text_sizing_answered(&cursor_columns(&text));
+        let graphics = text.contains(query::GRAPHICS_ANSWER);
+        let placeholders_by_version = version(&text).is_some_and(query::placeholders_by_version);
         Probe {
-            text_sizing: query::text_sizing_answered(&cursor_columns(&text)),
-            graphics: text.contains(query::GRAPHICS_ANSWER),
+            text_sizing,
+            graphics,
+            image_placeholders: graphics && (text_sizing || placeholders_by_version),
             dark_background: background_is_dark(&text),
         }
+    }
+
+    /// The terminal's name and version from the answer to [`VERSION`],
+    /// ended by ST or BEL.
+    fn version(text: &str) -> Option<&str> {
+        let start = text.find(VERSION_ANSWER)? + VERSION_ANSWER.len();
+        let rest = &text[start..];
+        let end = rest.find(['\x1b', '\x07'])?;
+        Some(&rest[..end])
     }
 
     /// Columns from cursor position reports: `ESC [ row ; column R`.
@@ -330,7 +433,8 @@ mod probe {
             assert_eq!(
                 queries(),
                 "\r\x1b[6n\x1b]66;w=2; \x1b\\\x1b[6n\x1b]66;s=2; \x1b\\\x1b[6n\
-                 \x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b]11;?\x1b\\\x1b[c"
+                 \x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b]11;?\x1b\\\
+                 \x1b[>q\x1b[c"
             );
         }
 
@@ -342,6 +446,7 @@ mod probe {
                 Probe {
                     text_sizing: true,
                     graphics: true,
+                    image_placeholders: true,
                     dark_background: Some(true),
                 }
             );
@@ -356,9 +461,80 @@ mod probe {
                 Probe {
                     text_sizing: false,
                     graphics: false,
+                    image_placeholders: false,
                     dark_background: Some(false),
                 }
             );
+        }
+
+        #[test]
+        fn graphics_alone_does_not_promise_placeholders() {
+            // A terminal that answers the graphics query but has no text
+            // sizing, as WezTerm and Konsole do: they show images but not
+            // through Unicode placeholders.
+            let answers = "\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1b_Gi=31;OK\x1b\\\x1b[?62;c";
+            let probe = interpret(answers.as_bytes());
+            assert!(probe.graphics);
+            assert!(!probe.image_placeholders);
+        }
+
+        /// Answers from a kitty that names itself `version` in its
+        /// XTVERSION answer, with or without text sizing.
+        fn kitty_answers(version: &str, text_sizing: bool) -> String {
+            let columns = if text_sizing {
+                "\x1b[5;1R\x1b[5;3R\x1b[5;5R"
+            } else {
+                "\x1b[5;1R\x1b[5;1R\x1b[5;1R"
+            };
+            format!(
+                "{columns}\x1b_Gi=31;OK\x1b\\\x1b]11;rgb:0000/0000/0000\x1b\\\
+                 \x1bP>|kitty({version})\x1b\\\x1b[?62;c"
+            )
+        }
+
+        #[test]
+        fn kitty_0_28_has_placeholders_without_text_sizing() {
+            let probe = interpret(kitty_answers("0.28.0", false).as_bytes());
+            assert!(!probe.text_sizing);
+            assert!(probe.graphics);
+            assert!(probe.image_placeholders);
+        }
+
+        #[test]
+        fn kitty_0_27_has_no_placeholders() {
+            let probe = interpret(kitty_answers("0.27.1", false).as_bytes());
+            assert!(probe.graphics);
+            assert!(!probe.image_placeholders);
+        }
+
+        #[test]
+        fn kitty_0_47_1_has_placeholders_and_text_sizing() {
+            let answers = kitty_answers("0.47.1", true);
+            let probe = interpret(answers.as_bytes());
+            assert!(probe.text_sizing);
+            assert!(probe.image_placeholders);
+            assert!(has_device_attributes(answers.as_bytes()));
+        }
+
+        #[test]
+        fn a_kitty_version_without_graphics_has_no_placeholders() {
+            let answers = "\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1bP>|kitty(0.30.0)\x1b\\\x1b[?62;c";
+            assert!(!interpret(answers.as_bytes()).image_placeholders);
+        }
+
+        #[test]
+        fn an_unknown_terminal_version_promises_no_placeholders() {
+            let answers = "\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1b_Gi=31;OK\x1b\\\
+                           \x1bP>|WezTerm 20240203-110809-5046fc22\x1b\\\x1b[?62;c";
+            let probe = interpret(answers.as_bytes());
+            assert!(probe.graphics);
+            assert!(!probe.image_placeholders);
+        }
+
+        #[test]
+        fn reads_a_version_answer_ended_by_bel() {
+            let answers = "\x1b_Gi=31;OK\x1b\\\x1bP>|kitty(0.28.0)\x07\x1b[?62;c";
+            assert!(interpret(answers.as_bytes()).image_placeholders);
         }
 
         #[test]
