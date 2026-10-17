@@ -895,7 +895,7 @@ fn images_stay_alt_text_without_graphics_placeholders_or_pixels() {
         (Capabilities::ansi(WIDTH), &loaded),
         (
             Capabilities {
-                image_placeholders: false,
+                max_image_cells: 0,
                 ..Capabilities::kitty(WIDTH)
             },
             &loaded,

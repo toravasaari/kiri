@@ -21,13 +21,11 @@ pub struct Capabilities {
     pub text_sizing: bool,
     /// kitty's graphics protocol: the terminal answered its query.
     pub graphics: bool,
-    /// Images placed with the graphics protocol's Unicode placeholders,
-    /// which is how kiri shows every image. Terminals that answer the
-    /// graphics query do not all support them.
-    pub image_placeholders: bool,
-    /// The most rows and the most columns one image may cover; 0 without
-    /// images. The limit comes from how images are placed, for kitty the
-    /// number of placeholder diacritics.
+    /// The most rows and the most columns one image may cover, placed with
+    /// the graphics protocol's Unicode placeholders, which is how kiri shows
+    /// every image; for kitty, the number of placeholder diacritics. 0 when
+    /// the terminal has no placeholders: not all that answer the graphics
+    /// query do.
     pub max_image_cells: u16,
     /// Underline styles other than single (SGR `4:x`), which kitty
     /// introduced; without them every underline is single. Only the probe
@@ -50,7 +48,6 @@ impl Capabilities {
             hyperlinks: false,
             text_sizing: false,
             graphics: false,
-            image_placeholders: false,
             max_image_cells: 0,
             styled_underlines: false,
             cell_pixels: None,
@@ -60,7 +57,7 @@ impl Capabilities {
 
     /// Whether images are drawn rather than shown as alt text.
     pub fn draws_images(&self) -> bool {
-        self.styling && self.graphics && self.image_placeholders
+        self.styling && self.graphics && self.max_image_cells > 0
     }
 
     /// Colours and attributes that any modern terminal understands.
@@ -81,7 +78,6 @@ impl Capabilities {
             hyperlinks: true,
             text_sizing: true,
             graphics: true,
-            image_placeholders: true,
             max_image_cells: graphics::MAX_CELLS,
             styled_underlines: true,
             ..Self::plain(width)
@@ -113,7 +109,6 @@ pub fn detect(width: Option<u16>) -> Capabilities {
 fn with_probe(mut caps: Capabilities, probe: &probe::Probe) -> Capabilities {
     caps.text_sizing = probe.text_sizing;
     caps.graphics = probe.graphics;
-    caps.image_placeholders = probe.image_placeholders;
     caps.max_image_cells = if probe.image_placeholders {
         graphics::MAX_CELLS
     } else {
@@ -197,6 +192,17 @@ mod tests {
         assert!(caps.graphics);
         assert!(!caps.draws_images());
         assert_eq!(caps.max_image_cells, 0);
+    }
+
+    #[test]
+    fn draws_images_only_when_an_image_may_cover_a_cell() {
+        // Images would be loaded and then not drawn.
+        let caps = Capabilities {
+            max_image_cells: 0,
+            ..Capabilities::kitty(80)
+        };
+        assert!(!caps.draws_images());
+        assert!(Capabilities::kitty(80).draws_images());
     }
 
     #[test]
