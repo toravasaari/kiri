@@ -1,5 +1,5 @@
 ---
-source: tests/render.rs
+source: tests/render_blocks.rs
 expression: "render(\"wide.md\", &Capabilities::plain(12))"
 ---
 # 日本語の見

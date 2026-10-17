@@ -1,5 +1,5 @@
 ---
-source: tests/render.rs
+source: tests/render_blocks.rs
 expression: "visible(&render_with(\"elements.md\", &Capabilities::kitty(WIDTH), &theme))"
 ---
 ␛[0;1;4;34m␛]66;s=3;Every element␛\␛[0m

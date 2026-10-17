@@ -1,18 +1,16 @@
 ---
-source: tests/render.rs
-expression: "visible(&render(\"elements.md\", &Capabilities::kitty(WIDTH)))"
+source: tests/render_blocks.rs
+expression: "visible(&render(\"elements.md\", &Capabilities::ansi(WIDTH)))"
 ---
-␛[0;1;4;34m␛]66;s=3;Every element␛\␛[0m
-
-
+␛[0;1;4;34mEvery element␛[0m
 
   Body text with ␛[0;3memphasis␛[0m, ␛[0;1mstrong␛[0m, ␛[0;9mstruck␛[0m and
-  ␛[0;35;48;2;43;48;59m⍽inline code⍽␛[0m, long enough to wrap at the
-  narrow test width. A ␛]8;;https://example.com␛\␛[0;4;34mlink␛]8;;␛\␛[0m and an autolink:
-  ␛]8;;https://example.com/path␛\␛[0;4;34mhttps://example.com/path␛]8;;␛\␛[0m.
+  ␛[0;35;48;5;236m⍽inline code⍽␛[0m, long enough to wrap at the
+  narrow test width. A ␛[0;4;34mlink␛[0m
+  ␛[0;2m<https://example.com>␛[0m and an autolink:
+  ␛[0;4;34mhttps://example.com/path␛[0m.
 
-␛[0;1;4;34m␛]66;s=2;Lists␛\␛[0m
-
+␛[0;1;4;34mLists␛[0m
 
   ␛[0;90m• ␛[0mFirst bullet
   ␛[0;90m• ␛[0mSecond bullet with text that is long
@@ -27,8 +25,7 @@ expression: "visible(&render(\"elements.md\", &Capabilities::kitty(WIDTH)))"
   ␛[0;90m☑ ␛[0mDone task
   ␛[0;90m☐ ␛[0mOpen task
 
-␛[0;4:4;34m␛]66;s=2;Quotes and breaks␛\␛[0m
-
+␛[0;4;34mQuotes and breaks␛[0m
 
   ␛[0;90m│ ␛[0mA quote with ␛[0;1mbold␛[0m text.
   ␛[0;90m│␛[0m
@@ -41,11 +38,11 @@ expression: "visible(&render(\"elements.md\", &Capabilities::kitty(WIDTH)))"
 
 ␛[0;1;4;34mCode␛[0m
 
-  ␛[0;48;2;43;48;59m                                            ␛[0m
-  ␛[0;48;2;43;48;59m ␛[0;38;2;180;142;173;48;2;43;48;59mfn␛[0;38;2;192;197;206;48;2;43;48;59m ␛[0;38;2;143;161;179;48;2;43;48;59mmain␛[0;38;2;192;197;206;48;2;43;48;59m() {␛[0;48;2;43;48;59m                                ␛[0m
-  ␛[0;48;2;43;48;59m ␛[0;38;2;192;197;206;48;2;43;48;59m    println!("␛[0;38;2;163;190;140;48;2;43;48;59mtab-indented␛[0;38;2;192;197;206;48;2;43;48;59m");␛[0;48;2;43;48;59m              ␛[0m
-  ␛[0;48;2;43;48;59m ␛[0;38;2;192;197;206;48;2;43;48;59m}␛[0;48;2;43;48;59m                                          ␛[0m
-  ␛[0;48;2;43;48;59m                                            ␛[0m
+  ␛[0;48;5;236m                                            ␛[0m
+  ␛[0;48;5;236m ␛[0;38;5;139;48;5;236mfn␛[0;38;5;251;48;5;236m ␛[0;38;5;109;48;5;236mmain␛[0;38;5;251;48;5;236m() {␛[0;48;5;236m                                ␛[0m
+  ␛[0;48;5;236m ␛[0;38;5;251;48;5;236m    println!("␛[0;38;5;144;48;5;236mtab-indented␛[0;38;5;251;48;5;236m");␛[0;48;5;236m              ␛[0m
+  ␛[0;48;5;236m ␛[0;38;5;251;48;5;236m}␛[0;48;5;236m                                          ␛[0m
+  ␛[0;48;5;236m                                            ␛[0m
 
 ␛[0;1;4;34mTables␛[0m
 
@@ -55,13 +52,13 @@ expression: "visible(&render(\"elements.md\", &Capabilities::kitty(WIDTH)))"
   ␛[0;90m│␛[0m Headings ␛[0;90m│␛[0m  done  ␛[0;90m│␛[0m   Scaled with OSC 66 ␛[0;90m│␛[0m
   ␛[0;90m│␛[0m          ␛[0;90m│␛[0m        ␛[0;90m│␛[0m   in kitty, bold and ␛[0;90m│␛[0m
   ␛[0;90m│␛[0m          ␛[0;90m│␛[0m        ␛[0;90m│␛[0m   coloured elsewhere ␛[0;90m│␛[0m
-  ␛[0;90m│␛[0m Tables   ␛[0;90m│␛[0m ␛[0;35;48;2;43;48;59m⍽new⍽␛[0m  ␛[0;90m│␛[0m                right ␛[0;90m│␛[0m
+  ␛[0;90m│␛[0m Tables   ␛[0;90m│␛[0m ␛[0;35;48;5;236m⍽new⍽␛[0m  ␛[0;90m│␛[0m                right ␛[0;90m│␛[0m
   ␛[0;90m╰──────────┴────────┴──────────────────────╯␛[0m
 
-␛[0;4:4;34mImages and HTML␛[0m
+␛[0;4;34mImages and HTML␛[0m
 
   ␛[0;2;3m[image: A diagram]␛[0m
 
   ␛[0;2m<details>raw html</details>␛[0m
 
-␛[0;3;4:4;36mSmallest heading␛[0m
+␛[0;3;4;36mSmallest heading␛[0m

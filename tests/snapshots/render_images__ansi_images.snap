@@ -1,5 +1,5 @@
 ---
-source: tests/render.rs
+source: tests/render_images.rs
 expression: "visible(&render_images(\"images.md\", &Capabilities::ansi(WIDTH)))"
 ---
 ␛[0;1;4;34mImages␛[0m
