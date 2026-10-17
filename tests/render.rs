@@ -8,7 +8,7 @@ use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, ImageError, Images, Source};
 use kiri::kitty::graphics::{DIACRITICS, PLACEHOLDER};
 use kiri::model::Document;
 use kiri::term::Capabilities;
-use kiri::theme::Theme;
+use kiri::theme::{Paper, Theme};
 
 const WIDTH: u16 = 48;
 
@@ -89,6 +89,26 @@ fn kitty_wide_characters() {
 #[test]
 fn plain_wide_characters_narrow() {
     insta::assert_snapshot!(render("wide.md", &Capabilities::plain(12)));
+}
+
+#[test]
+fn kitty_elements_on_light_paper() {
+    let theme = Theme::paper(Paper::Light);
+    insta::assert_snapshot!(visible(&render_with(
+        "elements.md",
+        &Capabilities::kitty(WIDTH),
+        &theme
+    )));
+}
+
+#[test]
+fn kitty_elements_on_dark_paper() {
+    let theme = Theme::paper(Paper::Dark);
+    insta::assert_snapshot!(visible(&render_with(
+        "elements.md",
+        &Capabilities::kitty(WIDTH),
+        &theme
+    )));
 }
 
 #[test]
@@ -641,6 +661,8 @@ fn the_visual_check_documents_fit_every_mode() {
         example_theme("rules.toml"),
         example_theme("opaque.toml"),
         kiri::theme::parse("inline_code_wrap = false\n").unwrap(),
+        Theme::paper(Paper::Light),
+        Theme::paper(Paper::Dark),
     ];
     // Each document says which of its images kiri warns about.
     for (name, warnings) in [("visual-check.md", 1), ("visual-check-images.md", 5)] {

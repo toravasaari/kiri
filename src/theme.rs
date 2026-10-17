@@ -131,7 +131,80 @@ impl Default for Theme {
     }
 }
 
+/// The built-in themes that draw the document as a page of fixed colours,
+/// whatever the terminal's palette.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Paper {
+    Light,
+    Dark,
+}
+
+/// The greys of a paper theme, from the page to the text.
+struct PaperColors {
+    background: Option<Color>,
+    text: Option<Color>,
+    /// Headings and links.
+    strong: Option<Color>,
+    /// The smallest heading.
+    quiet: Option<Color>,
+    marker: Option<Color>,
+    border: Option<Color>,
+    /// Quote bars and rules.
+    line: Option<Color>,
+    code_background: Option<Color>,
+    code_theme: &'static str,
+}
+
 impl Theme {
+    /// A light or dark page in greys, with colour only in code blocks.
+    pub fn paper(paper: Paper) -> Self {
+        let grey = |level: u8| Some(Color::Rgb(level, level, level));
+        let colors = match paper {
+            Paper::Light => PaperColors {
+                background: grey(0xff),
+                text: grey(0x1f),
+                strong: grey(0x00),
+                quiet: grey(0x55),
+                marker: grey(0x70),
+                border: grey(0xb4),
+                line: grey(0xc8),
+                code_background: grey(0xeb),
+                code_theme: "base16-ocean.light",
+            },
+            Paper::Dark => PaperColors {
+                background: grey(0x1e),
+                text: grey(0xd4),
+                strong: grey(0xff),
+                quiet: grey(0xa0),
+                marker: grey(0x9a),
+                border: grey(0x5a),
+                line: grey(0x50),
+                code_background: grey(0x35),
+                code_theme: "base16-eighties.dark",
+            },
+        };
+        let mut theme = Self {
+            background: colors.background,
+            foreground: colors.text,
+            link: colors.strong,
+            inline_code: colors.text,
+            inline_code_background: CodeBackground::Color(colors.code_background),
+            quote_bar: colors.line,
+            rule: colors.line,
+            list_marker: colors.marker,
+            table_border: colors.border,
+            // The page is the same whatever the terminal's background.
+            code_theme_dark: colors.code_theme.into(),
+            code_theme_light: colors.code_theme.into(),
+            ..Self::default()
+        };
+        for heading in &mut theme.headings {
+            heading.color = colors.strong;
+        }
+        theme.headings[5].color = colors.quiet;
+        theme
+    }
+
     pub fn heading(&self, level: u8) -> &HeadingTheme {
         let index = usize::from(level.clamp(1, 6)) - 1;
         &self.headings[index]
@@ -388,6 +461,96 @@ mod tests {
             + 8;
         let end = start + docs[start..].find("```").expect("the TOML block ends");
         assert_eq!(parse(&docs[start..end]).unwrap(), Theme::default());
+    }
+
+    /// The TOML block after `heading` in docs/theme.md.
+    fn documented(heading: &str) -> &'static str {
+        let docs = include_str!("../docs/theme.md");
+        let section = docs
+            .find(heading)
+            .unwrap_or_else(|| panic!("docs/theme.md has {heading}"));
+        let start = section
+            + docs[section..]
+                .find("```toml\n")
+                .expect("the section has a TOML block")
+            + 8;
+        let end = start + docs[start..].find("```").expect("the TOML block ends");
+        &docs[start..end]
+    }
+
+    #[test]
+    fn the_documented_paper_themes_are_the_paper_themes() {
+        assert_eq!(
+            parse(documented("### Light paper")).unwrap(),
+            Theme::paper(Paper::Light)
+        );
+        assert_eq!(
+            parse(documented("### Dark paper")).unwrap(),
+            Theme::paper(Paper::Dark)
+        );
+    }
+
+    /// Every colour of `theme` outside code blocks.
+    fn colors(theme: &Theme) -> Vec<Option<Color>> {
+        let mut colors = vec![
+            theme.background,
+            theme.foreground,
+            theme.link,
+            theme.inline_code,
+            theme.quote_bar,
+            theme.rule,
+            theme.list_marker,
+            theme.table_border,
+        ];
+        match theme.inline_code_background {
+            CodeBackground::Color(color) => colors.push(color),
+            CodeBackground::CodeBlock => panic!("inline code takes the code block's colour"),
+        }
+        for heading in &theme.headings {
+            colors.push(heading.color);
+            colors.push(heading.background);
+        }
+        colors
+    }
+
+    fn lightness(color: Option<Color>) -> u8 {
+        match color {
+            Some(Color::Rgb(r, g, b)) if r == g && g == b => r,
+            _ => panic!("{color:?} is not a fixed grey"),
+        }
+    }
+
+    #[test]
+    fn paper_themes_are_fixed_greys_outside_code_blocks() {
+        for paper in [Paper::Light, Paper::Dark] {
+            let theme = Theme::paper(paper);
+            // Anything else may be none: the page's colours show then.
+            for (index, color) in colors(&theme).into_iter().enumerate() {
+                if color.is_some() || index < 2 {
+                    lightness(color);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn light_paper_is_dark_text_on_a_light_page_and_dark_paper_the_reverse() {
+        let light = Theme::paper(Paper::Light);
+        assert!(lightness(light.background) > 0xf0);
+        assert!(lightness(light.foreground) < 0x40);
+        let dark = Theme::paper(Paper::Dark);
+        assert!(lightness(dark.background) < 0x30);
+        assert!(lightness(dark.foreground) > 0xc0);
+    }
+
+    #[test]
+    fn paper_themes_highlight_code_to_match_the_page() {
+        let light = Theme::paper(Paper::Light);
+        assert_eq!(light.code_theme_light, "base16-ocean.light");
+        assert_eq!(light.code_theme_dark, light.code_theme_light);
+        let dark = Theme::paper(Paper::Dark);
+        assert_eq!(dark.code_theme_dark, "base16-eighties.dark");
+        assert_eq!(dark.code_theme_light, dark.code_theme_dark);
     }
 
     #[test]
