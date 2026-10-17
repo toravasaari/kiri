@@ -266,19 +266,22 @@ mod tests {
 
     #[test]
     fn no_color_needs_a_value() {
-        let no_color =
+        let colours_off =
             |value: Option<&str>| no_color(&env_with(|env| env.no_color = value.map(Into::into)));
-        assert!(!no_color(None));
-        assert!(!no_color(Some("")));
-        assert!(no_color(Some("1")));
-        assert!(no_color(Some("0")));
+        assert!(!colours_off(None));
+        assert!(!colours_off(Some("")));
+        assert!(colours_off(Some("1")));
+        assert!(colours_off(Some("0")));
     }
 
     #[test]
     fn no_color_turns_colours_off_in_the_forced_modes() {
-        let no_color = env_with(|env| env.no_color = Some("1".into()));
+        let without_colours = env_with(|env| env.no_color = Some("1".into()));
         for mode in [Mode::Plain, Mode::Ansi, Mode::Kitty] {
-            assert!(!capabilities(mode, Some(40), &no_color).color, "{mode:?}");
+            assert!(
+                !capabilities(mode, Some(40), &without_colours).color,
+                "{mode:?}"
+            );
         }
         let env = Environment::default();
         assert!(capabilities(Mode::Ansi, Some(40), &env).color);
