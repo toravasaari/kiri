@@ -339,12 +339,14 @@ impl fmt::Display for ImageError {
 
 impl std::error::Error for ImageError {}
 
-/// A size in bytes for people: whole megabytes when it is that.
+/// A size limit in bytes for people, to go before a noun: whole megabytes
+/// when it is that, as in "the 10 MB limit", and otherwise "the 1500-byte
+/// limit".
 fn size(bytes: u64) -> String {
     if bytes >= MB && bytes.is_multiple_of(MB) {
         format!("{} MB", bytes / MB)
     } else {
-        format!("{bytes} bytes")
+        format!("{bytes}-byte")
     }
 }
 
@@ -1401,7 +1403,7 @@ Text ![inline](images/pattern.png) and words.
                 "remote images are not loaded",
                 "/dev/zero: not a regular file",
                 "big.png: larger than the 10 MB limit",
-                "big.png: larger than the 1500 bytes limit",
+                "big.png: larger than the 1500-byte limit",
                 "20000 × 20000 pixels is too large to load",
             ]
         );
