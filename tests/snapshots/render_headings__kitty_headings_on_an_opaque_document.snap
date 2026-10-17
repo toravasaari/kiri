@@ -1,6 +1,6 @@
 ---
 source: tests/render_headings.rs
-expression: "visible(&render_with(\"headings.md\", &Capabilities::kitty(WIDTH), &theme))"
+expression: "visible(&render_fixture(\"headings.md\",\n&inputs(&Capabilities::kitty(WIDTH), &theme)))"
 ---
 ␛[0;1;4;34;48;2;28;31;38m␛]66;s=3;Heading level␛\␛[0;48;2;28;31;38m␛[K␛[0m
 ␛[39C␛[0;48;2;28;31;38m␛[K␛[0m

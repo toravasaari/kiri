@@ -1,6 +1,6 @@
 ---
 source: tests/render_blocks.rs
-expression: "render(\"elements.md\", &Capabilities::plain(WIDTH))"
+expression: "render_for(\"elements.md\", Capabilities::plain(WIDTH))"
 ---
 # Every element
 

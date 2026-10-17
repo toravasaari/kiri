@@ -1,5 +1,6 @@
-//! Settings from the environment and the configuration file, read once at
-//! start-up.
+//! Settings from the command line, the environment and the configuration
+//! file, read once at start-up. The environment also holds the variables
+//! that capability detection reads.
 //!
 //! Everything here takes the environment as a value, so the rules can be
 //! tested without touching the process environment.
@@ -10,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::theme::Paper;
+use crate::theme::{Paper, Theme};
 
 /// The environment variables kiri reads for its settings.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -23,6 +24,15 @@ pub struct Environment {
     pub kiri_theme: Option<OsString>,
     /// `KIRI_NO_IMAGES`: images off unless empty or `0`.
     pub kiri_no_images: Option<OsString>,
+    /// `NO_COLOR`: colours off unless empty.
+    pub no_color: Option<OsString>,
+    /// `COLORTERM`: 24-bit colour when `truecolor` or `24bit`.
+    pub colorterm: Option<OsString>,
+    /// `TERM_PROGRAM`: names some of the terminals known to support
+    /// hyperlinks.
+    pub term_program: Option<OsString>,
+    /// `VTE_VERSION`: terminals built on VTE, with hyperlinks from 5000 on.
+    pub vte_version: Option<OsString>,
 }
 
 impl Environment {
@@ -34,6 +44,10 @@ impl Environment {
             kiri_config: std::env::var_os("KIRI_CONFIG"),
             kiri_theme: std::env::var_os("KIRI_THEME"),
             kiri_no_images: std::env::var_os("KIRI_NO_IMAGES"),
+            no_color: std::env::var_os("NO_COLOR"),
+            colorterm: std::env::var_os("COLORTERM"),
+            term_program: std::env::var_os("TERM_PROGRAM"),
+            vte_version: std::env::var_os("VTE_VERSION"),
         }
     }
 }
@@ -191,6 +205,62 @@ pub fn images(option: Option<bool>, env: &Environment, config: &Config) -> bool 
     {
         Some(value) => value == "0",
         None => config.images.unwrap_or(true),
+    }
+}
+
+/// What the command line asks for; `None` where it leaves the choice to
+/// the environment and the configuration file.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Options {
+    /// `--theme`.
+    pub theme: Option<PathBuf>,
+    /// `--light` or `--dark`.
+    pub paper: Option<Paper>,
+    /// `--no-margins`.
+    pub no_margins: bool,
+    /// `--images` or `--no-images`.
+    pub images: Option<bool>,
+}
+
+/// What the options, the environment and the configuration file choose
+/// together.
+#[derive(Debug)]
+pub struct Settings {
+    /// The theme, loaded, without margins if the options say so.
+    pub theme: Theme,
+    /// The paper from `--light` or `--dark`, which also decides whether
+    /// the background counts as dark.
+    pub paper: Option<Paper>,
+    /// Whether images are shown.
+    pub images: bool,
+}
+
+/// The settings that `options`, `env` and `config` choose, with the theme
+/// loaded.
+pub fn settings(options: &Options, env: &Environment, config: &Config) -> Result<Settings, String> {
+    let theme = load_theme(theme_source(
+        options.theme.as_deref(),
+        options.paper,
+        env,
+        config,
+    ))?;
+    Ok(Settings {
+        theme: if options.no_margins {
+            theme.without_margins()
+        } else {
+            theme
+        },
+        paper: options.paper,
+        images: images(options.images, env, config),
+    })
+}
+
+fn load_theme(source: ThemeSource) -> Result<Theme, String> {
+    match source {
+        ThemeSource::File(path) => crate::theme::load(&path),
+        ThemeSource::DefaultFile(path) if path.exists() => crate::theme::load(&path),
+        ThemeSource::DefaultFile(_) | ThemeSource::BuiltIn => Ok(Theme::default()),
+        ThemeSource::Paper(paper) => Ok(Theme::paper(paper)),
     }
 }
 
@@ -503,5 +573,59 @@ mod tests {
         assert!(!images(None, &no_images_env(""), &with_images(false)));
         assert!(!images(None, &Environment::default(), &with_images(false)));
         assert!(images(None, &Environment::default(), &with_images(true)));
+    }
+
+    fn no_options() -> Options {
+        Options::default()
+    }
+
+    #[test]
+    fn settings_take_the_built_in_theme_without_a_theme_file() {
+        let env = env(None, Some("/nonexistent"));
+        let settings = settings(&no_options(), &env, &Config::default()).unwrap();
+        assert_eq!(settings.theme, Theme::default());
+        assert_eq!(settings.paper, None);
+        assert!(settings.images);
+    }
+
+    #[test]
+    fn settings_keep_the_paper_and_its_theme() {
+        let options = Options {
+            paper: Some(Paper::Dark),
+            ..no_options()
+        };
+        let settings = settings(&options, &env(None, None), &Config::default()).unwrap();
+        assert_eq!(settings.theme, Theme::paper(Paper::Dark));
+        assert_eq!(settings.paper, Some(Paper::Dark));
+    }
+
+    #[test]
+    fn no_margins_applies_to_whichever_theme_is_chosen() {
+        for paper in [None, Some(Paper::Light)] {
+            let options = Options {
+                paper,
+                no_margins: true,
+                ..no_options()
+            };
+            let settings = settings(&options, &env(None, None), &Config::default()).unwrap();
+            let theme = paper.map_or_else(Theme::default, Theme::paper);
+            assert_eq!(settings.theme, theme.without_margins());
+        }
+    }
+
+    #[test]
+    fn a_theme_file_that_does_not_load_is_an_error_naming_it() {
+        let options = Options {
+            theme: Some(PathBuf::from("/nonexistent/mine.toml")),
+            ..no_options()
+        };
+        let error = settings(&options, &env(None, None), &Config::default()).unwrap_err();
+        assert!(error.starts_with("/nonexistent/mine.toml: "), "{error}");
+    }
+
+    #[test]
+    fn settings_turn_images_off_as_the_environment_says() {
+        let settings = settings(&no_options(), &no_images_env("1"), &Config::default()).unwrap();
+        assert!(!settings.images);
     }
 }

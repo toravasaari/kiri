@@ -3,10 +3,10 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, ValueEnum};
-use kiri::config::{Config, Environment, ThemeSource};
+use kiri::config::{Environment, Options};
 use kiri::images::Images;
-use kiri::term::Capabilities;
-use kiri::theme::{Paper, Theme};
+use kiri::render::Inputs;
+use kiri::theme::Paper;
 
 /// Render a Markdown document in the terminal.
 #[derive(Parser)]
@@ -69,6 +69,7 @@ fn max_image_size(value: &str) -> Result<u64, String> {
     }
 }
 
+/// `term::Mode` for clap, which takes its help from these comments.
 #[derive(Clone, Copy, ValueEnum)]
 enum Mode {
     /// Ask the terminal; plain text in a pipe.
@@ -79,6 +80,17 @@ enum Mode {
     Ansi,
     /// All kitty features, without asking the terminal.
     Kitty,
+}
+
+impl From<Mode> for kiri::term::Mode {
+    fn from(mode: Mode) -> Self {
+        match mode {
+            Mode::Auto => Self::Auto,
+            Mode::Plain => Self::Plain,
+            Mode::Ansi => Self::Ansi,
+            Mode::Kitty => Self::Kitty,
+        }
+    }
 }
 
 fn main() -> ExitCode {
@@ -96,8 +108,8 @@ fn run(cli: &Cli) -> Result<(), String> {
         .map_err(|error| format!("{}: {error}", cli.file.display()))?;
     let env = Environment::from_process();
     let config = kiri::config::load(&env)?;
-    let settings = settings(cli, &env, &config)?;
-    let mut caps = capabilities(cli);
+    let settings = kiri::config::settings(&options(cli), &env, &config)?;
+    let mut caps = kiri::term::capabilities(cli.mode.into(), cli.width, &env);
     // The page decides, whatever the terminal's background is.
     if let Some(paper) = settings.paper {
         caps.dark_background = Some(paper == Paper::Dark);
@@ -116,72 +128,33 @@ fn run(cli: &Cli) -> Result<(), String> {
     } else {
         Images::new()
     };
+    let inputs = Inputs {
+        images,
+        theme: settings.theme,
+        ..Inputs::new(caps)
+    };
     let mut out = io::stdout().lock();
-    match kiri::render::render(&document, &images, &caps, &settings.theme, &mut out)
-        .and_then(|()| out.flush())
-    {
+    match kiri::render::render(&document, &inputs, &mut out).and_then(|()| out.flush()) {
         // A closed pipe (kiri file.md | head) is not an error.
         Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
         result => result.map_err(|error| error.to_string()),
     }
 }
 
-/// What the options, the environment and the configuration file choose
-/// together.
-struct Settings {
-    theme: Theme,
-    paper: Option<Paper>,
-    images: bool,
-}
-
-fn settings(cli: &Cli, env: &Environment, config: &Config) -> Result<Settings, String> {
-    let paper = match (cli.light, cli.dark) {
-        (true, _) => Some(Paper::Light),
-        (_, true) => Some(Paper::Dark),
-        _ => None,
-    };
-    let theme_source = kiri::config::theme_source(cli.theme.as_deref(), paper, env, config);
-    let theme = load_theme(theme_source)?;
-    let images = match (cli.images, cli.no_images) {
-        (true, _) => Some(true),
-        (_, true) => Some(false),
-        _ => None,
-    };
-    Ok(Settings {
-        theme: if cli.no_margins {
-            theme.without_margins()
-        } else {
-            theme
+/// What the command line asks for.
+fn options(cli: &Cli) -> Options {
+    Options {
+        theme: cli.theme.clone(),
+        paper: match (cli.light, cli.dark) {
+            (true, _) => Some(Paper::Light),
+            (_, true) => Some(Paper::Dark),
+            _ => None,
         },
-        paper,
-        images: kiri::config::images(images, env, config),
-    })
-}
-
-fn load_theme(source: ThemeSource) -> Result<Theme, String> {
-    match source {
-        ThemeSource::File(path) => kiri::theme::load(&path),
-        ThemeSource::DefaultFile(path) if path.exists() => kiri::theme::load(&path),
-        ThemeSource::DefaultFile(_) | ThemeSource::BuiltIn => Ok(Theme::default()),
-        ThemeSource::Paper(paper) => Ok(Theme::paper(paper)),
-    }
-}
-
-fn capabilities(cli: &Cli) -> Capabilities {
-    let width = || cli.width.or_else(kiri::term::terminal_width).unwrap_or(80);
-    let mut caps = match cli.mode {
-        Mode::Auto => kiri::term::detect(cli.width),
-        Mode::Plain => Capabilities::plain(width()),
-        Mode::Ansi => Capabilities::ansi(width()),
-        // The cell size is not a probe: the window size reports it.
-        Mode::Kitty => Capabilities {
-            cell_pixels: kiri::term::cell_pixels(),
-            ..Capabilities::kitty(width())
+        no_margins: cli.no_margins,
+        images: match (cli.images, cli.no_images) {
+            (true, _) => Some(true),
+            (_, true) => Some(false),
+            _ => None,
         },
-    };
-    // In every mode, including the forced ones.
-    if kiri::term::no_color() {
-        caps.color = false;
     }
-    caps
 }

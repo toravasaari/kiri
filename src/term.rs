@@ -1,5 +1,8 @@
 //! What the output terminal can do, and asking it.
 
+use std::ffi::OsStr;
+
+use crate::config::Environment;
 use crate::kitty::graphics;
 
 /// Terminal features the renderer may use. Built once at start-up and passed
@@ -85,24 +88,65 @@ impl Capabilities {
     }
 }
 
+/// Which terminal features to use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// Ask the terminal; plain text in a pipe.
+    Auto,
+    /// Text only, no escape sequences.
+    Plain,
+    /// Colours and attributes, no kitty extensions.
+    Ansi,
+    /// All kitty features, without asking the terminal.
+    Kitty,
+}
+
+/// The capabilities to render with in `mode`. `width` overrides the
+/// terminal's own width. `NO_COLOR` turns colours off in every mode,
+/// including the forced ones.
+pub fn capabilities(mode: Mode, width: Option<u16>, env: &Environment) -> Capabilities {
+    let width_or_terminal = || width.or_else(terminal_width).unwrap_or(80);
+    let mut caps = match mode {
+        Mode::Auto => detect(width, env),
+        Mode::Plain => Capabilities::plain(width_or_terminal()),
+        Mode::Ansi => Capabilities::ansi(width_or_terminal()),
+        // The cell size is not a probe: the window size reports it.
+        Mode::Kitty => Capabilities {
+            cell_pixels: cell_pixels(),
+            ..Capabilities::kitty(width_or_terminal())
+        },
+    };
+    if no_color(env) {
+        caps.color = false;
+    }
+    caps
+}
+
 /// Asks the terminal on stdout what it supports. Falls back to plain text
 /// when stdout is not a terminal, and to ANSI styling when it does not
 /// answer. `width` overrides the terminal's own width.
-pub fn detect(width: Option<u16>) -> Capabilities {
+pub fn detect(width: Option<u16>, env: &Environment) -> Capabilities {
     let stdout = std::io::stdout();
     let width = width.or_else(terminal_width).unwrap_or(80);
     if !rustix::termios::isatty(&stdout) {
         return Capabilities::plain(width);
     }
-    let mut caps = Capabilities::ansi(width);
+    let mut caps = with_environment(Capabilities::ansi(width), env);
     caps.cell_pixels = cell_pixels();
-    caps.truecolor = std::env::var("COLORTERM").is_ok_and(|v| v == "truecolor" || v == "24bit");
-    caps.hyperlinks = hyperlinks_by_environment();
 
     match probe::run() {
         Some(answers) => with_probe(caps, &probe::interpret(&answers)),
         None => caps,
     }
+}
+
+/// `caps` with what the environment tells without asking the terminal:
+/// 24-bit colour and hyperlinks.
+fn with_environment(mut caps: Capabilities, env: &Environment) -> Capabilities {
+    let colorterm = env.colorterm.as_deref();
+    caps.truecolor = colorterm.is_some_and(|v| v == "truecolor" || v == "24bit");
+    caps.hyperlinks = hyperlinks_by_environment(env);
+    caps
 }
 
 /// `caps` with what the terminal's answers to the probe tell.
@@ -127,12 +171,10 @@ fn with_probe(mut caps: Capabilities, probe: &probe::Probe) -> Capabilities {
 
 /// Whether the user asked for output without colour: `NO_COLOR` set and not
 /// empty, as <https://no-color.org> defines it.
-pub fn no_color() -> bool {
-    no_color_in(std::env::var_os("NO_COLOR").as_deref())
-}
-
-fn no_color_in(value: Option<&std::ffi::OsStr>) -> bool {
-    value.is_some_and(|value| !value.is_empty())
+pub fn no_color(env: &Environment) -> bool {
+    env.no_color
+        .as_deref()
+        .is_some_and(|value| !value.is_empty())
 }
 
 /// Width of the terminal on stdout in cells, if stdout is a terminal.
@@ -153,21 +195,19 @@ pub fn cell_pixels() -> Option<(u16, u16)> {
 }
 
 /// Terminals known to support OSC 8 that cannot be recognised by a probe.
-fn hyperlinks_by_environment() -> bool {
-    let program = std::env::var("TERM_PROGRAM").unwrap_or_default();
+fn hyperlinks_by_environment(env: &Environment) -> bool {
+    let program = env.term_program.as_deref().and_then(OsStr::to_str);
     matches!(
-        program.as_str(),
-        "WezTerm" | "iTerm.app" | "vscode" | "ghostty" | "Hyper"
-    ) || std::env::var("VTE_VERSION")
-        .ok()
+        program,
+        Some("WezTerm" | "iTerm.app" | "vscode" | "ghostty" | "Hyper")
+    ) || (env.vte_version.as_deref())
+        .and_then(OsStr::to_str)
         .and_then(|v| v.parse::<u32>().ok())
         .is_some_and(|v| v >= 5000)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsStr;
-
     use super::*;
 
     #[test]
@@ -218,12 +258,74 @@ mod tests {
         assert!(Capabilities::kitty(80).draws_images());
     }
 
+    fn env_with(set: impl Fn(&mut Environment)) -> Environment {
+        let mut env = Environment::default();
+        set(&mut env);
+        env
+    }
+
     #[test]
     fn no_color_needs_a_value() {
-        assert!(!no_color_in(None));
-        assert!(!no_color_in(Some(OsStr::new(""))));
-        assert!(no_color_in(Some(OsStr::new("1"))));
-        assert!(no_color_in(Some(OsStr::new("0"))));
+        let no_color =
+            |value: Option<&str>| no_color(&env_with(|env| env.no_color = value.map(Into::into)));
+        assert!(!no_color(None));
+        assert!(!no_color(Some("")));
+        assert!(no_color(Some("1")));
+        assert!(no_color(Some("0")));
+    }
+
+    #[test]
+    fn no_color_turns_colours_off_in_the_forced_modes() {
+        let no_color = env_with(|env| env.no_color = Some("1".into()));
+        for mode in [Mode::Plain, Mode::Ansi, Mode::Kitty] {
+            assert!(!capabilities(mode, Some(40), &no_color).color, "{mode:?}");
+        }
+        let env = Environment::default();
+        assert!(capabilities(Mode::Ansi, Some(40), &env).color);
+        assert!(capabilities(Mode::Kitty, Some(40), &env).color);
+    }
+
+    #[test]
+    fn a_forced_mode_takes_the_width_it_is_given() {
+        let env = Environment::default();
+        assert_eq!(
+            capabilities(Mode::Plain, Some(40), &env),
+            Capabilities::plain(40)
+        );
+        assert_eq!(
+            capabilities(Mode::Ansi, Some(40), &env),
+            Capabilities::ansi(40)
+        );
+        assert_eq!(capabilities(Mode::Kitty, Some(40), &env).width, 40);
+    }
+
+    #[test]
+    fn colorterm_tells_of_24_bit_colour() {
+        for (value, truecolor) in [
+            (None, false),
+            (Some("truecolor"), true),
+            (Some("24bit"), true),
+            (Some("yes"), false),
+        ] {
+            let env = env_with(|env| env.colorterm = value.map(Into::into));
+            let caps = with_environment(Capabilities::ansi(80), &env);
+            assert_eq!(caps.truecolor, truecolor, "{value:?}");
+        }
+    }
+
+    #[test]
+    fn known_terminals_get_hyperlinks() {
+        let hyperlinks = |set: &dyn Fn(&mut Environment)| {
+            with_environment(Capabilities::ansi(80), &env_with(set)).hyperlinks
+        };
+        assert!(!hyperlinks(&|_| {}));
+        assert!(hyperlinks(&|env| env.term_program = Some("WezTerm".into())));
+        assert!(!hyperlinks(
+            &|env| env.term_program = Some("Apple_Terminal".into())
+        ));
+        assert!(hyperlinks(&|env| env.vte_version = Some("5000".into())));
+        assert!(!hyperlinks(&|env| env.vte_version = Some("4999".into())));
+        assert!(!hyperlinks(&|env| env.vte_version = Some("new".into())));
     }
 }
 

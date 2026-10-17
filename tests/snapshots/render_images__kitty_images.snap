@@ -1,6 +1,6 @@
 ---
 source: tests/render_images.rs
-expression: "readable(&render_images(\"images.md\", &Capabilities::kitty(WIDTH)))"
+expression: "readable(&render_fixture(\"images.md\",\n&with_images(&Capabilities::kitty(WIDTH), fixture_images(\"images.md\"))))"
 ---
 ␛[0;1;4;34m␛]66;s=3;Images␛\␛[0m
 

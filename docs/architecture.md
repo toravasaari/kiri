@@ -84,7 +84,7 @@ src/lib.rs                 library root
 src/model.rs               document model
 src/parse.rs               comrak tree -> document model
 src/term.rs                capability detection, the only terminal queries
-src/config.rs              configuration file and environment variables
+src/config.rs              settings: options, environment, configuration file
 src/theme.rs               colours and sizes, theme files
 src/images/mod.rs          loading and decoding the images a document shows
 src/images/url.rs          data URLs, file URLs and paths, read up to a limit

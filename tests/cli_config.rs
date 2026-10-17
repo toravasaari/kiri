@@ -253,3 +253,15 @@ fn light_and_dark_choose_the_code_colours_for_another_theme_too() {
         assert!(stdout.contains(background), "{option}: {stdout:?}");
     }
 }
+
+#[test]
+fn no_margins_puts_the_text_at_the_edge() {
+    let dir = Scratch::new("no-margins");
+    let out = kiri(&dir, "Text\n", &["--mode", "plain"]);
+    assert_eq!(text(&out.stdout), "  Text\n");
+    for option in ["-M", "--no-margins"] {
+        let out = kiri(&dir, "Text\n", &["--mode", "plain", option]);
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        assert_eq!(text(&out.stdout), "Text\n", "{option}");
+    }
+}

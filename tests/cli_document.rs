@@ -45,3 +45,30 @@ fn a_closed_pipe_is_not_an_error() {
     assert!(child.wait().unwrap().success(), "{stderr}");
     assert_eq!(stderr, "");
 }
+
+#[test]
+fn no_color_turns_colours_off_in_a_forced_mode_too() {
+    let dir = Scratch::new("no-color");
+    let document = dir.join("colours.md");
+    std::fs::write(&document, "# Title\n\n```rust\nfn main() {}\n```\n").unwrap();
+    for (no_color, colours) in [(None, true), (Some(""), true), (Some("1"), false)] {
+        let mut kiri = command(&dir);
+        if let Some(value) = no_color {
+            kiri.env("NO_COLOR", value);
+        }
+        let out = kiri
+            .args(["--mode", "ansi"])
+            .arg(&document)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        let stdout = text(&out.stdout);
+        assert_eq!(
+            stdout.contains("\x1b[0;38;"),
+            colours,
+            "{no_color:?}: {stdout:?}"
+        );
+        // Bold stays.
+        assert!(stdout.contains("\x1b[0;1"), "{no_color:?}: {stdout:?}");
+    }
+}
