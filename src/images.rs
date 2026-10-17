@@ -370,10 +370,10 @@ impl Images {
     }
 }
 
-/// Loads every image in `document` once, resolving relative paths against
-/// `base`, the directory of the Markdown file. Files larger than
-/// `max_file_size` bytes are refused, and text in SVGs is drawn with the
-/// system's fonts.
+/// Loads every image that `document` shows as an image block once,
+/// resolving relative paths against `base`, the directory of the Markdown
+/// file. Files larger than `max_file_size` bytes are refused, and text in
+/// SVGs is drawn with the system's fonts.
 pub fn load(document: &Document, base: &Path, max_file_size: u64) -> Images {
     load_with(document, base, max_file_size, &Fonts::system())
 }
@@ -391,41 +391,23 @@ pub fn load_with(document: &Document, base: &Path, max_file_size: u64, fonts: &F
     images
 }
 
+/// The URLs of the images `blocks` show as image blocks. The others are
+/// only ever shown as alt text, so they are not loaded at all.
 fn collect_blocks<'a>(blocks: &'a [Block], urls: &mut Vec<&'a str>) {
     for block in blocks {
         match block {
-            Block::Heading { content, .. } | Block::Paragraph(content) => {
-                collect_inlines(content, urls);
-            }
+            Block::Paragraph(content) => urls.extend(Inline::lone_image(content)),
             Block::BlockQuote(blocks) => collect_blocks(blocks, urls),
             Block::List(list) => {
                 for item in &list.items {
                     collect_blocks(&item.blocks, urls);
                 }
             }
-            Block::Table(table) => {
-                for cell in table.header.iter().chain(table.rows.iter().flatten()) {
-                    collect_inlines(cell, urls);
-                }
-            }
-            Block::CodeBlock { .. } | Block::ThematicBreak | Block::Html(_) => {}
-        }
-    }
-}
-
-fn collect_inlines<'a>(inlines: &'a [Inline], urls: &mut Vec<&'a str>) {
-    for inline in inlines {
-        match inline {
-            Inline::Image { url, .. } => urls.push(url),
-            Inline::Emphasis(content)
-            | Inline::Strong(content)
-            | Inline::Strikethrough(content)
-            | Inline::Link { content, .. } => collect_inlines(content, urls),
-            Inline::Text(_)
-            | Inline::Code(_)
-            | Inline::SoftBreak
-            | Inline::LineBreak
-            | Inline::Html(_) => {}
+            Block::Heading { .. }
+            | Block::Table(_)
+            | Block::CodeBlock { .. }
+            | Block::ThematicBreak
+            | Block::Html(_) => {}
         }
     }
 }
@@ -1102,19 +1084,15 @@ mod tests {
     }
 
     #[test]
-    fn loads_each_image_of_a_document_once() {
+    fn loads_each_image_shown_as_a_block_once() {
         let source = "\
-# Title ![h](images/icon.png)
+![a](images/pattern.png)
 
-![a](images/pattern.png) and ![again](images/pattern.png)
+![again](images/pattern.png)
 
 - ![b](images/missing.png)
 
 > [![c](images/transparent.png)](https://example.com)
-
-| x |
-|---|
-| ![d](https://example.com/d.png) |
 ";
         let images = load_with(
             &crate::parse::parse(source),
@@ -1122,19 +1100,38 @@ mod tests {
             DEFAULT_MAX_FILE_SIZE,
             &Fonts::none(),
         );
-        assert_eq!(images.len(), 5);
-        assert!(images.get("images/icon.png").unwrap().is_ok());
+        assert_eq!(images.len(), 3);
         assert!(images.get("images/pattern.png").unwrap().is_ok());
         assert!(images.get("images/transparent.png").unwrap().is_ok());
         assert!(matches!(
             images.get("images/missing.png"),
             Some(Err(ImageError::Missing(_)))
         ));
-        assert_eq!(
-            images.get("https://example.com/d.png"),
-            Some(&Err(ImageError::Remote))
-        );
         assert!(images.get("https://example.com").is_none());
+    }
+
+    #[test]
+    fn does_not_load_images_shown_as_alt_text() {
+        let source = "\
+# Title ![h](images/icon.png)
+
+Text ![inline](images/pattern.png) and words.
+
+[![with words](images/transparent.png) and words](https://example.com)
+
+![one](images/icon.png) ![two](images/icon.png)
+
+| x |
+|---|
+| ![d](images/missing.png) |
+";
+        let images = load_with(
+            &crate::parse::parse(source),
+            &fixtures(),
+            DEFAULT_MAX_FILE_SIZE,
+            &Fonts::none(),
+        );
+        assert!(images.is_empty(), "{images:?}");
     }
 
     #[test]

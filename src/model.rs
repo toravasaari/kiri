@@ -79,6 +79,21 @@ pub enum Inline {
 }
 
 impl Inline {
+    /// The URL of the image that `content`, a paragraph, consists of: an
+    /// image alone, or alone inside a link. A backend that can draw images
+    /// shows such a paragraph as the image itself; images anywhere else are
+    /// part of the text.
+    pub fn lone_image(content: &[Inline]) -> Option<&str> {
+        match content {
+            [Inline::Image { url, .. }] => Some(url),
+            [Inline::Link { content, .. }] => match content.as_slice() {
+                [Inline::Image { url, .. }] => Some(url),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     /// The inline's text without any styling, as alt text or for measuring.
     pub fn plain_text(inlines: &[Inline]) -> String {
         let mut out = String::new();

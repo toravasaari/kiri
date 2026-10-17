@@ -239,14 +239,7 @@ impl Layout<'_> {
         if !(self.caps.graphics && self.caps.styling) {
             return None;
         }
-        let url = match content {
-            [Inline::Image { url, .. }] => url,
-            [Inline::Link { content, .. }] => match content.as_slice() {
-                [Inline::Image { url, .. }] => url,
-                _ => return None,
-            },
-            _ => return None,
-        };
+        let url = Inline::lone_image(content)?;
         let Some(Ok(source)) = self.images.get(url) else {
             return None;
         };
@@ -261,7 +254,7 @@ impl Layout<'_> {
             graphics::MAX_CELLS,
         )?;
         let placement = Rc::new(Placement {
-            url: url.clone(),
+            url: url.to_owned(),
             size,
         });
         Some(

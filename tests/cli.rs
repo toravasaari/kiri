@@ -65,6 +65,18 @@ fn warns_about_an_image_that_does_not_load_and_shows_its_alt_text() {
 }
 
 #[test]
+fn does_not_warn_about_images_shown_as_alt_text() {
+    let dir = Scratch::new("alt-text");
+    let source = "Text ![Lost](no-such.png) here.\n\n| ![Cell](no-such.png) |\n|---|\n";
+    let out = kiri(&dir, source, &["--mode", "kitty"]);
+    assert!(out.status.success());
+    assert_eq!(text(&out.stderr), "");
+    let stdout = text(&out.stdout);
+    assert!(stdout.contains("[image: Lost]"), "{stdout:?}");
+    assert!(stdout.contains("[image: Cell]"), "{stdout:?}");
+}
+
+#[test]
 fn refuses_image_files_above_ten_megabytes_by_default() {
     let dir = Scratch::new("default-limit");
     // Sparse: the size is all that is read.
