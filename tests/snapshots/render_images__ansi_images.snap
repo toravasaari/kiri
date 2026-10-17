@@ -46,12 +46,12 @@ expression: "visible(&render_fixture(\"images.md\",\n&with_images(&Capabilities:
   stays alt text, and so does ␛[0;2;3;4;34m[image: an icon]␛[0m
   ␛[0;4;34mwith words␛[0;2m <https://example.com>␛[0m in a link.
 
-  ␛[0;90m╭─────────────────────┬────────────────────╮␛[0m
-  ␛[0;90m│␛[0m ␛[0;1mImage␛[0m               ␛[0;90m│␛[0m ␛[0;1mNote␛[0m               ␛[0;90m│␛[0m
-  ␛[0;90m├─────────────────────┼────────────────────┤␛[0m
-  ␛[0;90m│␛[0m ␛[0;2;3m[image: Icon in a␛[0m   ␛[0;90m│␛[0m Alt text in a      ␛[0;90m│␛[0m
-  ␛[0;90m│␛[0m ␛[0;2;3mcell]␛[0m               ␛[0;90m│␛[0m table              ␛[0;90m│␛[0m
-  ␛[0;90m╰─────────────────────┴────────────────────╯␛[0m
+  ␛[0;90m╭──────────────────────┬───────────────────╮␛[0m
+  ␛[0;90m│␛[0m ␛[0;1mImage␛[0m                ␛[0;90m│␛[0m ␛[0;1mNote␛[0m              ␛[0;90m│␛[0m
+  ␛[0;90m├──────────────────────┼───────────────────┤␛[0m
+  ␛[0;90m│␛[0m ␛[0;2;3m[image: Icon in a␛[0m    ␛[0;90m│␛[0m Alt text in a     ␛[0;90m│␛[0m
+  ␛[0;90m│␛[0m ␛[0;2;3mcell]␛[0m                ␛[0;90m│␛[0m table             ␛[0;90m│␛[0m
+  ␛[0;90m╰──────────────────────┴───────────────────╯␛[0m
 
   A missing file, a file that is no image, a
   broken SVG and a remote image show their alt

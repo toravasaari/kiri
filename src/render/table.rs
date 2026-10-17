@@ -28,9 +28,9 @@ const SHORT_WORD: usize = 10;
 /// its own width when that is less.
 const COMFORT: usize = 16;
 
-/// Columns shrink, widest first, until the table fits in `max` cells; cell
-/// text then wraps inside its column. A table that would have to split
-/// short words is stacked instead.
+/// Columns shrink in proportion to their text until the table fits in
+/// `max` cells; cell text then wraps inside its column. A table that would
+/// have to split short words is stacked instead.
 pub fn layout(cells: &Cells, max: usize, styles: &Styles) -> Vec<Line> {
     let border = &styles.border;
     let columns = cells
@@ -91,18 +91,32 @@ fn column_widths(cells: &Cells, columns: usize, max: usize) -> Option<Vec<usize>
     Some(widths)
 }
 
-/// Narrows the widest column above its floor, one cell at a time, until
-/// the widths fit in `available`. False if every column reaches its floor
-/// first.
+/// Narrows the widths to fit in `available`, as a browser's automatic
+/// table layout does: every column keeps its floor, and the room above
+/// the floors is shared in proportion to how much each column wants above
+/// its own. The cells left over by rounding down go to the largest
+/// remainders, the leftmost column first on a tie. False if the floors do
+/// not fit.
 fn shrink(widths: &mut [usize], floors: &[usize], available: usize) -> bool {
-    while widths.iter().sum::<usize>() > available {
-        let Some(widest) = (0..widths.len())
-            .filter(|&column| widths[column] > floors[column])
-            .max_by_key(|&column| widths[column])
-        else {
-            return false;
-        };
-        widths[widest] -= 1;
+    if widths.iter().sum::<usize>() <= available {
+        return true;
+    }
+    let Some(room) = available.checked_sub(floors.iter().sum()) else {
+        return false;
+    };
+    let wants: Vec<usize> = (widths.iter().zip(floors))
+        .map(|(width, floor)| width - floor)
+        .collect();
+    let wanted: usize = wants.iter().sum();
+    let mut remainders = Vec::with_capacity(widths.len());
+    for (column, want) in wants.iter().enumerate() {
+        widths[column] = floors[column] + want * room / wanted;
+        remainders.push((want * room % wanted, column));
+    }
+    let left = available - widths.iter().sum::<usize>();
+    remainders.sort_by_key(|&(remainder, column)| (std::cmp::Reverse(remainder), column));
+    for &(_, column) in &remainders[..left] {
+        widths[column] += 1;
     }
     true
 }
@@ -272,16 +286,37 @@ mod tests {
     }
 
     #[test]
-    fn shrinks_the_widest_column_and_wraps_its_text() {
-        let cells = Cells {
-            header: vec![cell("id"), cell("description")],
-            rows: vec![vec![cell("1"), cell("a long piece of text")]],
-            alignments: vec![],
-        };
-        let lines = text(&layout(&cells, 20, &styles()));
-        assert!(lines.iter().all(|line| line.width() <= 20), "{lines:#?}");
-        assert_eq!(lines[3], "│ 1  │ a long      │");
-        assert_eq!(lines[4], "│    │ piece of    │");
+    fn shares_the_width_in_proportion_to_the_text_and_wraps_it() {
+        // Natural widths 59 and 29 over floors of 16 want 43 and 13 cells
+        // more; the 18 cells of room are shared 14 and 4.
+        let long = ["aaaa"; 12].join(" ");
+        let short = ["bbbb"; 6].join(" ");
+        let cells = table(&["Long", "Short"], &[&[&long, &short]]);
+        let lines = text(&layout(&cells, 57, &styles()));
+        assert!(lines.iter().all(|line| line.width() == 57), "{lines:#?}");
+        assert_eq!(lines[0], format!("╭{}┬{}╮", "─".repeat(32), "─".repeat(22)));
+        assert_eq!(
+            lines[3],
+            "│ aaaa aaaa aaaa aaaa aaaa aaaa  │ bbbb bbbb bbbb bbbb  │"
+        );
+        assert_eq!(
+            lines[4],
+            "│ aaaa aaaa aaaa aaaa aaaa aaaa  │ bbbb bbbb            │"
+        );
+    }
+
+    #[test]
+    fn rounding_fills_the_room_exactly_leftmost_first() {
+        // Ten cells of room for three columns that want the same: 3 each,
+        // and the cell left over goes to the first.
+        let mut widths = vec![20, 20, 20];
+        assert!(shrink(&mut widths, &[5, 5, 5], 25));
+        assert_eq!(widths, [9, 8, 8]);
+        // The larger remainder wins over the column order.
+        let mut widths = vec![9, 13];
+        assert!(shrink(&mut widths, &[1, 1], 8));
+        assert_eq!(widths, [3, 5]);
+        assert!(!shrink(&mut widths, &[4, 4], 7));
     }
 
     #[test]
@@ -377,7 +412,7 @@ mod tests {
         // The same table wraps the code at its spaces when its spaces are
         // ordinary break points.
         let lines = text(&layout(&command_table(Spaces::Keep), 44, &styles()));
-        assert_eq!(lines[3], "│ a fairly long note  │ git commit -m      │");
+        assert_eq!(lines[3], "│ a fairly long note   │ git commit -m     │");
     }
 
     #[test]
@@ -387,7 +422,7 @@ mod tests {
         let together = command_table(Spaces::KeepTogether);
         let wrapping = command_table(Spaces::Keep);
         let lines = text(&layout(&together, 38, &styles()));
-        assert_eq!(lines[3], "│ a fairly long    │ git commit -m   │");
+        assert_eq!(lines[3], "│ a fairly long note │ git commit -m │");
         assert_eq!(lines, text(&layout(&wrapping, 38, &styles())));
     }
 
