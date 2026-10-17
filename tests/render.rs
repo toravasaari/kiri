@@ -913,6 +913,64 @@ fn images_stay_alt_text_without_graphics_placeholders_or_pixels() {
     }
 }
 
+/// `source` with `images`, rendered with `theme`.
+fn render_images_with_theme(
+    source: &str,
+    images: &Images,
+    caps: &Capabilities,
+    theme: &Theme,
+) -> String {
+    let mut out = Vec::new();
+    kiri::render::render(&kiri::parse::parse(source), images, caps, theme, &mut out).unwrap();
+    String::from_utf8(out).unwrap()
+}
+
+#[test]
+fn images_sit_on_the_document_background() {
+    let images = one_image("p.png", quadrants(40, 30));
+    let out = render_images_with_theme(
+        "Text\n\n![p](p.png)\n",
+        &images,
+        &Capabilities::kitty(WIDTH),
+        &example_theme("opaque.toml"),
+    );
+    assert_eq!(drawn(&out), ["⟦row 0: 4 cells⟧", "⟦row 1: 4 cells⟧"]);
+    // The background of opaque.toml, #1c1f26, behind the placeholders and
+    // the rest of each row, where the image is transparent or ends.
+    let background = "\x1b[0;48;2;28;31;38m";
+    let rows: Vec<&str> = (out.lines())
+        .filter(|line| line.contains(PLACEHOLDER))
+        .collect();
+    assert_eq!(rows.len(), 2);
+    for row in rows {
+        let painted = row.find(background).expect("background on the row");
+        assert!(painted < row.find(PLACEHOLDER).unwrap(), "{row:?}");
+        assert!(row.ends_with("\x1b[39m\x1b[K\x1b[0m"), "{row:?}");
+    }
+}
+
+#[test]
+fn no_color_draws_images_without_other_colours() {
+    let images = one_image("p.png", quadrants(40, 30));
+    let caps = Capabilities {
+        color: false,
+        ..Capabilities::kitty(WIDTH)
+    };
+    for theme in [Theme::default(), example_theme("opaque.toml")] {
+        let out = render_images_with_theme("Text\n\n![p](p.png)\n", &images, &caps, &theme);
+        let sent = sent(&out);
+        assert_eq!(sent.len(), 1);
+        assert_eq!(drawn(&out), ["⟦row 0: 4 cells⟧", "⟦row 1: 4 cells⟧"]);
+        // The only colour is the image id that kitty reads from the
+        // placeholders' foreground.
+        let id: u32 = sent[0].keys["i"].parse().unwrap();
+        let [_, red, green, blue] = id.to_be_bytes();
+        let id_colour = format!("38;2;{red};{green};{blue}");
+        let codes = colour_codes(&out);
+        assert_eq!(codes, [id_colour.clone(), id_colour], "{out:?}");
+    }
+}
+
 #[test]
 fn images_indent_with_margins_lists_and_quotes() {
     use kiri::render::wrap::width;
