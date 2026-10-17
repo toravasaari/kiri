@@ -103,7 +103,7 @@ fn refuses_image_files_above_ten_megabytes_by_default() {
     assert_eq!(
         text(&out.stderr),
         format!(
-            "kiri: {}: larger than the 10 MB limit\n",
+            "kiri: {}: larger than the 10 MB limit; see --max-image-size\n",
             dir.join("big.png").display()
         )
     );
@@ -119,7 +119,10 @@ fn max_image_size_changes_the_limit() {
     assert!(refused.status.success());
     assert_eq!(
         text(&refused.stderr),
-        format!("kiri: {}: larger than the 1 MB limit\n", photo.display())
+        format!(
+            "kiri: {}: larger than the 1 MB limit; see --max-image-size\n",
+            photo.display()
+        )
     );
     assert!(loaded.status.success());
     assert_eq!(text(&loaded.stderr), "");

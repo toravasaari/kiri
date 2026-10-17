@@ -353,13 +353,17 @@ impl fmt::Display for ImageError {
             ImageError::FileTooLarge { path, limit } => {
                 write!(
                     f,
-                    "{}: larger than the {} limit",
+                    "{}: larger than the {} limit; see --max-image-size",
                     path.display(),
                     size(*limit)
                 )
             }
             ImageError::DecompressedTooLarge { limit } => {
-                write!(f, "decompresses to more than the {} limit", size(*limit))
+                write!(
+                    f,
+                    "decompresses to more than the {} limit; see --max-image-size",
+                    size(*limit)
+                )
             }
             ImageError::NoPath => f.write_str("the URL names no file"),
             ImageError::Remote => f.write_str("remote images are not loaded"),
@@ -1660,9 +1664,9 @@ Text ![inline](images/pattern.png) and words.
                 "a/b.png: file not found",
                 "remote images are not loaded",
                 "/dev/zero: not a regular file",
-                "big.png: larger than the 10 MB limit",
-                "big.png: larger than the 1500-byte limit",
-                "decompresses to more than the 10 MB limit",
+                "big.png: larger than the 10 MB limit; see --max-image-size",
+                "big.png: larger than the 1500-byte limit; see --max-image-size",
+                "decompresses to more than the 10 MB limit; see --max-image-size",
                 "20000 × 20000 pixels is too large to load",
             ]
         );
