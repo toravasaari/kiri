@@ -18,6 +18,7 @@ them are dedicated to the public domain under
 | `portrait.png` | A very tall image, 200 × 800 |
 | `icon.png` | A tiny image that must not be enlarged, 16 × 16 |
 | `exif-1.jpg` … `exif-8.jpg` | EXIF orientations 1 to 8; every one shows the same upright picture, 600 × 399. From `photo-landscape.jpg` |
+| `pattern-exif-6.png`, `pattern-exif-6.webp` | EXIF orientation 6 in a PNG and a WebP: `pattern.png` stored on its side |
 | `photo-cmyk.jpg` | A CMYK JPEG, from `photo-landscape.jpg` |
 | `photo-progressive.jpg` | A progressive JPEG, from `photo-landscape.jpg` |
 | `animated.gif`, `animated.webp` | Three frames, red, green and blue; only the red first frame is shown |

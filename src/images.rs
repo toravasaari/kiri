@@ -807,6 +807,15 @@ mod tests {
     }
 
     #[test]
+    fn turns_png_and_webp_upright_by_their_exif_orientation() {
+        let upright = raster("pattern.png");
+        for name in ["pattern-exif-6.png", "pattern-exif-6.webp"] {
+            // Stored on its side, 240 × 320, with orientation 6.
+            assert_eq!(raster(name), upright, "{name}");
+        }
+    }
+
+    #[test]
     fn decodes_the_first_frame_of_an_animated_gif() {
         let image = raster("animated.gif");
         assert_eq!(image.dimensions(), (64, 64));

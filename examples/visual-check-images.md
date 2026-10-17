@@ -69,6 +69,13 @@ EXIF allows:
 
 ![Orientation 8](../tests/fixtures/images/exif-8.jpg)
 
+The test pattern stored on its side in a PNG and in a WebP, upright like
+the first one on this page, red at the top left:
+
+![PNG with orientation 6](../tests/fixtures/images/pattern-exif-6.png)
+
+![WebP with orientation 6](../tests/fixtures/images/pattern-exif-6.webp)
+
 ## JPEG variants
 
 The lake as a baseline JPEG, a progressive one and a CMYK one, all as wide

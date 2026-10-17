@@ -53,6 +53,14 @@ orient 7 -transverse
 orient 8 '-rotate 90'
 rm upright.ppm
 
+# EXIF orientation 6 in a PNG and a lossless WebP: the test pattern stored
+# on its side.
+magick pattern.png -rotate -90 -strip PNG24:pattern-exif-6.png
+magick pattern.png -rotate -90 -strip -define webp:lossless=true pattern-exif-6.webp
+for file in pattern-exif-6.png pattern-exif-6.webp; do
+    exiv2 -M "set Exif.Image.Orientation Short 6" "$file"
+done
+
 # JPEG variants of the photo.
 magick photo-landscape.jpg -strip -colorspace CMYK -quality 90 photo-cmyk.jpg
 magick photo-landscape.jpg -strip -interlace Plane -quality 87 photo-progressive.jpg
