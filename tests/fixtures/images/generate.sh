@@ -81,6 +81,7 @@ cat > pattern.svg <<'EOF'
   <rect x="160" y="120" width="160" height="120" fill="#ffff00"/>
 </svg>
 EOF
+gzip -9n < pattern.svg > pattern.svgz
 
 # Broken files: cut short, not an image at all, and too large to decode
 # (a 1-bit 20000 x 20000 PNG compresses to a few kilobytes).

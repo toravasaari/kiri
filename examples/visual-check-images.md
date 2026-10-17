@@ -145,6 +145,10 @@ a small soccer ball:
 
 ![Pattern SVG](../tests/fixtures/images/pattern.svg)
 
+The same pattern again, from a file compressed with gzip:
+
+![Compressed SVG](../tests/fixtures/images/pattern.svgz)
+
 ![Sunset icon](../tests/fixtures/images/sunset-icon.svg)
 
 ![Soccer ball](../tests/fixtures/images/soccer-ball.svg)

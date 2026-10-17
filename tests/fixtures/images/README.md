@@ -23,6 +23,7 @@ them are dedicated to the public domain under
 | `photo-progressive.jpg` | A progressive JPEG, from `photo-landscape.jpg` |
 | `animated.gif`, `animated.webp` | Three frames, red, green and blue; only the red first frame is shown |
 | `pattern.svg` | The test pattern as an SVG of the same size, without the grid; drawn at any size, its quadrants keep sharp edges |
+| `pattern.svgz` | `pattern.svg` compressed with gzip |
 | `truncated.png`, `truncated.jpg`, `truncated.svg` | The first half of `pattern.png`, `photo-landscape.jpg` and `pattern.svg` |
 | `not-an-image.png` | Text with an image's file name |
 | `huge.png` | 20000 × 20000 pixels, more than kiri decodes |

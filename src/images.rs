@@ -904,6 +904,41 @@ mod tests {
     }
 
     #[test]
+    fn decodes_svg_compressed_with_a_bom_or_with_an_xml_prolog() {
+        let plain = std::fs::read(fixtures().join("images/pattern.svg")).unwrap();
+        let text = String::from_utf8(plain.clone()).unwrap();
+        let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        io::Write::write_all(&mut gzip, &plain).unwrap();
+        let variants = [
+            ("gzip", gzip.finish().unwrap()),
+            ("BOM", format!("\u{feff}{text}").into_bytes()),
+            (
+                "prolog",
+                format!(
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\n\
+                     <!-- A comment -->\n\
+                     <!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \
+                     \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\">\n{text}"
+                )
+                .into_bytes(),
+            ),
+            (
+                "BOM and prolog",
+                format!("\u{feff}<?xml version=\"1.0\"?>\n{text}").into_bytes(),
+            ),
+        ];
+        let expected = svg(&plain, &Fonts::none()).render(32, 24);
+        for (name, bytes) in variants {
+            let image = svg(&bytes, &Fonts::none());
+            assert_eq!(image.size(), (320, 240), "{name}");
+            assert_eq!(image.render(32, 24), expected, "{name}");
+        }
+        // A .svgz file on disk.
+        let svgz = svg_fixture("pattern.svgz", &Fonts::none());
+        assert_eq!(svgz.render(32, 24), expected);
+    }
+
+    #[test]
     fn reports_a_broken_svg() {
         assert!(
             matches!(fixture("truncated.svg"), Err(ImageError::Corrupt(_))),
