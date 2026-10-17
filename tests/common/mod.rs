@@ -46,6 +46,12 @@ pub fn render_fixture(name: &str, inputs: &Inputs) -> String {
     render(&fixture(name), inputs)
 }
 
+/// The fixture document `name` rendered for `caps`, with the built-in
+/// theme and no images.
+pub fn render_for(name: &str, caps: Capabilities) -> String {
+    render_fixture(name, &Inputs::new(caps))
+}
+
 /// The source of the fixture document `name`.
 pub fn fixture(name: &str) -> String {
     std::fs::read_to_string(fixtures().join(name)).expect("fixture is readable")

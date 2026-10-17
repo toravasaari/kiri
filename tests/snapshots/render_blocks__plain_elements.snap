@@ -1,6 +1,6 @@
 ---
 source: tests/render_blocks.rs
-expression: "render_fixture(\"elements.md\", &Inputs::new(Capabilities::plain(WIDTH)))"
+expression: "render_for(\"elements.md\", Capabilities::plain(WIDTH))"
 ---
 # Every element
 

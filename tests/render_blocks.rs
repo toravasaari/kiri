@@ -6,86 +6,67 @@ use kiri::theme::Theme;
 
 mod common;
 
-use common::{WIDTH, example_theme, inputs, render, render_fixture, strip_own_sequences, visible};
+use common::{
+    WIDTH, example_theme, inputs, render, render_fixture, render_for, strip_own_sequences, visible,
+};
 
 #[test]
 fn plain_basic() {
-    insta::assert_snapshot!(render_fixture(
-        "basic.md",
-        &Inputs::new(Capabilities::plain(WIDTH))
-    ));
+    insta::assert_snapshot!(render_for("basic.md", Capabilities::plain(WIDTH)));
 }
 
 #[test]
 fn plain_elements() {
-    insta::assert_snapshot!(render_fixture(
-        "elements.md",
-        &Inputs::new(Capabilities::plain(WIDTH))
-    ));
+    insta::assert_snapshot!(render_for("elements.md", Capabilities::plain(WIDTH)));
 }
 
 #[test]
 fn ansi_elements() {
-    insta::assert_snapshot!(visible(&render_fixture(
+    insta::assert_snapshot!(visible(&render_for(
         "elements.md",
-        &Inputs::new(Capabilities::ansi(WIDTH))
+        Capabilities::ansi(WIDTH)
     )));
 }
 
 #[test]
 fn kitty_elements() {
-    insta::assert_snapshot!(visible(&render_fixture(
+    insta::assert_snapshot!(visible(&render_for(
         "elements.md",
-        &Inputs::new(Capabilities::kitty(WIDTH))
+        Capabilities::kitty(WIDTH)
     )));
 }
 
 #[test]
 fn plain_nested() {
-    insta::assert_snapshot!(render_fixture(
-        "nested.md",
-        &Inputs::new(Capabilities::plain(WIDTH))
-    ));
+    insta::assert_snapshot!(render_for("nested.md", Capabilities::plain(WIDTH)));
 }
 
 #[test]
 fn kitty_nested() {
-    insta::assert_snapshot!(visible(&render_fixture(
+    insta::assert_snapshot!(visible(&render_for(
         "nested.md",
-        &Inputs::new(Capabilities::kitty(WIDTH))
+        Capabilities::kitty(WIDTH)
     )));
 }
 
 #[test]
 fn plain_nested_narrow() {
-    insta::assert_snapshot!(render_fixture(
-        "nested.md",
-        &Inputs::new(Capabilities::plain(12))
-    ));
+    insta::assert_snapshot!(render_for("nested.md", Capabilities::plain(12)));
 }
 
 #[test]
 fn plain_wide_characters() {
-    insta::assert_snapshot!(render_fixture(
-        "wide.md",
-        &Inputs::new(Capabilities::plain(WIDTH))
-    ));
+    insta::assert_snapshot!(render_for("wide.md", Capabilities::plain(WIDTH)));
 }
 
 #[test]
 fn kitty_wide_characters() {
-    insta::assert_snapshot!(visible(&render_fixture(
-        "wide.md",
-        &Inputs::new(Capabilities::kitty(WIDTH))
-    )));
+    insta::assert_snapshot!(visible(&render_for("wide.md", Capabilities::kitty(WIDTH))));
 }
 
 #[test]
 fn plain_wide_characters_narrow() {
-    insta::assert_snapshot!(render_fixture(
-        "wide.md",
-        &Inputs::new(Capabilities::plain(12))
-    ));
+    insta::assert_snapshot!(render_for("wide.md", Capabilities::plain(12)));
 }
 
 #[test]

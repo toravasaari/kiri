@@ -1,6 +1,6 @@
 ---
 source: tests/render_blocks.rs
-expression: "visible(&render_fixture(\"elements.md\",\n&Inputs::new(Capabilities::ansi(WIDTH))))"
+expression: "visible(&render_for(\"elements.md\", Capabilities::ansi(WIDTH)))"
 ---
 ␛[0;1;4;34mEvery element␛[0m
 

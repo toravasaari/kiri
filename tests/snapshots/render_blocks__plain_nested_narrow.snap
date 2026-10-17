@@ -1,6 +1,6 @@
 ---
 source: tests/render_blocks.rs
-expression: "render_fixture(\"nested.md\", &Inputs::new(Capabilities::plain(12)))"
+expression: "render_for(\"nested.md\", Capabilities::plain(12))"
 ---
 # Nested
 blocks

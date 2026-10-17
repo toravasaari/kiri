@@ -1,6 +1,6 @@
 ---
 source: tests/render_themes.rs
-expression: "visible(&render_fixture(\"elements.md\", &Inputs::new(caps)))"
+expression: "visible(&render_for(\"elements.md\", caps))"
 ---
 ␛[0;1;4m␛]66;s=3;Every element␛\␛[0m
 

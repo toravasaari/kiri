@@ -1,6 +1,6 @@
 ---
 source: tests/render_blocks.rs
-expression: "render_fixture(\"basic.md\", &Inputs::new(Capabilities::plain(WIDTH)))"
+expression: "render_for(\"basic.md\", Capabilities::plain(WIDTH))"
 ---
 # kiri
 

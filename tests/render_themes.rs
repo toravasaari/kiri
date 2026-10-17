@@ -8,7 +8,9 @@ use kiri::theme::{Paper, Theme};
 
 mod common;
 
-use common::{WIDTH, colour_codes, example_theme, inputs, render, render_fixture, visible};
+use common::{
+    WIDTH, colour_codes, example_theme, inputs, render, render_fixture, render_for, visible,
+};
 
 #[test]
 fn kitty_elements_on_light_paper() {
@@ -78,7 +80,7 @@ fn kitty_elements_without_colour() {
         color: false,
         ..Capabilities::kitty(WIDTH)
     };
-    insta::assert_snapshot!(visible(&render_fixture("elements.md", &Inputs::new(caps))));
+    insta::assert_snapshot!(visible(&render_for("elements.md", caps)));
 }
 
 /// Alt text, inline and block HTML, and a link target with no clickable link.
@@ -162,7 +164,7 @@ fn no_color_keeps_everything_but_colours() {
         assert!(out.contains("\x1b]66;s="), "{fixture}: heading sizes stay");
         assert!(out.contains("\x1b[0;1"), "{fixture}: bold stays");
     }
-    let out = render_fixture("elements.md", &Inputs::new(caps.clone()));
+    let out = render_for("elements.md", caps.clone());
     assert!(out.contains("\x1b]8;;https://example.com"), "links stay");
     assert!(out.contains(";4:4"), "underline styles stay");
     assert!(out.contains("\x1b[0;9m"), "strikethrough stays");
@@ -172,7 +174,7 @@ fn no_color_keeps_everything_but_colours() {
         color: false,
         ..Capabilities::ansi(WIDTH)
     };
-    assert!(colour_codes(&render_fixture("elements.md", &Inputs::new(ansi))).is_empty());
+    assert!(colour_codes(&render_for("elements.md", ansi)).is_empty());
     // Layout on its own gives no colours either.
     let inputs = Inputs {
         theme: example_theme("background.toml"),
@@ -187,7 +189,7 @@ fn no_color_keeps_everything_but_colours() {
         "{lines:?}"
     );
     // The colour check itself finds colours when they are on.
-    let coloured = render_fixture("elements.md", &Inputs::new(Capabilities::kitty(WIDTH)));
+    let coloured = render_for("elements.md", Capabilities::kitty(WIDTH));
     assert!(!colour_codes(&coloured).is_empty());
 }
 

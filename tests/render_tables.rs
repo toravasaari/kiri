@@ -5,7 +5,7 @@ use kiri::term::Capabilities;
 
 mod common;
 
-use common::{WIDTH, inputs, render, render_fixture, visible};
+use common::{WIDTH, inputs, render, render_for, visible};
 
 #[test]
 fn inline_code_kept_together_in_a_narrow_table_cell() {
@@ -48,17 +48,14 @@ fn a_table_stacks_only_when_spaced_inline_code_cannot_wrap_in_it() {
 
 #[test]
 fn plain_tables() {
-    insta::assert_snapshot!(render_fixture(
-        "tables.md",
-        &Inputs::new(Capabilities::plain(WIDTH))
-    ));
+    insta::assert_snapshot!(render_for("tables.md", Capabilities::plain(WIDTH)));
 }
 
 #[test]
 fn kitty_tables() {
-    insta::assert_snapshot!(visible(&render_fixture(
+    insta::assert_snapshot!(visible(&render_for(
         "tables.md",
-        &Inputs::new(Capabilities::kitty(WIDTH))
+        Capabilities::kitty(WIDTH)
     )));
 }
 

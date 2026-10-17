@@ -1,6 +1,6 @@
 ---
 source: tests/render_tables.rs
-expression: "render_fixture(\"tables.md\", &Inputs::new(Capabilities::plain(WIDTH)))"
+expression: "render_for(\"tables.md\", Capabilities::plain(WIDTH))"
 ---
 # Tables
 
