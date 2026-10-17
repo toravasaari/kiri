@@ -10,15 +10,14 @@ use kiri::theme::{Paper, Theme};
 
 mod common;
 
-use common::{WIDTH, example_theme, strip_own_sequences};
+use common::{WIDTH, example_theme, render, strip_own_sequences};
 
 #[test]
 fn escape_sequences_in_the_document_are_neutralised() {
-    let document = kiri::parse::parse("text \x1b]0;evil\x07 here\n");
-    let mut out = Vec::new();
-    let inputs = Inputs::new(Capabilities::kitty(WIDTH));
-    kiri::render::render(&document, &inputs, &mut out).unwrap();
-    let out = String::from_utf8(out).unwrap();
+    let out = render(
+        "text \x1b]0;evil\x07 here\n",
+        &Inputs::new(Capabilities::kitty(WIDTH)),
+    );
     assert!(!out.contains("\x1b]0;"), "{out:?}");
 }
 

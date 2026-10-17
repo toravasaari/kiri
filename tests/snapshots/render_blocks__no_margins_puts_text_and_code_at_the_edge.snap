@@ -1,6 +1,6 @@
 ---
 source: tests/render_blocks.rs
-expression: "visible(&render_with(\"elements.md\", &Capabilities::kitty(WIDTH), &theme))"
+expression: "visible(&render_fixture(\"elements.md\",\n&inputs(&Capabilities::kitty(WIDTH), &theme)))"
 ---
 ␛[0;1;4;34m␛]66;s=3;Every element␛\␛[0m
 

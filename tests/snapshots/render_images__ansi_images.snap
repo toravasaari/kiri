@@ -1,6 +1,6 @@
 ---
 source: tests/render_images.rs
-expression: "visible(&render_images(\"images.md\", &Capabilities::ansi(WIDTH)))"
+expression: "visible(&render_fixture(\"images.md\",\n&with_images(&Capabilities::ansi(WIDTH), fixture_images(\"images.md\"))))"
 ---
 ␛[0;1;4;34mImages␛[0m
 

@@ -10,35 +10,41 @@ use kiri::theme::{Paper, Theme};
 mod common;
 
 use common::{
-    WIDTH, colour_codes, drawn, example_theme, one_image, quadrants, readable, render_images,
-    render_images_with_theme, render_with_images, sent, visible,
+    WIDTH, colour_codes, drawn, example_theme, fixture_images, one_image, quadrants, readable,
+    render, render_fixture, sent, visible, with_images,
 };
 
 #[test]
 fn kitty_images() {
-    insta::assert_snapshot!(readable(&render_images(
+    insta::assert_snapshot!(readable(&render_fixture(
         "images.md",
-        &Capabilities::kitty(WIDTH)
+        &with_images(&Capabilities::kitty(WIDTH), fixture_images("images.md"))
     )));
 }
 
 #[test]
 fn ansi_images() {
-    insta::assert_snapshot!(visible(&render_images(
+    insta::assert_snapshot!(visible(&render_fixture(
         "images.md",
-        &Capabilities::ansi(WIDTH)
+        &with_images(&Capabilities::ansi(WIDTH), fixture_images("images.md"))
     )));
 }
 
 #[test]
 fn plain_images() {
-    insta::assert_snapshot!(render_images("images.md", &Capabilities::plain(WIDTH)));
+    insta::assert_snapshot!(render_fixture(
+        "images.md",
+        &with_images(&Capabilities::plain(WIDTH), fixture_images("images.md"))
+    ));
 }
 
 #[test]
 fn an_image_alone_in_a_paragraph_is_drawn() {
     let images = one_image("p.png", quadrants(40, 30));
-    let out = render_with_images("![alone](p.png)\n", images, &Capabilities::kitty(WIDTH));
+    let out = render(
+        "![alone](p.png)\n",
+        &with_images(&Capabilities::kitty(WIDTH), images),
+    );
     assert_eq!(sent(&out).len(), 1);
     assert_eq!(drawn(&out), ["⟦row 0: 4 cells⟧", "⟦row 1: 4 cells⟧"]);
     assert!(!out.contains("[image: alone]"), "{out:?}");
@@ -48,7 +54,7 @@ fn an_image_alone_in_a_paragraph_is_drawn() {
 fn a_linked_image_is_drawn_but_cannot_be_clicked() {
     let images = one_image("p.png", quadrants(40, 30));
     let source = "[![linked](p.png)](https://example.com)\n";
-    let out = render_with_images(source, images, &Capabilities::kitty(WIDTH));
+    let out = render(source, &with_images(&Capabilities::kitty(WIDTH), images));
     assert_eq!(drawn(&out), ["⟦row 0: 4 cells⟧", "⟦row 1: 4 cells⟧"]);
     assert!(!out.contains("\x1b]8;"), "{out:?}");
 }
@@ -60,7 +66,7 @@ fn images_in_running_text_tables_and_headings_stay_alt_text() {
         [![with words](p.png) and words](https://example.com)\n\n\
         | ![cell](p.png) |\n|---|\n| x |\n\n\
         # ![heading](p.png)\n";
-    let out = render_with_images(source, images, &Capabilities::kitty(WIDTH));
+    let out = render(source, &with_images(&Capabilities::kitty(WIDTH), images));
     assert!(sent(&out).is_empty(), "{out:?}");
     assert!(drawn(&out).is_empty(), "{out:?}");
     for alt in ["inline", "with words", "cell", "heading"] {
@@ -88,7 +94,7 @@ fn images_stay_alt_text_without_graphics_placeholders_or_pixels() {
         (Capabilities::kitty(WIDTH), missing),
     ];
     for (caps, images) in cases {
-        let out = render_with_images(source, images, &caps);
+        let out = render(source, &with_images(&caps, images));
         assert!(out.contains("[image: alone]"), "{caps:?}: {out:?}");
         assert!(
             !out.contains('\u{10EEEE}') && !out.contains("\x1b_G"),
@@ -100,11 +106,13 @@ fn images_stay_alt_text_without_graphics_placeholders_or_pixels() {
 #[test]
 fn images_sit_on_the_document_background() {
     let images = one_image("p.png", quadrants(40, 30));
-    let out = render_images_with_theme(
+    let out = render(
         "Text\n\n![p](p.png)\n",
-        images,
-        &Capabilities::kitty(WIDTH),
-        &example_theme("opaque.toml"),
+        &Inputs {
+            images,
+            theme: example_theme("opaque.toml"),
+            ..Inputs::new(Capabilities::kitty(WIDTH))
+        },
     );
     assert_eq!(drawn(&out), ["⟦row 0: 4 cells⟧", "⟦row 1: 4 cells⟧"]);
     // The background of opaque.toml, #1c1f26, behind the placeholders and
@@ -124,11 +132,13 @@ fn images_sit_on_the_document_background() {
 #[test]
 fn text_after_an_image_takes_the_paper_foreground_again() {
     let images = one_image("p.png", quadrants(40, 30));
-    let out = render_images_with_theme(
+    let out = render(
         "![p](p.png)\n\nText after the image\n",
-        images,
-        &Capabilities::kitty(WIDTH),
-        &Theme::paper(Paper::Light),
+        &Inputs {
+            images,
+            theme: Theme::paper(Paper::Light),
+            ..Inputs::new(Capabilities::kitty(WIDTH))
+        },
     );
     assert_eq!(drawn(&out), ["⟦row 0: 4 cells⟧", "⟦row 1: 4 cells⟧"]);
     // The placeholders carry the image id in their foreground; the text
@@ -148,11 +158,13 @@ fn no_color_draws_images_without_other_colours() {
         ..Capabilities::kitty(WIDTH)
     };
     for theme in [Theme::default(), example_theme("opaque.toml")] {
-        let out = render_images_with_theme(
+        let out = render(
             "Text\n\n![p](p.png)\n",
-            one_image("p.png", quadrants(40, 30)),
-            &caps,
-            &theme,
+            &Inputs {
+                images: one_image("p.png", quadrants(40, 30)),
+                theme: theme.clone(),
+                ..Inputs::new(caps.clone())
+            },
         );
         let sent = sent(&out);
         assert_eq!(sent.len(), 1);
@@ -172,10 +184,7 @@ fn images_indent_with_margins_lists_and_quotes() {
     use kiri::render::wrap::width;
     let images = one_image("p.png", quadrants(40, 30));
     let source = "![top](p.png)\n\n- ![listed](p.png)\n\n> ![quoted](p.png)\n";
-    let inputs = Inputs {
-        images,
-        ..Inputs::new(Capabilities::kitty(WIDTH))
-    };
+    let inputs = with_images(&Capabilities::kitty(WIDTH), images);
     let lines = kiri::render::layout::layout(&kiri::parse::parse(source), &inputs);
     let rows: Vec<(String, u16, u16)> = (lines.iter())
         .filter_map(|line| {
@@ -205,10 +214,7 @@ fn images_never_reach_past_the_width() {
     let images = one_image("p.png", quadrants(2000, 100));
     let source = "![top](p.png)\n\n- ![listed](p.png)\n\n> > ![quoted](p.png)\n";
     let document = kiri::parse::parse(source);
-    let mut inputs = Inputs {
-        images,
-        ..Inputs::new(Capabilities::kitty(WIDTH))
-    };
+    let mut inputs = with_images(&Capabilities::kitty(WIDTH), images);
     for terminal_width in [12, 16, 24, 40, 80] {
         inputs.caps = Capabilities::kitty(terminal_width);
         let lines = kiri::render::layout::layout(&document, &inputs);
@@ -231,10 +237,7 @@ fn images_taller_than_the_cell_limit_are_clamped() {
     let tall = || one_image("p.png", quadrants(400, 2000));
     let document = kiri::parse::parse("![tall](p.png)\n");
     let image_sizes = |caps: Capabilities, images: Images| -> Vec<(u16, u16)> {
-        let inputs = Inputs {
-            images,
-            ..Inputs::new(caps)
-        };
+        let inputs = with_images(&caps, images);
         let lines = kiri::render::layout::layout(&document, &inputs);
         (lines.iter())
             .filter_map(|line| line.image.as_ref())
@@ -265,7 +268,7 @@ fn an_image_is_sent_once_for_each_size_it_is_shown_at() {
     // As wide as the text at the top level, so it shrinks in the quote.
     let images = one_image("p.png", quadrants(440, 40));
     let source = "![a](p.png)\n\n![again](p.png)\n\n> ![quoted](p.png)\n";
-    let out = render_with_images(source, images, &Capabilities::kitty(WIDTH));
+    let out = render(source, &with_images(&Capabilities::kitty(WIDTH), images));
     let sent = sent(&out);
     let sizes: Vec<(&str, &str)> = (sent.iter())
         .map(|image| (image.keys["c"].as_str(), image.keys["r"].as_str()))
@@ -284,7 +287,7 @@ fn sent_pixels_are_the_image_at_its_shown_size() {
         cell_pixels: Some((10, 40)),
         ..Capabilities::kitty(WIDTH)
     };
-    let out = render_with_images("![p](p.png)\n", images, &caps);
+    let out = render("![p](p.png)\n", &with_images(&caps, images));
     let sent = sent(&out);
     assert_eq!(sent.len(), 1);
     let keys = &sent[0].keys;
@@ -328,7 +331,7 @@ fn an_svg_is_drawn_at_its_shown_size_not_scaled() {
         cell_pixels: Some((10, 40)),
         ..Capabilities::kitty(WIDTH)
     };
-    let out = render_with_images("![p](p.svg)\n", images, &caps);
+    let out = render("![p](p.svg)\n", &with_images(&caps, images));
     let sent = sent(&out);
     assert_eq!(sent.len(), 1);
     assert_eq!(

@@ -1,6 +1,6 @@
 ---
 source: tests/render_blocks.rs
-expression: "render(\"wide.md\", &Capabilities::plain(WIDTH))"
+expression: "render_fixture(\"wide.md\", &Inputs::new(Capabilities::plain(WIDTH)))"
 ---
 # 日本語の見出し 🦀
 

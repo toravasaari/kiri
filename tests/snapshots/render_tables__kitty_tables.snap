@@ -1,6 +1,6 @@
 ---
 source: tests/render_tables.rs
-expression: "visible(&render(\"tables.md\", &Capabilities::kitty(WIDTH)))"
+expression: "visible(&render_fixture(\"tables.md\",\n&Inputs::new(Capabilities::kitty(WIDTH))))"
 ---
 ␛[0;1;4;34m␛]66;s=3;Tables␛\␛[0m
 

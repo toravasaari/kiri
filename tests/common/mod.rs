@@ -11,30 +11,44 @@ use base64::Engine;
 use image::{Rgba, RgbaImage};
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, Images, Source};
 use kiri::kitty::graphics::{DIACRITICS, PLACEHOLDER};
-use kiri::model::Document;
 use kiri::render::Inputs;
 use kiri::term::Capabilities;
 use kiri::theme::Theme;
 
 pub const WIDTH: u16 = 48;
 
-pub fn render(fixture: &str, caps: &Capabilities) -> String {
-    render_with(fixture, caps, &Theme::default())
-}
-
-pub fn render_with(fixture: &str, caps: &Capabilities, theme: &Theme) -> String {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures")
-        .join(fixture);
-    let source = std::fs::read_to_string(&path).expect("fixture is readable");
-    let document = kiri::parse::parse(&source);
-    let mut out = Vec::new();
-    let inputs = Inputs {
+/// Inputs with `caps` and `theme`, and no images.
+pub fn inputs(caps: &Capabilities, theme: &Theme) -> Inputs {
+    Inputs {
         theme: theme.clone(),
         ..Inputs::new(caps.clone())
-    };
-    kiri::render::render(&document, &inputs, &mut out).expect("rendering to memory succeeds");
+    }
+}
+
+/// Inputs with `caps` and `images`, and the built-in theme.
+pub fn with_images(caps: &Capabilities, images: Images) -> Inputs {
+    Inputs {
+        images,
+        ..Inputs::new(caps.clone())
+    }
+}
+
+/// `source` rendered with `inputs`.
+pub fn render(source: &str, inputs: &Inputs) -> String {
+    let document = kiri::parse::parse(source);
+    let mut out = Vec::new();
+    kiri::render::render(&document, inputs, &mut out).expect("rendering to memory succeeds");
     String::from_utf8(out).expect("output is UTF-8")
+}
+
+/// The fixture document `name` rendered with `inputs`.
+pub fn render_fixture(name: &str, inputs: &Inputs) -> String {
+    render(&fixture(name), inputs)
+}
+
+/// The source of the fixture document `name`.
+pub fn fixture(name: &str) -> String {
+    std::fs::read_to_string(fixtures().join(name)).expect("fixture is readable")
 }
 
 pub fn example_theme(name: &str) -> Theme {
@@ -48,17 +62,6 @@ pub fn example_theme(name: &str) -> Theme {
 /// read and diffed.
 pub fn visible(output: &str) -> String {
     output.replace('\x1b', "␛").replace('\u{a0}', "⍽")
-}
-
-pub fn render_source(source: &str, caps: &Capabilities, theme: &Theme) -> String {
-    let document = kiri::parse::parse(source);
-    let mut out = Vec::new();
-    let inputs = Inputs {
-        theme: theme.clone(),
-        ..Inputs::new(caps.clone())
-    };
-    kiri::render::render(&document, &inputs, &mut out).unwrap();
-    String::from_utf8(out).unwrap()
 }
 
 /// SGR colour codes in the output: 30-37, 38, 40-47, 48, 58, 90-97 and
@@ -141,14 +144,19 @@ pub fn one_image(url: &str, image: RgbaImage) -> Images {
     images
 }
 
-/// The images of `document` as kiri loads them from the fixtures, with each
+/// The images of the fixture document `name` as kiri loads them, with each
 /// one that loads replaced by quadrants of the same size. Snapshots then
 /// show real sizes and errors, but not the decoders' work, and the image
 /// data compresses to a few bytes. Without fonts, as the sizes do not
 /// depend on them.
-pub fn fixture_images(document: &Document) -> Images {
-    let loaded =
-        kiri::images::load_with(document, &fixtures(), DEFAULT_MAX_FILE_SIZE, &Fonts::none());
+pub fn fixture_images(name: &str) -> Images {
+    let document = kiri::parse::parse(&fixture(name));
+    let loaded = kiri::images::load_with(
+        &document,
+        &fixtures(),
+        DEFAULT_MAX_FILE_SIZE,
+        &Fonts::none(),
+    );
     let mut images = Images::new();
     for (url, image) in loaded.iter() {
         let image = match image {
@@ -161,26 +169,6 @@ pub fn fixture_images(document: &Document) -> Images {
         images.insert(url, image);
     }
     images
-}
-
-pub fn render_document(document: &Document, images: Images, caps: &Capabilities) -> String {
-    let inputs = Inputs {
-        images,
-        ..Inputs::new(caps.clone())
-    };
-    let mut out = Vec::new();
-    kiri::render::render(document, &inputs, &mut out).unwrap();
-    String::from_utf8(out).unwrap()
-}
-
-pub fn render_images(fixture: &str, caps: &Capabilities) -> String {
-    let source = std::fs::read_to_string(fixtures().join(fixture)).unwrap();
-    let document = kiri::parse::parse(&source);
-    render_document(&document, fixture_images(&document), caps)
-}
-
-pub fn render_with_images(source: &str, images: Images, caps: &Capabilities) -> String {
-    render_document(&kiri::parse::parse(source), images, caps)
 }
 
 /// The keys and base64 data of every graphics command in `output`.
@@ -288,23 +276,6 @@ pub fn sent(output: &str) -> Vec<Sent> {
         }
     }
     images
-}
-
-/// `source` with `images`, rendered with `theme`.
-pub fn render_images_with_theme(
-    source: &str,
-    images: Images,
-    caps: &Capabilities,
-    theme: &Theme,
-) -> String {
-    let inputs = Inputs {
-        images,
-        caps: caps.clone(),
-        theme: theme.clone(),
-    };
-    let mut out = Vec::new();
-    kiri::render::render(&kiri::parse::parse(source), &inputs, &mut out).unwrap();
-    String::from_utf8(out).unwrap()
 }
 
 // The kiri binary

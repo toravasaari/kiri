@@ -1,6 +1,6 @@
 ---
 source: tests/render_images.rs
-expression: "render_images(\"images.md\", &Capabilities::plain(WIDTH))"
+expression: "render_fixture(\"images.md\",\n&with_images(&Capabilities::plain(WIDTH), fixture_images(\"images.md\")))"
 ---
 # Images
 

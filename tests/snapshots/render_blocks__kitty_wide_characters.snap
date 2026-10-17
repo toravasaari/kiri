@@ -1,6 +1,6 @@
 ---
 source: tests/render_blocks.rs
-expression: "visible(&render(\"wide.md\", &Capabilities::kitty(WIDTH)))"
+expression: "visible(&render_fixture(\"wide.md\", &Inputs::new(Capabilities::kitty(WIDTH))))"
 ---
 ␛[0;1;4;34m␛]66;s=3;日本語の見出し␛\␛[0m
 

@@ -6,25 +6,23 @@ use kiri::theme::Theme;
 
 mod common;
 
-use common::{WIDTH, example_theme, render_source, render_with, strip_own_sequences, visible};
+use common::{WIDTH, example_theme, inputs, render, render_fixture, strip_own_sequences, visible};
 
 #[test]
 fn kitty_headings_with_rules() {
     let theme = example_theme("rules.toml");
-    insta::assert_snapshot!(visible(&render_with(
+    insta::assert_snapshot!(visible(&render_fixture(
         "headings.md",
-        &Capabilities::kitty(WIDTH),
-        &theme
+        &inputs(&Capabilities::kitty(WIDTH), &theme)
     )));
 }
 
 #[test]
 fn kitty_headings_on_a_background() {
     let theme = example_theme("background.toml");
-    insta::assert_snapshot!(visible(&render_with(
+    insta::assert_snapshot!(visible(&render_fixture(
         "headings.md",
-        &Capabilities::kitty(WIDTH),
-        &theme
+        &inputs(&Capabilities::kitty(WIDTH), &theme)
     )));
 }
 
@@ -60,26 +58,20 @@ fn heading_background_reaches_the_right_edge() {
 #[test]
 fn kitty_headings_on_an_opaque_document() {
     let theme = example_theme("opaque.toml");
-    insta::assert_snapshot!(visible(&render_with(
+    insta::assert_snapshot!(visible(&render_fixture(
         "headings.md",
-        &Capabilities::kitty(WIDTH),
-        &theme
+        &inputs(&Capabilities::kitty(WIDTH), &theme)
     )));
 }
 
 #[test]
 fn rules_span_the_terminal_past_max_width() {
     let theme = kiri::theme::parse("max_width = 20\n[h1]\nrule = true\n").unwrap();
-    let document = kiri::parse::parse("# Title\n\nText\n\n---\n");
-    let mut out = Vec::new();
-    let inputs = Inputs {
-        theme,
-        ..Inputs::new(Capabilities::ansi(30))
-    };
-    kiri::render::render(&document, &inputs, &mut out).unwrap();
-    let rules: Vec<usize> = String::from_utf8(out)
-        .unwrap()
-        .lines()
+    let out = render(
+        "# Title\n\nText\n\n---\n",
+        &inputs(&Capabilities::ansi(30), &theme),
+    );
+    let rules: Vec<usize> = (out.lines())
         .map(|line| line.matches('─').count())
         .filter(|&count| count > 0)
         .collect();
@@ -90,16 +82,13 @@ fn rules_span_the_terminal_past_max_width() {
 #[test]
 fn nested_headings_are_not_indented() {
     let theme = example_theme("indent.toml");
-    let document = kiri::parse::parse("# Top\n\n> # Quoted\n\n- # Listed\n");
-    let mut out = Vec::new();
-    let inputs = Inputs {
-        theme,
-        ..Inputs::new(Capabilities::ansi(40))
-    };
-    kiri::render::render(&document, &inputs, &mut out).unwrap();
+    let out = render(
+        "# Top\n\n> # Quoted\n\n- # Listed\n",
+        &inputs(&Capabilities::ansi(40), &theme),
+    );
     // The indent stays on the top-level heading only; nested ones start
     // right after the quote bar or the bullet.
-    insta::assert_snapshot!(visible(&String::from_utf8(out).unwrap()));
+    insta::assert_snapshot!(visible(&out));
 }
 
 #[test]
@@ -111,7 +100,7 @@ fn empty_headings_disappear() {
         Capabilities::ansi(WIDTH),
         Capabilities::kitty(WIDTH),
     ] {
-        let out = render_source(source, &caps, &theme);
+        let out = render(source, &inputs(&caps, &theme));
         assert_eq!(
             strip_own_sequences(&out),
             "  Before\n\n  After\n",
@@ -125,14 +114,17 @@ fn empty_headings_disappear() {
 fn a_heading_that_renders_nothing_disappears() {
     // An empty link shows nothing when links are clickable.
     let source = "Before\n\n# [](https://example.com)\n\nAfter\n";
-    let out = render_source(source, &Capabilities::kitty(WIDTH), &Theme::default());
+    let out = render(source, &Inputs::new(Capabilities::kitty(WIDTH)));
     assert_eq!(strip_own_sequences(&out), "  Before\n\n  After\n");
 }
 
 #[test]
 fn an_empty_heading_keeps_its_rule() {
     let theme = kiri::theme::parse("[h1]\nrule = true\n").unwrap();
-    let out = render_source("Before\n\n#\n\nAfter\n", &Capabilities::kitty(20), &theme);
+    let out = render(
+        "Before\n\n#\n\nAfter\n",
+        &inputs(&Capabilities::kitty(20), &theme),
+    );
     let rule = "─".repeat(20);
     assert_eq!(
         strip_own_sequences(&out),

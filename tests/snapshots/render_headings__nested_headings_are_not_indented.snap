@@ -1,6 +1,6 @@
 ---
 source: tests/render_headings.rs
-expression: "visible(&String::from_utf8(out).unwrap())"
+expression: visible(&out)
 ---
  ␛[0;1;4;34mTop␛[0m
 
