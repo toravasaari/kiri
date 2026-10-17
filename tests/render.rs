@@ -956,6 +956,40 @@ fn images_never_reach_past_the_width() {
 }
 
 #[test]
+fn images_taller_than_the_cell_limit_are_clamped() {
+    // 2000 CSS pixels high, a hundred rows at their natural size.
+    let tall = one_image("p.png", quadrants(400, 2000));
+    let document = kiri::parse::parse("![tall](p.png)\n");
+    let image_sizes = |caps: &Capabilities, images: &Images| -> Vec<(u16, u16)> {
+        let lines = kiri::render::layout::layout(&document, images, caps, &Theme::default());
+        (lines.iter())
+            .filter_map(|line| line.image.as_ref())
+            .filter(|image| image.row == 0)
+            .map(|image| (image.placement.size.columns, image.placement.size.rows))
+            .collect()
+    };
+    let limited = Capabilities {
+        max_image_cells: 10,
+        ..Capabilities::kitty(WIDTH)
+    };
+    // Ten rows of 20 pixels, and the width shrinks with them: 40 pixels.
+    assert_eq!(image_sizes(&limited, &tall), [(4, 10)]);
+    assert_eq!(image_sizes(&Capabilities::kitty(WIDTH), &tall), [(40, 100)]);
+    // kitty's own limit, one row for each placeholder diacritic.
+    let taller = one_image("p.png", quadrants(10, 8000));
+    let max = DIACRITICS.len() as u16;
+    assert_eq!(
+        image_sizes(&Capabilities::kitty(WIDTH), &taller),
+        [(1, max)]
+    );
+    let none = Capabilities {
+        max_image_cells: 0,
+        ..Capabilities::kitty(WIDTH)
+    };
+    assert_eq!(image_sizes(&none, &tall), []);
+}
+
+#[test]
 fn an_image_is_sent_once_for_each_size_it_is_shown_at() {
     // As wide as the text at the top level, so it shrinks in the quote.
     let images = one_image("p.png", quadrants(440, 40));

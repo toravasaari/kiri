@@ -12,7 +12,6 @@ use super::table::{self, Cells};
 use super::wrap::wrap;
 use crate::color::{Color, Underline};
 use crate::images::Images;
-use crate::kitty::graphics;
 use crate::model::{Block, Document, Inline, List, Table};
 use crate::term::Capabilities;
 use crate::theme::{CodeBackground, Theme};
@@ -243,15 +242,13 @@ impl Layout<'_> {
         let Some(Ok(source)) = self.images.get(url) else {
             return None;
         };
-        // kitty's placeholders count at most this many rows and columns.
-        let max_columns = u16::try_from(width)
-            .unwrap_or(u16::MAX)
-            .min(graphics::MAX_CELLS);
+        let max_cells = self.caps.max_image_cells;
+        let max_columns = u16::try_from(width).unwrap_or(u16::MAX).min(max_cells);
         let size = image::size(
             source.size(),
             image::cell_size(self.caps),
             max_columns,
-            graphics::MAX_CELLS,
+            max_cells,
         )?;
         let placement = Rc::new(Placement {
             url: url.to_owned(),

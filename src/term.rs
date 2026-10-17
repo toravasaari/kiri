@@ -1,5 +1,7 @@
 //! What the output terminal can do, and asking it.
 
+use crate::kitty::graphics;
+
 /// Terminal features the renderer may use. Built once at start-up and passed
 /// to the renderer, so rendering itself never talks to the terminal.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +25,10 @@ pub struct Capabilities {
     /// which is how kiri shows every image. Terminals that answer the
     /// graphics query do not all support them.
     pub image_placeholders: bool,
+    /// The most rows and the most columns one image may cover; 0 without
+    /// images. The limit comes from how images are placed, for kitty the
+    /// number of placeholder diacritics.
+    pub max_image_cells: u16,
     /// Underline styles other than single (SGR `4:x`), which kitty
     /// introduced; without them every underline is single. Only the probe
     /// sets it, apart from `--mode kitty`.
@@ -45,6 +51,7 @@ impl Capabilities {
             text_sizing: false,
             graphics: false,
             image_placeholders: false,
+            max_image_cells: 0,
             styled_underlines: false,
             cell_pixels: None,
             dark_background: None,
@@ -75,6 +82,7 @@ impl Capabilities {
             text_sizing: true,
             graphics: true,
             image_placeholders: true,
+            max_image_cells: graphics::MAX_CELLS,
             styled_underlines: true,
             ..Self::plain(width)
         }
@@ -95,19 +103,29 @@ pub fn detect(width: Option<u16>) -> Capabilities {
     caps.truecolor = std::env::var("COLORTERM").is_ok_and(|v| v == "truecolor" || v == "24bit");
     caps.hyperlinks = hyperlinks_by_environment();
 
-    if let Some(answers) = probe::run() {
-        let probe = probe::interpret(&answers);
-        caps.text_sizing = probe.text_sizing;
-        caps.graphics = probe.graphics;
-        caps.image_placeholders = probe.image_placeholders;
-        caps.dark_background = probe.dark_background;
-        // Only kitty-compatible terminals implement these protocols, and all
-        // of them also do 24-bit colour, OSC 8 and underline styles.
-        if probe.text_sizing || probe.graphics {
-            caps.truecolor = true;
-            caps.hyperlinks = true;
-            caps.styled_underlines = true;
-        }
+    match probe::run() {
+        Some(answers) => with_probe(caps, &probe::interpret(&answers)),
+        None => caps,
+    }
+}
+
+/// `caps` with what the terminal's answers to the probe tell.
+fn with_probe(mut caps: Capabilities, probe: &probe::Probe) -> Capabilities {
+    caps.text_sizing = probe.text_sizing;
+    caps.graphics = probe.graphics;
+    caps.image_placeholders = probe.image_placeholders;
+    caps.max_image_cells = if probe.image_placeholders {
+        graphics::MAX_CELLS
+    } else {
+        0
+    };
+    caps.dark_background = probe.dark_background;
+    // Only kitty-compatible terminals implement these protocols, and all
+    // of them also do 24-bit colour, OSC 8 and underline styles.
+    if probe.text_sizing || probe.graphics {
+        caps.truecolor = true;
+        caps.hyperlinks = true;
+        caps.styled_underlines = true;
     }
     caps
 }
@@ -156,6 +174,30 @@ mod tests {
     use std::ffi::OsStr;
 
     use super::*;
+
+    #[test]
+    fn a_probed_kitty_draws_images_up_to_the_placeholder_limit() {
+        let answers = "\x1b[5;1R\x1b[5;3R\x1b[5;5R\x1b_Gi=31;OK\x1b\\\x1b[?62;c";
+        let caps = with_probe(
+            Capabilities::ansi(80),
+            &probe::interpret(answers.as_bytes()),
+        );
+        assert!(caps.draws_images());
+        assert_eq!(caps.max_image_cells, graphics::MAX_CELLS);
+        assert_eq!(caps, Capabilities::kitty(80));
+    }
+
+    #[test]
+    fn a_terminal_without_placeholders_draws_no_images() {
+        let answers = "\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1b_Gi=31;OK\x1b\\\x1b[?62;c";
+        let caps = with_probe(
+            Capabilities::ansi(80),
+            &probe::interpret(answers.as_bytes()),
+        );
+        assert!(caps.graphics);
+        assert!(!caps.draws_images());
+        assert_eq!(caps.max_image_cells, 0);
+    }
 
     #[test]
     fn no_color_needs_a_value() {
