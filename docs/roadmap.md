@@ -67,12 +67,21 @@ example, come before the rest of phase 3.
 - `kiri image.png` shows an image on its own.
 - HTML `<img>` tags with `src`, `alt`, `width` and `height`.
 - Cargo features for a minimal build and a full build with every format.
+- Groundwork: one query for the window size in cells and pixels. Fitting
+  the window needs its height, and `term.rs` now asks for the width and
+  the cell size separately.
 
 ### 4.2 Formulas
 
 - `$…$` and `$$…$$` in LaTeX syntax, as GitHub Markdown writes them, and in
   Typst syntax, rendered to images through Typst's math engine.
 - A cache for rendered images.
+- Groundwork, before formulas and diagrams are worked on side by side:
+  images that come from a block rather than a URL. `Images` maps URLs to
+  images; formulas and diagrams need keys of their own and one cache.
+- Groundwork: `render/layout.rs` split by block type (lists, quotes, code)
+  before the next block type joins it, formulas or GitHub alert blocks,
+  whichever comes first.
 
 ### 4.3 Diagrams
 
@@ -82,6 +91,10 @@ example, come before the rest of phase 3.
 
 - Animated GIF, WebP and APNG, played by kitty itself.
 - Video (WebM, MP4, AVI and others) through ffmpeg when it is installed.
+- Groundwork: what has been sent to the terminal, and under which image
+  id, moves from `render/output.rs` behind an image encoder. Animation
+  frames need that state, and the other image protocols of phase 5 fill
+  it differently.
 
 ### 4.5 Links
 
@@ -93,6 +106,8 @@ example, come before the rest of phase 3.
 - Interactive pager (`kiri -i`): scrolling, search, a table of contents,
   link selection, anchor jumps, back history, reload on file change.
 - Pager status line with key hints and a `?` help panel.
+- Groundwork: raw mode, now inside the probe in `term.rs`, usable for
+  reading keys.
 
 ### 4.7 Other input formats
 
@@ -101,6 +116,10 @@ example, come before the rest of phase 3.
 ## Phase 5 – Beyond kitty
 
 - Other terminals: sixel and iTerm2 images, plain styling for headings.
+- Groundwork: `Capabilities.graphics` names the image protocol instead of
+  a yes or no, and the probe keeps the terminal's name, version and device
+  attributes, where sixel support shows, instead of only yes-or-no
+  answers.
 - Images as coloured Unicode block characters where no image protocol
   works.
 - Remote images, off by default because fetching one tells its server that
