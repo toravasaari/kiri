@@ -102,7 +102,7 @@ crates/kiri-image-scale    image scaling, a crate of its own in the workspace
 Image scaling lives in its own crate, a path dependency of kiri, because
 most of fast_image_resize is generic and compiled in the crate that calls
 it. As a separate crate it can be optimised in debug builds, where it
-scales a large photo in a few hundredths of a second instead of seconds,
+scales a large photo in tenths of a second at most instead of seconds,
 while kiri's own code stays easy to debug.
 
 ## Choices
