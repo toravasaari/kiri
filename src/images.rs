@@ -237,6 +237,9 @@ pub enum ImageError {
     Missing(PathBuf),
     /// The file exists but reading it failed.
     Unreadable { path: PathBuf, reason: String },
+    /// A directory, device, pipe or anything else that is not a regular
+    /// file.
+    NotAFile(PathBuf),
     /// `http:` and `https:` images are not fetched.
     Remote,
     /// A URL scheme other than `http`, `https` or `data`.
@@ -260,6 +263,7 @@ impl fmt::Display for ImageError {
         match self {
             ImageError::Missing(path) => write!(f, "{}: file not found", path.display()),
             ImageError::Unreadable { path, reason } => write!(f, "{}: {reason}", path.display()),
+            ImageError::NotAFile(path) => write!(f, "{}: not a regular file", path.display()),
             ImageError::Remote => f.write_str("remote images are not loaded"),
             ImageError::UnsupportedScheme(scheme) => write!(f, "{scheme}: URLs are not loaded"),
             ImageError::InvalidData => f.write_str("invalid data: URL"),
@@ -325,9 +329,11 @@ impl Images {
             .filter_map(|(url, image)| match image {
                 Ok(_) => None,
                 // These name the file, resolved against the document.
-                Err(error @ (ImageError::Missing(_) | ImageError::Unreadable { .. })) => {
-                    Some(error.to_string())
-                }
+                Err(
+                    error @ (ImageError::Missing(_)
+                    | ImageError::Unreadable { .. }
+                    | ImageError::NotAFile(_)),
+                ) => Some(error.to_string()),
                 // A data: URL is the image itself, too long for a message.
                 Err(error) if scheme(url).is_some_and(|s| s.eq_ignore_ascii_case("data")) => {
                     Some(format!("data: URL: {error}"))
@@ -411,18 +417,28 @@ pub fn load_url(url: &str, base: &Path, fonts: &Fonts) -> Result<Source, ImageEr
         None => {
             let decoded = percent_decode(url.as_bytes());
             let path = base.join(String::from_utf8(decoded).as_deref().unwrap_or(url));
-            match std::fs::read(&path) {
-                Ok(bytes) => decode(&bytes, fonts),
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                    Err(ImageError::Missing(path))
-                }
-                Err(error) => Err(ImageError::Unreadable {
-                    path,
-                    reason: error.to_string(),
-                }),
-            }
+            let bytes = read_file(&path)?;
+            decode(&bytes, fonts)
         }
     }
+}
+
+/// The contents of the regular file at `path`. Directories, devices and
+/// pipes are refused before they are opened: reading `/dev/zero` never
+/// ends, and opening a pipe waits for a writer.
+fn read_file(path: &Path) -> Result<Vec<u8>, ImageError> {
+    let unreadable = |error: io::Error| match error.kind() {
+        io::ErrorKind::NotFound => ImageError::Missing(path.to_owned()),
+        _ => ImageError::Unreadable {
+            path: path.to_owned(),
+            reason: error.to_string(),
+        },
+    };
+    let metadata = std::fs::metadata(path).map_err(unreadable)?;
+    if !metadata.is_file() {
+        return Err(ImageError::NotAFile(path.to_owned()));
+    }
+    std::fs::read(path).map_err(unreadable)
 }
 
 /// The URL's scheme, such as `https`, or `None` for a path. A single letter
@@ -903,11 +919,35 @@ mod tests {
     }
 
     #[test]
-    fn reports_a_directory_as_unreadable() {
-        assert!(matches!(
+    fn reads_only_regular_files() {
+        let images = fixtures().join("images");
+        assert_eq!(
             fixture("pngsuite"),
-            Err(ImageError::Unreadable { .. })
-        ));
+            Err(ImageError::NotAFile(images.join("pngsuite")))
+        );
+        // A device that never ends.
+        assert_eq!(
+            load_url("/dev/zero", Path::new("/"), &Fonts::none()),
+            Err(ImageError::NotAFile("/dev/zero".into()))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn does_not_wait_on_a_named_pipe() {
+        let dir = std::env::temp_dir().join(format!("kiri-test-fifo-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fifo = dir.join("image.png");
+        let _ = std::fs::remove_file(&fifo);
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap();
+        assert!(made.success());
+        // Opening a pipe that nobody writes to would block.
+        let loaded = load_url("image.png", &dir, &Fonts::none());
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(loaded, Err(ImageError::NotAFile(fifo)));
     }
 
     #[test]
@@ -1028,6 +1068,7 @@ mod tests {
         let messages = [
             ImageError::Missing("a/b.png".into()).to_string(),
             ImageError::Remote.to_string(),
+            ImageError::NotAFile("/dev/zero".into()).to_string(),
             ImageError::TooLarge {
                 width: 20000,
                 height: 20000,
@@ -1039,6 +1080,7 @@ mod tests {
             [
                 "a/b.png: file not found",
                 "remote images are not loaded",
+                "/dev/zero: not a regular file",
                 "20000 × 20000 pixels is too large to load",
             ]
         );
