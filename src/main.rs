@@ -10,7 +10,12 @@ use kiri::theme::{Paper, Theme};
 
 /// Render a Markdown document in the terminal.
 #[derive(Parser)]
-#[command(version)]
+#[command(
+    version,
+    after_help = "Images are drawn only in terminals that support kitty's \
+                  graphics protocol with Unicode placeholders, such as kitty \
+                  0.28 or later; elsewhere they show their alt text."
+)]
 struct Cli {
     /// Markdown file to render.
     file: PathBuf,

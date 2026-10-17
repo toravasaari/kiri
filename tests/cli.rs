@@ -171,6 +171,10 @@ fn help_explains_max_image_size_and_images() {
     assert!(help.contains("--max-image-size <MB>"), "{help}");
     assert!(help.contains("[default: 10]"), "{help}");
     assert!(help.contains("--images"), "{help}");
+    assert!(
+        help.contains("Images are drawn only in terminals"),
+        "{help}"
+    );
 }
 
 #[test]
