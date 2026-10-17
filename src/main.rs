@@ -3,11 +3,11 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, ValueEnum};
-use kiri::config::{Config, Environment, ThemeSource};
+use kiri::config::{Environment, Options};
 use kiri::images::Images;
 use kiri::render::Inputs;
 use kiri::term::Capabilities;
-use kiri::theme::{Paper, Theme};
+use kiri::theme::Paper;
 
 /// Render a Markdown document in the terminal.
 #[derive(Parser)]
@@ -97,7 +97,7 @@ fn run(cli: &Cli) -> Result<(), String> {
         .map_err(|error| format!("{}: {error}", cli.file.display()))?;
     let env = Environment::from_process();
     let config = kiri::config::load(&env)?;
-    let settings = settings(cli, &env, &config)?;
+    let settings = kiri::config::settings(&options(cli), &env, &config)?;
     let mut caps = capabilities(cli);
     // The page decides, whatever the terminal's background is.
     if let Some(paper) = settings.paper {
@@ -130,44 +130,21 @@ fn run(cli: &Cli) -> Result<(), String> {
     }
 }
 
-/// What the options, the environment and the configuration file choose
-/// together.
-struct Settings {
-    theme: Theme,
-    paper: Option<Paper>,
-    images: bool,
-}
-
-fn settings(cli: &Cli, env: &Environment, config: &Config) -> Result<Settings, String> {
-    let paper = match (cli.light, cli.dark) {
-        (true, _) => Some(Paper::Light),
-        (_, true) => Some(Paper::Dark),
-        _ => None,
-    };
-    let theme_source = kiri::config::theme_source(cli.theme.as_deref(), paper, env, config);
-    let theme = load_theme(theme_source)?;
-    let images = match (cli.images, cli.no_images) {
-        (true, _) => Some(true),
-        (_, true) => Some(false),
-        _ => None,
-    };
-    Ok(Settings {
-        theme: if cli.no_margins {
-            theme.without_margins()
-        } else {
-            theme
+/// What the command line asks for.
+fn options(cli: &Cli) -> Options {
+    Options {
+        theme: cli.theme.clone(),
+        paper: match (cli.light, cli.dark) {
+            (true, _) => Some(Paper::Light),
+            (_, true) => Some(Paper::Dark),
+            _ => None,
         },
-        paper,
-        images: kiri::config::images(images, env, config),
-    })
-}
-
-fn load_theme(source: ThemeSource) -> Result<Theme, String> {
-    match source {
-        ThemeSource::File(path) => kiri::theme::load(&path),
-        ThemeSource::DefaultFile(path) if path.exists() => kiri::theme::load(&path),
-        ThemeSource::DefaultFile(_) | ThemeSource::BuiltIn => Ok(Theme::default()),
-        ThemeSource::Paper(paper) => Ok(Theme::paper(paper)),
+        no_margins: cli.no_margins,
+        images: match (cli.images, cli.no_images) {
+            (true, _) => Some(true),
+            (_, true) => Some(false),
+            _ => None,
+        },
     }
 }
 
