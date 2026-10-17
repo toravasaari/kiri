@@ -494,6 +494,72 @@ fn kitty_elements_without_colour() {
     insta::assert_snapshot!(visible(&render("elements.md", &caps)));
 }
 
+/// Alt text, inline and block HTML, and a link target with no clickable link.
+const MUTED_SOURCE: &str = "![alt](m.png) <b>x</b> [link](https://e.com)\n\n<div>block</div>\n";
+
+#[test]
+fn muted_text_takes_the_theme_colour_instead_of_dim() {
+    let caps = Capabilities {
+        hyperlinks: false,
+        ..Capabilities::kitty(WIDTH)
+    };
+    let theme = kiri::theme::parse("muted = \"#808080\"\n").unwrap();
+    let out = render_source(MUTED_SOURCE, &caps, &theme);
+    for muted in [
+        "\x1b[0;3;38;2;128;128;128m[image: alt]",
+        "\x1b[0;38;2;128;128;128m<b>",
+        "\x1b[0;38;2;128;128;128m <https://e.com>",
+        "\x1b[0;38;2;128;128;128m<div>block</div>",
+    ] {
+        assert!(out.contains(muted), "{muted:?} in {out:?}");
+    }
+    assert!(!out.contains("\x1b[0;2"), "nothing is dimmed: {out:?}");
+}
+
+#[test]
+fn muted_text_is_dimmed_without_a_muted_colour_or_colours() {
+    let caps = Capabilities {
+        hyperlinks: false,
+        ..Capabilities::kitty(WIDTH)
+    };
+    let no_color = Capabilities {
+        color: false,
+        ..caps.clone()
+    };
+    for (caps, theme) in [
+        (&caps, Theme::default()),
+        (&no_color, Theme::paper(Paper::Light)),
+    ] {
+        let out = render_source(MUTED_SOURCE, caps, &theme);
+        for dimmed in [
+            "\x1b[0;2;3m[image: alt]",
+            "\x1b[0;2m<b>",
+            "\x1b[0;2m <https://e.com>",
+            "\x1b[0;2m<div>block</div>",
+        ] {
+            assert!(out.contains(dimmed), "{dimmed:?} in {out:?}");
+        }
+    }
+}
+
+#[test]
+fn image_alt_text_on_light_paper() {
+    insta::assert_snapshot!(visible(&render_with(
+        "images.md",
+        &Capabilities::kitty(WIDTH),
+        &Theme::paper(Paper::Light)
+    )));
+}
+
+#[test]
+fn image_alt_text_on_dark_paper() {
+    insta::assert_snapshot!(visible(&render_with(
+        "images.md",
+        &Capabilities::kitty(WIDTH),
+        &Theme::paper(Paper::Dark)
+    )));
+}
+
 #[test]
 fn no_color_keeps_everything_but_colours() {
     let caps = Capabilities {

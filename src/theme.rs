@@ -28,6 +28,9 @@ pub struct Theme {
     pub background: Option<Color>,
     /// Text that has no colour of its own; `None` uses the terminal's.
     pub foreground: Option<Color>,
+    /// Text kiri plays down, such as image alt text, raw HTML and link
+    /// targets; `None` dims it instead.
+    pub muted: Option<Color>,
     /// Cells kept free on both sides of everything but headings and rules.
     pub text_margin: u8,
     /// Styles for heading levels 1 to 6.
@@ -101,6 +104,7 @@ impl Default for Theme {
             max_width: 100,
             background: None,
             foreground: None,
+            muted: None,
             text_margin: 2,
             // Size carries the hierarchy; bold and the underline style tell
             // apart levels of the same size.
@@ -143,6 +147,8 @@ pub enum Paper {
 struct PaperColors {
     background: Option<Color>,
     text: Option<Color>,
+    /// Alt text, raw HTML and link targets.
+    muted: Option<Color>,
     /// Headings and links.
     strong: Option<Color>,
     /// The smallest heading.
@@ -163,6 +169,7 @@ impl Theme {
             Paper::Light => PaperColors {
                 background: grey(0xff),
                 text: grey(0x1f),
+                muted: grey(0x6e),
                 strong: grey(0x00),
                 quiet: grey(0x55),
                 marker: grey(0x70),
@@ -174,6 +181,7 @@ impl Theme {
             Paper::Dark => PaperColors {
                 background: grey(0x1e),
                 text: grey(0xd4),
+                muted: grey(0x8e),
                 strong: grey(0xff),
                 quiet: grey(0xa0),
                 marker: grey(0x9a),
@@ -186,6 +194,7 @@ impl Theme {
         let mut theme = Self {
             background: colors.background,
             foreground: colors.text,
+            muted: colors.muted,
             link: colors.strong,
             inline_code: colors.text,
             inline_code_background: CodeBackground::Color(colors.code_background),
@@ -227,6 +236,7 @@ impl Theme {
     pub fn without_colors(mut self) -> Self {
         self.background = None;
         self.foreground = None;
+        self.muted = None;
         self.link = None;
         self.inline_code = None;
         self.inline_code_background = CodeBackground::Color(None);
@@ -261,6 +271,7 @@ pub fn parse(text: &str) -> Result<Theme, String> {
     }
     set_color(&mut theme.background, file.background)?;
     set_color(&mut theme.foreground, file.foreground)?;
+    set_color(&mut theme.muted, file.muted)?;
     // [headings] applies to every level, then [h1] to [h6] refine it.
     if let Some(all) = &file.headings {
         for heading in &mut theme.headings {
@@ -350,6 +361,7 @@ struct ThemeFile {
     max_width: Option<u16>,
     background: Option<String>,
     foreground: Option<String>,
+    muted: Option<String>,
     text_margin: Option<u8>,
     headings: Option<HeadingFile>,
     h1: Option<HeadingFile>,
@@ -495,6 +507,7 @@ mod tests {
         let mut colors = vec![
             theme.background,
             theme.foreground,
+            theme.muted,
             theme.link,
             theme.inline_code,
             theme.quote_bar,
@@ -541,6 +554,41 @@ mod tests {
         let dark = Theme::paper(Paper::Dark);
         assert!(lightness(dark.background) < 0x30);
         assert!(lightness(dark.foreground) > 0xc0);
+    }
+
+    /// The WCAG contrast ratio of two greys.
+    fn contrast(a: Option<Color>, b: Option<Color>) -> f64 {
+        let luminance = |color| {
+            let c = f64::from(lightness(color)) / 255.0;
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        let (a, b) = (luminance(a), luminance(b));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    #[test]
+    fn paper_themes_mute_text_in_a_readable_grey() {
+        for paper in [Paper::Light, Paper::Dark] {
+            let theme = Theme::paper(paper);
+            let ratio = contrast(theme.muted, theme.background);
+            assert!(ratio >= 4.5, "{paper:?}: {ratio}");
+            // Muted, but not as strong as the text.
+            assert!(ratio < contrast(theme.foreground, theme.background));
+        }
+    }
+
+    #[test]
+    fn muted_text_is_dimmed_unless_the_theme_gives_it_a_colour() {
+        assert_eq!(Theme::default().muted, None);
+        assert_eq!(
+            parse("muted = \"#808080\"\n").unwrap().muted,
+            Some(Color::Rgb(0x80, 0x80, 0x80))
+        );
+        assert_eq!(Theme::paper(Paper::Light).without_colors().muted, None);
     }
 
     #[test]

@@ -52,6 +52,9 @@ background = "none"
 # The colour of text that has no colour of its own, or none for the
 # terminal's.
 foreground = "none"
+# The colour of text kiri plays down: image alt text, raw HTML and link
+# targets written out. none dims it instead.
+muted = "none"
 
 link = "blue"
 inline_code = "magenta"
@@ -153,7 +156,9 @@ indent = 0
 page of fixed colours, as a browser does, whatever your terminal's colour
 scheme. The page is in greys only: headings, links, quotes, rules, tables
 and inline code differ in shade, weight and underline, not in colour. Code
-blocks keep their colours, from a code theme that matches the page.
+blocks keep their colours, from a code theme that matches the page. Muted
+text, such as image alt text, is a grey that keeps a contrast of at least
+4.5:1 against the page, instead of the terminal's dim text.
 
 The paper themes are the defaults above with these changes. To change one,
 start a theme file of your own from its keys.
@@ -163,6 +168,7 @@ start a theme file of your own from its keys.
 ```toml
 background = "#ffffff"
 foreground = "#1f1f1f"
+muted = "#6e6e6e"
 link = "#000000"
 inline_code = "#1f1f1f"
 inline_code_background = "#ebebeb"
@@ -185,6 +191,7 @@ color = "#555555"
 ```toml
 background = "#1e1e1e"
 foreground = "#d4d4d4"
+muted = "#8e8e8e"
 link = "#ffffff"
 inline_code = "#d4d4d4"
 inline_code_background = "#353535"

@@ -122,10 +122,7 @@ impl Layout<'_> {
             Block::Table(table) => self.table(table, width),
             Block::ThematicBreak => vec![self.rule(width)],
             Block::Html(html) => {
-                let style = self.style(Style {
-                    dim: true,
-                    ..Style::default()
-                });
+                let style = self.muted(Style::default());
                 html.lines()
                     .map(|line| Line::new(vec![Span::new(line, style.clone())]))
                     .collect()
@@ -538,8 +535,7 @@ impl Layout<'_> {
             ),
             Inline::Link { url, content } => self.link(url, content, style, out),
             Inline::Image { alt, .. } => {
-                let image_style = self.style(Style {
-                    dim: true,
+                let image_style = self.muted(Style {
                     italic: true,
                     ..style.clone()
                 });
@@ -551,14 +547,7 @@ impl Layout<'_> {
             }
             Inline::SoftBreak => push(out, " ", style),
             Inline::LineBreak => push(out, "\n", style),
-            Inline::Html(html) => push(
-                out,
-                html,
-                &self.style(Style {
-                    dim: true,
-                    ..style.clone()
-                }),
-            ),
+            Inline::Html(html) => push(out, html, &self.muted(style.clone())),
         }
     }
 
@@ -572,12 +561,21 @@ impl Layout<'_> {
         self.inlines(content, &link_style, out);
         // Without clickable links, the target has to be visible.
         if !self.caps.hyperlinks && Inline::plain_text(content) != url {
-            let target_style = self.style(Style {
-                dim: true,
-                ..style.clone()
-            });
+            let target_style = self.muted(style.clone());
             push(out, &format!(" <{url}>"), &target_style);
         }
+    }
+
+    /// Text played down: in the theme's muted colour, or dimmed when the
+    /// theme has none.
+    fn muted(&self, style: Style) -> Style {
+        self.style(match self.theme.muted {
+            Some(color) => Style {
+                fg: Some(color),
+                ..style
+            },
+            None => Style { dim: true, ..style },
+        })
     }
 
     /// Drops all styling when the terminal gets plain text.
