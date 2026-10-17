@@ -587,34 +587,47 @@ fn control_characters_in_the_document_do_not_reach_the_terminal() {
 }
 
 #[test]
-fn the_visual_check_document_fits_every_mode() {
+fn the_visual_check_documents_fit_every_mode() {
     use kiri::render::wrap::width;
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/visual-check.md");
-    let document = kiri::parse::parse(&std::fs::read_to_string(path).unwrap());
+    let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
     let themes = [
         Theme::default(),
         example_theme("background.toml"),
         example_theme("rules.toml"),
+        example_theme("opaque.toml"),
         kiri::theme::parse("inline_code_wrap = false\n").unwrap(),
     ];
-    for terminal_width in [16, 24, 40, 80, 120] {
-        for caps in [
-            Capabilities::plain(terminal_width),
-            Capabilities::ansi(terminal_width),
-            Capabilities::kitty(terminal_width),
-        ] {
-            for theme in &themes {
-                let mut out = Vec::new();
-                kiri::render::render(&document, &Images::new(), &caps, theme, &mut out).unwrap();
-                assert!(!out.is_empty());
-                for line in kiri::render::layout::layout(&document, &Images::new(), &caps, theme) {
-                    let cells = width(&line.lead)
-                        + width(&line.spans) * usize::from(line.scale)
-                        + width(&line.trail);
-                    assert!(
-                        cells <= usize::from(terminal_width),
-                        "{caps:?}: {cells} cells in {line:?}"
-                    );
+    // Each document says which of its images kiri warns about.
+    for (name, warnings) in [("visual-check.md", 1), ("visual-check-images.md", 5)] {
+        let source = std::fs::read_to_string(examples.join(name)).unwrap();
+        let document = kiri::parse::parse(&source);
+        // Layout needs only the sizes of the images, so it gets the real
+        // ones; rendering them at every width would only take longer.
+        let images = kiri::images::load(&document, &examples, DEFAULT_MAX_FILE_SIZE);
+        assert_eq!(images.warnings().len(), warnings, "{name}: {images:?}");
+        for terminal_width in [16, 24, 40, 80, 120] {
+            for caps in [
+                Capabilities::plain(terminal_width),
+                Capabilities::ansi(terminal_width),
+                Capabilities::kitty(terminal_width),
+            ] {
+                for theme in &themes {
+                    let mut out = Vec::new();
+                    kiri::render::render(&document, &Images::new(), &caps, theme, &mut out)
+                        .unwrap();
+                    assert!(!out.is_empty());
+                    for line in kiri::render::layout::layout(&document, &images, &caps, theme) {
+                        let image = (line.image.as_ref())
+                            .map_or(0, |image| usize::from(image.placement.size.columns));
+                        let cells = width(&line.lead)
+                            + width(&line.spans) * usize::from(line.scale)
+                            + image
+                            + width(&line.trail);
+                        assert!(
+                            cells <= usize::from(terminal_width),
+                            "{name}, {caps:?}: {cells} cells in {line:?}"
+                        );
+                    }
                 }
             }
         }

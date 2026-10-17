@@ -210,92 +210,45 @@ Every line of it is underlined and opens the same page.
 
 ## Images
 
-Images show in kitty; elsewhere, and when an image cannot be loaded, its
-alt text appears in brackets. An image is as large next to the text as in
-a browser, never enlarged, and never wider than the text. kiri warns on
+One image of each format, and a few special cases;
+[`visual-check-images.md`](visual-check-images.md) has the rest. Images
+show in kitty; elsewhere, and when an image cannot be loaded, its alt text
+appears in brackets. An image is as large next to the text as in a
+browser, never enlarged, and never wider than the text. kiri warns on
 stderr about the images it cannot load: here only the missing file at the
 end.
 
-Red, green, blue and yellow quadrants on a black grid, about 32 columns
-wide and 12 rows high:
+A PNG: red, green, blue and yellow quadrants on a black grid, about 32
+columns wide and 12 rows high:
 
 ![Test pattern](../tests/fixtures/images/pattern.png)
 
-A checkered icon of about two cells:
+A JPEG: a lake under clouds, about 60 columns wide:
 
-![Icon](../tests/fixtures/images/icon.png)
+![Lake](../tests/fixtures/images/exif-1.jpg)
 
-A gradient from blue to yellow, as wide as the text:
-
-![Panorama](../tests/fixtures/images/panorama.png)
-
-A tall gradient from yellow to blue, about 20 columns wide:
-
-![Portrait](../tests/fixtures/images/portrait.png)
-
-A red disc and a half-transparent blue square, with the background showing
-around them and through the square:
-
-![Transparent](../tests/fixtures/images/transparent.png)
-
-A compass rose without a background of its own:
-
-![Compass rose](../tests/fixtures/images/compass-rose.png)
-
-A lake under clouds, as wide as the text, then the same photo stored on
-its side, smaller and upright like the first, and in CMYK, with the same
-colours:
-
-![Landscape](../tests/fixtures/images/photo-landscape.jpg)
-
-![Turned by EXIF](../tests/fixtures/images/exif-6.jpg)
-
-![CMYK](../tests/fixtures/images/photo-cmyk.jpg)
-
-A lake in portrait format, and a large photo of a fern, 4845 pixels wide,
-shrunk to the text width:
-
-![Portrait photo](../tests/fixtures/images/photo-portrait.jpg)
-
-![Fern](../tests/fixtures/images/photo-large.jpg)
-
-The first frame of an animated GIF, standing still, and a lossy WebP:
+A GIF, its first frame standing still: a green puzzle piece with eyes,
+about 51 columns wide:
 
 ![Animated GIF](../tests/fixtures/images/jiggy.gif)
 
+A lossy WebP, about 30 columns wide:
+
 ![Lossy WebP](../tests/fixtures/images/lossy.webp)
 
-SVG images are drawn at the size they are shown, with sharp edges: a
-sunset in gradients, about 36 columns wide, and a small soccer ball:
+An SVG, drawn at the size it is shown with sharp edges: a sunset in
+gradients, about 36 columns wide:
 
 ![Sunset icon](../tests/fixtures/images/sunset-icon.svg)
 
-![Soccer ball](../tests/fixtures/images/soccer-ball.svg)
+A compass rose without a background of its own, as wide as the text, with
+no light or dark halo around its thin lines:
 
-Their text is set in the system's fonts: the forces on an airfoil, labelled
-in Greek in a sans-serif font, and a gearset diagram with English labels in
-the default serif font:
+![Compass rose](../tests/fixtures/images/compass-rose.png)
 
-![Forces on an airfoil](../tests/fixtures/images/airfoil-forces.svg)
-
-![Planetary gearset](../tests/fixtures/images/planetary-gearset.svg)
-
-A racetrack and a silhouette with softly blurred edges, both as wide as
-the text:
-
-![Speedway](../tests/fixtures/images/speedway.svg)
-
-![Silhouette](../tests/fixtures/images/silhouette.svg)
-
-Images in a list and a quote start after the bullet and the bar:
-
-- ![Icon in a list](../tests/fixtures/images/icon.png)
+An image in a quote starts after the bar, which runs beside every row:
 
 > ![Pattern in a quote](../tests/fixtures/images/pattern.png)
-
-A linked image shows, but clicking it does nothing yet:
-
-[![Linked icon](../tests/fixtures/images/icon.png)](https://example.com)
 
 In running text, ![an icon](../tests/fixtures/images/icon.png) stays alt
 text, as does a missing file:

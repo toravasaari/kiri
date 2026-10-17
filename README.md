@@ -54,7 +54,7 @@ planned.
 - [Architecture](docs/architecture.md)
 - [Theme](docs/theme.md)
 - [Visual check](examples/visual-check.md) – a document for checking the
-  output by eye
+  output by eye, and [another for images](examples/visual-check-images.md)
 - [AGENTS.md](AGENTS.md) – conventions for coding agents and contributors
 
 ## License
