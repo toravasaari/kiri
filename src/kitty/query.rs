@@ -17,6 +17,16 @@ pub fn text_sizing() -> [String; 2] {
     ]
 }
 
+/// Erases what the [`text_sizing`] tests drew: their row, and the rows
+/// below it that the space at scale [`STEP`] also covers. Erasing only the
+/// first row leaves the rest of that space in place, and kitty then draws
+/// a scaled character on the next row to the right of it. The cursor ends
+/// at the start of the tests' row.
+pub fn erase_text_sizing_tests() -> String {
+    let below = "\x1b[B\x1b[2K".repeat(STEP as usize - 1);
+    format!("\r\x1b[2K\x1b7{below}\x1b8")
+}
+
 /// Whether the cursor columns reported around the [`text_sizing`] tests
 /// show that the terminal moved the cursor for both.
 pub fn text_sizing_answered(columns: &[u32]) -> bool {
@@ -76,6 +86,16 @@ mod tests {
         assert!(!placeholders_by_version("kitty(next)"));
         assert!(!placeholders_by_version("kitty(0.28.0"));
         assert!(!placeholders_by_version("notkitty(0.30.0)"));
+    }
+
+    #[test]
+    fn erasing_the_tests_clears_every_row_the_scaled_space_covers() {
+        // The space at scale 2 is two rows tall. Its lower half, left on
+        // the next row, pushes a scaled heading drawn there to the right.
+        assert_eq!(
+            erase_text_sizing_tests(),
+            "\r\x1b[2K\x1b7\x1b[B\x1b[2K\x1b8"
+        );
     }
 
     #[test]

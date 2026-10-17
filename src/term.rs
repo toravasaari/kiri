@@ -294,7 +294,7 @@ mod probe {
         let raw = RawMode::enter(&tty)?;
         let answers = exchange(&tty);
         // Erase whatever the OSC 66 tests drew before restoring the mode.
-        let _ = (&tty).write_all(b"\r\x1b[2K");
+        let _ = (&tty).write_all(query::erase_text_sizing_tests().as_bytes());
         drop(raw);
         answers
     }
