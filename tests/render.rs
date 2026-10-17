@@ -602,8 +602,10 @@ fn the_visual_check_documents_fit_every_mode() {
         let source = std::fs::read_to_string(examples.join(name)).unwrap();
         let document = kiri::parse::parse(&source);
         // Layout needs only the sizes of the images, so it gets the real
-        // ones; rendering them at every width would only take longer.
-        let images = kiri::images::load(&document, &examples, DEFAULT_MAX_FILE_SIZE);
+        // ones; rendering them at every width would only take longer. Text
+        // in SVGs does not change their size, so no fonts are loaded.
+        let images =
+            kiri::images::load_with(&document, &examples, DEFAULT_MAX_FILE_SIZE, &Fonts::none());
         assert_eq!(images.warnings().len(), warnings, "{name}: {images:?}");
         for terminal_width in [16, 24, 40, 80, 120] {
             for caps in [
@@ -690,9 +692,11 @@ fn one_image(url: &str, image: RgbaImage) -> Images {
 /// The images of `document` as kiri loads them from the fixtures, with each
 /// one that loads replaced by quadrants of the same size. Snapshots then
 /// show real sizes and errors, but not the decoders' work, and the image
-/// data compresses to a few bytes.
+/// data compresses to a few bytes. Without fonts, as the sizes do not
+/// depend on them.
 fn fixture_images(document: &Document) -> Images {
-    let loaded = kiri::images::load(document, &fixtures(), DEFAULT_MAX_FILE_SIZE);
+    let loaded =
+        kiri::images::load_with(document, &fixtures(), DEFAULT_MAX_FILE_SIZE, &Fonts::none());
     let mut images = Images::new();
     for (url, image) in loaded.iter() {
         let image = match image {
