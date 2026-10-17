@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, ValueEnum};
+use kiri::config::Environment;
 use kiri::images::Images;
 use kiri::term::Capabilities;
 use kiri::theme::Theme;
@@ -65,7 +66,8 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let theme = match load_theme(&cli) {
+    let env = Environment::from_process();
+    let theme = match load_theme(&cli, &env) {
         Ok(theme) if cli.no_margins => theme.without_margins(),
         Ok(theme) => theme,
         Err(error) => {
@@ -102,11 +104,11 @@ fn main() -> ExitCode {
     }
 }
 
-fn load_theme(cli: &Cli) -> Result<Theme, String> {
+fn load_theme(cli: &Cli, env: &Environment) -> Result<Theme, String> {
     if let Some(path) = &cli.theme {
         return kiri::theme::load(path);
     }
-    match kiri::theme::default_path() {
+    match kiri::config::directory(env).map(|dir| dir.join("theme.toml")) {
         Some(path) if path.exists() => kiri::theme::load(&path),
         _ => Ok(Theme::default()),
     }

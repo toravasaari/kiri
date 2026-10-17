@@ -3,7 +3,7 @@
 //! Colours default to the terminal's own 16-colour palette, so kiri follows
 //! the user's kitty theme instead of imposing one.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::Deserialize;
 
@@ -163,15 +163,6 @@ impl Theme {
         }
         self
     }
-}
-
-/// `$XDG_CONFIG_HOME/kiri/theme.toml`, or `~/.config/kiri/theme.toml`.
-pub fn default_path() -> Option<PathBuf> {
-    let config = std::env::var_os("XDG_CONFIG_HOME")
-        .filter(|dir| !dir.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
-    Some(config.join("kiri").join("theme.toml"))
 }
 
 /// Reads a theme file. Keys it leaves out keep their default values.

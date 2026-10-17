@@ -171,3 +171,24 @@ fn help_explains_max_image_size() {
     assert!(help.contains("--max-image-size <MB>"), "{help}");
     assert!(help.contains("[default: 10]"), "{help}");
 }
+
+#[test]
+fn reads_the_theme_from_home_without_a_configuration_directory() {
+    let dir = Scratch::new("theme-home");
+    let theme = dir.join("home/.config/kiri/theme.toml");
+    std::fs::create_dir_all(theme.parent().unwrap()).unwrap();
+    std::fs::write(&theme, "not a theme").unwrap();
+    for xdg in [None, Some("")] {
+        let document = dir.join("document.md");
+        std::fs::write(&document, "Text\n").unwrap();
+        let mut command = command(&dir);
+        match xdg {
+            Some(value) => command.env("XDG_CONFIG_HOME", value),
+            None => command.env_remove("XDG_CONFIG_HOME"),
+        };
+        let out = command.arg(&document).output().unwrap();
+        assert!(!out.status.success(), "{xdg:?}");
+        let stderr = text(&out.stderr);
+        assert!(stderr.contains(&theme.display().to_string()), "{stderr}");
+    }
+}
