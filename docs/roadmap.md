@@ -136,7 +136,4 @@ Smaller polish that fits in whenever there is time, in any phase.
 
 ## Bugs
 
-Known bugs, fixed in whatever phase is under way.
-
-- With `--mode auto`, a heading is drawn out of place when kiri prints a
-  warning before the document.
+Known bugs, fixed in whatever phase is under way. None at the moment.
