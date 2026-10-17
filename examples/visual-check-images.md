@@ -163,9 +163,9 @@ light terminal, or a theme with a light `background`.
 
 ![Planetary gearset](../tests/fixtures/images/planetary-gearset.svg)
 
-A racetrack in thin black lines with numbered corners, which also needs a
-light background, and a silhouette with softly blurred edges, both as wide
-as the text:
+A racetrack in black lines with numbered corners, which also needs a light
+background, and a silhouette with softly blurred edges, both as wide as the
+text:
 
 ![Speedway](../tests/fixtures/images/speedway.svg)
 
