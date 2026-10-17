@@ -49,7 +49,12 @@ decompressed, and does not fetch remote images.
 | `--width N` | Render for `N` cells instead of the terminal width |
 | `--theme FILE` | Colours and heading sizes; see [Theme](docs/theme.md) |
 | `-M`, `--no-margins` | No margins or padding, so text and code copy cleanly |
+| `-I`, `--no-images` | Show images as their alt text, without reading them |
 | `--max-image-size MB` | Largest image file to read: 10 MB unless set, at most 100 |
+
+A [configuration file](docs/config.md), `~/.config/kiri/config.toml`, can
+choose the theme and turn images off, and so can the environment variables
+`KIRI_THEME` and `KIRI_NO_IMAGES`.
 
 An interactive pager (`kiri -i`) with search and link navigation is
 planned.
@@ -58,6 +63,7 @@ planned.
 
 - [Roadmap](docs/roadmap.md)
 - [Architecture](docs/architecture.md)
+- [Configuration](docs/config.md)
 - [Theme](docs/theme.md)
 - [Visual check](examples/visual-check.md) – a document for checking the
   output by eye, and [another for images](examples/visual-check-images.md)

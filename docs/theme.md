@@ -1,10 +1,11 @@
 # Theme
 
-kiri reads its colours and heading sizes from
-`~/.config/kiri/theme.toml` (or `$XDG_CONFIG_HOME/kiri/theme.toml`) when the
-file exists, or from the file given with `--theme`. Every key is optional;
-the ones you leave out keep the defaults below. A mistake in the file is an
-error, not silently ignored.
+kiri reads its colours and heading sizes from a theme file: the one given
+with `--theme`, `KIRI_THEME` or the [configuration file](config.md), or
+else `~/.config/kiri/theme.toml` (or `$XDG_CONFIG_HOME/kiri/theme.toml`)
+when it exists. [Configuration](config.md#theme) gives the order. Every key
+is optional; the ones you leave out keep the defaults below. A mistake in
+the file is an error, not silently ignored.
 
 ## All headings at once
 

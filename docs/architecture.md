@@ -83,6 +83,7 @@ src/lib.rs                 library root
 src/model.rs               document model
 src/parse.rs               comrak tree -> document model
 src/term.rs                capability detection, the only terminal queries
+src/config.rs              configuration file and environment variables
 src/theme.rs               colours and sizes, theme files
 src/color.rs               colours and underline styles for theme and render
 src/render/mod.rs          document model -> terminal output

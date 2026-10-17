@@ -2,9 +2,10 @@
 
 A document for checking kiri's output by eye in a real kitty window. Each
 section says what you should see there with the default theme; anything
-else is a bug. A theme of your own in `~/.config/kiri/theme.toml` changes
-what you see. Other terminals show less, and without colours (`NO_COLOR`
-or plain text) inline code is shown in backticks.
+else is a bug. A theme of your own, from `~/.config/kiri/theme.toml`,
+`KIRI_THEME` or the [configuration file](../docs/config.md), changes what
+you see. Other terminals show less, and without colours (`NO_COLOR` or
+plain text) inline code is shown in backticks.
 
 View it with the default theme, then with the example themes that draw
 heading bands and rules, and without colours:

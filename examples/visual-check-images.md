@@ -4,8 +4,9 @@ A document for checking kiri's images by eye in a real kitty window, beside
 [`visual-check.md`](visual-check.md), which shows one image of each format.
 Each section says what you should see; anything else is a bug.
 
-Images show in kitty. Elsewhere, and when an image cannot be loaded, its alt
-text appears in brackets. An image is as large next to the text as in a
+Images show in kitty unless turned off with `-I`, `KIRI_NO_IMAGES` or the
+[configuration file](../docs/config.md). Elsewhere, and when an image cannot
+be loaded, its alt text appears in brackets. An image is as large next to the text as in a
 browser, never enlarged, and never wider than the text. kiri warns on stderr
 about the images it cannot load: here the five in the last section.
 

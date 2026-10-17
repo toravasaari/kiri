@@ -23,7 +23,7 @@ struct Cli {
     #[arg(long, value_enum, default_value_t = Mode::Auto)]
     mode: Mode,
 
-    /// Theme file, instead of the one the configuration chooses.
+    /// Theme file; overrides KIRI_THEME and the configuration file.
     #[arg(long)]
     theme: Option<PathBuf>,
 
