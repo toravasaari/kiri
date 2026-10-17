@@ -111,11 +111,13 @@ pub fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String
     let file: ConfigToml = toml::from_str(text).map_err(|error| error.to_string())?;
     let theme = match file.theme {
         Some(theme) => Some(match theme.strip_prefix("~") {
-            Ok(rest) => match env.home.as_ref().filter(|home| !home.is_empty()) {
-                Some(home) => Path::new(home).join(rest),
-                None => return Err(format!("theme {}: HOME is not set", theme.display())),
-            },
-            Err(_) => dir.join(theme),
+            Ok(rest) if !rest.as_os_str().is_empty() => {
+                match env.home.as_ref().filter(|home| !home.is_empty()) {
+                    Some(home) => Path::new(home).join(rest),
+                    None => return Err(format!("theme {}: HOME is not set", theme.display())),
+                }
+            }
+            _ => dir.join(theme),
         }),
         None => None,
     };
@@ -299,6 +301,9 @@ mod tests {
         assert_eq!(config.theme, Some(PathBuf::from("/c/~user/t.toml")));
         let config = parse("theme = \"a/~/t.toml\"\n", Path::new("/c"), &home).unwrap();
         assert_eq!(config.theme, Some(PathBuf::from("/c/a/~/t.toml")));
+        // A bare `~` names no file under the home directory.
+        let config = parse("theme = \"~\"\n", Path::new("/c"), &home).unwrap();
+        assert_eq!(config.theme, Some(PathBuf::from("/c/~")));
     }
 
     #[test]
