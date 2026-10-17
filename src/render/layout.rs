@@ -236,7 +236,7 @@ impl Layout<'_> {
     /// The image inside a link is not clickable: OSC 8 around placeholders
     /// is not written yet.
     fn image_block(&self, content: &[Inline], width: usize) -> Option<Vec<Line>> {
-        if !(self.caps.graphics && self.caps.styling) {
+        if !self.caps.draws_images() {
             return None;
         }
         let url = Inline::lone_image(content)?;

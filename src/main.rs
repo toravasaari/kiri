@@ -77,7 +77,7 @@ fn main() -> ExitCode {
     let document = kiri::parse::parse(&source);
     // Only a terminal that can show images needs their pixels; elsewhere
     // they are alt text.
-    let images = if caps.graphics {
+    let images = if caps.draws_images() {
         let base = cli.file.parent().unwrap_or(Path::new(""));
         let max_file_size = cli.max_image_size * kiri::images::MB;
         let images = kiri::images::load(&document, base, max_file_size);

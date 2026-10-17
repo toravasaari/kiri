@@ -872,7 +872,7 @@ fn images_in_running_text_tables_and_headings_stay_alt_text() {
 }
 
 #[test]
-fn images_stay_alt_text_without_graphics_or_pixels() {
+fn images_stay_alt_text_without_graphics_placeholders_or_pixels() {
     let source = "![alone](p.png)\n";
     let loaded = one_image("p.png", quadrants(40, 30));
     let mut missing = Images::new();
@@ -880,6 +880,13 @@ fn images_stay_alt_text_without_graphics_or_pixels() {
     let cases = [
         (Capabilities::plain(WIDTH), &loaded),
         (Capabilities::ansi(WIDTH), &loaded),
+        (
+            Capabilities {
+                image_placeholders: false,
+                ..Capabilities::kitty(WIDTH)
+            },
+            &loaded,
+        ),
         (Capabilities::kitty(WIDTH), &Images::new()),
         (Capabilities::kitty(WIDTH), &missing),
     ];

@@ -17,8 +17,12 @@ pub struct Capabilities {
     pub hyperlinks: bool,
     /// kitty's text sizing protocol (OSC 66).
     pub text_sizing: bool,
-    /// kitty's graphics protocol.
+    /// kitty's graphics protocol: the terminal answered its query.
     pub graphics: bool,
+    /// Images placed with the graphics protocol's Unicode placeholders,
+    /// which is how kiri shows every image. Terminals that answer the
+    /// graphics query do not all support them.
+    pub image_placeholders: bool,
     /// Underline styles other than single (SGR `4:x`), which kitty
     /// introduced; without them every underline is single. Only the probe
     /// sets it, apart from `--mode kitty`.
@@ -40,10 +44,16 @@ impl Capabilities {
             hyperlinks: false,
             text_sizing: false,
             graphics: false,
+            image_placeholders: false,
             styled_underlines: false,
             cell_pixels: None,
             dark_background: None,
         }
+    }
+
+    /// Whether images are drawn rather than shown as alt text.
+    pub fn draws_images(&self) -> bool {
+        self.styling && self.graphics && self.image_placeholders
     }
 
     /// Colours and attributes that any modern terminal understands.
@@ -64,6 +74,7 @@ impl Capabilities {
             hyperlinks: true,
             text_sizing: true,
             graphics: true,
+            image_placeholders: true,
             styled_underlines: true,
             ..Self::plain(width)
         }
@@ -88,6 +99,7 @@ pub fn detect(width: Option<u16>) -> Capabilities {
         let probe = probe::interpret(&answers);
         caps.text_sizing = probe.text_sizing;
         caps.graphics = probe.graphics;
+        caps.image_placeholders = probe.image_placeholders;
         caps.dark_background = probe.dark_background;
         // Only kitty-compatible terminals implement these protocols, and all
         // of them also do 24-bit colour, OSC 8 and underline styles.
@@ -200,6 +212,7 @@ mod probe {
     pub struct Probe {
         pub text_sizing: bool,
         pub graphics: bool,
+        pub image_placeholders: bool,
         pub dark_background: Option<bool>,
     }
 
@@ -278,9 +291,17 @@ mod probe {
 
     pub fn interpret(answers: &[u8]) -> Probe {
         let text = String::from_utf8_lossy(answers);
+        // No query tells whether a terminal supports Unicode placeholders,
+        // and some that answer the graphics query do not. Text sizing came
+        // to kitty in 0.40, long after placeholders in 0.28, so kiri takes a
+        // terminal with both protocols to be a kitty that has placeholders.
+        // Other terminals with placeholders get alt text for now.
+        let text_sizing = query::text_sizing_answered(&cursor_columns(&text));
+        let graphics = text.contains(query::GRAPHICS_ANSWER);
         Probe {
-            text_sizing: query::text_sizing_answered(&cursor_columns(&text)),
-            graphics: text.contains(query::GRAPHICS_ANSWER),
+            text_sizing,
+            graphics,
+            image_placeholders: graphics && text_sizing,
             dark_background: background_is_dark(&text),
         }
     }
@@ -346,6 +367,7 @@ mod probe {
                 Probe {
                     text_sizing: true,
                     graphics: true,
+                    image_placeholders: true,
                     dark_background: Some(true),
                 }
             );
@@ -360,9 +382,21 @@ mod probe {
                 Probe {
                     text_sizing: false,
                     graphics: false,
+                    image_placeholders: false,
                     dark_background: Some(false),
                 }
             );
+        }
+
+        #[test]
+        fn graphics_alone_does_not_promise_placeholders() {
+            // A terminal that answers the graphics query but has no text
+            // sizing, as WezTerm and Konsole do: they show images but not
+            // through Unicode placeholders.
+            let answers = "\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1b_Gi=31;OK\x1b\\\x1b[?62;c";
+            let probe = interpret(answers.as_bytes());
+            assert!(probe.graphics);
+            assert!(!probe.image_placeholders);
         }
 
         #[test]
