@@ -95,7 +95,7 @@ The network is strict there: crates.io and rustup work, GitHub does not.
 ## Commits
 
 - Conventional Commits: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`,
-  `chore:`, `style:`, with an optional scope such as `feat(kitty):`.
+  `perf:`, `chore:`, `style:`, with an optional scope such as `feat(kitty):`.
 - Keep messages clear, easy to understand and short. Subject in the
   imperative. A body only when the reason is not obvious; longer text is for
   exceptional cases.
