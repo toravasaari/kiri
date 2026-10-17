@@ -413,8 +413,9 @@ fn collect_blocks<'a>(blocks: &'a [Block], urls: &mut Vec<&'a str>) {
 }
 
 /// Loads the image at `url`: a `data:` URL, or a path that is absolute or
-/// relative to `base`. Paths may use URL percent escapes, as in a browser.
-/// Only regular files of at most `max_file_size` bytes are read.
+/// relative to `base`. Paths may use URL percent escapes and end in a
+/// `?query` or `#fragment`, as in a browser. Only regular files of at most
+/// `max_file_size` bytes are read.
 pub fn load_url(
     url: &str,
     base: &Path,
@@ -430,6 +431,8 @@ pub fn load_url(
         }
         Some(scheme) => Err(ImageError::UnsupportedScheme(scheme.to_ascii_lowercase())),
         None => {
+            // A query or fragment does not name the file.
+            let url = url.split(['?', '#']).next().unwrap_or(url);
             let decoded = percent_decode(url.as_bytes());
             let path = base.join(String::from_utf8(decoded).as_deref().unwrap_or(url));
             let bytes = read_file(&path, max_file_size)?;
@@ -948,6 +951,29 @@ mod tests {
     #[test]
     fn decodes_percent_escapes_in_paths() {
         assert!(fixture("pattern%2Epng").is_ok());
+    }
+
+    #[test]
+    fn leaves_the_query_and_fragment_out_of_paths() {
+        let pattern = fixture("pattern.png");
+        assert!(pattern.is_ok());
+        for url in ["pattern.png?v=2", "pattern.png#top", "pattern.png?a=1#b?c"] {
+            assert_eq!(fixture(url), pattern, "{url}");
+        }
+        let base = fixtures().join("images");
+        assert_eq!(
+            fixture("no-such.png?v=2"),
+            Err(ImageError::Missing(base.join("no-such.png")))
+        );
+        // Escaped, they are part of the name, as in a browser.
+        assert_eq!(
+            fixture("pattern%3Fv=2.png"),
+            Err(ImageError::Missing(base.join("pattern?v=2.png")))
+        );
+        assert_eq!(
+            fixture("pattern%23top.png"),
+            Err(ImageError::Missing(base.join("pattern#top.png")))
+        );
     }
 
     #[test]
