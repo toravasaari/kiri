@@ -20,6 +20,9 @@ From the repository root:
 ```
 
 - It builds `target/debug/kiri` first, unless `--kiri PATH` is given.
+- kiri may take 120 seconds per document (`--timeout SECONDS`). A debug
+  build needs about 13 seconds for `examples/visual-check-images.md` on an
+  idle machine and 30 on a busy one.
 - Screenshots go to `target/render-check/` by default (`--out DIR`), one
   `NAME.png` per document, cropped below the last drawn row. Taller
   screenshots are also sliced into `NAME-p01.png`, `NAME-p02.png`, … of

@@ -11,6 +11,7 @@
 #                        (default: 1600; 0 turns slicing off)
 #   --kitty-config FILE  kitty config to use (default: none, kitty defaults)
 #   --kiri PATH          kiri binary (default: build target/debug/kiri)
+#   --timeout SECONDS    how long kiri may take for one document (default: 120)
 #
 # Each FILE.md gives OUT/NAME.png, cropped below the last drawn row, and,
 # when it is taller than a page, OUT/NAME-p01.png, OUT/NAME-p02.png and so on.
@@ -25,6 +26,7 @@ size=1280x16000
 page_height=1600
 kitty_config=NONE
 kiri=
+timeout=120
 files=()
 kiri_args=()
 
@@ -40,6 +42,7 @@ while [ $# -gt 0 ]; do
 	--page-height) page_height=$2; shift 2 ;;
 	--kitty-config) kitty_config=$2; shift 2 ;;
 	--kiri) kiri=$2; shift 2 ;;
+	--timeout) timeout=$2; shift 2 ;;
 	--) shift; kiri_args=("$@"); break ;;
 	-h | --help) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;;
 	-*) die "unknown option $1" ;;
@@ -54,6 +57,7 @@ done
 [[ $size =~ ^([0-9]+)x([0-9]+)$ ]] || die "--size must look like 1280x16000"
 width=${BASH_REMATCH[1]}
 height=${BASH_REMATCH[2]}
+[[ $timeout =~ ^[1-9][0-9]*$ ]] || die "--timeout must be whole seconds"
 
 missing=()
 for tool in Xvfb kitty import magick; do
@@ -140,14 +144,15 @@ for file in "${files[@]}"; do
 		>"$work/kitty.log" 2>&1 &
 	kitty_pid=$!
 
-	for _ in $(seq 200); do
-		[ -s "$work/done" ] && break
+	deadline=$((SECONDS + timeout))
+	while [ ! -s "$work/done" ] && [ "$SECONDS" -lt "$deadline" ]; do
 		kill -0 "$kitty_pid" 2>/dev/null || break
 		sleep 0.1
 	done
 	if [ ! -s "$work/done" ]; then
 		cat "$work/kitty.log" >&2
-		die "$file: kiri did not finish in kitty"
+		die "$file: kiri did not finish in kitty within $timeout s" \
+			"(--timeout)"
 	fi
 	read -r status <"$work/done"
 	if [ "$status" -gt 128 ]; then
