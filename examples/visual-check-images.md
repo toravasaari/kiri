@@ -6,9 +6,10 @@ Each section says what you should see; anything else is a bug.
 
 Images show in kitty unless turned off with `-I`, `KIRI_NO_IMAGES` or the
 [configuration file](../docs/config.md). Elsewhere, and when an image cannot
-be loaded, its alt text appears in brackets. An image is as large next to the text as in a
-browser, never enlarged, and never wider than the text. kiri warns on stderr
-about the images it cannot load: here the five in the last section.
+be loaded, its alt text appears in brackets. An image is as large next to
+the text as in a browser, never enlarged, and never wider than the text.
+kiri warns on stderr about the images it cannot load: here the five in the
+last section.
 
 View it with the default theme, on a document background, on the light
 and dark paper themes, and without colours:
@@ -39,7 +40,8 @@ A checkered icon of about two cells, not enlarged:
 
 ![Icon](../tests/fixtures/images/icon.png)
 
-A gradient from blue to yellow, as wide as the text:
+A gradient from yellow on the left to blue on the right, as wide as the
+text:
 
 ![Panorama](../tests/fixtures/images/panorama.png)
 
