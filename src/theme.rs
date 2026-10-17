@@ -26,6 +26,8 @@ pub struct Theme {
     pub max_width: u16,
     /// Painted behind the whole document; `None` shows the terminal's own.
     pub background: Option<Color>,
+    /// Text that has no colour of its own; `None` uses the terminal's.
+    pub foreground: Option<Color>,
     /// Cells kept free on both sides of everything but headings and rules.
     pub text_margin: u8,
     /// Styles for heading levels 1 to 6.
@@ -98,6 +100,7 @@ impl Default for Theme {
         Self {
             max_width: 100,
             background: None,
+            foreground: None,
             text_margin: 2,
             // Size carries the hierarchy; bold and the underline style tell
             // apart levels of the same size.
@@ -150,6 +153,7 @@ impl Theme {
     /// Every colour set to the terminal's default, for `NO_COLOR`.
     pub fn without_colors(mut self) -> Self {
         self.background = None;
+        self.foreground = None;
         self.link = None;
         self.inline_code = None;
         self.inline_code_background = CodeBackground::Color(None);
@@ -183,6 +187,7 @@ pub fn parse(text: &str) -> Result<Theme, String> {
         theme.text_margin = margin;
     }
     set_color(&mut theme.background, file.background)?;
+    set_color(&mut theme.foreground, file.foreground)?;
     // [headings] applies to every level, then [h1] to [h6] refine it.
     if let Some(all) = &file.headings {
         for heading in &mut theme.headings {
@@ -271,6 +276,7 @@ fn apply_heading(
 struct ThemeFile {
     max_width: Option<u16>,
     background: Option<String>,
+    foreground: Option<String>,
     text_margin: Option<u8>,
     headings: Option<HeadingFile>,
     h1: Option<HeadingFile>,

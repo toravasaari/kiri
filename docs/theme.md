@@ -49,6 +49,9 @@ text_margin = 2
 # A colour painted behind the whole document, or none to let the
 # terminal's own (possibly transparent) background show.
 background = "none"
+# The colour of text that has no colour of its own, or none for the
+# terminal's.
+foreground = "none"
 
 link = "blue"
 inline_code = "magenta"

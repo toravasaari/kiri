@@ -206,6 +206,51 @@ fn render_source(source: &str, caps: &Capabilities, theme: &Theme) -> String {
 }
 
 #[test]
+fn text_without_a_colour_of_its_own_takes_the_foreground() {
+    let theme =
+        kiri::theme::parse("foreground = \"#123456\"\nlink = \"none\"\nrule = \"#ff0000\"\n")
+            .unwrap();
+    let out = render_source(
+        "Plain *text* and [a link](https://example.com)\n\n---\n\n```rust\nfn main() {}\n```\n",
+        &Capabilities::kitty(WIDTH),
+        &theme,
+    );
+    let foreground = "38;2;18;52;86";
+    // The margin before the text takes it too, which does no harm.
+    assert!(
+        out.contains(&format!("\x1b[0;{foreground}m  Plain ")),
+        "{out:?}"
+    );
+    assert!(
+        out.contains(&format!("\x1b[0;3;{foreground}mtext")),
+        "{out:?}"
+    );
+    assert!(
+        out.contains(&format!("\x1b[0;4;{foreground}ma link")),
+        "{out:?}"
+    );
+    // Colours of their own stay: the rule's and the code's.
+    assert!(out.contains("\x1b[0;38;2;255;0;0m─"), "{out:?}");
+    let code = (out.lines())
+        .find(|line| line.contains("main"))
+        .expect("the code line");
+    // Only the padding around the code, spaces, takes the foreground.
+    for sequence in code.split("\x1b[").skip(1) {
+        let (codes, text) = sequence.split_once('m').unwrap();
+        if !text.trim().is_empty() {
+            assert!(!codes.contains(foreground), "{code:?}");
+        }
+    }
+    // Without colours there is no foreground either.
+    let caps = Capabilities {
+        color: false,
+        ..Capabilities::kitty(WIDTH)
+    };
+    let out = render_source("Plain text\n", &caps, &theme);
+    assert!(colour_codes(&out).is_empty(), "{out:?}");
+}
+
+#[test]
 fn empty_blocks_get_no_separator() {
     let plain = Capabilities::plain(WIDTH);
     let theme = Theme::default();

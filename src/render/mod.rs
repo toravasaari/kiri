@@ -25,5 +25,9 @@ pub fn render(
     out: &mut impl Write,
 ) -> io::Result<()> {
     let lines = layout::layout(document, images, caps, theme);
-    output::write(&lines, images, caps, theme.background, out)
+    let page = output::Page {
+        background: theme.background,
+        foreground: theme.foreground,
+    };
+    output::write(&lines, images, caps, page, out)
 }
