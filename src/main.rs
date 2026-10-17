@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, ValueEnum};
-use kiri::config::{Environment, ThemeSource};
+use kiri::config::{Config, Environment, ThemeSource};
 use kiri::images::Images;
 use kiri::term::Capabilities;
 use kiri::theme::{Paper, Theme};
@@ -82,51 +82,30 @@ enum Mode {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
-    let source = match std::fs::read_to_string(&cli.file) {
-        Ok(source) => source,
+    match run(&Cli::parse()) {
+        Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("kiri: {}: {error}", cli.file.display());
-            return ExitCode::FAILURE;
+            eprintln!("kiri: {error}");
+            ExitCode::FAILURE
         }
-    };
+    }
+}
+
+fn run(cli: &Cli) -> Result<(), String> {
+    let source = std::fs::read_to_string(&cli.file)
+        .map_err(|error| format!("{}: {error}", cli.file.display()))?;
     let env = Environment::from_process();
-    let config = match kiri::config::load(&env) {
-        Ok(config) => config,
-        Err(error) => {
-            eprintln!("kiri: {error}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let paper = match (cli.light, cli.dark) {
-        (true, _) => Some(Paper::Light),
-        (_, true) => Some(Paper::Dark),
-        _ => None,
-    };
-    let theme_source = kiri::config::theme_source(cli.theme.as_deref(), paper, &env, &config);
-    let theme = match load_theme(theme_source) {
-        Ok(theme) if cli.no_margins => theme.without_margins(),
-        Ok(theme) => theme,
-        Err(error) => {
-            eprintln!("kiri: {error}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let mut caps = capabilities(&cli);
+    let config = kiri::config::load(&env)?;
+    let settings = settings(cli, &env, &config)?;
+    let mut caps = capabilities(cli);
     // The page decides, whatever the terminal's background is.
-    if let Some(paper) = paper {
+    if let Some(paper) = settings.paper {
         caps.dark_background = Some(paper == Paper::Dark);
     }
     let document = kiri::parse::parse(&source);
     // Images are read only when the user wants them and the terminal can
     // show them; otherwise they are alt text, without warnings.
-    let images_option = match (cli.images, cli.no_images) {
-        (true, _) => Some(true),
-        (_, true) => Some(false),
-        _ => None,
-    };
-    let images_on = kiri::config::images(images_option, &env, &config);
-    let images = if images_on && caps.draws_images() {
+    let images = if settings.images && caps.draws_images() {
         let base = cli.file.parent().unwrap_or(Path::new(""));
         let max_file_size = cli.max_image_size * kiri::images::MB;
         let images = kiri::images::load(&document, base, max_file_size);
@@ -138,17 +117,45 @@ fn main() -> ExitCode {
         Images::new()
     };
     let mut out = io::stdout().lock();
-    match kiri::render::render(&document, &images, &caps, &theme, &mut out)
+    match kiri::render::render(&document, &images, &caps, &settings.theme, &mut out)
         .and_then(|()| out.flush())
     {
-        Ok(()) => ExitCode::SUCCESS,
         // A closed pipe (kiri file.md | head) is not an error.
-        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("kiri: {error}");
-            ExitCode::FAILURE
-        }
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+        result => result.map_err(|error| error.to_string()),
     }
+}
+
+/// What the options, the environment and the configuration file choose
+/// together.
+struct Settings {
+    theme: Theme,
+    paper: Option<Paper>,
+    images: bool,
+}
+
+fn settings(cli: &Cli, env: &Environment, config: &Config) -> Result<Settings, String> {
+    let paper = match (cli.light, cli.dark) {
+        (true, _) => Some(Paper::Light),
+        (_, true) => Some(Paper::Dark),
+        _ => None,
+    };
+    let theme_source = kiri::config::theme_source(cli.theme.as_deref(), paper, env, config);
+    let theme = load_theme(theme_source)?;
+    let images = match (cli.images, cli.no_images) {
+        (true, _) => Some(true),
+        (_, true) => Some(false),
+        _ => None,
+    };
+    Ok(Settings {
+        theme: if cli.no_margins {
+            theme.without_margins()
+        } else {
+            theme
+        },
+        paper,
+        images: kiri::config::images(images, env, config),
+    })
 }
 
 fn load_theme(source: ThemeSource) -> Result<Theme, String> {
