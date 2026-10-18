@@ -202,3 +202,8 @@ Known bugs, fixed in whatever phase is under way.
   so the window and cell sizes the terminal reports are the first
   suspect. Once it is understood, the rows left free below the image may
   become a setting.
+- kiri reads the cell size in pixels only from the window size the kernel
+  reports (`TIOCGWINSZ`). Where that has no pixels, as in a shell opened
+  with `incus exec` and so in jailbee containers, kiri assumes cells of
+  10 × 20 pixels and sizes images by that guess. It should then ask the
+  terminal with `CSI 16 t`, which kitty answers.
