@@ -79,6 +79,7 @@ fn the_visual_check_documents_fit_every_mode() {
     for (name, warnings) in [
         ("visual-check.md", 1),
         ("visual-check-images.md", 5 + left_out),
+        ("visual-check-extra-images.md", left_out),
     ] {
         let source = std::fs::read_to_string(examples.join(name)).unwrap();
         let document = kiri::parse::parse(&source);

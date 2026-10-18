@@ -219,7 +219,9 @@ Every line of it is underlined and opens the same page.
 ## Images
 
 One image of each format, and a few special cases;
-[`visual-check-images.md`](visual-check-images.md) has the rest. Images
+[`visual-check-images.md`](visual-check-images.md) has the rest, and
+[`visual-check-extra-images.md`](visual-check-extra-images.md) the formats
+only the full build shows. Images
 show in kitty; elsewhere, and when an image cannot be loaded, its alt text
 appears in brackets. An image is as large next to the text as in a
 browser, never enlarged, and never wider than the text. kiri warns on
