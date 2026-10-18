@@ -16,11 +16,12 @@ name = "kiri"
 name = "kiri"
 path = "src/main.rs"
 
-# Optional parts of kiri; `full` turns them all on. Nothing is optional
-# yet, but `make check` already tests without them.
+# Optional parts of kiri; `full` turns them all on. Without them, kiri
+# shows PNG, JPEG, GIF, WebP and SVG images; `full` adds the image formats
+# the `image` crate decodes cheaply.
 [features]
 default = ["full"]
-full = []
+full = ["image/bmp", "image/ico", "image/tiff", "image/qoi", "image/pnm"]
 
 [dependencies]
 base64 = "0.22.1"

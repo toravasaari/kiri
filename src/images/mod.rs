@@ -480,6 +480,33 @@ mod tests {
         assert_eq!(rgba(&animated, 32, 32), [255, 0, 0, 255]);
     }
 
+    /// The fixtures in formats only the full build decodes, and the PNG
+    /// each holds without loss.
+    const FULL_BUILD_FORMATS: [(&str, &str, &str); 5] = [
+        ("pattern.bmp", "BMP", "pattern.png"),
+        ("pattern.tif", "TIFF", "pattern.png"),
+        ("pattern.qoi", "QOI", "pattern.png"),
+        ("pattern.ppm", "PNM", "pattern.png"),
+        ("transparent.ico", "ICO", "transparent.png"),
+    ];
+
+    #[cfg(feature = "full")]
+    #[test]
+    fn decodes_the_full_builds_formats_without_loss() {
+        for (name, _, png) in FULL_BUILD_FORMATS {
+            assert_eq!(raster(name), raster(png), "{name}");
+        }
+    }
+
+    #[cfg(not(feature = "full"))]
+    #[test]
+    fn names_the_formats_left_out_of_a_minimal_build() {
+        for (name, format, _) in FULL_BUILD_FORMATS {
+            let error = ImageError::UnsupportedFormat(format.into());
+            assert_eq!(fixture(name), Err(error), "{name}");
+        }
+    }
+
     #[test]
     fn scales_transparency_without_a_halo() {
         // Dark blue on the left; on the right, fully transparent pixels
