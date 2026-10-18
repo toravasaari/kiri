@@ -242,9 +242,9 @@ pub fn theme_source(
 /// Whether images are shown and where that comes from, strongest first:
 /// the command line (`option`, from `--images` or `--no-images`), then
 /// `KIRI_NO_IMAGES`, then the configuration file; on unless one turns them
-/// off. `KIRI_NO_IMAGES` turns
-/// them off when it is set to anything but an empty value or `0`, and `0`
-/// turns them on whatever the configuration file says.
+/// off. `KIRI_NO_IMAGES` turns them off when it is set to anything but an
+/// empty value or `0`, and `0` turns them on whatever the configuration
+/// file says.
 pub fn images(option: Option<bool>, env: &Environment, config: &Config) -> Setting<bool> {
     if let Some(on) = option {
         let flag = if on { "--images" } else { "--no-images" };
