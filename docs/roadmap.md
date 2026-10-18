@@ -143,6 +143,23 @@ example, come before the rest of phase 3.
 - The pager (4.6) reads its keys from the terminal rather than from
   standard input, as `less` does, so a piped document can be paged too.
 
+### 4.10 More Markdown
+
+GitHub's Markdown first, then what is common elsewhere.
+
+- Footnotes (`[^1]`), listed at the end of the document as in a browser,
+  with links from each reference to its note and back.
+- YAML front matter, as in Jekyll, Hugo and Obsidian files, is not shown
+  as text; its title and date may head the document.
+- `<details>` and `<summary>`: open in print mode, with the summary marked
+  by a triangle; the pager can open and close them.
+- Small HTML tags: `<kbd>`, `<br>`, `<sub>`, `<sup>` and `<mark>`.
+  Subscripts, superscripts and footnote references are drawn smaller,
+  lowered or raised, with the text sizing protocol's fractional scale.
+- Emoji shortcodes such as `:rocket:`, as GitHub shows them.
+- Heading anchors as GitHub makes them, so a link such as `[see](#install)`
+  leads to its heading; the pager jumps there (4.6).
+
 ## Phase 5 – Beyond kitty
 
 - Other terminals: sixel and iTerm2 images, plain styling for headings.
