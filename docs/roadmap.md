@@ -200,9 +200,9 @@ GitHub's Markdown first, then what is common elsewhere.
 Smaller polish that fits in whenever there is time, in any phase.
 
 - A fenced code block with a language, such as `python`, shows the
-  language name in its top-right corner, on a background colour of its own
-  (a new theme key). With code padding on, the name sits on the top
-  padding row; without it, on a line above the block.
+  language name in its top-right corner, on the top padding row in a
+  colour between the code's text and background. Without code padding,
+  as with `--no-margins`, the name is left out. (done)
 - AVIF and JPEG XL images.
 - PDF documents shown as images, as a quick look that saves opening a
   PDF reader rather than a replacement for one: `kiri file.pdf` and
