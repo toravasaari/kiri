@@ -55,10 +55,12 @@ rustix = { version = "1.1.5", features = ["pty"] }
 # SVG parser and renderer and the fonts and text shaping for SVG text, and
 # keep kiri's own code easy to debug. An SVG with 400 lines of text takes
 # 0.7 s instead of 1.2 s. The fern as an LZW TIFF takes 0.36 s instead of
-# 0.64 s, and as a QOI 1.0 s instead of 1.2 s. flate2, moxcms and the TIFF
-# decoder's fax and half made no measurable difference.
-# Most of fast_image_resize is generic and so compiled in the crate that
-# uses it, kiri-image-utils, which is optimised for that reason.
+# 0.64 s. flate2, moxcms and the TIFF decoder's fax and half made no
+# measurable difference.
+# Generic code is compiled in the crate that uses it. kiri-image-utils is
+# optimised for that reason: it decodes raster images, whose BMP, TGA and
+# QOI decoders are generic, and scales them with fast_image_resize, most
+# of which is generic. The fern as a BMP takes 0.23 s instead of 1.8 s.
 [profile.dev.package]
 zune-jpeg.opt-level = 3
 zune-core.opt-level = 3
@@ -67,7 +69,6 @@ image-webp.opt-level = 3
 png.opt-level = 3
 gif.opt-level = 3
 tiff.opt-level = 3
-qoi.opt-level = 3
 weezl.opt-level = 3
 fdeflate.opt-level = 3
 miniz_oxide.opt-level = 3

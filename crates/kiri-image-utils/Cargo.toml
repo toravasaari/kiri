@@ -8,3 +8,5 @@ publish = false
 
 [dependencies]
 fast_image_resize = "6.1.0"
+# kiri chooses the other formats; PNG is always among them.
+image = { version = "0.25.10", default-features = false, features = ["png"] }

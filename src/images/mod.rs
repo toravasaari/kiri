@@ -11,12 +11,12 @@ mod url;
 
 use std::collections::HashMap;
 use std::fmt;
-use std::io::{self, Cursor};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use image::error::{ImageFormatHint, UnsupportedErrorKind};
-use image::metadata::Orientation;
-use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, Limits, RgbaImage};
+use image::{ImageFormat, RgbaImage};
+use kiri_image_utils::DecodeError;
 
 use crate::model::{Block, Document, Inline};
 
@@ -298,31 +298,15 @@ fn decode_named(
 }
 
 fn decode_raster(bytes: &[u8], named: Option<ImageFormat>) -> Result<Source, ImageError> {
-    let mut reader = ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .expect("reading from memory does not fail");
-    if reader.format().is_none() && named == Some(ImageFormat::Tga) {
-        reader.set_format(ImageFormat::Tga);
+    // Only TGA has no signature; for other formats a wrong name must not
+    // turn data that is no image into a broken image.
+    let fallback = named.filter(|&format| format == ImageFormat::Tga);
+    match kiri_image_utils::decode_rgba8(bytes, fallback, MAX_PIXELS, MAX_ALLOC) {
+        Ok(image) => Ok(Source::Raster(image)),
+        Err(DecodeError::UnknownFormat) => Err(ImageError::UnknownFormat),
+        Err(DecodeError::TooLarge { width, height }) => Err(ImageError::TooLarge { width, height }),
+        Err(DecodeError::Image(error)) => Err(from_image_error(error)),
     }
-    if reader.format().is_none() {
-        return Err(ImageError::UnknownFormat);
-    }
-    let mut limits = Limits::default();
-    limits.max_alloc = Some(MAX_ALLOC);
-    reader.limits(limits);
-    let mut decoder = reader.into_decoder().map_err(from_image_error)?;
-    let (width, height) = decoder.dimensions();
-    if u64::from(width) * u64::from(height) > MAX_PIXELS {
-        return Err(ImageError::TooLarge { width, height });
-    }
-    // Broken EXIF data does not make the picture unusable.
-    let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
-    let mut image = DynamicImage::from_decoder(decoder).map_err(|error| match error {
-        image::ImageError::Limits(_) => ImageError::TooLarge { width, height },
-        error => from_image_error(error),
-    })?;
-    image.apply_orientation(orientation);
-    Ok(Source::Raster(image.into_rgba8()))
 }
 
 fn from_image_error(error: image::ImageError) -> ImageError {
