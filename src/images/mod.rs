@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 use image::error::{ImageFormatHint, UnsupportedErrorKind};
 use image::metadata::Orientation;
-use image::{DynamicImage, ImageDecoder, ImageReader, Limits, RgbaImage};
+use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, Limits, RgbaImage};
 
 use crate::model::{Block, Document, Inline};
 
@@ -76,6 +76,17 @@ fn scale(image: &RgbaImage, width: u32, height: u32) -> RgbaImage {
     let bytes =
         kiri_image_scale::scale_rgba8(image.as_raw(), from_width, from_height, width, height);
     RgbaImage::from_raw(width, height, bytes).expect("width × height pixels")
+}
+
+/// The format of an image file, as far as it is known before decoding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Format {
+    /// Told by the content.
+    Detect,
+    /// An SVG, plain or compressed.
+    Svg,
+    /// A raster format, also when the content does not tell it.
+    Raster(ImageFormat),
 }
 
 /// Why an image could not be loaded.
@@ -152,6 +163,20 @@ impl fmt::Display for ImageError {
     }
 }
 
+impl ImageError {
+    /// Whether the message names the file, so that it needs no other name
+    /// in front.
+    pub fn names_file(&self) -> bool {
+        matches!(
+            self,
+            ImageError::Missing(_)
+                | ImageError::Unreadable { .. }
+                | ImageError::NotAFile(_)
+                | ImageError::FileTooLarge { .. }
+        )
+    }
+}
+
 impl std::error::Error for ImageError {}
 
 /// A size limit in bytes for people, to go before a noun: whole megabytes
@@ -212,12 +237,7 @@ impl Images {
             .filter_map(|(url, image)| match image {
                 Ok(_) => None,
                 // These name the file, resolved against the document.
-                Err(
-                    error @ (ImageError::Missing(_)
-                    | ImageError::Unreadable { .. }
-                    | ImageError::NotAFile(_)
-                    | ImageError::FileTooLarge { .. }),
-                ) => Some(error.to_string()),
+                Err(error) if error.names_file() => Some(error.to_string()),
                 Err(ImageError::NoPath) if url.is_empty() => {
                     Some("an image URL is empty".to_owned())
                 }
@@ -273,6 +293,32 @@ fn collect_blocks<'a>(blocks: &'a [Block], urls: &mut Vec<&'a str>) {
     }
 }
 
+/// Reads and decodes the image file at `path` from `reader`, which gives
+/// the whole file, in `format`. Files larger than `max_file_size` bytes are
+/// refused, and text in SVGs is drawn with `fonts`.
+pub fn read_image(
+    reader: impl io::Read,
+    path: &Path,
+    format: Format,
+    max_file_size: u64,
+    fonts: &Fonts,
+) -> Result<Source, ImageError> {
+    let bytes = url::read_at_most(reader, max_file_size)
+        .map_err(|error| ImageError::Unreadable {
+            path: path.to_owned(),
+            reason: error.to_string(),
+        })?
+        .ok_or_else(|| ImageError::FileTooLarge {
+            path: path.to_owned(),
+            limit: max_file_size,
+        })?;
+    match format {
+        Format::Detect => decode(&bytes, max_file_size, fonts),
+        Format::Svg => decode_svg(&bytes, max_file_size, fonts),
+        Format::Raster(format) => decode_raster(&bytes, Some(format)),
+    }
+}
+
 /// Decodes an image file's bytes, whatever the format, and turns it upright
 /// according to its EXIF orientation. Animations give their first frame.
 /// A compressed SVG may decompress to at most `max_size` bytes, the limit
@@ -281,16 +327,20 @@ pub fn decode(bytes: &[u8], max_size: u64, fonts: &Fonts) -> Result<Source, Imag
     if looks_like_svg(bytes) {
         decode_svg(bytes, max_size, fonts)
     } else {
-        decode_raster(bytes)
+        decode_raster(bytes, None)
     }
 }
 
-fn decode_raster(bytes: &[u8]) -> Result<Source, ImageError> {
+/// Decodes a raster image in the format its bytes tell, or in `format`
+/// when they tell none.
+fn decode_raster(bytes: &[u8], format: Option<ImageFormat>) -> Result<Source, ImageError> {
     let mut reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .expect("reading from memory does not fail");
-    if reader.format().is_none() {
-        return Err(ImageError::UnknownFormat);
+    match (reader.format(), format) {
+        (Some(_), _) => {}
+        (None, Some(format)) => reader.set_format(format),
+        (None, None) => return Err(ImageError::UnknownFormat),
     }
     let mut limits = Limits::default();
     limits.max_alloc = Some(MAX_ALLOC);

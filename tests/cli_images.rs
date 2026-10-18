@@ -269,3 +269,158 @@ fn images_and_no_images_cannot_be_given_together() {
         );
     }
 }
+
+/// Runs kiri on the file `path` with `args` before it.
+fn kiri_on(dir: &Path, path: &Path, args: &[&str]) -> Output {
+    command(dir).args(args).arg(path).output().unwrap()
+}
+
+/// Fails unless `out` shows one image on its own and nothing else.
+fn assert_image_alone(out: &Output) {
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert_eq!(text(&out.stderr), "");
+    let stdout = text(&out.stdout);
+    // A large image goes in chunks, the first of which places it.
+    assert_eq!(stdout.matches("\x1b_Ga=T,").count(), 1, "{stdout:?}");
+    assert!(!stdout.contains("[image"), "{stdout:?}");
+}
+
+#[test]
+fn shows_an_image_file_on_its_own() {
+    let dir = Scratch::new("image-file");
+    for name in [
+        "icon.png",
+        "photo-landscape.jpg",
+        "animated.gif",
+        "lossy.webp",
+    ] {
+        let out = kiri_on(
+            &dir,
+            &fixtures().join("images").join(name),
+            &["--mode", "kitty"],
+        );
+        assert_image_alone(&out);
+    }
+}
+
+#[test]
+fn shows_an_svg_file_on_its_own() {
+    let dir = Scratch::new("svg-file");
+    for name in ["pattern.svg", "pattern.svgz"] {
+        let out = kiri_on(
+            &dir,
+            &fixtures().join("images").join(name),
+            &["--mode", "kitty"],
+        );
+        assert_image_alone(&out);
+    }
+}
+
+#[test]
+fn tells_an_image_by_its_content_whatever_its_name() {
+    let dir = Scratch::new("image-content");
+    let picture = dir.join("picture");
+    std::fs::copy(fixtures().join("images/icon.png"), &picture).unwrap();
+    assert_image_alone(&kiri_on(&dir, &picture, &["--mode", "kitty"]));
+}
+
+#[test]
+fn a_markdown_file_is_markdown_whatever_it_starts_with() {
+    let dir = Scratch::new("markdown-content");
+    // BM starts a BMP image, P1 a PNM image.
+    for (name, source) in [
+        ("notes.md", "BMW and Audi\n"),
+        ("notes.txt", "BMW and Audi\n"),
+        ("notes", "P1 is the first priority\n"),
+    ] {
+        let path = dir.join(name);
+        std::fs::write(&path, source).unwrap();
+        let out = kiri_on(&dir, &path, &["--mode", "kitty"]);
+        assert!(out.status.success(), "{name}: {}", text(&out.stderr));
+        assert_eq!(text(&out.stdout).trim(), source.trim(), "{name}");
+    }
+}
+
+#[test]
+fn an_image_file_is_shown_even_with_images_off() {
+    let dir = Scratch::new("image-file-images-off");
+    let icon = fixtures().join("images/icon.png");
+    assert_image_alone(&kiri_on(&dir, &icon, &["--mode", "kitty", "-I"]));
+    let out = command(&dir)
+        .env("KIRI_NO_IMAGES", "1")
+        .args(["--mode", "kitty"])
+        .arg(&icon)
+        .output()
+        .unwrap();
+    assert_image_alone(&out);
+    write(&dir.join("config/kiri/config.toml"), "images = false\n");
+    assert_image_alone(&kiri_on(&dir, &icon, &["--mode", "kitty"]));
+}
+
+#[test]
+fn an_image_file_above_the_size_limit_is_an_error() {
+    let dir = Scratch::new("image-file-limit");
+    let photo = fixtures().join("images/photo-cmyk.jpg");
+    let out = kiri_on(&dir, &photo, &["--mode", "kitty", "--max-image-size", "1"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        text(&out.stderr),
+        format!(
+            "kiri: {}: larger than the 1 MB limit; see --max-image-size\n",
+            photo.display()
+        )
+    );
+    assert_eq!(text(&out.stdout), "");
+}
+
+#[test]
+fn an_image_file_that_does_not_decode_is_an_error() {
+    let dir = Scratch::new("image-file-broken");
+    // Text named .png: the name makes it an image.
+    for name in ["not-an-image.png", "truncated.png"] {
+        let path = fixtures().join("images").join(name);
+        let out = kiri_on(&dir, &path, &["--mode", "kitty"]);
+        assert_eq!(out.status.code(), Some(1), "{name}");
+        let stderr = text(&out.stderr);
+        assert!(
+            stderr.starts_with(&format!("kiri: {}: ", path.display())),
+            "{stderr}"
+        );
+        assert_eq!(text(&out.stdout), "", "{name}");
+    }
+}
+
+#[test]
+fn an_image_file_needs_a_terminal_that_draws_images() {
+    let dir = Scratch::new("image-file-no-graphics");
+    let icon = fixtures().join("images/icon.png");
+    for mode in ["plain", "ansi"] {
+        let out = kiri_on(&dir, &icon, &["--mode", mode]);
+        assert_eq!(out.status.code(), Some(1), "{mode}");
+        assert_eq!(
+            text(&out.stderr),
+            format!(
+                "kiri: {}: the terminal cannot show images\n",
+                icon.display()
+            ),
+            "{mode}"
+        );
+        assert_eq!(text(&out.stdout), "", "{mode}");
+    }
+}
+
+#[test]
+fn a_file_neither_text_nor_an_image_is_an_error() {
+    let dir = Scratch::new("binary-file");
+    let path = dir.join("data.bin");
+    std::fs::write(&path, b"\x00\x01\x02\xff binary").unwrap();
+    let out = kiri_on(&dir, &path, &["--mode", "kitty"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        text(&out.stderr),
+        format!(
+            "kiri: {}: neither Markdown nor an image kiri knows\n",
+            path.display()
+        )
+    );
+}
