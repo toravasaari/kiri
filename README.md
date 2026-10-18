@@ -78,10 +78,17 @@ alt text with a warning.
 | `-I`, `--no-images` | Show images as their alt text, without reading them |
 | `--images` | Show images, whatever the environment and configuration say |
 | `--max-image-size MB` | Largest image file to read: 10 MB unless set, at most 100 |
+| `--doctor` | Show what kiri finds out about the terminal and which settings it uses |
+| `--raw` | With `--doctor`: the report as Markdown text, for a bug report |
 
 A [configuration file](docs/config.md), `~/.config/kiri/config.toml`, can
 choose the theme and turn images off, and so can the environment variables
 `KIRI_THEME` and `KIRI_NO_IMAGES`.
+
+When the output looks wrong, `kiri --doctor` shows what kiri found out
+about the terminal, which settings it uses and where each came from, with
+a sample of headings, a table and an image drawn below. Piped to a file,
+or with `--raw`, the report is Markdown to paste into a bug report.
 
 An interactive pager (`kiri -i`) with search and link navigation is
 planned.
