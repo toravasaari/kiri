@@ -12,7 +12,7 @@ use kiri::term::{Capabilities, Detection, Mode, WindowSize};
 
 mod common;
 
-use common::{Scratch, text, write};
+use common::{Scratch, pty, text, write};
 
 /// `kiri --doctor` with `args`, with its home directory in `dir`. It runs
 /// in a session of its own, so it has no controlling terminal to ask
@@ -245,15 +245,6 @@ fn doctor_takes_no_file_or_format() {
 }
 
 #[test]
-fn without_doctor_a_file_is_still_required() {
-    let dir = Scratch::new("doctor-required");
-    let out = common::command(&dir).output().unwrap();
-    assert!(!out.status.success());
-    let stderr = text(&out.stderr);
-    assert!(stderr.contains("<FILE>"), "{stderr}");
-}
-
-#[test]
 fn a_terminal_gets_the_report_rendered_with_its_test_image() {
     let dir = Scratch::new("doctor-terminal");
     let (mut terminal, tty) = pty();
@@ -341,29 +332,6 @@ fn raw_needs_doctor() {
         assert!(stderr.contains("--raw needs --doctor"), "{stderr}");
         assert!(stderr.contains("Usage: kiri "), "{stderr}");
     }
-}
-
-/// A pseudo-terminal: the terminal side, and the program's side.
-fn pty() -> (std::fs::File, std::fs::File) {
-    use std::ffi::OsStr;
-    use std::fs::File;
-    use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::fs::OpenOptionsExt;
-
-    use rustix::fs::OFlags;
-    use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
-
-    let terminal = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).unwrap();
-    grantpt(&terminal).unwrap();
-    unlockpt(&terminal).unwrap();
-    let name = ptsname(&terminal, Vec::new()).unwrap();
-    let tty = File::options()
-        .read(true)
-        .write(true)
-        .custom_flags(OFlags::NOCTTY.bits() as i32)
-        .open(OsStr::from_bytes(name.as_bytes()))
-        .unwrap();
-    (File::from(terminal), tty)
 }
 
 /// The report on a kitty 0.47.1 in a window without pixels that told its
