@@ -4,7 +4,7 @@ expression: stable(&report)
 ---
 # kiri doctor
 
-kiri [version]: what it found out about the terminal, and the settings it uses. Written to a file, this report stays Markdown, ready to paste into a bug report.
+kiri [version]: terminal features and settings.
 
 ## Terminal
 

@@ -29,8 +29,18 @@ pub struct Facts<'a> {
     pub config_error: Option<String>,
     /// Why the theme could not be loaded.
     pub theme_error: Option<String>,
-    /// Whether the report ends with a sample of what kiri renders.
-    pub sample: bool,
+    pub output: Output,
+}
+
+/// Where the report goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Output {
+    /// Rendered in a terminal.
+    Rendered,
+    /// As Markdown into a file or a pipe.
+    Markdown,
+    /// As Markdown without the sample, with `--raw`.
+    Raw,
 }
 
 /// The test image in the sample: four coloured squares.
@@ -56,9 +66,7 @@ fn write_report(facts: &Facts, out: &mut String) -> std::fmt::Result {
     writeln!(out, "# kiri doctor\n")?;
     writeln!(
         out,
-        "kiri {}: what it found out about the terminal, and the settings \
-         it uses. Written to a file, this report stays Markdown, ready to \
-         paste into a bug report.\n",
+        "kiri {}: terminal features and settings.\n",
         env!("CARGO_PKG_VERSION")
     )?;
     write_problems(facts, &home, out)?;
@@ -67,12 +75,19 @@ fn write_report(facts: &Facts, out: &mut String) -> std::fmt::Result {
     write_files(facts, &home, out)?;
     writeln!(out, "## Image formats\n")?;
     writeln!(out, "{}\n", image_formats())?;
-    if facts.sample {
+    if facts.output != Output::Raw {
         write_sample(out)?;
     }
     if let Some(answers) = &facts.detection.answers {
         writeln!(out, "## Probe answers\n")?;
-        writeln!(out, "```text\n{}\n```", escaped(answers))?;
+        writeln!(out, "```text\n{}\n```\n", escaped(answers))?;
+    }
+    if facts.output == Output::Rendered {
+        writeln!(
+            out,
+            "Run `kiri --doctor --raw` to get this report as text for a bug \
+             report."
+        )?;
     }
     Ok(())
 }

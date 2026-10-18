@@ -4,7 +4,7 @@ expression: stable(&report(&facts))
 ---
 # kiri doctor
 
-kiri [version]: what it found out about the terminal, and the settings it uses. Written to a file, this report stays Markdown, ready to paste into a bug report.
+kiri [version]: terminal features and settings.
 
 ## Terminal
 
@@ -65,3 +65,5 @@ fn main() {
 ```text
 \e[5;1R\e[5;3R\e[5;5R\e_Gi=31;OK\e\\\e]11;rgb:1e1e/1e1e/2e2e\e\\\eP>|kitty(0.47.1)\e\\\e[6;19;9t\e[?62;c
 ```
+
+Run `kiri --doctor --raw` to get this report as text for a bug report.

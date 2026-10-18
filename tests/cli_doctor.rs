@@ -203,6 +203,7 @@ fn a_terminal_gets_the_report_rendered_with_its_test_image() {
     let output = text(&output);
     assert!(!output.contains("## Terminal"), "{output:?}");
     assert!(output.contains("kiri doctor"), "{output:?}");
+    assert!(output.contains("kiri --doctor --raw"), "{output:?}");
     assert_eq!(common::graphics_commands(&output).len(), 1, "{output:?}");
 }
 
@@ -224,6 +225,7 @@ fn raw_writes_the_markdown_into_a_terminal_too() {
     assert!(!output.contains('\x1b'), "{output:?}");
     assert!(output.contains("## Terminal"), "{output:?}");
     assert!(output.contains("| Mode | kitty | `--mode` |"), "{output:?}");
+    assert!(!output.contains("--raw"), "{output:?}");
 }
 
 #[test]
@@ -233,7 +235,9 @@ fn raw_leaves_out_the_sample() {
     assert!(report.contains("## Image formats"), "{report}");
     assert!(!report.contains("## Sample"), "{report}");
     assert!(!report.contains("data:"), "{report}");
-    assert!(piped(&dir, &[]).contains("## Sample"));
+    let markdown = piped(&dir, &[]);
+    assert!(markdown.contains("## Sample"), "{markdown}");
+    assert!(!markdown.contains("--raw"), "{markdown}");
 }
 
 #[test]
@@ -273,7 +277,8 @@ fn pty() -> (std::fs::File, std::fs::File) {
 }
 
 /// The report on a kitty 0.47.1 in a window without pixels that told its
-/// cell size, with `TERM` and the settings of a user with a home directory.
+/// cell size, with `TERM` and the settings of a user with a home directory,
+/// as it is rendered.
 #[test]
 fn the_report_on_kitty() {
     let env = Environment {
@@ -312,7 +317,7 @@ fn the_report_on_kitty() {
         choices: &choices,
         config_error: None,
         theme_error: None,
-        sample: true,
+        output: kiri::doctor::Output::Rendered,
     };
     insta::assert_snapshot!(stable(&report(&facts)));
 }

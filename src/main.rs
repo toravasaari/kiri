@@ -7,7 +7,7 @@ use clap::error::ErrorKind;
 use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, ValueEnum};
 use kiri::config::{Environment, Options, Origin, Setting, Settings};
-use kiri::doctor::Facts;
+use kiri::doctor::{Facts, Output};
 use kiri::images::{Fonts, Format, Images};
 use kiri::input::Input;
 use kiri::model::Document;
@@ -255,6 +255,11 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), String> {
         Err(error) => (Theme::default(), Some(error)),
     };
     let detection = kiri::term::examine(cli.mode.into(), cli.width, &env);
+    let output = match (cli.raw, kiri::term::stdout_is_terminal()) {
+        (true, _) => Output::Raw,
+        (false, true) => Output::Rendered,
+        (false, false) => Output::Markdown,
+    };
     let markdown = kiri::doctor::report(&Facts {
         env: &env,
         mode: Setting::new(cli.mode.into(), origin(matches, "mode", "--mode")),
@@ -267,9 +272,9 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), String> {
         choices: &choices,
         config_error,
         theme_error,
-        sample: !cli.raw,
+        output,
     });
-    if cli.raw || !kiri::term::stdout_is_terminal() {
+    if output != Output::Rendered {
         let mut out = io::stdout().lock();
         return finish(
             out.write_all(markdown.as_bytes())
