@@ -1,6 +1,7 @@
 //! What the output terminal can do, and asking it.
 
 use std::ffi::OsStr;
+use std::os::fd::AsFd;
 
 use crate::config::Environment;
 use crate::kitty::graphics;
@@ -11,6 +12,8 @@ use crate::kitty::graphics;
 pub struct Capabilities {
     /// Width in cells.
     pub width: u16,
+    /// Height of the terminal window in cells, when it is known.
+    pub height: Option<u16>,
     /// Colours and text attributes through escape sequences.
     pub styling: bool,
     /// Foreground and background colours, with `styling`. Off when the user
@@ -45,6 +48,7 @@ impl Capabilities {
     pub fn plain(width: u16) -> Self {
         Self {
             width,
+            height: None,
             styling: false,
             color: false,
             truecolor: false,
@@ -105,15 +109,14 @@ pub enum Mode {
 /// terminal's own width. `NO_COLOR` turns colours off in every mode,
 /// including the forced ones.
 pub fn capabilities(mode: Mode, width: Option<u16>, env: &Environment) -> Capabilities {
+    let window = window_size(std::io::stdout());
+    let width = width.or(window.map(|w| w.columns)).unwrap_or(80);
     let mut caps = match mode {
-        Mode::Auto => detect(width, env),
-        Mode::Plain => Capabilities::plain(width_or_terminal(width)),
-        Mode::Ansi => Capabilities::ansi(width_or_terminal(width)),
-        // The cell size is not a probe: the window size reports it.
-        Mode::Kitty => Capabilities {
-            cell_pixels: cell_pixels(),
-            ..Capabilities::kitty(width_or_terminal(width))
-        },
+        Mode::Auto => detect(width, window, env),
+        Mode::Plain => Capabilities::plain(width),
+        Mode::Ansi => Capabilities::ansi(width),
+        // The window size is not a probe: it does not ask the terminal.
+        Mode::Kitty => with_window(Capabilities::kitty(width), window),
     };
     if no_color(env) {
         caps.color = false;
@@ -121,18 +124,15 @@ pub fn capabilities(mode: Mode, width: Option<u16>, env: &Environment) -> Capabi
     caps
 }
 
-/// Asks the terminal on stdout what it supports. Falls back to plain text
-/// when stdout is not a terminal, and to ANSI styling when it does not
-/// answer. `width` overrides the terminal's own width.
-pub fn detect(width: Option<u16>, env: &Environment) -> Capabilities {
-    let stdout = std::io::stdout();
-    let width = width_or_terminal(width);
-    if !rustix::termios::isatty(&stdout) {
+/// Asks the terminal on stdout, whose window is `window`, what it supports.
+/// Falls back to plain text when stdout is not a terminal, and to ANSI
+/// styling when it does not answer.
+fn detect(width: u16, window: Option<WindowSize>, env: &Environment) -> Capabilities {
+    if !rustix::termios::isatty(std::io::stdout()) {
         return Capabilities::plain(width);
     }
-    let mut caps = with_environment(Capabilities::ansi(width), env);
-    caps.cell_pixels = cell_pixels();
-
+    let caps = with_environment(Capabilities::ansi(width), env);
+    let caps = with_window(caps, window);
     match probe::run() {
         Some(answers) => with_probe(caps, &probe::interpret(&answers)),
         None => caps,
@@ -176,27 +176,44 @@ pub fn no_color(env: &Environment) -> bool {
         .is_some_and(|value| !value.is_empty())
 }
 
-/// `width` when given, otherwise the width of the terminal on stdout, and
-/// 80 cells when stdout is not a terminal.
-fn width_or_terminal(width: Option<u16>) -> u16 {
-    width.or_else(terminal_width).unwrap_or(80)
+/// The size of a terminal window, from one query.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowSize {
+    /// Columns and rows of cells.
+    pub columns: u16,
+    pub rows: u16,
+    /// Width and height in pixels; 0 when the terminal does not tell.
+    pub width: u16,
+    pub height: u16,
 }
 
-/// Width of the terminal on stdout in cells, if stdout is a terminal.
-pub fn terminal_width() -> Option<u16> {
-    let size = rustix::termios::tcgetwinsize(std::io::stdout()).ok()?;
-    (size.ws_col > 0).then_some(size.ws_col)
+impl WindowSize {
+    /// Size of one cell in pixels, when the terminal reports its size in
+    /// pixels.
+    pub fn cell_pixels(&self) -> Option<(u16, u16)> {
+        let cell_width = self.width / self.columns.max(1);
+        let cell_height = self.height / self.rows.max(1);
+        (cell_width > 0 && cell_height > 0).then_some((cell_width, cell_height))
+    }
 }
 
-/// Size of one cell in pixels of the terminal on stdout, if stdout is a
-/// terminal that reports its size in pixels.
-pub fn cell_pixels() -> Option<(u16, u16)> {
-    let size = rustix::termios::tcgetwinsize(std::io::stdout()).ok()?;
-    let (w, h) = (
-        size.ws_xpixel / size.ws_col.max(1),
-        size.ws_ypixel / size.ws_row.max(1),
-    );
-    (w > 0 && h > 0).then_some((w, h))
+/// `caps` with the height and the cell size of `window`.
+fn with_window(mut caps: Capabilities, window: Option<WindowSize>) -> Capabilities {
+    caps.height = window.map(|w| w.rows).filter(|&rows| rows > 0);
+    caps.cell_pixels = window.and_then(|w| w.cell_pixels());
+    caps
+}
+
+/// The size of the terminal window `fd` refers to, if it is a terminal
+/// that reports one.
+pub fn window_size(fd: impl AsFd) -> Option<WindowSize> {
+    let size = rustix::termios::tcgetwinsize(fd).ok()?;
+    (size.ws_col > 0).then_some(WindowSize {
+        columns: size.ws_col,
+        rows: size.ws_row,
+        width: size.ws_xpixel,
+        height: size.ws_ypixel,
+    })
 }
 
 /// Terminals known to support OSC 8 that cannot be recognised by a probe.
@@ -261,6 +278,83 @@ mod tests {
         };
         assert!(!caps.draws_images());
         assert!(Capabilities::kitty(80).draws_images());
+    }
+
+    /// A pseudo-terminal: the terminal side, and kiri's side.
+    pub(super) fn pty() -> (std::fs::File, std::fs::File) {
+        use std::ffi::OsStr;
+        use std::fs::File;
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        use rustix::fs::OFlags;
+        use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
+
+        let terminal = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).unwrap();
+        grantpt(&terminal).unwrap();
+        unlockpt(&terminal).unwrap();
+        let name = ptsname(&terminal, Vec::new()).unwrap();
+        let tty = File::options()
+            .read(true)
+            .write(true)
+            .custom_flags(OFlags::NOCTTY.bits() as i32)
+            .open(OsStr::from_bytes(name.as_bytes()))
+            .unwrap();
+        (File::from(terminal), tty)
+    }
+
+    #[test]
+    fn reads_the_window_size_in_cells_and_pixels() {
+        let (_terminal, tty) = pty();
+        let size = |columns, rows, width, height| rustix::termios::Winsize {
+            ws_col: columns,
+            ws_row: rows,
+            ws_xpixel: width,
+            ws_ypixel: height,
+        };
+        rustix::termios::tcsetwinsize(&tty, size(80, 24, 800, 480)).unwrap();
+        assert_eq!(
+            window_size(&tty),
+            Some(WindowSize {
+                columns: 80,
+                rows: 24,
+                width: 800,
+                height: 480,
+            })
+        );
+    }
+
+    #[test]
+    fn takes_the_height_and_the_cell_size_from_the_window() {
+        let window = WindowSize {
+            columns: 80,
+            rows: 24,
+            width: 800,
+            height: 480,
+        };
+        let caps = with_window(Capabilities::kitty(60), Some(window));
+        assert_eq!(caps.height, Some(24));
+        assert_eq!(caps.cell_pixels, Some((10, 20)));
+        // The width given on the command line stays.
+        assert_eq!(caps.width, 60);
+        let without_pixels = WindowSize {
+            width: 0,
+            height: 0,
+            ..window
+        };
+        let caps = with_window(Capabilities::kitty(60), Some(without_pixels));
+        assert_eq!(caps.height, Some(24));
+        assert_eq!(caps.cell_pixels, None);
+        assert_eq!(
+            with_window(Capabilities::kitty(60), None),
+            Capabilities::kitty(60)
+        );
+    }
+
+    #[test]
+    fn a_pipe_has_no_window_size() {
+        let (reader, _writer) = std::io::pipe().unwrap();
+        assert_eq!(window_size(&reader), None);
     }
 
     fn env_with(set: impl Fn(&mut Environment)) -> Environment {
@@ -653,33 +747,11 @@ mod probe {
             assert!(!interpret(answers.as_bytes()).text_sizing);
         }
 
-        /// A pseudo-terminal: the terminal side, and kiri's side.
-        fn pty() -> (File, File) {
-            use std::ffi::OsStr;
-            use std::os::unix::ffi::OsStrExt;
-            use std::os::unix::fs::OpenOptionsExt;
-
-            use rustix::fs::OFlags;
-            use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
-
-            let terminal = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).unwrap();
-            grantpt(&terminal).unwrap();
-            unlockpt(&terminal).unwrap();
-            let name = ptsname(&terminal, Vec::new()).unwrap();
-            let tty = File::options()
-                .read(true)
-                .write(true)
-                .custom_flags(OFlags::NOCTTY.bits() as i32)
-                .open(OsStr::from_bytes(name.as_bytes()))
-                .unwrap();
-            (File::from(terminal), tty)
-        }
-
         #[test]
         fn raw_mode_ends_when_a_panic_unwinds() {
             use rustix::termios::LocalModes;
 
-            let (_terminal, tty) = pty();
+            let (_terminal, tty) = crate::term::tests::pty();
             let original = tcgetattr(&tty).unwrap();
             let result = std::panic::catch_unwind(|| {
                 let _raw = RawMode::enter(&tty).unwrap();
@@ -695,7 +767,7 @@ mod probe {
 
         #[test]
         fn ending_raw_mode_discards_unread_answers() {
-            let (mut terminal, tty) = pty();
+            let (mut terminal, tty) = crate::term::tests::pty();
             {
                 let _raw = RawMode::enter(&tty).unwrap();
                 // A late answer that nothing reads.
