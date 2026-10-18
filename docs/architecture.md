@@ -45,7 +45,8 @@ they work.
 ## Terminal capabilities
 
 `src/term.rs` is the only place that talks to the terminal to find out what
-it can do: size in cells and pixels (`TIOCGWINSZ`), whether the text sizing
+it can do: size in cells and pixels (`TIOCGWINSZ`, or the cell size from
+`CSI 16 t` where that has no pixels), whether the text sizing
 and graphics protocols work, the background colour, and the terminal's
 name and version (XTVERSION). 24-bit colour, hyperlinks and underline
 styles follow from either protocol working. Images need the graphics
@@ -59,7 +60,13 @@ probe. `NO_COLOR` turns colours off in every mode. These variables come
 in as part of `config::Environment`, read once at start-up with kiri's
 own, so the rules are tested without the process environment. The result
 is a plain value passed to the renderer, so tests can render for any
-terminal without having one.
+terminal without having one. kiri asks nothing when it runs in the
+background of its terminal, where raw mode would get it stopped.
+
+`kiri --doctor` reports what detection found and where each setting came
+from. `src/term.rs` and `src/config.rs` hand it those facts, and
+`src/doctor.rs` writes them as a Markdown document, which kiri renders
+like any other or writes as it is into a pipe.
 
 ## Terminal features used
 
@@ -73,6 +80,7 @@ terminal without having one.
 | Text attributes and colours | SGR | `src/render/output.rs` | Bold, italic, colours |
 | Styled underlines | SGR 4:x | `src/render/output.rs` | Heading underline styles |
 | Cursor movement, erase | CSI C, CSI K | `src/render/output.rs` | Backgrounds beside scaled headings and across the width |
+| Cell size query | CSI 16 t | `src/kitty/query.rs` | The cell size in pixels where the window size has none |
 | Generic queries | CSI 6n, OSC 11, CSI > q, CSI c | `src/term.rs` | Cursor position, background colour, terminal version, end of the answers |
 
 Sequences that only kitty's protocols define live under `src/kitty/`:
@@ -96,6 +104,7 @@ src/parse/mod.rs           comrak tree -> document model
 src/parse/html.rs          HTML <img> tags and their attributes
 src/term.rs                capability detection, the only terminal queries
 src/config.rs              settings: options, environment, configuration file
+src/doctor.rs              the --doctor report as Markdown
 src/theme.rs               colours and sizes, theme files
 src/images/mod.rs          loading and decoding the images a document shows
 src/images/url.rs          data URLs, file URLs and paths, read up to a limit
