@@ -40,6 +40,26 @@ pub fn decode_rgba8(
     if reader.format().is_none() {
         return Err(DecodeError::UnknownFormat);
     }
+    decode_reader(reader, max_pixels, max_alloc)
+}
+
+/// `decode_rgba8` in `format`, whatever format the bytes name.
+pub fn decode_rgba8_as(
+    bytes: &[u8],
+    format: ImageFormat,
+    max_pixels: u64,
+    max_alloc: u64,
+) -> Result<RgbaImage, DecodeError> {
+    let mut reader = ImageReader::new(Cursor::new(bytes));
+    reader.set_format(format);
+    decode_reader(reader, max_pixels, max_alloc)
+}
+
+fn decode_reader(
+    mut reader: ImageReader<Cursor<&[u8]>>,
+    max_pixels: u64,
+    max_alloc: u64,
+) -> Result<RgbaImage, DecodeError> {
     let mut limits = Limits::default();
     limits.max_alloc = Some(max_alloc);
     reader.limits(limits);
@@ -97,6 +117,14 @@ mod tests {
         // A PNG stays a PNG.
         let result = decode_rgba8(&png(3, 2), Some(ImageFormat::Bmp), LIMIT, LIMIT);
         assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[test]
+    fn decodes_in_the_given_format_whatever_the_bytes_name() {
+        let result = decode_rgba8_as(&png(3, 2), ImageFormat::Png, LIMIT, LIMIT);
+        assert!(result.is_ok(), "{result:?}");
+        let result = decode_rgba8_as(&png(3, 2), ImageFormat::Bmp, LIMIT, LIMIT);
+        assert!(matches!(result, Err(DecodeError::Image(_))), "{result:?}");
     }
 
     #[test]

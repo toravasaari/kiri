@@ -8,5 +8,5 @@
 mod decode;
 mod scale;
 
-pub use decode::{DecodeError, decode_rgba8};
+pub use decode::{DecodeError, decode_rgba8, decode_rgba8_as};
 pub use scale::scale_rgba8;

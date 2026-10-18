@@ -78,6 +78,17 @@ fn scale(image: &RgbaImage, width: u32, height: u32) -> RgbaImage {
     RgbaImage::from_raw(width, height, bytes).expect("width × height pixels")
 }
 
+/// The format of an image file, as far as it is known before decoding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Format {
+    /// Told by the content.
+    Detect,
+    /// An SVG, plain or compressed.
+    Svg,
+    /// A raster format, whatever the content tells.
+    Raster(ImageFormat),
+}
+
 /// Why an image could not be loaded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImageError {
@@ -152,6 +163,20 @@ impl fmt::Display for ImageError {
     }
 }
 
+impl ImageError {
+    /// Whether the message names the file, so that it needs no other name
+    /// in front.
+    pub fn names_file(&self) -> bool {
+        matches!(
+            self,
+            ImageError::Missing(_)
+                | ImageError::Unreadable { .. }
+                | ImageError::NotAFile(_)
+                | ImageError::FileTooLarge { .. }
+        )
+    }
+}
+
 impl std::error::Error for ImageError {}
 
 /// A size limit in bytes for people, to go before a noun: whole megabytes
@@ -212,12 +237,7 @@ impl Images {
             .filter_map(|(url, image)| match image {
                 Ok(_) => None,
                 // These name the file, resolved against the document.
-                Err(
-                    error @ (ImageError::Missing(_)
-                    | ImageError::Unreadable { .. }
-                    | ImageError::NotAFile(_)
-                    | ImageError::FileTooLarge { .. }),
-                ) => Some(error.to_string()),
+                Err(error) if error.names_file() => Some(error.to_string()),
                 Err(ImageError::NoPath) if url.is_empty() => {
                     Some("an image URL is empty".to_owned())
                 }
@@ -273,6 +293,34 @@ fn collect_blocks<'a>(blocks: &'a [Block], urls: &mut Vec<&'a str>) {
     }
 }
 
+/// Reads and decodes the image file at `path` from `reader`, which gives
+/// the whole file, in `format`. Files larger than `max_file_size` bytes are
+/// refused, and text in SVGs is drawn with `fonts`.
+pub fn read_image(
+    reader: impl io::Read,
+    path: &Path,
+    format: Format,
+    max_file_size: u64,
+    fonts: &Fonts,
+) -> Result<Source, ImageError> {
+    let bytes = url::read_at_most(reader, max_file_size)
+        .map_err(|error| ImageError::Unreadable {
+            path: path.to_owned(),
+            reason: error.to_string(),
+        })?
+        .ok_or_else(|| ImageError::FileTooLarge {
+            path: path.to_owned(),
+            limit: max_file_size,
+        })?;
+    match format {
+        Format::Detect => decode(&bytes, max_file_size, fonts),
+        Format::Svg => decode_svg(&bytes, max_file_size, fonts),
+        Format::Raster(format) => decoded(kiri_image_utils::decode_rgba8_as(
+            &bytes, format, MAX_PIXELS, MAX_ALLOC,
+        )),
+    }
+}
+
 /// Decodes an image file's bytes, whatever the format, and turns it upright
 /// according to its EXIF orientation. Animations give their first frame.
 /// A compressed SVG may decompress to at most `max_size` bytes, the limit
@@ -301,7 +349,14 @@ fn decode_raster(bytes: &[u8], named: Option<ImageFormat>) -> Result<Source, Ima
     // Only TGA has no signature; for other formats a wrong name must not
     // turn data that is no image into a broken image.
     let fallback = named.filter(|&format| format == ImageFormat::Tga);
-    match kiri_image_utils::decode_rgba8(bytes, fallback, MAX_PIXELS, MAX_ALLOC) {
+    decoded(kiri_image_utils::decode_rgba8(
+        bytes, fallback, MAX_PIXELS, MAX_ALLOC,
+    ))
+}
+
+/// The image `kiri_image_utils` decoded, or why it gave none.
+fn decoded(result: Result<RgbaImage, DecodeError>) -> Result<Source, ImageError> {
+    match result {
         Ok(image) => Ok(Source::Raster(image)),
         Err(DecodeError::UnknownFormat) => Err(ImageError::UnknownFormat),
         Err(DecodeError::TooLarge { width, height }) => Err(ImageError::TooLarge { width, height }),
@@ -676,6 +731,24 @@ mod tests {
                 "BMP", "ICO", "TIFF", "QOI", "PNM", "TGA", "OpenEXR", "farbfeld"
             ]
         );
+    }
+
+    #[test]
+    fn reads_an_image_file_in_the_format_it_is_given() {
+        let read = |name: &str, format| {
+            let path = fixtures().join("images").join(name);
+            let file = std::fs::File::open(&path).unwrap();
+            read_image(file, &path, format, DEFAULT_MAX_FILE_SIZE, &Fonts::none())
+        };
+        let png = Format::Raster(ImageFormat::Png);
+        assert!(matches!(read("icon.png", png), Ok(Source::Raster(_))));
+        assert!(matches!(
+            read("pattern.svg", Format::Svg),
+            Ok(Source::Svg(_))
+        ));
+        // A JPEG is not a PNG, whatever its bytes tell.
+        let result = read("photo-landscape.jpg", png).map(|_| ());
+        assert!(matches!(result, Err(ImageError::Corrupt(_))), "{result:?}");
     }
 
     #[test]

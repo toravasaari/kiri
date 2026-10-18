@@ -1,0 +1,5 @@
+---
+source: tests/render_images.rs
+expression: "readable(&alone(&image, &window(Some(24))))"
+---
+␛_Ga=T,U=1,q=2,f=32,o=z,i=12032787,s=50,v=40,c=5,r=1,m=0;<92 bytes>␛\␛[38;2;183;155;19m⟦row 0: 5 cells⟧␛[39m

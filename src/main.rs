@@ -1,14 +1,16 @@
-use std::io::{self, Write};
+use std::fs::File;
+use std::io::{self, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, ValueEnum};
 use kiri::config::{Environment, Options};
-use kiri::images::Images;
+use kiri::images::{Fonts, Format, Images};
+use kiri::input::Input;
 use kiri::render::Inputs;
 use kiri::theme::Paper;
 
-/// Render a Markdown document in the terminal.
+/// Render a Markdown document, or show an image, in the terminal.
 #[derive(Parser)]
 #[command(
     version,
@@ -17,8 +19,13 @@ use kiri::theme::Paper;
                   0.28 or later; elsewhere they show their alt text."
 )]
 struct Cli {
-    /// Markdown file to render.
+    /// Markdown file to render, or an image to show on its own.
     file: PathBuf,
+
+    /// What the file is: markdown, image, or an image format such as svg,
+    /// png or jpg. By default its extension and content tell.
+    #[arg(short, long, value_parser = format)]
+    format: Option<Input>,
 
     /// Width in cells; defaults to the terminal width.
     #[arg(long)]
@@ -69,6 +76,13 @@ fn max_image_size(value: &str) -> Result<u64, String> {
     }
 }
 
+/// The `--format` value.
+fn format(value: &str) -> Result<Input, String> {
+    kiri::input::format(value).ok_or_else(|| {
+        "give markdown, image, or an image format such as svg, png or jpg".to_owned()
+    })
+}
+
 /// `term::Mode` for clap, which takes its help from these comments.
 #[derive(Clone, Copy, ValueEnum)]
 enum Mode {
@@ -104,9 +118,30 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: &Cli) -> Result<(), String> {
-    let source = std::fs::read_to_string(&cli.file)
-        .map_err(|error| format!("{}: {error}", cli.file.display()))?;
+    let path = &cli.file;
+    let failed = |error: io::Error| format!("{}: {error}", path.display());
+    let mut file = File::open(path).map_err(failed)?;
+    let mut head = Vec::new();
+    (&mut file)
+        .take(kiri::input::HEAD as u64)
+        .read_to_end(&mut head)
+        .map_err(failed)?;
     let env = Environment::from_process();
+    let input = cli
+        .format
+        .unwrap_or_else(|| kiri::input::detect(path, &head));
+    if let Input::Image(format) = input {
+        return show_image(cli, format, Cursor::new(head).chain(file), &env);
+    }
+    let mut bytes = head;
+    file.read_to_end(&mut bytes).map_err(failed)?;
+    let source = String::from_utf8(bytes).map_err(|_| match cli.format {
+        Some(_) => format!("{}: not UTF-8 text", path.display()),
+        None => format!(
+            "{}: neither Markdown nor an image kiri knows",
+            path.display()
+        ),
+    })?;
     let config = kiri::config::load(&env)?;
     let settings = kiri::config::settings(&options(cli), &env, &config)?;
     let mut caps = kiri::term::capabilities(cli.mode.into(), cli.width, &env);
@@ -134,7 +169,40 @@ fn run(cli: &Cli) -> Result<(), String> {
         ..Inputs::new(caps)
     };
     let mut out = io::stdout().lock();
-    match kiri::render::render(&document, &inputs, &mut out).and_then(|()| out.flush()) {
+    finish(kiri::render::render(&document, &inputs, &mut out).and_then(|()| out.flush()))
+}
+
+/// Shows the image file `cli` names, in `format`, read from `reader`. It
+/// is shown whatever the settings say about images in documents, but only
+/// up to the size limit. The configuration file is not read: everything in
+/// it is about documents, so a broken one does not stop an image.
+fn show_image(
+    cli: &Cli,
+    format: Format,
+    reader: impl Read,
+    env: &Environment,
+) -> Result<(), String> {
+    let path = &cli.file;
+    let caps = kiri::term::capabilities(cli.mode.into(), cli.width, env);
+    if !caps.draws_images() {
+        return Err(format!(
+            "{}: the terminal cannot show images",
+            path.display()
+        ));
+    }
+    let max_file_size = cli.max_image_size * kiri::images::MB;
+    let image = kiri::images::read_image(reader, path, format, max_file_size, &Fonts::system())
+        .map_err(|error| match error {
+            error if error.names_file() => error.to_string(),
+            error => format!("{}: {error}", path.display()),
+        })?;
+    let mut out = io::stdout().lock();
+    finish(kiri::render::render_image(image, &caps, &mut out).and_then(|()| out.flush()))
+}
+
+/// The outcome of writing the output.
+fn finish(result: io::Result<()>) -> Result<(), String> {
+    match result {
         // A closed pipe (kiri file.md | head) is not an error.
         Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
         result => result.map_err(|error| error.to_string()),

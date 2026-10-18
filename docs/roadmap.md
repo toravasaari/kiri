@@ -171,6 +171,10 @@ Smaller polish that fits in whenever there is time, in any phase.
   compressed formats such as JPEG cannot be passed through as they are;
   this needs thought on what to send and when.
 - Images inside table cells, which now show their alt text.
+- An image shown on its own, `kiri image.png`, can be shown at other sizes
+  than the default fit to the window: one image pixel per terminal pixel
+  even when that is larger than the window, its size in CSS pixels as in a
+  document, or enlarged to fill the window.
 - Code blocks can be copied to the clipboard (OSC 52): in the pager with a
   key, and in print mode through a link beside the block that kitty's
   `open-actions.conf` hands to kiri.
@@ -189,4 +193,12 @@ Smaller polish that fits in whenever there is time, in any phase.
 
 ## Bugs
 
-Known bugs, fixed in whatever phase is under way. None at the moment.
+Known bugs, fixed in whatever phase is under way.
+
+- An image shown on its own, `kiri image.png`, leaves an empty row below
+  it in the maintainer's kitty, so the image is a row shorter than it
+  could be and a two-line prompt scrolls its top row away. `kitten icat`
+  does the same there. It does not happen in kitty on a virtual display,
+  so the window and cell sizes the terminal reports are the first
+  suspect. Once it is understood, the rows left free below the image may
+  become a setting.
