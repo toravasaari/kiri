@@ -132,6 +132,9 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
         (Some(_), _) => detection
             .terminal()
             .map_or_else(|| "unknown".into(), |name| code(&name)),
+        (None, Mode::Auto) if detection.background => {
+            "not asked: kiri runs in the background".into()
+        }
         (None, Mode::Auto) if caps.styling => "did not answer".into(),
         (None, Mode::Auto) => "none".into(),
         (None, mode) => format!("not asked in mode {}", mode_name(mode)),

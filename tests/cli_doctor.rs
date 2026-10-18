@@ -396,6 +396,7 @@ fn the_report_on_kitty() {
               \x1b[6;19;9t\x1b[?62;c"
                 .to_vec(),
         ),
+        background: false,
     };
     let choices = choose(&Options::default(), &env, &Default::default());
     let facts = Facts {
@@ -420,6 +421,7 @@ fn the_terminal_name_is_shown_as_code() {
         caps: Capabilities::kitty(80),
         window: None,
         answers: Some(b"\x1bP>|evil *x* ![i](p.png)\x1b\\\x1b[?62;c".to_vec()),
+        background: false,
     };
     let choices = choose(&Options::default(), &env, &Default::default());
     let facts = Facts {
@@ -436,6 +438,35 @@ fn the_terminal_name_is_shown_as_code() {
     let report = report(&facts);
     assert!(
         report.contains("| Terminal | `evil *x* ![i](p.png)` |"),
+        "{report}"
+    );
+}
+
+/// In the background of its terminal, kiri does not ask it, and says so.
+#[test]
+fn in_the_background_the_terminal_is_not_asked() {
+    let env = Environment::default();
+    let detection = Detection {
+        caps: Capabilities::ansi(80),
+        window: None,
+        answers: None,
+        background: true,
+    };
+    let choices = choose(&Options::default(), &env, &Default::default());
+    let facts = Facts {
+        env: &env,
+        mode: Setting::new(Mode::Auto, Origin::Default),
+        width: None,
+        max_image_size: Setting::new(10, Origin::Default),
+        detection: &detection,
+        choices: &choices,
+        config_error: None,
+        theme_error: None,
+        output: kiri::doctor::Output::Markdown,
+    };
+    let report = report(&facts);
+    assert!(
+        report.contains("| Terminal | not asked: kiri runs in the background |"),
         "{report}"
     );
 }

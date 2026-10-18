@@ -118,6 +118,9 @@ pub struct Detection {
     /// The terminal's answers to the probe; `None` when it was not asked or
     /// did not answer.
     pub answers: Option<Vec<u8>>,
+    /// Whether kiri runs in the background of its terminal, where the probe
+    /// does not ask it.
+    pub background: bool,
 }
 
 /// How kiri learnt the size of a cell in pixels.
@@ -177,9 +180,13 @@ pub fn examine(mode: Mode, width: Option<u16>, env: &Environment) -> Detection {
 
 /// [`examine`] on the terminal `tty`.
 fn examine_on(tty: &File, mode: Mode, width: Option<u16>, env: &Environment) -> Detection {
-    detect(mode, width, env, window_size(tty), true, |ask_cell_size| {
+    let detection = detect(mode, width, env, window_size(tty), true, |ask_cell_size| {
         probe::ask(tty, ask_cell_size)
-    })
+    });
+    Detection {
+        background: probe::runs_in_background(tty),
+        ..detection
+    }
 }
 
 /// The capabilities in `mode` for a window of `window`, which is a
@@ -220,6 +227,7 @@ fn detect(
         caps,
         window,
         answers,
+        background: false,
     }
 }
 
@@ -597,6 +605,16 @@ mod tests {
     }
 
     #[test]
+    fn a_process_group_other_than_the_foreground_one_is_in_the_background() {
+        let pid = |raw| rustix::process::Pid::from_raw(raw).unwrap();
+        assert!(probe::in_background(Some(pid(10)), pid(20)));
+        assert!(!probe::in_background(Some(pid(20)), pid(20)));
+        // A terminal that is not the controlling one has no foreground
+        // process group to compare with.
+        assert!(!probe::in_background(None, pid(20)));
+    }
+
+    #[test]
     fn a_pipe_has_no_window_size() {
         let (reader, _writer) = std::io::pipe().unwrap();
         assert_eq!(window_size(&reader), None);
@@ -683,7 +701,8 @@ mod probe {
     use std::time::{Duration, Instant};
 
     use rustix::event::{PollFd, PollFlags, Timespec, poll};
-    use rustix::termios::{OptionalActions, Termios, tcgetattr, tcsetattr};
+    use rustix::process::{Pid, getpgrp};
+    use rustix::termios::{OptionalActions, Termios, tcgetattr, tcgetpgrp, tcsetattr};
 
     use crate::kitty::query;
 
@@ -747,8 +766,25 @@ mod probe {
         File::options().read(true).write(true).open("/dev/tty").ok()
     }
 
+    /// Whether a process in the process group `own` is in the background of
+    /// a terminal whose foreground process group is `foreground`, if that
+    /// is known.
+    pub fn in_background(foreground: Option<Pid>, own: Pid) -> bool {
+        foreground.is_some_and(|foreground| foreground != own)
+    }
+
+    /// Whether kiri runs in the background of `tty`, as in `kiri … &`.
+    /// There raw mode would stop it with SIGTTOU until it is brought to the
+    /// foreground.
+    pub fn runs_in_background(tty: &File) -> bool {
+        in_background(tcgetpgrp(tty).ok(), getpgrp())
+    }
+
     /// [`run`] on `tty`.
     pub fn ask(tty: &File, ask_cell_size: bool) -> Option<Vec<u8>> {
+        if runs_in_background(tty) {
+            return None;
+        }
         let raw = RawMode::enter(tty)?;
         let answers = exchange(tty, ask_cell_size);
         // Erase whatever the OSC 66 tests drew before restoring the mode.
