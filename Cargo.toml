@@ -54,7 +54,9 @@ rustix = { version = "1.1.5", features = ["pty"] }
 # about 3 s instead of 0.07 s. Debug builds optimise the image decoders, the
 # SVG parser and renderer and the fonts and text shaping for SVG text, and
 # keep kiri's own code easy to debug. An SVG with 400 lines of text takes
-# 0.7 s instead of 1.2 s. flate2 and moxcms made no measurable difference.
+# 0.7 s instead of 1.2 s. The fern as an LZW TIFF takes 0.36 s instead of
+# 0.64 s, and as a QOI 1.0 s instead of 1.2 s. flate2, moxcms and the TIFF
+# decoder's fax and half made no measurable difference.
 # Most of fast_image_resize is generic and so compiled in the crate that
 # uses it, kiri-image-scale, which is optimised for that reason.
 [profile.dev.package]
@@ -64,6 +66,8 @@ image.opt-level = 3
 image-webp.opt-level = 3
 png.opt-level = 3
 gif.opt-level = 3
+tiff.opt-level = 3
+qoi.opt-level = 3
 weezl.opt-level = 3
 fdeflate.opt-level = 3
 miniz_oxide.opt-level = 3
