@@ -46,6 +46,8 @@ example, come before the rest of phase 3.
 - Documented minimum versions for kitty and Rust.
 - Release binaries without symbols (`strip = true` in the release profile),
   about a fifth smaller.
+- Shell completions and a man page, generated from the command-line
+  definition.
 
 ### 3.4 Render check
 
@@ -104,6 +106,9 @@ example, come before the rest of phase 3.
 
 - Relative links become `file://` URLs, so kitty's `open-actions.conf` can
   open Markdown targets in kiri.
+- A Markdown target opens in a kitty overlay window over the document
+  (`kitty @ launch --type=overlay`), so closing it returns the reader to
+  where they were.
 
 ### 4.6 Pager
 
@@ -219,6 +224,15 @@ Smaller polish that fits in whenever there is time, in any phase.
   `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]`, drawn with a colour and an
   icon of their own and a title such as "Note". The colours stay even in
   the paper themes, which are otherwise grey.
+- Headings marked as shell prompts (OSC 133), so kitty's keys for jumping
+  between prompts move between headings in print mode, without the pager.
+  Needs a try first: kitty may treat the marks as more than places to
+  jump to.
+- Heading scales with fractions, such as 1.5 for `h4`, drawn with the text
+  sizing protocol's fractional scale; today `h4` to `h6` can only be the
+  size of body text or twice it.
+- `--toc` puts a table of contents with links at the top of the document
+  in print mode.
 
 ## Bugs
 
