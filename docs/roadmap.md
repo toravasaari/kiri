@@ -117,6 +117,9 @@ example, come before the rest of phase 3.
 ### 4.7 Other input formats
 
 - reStructuredText, Org, AsciiDoc, possibly through pandoc.
+- Jupyter notebooks (`.ipynb`): Markdown cells, code cells with syntax
+  highlighting, and their outputs, images included.
+- CSV and TSV files, shown as a table.
 
 ### 4.8 Diagnostics
 
@@ -130,6 +133,15 @@ example, come before the rest of phase 3.
 - The report is a Markdown document that kiri renders itself, so it also
   shows how headings, tables and images look in this terminal. Piped to a
   file it stays plain Markdown, ready to paste into a bug report.
+
+### 4.9 Standard input and directories
+
+- `kiri -`, or no file name with a pipe on standard input, reads the
+  document from standard input, such as the output of another command.
+  Relative image paths are resolved against the current directory.
+- `kiri some/dir` shows the directory's README, as GitHub does.
+- The pager (4.6) reads its keys from the terminal rather than from
+  standard input, as `less` does, so a piped document can be paged too.
 
 ## Phase 5 – Beyond kitty
 
