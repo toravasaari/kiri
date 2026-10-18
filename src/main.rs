@@ -24,8 +24,9 @@ use kiri::theme::{Paper, Theme};
                   0.28 or later; elsewhere they show their alt text."
 )]
 struct Cli {
-    /// Markdown file to render, or an image to show on its own. Without
-    /// one, or with -, kiri reads standard input unless it is a terminal.
+    /// Markdown file to render, an image to show on its own, or a directory
+    /// to show its README. Without one, or with -, kiri reads standard
+    /// input unless it is a terminal.
     file: Option<PathBuf>,
 
     /// Show what kiri finds out about the terminal and which settings it
@@ -160,8 +161,17 @@ fn main() -> ExitCode {
 /// What errors and warnings call standard input.
 const STDIN: &str = "<stdin>";
 
-/// Shows the file at `path`, or standard input without one.
+/// Shows the file at `path`, the README of a directory there, or standard
+/// input without one.
 fn run(cli: &Cli, file: Option<&Path>) -> Result<(), String> {
+    let readme;
+    let file = match file {
+        Some(dir) if dir.is_dir() => {
+            readme = self::readme(dir)?;
+            Some(readme.as_path())
+        }
+        file => file,
+    };
     let path = file.unwrap_or(Path::new(STDIN));
     let failed = |error: io::Error| format!("{}: {error}", path.display());
     let mut reader: Box<dyn Read> = match file {
@@ -196,6 +206,15 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), String> {
     // Images in a piped document are relative to the current directory.
     let base = file.and_then(Path::parent).unwrap_or(Path::new(""));
     show_document(cli, &document, base, settings, caps)
+}
+
+/// The README the directory `dir` shows: `README.md`, or else `README`.
+fn readme(dir: &Path) -> Result<PathBuf, String> {
+    ["README.md", "README"]
+        .iter()
+        .map(|name| dir.join(name))
+        .find(|path| path.is_file())
+        .ok_or_else(|| format!("{}: no README.md or README", dir.display()))
 }
 
 /// Renders `document`, whose images are relative to `base`, on stdout.
