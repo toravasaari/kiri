@@ -83,6 +83,13 @@ code_padding = true
 code_theme_dark = "base16-ocean.dark"
 code_theme_light = "InspiredGitHub"
 
+# The language of a code block, named in its top right corner on the
+# padding line above the code. It needs code_padding and colours.
+show_language_label = true
+# A colour, none, or code-block for halfway between the code block
+# theme's text and background.
+language_label = "code-block"
+
 # scale: size as a multiple of the normal font (1-7). It needs kitty's
 # text sizing protocol; other terminals show headings at normal size.
 # rule: draw a line under the heading, across the whole terminal width.

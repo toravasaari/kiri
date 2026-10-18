@@ -15,7 +15,7 @@ use crate::color::{Color, Underline};
 use crate::images::Images;
 use crate::model::{Block, Document, Image, Inline, List, Table};
 use crate::term::Capabilities;
-use crate::theme::{CodeBackground, Theme};
+use crate::theme::{CodeBackground, LabelColor, Theme};
 
 const BULLETS: [&str; 3] = ["•", "◦", "▪"];
 
@@ -322,7 +322,10 @@ impl Layout<'_> {
         };
         let mut lines = Vec::new();
         if padding {
-            lines.push(padded(Vec::new()));
+            let label = language
+                .filter(|_| self.theme.show_language_label)
+                .and_then(|language| self.language_label(language, &highlighted, width));
+            lines.push(label.unwrap_or_else(|| padded(Vec::new())));
         }
         for source_line in highlighted.lines {
             let with_background: Vec<Span> = source_line
@@ -343,6 +346,42 @@ impl Layout<'_> {
             lines.push(padded(Vec::new()));
         }
         lines
+    }
+
+    /// The top padding line of a code block `width` cells wide, with
+    /// `language` at its right end, one cell from the edge as the code is
+    /// at the left. `None` when the name does not fit with a cell on each
+    /// side.
+    fn language_label(
+        &self,
+        language: &str,
+        highlighted: &highlight::Highlighted,
+        width: usize,
+    ) -> Option<Line> {
+        let background = Style {
+            bg: highlighted.background,
+            ..Style::default()
+        };
+        let label = Style {
+            fg: match self.theme.language_label {
+                LabelColor::CodeBlock => {
+                    let text = highlight::foreground(self.code_theme()).flatten();
+                    halfway(text, highlighted.background)
+                }
+                LabelColor::Color(color) => color,
+            },
+            ..background.clone()
+        };
+        let name = [Span::new(language, label.clone())];
+        let used = super::wrap::width(&name) + 2;
+        if used > width {
+            return None;
+        }
+        let mut spans = Vec::new();
+        push(&mut spans, &" ".repeat(width - used + 1), &background);
+        push(&mut spans, language, &label);
+        push(&mut spans, " ", &background);
+        Some(Line::new(spans))
     }
 
     fn inline_code_background(&self) -> Option<Color> {
@@ -601,6 +640,20 @@ fn checkbox(checked: bool, styled: bool) -> &'static str {
         (false, true) => "☐ ",
         (true, false) => "[x] ",
         (false, false) => "[ ] ",
+    }
+}
+
+/// The colour halfway between two RGB colours, rounded up; `a` when
+/// either is missing or a palette colour, whose value is the terminal's.
+/// A code theme without a text colour so leaves the label in the
+/// terminal's; every bundled theme has one.
+fn halfway(a: Option<Color>, b: Option<Color>) -> Option<Color> {
+    match (a, b) {
+        (Some(Color::Rgb(r1, g1, b1)), Some(Color::Rgb(r2, g2, b2))) => {
+            let mid = |x: u8, y: u8| ((u16::from(x) + u16::from(y)).div_ceil(2)) as u8;
+            Some(Color::Rgb(mid(r1, r2), mid(g1, g2), mid(b1, b2)))
+        }
+        _ => a,
     }
 }
 

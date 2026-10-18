@@ -53,6 +53,10 @@ pub struct Theme {
     /// Code block colour themes by background, from `CODE_THEMES`.
     pub code_theme_dark: String,
     pub code_theme_light: String,
+    /// The language of a code block named in its top right corner, on the
+    /// padding line above the code. It needs `code_padding` and colours.
+    pub show_language_label: bool,
+    pub language_label: LabelColor,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +73,14 @@ pub struct HeadingTheme {
     pub background: Option<Color>,
     /// Indent in normal-size cells.
     pub indent: u8,
+}
+
+/// The colour of a code block's language label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LabelColor {
+    /// Halfway between the code block colour theme's text and background.
+    CodeBlock,
+    Color(Option<Color>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,6 +143,8 @@ impl Default for Theme {
             code_padding: true,
             code_theme_dark: "base16-ocean.dark".into(),
             code_theme_light: "InspiredGitHub".into(),
+            show_language_label: true,
+            language_label: LabelColor::CodeBlock,
         }
     }
 }
@@ -244,6 +258,7 @@ impl Theme {
         self.rule = None;
         self.list_marker = None;
         self.table_border = None;
+        self.language_label = LabelColor::Color(None);
         for heading in &mut self.headings {
             heading.color = None;
             heading.background = None;
@@ -318,6 +333,15 @@ pub fn parse(text: &str) -> Result<Theme, String> {
         }
         *target = name;
     }
+    if let Some(show) = file.show_language_label {
+        theme.show_language_label = show;
+    }
+    if let Some(color) = file.language_label {
+        theme.language_label = match color.as_str() {
+            "code-block" => LabelColor::CodeBlock,
+            color => LabelColor::Color(parse_color(color)?),
+        };
+    }
     Ok(theme)
 }
 
@@ -382,6 +406,8 @@ struct ThemeFile {
     code_padding: Option<bool>,
     code_theme_dark: Option<String>,
     code_theme_light: Option<String>,
+    show_language_label: Option<bool>,
+    language_label: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -626,6 +652,32 @@ mod tests {
                 .unwrap()
                 .inline_code_wrap
         );
+    }
+
+    #[test]
+    fn the_language_label_can_be_hidden_or_coloured() {
+        let theme = Theme::default();
+        assert!(theme.show_language_label);
+        assert_eq!(theme.language_label, LabelColor::CodeBlock);
+        assert!(
+            !parse("show_language_label = false\n")
+                .unwrap()
+                .show_language_label
+        );
+        let parsed = |value: &str| parse(&format!("language_label = \"{value}\"\n"));
+        assert_eq!(
+            parsed("code-block").unwrap().language_label,
+            LabelColor::CodeBlock
+        );
+        assert_eq!(
+            parsed("red").unwrap().language_label,
+            LabelColor::Color(Some(Color::Palette(1)))
+        );
+        assert_eq!(
+            parsed("none").unwrap().language_label,
+            LabelColor::Color(None)
+        );
+        assert!(parsed("purple").is_err());
     }
 
     #[test]
