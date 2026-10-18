@@ -70,6 +70,17 @@ pub fn highlight(code: &str, language: Option<&str>, theme_name: &str) -> Option
     })
 }
 
+/// Text colour of a bundled theme; `None` if there is no such theme.
+pub fn foreground(theme: &str) -> Option<Option<Color>> {
+    let theme = themes().themes.get(theme)?;
+    Some(
+        theme
+            .settings
+            .foreground
+            .map(|fg| Color::Rgb(fg.r, fg.g, fg.b)),
+    )
+}
+
 /// Background colour of a bundled theme; `None` if there is no such theme.
 pub fn background(theme: &str) -> Option<Option<Color>> {
     let theme = themes().themes.get(theme)?;
