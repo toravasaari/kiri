@@ -214,6 +214,10 @@ Smaller polish that fits in whenever there is time, in any phase.
   compressed formats such as JPEG cannot be passed through as they are;
   this needs thought on what to send and when.
 - Images inside table cells, which now show their alt text.
+- An `<img>` set apart by blank lines inside a wrapper, such as
+  `<p align="center">`, blank line, `<img>`, blank line, `</p>`, is drawn,
+  but the wrapper's tags show as source: CommonMark makes three HTML
+  blocks of it.
 - An image shown on its own, `kiri image.png`, can be shown at other sizes
   than the default fit to the window: one image pixel per terminal pixel
   even when that is larger than the window, its size in CSS pixels as in a
