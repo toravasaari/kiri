@@ -423,19 +423,33 @@ mod tests {
     /// Runs `probe` on a pseudo-terminal with a window of `window`, whose
     /// other side answers like a kitty 0.47.1 with cells of 9 × 19 pixels,
     /// and tells the cell size only when asked. Returns the queries the
-    /// terminal saw and what `probe` returned.
+    /// terminal saw and what `probe` returned. The terminal waits for the
+    /// queries for 2 s at most, so a probe that sends none fails its test
+    /// instead of hanging it.
     pub(super) fn with_kitty<T>(
         window: rustix::termios::Winsize,
         probe: impl FnOnce(&File) -> T,
     ) -> (String, T) {
         use std::io::{Read, Write};
+        use std::time::{Duration, Instant};
+
+        use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
         let (mut terminal, tty) = pty();
         rustix::termios::tcsetwinsize(&tty, window).unwrap();
         let kitty = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(2);
             let mut seen = Vec::new();
             let mut buffer = [0; 1024];
             while !seen.ends_with(b"\x1b[c") {
+                let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+                    return (String::from_utf8(seen).unwrap(), terminal);
+                };
+                let timeout = Timespec::try_from(left).unwrap();
+                let mut fds = [PollFd::new(&terminal, PollFlags::IN)];
+                if poll(&mut fds, Some(&timeout)).unwrap() == 0 {
+                    continue;
+                }
                 let read = terminal.read(&mut buffer).unwrap();
                 seen.extend_from_slice(&buffer[..read]);
             }
@@ -456,6 +470,12 @@ mod tests {
         let result = probe(&tty);
         let (seen, _terminal) = kitty.join().unwrap();
         (seen, result)
+    }
+
+    #[test]
+    fn the_fake_kitty_gives_up_when_it_is_not_asked() {
+        let (seen, ()) = with_kitty(size(80, 24, 0, 0), |_| ());
+        assert_eq!(seen, "");
     }
 
     #[test]
