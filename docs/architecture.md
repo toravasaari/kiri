@@ -36,6 +36,11 @@ tells an image from a document by its extension and first bytes, and an
 image skips the parser and is drawn on its own, as large as fits the
 window.
 
+The document can also come from standard input, which errors call
+`<stdin>`, or from a directory, which stands for its README. Both are
+resolved in `src/main.rs`, before `src/input.rs` looks at the bytes, so
+an image piped in is shown on its own as well.
+
 There is one terminal backend, not one per terminal. It lays the model out
 as styled lines of a fixed width, then writes those as bytes. What it may
 use comes from the capabilities it is given: plain text for pipes, colours
