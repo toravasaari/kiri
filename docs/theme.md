@@ -156,6 +156,22 @@ rule = false
 underline = "dotted"
 background = "none"
 indent = 0
+
+# Alert blocks: quotes that start with [!NOTE], [!TIP], [!IMPORTANT],
+# [!WARNING] or [!CAUTION].
+[alerts]
+# github: GitHub's colours for a dark or light background. terminal: the
+# terminal's blue, green, magenta, yellow and red.
+colors = "github"
+# tint: a background mixed from the page and the kind's colour, where
+# kiri knows both as RGB. none: only the bar and the title are coloured.
+background = "tint"
+# A colour for one kind, or auto for the one colors gives it.
+note = "auto"
+tip = "auto"
+important = "auto"
+warning = "auto"
+caution = "auto"
 ```
 
 ## Paper themes
