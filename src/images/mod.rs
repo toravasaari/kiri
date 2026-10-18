@@ -277,7 +277,9 @@ pub fn load_with(document: &Document, base: &Path, max_file_size: u64, fonts: &F
 fn collect_blocks<'a>(blocks: &'a [Block], urls: &mut Vec<&'a str>) {
     for block in blocks {
         match block {
-            Block::Paragraph(content) => urls.extend(Inline::lone_image(content)),
+            Block::Paragraph(content) => {
+                urls.extend(Inline::lone_image(content).map(|image| image.url.as_str()));
+            }
             Block::BlockQuote(blocks) => collect_blocks(blocks, urls),
             Block::List(list) => {
                 for item in &list.items {

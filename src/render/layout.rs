@@ -13,7 +13,7 @@ use super::table::{self, Cells};
 use super::wrap::wrap;
 use crate::color::{Color, Underline};
 use crate::images::Images;
-use crate::model::{Block, Document, Inline, List, Table};
+use crate::model::{Block, Document, Image, Inline, List, Table};
 use crate::term::Capabilities;
 use crate::theme::{CodeBackground, Theme};
 
@@ -236,14 +236,20 @@ impl Layout<'_> {
         if !self.caps.draws_images() {
             return None;
         }
-        let url = Inline::lone_image(content)?;
+        let lone = Inline::lone_image(content)?;
+        let url = &lone.url;
         let Some(Ok(source)) = self.images.get(url) else {
             return None;
         };
         let max_cells = self.caps.max_image_cells;
         let max_columns = u16::try_from(width).unwrap_or(u16::MAX).min(max_cells);
+        let wanted = image::Wanted {
+            width: lone.width,
+            height: lone.height,
+        };
         let size = image::size(
             source.size(),
+            wanted,
             image::cell_size(self.caps),
             max_columns,
             max_cells,
@@ -535,7 +541,7 @@ impl Layout<'_> {
                 out,
             ),
             Inline::Link { url, content } => self.link(url, content, style, out),
-            Inline::Image { alt, .. } => {
+            Inline::Image(Image { alt, .. }) => {
                 let image_style = self.muted(Style {
                     italic: true,
                     ..style.clone()

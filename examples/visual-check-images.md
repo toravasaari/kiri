@@ -7,7 +7,8 @@ Each section says what you should see; anything else is a bug.
 Images show in kitty unless turned off with `-I`, `KIRI_NO_IMAGES` or the
 [configuration file](../docs/config.md). Elsewhere, and when an image cannot
 be loaded, its alt text appears in brackets. An image is as large next to
-the text as in a browser, never enlarged, and never wider than the text.
+the text as in a browser, enlarged only when HTML asks for a size, and
+never wider than the text.
 kiri warns on stderr about the images it cannot load: here the five in the
 last section.
 
@@ -232,6 +233,48 @@ bar runs beside every row of the image:
 A linked image shows, but clicking it does nothing yet:
 
 [![Linked icon](../tests/fixtures/images/icon.png)](https://example.com)
+
+## HTML images
+
+An `<img>` on a line of its own shows like a Markdown image: the checkered
+icon of about two cells.
+
+<img src="../tests/fixtures/images/icon.png" alt="Icon in HTML">
+
+A logo wrapped and centred the way READMEs do it shows at the left edge, as
+kiri does not centre images: the test pattern, half its size, about 16
+columns wide and 6 rows high, keeping its shape.
+
+<p align="center">
+  <img src="../tests/fixtures/images/pattern.png" alt="Half pattern" width="160">
+</p>
+
+The test pattern squashed to 16 columns and 2 rows:
+
+<img src="../tests/fixtures/images/pattern.png" alt="Squashed pattern" width="160" height="40">
+
+The icon enlarged to about 7 columns and 4 rows, a little soft:
+
+<img src="../tests/fixtures/images/icon.png" alt="Enlarged icon" width="64">
+
+The panorama at half the text width:
+
+<img src="../tests/fixtures/images/panorama.png" alt="Half panorama" width="50%">
+
+A `<picture>` shows its `<img>`, the red disc and blue square, never its
+`<source>`, a tall gradient:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../tests/fixtures/images/portrait.png">
+  <img src="../tests/fixtures/images/transparent.png" alt="Transparent in a picture">
+</picture>
+
+A linked icon shows, but clicking it does nothing yet:
+
+<a href="https://example.com"><img src="../tests/fixtures/images/icon.png" alt="Linked icon in HTML"></a>
+
+In running text, <img src="../tests/fixtures/images/icon.png" alt="an icon">
+is alt text in brackets.
 
 ## Alt text
 
