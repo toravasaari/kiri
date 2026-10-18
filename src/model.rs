@@ -90,7 +90,8 @@ pub struct Image {
 pub enum Length {
     /// CSS pixels.
     Pixels(u32),
-    /// A percentage of the width there is.
+    /// A percentage of the width there is, as a browser takes it of the
+    /// block around the image.
     Percent(u32),
 }
 

@@ -41,7 +41,10 @@ pub struct Size {
 }
 
 /// The size a document asks an image to be shown at. `None` leaves a side
-/// to the image's natural size and shape.
+/// to the image's natural size and shape. A percentage width is of the
+/// room the image has, as a browser takes it of the block around the
+/// image: in a list or quote, the width beside the bullet or bar, and at
+/// most the image cell limit.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Wanted {
     pub width: Option<Length>,
