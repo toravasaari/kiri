@@ -18,8 +18,15 @@ A `<picture>` shows its `<img>`, whatever its sources say:
   <img src="images/transparent.png" alt="Transparent in a picture">
 </picture>
 
+A linked image is shown, but cannot be clicked yet:
+
+<p align="center">
+  <a href="https://example.com"><img src="images/icon.png" alt="Linked icon"></a>
+</p>
+
 In running text, <img src="images/icon.png" alt="Fish &amp; chips"> stays alt
-text, as Markdown images do.
+text, as Markdown images do, and a linked
+<a href="https://example.com"><img src="images/icon.png" alt="icon"></a> is a link.
 
 A missing file shows its alt text:
 

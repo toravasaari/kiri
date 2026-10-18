@@ -49,7 +49,7 @@ fn block(node: Node<'_>) -> Option<Block> {
         NodeValue::Table(table) => Block::Table(self::table(node, &table.alignments)),
         NodeValue::ThematicBreak => Block::ThematicBreak,
         NodeValue::HtmlBlock(block) => match html::block_img(&block.literal) {
-            Some(img) => Block::Paragraph(vec![image(img)]),
+            Some(img) => Block::Paragraph(vec![linked_image(img)]),
             None => Block::Html(block.literal.clone()),
         },
         _ => return None,
@@ -95,7 +95,30 @@ fn alignment(alignment: TableAlignment) -> Alignment {
 }
 
 fn inlines(parent: Node<'_>) -> Vec<Inline> {
-    parent.children().filter_map(inline).collect()
+    let mut inlines = Vec::new();
+    for inline in parent.children().filter_map(inline) {
+        inlines.push(inline);
+        // `<a href>`, an `<img>` and `</a>` are a link around the image, as
+        // `[![]()]()` is.
+        if let [
+            ..,
+            Inline::Html(start),
+            Inline::Image { .. },
+            Inline::Html(end),
+        ] = inlines.as_slice()
+            && html::is_link_end(end)
+            && let Some(url) = html::link_start(start)
+        {
+            inlines.pop();
+            let image = inlines.pop().expect("the image");
+            inlines.pop();
+            inlines.push(Inline::Link {
+                url,
+                content: vec![image],
+            });
+        }
+    }
+    inlines
 }
 
 fn inline(node: Node<'_>) -> Option<Inline> {
@@ -121,6 +144,18 @@ fn inline(node: Node<'_>) -> Option<Inline> {
         },
         _ => return None,
     })
+}
+
+/// An HTML `<img>` as Markdown would give it: the image, or a link around
+/// it when the HTML had one.
+fn linked_image(mut img: html::Img) -> Inline {
+    match img.link.take() {
+        Some(url) => Inline::Link {
+            url,
+            content: vec![image(img)],
+        },
+        None => image(img),
+    }
 }
 
 /// An HTML `<img>` as the image Markdown would give.
@@ -218,6 +253,45 @@ mod tests {
                 url: "a.png".into(),
                 alt: Vec::new(),
             }])]
+        );
+    }
+
+    #[test]
+    fn reads_an_html_link_around_an_img_as_a_link() {
+        let linked = || Inline::Link {
+            url: "https://x".into(),
+            content: vec![Inline::Image {
+                url: "a.png".into(),
+                alt: vec![text("x")],
+            }],
+        };
+        assert_eq!(
+            parse("<a href=\"https://x\"><img src=\"a.png\" alt=\"x\"></a>\n").blocks,
+            vec![Block::Paragraph(vec![linked()])]
+        );
+        assert_eq!(
+            parse("<p>\n<a href=\"https://x\"><img src=\"a.png\" alt=\"x\"></a>\n</p>\n").blocks,
+            vec![Block::Paragraph(vec![linked()])]
+        );
+        assert_eq!(
+            parse("See <a href=\"https://x\"><img src=\"a.png\" alt=\"x\"></a>.\n").blocks,
+            vec![Block::Paragraph(vec![text("See "), linked(), text(".")])]
+        );
+    }
+
+    #[test]
+    fn keeps_an_html_link_around_more_than_an_img_as_source() {
+        assert_eq!(
+            parse("<a href=x>text <img src=a.png></a>\n").blocks,
+            vec![Block::Paragraph(vec![
+                Inline::Html("<a href=x>".into()),
+                text("text "),
+                Inline::Image {
+                    url: "a.png".into(),
+                    alt: Vec::new(),
+                },
+                Inline::Html("</a>".into()),
+            ])]
         );
     }
 

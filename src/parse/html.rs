@@ -1,16 +1,20 @@
 //! The few HTML tags in Markdown that kiri reads instead of showing them
-//! as source: `<img>`, alone or in tags that only wrap it.
+//! as source: `<img>`, alone or in tags that only wrap it, and `<a>`
+//! around an `<img>`.
 
 /// An `<img>` tag with a `src`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Img {
     pub src: String,
     pub alt: String,
+    /// The `href` of an `<a>` around the image.
+    pub link: Option<String>,
 }
 
 /// Tags a block may wrap its one `<img>` in and still be that image.
 /// A browser shows `<picture>` as its `<img>` unless a `<source>` fits.
-const WRAPPERS: [&str; 5] = ["p", "div", "center", "picture", "source"];
+/// An `<a>` with an `href` makes the image a link.
+const WRAPPERS: [&str; 6] = ["p", "div", "center", "picture", "source", "a"];
 
 /// The image that inline HTML, one tag, is.
 pub fn inline_img(html: &str) -> Option<Img> {
@@ -20,18 +24,37 @@ pub fn inline_img(html: &str) -> Option<Img> {
     }
 }
 
+/// The `href` of inline HTML that is one `<a>` tag.
+pub fn link_start(html: &str) -> Option<String> {
+    match tokens(html)?.as_slice() {
+        [Token::Open(tag)] if tag.name == "a" => tag.get("href").map(str::to_owned),
+        _ => None,
+    }
+}
+
+/// Whether inline HTML is one `</a>`.
+pub fn is_link_end(html: &str) -> bool {
+    matches!(tokens(html).as_deref(), Some([Token::Close(name)]) if name == "a")
+}
+
 /// The image an HTML block shows: one `<img>` among only tags that wrap
 /// it, comments and whitespace.
 pub fn block_img(html: &str) -> Option<Img> {
     let mut found = None;
+    let mut link = None;
     for token in tokens(html)? {
         match token {
             Token::Open(tag) if tag.name == "img" => {
                 if found.is_some() {
                     return None;
                 }
-                found = Some(img(&tag)?);
+                found = Some(Img {
+                    link: link.clone(),
+                    ..img(&tag)?
+                });
             }
+            Token::Open(tag) if tag.name == "a" => link = tag.get("href").map(str::to_owned),
+            Token::Close(name) if name == "a" => link = None,
             Token::Open(Tag { name, .. }) | Token::Close(name)
                 if WRAPPERS.contains(&name.as_str()) => {}
             Token::Comment => {}
@@ -50,6 +73,7 @@ fn img(tag: &Tag) -> Option<Img> {
     Some(Img {
         src: src.to_owned(),
         alt: tag.get("alt").unwrap_or_default().to_owned(),
+        link: None,
     })
 }
 
@@ -223,6 +247,14 @@ mod tests {
         Some(Img {
             src: src.into(),
             alt: alt.into(),
+            link: None,
+        })
+    }
+
+    fn linked(src: &str, href: &str) -> Option<Img> {
+        Some(Img {
+            link: Some(href.into()),
+            ..img(src, "")?
         })
     }
 
@@ -318,6 +350,33 @@ mod tests {
             \x20 <img src=\"light.png\" alt=\"Logo\">\n\
             </picture>\n";
         assert_eq!(block_img(picture), img("light.png", "Logo"));
+    }
+
+    #[test]
+    fn reads_a_link_from_its_tags() {
+        assert_eq!(
+            link_start(r#"<a href="https://x/?a=1&amp;b=2">"#),
+            Some("https://x/?a=1&b=2".into())
+        );
+        assert_eq!(link_start("<A HREF=x title=y>"), Some("x".into()));
+        assert_eq!(link_start("<a>"), None);
+        assert_eq!(link_start("<a href=x><b>"), None);
+        assert_eq!(link_start("<abbr href=x>"), None);
+        assert!(is_link_end("</a>"));
+        assert!(is_link_end("</A >"));
+        assert!(!is_link_end("<a>"));
+        assert!(!is_link_end("</abbr>"));
+    }
+
+    #[test]
+    fn a_block_may_link_its_img() {
+        let linked_block = "<p align=center>\n  <a href=\"https://x\"><img src=a.png></a>\n</p>\n";
+        assert_eq!(block_img(linked_block), linked("a.png", "https://x"));
+        assert_eq!(block_img("<a><img src=a.png></a>\n"), img("a.png", ""));
+        assert_eq!(
+            block_img("<a href=x></a><img src=a.png>\n"),
+            img("a.png", "")
+        );
     }
 
     #[test]

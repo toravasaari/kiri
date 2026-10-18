@@ -41,8 +41,14 @@ expression: "readable(&render_fixture(\"images-html.md\",\n&with_images(&Capabil
   ␛[38;2;16;114;18m⟦row 8: 20 cells⟧␛[39m
   ␛[38;2;16;114;18m⟦row 9: 20 cells⟧␛[39m
 
+  A linked image is shown, but cannot be
+  clicked yet:
+
+  ␛[38;2;28;173;56m⟦row 0: 2 cells⟧␛[39m
+
   In running text, ␛[0;2;3m[image: Fish & chips]␛[0m stays
-  alt text, as Markdown images do.
+  alt text, as Markdown images do, and a
+  linked ␛]8;;https://example.com␛\␛[0;2;3;4;34m[image: icon]␛]8;;␛\␛[0m is a link.
 
   A missing file shows its alt text:
 

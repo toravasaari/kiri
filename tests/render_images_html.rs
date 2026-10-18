@@ -122,3 +122,32 @@ fn html_around_more_than_an_img_stays_source() {
         "{out:?}"
     );
 }
+
+#[test]
+fn a_linked_img_is_drawn_but_cannot_be_clicked() {
+    for source in [
+        "<a href=\"https://example.com\"><img src=\"p.png\" alt=\"linked\"></a>\n",
+        "<p align=\"center\">\n  <a href=\"https://example.com\"><img src=\"p.png\"></a>\n</p>\n",
+    ] {
+        let images = one_image("p.png", quadrants(40, 30));
+        let out = render(source, &with_images(&Capabilities::kitty(WIDTH), images));
+        assert_eq!(
+            drawn(&out),
+            ["⟦row 0: 4 cells⟧", "⟦row 1: 4 cells⟧"],
+            "{source:?}: {out:?}"
+        );
+        assert!(!out.contains("\x1b]8;"), "{out:?}");
+    }
+}
+
+#[test]
+fn a_linked_img_in_running_text_is_a_link_with_alt_text() {
+    let source = "See <a href=\"https://example.com\"><img src=\"p.png\" alt=\"logo\"></a>.\n";
+    let out = render(
+        source,
+        &with_images(&Capabilities::kitty(WIDTH), Images::new()),
+    );
+    assert!(out.contains("\x1b]8;;https://example.com\x1b\\"), "{out:?}");
+    assert!(out.contains("[image: logo]"), "{out:?}");
+    assert!(!out.contains("<a"), "{out:?}");
+}
