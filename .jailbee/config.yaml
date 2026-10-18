@@ -165,6 +165,12 @@ golden:
   extra_apt_packages:
     - build-essential
     - pkg-config
+    # The render-check skill: a virtual display and screenshots. kitty itself
+    # comes from install.d/56-kitty.sh, whose bundle is an xz tarball.
+    - xvfb
+    - imagemagick
+    - libxkbcommon-x11-0
+    - xz-utils
   ubuntu_version: "26.04"
   java: amazon-corretto-17
   node: 24

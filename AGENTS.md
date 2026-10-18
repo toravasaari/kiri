@@ -55,7 +55,8 @@ Run everything through `make` so local runs match CI:
   `target/` ends up running stale binaries.
 
 Isolated agent work runs in [jailbee](https://jailbee.gisgro.io)
-containers; `.jailbee/` holds the configuration and the rustup install step.
+containers; `.jailbee/` holds the configuration and the install steps for
+rustup and kitty.
 The network is strict there: crates.io and rustup work, GitHub does not.
 
 ## Testing
