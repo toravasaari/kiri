@@ -41,6 +41,22 @@ pub const GRAPHICS: &str = "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\";
 /// The start of a successful answer to [`GRAPHICS`], for the same image id.
 pub const GRAPHICS_ANSWER: &str = "\x1b_Gi=31;OK";
 
+/// Asks for the size of one cell in pixels (XTWINOPS 16), which kitty
+/// answers also where the kernel's window size has no pixels.
+pub const CELL_SIZE: &str = "\x1b[16t";
+
+/// The cell size as width and height in pixels from the answer to
+/// [`CELL_SIZE`] in `text`: `ESC [ 6 ; height ; width t`. `None` without an
+/// answer or for a size of 0.
+pub fn cell_size(text: &str) -> Option<(u16, u16)> {
+    text.split("\x1b[6;").skip(1).find_map(|part| {
+        let (height, rest) = part.split_once(';')?;
+        let width = &rest[..rest.find('t')?];
+        let size = (width.parse().ok()?, height.parse().ok()?);
+        (size.0 > 0 && size.1 > 0).then_some(size)
+    })
+}
+
 /// The first kitty release with the graphics protocol's Unicode
 /// placeholders, as major and minor version.
 const PLACEHOLDERS_SINCE: (u32, u32) = (0, 28);
@@ -96,6 +112,32 @@ mod tests {
             erase_text_sizing_tests(),
             "\r\x1b[2K\x1b7\x1b[B\x1b[2K\x1b8"
         );
+    }
+
+    #[test]
+    fn reads_the_cell_size_answer() {
+        assert_eq!(cell_size("\x1b[6;19;9t"), Some((9, 19)));
+        assert_eq!(
+            cell_size("\x1b[5;1R\x1b[6;38;18t\x1b[?62;c"),
+            Some((18, 38))
+        );
+        // A cursor position report on row 6 starts the same way.
+        assert_eq!(
+            cell_size("\x1b[6;1R\x1b[6;3R\x1b]11;rgb:0/0/0\x1b\\\x1b[6;19;9t"),
+            Some((9, 19))
+        );
+        assert_eq!(cell_size("\x1b[6;1R\x1b_Gi=31;OK\x1b\\\x1b[?62;c"), None);
+    }
+
+    #[test]
+    fn a_missing_or_empty_cell_size_answer_tells_nothing() {
+        assert_eq!(cell_size("\x1b[5;1R\x1b[?62;c"), None);
+        assert_eq!(cell_size("\x1b[6;0;9t"), None);
+        assert_eq!(cell_size("\x1b[6;19;0t"), None);
+        assert_eq!(cell_size("\x1b[6;19t"), None);
+        assert_eq!(cell_size("\x1b[6;a;9t"), None);
+        // The window size in pixels (XTWINOPS 14) is not the cell size.
+        assert_eq!(cell_size("\x1b[4;760;1080t"), None);
     }
 
     #[test]

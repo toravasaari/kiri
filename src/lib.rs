@@ -2,6 +2,7 @@
 
 pub mod color;
 pub mod config;
+pub mod doctor;
 pub mod images;
 pub mod input;
 pub mod kitty;

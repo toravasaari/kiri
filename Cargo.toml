@@ -38,7 +38,7 @@ flate2 = "1.1.10"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 kiri-image-utils = { version = "0.1.0", path = "crates/kiri-image-utils" }
 resvg = "0.48.1"
-rustix = { version = "1.1.5", features = ["termios", "event"] }
+rustix = { version = "1.1.5", features = ["termios", "event", "process"] }
 serde = { version = "1.0.229", features = ["derive"] }
 syntect = { version = "5.3.0", default-features = false, features = ["default-fancy"] }
 toml = "1.1.8"
@@ -47,8 +47,9 @@ unicode-width = "0.2.2"
 
 [dev-dependencies]
 insta = "1.49"
-# Pseudo-terminals for testing capability detection.
-rustix = { version = "1.1.5", features = ["pty"] }
+# Pseudo-terminals for testing capability detection, and sessions
+# without a controlling terminal for testing --doctor.
+rustix = { version = "1.1.5", features = ["pty", "process"] }
 
 # Decoding images without optimisation is slow: a 4845 × 2980 JPEG takes
 # about 3 s instead of 0.07 s. Debug builds optimise the image decoders, the

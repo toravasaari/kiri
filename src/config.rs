@@ -28,6 +28,8 @@ pub struct Environment {
     pub no_color: Option<OsString>,
     /// `COLORTERM`: 24-bit colour when `truecolor` or `24bit`.
     pub colorterm: Option<OsString>,
+    /// `TERM`: the terminal type, which only `--doctor` reports.
+    pub term: Option<OsString>,
     /// `TERM_PROGRAM`: names some of the terminals known to support
     /// hyperlinks.
     pub term_program: Option<OsString>,
@@ -46,9 +48,19 @@ impl Environment {
             kiri_no_images: std::env::var_os("KIRI_NO_IMAGES"),
             no_color: std::env::var_os("NO_COLOR"),
             colorterm: std::env::var_os("COLORTERM"),
+            term: std::env::var_os("TERM"),
             term_program: std::env::var_os("TERM_PROGRAM"),
             vte_version: std::env::var_os("VTE_VERSION"),
         }
+    }
+}
+
+/// Where the configuration directory comes from: `XDG_CONFIG_HOME`, or
+/// the default under the home directory.
+pub fn directory_origin(env: &Environment) -> Origin {
+    match env.xdg_config_home.as_ref().filter(|dir| !dir.is_empty()) {
+        Some(_) => Origin::Environment("XDG_CONFIG_HOME"),
+        None => Origin::Default,
     }
 }
 
@@ -85,6 +97,8 @@ pub struct ConfigFile {
     /// The user named the file, so it must exist; the default file need
     /// not.
     pub required: bool,
+    /// Where the path comes from.
+    pub origin: Origin,
 }
 
 /// `KIRI_CONFIG` when it is set and not empty, else `config.toml` in the
@@ -94,11 +108,13 @@ pub fn file(env: &Environment) -> Option<ConfigFile> {
         return Some(ConfigFile {
             path: PathBuf::from(path),
             required: true,
+            origin: Origin::Environment("KIRI_CONFIG"),
         });
     }
     Some(ConfigFile {
         path: directory(env)?.join("config.toml"),
         required: false,
+        origin: directory_origin(env),
     })
 }
 
@@ -148,6 +164,32 @@ struct ConfigToml {
     images: Option<bool>,
 }
 
+/// Where a setting comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    /// kiri's default.
+    Default,
+    /// The configuration file.
+    File,
+    /// The environment variable of this name.
+    Environment(&'static str),
+    /// The command-line flag of this name.
+    Flag(&'static str),
+}
+
+/// A setting's value and where it comes from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Setting<T> {
+    pub value: T,
+    pub origin: Origin,
+}
+
+impl<T> Setting<T> {
+    pub fn new(value: T, origin: Origin) -> Self {
+        Self { value, origin }
+    }
+}
+
 /// Where the theme comes from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ThemeSource {
@@ -161,50 +203,58 @@ pub enum ThemeSource {
     Paper(Paper),
 }
 
-/// Chooses the theme, strongest first: `--theme`, a paper theme from
-/// `--light` or `--dark`, `KIRI_THEME` when it is not empty, the
-/// configuration file, `theme.toml` in the configuration directory, the
-/// built-in theme.
+/// Chooses the theme and tells where it comes from, strongest first:
+/// `--theme`, a paper theme from `--light` or `--dark`, `KIRI_THEME` when it
+/// is not empty, the configuration file, `theme.toml` in the configuration
+/// directory, the built-in theme.
 pub fn theme_source(
     cli: Option<&Path>,
     paper: Option<Paper>,
     env: &Environment,
     config: &Config,
-) -> ThemeSource {
+) -> Setting<ThemeSource> {
     if let Some(path) = cli {
-        return ThemeSource::File(path.to_owned());
+        return Setting::new(ThemeSource::File(path.to_owned()), Origin::Flag("--theme"));
     }
     if let Some(paper) = paper {
-        return ThemeSource::Paper(paper);
+        let flag = match paper {
+            Paper::Light => "--light",
+            Paper::Dark => "--dark",
+        };
+        return Setting::new(ThemeSource::Paper(paper), Origin::Flag(flag));
     }
     if let Some(path) = env.kiri_theme.as_ref().filter(|path| !path.is_empty()) {
-        return ThemeSource::File(PathBuf::from(path));
+        return Setting::new(
+            ThemeSource::File(PathBuf::from(path)),
+            Origin::Environment("KIRI_THEME"),
+        );
     }
     if let Some(path) = &config.theme {
-        return ThemeSource::File(path.clone());
+        return Setting::new(ThemeSource::File(path.clone()), Origin::File);
     }
-    match directory(env) {
+    let source = match directory(env) {
         Some(dir) => ThemeSource::DefaultFile(dir.join("theme.toml")),
         None => ThemeSource::BuiltIn,
-    }
+    };
+    Setting::new(source, Origin::Default)
 }
 
-/// Whether images are shown, strongest first: the command line (`option`,
-/// from `--images` or `--no-images`), then `KIRI_NO_IMAGES`, then the
-/// configuration file; on unless one turns them off. `KIRI_NO_IMAGES` turns
-/// them off when it is set to anything but an empty value or `0`, and `0`
-/// turns them on whatever the configuration file says.
-pub fn images(option: Option<bool>, env: &Environment, config: &Config) -> bool {
+/// Whether images are shown and where that comes from, strongest first:
+/// the command line (`option`, from `--images` or `--no-images`), then
+/// `KIRI_NO_IMAGES`, then the configuration file; on unless one turns them
+/// off. `KIRI_NO_IMAGES` turns them off when it is set to anything but an
+/// empty value or `0`, and `0` turns them on whatever the configuration
+/// file says.
+pub fn images(option: Option<bool>, env: &Environment, config: &Config) -> Setting<bool> {
     if let Some(on) = option {
-        return on;
+        let flag = if on { "--images" } else { "--no-images" };
+        return Setting::new(on, Origin::Flag(flag));
     }
-    match env
-        .kiri_no_images
-        .as_ref()
-        .filter(|value| !value.is_empty())
-    {
-        Some(value) => value == "0",
-        None => config.images.unwrap_or(true),
+    let no_images = env.kiri_no_images.as_ref();
+    match (no_images.filter(|value| !value.is_empty()), config.images) {
+        (Some(value), _) => Setting::new(value == "0", Origin::Environment("KIRI_NO_IMAGES")),
+        (None, Some(on)) => Setting::new(on, Origin::File),
+        (None, None) => Setting::new(true, Origin::Default),
     }
 }
 
@@ -235,32 +285,64 @@ pub struct Settings {
     pub images: bool,
 }
 
+/// What the options, the environment and the configuration file choose,
+/// before the theme is loaded, with where each choice comes from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Choices {
+    pub theme: Setting<ThemeSource>,
+    /// The paper from `--light` or `--dark`.
+    pub paper: Option<Paper>,
+    /// Whether the theme keeps its margins.
+    pub margins: Setting<bool>,
+    /// Whether images are shown.
+    pub images: Setting<bool>,
+}
+
+impl Choices {
+    /// The settings these choices make with `theme`, the theme they chose,
+    /// loaded.
+    pub fn with_theme(&self, theme: Theme) -> Settings {
+        Settings {
+            theme: if self.margins.value {
+                theme
+            } else {
+                theme.without_margins()
+            },
+            paper: self.paper,
+            images: self.images.value,
+        }
+    }
+}
+
+/// What `options`, `env` and `config` choose.
+pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices {
+    Choices {
+        theme: theme_source(options.theme.as_deref(), options.paper, env, config),
+        paper: options.paper,
+        margins: match options.no_margins {
+            true => Setting::new(false, Origin::Flag("--no-margins")),
+            false => Setting::new(true, Origin::Default),
+        },
+        images: images(options.images, env, config),
+    }
+}
+
 /// The settings that `options`, `env` and `config` choose, with the theme
 /// loaded.
 pub fn settings(options: &Options, env: &Environment, config: &Config) -> Result<Settings, String> {
-    let theme = load_theme(theme_source(
-        options.theme.as_deref(),
-        options.paper,
-        env,
-        config,
-    ))?;
-    Ok(Settings {
-        theme: if options.no_margins {
-            theme.without_margins()
-        } else {
-            theme
-        },
-        paper: options.paper,
-        images: images(options.images, env, config),
-    })
+    let choices = choose(options, env, config);
+    let theme = load_theme(&choices.theme.value)?;
+    Ok(choices.with_theme(theme))
 }
 
-fn load_theme(source: ThemeSource) -> Result<Theme, String> {
+/// The theme that `source` names; the built-in theme when it is a default
+/// file that does not exist.
+pub fn load_theme(source: &ThemeSource) -> Result<Theme, String> {
     match source {
-        ThemeSource::File(path) => crate::theme::load(&path),
-        ThemeSource::DefaultFile(path) if path.exists() => crate::theme::load(&path),
+        ThemeSource::File(path) => crate::theme::load(path),
+        ThemeSource::DefaultFile(path) if path.exists() => crate::theme::load(path),
         ThemeSource::DefaultFile(_) | ThemeSource::BuiltIn => Ok(Theme::default()),
-        ThemeSource::Paper(paper) => Ok(Theme::paper(paper)),
+        ThemeSource::Paper(paper) => Ok(Theme::paper(*paper)),
     }
 }
 
@@ -292,6 +374,25 @@ mod tests {
     }
 
     #[test]
+    fn the_directory_tells_where_it_comes_from() {
+        let origin = |home, xdg| directory_origin(&env(home, xdg));
+        assert_eq!(
+            origin(Some("/home/u"), Some("/xdg")),
+            Origin::Environment("XDG_CONFIG_HOME")
+        );
+        assert_eq!(
+            origin(None, Some("/xdg")),
+            Origin::Environment("XDG_CONFIG_HOME")
+        );
+        assert_eq!(origin(Some("/home/u"), None), Origin::Default);
+        assert_eq!(origin(Some("/home/u"), Some("")), Origin::Default);
+        assert_eq!(
+            file(&env(Some("/home/u"), Some("/xdg"))).map(|file| file.origin),
+            Some(Origin::Environment("XDG_CONFIG_HOME"))
+        );
+    }
+
+    #[test]
     fn there_is_no_directory_without_home_or_xdg_config_home() {
         assert_eq!(directory(&env(None, None)), None);
         assert_eq!(directory(&env(None, Some(""))), None);
@@ -304,6 +405,7 @@ mod tests {
             Some(ConfigFile {
                 path: PathBuf::from("/home/u/.config/kiri/config.toml"),
                 required: false,
+                origin: Origin::Default,
             })
         );
         assert_eq!(file(&env(None, None)), None);
@@ -318,6 +420,7 @@ mod tests {
             Some(ConfigFile {
                 path: PathBuf::from("/elsewhere/kiri.toml"),
                 required: true,
+                origin: Origin::Environment("KIRI_CONFIG"),
             })
         );
     }
@@ -418,7 +521,8 @@ mod tests {
                 None,
                 &env,
                 &with_theme("/c/t.toml")
-            ),
+            )
+            .value,
             ThemeSource::File(PathBuf::from("cli.toml"))
         );
     }
@@ -427,7 +531,7 @@ mod tests {
     fn the_configuration_file_theme_comes_before_theme_toml() {
         let env = env(Some("/home/u"), None);
         assert_eq!(
-            theme_source(None, None, &env, &with_theme("/c/t.toml")),
+            theme_source(None, None, &env, &with_theme("/c/t.toml")).value,
             ThemeSource::File(PathBuf::from("/c/t.toml"))
         );
     }
@@ -437,7 +541,7 @@ mod tests {
         let mut env = env(Some("/home/u"), None);
         env.kiri_theme = Some("env.toml".into());
         assert_eq!(
-            theme_source(Some(Path::new("cli.toml")), None, &env, &Config::default()),
+            theme_source(Some(Path::new("cli.toml")), None, &env, &Config::default()).value,
             ThemeSource::File(PathBuf::from("cli.toml"))
         );
     }
@@ -447,7 +551,7 @@ mod tests {
         let mut env = env(Some("/home/u"), None);
         env.kiri_theme = Some("env.toml".into());
         assert_eq!(
-            theme_source(None, None, &env, &with_theme("/c/t.toml")),
+            theme_source(None, None, &env, &with_theme("/c/t.toml")).value,
             ThemeSource::File(PathBuf::from("env.toml"))
         );
     }
@@ -457,7 +561,7 @@ mod tests {
         let mut env = env(Some("/home/u"), None);
         env.kiri_theme = Some("".into());
         assert_eq!(
-            theme_source(None, None, &env, &with_theme("/c/t.toml")),
+            theme_source(None, None, &env, &with_theme("/c/t.toml")).value,
             ThemeSource::File(PathBuf::from("/c/t.toml"))
         );
     }
@@ -472,11 +576,12 @@ mod tests {
                 Some(Paper::Light),
                 &env,
                 &config
-            ),
+            )
+            .value,
             ThemeSource::File(PathBuf::from("cli.toml"))
         );
         assert_eq!(
-            theme_source(None, Some(Paper::Dark), &env, &config),
+            theme_source(None, Some(Paper::Dark), &env, &config).value,
             ThemeSource::Paper(Paper::Dark)
         );
     }
@@ -486,7 +591,7 @@ mod tests {
         let mut env = env(Some("/home/u"), None);
         env.kiri_theme = Some("env.toml".into());
         assert_eq!(
-            theme_source(None, Some(Paper::Light), &env, &with_theme("/c/t.toml")),
+            theme_source(None, Some(Paper::Light), &env, &with_theme("/c/t.toml")).value,
             ThemeSource::Paper(Paper::Light)
         );
     }
@@ -494,11 +599,11 @@ mod tests {
     #[test]
     fn theme_toml_in_the_directory_comes_before_the_built_in_theme() {
         assert_eq!(
-            theme_source(None, None, &env(Some("/home/u"), None), &Config::default()),
+            theme_source(None, None, &env(Some("/home/u"), None), &Config::default()).value,
             ThemeSource::DefaultFile(PathBuf::from("/home/u/.config/kiri/theme.toml"))
         );
         assert_eq!(
-            theme_source(None, None, &env(None, None), &Config::default()),
+            theme_source(None, None, &env(None, None), &Config::default()).value,
             ThemeSource::BuiltIn
         );
     }
@@ -535,44 +640,36 @@ mod tests {
 
     #[test]
     fn images_are_on_by_default() {
-        assert!(images(None, &Environment::default(), &Config::default()));
+        assert!(images(None, &Environment::default(), &Config::default()).value);
     }
 
     #[test]
     fn the_command_line_is_strongest() {
-        assert!(!images(
-            Some(false),
-            &no_images_env("0"),
-            &with_images(true)
-        ));
-        assert!(images(Some(true), &no_images_env("1"), &with_images(false)));
-        assert!(images(
-            Some(true),
-            &Environment::default(),
-            &with_images(false)
-        ));
+        assert!(!images(Some(false), &no_images_env("0"), &with_images(true)).value);
+        assert!(images(Some(true), &no_images_env("1"), &with_images(false)).value);
+        assert!(images(Some(true), &Environment::default(), &with_images(false)).value);
     }
 
     #[test]
     fn kiri_no_images_turns_images_off_with_any_value_but_empty_or_0() {
         for value in ["1", "yes", "false"] {
-            assert!(!images(None, &no_images_env(value), &with_images(true)));
+            assert!(!images(None, &no_images_env(value), &with_images(true)).value);
         }
-        assert!(images(None, &no_images_env(""), &Config::default()));
-        assert!(images(None, &no_images_env("0"), &Config::default()));
+        assert!(images(None, &no_images_env(""), &Config::default()).value);
+        assert!(images(None, &no_images_env("0"), &Config::default()).value);
     }
 
     #[test]
     fn kiri_no_images_comes_before_the_configuration_file() {
-        assert!(!images(None, &no_images_env("1"), &with_images(true)));
-        assert!(images(None, &no_images_env("0"), &with_images(false)));
+        assert!(!images(None, &no_images_env("1"), &with_images(true)).value);
+        assert!(images(None, &no_images_env("0"), &with_images(false)).value);
     }
 
     #[test]
     fn an_empty_kiri_no_images_leaves_it_to_the_configuration_file() {
-        assert!(!images(None, &no_images_env(""), &with_images(false)));
-        assert!(!images(None, &Environment::default(), &with_images(false)));
-        assert!(images(None, &Environment::default(), &with_images(true)));
+        assert!(!images(None, &no_images_env(""), &with_images(false)).value);
+        assert!(!images(None, &Environment::default(), &with_images(false)).value);
+        assert!(images(None, &Environment::default(), &with_images(true)).value);
     }
 
     fn no_options() -> Options {
@@ -621,6 +718,90 @@ mod tests {
         };
         let error = settings(&options, &env(None, None), &Config::default()).unwrap_err();
         assert!(error.starts_with("/nonexistent/mine.toml: "), "{error}");
+    }
+
+    #[test]
+    fn the_theme_tells_where_it_comes_from() {
+        let mut env = env(Some("/home/u"), None);
+        let origin = |cli: Option<&str>, paper, env: &Environment, config: &Config| {
+            theme_source(cli.map(Path::new), paper, env, config).origin
+        };
+        let config = with_theme("/c/t.toml");
+        assert_eq!(
+            origin(None, None, &env, &Config::default()),
+            Origin::Default
+        );
+        assert_eq!(origin(None, None, &env, &config), Origin::File);
+        env.kiri_theme = Some("env.toml".into());
+        assert_eq!(
+            origin(None, None, &env, &config),
+            Origin::Environment("KIRI_THEME")
+        );
+        assert_eq!(
+            origin(None, Some(Paper::Light), &env, &config),
+            Origin::Flag("--light")
+        );
+        assert_eq!(
+            origin(None, Some(Paper::Dark), &env, &config),
+            Origin::Flag("--dark")
+        );
+        assert_eq!(
+            origin(Some("cli.toml"), Some(Paper::Dark), &env, &config),
+            Origin::Flag("--theme")
+        );
+        assert_eq!(
+            origin(None, None, &Environment::default(), &Config::default()),
+            Origin::Default
+        );
+    }
+
+    #[test]
+    fn images_tell_where_they_come_from() {
+        let origin =
+            |option, env: &Environment, config: &Config| images(option, env, config).origin;
+        let default = Environment::default();
+        assert_eq!(origin(None, &default, &Config::default()), Origin::Default);
+        assert_eq!(origin(None, &default, &with_images(false)), Origin::File);
+        assert_eq!(
+            origin(None, &no_images_env("0"), &with_images(false)),
+            Origin::Environment("KIRI_NO_IMAGES")
+        );
+        assert_eq!(
+            origin(None, &no_images_env(""), &with_images(false)),
+            Origin::File
+        );
+        assert_eq!(
+            origin(Some(true), &no_images_env("1"), &Config::default()),
+            Origin::Flag("--images")
+        );
+        assert_eq!(
+            origin(Some(false), &default, &Config::default()),
+            Origin::Flag("--no-images")
+        );
+    }
+
+    #[test]
+    fn the_choices_tell_where_they_come_from() {
+        let options = Options {
+            no_margins: true,
+            images: Some(false),
+            ..no_options()
+        };
+        let choices = choose(&options, &env(None, None), &Config::default());
+        assert_eq!(
+            choices.margins,
+            Setting::new(false, Origin::Flag("--no-margins"))
+        );
+        assert_eq!(
+            choices.images,
+            Setting::new(false, Origin::Flag("--no-images"))
+        );
+        assert_eq!(
+            choices.theme,
+            Setting::new(ThemeSource::BuiltIn, Origin::Default)
+        );
+        let choices = choose(&no_options(), &env(None, None), &Config::default());
+        assert_eq!(choices.margins, Setting::new(true, Origin::Default));
     }
 
     #[test]

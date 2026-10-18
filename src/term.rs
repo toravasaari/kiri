@@ -1,6 +1,7 @@
 //! What the output terminal can do, and asking it.
 
 use std::ffi::OsStr;
+use std::fs::File;
 use std::os::fd::AsFd;
 
 use crate::config::Environment;
@@ -38,7 +39,8 @@ pub struct Capabilities {
     /// introduced; without them every underline is single. Only the probe
     /// sets it, apart from `--mode kitty`.
     pub styled_underlines: bool,
-    /// Size of one cell in pixels, when the terminal reports it.
+    /// Size of one cell in pixels, when the terminal reports it: in the
+    /// window size, or else in an answer to the probe.
     pub cell_pixels: Option<(u16, u16)>,
     /// Whether the background is dark; `None` when unknown.
     pub dark_background: Option<bool>,
@@ -106,14 +108,113 @@ pub enum Mode {
     Kitty,
 }
 
+/// What kiri learnt about a terminal and how, for `--doctor`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Detection {
+    /// The capabilities kiri renders with.
+    pub caps: Capabilities,
+    /// The window size the kernel reports.
+    pub window: Option<WindowSize>,
+    /// The terminal's answers to the probe; `None` when it was not asked or
+    /// did not answer.
+    pub answers: Option<Vec<u8>>,
+    /// Whether kiri runs in the background of its terminal, where the probe
+    /// does not ask it.
+    pub background: bool,
+}
+
+/// How kiri learnt the size of a cell in pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CellSize {
+    /// From the window size the kernel reports.
+    Window(u16, u16),
+    /// From the terminal's answer to the probe.
+    Terminal(u16, u16),
+    /// Not at all.
+    Unknown,
+}
+
+impl Detection {
+    /// The terminal's name and version as it answered them, such as
+    /// `kitty(0.47.1)`.
+    pub fn terminal(&self) -> Option<String> {
+        let answers = String::from_utf8_lossy(self.answers.as_deref()?);
+        probe::version(&answers).map(str::to_owned)
+    }
+
+    /// Where the cell size in `caps` comes from.
+    pub fn cell_size(&self) -> CellSize {
+        let window = self.window.and_then(|window| window.cell_pixels());
+        match (self.caps.cell_pixels, window) {
+            (Some((width, height)), Some(_)) => CellSize::Window(width, height),
+            (Some((width, height)), None) => CellSize::Terminal(width, height),
+            (None, _) => CellSize::Unknown,
+        }
+    }
+}
+
 /// The capabilities to render with in `mode`. `width` overrides the
 /// terminal's own width. `NO_COLOR` turns colours off in every mode,
 /// including the forced ones.
 pub fn capabilities(mode: Mode, width: Option<u16>, env: &Environment) -> Capabilities {
-    let window = window_size(std::io::stdout());
+    let stdout = std::io::stdout();
+    let window = window_size(&stdout);
+    let terminal = rustix::termios::isatty(&stdout);
+    detect(mode, width, env, window, terminal, probe::run).caps
+}
+
+/// What kiri finds out in `mode` about the controlling terminal, whatever
+/// stdout is, so a report written to a file still tells of the terminal.
+/// Without a controlling terminal, it tells what [`capabilities`] sees.
+pub fn examine(mode: Mode, width: Option<u16>, env: &Environment) -> Detection {
+    match probe::controlling_terminal() {
+        Some(tty) => examine_on(&tty, mode, width, env),
+        None => {
+            let stdout = std::io::stdout();
+            let window = window_size(&stdout);
+            let terminal = rustix::termios::isatty(&stdout);
+            detect(mode, width, env, window, terminal, |_| None)
+        }
+    }
+}
+
+/// [`examine`] on the terminal `tty`.
+fn examine_on(tty: &File, mode: Mode, width: Option<u16>, env: &Environment) -> Detection {
+    let detection = detect(mode, width, env, window_size(tty), true, |ask_cell_size| {
+        probe::ask(tty, ask_cell_size)
+    });
+    Detection {
+        background: probe::runs_in_background(tty),
+        ..detection
+    }
+}
+
+/// The capabilities in `mode` for a window of `window`, which is a
+/// terminal if `terminal`. In auto mode, `ask` sends the probe, with the
+/// cell size question when its argument is true, and returns the answers.
+/// Falls back to plain text when the output is not a terminal, and to ANSI
+/// styling when the terminal does not answer.
+fn detect(
+    mode: Mode,
+    width: Option<u16>,
+    env: &Environment,
+    window: Option<WindowSize>,
+    terminal: bool,
+    ask: impl FnOnce(bool) -> Option<Vec<u8>>,
+) -> Detection {
     let width = width.or(window.map(|w| w.columns)).unwrap_or(80);
+    let mut answers = None;
     let mut caps = match mode {
-        Mode::Auto => detect(width, window, env),
+        Mode::Auto if !terminal => Capabilities::plain(width),
+        Mode::Auto => {
+            let caps = with_environment(Capabilities::ansi(width), env);
+            let caps = with_window(caps, window);
+            answers = ask(caps.cell_pixels.is_none());
+            match &answers {
+                Some(answers) => with_probe(caps, &probe::interpret(answers)),
+                None => caps,
+            }
+        }
         Mode::Plain => Capabilities::plain(width),
         Mode::Ansi => Capabilities::ansi(width),
         // The window size is not a probe: it does not ask the terminal.
@@ -122,21 +223,11 @@ pub fn capabilities(mode: Mode, width: Option<u16>, env: &Environment) -> Capabi
     if no_color(env) {
         caps.color = false;
     }
-    caps
-}
-
-/// Asks the terminal on stdout, whose window is `window`, what it supports.
-/// Falls back to plain text when stdout is not a terminal, and to ANSI
-/// styling when it does not answer.
-fn detect(width: u16, window: Option<WindowSize>, env: &Environment) -> Capabilities {
-    if !rustix::termios::isatty(std::io::stdout()) {
-        return Capabilities::plain(width);
-    }
-    let caps = with_environment(Capabilities::ansi(width), env);
-    let caps = with_window(caps, window);
-    match probe::run() {
-        Some(answers) => with_probe(caps, &probe::interpret(&answers)),
-        None => caps,
+    Detection {
+        caps,
+        window,
+        answers,
+        background: false,
     }
 }
 
@@ -159,6 +250,8 @@ fn with_probe(mut caps: Capabilities, probe: &probe::Probe) -> Capabilities {
         0
     };
     caps.dark_background = probe.dark_background;
+    // The window size in pixels, when the kernel has it, comes first.
+    caps.cell_pixels = caps.cell_pixels.or(probe.cell_pixels);
     // Only kitty-compatible terminals implement these protocols, and all
     // of them also do 24-bit colour, OSC 8 and underline styles.
     if probe.text_sizing || probe.graphics {
@@ -167,6 +260,11 @@ fn with_probe(mut caps: Capabilities, probe: &probe::Probe) -> Capabilities {
         caps.styled_underlines = true;
     }
     caps
+}
+
+/// Whether stdout is a terminal.
+pub fn stdout_is_terminal() -> bool {
+    rustix::termios::isatty(std::io::stdout())
 }
 
 /// Whether the user asked for output without colour: `NO_COLOR` set and not
@@ -246,6 +344,23 @@ mod tests {
     }
 
     #[test]
+    fn the_probe_tells_the_cell_size_only_when_the_window_does_not() {
+        let probe = probe::Probe {
+            cell_pixels: Some((9, 19)),
+            ..probe::Probe::default()
+        };
+        let caps = with_probe(Capabilities::ansi(80), &probe);
+        assert_eq!(caps.cell_pixels, Some((9, 19)));
+        let window = Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::ansi(80)
+        };
+        assert_eq!(with_probe(window, &probe).cell_pixels, Some((10, 20)));
+        let caps = with_probe(Capabilities::ansi(80), &probe::Probe::default());
+        assert_eq!(caps.cell_pixels, None);
+    }
+
+    #[test]
     fn a_probed_kitty_0_28_draws_images_without_text_sizing() {
         let answers = "\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1b_Gi=31;OK\x1b\\\
                        \x1bP>|kitty(0.28.0)\x1b\\\x1b[?62;c";
@@ -304,15 +419,152 @@ mod tests {
         (File::from(terminal), tty)
     }
 
-    #[test]
-    fn reads_the_window_size_in_cells_and_pixels() {
-        let (_terminal, tty) = pty();
-        let size = |columns, rows, width, height| rustix::termios::Winsize {
+    /// A window size for [`rustix::termios::tcsetwinsize`].
+    pub(super) fn size(
+        columns: u16,
+        rows: u16,
+        width: u16,
+        height: u16,
+    ) -> rustix::termios::Winsize {
+        rustix::termios::Winsize {
             ws_col: columns,
             ws_row: rows,
             ws_xpixel: width,
             ws_ypixel: height,
+        }
+    }
+
+    /// Runs `probe` on a pseudo-terminal with a window of `window`, whose
+    /// other side answers like a kitty 0.47.1 with cells of 9 × 19 pixels,
+    /// and tells the cell size only when asked. Returns the queries the
+    /// terminal saw and what `probe` returned. The terminal waits for the
+    /// queries for 2 s at most, so a probe that sends none fails its test
+    /// instead of hanging it.
+    pub(super) fn with_kitty<T>(
+        window: rustix::termios::Winsize,
+        probe: impl FnOnce(&File) -> T,
+    ) -> (String, T) {
+        use std::io::{Read, Write};
+        use std::time::{Duration, Instant};
+
+        use rustix::event::{PollFd, PollFlags, Timespec, poll};
+
+        let (mut terminal, tty) = pty();
+        rustix::termios::tcsetwinsize(&tty, window).unwrap();
+        let kitty = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut seen = Vec::new();
+            let mut buffer = [0; 1024];
+            while !seen.ends_with(b"\x1b[c") {
+                let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+                    return (String::from_utf8(seen).unwrap(), terminal);
+                };
+                let timeout = Timespec::try_from(left).unwrap();
+                let mut fds = [PollFd::new(&terminal, PollFlags::IN)];
+                if poll(&mut fds, Some(&timeout)).unwrap() == 0 {
+                    continue;
+                }
+                let read = terminal.read(&mut buffer).unwrap();
+                seen.extend_from_slice(&buffer[..read]);
+            }
+            let seen = String::from_utf8(seen).unwrap();
+            let cell_size = if seen.contains("\x1b[16t") {
+                "\x1b[6;19;9t"
+            } else {
+                ""
+            };
+            let answers = format!(
+                "\x1b[5;1R\x1b[5;3R\x1b[5;5R\x1b_Gi=31;OK\x1b\\\
+                 \x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\\x1bP>|kitty(0.47.1)\x1b\\\
+                 {cell_size}\x1b[?62;c"
+            );
+            terminal.write_all(answers.as_bytes()).unwrap();
+            (seen, terminal)
+        });
+        let result = probe(&tty);
+        let (seen, _terminal) = kitty.join().unwrap();
+        (seen, result)
+    }
+
+    #[test]
+    fn the_fake_kitty_gives_up_when_it_is_not_asked() {
+        let (seen, ()) = with_kitty(size(80, 24, 0, 0), |_| ());
+        assert_eq!(seen, "");
+    }
+
+    #[test]
+    fn examining_a_window_without_pixels_asks_the_terminal_for_the_cell_size() {
+        let (seen, found) = with_kitty(size(80, 24, 0, 0), |tty| {
+            examine_on(tty, Mode::Auto, None, &Environment::default())
+        });
+        assert!(seen.contains("\x1b[16t"), "{seen:?}");
+        assert_eq!(found.cell_size(), CellSize::Terminal(9, 19));
+        assert_eq!(found.caps.cell_pixels, Some((9, 19)));
+        assert_eq!(found.terminal().as_deref(), Some("kitty(0.47.1)"));
+        assert_eq!(
+            found.window,
+            Some(WindowSize {
+                columns: 80,
+                rows: 24,
+                width: 0,
+                height: 0,
+            })
+        );
+        assert!(found.caps.draws_images());
+        assert_eq!(found.caps.width, 80);
+        let answers = String::from_utf8(found.answers.unwrap()).unwrap();
+        assert!(answers.ends_with("\x1b[6;19;9t\x1b[?62;c"), "{answers:?}");
+    }
+
+    #[test]
+    fn examining_a_window_with_pixels_takes_the_cell_size_from_it() {
+        let (seen, found) = with_kitty(size(80, 24, 800, 480), |tty| {
+            examine_on(tty, Mode::Auto, Some(60), &Environment::default())
+        });
+        assert!(!seen.contains("\x1b[16t"), "{seen:?}");
+        assert_eq!(found.cell_size(), CellSize::Window(10, 20));
+        assert_eq!(found.caps.width, 60);
+    }
+
+    #[test]
+    fn a_terminal_that_does_not_answer_leaves_the_cell_size_unknown() {
+        let window = WindowSize {
+            columns: 80,
+            rows: 24,
+            width: 0,
+            height: 0,
         };
+        let found = detect(
+            Mode::Auto,
+            None,
+            &Environment::default(),
+            Some(window),
+            true,
+            |_| None,
+        );
+        assert_eq!(found.cell_size(), CellSize::Unknown);
+        assert_eq!(found.terminal(), None);
+        assert_eq!(found.answers, None);
+        assert_eq!(
+            found.caps,
+            with_window(Capabilities::ansi(80), Some(window))
+        );
+    }
+
+    #[test]
+    fn only_the_auto_mode_asks_a_terminal() {
+        let env = Environment::default();
+        let never = |_| -> Option<Vec<u8>> { panic!("the terminal was asked") };
+        let found = detect(Mode::Kitty, None, &env, None, true, never);
+        assert_eq!(found.caps, Capabilities::kitty(80));
+        assert_eq!(found.cell_size(), CellSize::Unknown);
+        let found = detect(Mode::Auto, Some(70), &env, None, false, never);
+        assert_eq!(found.caps, Capabilities::plain(70));
+    }
+
+    #[test]
+    fn reads_the_window_size_in_cells_and_pixels() {
+        let (_terminal, tty) = pty();
         rustix::termios::tcsetwinsize(&tty, size(80, 24, 800, 480)).unwrap();
         assert_eq!(
             window_size(&tty),
@@ -350,6 +602,16 @@ mod tests {
             with_window(Capabilities::kitty(60), None),
             Capabilities::kitty(60)
         );
+    }
+
+    #[test]
+    fn a_process_group_other_than_the_foreground_one_is_in_the_background() {
+        let pid = |raw| rustix::process::Pid::from_raw(raw).unwrap();
+        assert!(probe::in_background(Some(pid(10)), pid(20)));
+        assert!(!probe::in_background(Some(pid(20)), pid(20)));
+        // A terminal that is not the controlling one has no foreground
+        // process group to compare with.
+        assert!(!probe::in_background(None, pid(20)));
     }
 
     #[test]
@@ -439,7 +701,8 @@ mod probe {
     use std::time::{Duration, Instant};
 
     use rustix::event::{PollFd, PollFlags, Timespec, poll};
-    use rustix::termios::{OptionalActions, Termios, tcgetattr, tcsetattr};
+    use rustix::process::{Pid, getpgrp};
+    use rustix::termios::{OptionalActions, Termios, tcgetattr, tcgetpgrp, tcsetattr};
 
     use crate::kitty::query;
 
@@ -460,10 +723,10 @@ mod probe {
 
     /// Cursor position reports around kitty's two text sizing tests, then a
     /// graphics protocol query, the background colour, the terminal's
-    /// version, and primary device attributes. Every terminal answers the
-    /// last one, so its answer marks the end, also when a terminal ignores
-    /// the others.
-    fn queries() -> String {
+    /// version, the cell size if `ask_cell_size`, and primary device
+    /// attributes. Every terminal answers the last one, so its answer marks
+    /// the end, also when a terminal ignores the others.
+    fn queries(ask_cell_size: bool) -> String {
         let [width, scale] = query::text_sizing();
         [
             "\r",
@@ -475,6 +738,7 @@ mod probe {
             query::GRAPHICS,
             BACKGROUND,
             VERSION,
+            if ask_cell_size { query::CELL_SIZE } else { "" },
             DEVICE_ATTRIBUTES,
         ]
         .concat()
@@ -486,20 +750,45 @@ mod probe {
         pub graphics: bool,
         pub image_placeholders: bool,
         pub dark_background: Option<bool>,
+        /// Width and height of a cell in pixels, when asked and answered.
+        pub cell_pixels: Option<(u16, u16)>,
     }
 
     /// Sends the queries on the controlling terminal and collects the
-    /// answers. `None` if the terminal cannot be used or does not answer.
-    pub fn run() -> Option<Vec<u8>> {
-        let tty = File::options()
-            .read(true)
-            .write(true)
-            .open("/dev/tty")
-            .ok()?;
-        let raw = RawMode::enter(&tty)?;
-        let answers = exchange(&tty);
+    /// answers, asking for the cell size if `ask_cell_size`. `None` if the
+    /// terminal cannot be used or does not answer.
+    pub fn run(ask_cell_size: bool) -> Option<Vec<u8>> {
+        ask(&controlling_terminal()?, ask_cell_size)
+    }
+
+    /// The controlling terminal, open for reading and writing.
+    pub fn controlling_terminal() -> Option<File> {
+        File::options().read(true).write(true).open("/dev/tty").ok()
+    }
+
+    /// Whether a process in the process group `own` is in the background of
+    /// a terminal whose foreground process group is `foreground`, if that
+    /// is known.
+    pub fn in_background(foreground: Option<Pid>, own: Pid) -> bool {
+        foreground.is_some_and(|foreground| foreground != own)
+    }
+
+    /// Whether kiri runs in the background of `tty`, as in `kiri … &`.
+    /// There raw mode would stop it with SIGTTOU until it is brought to the
+    /// foreground.
+    pub fn runs_in_background(tty: &File) -> bool {
+        in_background(tcgetpgrp(tty).ok(), getpgrp())
+    }
+
+    /// [`run`] on `tty`.
+    pub fn ask(tty: &File, ask_cell_size: bool) -> Option<Vec<u8>> {
+        if runs_in_background(tty) {
+            return None;
+        }
+        let raw = RawMode::enter(tty)?;
+        let answers = exchange(tty, ask_cell_size);
         // Erase whatever the OSC 66 tests drew before restoring the mode.
-        let _ = (&tty).write_all(query::erase_text_sizing_tests().as_bytes());
+        let _ = (&*tty).write_all(query::erase_text_sizing_tests().as_bytes());
         drop(raw);
         answers
     }
@@ -531,8 +820,8 @@ mod probe {
         }
     }
 
-    fn exchange(mut tty: &File) -> Option<Vec<u8>> {
-        tty.write_all(queries().as_bytes()).ok()?;
+    fn exchange(mut tty: &File, ask_cell_size: bool) -> Option<Vec<u8>> {
+        tty.write_all(queries(ask_cell_size).as_bytes()).ok()?;
         tty.flush().ok()?;
         let deadline = Instant::now() + TIMEOUT;
         let mut answers = Vec::new();
@@ -577,12 +866,13 @@ mod probe {
             graphics,
             image_placeholders: graphics && (text_sizing || placeholders_by_version),
             dark_background: background_is_dark(&text),
+            cell_pixels: query::cell_size(&text),
         }
     }
 
     /// The terminal's name and version from the answer to [`VERSION`],
     /// ended by ST or BEL.
-    fn version(text: &str) -> Option<&str> {
+    pub fn version(text: &str) -> Option<&str> {
         let start = text.find(VERSION_ANSWER)? + VERSION_ANSWER.len();
         let rest = &text[start..];
         let end = rest.find(['\x1b', '\x07'])?;
@@ -636,11 +926,52 @@ mod probe {
         #[test]
         fn sends_the_queries_in_order() {
             assert_eq!(
-                queries(),
+                queries(false),
                 "\r\x1b[6n\x1b]66;w=2; \x1b\\\x1b[6n\x1b]66;s=2; \x1b\\\x1b[6n\
                  \x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b]11;?\x1b\\\
                  \x1b[>q\x1b[c"
             );
+        }
+
+        #[test]
+        fn asks_for_the_cell_size_only_when_told() {
+            let without = queries(false);
+            let end = without.len() - DEVICE_ATTRIBUTES.len();
+            assert_eq!(
+                queries(true),
+                [&without[..end], "\x1b[16t", DEVICE_ATTRIBUTES].concat()
+            );
+        }
+
+        #[test]
+        fn reads_the_cell_size_among_the_answers() {
+            let answers = KITTY.replace("\x1b[?62;c", "\x1b[6;19;9t\x1b[?62;c");
+            assert_eq!(interpret(answers.as_bytes()).cell_pixels, Some((9, 19)));
+            assert_eq!(interpret(KITTY.as_bytes()).cell_pixels, None);
+        }
+
+        /// Runs the probe on a pseudo-terminal whose other side answers
+        /// like a kitty with cells of 9 × 19 pixels. Returns the queries the
+        /// terminal saw and what the probe read.
+        fn ask_kitty(ask_cell_size: bool) -> (String, Option<Vec<u8>>) {
+            use crate::term::tests::{size, with_kitty};
+            with_kitty(size(80, 24, 0, 0), |tty| ask(tty, ask_cell_size))
+        }
+
+        #[test]
+        fn a_terminal_tells_its_cell_size_when_asked() {
+            let (seen, answers) = ask_kitty(true);
+            assert!(seen.contains("\x1b[16t"), "{seen:?}");
+            let probe = interpret(&answers.unwrap());
+            assert_eq!(probe.cell_pixels, Some((9, 19)));
+            assert!(probe.graphics);
+        }
+
+        #[test]
+        fn the_cell_size_is_not_asked_unless_told() {
+            let (seen, answers) = ask_kitty(false);
+            assert!(!seen.contains("\x1b[16t"), "{seen:?}");
+            assert_eq!(interpret(&answers.unwrap()).cell_pixels, None);
         }
 
         #[test]
@@ -653,6 +984,7 @@ mod probe {
                     graphics: true,
                     image_placeholders: true,
                     dark_background: Some(true),
+                    cell_pixels: None,
                 }
             );
             assert!(has_device_attributes(KITTY.as_bytes()));
@@ -668,6 +1000,7 @@ mod probe {
                     graphics: false,
                     image_placeholders: false,
                     dark_background: Some(false),
+                    cell_pixels: None,
                 }
             );
         }

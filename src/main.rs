@@ -3,12 +3,17 @@ use std::io::{self, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{Parser, ValueEnum};
-use kiri::config::{Environment, Options};
+use clap::error::ErrorKind;
+use clap::parser::ValueSource;
+use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, ValueEnum};
+use kiri::config::{Environment, Options, Origin, Setting, Settings};
+use kiri::doctor::{Facts, Output};
 use kiri::images::{Fonts, Format, Images};
 use kiri::input::Input;
+use kiri::model::Document;
 use kiri::render::Inputs;
-use kiri::theme::Paper;
+use kiri::term::Capabilities;
+use kiri::theme::{Paper, Theme};
 
 /// Render a Markdown document, or show an image, in the terminal.
 #[derive(Parser)]
@@ -20,7 +25,18 @@ use kiri::theme::Paper;
 )]
 struct Cli {
     /// Markdown file to render, or an image to show on its own.
-    file: PathBuf,
+    #[arg(required_unless_present_any = ["doctor", "raw"])]
+    file: Option<PathBuf>,
+
+    /// Show what kiri finds out about the terminal and which settings it
+    /// uses, as Markdown when written to a file, for a bug report.
+    #[arg(long, conflicts_with_all = ["file", "format"])]
+    doctor: bool,
+
+    /// With --doctor: the report as Markdown also in a terminal, without
+    /// its sample, to copy into a bug report.
+    #[arg(long)]
+    raw: bool,
 
     /// What the file is: markdown, image, or an image format such as svg,
     /// png or jpg. By default its extension and content tell.
@@ -108,7 +124,20 @@ impl From<Mode> for kiri::term::Mode {
 }
 
 fn main() -> ExitCode {
-    match run(&Cli::parse()) {
+    let mut command = Cli::command();
+    let matches = command.get_matches_mut();
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
+    // clap's `requires` takes --doctor's default value for the flag itself.
+    if cli.raw && !cli.doctor {
+        command
+            .error(ErrorKind::MissingRequiredArgument, "--raw needs --doctor")
+            .exit();
+    }
+    let result = match &cli.file {
+        Some(path) => run(&cli, path),
+        None => doctor(&cli, &matches),
+    };
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("kiri: {error}");
@@ -117,8 +146,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(cli: &Cli) -> Result<(), String> {
-    let path = &cli.file;
+fn run(cli: &Cli, path: &Path) -> Result<(), String> {
     let failed = |error: io::Error| format!("{}: {error}", path.display());
     let mut file = File::open(path).map_err(failed)?;
     let mut head = Vec::new();
@@ -131,7 +159,7 @@ fn run(cli: &Cli) -> Result<(), String> {
         .format
         .unwrap_or_else(|| kiri::input::detect(path, &head));
     if let Input::Image(format) = input {
-        return show_image(cli, format, Cursor::new(head).chain(file), &env);
+        return show_image(cli, path, format, Cursor::new(head).chain(file), &env);
     }
     let mut bytes = head;
     file.read_to_end(&mut bytes).map_err(failed)?;
@@ -144,18 +172,29 @@ fn run(cli: &Cli) -> Result<(), String> {
     })?;
     let config = kiri::config::load(&env)?;
     let settings = kiri::config::settings(&options(cli), &env, &config)?;
-    let mut caps = kiri::term::capabilities(cli.mode.into(), cli.width, &env);
+    let caps = kiri::term::capabilities(cli.mode.into(), cli.width, &env);
+    let document = kiri::parse::parse(&source);
+    let base = path.parent().unwrap_or(Path::new(""));
+    show_document(cli, &document, base, settings, caps)
+}
+
+/// Renders `document`, whose images are relative to `base`, on stdout.
+fn show_document(
+    cli: &Cli,
+    document: &Document,
+    base: &Path,
+    settings: Settings,
+    mut caps: Capabilities,
+) -> Result<(), String> {
     // The page decides, whatever the terminal's background is.
     if let Some(paper) = settings.paper {
         caps.dark_background = Some(paper == Paper::Dark);
     }
-    let document = kiri::parse::parse(&source);
     // Images are read only when the user wants them and the terminal can
     // show them; otherwise they are alt text, without warnings.
     let images = if settings.images && caps.draws_images() {
-        let base = cli.file.parent().unwrap_or(Path::new(""));
         let max_file_size = cli.max_image_size * kiri::images::MB;
-        let images = kiri::images::load(&document, base, max_file_size);
+        let images = kiri::images::load(document, base, max_file_size);
         for warning in images.warnings() {
             eprintln!("kiri: {warning}");
         }
@@ -169,20 +208,20 @@ fn run(cli: &Cli) -> Result<(), String> {
         ..Inputs::new(caps)
     };
     let mut out = io::stdout().lock();
-    finish(kiri::render::render(&document, &inputs, &mut out).and_then(|()| out.flush()))
+    finish(kiri::render::render(document, &inputs, &mut out).and_then(|()| out.flush()))
 }
 
-/// Shows the image file `cli` names, in `format`, read from `reader`. It
+/// Shows the image file `path`, in `format`, read from `reader`. It
 /// is shown whatever the settings say about images in documents, but only
 /// up to the size limit. The configuration file is not read: everything in
 /// it is about documents, so a broken one does not stop an image.
 fn show_image(
     cli: &Cli,
+    path: &Path,
     format: Format,
     reader: impl Read,
     env: &Environment,
 ) -> Result<(), String> {
-    let path = &cli.file;
     let caps = kiri::term::capabilities(cli.mode.into(), cli.width, env);
     if !caps.draws_images() {
         return Err(format!(
@@ -198,6 +237,61 @@ fn show_image(
         })?;
     let mut out = io::stdout().lock();
     finish(kiri::render::render_image(image, &caps, &mut out).and_then(|()| out.flush()))
+}
+
+/// Writes the `--doctor` report: rendered for a terminal, as Markdown
+/// otherwise or with `--raw`.
+/// Problems with the configuration file and the theme are part of the
+/// report instead of errors, and kiri goes on without them.
+fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), String> {
+    let env = Environment::from_process();
+    let (config, config_error) = match kiri::config::load(&env) {
+        Ok(config) => (config, None),
+        Err(error) => (Default::default(), Some(error)),
+    };
+    let choices = kiri::config::choose(&options(cli), &env, &config);
+    let (theme, theme_error) = match kiri::config::load_theme(&choices.theme.value) {
+        Ok(theme) => (theme, None),
+        Err(error) => (Theme::default(), Some(error)),
+    };
+    let detection = kiri::term::examine(cli.mode.into(), cli.width, &env);
+    let output = match (cli.raw, kiri::term::stdout_is_terminal()) {
+        (true, _) => Output::Raw,
+        (false, true) => Output::Rendered,
+        (false, false) => Output::Markdown,
+    };
+    let markdown = kiri::doctor::report(&Facts {
+        env: &env,
+        mode: Setting::new(cli.mode.into(), origin(matches, "mode", "--mode")),
+        width: cli.width,
+        max_image_size: Setting::new(
+            cli.max_image_size,
+            origin(matches, "max_image_size", "--max-image-size"),
+        ),
+        detection: &detection,
+        choices: &choices,
+        config_error,
+        theme_error,
+        output,
+    });
+    if output != Output::Rendered {
+        let mut out = io::stdout().lock();
+        return finish(
+            out.write_all(markdown.as_bytes())
+                .and_then(|()| out.flush()),
+        );
+    }
+    let document = kiri::parse::parse(&markdown);
+    let settings = choices.with_theme(theme);
+    show_document(cli, &document, Path::new(""), settings, detection.caps)
+}
+
+/// Where the value of the argument `id`, the flag `flag`, comes from.
+fn origin(matches: &ArgMatches, id: &str, flag: &'static str) -> Origin {
+    match matches.value_source(id) {
+        Some(ValueSource::CommandLine) => Origin::Flag(flag),
+        _ => Origin::Default,
+    }
 }
 
 /// The outcome of writing the output.
