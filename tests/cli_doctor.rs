@@ -166,6 +166,37 @@ fn the_files_tell_where_their_paths_come_from() {
 }
 
 #[test]
+fn values_with_pipes_backticks_and_control_characters_stay_in_their_cells() {
+    let dir = Scratch::new("doctor-escapes");
+    let mut command = doctor(&dir, &[]);
+    command
+        .env("TERM", "x|y`z")
+        .env("KIRI_NO_IMAGES", "a|b``c\td");
+    let out = command.output().unwrap();
+    assert_succeeded(&out);
+    let report = text(&out.stdout);
+    // Rendered, each row keeps its two or three cells and the values as
+    // they are, as code, with the tab shown as an escape.
+    let rendered = common::render(
+        &report,
+        &kiri::render::Inputs::new(Capabilities::plain(100)),
+    );
+    let line = |needle: &str| {
+        rendered
+            .lines()
+            .find(|line| line.contains(needle))
+            .unwrap_or_else(|| panic!("{needle}\n{rendered}"))
+            .to_owned()
+    };
+    let terminal = line("Terminal ");
+    assert!(terminal.contains("none, `TERM=x|y`z` "), "{terminal}");
+    assert_eq!(terminal.matches('│').count(), 3, "{terminal}");
+    let images = line("Images ");
+    assert!(images.contains("`KIRI_NO_IMAGES=a|b``c\\x09d` "), "{images}");
+    assert_eq!(images.matches('│').count(), 4, "{images}");
+}
+
+#[test]
 fn no_problems_no_problems_section() {
     let dir = Scratch::new("doctor-no-problems");
     assert!(!piped(&dir, &[]).contains("Problems"));

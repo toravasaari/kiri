@@ -108,13 +108,13 @@ fn write_problems(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
         // in a code block of its own.
         match problem.split_once(": ") {
             Some((path, error)) if error.contains('\n') => {
-                writeln!(out, "- `{path}`:\n\n  ```text")?;
+                writeln!(out, "- {}:\n\n  ```text", code(path))?;
                 for line in error.trim_end().lines() {
                     writeln!(out, "  {line}")?;
                 }
                 writeln!(out, "  ```")?;
             }
-            Some((path, error)) => writeln!(out, "- `{path}`: {error}")?,
+            Some((path, error)) => writeln!(out, "- {}: {error}", code(path))?,
             None => writeln!(out, "- {problem}")?,
         }
     }
@@ -128,15 +128,18 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
     writeln!(out, "## Terminal\n")?;
     writeln!(out, "| What | Found |\n|---|---|")?;
     let mut terminal = match (&detection.answers, facts.mode.value) {
-        (Some(_), _) => detection.terminal().unwrap_or_else(|| "unknown".into()),
+        (Some(_), _) => detection
+            .terminal()
+            .map_or_else(|| "unknown".into(), |name| printable(&name)),
         (None, Mode::Auto) if caps.styling => "did not answer".into(),
         (None, Mode::Auto) => "none".into(),
         (None, mode) => format!("not asked in mode {}", mode_name(mode)),
     };
     if let Some(term) = &facts.env.term {
-        write!(terminal, ", `TERM={}`", term.to_string_lossy())?;
+        let term = format!("TERM={}", term.to_string_lossy());
+        write!(terminal, ", {}", code(&term))?;
     }
-    writeln!(out, "| Terminal | {terminal} |")?;
+    row(out, &["Terminal", &terminal])?;
     let window = match detection.window {
         Some(w) => format!(
             "{} × {} cells, {} × {} pixels",
@@ -144,7 +147,7 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
         ),
         None => "unknown".into(),
     };
-    writeln!(out, "| Window | {window} |")?;
+    row(out, &["Window", &window])?;
     let cell = match detection.cell_size() {
         CellSize::Window(w, h) => format!("{w} × {h} pixels, from the window size"),
         CellSize::Terminal(w, h) => format!("{w} × {h} pixels, from the terminal"),
@@ -153,33 +156,30 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
             DEFAULT_CELL.0, DEFAULT_CELL.1
         ),
     };
-    writeln!(out, "| Cell size | {cell} |")?;
+    row(out, &["Cell size", &cell])?;
     let graphics = match (caps.graphics, caps.draws_images()) {
         (false, _) => "no",
         (true, true) => "yes, with Unicode placeholders",
         (true, false) => "yes, without Unicode placeholders: images show their alt text",
     };
-    writeln!(out, "| Graphics | {graphics} |")?;
-    writeln!(out, "| Text sizing | {} |", yes_no(caps.text_sizing))?;
+    row(out, &["Graphics", graphics])?;
+    row(out, &["Text sizing", yes_no(caps.text_sizing)])?;
     let colours = match (caps.styling, caps.color, caps.truecolor) {
         (false, _, _) => "none",
         (true, false, _) => "off: `NO_COLOR`",
         (true, true, true) => "24-bit",
         (true, true, false) => "without 24-bit colour",
     };
-    writeln!(out, "| Colours | {colours} |")?;
+    row(out, &["Colours", colours])?;
     let background = match caps.dark_background {
         Some(true) => "dark",
         Some(false) => "light",
         None => "unknown",
     };
-    writeln!(out, "| Background | {background} |")?;
-    writeln!(out, "| Hyperlinks | {} |", yes_no(caps.hyperlinks))?;
-    writeln!(
-        out,
-        "| Underline styles | {} |\n",
-        yes_no(caps.styled_underlines)
-    )
+    row(out, &["Background", background])?;
+    row(out, &["Hyperlinks", yes_no(caps.hyperlinks)])?;
+    row(out, &["Underline styles", yes_no(caps.styled_underlines)])?;
+    writeln!(out)
 }
 
 fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result {
@@ -189,12 +189,7 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     writeln!(out, "## Settings\n")?;
     writeln!(out, "| Setting | Value | From |\n|---|---|---|")?;
     let mode = &facts.mode;
-    writeln!(
-        out,
-        "| Mode | {} | {} |",
-        mode_name(mode.value),
-        from(mode.origin)
-    )?;
+    row(out, &["Mode", mode_name(mode.value), &from(mode.origin)])?;
     let theme = match &choices.theme.value {
         ThemeSource::File(path) => home.path(path),
         ThemeSource::DefaultFile(path) if path.exists() => home.path(path),
@@ -202,38 +197,25 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
         ThemeSource::Paper(Paper::Light) => "light paper".into(),
         ThemeSource::Paper(Paper::Dark) => "dark paper".into(),
     };
-    writeln!(out, "| Theme | {theme} | {} |", from(choices.theme.origin))?;
+    row(out, &["Theme", &theme, &from(choices.theme.origin)])?;
     let margins = &choices.margins;
-    writeln!(
+    row(
         out,
-        "| Margins | {} | {} |",
-        on_off(margins.value),
-        from(margins.origin)
+        &["Margins", on_off(margins.value), &from(margins.origin)],
     )?;
     let images = &choices.images;
-    writeln!(
-        out,
-        "| Images | {} | {} |",
-        on_off(images.value),
-        from(images.origin)
-    )?;
+    row(out, &["Images", on_off(images.value), &from(images.origin)])?;
     let size = &facts.max_image_size;
-    writeln!(
-        out,
-        "| Largest image | {} MB | {} |",
-        size.value,
-        from(size.origin)
-    )?;
+    let mb = format!("{} MB", size.value);
+    row(out, &["Largest image", &mb, &from(size.origin)])?;
     let width = match (facts.width, facts.detection.window) {
         (Some(_), _) => "`--width`",
         (None, Some(_)) => "terminal",
         (None, None) => "default",
     };
-    writeln!(
-        out,
-        "| Width | {} cells | {width} |\n",
-        facts.detection.caps.width
-    )
+    let cells = format!("{} cells", facts.detection.caps.width);
+    row(out, &["Width", &cells, width])?;
+    writeln!(out)
 }
 
 fn write_files(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result {
@@ -248,19 +230,18 @@ fn write_files(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result
             };
             let path = home.path(&file.path);
             let from = origin_text(file.origin, facts.env, home);
-            writeln!(out, "| Configuration file | {path} | {from} | {status} |")?;
+            row(out, &["Configuration file", &path, &from, status])?;
         }
-        None => writeln!(out, "| Configuration file | none: `HOME` is not set | | |")?,
+        None => row(
+            out,
+            &["Configuration file", "none: `HOME` is not set", "", ""],
+        )?,
     }
     if let Some(dir) = crate::config::directory(facts.env) {
         let path = dir.join("theme.toml");
         let status = if path.exists() { "found" } else { "not found" };
         let from = origin_text(crate::config::directory_origin(facts.env), facts.env, home);
-        writeln!(
-            out,
-            "| Theme file | {} | {from} | {status} |",
-            home.path(&path)
-        )?;
+        row(out, &["Theme file", &home.path(&path), &from, status])?;
     }
     writeln!(out)
 }
@@ -320,8 +301,8 @@ fn origin_text(origin: Origin, env: &Environment, home: &Home) -> String {
         Origin::Default => "default".into(),
         Origin::File => "configuration file".into(),
         Origin::Environment(name) => match variable(env, name) {
-            Some(value) => format!("`{name}={}`", home.hide(&value.to_string_lossy())),
-            None => format!("`{name}`"),
+            Some(value) => code(&format!("{name}={}", home.hide(&value.to_string_lossy()))),
+            None => code(name),
         },
         Origin::Flag(flag) => format!("`{flag}`"),
     }
@@ -357,8 +338,45 @@ impl Home<'_> {
 
     /// `path` as code, with the home directory as `~`.
     fn path(&self, path: &Path) -> String {
-        format!("`{}`", self.hide(&path.to_string_lossy()))
+        code(&self.hide(&path.to_string_lossy()))
     }
+}
+
+/// A table row of `cells`. A `|` in a cell, also in code, is escaped so
+/// that it does not end the cell.
+fn row(out: &mut String, cells: &[&str]) -> std::fmt::Result {
+    for cell in cells {
+        write!(out, "| {} ", cell.replace('|', "\\|"))?;
+    }
+    writeln!(out, "|")
+}
+
+/// `text` as a code span: between more backticks than it has in a row, and
+/// with spaces inside them when it starts or ends with one. Control
+/// characters show as `\xNN`.
+fn code(text: &str) -> String {
+    let text = printable(text);
+    let longest = text.split(|c| c != '`').map(str::len).max().unwrap_or(0);
+    let fence = "`".repeat(longest + 1);
+    let pad = if text.starts_with('`') || text.ends_with('`') {
+        " "
+    } else {
+        ""
+    };
+    format!("{fence}{pad}{text}{pad}{fence}")
+}
+
+/// `text` with control characters, such as a tab or a newline, as `\xNN`,
+/// so that they cannot break the Markdown they are in.
+fn printable(text: &str) -> String {
+    let mut out = String::new();
+    for c in text.chars() {
+        match c {
+            c if c.is_control() => out.push_str(&format!("\\x{:02x}", u32::from(c))),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// The terminal's answers with ESC as `\e`, a backslash as `\\` and other
