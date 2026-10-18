@@ -352,15 +352,20 @@ impl Home<'_> {
         let ends_path = |c: char| !(c.is_alphanumeric() || matches!(c, '.' | '_' | '-'));
         let mut out = String::new();
         let mut rest = text;
+        // The character of `text` before `rest`, which a match at the start
+        // of `rest` follows.
+        let mut previous = None;
         while let Some(at) = rest.find(home) {
             let (before, after) = (&rest[..at], &rest[at + home.len()..]);
             let starts = before
                 .chars()
                 .next_back()
+                .or(previous)
                 .is_none_or(|c| c.is_whitespace() || "\"'`([{=:".contains(c));
             let ends = after.chars().next().is_none_or(ends_path);
             out.push_str(before);
             out.push_str(if starts && ends { "~" } else { home });
+            previous = home.chars().next_back();
             rest = after;
         }
         out.push_str(rest);
@@ -459,6 +464,8 @@ mod tests {
             "theme = \"~/x.toml\" (~)"
         );
         assert_eq!(hide_in("/home/u/", "at /home/u/x: no"), "at ~/x: no");
+        assert_eq!(hide_in("/home/u", "/home/u/home/u"), "~/home/u");
+        assert_eq!(hide_in("/home/u", "x/home/u/home/u"), "x/home/u/home/u");
     }
 
     #[test]
