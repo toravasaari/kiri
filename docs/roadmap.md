@@ -170,6 +170,9 @@ GitHub's Markdown first, then what is common elsewhere.
 - Emoji shortcodes such as `:rocket:`, as GitHub shows them.
 - Heading anchors as GitHub makes them, so a link such as `[see](#install)`
   leads to its heading; the pager jumps there (4.6).
+- A base for Obsidian notes: wikilinks, `[[note]]` and `[[note|text]]`,
+  as links to `note.md`, and embeds such as `![[image.png]]` as images.
+  Obsidian's callouts share the syntax of GitHub alert blocks (Extras).
 
 ## Phase 5 – Beyond kitty
 
