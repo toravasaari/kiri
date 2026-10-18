@@ -58,7 +58,8 @@ example, come before the rest of phase 3.
 - Local images through the graphics protocol, placed with Unicode
   placeholders so they scroll with the text.
 - Formats: PNG, JPEG, GIF (first frame), WebP and SVG, plus the other
-  formats the image decoders support cheaply.
+  formats the image decoders support cheaply: BMP, ICO, TIFF, QOI, PNM and
+  TGA. (done)
 - A paragraph that holds only an image is drawn as a block; images inside
   running text stay as alt text for now.
 - Sizes follow the browser: CSS pixels, never upscaled, no wider than the
@@ -67,6 +68,7 @@ example, come before the rest of phase 3.
 - `kiri image.png` shows an image on its own.
 - HTML `<img>` tags with `src`, `alt`, `width` and `height`.
 - Cargo features for a minimal build and a full build with every format.
+  (done)
 - Groundwork: one query for the window size in cells and pixels. Fitting
   the window needs its height, and `term.rs` now asks for the width and
   the cell size separately.

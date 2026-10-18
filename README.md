@@ -47,7 +47,11 @@ Images come from `data:` URLs and local files: absolute paths, paths
 relative to the document and `file:` URLs, with any `?query` or `#fragment`
 left out as in a browser. kiri reads only regular files up to the
 `--max-image-size` limit, which also caps a compressed SVG once
-decompressed, and does not fetch remote images.
+decompressed, and does not fetch remote images. kiri shows PNG, JPEG, GIF
+(the first frame), WebP and SVG images, and in its default, full build
+also BMP, ICO, TIFF, QOI, PNM and TGA. A build without default features
+(`cargo build --no-default-features`) leaves those out and shows their
+alt text with a warning.
 
 | Option | Meaning |
 |---|---|
