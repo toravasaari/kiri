@@ -229,8 +229,10 @@ fn decode_entities(text: &str) -> String {
     while let Some(start) = rest.find('&') {
         out.push_str(&rest[..start]);
         rest = &rest[start..];
-        let decoded = rest[1..]
-            .find(';')
+        // The `;` is looked for only as far as a name can reach, so that a
+        // long run of `&` takes linear time.
+        let decoded = (rest[1..].bytes().take(LONGEST_ENTITY + 1))
+            .position(|byte| byte == b';')
             .and_then(|end| Some((entity(&rest[1..end + 1])?, end + 2)));
         match decoded {
             Some((c, length)) => {
@@ -246,6 +248,11 @@ fn decode_entities(text: &str) -> String {
     out.push_str(rest);
     out
 }
+
+/// The longest entity name between `&` and `;` that is decoded. The names
+/// `entity` knows are far shorter; only a number padded with zeros could
+/// be longer, and it stays as written.
+const LONGEST_ENTITY: usize = 32;
 
 /// The character an entity's name, between `&` and `;`, stands for.
 fn entity(name: &str) -> Option<char> {
@@ -360,6 +367,15 @@ mod tests {
         assert_eq!(
             inline_img(r#"<img src=a.png alt="&copy; &amp &#; &#xZZ; &#0; a&b">"#),
             img("a.png", "&copy; &amp &#; &#xZZ; \u{fffd} a&b")
+        );
+    }
+
+    #[test]
+    fn keeps_an_ampersand_far_from_a_semicolon() {
+        let long = format!("&{};", "a".repeat(40));
+        assert_eq!(
+            inline_img(&format!("<img src=a.png alt=\"{long} &amp;\">")),
+            img("a.png", &format!("{long} &"))
         );
     }
 
