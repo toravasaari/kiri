@@ -87,7 +87,7 @@ example, come before the rest of phase 3.
   images; formulas and diagrams need keys of their own and one cache.
 - Groundwork: `render/layout.rs` split by block type (lists, quotes, code)
   before the next block type joins it, formulas or GitHub alert blocks,
-  whichever comes first.
+  whichever comes first. (done)
 
 ### 4.3 Diagrams
 

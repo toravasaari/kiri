@@ -117,7 +117,10 @@ src/images/url.rs          data URLs, file URLs and paths, read up to a limit
 src/images/svg.rs          SVG images and the fonts for their text
 src/color.rs               colours and underline styles for theme and render
 src/render/mod.rs          document model -> terminal output
-src/render/layout.rs       document model -> styled lines of a fixed width
+src/render/layout/mod.rs   document model -> styled lines of a fixed width
+src/render/layout/code.rs  code blocks and their language label
+src/render/layout/list.rs  bullet, numbered and task lists
+src/render/layout/quote.rs block quotes
 src/render/wrap.rs         word wrapping for styled text
 src/render/table.rs        tables with box-drawing characters, or stacked
 src/render/image.rs        image sizes in pixels and terminal cells
