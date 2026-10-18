@@ -8,6 +8,7 @@ use std::path::Path;
 use serde::Deserialize;
 
 use crate::color::{Color, Underline};
+use crate::model::AlertKind;
 
 /// The code block colour themes bundled with the highlighter.
 pub const CODE_THEMES: [&str; 7] = [
@@ -57,6 +58,94 @@ pub struct Theme {
     /// padding line above the code. It needs `code_padding` and colours.
     pub show_language_label: bool,
     pub language_label: LabelColor,
+    pub alerts: AlertTheme,
+}
+
+/// How alert blocks, such as `> [!NOTE]`, are coloured.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlertTheme {
+    /// Where the colours of the kinds come from.
+    pub colors: AlertColors,
+    /// A background mixed from the page and the kind's colour.
+    pub tint: bool,
+    pub note: AlertColor,
+    pub tip: AlertColor,
+    pub important: AlertColor,
+    pub warning: AlertColor,
+    pub caution: AlertColor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlertColors {
+    /// GitHub's colours for a dark or a light background.
+    Github,
+    /// The terminal's palette: blue, green, magenta, yellow and red.
+    Terminal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlertColor {
+    /// The colour `AlertTheme::colors` gives the kind.
+    Auto,
+    Color(Option<Color>),
+}
+
+impl AlertTheme {
+    /// The colour of alerts of `kind` on a dark background if `dark`.
+    pub fn color(&self, kind: AlertKind, dark: bool) -> Option<Color> {
+        let color = match kind {
+            AlertKind::Note => self.note,
+            AlertKind::Tip => self.tip,
+            AlertKind::Important => self.important,
+            AlertKind::Warning => self.warning,
+            AlertKind::Caution => self.caution,
+        };
+        match (color, self.colors) {
+            (AlertColor::Color(color), _) => color,
+            (AlertColor::Auto, AlertColors::Github) => Some(github_alert_color(kind, dark)),
+            (AlertColor::Auto, AlertColors::Terminal) => Some(Color::Palette(match kind {
+                AlertKind::Note => 4,
+                AlertKind::Tip => 2,
+                AlertKind::Important => 5,
+                AlertKind::Warning => 3,
+                AlertKind::Caution => 1,
+            })),
+        }
+    }
+}
+
+impl Default for AlertTheme {
+    fn default() -> Self {
+        Self {
+            colors: AlertColors::Github,
+            tint: true,
+            note: AlertColor::Auto,
+            tip: AlertColor::Auto,
+            important: AlertColor::Auto,
+            warning: AlertColor::Auto,
+            caution: AlertColor::Auto,
+        }
+    }
+}
+
+/// The colours GitHub gives alerts in its dark and light themes.
+fn github_alert_color(kind: AlertKind, dark: bool) -> Color {
+    let rgb = |hex: u32| {
+        let [_, r, g, b] = hex.to_be_bytes();
+        Color::Rgb(r, g, b)
+    };
+    rgb(match (kind, dark) {
+        (AlertKind::Note, true) => 0x4493f8,
+        (AlertKind::Tip, true) => 0x3fb950,
+        (AlertKind::Important, true) => 0xab7df8,
+        (AlertKind::Warning, true) => 0xd29922,
+        (AlertKind::Caution, true) => 0xf85149,
+        (AlertKind::Note, false) => 0x0969da,
+        (AlertKind::Tip, false) => 0x1a7f37,
+        (AlertKind::Important, false) => 0x8250df,
+        (AlertKind::Warning, false) => 0x9a6700,
+        (AlertKind::Caution, false) => 0xd1242f,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -145,6 +234,7 @@ impl Default for Theme {
             code_theme_light: "InspiredGitHub".into(),
             show_language_label: true,
             language_label: LabelColor::CodeBlock,
+            alerts: AlertTheme::default(),
         }
     }
 }
@@ -259,6 +349,15 @@ impl Theme {
         self.list_marker = None;
         self.table_border = None;
         self.language_label = LabelColor::Color(None);
+        self.alerts = AlertTheme {
+            tint: false,
+            note: AlertColor::Color(None),
+            tip: AlertColor::Color(None),
+            important: AlertColor::Color(None),
+            warning: AlertColor::Color(None),
+            caution: AlertColor::Color(None),
+            ..self.alerts
+        };
         for heading in &mut self.headings {
             heading.color = None;
             heading.background = None;
@@ -342,7 +441,50 @@ pub fn parse(text: &str) -> Result<Theme, String> {
             color => LabelColor::Color(parse_color(color)?),
         };
     }
+    if let Some(alerts) = file.alerts {
+        apply_alerts(&mut theme.alerts, alerts)?;
+    }
     Ok(theme)
+}
+
+fn apply_alerts(alerts: &mut AlertTheme, file: AlertsFile) -> Result<(), String> {
+    if let Some(colors) = file.colors {
+        alerts.colors = match colors.as_str() {
+            "github" => AlertColors::Github,
+            "terminal" => AlertColors::Terminal,
+            _ => {
+                return Err(format!(
+                    "unknown alerts.colors \"{colors}\"; use github or terminal"
+                ));
+            }
+        };
+    }
+    if let Some(background) = file.background {
+        alerts.tint = match background.as_str() {
+            "tint" => true,
+            "none" => false,
+            _ => {
+                return Err(format!(
+                    "unknown alerts.background \"{background}\"; use tint or none"
+                ));
+            }
+        };
+    }
+    for (target, value) in [
+        (&mut alerts.note, file.note),
+        (&mut alerts.tip, file.tip),
+        (&mut alerts.important, file.important),
+        (&mut alerts.warning, file.warning),
+        (&mut alerts.caution, file.caution),
+    ] {
+        if let Some(value) = value {
+            *target = match value.as_str() {
+                "auto" => AlertColor::Auto,
+                color => AlertColor::Color(parse_color(color)?),
+            };
+        }
+    }
+    Ok(())
 }
 
 fn apply_heading(
@@ -408,6 +550,19 @@ struct ThemeFile {
     code_theme_light: Option<String>,
     show_language_label: Option<bool>,
     language_label: Option<String>,
+    alerts: Option<AlertsFile>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AlertsFile {
+    colors: Option<String>,
+    background: Option<String>,
+    note: Option<String>,
+    tip: Option<String>,
+    important: Option<String>,
+    warning: Option<String>,
+    caution: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -678,6 +833,51 @@ mod tests {
             LabelColor::Color(None)
         );
         assert!(parsed("purple").is_err());
+    }
+
+    #[test]
+    fn alerts_take_github_colours_unless_the_theme_says_otherwise() {
+        let alerts = Theme::default().alerts;
+        assert!(alerts.tint);
+        assert_eq!(
+            alerts.color(AlertKind::Note, true),
+            Some(Color::Rgb(0x44, 0x93, 0xf8))
+        );
+        assert_eq!(
+            alerts.color(AlertKind::Caution, false),
+            Some(Color::Rgb(0xd1, 0x24, 0x2f))
+        );
+        let alerts = parse(
+            "[alerts]\ncolors = \"terminal\"\nbackground = \"none\"\n\
+             tip = \"#123456\"\nwarning = \"none\"\nnote = \"auto\"\n",
+        )
+        .unwrap()
+        .alerts;
+        assert!(!alerts.tint);
+        assert_eq!(alerts.color(AlertKind::Note, true), Some(Color::Palette(4)));
+        assert_eq!(
+            alerts.color(AlertKind::Caution, true),
+            Some(Color::Palette(1))
+        );
+        assert_eq!(
+            alerts.color(AlertKind::Tip, true),
+            Some(Color::Rgb(0x12, 0x34, 0x56))
+        );
+        assert_eq!(alerts.color(AlertKind::Warning, true), None);
+        for mistake in [
+            "colors = \"pink\"",
+            "background = \"blur\"",
+            "note = \"nope\"",
+        ] {
+            assert!(
+                parse(&format!("[alerts]\n{mistake}\n")).is_err(),
+                "{mistake}"
+            );
+        }
+        // Without colours, alerts have neither colours nor a tint.
+        let plain = Theme::default().without_colors().alerts;
+        assert!(!plain.tint);
+        assert_eq!(plain.color(AlertKind::Important, true), None);
     }
 
     #[test]

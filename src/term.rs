@@ -4,6 +4,7 @@ use std::ffi::OsStr;
 use std::fs::File;
 use std::os::fd::AsFd;
 
+use crate::color::Color;
 use crate::config::Environment;
 use crate::kitty::graphics;
 
@@ -44,6 +45,10 @@ pub struct Capabilities {
     pub cell_pixels: Option<(u16, u16)>,
     /// Whether the background is dark; `None` when unknown.
     pub dark_background: Option<bool>,
+    /// The background colour and the 16 palette colours as RGB, when the
+    /// terminal tells them, for colours mixed from them.
+    pub background: Option<Color>,
+    pub palette: [Option<Color>; 16],
 }
 
 impl Capabilities {
@@ -62,6 +67,8 @@ impl Capabilities {
             styled_underlines: false,
             cell_pixels: None,
             dark_background: None,
+            background: None,
+            palette: [None; 16],
         }
     }
 
@@ -250,6 +257,8 @@ fn with_probe(mut caps: Capabilities, probe: &probe::Probe) -> Capabilities {
         0
     };
     caps.dark_background = probe.dark_background;
+    caps.background = probe.background;
+    caps.palette = probe.palette;
     // The window size in pixels, when the kernel has it, comes first.
     caps.cell_pixels = caps.cell_pixels.or(probe.cell_pixels);
     // Only kitty-compatible terminals implement these protocols, and all
@@ -480,7 +489,8 @@ mod tests {
             };
             let answers = format!(
                 "\x1b[5;1R\x1b[5;3R\x1b[5;5R\x1b_Gi=31;OK\x1b\\\
-                 \x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\\x1bP>|kitty(0.47.1)\x1b\\\
+                 \x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\\x1b]4;4;rgb:0000/0000/eeee\x1b\\\
+                 \x1bP>|kitty(0.47.1)\x1b\\\
                  {cell_size}\x1b[?62;c"
             );
             terminal.write_all(answers.as_bytes()).unwrap();
@@ -529,6 +539,9 @@ mod tests {
         assert!(!seen.contains("\x1b[16t"), "{seen:?}");
         assert_eq!(found.cell_size(), CellSize::Window(10, 20));
         assert_eq!(found.caps.width, 60);
+        // The colours the terminal tells go into the capabilities.
+        assert_eq!(found.caps.background, Some(Color::Rgb(0x1e, 0x1e, 0x2e)));
+        assert_eq!(found.caps.palette[4], Some(Color::Rgb(0, 0, 0xee)));
     }
 
     #[test]
@@ -709,6 +722,7 @@ mod probe {
     use rustix::process::{Pid, getpgrp};
     use rustix::termios::{OptionalActions, Termios, tcgetattr, tcgetpgrp, tcsetattr};
 
+    use crate::color::Color;
     use crate::kitty::query;
 
     /// Long enough for a terminal over SSH, short enough not to notice when
@@ -719,6 +733,8 @@ mod probe {
     const CURSOR_POSITION: &str = "\x1b[6n";
     /// Background colour, OSC 11.
     const BACKGROUND: &str = "\x1b]11;?\x1b\\";
+    /// Start of an answer to [`palette`]: `ESC ] 4 ; index ; rgb:…`.
+    const PALETTE_ANSWER: &str = "\x1b]4;";
     /// The terminal's name and version, XTVERSION.
     const VERSION: &str = "\x1b[>q";
     /// Start of the answer to [`VERSION`]: `ESC P > | name(version) ST`.
@@ -726,11 +742,19 @@ mod probe {
     /// Primary device attributes.
     const DEVICE_ATTRIBUTES: &str = "\x1b[c";
 
+    /// The 16 palette colours, OSC 4, one query each: not every terminal
+    /// answers more than one colour a query.
+    fn palette() -> String {
+        (0..16)
+            .map(|index| format!("{PALETTE_ANSWER}{index};?\x1b\\"))
+            .collect()
+    }
+
     /// Cursor position reports around kitty's two text sizing tests, then a
-    /// graphics protocol query, the background colour, the terminal's
-    /// version, the cell size if `ask_cell_size`, and primary device
-    /// attributes. Every terminal answers the last one, so its answer marks
-    /// the end, also when a terminal ignores the others.
+    /// graphics protocol query, the background and palette colours, the
+    /// terminal's version, the cell size if `ask_cell_size`, and primary
+    /// device attributes. Every terminal answers the last one, so its answer
+    /// marks the end, also when a terminal ignores the others.
     fn queries(ask_cell_size: bool) -> String {
         let [width, scale] = query::text_sizing();
         [
@@ -742,6 +766,7 @@ mod probe {
             CURSOR_POSITION,
             query::GRAPHICS,
             BACKGROUND,
+            &palette(),
             VERSION,
             if ask_cell_size { query::CELL_SIZE } else { "" },
             DEVICE_ATTRIBUTES,
@@ -755,6 +780,8 @@ mod probe {
         pub graphics: bool,
         pub image_placeholders: bool,
         pub dark_background: Option<bool>,
+        pub background: Option<Color>,
+        pub palette: [Option<Color>; 16],
         /// Width and height of a cell in pixels, when asked and answered.
         pub cell_pixels: Option<(u16, u16)>,
     }
@@ -871,6 +898,8 @@ mod probe {
             graphics,
             image_placeholders: graphics && (text_sizing || placeholders_by_version),
             dark_background: background_is_dark(&text),
+            background: background(&text),
+            palette: palette_colors(&text),
             cell_pixels: query::cell_size(&text),
         }
     }
@@ -896,11 +925,10 @@ mod probe {
             .collect()
     }
 
-    /// From `ESC ] 11 ; rgb:RRRR/GGGG/BBBB`, with one to four hex digits
-    /// per channel.
-    fn background_is_dark(text: &str) -> Option<bool> {
-        let start = text.find("\x1b]11;rgb:")? + "\x1b]11;rgb:".len();
-        let rest = &text[start..];
+    /// The channels of `rgb:RRRR/GGGG/BBBB` at the start of `text`, with
+    /// one to four hex digits each, as fractions of their maximum.
+    fn channels(text: &str) -> Option<[f64; 3]> {
+        let rest = text.strip_prefix("rgb:")?;
         let end = rest.find(|c: char| !(c.is_ascii_hexdigit() || c == '/'))?;
         let channels: Vec<f64> = rest[..end]
             .split('/')
@@ -911,10 +939,44 @@ mod probe {
                     .map(|v| f64::from(v) / max)
             })
             .collect::<Option<_>>()?;
-        let [r, g, b] = channels[..] else {
-            return None;
-        };
+        channels.try_into().ok()
+    }
+
+    fn rgb([r, g, b]: [f64; 3]) -> Color {
+        let byte = |channel: f64| (channel * 255.0).round() as u8;
+        Color::Rgb(byte(r), byte(g), byte(b))
+    }
+
+    /// The channels of the answer to [`BACKGROUND`].
+    fn background_channels(text: &str) -> Option<[f64; 3]> {
+        let start = text.find("\x1b]11;")? + "\x1b]11;".len();
+        channels(&text[start..])
+    }
+
+    fn background_is_dark(text: &str) -> Option<bool> {
+        let [r, g, b] = background_channels(text)?;
         Some(0.2126 * r + 0.7152 * g + 0.0722 * b < 0.5)
+    }
+
+    fn background(text: &str) -> Option<Color> {
+        background_channels(text).map(rgb)
+    }
+
+    /// The colours among the answers to [`palette`].
+    fn palette_colors(text: &str) -> [Option<Color>; 16] {
+        let mut palette = [None; 16];
+        for (start, _) in text.match_indices(PALETTE_ANSWER) {
+            let rest = &text[start + PALETTE_ANSWER.len()..];
+            let Some((index, color)) = rest.split_once(';') else {
+                continue;
+            };
+            if let Ok(index) = index.parse::<usize>()
+                && let Some(entry) = palette.get_mut(index)
+            {
+                *entry = channels(color).map(rgb);
+            }
+        }
+        palette
     }
 
     #[cfg(test)]
@@ -932,10 +994,52 @@ mod probe {
         fn sends_the_queries_in_order() {
             assert_eq!(
                 queries(false),
-                "\r\x1b[6n\x1b]66;w=2; \x1b\\\x1b[6n\x1b]66;s=2; \x1b\\\x1b[6n\
-                 \x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b]11;?\x1b\\\
-                 \x1b[>q\x1b[c"
+                [
+                    "\r\x1b[6n\x1b]66;w=2; \x1b\\\x1b[6n\x1b]66;s=2; \x1b\\\x1b[6n\
+                     \x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b]11;?\x1b\\",
+                    &(0..16)
+                        .map(|index| format!("\x1b]4;{index};?\x1b\\"))
+                        .collect::<String>(),
+                    "\x1b[>q\x1b[c",
+                ]
+                .concat()
             );
+        }
+
+        #[test]
+        fn reads_the_background_and_palette_colours() {
+            // Four hex digits a channel ended by ST, two ended by BEL.
+            let answers = concat!(
+                "\x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\",
+                "\x1b]4;1;rgb:cccc/0000/0000\x1b\\",
+                "\x1b]4;12;rgb:44/93/f8\x07",
+                "\x1b]4;16;rgb:ff/ff/ff\x07",
+                "\x1b[?62;c",
+            );
+            let probe = interpret(answers.as_bytes());
+            assert_eq!(probe.background, Some(Color::Rgb(0x1e, 0x1e, 0x2e)));
+            let mut palette = [None; 16];
+            palette[1] = Some(Color::Rgb(0xcc, 0, 0));
+            palette[12] = Some(Color::Rgb(0x44, 0x93, 0xf8));
+            // Entries beyond the 16 kiri asks for are left out.
+            assert_eq!(probe.palette, palette);
+        }
+
+        #[test]
+        fn malformed_colour_answers_are_left_out() {
+            let answers = concat!(
+                "\x1b]4;99;rgb:ff/ff/ff\x1b\\",
+                "\x1b]4;x;rgb:ff/ff/ff\x1b\\",
+                "\x1b]4;2;#ffffff\x1b\\",
+                "\x1b]4;3;rgb:ff/ff\x1b\\",
+                "\x1b]4;5;rgb:zz/00/00\x1b\\",
+                "\x1b]4;6;rgb:12/34",
+            );
+            let probe = interpret(answers.as_bytes());
+            assert_eq!(probe.palette, [None; 16]);
+            // An answer cut short has no colour.
+            let cut = "\x1b]11;rgb:1e1e/1e";
+            assert_eq!(interpret(cut.as_bytes()).background, None);
         }
 
         #[test]
@@ -989,6 +1093,8 @@ mod probe {
                     graphics: true,
                     image_placeholders: true,
                     dark_background: Some(true),
+                    background: Some(Color::Rgb(0x1e, 0x1e, 0x2e)),
+                    palette: [None; 16],
                     cell_pixels: None,
                 }
             );
@@ -1005,6 +1111,8 @@ mod probe {
                     graphics: false,
                     image_placeholders: false,
                     dark_background: Some(false),
+                    background: Some(Color::Rgb(0xff, 0xff, 0xff)),
+                    palette: [None; 16],
                     cell_pixels: None,
                 }
             );

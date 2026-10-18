@@ -238,7 +238,7 @@ Smaller polish that fits in whenever there is time, in any phase.
 - GitHub alert blocks, quotes that start with `[!NOTE]`, `[!TIP]`,
   `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]`, drawn with a colour and an
   icon of their own and a title such as "Note". The colours stay even in
-  the paper themes, which are otherwise grey.
+  the paper themes, which are otherwise grey. (done)
 - Headings marked as shell prompts (OSC 133), so kitty's keys for jumping
   between prompts move between headings in print mode, without the pager.
   Needs a try first: kitty may treat the marks as more than places to

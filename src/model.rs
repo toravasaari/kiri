@@ -19,11 +19,41 @@ pub enum Block {
         code: String,
     },
     BlockQuote(Vec<Block>),
+    /// A GitHub alert: a quote that starts with `[!NOTE]` or one of the
+    /// other kinds.
+    Alert {
+        kind: AlertKind,
+        /// A title written after the kind, in place of the kind's name.
+        title: Option<String>,
+        blocks: Vec<Block>,
+    },
     List(List),
     Table(Table),
     ThematicBreak,
     /// Raw HTML, shown as source until there is an HTML backend.
     Html(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlertKind {
+    Note,
+    Tip,
+    Important,
+    Warning,
+    Caution,
+}
+
+impl AlertKind {
+    /// The title GitHub gives an alert of this kind.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Note => "Note",
+            Self::Tip => "Tip",
+            Self::Important => "Important",
+            Self::Warning => "Warning",
+            Self::Caution => "Caution",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

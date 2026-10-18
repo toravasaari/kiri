@@ -51,9 +51,9 @@ they work.
 
 `src/term.rs` is the only place that talks to the terminal to find out what
 it can do: size in cells and pixels (`TIOCGWINSZ`, or the cell size from
-`CSI 16 t` where that has no pixels), whether the text sizing
-and graphics protocols work, the background colour, and the terminal's
-name and version (XTVERSION). 24-bit colour, hyperlinks and underline
+`CSI 16 t` where that has no pixels), whether the text sizing and
+graphics protocols work, the background and palette colours, and the
+terminal's name and version (XTVERSION). 24-bit colour, hyperlinks and underline
 styles follow from either protocol working. Images need the graphics
 protocol's Unicode placeholders, which no query reveals; kiri assumes them
 when the graphics protocol works and the terminal is kitty 0.28 or later,
@@ -87,7 +87,7 @@ writes as it is into a pipe.
 | Styled underlines | SGR 4:x | `src/render/output.rs` | Heading underline styles |
 | Cursor movement, erase | CSI C, CSI K | `src/render/output.rs` | Backgrounds beside scaled headings and across the width |
 | Cell size query | CSI 16 t | `src/kitty/query.rs` | The cell size in pixels where the window size has none |
-| Generic queries | CSI 6n, OSC 11, CSI > q, CSI c | `src/term.rs` | Cursor position, background colour, terminal version, end of the answers |
+| Generic queries | CSI 6n, OSC 11, OSC 4, CSI > q, CSI c | `src/term.rs` | Cursor position, background and palette colours, terminal version, end of the answers |
 
 Sequences that only kitty's protocols define live under `src/kitty/`:
 text sizing, graphics, Unicode placeholders and the queries that detect

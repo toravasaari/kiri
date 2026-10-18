@@ -42,6 +42,10 @@ kiri uses no colours in any mode. Bold, italic, underlines, links and heading
 sizes stay; code blocks are not highlighted, and inline code is shown in
 backticks.
 
+Quotes that start with `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`
+or `[!CAUTION]` are drawn as GitHub draws these alerts: a bar and a title
+in the kind's colour, on a tint of it, and in kitty the kind's icon.
+
 Tables too wide for the window wrap the text inside their cells, without
 splitting any word of ten cells or fewer. When that is not enough, each row
 is shown as its own block of `Header: value` lines instead.

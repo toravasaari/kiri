@@ -2,10 +2,10 @@
 
 mod html;
 
-use comrak::nodes::{ListType, NodeValue, TableAlignment};
+use comrak::nodes::{AlertType, ListType, NodeValue, TableAlignment};
 use comrak::{Arena, Node, Options, parse_document};
 
-use crate::model::{Alignment, Block, Document, Image, Inline, List, ListItem, Table};
+use crate::model::{AlertKind, Alignment, Block, Document, Image, Inline, List, ListItem, Table};
 
 pub fn parse(source: &str) -> Document {
     let arena = Arena::new();
@@ -21,6 +21,7 @@ fn options() -> Options<'static> {
     options.extension.strikethrough = true;
     options.extension.tasklist = true;
     options.extension.autolink = true;
+    options.extension.alerts = true;
     options
 }
 
@@ -41,6 +42,17 @@ fn block(node: Node<'_>) -> Option<Block> {
             code: code.literal.clone(),
         },
         NodeValue::BlockQuote => Block::BlockQuote(blocks(node)),
+        NodeValue::Alert(alert) => Block::Alert {
+            kind: match alert.alert_type {
+                AlertType::Note => AlertKind::Note,
+                AlertType::Tip => AlertKind::Tip,
+                AlertType::Important => AlertKind::Important,
+                AlertType::Warning => AlertKind::Warning,
+                AlertType::Caution => AlertKind::Caution,
+            },
+            title: alert.title.clone(),
+            blocks: blocks(node),
+        },
         NodeValue::List(list) => Block::List(List {
             start: (list.list_type == ListType::Ordered).then_some(list.start as u64),
             tight: list.tight,

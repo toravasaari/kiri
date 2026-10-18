@@ -280,7 +280,7 @@ fn collect_blocks<'a>(blocks: &'a [Block], urls: &mut Vec<&'a str>) {
             Block::Paragraph(content) => {
                 urls.extend(Inline::lone_image(content).map(|image| image.url.as_str()));
             }
-            Block::BlockQuote(blocks) => collect_blocks(blocks, urls),
+            Block::BlockQuote(blocks) | Block::Alert { blocks, .. } => collect_blocks(blocks, urls),
             Block::List(list) => {
                 for item in &list.items {
                     collect_blocks(&item.blocks, urls);
