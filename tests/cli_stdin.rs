@@ -5,6 +5,9 @@ use std::os::fd::BorrowedFd;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
+
+use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
 mod common;
 
@@ -213,7 +216,8 @@ fn the_terminal_is_asked_on_the_controlling_terminal_not_standard_input() {
         });
     }
     let mut child = kiri.spawn().unwrap();
-    // Drop the parent's copy, so reading ends once kiri exits.
+    // The command holds the program's side of the terminal. Close it, so
+    // that reading the terminal side ends once kiri exits.
     drop(kiri);
     let mut stdin = child.stdin.take().unwrap();
     stdin.write_all(b"# Title\n\n![Icon](icon.png)\n").unwrap();
@@ -222,11 +226,21 @@ fn the_terminal_is_asked_on_the_controlling_terminal_not_standard_input() {
     let mut seen = Vec::new();
     let mut answered = false;
     let mut buffer = [0; 4096];
-    // Reading ends with an error once no one holds the terminal side.
-    while let Ok(read) = terminal.read(&mut buffer) {
-        if read == 0 {
-            break;
+    // kiri gets 10 s at most, so a hanging kiri fails the test instead of
+    // hanging it.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let left = deadline.checked_duration_since(Instant::now());
+        let timeout = left.map(|left| Timespec::try_from(left).unwrap());
+        let mut fds = [PollFd::new(&terminal, PollFlags::IN)];
+        if left.is_none() || poll(&mut fds, timeout.as_ref()).unwrap() == 0 {
+            child.kill().unwrap();
+            panic!("kiri did not finish: {:?}", text(&seen));
         }
+        // Reading ends with an error once no one holds the program's side.
+        let Ok(read @ 1..) = terminal.read(&mut buffer) else {
+            break;
+        };
         seen.extend_from_slice(&buffer[..read]);
         if !answered && seen.windows(3).any(|w| w == b"\x1b[c") {
             terminal
