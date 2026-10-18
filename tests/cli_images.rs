@@ -485,3 +485,94 @@ fn format_takes_only_formats_kiri_knows() {
         "{stderr}"
     );
 }
+
+#[test]
+fn an_image_extension_may_be_in_capitals() {
+    let dir = Scratch::new("capitals");
+    for (from, to) in [("icon.png", "ICON.PNG"), ("pattern.svg", "PATTERN.SVG")] {
+        let path = dir.join(to);
+        std::fs::copy(fixtures().join("images").join(from), &path).unwrap();
+        assert_image_alone(&kiri_on(&dir, &path, &["--mode", "kitty"]));
+    }
+}
+
+#[test]
+fn an_image_may_come_through_a_pipe() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let dir = Scratch::new("pipe");
+    let mut child = command(&dir)
+        .args(["--mode", "kitty", "/dev/stdin"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let png = std::fs::read(fixtures().join("images/icon.png")).unwrap();
+    child.stdin.take().unwrap().write_all(&png).unwrap();
+    assert_image_alone(&child.wait_with_output().unwrap());
+}
+
+#[test]
+fn a_directory_is_an_error() {
+    let dir = Scratch::new("directory");
+    for args in [
+        &["--mode", "kitty"][..],
+        &["--mode", "kitty", "-f", "image"],
+    ] {
+        let out = kiri_on(&dir, &dir, args);
+        assert_eq!(out.status.code(), Some(1), "{args:?}");
+        let stderr = text(&out.stderr);
+        let start = format!("kiri: {}: ", dir.display());
+        assert!(stderr.starts_with(&start), "{args:?}: {stderr}");
+    }
+}
+
+#[test]
+fn an_empty_file_is_an_empty_document_unless_named_as_an_image() {
+    let dir = Scratch::new("empty");
+    let empty = dir.join("empty");
+    std::fs::write(&empty, "").unwrap();
+    let out = kiri_on(&dir, &empty, &["--mode", "kitty"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert_eq!(text(&out.stderr), "");
+    let empty_png = dir.join("empty.png");
+    std::fs::write(&empty_png, "").unwrap();
+    let out = kiri_on(&dir, &empty_png, &["--mode", "kitty"]);
+    assert_eq!(out.status.code(), Some(1));
+    let start = format!("kiri: {}: ", empty_png.display());
+    assert!(
+        text(&out.stderr).starts_with(&start),
+        "{}",
+        text(&out.stderr)
+    );
+}
+
+#[test]
+fn an_image_file_at_the_size_limit_is_read() {
+    let dir = Scratch::new("at-limit");
+    // Sparse and no image: the size is all that matters here.
+    for (size, refused) in [(1_000_000, false), (1_000_001, true)] {
+        let path = dir.join(format!("{size}.png"));
+        std::fs::File::create(&path).unwrap().set_len(size).unwrap();
+        let out = kiri_on(&dir, &path, &["--mode", "kitty", "--max-image-size", "1"]);
+        assert_eq!(out.status.code(), Some(1), "{size}");
+        let stderr = text(&out.stderr);
+        assert_eq!(
+            stderr.contains("larger than the 1 MB limit"),
+            refused,
+            "{stderr}"
+        );
+    }
+}
+
+#[test]
+fn width_limits_an_image_file() {
+    let dir = Scratch::new("image-width");
+    let photo = fixtures().join("images/photo-landscape.jpg");
+    let out = kiri_on(&dir, &photo, &["--mode", "kitty", "--width", "10"]);
+    assert_image_alone(&out);
+    let stdout = text(&out.stdout);
+    assert!(stdout.contains(",c=10,"), "{:?}", &stdout[..200]);
+}
