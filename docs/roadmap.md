@@ -155,6 +155,12 @@ Smaller polish that fits in whenever there is time, in any phase.
   (a new theme key). With code padding on, the name sits on the top
   padding row; without it, on a line above the block.
 - AVIF and JPEG XL images.
+- PDF documents shown as images, as a quick look that saves opening a
+  PDF reader rather than a replacement for one: `kiri file.pdf` and
+  `![](figure.pdf)` in a document show the first page. A setting and a
+  command-line option choose other pages: the first n pages, one page, a
+  list of ranges such as `1-3,7,10-`, or all pages. How the pages are
+  rendered is still open.
 - An image inside a link can be clicked: the image's placeholder cells are
   wrapped in the link's OSC 8 hyperlink, as text is.
 - Less image data over SSH. kitty only takes raw pixels or PNG, so
