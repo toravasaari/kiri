@@ -102,19 +102,18 @@ fn write_problems(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     }
     writeln!(out, "## Problems\n")?;
     for problem in problems {
-        let problem = home.hide(problem);
         // The errors start with the path of the file they are about. A
         // longer error, such as one that shows the line in the file, goes
         // in a code block of its own.
         match problem.split_once(": ") {
             Some((path, error)) if error.contains('\n') => {
-                writeln!(out, "- {}:\n\n  ```text", code(path))?;
+                writeln!(out, "- {}:\n\n  ```text", code(&home.hide(path)))?;
                 for line in error.trim_end().lines() {
                     writeln!(out, "  {line}")?;
                 }
                 writeln!(out, "  ```")?;
             }
-            Some((path, error)) => writeln!(out, "- {}: {error}", code(path))?,
+            Some((path, error)) => writeln!(out, "- {}: {error}", code(&home.hide(path)))?,
             None => writeln!(out, "- {problem}")?,
         }
     }
@@ -325,14 +324,13 @@ fn variable<'a>(env: &'a Environment, name: &str) -> Option<&'a OsStr> {
 struct Home<'a>(Option<&'a OsStr>);
 
 impl Home<'_> {
-    /// `text` with the home directory at the start of a path as `~`.
+    /// The path `text` with the home directory at its start as `~`.
     fn hide(&self, text: &str) -> String {
-        match self.0.map(OsStr::to_string_lossy) {
-            Some(home) if !home.is_empty() && home != "/" => {
-                let home = home.trim_end_matches('/');
-                text.replace(&format!("{home}/"), "~/")
-            }
-            _ => text.to_owned(),
+        let home = self.0.map(Path::new).filter(|home| home.parent().is_some());
+        match home.and_then(|home| Path::new(text).strip_prefix(home).ok()) {
+            Some(rest) if rest.as_os_str().is_empty() => "~".into(),
+            Some(rest) => format!("~/{}", rest.to_string_lossy()),
+            None => text.to_owned(),
         }
     }
 
@@ -393,4 +391,34 @@ fn escaped(answers: &[u8]) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hide(home: &str, text: &str) -> String {
+        Home(Some(OsStr::new(home))).hide(text)
+    }
+
+    #[test]
+    fn hides_the_home_directory_at_the_start_of_a_path() {
+        assert_eq!(hide("/home/u", "/home/u/.config/kiri"), "~/.config/kiri");
+        assert_eq!(hide("/home/u/", "/home/u/.config/kiri"), "~/.config/kiri");
+        assert_eq!(hide("/home/u", "/home/u"), "~");
+    }
+
+    #[test]
+    fn leaves_the_home_directory_elsewhere_alone() {
+        assert_eq!(hide("/home/u", "/x/home/u/t.toml"), "/x/home/u/t.toml");
+        assert_eq!(hide("/home/u", "/home/u2/t.toml"), "/home/u2/t.toml");
+        assert_eq!(hide("/home/u", "relative/t.toml"), "relative/t.toml");
+    }
+
+    #[test]
+    fn hides_nothing_without_a_home_directory() {
+        assert_eq!(hide("", "/home/u/t.toml"), "/home/u/t.toml");
+        assert_eq!(hide("/", "/t.toml"), "/t.toml");
+        assert_eq!(Home(None).hide("/home/u/t.toml"), "/home/u/t.toml");
+    }
 }
