@@ -186,18 +186,31 @@ The full build, the default, also shows BMP, TIFF, QOI, PNM, TGA and ICO
 images. The test pattern five times, as a BMP, a TIFF, a QOI image, a PPM
 and a TGA, each like the first one on this page, then the red disc and
 half-transparent blue square from the transparency section, from an icon
-file. A build without default features shows their alt text instead, and
-warns about each of them:
+file. Each comes under a heading that names its format. A build without
+default features shows their alt text instead, and warns about each of
+them:
+
+### BMP
 
 ![BMP](../tests/fixtures/images/pattern.bmp)
 
+### TIFF, compressed with Deflate
+
 ![TIFF](../tests/fixtures/images/pattern.tif)
+
+### QOI
 
 ![QOI](../tests/fixtures/images/pattern.qoi)
 
+### PPM, one of the PNM formats
+
 ![PPM](../tests/fixtures/images/pattern.ppm)
 
+### TGA, recognised by its file name
+
 ![TGA](../tests/fixtures/images/pattern.tga)
+
+### ICO
 
 ![ICO](../tests/fixtures/images/transparent.ico)
 
