@@ -23,10 +23,12 @@ From the repository root:
 - kiri may take 120 seconds per document (`--timeout SECONDS`). A debug
   build needs about 13 seconds for `examples/visual-check-images.md` on an
   idle machine and 30 on a busy one.
-- Screenshots go to `target/render-check/` by default (`--out DIR`), one
-  `NAME.png` per document, cropped below the last drawn row. Taller
-  screenshots are also sliced into `NAME-p01.png`, `NAME-p02.png`, … of
-  1600 pixels (`--page-height`), small enough to read one at a time.
+- Screenshots go to `.local/render-check/BRANCH/` by default (`--out DIR`),
+  one `DATE-NAME.png` per document, such as `2026-10-18-tables.png`,
+  cropped below the last drawn row. Taller screenshots are also sliced into
+  `DATE-NAME-p01.png`, `DATE-NAME-p02.png`, … of 1600 pixels
+  (`--page-height`), small enough to read one at a time. `.local` is shared
+  with jailbee containers, so screenshots taken in one show up on the host.
 - Arguments after `--` go to kiri. Without them kiri runs in `auto` mode
   and detects kitty the way it does for the user. kiri starts only when
   kitty answers a query, so its probe does not time out while kitty is
@@ -68,7 +70,8 @@ window.
 
 - `Xvfb` (Fedora: `xorg-x11-server-Xvfb`), `kitty`, ImageMagick (`import`,
   `magick`) and Mesa's llvmpipe for OpenGL. The script names what is
-  missing; run it where they are installed, usually the host.
+  missing; run it where they are installed: the host, or a jailbee
+  container, whose golden image has them.
 - Never copy over or edit font files, kitty's configuration or anything else
   a running kitty may have open; the maintainer's session lives in kitty.
   The script only reads them.

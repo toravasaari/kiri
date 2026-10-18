@@ -4,7 +4,8 @@
 #
 # Usage: render-check.sh [options] FILE.md... [-- KIRI_ARGS...]
 #
-#   --out DIR            where screenshots go (default: target/render-check)
+#   --out DIR            where screenshots go (default:
+#                        .local/render-check/BRANCH, or the commit when detached)
 #   --size WxH           window and screen size in pixels (default: 1280x16000,
 #                        and llvmpipe draws at most 16384 pixels high)
 #   --page-height PX     also slice screenshots into pages this tall
@@ -13,15 +14,16 @@
 #   --kiri PATH          kiri binary (default: build target/debug/kiri)
 #   --timeout SECONDS    how long kiri may take for one document (default: 120)
 #
-# Each FILE.md gives OUT/NAME.png, cropped below the last drawn row, and,
-# when it is taller than a page, OUT/NAME-p01.png, OUT/NAME-p02.png and so on.
+# Each FILE.md gives OUT/DATE-NAME.png, cropped below the last drawn row, and,
+# when it is taller than a page, OUT/DATE-NAME-p01.png, OUT/DATE-NAME-p02.png
+# and so on. DATE is today's, such as 2026-10-18.
 # If kiri fails or crashes on a document, its screenshot is still saved and
 # the script exits with kiri's status after the other documents.
 # Needs Xvfb, kitty, ImageMagick (import, magick) and Mesa's llvmpipe.
 
 set -euo pipefail
 
-out=target/render-check
+out=
 size=1280x16000
 page_height=1600
 kitty_config=NONE
@@ -71,7 +73,14 @@ if [ -z "$kiri" ]; then
 	kiri=$PWD/target/debug/kiri
 fi
 kiri=$(realpath "$kiri")
+# .local is shared with jailbee containers, so the host sees their shots.
+if [ -z "$out" ]; then
+	branch=$(git branch --show-current 2>/dev/null || true)
+	[ -n "$branch" ] || branch=$(git rev-parse --short HEAD)
+	out=.local/render-check/$branch
+fi
 mkdir -p "$out"
+day=$(date +%F)
 
 work=$(mktemp -d)
 xvfb_pid=
@@ -167,7 +176,7 @@ settle() {
 
 failed=0
 for file in "${files[@]}"; do
-	name=$(basename "$file" .md)
+	name=$day-$(basename "$file" .md)
 	shot=$out/$name.png
 	rm -f "$work/done" "$out/$name"-p[0-9][0-9].png
 
