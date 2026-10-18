@@ -1,6 +1,5 @@
 ---
 source: tests/render_blocks.rs
-assertion_line: 33
 expression: "visible(&render_for(\"elements.md\", Capabilities::kitty(WIDTH)))"
 ---
 ␛[0;1;4;34m␛]66;s=3;Every element␛\␛[0m

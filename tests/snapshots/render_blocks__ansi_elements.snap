@@ -1,6 +1,5 @@
 ---
 source: tests/render_blocks.rs
-assertion_line: 25
 expression: "visible(&render_for(\"elements.md\", Capabilities::ansi(WIDTH)))"
 ---
 ␛[0;1;4;34mEvery element␛[0m
