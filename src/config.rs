@@ -28,6 +28,8 @@ pub struct Environment {
     pub no_color: Option<OsString>,
     /// `COLORTERM`: 24-bit colour when `truecolor` or `24bit`.
     pub colorterm: Option<OsString>,
+    /// `TERM`: the terminal type, which only `--doctor` reports.
+    pub term: Option<OsString>,
     /// `TERM_PROGRAM`: names some of the terminals known to support
     /// hyperlinks.
     pub term_program: Option<OsString>,
@@ -46,6 +48,7 @@ impl Environment {
             kiri_no_images: std::env::var_os("KIRI_NO_IMAGES"),
             no_color: std::env::var_os("NO_COLOR"),
             colorterm: std::env::var_os("COLORTERM"),
+            term: std::env::var_os("TERM"),
             term_program: std::env::var_os("TERM_PROGRAM"),
             vte_version: std::env::var_os("VTE_VERSION"),
         }
@@ -169,7 +172,7 @@ pub struct Setting<T> {
 }
 
 impl<T> Setting<T> {
-    fn new(value: T, origin: Origin) -> Self {
+    pub fn new(value: T, origin: Origin) -> Self {
         Self { value, origin }
     }
 }

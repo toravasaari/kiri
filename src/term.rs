@@ -248,6 +248,11 @@ fn with_probe(mut caps: Capabilities, probe: &probe::Probe) -> Capabilities {
     caps
 }
 
+/// Whether stdout is a terminal.
+pub fn stdout_is_terminal() -> bool {
+    rustix::termios::isatty(std::io::stdout())
+}
+
 /// Whether the user asked for output without colour: `NO_COLOR` set and not
 /// empty, as <https://no-color.org> defines it.
 pub fn no_color(env: &Environment) -> bool {
