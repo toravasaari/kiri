@@ -105,6 +105,7 @@ example, come before the rest of phase 3.
 
 - Interactive pager (`kiri -i`): scrolling, search, a table of contents,
   link selection, anchor jumps, back history, reload on file change.
+- After a reload, a key jumps to the first block that changed.
 - Pager status line with key hints and a `?` help panel.
 - Groundwork: raw mode, now inside the probe in `term.rs`, usable for
   reading keys.
@@ -145,6 +146,11 @@ Smaller polish that fits in whenever there is time, in any phase.
   compressed formats such as JPEG cannot be passed through as they are;
   this needs thought on what to send and when.
 - Images inside table cells, which now show their alt text.
+- Code blocks can be copied to the clipboard (OSC 52): in the pager with a
+  key, and in print mode through a link beside the block that kitty's
+  `open-actions.conf` hands to kiri.
+- Changes shown as a diff, added text green and removed text red, fading
+  out slowly: in the pager after a reload, and against a git revision.
 - Table columns share the width by their content, as in a browser: a
   table too wide for the terminal narrows each column in proportion to
   its text, instead of narrowing the widest column first. (done)
