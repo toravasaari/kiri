@@ -99,4 +99,6 @@ magick pattern.png -strip -compress zip pattern.tif
 magick pattern.png -strip pattern.qoi
 magick pattern.png -strip PPM:pattern.ppm
 magick pattern.png -strip -compress RLE pattern.tga
+# Colour-mapped: its first bytes, 00 01 01 00, are close to an icon's.
+magick pattern.png -strip -type Palette pattern-palette.tga
 magick transparent.png -strip transparent.ico

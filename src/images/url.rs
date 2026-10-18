@@ -241,6 +241,15 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "full")]
+    #[test]
+    fn decodes_a_colour_mapped_tga() {
+        // It starts with 00 01 01 00; an icon starts with 00 00 01 00.
+        let pattern = fixture("pattern.png");
+        assert!(pattern.is_ok());
+        assert_eq!(fixture("pattern-palette.tga"), pattern);
+    }
+
     #[test]
     fn does_not_take_other_data_for_tga() {
         let elsewhere = Path::new("/nonexistent");
