@@ -258,6 +258,32 @@ fn the_language_label_is_left_out_without_padding_colour_or_room() {
 }
 
 #[test]
+fn the_language_label_fills_the_padding_line_whatever_the_name() {
+    let kitty = Capabilities::kitty(WIDTH);
+    let theme = Theme::default();
+    let block = |language: &str| format!("```{language}\ncode\n```\n");
+    // Each of these takes two cells.
+    let wide = code_lines(&block("日本語"), kitty.clone(), &theme);
+    assert!(wide[0].ends_with(" 日本語 "), "{wide:#?}");
+    assert_eq!(
+        wide[0].chars().count() + 3,
+        wide[1].chars().count(),
+        "{wide:#?}"
+    );
+    // A control character is replaced, as in the rest of the document;
+    // code_lines panics on any escape that gets through.
+    let control = code_lines(&block("ru\x1bst"), kitty.clone(), &theme);
+    assert!(control[0].ends_with(" ru\u{fffd}st "), "{control:#?}");
+    assert_eq!(control[0].len() - 2, control[1].len(), "{control:#?}");
+    // The 44-cell box holds a 42-cell name with a cell on each side, and
+    // no more.
+    let fits = code_lines(&block(&"a".repeat(42)), kitty.clone(), &theme);
+    assert_eq!(fits[0], format!("   {} ", "a".repeat(42)), "{fits:#?}");
+    let too_long = code_lines(&block(&"a".repeat(43)), kitty, &theme);
+    assert_eq!(too_long[0].trim(), "", "{too_long:#?}");
+}
+
+#[test]
 fn the_language_label_takes_its_colour_from_the_code_theme_or_the_theme() {
     let source = "```rust\nfn main() {}\n```\n";
     let kitty = Capabilities::kitty(WIDTH);
@@ -274,6 +300,11 @@ fn the_language_label_takes_its_colour_from_the_code_theme_or_the_theme() {
     assert!(default.contains("38;2;118;123;133;"), "{default:?}");
     let red = top(&kiri::theme::parse("language_label = \"red\"\n").unwrap());
     assert!(red.contains("\x1b[0;31;"), "{red:?}");
+    let ansi = Capabilities::ansi(WIDTH);
+    let red = kiri::theme::parse("language_label = \"red\"\n").unwrap();
+    let out = render(source, &inputs(&ansi, &red));
+    let top = out.lines().next().unwrap();
+    assert!(top.contains("\x1b[0;31;"), "{top:?}");
 }
 
 #[test]
