@@ -117,6 +117,11 @@ impl Layout<'_> {
                 self.code_block(language.as_deref(), code, width)
             }
             Block::BlockQuote(blocks) => self.quote(blocks, width, context),
+            Block::Alert {
+                kind,
+                title,
+                blocks,
+            } => self.alert(*kind, title.as_deref(), blocks, width, context),
             Block::List(list) => self.list(list, width, context),
             Block::Table(table) => self.table(table, width),
             Block::ThematicBreak => vec![self.rule(width)],
