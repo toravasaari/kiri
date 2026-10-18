@@ -44,6 +44,8 @@ example, come before the rest of phase 3.
 - Semantic versioning (0.x until the command line settles), a changelog in
   Keep a Changelog format, and release binaries.
 - Documented minimum versions for kitty and Rust.
+- Release binaries without symbols (`strip = true` in the release profile),
+  about a fifth smaller.
 
 ### 3.4 Render check
 
