@@ -93,6 +93,10 @@ fn inline_code_in_an_alert_takes_a_stronger_tint() {
     );
     // 30 % of #4493f8 over black.
     assert!(out.contains("48;2;20;44;74m\u{a0}make"), "{out:?}");
+    // A theme that gives inline code no background keeps it so.
+    let theme = kiri::theme::parse("inline_code_background = \"none\"\n").unwrap();
+    let out = render("> [!NOTE]\n> Run `make`.\n", &inputs(&kitty(), &theme));
+    assert!(!out.contains("48;2;20;44;74"), "{out:?}");
 }
 
 #[test]

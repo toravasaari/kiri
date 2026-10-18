@@ -59,9 +59,11 @@ impl Layout<'_> {
             bg: tint(0.15),
             ..Style::default()
         };
-        // Inline code inside stands out with a stronger tint.
+        // Inline code inside stands out with a stronger tint, unless the
+        // theme gives inline code no background.
         let theme;
-        let body = match tint(0.3) {
+        let code = tint(0.3).filter(|_| self.inline_code_background().is_some());
+        let body = match code {
             Some(code) => {
                 theme = Theme {
                     inline_code_background: CodeBackground::Color(Some(code)),
