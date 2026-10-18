@@ -298,6 +298,22 @@ pub struct Choices {
     pub images: Setting<bool>,
 }
 
+impl Choices {
+    /// The settings these choices make with `theme`, the theme they chose,
+    /// loaded.
+    pub fn with_theme(&self, theme: Theme) -> Settings {
+        Settings {
+            theme: if self.margins.value {
+                theme
+            } else {
+                theme.without_margins()
+            },
+            paper: self.paper,
+            images: self.images.value,
+        }
+    }
+}
+
 /// What `options`, `env` and `config` choose.
 pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices {
     Choices {
@@ -316,15 +332,7 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
 pub fn settings(options: &Options, env: &Environment, config: &Config) -> Result<Settings, String> {
     let choices = choose(options, env, config);
     let theme = load_theme(&choices.theme.value)?;
-    Ok(Settings {
-        theme: if choices.margins.value {
-            theme
-        } else {
-            theme.without_margins()
-        },
-        paper: choices.paper,
-        images: choices.images.value,
-    })
+    Ok(choices.with_theme(theme))
 }
 
 /// The theme that `source` names; the built-in theme when it is a default

@@ -281,16 +281,8 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), String> {
                 .and_then(|()| out.flush()),
         );
     }
-    let settings = Settings {
-        theme: if choices.margins.value {
-            theme
-        } else {
-            theme.without_margins()
-        },
-        paper: choices.paper,
-        images: choices.images.value,
-    };
     let document = kiri::parse::parse(&markdown);
+    let settings = choices.with_theme(theme);
     show_document(cli, &document, Path::new(""), settings, detection.caps)
 }
 
