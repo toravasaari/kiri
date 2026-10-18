@@ -10,7 +10,7 @@ kiri [version]: terminal features and settings.
 
 | What | Found |
 |---|---|
-| Terminal | kitty(0.47.1), `TERM=xterm-kitty` |
+| Terminal | `kitty(0.47.1)`, `TERM=xterm-kitty` |
 | Window | 120 × 40 cells, 0 × 0 pixels |
 | Cell size | 9 × 19 pixels, from the terminal |
 | Graphics | yes, with Unicode placeholders |

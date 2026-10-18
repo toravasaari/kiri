@@ -129,7 +129,7 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
     let mut terminal = match (&detection.answers, facts.mode.value) {
         (Some(_), _) => detection
             .terminal()
-            .map_or_else(|| "unknown".into(), |name| printable(&name)),
+            .map_or_else(|| "unknown".into(), |name| code(&name)),
         (None, Mode::Auto) if caps.styling => "did not answer".into(),
         (None, Mode::Auto) => "none".into(),
         (None, mode) => format!("not asked in mode {}", mode_name(mode)),
