@@ -245,15 +245,6 @@ fn doctor_takes_no_file_or_format() {
 }
 
 #[test]
-fn without_doctor_a_file_is_still_required() {
-    let dir = Scratch::new("doctor-required");
-    let out = common::command(&dir).output().unwrap();
-    assert!(!out.status.success());
-    let stderr = text(&out.stderr);
-    assert!(stderr.contains("<FILE>"), "{stderr}");
-}
-
-#[test]
 fn a_terminal_gets_the_report_rendered_with_its_test_image() {
     let dir = Scratch::new("doctor-terminal");
     let (mut terminal, tty) = pty();

@@ -267,6 +267,11 @@ pub fn stdout_is_terminal() -> bool {
     rustix::termios::isatty(std::io::stdout())
 }
 
+/// Whether stdin is a terminal.
+pub fn stdin_is_terminal() -> bool {
+    rustix::termios::isatty(std::io::stdin())
+}
+
 /// Whether the user asked for output without colour: `NO_COLOR` set and not
 /// empty, as <https://no-color.org> defines it.
 pub fn no_color(env: &Environment) -> bool {

@@ -24,8 +24,8 @@ use kiri::theme::{Paper, Theme};
                   0.28 or later; elsewhere they show their alt text."
 )]
 struct Cli {
-    /// Markdown file to render, or an image to show on its own.
-    #[arg(required_unless_present_any = ["doctor", "raw"])]
+    /// Markdown file to render, or an image to show on its own. Without
+    /// one, or with -, kiri reads standard input unless it is a terminal.
     file: Option<PathBuf>,
 
     /// Show what kiri finds out about the terminal and which settings it
@@ -133,9 +133,20 @@ fn main() -> ExitCode {
             .error(ErrorKind::MissingRequiredArgument, "--raw needs --doctor")
             .exit();
     }
-    let result = match &cli.file {
-        Some(path) => run(&cli, path),
-        None => doctor(&cli, &matches),
+    let result = if cli.doctor {
+        doctor(&cli, &matches)
+    } else {
+        match cli.file.as_deref() {
+            Some(path) if path != Path::new("-") => run(&cli, Some(path)),
+            Some(_) => run(&cli, None),
+            None if !kiri::term::stdin_is_terminal() => run(&cli, None),
+            None => command
+                .error(
+                    ErrorKind::MissingRequiredArgument,
+                    "the following required arguments were not provided:\n  <FILE>",
+                )
+                .exit(),
+        }
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -146,11 +157,19 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(cli: &Cli, path: &Path) -> Result<(), String> {
+/// What errors and warnings call standard input.
+const STDIN: &str = "<stdin>";
+
+/// Shows the file at `path`, or standard input without one.
+fn run(cli: &Cli, file: Option<&Path>) -> Result<(), String> {
+    let path = file.unwrap_or(Path::new(STDIN));
     let failed = |error: io::Error| format!("{}: {error}", path.display());
-    let mut file = File::open(path).map_err(failed)?;
+    let mut reader: Box<dyn Read> = match file {
+        Some(path) => Box::new(File::open(path).map_err(failed)?),
+        None => Box::new(io::stdin().lock()),
+    };
     let mut head = Vec::new();
-    (&mut file)
+    (&mut reader)
         .take(kiri::input::HEAD as u64)
         .read_to_end(&mut head)
         .map_err(failed)?;
@@ -159,10 +178,10 @@ fn run(cli: &Cli, path: &Path) -> Result<(), String> {
         .format
         .unwrap_or_else(|| kiri::input::detect(path, &head));
     if let Input::Image(format) = input {
-        return show_image(cli, path, format, Cursor::new(head).chain(file), &env);
+        return show_image(cli, path, format, Cursor::new(head).chain(reader), &env);
     }
     let mut bytes = head;
-    file.read_to_end(&mut bytes).map_err(failed)?;
+    reader.read_to_end(&mut bytes).map_err(failed)?;
     let source = String::from_utf8(bytes).map_err(|_| match cli.format {
         Some(_) => format!("{}: not UTF-8 text", path.display()),
         None => format!(
@@ -174,7 +193,8 @@ fn run(cli: &Cli, path: &Path) -> Result<(), String> {
     let settings = kiri::config::settings(&options(cli), &env, &config)?;
     let caps = kiri::term::capabilities(cli.mode.into(), cli.width, &env);
     let document = kiri::parse::parse(&source);
-    let base = path.parent().unwrap_or(Path::new(""));
+    // Images in a piped document are relative to the current directory.
+    let base = file.and_then(Path::parent).unwrap_or(Path::new(""));
     show_document(cli, &document, base, settings, caps)
 }
 
