@@ -19,7 +19,19 @@
 > [!CAUTION]
 > Advises about risks or negative outcomes of certain actions.
 
-> [!NOTE] A title of its own
+> [!NOTE] A title of its own, long enough to wrap under itself
 > The kind keeps its colour and icon.
+
+> [!TIP]
+> A code block keeps its own background:
+>
+> ```sh
+> make check
+> ```
+
+- In a list:
+
+  > [!WARNING]
+  > The alert fills the item's width.
 
 > A plain quote stays as it was.

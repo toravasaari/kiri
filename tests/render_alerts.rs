@@ -165,3 +165,98 @@ fn a_long_title_wraps_under_itself_inside_the_block() {
         assert_eq!(line.chars().count(), usize::from(WIDTH) - 2, "{lines:#?}");
     }
 }
+
+/// The cells each line of `source` covers, with `inputs`: the margin, the
+/// text, an image row and the fill after it.
+fn widths(source: &str, inputs: &Inputs) -> Vec<usize> {
+    use kiri::render::wrap::width;
+    let lines = kiri::render::layout::layout(&kiri::parse::parse(source), inputs);
+    lines
+        .iter()
+        .filter(|line| !line.is_blank())
+        .map(|line| {
+            let image = line
+                .image
+                .as_ref()
+                .map_or(0, |row| row.placement.size.columns);
+            width(&line.lead) + width(&line.spans) + usize::from(image) + width(&line.trail)
+        })
+        .collect()
+}
+
+#[test]
+fn blocks_inside_an_alert_keep_the_bar_and_fill_it_to_the_edge() {
+    let source = "> [!TIP]\n> Text 日本語 with wide characters.\n>\n\
+                  > - a list\n>   - nested\n>\n> ```rust\n> fn main() {}\n> ```\n>\n\
+                  > | a | b |\n> |---|---|\n> | 1 | 2 |\n>\n> > a quote\n>\n> ![alt](image.png)\n";
+    let inputs = Inputs {
+        images: common::one_image("image.png", common::quadrants(40, 40)),
+        ..Inputs::new(kitty())
+    };
+    let widths = widths(source, &inputs);
+    assert!(
+        widths.iter().all(|&w| w == usize::from(WIDTH) - 2),
+        "{widths:?}"
+    );
+    let laid_out = kiri::render::layout::layout(&kiri::parse::parse(source), &inputs);
+    assert!(laid_out.iter().any(|line| line.image.is_some()), "no image");
+    let lines = text(source, kitty(), &Theme::default());
+    assert!(
+        lines.iter().all(|line| line.starts_with("  ▎ ")),
+        "{lines:#?}"
+    );
+    // A blank line between the blocks keeps the bar and the tint.
+    assert!(
+        lines.iter().any(|line| line.trim_end() == "  ▎"),
+        "{lines:#?}"
+    );
+    // The code block keeps its own background.
+    let out = render(source, &inputs);
+    assert!(out.contains("48;2;43;48;59"), "{out:?}");
+}
+
+#[test]
+fn an_alert_inside_a_list_or_a_quote_fills_its_own_width() {
+    for source in [
+        "- item\n\n  > [!NOTE]\n  > Inside a list item.\n",
+        "> outer\n>\n> > [!NOTE]\n> > Inside a quote.\n",
+    ] {
+        let lines = text(source, kitty(), &Theme::default());
+        let alert: Vec<&String> = lines.iter().filter(|line| line.contains('▎')).collect();
+        assert_eq!(alert.len(), 2, "{lines:#?}");
+        assert!(alert[0].contains("▎ \u{f449}  Note"), "{lines:#?}");
+        // The tint ends where the list item or the quote ends.
+        assert!(
+            alert
+                .iter()
+                .all(|line| line.chars().count() == usize::from(WIDTH) - 2),
+            "{lines:#?}"
+        );
+    }
+}
+
+#[test]
+fn a_narrow_alert_stays_within_its_width() {
+    let caps = Capabilities {
+        width: 12,
+        ..kitty()
+    };
+    let widths = widths(
+        "> [!IMPORTANT]\n> Several words that wrap.\n",
+        &Inputs::new(caps),
+    );
+    assert!(widths.iter().all(|&w| w <= 12), "{widths:?}");
+}
+
+#[test]
+fn no_color_leaves_the_bar_and_the_title_without_colours() {
+    let caps = Capabilities {
+        color: false,
+        ..kitty()
+    };
+    let out = render(NOTE, &inputs(&caps, &Theme::default()));
+    assert!(common::colour_codes(&out).is_empty(), "{out:?}");
+    let lines = text(NOTE, caps, &Theme::default());
+    assert!(lines[0].starts_with("  ▎ \u{f449}  Note"), "{lines:#?}");
+    assert!(lines[1].starts_with("  ▎ Read this."), "{lines:#?}");
+}

@@ -1026,6 +1026,23 @@ mod probe {
         }
 
         #[test]
+        fn malformed_colour_answers_are_left_out() {
+            let answers = concat!(
+                "\x1b]4;99;rgb:ff/ff/ff\x1b\\",
+                "\x1b]4;x;rgb:ff/ff/ff\x1b\\",
+                "\x1b]4;2;#ffffff\x1b\\",
+                "\x1b]4;3;rgb:ff/ff\x1b\\",
+                "\x1b]4;5;rgb:zz/00/00\x1b\\",
+                "\x1b]4;6;rgb:12/34",
+            );
+            let probe = interpret(answers.as_bytes());
+            assert_eq!(probe.palette, [None; 16]);
+            // An answer cut short has no colour.
+            let cut = "\x1b]11;rgb:1e1e/1e";
+            assert_eq!(interpret(cut.as_bytes()).background, None);
+        }
+
+        #[test]
         fn asks_for_the_cell_size_only_when_told() {
             let without = queries(false);
             let end = without.len() - DEVICE_ATTRIBUTES.len();
