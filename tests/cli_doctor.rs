@@ -206,6 +206,49 @@ fn a_terminal_gets_the_report_rendered_with_its_test_image() {
     assert_eq!(common::graphics_commands(&output).len(), 1, "{output:?}");
 }
 
+/// What `kiri --doctor` with `args` writes into a terminal.
+fn in_terminal(dir: &Path, args: &[&str]) -> String {
+    let (mut terminal, tty) = pty();
+    let mut child = doctor(dir, args).stdout(Stdio::from(tty)).spawn().unwrap();
+    assert!(child.wait().unwrap().success());
+    // Reading ends with an error once no one holds the terminal side.
+    let mut output = Vec::new();
+    let _ = terminal.read_to_end(&mut output);
+    text(&output)
+}
+
+#[test]
+fn raw_writes_the_markdown_into_a_terminal_too() {
+    let dir = Scratch::new("doctor-raw-terminal");
+    let output = in_terminal(&dir, &["--raw", "--mode", "kitty"]);
+    assert!(!output.contains('\x1b'), "{output:?}");
+    assert!(output.contains("## Terminal"), "{output:?}");
+    assert!(output.contains("| Mode | kitty | `--mode` |"), "{output:?}");
+}
+
+#[test]
+fn raw_leaves_out_the_sample() {
+    let dir = Scratch::new("doctor-raw");
+    let report = piped(&dir, &["--raw"]);
+    assert!(report.contains("## Image formats"), "{report}");
+    assert!(!report.contains("## Sample"), "{report}");
+    assert!(!report.contains("data:"), "{report}");
+    assert!(piped(&dir, &[]).contains("## Sample"));
+}
+
+#[test]
+fn raw_needs_doctor() {
+    let dir = Scratch::new("doctor-raw-alone");
+    let with_file = common::kiri(&dir, "Text\n", &["--raw"]);
+    let alone = common::command(&dir).arg("--raw").output().unwrap();
+    for out in [with_file, alone] {
+        assert!(!out.status.success());
+        let stderr = text(&out.stderr);
+        assert!(stderr.contains("--raw needs --doctor"), "{stderr}");
+        assert!(stderr.contains("Usage: kiri "), "{stderr}");
+    }
+}
+
 /// A pseudo-terminal: the terminal side, and the program's side.
 fn pty() -> (std::fs::File, std::fs::File) {
     use std::ffi::OsStr;
@@ -269,6 +312,7 @@ fn the_report_on_kitty() {
         choices: &choices,
         config_error: None,
         theme_error: None,
+        sample: true,
     };
     insta::assert_snapshot!(stable(&report(&facts)));
 }

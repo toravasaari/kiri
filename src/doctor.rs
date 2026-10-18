@@ -29,6 +29,8 @@ pub struct Facts<'a> {
     pub config_error: Option<String>,
     /// Why the theme could not be loaded.
     pub theme_error: Option<String>,
+    /// Whether the report ends with a sample of what kiri renders.
+    pub sample: bool,
 }
 
 /// The test image in the sample: four coloured squares.
@@ -65,7 +67,9 @@ fn write_report(facts: &Facts, out: &mut String) -> std::fmt::Result {
     write_files(facts, &home, out)?;
     writeln!(out, "## Image formats\n")?;
     writeln!(out, "{}\n", image_formats())?;
-    write_sample(out)?;
+    if facts.sample {
+        write_sample(out)?;
+    }
     if let Some(answers) = &facts.detection.answers {
         writeln!(out, "## Probe answers\n")?;
         writeln!(out, "```text\n{}\n```", escaped(answers))?;

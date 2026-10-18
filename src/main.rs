@@ -3,6 +3,7 @@ use std::io::{self, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use clap::error::ErrorKind;
 use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, ValueEnum};
 use kiri::config::{Environment, Options, Origin, Setting, Settings};
@@ -24,13 +25,18 @@ use kiri::theme::{Paper, Theme};
 )]
 struct Cli {
     /// Markdown file to render, or an image to show on its own.
-    #[arg(required_unless_present = "doctor")]
+    #[arg(required_unless_present_any = ["doctor", "raw"])]
     file: Option<PathBuf>,
 
     /// Show what kiri finds out about the terminal and which settings it
     /// uses, as Markdown when written to a file, for a bug report.
     #[arg(long, conflicts_with_all = ["file", "format"])]
     doctor: bool,
+
+    /// With --doctor: the report as Markdown also in a terminal, without
+    /// its sample, to copy into a bug report.
+    #[arg(long)]
+    raw: bool,
 
     /// What the file is: markdown, image, or an image format such as svg,
     /// png or jpg. By default its extension and content tell.
@@ -118,8 +124,15 @@ impl From<Mode> for kiri::term::Mode {
 }
 
 fn main() -> ExitCode {
-    let matches = Cli::command().get_matches();
+    let mut command = Cli::command();
+    let matches = command.get_matches_mut();
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
+    // clap's `requires` takes --doctor's default value for the flag itself.
+    if cli.raw && !cli.doctor {
+        command
+            .error(ErrorKind::MissingRequiredArgument, "--raw needs --doctor")
+            .exit();
+    }
     let result = match &cli.file {
         Some(path) => run(&cli, path),
         None => doctor(&cli, &matches),
@@ -227,7 +240,7 @@ fn show_image(
 }
 
 /// Writes the `--doctor` report: rendered for a terminal, as Markdown
-/// otherwise.
+/// otherwise or with `--raw`.
 /// Problems with the configuration file and the theme are part of the
 /// report instead of errors, and kiri goes on without them.
 fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), String> {
@@ -254,8 +267,9 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), String> {
         choices: &choices,
         config_error,
         theme_error,
+        sample: !cli.raw,
     });
-    if !kiri::term::stdout_is_terminal() {
+    if cli.raw || !kiri::term::stdout_is_terminal() {
         let mut out = io::stdout().lock();
         return finish(
             out.write_all(markdown.as_bytes())
