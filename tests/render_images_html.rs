@@ -173,3 +173,35 @@ fn an_img_is_drawn_at_its_width_and_height() {
         assert_eq!(drawn(&out), rows, "{attributes}");
     }
 }
+
+#[test]
+fn an_img_in_a_list_or_quote_takes_a_percentage_of_the_room_there() {
+    let images = one_image("p.png", quadrants(40, 30));
+    let img = "<img src=\"p.png\" width=\"50%\">";
+    let source = format!("{img}\n\n- {img}\n\n> {img}\n");
+    let inputs = with_images(&Capabilities::kitty(WIDTH), images);
+    let lines = kiri::render::layout::layout(&kiri::parse::parse(&source), &inputs);
+    let rows: Vec<(String, u16, u16)> = (lines.iter())
+        .filter_map(|line| {
+            let image = line.image.as_ref()?;
+            let before: String = (line.lead.iter().chain(&line.spans))
+                .map(|span| span.text.as_str())
+                .collect();
+            Some((before, image.row, image.placement.size.columns))
+        })
+        .collect();
+    // Half of 44 columns of text, 220 × 165 pixels in 9 rows, and half of
+    // the 42 left beside the bullet and the bar, 210 × 158 in 8 rows.
+    let mut expected = Vec::new();
+    for (before, rest, columns, rows) in [
+        ("  ", "  ", 22, 9),
+        ("  • ", "    ", 21, 8),
+        ("  │ ", "  │ ", 21, 8),
+    ] {
+        expected.push((before.to_owned(), 0, columns));
+        for row in 1..rows {
+            expected.push((rest.to_owned(), row, columns));
+        }
+    }
+    assert_eq!(rows, expected);
+}
