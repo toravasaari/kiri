@@ -245,6 +245,8 @@ mod tests {
     #[test]
     fn decodes_a_colour_mapped_tga() {
         // It starts with 00 01 01 00; an icon starts with 00 00 01 00.
+        let bytes = std::fs::read(fixtures().join("images/pattern-palette.tga")).unwrap();
+        assert_eq!(bytes[..4], [0, 1, 1, 0], "no longer colour-mapped");
         let pattern = fixture("pattern.png");
         assert!(pattern.is_ok());
         assert_eq!(fixture("pattern-palette.tga"), pattern);
