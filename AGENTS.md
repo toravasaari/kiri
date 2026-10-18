@@ -53,6 +53,10 @@ Run everything through `make` so local runs match CI:
   uses a `CARGO_TARGET_DIR` of its own, never the checkout's `target/`, and
   removes it when done. Test binaries bake in their source path, so a shared
   `target/` ends up running stale binaries.
+  Put that target directory outside `/tmp`, in `~/scratch-target`: `/tmp`
+  is memory on the host and in jailbee containers, Claude Code's
+  scratchpad included, and a build there can run a container out of
+  memory.
 
 Isolated agent work runs in [jailbee](https://jailbee.gisgro.io)
 containers; `.jailbee/` holds the configuration and the install steps for

@@ -25,6 +25,9 @@ them are dedicated to the public domain under
 | `pattern.svg` | The test pattern as an SVG of the same size, without the grid; drawn at any size, its quadrants keep sharp edges |
 | `pattern.svgz` | `pattern.svg` compressed with gzip |
 | `truncated.png`, `truncated.jpg`, `truncated.svg` | The first half of `pattern.png`, `photo-landscape.jpg` and `pattern.svg` |
+| `pattern.bmp`, `pattern.tif`, `pattern.qoi`, `pattern.ppm`, `pattern.tga` | `pattern.png` in formats only the full build decodes; the TGA is run-length encoded |
+| `pattern-palette.tga` | `pattern.png` as a colour-mapped TGA, whose first bytes are close to an icon's |
+| `transparent.ico` | `transparent.png` as an icon, with its alpha |
 | `not-an-image.png` | Text with an image's file name |
 | `huge.png` | 20000 × 20000 pixels, more than kiri decodes |
 

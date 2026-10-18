@@ -11,12 +11,12 @@ mod url;
 
 use std::collections::HashMap;
 use std::fmt;
-use std::io::{self, Cursor};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use image::error::{ImageFormatHint, UnsupportedErrorKind};
-use image::metadata::Orientation;
-use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, Limits, RgbaImage};
+use image::{ImageFormat, RgbaImage};
+use kiri_image_utils::DecodeError;
 
 use crate::model::{Block, Document, Inline};
 
@@ -74,7 +74,7 @@ impl Source {
 fn scale(image: &RgbaImage, width: u32, height: u32) -> RgbaImage {
     let (from_width, from_height) = image.dimensions();
     let bytes =
-        kiri_image_scale::scale_rgba8(image.as_raw(), from_width, from_height, width, height);
+        kiri_image_utils::scale_rgba8(image.as_raw(), from_width, from_height, width, height);
     RgbaImage::from_raw(width, height, bytes).expect("width × height pixels")
 }
 
@@ -115,7 +115,7 @@ pub enum ImageError {
     InvalidData,
     /// The bytes are not in any image format kiri knows.
     UnknownFormat,
-    /// A known image format that this build cannot decode.
+    /// A known image format that this build cannot decode, by name.
     UnsupportedFormat(String),
     /// The data ends before the image does.
     Truncated,
@@ -152,7 +152,7 @@ impl fmt::Display for ImageError {
             ImageError::InvalidData => f.write_str("invalid data: URL"),
             ImageError::UnknownFormat => f.write_str("not an image format kiri knows"),
             ImageError::UnsupportedFormat(format) => {
-                write!(f, "{format} images are not supported")
+                write!(f, "{format} images are not supported in this build")
             }
             ImageError::Truncated => f.write_str("the image data is cut short"),
             ImageError::TooLarge { width, height } => {
@@ -315,7 +315,9 @@ pub fn read_image(
     match format {
         Format::Detect => decode(&bytes, max_file_size, fonts),
         Format::Svg => decode_svg(&bytes, max_file_size, fonts),
-        Format::Raster(format) => decode_raster(&bytes, Some(format)),
+        Format::Raster(format) => decoded(kiri_image_utils::decode_rgba8_as(
+            &bytes, format, MAX_PIXELS, MAX_ALLOC,
+        )),
     }
 }
 
@@ -324,44 +326,42 @@ pub fn read_image(
 /// A compressed SVG may decompress to at most `max_size` bytes, the limit
 /// on a file. Text in SVGs is drawn with `fonts`.
 pub fn decode(bytes: &[u8], max_size: u64, fonts: &Fonts) -> Result<Source, ImageError> {
+    decode_named(bytes, None, max_size, fonts)
+}
+
+/// `decode`, given the format that the file name or media type names, if
+/// any. The bytes decide, as in a browser, except for TGA, which has no
+/// signature to recognise it by.
+fn decode_named(
+    bytes: &[u8],
+    named: Option<ImageFormat>,
+    max_size: u64,
+    fonts: &Fonts,
+) -> Result<Source, ImageError> {
     if looks_like_svg(bytes) {
         decode_svg(bytes, max_size, fonts)
     } else {
-        decode_raster(bytes, None)
+        decode_raster(bytes, named)
     }
 }
 
-/// Decodes a raster image in `format`, or in the format its bytes tell
-/// when it is `None`.
-fn decode_raster(bytes: &[u8], format: Option<ImageFormat>) -> Result<Source, ImageError> {
-    let mut reader = ImageReader::new(Cursor::new(bytes));
-    match format {
-        Some(format) => reader.set_format(format),
-        None => {
-            reader = reader
-                .with_guessed_format()
-                .expect("reading from memory does not fail");
-            if reader.format().is_none() {
-                return Err(ImageError::UnknownFormat);
-            }
-        }
+fn decode_raster(bytes: &[u8], named: Option<ImageFormat>) -> Result<Source, ImageError> {
+    // Only TGA has no signature; for other formats a wrong name must not
+    // turn data that is no image into a broken image.
+    let fallback = named.filter(|&format| format == ImageFormat::Tga);
+    decoded(kiri_image_utils::decode_rgba8(
+        bytes, fallback, MAX_PIXELS, MAX_ALLOC,
+    ))
+}
+
+/// The image `kiri_image_utils` decoded, or why it gave none.
+fn decoded(result: Result<RgbaImage, DecodeError>) -> Result<Source, ImageError> {
+    match result {
+        Ok(image) => Ok(Source::Raster(image)),
+        Err(DecodeError::UnknownFormat) => Err(ImageError::UnknownFormat),
+        Err(DecodeError::TooLarge { width, height }) => Err(ImageError::TooLarge { width, height }),
+        Err(DecodeError::Image(error)) => Err(from_image_error(error)),
     }
-    let mut limits = Limits::default();
-    limits.max_alloc = Some(MAX_ALLOC);
-    reader.limits(limits);
-    let mut decoder = reader.into_decoder().map_err(from_image_error)?;
-    let (width, height) = decoder.dimensions();
-    if u64::from(width) * u64::from(height) > MAX_PIXELS {
-        return Err(ImageError::TooLarge { width, height });
-    }
-    // Broken EXIF data does not make the picture unusable.
-    let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
-    let mut image = DynamicImage::from_decoder(decoder).map_err(|error| match error {
-        image::ImageError::Limits(_) => ImageError::TooLarge { width, height },
-        error => from_image_error(error),
-    })?;
-    image.apply_orientation(orientation);
-    Ok(Source::Raster(image.into_rgba8()))
 }
 
 fn from_image_error(error: image::ImageError) -> ImageError {
@@ -372,12 +372,35 @@ fn from_image_error(error: image::ImageError) -> ImageError {
         image::ImageError::Unsupported(error) => match error.kind() {
             UnsupportedErrorKind::Format(ImageFormatHint::Unknown) => ImageError::UnknownFormat,
             UnsupportedErrorKind::Format(ImageFormatHint::Exact(format)) => {
-                ImageError::UnsupportedFormat(format!("{format:?}"))
+                ImageError::UnsupportedFormat(format_name(format))
             }
             _ => ImageError::Corrupt(error.to_string()),
         },
         error => ImageError::Corrupt(error.to_string()),
     }
+}
+
+/// The name people use for `format`, for messages.
+fn format_name(format: ImageFormat) -> String {
+    match format {
+        ImageFormat::Png => "PNG",
+        ImageFormat::Jpeg => "JPEG",
+        ImageFormat::Gif => "GIF",
+        ImageFormat::WebP => "WebP",
+        ImageFormat::Pnm => "PNM",
+        ImageFormat::Tiff => "TIFF",
+        ImageFormat::Tga => "TGA",
+        ImageFormat::Dds => "DDS",
+        ImageFormat::Bmp => "BMP",
+        ImageFormat::Ico => "ICO",
+        ImageFormat::Hdr => "Radiance HDR",
+        ImageFormat::OpenExr => "OpenEXR",
+        ImageFormat::Farbfeld => "farbfeld",
+        ImageFormat::Avif => "AVIF",
+        ImageFormat::Qoi => "QOI",
+        format => return format!("{format:?}"),
+    }
+    .to_owned()
 }
 
 #[cfg(test)]
@@ -509,6 +532,33 @@ mod tests {
         let animated = raster("animated.webp");
         assert_eq!(animated.dimensions(), (64, 64));
         assert_eq!(rgba(&animated, 32, 32), [255, 0, 0, 255]);
+    }
+
+    /// The fixtures in formats only the full build decodes, and the PNG
+    /// each holds without loss.
+    const FULL_BUILD_FORMATS: [(&str, &str, &str); 5] = [
+        ("pattern.bmp", "BMP", "pattern.png"),
+        ("pattern.tif", "TIFF", "pattern.png"),
+        ("pattern.qoi", "QOI", "pattern.png"),
+        ("pattern.ppm", "PNM", "pattern.png"),
+        ("transparent.ico", "ICO", "transparent.png"),
+    ];
+
+    #[cfg(feature = "full")]
+    #[test]
+    fn decodes_the_full_builds_formats_without_loss() {
+        for (name, _, png) in FULL_BUILD_FORMATS {
+            assert_eq!(raster(name), raster(png), "{name}");
+        }
+    }
+
+    #[cfg(not(feature = "full"))]
+    #[test]
+    fn names_the_formats_left_out_of_a_minimal_build() {
+        for (name, format, _) in FULL_BUILD_FORMATS {
+            let error = ImageError::UnsupportedFormat(format.into());
+            assert_eq!(fixture(name), Err(error), "{name}");
+        }
     }
 
     #[test]
@@ -654,9 +704,32 @@ mod tests {
     #[test]
     fn reports_a_format_this_build_cannot_decode() {
         let farbfeld = b"farbfeld\0\0\0\x01\0\0\0\x01\0\0\0\0\0\0\0\0";
+        let error = decode(farbfeld, DEFAULT_MAX_FILE_SIZE, &Fonts::none()).unwrap_err();
+        assert_eq!(error, ImageError::UnsupportedFormat("farbfeld".into()));
         assert_eq!(
-            decode(farbfeld, DEFAULT_MAX_FILE_SIZE, &Fonts::none()),
-            Err(ImageError::UnsupportedFormat("Farbfeld".into()))
+            error.to_string(),
+            "farbfeld images are not supported in this build"
+        );
+    }
+
+    #[test]
+    fn names_formats_as_people_write_them() {
+        let names = [
+            ImageFormat::Bmp,
+            ImageFormat::Ico,
+            ImageFormat::Tiff,
+            ImageFormat::Qoi,
+            ImageFormat::Pnm,
+            ImageFormat::Tga,
+            ImageFormat::OpenExr,
+            ImageFormat::Farbfeld,
+        ]
+        .map(format_name);
+        assert_eq!(
+            names,
+            [
+                "BMP", "ICO", "TIFF", "QOI", "PNM", "TGA", "OpenEXR", "farbfeld"
+            ]
         );
     }
 

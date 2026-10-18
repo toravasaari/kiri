@@ -1,4 +1,4 @@
-//! Image scaling for kiri.
+//! Image scaling.
 //!
 //! The API is a single function on plain byte buffers, so the generic code
 //! of fast_image_resize is compiled in this crate, which debug builds

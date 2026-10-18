@@ -1,0 +1,99 @@
+---
+source: tests/render_image_formats.rs
+expression: "readable(&render_fixture(\"images-formats.md\",\n&with_images(&Capabilities::kitty(WIDTH),\nfixture_images(\"images-formats.md\"))))"
+---
+␛[0;1;4;34m␛]66;s=3;Image formats␛\␛[0m
+
+
+
+  The full build shows images in these formats
+  as well; a minimal build shows their alt
+  text.
+
+  A BMP:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=8492392,s=320,v=240,c=32,r=12,m=0;<2196 bytes>␛\  ␛[38;2;129;149;104m⟦row 0: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 1: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 2: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 3: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 4: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 5: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 6: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 7: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 8: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 9: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 10: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 11: 32 cells⟧␛[39m
+
+  A TIFF:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=8492392,s=320,v=240,c=32,r=12,m=0;<2196 bytes>␛\  ␛[38;2;129;149;104m⟦row 0: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 1: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 2: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 3: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 4: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 5: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 6: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 7: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 8: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 9: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 10: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 11: 32 cells⟧␛[39m
+
+  A QOI image:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=8492392,s=320,v=240,c=32,r=12,m=0;<2196 bytes>␛\  ␛[38;2;129;149;104m⟦row 0: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 1: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 2: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 3: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 4: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 5: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 6: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 7: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 8: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 9: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 10: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 11: 32 cells⟧␛[39m
+
+  A PPM, one of the PNM formats:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=8492392,s=320,v=240,c=32,r=12,m=0;<2196 bytes>␛\  ␛[38;2;129;149;104m⟦row 0: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 1: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 2: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 3: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 4: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 5: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 6: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 7: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 8: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 9: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 10: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 11: 32 cells⟧␛[39m
+
+  A TGA, recognised by its file name:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=8492392,s=320,v=240,c=32,r=12,m=0;<2196 bytes>␛\  ␛[38;2;129;149;104m⟦row 0: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 1: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 2: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 3: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 4: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 5: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 6: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 7: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 8: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 9: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 10: 32 cells⟧␛[39m
+  ␛[38;2;129;149;104m⟦row 11: 32 cells⟧␛[39m
+
+  An icon with transparency:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=1077778,s=200,v=200,c=20,r=10,m=0;<1724 bytes>␛\  ␛[38;2;16;114;18m⟦row 0: 20 cells⟧␛[39m
+  ␛[38;2;16;114;18m⟦row 1: 20 cells⟧␛[39m
+  ␛[38;2;16;114;18m⟦row 2: 20 cells⟧␛[39m
+  ␛[38;2;16;114;18m⟦row 3: 20 cells⟧␛[39m
+  ␛[38;2;16;114;18m⟦row 4: 20 cells⟧␛[39m
+  ␛[38;2;16;114;18m⟦row 5: 20 cells⟧␛[39m
+  ␛[38;2;16;114;18m⟦row 6: 20 cells⟧␛[39m
+  ␛[38;2;16;114;18m⟦row 7: 20 cells⟧␛[39m
+  ␛[38;2;16;114;18m⟦row 8: 20 cells⟧␛[39m
+  ␛[38;2;16;114;18m⟦row 9: 20 cells⟧␛[39m
