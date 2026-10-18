@@ -1,0 +1,10 @@
+[package]
+name = "kiri-image-utils"
+version = "0.1.0"
+edition = "2024"
+description = "Image code for kiri, a Markdown reader for the kitty terminal, that debug builds optimise"
+readme = "README.md"
+publish = false
+
+[dependencies]
+fast_image_resize = "6.1.0"

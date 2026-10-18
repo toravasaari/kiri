@@ -1,7 +1,7 @@
-# kiri-image-scale
+# kiri-image-utils
 
-Image scaling for [kiri](../../README.md): one function that scales 8-bit
-RGBA pixels with a Catmull-Rom filter, through
+Image code for [kiri](../../README.md) that debug builds optimise: one
+function that scales 8-bit RGBA pixels with a Catmull-Rom filter, through
 [fast_image_resize](https://crates.io/crates/fast_image_resize).
 
 It is a crate of its own so that kiri's debug builds can optimise it.

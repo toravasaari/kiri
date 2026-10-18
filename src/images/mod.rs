@@ -74,7 +74,7 @@ impl Source {
 fn scale(image: &RgbaImage, width: u32, height: u32) -> RgbaImage {
     let (from_width, from_height) = image.dimensions();
     let bytes =
-        kiri_image_scale::scale_rgba8(image.as_raw(), from_width, from_height, width, height);
+        kiri_image_utils::scale_rgba8(image.as_raw(), from_width, from_height, width, height);
     RgbaImage::from_raw(width, height, bytes).expect("width × height pixels")
 }
 
