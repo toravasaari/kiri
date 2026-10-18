@@ -46,8 +46,10 @@ example, come before the rest of phase 3.
 - Documented minimum versions for kitty and Rust.
 - Release binaries without symbols (`strip = true` in the release profile),
   about a fifth smaller.
+- Shell completions and a man page, generated from the command-line
+  definition.
 
-### 3.4 Render check
+### 3.4 Render check (done)
 
 - A `render-check` skill that renders the fixture documents in kitty and
   captures a screenshot for review. Built together with images (4.1), which
@@ -55,22 +57,22 @@ example, come before the rest of phase 3.
 
 ## Phase 4 – Rich content and the pager
 
-### 4.1 Images
+### 4.1 Images (done)
 
 - Local images through the graphics protocol, placed with Unicode
   placeholders so they scroll with the text.
 - Formats: PNG, JPEG, GIF (first frame), WebP and SVG, plus the other
   formats the image decoders support cheaply: BMP, ICO, TIFF, QOI, PNM and
-  TGA. (done)
+  TGA.
 - A paragraph that holds only an image is drawn as a block; images inside
   running text stay as alt text for now.
 - Sizes follow the browser: CSS pixels, never upscaled, no wider than the
-  text. Options for one image pixel per terminal pixel, and for fitting the
-  window like `kitten icat`.
-- `kiri image.png` shows an image on its own.
+  text. Options for other sizes wait until the defaults have been tried;
+  one for an image on its own is in Extras.
+- `kiri image.png` shows an image on its own, fitting the window like
+  `kitten icat`.
 - HTML `<img>` tags with `src`, `alt`, `width` and `height`.
 - Cargo features for a minimal build and a full build with every format.
-  (done)
 - Groundwork: one query for the window size in cells and pixels. Fitting
   the window needs its height, and `term.rs` now asks for the width and
   the cell size separately.
@@ -104,12 +106,18 @@ example, come before the rest of phase 3.
 
 - Relative links become `file://` URLs, so kitty's `open-actions.conf` can
   open Markdown targets in kiri.
+- A Markdown target opens in a kitty overlay window over the document
+  (`kitty @ launch --type=overlay`), so closing it returns the reader to
+  where they were.
 
 ### 4.6 Pager
 
 - Interactive pager (`kiri -i`): scrolling, search, a table of contents,
   link selection, anchor jumps, back history, reload on file change.
 - After a reload, a key jumps to the first block that changed.
+- A follow mode for a document another program is writing, such as one
+  Claude is working on in the next window: it reloads on every change and
+  shows the part that changed, without a key press.
 - Pager status line with key hints and a `?` help panel.
 - Groundwork: raw mode, now inside the probe in `term.rs`, usable for
   reading keys.
@@ -117,6 +125,9 @@ example, come before the rest of phase 3.
 ### 4.7 Other input formats
 
 - reStructuredText, Org, AsciiDoc, possibly through pandoc.
+- Jupyter notebooks (`.ipynb`): Markdown cells, code cells with syntax
+  highlighting, and their outputs, images included.
+- CSV and TSV files, shown as a table.
 
 ### 4.8 Diagnostics
 
@@ -130,6 +141,38 @@ example, come before the rest of phase 3.
 - The report is a Markdown document that kiri renders itself, so it also
   shows how headings, tables and images look in this terminal. Piped to a
   file it stays plain Markdown, ready to paste into a bug report.
+
+### 4.9 Standard input and directories
+
+Comes before the pager (4.6), so that the pager is built for a piped
+document from the start.
+
+- `kiri -`, or no file name with a pipe on standard input, reads the
+  document from standard input, such as the output of another command.
+  Relative image paths are resolved against the current directory.
+- `kiri some/dir` shows the directory's README, as GitHub does.
+- The pager (4.6) reads its keys from the terminal rather than from
+  standard input, as `less` does, so a piped document can be paged too.
+
+### 4.10 More Markdown
+
+GitHub's Markdown first, then what is common elsewhere.
+
+- Footnotes (`[^1]`), listed at the end of the document as in a browser,
+  with links from each reference to its note and back.
+- YAML front matter, as in Jekyll, Hugo and Obsidian files, is not shown
+  as text; its title and date may head the document.
+- `<details>` and `<summary>`: open in print mode, with the summary marked
+  by a triangle; the pager can open and close them.
+- Small HTML tags: `<kbd>`, `<br>`, `<sub>`, `<sup>` and `<mark>`.
+  Subscripts, superscripts and footnote references are drawn smaller,
+  lowered or raised, with the text sizing protocol's fractional scale.
+- Emoji shortcodes such as `:rocket:`, as GitHub shows them.
+- Heading anchors as GitHub makes them, so a link such as `[see](#install)`
+  leads to its heading; the pager jumps there (4.6).
+- A base for Obsidian notes: wikilinks, `[[note]]` and `[[note|text]]`,
+  as links to `note.md`, and embeds such as `![[image.png]]` as images.
+  Obsidian's callouts share the syntax of GitHub alert blocks (Extras).
 
 ## Phase 5 – Beyond kitty
 
@@ -171,6 +214,10 @@ Smaller polish that fits in whenever there is time, in any phase.
   compressed formats such as JPEG cannot be passed through as they are;
   this needs thought on what to send and when.
 - Images inside table cells, which now show their alt text.
+- An `<img>` set apart by blank lines inside a wrapper, such as
+  `<p align="center">`, blank line, `<img>`, blank line, `</p>`, is drawn,
+  but the wrapper's tags show as source: CommonMark makes three HTML
+  blocks of it.
 - An image shown on its own, `kiri image.png`, can be shown at other sizes
   than the default fit to the window: one image pixel per terminal pixel
   even when that is larger than the window, its size in CSS pixels as in a
@@ -190,6 +237,15 @@ Smaller polish that fits in whenever there is time, in any phase.
   `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]`, drawn with a colour and an
   icon of their own and a title such as "Note". The colours stay even in
   the paper themes, which are otherwise grey.
+- Headings marked as shell prompts (OSC 133), so kitty's keys for jumping
+  between prompts move between headings in print mode, without the pager.
+  Needs a try first: kitty may treat the marks as more than places to
+  jump to.
+- Heading scales with fractions, such as 1.5 for `h4`, drawn with the text
+  sizing protocol's fractional scale. Scales are whole numbers today, so
+  `h4` to `h6` are either the size of body text or at least twice it.
+- `--toc` puts a table of contents with links at the top of the document
+  in print mode.
 
 ## Bugs
 

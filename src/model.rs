@@ -68,26 +68,43 @@ pub enum Inline {
         url: String,
         content: Vec<Inline>,
     },
-    Image {
-        url: String,
-        alt: Vec<Inline>,
-    },
+    Image(Image),
     /// A line break in the source that renders as a space.
     SoftBreak,
     LineBreak,
     Html(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Image {
+    pub url: String,
+    pub alt: Vec<Inline>,
+    /// The size the document asks for, as HTML's `width` and `height`
+    /// give it. `None` leaves it to the image.
+    pub width: Option<Length>,
+    pub height: Option<Length>,
+}
+
+/// A length as HTML gives it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Length {
+    /// CSS pixels.
+    Pixels(u32),
+    /// A percentage of the width there is, as a browser takes it of the
+    /// block around the image.
+    Percent(u32),
+}
+
 impl Inline {
-    /// The URL of the image that `content`, a paragraph, consists of: an
-    /// image alone, or alone inside a link. A backend that can draw images
-    /// shows such a paragraph as the image itself; images anywhere else are
-    /// part of the text.
-    pub fn lone_image(content: &[Inline]) -> Option<&str> {
+    /// The image that `content`, a paragraph, consists of: an image alone,
+    /// or alone inside a link. A backend that can draw images shows such a
+    /// paragraph as the image itself; images anywhere else are part of the
+    /// text.
+    pub fn lone_image(content: &[Inline]) -> Option<&Image> {
         match content {
-            [Inline::Image { url, .. }] => Some(url),
+            [Inline::Image(image)] => Some(image),
             [Inline::Link { content, .. }] => match content.as_slice() {
-                [Inline::Image { url, .. }] => Some(url),
+                [Inline::Image(image)] => Some(image),
                 _ => None,
             },
             _ => None,
@@ -104,7 +121,9 @@ impl Inline {
                 | Inline::Strong(content)
                 | Inline::Strikethrough(content)
                 | Inline::Link { content, .. }
-                | Inline::Image { alt: content, .. } => out.push_str(&Self::plain_text(content)),
+                | Inline::Image(Image { alt: content, .. }) => {
+                    out.push_str(&Self::plain_text(content))
+                }
                 Inline::SoftBreak | Inline::LineBreak => out.push(' '),
             }
         }

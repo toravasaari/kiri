@@ -1,9 +1,11 @@
 //! Markdown source to document model, through comrak's syntax tree.
 
+mod html;
+
 use comrak::nodes::{ListType, NodeValue, TableAlignment};
 use comrak::{Arena, Node, Options, parse_document};
 
-use crate::model::{Alignment, Block, Document, Inline, List, ListItem, Table};
+use crate::model::{Alignment, Block, Document, Image, Inline, List, ListItem, Table};
 
 pub fn parse(source: &str) -> Document {
     let arena = Arena::new();
@@ -46,7 +48,10 @@ fn block(node: Node<'_>) -> Option<Block> {
         }),
         NodeValue::Table(table) => Block::Table(self::table(node, &table.alignments)),
         NodeValue::ThematicBreak => Block::ThematicBreak,
-        NodeValue::HtmlBlock(html) => Block::Html(html.literal.clone()),
+        NodeValue::HtmlBlock(block) => match html::block_img(&block.literal) {
+            Some(img) => Block::Paragraph(vec![linked_image(img)]),
+            None => Block::Html(block.literal.clone()),
+        },
         _ => return None,
     };
     Some(block)
@@ -90,7 +95,25 @@ fn alignment(alignment: TableAlignment) -> Alignment {
 }
 
 fn inlines(parent: Node<'_>) -> Vec<Inline> {
-    parent.children().filter_map(inline).collect()
+    let mut inlines = Vec::new();
+    for inline in parent.children().filter_map(inline) {
+        inlines.push(inline);
+        // `<a href>`, an `<img>` and `</a>` are a link around the image, as
+        // `[![]()]()` is.
+        if let [.., Inline::Html(start), Inline::Image(_), Inline::Html(end)] = inlines.as_slice()
+            && html::is_link_end(end)
+            && let Some(url) = html::link_start(start)
+        {
+            inlines.pop();
+            let image = inlines.pop().expect("the image");
+            inlines.pop();
+            inlines.push(Inline::Link {
+                url,
+                content: vec![image],
+            });
+        }
+    }
+    inlines
 }
 
 fn inline(node: Node<'_>) -> Option<Inline> {
@@ -104,20 +127,53 @@ fn inline(node: Node<'_>) -> Option<Inline> {
             url: link.url.clone(),
             content: inlines(node),
         },
-        NodeValue::Image(link) => Inline::Image {
+        NodeValue::Image(link) => Inline::Image(Image {
             url: link.url.clone(),
             alt: inlines(node),
-        },
+            width: None,
+            height: None,
+        }),
         NodeValue::SoftBreak => Inline::SoftBreak,
         NodeValue::LineBreak => Inline::LineBreak,
-        NodeValue::HtmlInline(html) => Inline::Html(html.clone()),
+        NodeValue::HtmlInline(tag) => match html::inline_img(tag) {
+            Some(img) => image(img),
+            None => Inline::Html(tag.clone()),
+        },
         _ => return None,
+    })
+}
+
+/// An HTML `<img>` as Markdown would give it: the image, or a link around
+/// it when the HTML had one.
+fn linked_image(mut img: html::Img) -> Inline {
+    match img.link.take() {
+        Some(url) => Inline::Link {
+            url,
+            content: vec![image(img)],
+        },
+        None => image(img),
+    }
+}
+
+/// An HTML `<img>` as the image Markdown would give.
+fn image(img: html::Img) -> Inline {
+    let alt = if img.alt.is_empty() {
+        Vec::new()
+    } else {
+        vec![Inline::Text(img.alt)]
+    };
+    Inline::Image(Image {
+        url: img.src,
+        alt,
+        width: img.width,
+        height: img.height,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::Length;
 
     fn text(text: &str) -> Inline {
         Inline::Text(text.into())
@@ -165,6 +221,120 @@ mod tests {
                 header: vec![vec![text("a")], vec![text("b")]],
                 rows: vec![vec![vec![text("1")], vec![text("2")]]],
             })]
+        );
+    }
+
+    #[test]
+    fn reads_an_html_img_as_an_image() {
+        let image = || {
+            Inline::Image(Image {
+                url: "a.png".into(),
+                alt: vec![text("An image")],
+                width: None,
+                height: None,
+            })
+        };
+        assert_eq!(
+            parse("<img src=\"a.png\" alt=\"An image\">\n").blocks,
+            vec![Block::Paragraph(vec![image()])]
+        );
+        assert_eq!(
+            parse("<p align=\"center\">\n  <img src=\"a.png\" alt=\"An image\">\n</p>\n").blocks,
+            vec![Block::Paragraph(vec![image()])]
+        );
+        assert_eq!(
+            parse("Text <img src=\"a.png\" alt=\"An image\"> here.\n").blocks,
+            vec![Block::Paragraph(vec![
+                text("Text "),
+                image(),
+                text(" here.")
+            ])]
+        );
+    }
+
+    #[test]
+    fn an_img_without_alt_has_no_alt_text() {
+        assert_eq!(
+            parse("<img src=a.png>\n").blocks,
+            vec![Block::Paragraph(vec![Inline::Image(Image {
+                url: "a.png".into(),
+                alt: Vec::new(),
+                width: None,
+                height: None,
+            })])]
+        );
+    }
+
+    #[test]
+    fn reads_an_html_link_around_an_img_as_a_link() {
+        let linked = || Inline::Link {
+            url: "https://x".into(),
+            content: vec![Inline::Image(Image {
+                url: "a.png".into(),
+                alt: vec![text("x")],
+                width: None,
+                height: None,
+            })],
+        };
+        assert_eq!(
+            parse("<a href=\"https://x\"><img src=\"a.png\" alt=\"x\"></a>\n").blocks,
+            vec![Block::Paragraph(vec![linked()])]
+        );
+        assert_eq!(
+            parse("<p>\n<a href=\"https://x\"><img src=\"a.png\" alt=\"x\"></a>\n</p>\n").blocks,
+            vec![Block::Paragraph(vec![linked()])]
+        );
+        assert_eq!(
+            parse("See <a href=\"https://x\"><img src=\"a.png\" alt=\"x\"></a>.\n").blocks,
+            vec![Block::Paragraph(vec![text("See "), linked(), text(".")])]
+        );
+    }
+
+    #[test]
+    fn keeps_an_html_link_around_more_than_an_img_as_source() {
+        assert_eq!(
+            parse("<a href=x>text <img src=a.png></a>\n").blocks,
+            vec![Block::Paragraph(vec![
+                Inline::Html("<a href=x>".into()),
+                text("text "),
+                Inline::Image(Image {
+                    url: "a.png".into(),
+                    alt: Vec::new(),
+                    width: None,
+                    height: None,
+                }),
+                Inline::Html("</a>".into()),
+            ])]
+        );
+    }
+
+    #[test]
+    fn an_img_keeps_its_width_and_height() {
+        assert_eq!(
+            parse("<img src=a.png width=\"50%\" height=\"40\">\n").blocks,
+            vec![Block::Paragraph(vec![Inline::Image(Image {
+                url: "a.png".into(),
+                alt: Vec::new(),
+                width: Some(Length::Percent(50)),
+                height: Some(Length::Pixels(40)),
+            })])]
+        );
+    }
+
+    #[test]
+    fn keeps_other_html_as_source() {
+        assert_eq!(
+            parse("<p>Text <img src=a.png></p>\n").blocks,
+            vec![Block::Html("<p>Text <img src=a.png></p>\n".into())]
+        );
+        assert_eq!(
+            parse("Text <b>bold</b>\n").blocks,
+            vec![Block::Paragraph(vec![
+                text("Text "),
+                Inline::Html("<b>".into()),
+                text("bold"),
+                Inline::Html("</b>".into()),
+            ])]
         );
     }
 

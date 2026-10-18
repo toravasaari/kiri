@@ -17,7 +17,9 @@ Markdown ──parse──▶ document model ──▶ backend ──▶ output
 ```
 
 - **Parse:** [comrak](https://crates.io/crates/comrak) turns the source into
-  a CommonMark + GitHub Flavored Markdown syntax tree.
+  a CommonMark + GitHub Flavored Markdown syntax tree. kiri reads the HTML
+  `<img>` tags in it itself, so an image means the same in the model
+  whether Markdown or HTML wrote it.
 - **Document model:** kiri's own tree of blocks and inline spans. It holds
   what the document means (heading level 2, emphasis, image with alt text),
   not how any terminal draws it. Other input formats only need a converter
@@ -28,6 +30,11 @@ Markdown ──parse──▶ document model ──▶ backend ──▶ output
 Keeping the document model between the parser and the backends is the main
 design decision. It is what lets a browser view, pixel rendering or other
 terminals arrive later as new backends instead of rewrites.
+
+A file given on the command line need not be Markdown: `src/input.rs`
+tells an image from a document by its extension and first bytes, and an
+image skips the parser and is drawn on its own, as large as fits the
+window.
 
 There is one terminal backend, not one per terminal. It lays the model out
 as styled lines of a fixed width, then writes those as bytes. What it may
@@ -83,8 +90,10 @@ when the probe finds kitty's protocols or `--mode kitty` asks for them.
 ```
 src/main.rs                command line (clap)
 src/lib.rs                 library root
+src/input.rs               whether a file is a document or an image
 src/model.rs               document model
-src/parse.rs               comrak tree -> document model
+src/parse/mod.rs           comrak tree -> document model
+src/parse/html.rs          HTML <img> tags and their attributes
 src/term.rs                capability detection, the only terminal queries
 src/config.rs              settings: options, environment, configuration file
 src/theme.rs               colours and sizes, theme files

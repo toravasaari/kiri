@@ -5,8 +5,9 @@ terminal the way a browser would: headings in a genuinely larger font,
 images, formulas and diagrams drawn inline, and links you can click. It works
 like `kitten icat`, but for documents. Other document formats may follow.
 
-> **Status:** early development. Print mode works; images, formulas and
-> the interactive pager are still to come. See the [roadmap](docs/roadmap.md).
+> **Status:** early development. Print mode and images work; formulas,
+> diagrams and the interactive pager are still to come. See the
+> [roadmap](docs/roadmap.md).
 
 ## Why
 
@@ -22,6 +23,7 @@ that is not a terminal gets plain text.
 ```sh
 make release
 target/release/kiri README.md
+target/release/kiri photo.jpg
 ```
 
 kiri asks the terminal what it supports and uses the best it gets: kitty's
@@ -43,6 +45,18 @@ Tables too wide for the window wrap the text inside their cells, without
 splitting any word of ten cells or fewer. When that is not enough, each row
 is shown as its own block of `Header: value` lines instead.
 
+An image that is the only thing in its paragraph is drawn as a block, at
+its size in CSS pixels as a browser would show it and no wider than the
+text; images inside running text show their alt text for now. HTML `<img>`
+tags work too, with `width` and `height` in pixels or a percentage width,
+also when a link, `<p>`, `<div>` or `<picture>` wraps them. Only such a
+size enlarges an image.
+
+An image file given on its own, `kiri photo.jpg`, is shown as large as
+fits the window but never enlarged, even when images are off. Its
+extension and first bytes tell kiri that it is an image, and `--format`
+can say so instead. A terminal without kitty's graphics gets an error.
+
 Images come from `data:` URLs and local files: absolute paths, paths
 relative to the document and `file:` URLs, with any `?query` or `#fragment`
 left out as in a browser. kiri reads only regular files up to the
@@ -55,6 +69,7 @@ alt text with a warning.
 
 | Option | Meaning |
 |---|---|
+| `-f`, `--format FORMAT` | What the file is: `markdown`, `image`, or an image format such as `png` |
 | `--mode auto\|plain\|ansi\|kitty` | Override what kiri detects |
 | `--width N` | Render for `N` cells instead of the terminal width |
 | `--theme FILE` | Colours and heading sizes; see [Theme](docs/theme.md) |
