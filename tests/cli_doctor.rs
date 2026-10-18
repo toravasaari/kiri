@@ -135,6 +135,18 @@ fn a_broken_configuration_file_is_a_problem_in_the_report() {
 }
 
 #[test]
+fn a_problem_hides_the_home_directory_inside_its_text_too() {
+    let dir = Scratch::new("doctor-home-in-error");
+    let home = dir.join("home");
+    let config = format!("theme = \"{}/x.toml\" oops\n", home.display());
+    write(&home.join(".config/kiri/config.toml"), &config);
+    let report = piped(&dir, &[]);
+    assert!(report.contains("## Problems"), "{report}");
+    assert!(report.contains("theme = \"~/x.toml\" oops"), "{report}");
+    assert!(!report.contains(&*home.to_string_lossy()), "{report}");
+}
+
+#[test]
 fn a_theme_that_does_not_load_is_a_problem_in_the_report() {
     let dir = Scratch::new("doctor-broken-theme");
     let report = piped(&dir, &["--theme", "/nonexistent/mine.toml"]);

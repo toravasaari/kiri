@@ -108,13 +108,15 @@ fn write_problems(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
         match problem.split_once(": ") {
             Some((path, error)) if error.contains('\n') => {
                 writeln!(out, "- {}:\n\n  ```text", code(&home.hide(path)))?;
-                for line in error.trim_end().lines() {
+                for line in home.hide_in(error).trim_end().lines() {
                     writeln!(out, "  {line}")?;
                 }
                 writeln!(out, "  ```")?;
             }
-            Some((path, error)) => writeln!(out, "- {}: {error}", code(&home.hide(path)))?,
-            None => writeln!(out, "- {problem}")?,
+            Some((path, error)) => {
+                writeln!(out, "- {}: {}", code(&home.hide(path)), home.hide_in(error))?
+            }
+            None => writeln!(out, "- {}", home.hide_in(problem))?,
         }
     }
     writeln!(out)
@@ -334,6 +336,37 @@ impl Home<'_> {
         }
     }
 
+    /// `text` with the home directory as `~` wherever a path starts with
+    /// it: after the start, a space, a quote or a bracket, and before a
+    /// `/` or the end of the path.
+    fn hide_in(&self, text: &str) -> String {
+        let Some(home) = self
+            .0
+            .map(Path::new)
+            .filter(|home| home.parent().is_some())
+            .and_then(|home| home.to_str())
+        else {
+            return text.to_owned();
+        };
+        let home = home.trim_end_matches('/');
+        let ends_path = |c: char| !(c.is_alphanumeric() || matches!(c, '.' | '_' | '-'));
+        let mut out = String::new();
+        let mut rest = text;
+        while let Some(at) = rest.find(home) {
+            let (before, after) = (&rest[..at], &rest[at + home.len()..]);
+            let starts = before
+                .chars()
+                .next_back()
+                .is_none_or(|c| c.is_whitespace() || "\"'`([{=:".contains(c));
+            let ends = after.chars().next().is_none_or(ends_path);
+            out.push_str(before);
+            out.push_str(if starts && ends { "~" } else { home });
+            rest = after;
+        }
+        out.push_str(rest);
+        out
+    }
+
     /// `path` as code, with the home directory as `~`.
     fn path(&self, path: &Path) -> String {
         code(&self.hide(&path.to_string_lossy()))
@@ -413,6 +446,27 @@ mod tests {
         assert_eq!(hide("/home/u", "/x/home/u/t.toml"), "/x/home/u/t.toml");
         assert_eq!(hide("/home/u", "/home/u2/t.toml"), "/home/u2/t.toml");
         assert_eq!(hide("/home/u", "relative/t.toml"), "relative/t.toml");
+    }
+
+    fn hide_in(home: &str, text: &str) -> String {
+        Home(Some(OsStr::new(home))).hide_in(text)
+    }
+
+    #[test]
+    fn hides_the_home_directory_where_paths_start_inside_a_text() {
+        assert_eq!(
+            hide_in("/home/u", "theme = \"/home/u/x.toml\" (/home/u)"),
+            "theme = \"~/x.toml\" (~)"
+        );
+        assert_eq!(hide_in("/home/u/", "at /home/u/x: no"), "at ~/x: no");
+    }
+
+    #[test]
+    fn leaves_the_home_directory_alone_inside_other_paths_in_a_text() {
+        let text = "/x/home/u/t.toml and /home/u2/t.toml and a/home/u";
+        assert_eq!(hide_in("/home/u", text), text);
+        assert_eq!(hide_in("/", text), text);
+        assert_eq!(Home(None).hide_in("/home/u/t"), "/home/u/t");
     }
 
     #[test]
