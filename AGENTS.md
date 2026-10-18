@@ -67,7 +67,10 @@ The network is strict there: crates.io and rustup work, GitHub does not.
 - Fixes and behaviour changes start with a test that fails on the current
   code. Show that failing run before making the change. The run must fail
   on an assertion, not only on a compile error, wherever possible: stub the
-  new code first if needed.
+  new code first if needed. The test and the change go in one commit, so
+  every commit still passes `make check`. The history cannot show the
+  failing run, so show it in the session, or in the run's report when
+  nobody is watching.
 - Before rewriting code, pin its current behaviour with tests that pass on
   the old code, then keep them passing.
 - Fixture documents live in `tests/fixtures/`. Add one when you add support
