@@ -54,6 +54,8 @@ instead:
 
 With images off, kiri reads no image files and shows every image as its
 alt text, without warnings about images that would not have loaded.
+These settings are about images inside documents: an image file given on
+the command line, `kiri photo.jpg`, is shown whatever they say.
 
 ## Environment variables
 
