@@ -278,17 +278,32 @@ fn collect_blocks<'a>(blocks: &'a [Block], urls: &mut Vec<&'a str>) {
 /// A compressed SVG may decompress to at most `max_size` bytes, the limit
 /// on a file. Text in SVGs is drawn with `fonts`.
 pub fn decode(bytes: &[u8], max_size: u64, fonts: &Fonts) -> Result<Source, ImageError> {
+    decode_named(bytes, None, max_size, fonts)
+}
+
+/// `decode`, given the format that the file name or media type names, if
+/// any. The bytes decide, as in a browser, except for TGA, which has no
+/// signature to recognise it by.
+fn decode_named(
+    bytes: &[u8],
+    named: Option<ImageFormat>,
+    max_size: u64,
+    fonts: &Fonts,
+) -> Result<Source, ImageError> {
     if looks_like_svg(bytes) {
         decode_svg(bytes, max_size, fonts)
     } else {
-        decode_raster(bytes)
+        decode_raster(bytes, named)
     }
 }
 
-fn decode_raster(bytes: &[u8]) -> Result<Source, ImageError> {
+fn decode_raster(bytes: &[u8], named: Option<ImageFormat>) -> Result<Source, ImageError> {
     let mut reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .expect("reading from memory does not fail");
+    if reader.format().is_none() && named == Some(ImageFormat::Tga) {
+        reader.set_format(ImageFormat::Tga);
+    }
     if reader.format().is_none() {
         return Err(ImageError::UnknownFormat);
     }

@@ -21,7 +21,14 @@ path = "src/main.rs"
 # the `image` crate decodes cheaply.
 [features]
 default = ["full"]
-full = ["image/bmp", "image/ico", "image/tiff", "image/qoi", "image/pnm"]
+full = [
+    "image/bmp",
+    "image/ico",
+    "image/tiff",
+    "image/qoi",
+    "image/pnm",
+    "image/tga",
+]
 
 [dependencies]
 base64 = "0.22.1"

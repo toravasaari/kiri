@@ -98,4 +98,5 @@ magick pattern.png -strip BMP3:pattern.bmp
 magick pattern.png -strip -compress zip pattern.tif
 magick pattern.png -strip pattern.qoi
 magick pattern.png -strip PPM:pattern.ppm
+magick pattern.png -strip -compress RLE pattern.tga
 magick transparent.png -strip transparent.ico

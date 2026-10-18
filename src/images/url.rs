@@ -7,8 +7,9 @@ use std::path::{Path, PathBuf};
 use base64::Engine;
 use base64::engine::DecodePaddingMode;
 use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig};
+use image::ImageFormat;
 
-use crate::images::{Fonts, ImageError, Source, decode};
+use crate::images::{Fonts, ImageError, Source, decode_named};
 
 /// Standard base64 that does not insist on the trailing `=`.
 const BASE64: GeneralPurpose = GeneralPurpose::new(
@@ -28,7 +29,8 @@ pub fn load_url(
 ) -> Result<Source, ImageError> {
     match scheme(url) {
         Some(scheme) if scheme.eq_ignore_ascii_case("data") => {
-            decode(&data_url(url)?, max_file_size, fonts)
+            let (bytes, named) = data_url(url)?;
+            decode_named(&bytes, named, max_file_size, fonts)
         }
         Some(scheme)
             if scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https") =>
@@ -37,15 +39,18 @@ pub fn load_url(
         }
         Some(scheme) if scheme.eq_ignore_ascii_case("file") => {
             let path = file_url_path(&url[scheme.len() + 1..]).ok_or(ImageError::Remote)?;
-            let bytes = read_file(&local_path(path, base)?, max_file_size)?;
-            decode(&bytes, max_file_size, fonts)
+            decode_file(&local_path(path, base)?, max_file_size, fonts)
         }
         Some(scheme) => Err(ImageError::UnsupportedScheme(scheme.to_ascii_lowercase())),
-        None => {
-            let bytes = read_file(&local_path(url, base)?, max_file_size)?;
-            decode(&bytes, max_file_size, fonts)
-        }
+        None => decode_file(&local_path(url, base)?, max_file_size, fonts),
     }
+}
+
+/// The image in the file at `path`, whose extension names its format.
+fn decode_file(path: &Path, max_file_size: u64, fonts: &Fonts) -> Result<Source, ImageError> {
+    let bytes = read_file(path, max_file_size)?;
+    let named = ImageFormat::from_path(path).ok();
+    decode_named(&bytes, named, max_file_size, fonts)
 }
 
 /// The path of a `file:` URL, given what follows `file:`, or `None` when
@@ -126,23 +131,26 @@ pub(super) fn scheme(url: &str) -> Option<&str> {
     (valid && scheme.len() > 1).then_some(scheme)
 }
 
-/// The bytes in a `data:[<media type>][;base64],<data>` URL. The media type
-/// is ignored: the format comes from the bytes, as in a browser.
-fn data_url(url: &str) -> Result<Vec<u8>, ImageError> {
+/// The bytes in a `data:[<media type>][;base64],<data>` URL, and the
+/// format its media type names.
+fn data_url(url: &str) -> Result<(Vec<u8>, Option<ImageFormat>), ImageError> {
     let (header, data) = url.split_once(',').ok_or(ImageError::InvalidData)?;
+    let media_type = header["data:".len()..].split(';').next().unwrap_or("");
+    let named = ImageFormat::from_mime_type(media_type.trim().to_ascii_lowercase());
     let data = percent_decode(data.as_bytes());
     let is_base64 = header
         .rsplit(';')
         .next()
         .is_some_and(|part| part.trim().eq_ignore_ascii_case("base64"));
     if !is_base64 {
-        return Ok(data);
+        return Ok((data, named));
     }
     let data: Vec<u8> = data
         .into_iter()
         .filter(|b| !b.is_ascii_whitespace())
         .collect();
-    BASE64.decode(data).map_err(|_| ImageError::InvalidData)
+    let data = BASE64.decode(data).map_err(|_| ImageError::InvalidData)?;
+    Ok((data, named))
 }
 
 /// Turns `%XX` escapes into bytes and leaves everything else as it is.
@@ -207,6 +215,51 @@ mod tests {
             open("data:image/png;base64", base),
             Err(ImageError::InvalidData)
         );
+    }
+
+    /// `pattern.tga` as a `data:` URL with the media type `media_type`.
+    fn tga_data_url(media_type: &str) -> String {
+        let bytes = std::fs::read(fixtures().join("images/pattern.tga")).unwrap();
+        format!("data:{media_type};base64,{}", STANDARD.encode(&bytes))
+    }
+
+    #[cfg(feature = "full")]
+    #[test]
+    fn recognises_tga_by_its_file_name_or_media_type() {
+        // TGA files have no signature to recognise them by.
+        let pattern = fixture("pattern.png");
+        assert!(pattern.is_ok());
+        let path = fixtures().join("images/pattern.tga");
+        let file_url = format!("file://{}?v=2", path.to_str().unwrap());
+        for url in ["pattern.tga", "pattern.tga#top", "pattern%2Etga", &file_url] {
+            assert_eq!(fixture(url), pattern, "{url}");
+        }
+        let elsewhere = Path::new("/nonexistent");
+        for media_type in ["image/x-tga", "image/x-targa", "IMAGE/X-TGA;charset=x"] {
+            let url = tga_data_url(media_type);
+            assert_eq!(open(&url, elsewhere), pattern, "{media_type}");
+        }
+    }
+
+    #[test]
+    fn does_not_take_other_data_for_tga() {
+        let elsewhere = Path::new("/nonexistent");
+        for media_type in ["", "image/png", "application/octet-stream"] {
+            let url = tga_data_url(media_type);
+            assert_eq!(
+                open(&url, elsewhere),
+                Err(ImageError::UnknownFormat),
+                "{media_type}"
+            );
+        }
+    }
+
+    #[cfg(not(feature = "full"))]
+    #[test]
+    fn names_tga_when_the_build_leaves_it_out() {
+        let tga = Err(ImageError::UnsupportedFormat("TGA".into()));
+        assert_eq!(fixture("pattern.tga"), tga);
+        assert_eq!(open(&tga_data_url("image/x-tga"), Path::new("/")), tga);
     }
 
     #[test]
