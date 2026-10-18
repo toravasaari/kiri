@@ -141,6 +141,9 @@ example, come before the rest of phase 3.
 
 ### 4.9 Standard input and directories
 
+Comes before the pager (4.6), so that the pager is built for a piped
+document from the start.
+
 - `kiri -`, or no file name with a pipe on standard input, reads the
   document from standard input, such as the output of another command.
   Relative image paths are resolved against the current directory.
