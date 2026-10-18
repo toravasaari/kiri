@@ -1,7 +1,7 @@
 //! Images: where they are drawn, their sizes and what is sent.
 
 use image::RgbaImage;
-use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, ImageError, Images};
+use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, ImageError, Images, Source};
 use kiri::kitty::graphics::{DIACRITICS, PLACEHOLDER};
 use kiri::render::Inputs;
 use kiri::term::Capabilities;
@@ -345,4 +345,85 @@ fn an_svg_is_drawn_at_its_shown_size_not_scaled() {
     assert_eq!(image.get_pixel(99, 59).0, [0, 0, 255, 255]);
     assert_eq!(image.get_pixel(50, 60).0[3], 0);
     assert_eq!(drawn(&out), ["⟦row 0: 10 cells⟧", "⟦row 1: 10 cells⟧"]);
+}
+
+/// `image` shown on its own with `caps`.
+fn alone(image: &Source, caps: &Capabilities) -> String {
+    let image = image.clone();
+    let mut out = Vec::new();
+    kiri::render::render_image(image, caps, &mut out).expect("rendering to memory succeeds");
+    String::from_utf8(out).expect("output is UTF-8")
+}
+
+/// kitty in a window of `WIDTH` columns and `rows` rows of 10 × 40 pixels.
+fn window(rows: Option<u16>) -> Capabilities {
+    Capabilities {
+        height: rows,
+        cell_pixels: Some((10, 40)),
+        ..Capabilities::kitty(WIDTH)
+    }
+}
+
+#[test]
+fn an_image_on_its_own() {
+    let image = Source::Raster(quadrants(50, 30));
+    insta::assert_snapshot!(readable(&alone(&image, &window(Some(24)))));
+}
+
+#[test]
+fn an_image_on_its_own_is_shown_pixel_for_pixel() {
+    // In a document, cells 40 pixels high would double it.
+    let image = Source::Raster(quadrants(50, 30));
+    let out = alone(&image, &window(Some(24)));
+    let sent = sent(&out);
+    assert_eq!(sent.len(), 1);
+    let keys = &sent[0].keys;
+    assert_eq!((keys["s"].as_str(), keys["v"].as_str()), ("50", "40"));
+    let image = RgbaImage::from_raw(50, 40, sent[0].rgba.clone()).expect("50 × 40 RGBA");
+    assert_eq!(image.get_pixel(0, 0).0, [255, 0, 0, 255]);
+    assert_eq!(image.get_pixel(49, 29).0, [255, 255, 0, 255]);
+    assert_eq!(image.get_pixel(49, 30).0[3], 0);
+    assert_eq!(drawn(&out), ["⟦row 0: 5 cells⟧"]);
+}
+
+#[test]
+fn an_image_on_its_own_shrinks_to_the_window_leaving_a_row_for_the_prompt() {
+    // 480 × 400 pixels of window above the last row: the height decides.
+    let image = Source::Raster(quadrants(1000, 2000));
+    let out = alone(&image, &window(Some(11)));
+    let keys = &sent(&out)[0].keys;
+    assert_eq!((keys["s"].as_str(), keys["v"].as_str()), ("200", "400"));
+    assert_eq!((keys["c"].as_str(), keys["r"].as_str()), ("20", "10"));
+    // A tall window: the width decides.
+    let out = alone(&image, &window(Some(100)));
+    let keys = &sent(&out)[0].keys;
+    assert_eq!((keys["s"].as_str(), keys["v"].as_str()), ("480", "960"));
+    assert_eq!((keys["c"].as_str(), keys["r"].as_str()), ("48", "24"));
+}
+
+#[test]
+fn an_image_on_its_own_shrinks_to_the_width_when_the_height_is_unknown() {
+    let image = Source::Raster(quadrants(1000, 200));
+    let out = alone(&image, &window(None));
+    let keys = &sent(&out)[0].keys;
+    assert_eq!((keys["c"].as_str(), keys["r"].as_str()), ("48", "3"));
+    // Still no more rows than the placeholders can count.
+    let tall = Source::Raster(quadrants(10, 40_000));
+    let rows = sent(&alone(&tall, &window(None)))[0].keys["r"].clone();
+    assert_eq!(rows, kiri::kitty::graphics::MAX_CELLS.to_string());
+}
+
+#[test]
+fn an_svg_on_its_own_is_shown_in_css_pixels() {
+    let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" width="50" height="30">
+        <rect width="50" height="30" fill="#ff0000"/></svg>"##;
+    let image = kiri::images::decode(svg, DEFAULT_MAX_FILE_SIZE, &Fonts::none()).unwrap();
+    let keys = sent(&alone(&image, &window(Some(24))))[0].keys.clone();
+    assert_eq!((keys["s"].as_str(), keys["v"].as_str()), ("100", "80"));
+}
+
+#[test]
+fn an_image_on_its_own_is_not_drawn_without_graphics() {
+    let image = Source::Raster(quadrants(50, 30));
+    assert_eq!(alone(&image, &Capabilities::ansi(WIDTH)), "");
 }

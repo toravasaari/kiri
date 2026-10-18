@@ -35,11 +35,31 @@ pub struct Size {
     pub rows: u16,
 }
 
-/// The size of an image of `natural` pixels in cells of `cell` pixels, at
-/// most `max_columns` wide and `max_rows` high. `None` for an image without
-/// pixels or when there is no room at all.
+/// What the pixels of an image's natural size are on the screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unit {
+    /// CSS pixels, as in a browser: a twentieth of the cell height each.
+    Css,
+    /// One image pixel per terminal pixel, as `kitten icat` shows images.
+    Pixel,
+}
+
+/// The size of an image of `natural` CSS pixels in cells of `cell` pixels,
+/// at most `max_columns` wide and `max_rows` high. `None` for an image
+/// without pixels or when there is no room at all.
 pub fn size(
     natural: (u32, u32),
+    cell: (u16, u16),
+    max_columns: u16,
+    max_rows: u16,
+) -> Option<Size> {
+    size_in(natural, Unit::Css, cell, max_columns, max_rows)
+}
+
+/// `size`, for an image whose natural size is in `unit`.
+pub fn size_in(
+    natural: (u32, u32),
+    unit: Unit,
     cell: (u16, u16),
     max_columns: u16,
     max_rows: u16,
@@ -54,7 +74,10 @@ pub fn size(
     {
         return None;
     }
-    let scale = cell_height / CSS_PIXELS_PER_ROW;
+    let scale = match unit {
+        Unit::Css => cell_height / CSS_PIXELS_PER_ROW,
+        Unit::Pixel => 1.0,
+    };
     let mut width = f64::from(natural.0) * scale;
     let mut height = f64::from(natural.1) * scale;
     // Shrink to the room there is, keeping the shape.
@@ -115,6 +138,18 @@ mod tests {
         assert_eq!(
             size((320, 240), (8, 16), 100, 100),
             size_of(256, 192, 32, 12)
+        );
+    }
+
+    #[test]
+    fn keeps_one_image_pixel_per_terminal_pixel() {
+        assert_eq!(
+            size_in((320, 240), Unit::Pixel, (20, 40), 100, 100),
+            size_of(320, 240, 16, 6)
+        );
+        assert_eq!(
+            size_in((320, 240), Unit::Pixel, (20, 40), 10, 100),
+            size_of(200, 150, 10, 4)
         );
     }
 
