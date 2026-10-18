@@ -24,6 +24,7 @@ that is not a terminal gets plain text.
 make release
 target/release/kiri README.md
 target/release/kiri photo.jpg
+some-command | target/release/kiri
 ```
 
 kiri asks the terminal what it supports and uses the best it gets: kitty's
@@ -56,6 +57,11 @@ An image file given on its own, `kiri photo.jpg`, is shown as large as
 fits the window but never enlarged, even when images are off. Its
 extension and first bytes tell kiri that it is an image, and `--format`
 can say so instead. A terminal without kitty's graphics gets an error.
+
+Without a file name, or with `-`, kiri reads the document from standard
+input, so another command's output can be piped into it; images in it are
+relative to the current directory. A directory shows its `README.md`, or
+else its `README`, as GitHub does.
 
 Images come from `data:` URLs and local files: absolute paths, paths
 relative to the document and `file:` URLs, with any `?query` or `#fragment`
