@@ -107,6 +107,7 @@ example, come before the rest of phase 3.
 
 - Interactive pager (`kiri -i`): scrolling, search, a table of contents,
   link selection, anchor jumps, back history, reload on file change.
+- After a reload, a key jumps to the first block that changed.
 - Pager status line with key hints and a `?` help panel.
 - Groundwork: raw mode, now inside the probe in `term.rs`, usable for
   reading keys.
@@ -115,6 +116,19 @@ example, come before the rest of phase 3.
 
 - reStructuredText, Org, AsciiDoc, possibly through pandoc.
 
+### 4.8 Diagnostics
+
+- `kiri --doctor` shows what kiri found and what it uses: the terminal's
+  answers (cell and window size, graphics, text sizing, colours), each
+  setting with where it came from (default, configuration file,
+  environment variable or command-line flag), the configuration file
+  paths, the image formats this build decodes, and the external tools
+  later parts need (Typst, a Mermaid renderer, ffmpeg, pandoc) and whether
+  each was found.
+- The report is a Markdown document that kiri renders itself, so it also
+  shows how headings, tables and images look in this terminal. Piped to a
+  file it stays plain Markdown, ready to paste into a bug report.
+
 ## Phase 5 – Beyond kitty
 
 - Other terminals: sixel and iTerm2 images, plain styling for headings.
@@ -122,6 +136,8 @@ example, come before the rest of phase 3.
   a yes or no, and the probe keeps the terminal's name, version and device
   attributes, where sixel support shows, instead of only yes-or-no
   answers.
+- `--doctor` lists the image protocols probed and the terminal's name and
+  version.
 - Images as coloured Unicode block characters where no image protocol
   works.
 - Remote images, off by default because fetching one tells its server that
@@ -141,12 +157,23 @@ Smaller polish that fits in whenever there is time, in any phase.
   (a new theme key). With code padding on, the name sits on the top
   padding row; without it, on a line above the block.
 - AVIF and JPEG XL images.
+- PDF documents shown as images, as a quick look that saves opening a
+  PDF reader rather than a replacement for one: `kiri file.pdf` and
+  `![](figure.pdf)` in a document show the first page. A setting and a
+  command-line option choose other pages: the first n pages, one page, a
+  list of ranges such as `1-3,7,10-`, or all pages. How the pages are
+  rendered is still open.
 - An image inside a link can be clicked: the image's placeholder cells are
   wrapped in the link's OSC 8 hyperlink, as text is.
 - Less image data over SSH. kitty only takes raw pixels or PNG, so
   compressed formats such as JPEG cannot be passed through as they are;
   this needs thought on what to send and when.
 - Images inside table cells, which now show their alt text.
+- Code blocks can be copied to the clipboard (OSC 52): in the pager with a
+  key, and in print mode through a link beside the block that kitty's
+  `open-actions.conf` hands to kiri.
+- Changes shown as a diff, added text green and removed text red, fading
+  out slowly: in the pager after a reload, and against a git revision.
 - Table columns share the width by their content, as in a browser: a
   table too wide for the terminal narrows each column in proportion to
   its text, instead of narrowing the widest column first. (done)
