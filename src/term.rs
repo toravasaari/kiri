@@ -1,6 +1,7 @@
 //! What the output terminal can do, and asking it.
 
 use std::ffi::OsStr;
+use std::fs::File;
 use std::os::fd::AsFd;
 
 use crate::config::Environment;
@@ -107,14 +108,100 @@ pub enum Mode {
     Kitty,
 }
 
+/// What kiri learnt about a terminal and how, for `--doctor`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Detection {
+    /// The capabilities kiri renders with.
+    pub caps: Capabilities,
+    /// The window size the kernel reports.
+    pub window: Option<WindowSize>,
+    /// The terminal's answers to the probe; `None` when it was not asked or
+    /// did not answer.
+    pub answers: Option<Vec<u8>>,
+}
+
+/// How kiri learnt the size of a cell in pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CellSize {
+    /// From the window size the kernel reports.
+    Window(u16, u16),
+    /// From the terminal's answer to the probe.
+    Terminal(u16, u16),
+    /// Not at all.
+    Unknown,
+}
+
+impl Detection {
+    /// The terminal's name and version as it answered them, such as
+    /// `kitty(0.47.1)`.
+    pub fn terminal(&self) -> Option<String> {
+        let answers = String::from_utf8_lossy(self.answers.as_deref()?);
+        probe::version(&answers).map(str::to_owned)
+    }
+
+    /// Where the cell size in `caps` comes from.
+    pub fn cell_size(&self) -> CellSize {
+        let window = self.window.and_then(|window| window.cell_pixels());
+        match (self.caps.cell_pixels, window) {
+            (Some((width, height)), Some(_)) => CellSize::Window(width, height),
+            (Some((width, height)), None) => CellSize::Terminal(width, height),
+            (None, _) => CellSize::Unknown,
+        }
+    }
+}
+
 /// The capabilities to render with in `mode`. `width` overrides the
 /// terminal's own width. `NO_COLOR` turns colours off in every mode,
 /// including the forced ones.
 pub fn capabilities(mode: Mode, width: Option<u16>, env: &Environment) -> Capabilities {
-    let window = window_size(std::io::stdout());
+    let stdout = std::io::stdout();
+    let window = window_size(&stdout);
+    let terminal = rustix::termios::isatty(&stdout);
+    detect(mode, width, env, window, terminal, probe::run).caps
+}
+
+/// What kiri finds out in `mode` about the controlling terminal, whatever
+/// stdout is, so a report written to a file still tells of the terminal.
+pub fn examine(mode: Mode, width: Option<u16>, env: &Environment) -> Detection {
+    match probe::controlling_terminal() {
+        Some(tty) => examine_on(&tty, mode, width, env),
+        None => detect(mode, width, env, None, false, |_| None),
+    }
+}
+
+/// [`examine`] on the terminal `tty`.
+fn examine_on(tty: &File, mode: Mode, width: Option<u16>, env: &Environment) -> Detection {
+    detect(mode, width, env, window_size(tty), true, |ask_cell_size| {
+        probe::ask(tty, ask_cell_size)
+    })
+}
+
+/// The capabilities in `mode` for a window of `window`, which is a
+/// terminal if `terminal`. In auto mode, `ask` sends the probe, with the
+/// cell size question when its argument is true, and returns the answers.
+/// Falls back to plain text when the output is not a terminal, and to ANSI
+/// styling when the terminal does not answer.
+fn detect(
+    mode: Mode,
+    width: Option<u16>,
+    env: &Environment,
+    window: Option<WindowSize>,
+    terminal: bool,
+    ask: impl FnOnce(bool) -> Option<Vec<u8>>,
+) -> Detection {
     let width = width.or(window.map(|w| w.columns)).unwrap_or(80);
+    let mut answers = None;
     let mut caps = match mode {
-        Mode::Auto => detect(width, window, env),
+        Mode::Auto if !terminal => Capabilities::plain(width),
+        Mode::Auto => {
+            let caps = with_environment(Capabilities::ansi(width), env);
+            let caps = with_window(caps, window);
+            answers = ask(caps.cell_pixels.is_none());
+            match &answers {
+                Some(answers) => with_probe(caps, &probe::interpret(answers)),
+                None => caps,
+            }
+        }
         Mode::Plain => Capabilities::plain(width),
         Mode::Ansi => Capabilities::ansi(width),
         // The window size is not a probe: it does not ask the terminal.
@@ -123,21 +210,10 @@ pub fn capabilities(mode: Mode, width: Option<u16>, env: &Environment) -> Capabi
     if no_color(env) {
         caps.color = false;
     }
-    caps
-}
-
-/// Asks the terminal on stdout, whose window is `window`, what it supports.
-/// Falls back to plain text when stdout is not a terminal, and to ANSI
-/// styling when it does not answer.
-fn detect(width: u16, window: Option<WindowSize>, env: &Environment) -> Capabilities {
-    if !rustix::termios::isatty(std::io::stdout()) {
-        return Capabilities::plain(width);
-    }
-    let caps = with_environment(Capabilities::ansi(width), env);
-    let caps = with_window(caps, window);
-    match probe::run(caps.cell_pixels.is_none()) {
-        Some(answers) => with_probe(caps, &probe::interpret(&answers)),
-        None => caps,
+    Detection {
+        caps,
+        window,
+        answers,
     }
 }
 
@@ -324,15 +400,132 @@ mod tests {
         (File::from(terminal), tty)
     }
 
-    #[test]
-    fn reads_the_window_size_in_cells_and_pixels() {
-        let (_terminal, tty) = pty();
-        let size = |columns, rows, width, height| rustix::termios::Winsize {
+    /// A window size for [`rustix::termios::tcsetwinsize`].
+    pub(super) fn size(
+        columns: u16,
+        rows: u16,
+        width: u16,
+        height: u16,
+    ) -> rustix::termios::Winsize {
+        rustix::termios::Winsize {
             ws_col: columns,
             ws_row: rows,
             ws_xpixel: width,
             ws_ypixel: height,
+        }
+    }
+
+    /// Runs `probe` on a pseudo-terminal with a window of `window`, whose
+    /// other side answers like a kitty 0.47.1 with cells of 9 × 19 pixels,
+    /// and tells the cell size only when asked. Returns the queries the
+    /// terminal saw and what `probe` returned.
+    pub(super) fn with_kitty<T>(
+        window: rustix::termios::Winsize,
+        probe: impl FnOnce(&File) -> T,
+    ) -> (String, T) {
+        use std::io::{Read, Write};
+
+        let (mut terminal, tty) = pty();
+        rustix::termios::tcsetwinsize(&tty, window).unwrap();
+        let kitty = std::thread::spawn(move || {
+            let mut seen = Vec::new();
+            let mut buffer = [0; 1024];
+            while !seen.ends_with(b"\x1b[c") {
+                let read = terminal.read(&mut buffer).unwrap();
+                seen.extend_from_slice(&buffer[..read]);
+            }
+            let seen = String::from_utf8(seen).unwrap();
+            let cell_size = if seen.contains("\x1b[16t") {
+                "\x1b[6;19;9t"
+            } else {
+                ""
+            };
+            let answers = format!(
+                "\x1b[5;1R\x1b[5;3R\x1b[5;5R\x1b_Gi=31;OK\x1b\\\
+                 \x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\\x1bP>|kitty(0.47.1)\x1b\\\
+                 {cell_size}\x1b[?62;c"
+            );
+            terminal.write_all(answers.as_bytes()).unwrap();
+            (seen, terminal)
+        });
+        let result = probe(&tty);
+        let (seen, _terminal) = kitty.join().unwrap();
+        (seen, result)
+    }
+
+    #[test]
+    fn examining_a_window_without_pixels_asks_the_terminal_for_the_cell_size() {
+        let (seen, found) = with_kitty(size(80, 24, 0, 0), |tty| {
+            examine_on(tty, Mode::Auto, None, &Environment::default())
+        });
+        assert!(seen.contains("\x1b[16t"), "{seen:?}");
+        assert_eq!(found.cell_size(), CellSize::Terminal(9, 19));
+        assert_eq!(found.caps.cell_pixels, Some((9, 19)));
+        assert_eq!(found.terminal().as_deref(), Some("kitty(0.47.1)"));
+        assert_eq!(
+            found.window,
+            Some(WindowSize {
+                columns: 80,
+                rows: 24,
+                width: 0,
+                height: 0,
+            })
+        );
+        assert!(found.caps.draws_images());
+        assert_eq!(found.caps.width, 80);
+        let answers = String::from_utf8(found.answers.unwrap()).unwrap();
+        assert!(answers.ends_with("\x1b[6;19;9t\x1b[?62;c"), "{answers:?}");
+    }
+
+    #[test]
+    fn examining_a_window_with_pixels_takes_the_cell_size_from_it() {
+        let (seen, found) = with_kitty(size(80, 24, 800, 480), |tty| {
+            examine_on(tty, Mode::Auto, Some(60), &Environment::default())
+        });
+        assert!(!seen.contains("\x1b[16t"), "{seen:?}");
+        assert_eq!(found.cell_size(), CellSize::Window(10, 20));
+        assert_eq!(found.caps.width, 60);
+    }
+
+    #[test]
+    fn a_terminal_that_does_not_answer_leaves_the_cell_size_unknown() {
+        let window = WindowSize {
+            columns: 80,
+            rows: 24,
+            width: 0,
+            height: 0,
         };
+        let found = detect(
+            Mode::Auto,
+            None,
+            &Environment::default(),
+            Some(window),
+            true,
+            |_| None,
+        );
+        assert_eq!(found.cell_size(), CellSize::Unknown);
+        assert_eq!(found.terminal(), None);
+        assert_eq!(found.answers, None);
+        assert_eq!(
+            found.caps,
+            with_window(Capabilities::ansi(80), Some(window))
+        );
+    }
+
+    #[test]
+    fn only_the_auto_mode_asks_a_terminal() {
+        let env = Environment::default();
+        let never = |_| -> Option<Vec<u8>> { panic!("the terminal was asked") };
+        let found = detect(Mode::Kitty, None, &env, None, true, never);
+        assert_eq!(found.caps, Capabilities::kitty(80));
+        assert_eq!(found.cell_size(), CellSize::Unknown);
+        let found = detect(Mode::Auto, Some(70), &env, None, false, never);
+        assert_eq!(found.caps, Capabilities::plain(70));
+    }
+
+    #[test]
+    fn reads_the_window_size_in_cells_and_pixels() {
+        let (_terminal, tty) = pty();
         rustix::termios::tcsetwinsize(&tty, size(80, 24, 800, 480)).unwrap();
         assert_eq!(
             window_size(&tty),
@@ -515,16 +708,16 @@ mod probe {
     /// answers, asking for the cell size if `ask_cell_size`. `None` if the
     /// terminal cannot be used or does not answer.
     pub fn run(ask_cell_size: bool) -> Option<Vec<u8>> {
-        let tty = File::options()
-            .read(true)
-            .write(true)
-            .open("/dev/tty")
-            .ok()?;
-        ask(&tty, ask_cell_size)
+        ask(&controlling_terminal()?, ask_cell_size)
+    }
+
+    /// The controlling terminal, open for reading and writing.
+    pub fn controlling_terminal() -> Option<File> {
+        File::options().read(true).write(true).open("/dev/tty").ok()
     }
 
     /// [`run`] on `tty`.
-    fn ask(tty: &File, ask_cell_size: bool) -> Option<Vec<u8>> {
+    pub fn ask(tty: &File, ask_cell_size: bool) -> Option<Vec<u8>> {
         let raw = RawMode::enter(tty)?;
         let answers = exchange(tty, ask_cell_size);
         // Erase whatever the OSC 66 tests drew before restoring the mode.
@@ -612,7 +805,7 @@ mod probe {
 
     /// The terminal's name and version from the answer to [`VERSION`],
     /// ended by ST or BEL.
-    fn version(text: &str) -> Option<&str> {
+    pub fn version(text: &str) -> Option<&str> {
         let start = text.find(VERSION_ANSWER)? + VERSION_ANSWER.len();
         let rest = &text[start..];
         let end = rest.find(['\x1b', '\x07'])?;
@@ -694,25 +887,8 @@ mod probe {
         /// like a kitty with cells of 9 × 19 pixels. Returns the queries the
         /// terminal saw and what the probe read.
         fn ask_kitty(ask_cell_size: bool) -> (String, Option<Vec<u8>>) {
-            let (mut terminal, tty) = crate::term::tests::pty();
-            let kitty = std::thread::spawn(move || {
-                let mut seen = Vec::new();
-                let mut buffer = [0; 1024];
-                while !seen.ends_with(DEVICE_ATTRIBUTES.as_bytes()) {
-                    let read = terminal.read(&mut buffer).unwrap();
-                    seen.extend_from_slice(&buffer[..read]);
-                }
-                let seen = String::from_utf8(seen).unwrap();
-                let mut answers = KITTY.to_owned();
-                if seen.contains("\x1b[16t") {
-                    answers.insert_str(0, "\x1b[6;19;9t");
-                }
-                terminal.write_all(answers.as_bytes()).unwrap();
-                (seen, terminal)
-            });
-            let answers = ask(&tty, ask_cell_size);
-            let (seen, _terminal) = kitty.join().unwrap();
-            (seen, answers)
+            use crate::term::tests::{size, with_kitty};
+            with_kitty(size(80, 24, 0, 0), |tty| ask(tty, ask_cell_size))
         }
 
         #[test]
