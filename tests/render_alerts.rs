@@ -142,3 +142,22 @@ fn paper_mixes_the_tint_into_its_own_page() {
 fn kitty_alerts() {
     insta::assert_snapshot!(visible(&render_fixture("alerts.md", &Inputs::new(kitty()))));
 }
+
+#[test]
+fn a_long_title_wraps_under_itself_inside_the_block() {
+    let source = "> [!NOTE] A title far too long to fit on one line of the block\n> x\n";
+    let lines = text(source, kitty(), &Theme::default());
+    assert!(lines[0].starts_with("  ▎ \u{f449}  A title"), "{lines:#?}");
+    // Continued under the title's text, past the icon.
+    assert!(lines[1].starts_with("  ▎    "), "{lines:#?}");
+    assert!(
+        lines[1]
+            .trim_start_matches(['▎', ' '])
+            .starts_with(char::is_alphabetic),
+        "{lines:#?}"
+    );
+    assert_eq!(lines.len(), 3, "{lines:#?}");
+    for line in &lines {
+        assert_eq!(line.chars().count(), usize::from(WIDTH) - 2, "{lines:#?}");
+    }
+}

@@ -4,7 +4,7 @@ use super::{Context, Layout};
 use crate::color::Color;
 use crate::model::{AlertKind, Block};
 use crate::render::style::{Line, Span, Style, push};
-use crate::render::wrap::width as width_of;
+use crate::render::wrap::{width as width_of, wrap};
 use crate::theme::{CodeBackground, Theme};
 
 impl Layout<'_> {
@@ -75,24 +75,40 @@ impl Layout<'_> {
             None => Layout { ..*self },
         };
 
-        let mut heading = Vec::new();
-        if self.caps.text_sizing {
-            // kitty draws an Octicon from the symbols font it bundles over
-            // two cells, covering the first space after it.
-            let icon = Style {
+        // kitty draws an Octicon from the symbols font it bundles over two
+        // cells, covering the first space after it.
+        let icon = if self.caps.text_sizing {
+            let style = Style {
                 fg: color,
                 ..fill.clone()
             };
-            push(&mut heading, octicon(kind), &icon);
-            push(&mut heading, "  ", &fill);
-        }
+            vec![
+                Span::new(octicon(kind), style),
+                Span::new("  ", fill.clone()),
+            ]
+        } else {
+            Vec::new()
+        };
+        let indent = width_of(&icon);
         let strong = Style {
             fg: color,
             bold: true,
             ..fill.clone()
         };
-        push(&mut heading, title, &strong);
-        let mut lines = vec![Line::new(heading)];
+        // A long title wraps under its own text, past the icon.
+        let title_width = body_width.saturating_sub(indent).max(1);
+        let title = [Span::new(title, strong)];
+        let mut lines: Vec<Line> = (wrap(&title, title_width).into_iter().enumerate())
+            .map(|(row, text)| {
+                let mut spans = if row == 0 {
+                    icon.clone()
+                } else {
+                    vec![Span::new(&" ".repeat(indent), fill.clone())]
+                };
+                spans.extend(text);
+                Line::new(spans)
+            })
+            .collect();
         lines.extend(body.blocks(blocks, body_width, inner));
 
         let bar = Style {
