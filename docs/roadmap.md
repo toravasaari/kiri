@@ -129,15 +129,16 @@ example, come before the rest of phase 3.
   highlighting, and their outputs, images included.
 - CSV and TSV files, shown as a table.
 
-### 4.8 Diagnostics
+### 4.8 Diagnostics (done)
 
 - `kiri --doctor` shows what kiri found and what it uses: the terminal's
   answers (cell and window size, graphics, text sizing, colours), each
   setting with where it came from (default, configuration file,
   environment variable or command-line flag), the configuration file
-  paths, the image formats this build decodes, and the external tools
-  later parts need (Typst, a Mermaid renderer, ffmpeg, pandoc) and whether
-  each was found.
+  paths and the image formats this build decodes.
+- The external tools later parts need (Typst, a Mermaid renderer, ffmpeg,
+  pandoc) join the report with the part that uses each, saying whether it
+  was found.
 - The report is a Markdown document that kiri renders itself, so it also
   shows how headings, tables and images look in this terminal. Piped to a
   file it stays plain Markdown, ready to paste into a bug report.
@@ -258,8 +259,3 @@ Known bugs, fixed in whatever phase is under way.
   so the window and cell sizes the terminal reports are the first
   suspect. Once it is understood, the rows left free below the image may
   become a setting.
-- kiri reads the cell size in pixels only from the window size the kernel
-  reports (`TIOCGWINSZ`). Where that has no pixels, as in a shell opened
-  with `incus exec` and so in jailbee containers, kiri assumes cells of
-  10 × 20 pixels and sizes images by that guess. It should then ask the
-  terminal with `CSI 16 t`, which kitty answers.
