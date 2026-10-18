@@ -238,7 +238,7 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
 
 fn write_files(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result {
     writeln!(out, "## Files\n")?;
-    writeln!(out, "| File | Path | Status |\n|---|---|---|")?;
+    writeln!(out, "| File | Path | From | Status |\n|---|---|---|---|")?;
     match crate::config::file(facts.env) {
         Some(file) => {
             let status = match (&facts.config_error, file.path.exists()) {
@@ -247,14 +247,20 @@ fn write_files(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result
                 (None, false) => "not found",
             };
             let path = home.path(&file.path);
-            writeln!(out, "| Configuration file | {path} | {status} |")?;
+            let from = origin_text(file.origin, facts.env, home);
+            writeln!(out, "| Configuration file | {path} | {from} | {status} |")?;
         }
-        None => writeln!(out, "| Configuration file | none: `HOME` is not set | |")?,
+        None => writeln!(out, "| Configuration file | none: `HOME` is not set | | |")?,
     }
     if let Some(dir) = crate::config::directory(facts.env) {
         let path = dir.join("theme.toml");
         let status = if path.exists() { "found" } else { "not found" };
-        writeln!(out, "| Theme file | {} | {status} |", home.path(&path))?;
+        let from = origin_text(crate::config::directory_origin(facts.env), facts.env, home);
+        writeln!(
+            out,
+            "| Theme file | {} | {from} | {status} |",
+            home.path(&path)
+        )?;
     }
     writeln!(out)
 }
@@ -327,6 +333,8 @@ fn variable<'a>(env: &'a Environment, name: &str) -> Option<&'a OsStr> {
     match name {
         "KIRI_THEME" => env.kiri_theme.as_deref(),
         "KIRI_NO_IMAGES" => env.kiri_no_images.as_deref(),
+        "KIRI_CONFIG" => env.kiri_config.as_deref(),
+        "XDG_CONFIG_HOME" => env.xdg_config_home.as_deref(),
         _ => None,
     }
 }

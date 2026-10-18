@@ -97,7 +97,7 @@ fn settings_tell_where_they_come_from() {
         "| Images | off | configuration file |",
         "| Largest image | 5 MB | `--max-image-size` |",
         "| Width | 72 cells | `--width` |",
-        "| Configuration file | `~/.config/kiri/config.toml` | read |",
+        "| Configuration file | `~/.config/kiri/config.toml` | default | read |",
     ] {
         assert!(report.contains(row), "{row}\n{report}");
     }
@@ -128,7 +128,8 @@ fn a_broken_configuration_file_is_a_problem_in_the_report() {
     );
     assert!(report.contains("  unknown field `colour`"), "{report}");
     assert!(
-        report.contains("| Configuration file | `~/.config/kiri/config.toml` | not read |"),
+        report
+            .contains("| Configuration file | `~/.config/kiri/config.toml` | default | not read |"),
         "{report}"
     );
 }
@@ -143,6 +144,25 @@ fn a_theme_that_does_not_load_is_a_problem_in_the_report() {
         report.contains("| Theme | `/nonexistent/mine.toml` | `--theme` |"),
         "{report}"
     );
+}
+
+#[test]
+fn the_files_tell_where_their_paths_come_from() {
+    let dir = Scratch::new("doctor-file-origins");
+    write(&dir.join("home/kiri.toml"), "");
+    let mut command = doctor(&dir, &[]);
+    command
+        .env("KIRI_CONFIG", dir.join("home/kiri.toml"))
+        .env("XDG_CONFIG_HOME", dir.join("home/xdg"));
+    let out = command.output().unwrap();
+    assert_succeeded(&out);
+    let report = text(&out.stdout);
+    for row in [
+        "| Configuration file | `~/kiri.toml` | `KIRI_CONFIG=~/kiri.toml` | read |",
+        "| Theme file | `~/xdg/kiri/theme.toml` | `XDG_CONFIG_HOME=~/xdg` | not found |",
+    ] {
+        assert!(report.contains(row), "{row}\n{report}");
+    }
 }
 
 #[test]

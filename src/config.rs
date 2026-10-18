@@ -55,6 +55,15 @@ impl Environment {
     }
 }
 
+/// Where the configuration directory comes from: `XDG_CONFIG_HOME`, or
+/// the default under the home directory.
+pub fn directory_origin(env: &Environment) -> Origin {
+    match env.xdg_config_home.as_ref().filter(|dir| !dir.is_empty()) {
+        Some(_) => Origin::Environment("XDG_CONFIG_HOME"),
+        None => Origin::Default,
+    }
+}
+
 /// kiri's configuration directory: `$XDG_CONFIG_HOME/kiri`, or
 /// `~/.config/kiri` when that is unset or empty.
 pub fn directory(env: &Environment) -> Option<PathBuf> {
@@ -88,6 +97,8 @@ pub struct ConfigFile {
     /// The user named the file, so it must exist; the default file need
     /// not.
     pub required: bool,
+    /// Where the path comes from.
+    pub origin: Origin,
 }
 
 /// `KIRI_CONFIG` when it is set and not empty, else `config.toml` in the
@@ -97,11 +108,13 @@ pub fn file(env: &Environment) -> Option<ConfigFile> {
         return Some(ConfigFile {
             path: PathBuf::from(path),
             required: true,
+            origin: Origin::Environment("KIRI_CONFIG"),
         });
     }
     Some(ConfigFile {
         path: directory(env)?.join("config.toml"),
         required: false,
+        origin: directory_origin(env),
     })
 }
 
@@ -353,6 +366,25 @@ mod tests {
     }
 
     #[test]
+    fn the_directory_tells_where_it_comes_from() {
+        let origin = |home, xdg| directory_origin(&env(home, xdg));
+        assert_eq!(
+            origin(Some("/home/u"), Some("/xdg")),
+            Origin::Environment("XDG_CONFIG_HOME")
+        );
+        assert_eq!(
+            origin(None, Some("/xdg")),
+            Origin::Environment("XDG_CONFIG_HOME")
+        );
+        assert_eq!(origin(Some("/home/u"), None), Origin::Default);
+        assert_eq!(origin(Some("/home/u"), Some("")), Origin::Default);
+        assert_eq!(
+            file(&env(Some("/home/u"), Some("/xdg"))).map(|file| file.origin),
+            Some(Origin::Environment("XDG_CONFIG_HOME"))
+        );
+    }
+
+    #[test]
     fn there_is_no_directory_without_home_or_xdg_config_home() {
         assert_eq!(directory(&env(None, None)), None);
         assert_eq!(directory(&env(None, Some(""))), None);
@@ -365,6 +397,7 @@ mod tests {
             Some(ConfigFile {
                 path: PathBuf::from("/home/u/.config/kiri/config.toml"),
                 required: false,
+                origin: Origin::Default,
             })
         );
         assert_eq!(file(&env(None, None)), None);
@@ -379,6 +412,7 @@ mod tests {
             Some(ConfigFile {
                 path: PathBuf::from("/elsewhere/kiri.toml"),
                 required: true,
+                origin: Origin::Environment("KIRI_CONFIG"),
             })
         );
     }

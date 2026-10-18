@@ -33,10 +33,10 @@ kiri [version]: terminal features and settings.
 
 ## Files
 
-| File | Path | Status |
-|---|---|---|
-| Configuration file | `~/.config/kiri/config.toml` | not found |
-| Theme file | `~/.config/kiri/theme.toml` | not found |
+| File | Path | From | Status |
+|---|---|---|---|
+| Configuration file | `~/.config/kiri/config.toml` | default | not found |
+| Theme file | `~/.config/kiri/theme.toml` | default | not found |
 
 ## Image formats
 
