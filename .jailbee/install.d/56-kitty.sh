@@ -1,6 +1,6 @@
 #!/bin/bash
 # 56-kitty — install kitty from its upstream release bundle.
-# Installs: /opt/kitty.app, /usr/local/bin/kitty
+# Installs: /opt/kitty.app, /usr/local/bin/kitty, /usr/local/bin/kitten
 #
 # Upstream rather than Ubuntu's package, which lags behind: the render-check
 # skill should see the same kitty as the maintainer's host. The checksum is
@@ -19,5 +19,7 @@ mkdir -p /opt/kitty.app
 tar -xJf "$bundle" -C /opt/kitty.app
 rm "$bundle"
 ln -sf /opt/kitty.app/bin/kitty /usr/local/bin/kitty
+ln -sf /opt/kitty.app/bin/kitten /usr/local/bin/kitten
 
 /usr/local/bin/kitty --version
+/usr/local/bin/kitten --version
