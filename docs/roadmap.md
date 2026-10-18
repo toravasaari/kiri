@@ -115,6 +115,9 @@ example, come before the rest of phase 3.
 - Interactive pager (`kiri -i`): scrolling, search, a table of contents,
   link selection, anchor jumps, back history, reload on file change.
 - After a reload, a key jumps to the first block that changed.
+- A follow mode for a document another program is writing, such as one
+  Claude is working on in the next window: it reloads on every change and
+  shows the part that changed, without a key press.
 - Pager status line with key hints and a `?` help panel.
 - Groundwork: raw mode, now inside the probe in `term.rs`, usable for
   reading keys.
