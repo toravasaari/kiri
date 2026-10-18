@@ -64,9 +64,10 @@ terminal without having one. kiri asks nothing when it runs in the
 background of its terminal, where raw mode would get it stopped.
 
 `kiri --doctor` reports what detection found and where each setting came
-from. `src/term.rs` and `src/config.rs` hand it those facts, and
-`src/doctor.rs` writes them as a Markdown document, which kiri renders
-like any other or writes as it is into a pipe.
+from. `src/term.rs` and `src/config.rs` hand it the detection, the
+settings and the file paths; `src/doctor.rs` checks which files exist and
+writes it all as a Markdown document, which kiri renders like any other or
+writes as it is into a pipe.
 
 ## Terminal features used
 

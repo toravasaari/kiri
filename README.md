@@ -87,8 +87,9 @@ choose the theme and turn images off, and so can the environment variables
 
 When the output looks wrong, `kiri --doctor` shows what kiri found out
 about the terminal, which settings it uses and where each came from, with
-a sample of headings, a table and an image drawn below. Piped to a file,
-or with `--raw`, the report is Markdown to paste into a bug report.
+a sample of headings, a table and an image drawn below. `kiri --doctor
+--raw` gives the report as Markdown without the sample, to paste into a
+bug report; piped to a file, the report is Markdown with the sample.
 
 An interactive pager (`kiri -i`) with search and link navigation is
 planned.
