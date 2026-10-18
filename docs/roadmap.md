@@ -162,4 +162,12 @@ Smaller polish that fits in whenever there is time, in any phase.
 
 ## Bugs
 
-Known bugs, fixed in whatever phase is under way. None at the moment.
+Known bugs, fixed in whatever phase is under way.
+
+- An image shown on its own, `kiri image.png`, leaves an empty row below
+  it in the maintainer's kitty, so the image is a row shorter than it
+  could be and a two-line prompt scrolls its top row away. `kitten icat`
+  does the same there. It does not happen in kitty on a virtual display,
+  so the window and cell sizes the terminal reports are the first
+  suspect. Once it is understood, the rows left free below the image may
+  become a setting.
