@@ -12,7 +12,8 @@ use crate::kitty::graphics;
 pub struct Capabilities {
     /// Width in cells.
     pub width: u16,
-    /// Height of the terminal window in cells, when it is known.
+    /// Height of the terminal window in cells; `None` when it is not known
+    /// or the terminal reports no rows.
     pub height: Option<u16>,
     /// Colours and text attributes through escape sequences.
     pub styling: bool,

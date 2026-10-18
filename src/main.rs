@@ -174,7 +174,8 @@ fn run(cli: &Cli) -> Result<(), String> {
 
 /// Shows the image file `cli` names, in `format`, read from `reader`. It
 /// is shown whatever the settings say about images in documents, but only
-/// up to the size limit.
+/// up to the size limit. The configuration file is not read: everything in
+/// it is about documents, so a broken one does not stop an image.
 fn show_image(
     cli: &Cli,
     format: Format,

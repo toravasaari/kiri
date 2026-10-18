@@ -64,15 +64,15 @@ pub fn render_image(image: Source, caps: &Capabilities, out: &mut impl Write) ->
         Source::Svg(_) => image::Unit::Css,
     };
     let max_cells = caps.max_image_cells;
-    let max_rows = caps
-        .height
-        .map_or(max_cells, |rows| rows.saturating_sub(1).max(1));
+    let max_rows = caps.height.map_or(max_cells, |rows| {
+        rows.saturating_sub(1).max(1).min(max_cells)
+    });
     let Some(size) = image::size_in(
         image.size(),
         unit,
         image::cell_size(caps),
         caps.width.min(max_cells),
-        max_rows.min(max_cells),
+        max_rows,
     ) else {
         return Ok(());
     };
