@@ -41,6 +41,42 @@ expression: "readable(&render_fixture(\"images-html.md\",\n&with_images(&Capabil
   ␛[38;2;16;114;18m⟦row 8: 20 cells⟧␛[39m
   ␛[38;2;16;114;18m⟦row 9: 20 cells⟧␛[39m
 
+  ␛[0;35;48;2;43;48;59m⍽width⍽␛[0m and ␛[0;35;48;2;43;48;59m⍽height⍽␛[0m are CSS pixels, as in a
+  browser. Given one, the image keeps its
+  shape:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=11652003,s=160,v=120,c=16,r=6,m=0;<860 bytes>␛\  ␛[38;2;177;203;163m⟦row 0: 16 cells⟧␛[39m
+  ␛[38;2;177;203;163m⟦row 1: 16 cells⟧␛[39m
+  ␛[38;2;177;203;163m⟦row 2: 16 cells⟧␛[39m
+  ␛[38;2;177;203;163m⟦row 3: 16 cells⟧␛[39m
+  ␛[38;2;177;203;163m⟦row 4: 16 cells⟧␛[39m
+  ␛[38;2;177;203;163m⟦row 5: 16 cells⟧␛[39m
+
+  Given both, it takes their shape:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=16776131,s=160,v=40,c=16,r=2,m=0;<360 bytes>␛\  ␛[38;2;255;251;195m⟦row 0: 16 cells⟧␛[39m
+  ␛[38;2;255;251;195m⟦row 1: 16 cells⟧␛[39m
+
+  A small image is enlarged to the size asked
+  for:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=10201367,s=70,v=80,c=7,r=4,m=0;<456 bytes>␛\  ␛[38;2;155;169;23m⟦row 0: 7 cells⟧␛[39m
+  ␛[38;2;155;169;23m⟦row 1: 7 cells⟧␛[39m
+  ␛[38;2;155;169;23m⟦row 2: 7 cells⟧␛[39m
+  ␛[38;2;155;169;23m⟦row 3: 7 cells⟧␛[39m
+
+  A percentage is of the text width; the text
+  width still bounds the image:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=4875902,s=110,v=100,c=11,r=5,m=0;<408 bytes>␛\  ␛[38;2;74;102;126m⟦row 0: 11 cells⟧␛[39m
+  ␛[38;2;74;102;126m⟦row 1: 11 cells⟧␛[39m
+  ␛[38;2;74;102;126m⟦row 2: 11 cells⟧␛[39m
+  ␛[38;2;74;102;126m⟦row 3: 11 cells⟧␛[39m
+  ␛[38;2;74;102;126m⟦row 4: 11 cells⟧␛[39m
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=4600948,s=440,v=40,c=44,r=2,m=0;<1200 bytes>␛\  ␛[38;2;70;52;116m⟦row 0: 44 cells⟧␛[39m
+  ␛[38;2;70;52;116m⟦row 1: 44 cells⟧␛[39m
+
   A linked image is shown, but cannot be
   clicked yet:
 

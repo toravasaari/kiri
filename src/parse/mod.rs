@@ -130,6 +130,8 @@ fn inline(node: Node<'_>) -> Option<Inline> {
         NodeValue::Image(link) => Inline::Image(Image {
             url: link.url.clone(),
             alt: inlines(node),
+            width: None,
+            height: None,
         }),
         NodeValue::SoftBreak => Inline::SoftBreak,
         NodeValue::LineBreak => Inline::LineBreak,
@@ -160,12 +162,18 @@ fn image(img: html::Img) -> Inline {
     } else {
         vec![Inline::Text(img.alt)]
     };
-    Inline::Image(Image { url: img.src, alt })
+    Inline::Image(Image {
+        url: img.src,
+        alt,
+        width: img.width,
+        height: img.height,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::Length;
 
     fn text(text: &str) -> Inline {
         Inline::Text(text.into())
@@ -222,6 +230,8 @@ mod tests {
             Inline::Image(Image {
                 url: "a.png".into(),
                 alt: vec![text("An image")],
+                width: None,
+                height: None,
             })
         };
         assert_eq!(
@@ -249,6 +259,8 @@ mod tests {
             vec![Block::Paragraph(vec![Inline::Image(Image {
                 url: "a.png".into(),
                 alt: Vec::new(),
+                width: None,
+                height: None,
             })])]
         );
     }
@@ -260,6 +272,8 @@ mod tests {
             content: vec![Inline::Image(Image {
                 url: "a.png".into(),
                 alt: vec![text("x")],
+                width: None,
+                height: None,
             })],
         };
         assert_eq!(
@@ -286,9 +300,24 @@ mod tests {
                 Inline::Image(Image {
                     url: "a.png".into(),
                     alt: Vec::new(),
+                    width: None,
+                    height: None,
                 }),
                 Inline::Html("</a>".into()),
             ])]
+        );
+    }
+
+    #[test]
+    fn an_img_keeps_its_width_and_height() {
+        assert_eq!(
+            parse("<img src=a.png width=\"50%\" height=\"40\">\n").blocks,
+            vec![Block::Paragraph(vec![Inline::Image(Image {
+                url: "a.png".into(),
+                alt: Vec::new(),
+                width: Some(Length::Percent(50)),
+                height: Some(Length::Pixels(40)),
+            })])]
         );
     }
 

@@ -18,6 +18,25 @@ A `<picture>` shows its `<img>`, whatever its sources say:
   <img src="images/transparent.png" alt="Transparent in a picture">
 </picture>
 
+`width` and `height` are CSS pixels, as in a browser. Given one, the image
+keeps its shape:
+
+<img src="images/pattern.png" alt="Half width" width="160">
+
+Given both, it takes their shape:
+
+<img src="images/pattern.png" alt="Squashed" width="160" height="40">
+
+A small image is enlarged to the size asked for:
+
+<img src="images/icon.png" alt="Enlarged icon" width="64">
+
+A percentage is of the text width; the text width still bounds the image:
+
+<img src="images/pattern.png" alt="Quarter width" width="25%">
+
+<img src="images/icon.png" alt="Too wide" width="1000" height="50">
+
 A linked image is shown, but cannot be clicked yet:
 
 <p align="center">

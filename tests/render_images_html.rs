@@ -151,3 +151,25 @@ fn a_linked_img_in_running_text_is_a_link_with_alt_text() {
     assert!(out.contains("[image: logo]"), "{out:?}");
     assert!(!out.contains("<a"), "{out:?}");
 }
+
+#[test]
+fn an_img_is_drawn_at_its_width_and_height() {
+    // A 40 × 30 image in cells of 10 × 20 pixels.
+    for (attributes, rows) in [
+        (
+            "width=80",
+            ["⟦row 0: 8 cells⟧", "⟦row 1: 8 cells⟧", "⟦row 2: 8 cells⟧"].as_slice(),
+        ),
+        ("height=\"20px\"", &["⟦row 0: 3 cells⟧"]),
+        ("width=\"25%\" height=10", &["⟦row 0: 11 cells⟧"]),
+        (
+            "width=\"auto\" height=\"50%\"",
+            &["⟦row 0: 4 cells⟧", "⟦row 1: 4 cells⟧"],
+        ),
+    ] {
+        let images = one_image("p.png", quadrants(40, 30));
+        let source = format!("<img src=\"p.png\" {attributes}>\n");
+        let out = render(&source, &with_images(&Capabilities::kitty(WIDTH), images));
+        assert_eq!(drawn(&out), rows, "{attributes}");
+    }
+}

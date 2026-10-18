@@ -19,6 +19,28 @@ expression: "visible(&render_fixture(\"images-html.md\",\n&with_images(&Capabili
 
   ␛[0;2;3m[image: Transparent in a picture]␛[0m
 
+  ␛[0;35;48;5;236m⍽width⍽␛[0m and ␛[0;35;48;5;236m⍽height⍽␛[0m are CSS pixels, as in a
+  browser. Given one, the image keeps its
+  shape:
+
+  ␛[0;2;3m[image: Half width]␛[0m
+
+  Given both, it takes their shape:
+
+  ␛[0;2;3m[image: Squashed]␛[0m
+
+  A small image is enlarged to the size asked
+  for:
+
+  ␛[0;2;3m[image: Enlarged icon]␛[0m
+
+  A percentage is of the text width; the text
+  width still bounds the image:
+
+  ␛[0;2;3m[image: Quarter width]␛[0m
+
+  ␛[0;2;3m[image: Too wide]␛[0m
+
   A linked image is shown, but cannot be
   clicked yet:
 

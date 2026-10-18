@@ -19,6 +19,28 @@ expression: "render_fixture(\"images-html.md\",\n&with_images(&Capabilities::pla
 
   [image: Transparent in a picture]
 
+  `width` and `height` are CSS pixels, as in a
+  browser. Given one, the image keeps its
+  shape:
+
+  [image: Half width]
+
+  Given both, it takes their shape:
+
+  [image: Squashed]
+
+  A small image is enlarged to the size asked
+  for:
+
+  [image: Enlarged icon]
+
+  A percentage is of the text width; the text
+  width still bounds the image:
+
+  [image: Quarter width]
+
+  [image: Too wide]
+
   A linked image is shown, but cannot be
   clicked yet:
 

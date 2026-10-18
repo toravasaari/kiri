@@ -2,11 +2,15 @@
 //! as source: `<img>`, alone or in tags that only wrap it, and `<a>`
 //! around an `<img>`.
 
+use crate::model::Length;
+
 /// An `<img>` tag with a `src`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Img {
     pub src: String,
     pub alt: String,
+    pub width: Option<Length>,
+    pub height: Option<Length>,
     /// The `href` of an `<a>` around the image.
     pub link: Option<String>,
 }
@@ -73,7 +77,39 @@ fn img(tag: &Tag) -> Option<Img> {
     Some(Img {
         src: src.to_owned(),
         alt: tag.get("alt").unwrap_or_default().to_owned(),
+        width: tag.get("width").and_then(length),
+        height: tag.get("height").and_then(length),
         link: None,
+    })
+}
+
+/// A `width` or `height` value, read as a browser does: a number of CSS
+/// pixels, or a percentage when `%` follows it. Anything after that is
+/// ignored. A value that is no number or rounds to 0 gives `None`.
+fn length(value: &str) -> Option<Length> {
+    let value = value.trim_start_matches(|c: char| c.is_ascii_whitespace());
+    let digits = value
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(value.len());
+    if digits == 0 {
+        return None;
+    }
+    let mut end = digits;
+    if let Some(fraction) = value[digits..].strip_prefix('.') {
+        end += 1 + fraction
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(fraction.len());
+    }
+    let number: f64 = value[..end].parse().ok()?;
+    // `as` saturates at u32::MAX.
+    let rounded = number.round() as u32;
+    if rounded == 0 {
+        return None;
+    }
+    Some(if value[end..].starts_with('%') {
+        Length::Percent(rounded)
+    } else {
+        Length::Pixels(rounded)
     })
 }
 
@@ -247,7 +283,17 @@ mod tests {
         Some(Img {
             src: src.into(),
             alt: alt.into(),
+            width: None,
+            height: None,
             link: None,
+        })
+    }
+
+    fn sized(width: Option<Length>, height: Option<Length>) -> Option<Img> {
+        Some(Img {
+            width,
+            height,
+            ..img("a.png", "")?
         })
     }
 
@@ -326,6 +372,52 @@ mod tests {
         assert_eq!(inline_img("<imgx src=a.png>"), None);
         assert_eq!(inline_img("<img src=a.png"), None);
         assert_eq!(inline_img("<img src=a.png><img src=b.png>"), None);
+    }
+
+    #[test]
+    fn reads_width_and_height_in_css_pixels() {
+        use Length::Pixels;
+        assert_eq!(
+            inline_img("<img src=a.png width=320 height=\"240\">"),
+            sized(Some(Pixels(320)), Some(Pixels(240)))
+        );
+        assert_eq!(
+            inline_img("<img src=a.png width=\" 100px\">"),
+            sized(Some(Pixels(100)), None)
+        );
+        assert_eq!(
+            inline_img("<img src=a.png height=\"80.6\">"),
+            sized(None, Some(Pixels(81)))
+        );
+    }
+
+    #[test]
+    fn reads_a_percentage() {
+        assert_eq!(
+            inline_img("<img src=a.png width=\"50%\" height=\"25.5 %\">"),
+            sized(Some(Length::Percent(50)), Some(Length::Pixels(26)))
+        );
+        assert_eq!(
+            inline_img("<img src=a.png width=\"33.4%\">"),
+            sized(Some(Length::Percent(33)), None)
+        );
+    }
+
+    #[test]
+    fn ignores_lengths_that_are_no_size() {
+        for value in ["", "px", "-10", "0", "0.4", "0%", ".5", "auto"] {
+            assert_eq!(
+                inline_img(&format!(
+                    "<img src=a.png width=\"{value}\" height=\"{value}\">"
+                )),
+                sized(None, None),
+                "{value:?}"
+            );
+        }
+        assert_eq!(
+            inline_img("<img src=a.png width=99999999999>"),
+            sized(Some(Length::Pixels(u32::MAX)), None)
+        );
     }
 
     #[test]

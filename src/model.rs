@@ -79,6 +79,19 @@ pub enum Inline {
 pub struct Image {
     pub url: String,
     pub alt: Vec<Inline>,
+    /// The size the document asks for, as HTML's `width` and `height`
+    /// give it. `None` leaves it to the image.
+    pub width: Option<Length>,
+    pub height: Option<Length>,
+}
+
+/// A length as HTML gives it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Length {
+    /// CSS pixels.
+    Pixels(u32),
+    /// A percentage of the width there is.
+    Percent(u32),
 }
 
 impl Inline {
