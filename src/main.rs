@@ -141,6 +141,8 @@ fn main() -> ExitCode {
             Some(path) if path != Path::new("-") => run(&cli, Some(path)),
             Some(_) => run(&cli, None),
             None if !kiri::term::stdin_is_terminal() => run(&cli, None),
+            // clap cannot require the file only when stdin is a terminal,
+            // so this is its own error for a missing argument.
             None => command
                 .error(
                     ErrorKind::MissingRequiredArgument,
@@ -158,7 +160,8 @@ fn main() -> ExitCode {
     }
 }
 
-/// What errors and warnings call standard input.
+/// What errors and warnings call standard input. Without an extension, so
+/// that the content tells what standard input is, as for such a file.
 const STDIN: &str = "<stdin>";
 
 /// Shows the file at `path`, the README of a directory there, or standard
