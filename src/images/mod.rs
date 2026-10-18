@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 use image::error::{ImageFormatHint, UnsupportedErrorKind};
 use image::metadata::Orientation;
-use image::{DynamicImage, ImageDecoder, ImageReader, Limits, RgbaImage};
+use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, Limits, RgbaImage};
 
 use crate::model::{Block, Document, Inline};
 
@@ -104,7 +104,7 @@ pub enum ImageError {
     InvalidData,
     /// The bytes are not in any image format kiri knows.
     UnknownFormat,
-    /// A known image format that this build cannot decode.
+    /// A known image format that this build cannot decode, by name.
     UnsupportedFormat(String),
     /// The data ends before the image does.
     Truncated,
@@ -141,7 +141,7 @@ impl fmt::Display for ImageError {
             ImageError::InvalidData => f.write_str("invalid data: URL"),
             ImageError::UnknownFormat => f.write_str("not an image format kiri knows"),
             ImageError::UnsupportedFormat(format) => {
-                write!(f, "{format} images are not supported")
+                write!(f, "{format} images are not supported in this build")
             }
             ImageError::Truncated => f.write_str("the image data is cut short"),
             ImageError::TooLarge { width, height } => {
@@ -318,12 +318,35 @@ fn from_image_error(error: image::ImageError) -> ImageError {
         image::ImageError::Unsupported(error) => match error.kind() {
             UnsupportedErrorKind::Format(ImageFormatHint::Unknown) => ImageError::UnknownFormat,
             UnsupportedErrorKind::Format(ImageFormatHint::Exact(format)) => {
-                ImageError::UnsupportedFormat(format!("{format:?}"))
+                ImageError::UnsupportedFormat(format_name(format))
             }
             _ => ImageError::Corrupt(error.to_string()),
         },
         error => ImageError::Corrupt(error.to_string()),
     }
+}
+
+/// The name people use for `format`, for messages.
+fn format_name(format: ImageFormat) -> String {
+    match format {
+        ImageFormat::Png => "PNG",
+        ImageFormat::Jpeg => "JPEG",
+        ImageFormat::Gif => "GIF",
+        ImageFormat::WebP => "WebP",
+        ImageFormat::Pnm => "PNM",
+        ImageFormat::Tiff => "TIFF",
+        ImageFormat::Tga => "TGA",
+        ImageFormat::Dds => "DDS",
+        ImageFormat::Bmp => "BMP",
+        ImageFormat::Ico => "ICO",
+        ImageFormat::Hdr => "Radiance HDR",
+        ImageFormat::OpenExr => "OpenEXR",
+        ImageFormat::Farbfeld => "farbfeld",
+        ImageFormat::Avif => "AVIF",
+        ImageFormat::Qoi => "QOI",
+        format => return format!("{format:?}"),
+    }
+    .to_owned()
 }
 
 #[cfg(test)]
@@ -600,9 +623,32 @@ mod tests {
     #[test]
     fn reports_a_format_this_build_cannot_decode() {
         let farbfeld = b"farbfeld\0\0\0\x01\0\0\0\x01\0\0\0\0\0\0\0\0";
+        let error = decode(farbfeld, DEFAULT_MAX_FILE_SIZE, &Fonts::none()).unwrap_err();
+        assert_eq!(error, ImageError::UnsupportedFormat("farbfeld".into()));
         assert_eq!(
-            decode(farbfeld, DEFAULT_MAX_FILE_SIZE, &Fonts::none()),
-            Err(ImageError::UnsupportedFormat("Farbfeld".into()))
+            error.to_string(),
+            "farbfeld images are not supported in this build"
+        );
+    }
+
+    #[test]
+    fn names_formats_as_people_write_them() {
+        let names = [
+            ImageFormat::Bmp,
+            ImageFormat::Ico,
+            ImageFormat::Tiff,
+            ImageFormat::Qoi,
+            ImageFormat::Pnm,
+            ImageFormat::Tga,
+            ImageFormat::OpenExr,
+            ImageFormat::Farbfeld,
+        ]
+        .map(format_name);
+        assert_eq!(
+            names,
+            [
+                "BMP", "ICO", "TIFF", "QOI", "PNM", "TGA", "OpenEXR", "farbfeld"
+            ]
         );
     }
 
