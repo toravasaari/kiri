@@ -59,7 +59,10 @@ that document's screenshot with the error on it, goes on with the other
 documents and then exits with kiri's status, 128 plus the signal number
 for a crash. Treat that as a failed check. When kitty does not answer its
 first query within 60 s, or a screenshot cannot be compared, the script
-stops at once with status 1 and starts no more documents.
+stops at once with status 1 and starts no more documents. It stops the same
+way when kiri leaves kitty's answers unread: kiri's probe timed out, which
+happens on a busy machine, such as a new jailbee container still running
+its background `make build`. Run it again once the machine is idle.
 
 Report what you could not judge. The screenshots come from kitty's software
 renderer (Mesa llvmpipe) with default fonts, so font rendering, colours of

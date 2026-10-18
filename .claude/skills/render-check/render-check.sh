@@ -115,11 +115,15 @@ display=:$(cat "$work/display")
 # kitty is ready, and without one kiri is not started. kitty answers in
 # order, so when it reports the cursor position after kiri, it has read all
 # of kiri's output. The report is kiri's exit status, the cursor's row and
-# column and the cell size in pixels.
+# column and the cell size in pixels. Answers kiri left unread mean its probe
+# timed out, which a busy machine can cause; they would be taken for the
+# answers asked for here.
 inner='ask() { printf "%b" "$1"; IFS= read -r -s -d "$2" -t 60 reply; }
 ask "\033[c" c || { echo "no answer" >"$0"; exit 1; }
 "$@"
 status=$?
+IFS= read -r -s -d "" -t 0.5 unread
+[ -z "$unread" ] || { echo "unread" >"$0"; exit 1; }
 ask "\033[6n" R; position=${reply##*\[}
 ask "\033[16t" t; cell=${reply##*\[6;}
 echo "$status ${position/;/ } ${cell/;/ }" >"$0"
@@ -205,6 +209,9 @@ for file in "${files[@]}"; do
 	[ "$(cat "$work/done")" != "no answer" ] ||
 		die "$file: kitty did not answer the device attributes query" \
 			"within 60 s, so kiri was not started"
+	[ "$(cat "$work/done")" != "unread" ] ||
+		die "$file: kiri left kitty's answers unread, so its probe timed" \
+			"out, probably because the machine is busy; run again when idle"
 	read -r status row col cell_h cell_w <"$work/done"
 	[[ "$status $row $col $cell_h $cell_w" =~ ^[0-9]+( [1-9][0-9]*){4}$ ]] ||
 		die "$file: kitty did not report the cursor and cell size" \
