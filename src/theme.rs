@@ -54,7 +54,7 @@ pub struct Theme {
     pub code_theme_dark: String,
     pub code_theme_light: String,
     /// The language of a code block named in its top right corner, on the
-    /// padding line above the code.
+    /// padding line above the code. It needs `code_padding` and colours.
     pub show_language_label: bool,
     pub language_label: LabelColor,
 }

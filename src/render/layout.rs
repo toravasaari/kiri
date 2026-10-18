@@ -349,8 +349,9 @@ impl Layout<'_> {
     }
 
     /// The top padding line of a code block `width` cells wide, with
-    /// `language` at its right end and one cell after it, as before the
-    /// code. `None` when the name does not fit with a cell on each side.
+    /// `language` at its right end, one cell from the edge as the code is
+    /// at the left. `None` when the name does not fit with a cell on each
+    /// side.
     fn language_label(
         &self,
         language: &str,
@@ -644,6 +645,8 @@ fn checkbox(checked: bool, styled: bool) -> &'static str {
 
 /// The colour halfway between two RGB colours, rounded up; `a` when
 /// either is missing or a palette colour, whose value is the terminal's.
+/// A code theme without a text colour so leaves the label in the
+/// terminal's; every bundled theme has one.
 fn halfway(a: Option<Color>, b: Option<Color>) -> Option<Color> {
     match (a, b) {
         (Some(Color::Rgb(r1, g1, b1)), Some(Color::Rgb(r2, g2, b2))) => {
