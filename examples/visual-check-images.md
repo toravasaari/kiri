@@ -180,6 +180,27 @@ text:
 
 ![Silhouette](../tests/fixtures/images/silhouette.svg)
 
+## More formats
+
+The full build, the default, also shows BMP, TIFF, QOI, PNM, TGA and ICO
+images. The test pattern five times, as a BMP, a TIFF, a QOI image, a PPM
+and a TGA, each like the first one on this page, then the red disc and
+half-transparent blue square from the transparency section, from an icon
+file. A build without default features shows their alt text instead, and
+warns about each of them:
+
+![BMP](../tests/fixtures/images/pattern.bmp)
+
+![TIFF](../tests/fixtures/images/pattern.tif)
+
+![QOI](../tests/fixtures/images/pattern.qoi)
+
+![PPM](../tests/fixtures/images/pattern.ppm)
+
+![TGA](../tests/fixtures/images/pattern.tga)
+
+![ICO](../tests/fixtures/images/transparent.ico)
+
 ## Lists, quotes and links
 
 Images in a list and a quote start after the bullet and the bar, and the
