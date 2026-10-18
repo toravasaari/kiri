@@ -1,5 +1,7 @@
 //! Markdown source to document model, through comrak's syntax tree.
 
+mod html;
+
 use comrak::nodes::{ListType, NodeValue, TableAlignment};
 use comrak::{Arena, Node, Options, parse_document};
 
@@ -46,7 +48,10 @@ fn block(node: Node<'_>) -> Option<Block> {
         }),
         NodeValue::Table(table) => Block::Table(self::table(node, &table.alignments)),
         NodeValue::ThematicBreak => Block::ThematicBreak,
-        NodeValue::HtmlBlock(html) => Block::Html(html.literal.clone()),
+        NodeValue::HtmlBlock(block) => match html::block_img(&block.literal) {
+            Some(img) => Block::Paragraph(vec![image(img)]),
+            None => Block::Html(block.literal.clone()),
+        },
         _ => return None,
     };
     Some(block)
@@ -110,9 +115,22 @@ fn inline(node: Node<'_>) -> Option<Inline> {
         },
         NodeValue::SoftBreak => Inline::SoftBreak,
         NodeValue::LineBreak => Inline::LineBreak,
-        NodeValue::HtmlInline(html) => Inline::Html(html.clone()),
+        NodeValue::HtmlInline(tag) => match html::inline_img(tag) {
+            Some(img) => image(img),
+            None => Inline::Html(tag.clone()),
+        },
         _ => return None,
     })
+}
+
+/// An HTML `<img>` as the image Markdown would give.
+fn image(img: html::Img) -> Inline {
+    let alt = if img.alt.is_empty() {
+        Vec::new()
+    } else {
+        vec![Inline::Text(img.alt)]
+    };
+    Inline::Image { url: img.src, alt }
 }
 
 #[cfg(test)]
@@ -165,6 +183,58 @@ mod tests {
                 header: vec![vec![text("a")], vec![text("b")]],
                 rows: vec![vec![vec![text("1")], vec![text("2")]]],
             })]
+        );
+    }
+
+    #[test]
+    fn reads_an_html_img_as_an_image() {
+        let image = || Inline::Image {
+            url: "a.png".into(),
+            alt: vec![text("An image")],
+        };
+        assert_eq!(
+            parse("<img src=\"a.png\" alt=\"An image\">\n").blocks,
+            vec![Block::Paragraph(vec![image()])]
+        );
+        assert_eq!(
+            parse("<p align=\"center\">\n  <img src=\"a.png\" alt=\"An image\">\n</p>\n").blocks,
+            vec![Block::Paragraph(vec![image()])]
+        );
+        assert_eq!(
+            parse("Text <img src=\"a.png\" alt=\"An image\"> here.\n").blocks,
+            vec![Block::Paragraph(vec![
+                text("Text "),
+                image(),
+                text(" here.")
+            ])]
+        );
+    }
+
+    #[test]
+    fn an_img_without_alt_has_no_alt_text() {
+        assert_eq!(
+            parse("<img src=a.png>\n").blocks,
+            vec![Block::Paragraph(vec![Inline::Image {
+                url: "a.png".into(),
+                alt: Vec::new(),
+            }])]
+        );
+    }
+
+    #[test]
+    fn keeps_other_html_as_source() {
+        assert_eq!(
+            parse("<p>Text <img src=a.png></p>\n").blocks,
+            vec![Block::Html("<p>Text <img src=a.png></p>\n".into())]
+        );
+        assert_eq!(
+            parse("Text <b>bold</b>\n").blocks,
+            vec![Block::Paragraph(vec![
+                text("Text "),
+                Inline::Html("<b>".into()),
+                text("bold"),
+                Inline::Html("</b>".into()),
+            ])]
         );
     }
 

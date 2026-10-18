@@ -1,0 +1,37 @@
+---
+source: tests/render_images_html.rs
+expression: "visible(&render_fixture(\"images-html.md\",\n&with_images(&Capabilities::ansi(WIDTH), fixture_images(\"images-html.md\"))))"
+---
+␛[0;1;4;34mHTML images␛[0m
+
+  An ␛[0;35;48;5;236m⍽<img>⍽␛[0m tag on a line of its own is shown
+  like a Markdown image:
+
+  ␛[0;2;3m[image: Icon]␛[0m
+
+  So is an image wrapped the way READMEs
+  centre a logo; kiri does not centre it:
+
+  ␛[0;2;3m[image: Test pattern]␛[0m
+
+  A ␛[0;35;48;5;236m⍽<picture>⍽␛[0m shows its ␛[0;35;48;5;236m⍽<img>⍽␛[0m, whatever
+  its sources say:
+
+  ␛[0;2;3m[image: Transparent in a picture]␛[0m
+
+  In running text, ␛[0;2;3m[image: Fish & chips]␛[0m stays
+  alt text, as Markdown images do.
+
+  A missing file shows its alt text:
+
+  ␛[0;2;3m[image: Missing image]␛[0m
+
+  These stay HTML source: a block with text, a
+  block with two images and an ␛[0;35;48;5;236m⍽<img>⍽␛[0m without
+  a ␛[0;35;48;5;236m⍽src⍽␛[0m.
+
+  ␛[0;2m<p>Text and <img src="images/icon.png" alt="an icon"></p>␛[0m
+
+  ␛[0;2m<p><img src="images/icon.png" alt="One"><img src="images/icon.png" alt="Two"></p>␛[0m
+
+  ␛[0;2m<img alt="No source">␛[0m

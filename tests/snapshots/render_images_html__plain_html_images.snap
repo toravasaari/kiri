@@ -1,0 +1,37 @@
+---
+source: tests/render_images_html.rs
+expression: "render_fixture(\"images-html.md\",\n&with_images(&Capabilities::plain(WIDTH), fixture_images(\"images-html.md\")))"
+---
+# HTML images
+
+  An `<img>` tag on a line of its own is shown
+  like a Markdown image:
+
+  [image: Icon]
+
+  So is an image wrapped the way READMEs
+  centre a logo; kiri does not centre it:
+
+  [image: Test pattern]
+
+  A `<picture>` shows its `<img>`, whatever
+  its sources say:
+
+  [image: Transparent in a picture]
+
+  In running text, [image: Fish & chips] stays
+  alt text, as Markdown images do.
+
+  A missing file shows its alt text:
+
+  [image: Missing image]
+
+  These stay HTML source: a block with text, a
+  block with two images and an `<img>` without
+  a `src`.
+
+  <p>Text and <img src="images/icon.png" alt="an icon"></p>
+
+  <p><img src="images/icon.png" alt="One"><img src="images/icon.png" alt="Two"></p>
+
+  <img alt="No source">
