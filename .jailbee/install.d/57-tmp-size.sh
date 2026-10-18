@@ -3,9 +3,10 @@
 # Installs: /etc/systemd/system/tmp.mount.d/size.conf
 #
 # Ubuntu mounts /tmp as a tmpfs of half the host's memory, but its pages
-# count against the container's memory limit and cannot be swapped out, so
-# a full /tmp makes the kernel kill processes. With the cap, a write fails
-# with "no space left on device" instead. The other options are systemd's.
+# count against the container's memory limit and the container has no swap
+# to move them to, so a full /tmp makes the kernel kill processes. With the
+# cap, a write fails with "No space left on device" instead. The other
+# options are copied from Ubuntu's tmp.mount; recheck them if it changes.
 set -euo pipefail
 
 echo "==> Capping /tmp at 2 GiB"
