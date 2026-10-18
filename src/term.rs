@@ -38,7 +38,8 @@ pub struct Capabilities {
     /// introduced; without them every underline is single. Only the probe
     /// sets it, apart from `--mode kitty`.
     pub styled_underlines: bool,
-    /// Size of one cell in pixels, when the terminal reports it.
+    /// Size of one cell in pixels, when the terminal reports it: in the
+    /// window size, or else in an answer to the probe.
     pub cell_pixels: Option<(u16, u16)>,
     /// Whether the background is dark; `None` when unknown.
     pub dark_background: Option<bool>,
@@ -134,7 +135,7 @@ fn detect(width: u16, window: Option<WindowSize>, env: &Environment) -> Capabili
     }
     let caps = with_environment(Capabilities::ansi(width), env);
     let caps = with_window(caps, window);
-    match probe::run() {
+    match probe::run(caps.cell_pixels.is_none()) {
         Some(answers) => with_probe(caps, &probe::interpret(&answers)),
         None => caps,
     }
@@ -159,6 +160,8 @@ fn with_probe(mut caps: Capabilities, probe: &probe::Probe) -> Capabilities {
         0
     };
     caps.dark_background = probe.dark_background;
+    // The window size in pixels, when the kernel has it, comes first.
+    caps.cell_pixels = caps.cell_pixels.or(probe.cell_pixels);
     // Only kitty-compatible terminals implement these protocols, and all
     // of them also do 24-bit colour, OSC 8 and underline styles.
     if probe.text_sizing || probe.graphics {
@@ -243,6 +246,23 @@ mod tests {
         assert!(caps.draws_images());
         assert_eq!(caps.max_image_cells, graphics::MAX_CELLS);
         assert_eq!(caps, Capabilities::kitty(80));
+    }
+
+    #[test]
+    fn the_probe_tells_the_cell_size_only_when_the_window_does_not() {
+        let probe = probe::Probe {
+            cell_pixels: Some((9, 19)),
+            ..probe::Probe::default()
+        };
+        let caps = with_probe(Capabilities::ansi(80), &probe);
+        assert_eq!(caps.cell_pixels, Some((9, 19)));
+        let window = Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::ansi(80)
+        };
+        assert_eq!(with_probe(window, &probe).cell_pixels, Some((10, 20)));
+        let caps = with_probe(Capabilities::ansi(80), &probe::Probe::default());
+        assert_eq!(caps.cell_pixels, None);
     }
 
     #[test]
@@ -460,10 +480,10 @@ mod probe {
 
     /// Cursor position reports around kitty's two text sizing tests, then a
     /// graphics protocol query, the background colour, the terminal's
-    /// version, and primary device attributes. Every terminal answers the
-    /// last one, so its answer marks the end, also when a terminal ignores
-    /// the others.
-    fn queries() -> String {
+    /// version, the cell size if `ask_cell_size`, and primary device
+    /// attributes. Every terminal answers the last one, so its answer marks
+    /// the end, also when a terminal ignores the others.
+    fn queries(ask_cell_size: bool) -> String {
         let [width, scale] = query::text_sizing();
         [
             "\r",
@@ -475,6 +495,7 @@ mod probe {
             query::GRAPHICS,
             BACKGROUND,
             VERSION,
+            if ask_cell_size { query::CELL_SIZE } else { "" },
             DEVICE_ATTRIBUTES,
         ]
         .concat()
@@ -486,20 +507,28 @@ mod probe {
         pub graphics: bool,
         pub image_placeholders: bool,
         pub dark_background: Option<bool>,
+        /// Width and height of a cell in pixels, when asked and answered.
+        pub cell_pixels: Option<(u16, u16)>,
     }
 
     /// Sends the queries on the controlling terminal and collects the
-    /// answers. `None` if the terminal cannot be used or does not answer.
-    pub fn run() -> Option<Vec<u8>> {
+    /// answers, asking for the cell size if `ask_cell_size`. `None` if the
+    /// terminal cannot be used or does not answer.
+    pub fn run(ask_cell_size: bool) -> Option<Vec<u8>> {
         let tty = File::options()
             .read(true)
             .write(true)
             .open("/dev/tty")
             .ok()?;
-        let raw = RawMode::enter(&tty)?;
-        let answers = exchange(&tty);
+        ask(&tty, ask_cell_size)
+    }
+
+    /// [`run`] on `tty`.
+    fn ask(tty: &File, ask_cell_size: bool) -> Option<Vec<u8>> {
+        let raw = RawMode::enter(tty)?;
+        let answers = exchange(tty, ask_cell_size);
         // Erase whatever the OSC 66 tests drew before restoring the mode.
-        let _ = (&tty).write_all(query::erase_text_sizing_tests().as_bytes());
+        let _ = (&*tty).write_all(query::erase_text_sizing_tests().as_bytes());
         drop(raw);
         answers
     }
@@ -531,8 +560,8 @@ mod probe {
         }
     }
 
-    fn exchange(mut tty: &File) -> Option<Vec<u8>> {
-        tty.write_all(queries().as_bytes()).ok()?;
+    fn exchange(mut tty: &File, ask_cell_size: bool) -> Option<Vec<u8>> {
+        tty.write_all(queries(ask_cell_size).as_bytes()).ok()?;
         tty.flush().ok()?;
         let deadline = Instant::now() + TIMEOUT;
         let mut answers = Vec::new();
@@ -577,6 +606,7 @@ mod probe {
             graphics,
             image_placeholders: graphics && (text_sizing || placeholders_by_version),
             dark_background: background_is_dark(&text),
+            cell_pixels: query::cell_size(&text),
         }
     }
 
@@ -636,11 +666,69 @@ mod probe {
         #[test]
         fn sends_the_queries_in_order() {
             assert_eq!(
-                queries(),
+                queries(false),
                 "\r\x1b[6n\x1b]66;w=2; \x1b\\\x1b[6n\x1b]66;s=2; \x1b\\\x1b[6n\
                  \x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b]11;?\x1b\\\
                  \x1b[>q\x1b[c"
             );
+        }
+
+        #[test]
+        fn asks_for_the_cell_size_only_when_told() {
+            let without = queries(false);
+            let end = without.len() - DEVICE_ATTRIBUTES.len();
+            assert_eq!(
+                queries(true),
+                [&without[..end], "\x1b[16t", DEVICE_ATTRIBUTES].concat()
+            );
+        }
+
+        #[test]
+        fn reads_the_cell_size_among_the_answers() {
+            let answers = KITTY.replace("\x1b[?62;c", "\x1b[6;19;9t\x1b[?62;c");
+            assert_eq!(interpret(answers.as_bytes()).cell_pixels, Some((9, 19)));
+            assert_eq!(interpret(KITTY.as_bytes()).cell_pixels, None);
+        }
+
+        /// Runs the probe on a pseudo-terminal whose other side answers
+        /// like a kitty with cells of 9 × 19 pixels. Returns the queries the
+        /// terminal saw and what the probe read.
+        fn ask_kitty(ask_cell_size: bool) -> (String, Option<Vec<u8>>) {
+            let (mut terminal, tty) = crate::term::tests::pty();
+            let kitty = std::thread::spawn(move || {
+                let mut seen = Vec::new();
+                let mut buffer = [0; 1024];
+                while !seen.ends_with(DEVICE_ATTRIBUTES.as_bytes()) {
+                    let read = terminal.read(&mut buffer).unwrap();
+                    seen.extend_from_slice(&buffer[..read]);
+                }
+                let seen = String::from_utf8(seen).unwrap();
+                let mut answers = KITTY.to_owned();
+                if seen.contains("\x1b[16t") {
+                    answers.insert_str(0, "\x1b[6;19;9t");
+                }
+                terminal.write_all(answers.as_bytes()).unwrap();
+                (seen, terminal)
+            });
+            let answers = ask(&tty, ask_cell_size);
+            let (seen, _terminal) = kitty.join().unwrap();
+            (seen, answers)
+        }
+
+        #[test]
+        fn a_terminal_tells_its_cell_size_when_asked() {
+            let (seen, answers) = ask_kitty(true);
+            assert!(seen.contains("\x1b[16t"), "{seen:?}");
+            let probe = interpret(&answers.unwrap());
+            assert_eq!(probe.cell_pixels, Some((9, 19)));
+            assert!(probe.graphics);
+        }
+
+        #[test]
+        fn the_cell_size_is_not_asked_unless_told() {
+            let (seen, answers) = ask_kitty(false);
+            assert!(!seen.contains("\x1b[16t"), "{seen:?}");
+            assert_eq!(interpret(&answers.unwrap()).cell_pixels, None);
         }
 
         #[test]
@@ -653,6 +741,7 @@ mod probe {
                     graphics: true,
                     image_placeholders: true,
                     dark_background: Some(true),
+                    cell_pixels: None,
                 }
             );
             assert!(has_device_attributes(KITTY.as_bytes()));
@@ -668,6 +757,7 @@ mod probe {
                     graphics: false,
                     image_placeholders: false,
                     dark_background: Some(false),
+                    cell_pixels: None,
                 }
             );
         }
