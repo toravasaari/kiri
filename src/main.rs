@@ -22,6 +22,11 @@ struct Cli {
     /// Markdown file to render, or an image to show on its own.
     file: PathBuf,
 
+    /// What the file is: markdown, image, or an image format such as svg,
+    /// png or jpg. By default its extension and content tell.
+    #[arg(short, long, value_parser = format)]
+    format: Option<Input>,
+
     /// Width in cells; defaults to the terminal width.
     #[arg(long)]
     width: Option<u16>,
@@ -71,6 +76,13 @@ fn max_image_size(value: &str) -> Result<u64, String> {
     }
 }
 
+/// The `--format` value.
+fn format(value: &str) -> Result<Input, String> {
+    kiri::input::format(value).ok_or_else(|| {
+        "give markdown, image, or an image format such as svg, png or jpg".to_owned()
+    })
+}
+
 /// `term::Mode` for clap, which takes its help from these comments.
 #[derive(Clone, Copy, ValueEnum)]
 enum Mode {
@@ -115,16 +127,20 @@ fn run(cli: &Cli) -> Result<(), String> {
         .read_to_end(&mut head)
         .map_err(failed)?;
     let env = Environment::from_process();
-    if let Input::Image(format) = kiri::input::detect(path, &head) {
+    let input = cli
+        .format
+        .unwrap_or_else(|| kiri::input::detect(path, &head));
+    if let Input::Image(format) = input {
         return show_image(cli, format, Cursor::new(head).chain(file), &env);
     }
     let mut bytes = head;
     file.read_to_end(&mut bytes).map_err(failed)?;
-    let source = String::from_utf8(bytes).map_err(|_| {
-        format!(
+    let source = String::from_utf8(bytes).map_err(|_| match cli.format {
+        Some(_) => format!("{}: not UTF-8 text", path.display()),
+        None => format!(
             "{}: neither Markdown nor an image kiri knows",
             path.display()
-        )
+        ),
     })?;
     let config = kiri::config::load(&env)?;
     let settings = kiri::config::settings(&options(cli), &env, &config)?;

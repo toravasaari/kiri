@@ -85,7 +85,7 @@ pub enum Format {
     Detect,
     /// An SVG, plain or compressed.
     Svg,
-    /// A raster format, also when the content does not tell it.
+    /// A raster format, whatever the content tells.
     Raster(ImageFormat),
 }
 
@@ -331,16 +331,20 @@ pub fn decode(bytes: &[u8], max_size: u64, fonts: &Fonts) -> Result<Source, Imag
     }
 }
 
-/// Decodes a raster image in the format its bytes tell, or in `format`
-/// when they tell none.
+/// Decodes a raster image in `format`, or in the format its bytes tell
+/// when it is `None`.
 fn decode_raster(bytes: &[u8], format: Option<ImageFormat>) -> Result<Source, ImageError> {
-    let mut reader = ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .expect("reading from memory does not fail");
-    match (reader.format(), format) {
-        (Some(_), _) => {}
-        (None, Some(format)) => reader.set_format(format),
-        (None, None) => return Err(ImageError::UnknownFormat),
+    let mut reader = ImageReader::new(Cursor::new(bytes));
+    match format {
+        Some(format) => reader.set_format(format),
+        None => {
+            reader = reader
+                .with_guessed_format()
+                .expect("reading from memory does not fail");
+            if reader.format().is_none() {
+                return Err(ImageError::UnknownFormat);
+            }
+        }
     }
     let mut limits = Limits::default();
     limits.max_alloc = Some(MAX_ALLOC);
@@ -654,6 +658,24 @@ mod tests {
             decode(farbfeld, DEFAULT_MAX_FILE_SIZE, &Fonts::none()),
             Err(ImageError::UnsupportedFormat("Farbfeld".into()))
         );
+    }
+
+    #[test]
+    fn reads_an_image_file_in_the_format_it_is_given() {
+        let read = |name: &str, format| {
+            let path = fixtures().join("images").join(name);
+            let file = std::fs::File::open(&path).unwrap();
+            read_image(file, &path, format, DEFAULT_MAX_FILE_SIZE, &Fonts::none())
+        };
+        let png = Format::Raster(ImageFormat::Png);
+        assert!(matches!(read("icon.png", png), Ok(Source::Raster(_))));
+        assert!(matches!(
+            read("pattern.svg", Format::Svg),
+            Ok(Source::Svg(_))
+        ));
+        // A JPEG is not a PNG, whatever its bytes tell.
+        let result = read("photo-landscape.jpg", png).map(|_| ());
+        assert!(matches!(result, Err(ImageError::Corrupt(_))), "{result:?}");
     }
 
     #[test]

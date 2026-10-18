@@ -111,6 +111,7 @@ fn help_explains_max_image_size_and_images() {
     assert!(help.contains("--max-image-size <MB>"), "{help}");
     assert!(help.contains("[default: 10]"), "{help}");
     assert!(help.contains("--images"), "{help}");
+    assert!(help.contains("-f, --format <FORMAT>"), "{help}");
     assert!(
         help.contains("Images are drawn only in terminals"),
         "{help}"
@@ -422,5 +423,65 @@ fn a_file_neither_text_nor_an_image_is_an_error() {
             "kiri: {}: neither Markdown nor an image kiri knows\n",
             path.display()
         )
+    );
+}
+
+#[test]
+fn format_tells_what_the_file_is() {
+    let dir = Scratch::new("format");
+    let notes = dir.join("notes.png");
+    std::fs::write(&notes, "BMW and Audi\n").unwrap();
+    for option in ["-f", "--format"] {
+        let out = kiri_on(&dir, &notes, &["--mode", "kitty", option, "markdown"]);
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        assert_eq!(text(&out.stdout).trim(), "BMW and Audi");
+    }
+    let drawing = dir.join("drawing.xml");
+    std::fs::copy(fixtures().join("images/pattern.svg"), &drawing).unwrap();
+    assert_image_alone(&kiri_on(&dir, &drawing, &["--mode", "kitty", "-f", "svg"]));
+    assert_image_alone(&kiri_on(
+        &dir,
+        &drawing,
+        &["--mode", "kitty", "-f", "image"],
+    ));
+    let icon = fixtures().join("images/icon.png");
+    for format in ["png", "PNG", "image"] {
+        assert_image_alone(&kiri_on(&dir, &icon, &["--mode", "kitty", "-f", format]));
+    }
+}
+
+#[test]
+fn a_file_not_in_the_format_given_is_an_error() {
+    let dir = Scratch::new("wrong-format");
+    let photo = fixtures().join("images/photo-landscape.jpg");
+    let readme = fixtures().join("images/README.md");
+    for (path, format, message) in [
+        (&photo, "png", "broken image: "),
+        (&photo, "svg", "broken image: "),
+        (&photo, "markdown", "not UTF-8 text"),
+        (&readme, "image", "not an image format kiri knows"),
+    ] {
+        let out = kiri_on(&dir, path, &["--mode", "kitty", "-f", format]);
+        assert_eq!(out.status.code(), Some(1), "{format}");
+        let stderr = text(&out.stderr);
+        let start = format!("kiri: {}: {message}", path.display());
+        assert!(stderr.starts_with(&start), "{format}: {stderr}");
+        assert_eq!(text(&out.stdout), "", "{format}");
+    }
+}
+
+#[test]
+fn format_takes_only_formats_kiri_knows() {
+    let dir = Scratch::new("unknown-format");
+    let out = kiri(&dir, "Text\n", &["-f", "docx"]);
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = text(&out.stderr);
+    assert!(
+        stderr.contains("invalid value 'docx' for '--format <FORMAT>'"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("give markdown, image, or an image format such as svg, png or jpg"),
+        "{stderr}"
     );
 }

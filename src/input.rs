@@ -44,6 +44,22 @@ pub fn detect(path: &Path, head: &[u8]) -> Input {
     }
 }
 
+/// The input `name` asks for, as `--format` takes it: `markdown`, `image`
+/// for an image in whatever format its content tells, or an image format
+/// by its usual extension, such as `svg` or `png`. Any case goes.
+pub fn format(name: &str) -> Option<Input> {
+    let is = |names: &[&str]| names.iter().any(|n| name.eq_ignore_ascii_case(n));
+    if is(&["markdown", "md"]) {
+        Some(Input::Markdown)
+    } else if is(&["image"]) {
+        Some(Input::Image(Format::Detect))
+    } else if is(&["svg", "svgz"]) {
+        Some(Input::Image(Format::Svg))
+    } else {
+        ImageFormat::from_extension(name).map(|format| Input::Image(Format::Raster(format)))
+    }
+}
+
 /// Whether `head`, the start of a file, is text: UTF-8, perhaps cut inside
 /// a character at the end, without control characters other than
 /// whitespace.
@@ -69,6 +85,26 @@ mod tests {
 
     fn detected(name: &str, head: &[u8]) -> Input {
         detect(Path::new(name), head)
+    }
+
+    #[test]
+    fn format_names_markdown_or_an_image_format() {
+        assert_eq!(format("markdown"), Some(Input::Markdown));
+        assert_eq!(format("Markdown"), Some(Input::Markdown));
+        assert_eq!(format("md"), Some(Input::Markdown));
+        assert_eq!(format("image"), Some(Input::Image(Format::Detect)));
+        assert_eq!(format("svg"), Some(Input::Image(Format::Svg)));
+        assert_eq!(format("SVGZ"), Some(Input::Image(Format::Svg)));
+        assert_eq!(
+            format("jpeg"),
+            Some(Input::Image(Format::Raster(ImageFormat::Jpeg)))
+        );
+        assert_eq!(
+            format("tga"),
+            Some(Input::Image(Format::Raster(ImageFormat::Tga)))
+        );
+        assert_eq!(format("docx"), None);
+        assert_eq!(format(""), None);
     }
 
     #[test]
