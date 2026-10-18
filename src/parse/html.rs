@@ -73,7 +73,11 @@ fn img(tag: &Tag) -> Option<Img> {
     if tag.name != "img" {
         return None;
     }
-    let src = tag.get("src").filter(|src| !src.is_empty())?;
+    // A browser strips the whitespace around a URL.
+    let src = tag
+        .get("src")
+        .map(|src| src.trim_matches(|c: char| c.is_ascii_whitespace()))
+        .filter(|src| !src.is_empty())?;
     Some(Img {
         src: src.to_owned(),
         alt: tag.get("alt").unwrap_or_default().to_owned(),
@@ -363,6 +367,15 @@ mod tests {
     fn an_img_needs_a_src() {
         assert_eq!(inline_img("<img alt=x>"), None);
         assert_eq!(inline_img("<img src alt=x>"), None);
+        assert_eq!(inline_img("<img src=\" \n\" alt=x>"), None);
+    }
+
+    #[test]
+    fn trims_whitespace_around_the_src() {
+        assert_eq!(
+            inline_img("<img src=\" a.png\n\" alt=\" x \">"),
+            img("a.png", " x ")
+        );
     }
 
     #[test]
