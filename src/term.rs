@@ -162,10 +162,16 @@ pub fn capabilities(mode: Mode, width: Option<u16>, env: &Environment) -> Capabi
 
 /// What kiri finds out in `mode` about the controlling terminal, whatever
 /// stdout is, so a report written to a file still tells of the terminal.
+/// Without a controlling terminal, it tells what [`capabilities`] sees.
 pub fn examine(mode: Mode, width: Option<u16>, env: &Environment) -> Detection {
     match probe::controlling_terminal() {
         Some(tty) => examine_on(&tty, mode, width, env),
-        None => detect(mode, width, env, None, false, |_| None),
+        None => {
+            let stdout = std::io::stdout();
+            let window = window_size(&stdout);
+            let terminal = rustix::termios::isatty(&stdout);
+            detect(mode, width, env, window, terminal, |_| None)
+        }
     }
 }
 

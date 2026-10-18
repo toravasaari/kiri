@@ -261,6 +261,30 @@ fn a_terminal_gets_the_report_rendered_with_its_test_image() {
     assert_eq!(common::graphics_commands(&output).len(), 1, "{output:?}");
 }
 
+/// Without a controlling terminal to ask, the report tells of the terminal
+/// on stdout, as a run that renders a document sees it.
+#[test]
+fn without_a_controlling_terminal_the_report_tells_of_stdout() {
+    let dir = Scratch::new("doctor-no-tty");
+    let (mut terminal, tty) = pty();
+    let size = rustix::termios::Winsize {
+        ws_col: 100,
+        ws_row: 30,
+        ws_xpixel: 1200,
+        ws_ypixel: 600,
+    };
+    rustix::termios::tcsetwinsize(&tty, size).unwrap();
+    let mut child = doctor(&dir, &[]).stdout(Stdio::from(tty)).spawn().unwrap();
+    assert!(child.wait().unwrap().success());
+    // Reading ends with an error once no one holds the terminal side.
+    let mut output = Vec::new();
+    let _ = terminal.read_to_end(&mut output);
+    let output = text(&output);
+    assert!(output.contains("100 × 30 cells"), "{output:?}");
+    assert!(output.contains("12 × 20 pixels"), "{output:?}");
+    assert!(output.contains("\x1b["), "{output:?}");
+}
+
 /// What `kiri --doctor` with `args` writes into a terminal.
 fn in_terminal(dir: &Path, args: &[&str]) -> String {
     let (mut terminal, tty) = pty();
