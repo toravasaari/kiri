@@ -114,6 +114,19 @@ example, come before the rest of phase 3.
 
 - reStructuredText, Org, AsciiDoc, possibly through pandoc.
 
+### 4.8 Diagnostics
+
+- `kiri --doctor` shows what kiri found and what it uses: the terminal's
+  answers (cell and window size, graphics, text sizing, colours), each
+  setting with where it came from (default, configuration file,
+  environment variable or command-line flag), the configuration file
+  paths, the image formats this build decodes, and the external tools
+  later parts need (Typst, a Mermaid renderer, ffmpeg, pandoc) and whether
+  each was found.
+- The report is a Markdown document that kiri renders itself, so it also
+  shows how headings, tables and images look in this terminal. Piped to a
+  file it stays plain Markdown, ready to paste into a bug report.
+
 ## Phase 5 – Beyond kitty
 
 - Other terminals: sixel and iTerm2 images, plain styling for headings.
@@ -121,6 +134,8 @@ example, come before the rest of phase 3.
   a yes or no, and the probe keeps the terminal's name, version and device
   attributes, where sixel support shows, instead of only yes-or-no
   answers.
+- `--doctor` lists the image protocols probed and the terminal's name and
+  version.
 - Images as coloured Unicode block characters where no image protocol
   works.
 - Remote images, off by default because fetching one tells its server that
