@@ -229,8 +229,8 @@ Smaller polish that fits in whenever there is time, in any phase.
   Needs a try first: kitty may treat the marks as more than places to
   jump to.
 - Heading scales with fractions, such as 1.5 for `h4`, drawn with the text
-  sizing protocol's fractional scale; today `h4` to `h6` can only be the
-  size of body text or twice it.
+  sizing protocol's fractional scale. Scales are whole numbers today, so
+  `h4` to `h6` are either the size of body text or at least twice it.
 - `--toc` puts a table of contents with links at the top of the document
   in print mode.
 
