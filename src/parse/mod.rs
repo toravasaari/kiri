@@ -5,7 +5,7 @@ mod html;
 use comrak::nodes::{ListType, NodeValue, TableAlignment};
 use comrak::{Arena, Node, Options, parse_document};
 
-use crate::model::{Alignment, Block, Document, Inline, List, ListItem, Table};
+use crate::model::{Alignment, Block, Document, Image, Inline, List, ListItem, Table};
 
 pub fn parse(source: &str) -> Document {
     let arena = Arena::new();
@@ -100,12 +100,7 @@ fn inlines(parent: Node<'_>) -> Vec<Inline> {
         inlines.push(inline);
         // `<a href>`, an `<img>` and `</a>` are a link around the image, as
         // `[![]()]()` is.
-        if let [
-            ..,
-            Inline::Html(start),
-            Inline::Image { .. },
-            Inline::Html(end),
-        ] = inlines.as_slice()
+        if let [.., Inline::Html(start), Inline::Image(_), Inline::Html(end)] = inlines.as_slice()
             && html::is_link_end(end)
             && let Some(url) = html::link_start(start)
         {
@@ -132,10 +127,10 @@ fn inline(node: Node<'_>) -> Option<Inline> {
             url: link.url.clone(),
             content: inlines(node),
         },
-        NodeValue::Image(link) => Inline::Image {
+        NodeValue::Image(link) => Inline::Image(Image {
             url: link.url.clone(),
             alt: inlines(node),
-        },
+        }),
         NodeValue::SoftBreak => Inline::SoftBreak,
         NodeValue::LineBreak => Inline::LineBreak,
         NodeValue::HtmlInline(tag) => match html::inline_img(tag) {
@@ -165,7 +160,7 @@ fn image(img: html::Img) -> Inline {
     } else {
         vec![Inline::Text(img.alt)]
     };
-    Inline::Image { url: img.src, alt }
+    Inline::Image(Image { url: img.src, alt })
 }
 
 #[cfg(test)]
@@ -223,9 +218,11 @@ mod tests {
 
     #[test]
     fn reads_an_html_img_as_an_image() {
-        let image = || Inline::Image {
-            url: "a.png".into(),
-            alt: vec![text("An image")],
+        let image = || {
+            Inline::Image(Image {
+                url: "a.png".into(),
+                alt: vec![text("An image")],
+            })
         };
         assert_eq!(
             parse("<img src=\"a.png\" alt=\"An image\">\n").blocks,
@@ -249,10 +246,10 @@ mod tests {
     fn an_img_without_alt_has_no_alt_text() {
         assert_eq!(
             parse("<img src=a.png>\n").blocks,
-            vec![Block::Paragraph(vec![Inline::Image {
+            vec![Block::Paragraph(vec![Inline::Image(Image {
                 url: "a.png".into(),
                 alt: Vec::new(),
-            }])]
+            })])]
         );
     }
 
@@ -260,10 +257,10 @@ mod tests {
     fn reads_an_html_link_around_an_img_as_a_link() {
         let linked = || Inline::Link {
             url: "https://x".into(),
-            content: vec![Inline::Image {
+            content: vec![Inline::Image(Image {
                 url: "a.png".into(),
                 alt: vec![text("x")],
-            }],
+            })],
         };
         assert_eq!(
             parse("<a href=\"https://x\"><img src=\"a.png\" alt=\"x\"></a>\n").blocks,
@@ -286,10 +283,10 @@ mod tests {
             vec![Block::Paragraph(vec![
                 Inline::Html("<a href=x>".into()),
                 text("text "),
-                Inline::Image {
+                Inline::Image(Image {
                     url: "a.png".into(),
                     alt: Vec::new(),
-                },
+                }),
                 Inline::Html("</a>".into()),
             ])]
         );

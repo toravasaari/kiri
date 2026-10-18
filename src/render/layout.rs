@@ -13,7 +13,7 @@ use super::table::{self, Cells};
 use super::wrap::wrap;
 use crate::color::{Color, Underline};
 use crate::images::Images;
-use crate::model::{Block, Document, Inline, List, Table};
+use crate::model::{Block, Document, Image, Inline, List, Table};
 use crate::term::Capabilities;
 use crate::theme::{CodeBackground, Theme};
 
@@ -236,7 +236,7 @@ impl Layout<'_> {
         if !self.caps.draws_images() {
             return None;
         }
-        let url = Inline::lone_image(content)?;
+        let url = &Inline::lone_image(content)?.url;
         let Some(Ok(source)) = self.images.get(url) else {
             return None;
         };
@@ -535,7 +535,7 @@ impl Layout<'_> {
                 out,
             ),
             Inline::Link { url, content } => self.link(url, content, style, out),
-            Inline::Image { alt, .. } => {
+            Inline::Image(Image { alt, .. }) => {
                 let image_style = self.muted(Style {
                     italic: true,
                     ..style.clone()
