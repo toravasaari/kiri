@@ -1,6 +1,8 @@
 //! The paper themes: the document as a page of fixed greys.
 
-use super::{CodeBackground, SearchColor, SearchTheme, StatusColor, StatusLineTheme, Theme};
+use super::{
+    CodeBackground, MarkTheme, SearchColor, SearchTheme, StatusColor, StatusLineTheme, Theme,
+};
 use crate::color::Color;
 
 /// The built-in themes that draw the document as a page of fixed colours,
@@ -33,6 +35,10 @@ struct PaperColors {
     /// Search matches in the pager and the text on them.
     found: Option<Color>,
     found_text: Option<Color>,
+    /// Marked text and the text on it: lighter than a search match, so
+    /// the pager's matches stand out from it.
+    marked: Option<Color>,
+    marked_text: Option<Color>,
 }
 
 impl Theme {
@@ -55,6 +61,8 @@ impl Theme {
                 status_text: grey(0x1f),
                 found: grey(0xcc),
                 found_text: grey(0x00),
+                marked: grey(0xdc),
+                marked_text: grey(0x00),
             },
             Paper::Dark => PaperColors {
                 background: grey(0x1e),
@@ -71,6 +79,8 @@ impl Theme {
                 status_text: grey(0xe0),
                 found: grey(0x60),
                 found_text: grey(0xff),
+                marked: grey(0x4a),
+                marked_text: grey(0xff),
             },
         };
         let mut theme = Self {
@@ -100,6 +110,10 @@ impl Theme {
                 match_background: SearchColor::Color(colors.found),
                 current_foreground: SearchColor::Color(colors.background),
                 current_background: SearchColor::Color(colors.text),
+            },
+            mark: MarkTheme {
+                foreground: colors.marked_text,
+                background: colors.marked,
             },
             ..Self::default()
         };
@@ -180,6 +194,8 @@ mod tests {
             theme.rule,
             theme.list_marker,
             theme.table_border,
+            theme.mark.foreground,
+            theme.mark.background,
         ];
         match theme.inline_code_background {
             CodeBackground::Color(color) => colors.push(color),
