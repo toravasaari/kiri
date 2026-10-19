@@ -266,6 +266,20 @@ impl Layout<'_> {
         let mut spans = Vec::new();
         push(&mut spans, "▼ ", &style);
         self.inlines(summary, &style, &mut spans);
+        // The summary is one line, so a line break in it is a space. As in
+        // the HTML it comes from, a run of spaces shows as one.
+        let mut space = false;
+        for span in &mut spans {
+            let mut text = String::with_capacity(span.text.len());
+            for c in span.text.chars().map(|c| if c == '\n' { ' ' } else { c }) {
+                if !(c == ' ' && space) {
+                    text.push(c);
+                }
+                space = c == ' ';
+            }
+            span.text = text;
+        }
+        spans.retain(|span| !span.text.is_empty());
         wrap(&spans, width).into_iter().map(Line::new).collect()
     }
 
