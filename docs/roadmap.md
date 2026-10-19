@@ -147,7 +147,7 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   decoded whole. Now the second half of such a sequence is read as keys
   of its own, which a search prompt would make worse.
 
-#### 4.6.3 Search
+#### 4.6.3 Search (done)
 
 - Search with `/`, `n` and `N`; the status line shows the search term.
 
