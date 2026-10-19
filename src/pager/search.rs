@@ -55,7 +55,7 @@ impl Search {
 
     /// Moves to the next match, or from the last to the first; true when
     /// it went around.
-    pub fn next(&mut self) -> bool {
+    pub fn forward(&mut self) -> bool {
         let Some(current) = self.current else {
             return false;
         };
@@ -66,7 +66,7 @@ impl Search {
 
     /// Moves to the previous match, or from the first to the last; true
     /// when it went around.
-    pub fn previous(&mut self) -> bool {
+    pub fn backward(&mut self) -> bool {
         let Some(current) = self.current else {
             return false;
         };
@@ -253,21 +253,21 @@ mod tests {
         let lines = [line("kiri"), line("kiri kiri")];
         let mut search = Search::new(&lines, "kiri", SearchCase::Smart, 1);
         assert_eq!(search.count(), Some((2, 3)));
-        assert!(!search.next());
+        assert!(!search.forward());
         assert_eq!(search.current(), Some(&at(1, 5..9)));
-        assert!(search.next());
+        assert!(search.forward());
         assert_eq!(search.count(), Some((1, 3)));
-        assert!(search.previous());
+        assert!(search.backward());
         assert_eq!(search.count(), Some((3, 3)));
-        assert!(!search.previous());
+        assert!(!search.backward());
         assert_eq!(search.count(), Some((2, 3)));
     }
 
     #[test]
     fn next_and_previous_without_matches_stay() {
         let mut search = Search::new(&[line("a")], "kiri", SearchCase::Smart, 0);
-        assert!(!search.next());
-        assert!(!search.previous());
+        assert!(!search.forward());
+        assert!(!search.backward());
         assert_eq!(search.current(), None);
     }
 

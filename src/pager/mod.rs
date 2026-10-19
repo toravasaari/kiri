@@ -271,8 +271,8 @@ impl State {
             Some(Action::Search) => {
                 self.prompt = layout.status.bar.then(Prompt::default);
             }
-            Some(Action::Next) => self.step(Search::next, layout),
-            Some(Action::Previous) => self.step(Search::previous, layout),
+            Some(Action::Next) => self.step(Search::forward, layout),
+            Some(Action::Previous) => self.step(Search::backward, layout),
             None => {}
         }
         false
