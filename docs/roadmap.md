@@ -311,6 +311,8 @@ Smaller polish that fits in whenever there is time, in any phase.
   `bat` does.
 - Several images as a contact sheet: a grid of thumbnails with their file
   names beneath.
+- Search in the pager with regular expressions, beside the plain text
+  search of 4.6.3.
 
 ## Bugs
 
