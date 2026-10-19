@@ -131,6 +131,8 @@ src/term.rs                capability detection, the only terminal queries,
                            the pager's screen and keys
 src/config.rs              settings: options, environment, configuration file
 src/doctor.rs              the --doctor report as Markdown
+src/list.rs                the --list-emojis output: Markdown for a terminal,
+                           tab-separated lines for a pipe
 src/theme.rs               colours and sizes, theme files
 src/images/mod.rs          loading and decoding the images a document shows
 src/images/url.rs          data URLs, file URLs and paths, read up to a limit
