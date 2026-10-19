@@ -63,6 +63,15 @@ pub struct Theme {
     pub alerts: AlertTheme,
     pub status_line: StatusLineTheme,
     pub search: SearchTheme,
+    pub mark: MarkTheme,
+}
+
+/// The colours of marked text, HTML's `<mark>`. Without colours, marked
+/// text is in reverse video.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MarkTheme {
+    pub foreground: Option<Color>,
+    pub background: Option<Color>,
 }
 
 /// The colours of the pager's status line.
@@ -277,6 +286,11 @@ impl Default for Theme {
             alerts: AlertTheme::default(),
             status_line: StatusLineTheme::default(),
             search: SearchTheme::default(),
+            // Black on yellow, as a browser shows it.
+            mark: MarkTheme {
+                foreground: Some(Color::Palette(0)),
+                background: Some(Color::Palette(3)),
+            },
         }
     }
 }
@@ -328,6 +342,7 @@ impl Theme {
         }
         self.status_line = StatusLineTheme::default();
         self.search = SearchTheme::default();
+        self.mark = MarkTheme::default();
         self
     }
 }
@@ -379,6 +394,7 @@ mod tests {
                 alerts,
                 status_line,
                 search,
+                mark,
             } = theme.without_colors();
             let colors = [
                 background,
@@ -440,6 +456,11 @@ mod tests {
                 current_background,
             ];
             assert_eq!(search, [SearchColor::Auto; 4]);
+            let MarkTheme {
+                foreground,
+                background,
+            } = mark;
+            assert_eq!([foreground, background], [None; 2]);
         }
     }
 }

@@ -280,7 +280,9 @@ fn collect_blocks<'a>(blocks: &'a [Block], urls: &mut Vec<&'a str>) {
             Block::Paragraph(content) => {
                 urls.extend(Inline::lone_image(content).map(|image| image.url.as_str()));
             }
-            Block::BlockQuote(blocks) | Block::Alert { blocks, .. } => collect_blocks(blocks, urls),
+            Block::BlockQuote(blocks)
+            | Block::Alert { blocks, .. }
+            | Block::Details { blocks, .. } => collect_blocks(blocks, urls),
             Block::List(list) => {
                 for item in &list.items {
                     collect_blocks(&item.blocks, urls);
@@ -445,6 +447,18 @@ mod tests {
             .map(|(x, y)| u64::from(x.abs_diff(*y)))
             .sum();
         total as f64 / a.as_raw().len() as f64
+    }
+
+    #[test]
+    fn loads_the_images_inside_details() {
+        let document = crate::parse::parse(
+            "<details>\n<summary>S</summary>\n\n![x](pattern.png)\n\n</details>\n",
+        );
+        let images = load(&document, &fixtures().join("images"), DEFAULT_MAX_FILE_SIZE);
+        assert!(
+            matches!(images.get("pattern.png"), Some(Ok(_))),
+            "{document:?}"
+        );
     }
 
     #[test]

@@ -120,6 +120,10 @@ pub fn parse(text: &str) -> Result<Theme, String> {
             )?;
         }
     }
+    if let Some(mark) = file.mark {
+        set_color(&mut theme.mark.foreground, mark.foreground)?;
+        set_color(&mut theme.mark.background, mark.background)?;
+    }
     Ok(theme)
 }
 
@@ -224,6 +228,14 @@ struct ThemeFile {
     alerts: Option<AlertsFile>,
     status_line: Option<StatusLineFile>,
     search: Option<SearchFile>,
+    mark: Option<MarkFile>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MarkFile {
+    foreground: Option<String>,
+    background: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -351,7 +363,7 @@ fn parse_color(value: &str) -> Result<Option<Color>, String> {
 mod tests {
     use super::*;
     use crate::model::AlertKind;
-    use crate::theme::{SearchTheme, StatusLineTheme};
+    use crate::theme::{MarkTheme, SearchTheme, StatusLineTheme};
 
     #[test]
     fn the_documented_defaults_are_the_defaults() {
@@ -411,6 +423,31 @@ mod tests {
     fn search_has_no_flash_colours() {
         assert!(parse("[search]\nflash_foreground = \"black\"\n").is_err());
         assert!(parse("[search]\nflash_background = \"yellow\"\n").is_err());
+    }
+
+    #[test]
+    fn marked_text_is_black_on_yellow_unless_the_theme_says_otherwise() {
+        let black_on_yellow = MarkTheme {
+            foreground: Some(Color::Palette(0)),
+            background: Some(Color::Palette(3)),
+        };
+        assert_eq!(Theme::default().mark, black_on_yellow);
+        assert_eq!(
+            parse("[mark]\nbackground = \"#fff8c5\"\n").unwrap().mark,
+            MarkTheme {
+                background: Some(Color::Rgb(0xff, 0xf8, 0xc5)),
+                ..black_on_yellow
+            }
+        );
+        assert_eq!(
+            parse("[mark]\nforeground = \"none\"\nbackground = \"none\"\n")
+                .unwrap()
+                .mark,
+            MarkTheme::default()
+        );
+        assert!(parse("[mark]\ncolor = \"red\"\n").is_err());
+        assert!(parse("[mark]\nbackground = \"auto\"\n").is_err());
+        assert_eq!(Theme::default().without_colors().mark, MarkTheme::default());
     }
 
     #[test]

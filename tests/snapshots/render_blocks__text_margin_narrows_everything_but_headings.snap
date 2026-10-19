@@ -57,6 +57,6 @@ expression: "render_fixture(\"elements.md\", &inputs(&Capabilities::plain(WIDTH)
 
   [image: A diagram]
 
-  <details>raw html</details>
+  <div>raw html</div>
 
 ###### Smallest heading

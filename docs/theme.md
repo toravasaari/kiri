@@ -202,17 +202,24 @@ current_background = "auto"
 # terminal tells; without them, the current match is marked at once and
 # the match number stands apart from the bar, bold and reversed, for half
 # a second.
+
+# Marked text, HTML's <mark>: a colour or none. Without colours, as with
+# NO_COLOR, marked text is in reverse video whatever the theme says.
+# With colours, setting both to none draws no mark at all.
+[mark]
+foreground = "black"
+background = "yellow"
 ```
 
 ## Paper themes
 
 `--light` and `--dark` choose a built-in theme that draws the document on a
 page of fixed colours, as a browser does, whatever your terminal's colour
-scheme. The page is in greys only: headings, links, quotes, rules, tables
-and inline code differ in shade, weight and underline, not in colour. Code
-blocks keep their colours, from a code theme that matches the page. Muted
-text, such as image alt text, is a grey that keeps a contrast of at least
-4.5:1 against the page, instead of the terminal's dim text.
+scheme. The page is in greys only: headings, links, quotes, rules, tables,
+inline code and marked text differ in shade, weight and underline, not in
+colour. Code blocks keep their colours, from a code theme that matches the
+page. Muted text, such as image alt text, is a grey that keeps a contrast of
+at least 4.5:1 against the page, instead of the terminal's dim text.
 
 The paper themes are the defaults above with these changes. To change one,
 start a theme file of your own from its keys.
@@ -250,6 +257,10 @@ match_foreground = "#000000"
 match_background = "#cccccc"
 current_foreground = "#ffffff"
 current_background = "#1f1f1f"
+
+[mark]
+foreground = "#000000"
+background = "#dcdcdc"
 ```
 
 ### Dark paper
@@ -285,6 +296,10 @@ match_foreground = "#ffffff"
 match_background = "#606060"
 current_foreground = "#1e1e1e"
 current_background = "#d4d4d4"
+
+[mark]
+foreground = "#ffffff"
+background = "#4a4a4a"
 ```
 
 The [example themes](../examples/themes/README.md) try out variations of the

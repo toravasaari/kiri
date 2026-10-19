@@ -48,6 +48,6 @@ fn main() {
 
 ![A diagram](diagram.png)
 
-<details>raw html</details>
+<div>raw html</div>
 
 ###### Smallest heading

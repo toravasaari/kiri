@@ -28,6 +28,12 @@ pub enum Block {
         blocks: Vec<Block>,
     },
     List(List),
+    /// HTML's `<details>`: blocks a reader can show or hide, under a
+    /// summary that is always shown.
+    Details {
+        summary: Vec<Inline>,
+        blocks: Vec<Block>,
+    },
     Table(Table),
     ThematicBreak,
     /// Raw HTML, shown as source until there is an HTML backend.
@@ -97,6 +103,10 @@ pub enum Inline {
     Emphasis(Vec<Inline>),
     Strong(Vec<Inline>),
     Strikethrough(Vec<Inline>),
+    /// Keyboard input, such as a key to press: HTML's `<kbd>`.
+    Kbd(Vec<Inline>),
+    /// Text marked as relevant, as a highlighter would: HTML's `<mark>`.
+    Mark(Vec<Inline>),
     Link {
         url: String,
         content: Vec<Inline>,
@@ -153,6 +163,8 @@ impl Inline {
                 Inline::Emphasis(content)
                 | Inline::Strong(content)
                 | Inline::Strikethrough(content)
+                | Inline::Kbd(content)
+                | Inline::Mark(content)
                 | Inline::Link { content, .. }
                 | Inline::Image(Image { alt: content, .. }) => {
                     out.push_str(&Self::plain_text(content))

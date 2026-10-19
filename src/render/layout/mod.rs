@@ -43,26 +43,23 @@ pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
         theme,
     };
 
-    // Headings stay at the edge and thematic breaks span the terminal;
-    // everything else keeps text_margin free on both sides.
+    // Everything but headings and thematic breaks keeps text_margin free
+    // on both sides.
     let margin = usize::from(theme.text_margin).min(width / 4);
     let mut lines = Vec::new();
-    for block in &document.blocks {
-        let block_lines = match block {
-            Block::ThematicBreak => vec![layout.rule(usize::from(caps.width).max(width))],
-            Block::Heading { .. } => layout.block(block, width, Context::default()),
-            _ => {
-                let mut block_lines = layout.block(block, width - 2 * margin, Context::default());
-                for line in &mut block_lines {
-                    if margin > 0 && !line.is_blank() {
-                        line.lead
-                            .insert(0, Span::new(&" ".repeat(margin), Style::default()));
-                    }
-                }
-                block_lines
+    layout.top_level(&document.blocks, width, margin, &mut lines);
+    lines
+}
+
+/// `lines` with `margin` cells before each one that is not blank.
+fn with_margin(mut lines: Vec<Line>, margin: usize) -> Vec<Line> {
+    if margin > 0 {
+        for line in &mut lines {
+            if !line.is_blank() {
+                line.lead
+                    .insert(0, Span::new(&" ".repeat(margin), Style::default()));
             }
-        };
-        append_block(&mut lines, block_lines, true);
+        }
     }
     lines
 }
@@ -97,6 +94,30 @@ struct Layout<'a> {
 }
 
 impl Layout<'_> {
+    /// Lays out the document's own blocks: headings stay at the edge and
+    /// thematic breaks span the terminal; everything else keeps `margin`
+    /// free on both sides. The blocks inside a details block are laid out
+    /// as the blocks around it are.
+    fn top_level(&self, blocks: &[Block], width: usize, margin: usize, lines: &mut Vec<Line>) {
+        for block in blocks {
+            let block_lines = match block {
+                Block::ThematicBreak => vec![self.rule(usize::from(self.caps.width).max(width))],
+                Block::Heading { .. } => self.block(block, width, Context::default()),
+                Block::Details { summary, blocks } => {
+                    let summary = self.summary(summary, width - 2 * margin);
+                    append_block(lines, with_margin(summary, margin), true);
+                    self.top_level(blocks, width, margin, lines);
+                    continue;
+                }
+                _ => with_margin(
+                    self.block(block, width - 2 * margin, Context::default()),
+                    margin,
+                ),
+            };
+            append_block(lines, block_lines, true);
+        }
+    }
+
     fn blocks(&self, blocks: &[Block], width: usize, context: Context) -> Vec<Line> {
         let mut lines = Vec::new();
         for block in blocks {
@@ -123,6 +144,15 @@ impl Layout<'_> {
                 blocks,
             } => self.alert(*kind, title.as_deref(), blocks, width, context),
             Block::List(list) => self.list(list, width, context),
+            Block::Details { summary, blocks } => {
+                let mut lines = self.summary(summary, width);
+                append_block(
+                    &mut lines,
+                    self.blocks(blocks, width, context),
+                    !context.tight,
+                );
+                lines
+            }
             Block::Table(table) => self.table(table, width),
             Block::ThematicBreak => vec![self.rule(width)],
             Block::Html(html) => {
@@ -226,6 +256,33 @@ impl Layout<'_> {
         lines
     }
 
+    /// The summary of a details block, in bold after an open triangle, as
+    /// a browser shows an open `<details>`.
+    fn summary(&self, summary: &[Inline], width: usize) -> Vec<Line> {
+        let style = self.style(Style {
+            bold: true,
+            ..Style::default()
+        });
+        let mut spans = Vec::new();
+        push(&mut spans, "▼ ", &style);
+        self.inlines(summary, &style, &mut spans);
+        // The summary is one line, so a line break in it is a space. As in
+        // the HTML it comes from, a run of spaces shows as one.
+        let mut space = false;
+        for span in &mut spans {
+            let mut text = String::with_capacity(span.text.len());
+            for c in span.text.chars().map(|c| if c == '\n' { ' ' } else { c }) {
+                if !(c == ' ' && space) {
+                    text.push(c);
+                }
+                space = c == ' ';
+            }
+            span.text = text;
+        }
+        spans.retain(|span| !span.text.is_empty());
+        wrap(&spans, width).into_iter().map(Line::new).collect()
+    }
+
     fn paragraph(&self, content: &[Inline], style: &Style, width: usize) -> Vec<Line> {
         if let Some(lines) = self.image_block(content, width) {
             return lines;
@@ -316,34 +373,10 @@ impl Layout<'_> {
     fn inline(&self, inline: &Inline, style: &Style, out: &mut Vec<Span>) {
         match inline {
             Inline::Text(text) => push(out, text, style),
-            Inline::Code(code) => {
-                // Spaces in code are kept as written, so it copies as it is.
-                let spaces = if self.theme.inline_code_wrap {
-                    Spaces::Keep
-                } else {
-                    Spaces::KeepTogether
-                };
-                let style = &Style {
-                    spaces,
-                    ..style.clone()
-                };
-                // Without colour nothing else would mark the code.
-                if self.caps.styling && self.caps.color {
-                    let bg = self.inline_code_background().or(style.bg);
-                    let code_style = Style {
-                        fg: self.theme.inline_code.or(style.fg),
-                        bg,
-                        ..style.clone()
-                    };
-                    if self.theme.inline_code_padding && bg.is_some() {
-                        // No-break spaces keep the padding attached to the code.
-                        push(out, &format!("\u{a0}{code}\u{a0}"), &code_style);
-                    } else {
-                        push(out, code, &code_style);
-                    }
-                } else {
-                    push(out, &format!("`{code}`"), style);
-                }
+            Inline::Code(code) => self.code(style, out, |style, out| push(out, code, style)),
+            // A key is drawn as inline code is.
+            Inline::Kbd(content) => {
+                self.code(style, out, |style, out| self.inlines(content, style, out))
             }
             Inline::Emphasis(content) => self.inlines(
                 content,
@@ -369,6 +402,22 @@ impl Layout<'_> {
                 }),
                 out,
             ),
+            Inline::Mark(content) => {
+                let mark = self.theme.mark;
+                let style = if self.caps.color {
+                    Style {
+                        fg: mark.foreground.or(style.fg),
+                        bg: mark.background.or(style.bg),
+                        ..style.clone()
+                    }
+                } else {
+                    Style {
+                        reverse: true,
+                        ..style.clone()
+                    }
+                };
+                self.inlines(content, &self.style(style), out)
+            }
             Inline::Link { url, content } => self.link(url, content, style, out),
             Inline::Image(Image { alt, .. }) => {
                 let image_style = self.muted(Style {
@@ -384,6 +433,48 @@ impl Layout<'_> {
             Inline::SoftBreak => push(out, " ", style),
             Inline::LineBreak => push(out, "\n", style),
             Inline::Html(html) => push(out, html, &self.muted(style.clone())),
+        }
+    }
+
+    /// Inline code, or what is drawn as it: `content` in the inline code
+    /// colours, padded, or between backticks without colour.
+    fn code(
+        &self,
+        style: &Style,
+        out: &mut Vec<Span>,
+        content: impl FnOnce(&Style, &mut Vec<Span>),
+    ) {
+        // Spaces in code are kept as written, so it copies as it is.
+        let spaces = if self.theme.inline_code_wrap {
+            Spaces::Keep
+        } else {
+            Spaces::KeepTogether
+        };
+        let style = &Style {
+            spaces,
+            ..style.clone()
+        };
+        // Without colour nothing else would mark the code.
+        if self.caps.styling && self.caps.color {
+            let bg = self.inline_code_background().or(style.bg);
+            let code_style = Style {
+                fg: self.theme.inline_code.or(style.fg),
+                bg,
+                ..style.clone()
+            };
+            // No-break spaces keep the padding attached to the code.
+            let padding = if self.theme.inline_code_padding && bg.is_some() {
+                "\u{a0}"
+            } else {
+                ""
+            };
+            push(out, padding, &code_style);
+            content(&code_style, out);
+            push(out, padding, &code_style);
+        } else {
+            push(out, "`", style);
+            content(style, out);
+            push(out, "`", style);
         }
     }
 

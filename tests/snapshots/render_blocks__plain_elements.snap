@@ -57,6 +57,6 @@ expression: "render_for(\"elements.md\", Capabilities::plain(WIDTH))"
 
   [image: A diagram]
 
-  <details>raw html</details>
+  <div>raw html</div>
 
 ###### Smallest heading
