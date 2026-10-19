@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use crate::config::{Paging, SearchCase};
 use crate::model::Document;
 use crate::render::Inputs;
-use crate::render::output::{Page, Writer};
+use crate::render::output::{self, Page, Writer};
 use crate::render::style::{Line, Span, Style};
 use crate::term::{Capabilities, Screen, WindowSize};
 use fade::{FADE, Fade, Rgb};
@@ -530,33 +530,28 @@ pub fn draw(
     writer: &mut Writer,
     out: &mut impl Write,
 ) -> io::Result<()> {
-    out.write_all(BEGIN_UPDATE)?;
+    output::begin_update(out)?;
     writer.clear(out)?;
     writer.dim(!panel.is_empty());
     let mut top = 1;
     for line in lines {
         for row in 0..writer.rows(line) {
-            write!(out, "\x1b[{};1H", top + usize::from(row))?;
+            output::move_to(top + usize::from(row), 1, out)?;
             writer.row(line, row, out)?;
         }
         top += usize::from(writer.rows(line));
     }
     writer.dim(false);
     if !status.is_empty() {
-        write!(out, "\x1b[{};1H", rows + 1)?;
+        output::move_to(rows + 1, 1, out)?;
         writer.bar(status, out)?;
     }
     for placed in panel {
-        write!(out, "\x1b[{};{}H", placed.row, placed.column)?;
+        output::move_to(placed.row, placed.column, out)?;
         writer.bar(&placed.spans, out)?;
     }
-    out.write_all(END_UPDATE)
+    output::end_update(out)
 }
-
-/// Synchronized output: the terminal shows what comes between these at
-/// once. Terminals without it ignore them.
-const BEGIN_UPDATE: &[u8] = b"\x1b[?2026h";
-const END_UPDATE: &[u8] = b"\x1b[?2026l";
 
 #[cfg(test)]
 mod tests {

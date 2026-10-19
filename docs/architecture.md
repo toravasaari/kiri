@@ -101,9 +101,9 @@ writes as it is into a pipe.
 | Hyperlinks | OSC 8 | `src/render/output.rs` | Clickable links |
 | Text attributes and colours | SGR | `src/render/output.rs` | Bold, italic, colours |
 | Styled underlines | SGR 4:x | `src/render/output.rs` | Heading underline styles |
-| Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J | `src/render/output.rs`, `src/pager/mod.rs` | Backgrounds beside scaled headings and across the width; the pager's rows |
+| Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J | `src/render/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows |
 | Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term.rs` | The pager's screen of its own |
-| Synchronized output | CSI ?2026h/l | `src/pager/mod.rs` | Pager frames without flicker |
+| Synchronized output | CSI ?2026h/l | `src/render/output.rs` | Pager frames without flicker |
 | Cell size query | CSI 16 t | `src/kitty/query.rs` | The cell size in pixels where the window size has none |
 | Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI c | `src/term.rs` | Cursor position, foreground, background and palette colours, terminal version, end of the answers |
 

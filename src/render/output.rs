@@ -26,6 +26,22 @@ pub struct Page {
     pub foreground: Option<Color>,
 }
 
+/// Moves the cursor to `row` and `column`, counted from 1 at the top left.
+pub fn move_to(row: usize, column: usize, out: &mut impl Write) -> io::Result<()> {
+    write!(out, "\x1b[{row};{column}H")
+}
+
+/// Starts an update that the terminal shows at once at its end, through
+/// synchronized output. Terminals without it ignore it.
+pub fn begin_update(out: &mut impl Write) -> io::Result<()> {
+    out.write_all(b"\x1b[?2026h")
+}
+
+/// Ends the update [`begin_update`] started.
+pub fn end_update(out: &mut impl Write) -> io::Result<()> {
+    out.write_all(b"\x1b[?2026l")
+}
+
 /// Writes `lines` on `page`. `images` holds the pixels of the images the
 /// lines show; each is sent before its first row.
 pub fn write(
