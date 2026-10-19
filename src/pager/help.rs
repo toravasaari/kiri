@@ -5,6 +5,7 @@ use unicode_width::UnicodeWidthStr;
 
 use super::keys::BINDINGS;
 use crate::render::style::{Span, Style};
+use crate::render::wrap;
 
 /// Spans to write at a place in the window.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,36 +67,13 @@ pub fn panel(columns: usize, rows: usize, style: &Style, muted: &Style) -> Vec<P
         .map(|(i, spans)| Placed {
             row: top + i,
             column: left,
-            spans: cut(spans, columns),
+            spans: wrap::cut(spans, columns),
         })
         .collect()
 }
 
 const TITLE: &str = " Keys ";
 const FOOTER: &str = "Any key closes this.";
-
-/// `spans` cut to at most `columns` cells.
-fn cut(spans: Vec<Span>, columns: usize) -> Vec<Span> {
-    let mut left = columns;
-    let mut kept = Vec::new();
-    for mut span in spans {
-        if span.text.width() > left {
-            let mut text = String::new();
-            for c in span.text.chars() {
-                if text.width() + c.to_string().width() > left {
-                    break;
-                }
-                text.push(c);
-            }
-            span.text = text;
-        }
-        left -= span.text.width();
-        if !span.text.is_empty() {
-            kept.push(span);
-        }
-    }
-    kept
-}
 
 #[cfg(test)]
 mod tests {
