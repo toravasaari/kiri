@@ -20,7 +20,7 @@ use crate::term::{Capabilities, Screen, WindowSize};
 use help::Placed;
 use keys::{Action, Key};
 use prompt::{Edit, Prompt};
-use search::Search;
+use search::{Marks, Search};
 use view::View;
 
 /// Whether a document of `rows` rows is paged: never when the output is not
@@ -130,8 +130,10 @@ pub fn run(
                 ..Style::default()
             },
         };
+        let marks = Marks::new(&inputs.theme, &inputs.caps);
         let mut laid_out = Layout {
             lines: &lines,
+            marks: &marks,
             status: &status,
             view: &mut shown,
         };
@@ -336,6 +338,19 @@ impl State {
         self.flash = self.flash.filter(|&until| now < until);
     }
 
+    /// `lines`, from line `first` of the document on, with the matches of
+    /// the last search marked with `marks` while it is shown.
+    fn marked(&self, lines: &[Line], first: usize, marks: &Marks) -> Vec<Line> {
+        let search = self.search.as_ref().filter(|_| self.shown);
+        (first..)
+            .zip(lines)
+            .map(|(index, line)| match search {
+                Some(search) => search::mark(line, &search.on(index), marks),
+                None => line.clone(),
+            })
+            .collect()
+    }
+
     /// What the status line tells about the last search.
     fn found(&self) -> Option<status::Found<'_>> {
         let search = self.search.as_ref()?;
@@ -355,23 +370,40 @@ impl State {
     }
 }
 
-/// One layout of the document: its lines, the view of them and the status
-/// line below it.
+/// One layout of the document: its lines, how search matches in them are
+/// marked, the view of them and the status line below it.
 struct Layout<'a> {
     lines: &'a [Line],
+    marks: &'a Marks,
     status: &'a Status<'a>,
     view: &'a mut View,
 }
 
+/// What the screen shows: the lines in view, the status line and the help
+/// panel.
+#[derive(PartialEq)]
+struct Frame {
+    lines: Vec<Line>,
+    status: Vec<Span>,
+    panel: Vec<Placed>,
+}
+
+impl Frame {
+    /// Draws the frame above a status line on the row below `rows`.
+    fn draw(&self, rows: usize, writer: &mut Writer, out: &mut impl Write) -> io::Result<()> {
+        draw(&self.lines, rows, &self.status, &self.panel, writer, out)
+    }
+}
+
 impl Layout<'_> {
-    /// What the screen shows in `state`: the top line, the status line and
-    /// the help panel.
-    fn frame(&self, state: &State) -> (usize, Vec<Span>, Vec<Placed>) {
-        (
-            self.view.top(),
-            self.status.spans(self.view, state),
-            self.status.panel(self.view, state.help),
-        )
+    /// What the screen shows in `state`.
+    fn frame(&self, state: &State) -> Frame {
+        let visible = self.view.visible();
+        Frame {
+            lines: state.marked(&self.lines[visible.clone()], visible.start, self.marks),
+            status: self.status.spans(self.view, state),
+            panel: self.status.panel(self.view, state.help),
+        }
     }
 }
 
@@ -385,14 +417,7 @@ fn show(
     size: Option<WindowSize>,
 ) -> io::Result<Outcome> {
     let mut shown = layout.frame(state);
-    draw(
-        layout.lines,
-        layout.view,
-        &shown.1,
-        &shown.2,
-        writer,
-        terminal,
-    )?;
+    shown.draw(layout.view.rows(), writer, terminal)?;
     terminal.flush()?;
     let mut decoder = keys::Decoder::default();
     loop {
@@ -417,25 +442,18 @@ fn show(
         let frame = layout.frame(state);
         if frame != shown {
             shown = frame;
-            draw(
-                layout.lines,
-                layout.view,
-                &shown.1,
-                &shown.2,
-                writer,
-                terminal,
-            )?;
+            shown.draw(layout.view.rows(), writer, terminal)?;
             terminal.flush()?;
         }
     }
 }
 
-/// Draws the lines `view` shows from the top of the screen, with the rows
-/// below them empty, `status` on the row below the view and `panel` over
-/// the lines, which it dims, as one update so the screen does not flicker.
+/// Draws `lines` from the top of the screen, with the rows below them
+/// empty, `status` on the row below the view's `rows` and `panel` over the
+/// lines, which it dims, as one update so the screen does not flicker.
 pub fn draw(
     lines: &[Line],
-    view: &View,
+    rows: usize,
     status: &[Span],
     panel: &[Placed],
     writer: &mut Writer,
@@ -445,7 +463,7 @@ pub fn draw(
     writer.clear(out)?;
     writer.dim(!panel.is_empty());
     let mut top = 1;
-    for line in &lines[view.visible()] {
+    for line in lines {
         for row in 0..writer.rows(line) {
             write!(out, "\x1b[{};1H", top + usize::from(row))?;
             writer.row(line, row, out)?;
@@ -454,7 +472,7 @@ pub fn draw(
     }
     writer.dim(false);
     if !status.is_empty() {
-        write!(out, "\x1b[{};1H", view.rows() + 1)?;
+        write!(out, "\x1b[{};1H", rows + 1)?;
         writer.bar(status, out)?;
     }
     for placed in panel {
@@ -751,9 +769,30 @@ mod tests {
         frame[frame.find(&at).unwrap()..].to_owned()
     }
 
-    /// Whether `frame` shows `line` on its top row.
+    /// Whether `frame` shows `line` on its top row, in any style.
     fn at_top(frame: &str, line: &str) -> bool {
-        frame.contains(&format!("\x1b[1;1H  {line}\x1b"))
+        unstyled(frame).contains(&format!("\x1b[1;1H  {line}\x1b"))
+    }
+
+    /// `frame` without its SGR sequences.
+    fn unstyled(frame: &str) -> String {
+        let mut rest = frame;
+        let mut kept = String::new();
+        while let Some(at) = rest.find("\x1b[") {
+            kept.push_str(&rest[..at]);
+            let after = &rest[at + 2..];
+            let parameters = after
+                .find(|c: char| !c.is_ascii_digit() && c != ';' && c != ':')
+                .unwrap_or(after.len());
+            if after[parameters..].starts_with('m') {
+                rest = &after[parameters + 1..];
+            } else {
+                kept.push_str("\x1b[");
+                rest = after;
+            }
+        }
+        kept.push_str(rest);
+        kept
     }
 
     #[test]
@@ -872,7 +911,7 @@ mod tests {
         assert!(shows(&frames[3], "Line 2", "/line 2 1/11"), "{frames:#?}");
         // Around the start to the last match, on the last page, and
         // around the end to the first, each with the number flashing.
-        assert!(frames[4].contains("Line 29"), "{frames:#?}");
+        assert!(unstyled(&frames[4]).contains("Line 29"), "{frames:#?}");
         let status = status_row(&frames[4], 6);
         assert!(status.contains("11\x1b[0;7m/11"), "{frames:#?}");
         assert!(at_top(&frames[5], "Line 2"), "{frames:#?}");
@@ -956,6 +995,75 @@ mod tests {
         assert_eq!(after.len(), 4, "{after:#?}");
         assert!(!status_row(&after[3], 6).contains(flashed), "{after:#?}");
         assert!(status_row(&after[3], 6).contains(" 11/11"), "{after:#?}");
+    }
+
+    /// The codes of the last SGR sequence before `text` in `frame`; none
+    /// when there is none.
+    fn style_before(frame: &str, text: &str) -> Vec<String> {
+        let at = frame
+            .find(text)
+            .unwrap_or_else(|| panic!("{text:?} in {frame:?}"));
+        let Some(start) = frame[..at].rfind("\x1b[0") else {
+            return Vec::new();
+        };
+        let start = start + 2;
+        let end = start + frame[start..].find('m').unwrap();
+        frame[start..end].split(';').map(str::to_owned).collect()
+    }
+
+    /// `frame` without its status line on row `row`.
+    fn document_part(frame: &str, row: u16) -> &str {
+        &frame[..frame.find(&format!("\x1b[{row};1H")).unwrap()]
+    }
+
+    #[test]
+    fn matches_in_view_are_marked_and_the_current_one_apart() {
+        let reads: &[&[u8]] = &[b"/line 2\r", b"n", b"\x1b", b""];
+        let mut terminal = Fake::new(60, 6, reads);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        // Line 2 is the current match, below Line 1.
+        let found = document_part(&frames[1], 6);
+        assert_eq!(style_before(found, "Line 2\x1b"), ["0", "1", "7"]);
+        assert!(found.contains("  Line 1\x1b"), "{found:?}");
+        // Line 20 is the current match, and Line 21 another.
+        let next = document_part(&frames[2], 6);
+        assert_eq!(style_before(next, "Line 2\x1b[0m0"), ["0", "1", "7"]);
+        assert_eq!(style_before(next, "Line 2\x1b[0m1"), ["0", "7"]);
+        // Escape takes the marks away.
+        let hidden = document_part(&frames[3], 6);
+        assert!(
+            !hidden.contains(";7m") && !hidden.contains("[0;7"),
+            "{hidden:?}"
+        );
+        assert!(at_top(&frames[3], "Line 20"), "{frames:#?}");
+    }
+
+    #[test]
+    fn matches_are_marked_in_large_headings_and_in_tables() {
+        let mut terminal = Fake::new(60, 12, &[b"/kiri\r"]);
+        let source = "# Kiri title\n\n| a | b |\n|---|---|\n| c | kiri |\n";
+        let mut inputs = Inputs::new(Capabilities::kitty(80));
+        run(
+            &crate::parse::parse(source),
+            "notes.md",
+            &mut inputs,
+            None,
+            SearchCase::Smart,
+            &mut terminal,
+        )
+        .unwrap();
+        let frames = terminal.frames();
+        let found = document_part(&frames[1], 12);
+        // The heading is split where the match ends, both parts scaled.
+        let heading = style_before(found, "\x1b]66;s=3;Kiri\x1b\\");
+        assert!(heading.contains(&"1".into()) && heading.contains(&"7".into()));
+        assert!(found.contains("\x1b]66;s=3; title\x1b"), "{found:?}");
+        let cell = style_before(found, "kiri");
+        assert!(cell.contains(&"7".into()) && !cell.contains(&"1".into()));
+        // Without the search, neither is marked.
+        assert!(!document_part(&frames[0], 12).contains(";7"), "{frames:#?}");
     }
 
     #[test]

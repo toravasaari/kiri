@@ -5,7 +5,9 @@
 use std::ops::Range;
 
 use crate::config::SearchCase;
-use crate::render::style::Line;
+use crate::render::style::{Line, Span, Style};
+use crate::term::Capabilities;
+use crate::theme::{SearchColor, Theme};
 
 /// Where a search term is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +82,123 @@ impl Search {
     pub fn count(&self) -> Option<(usize, usize)> {
         Some((self.current? + 1, self.matches.len()))
     }
+
+    /// The bytes of the matches on line `line`, from left to right, each
+    /// with whether it is the current match.
+    pub fn on(&self, line: usize) -> Vec<(Range<usize>, bool)> {
+        let start = self.matches.partition_point(|found| found.line < line);
+        self.matches[start..]
+            .iter()
+            .take_while(|found| found.line == line)
+            .enumerate()
+            .map(|(index, found)| (found.bytes.clone(), Some(start + index) == self.current))
+            .collect()
+    }
+}
+
+/// How matches are shown: the style laid over a match's text, and over the
+/// current match's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Marks {
+    pub found: Style,
+    pub current: Style,
+}
+
+impl Marks {
+    /// The marks for `theme` on a terminal with `caps`.
+    pub fn new(theme: &Theme, caps: &Capabilities) -> Self {
+        let search = &theme.search;
+        let style = |foreground, background| match (foreground, background) {
+            _ if !caps.color => Style {
+                reverse: true,
+                ..Style::default()
+            },
+            (SearchColor::Auto, SearchColor::Auto) => Style {
+                reverse: true,
+                ..Style::default()
+            },
+            (foreground, background) => Style {
+                fg: color(foreground),
+                bg: color(background),
+                ..Style::default()
+            },
+        };
+        Self {
+            found: style(search.match_foreground, search.match_background),
+            current: Style {
+                bold: true,
+                ..style(search.current_foreground, search.current_background)
+            },
+        }
+    }
+}
+
+/// `line` with the bytes of each of `matches` in its text, from left to
+/// right, styled with `marks`: as the current match where its flag is
+/// true. A span a match starts or ends in is split there.
+pub fn mark(line: &Line, matches: &[(Range<usize>, bool)], marks: &Marks) -> Line {
+    let mut spans = Vec::new();
+    // Where the span starts in the line's text.
+    let mut start = 0;
+    for span in &line.spans {
+        let end = start + span.text.len();
+        // The bytes of the span cut so far.
+        let mut cut = start;
+        let inside = matches
+            .iter()
+            .filter(|(bytes, _)| bytes.start < end && start < bytes.end);
+        for (bytes, current) in inside {
+            let from = bytes.start.max(start);
+            let to = bytes.end.min(end);
+            let mark = if *current {
+                &marks.current
+            } else {
+                &marks.found
+            };
+            spans.push(piece(span, cut - start..from - start, span.style.clone()));
+            spans.push(piece(
+                span,
+                from - start..to - start,
+                laid_over(&span.style, mark),
+            ));
+            cut = to;
+        }
+        spans.push(piece(span, cut - start..end - start, span.style.clone()));
+        start = end;
+    }
+    spans.retain(|span| !span.text.is_empty());
+    Line {
+        spans,
+        ..line.clone()
+    }
+}
+
+/// The bytes `bytes` of `span`'s text in `style`.
+fn piece(span: &Span, bytes: Range<usize>, style: Style) -> Span {
+    Span {
+        text: span.text[bytes].to_owned(),
+        style,
+    }
+}
+
+/// `style` with `mark` laid over it: its colours where it has them, and its
+/// bold and reverse video.
+fn laid_over(style: &Style, mark: &Style) -> Style {
+    Style {
+        bold: style.bold || mark.bold,
+        reverse: style.reverse || mark.reverse,
+        fg: mark.fg.or(style.fg),
+        bg: mark.bg.or(style.bg),
+        ..style.clone()
+    }
+}
+
+/// The colour `color` gives a match: none for the text's own.
+fn color(color: SearchColor) -> Option<crate::color::Color> {
+    match color {
+        SearchColor::Color(color) => color,
+        SearchColor::Auto => None,
+    }
 }
 
 /// The places of `term` in `lines`, from the top and from left to right,
@@ -146,7 +265,8 @@ fn same(a: char, b: char, ignore_case: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::style::{Span, Style};
+    use crate::color::Color;
+    use crate::theme::{Paper, SearchTheme};
 
     fn line(text: &str) -> Line {
         Line::new(vec![Span::new(text, Style::default())])
@@ -274,5 +394,165 @@ mod tests {
     #[test]
     fn an_empty_term_finds_nothing() {
         assert_eq!(find(&[line("kiri")], "", SearchCase::Smart), []);
+    }
+
+    #[test]
+    fn the_matches_on_a_line_tell_the_current_one() {
+        let lines = [line("kiri"), line("kiri a kiri"), line("kiri")];
+        let mut search = Search::new(&lines, "kiri", SearchCase::Smart, 1);
+        assert_eq!(search.on(1), [(0..4, true), (7..11, false)]);
+        search.forward();
+        assert_eq!(search.on(1), [(0..4, false), (7..11, true)]);
+        assert_eq!(search.on(0), [(0..4, false)]);
+        assert_eq!(search.on(3), []);
+    }
+
+    fn marks() -> Marks {
+        Marks {
+            found: Style {
+                reverse: true,
+                ..Style::default()
+            },
+            current: Style {
+                bold: true,
+                bg: Some(Color::Palette(3)),
+                ..Style::default()
+            },
+        }
+    }
+
+    #[test]
+    fn marking_splits_spans_where_matches_start_and_end() {
+        let bold = Style {
+            bold: true,
+            ..Style::default()
+        };
+        let source = Line::new(vec![
+            Span::new("a ki", Style::default()),
+            Span::new("ri b", bold.clone()),
+        ]);
+        let marked = mark(&source, &[(2..6, false)], &marks());
+        let reverse = |style: &Style| Style {
+            reverse: true,
+            ..style.clone()
+        };
+        assert_eq!(
+            marked.spans,
+            [
+                Span::new("a ", Style::default()),
+                Span::new("ki", reverse(&Style::default())),
+                Span::new("ri", reverse(&bold)),
+                Span::new(" b", bold),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_current_match_is_marked_apart_and_keeps_the_text_s_style() {
+        let link = Style {
+            italic: true,
+            fg: Some(Color::Palette(4)),
+            link: Some("https://example.com".into()),
+            ..Style::default()
+        };
+        let source = Line::new(vec![Span::new("kiri, kiri", link.clone())]);
+        let marked = mark(&source, &[(0..4, false), (6..10, true)], &marks());
+        assert_eq!(
+            marked.spans,
+            [
+                Span::new(
+                    "kiri",
+                    Style {
+                        reverse: true,
+                        ..link.clone()
+                    }
+                ),
+                Span::new(", ", link.clone()),
+                Span::new(
+                    "kiri",
+                    Style {
+                        bold: true,
+                        bg: Some(Color::Palette(3)),
+                        ..link
+                    }
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn marking_keeps_the_rest_of_the_line() {
+        let source = Line {
+            lead: vec![Span::new("> ", Style::default())],
+            trail: vec![Span::new("  ", Style::default())],
+            scale: 2,
+            ..Line::new(vec![Span::new("Ä kiri", Style::default())])
+        };
+        let marked = mark(&source, &[(3..7, true)], &marks());
+        assert_eq!(
+            Line {
+                spans: Vec::new(),
+                ..marked.clone()
+            },
+            Line {
+                spans: Vec::new(),
+                ..source
+            }
+        );
+        let texts: Vec<&str> = marked.spans.iter().map(|span| span.text.as_str()).collect();
+        assert_eq!(texts, ["Ä ", "kiri"]);
+        assert_eq!(mark(&line("kiri"), &[], &marks()), line("kiri"));
+    }
+
+    #[test]
+    fn matches_are_in_reverse_video_and_the_current_one_bold_by_default() {
+        let marks = Marks::new(&Theme::default(), &Capabilities::kitty(80));
+        assert_eq!(
+            marks,
+            Marks {
+                found: Style {
+                    reverse: true,
+                    ..Style::default()
+                },
+                current: Style {
+                    reverse: true,
+                    bold: true,
+                    ..Style::default()
+                },
+            }
+        );
+        // Without colours, the paper themes' greys give way too.
+        let mut caps = Capabilities::kitty(80);
+        caps.color = false;
+        assert_eq!(Marks::new(&Theme::paper(Paper::Light), &caps), marks);
+    }
+
+    #[test]
+    fn colours_from_the_theme_mark_matches_without_reverse_video() {
+        let grey = |level| Some(Color::Rgb(level, level, level));
+        let caps = Capabilities::kitty(80);
+        let light = Marks::new(&Theme::paper(Paper::Light), &caps);
+        assert_eq!((light.found.fg, light.found.bg), (grey(0x00), grey(0xcc)));
+        assert!(!light.found.reverse && !light.found.bold);
+        assert_eq!(
+            (light.current.fg, light.current.bg),
+            (grey(0xff), grey(0x1f))
+        );
+        assert!(!light.current.reverse && light.current.bold);
+        // One colour given: the other is the text's own.
+        let theme = Theme {
+            search: SearchTheme {
+                current_background: SearchColor::Color(Some(Color::Palette(3))),
+                ..SearchTheme::default()
+            },
+            ..Theme::default()
+        };
+        let marks = Marks::new(&theme, &caps);
+        assert!(marks.found.reverse);
+        assert_eq!(
+            (marks.current.fg, marks.current.bg),
+            (None, Some(Color::Palette(3)))
+        );
+        assert!(!marks.current.reverse && marks.current.bold);
     }
 }
