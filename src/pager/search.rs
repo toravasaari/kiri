@@ -1,0 +1,169 @@
+//! Where a search term is in the laid-out lines of a document. A line's
+//! text is the text of its spans one after another, so a word whose style
+//! changes in the middle is found too.
+
+use std::ops::Range;
+
+use crate::config::SearchCase;
+use crate::render::style::Line;
+
+/// Where a search term is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Match {
+    /// The line it is on.
+    pub line: usize,
+    /// Its bytes in the line's text: the text of its spans one after
+    /// another.
+    pub bytes: Range<usize>,
+}
+
+/// The places of `term` in `lines`, from the top and from left to right,
+/// none overlapping another. A no-break space matches a space. With
+/// `SearchCase::Smart`, a term with no upper-case letter ignores case.
+pub fn find(lines: &[Line], term: &str, case: SearchCase) -> Vec<Match> {
+    let ignore_case = match case {
+        SearchCase::Smart => !term.chars().any(char::is_uppercase),
+        SearchCase::Literal => false,
+    };
+    let term: Vec<char> = term.chars().collect();
+    lines
+        .iter()
+        .enumerate()
+        .flat_map(|(index, line)| {
+            places(&text(line), &term, ignore_case)
+                .into_iter()
+                .map(move |bytes| Match { line: index, bytes })
+        })
+        .collect()
+}
+
+/// The text of `line`'s spans one after another.
+fn text(line: &Line) -> String {
+    line.spans.iter().map(|span| span.text.as_str()).collect()
+}
+
+/// The bytes of each place of `term` in `text`, from left to right and
+/// none overlapping another.
+fn places(text: &str, term: &[char], ignore_case: bool) -> Vec<Range<usize>> {
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let mut found = Vec::new();
+    if term.is_empty() {
+        return found;
+    }
+    let mut start = 0;
+    while start + term.len() <= chars.len() {
+        let candidate = &chars[start..start + term.len()];
+        let matches = candidate
+            .iter()
+            .zip(term)
+            .all(|(&(_, c), &t)| same(c, t, ignore_case));
+        if matches {
+            let end = chars
+                .get(start + term.len())
+                .map_or(text.len(), |&(at, _)| at);
+            found.push(chars[start].0..end);
+            start += term.len();
+        } else {
+            start += 1;
+        }
+    }
+    found
+}
+
+/// Whether the characters `a` and `b` match: a no-break space matches a
+/// space, and with `ignore_case` an upper-case letter its lower case.
+fn same(a: char, b: char, ignore_case: bool) -> bool {
+    let plain = |c| if c == '\u{a0}' { ' ' } else { c };
+    let (a, b) = (plain(a), plain(b));
+    a == b || (ignore_case && a.to_lowercase().eq(b.to_lowercase()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::render::style::{Span, Style};
+
+    fn line(text: &str) -> Line {
+        Line::new(vec![Span::new(text, Style::default())])
+    }
+
+    fn at(line: usize, bytes: Range<usize>) -> Match {
+        Match { line, bytes }
+    }
+
+    #[test]
+    fn finds_every_place_of_the_term_line_by_line() {
+        let lines = [line("kiri and kiri"), Line::blank(), line("a kiri")];
+        assert_eq!(
+            find(&lines, "kiri", SearchCase::Smart),
+            [at(0, 0..4), at(0, 9..13), at(2, 2..6)]
+        );
+    }
+
+    #[test]
+    fn finds_a_term_whose_style_changes_in_the_middle() {
+        let bold = Style {
+            bold: true,
+            ..Style::default()
+        };
+        let lines = [Line::new(vec![
+            Span::new("a ", Style::default()),
+            Span::new("ki", bold),
+            Span::new("ri", Style::default()),
+        ])];
+        assert_eq!(find(&lines, "kiri", SearchCase::Smart), [at(0, 2..6)]);
+    }
+
+    #[test]
+    fn places_do_not_overlap() {
+        assert_eq!(
+            find(&[line("aaaa")], "aa", SearchCase::Smart),
+            [at(0, 0..2), at(0, 2..4)]
+        );
+    }
+
+    #[test]
+    fn a_term_without_upper_case_ignores_case_by_default() {
+        let lines = [line("Kiri KIRI kiri")];
+        assert_eq!(
+            find(&lines, "kiri", SearchCase::Smart),
+            [at(0, 0..4), at(0, 5..9), at(0, 10..14)]
+        );
+    }
+
+    #[test]
+    fn a_term_with_upper_case_matches_case_exactly() {
+        let lines = [line("Kiri KIRI kiri")];
+        assert_eq!(find(&lines, "Kiri", SearchCase::Smart), [at(0, 0..4)]);
+    }
+
+    #[test]
+    fn literal_case_matches_case_exactly() {
+        let lines = [line("Kiri KIRI kiri")];
+        assert_eq!(find(&lines, "kiri", SearchCase::Literal), [at(0, 10..14)]);
+    }
+
+    #[test]
+    fn a_no_break_space_matches_a_space() {
+        let lines = [line("run\u{a0}make\u{a0}check")];
+        assert_eq!(
+            find(&lines, "make check", SearchCase::Smart),
+            [at(0, 5..16)]
+        );
+    }
+
+    #[test]
+    fn places_are_in_bytes_of_the_original_text() {
+        // `İ` is two bytes and lower-cases to two characters.
+        let lines = [line("İ Äiti äiti")];
+        assert_eq!(
+            find(&lines, "äiti", SearchCase::Smart),
+            [at(0, 3..8), at(0, 9..14)]
+        );
+    }
+
+    #[test]
+    fn an_empty_term_finds_nothing() {
+        assert_eq!(find(&[line("kiri")], "", SearchCase::Smart), []);
+    }
+}

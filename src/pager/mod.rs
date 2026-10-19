@@ -3,6 +3,7 @@
 
 pub mod help;
 pub mod keys;
+pub mod search;
 pub mod status;
 pub mod view;
 
