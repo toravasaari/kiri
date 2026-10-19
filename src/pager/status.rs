@@ -4,20 +4,20 @@
 
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use super::fade::Fade;
+use super::fade::{FLASH, Fade};
 use super::view::Position;
 use crate::color::Color;
 use crate::render::style::{Span, Style};
 use crate::term::Capabilities;
-use crate::theme::{SearchColor, StatusColor, Theme};
+use crate::theme::{StatusColor, Theme};
 
-/// The styles of the status line, and of the match number just after a
-/// search went around an end of the document.
+/// The styles of the status line, and the one the match number fades
+/// into after a search went around an end of the document.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Styles {
     pub bar: Style,
     pub badge: Style,
-    pub flash: Style,
+    pub inverse: Style,
 }
 
 impl Styles {
@@ -27,35 +27,28 @@ impl Styles {
     /// either, the bar is in reverse video and the badge in bold.
     pub fn new(theme: &Theme, caps: &Capabilities) -> Self {
         let (bar, badge) = bar_and_badge(theme, caps);
-        // In the search's flash colours; without them, bold and in
-        // reverse video against the bar.
-        let search = &theme.search;
-        let color = |color| match color {
-            SearchColor::Color(color) => color,
-            SearchColor::Auto => None,
-        };
-        let flash = match (search.flash_foreground, search.flash_background) {
-            (SearchColor::Auto, SearchColor::Auto) => None,
-            _ if !caps.color => None,
-            (foreground, background) => Some(Style {
-                bold: true,
-                fg: color(foreground),
-                bg: color(background),
-                ..Style::default()
-            }),
-        };
-        let flash = flash.unwrap_or_else(|| Style {
+        // Bold, and in reverse video against the bar.
+        let inverse = Style {
             bold: true,
             reverse: !bar.reverse,
             ..bar.clone()
-        });
-        Self { bar, badge, flash }
+        };
+        Self {
+            bar,
+            badge,
+            inverse,
+        }
     }
 
-    /// The match number's style `fade` into a flash, from the flash to
-    /// the bar's.
+    /// The match number's style `fade` into a search going around an
+    /// end: the bar's colours fading into their reverse. Where they cannot
+    /// fade, the reverse for [`FLASH`] and then the bar's.
     pub fn number(&self, fade: Fade) -> Style {
-        fade.step(&self.flash, &self.bar)
+        match fade.mix(&self.bar, &self.inverse) {
+            Some(style) => style,
+            None if fade.elapsed < FLASH => self.inverse.clone(),
+            None => self.bar.clone(),
+        }
     }
 }
 
@@ -315,7 +308,7 @@ mod tests {
         Styles {
             bar: Style::fg(Some(Color::Palette(1))),
             badge: Style::fg(Some(Color::Palette(2))),
-            flash: Style::fg(Some(Color::Palette(3))),
+            inverse: Style::fg(Some(Color::Palette(3))),
         }
     }
 
@@ -469,7 +462,7 @@ mod tests {
             term: "kiri",
             current: 1,
             total: 12,
-            flash: Some(styles().flash),
+            flash: Some(styles().inverse),
         });
         let spans = spans("notes.md", at(42), flash, 60, &styles());
         assert_eq!(
@@ -477,29 +470,30 @@ mod tests {
             text(&super::spans("notes.md", at(42), AT, 60, &styles())).replace("3/12", "1/12")
         );
         let one = spans.iter().find(|span| span.text == "1").unwrap();
-        assert_eq!(one.style, styles().flash);
+        assert_eq!(one.style, styles().inverse);
         let twelve = spans.iter().find(|span| span.text == "/12").unwrap();
         assert_eq!(twelve.style, styles().bar);
     }
 
     #[test]
-    fn the_match_number_flashes_in_the_search_s_flash_colours() {
-        let styles = Styles::new(&Theme::default(), &Capabilities::kitty(80));
+    fn the_match_number_fades_into_the_bar_s_reverse() {
+        let mut caps = Capabilities::kitty(80);
+        caps.background = Some(Color::Rgb(0, 0, 0));
+        caps.palette[8] = Some(Color::Rgb(100, 100, 100));
+        let styles = Styles::new(&Theme::default(), &caps);
         assert_eq!(
-            styles.flash,
+            styles.inverse,
             Style {
                 bold: true,
-                fg: Some(Color::Palette(0)),
-                bg: Some(Color::Palette(3)),
-                ..Style::default()
+                reverse: true,
+                ..styles.bar.clone()
             }
         );
         // Without colours, bold against the bar's reverse video.
-        let mut caps = Capabilities::kitty(80);
         caps.color = false;
         let styles = Styles::new(&Theme::default(), &caps);
-        assert!(styles.flash.bold && !styles.flash.reverse);
-        assert_eq!((styles.flash.fg, styles.flash.bg), (None, None));
+        assert!(styles.inverse.bold && !styles.inverse.reverse);
+        assert_eq!((styles.inverse.fg, styles.inverse.bg), (None, None));
     }
 
     #[test]

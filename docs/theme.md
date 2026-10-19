@@ -194,15 +194,13 @@ match_foreground = "auto"
 match_background = "auto"
 current_foreground = "auto"
 current_background = "auto"
-# After each jump to a match, the current match is in the flash colours,
-# which fade to its own in three quarters of a second; so does the match
-# number on the status line when the search goes around an end. The fade
-# needs both ends as RGB, from the theme or from the colours the terminal
-# tells; without them, the flash colours stay for half a second and then
-# go.
-# A colour, or none or auto for the text's own; with both auto, nothing
-# flashes. Without colours, as with NO_COLOR, the current match is
-# underlined instead for that second.
+# After each jump to a match, the current match fades in three quarters
+# of a second from the text's own colours into the current match's; when
+# the search goes around an end, the match number on the status line
+# fades too, from the bar's colours into their reverse. The fade needs
+# both ends as RGB, from the theme or from the colours the terminal tells;
+# without them, the current match is marked at once and the match number
+# stands apart from the bar, bold and reversed, for half a second.
 flash_foreground = "black"
 flash_background = "yellow"
 ```

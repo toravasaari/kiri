@@ -1,5 +1,6 @@
-//! A style that fades into another over a moment: the strong colours of a
-//! search match just jumped to, going over into its ordinary ones.
+//! A style that fades into another over a moment: a search match just
+//! jumped to, going over from the text's own colours into the mark of the
+//! current match.
 
 use std::time::Duration;
 
@@ -11,7 +12,8 @@ use crate::theme::Theme;
 /// How long a fade takes.
 pub const FADE: Duration = Duration::from_millis(750);
 
-/// How long the strong style stays, all at once, where it cannot fade.
+/// How long the match number stays in its end style, all at once, where
+/// it cannot fade.
 pub const FLASH: Duration = Duration::from_millis(500);
 
 /// The colours of the page and of the terminal's palette as RGB, where
@@ -74,39 +76,46 @@ pub struct Fade<'a> {
 }
 
 impl Fade<'_> {
-    /// `from` faded as far into `to` as the fade has come.
+    /// `from` faded as far into `to` as the fade has come; `to` at once
+    /// where their colours are not known as RGB.
     pub fn step(&self, from: &Style, to: &Style) -> Style {
         step(from, to, self.elapsed, self.rgb)
+    }
+
+    /// `from` faded as far into `to` as the fade has come; `None` where
+    /// their colours are not known as RGB.
+    pub fn mix(&self, from: &Style, to: &Style) -> Option<Style> {
+        mix(from, to, self.elapsed, self.rgb)
     }
 }
 
 /// `from` faded into `to` for `elapsed` of [`FADE`], their colours mixed
-/// with `rgb`. Where either's colours are not known as RGB, `from` stays
-/// for [`FLASH`] and then gives way to `to` at once.
+/// with `rgb`. Where either's colours are not known as RGB, `to` at once.
 pub fn step(from: &Style, to: &Style, elapsed: Duration, rgb: Option<&Rgb>) -> Style {
+    mix(from, to, elapsed, rgb).unwrap_or_else(|| to.clone())
+}
+
+/// `from` faded into `to` for `elapsed` of [`FADE`], their colours mixed
+/// with `rgb`, in `to`'s bold, underline and the rest all the way; `None`
+/// where either's colours are not known as RGB.
+fn mix(from: &Style, to: &Style, elapsed: Duration, rgb: Option<&Rgb>) -> Option<Style> {
     if elapsed >= FADE {
-        return to.clone();
+        return Some(to.clone());
     }
-    let colors = rgb.and_then(|rgb| Some((rgb.colors(from)?, rgb.colors(to)?)));
-    match colors {
-        Some(((fg_from, bg_from), (fg_to, bg_to))) => {
-            let amount = elapsed.as_secs_f32() / FADE.as_secs_f32();
-            Style {
-                fg: fg_from.mix(fg_to, amount),
-                bg: bg_from.mix(bg_to, amount),
-                reverse: false,
-                ..from.clone()
-            }
-        }
-        None if elapsed < FLASH => from.clone(),
-        None => to.clone(),
-    }
+    let rgb = rgb?;
+    let ((fg_from, bg_from), (fg_to, bg_to)) = (rgb.colors(from)?, rgb.colors(to)?);
+    let amount = elapsed.as_secs_f32() / FADE.as_secs_f32();
+    Some(Style {
+        fg: fg_from.mix(fg_to, amount),
+        bg: bg_from.mix(bg_to, amount),
+        reverse: false,
+        ..to.clone()
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::color::Underline;
 
     fn rgb() -> Rgb {
         let mut caps = Capabilities::kitty(80);
@@ -166,14 +175,40 @@ mod tests {
     }
 
     #[test]
-    fn a_fade_mixes_the_colours_from_one_style_into_the_other() {
-        let from = Style {
+    fn a_fade_goes_from_the_text_s_own_colours_into_their_reverse() {
+        // Yellow text on the page, and the current match's reverse video
+        // laid over it: yellow on black into black on yellow.
+        let from = colored(Some(Color::Palette(3)), None);
+        let to = Style {
+            bold: true,
+            reverse: true,
+            ..from.clone()
+        };
+        let at = |millis| step(&from, &to, Duration::from_millis(millis), Some(&rgb()));
+        let yellow = Some(Color::Rgb(200, 200, 0));
+        let black = Some(Color::Rgb(0, 0, 0));
+        let start = at(0);
+        assert_eq!((start.fg, start.bg), (yellow, black));
+        // In the mark's bold all the way, without its reverse video.
+        assert!(start.bold && !start.reverse);
+        let midway = at(300);
+        assert_eq!(
+            (midway.fg, midway.bg),
+            (Some(Color::Rgb(120, 120, 0)), Some(Color::Rgb(80, 80, 0)))
+        );
+        assert!(midway.bold && !midway.reverse);
+        let end = at(749);
+        assert_eq!((end.fg, end.bg), (black, yellow));
+        assert_eq!(at(750), to);
+        assert_eq!(at(1000), to);
+    }
+
+    #[test]
+    fn a_fade_goes_into_a_theme_s_own_colours() {
+        let from = Style::default();
+        let to = Style {
             bold: true,
             ..colored(Some(Color::Palette(0)), Some(Color::Palette(3)))
-        };
-        let to = Style {
-            reverse: true,
-            ..Style::default()
         };
         let mut rgb = rgb();
         rgb.palette[0] = Some(Color::Rgb(0, 0, 0));
@@ -181,40 +216,36 @@ mod tests {
         let start = at(0);
         assert_eq!(
             (start.fg, start.bg),
-            (Some(Color::Rgb(0, 0, 0)), Some(Color::Rgb(200, 200, 0)))
+            (Some(Color::Rgb(200, 200, 200)), Some(Color::Rgb(0, 0, 0)))
         );
-        assert!(start.bold && !start.reverse);
+        assert!(start.bold);
         let midway = at(375);
         assert_eq!(
             (midway.fg, midway.bg),
-            (Some(Color::Rgb(0, 0, 0)), Some(Color::Rgb(200, 200, 100)))
+            (
+                Some(Color::Rgb(100, 100, 100)),
+                Some(Color::Rgb(100, 100, 0))
+            )
         );
         assert_eq!(at(750), to);
-        assert_eq!(at(1000), to);
     }
 
     #[test]
-    fn colours_not_known_flash_for_half_a_second_without_steps() {
-        let from = Style {
-            underline: Underline::Single,
-            ..Style::default()
-        };
+    fn colours_not_known_give_the_end_style_at_once() {
         let to = Style {
+            bold: true,
             reverse: true,
             ..Style::default()
         };
-        for rgb in [None, Some(&rgb())] {
-            let at = |millis| step(&from, &to, Duration::from_millis(millis), rgb);
-            // Palette colour 4 is not known.
-            let unknown = colored(Some(Color::Palette(4)), None);
-            let from_unknown = |millis| step(&unknown, &to, Duration::from_millis(millis), rgb);
-            if rgb.is_none() {
-                assert_eq!(at(0), from);
-                assert_eq!(at(499), from);
-                assert_eq!(at(500), to);
-            }
-            assert_eq!(from_unknown(250), unknown);
-            assert_eq!(from_unknown(500), to);
+        // Palette colour 4 is not known.
+        let unknown = colored(Some(Color::Palette(4)), None);
+        for (from, rgb) in [
+            (Style::default(), None),
+            (unknown.clone(), None),
+            (unknown, Some(&rgb())),
+        ] {
+            assert_eq!(step(&from, &to, Duration::ZERO, rgb), to);
+            assert_eq!(step(&from, &to, Duration::from_millis(400), rgb), to);
         }
     }
 }

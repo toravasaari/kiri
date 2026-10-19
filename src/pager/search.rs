@@ -112,13 +112,12 @@ impl Search {
     }
 }
 
-/// How matches are shown: the style laid over a match's text, over the
-/// current match's, and over the current match's just after a jump to it.
+/// How matches are shown: the style laid over a match's text, and over
+/// the current match's.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Marks {
     pub found: Style,
     pub current: Style,
-    pub strong: Style,
 }
 
 impl Marks {
@@ -144,31 +143,16 @@ impl Marks {
             bold: true,
             ..style(search.current_foreground, search.current_background)
         };
-        let strong = match (search.flash_foreground, search.flash_background) {
-            // Without colours, underlined.
-            _ if !caps.color => Style {
-                underline: Underline::Single,
-                ..current.clone()
-            },
-            (SearchColor::Auto, SearchColor::Auto) => current.clone(),
-            (foreground, background) => Style {
-                bold: true,
-                fg: color(foreground),
-                bg: color(background),
-                ..Style::default()
-            },
-        };
         Self {
             found: style(search.match_foreground, search.match_background),
             current,
-            strong,
         }
     }
 }
 
 /// `line` with the bytes of each of `matches` in its text, from left to
 /// right, styled with `marks`: as the current match where its flag is
-/// true, faded from the strong mark while a `fade` is under way. A span a
+/// true, faded from the text's own style while a `fade` is under way. A span a
 /// match starts or ends in is split there.
 pub fn mark(
     line: &Line,
@@ -192,10 +176,9 @@ pub fn mark(
             let style = match (current, fade) {
                 (false, _) => laid_over(&span.style, &marks.found),
                 (true, None) => laid_over(&span.style, &marks.current),
-                (true, Some(fade)) => fade.step(
-                    &laid_over(&span.style, &marks.strong),
-                    &laid_over(&span.style, &marks.current),
-                ),
+                (true, Some(fade)) => {
+                    fade.step(&span.style, &laid_over(&span.style, &marks.current))
+                }
             };
             spans.push(piece(span, cut - start..from - start, span.style.clone()));
             spans.push(piece(span, from - start..to - start, style));
@@ -308,6 +291,7 @@ fn same(a: char, b: char, ignore_case: bool) -> bool {
 mod tests {
     use super::*;
     use crate::color::Color;
+    use crate::pager::fade::Rgb;
     use crate::theme::{Paper, SearchTheme};
 
     fn line(text: &str) -> Line {
@@ -488,11 +472,6 @@ mod tests {
                 bg: Some(Color::Palette(3)),
                 ..Style::default()
             },
-            strong: Style {
-                bold: true,
-                bg: Some(Color::Palette(1)),
-                ..Style::default()
-            },
         }
     }
 
@@ -594,50 +573,43 @@ mod tests {
                     reverse: true,
                     ..Style::default()
                 },
-                current: current.clone(),
-                strong: Style {
-                    bold: true,
-                    fg: Some(Color::Palette(0)),
-                    bg: Some(Color::Palette(3)),
-                    ..Style::default()
-                },
+                current,
             }
         );
-        // Without colours, the paper themes' greys give way too, and the
-        // strong mark is underlined.
+        // Without colours, the paper themes' greys give way too.
         let mut caps = Capabilities::kitty(80);
         caps.color = false;
-        assert_eq!(
-            Marks::new(&Theme::paper(Paper::Light), &caps),
-            Marks {
-                strong: Style {
-                    underline: Underline::Single,
-                    ..current
-                },
-                ..marks
-            }
-        );
+        assert_eq!(Marks::new(&Theme::paper(Paper::Light), &caps), marks);
     }
 
     #[test]
-    fn the_current_match_fades_from_the_strong_mark() {
+    fn the_current_match_fades_from_the_text_s_own_style() {
         let source = Line::new(vec![Span::new("kiri", Style::default())]);
-        let at = |millis| {
+        let mut caps = Capabilities::kitty(80);
+        caps.foreground = Some(Color::Rgb(200, 200, 200));
+        caps.background = Some(Color::Rgb(0, 0, 0));
+        caps.palette[3] = Some(Color::Rgb(200, 200, 0));
+        let known = Rgb::new(&Theme::default(), &caps).unwrap();
+        let at = |millis, rgb| {
             let fade = Fade {
                 elapsed: std::time::Duration::from_millis(millis),
-                rgb: None,
+                rgb,
             };
-            mark(&source, &[(0..4, true)], &marks(), Some(fade)).spans[0]
-                .style
-                .bg
+            let marked = mark(&source, &[(0..4, true)], &marks(), Some(fade));
+            let style = &marked.spans[0].style;
+            (style.fg, style.bg)
         };
-        // Without colours known as RGB, a flash.
-        assert_eq!(at(0), Some(Color::Palette(1)));
-        assert_eq!(at(1000), Some(Color::Palette(3)));
+        // From grey on black into grey on yellow.
+        let grey = Some(Color::Rgb(200, 200, 200));
+        assert_eq!(at(0, Some(&known)), (grey, Some(Color::Rgb(0, 0, 0))));
+        assert_eq!(at(375, Some(&known)), (grey, Some(Color::Rgb(100, 100, 0))));
+        assert_eq!(at(1000, Some(&known)), (None, Some(Color::Palette(3))));
+        // Without colours known as RGB, the mark at once.
+        assert_eq!(at(0, None), (None, Some(Color::Palette(3))));
         // Other matches do not fade.
         let fade = Fade {
             elapsed: std::time::Duration::ZERO,
-            rgb: None,
+            rgb: Some(&known),
         };
         let other = mark(&source, &[(0..4, false)], &marks(), Some(fade));
         assert!(other.spans[0].style.reverse);

@@ -1129,8 +1129,7 @@ mod tests {
 
     #[test]
     fn matches_in_view_are_marked_and_the_current_one_apart() {
-        // Each jump flashes for half a second, over after three quarters
-        // of a second.
+        // Without colours known as RGB, a jump marks the match at once.
         let wait = [b"".as_slice(); 30];
         let reads = [
             &[b"/line 2\r".as_slice()],
@@ -1142,28 +1141,28 @@ mod tests {
         let mut terminal = Fake::new(60, 6, &reads.concat());
         show(&numbers(30), &mut terminal);
         let frames = terminal.frames();
-        assert_eq!(frames.len(), 6, "{frames:#?}");
+        assert_eq!(frames.len(), 4, "{frames:#?}");
         // Line 2 is the current match, below Line 1.
-        let found = document_part(&frames[2], 6);
+        let found = document_part(&frames[1], 6);
         assert_eq!(style_before(found, "Line 2\x1b"), ["0", "1", "7"]);
         assert!(found.contains("  Line 1\x1b"), "{found:?}");
         // Line 20 is the current match, and Line 21 another.
-        let next = document_part(&frames[4], 6);
+        let next = document_part(&frames[2], 6);
         assert_eq!(style_before(next, "Line 2\x1b[0m0"), ["0", "1", "7"]);
         assert_eq!(style_before(next, "Line 2\x1b[0m1"), ["0", "7"]);
         // Escape takes the marks away.
-        let hidden = document_part(&frames[5], 6);
+        let hidden = document_part(&frames[3], 6);
         assert!(
             !hidden.contains(";7m") && !hidden.contains("[0;7"),
             "{hidden:?}"
         );
-        assert!(at_top(&frames[5], "Line 20"), "{frames:#?}");
+        assert!(at_top(&frames[3], "Line 20"), "{frames:#?}");
     }
 
     #[test]
     fn matches_are_marked_in_large_headings_and_in_tables() {
         let mut reads = vec![b"/kiri\r".as_slice()];
-        // After the flash of the jump.
+        // After the fade of the jump.
         reads.extend([b"".as_slice(); 30]);
         let mut terminal = Fake::new(60, 12, &reads);
         let source = "# Kiri title\n\n| a | b |\n|---|---|\n| c | kiri |\n";
@@ -1215,12 +1214,22 @@ mod tests {
     /// The frames drawn on a terminal with `caps` for `reads`, then
     /// `empty` polls without keys.
     fn frames_with(caps: Capabilities, reads: &[&[u8]], empty: usize) -> Vec<String> {
+        frames_of(&numbers(30), Inputs::new(caps), reads, empty)
+    }
+
+    /// The frames drawn for `document` with `inputs` for `reads`, then
+    /// `empty` polls without keys.
+    fn frames_of(
+        document: &Document,
+        mut inputs: Inputs,
+        reads: &[&[u8]],
+        empty: usize,
+    ) -> Vec<String> {
         let mut reads = reads.to_vec();
         reads.extend(std::iter::repeat_n(b"".as_slice(), empty));
         let mut terminal = Fake::new(60, 6, &reads);
-        let mut inputs = Inputs::new(caps);
         run(
-            &numbers(30),
+            document,
             "notes.md",
             &mut inputs,
             None,
@@ -1231,50 +1240,70 @@ mod tests {
         terminal.frames()
     }
 
+    /// The SGR codes of bold text in `fg` on `bg`, each as `r;g;b`.
+    fn colours(fg: &str, bg: &str) -> Vec<String> {
+        let mut codes = vec!["0".to_owned(), "1".to_owned()];
+        codes.extend(format!("38;2;{fg};48;2;{bg}").split(';').map(str::to_owned));
+        codes
+    }
+
     #[test]
-    fn a_jump_shows_the_match_in_yellow_fading_into_reverse_video() {
+    fn a_jump_fades_the_match_from_its_own_colours_into_reverse_video() {
         let frames = frames_with(known_colours(), &[b"/line 2\r"], 40);
         // The jump, a frame each twentieth of a second after it until
         // three quarters of a second, and no more after the fade.
         assert_eq!(frames.len(), 17, "{frames:#?}");
         let current = |frame: &str| style_before(document_part(frame, 6), "Line 2\x1b");
-        let colours = |fg: &str, bg: &str| {
-            let mut codes = vec!["0".to_owned(), "1".to_owned()];
-            codes.extend(format!("38;2;{fg};48;2;{bg}").split(';').map(str::to_owned));
-            codes
-        };
-        assert_eq!(current(&frames[1]), colours("0;0;0", "200;200;0"));
-        assert_eq!(current(&frames[7]), colours("0;0;0", "200;200;80"));
+        // Grey on black, the text's own, into black on grey.
+        assert_eq!(current(&frames[1]), colours("200;200;200", "0;0;0"));
+        assert_eq!(current(&frames[7]), colours("120;120;120", "80;80;80"));
+        assert_eq!(current(&frames[15]), colours("13;13;13", "187;187;187"));
         assert_eq!(current(&frames[16]), ["0", "1", "7"]);
+    }
+
+    #[test]
+    fn a_match_in_yellow_text_fades_into_its_reverse() {
+        // The title of a warning is in palette colour 3, a yellow.
+        let mut inputs = Inputs::new(known_colours());
+        inputs.theme.alerts.colors = crate::theme::AlertColors::Terminal;
+        let document = crate::parse::parse("> [!WARNING]\n> Mind the step.\n");
+        let frames = frames_of(&document, inputs, &[b"/warning\r"], 40);
+        assert_eq!(frames.len(), 17, "{frames:#?}");
+        let current = |frame: &str| style_before(document_part(frame, 6), "Warning\x1b");
+        // Yellow on the alert's yellow tint at the jump, into the tint on
+        // yellow.
+        assert_eq!(current(&frames[1]), colours("200;200;0", "30;30;0"));
+        assert_eq!(current(&frames[7]), colours("132;132;0", "98;98;0"));
+        assert_eq!(current(&frames[15]), colours("41;41;0", "189;189;0"));
+        let end = current(&frames[16]);
+        assert!(end.contains(&"7".to_owned()), "{end:?}");
     }
 
     #[test]
     fn n_and_shift_n_fade_the_match_too() {
         let frames = frames_with(known_colours(), &[b"/line 2\r", b"n"], 0);
         let current = style_before(document_part(&frames[2], 6), "Line 2\x1b[0m0");
-        assert!(current.contains(&"48".to_owned()), "{frames:#?}");
+        assert_eq!(current, colours("200;200;200", "0;0;0"), "{frames:#?}");
     }
 
     #[test]
-    fn colours_not_known_as_rgb_flash_for_half_a_second() {
-        // The terminal tells no colours: yellow until half a second has
-        // gone.
+    fn colours_not_known_as_rgb_mark_the_match_at_once() {
+        // The terminal tells no colours: the current match's reverse
+        // video at once, and no frame after it.
         let frames = frames_with(Capabilities::ansi(80), &[b"/line 2\r"], 30);
-        assert_eq!(frames.len(), 3, "{frames:#?}");
+        assert_eq!(frames.len(), 2, "{frames:#?}");
         let current = |frame: &str| style_before(document_part(frame, 6), "Line 2\x1b");
-        assert_eq!(current(&frames[1]), ["0", "1", "30", "43"]);
-        assert_eq!(current(&frames[2]), ["0", "1", "7"]);
-        // Without colours, the match is underlined for that time.
+        assert_eq!(current(&frames[1]), ["0", "1", "7"]);
+        // Nor without colours.
         let mut caps = known_colours();
         caps.color = false;
         let frames = frames_with(caps, &[b"/line 2\r"], 30);
-        assert_eq!(frames.len(), 3, "{frames:#?}");
-        assert_eq!(current(&frames[1]), ["0", "1", "7", "4"]);
-        assert_eq!(current(&frames[2]), ["0", "1", "7"]);
+        assert_eq!(frames.len(), 2, "{frames:#?}");
+        assert_eq!(current(&frames[1]), ["0", "1", "7"]);
     }
 
     #[test]
-    fn going_around_an_end_fades_the_match_number() {
+    fn going_around_an_end_fades_the_match_number_into_the_bar_s_reverse() {
         // A grey bar, mixed from the black page and this grey.
         let mut caps = known_colours();
         caps.palette[8] = Some(Color::Rgb(100, 100, 100));
@@ -1282,13 +1311,10 @@ mod tests {
         // The search, then N, which fades for three quarters of a second.
         assert_eq!(frames.len(), 18, "{frames:#?}");
         let number = |frame: &str| style_before(&status_row(frame, 6), "11\x1b");
-        let colours = |fg: &str, bg: &str| {
-            let mut codes = vec!["0".to_owned(), "1".to_owned()];
-            codes.extend(format!("38;2;{fg};48;2;{bg}").split(';').map(str::to_owned));
-            codes
-        };
-        assert_eq!(number(&frames[2]), colours("0;0;0", "200;200;0"));
-        assert_eq!(number(&frames[8]), colours("80;80;80", "140;140;20"));
+        // The bar's grey on dark grey into dark grey on grey.
+        assert_eq!(number(&frames[2]), colours("200;200;200", "50;50;50"));
+        assert_eq!(number(&frames[8]), colours("140;140;140", "110;110;110"));
+        assert_eq!(number(&frames[16]), colours("60;60;60", "190;190;190"));
         // At the end, in the bar's colours, with the rest of the search.
         let status = status_row(&frames[17], 6);
         assert_eq!(
@@ -1299,10 +1325,11 @@ mod tests {
 
     #[test]
     fn going_around_an_end_flashes_the_match_number_where_colours_are_not_known() {
+        // Bold, without the bar's reverse video, for half a second.
         let frames = frames_with(Capabilities::ansi(80), &[b"/line 2\r", b"N"], 30);
         assert_eq!(frames.len(), 4, "{frames:#?}");
         let number = |frame: &str| style_before(&status_row(frame, 6), "11\x1b");
-        assert_eq!(number(&frames[2]), ["0", "1", "30", "43"]);
+        assert_eq!(number(&frames[2]), ["0", "1"]);
         assert!(status_row(&frames[3], 6).contains(" 11/11"), "{frames:#?}");
     }
 }
