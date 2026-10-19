@@ -22,21 +22,35 @@ pub fn width(spans: &[Span]) -> usize {
 /// the wrapper measures them, so a flag or a joined emoji stays whole. A
 /// grapheme wider than `max` gets a line of its own and overflows it.
 pub fn split(spans: &[Span], max: usize) -> Vec<Vec<Span>> {
-    let mut lines = vec![Vec::new()];
-    let mut used = 0;
+    let mut lines = Vec::new();
+    let mut line = Vec::new();
+    split_onto(spans, max, &mut lines, &mut line, 0);
+    lines.push(line);
+    lines
+}
+
+/// Appends `spans` to `line`, which already takes `used` cells, and moves
+/// it to `lines` between graphemes wherever it is full, as `split` does.
+/// Returns the cells the last line takes.
+fn split_onto(
+    spans: &[Span],
+    max: usize,
+    lines: &mut Vec<Vec<Span>>,
+    line: &mut Vec<Span>,
+    mut used: usize,
+) -> usize {
     for span in spans {
         for grapheme in span.text.graphemes(true) {
             let grapheme_width = grapheme.width();
             if used + grapheme_width > max && used > 0 {
-                lines.push(Vec::new());
+                lines.push(std::mem::take(line));
                 used = 0;
             }
-            let line = lines.last_mut().expect("lines is never empty");
             push(line, grapheme, &span.style);
             used += grapheme_width;
         }
     }
-    lines
+    used
 }
 
 /// `spans` cut to at most `max` cells, between graphemes, measured as the
@@ -195,17 +209,7 @@ impl Wrapper {
 
     /// Breaks a word between graphemes wherever the line is full.
     fn split_long_word(&mut self, word: &[Span]) {
-        for span in word {
-            for grapheme in span.text.graphemes(true) {
-                let grapheme_width = grapheme.width();
-                if self.used + grapheme_width > self.max && self.used > 0 {
-                    self.lines.push(std::mem::take(&mut self.line));
-                    self.used = 0;
-                }
-                push(&mut self.line, grapheme, &span.style);
-                self.used += grapheme_width;
-            }
-        }
+        self.used = split_onto(word, self.max, &mut self.lines, &mut self.line, self.used);
     }
 }
 
