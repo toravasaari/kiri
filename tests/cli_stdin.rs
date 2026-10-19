@@ -3,51 +3,19 @@
 use std::io::{Read, Write};
 use std::os::fd::BorrowedFd;
 use std::os::unix::process::CommandExt;
-use std::path::Path;
-use std::process::{Command, Output, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
 mod common;
 
-use common::{Scratch, command, fixtures, text, write};
-
-/// Runs `kiri` with `stdin` written to its standard input.
-fn piped(mut kiri: Command, stdin: &[u8]) -> Output {
-    let mut child = kiri
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let mut input = child.stdin.take().unwrap();
-    let stdin = stdin.to_owned();
-    // kiri may stop reading early on an error, so write on the side.
-    let writer = std::thread::spawn(move || {
-        let _ = input.write_all(&stdin);
-    });
-    let out = child.wait_with_output().unwrap();
-    writer.join().unwrap();
-    out
-}
-
-/// kiri in `dir` with `args`, reading a pipe of `stdin`.
-fn kiri(dir: &Path, args: &[&str], stdin: &[u8]) -> Output {
-    let mut kiri = command(dir);
-    kiri.current_dir(dir).args(args);
-    piped(kiri, stdin)
-}
-
-fn assert_succeeded(out: &Output) {
-    assert!(out.status.success(), "{}", text(&out.stderr));
-    assert_eq!(text(&out.stderr), "");
-}
+use common::{Scratch, assert_succeeded, command, fixtures, kiri_piped, piped, text, write};
 
 #[test]
 fn reads_the_document_from_a_pipe_without_a_file_name() {
     let dir = Scratch::new("stdin-pipe");
-    let out = kiri(&dir, &["--mode", "plain"], b"Piped *text*.\n");
+    let out = kiri_piped(&dir, &["--mode", "plain"], b"Piped *text*.\n");
     assert_succeeded(&out);
     assert_eq!(text(&out.stdout).trim(), "Piped text.");
 }
@@ -55,7 +23,7 @@ fn reads_the_document_from_a_pipe_without_a_file_name() {
 #[test]
 fn a_dash_reads_the_document_from_standard_input() {
     let dir = Scratch::new("stdin-dash");
-    let out = kiri(&dir, &["--mode", "plain", "-"], b"Dashed *text*.\n");
+    let out = kiri_piped(&dir, &["--mode", "plain", "-"], b"Dashed *text*.\n");
     assert_succeeded(&out);
     assert_eq!(text(&out.stdout).trim(), "Dashed text.");
 }
@@ -89,13 +57,13 @@ fn a_terminal_on_standard_input_still_needs_a_file_name() {
 fn image_paths_are_relative_to_the_current_directory() {
     let dir = Scratch::new("stdin-images");
     std::fs::copy(fixtures().join("images/icon.png"), dir.join("icon.png")).unwrap();
-    let out = kiri(&dir, &["--mode", "kitty"], b"![Icon](icon.png)\n");
+    let out = kiri_piped(&dir, &["--mode", "kitty"], b"![Icon](icon.png)\n");
     assert_succeeded(&out);
     let stdout = text(&out.stdout);
     assert_eq!(common::sent(&stdout).len(), 1, "{stdout:?}");
     assert!(!stdout.contains("[image"), "{stdout:?}");
 
-    let out = kiri(&dir, &["--mode", "kitty"], b"![Lost](lost.png)\n");
+    let out = kiri_piped(&dir, &["--mode", "kitty"], b"![Lost](lost.png)\n");
     assert!(out.status.success());
     assert_eq!(text(&out.stderr), "kiri: lost.png: file not found\n");
 }
@@ -105,14 +73,14 @@ fn an_image_on_standard_input_is_shown_on_its_own() {
     let dir = Scratch::new("stdin-image");
     let icon = std::fs::read(fixtures().join("images/icon.png")).unwrap();
     for args in [&["--mode", "kitty"][..], &["--mode", "kitty", "-"]] {
-        let out = kiri(&dir, args, &icon);
+        let out = kiri_piped(&dir, args, &icon);
         assert_succeeded(&out);
         let stdout = text(&out.stdout);
         assert_eq!(stdout.matches("\x1b_Ga=T,").count(), 1, "{stdout:?}");
     }
     // SVG is text, so only the format tells it from Markdown.
     let svg = std::fs::read(fixtures().join("images/pattern.svg")).unwrap();
-    let out = kiri(&dir, &["--mode", "kitty", "--format", "svg"], &svg);
+    let out = kiri_piped(&dir, &["--mode", "kitty", "--format", "svg"], &svg);
     assert_succeeded(&out);
     assert_eq!(text(&out.stdout).matches("\x1b_Ga=T,").count(), 1);
 }
@@ -120,7 +88,7 @@ fn an_image_on_standard_input_is_shown_on_its_own() {
 #[test]
 fn format_makes_standard_input_markdown() {
     let dir = Scratch::new("stdin-format");
-    let out = kiri(&dir, &["--mode", "plain", "-f", "markdown"], b"P1 *text*\n");
+    let out = kiri_piped(&dir, &["--mode", "plain", "-f", "markdown"], b"P1 *text*\n");
     assert_succeeded(&out);
     assert_eq!(text(&out.stdout).trim(), "P1 text");
 }
@@ -153,7 +121,7 @@ fn errors_name_standard_input() {
             "larger than the 1 MB limit; see --max-image-size",
         ),
     ] {
-        let out = kiri(&dir, args, stdin);
+        let out = kiri_piped(&dir, args, stdin);
         assert_eq!(out.status.code(), Some(1), "{args:?}");
         assert_eq!(text(&out.stderr), format!("kiri: <stdin>: {error}\n"));
         assert_eq!(text(&out.stdout), "", "{args:?}");
@@ -179,7 +147,7 @@ fn doctor_does_not_read_standard_input() {
     assert!(report.contains("## Terminal"), "{report}");
     assert!(!report.contains("Not a report"), "{report}");
 
-    let out = kiri(&dir, &["--doctor", "-"], b"");
+    let out = kiri_piped(&dir, &["--doctor", "-"], b"");
     assert_eq!(out.status.code(), Some(2));
     let stderr = text(&out.stderr);
     assert!(stderr.contains("cannot be used with"), "{stderr}");

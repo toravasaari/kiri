@@ -3,9 +3,9 @@
 #![allow(dead_code)]
 
 use std::collections::HashMap;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 use base64::Engine;
 use image::{Rgba, RgbaImage};
@@ -329,6 +329,49 @@ pub fn kiri(dir: &Path, source: &str, args: &[&str]) -> Output {
     let document = dir.join("document.md");
     std::fs::write(&document, source).unwrap();
     command(dir).args(args).arg(&document).output().unwrap()
+}
+
+/// Runs kiri on the file `path` with `args` before it.
+pub fn kiri_on(dir: &Path, path: &Path, args: &[&str]) -> Output {
+    command(dir).args(args).arg(path).output().unwrap()
+}
+
+/// Runs `kiri` with `stdin` written to its standard input.
+pub fn piped(mut kiri: Command, stdin: &[u8]) -> Output {
+    let mut child = kiri
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    let stdin = stdin.to_owned();
+    // kiri may stop reading early on an error, so write on the side.
+    let writer = std::thread::spawn(move || {
+        let _ = input.write_all(&stdin);
+    });
+    let out = child.wait_with_output().unwrap();
+    writer.join().unwrap();
+    out
+}
+
+/// kiri in `dir` with `args`, reading a pipe of `stdin`.
+pub fn kiri_piped(dir: &Path, args: &[&str], stdin: &[u8]) -> Output {
+    let mut kiri = command(dir);
+    kiri.current_dir(dir).args(args);
+    piped(kiri, stdin)
+}
+
+/// Fails unless `out` succeeded without a word on standard error.
+pub fn assert_succeeded(out: &Output) {
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert_eq!(text(&out.stderr), "");
+}
+
+/// The standard output of `out`, which must have succeeded quietly.
+pub fn shown(out: &Output) -> String {
+    assert_succeeded(out);
+    text(&out.stdout)
 }
 
 pub fn text(bytes: &[u8]) -> String {

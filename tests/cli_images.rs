@@ -6,7 +6,7 @@ use std::process::Output;
 
 mod common;
 
-use common::{Scratch, command, fixtures, kiri, text, write};
+use common::{Scratch, command, fixtures, kiri, kiri_on, text, write};
 
 #[test]
 fn warns_about_an_image_that_does_not_load_and_shows_its_alt_text() {
@@ -269,11 +269,6 @@ fn images_and_no_images_cannot_be_given_together() {
             text(&out.stderr)
         );
     }
-}
-
-/// Runs kiri on the file `path` with `args` before it.
-fn kiri_on(dir: &Path, path: &Path, args: &[&str]) -> Output {
-    command(dir).args(args).arg(path).output().unwrap()
 }
 
 /// Fails unless `out` shows one image on its own and nothing else.
