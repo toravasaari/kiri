@@ -61,11 +61,12 @@ the matches can be highlighted without a change to the writer;
 help panel as styled spans; `src/pager/mod.rs` draws each frame, row by
 row through the backend's writer, and lays the document out again when the
 window changes size. The terminal itself, the alternate screen, raw mode
-and reading keys from the controlling terminal, is opened in `src/term.rs`.
+and reading keys from the controlling terminal, is opened in
+`src/term/screen.rs`.
 
 ## Terminal capabilities
 
-`src/term.rs` is the only place that talks to the terminal to find out what
+`src/term/` is the only place that talks to the terminal to find out what
 it can do: size in cells and pixels (`TIOCGWINSZ`, or the cell size from
 `CSI 16 t` where that has no pixels), whether the text sizing and
 graphics protocols work, the background and palette colours, and the
@@ -80,12 +81,13 @@ from `TERM_PROGRAM` or `VTE_VERSION`; underline styles come only from the
 probe. `NO_COLOR` turns colours off in every mode. These variables come
 in as part of `config::Environment`, read once at start-up with kiri's
 own, so the rules are tested without the process environment. The result
-is a plain value passed to the renderer, so tests can render for any
-terminal without having one. kiri asks nothing when it runs in the
-background of its terminal, where raw mode would get it stopped.
+is a plain value, `Capabilities` in `src/caps.rs`, passed to the renderer,
+so tests can render for any terminal without having one. kiri asks
+nothing when it runs in the background of its terminal, where raw mode
+would get it stopped.
 
 `kiri --doctor` reports what detection found and where each setting came
-from. `src/term.rs` and `src/config.rs` hand it the detection, the
+from. `src/term/` and `src/config.rs` hand it the detection, the
 settings and the file paths; `src/doctor.rs` checks which files exist and
 writes it all as a Markdown document, which kiri renders like any other or
 writes as it is into a pipe.
@@ -102,14 +104,14 @@ writes as it is into a pipe.
 | Text attributes and colours | SGR | `src/render/output.rs` | Bold, italic, colours |
 | Styled underlines | SGR 4:x | `src/render/output.rs` | Heading underline styles |
 | Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J | `src/render/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows |
-| Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term.rs` | The pager's screen of its own |
+| Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term/screen.rs` | The pager's screen of its own |
 | Synchronized output | CSI ?2026h/l | `src/render/output.rs` | Pager frames without flicker |
 | Cell size query | CSI 16 t | `src/kitty/query.rs` | The cell size in pixels where the window size has none |
-| Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI c | `src/term.rs` | Cursor position, foreground, background and palette colours, terminal version, end of the answers |
+| Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI c | `src/term/probe.rs` | Cursor position, foreground, background and palette colours, terminal version, end of the answers |
 
-Sequences that only kitty's protocols define live under `src/kitty/`:
-text sizing, graphics, Unicode placeholders and the queries that detect
-them; `src/term.rs` sends those along with the generic queries it spells
+Sequences that only kitty's protocols define live under `src/kitty/`: text
+sizing, graphics, Unicode placeholders and the queries that detect them;
+`src/term/probe.rs` sends those along with the generic queries it spells
 out itself. OSC 8 hyperlinks, SGR attributes, underline styles and cursor
 movement are general terminal features that `src/render/output.rs` writes
 itself; for scaled text it calls `src/kitty/text.rs`, and for images
@@ -127,8 +129,15 @@ src/model.rs               document model
 src/parse/mod.rs           comrak tree -> document model
 src/parse/html.rs          HTML <img> tags and their attributes
 src/parse/csv.rs           CSV and TSV -> a document of one table
-src/term.rs                capability detection, the only terminal queries,
-                           the pager's screen and keys
+src/caps.rs                what the terminal can do, as plain data
+src/term/mod.rs            terminal I/O, all of it under src/term/; whether
+                           stdin and stdout are terminals
+src/term/detect.rs         capability detection from the mode, the environment,
+                           the window and the probe
+src/term/window.rs         the window size in cells and pixels
+src/term/probe.rs          the queries to the terminal, the only ones
+src/term/answers.rs        reading the terminal's answers
+src/term/screen.rs         the pager's screen, raw mode and keys
 src/config.rs              settings: options, environment, configuration file
 src/doctor.rs              the --doctor report as Markdown
 src/theme/mod.rs           colours and sizes the renderer uses
