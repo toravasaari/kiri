@@ -1134,4 +1134,34 @@ mod tests {
         );
         assert!(parse("colour = \"blue\"\n").is_err());
     }
+
+    #[test]
+    fn inline_code_takes_the_code_block_background_or_a_colour() {
+        let parsed = |value: &str| {
+            parse(&format!("inline_code_background = \"{value}\"\n"))
+                .unwrap()
+                .inline_code_background
+        };
+        assert_eq!(parsed("code-block"), CodeBackground::CodeBlock);
+        assert_eq!(
+            parsed("blue"),
+            CodeBackground::Color(Some(Color::Palette(4)))
+        );
+        assert_eq!(parsed("none"), CodeBackground::Color(None));
+    }
+
+    #[test]
+    fn a_keyword_or_colour_field_tells_why_a_value_is_wrong() {
+        let unknown = "unknown colour \"pink\"; use a name such as blue or bright-blue, \
+                       0-255, #rrggbb or none";
+        for file in [
+            "inline_code_background = \"pink\"",
+            "language_label = \"pink\"",
+            "[alerts]\nnote = \"pink\"",
+            "[status_line]\nbackground = \"pink\"",
+            "[search]\nmatch_background = \"pink\"",
+        ] {
+            assert_eq!(parse(&format!("{file}\n")).unwrap_err(), unknown, "{file}");
+        }
+    }
 }
