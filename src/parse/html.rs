@@ -1,6 +1,6 @@
 //! The few HTML tags in Markdown that kiri reads instead of showing them
-//! as source: `<img>`, alone or in tags that only wrap it, and `<a>`
-//! around an `<img>`.
+//! as source: `<img>`, alone or in tags that only wrap it, `<a>` around
+//! an `<img>`, and `<br>`.
 
 use crate::model::Length;
 
@@ -34,6 +34,11 @@ pub fn link_start(html: &str) -> Option<String> {
         [Token::Open(tag)] if tag.name == "a" => tag.get("href").map(str::to_owned),
         _ => None,
     }
+}
+
+/// Whether inline HTML is one `<br>`, in any of its spellings.
+pub fn is_line_break(html: &str) -> bool {
+    matches!(tokens(html).as_deref(), Some([Token::Open(tag)]) if tag.name == "br")
 }
 
 /// Whether inline HTML is one `</a>`.
@@ -487,6 +492,16 @@ mod tests {
         assert!(is_link_end("</A >"));
         assert!(!is_link_end("<a>"));
         assert!(!is_link_end("</abbr>"));
+    }
+
+    #[test]
+    fn reads_a_line_break_in_any_spelling() {
+        for br in ["<br>", "<br/>", "<br />", "<BR>", "<Br\n>", "<br class=x>"] {
+            assert!(is_line_break(br), "{br:?}");
+        }
+        for other in ["<brx>", "<br", "<br><br>", "<b>", "</br>", "<!-- <br> -->"] {
+            assert!(!is_line_break(other), "{other:?}");
+        }
     }
 
     #[test]

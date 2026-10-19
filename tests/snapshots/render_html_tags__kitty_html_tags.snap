@@ -9,8 +9,11 @@ expression: "visible(&render_for(\"html-tags.md\", Capabilities::kitty(WIDTH)))"
 ␛[0;1;4;34m␛]66;s=2;Line breaks␛\␛[0m
 
 
-  First line␛[0;2m<br>␛[0msecond line␛[0;2m<br/>␛[0mthird line␛[0;2m<br␛[0m
-  ␛[0;2m/>␛[0mfourth line␛[0;2m<BR>␛[0mfifth.
+  First line
+  second line
+  third line
+  fourth line
+  fifth.
 
 ␛[0;1;4;34m␛]66;s=2;Keys and marks␛\␛[0m
 

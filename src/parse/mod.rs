@@ -150,6 +150,7 @@ fn inline(node: Node<'_>) -> Option<Inline> {
         }),
         NodeValue::SoftBreak => Inline::SoftBreak,
         NodeValue::LineBreak => Inline::LineBreak,
+        NodeValue::HtmlInline(tag) if html::is_line_break(tag) => Inline::LineBreak,
         NodeValue::HtmlInline(tag) => match html::inline_img(tag) {
             Some(img) => image(img),
             None => Inline::Html(tag.clone()),
@@ -349,6 +350,22 @@ mod tests {
                 Inline::Html("<b>".into()),
                 text("bold"),
                 Inline::Html("</b>".into()),
+            ])]
+        );
+    }
+
+    #[test]
+    fn reads_an_html_br_as_a_line_break() {
+        assert_eq!(
+            parse("One<br>two<br/>three<BR />four\n").blocks,
+            vec![Block::Paragraph(vec![
+                text("One"),
+                Inline::LineBreak,
+                text("two"),
+                Inline::LineBreak,
+                text("three"),
+                Inline::LineBreak,
+                text("four"),
             ])]
         );
     }

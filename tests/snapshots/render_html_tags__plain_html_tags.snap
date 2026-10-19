@@ -6,8 +6,11 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
 
 ## Line breaks
 
-  First line<br>second line<br/>third line<br
-  />fourth line<BR>fifth.
+  First line
+  second line
+  third line
+  fourth line
+  fifth.
 
 ## Keys and marks
 
