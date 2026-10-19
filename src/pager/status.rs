@@ -41,10 +41,10 @@ impl Styles {
     }
 
     /// The match number's style `fade` into a search going around an
-    /// end: the bar's colours fading into their reverse. Where they cannot
-    /// fade, the reverse for [`FLASH`] and then the bar's.
+    /// end: the reverse of the bar's colours fading back into them. Where
+    /// they cannot fade, the reverse for [`FLASH`] and then the bar's.
     pub fn number(&self, fade: Fade) -> Style {
-        match fade.mix(&self.bar, &self.inverse) {
+        match fade.mix(&self.inverse, &self.bar) {
             Some(style) => style,
             None if fade.elapsed < FLASH => self.inverse.clone(),
             None => self.bar.clone(),

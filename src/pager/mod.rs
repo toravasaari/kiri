@@ -1303,7 +1303,7 @@ mod tests {
     }
 
     #[test]
-    fn going_around_an_end_fades_the_match_number_into_the_bar_s_reverse() {
+    fn going_around_an_end_fades_the_match_number_from_the_bar_s_reverse() {
         // A grey bar, mixed from the black page and this grey.
         let mut caps = known_colours();
         caps.palette[8] = Some(Color::Rgb(100, 100, 100));
@@ -1311,10 +1311,15 @@ mod tests {
         // The search, then N, which fades for three quarters of a second.
         assert_eq!(frames.len(), 18, "{frames:#?}");
         let number = |frame: &str| style_before(&status_row(frame, 6), "11\x1b");
-        // The bar's grey on dark grey into dark grey on grey.
-        assert_eq!(number(&frames[2]), colours("200;200;200", "50;50;50"));
-        assert_eq!(number(&frames[8]), colours("140;140;140", "110;110;110"));
-        assert_eq!(number(&frames[16]), colours("60;60;60", "190;190;190"));
+        let colours = |fg: &str, bg: &str| {
+            let mut codes = vec!["0".to_owned()];
+            codes.extend(format!("38;2;{fg};48;2;{bg}").split(';').map(str::to_owned));
+            codes
+        };
+        // Dark grey on grey back into the bar's grey on dark grey.
+        assert_eq!(number(&frames[2]), colours("50;50;50", "200;200;200"));
+        assert_eq!(number(&frames[8]), colours("110;110;110", "140;140;140"));
+        assert_eq!(number(&frames[16]), colours("190;190;190", "60;60;60"));
         // At the end, in the bar's colours, with the rest of the search.
         let status = status_row(&frames[17], 6);
         assert_eq!(
