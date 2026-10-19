@@ -188,14 +188,7 @@ impl<W: Write> Screen<W> {
     /// first; empty when none came, and an error when the terminal has
     /// gone away or a signal asked kiri to end.
     pub fn read(&mut self, timeout: Duration) -> io::Result<Vec<u8>> {
-        use rustix::event::{PollFd, PollFlags, Timespec, poll};
-
-        let timeout = Timespec {
-            tv_sec: timeout.as_secs() as i64,
-            tv_nsec: i64::from(timeout.subsec_nanos()),
-        };
-        let mut fds = [PollFd::new(&self.tty, PollFlags::IN)];
-        let ready = poll(&mut fds, Some(&timeout));
+        let ready = super::readable(&self.tty, timeout);
         if self.signal().is_some() {
             return Err(io::Error::new(
                 io::ErrorKind::Interrupted,
@@ -203,8 +196,8 @@ impl<W: Write> Screen<W> {
             ));
         }
         match ready {
-            Ok(0) | Err(rustix::io::Errno::INTR) => return Ok(Vec::new()),
-            Ok(_) => {}
+            Ok(false) | Err(rustix::io::Errno::INTR) => return Ok(Vec::new()),
+            Ok(true) => {}
             Err(error) => return Err(error.into()),
         }
         let mut buffer = [0; 1024];

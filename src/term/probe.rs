@@ -4,7 +4,6 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::time::{Duration, Instant};
 
-use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use rustix::process::{Pid, getpgrp};
 use rustix::termios::tcgetpgrp;
 
@@ -108,12 +107,7 @@ fn exchange(mut tty: &File, ask_cell_size: bool) -> Option<Vec<u8>> {
     let mut buffer = [0; 1024];
     while !has_device_attributes(&answers) {
         let left = deadline.checked_duration_since(Instant::now())?;
-        let timeout = Timespec {
-            tv_sec: left.as_secs() as i64,
-            tv_nsec: i64::from(left.subsec_nanos()),
-        };
-        let mut fds = [PollFd::new(tty, PollFlags::IN)];
-        if poll(&mut fds, Some(&timeout)).ok()? == 0 {
+        if !super::readable(tty, left).ok()? {
             return None;
         }
         let read = tty.read(&mut buffer).ok()?;
