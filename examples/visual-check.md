@@ -21,8 +21,8 @@ NO_COLOR=1 cargo run -- examples/visual-check.md
 ```
 
 On paper, the document lies on a white or dark grey page as wide as the
-window, and everything but the code blocks and the images is in greys: no
-blue headings or links, no magenta inline code.
+window, and everything but the code blocks, the alerts and the images is
+in greys: no blue headings or links, no magenta inline code.
 
 Try a wide window and a narrow one (about 40 columns), where the commands
 above wrap like any long code line. No line reaches past the right edge of
@@ -110,6 +110,22 @@ after `git` and three after `commit`.
 > > Its blank line ends at the second bar.
 >
 > Back in the outer quote, with one bar.
+
+## Alerts
+
+Each alert has a bar down its left edge, an icon and a bold title in a
+colour of its own, over a faint tint of that colour as wide as the text.
+The colours stay on paper. Outside kitty the icon is left out, and
+without colours an alert is a plain quote with its title on the first
+line.
+
+> [!NOTE]
+> A note: blue, with an info icon and the title "Note". Inline code such
+> as `make check` has a stronger blue tint.
+
+> [!WARNING]
+> A warning: yellow-brown, with a warning triangle and the title
+> "Warning".
 
 ## Lists
 
