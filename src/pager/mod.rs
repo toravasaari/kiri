@@ -77,8 +77,10 @@ pub fn run(
     loop {
         fit(&mut inputs.caps, size, width);
         let window = usize::from(inputs.caps.height.unwrap_or(DEFAULT_ROWS));
-        // The bottom row is the status line's.
-        let rows = window.saturating_sub(1);
+        // The bottom row is the status line's, unless the document would
+        // have no row left.
+        let bar = window > 1;
+        let rows = if bar { window - 1 } else { window };
         let mut lines = crate::render::layout::layout(document, inputs);
         // The text sizing protocol cannot draw part of a line, so a line
         // taller than the window is drawn at normal size.
@@ -103,6 +105,7 @@ pub fn run(
             name,
             styles: status::Styles::new(&inputs.theme, &inputs.caps),
             width: size.map_or(inputs.caps.width, |size| size.columns),
+            bar,
             panel: Style {
                 fg: inputs.theme.foreground,
                 bg: inputs.theme.background,
@@ -147,6 +150,9 @@ struct Status<'a> {
     styles: status::Styles,
     /// The window's columns.
     width: u16,
+    /// Whether the window has a row for the status line besides the
+    /// document's.
+    bar: bool,
     /// The help panel's style, and that of its notes.
     panel: Style,
     muted: Style,
@@ -154,6 +160,9 @@ struct Status<'a> {
 
 impl Status<'_> {
     fn spans(&self, view: &View) -> Vec<Span> {
+        if !self.bar {
+            return Vec::new();
+        }
         let width = usize::from(self.width);
         status::spans(self.name, view.position(), width, &self.styles)
     }
@@ -220,7 +229,8 @@ fn show(
             match keys::action(key) {
                 Some(Action::Quit) => return Ok(Outcome::Quit),
                 Some(Action::Move(motion)) => view.scroll(motion),
-                Some(Action::Help) => help = true,
+                // The help needs a row besides the status line's.
+                Some(Action::Help) => help = status.bar,
                 None => {}
             }
         }
@@ -451,6 +461,17 @@ mod tests {
         let mut terminal = Fake::new(60, 24, &[b"?", b"", b"G"]);
         show(&numbers(30), &mut terminal);
         assert_eq!(terminal.frames().len(), 2);
+    }
+
+    #[test]
+    fn a_window_of_one_row_shows_the_document_without_a_status_line() {
+        // The help has no room, so q quits at once.
+        let mut terminal = Fake::new(40, 1, &[b"?", b"q", b"G"]);
+        show(&numbers(10), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 1, "{frames:#?}");
+        assert!(frames[0].contains("Line 1"), "{frames:#?}");
+        assert!(!frames[0].contains(" kiri "), "{frames:#?}");
     }
 
     #[test]
