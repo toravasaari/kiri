@@ -493,10 +493,15 @@ impl<W: Write> Screen<W> {
     /// Restores the terminal, and then ends kiri with the signal that
     /// asked it to end, if one came.
     pub fn close(self) {
-        let signal = self.signal();
+        // Read after the drop, so a signal that comes while the terminal
+        // is restored still counts.
+        let flag = Arc::clone(&self.signal);
         drop(self);
-        if let Some(signal) = signal {
-            let _ = signal_hook::low_level::emulate_default_handler(signal);
+        match flag.load(Ordering::SeqCst) {
+            0 => {}
+            signal => {
+                let _ = signal_hook::low_level::emulate_default_handler(signal as i32);
+            }
         }
     }
 
@@ -552,13 +557,15 @@ impl<W: Write> Write for Screen<W> {
 
 impl<W: Write> Drop for Screen<W> {
     fn drop(&mut self) {
-        for &id in &self.handlers {
-            signal_hook::low_level::unregister(id);
-        }
         if !self.leave.is_done() {
             let _ = self.flush();
         }
         self.leave.run(&mut self.out);
+        // Last, so a signal that comes until the terminal is restored is
+        // caught rather than lost.
+        for &id in &self.handlers {
+            signal_hook::low_level::unregister(id);
+        }
         // Back to the default hook, as kiri sets no other. The hook cannot
         // be taken back while a panic runs it.
         if self.hooked && !std::thread::panicking() {
