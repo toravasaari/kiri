@@ -615,6 +615,7 @@ dependencies = [
  "clap",
  "comrak",
  "csv",
+ "emojis",
  "flate2",
  "image",
  "insta",

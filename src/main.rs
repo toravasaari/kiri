@@ -35,6 +35,11 @@ struct Cli {
     #[arg(long, conflicts_with_all = ["file", "format"])]
     doctor: bool,
 
+    /// List the emoji shortcodes, such as :smile:. A terminal shows them
+    /// as a table; a pipe or a file gets one line per emoji.
+    #[arg(long, conflicts_with_all = ["file", "format", "doctor"])]
+    list_emojis: bool,
+
     /// With --doctor: the report as Markdown also in a terminal, without
     /// its sample, to copy into a bug report.
     #[arg(long)]
@@ -168,6 +173,8 @@ fn main() -> ExitCode {
     }
     let result = if cli.doctor {
         doctor(&cli, &matches)
+    } else if cli.list_emojis {
+        list_emojis(&cli)
     } else {
         match cli.file.as_deref() {
             Some(path) if path != Path::new("-") => run(&cli, Some(path)),
@@ -446,6 +453,35 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), String> {
         Path::new(""),
         settings,
         detection.caps,
+    )
+}
+
+/// Writes the emoji shortcodes: a rendered document for a terminal, one
+/// line per emoji otherwise.
+fn list_emojis(cli: &Cli) -> Result<(), String> {
+    if !kiri::term::stdout_is_terminal() {
+        let mut out = io::stdout().lock();
+        return finish(
+            out.write_all(kiri::list::emoji_lines().as_bytes())
+                .and_then(|()| out.flush()),
+        );
+    }
+    let env = Environment::from_process();
+    let config = kiri::config::load(&env)?;
+    let choices = kiri::config::choose(&options(cli), &env, &config);
+    for warning in &choices.warnings {
+        eprintln!("kiri: {warning}");
+    }
+    let settings = choices.with_theme(kiri::config::load_theme(&choices.theme.value)?);
+    let caps = kiri::term::capabilities(cli.mode.into(), cli.width, &env);
+    let document = kiri::parse::parse(&kiri::list::emoji_document());
+    show_document(
+        cli,
+        &document,
+        "kiri --list-emojis",
+        Path::new(""),
+        settings,
+        caps,
     )
 }
 

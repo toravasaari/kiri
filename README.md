@@ -104,6 +104,7 @@ alt text with a warning.
 | `-p`, `-P` | The pager always (`--paging always`) or never (`--paging never`) |
 | `--doctor` | Show what kiri finds out about the terminal and which settings it uses |
 | `--raw` | With `--doctor`: the report as Markdown text, for a bug report |
+| `--list-emojis` | List the emoji shortcodes, such as `:smile:`: a table in a terminal, one line per emoji with tabs between the fields in a pipe or a file |
 
 A [configuration file](docs/config.md), `~/.config/kiri/config.toml`, can
 choose the theme, turn images off and say when to page, and so can the

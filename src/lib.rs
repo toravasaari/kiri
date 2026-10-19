@@ -6,6 +6,7 @@ pub mod doctor;
 pub mod images;
 pub mod input;
 pub mod kitty;
+pub mod list;
 pub mod model;
 pub mod pager;
 pub mod parse;
