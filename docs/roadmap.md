@@ -233,6 +233,8 @@ document from the start.
 - Several files on the command line, as the shell expands `kiri *.md` or
   `kiri *.jpg`, shown one after another, each headed by its file name as
   `bat` does. Images are shown at full size; 4.12.3 adds a grid of them.
+- In the pager, keys that move to the next and the previous file, as
+  `:n` and `:p` do in `less`.
 
 ### 4.10 More Markdown
 
