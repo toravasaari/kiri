@@ -124,7 +124,9 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   `never`, the `KIRI_PAGING` environment variable (`1` is `always`, `0`
   is `never`) and a `paging` key in the configuration file. `auto`, the
   default, pages a document longer than the window when the output is a
-  terminal, as `bat` does; a shorter document is printed as before.
+  terminal, as `bat` does; a shorter document is printed as before. A
+  document from standard input and the `--doctor` report are paged only
+  with `always`.
   `--doctor` shows the choice and where it comes from.
 - Scrolling by line and by page, to the start and to the end, with the
   keys of `less` for now, and with the mouse wheel. The keys are

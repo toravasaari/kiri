@@ -99,10 +99,11 @@ pub struct Config {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Paging {
-    /// Always, even in a pipe.
+    /// Whenever the output is a terminal.
     Always,
     /// When the output is a terminal and the document is longer than the
-    /// window.
+    /// window, unless it comes from standard input or is the `--doctor`
+    /// report.
     Auto,
     /// Never: the document is printed.
     Never,

@@ -238,7 +238,10 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), String> {
     for warning in &choices.warnings {
         eprintln!("kiri: {warning}");
     }
-    let settings = choices.with_theme(kiri::config::load_theme(&choices.theme.value)?);
+    let mut settings = choices.with_theme(kiri::config::load_theme(&choices.theme.value)?);
+    if file.is_none() {
+        settings.paging = only_always(settings.paging);
+    }
     let caps = kiri::term::capabilities(cli.mode.into(), cli.width, &env);
     let document = kiri::parse::parse(&source);
     // Images in a piped document are relative to the current directory.
@@ -289,6 +292,17 @@ fn show_document(
     }
     let mut out = io::stdout().lock();
     finish(kiri::render::render(document, &inputs, &mut out).and_then(|()| out.flush()))
+}
+
+/// `paging` for a document that is paged only when paging is `always`:
+/// one read from standard input, often the output of another command, and
+/// the `--doctor` report.
+fn only_always(paging: kiri::config::Paging) -> kiri::config::Paging {
+    use kiri::config::Paging;
+    match paging {
+        Paging::Always => Paging::Always,
+        Paging::Auto | Paging::Never => Paging::Never,
+    }
 }
 
 /// Shows `document` in the pager when `paging` asks for it and the output
@@ -385,7 +399,8 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), String> {
         );
     }
     let document = kiri::parse::parse(&markdown);
-    let settings = choices.with_theme(theme);
+    let mut settings = choices.with_theme(theme);
+    settings.paging = only_always(settings.paging);
     show_document(cli, &document, Path::new(""), settings, detection.caps)
 }
 

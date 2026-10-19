@@ -74,7 +74,8 @@ pager:
 4. `auto`
 
 `auto` pages a document longer than the window; a shorter one is printed.
-Whatever the setting, kiri prints the document when its output is not a
+A document from standard input, often another command's output, and the
+`--doctor` report are paged only with `always`. Whatever the setting, kiri prints the document when its output is not a
 terminal or `--mode plain` asks for text without escape sequences.
 
 ## Environment variables

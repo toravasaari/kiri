@@ -105,7 +105,8 @@ bug report; piped to a file, the report is Markdown with the sample.
 
 A document longer than the window opens in a pager on a screen of its
 own, as `bat` does, so the shell's scrollback stays as it was; a shorter
-one is printed. The pager takes the keys of `less` for now: `j` and `k` or
+one is printed, and so is a document piped in, unless `-p` asks for the
+pager. The pager takes the keys of `less` for now: `j` and `k` or
 the arrow keys for a line, space and `b` for a page, `d` and `u` for half a
 page, `g` and `G` for the start and the end, and `q` to quit. The mouse
 wheel scrolls too. Large headings scroll in and out whole. Search and

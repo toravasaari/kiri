@@ -22,11 +22,12 @@ fn paragraphs(count: usize) -> String {
     (1..=count).map(|n| format!("Line {n}\n\n")).collect()
 }
 
-/// Runs kiri, in a scratch directory called `name`, with `args` in a terminal of 40 × `rows` cells, with `stdin`
-/// piped in when given, and types each of `keys` after a frame of the pager,
-/// the first after the first frame. `--mode ansi` unless `args` choose a
-/// mode. Returns
-/// how kiri exited and everything it wrote to the terminal.
+/// Runs kiri with `args` in a terminal of 40 × `rows` cells, in a scratch
+/// directory called `name` that holds `document.md` of 3 rows and `long.md`
+/// of [`long`]. Pipes `stdin` in when given, and types each of `keys` after
+/// a frame of the pager, the first after the first frame. `--mode ansi`
+/// unless `args` choose a mode. Returns how kiri exited and everything it
+/// wrote to the terminal.
 fn in_terminal(
     name: &str,
     args: &[&str],
@@ -36,6 +37,7 @@ fn in_terminal(
 ) -> (ExitStatus, String) {
     let dir = Scratch::new(name);
     std::fs::write(dir.join("document.md"), paragraphs(3)).unwrap();
+    std::fs::write(dir.join("long.md"), long()).unwrap();
     let (mut terminal, tty) = common::pty();
     let window = rustix::termios::Winsize {
         ws_col: 40,
@@ -117,7 +119,7 @@ fn long() -> String {
 
 #[test]
 fn a_long_document_is_paged_until_q() {
-    let (status, seen) = in_terminal("pager-long", &["-"], 5, Some(&long()), &[b"q"]);
+    let (status, seen) = in_terminal("pager-long", &["long.md"], 5, None, &[b"q"]);
     assert!(status.success());
     assert!(seen.starts_with(ENTER), "{seen:?}");
     assert!(seen.ends_with(LEAVE), "{seen:?}");
@@ -127,7 +129,7 @@ fn a_long_document_is_paged_until_q() {
 
 #[test]
 fn keys_scroll_the_document() {
-    let (status, seen) = in_terminal("pager-keys", &["-"], 5, Some(&long()), &[b"G", b"q"]);
+    let (status, seen) = in_terminal("pager-keys", &["long.md"], 5, None, &[b"G", b"q"]);
     assert!(status.success());
     let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
     assert_eq!(frames.len(), 2, "{seen:?}");
@@ -137,7 +139,7 @@ fn keys_scroll_the_document() {
 
 #[test]
 fn ctrl_c_quits_and_leaves_the_screen() {
-    let (status, seen) = in_terminal("pager-ctrl-c", &["-"], 5, Some(&long()), &[b"\x03"]);
+    let (status, seen) = in_terminal("pager-ctrl-c", &["long.md"], 5, None, &[b"\x03"]);
     assert!(status.success());
     assert!(seen.ends_with(LEAVE), "{seen:?}");
 }
@@ -159,8 +161,11 @@ fn p_pages_a_short_document() {
 
 #[test]
 fn capital_p_prints_a_long_document() {
-    for args in [&["-P", "-"][..], &["--paging", "never", "-"][..]] {
-        let (status, seen) = in_terminal("pager-capital-p", args, 5, Some(&long()), &[]);
+    for args in [
+        &["-P", "long.md"][..],
+        &["--paging", "never", "long.md"][..],
+    ] {
+        let (status, seen) = in_terminal("pager-capital-p", args, 5, None, &[]);
         assert!(status.success());
         assert!(!seen.contains(ENTER), "{args:?}: {seen:?}");
         assert!(seen.contains("Line 10"), "{args:?}: {seen:?}");
@@ -188,4 +193,30 @@ fn a_pipe_gets_the_document_printed_even_with_p() {
     let stdout = text(&out.stdout);
     assert!(!stdout.contains(ENTER), "{stdout:?}");
     assert!(stdout.contains("Line 10"), "{stdout:?}");
+}
+
+#[test]
+fn a_piped_document_is_printed_unless_paging_is_always() {
+    let (status, seen) = in_terminal("pager-stdin-auto", &["-"], 5, Some(&long()), &[]);
+    assert!(status.success());
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert!(seen.contains("Line 10"), "{seen:?}");
+    let (status, seen) = in_terminal("pager-stdin-p", &["-p", "-"], 5, Some(&long()), &[b"q"]);
+    assert!(status.success());
+    assert!(seen.starts_with(ENTER), "{seen:?}");
+}
+
+#[test]
+fn the_doctor_report_is_paged_only_when_paging_is_always() {
+    let (status, seen) = in_terminal("pager-doctor-auto", &["--doctor"], 5, None, &[]);
+    assert!(status.success());
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert!(seen.contains("Settings"), "{seen:?}");
+    let (status, seen) = in_terminal("pager-doctor-p", &["--doctor", "-p"], 5, None, &[b"q"]);
+    assert!(status.success());
+    assert!(seen.starts_with(ENTER), "{seen:?}");
+    let raw = ["--doctor", "--raw", "-p"];
+    let (status, seen) = in_terminal("pager-doctor-raw", &raw, 5, None, &[]);
+    assert!(status.success());
+    assert!(!seen.contains(ENTER), "{seen:?}");
 }
