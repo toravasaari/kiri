@@ -139,7 +139,7 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 - Groundwork: raw mode, now inside the probe in `term.rs`, usable for
   reading keys.
 
-#### 4.6.2 Status line
+#### 4.6.2 Status line (done)
 
 - A status line with the file name, the position and key hints, and a
   `?` help panel.
