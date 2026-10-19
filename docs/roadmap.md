@@ -373,6 +373,11 @@ an item moves to a part or to Bugs, or is dropped, and done items go.
 - Code blocks can be copied to the clipboard (OSC 52): in the pager with a
   key, and in print mode through a link beside the block that kitty's
   `open-actions.conf` hands to kiri.
+- A --list- family that shows what a value can be: --list-emojis (a
+  prototype, done); ideas: --list-formats for --format, --list-languages
+  for code block languages, --list-themes for named themes (4.11),
+  --list-code-themes for the code_theme keys, which docs/theme.md lists by
+  hand.
 
 ## Bugs
 
