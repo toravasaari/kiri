@@ -10,6 +10,7 @@ build:
 	cargo test --workspace --no-run
 	cargo test --workspace --no-default-features --no-run
 	cargo clippy --workspace --all-targets -- -D warnings
+	cargo clippy --workspace --all-targets --no-default-features -- -D warnings
 
 fmt:
 	cargo fmt --all
@@ -17,8 +18,11 @@ fmt:
 fmt-check:
 	cargo fmt --all --check
 
+# Like `test`, also without the default features, so code only that
+# build compiles is linted too.
 clippy:
 	cargo clippy --workspace --all-targets -- -D warnings
+	cargo clippy --workspace --all-targets --no-default-features -- -D warnings
 
 # Also without the default features, so a build with only some of them
 # keeps working.
