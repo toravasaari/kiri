@@ -97,6 +97,8 @@ pub enum Inline {
     Emphasis(Vec<Inline>),
     Strong(Vec<Inline>),
     Strikethrough(Vec<Inline>),
+    /// Keyboard input, such as a key to press: HTML's `<kbd>`.
+    Kbd(Vec<Inline>),
     Link {
         url: String,
         content: Vec<Inline>,
@@ -153,6 +155,7 @@ impl Inline {
                 Inline::Emphasis(content)
                 | Inline::Strong(content)
                 | Inline::Strikethrough(content)
+                | Inline::Kbd(content)
                 | Inline::Link { content, .. }
                 | Inline::Image(Image { alt: content, .. }) => {
                     out.push_str(&Self::plain_text(content))

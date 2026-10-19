@@ -14,8 +14,8 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
 
 ## Keys and marks
 
-  Press <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy,
-  or <kbd>Page Down</kbd> to move on.
+  Press `Ctrl`+`C` to copy, or `Page Down` to
+  move on.
 
   Some text is <mark>marked as found</mark>,
   even <mark>in bold</mark>.

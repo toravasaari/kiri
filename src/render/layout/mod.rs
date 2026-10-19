@@ -316,34 +316,10 @@ impl Layout<'_> {
     fn inline(&self, inline: &Inline, style: &Style, out: &mut Vec<Span>) {
         match inline {
             Inline::Text(text) => push(out, text, style),
-            Inline::Code(code) => {
-                // Spaces in code are kept as written, so it copies as it is.
-                let spaces = if self.theme.inline_code_wrap {
-                    Spaces::Keep
-                } else {
-                    Spaces::KeepTogether
-                };
-                let style = &Style {
-                    spaces,
-                    ..style.clone()
-                };
-                // Without colour nothing else would mark the code.
-                if self.caps.styling && self.caps.color {
-                    let bg = self.inline_code_background().or(style.bg);
-                    let code_style = Style {
-                        fg: self.theme.inline_code.or(style.fg),
-                        bg,
-                        ..style.clone()
-                    };
-                    if self.theme.inline_code_padding && bg.is_some() {
-                        // No-break spaces keep the padding attached to the code.
-                        push(out, &format!("\u{a0}{code}\u{a0}"), &code_style);
-                    } else {
-                        push(out, code, &code_style);
-                    }
-                } else {
-                    push(out, &format!("`{code}`"), style);
-                }
+            Inline::Code(code) => self.code(style, out, |style, out| push(out, code, style)),
+            // A key is drawn as inline code is.
+            Inline::Kbd(content) => {
+                self.code(style, out, |style, out| self.inlines(content, style, out))
             }
             Inline::Emphasis(content) => self.inlines(
                 content,
@@ -384,6 +360,48 @@ impl Layout<'_> {
             Inline::SoftBreak => push(out, " ", style),
             Inline::LineBreak => push(out, "\n", style),
             Inline::Html(html) => push(out, html, &self.muted(style.clone())),
+        }
+    }
+
+    /// Inline code, or what is drawn as it: `content` in the inline code
+    /// colours, padded, or between backticks without colour.
+    fn code(
+        &self,
+        style: &Style,
+        out: &mut Vec<Span>,
+        content: impl FnOnce(&Style, &mut Vec<Span>),
+    ) {
+        // Spaces in code are kept as written, so it copies as it is.
+        let spaces = if self.theme.inline_code_wrap {
+            Spaces::Keep
+        } else {
+            Spaces::KeepTogether
+        };
+        let style = &Style {
+            spaces,
+            ..style.clone()
+        };
+        // Without colour nothing else would mark the code.
+        if self.caps.styling && self.caps.color {
+            let bg = self.inline_code_background().or(style.bg);
+            let code_style = Style {
+                fg: self.theme.inline_code.or(style.fg),
+                bg,
+                ..style.clone()
+            };
+            // No-break spaces keep the padding attached to the code.
+            let padding = if self.theme.inline_code_padding && bg.is_some() {
+                "\u{a0}"
+            } else {
+                ""
+            };
+            push(out, padding, &code_style);
+            content(&code_style, out);
+            push(out, padding, &code_style);
+        } else {
+            push(out, "`", style);
+            content(style, out);
+            push(out, "`", style);
         }
     }
 

@@ -126,6 +126,20 @@ fn inlines(parent: Node<'_>) -> Vec<Inline> {
                 content: vec![image],
             });
         }
+        // A closing tag such as `</kbd>` ends the element its last opening
+        // tag among these inlines started.
+        if let Some(Inline::Html(end)) = inlines.last()
+            && let Some(phrase) = html::phrase_end(end)
+            && let Some(start) = inlines.iter().rposition(|inline| {
+                matches!(inline, Inline::Html(start) if html::phrase_start(start) == Some(phrase))
+            })
+        {
+            inlines.pop();
+            let content: Vec<Inline> = inlines.drain(start..).skip(1).collect();
+            inlines.push(match phrase {
+                html::Phrase::Kbd => Inline::Kbd(content),
+            });
+        }
     }
     inlines
 }
@@ -366,6 +380,65 @@ mod tests {
                 text("three"),
                 Inline::LineBreak,
                 text("four"),
+            ])]
+        );
+    }
+
+    #[test]
+    fn reads_an_html_kbd_as_keyboard_input() {
+        assert_eq!(
+            parse("Press <kbd>Ctrl</kbd>+<KBD>C</KBD>.\n").blocks,
+            vec![Block::Paragraph(vec![
+                text("Press "),
+                Inline::Kbd(vec![text("Ctrl")]),
+                text("+"),
+                Inline::Kbd(vec![text("C")]),
+                text("."),
+            ])]
+        );
+        assert_eq!(
+            parse("*<kbd>Page **Down**</kbd>*\n").blocks,
+            vec![Block::Paragraph(vec![Inline::Emphasis(vec![Inline::Kbd(
+                vec![text("Page "), Inline::Strong(vec![text("Down")])]
+            )])])]
+        );
+        assert_eq!(
+            parse("<kbd><kbd>Ctrl</kbd>+<kbd>C</kbd></kbd>\n").blocks,
+            vec![Block::Paragraph(vec![Inline::Kbd(vec![
+                Inline::Kbd(vec![text("Ctrl")]),
+                text("+"),
+                Inline::Kbd(vec![text("C")]),
+            ])])]
+        );
+    }
+
+    #[test]
+    fn keeps_a_kbd_without_both_tags_as_source() {
+        let html = |tag: &str| Inline::Html(tag.into());
+        assert_eq!(
+            parse("<kbd>open and </kbd>x</kbd>\n").blocks,
+            vec![Block::Paragraph(vec![
+                Inline::Kbd(vec![text("open and ")]),
+                text("x"),
+                html("</kbd>"),
+            ])]
+        );
+        assert_eq!(
+            parse("A <kbd>key *and* more\n").blocks,
+            vec![Block::Paragraph(vec![
+                text("A "),
+                html("<kbd>"),
+                text("key "),
+                Inline::Emphasis(vec![text("and")]),
+                text(" more"),
+            ])]
+        );
+        assert_eq!(
+            parse("*<kbd>a* b</kbd>\n").blocks,
+            vec![Block::Paragraph(vec![
+                Inline::Emphasis(vec![html("<kbd>"), text("a")]),
+                text(" b"),
+                html("</kbd>"),
             ])]
         );
     }

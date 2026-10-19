@@ -1,6 +1,6 @@
 //! The few HTML tags in Markdown that kiri reads instead of showing them
 //! as source: `<img>`, alone or in tags that only wrap it, `<a>` around
-//! an `<img>`, and `<br>`.
+//! an `<img>`, `<br>` and `<kbd>`.
 
 use crate::model::Length;
 
@@ -32,6 +32,38 @@ pub fn inline_img(html: &str) -> Option<Img> {
 pub fn link_start(html: &str) -> Option<String> {
     match tokens(html)?.as_slice() {
         [Token::Open(tag)] if tag.name == "a" => tag.get("href").map(str::to_owned),
+        _ => None,
+    }
+}
+
+/// An inline element that kiri reads from its opening and closing tags,
+/// with the inlines between them as its content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phrase {
+    Kbd,
+}
+
+impl Phrase {
+    fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "kbd" => Some(Self::Kbd),
+            _ => None,
+        }
+    }
+}
+
+/// The element that inline HTML, one opening tag, starts.
+pub fn phrase_start(html: &str) -> Option<Phrase> {
+    match tokens(html)?.as_slice() {
+        [Token::Open(tag)] => Phrase::from_name(&tag.name),
+        _ => None,
+    }
+}
+
+/// The element that inline HTML, one closing tag, ends.
+pub fn phrase_end(html: &str) -> Option<Phrase> {
+    match tokens(html)?.as_slice() {
+        [Token::Close(name)] => Phrase::from_name(name),
         _ => None,
     }
 }
@@ -501,6 +533,20 @@ mod tests {
         }
         for other in ["<brx>", "<br", "<br><br>", "<b>", "</br>", "<!-- <br> -->"] {
             assert!(!is_line_break(other), "{other:?}");
+        }
+    }
+
+    #[test]
+    fn reads_the_tags_of_a_kbd() {
+        assert_eq!(phrase_start("<kbd>"), Some(Phrase::Kbd));
+        assert_eq!(phrase_start("<KBD title=\"key\">"), Some(Phrase::Kbd));
+        assert_eq!(phrase_end("</kbd>"), Some(Phrase::Kbd));
+        assert_eq!(phrase_end("</Kbd >"), Some(Phrase::Kbd));
+        for other in ["</kbd>", "<kbdx>", "<b>", "<kbd><kbd>", "<kbd"] {
+            assert_eq!(phrase_start(other), None, "{other:?}");
+        }
+        for other in ["<kbd>", "</kbdx>", "</b>", "</kbd></kbd>"] {
+            assert_eq!(phrase_end(other), None, "{other:?}");
         }
     }
 
