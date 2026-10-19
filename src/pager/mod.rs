@@ -297,11 +297,11 @@ impl State {
                     self.prompt = None;
                     self.find(&term, now, layout);
                 }
+                // The last search again goes on to its next match, as n
+                // does.
                 Edit::Repeat => {
                     self.prompt = None;
-                    if let Some(term) = self.search.as_ref().map(|s| s.term().to_owned()) {
-                        self.find(&term, now, layout);
-                    }
+                    self.step(Search::forward, now, layout);
                 }
             }
             return false;
@@ -943,6 +943,17 @@ mod tests {
         let last = frames.last().unwrap();
         assert!(at_top(last, "Line 20"), "{frames:#?}");
         assert!(status_row(last, 6).contains("/line 20 1/1"), "{frames:#?}");
+    }
+
+    #[test]
+    fn enter_on_an_empty_prompt_goes_on_to_the_next_match_as_n_does() {
+        // Line 2 is in view after the search, so the repeat moves on.
+        let reads: &[&[u8]] = &[b"/line 2\r", b"/\r"];
+        let mut terminal = Fake::new(60, 6, reads);
+        show(&numbers(30), &mut terminal);
+        let last = terminal.frames().pop().unwrap();
+        assert!(status_row(&last, 6).contains("/line 2 2/11"), "{last:?}");
+        assert!(at_top(&last, "Line 20"), "{last:?}");
     }
 
     #[test]
