@@ -107,6 +107,7 @@ pub fn run(
             }
             None => View::new(heights, rows),
         };
+        state.lay_out(&lines, shown.top());
         let status = Status {
             name,
             styles: status::Styles::new(&inputs.theme, &inputs.caps),
@@ -293,6 +294,14 @@ impl State {
         }
         self.search = Some(search);
         self.shown = true;
+    }
+
+    /// Finds the last search again in `lines`, laid out anew, from the
+    /// line `top` of the view.
+    fn lay_out(&mut self, lines: &[Line], top: usize) {
+        if let Some(search) = &mut self.search {
+            *search = Search::new(lines, search.term(), self.case, top);
+        }
     }
 
     /// Moves the last search to another match by `step`, and shows it.
@@ -869,6 +878,26 @@ mod tests {
         assert!(at_top(&frames[3], "Line 20"), "{frames:#?}");
         assert!(
             status_row(&frames[3], 6).contains("/line 2 2/11"),
+            "{frames:#?}"
+        );
+    }
+
+    #[test]
+    fn a_new_window_size_finds_the_matches_again_from_the_top_of_the_view() {
+        let reads: &[&[u8]] = &[b"/line\r", b"jjjjjjjj", b""];
+        let mut terminal = Fake::new(60, 6, reads);
+        terminal.sizes = [window(60, 6), window(60, 6), window(70, 6)].into();
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert!(
+            status_row(&frames[2], 6).contains("/line 1/30"),
+            "{frames:#?}"
+        );
+        // Line 5 is at the top, and the view stays.
+        assert!(at_top(&frames[3], "Line 5"), "{frames:#?}");
+        assert!(
+            status_row(&frames[3], 6).contains("/line 5/30"),
             "{frames:#?}"
         );
     }
