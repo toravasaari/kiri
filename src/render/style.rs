@@ -135,6 +135,11 @@ impl Line {
     }
 }
 
+/// The text of `spans` one after another.
+pub fn text(spans: &[Span]) -> String {
+    spans.iter().map(|span| span.text.as_str()).collect()
+}
+
 /// Appends text, merging it into the last span when the style matches.
 pub fn push(spans: &mut Vec<Span>, text: &str, style: &Style) {
     if text.is_empty() {

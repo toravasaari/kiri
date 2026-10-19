@@ -2,7 +2,7 @@
 
 use unicode_width::UnicodeWidthStr;
 
-use super::style::{Line, Span, Style, push};
+use super::style::{self, Line, Span, Style, push};
 use super::wrap::{keeps_together, width, words, wrap};
 use crate::model::Alignment;
 
@@ -185,7 +185,7 @@ fn is_empty(cell: &[Span]) -> bool {
 /// The longest run without spaces, so code is measured by its words even
 /// where the theme keeps its spaces together.
 fn longest_word(cell: &[Span]) -> usize {
-    let text: String = cell.iter().map(|span| span.text.as_str()).collect();
+    let text = style::text(cell);
     text.split([' ', '\n'])
         .map(UnicodeWidthStr::width)
         .max()
@@ -260,10 +260,7 @@ mod tests {
     }
 
     fn text(lines: &[Line]) -> Vec<String> {
-        lines
-            .iter()
-            .map(|line| line.spans.iter().map(|span| span.text.as_str()).collect())
-            .collect()
+        lines.iter().map(|line| style::text(&line.spans)).collect()
     }
 
     #[test]

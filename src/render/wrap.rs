@@ -305,16 +305,14 @@ fn pieces(span: &Span, split_together: bool) -> Vec<(&str, Style)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::style;
 
     fn plain(text: &str) -> Vec<Span> {
         vec![Span::new(text, Style::default())]
     }
 
     fn texts(lines: &[Vec<Span>]) -> Vec<String> {
-        lines
-            .iter()
-            .map(|line| line.iter().map(|span| span.text.as_str()).collect())
-            .collect()
+        lines.iter().map(|line| style::text(line)).collect()
     }
 
     #[test]
@@ -599,10 +597,7 @@ mod tests {
 
     #[test]
     fn cuts_between_graphemes() {
-        let cut_to = |text: &str, columns| -> String {
-            let spans = cut(plain(text), columns);
-            spans.iter().map(|span| span.text.as_str()).collect()
-        };
+        let cut_to = |text: &str, columns| -> String { style::text(&cut(plain(text), columns)) };
         // A heart made an emoji by a variation selector, two cells wide.
         assert_eq!(cut_to("a❤️b", 2), "a");
         assert_eq!(cut_to("a❤️b", 3), "a❤️");

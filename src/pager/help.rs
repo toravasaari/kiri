@@ -78,10 +78,11 @@ const FOOTER: &str = "Any key closes this.";
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::style;
     use crate::render::wrap::width;
 
     fn text(placed: &Placed) -> String {
-        placed.spans.iter().map(|span| span.text.as_str()).collect()
+        style::text(&placed.spans)
     }
 
     #[test]

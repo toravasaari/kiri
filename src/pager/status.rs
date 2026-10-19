@@ -268,6 +268,7 @@ fn printable(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::style::text;
     use crate::render::wrap::width;
     use crate::theme::{Paper, StatusLineTheme};
 
@@ -281,10 +282,6 @@ mod tests {
             badge: Style::fg(Some(Color::Palette(2))),
             inverse: Style::fg(Some(Color::Palette(3))),
         }
-    }
-
-    fn text(spans: &[Span]) -> String {
-        spans.iter().map(|span| span.text.as_str()).collect()
     }
 
     #[test]
