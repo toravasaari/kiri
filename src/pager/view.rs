@@ -24,8 +24,6 @@ pub enum Motion {
 pub struct Position {
     /// The document's rows down to the bottom of the view, in percent.
     pub percent: u8,
-    /// The view shows the last line.
-    pub end: bool,
 }
 
 /// The part of the document in a window of `rows` rows. Each line takes
@@ -56,13 +54,11 @@ impl View {
 
     /// How far down the document the view is.
     pub fn position(&self) -> Position {
-        let shown = self.visible();
         let total: usize = self.heights.iter().sum();
-        let down: usize = self.heights[..shown.end].iter().sum();
+        let down: usize = self.heights[..self.visible().end].iter().sum();
         let percent = (down * 100).checked_div(total).unwrap_or(100);
         Position {
             percent: u8::try_from(percent).unwrap_or(100),
-            end: shown.end == self.heights.len(),
         }
     }
 
@@ -310,14 +306,14 @@ mod tests {
 
     #[test]
     fn the_position_is_the_share_of_rows_down_to_the_bottom_of_the_view() {
-        let position = |percent, end| Position { percent, end };
-        assert_eq!(plain(10, 4).position(), position(40, false));
+        let position = |percent| Position { percent };
+        assert_eq!(plain(10, 4).position(), position(40));
         let view = scrolled(plain(10, 4), &[Motion::End]);
-        assert_eq!(view.position(), position(100, true));
-        assert_eq!(plain(3, 4).position(), position(100, true));
-        assert_eq!(plain(0, 4).position(), position(100, true));
+        assert_eq!(view.position(), position(100));
+        assert_eq!(plain(3, 4).position(), position(100));
+        assert_eq!(plain(0, 4).position(), position(100));
         // A tall line that does not fit is not shown, so not counted.
-        assert_eq!(View::new(vec![1, 1, 3], 4).position(), position(40, false));
+        assert_eq!(View::new(vec![1, 1, 3], 4).position(), position(40));
     }
 
     #[test]

@@ -433,7 +433,7 @@ mod tests {
         assert!(status(&frames[0]).contains(" kiri "), "{frames:?}");
         assert!(status(&frames[0]).contains(" notes.md "), "{frames:?}");
         assert!(status(&frames[0]).contains(" help"), "{frames:?}");
-        assert!(status(&frames[1]).contains(" END "), "{frames:?}");
+        assert!(status(&frames[1]).contains(" kiri "), "{frames:?}");
         assert!(status(&frames[1]).contains("100%"), "{frames:?}");
     }
 
@@ -454,7 +454,7 @@ mod tests {
         assert_eq!(frames[0], frames[2]);
         assert!(help(&frames[3]), "{frames:#?}");
         assert_eq!(frames[0], frames[4]);
-        assert!(frames[5].contains(" END "), "{frames:#?}");
+        assert!(frames[5].contains("100%"), "{frames:#?}");
     }
 
     #[test]

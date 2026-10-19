@@ -96,7 +96,7 @@ pub fn spans(name: &str, position: Position, width: usize, styles: &Styles) -> V
         })
         .collect();
     let name = name.as_str();
-    let badge = if position.end { " END " } else { " kiri " };
+    let badge = " kiri ";
     let percent = format!("{}%", position.percent);
     let keys = [("?", " help"), ("q", " quit")];
     let keys_width: usize = keys
@@ -176,8 +176,8 @@ mod tests {
     use crate::render::wrap::width;
     use crate::theme::{Paper, StatusLineTheme};
 
-    fn at(percent: u8, end: bool) -> Position {
-        Position { percent, end }
+    fn at(percent: u8) -> Position {
+        Position { percent }
     }
 
     fn styles() -> Styles {
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn shows_the_badge_the_name_the_position_and_the_keys() {
-        let spans = spans("notes.md", at(42, false), 60, &styles());
+        let spans = spans("notes.md", at(42), 60, &styles());
         assert_eq!(
             text(&spans),
             " kiri  notes.md                       42%   ? help   q quit "
@@ -208,20 +208,20 @@ mod tests {
     }
 
     #[test]
-    fn the_badge_says_end_at_the_end() {
-        let spans = spans("notes.md", at(100, true), 60, &styles());
-        assert!(text(&spans).starts_with(" END  notes.md "), "{spans:?}");
+    fn the_badge_stays_at_the_end() {
+        let spans = spans("notes.md", at(100), 60, &styles());
+        assert!(text(&spans).starts_with(" kiri  notes.md "), "{spans:?}");
     }
 
     #[test]
     fn the_keys_go_first_when_the_window_is_narrow() {
-        let spans = spans("notes.md", at(42, false), 30, &styles());
+        let spans = spans("notes.md", at(42), 30, &styles());
         assert_eq!(text(&spans), " kiri  notes.md           42% ");
     }
 
     #[test]
     fn a_long_name_loses_its_start() {
-        let spans = spans("docs/a/long/way/to/roadmap.md", at(7, false), 26, &styles());
+        let spans = spans("docs/a/long/way/to/roadmap.md", at(7), 26, &styles());
         assert_eq!(text(&spans), " kiri  …/to/roadmap.md 7% ");
         assert_eq!(width(&spans), 26);
     }
@@ -229,7 +229,7 @@ mod tests {
     #[test]
     fn the_line_fills_the_window_and_no_more() {
         for width in 0..80 {
-            let spans = spans("docs/notes.md", at(42, false), width, &styles());
+            let spans = spans("docs/notes.md", at(42), width, &styles());
             let expected = if width < 11 { width.min(6) } else { width };
             assert_eq!(super::width_of(&spans), expected, "{width}: {spans:?}");
         }
@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn control_characters_in_the_name_take_a_cell_each() {
-        let spans = spans("a\nb\x07.md", at(42, false), 40, &styles());
+        let spans = spans("a\nb\x07.md", at(42), 40, &styles());
         assert_eq!(width(&spans), 40, "{spans:?}");
         assert!(
             text(&spans).contains(" a\u{fffd}b\u{fffd}.md "),
@@ -302,17 +302,14 @@ mod tests {
 
     #[test]
     fn wide_characters_in_the_name_take_two_cells() {
-        let spans = spans("文書/説明.md", at(42, false), 18, &styles());
+        let spans = spans("文書/説明.md", at(42), 18, &styles());
         assert_eq!(width(&spans), 18, "{spans:?}");
         assert_eq!(text(&spans), " kiri  …明.md 42% ");
     }
 
     #[test]
     fn a_window_too_narrow_for_more_shows_the_badge() {
-        assert_eq!(
-            text(&spans("notes.md", at(42, false), 4, &styles())),
-            " kir"
-        );
-        assert_eq!(text(&spans("notes.md", at(42, false), 0, &styles())), "");
+        assert_eq!(text(&spans("notes.md", at(42), 4, &styles())), " kir");
+        assert_eq!(text(&spans("notes.md", at(42), 0, &styles())), "");
     }
 }
