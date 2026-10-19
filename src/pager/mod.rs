@@ -306,8 +306,8 @@ mod tests {
         show(&numbers(10), &mut terminal);
         let frames = terminal.frames();
         assert_eq!(frames.len(), 3, "{frames:?}");
-        assert!(frames[1].contains("Line 2"), "{frames:?}");
-        assert!(!frames[1].contains("Line 1\x1b"), "{frames:?}");
+        // Line 2 is at the top: the first row of the frame.
+        assert!(frames[1].contains("\x1b[1;1H  Line 2"), "{frames:?}");
         assert!(frames[2].contains("Line 10"), "{frames:?}");
     }
 
@@ -346,6 +346,8 @@ mod tests {
         let document = crate::parse::parse("A paragraph of several words\n");
         let mut inputs = Inputs::new(Capabilities::ansi(80));
         run(&document, &mut inputs, Some(10), &mut terminal).unwrap();
+        // One frame before the window changed, and one after.
+        assert_eq!(terminal.frames().len(), 2);
         for frame in terminal.frames() {
             assert!(!frame.contains("A paragraph of"), "{frame:?}");
         }
