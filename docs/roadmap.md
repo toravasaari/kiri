@@ -73,9 +73,9 @@ example, come before the rest of phase 3.
   `kitten icat`.
 - HTML `<img>` tags with `src`, `alt`, `width` and `height`.
 - Cargo features for a minimal build and a full build with every format.
-- Groundwork: one query for the window size in cells and pixels. Fitting
-  the window needs its height, and `term.rs` now asks for the width and
-  the cell size separately.
+- Groundwork: one query for the window size in cells and pixels, as
+  fitting the window needs its height. `term.rs` used to ask for the width
+  and the cell size separately.
 
 ### 4.2 Formulas
 
@@ -136,16 +136,16 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 - Keys come from the terminal rather than standard input, as in `less`,
   so a piped document can be paged too.
 - The document is laid out again when the window changes size.
-- Groundwork: raw mode, now inside the probe in `term.rs`, usable for
-  reading keys.
+- Groundwork: raw mode, until then inside the probe in `term.rs`, made
+  usable for reading keys.
 
 #### 4.6.2 Status line (done)
 
 - A status line with the file name, the position and key hints, and a
   `?` help panel.
 - Keys and terminal answers that arrive split over two reads are
-  decoded whole. Now the second half of such a sequence is read as keys
-  of its own, which a search prompt would make worse.
+  decoded whole. Before, the second half of such a sequence was read as
+  keys of its own, which a search prompt would have made worse.
 
 #### 4.6.3 Search (done)
 
@@ -207,7 +207,7 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 
 ### 4.9 Standard input and directories (done)
 
-Comes before the pager (4.6), so that the pager is built for a piped
+Came before the pager (4.6), so that the pager was built for a piped
 document from the start.
 
 - `kiri -`, or no file name with a pipe on standard input, reads the
@@ -215,8 +215,6 @@ document from the start.
   Relative image paths are resolved against the current directory.
 - `kiri some/dir` shows the directory's `README.md`, or else its
   `README`, as GitHub does.
-- The pager (4.6.1) reads its keys from the terminal rather than from
-  standard input, as `less` does, so a piped document can be paged too.
 
 ### 4.10 More Markdown
 
@@ -257,11 +255,10 @@ GitHub's Markdown first, then what is common elsewhere.
 
 - Other terminals: sixel and iTerm2 images, plain styling for headings.
 - Groundwork: `Capabilities.graphics` names the image protocol instead of
-  a yes or no, and the probe keeps the terminal's name, version and device
-  attributes, where sixel support shows, instead of only yes-or-no
-  answers.
-- `--doctor` lists the image protocols probed and the terminal's name and
-  version.
+  a yes or no. The probe already keeps the terminal's answers, and
+  `--doctor` shows its name and version; the device attributes, where
+  sixel support shows, are not read yet.
+- `--doctor` lists the image protocols probed.
 - Images as coloured Unicode block characters where no image protocol
   works.
 - Remote images, off by default because fetching one tells its server that
