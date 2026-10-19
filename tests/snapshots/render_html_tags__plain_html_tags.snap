@@ -1,0 +1,73 @@
+---
+source: tests/render_html_tags.rs
+expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
+---
+# HTML tags
+
+## Line breaks
+
+  First line<br>second line<br/>third line<br
+  />fourth line<BR>fifth.
+
+## Keys and marks
+
+  Press <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy,
+  or <kbd>Page Down</kbd> to move on.
+
+  Some text is <mark>marked as found</mark>,
+  even <mark>in bold</mark>.
+
+  A <kbd>key that never closes stays as
+  source.
+
+## Details
+
+  <details>
+  <summary>A summary with <kbd>Esc</kbd></summary>
+
+  The content is Markdown, as GitHub shows it:
+
+  - one
+  - two
+
+  </details>
+
+  <details><summary>Written on one line</summary>The content &amp; its
+  <b>tags</b> are plain text.</details>
+
+  <details>
+
+  Without a summary, the block is called
+  Details.
+
+  </details>
+
+  - A list item
+
+    <details>
+    <summary>Inside a list</summary>
+
+    Content in the list.
+
+    </details>
+
+  > <details>
+  > <summary>Inside a quote</summary>
+  >
+  > Content in the quote.
+  >
+  > </details>
+
+## Other tags
+
+  Text with <b>bold</b> and <span>a
+  span</span> stays as source.
+
+  <div>
+  A div block stays as source.
+  </div>
+
+  <details>
+  <summary>Never closed</summary>
+
+  Runs to the end of the document.

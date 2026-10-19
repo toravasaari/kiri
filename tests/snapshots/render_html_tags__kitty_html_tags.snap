@@ -1,0 +1,79 @@
+---
+source: tests/render_html_tags.rs
+expression: "visible(&render_for(\"html-tags.md\", Capabilities::kitty(WIDTH)))"
+---
+␛[0;1;4;34m␛]66;s=3;HTML tags␛\␛[0m
+
+
+
+␛[0;1;4;34m␛]66;s=2;Line breaks␛\␛[0m
+
+
+  First line␛[0;2m<br>␛[0msecond line␛[0;2m<br/>␛[0mthird line␛[0;2m<br␛[0m
+  ␛[0;2m/>␛[0mfourth line␛[0;2m<BR>␛[0mfifth.
+
+␛[0;1;4;34m␛]66;s=2;Keys and marks␛\␛[0m
+
+
+  Press ␛[0;2m<kbd>␛[0mCtrl␛[0;2m</kbd>␛[0m+␛[0;2m<kbd>␛[0mC␛[0;2m</kbd>␛[0m to copy,
+  or ␛[0;2m<kbd>␛[0mPage Down␛[0;2m</kbd>␛[0m to move on.
+
+  Some text is ␛[0;2m<mark>␛[0mmarked as found␛[0;2m</mark>␛[0m,
+  even ␛[0;1;2m<mark>␛[0;1min bold␛[0;1;2m</mark>␛[0m.
+
+  A ␛[0;2m<kbd>␛[0mkey that never closes stays as
+  source.
+
+␛[0;1;4;34m␛]66;s=2;Details␛\␛[0m
+
+
+  ␛[0;2m<details>␛[0m
+  ␛[0;2m<summary>A summary with <kbd>Esc</kbd></summary>␛[0m
+
+  The content is ␛[0;3mMarkdown␛[0m, as GitHub shows it:
+
+  ␛[0;90m• ␛[0mone
+  ␛[0;90m• ␛[0mtwo
+
+  ␛[0;2m</details>␛[0m
+
+  ␛[0;2m<details><summary>Written on one line</summary>The content &amp; its␛[0m
+  ␛[0;2m<b>tags</b> are plain text.</details>␛[0m
+
+  ␛[0;2m<details>␛[0m
+
+  Without a summary, the block is called
+  Details.
+
+  ␛[0;2m</details>␛[0m
+
+  ␛[0;90m• ␛[0mA list item
+
+    ␛[0;2m<details>␛[0m
+    ␛[0;2m<summary>Inside a list</summary>␛[0m
+
+    Content in the list.
+
+    ␛[0;2m</details>␛[0m
+
+  ␛[0;90m│ ␛[0;2m<details>␛[0m
+  ␛[0;90m│ ␛[0;2m<summary>Inside a quote</summary>␛[0m
+  ␛[0;90m│␛[0m
+  ␛[0;90m│ ␛[0mContent in the quote.
+  ␛[0;90m│␛[0m
+  ␛[0;90m│ ␛[0;2m</details>␛[0m
+
+␛[0;1;4;34m␛]66;s=2;Other tags␛\␛[0m
+
+
+  Text with ␛[0;2m<b>␛[0mbold␛[0;2m</b>␛[0m and ␛[0;2m<span>␛[0ma
+  span␛[0;2m</span>␛[0m stays as source.
+
+  ␛[0;2m<div>␛[0m
+  ␛[0;2mA div block stays as source.␛[0m
+  ␛[0;2m</div>␛[0m
+
+  ␛[0;2m<details>␛[0m
+  ␛[0;2m<summary>Never closed</summary>␛[0m
+
+  Runs to the end of the document.
