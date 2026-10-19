@@ -222,6 +222,21 @@ GitHub's Markdown first, then what is common elsewhere.
   as links to `note.md`, and embeds such as `![[image.png]]` as images.
   Obsidian's callouts share the syntax of GitHub alert blocks (Extras).
 
+### 4.11 More themes
+
+- Built-in themes chosen by name, as btop offers them: `--theme nord`,
+  `KIRI_THEME` or `theme` in the configuration file. The light and dark
+  paper themes, greys with colour only in code blocks, are two of them;
+  `--light` and `--dark` stay as short forms of `--theme light` and
+  `--theme dark`.
+- Themes live in `themes/` in the configuration directory, one file per
+  name: `default.toml`, `dark.toml` and so on. How the built-in themes'
+  files get there is part of this step.
+- `--theme-file FILE`, `KIRI_THEME_FILE` or `theme-file` in the
+  configuration file replaces today's `--theme FILE`. The file changes
+  only the keys it gives on top of the named theme, so `theme = "nord"`
+  and a small file of your own work together.
+
 ## Phase 5 – Beyond kitty
 
 - Other terminals: sixel and iTerm2 images, plain styling for headings.
