@@ -1178,4 +1178,101 @@ mod tests {
             assert_eq!(parse(&format!("{file}\n")).unwrap_err(), unknown, "{file}");
         }
     }
+
+    #[test]
+    fn without_colors_leaves_not_one_colour() {
+        // Every field is named, so a new one does not compile until it is
+        // sorted here into the colours, which must go, and the rest.
+        for theme in [
+            Theme::default(),
+            Theme::paper(Paper::Light),
+            Theme::paper(Paper::Dark),
+        ] {
+            let Theme {
+                max_width: _,
+                background,
+                foreground,
+                muted,
+                text_margin: _,
+                headings,
+                link,
+                inline_code,
+                inline_code_background,
+                inline_code_padding: _,
+                inline_code_wrap: _,
+                quote_bar,
+                rule,
+                list_marker,
+                table_border,
+                code_padding: _,
+                code_theme_dark: _,
+                code_theme_light: _,
+                show_language_label: _,
+                language_label,
+                alerts,
+                status_line,
+                search,
+            } = theme.without_colors();
+            let colors = [
+                background,
+                foreground,
+                muted,
+                link,
+                inline_code,
+                quote_bar,
+                rule,
+                list_marker,
+                table_border,
+            ];
+            assert_eq!(colors, [None; 9]);
+            assert_eq!(inline_code_background, CodeBackground::Color(None));
+            assert_eq!(language_label, LabelColor::Color(None));
+            for heading in headings {
+                let HeadingTheme {
+                    scale: _,
+                    color,
+                    bold: _,
+                    italic: _,
+                    rule: _,
+                    underline: _,
+                    background,
+                    indent: _,
+                } = heading;
+                assert_eq!((color, background), (None, None));
+            }
+            let AlertTheme {
+                colors: _,
+                tint,
+                note,
+                tip,
+                important,
+                warning,
+                caution,
+            } = alerts;
+            assert!(!tint);
+            let none = AlertColor::Color(None);
+            assert_eq!([note, tip, important, warning, caution], [none; 5]);
+            let StatusLineTheme {
+                background,
+                foreground,
+                badge_background,
+                badge_foreground,
+            } = status_line;
+            let status = [background, foreground, badge_background, badge_foreground];
+            assert_eq!(status, [StatusColor::Auto; 4]);
+            let SearchTheme {
+                match_foreground,
+                match_background,
+                current_foreground,
+                current_background,
+            } = search;
+            let search = [
+                match_foreground,
+                match_background,
+                current_foreground,
+                current_background,
+            ];
+            assert_eq!(search, [SearchColor::Auto; 4]);
+        }
+    }
 }
