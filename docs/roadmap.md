@@ -68,7 +68,7 @@ example, come before the rest of phase 3.
   running text stay as alt text for now.
 - Sizes follow the browser: CSS pixels, never upscaled, no wider than the
   text. Options for other sizes wait until the defaults have been tried;
-  one for an image on its own is in 4.12.
+  one for an image on its own is in 4.12.5.
 - `kiri image.png` shows an image on its own, fitting the window like
   `kitten icat`.
 - HTML `<img>` tags with `src`, `alt`, `width` and `height`.
@@ -213,7 +213,11 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   shows how headings, tables and images look in this terminal. Piped to a
   file it stays plain Markdown, ready to paste into a bug report.
 
-### 4.9 Standard input and directories (done)
+### 4.9 Input
+
+Where documents come from, besides one file named on the command line.
+
+#### 4.9.1 Standard input and directories (done)
 
 Came before the pager (4.6), so that the pager was built for a piped
 document from the start.
@@ -223,6 +227,12 @@ document from the start.
   Relative image paths are resolved against the current directory.
 - `kiri some/dir` shows the directory's `README.md`, or else its
   `README`, as GitHub does.
+
+#### 4.9.2 Several files
+
+- Several files on the command line, as the shell expands `kiri *.md` or
+  `kiri *.jpg`, shown one after another, each headed by its file name as
+  `bat` does. Images are shown at full size; 4.12.3 adds a grid of them.
 
 ### 4.10 More Markdown
 
@@ -278,25 +288,42 @@ scale, built once for all of these:
 
 ### 4.12 More images
 
+#### 4.12.1 AVIF and JPEG XL
+
 - AVIF and JPEG XL images.
+
+#### 4.12.2 PDF
+
 - PDF documents shown as images, as a quick look that saves opening a
   PDF reader rather than a replacement for one: `kiri file.pdf` and
   `![](figure.pdf)` in a document show the first page. A setting and a
   command-line option choose other pages: the first n pages, one page, a
   list of ranges such as `1-3,7,10-`, or all pages. How the pages are
   rendered is still open.
+
+#### 4.12.3 Several images
+
+The counterpart of several files (4.9.2) for images.
+
+- Several images as a contact sheet: a grid of thumbnails with their file
+  names beneath.
+
+#### 4.12.4 Images in more places
+
 - An image inside a link can be clicked: the image's placeholder cells are
   wrapped in the link's OSC 8 hyperlink, as text is.
 - Images inside table cells, which now show their alt text.
+- Images inside running text, which now show their alt text.
+
+#### 4.12.5 An image on its own
+
 - An image shown on its own, `kiri image.png`, can be shown at other sizes
   than the default fit to the window: one image pixel per terminal pixel
   even when that is larger than the window, its size in CSS pixels as in a
   document, or enlarged to fill the window.
-- Several files on the command line, as the shell expands `kiri *.jpg`,
-  shown one after another at full size, each headed by its file name as
-  `bat` does.
-- Several images as a contact sheet: a grid of thumbnails with their file
-  names beneath.
+
+#### 4.12.6 Images over SSH
+
 - Less image data over SSH. kitty only takes raw pixels or PNG, so
   compressed formats such as JPEG cannot be passed through as they are;
   this needs thought on what to send and when.
