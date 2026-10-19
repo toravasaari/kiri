@@ -5,7 +5,8 @@ use kiri::term::Capabilities;
 
 mod common;
 
-use common::{WIDTH, inputs, render, render_for, visible};
+use common::{WIDTH, fixture, inputs, render, render_for, visible};
+use kiri::parse::csv::Separator;
 
 #[test]
 fn inline_code_kept_together_in_a_narrow_table_cell() {
@@ -76,4 +77,39 @@ fn stacked_tables_nest_in_quotes_and_list_items() {
          - City: Helsinki\n    Notes: Capital\n    ──────────────────\n    \
          City: Oulu\n    Notes: North\n"
     );
+}
+
+/// The CSV or TSV fixture `name` rendered for `caps`.
+fn render_table_file(name: &str, separator: Separator, caps: Capabilities) -> String {
+    let document = kiri::parse::csv::parse(&fixture(name), separator);
+    let mut out = Vec::new();
+    kiri::render::render(&document, &Inputs::new(caps), &mut out).unwrap();
+    String::from_utf8(out).unwrap()
+}
+
+#[test]
+fn csv_file() {
+    insta::assert_snapshot!(render_table_file(
+        "table.csv",
+        Separator::Comma,
+        Capabilities::plain(64)
+    ));
+}
+
+#[test]
+fn tsv_file() {
+    insta::assert_snapshot!(render_table_file(
+        "table.tsv",
+        Separator::Tab,
+        Capabilities::plain(64)
+    ));
+}
+
+#[test]
+fn kitty_csv_file() {
+    insta::assert_snapshot!(visible(&render_table_file(
+        "table.csv",
+        Separator::Comma,
+        Capabilities::kitty(WIDTH)
+    )));
 }

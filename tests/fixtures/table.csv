@@ -1,0 +1,7 @@
+Tool,Language,Notes,Stars
+kiri,Rust,"Renders Markdown, CSV and TSV in kitty",120
+bat,Rust,"A ""cat"" clone with wings",50000
+glow,Go,"Markdown on the
+command line",16000
+*mdcat*,Rust,Plain text: `code` stays as it is
+less,C,,
