@@ -366,6 +366,30 @@ mod tests {
     }
 
     #[test]
+    fn turns_shortcodes_inside_inlines_into_emoji() {
+        assert_eq!(
+            parse("[:tada:](u) **:fire:** ~~:fire:~~ ![:rocket:](a.png)\n").blocks,
+            vec![Block::Paragraph(vec![
+                Inline::Link {
+                    url: "u".into(),
+                    content: vec![text("\u{1F389}")],
+                },
+                text(" "),
+                Inline::Strong(vec![text("\u{1F525}")]),
+                text(" "),
+                Inline::Strikethrough(vec![text("\u{1F525}")]),
+                text(" "),
+                Inline::Image(Image {
+                    url: "a.png".into(),
+                    alt: vec![text("\u{1F680}")],
+                    width: None,
+                    height: None,
+                }),
+            ])]
+        );
+    }
+
+    #[test]
     fn keeps_unknown_shortcodes_and_code_as_written() {
         assert_eq!(
             parse("A :not_a_real_code: and :octocat: `:rocket:`\n").blocks,
