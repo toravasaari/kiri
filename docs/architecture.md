@@ -131,7 +131,9 @@ src/term.rs                capability detection, the only terminal queries,
                            the pager's screen and keys
 src/config.rs              settings: options, environment, configuration file
 src/doctor.rs              the --doctor report as Markdown
-src/theme.rs               colours and sizes, theme files
+src/theme/mod.rs           colours and sizes the renderer uses
+src/theme/paper.rs         the light and dark paper themes
+src/theme/file.rs          theme files
 src/images/mod.rs          loading and decoding the images a document shows
 src/images/url.rs          data URLs, file URLs and paths, read up to a limit
 src/images/svg.rs          SVG images and the fonts for their text
@@ -141,11 +143,12 @@ src/render/layout/mod.rs   document model -> styled lines of a fixed width
 src/render/layout/code.rs  code blocks and their language label
 src/render/layout/list.rs  bullet, numbered and task lists
 src/render/layout/quote.rs block quotes
-src/render/wrap.rs         word wrapping for styled text
+src/render/wrap.rs         word wrapping, splitting and cutting styled text
 src/render/table.rs        tables with box-drawing characters, or stacked
 src/render/image.rs        image sizes in pixels and terminal cells
 src/render/style.rs        styled text between layout and output
-src/render/output.rs       styled lines -> bytes (SGR, OSC 8, CSI C/K, OSC 66)
+src/render/output.rs       styled lines -> bytes (SGR, OSC 8, CSI C/K, OSC 66),
+                           cursor placement and synchronized output
 src/render/highlight.rs    syntax highlighting for code blocks (syntect)
 src/pager/mod.rs           the pager: frames and the loop of keys
 src/pager/view.rs          the lines a window shows, and scrolling
