@@ -116,7 +116,7 @@ An interactive pager, so that a document can be read on a screen of its
 own and leaves the shell's scrollback as it was, as `bat` does through
 `less`. It comes in parts, so that the basic pager can be used early.
 
-#### 4.6.1 Basic pager
+#### 4.6.1 Basic pager (done)
 
 - The document on the terminal's alternate screen; quitting returns to
   the prompt as it was.
