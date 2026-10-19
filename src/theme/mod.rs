@@ -779,7 +779,7 @@ mod tests {
 
     #[test]
     fn the_documented_defaults_are_the_defaults() {
-        let docs = include_str!("../docs/theme.md");
+        let docs = include_str!("../../docs/theme.md");
         let defaults = docs
             .find("## Defaults")
             .expect("docs/theme.md has a Defaults section");
@@ -794,7 +794,7 @@ mod tests {
 
     /// The TOML block after `heading` in docs/theme.md.
     fn documented(heading: &str) -> &'static str {
-        let docs = include_str!("../docs/theme.md");
+        let docs = include_str!("../../docs/theme.md");
         let section = docs
             .find(heading)
             .unwrap_or_else(|| panic!("docs/theme.md has {heading}"));
