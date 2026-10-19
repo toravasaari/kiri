@@ -157,7 +157,7 @@ mod tests {
     /// like a kitty with cells of 9 × 19 pixels. Returns the queries the
     /// terminal saw and what the probe read.
     fn ask_kitty(ask_cell_size: bool) -> (String, Option<Vec<u8>>) {
-        use crate::term::tests::{size, with_kitty};
+        use crate::term::testing::{size, with_kitty};
         with_kitty(size(80, 24, 0, 0), |tty| ask(tty, ask_cell_size))
     }
 
