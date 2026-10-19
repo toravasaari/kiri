@@ -72,7 +72,14 @@ pub fn run(
     loop {
         fit(&mut inputs.caps, size, width);
         let rows = usize::from(inputs.caps.height.unwrap_or(DEFAULT_ROWS));
-        let lines = crate::render::layout::layout(document, inputs);
+        let mut lines = crate::render::layout::layout(document, inputs);
+        // The text sizing protocol cannot draw part of a line, so a line
+        // taller than the window is drawn at normal size.
+        for line in &mut lines {
+            if usize::from(crate::render::output::rows(line, &inputs.caps)) > rows {
+                line.scale = 1;
+            }
+        }
         let mut writer = Writer::new(&inputs.images, &inputs.caps, page);
         let heights = lines
             .iter()
@@ -317,6 +324,19 @@ mod tests {
             "{frames:?}"
         );
         assert!(!frames[1].contains("A paragraph of"), "{frames:?}");
+    }
+
+    #[test]
+    fn a_heading_taller_than_the_window_is_drawn_at_normal_size() {
+        let mut terminal = Fake::new(40, 2, &[b"G"]);
+        let document = crate::parse::parse("# Title\n\nText\n");
+        let mut inputs = Inputs::new(Capabilities::kitty(80));
+        run(&document, &mut inputs, None, &mut terminal).unwrap();
+        let frames = terminal.frames();
+        assert!(frames[0].contains("Title"), "{frames:?}");
+        assert!(!frames[0].contains("\x1b]66;"), "{frames:?}");
+        // The last page shows the text below it.
+        assert!(frames.last().unwrap().contains("Text"), "{frames:?}");
     }
 
     #[test]

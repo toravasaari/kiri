@@ -72,7 +72,8 @@ impl View {
                 used <= self.rows
             })
             .count();
-        // When not even the last line fits, it is shown on its own.
+        // When not even the last line fits, the last page starts at it and
+        // shows nothing; the pager gives no line taller than the window.
         (self.heights.len() - fitting).min(self.heights.len().saturating_sub(1))
     }
 
