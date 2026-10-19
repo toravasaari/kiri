@@ -17,6 +17,28 @@ pub fn width(spans: &[Span]) -> usize {
     spans.iter().map(|span| span.text.width()).sum()
 }
 
+/// Splits styled code into lines of at most `max` cells, keeping every
+/// character, spaces included. Lines break between graphemes, measured as
+/// the wrapper measures them, so a flag or a joined emoji stays whole. A
+/// grapheme wider than `max` gets a line of its own and overflows it.
+pub fn split(spans: &[Span], max: usize) -> Vec<Vec<Span>> {
+    let mut lines = vec![Vec::new()];
+    let mut used = 0;
+    for span in spans {
+        for grapheme in span.text.graphemes(true) {
+            let grapheme_width = grapheme.width();
+            if used + grapheme_width > max && used > 0 {
+                lines.push(Vec::new());
+                used = 0;
+            }
+            let line = lines.last_mut().expect("lines is never empty");
+            push(line, grapheme, &span.style);
+            used += grapheme_width;
+        }
+    }
+    lines
+}
+
 /// `spans` cut to at most `max` cells, between graphemes, measured as the
 /// wrapper measures them.
 pub fn cut(spans: Vec<Span>, max: usize) -> Vec<Span> {
@@ -591,5 +613,43 @@ mod tests {
         assert_eq!(tail("a❤️b", 3), "…b");
         // An e with a combining acute accent, one cell.
         assert_eq!(tail("abcé", 3), "…cé");
+    }
+
+    fn split_texts(text: &str, max: usize) -> Vec<String> {
+        texts(&split(&plain(text), max))
+    }
+
+    #[test]
+    fn splits_code_between_graphemes() {
+        // A flag is two regional indicators, two cells together.
+        assert_eq!(split_texts("ab🇫🇮", 3), vec!["ab", "🇫🇮"]);
+        // An emoji joined from three, two cells wide.
+        assert_eq!(split_texts("ab👨‍👩‍👧", 3), vec!["ab", "👨‍👩‍👧"]);
+        // A heart made an emoji by a variation selector, two cells wide.
+        assert_eq!(split_texts("a❤️", 2), vec!["a", "❤️"]);
+        // A letter with a combining accent.
+        assert_eq!(split_texts("abe\u{301}", 2), vec!["ab", "e\u{301}"]);
+        // Spaces are kept.
+        assert_eq!(split_texts("a  b", 2), vec!["a ", " b"]);
+    }
+
+    #[test]
+    fn a_grapheme_wider_than_the_line_gets_a_line_of_its_own() {
+        assert_eq!(split_texts("日本", 1), vec!["日", "本"]);
+        assert_eq!(split_texts("a日", 1), vec!["a", "日"]);
+    }
+
+    #[test]
+    fn a_leading_zero_width_grapheme_stays_with_what_follows() {
+        assert_eq!(split_texts("\u{200b}ab", 1), vec!["\u{200b}a", "b"]);
+    }
+
+    #[test]
+    fn measures_code_like_the_wrapper() {
+        for text in ["ab🇫🇮cd", "a❤️b👨‍👩‍👧c", "日本語"] {
+            for line in split(&[Span::new(text, Style::default())], 3) {
+                assert!(width(&line) <= 3, "{line:?}");
+            }
+        }
     }
 }
