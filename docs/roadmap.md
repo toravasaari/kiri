@@ -139,15 +139,19 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 - Groundwork: raw mode, now inside the probe in `term.rs`, usable for
   reading keys.
 
-#### 4.6.2 Search and status line
+#### 4.6.2 Status line
 
-- Search with `/`, `n` and `N`.
-- A status line with the position and key hints, and a `?` help panel.
+- A status line with the file name, the position and key hints, and a
+  `?` help panel.
 - Keys and terminal answers that arrive split over two reads are
   decoded whole. Now the second half of such a sequence is read as keys
   of its own, which a search prompt would make worse.
 
-#### 4.6.3 Reload
+#### 4.6.3 Search
+
+- Search with `/`, `n` and `N`; the status line shows the search term.
+
+#### 4.6.4 Reload
 
 - Reload on file change, and a key that jumps to the first block that
   changed.
@@ -155,11 +159,11 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   Claude is working on in the next window: it reloads on every change and
   shows the part that changed, without a key press.
 
-#### 4.6.4 Moving around
+#### 4.6.5 Moving around
 
 - A table of contents, anchor jumps and back history.
 
-#### 4.6.5 Link selection
+#### 4.6.6 Link selection
 
 - Choosing a link with the keyboard and following it; a Markdown target
   opens in an overlay window, as in 4.5.
