@@ -68,7 +68,7 @@ example, come before the rest of phase 3.
   running text stay as alt text for now.
 - Sizes follow the browser: CSS pixels, never upscaled, no wider than the
   text. Options for other sizes wait until the defaults have been tried;
-  one for an image on its own is in Extras.
+  one for an image on its own is in 4.12.
 - `kiri image.png` shows an image on its own, fitting the window like
   `kitten icat`.
 - HTML `<img>` tags with `src`, `alt`, `width` and `height`.
@@ -150,6 +150,7 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 #### 4.6.3 Search (done)
 
 - Search with `/`, `n` and `N`; the status line shows the search term.
+- Later: search with regular expressions, beside the plain text search.
 
 #### 4.6.4 Reload
 
@@ -158,10 +159,17 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 - A follow mode for a document another program is writing, such as one
   Claude is working on in the next window: it reloads on every change and
   shows the part that changed, without a key press.
+- Changes shown as a diff, added text green and removed text red, fading
+  out slowly: after a reload, and against a git revision.
 
 #### 4.6.5 Moving around
 
 - A table of contents, anchor jumps and back history.
+- In print mode, without the pager: `--toc` puts a table of contents with
+  links at the top of the document.
+- Headings marked as shell prompts (OSC 133), so kitty's keys for jumping
+  between prompts move between headings in print mode. Needs a try first:
+  kitty may treat the marks as more than places to jump to.
 
 #### 4.6.6 Link selection
 
@@ -229,6 +237,9 @@ GitHub's Markdown first, then what is common elsewhere.
 - Small HTML tags: `<kbd>`, `<br>`, `<sub>`, `<sup>` and `<mark>`.
   Subscripts, superscripts and footnote references are drawn smaller,
   lowered or raised, with the text sizing protocol's fractional scale.
+- Heading scales with fractions, such as 1.5 for `h4`, drawn with the same
+  fractional scale. Scales are whole numbers today, so `h4` to `h6` are
+  either the size of body text or at least twice it.
 - Emoji shortcodes such as `:rocket:`, as GitHub shows them.
 - Heading anchors as GitHub makes them, so a link such as `[see](#install)`
   leads to its heading; the pager jumps there (4.6).
@@ -251,6 +262,31 @@ GitHub's Markdown first, then what is common elsewhere.
   only the keys it gives on top of the named theme, so `theme = "nord"`
   and a small file of your own work together.
 
+### 4.12 More images
+
+- AVIF and JPEG XL images.
+- PDF documents shown as images, as a quick look that saves opening a
+  PDF reader rather than a replacement for one: `kiri file.pdf` and
+  `![](figure.pdf)` in a document show the first page. A setting and a
+  command-line option choose other pages: the first n pages, one page, a
+  list of ranges such as `1-3,7,10-`, or all pages. How the pages are
+  rendered is still open.
+- An image inside a link can be clicked: the image's placeholder cells are
+  wrapped in the link's OSC 8 hyperlink, as text is.
+- Images inside table cells, which now show their alt text.
+- An image shown on its own, `kiri image.png`, can be shown at other sizes
+  than the default fit to the window: one image pixel per terminal pixel
+  even when that is larger than the window, its size in CSS pixels as in a
+  document, or enlarged to fill the window.
+- Several files on the command line, as the shell expands `kiri *.jpg`,
+  shown one after another at full size, each headed by its file name as
+  `bat` does.
+- Several images as a contact sheet: a grid of thumbnails with their file
+  names beneath.
+- Less image data over SSH. kitty only takes raw pixels or PNG, so
+  compressed formats such as JPEG cannot be passed through as they are;
+  this needs thought on what to send and when.
+
 ## Phase 5 – Beyond kitty
 
 - Other terminals: sixel and iTerm2 images, plain styling for headings.
@@ -271,61 +307,13 @@ GitHub's Markdown first, then what is common elsewhere.
 
 ## Extras
 
-Smaller polish that fits in whenever there is time, in any phase.
+Quick notes on smaller polish and ideas, in any phase; a line or two is
+enough. Each time a part of the roadmap is finished, the list is sorted:
+an item moves to a part or to Bugs, or is dropped, and done items go.
 
-- A fenced code block with a language, such as `python`, shows the
-  language name in its top-right corner, on the top padding row in a
-  colour between the code's text and background. Without code padding,
-  as with `--no-margins`, the name is left out. (done)
-- AVIF and JPEG XL images.
-- PDF documents shown as images, as a quick look that saves opening a
-  PDF reader rather than a replacement for one: `kiri file.pdf` and
-  `![](figure.pdf)` in a document show the first page. A setting and a
-  command-line option choose other pages: the first n pages, one page, a
-  list of ranges such as `1-3,7,10-`, or all pages. How the pages are
-  rendered is still open.
-- An image inside a link can be clicked: the image's placeholder cells are
-  wrapped in the link's OSC 8 hyperlink, as text is.
-- Less image data over SSH. kitty only takes raw pixels or PNG, so
-  compressed formats such as JPEG cannot be passed through as they are;
-  this needs thought on what to send and when.
-- Images inside table cells, which now show their alt text.
-- An `<img>` set apart by blank lines inside a wrapper, such as
-  `<p align="center">`, blank line, `<img>`, blank line, `</p>`, is drawn,
-  but the wrapper's tags show as source: CommonMark makes three HTML
-  blocks of it.
-- An image shown on its own, `kiri image.png`, can be shown at other sizes
-  than the default fit to the window: one image pixel per terminal pixel
-  even when that is larger than the window, its size in CSS pixels as in a
-  document, or enlarged to fill the window.
 - Code blocks can be copied to the clipboard (OSC 52): in the pager with a
   key, and in print mode through a link beside the block that kitty's
   `open-actions.conf` hands to kiri.
-- Changes shown as a diff, added text green and removed text red, fading
-  out slowly: in the pager after a reload, and against a git revision.
-- Table columns share the width by their content, as in a browser: a
-  table too wide for the terminal narrows each column in proportion to
-  its text, instead of narrowing the widest column first. (done)
-- GitHub alert blocks, quotes that start with `[!NOTE]`, `[!TIP]`,
-  `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]`, drawn with a colour and an
-  icon of their own and a title such as "Note". The colours stay even in
-  the paper themes, which are otherwise grey. (done)
-- Headings marked as shell prompts (OSC 133), so kitty's keys for jumping
-  between prompts move between headings in print mode, without the pager.
-  Needs a try first: kitty may treat the marks as more than places to
-  jump to.
-- Heading scales with fractions, such as 1.5 for `h4`, drawn with the text
-  sizing protocol's fractional scale. Scales are whole numbers today, so
-  `h4` to `h6` are either the size of body text or at least twice it.
-- `--toc` puts a table of contents with links at the top of the document
-  in print mode.
-- Several files on the command line, as the shell expands `kiri *.jpg`,
-  shown one after another at full size, each headed by its file name as
-  `bat` does.
-- Several images as a contact sheet: a grid of thumbnails with their file
-  names beneath.
-- Search in the pager with regular expressions, beside the plain text
-  search of 4.6.3.
 
 ## Bugs
 
@@ -338,3 +326,7 @@ Known bugs, fixed in whatever phase is under way.
   so the window and cell sizes the terminal reports are the first
   suspect. Once it is understood, the rows left free below the image may
   become a setting.
+- An `<img>` set apart by blank lines inside a wrapper, such as
+  `<p align="center">`, blank line, `<img>`, blank line, `</p>`, is drawn,
+  but the wrapper's tags show as source: CommonMark makes three HTML
+  blocks of it.
