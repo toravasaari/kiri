@@ -138,6 +138,7 @@ src/term/window.rs         the window size in cells and pixels
 src/term/probe.rs          the queries to the terminal, the only ones
 src/term/answers.rs        reading the terminal's answers
 src/term/screen.rs         the pager's screen, raw mode and keys
+src/term/testing.rs        pseudo-terminals for the tests
 src/config.rs              settings: options, environment, configuration file
 src/doctor.rs              the --doctor report as Markdown
 src/list.rs                the --list-emojis output: Markdown for a terminal,
