@@ -11,6 +11,8 @@ pub enum Key {
     Ctrl(char),
     Enter,
     Escape,
+    /// Backspace, which terminals send as DEL or as Ctrl+H.
+    Backspace,
     Up,
     Down,
     PageUp,
@@ -90,8 +92,9 @@ fn key(input: &[u8]) -> Option<(Key, usize)> {
     match byte {
         0x1b => escape(input),
         b'\r' | b'\n' => Some((Key::Enter, 1)),
+        0x7f | 0x08 => Some((Key::Backspace, 1)),
         0x01..=0x1a => Some((Key::Ctrl(char::from(byte - 1 + b'a')), 1)),
-        0x00..=0x1f | 0x7f => Some((Key::Other, 1)),
+        0x00..=0x1f => Some((Key::Other, 1)),
         _ => character(input),
     }
 }
@@ -282,16 +285,22 @@ mod tests {
     #[test]
     fn decodes_characters_and_control_keys() {
         assert_eq!(
-            decode("jä\r\n\x06\x7f".as_bytes()),
+            decode("jä\r\n\x06\x01".as_bytes()),
             [
                 Key::Char('j'),
                 Key::Char('ä'),
                 Key::Enter,
                 Key::Enter,
                 Key::Ctrl('f'),
-                Key::Other,
+                Key::Ctrl('a'),
             ]
         );
+        assert_eq!(decode(b"\x00\x1f"), [Key::Other, Key::Other]);
+    }
+
+    #[test]
+    fn decodes_backspace_in_both_forms() {
+        assert_eq!(decode(b"\x7f\x08"), [Key::Backspace, Key::Backspace]);
     }
 
     #[test]
