@@ -31,9 +31,7 @@ impl RawMode {
         let tty = tty.try_clone().ok()?;
         Some(Self { tty, original })
     }
-}
 
-impl RawMode {
     /// Ends raw mode.
     fn restore(&self) {
         // Flush also discards input that arrived but was not read, such as
