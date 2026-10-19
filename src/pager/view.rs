@@ -19,6 +19,13 @@ pub enum Motion {
     End,
 }
 
+/// How far down the document a view is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Position {
+    /// The document's rows down to the bottom of the view, in percent.
+    pub percent: u8,
+}
+
 /// The part of the document in a window of `rows` rows. Each line takes
 /// as many rows as its height; the top of the window is always the top
 /// of a line.
@@ -43,6 +50,21 @@ impl View {
     /// The first line shown.
     pub fn top(&self) -> usize {
         self.top
+    }
+
+    /// How far down the document the view is.
+    pub fn position(&self) -> Position {
+        let total: usize = self.heights.iter().sum();
+        let down: usize = self.heights[..self.visible().end].iter().sum();
+        let percent = (down * 100).checked_div(total).unwrap_or(100);
+        Position {
+            percent: u8::try_from(percent).unwrap_or(100),
+        }
+    }
+
+    /// The window's rows.
+    pub fn rows(&self) -> usize {
+        self.rows
     }
 
     /// The lines shown whole, from the top: a line that does not fit below
@@ -280,6 +302,18 @@ mod tests {
         }
         view.resize(Vec::new(), 2);
         assert_eq!(view.top(), 0);
+    }
+
+    #[test]
+    fn the_position_is_the_share_of_rows_down_to_the_bottom_of_the_view() {
+        let position = |percent| Position { percent };
+        assert_eq!(plain(10, 4).position(), position(40));
+        let view = scrolled(plain(10, 4), &[Motion::End]);
+        assert_eq!(view.position(), position(100));
+        assert_eq!(plain(3, 4).position(), position(100));
+        assert_eq!(plain(0, 4).position(), position(100));
+        // A tall line that does not fit is not shown, so not counted.
+        assert_eq!(View::new(vec![1, 1, 3], 4).position(), position(40));
     }
 
     #[test]

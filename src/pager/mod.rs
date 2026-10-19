@@ -1,7 +1,9 @@
 //! The interactive pager: the document on a screen of its own, scrolled
 //! with keys.
 
+pub mod help;
 pub mod keys;
+pub mod status;
 pub mod view;
 
 use std::io::{self, Write};
@@ -11,9 +13,10 @@ use crate::config::Paging;
 use crate::model::Document;
 use crate::render::Inputs;
 use crate::render::output::{Page, Writer};
-use crate::render::style::Line;
+use crate::render::style::{Line, Span, Style};
 use crate::term::{Capabilities, Screen, WindowSize};
-use keys::Action;
+use help::Placed;
+use keys::{Action, Key};
 use view::View;
 
 /// Whether a document of `rows` rows is paged: never when the output is not
@@ -55,10 +58,12 @@ impl<W: Write> Terminal for Screen<W> {
     }
 }
 
-/// Shows `document` on `terminal` until the reader quits, laid out with
-/// `inputs` for the window's size, or `width` columns when it is given.
+/// Shows `document`, called `name`, on `terminal` until the reader quits,
+/// laid out with `inputs` for the window's size, or `width` columns when
+/// it is given.
 pub fn run(
     document: &Document,
+    name: &str,
     inputs: &mut Inputs,
     width: Option<u16>,
     terminal: &mut impl Terminal,
@@ -71,7 +76,11 @@ pub fn run(
     let mut view: Option<View> = None;
     loop {
         fit(&mut inputs.caps, size, width);
-        let rows = usize::from(inputs.caps.height.unwrap_or(DEFAULT_ROWS));
+        let window = usize::from(inputs.caps.height.unwrap_or(DEFAULT_ROWS));
+        // The bottom row is the status line's, unless the document would
+        // have no row left.
+        let bar = window > 1;
+        let rows = if bar { window - 1 } else { window };
         let mut lines = crate::render::layout::layout(document, inputs);
         // The text sizing protocol cannot draw part of a line, so a line
         // taller than the window is drawn at normal size.
@@ -92,7 +101,25 @@ pub fn run(
             }
             None => View::new(heights, rows),
         };
-        match show(&lines, &mut shown, &mut writer, terminal, size)? {
+        let status = Status {
+            name,
+            styles: status::Styles::new(&inputs.theme, &inputs.caps),
+            width: size.map_or(inputs.caps.width, |size| size.columns),
+            bar,
+            panel: Style {
+                fg: inputs.theme.foreground,
+                bg: inputs.theme.background,
+                ..Style::default()
+            },
+            muted: Style {
+                // Without a colour of its own, muted text is dimmed.
+                dim: inputs.theme.muted.is_none(),
+                fg: inputs.theme.muted.or(inputs.theme.foreground),
+                bg: inputs.theme.background,
+                ..Style::default()
+            },
+        };
+        match show(&lines, &status, &mut shown, &mut writer, terminal, size)? {
             Outcome::Quit => return Ok(()),
             Outcome::Resized(new) => {
                 size = new;
@@ -116,6 +143,45 @@ enum Outcome {
     Resized(Option<WindowSize>),
 }
 
+/// What the status line and the help panel show and how, apart from the
+/// position.
+struct Status<'a> {
+    name: &'a str,
+    styles: status::Styles,
+    /// The window's columns.
+    width: u16,
+    /// Whether the window has a row for the status line besides the
+    /// document's.
+    bar: bool,
+    /// The help panel's style, and that of its notes.
+    panel: Style,
+    muted: Style,
+}
+
+impl Status<'_> {
+    fn spans(&self, view: &View) -> Vec<Span> {
+        if !self.bar {
+            return Vec::new();
+        }
+        let width = usize::from(self.width);
+        status::spans(self.name, view.position(), width, &self.styles)
+    }
+
+    /// The help panel over `view`, when `open`.
+    fn panel(&self, view: &View, open: bool) -> Vec<Placed> {
+        if open {
+            help::panel(
+                usize::from(self.width),
+                view.rows(),
+                &self.panel,
+                &self.muted,
+            )
+        } else {
+            Vec::new()
+        }
+    }
+}
+
 /// `caps` for a window of `size`, `width` columns wide when it is given.
 fn fit(caps: &mut Capabilities, size: Option<WindowSize>, width: Option<u16>) {
     let Some(size) = size else {
@@ -129,24 +195,42 @@ fn fit(caps: &mut Capabilities, size: Option<WindowSize>, width: Option<u16>) {
     }
 }
 
-/// Shows `lines` in `view` on `terminal`, whose window is of `size`, and
-/// scrolls them until the reader quits or the window changes size.
+/// Shows `lines` in `view` with `status` below them on `terminal`, whose
+/// window is of `size`, and scrolls them until the reader quits or the
+/// window changes size.
 fn show(
     lines: &[Line],
+    status: &Status,
     view: &mut View,
     writer: &mut Writer,
     terminal: &mut impl Terminal,
     size: Option<WindowSize>,
 ) -> io::Result<Outcome> {
-    draw(lines, view, writer, terminal)?;
+    draw(lines, view, &status.spans(view), &[], writer, terminal)?;
     terminal.flush()?;
+    let mut decoder = keys::Decoder::default();
+    let mut help = false;
     loop {
         let input = terminal.read(POLL)?;
-        let top = view.top();
-        for key in keys::decode(&input) {
+        let (top, was_open) = (view.top(), help);
+        // Nothing more came for a key the last read cut off.
+        let keys = if input.is_empty() {
+            decoder.flush()
+        } else {
+            decoder.keys(&input)
+        };
+        for key in keys {
+            // Any key closes the help and does nothing else, but Ctrl+C
+            // still quits.
+            if help && key != Key::Ctrl('c') {
+                help = false;
+                continue;
+            }
             match keys::action(key) {
                 Some(Action::Quit) => return Ok(Outcome::Quit),
                 Some(Action::Move(motion)) => view.scroll(motion),
+                // The help needs a row besides the status line's.
+                Some(Action::Help) => help = status.bar,
                 None => {}
             }
         }
@@ -154,23 +238,28 @@ fn show(
         if now != size {
             return Ok(Outcome::Resized(now));
         }
-        if view.top() != top {
-            draw(lines, view, writer, terminal)?;
+        if view.top() != top || help != was_open {
+            let panel = status.panel(view, help);
+            draw(lines, view, &status.spans(view), &panel, writer, terminal)?;
             terminal.flush()?;
         }
     }
 }
 
 /// Draws the lines `view` shows from the top of the screen, with the rows
-/// below them empty, as one update so the screen does not flicker.
+/// below them empty, `status` on the row below the view and `panel` over
+/// the lines, which it dims, as one update so the screen does not flicker.
 pub fn draw(
     lines: &[Line],
     view: &View,
+    status: &[Span],
+    panel: &[Placed],
     writer: &mut Writer,
     out: &mut impl Write,
 ) -> io::Result<()> {
     out.write_all(BEGIN_UPDATE)?;
     writer.clear(out)?;
+    writer.dim(!panel.is_empty());
     let mut top = 1;
     for line in &lines[view.visible()] {
         for row in 0..writer.rows(line) {
@@ -178,6 +267,15 @@ pub fn draw(
             writer.row(line, row, out)?;
         }
         top += usize::from(writer.rows(line));
+    }
+    writer.dim(false);
+    if !status.is_empty() {
+        write!(out, "\x1b[{};1H", view.rows() + 1)?;
+        writer.bar(status, out)?;
+    }
+    for placed in panel {
+        write!(out, "\x1b[{};{}H", placed.row, placed.column)?;
+        writer.bar(&placed.spans, out)?;
     }
     out.write_all(END_UPDATE)
 }
@@ -285,12 +383,12 @@ mod tests {
 
     fn show(document: &Document, terminal: &mut Fake) {
         let mut inputs = Inputs::new(Capabilities::ansi(80));
-        run(document, &mut inputs, None, terminal).unwrap();
+        run(document, "notes.md", &mut inputs, None, terminal).unwrap();
     }
 
     #[test]
     fn draws_the_document_and_quits_on_q() {
-        let mut terminal = Fake::new(40, 5, &[b"q"]);
+        let mut terminal = Fake::new(40, 6, &[b"q"]);
         show(&numbers(10), &mut terminal);
         let frames = terminal.frames();
         assert_eq!(frames.len(), 1, "{frames:?}");
@@ -302,13 +400,90 @@ mod tests {
     #[test]
     fn redraws_after_keys_that_move() {
         // Two lines down, then a key that does nothing, then the end.
-        let mut terminal = Fake::new(40, 5, &[b"jj", b"x", b"", b"G"]);
+        let mut terminal = Fake::new(40, 6, &[b"jj", b"x", b"", b"G"]);
         show(&numbers(10), &mut terminal);
         let frames = terminal.frames();
         assert_eq!(frames.len(), 3, "{frames:?}");
         // Line 2 is at the top: the first row of the frame.
         assert!(frames[1].contains("\x1b[1;1H  Line 2"), "{frames:?}");
         assert!(frames[2].contains("Line 10"), "{frames:?}");
+    }
+
+    #[test]
+    fn a_key_split_over_two_reads_moves() {
+        // Page Down as an escape character and the rest of its sequence.
+        let mut terminal = Fake::new(40, 6, &[b"\x1b", b"[6~"]);
+        show(&numbers(10), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 2, "{frames:?}");
+        assert!(frames[1].contains("\x1b[2;1H  Line 4"), "{frames:?}");
+    }
+
+    #[test]
+    fn the_status_line_is_on_the_bottom_row() {
+        let mut terminal = Fake::new(40, 6, &[b"G"]);
+        show(&numbers(10), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 2, "{frames:?}");
+        // The document takes the rows above it.
+        assert!(frames[0].contains("\x1b[5;1H  Line 3"), "{frames:?}");
+        assert!(!frames[0].contains("\x1b[6;1H  "), "{frames:?}");
+        let status = |frame: &str| frame[frame.find("\x1b[6;1H").unwrap()..].to_owned();
+        assert!(status(&frames[0]).contains(" kiri "), "{frames:?}");
+        assert!(status(&frames[0]).contains(" notes.md "), "{frames:?}");
+        assert!(status(&frames[0]).contains(" help"), "{frames:?}");
+        assert!(status(&frames[1]).contains(" kiri "), "{frames:?}");
+        assert!(status(&frames[1]).contains("100%"), "{frames:?}");
+    }
+
+    #[test]
+    fn the_help_opens_over_the_dimmed_document_and_any_key_closes_it() {
+        // The help, a key that closes it without moving, the help again,
+        // and q, which closes it without quitting, then the end.
+        let mut terminal = Fake::new(60, 24, &[b"?", b"j", b"h", b"q", b"G"]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 6, "{frames:#?}");
+        let help = |frame: &str| frame.contains("down a line");
+        assert!(!help(&frames[0]), "{frames:#?}");
+        assert!(help(&frames[1]), "{frames:#?}");
+        assert!(frames[1].contains("[0;2m  Line 1"), "{frames:#?}");
+        assert!(!help(&frames[2]), "{frames:#?}");
+        assert!(!frames[2].contains("[0;2m"), "{frames:#?}");
+        assert_eq!(frames[0], frames[2]);
+        assert!(help(&frames[3]), "{frames:#?}");
+        assert_eq!(frames[0], frames[4]);
+        assert!(frames[5].contains("100%"), "{frames:#?}");
+    }
+
+    #[test]
+    fn keys_without_a_binding_close_the_help_too() {
+        // F5 closes the help, then j moves.
+        let mut terminal = Fake::new(60, 24, &[b"?", b"\x1b[15~", b"j"]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert!(frames[1].contains("down a line"), "{frames:#?}");
+        assert_eq!(frames[2], frames[0]);
+        assert_ne!(frames[3], frames[0]);
+    }
+
+    #[test]
+    fn ctrl_c_quits_even_from_the_help() {
+        let mut terminal = Fake::new(60, 24, &[b"?", b"", b"G"]);
+        show(&numbers(30), &mut terminal);
+        assert_eq!(terminal.frames().len(), 2);
+    }
+
+    #[test]
+    fn a_window_of_one_row_shows_the_document_without_a_status_line() {
+        // The help has no room, so q quits at once.
+        let mut terminal = Fake::new(40, 1, &[b"?", b"q", b"G"]);
+        show(&numbers(10), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 1, "{frames:#?}");
+        assert!(frames[0].contains("Line 1"), "{frames:#?}");
+        assert!(!frames[0].contains(" kiri "), "{frames:#?}");
     }
 
     #[test]
@@ -328,10 +503,10 @@ mod tests {
 
     #[test]
     fn a_heading_taller_than_the_window_is_drawn_at_normal_size() {
-        let mut terminal = Fake::new(40, 2, &[b"G"]);
+        let mut terminal = Fake::new(40, 3, &[b"G"]);
         let document = crate::parse::parse("# Title\n\nText\n");
         let mut inputs = Inputs::new(Capabilities::kitty(80));
-        run(&document, &mut inputs, None, &mut terminal).unwrap();
+        run(&document, "notes.md", &mut inputs, None, &mut terminal).unwrap();
         let frames = terminal.frames();
         assert!(frames[0].contains("Title"), "{frames:?}");
         assert!(!frames[0].contains("\x1b]66;"), "{frames:?}");
@@ -345,7 +520,7 @@ mod tests {
         terminal.sizes = [window(80, 5)].into();
         let document = crate::parse::parse("A paragraph of several words\n");
         let mut inputs = Inputs::new(Capabilities::ansi(80));
-        run(&document, &mut inputs, Some(10), &mut terminal).unwrap();
+        run(&document, "notes.md", &mut inputs, Some(10), &mut terminal).unwrap();
         // One frame before the window changed, and one after.
         assert_eq!(terminal.frames().len(), 2);
         for frame in terminal.frames() {

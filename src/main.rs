@@ -246,7 +246,14 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), String> {
     let document = kiri::parse::parse(&source);
     // Images in a piped document are relative to the current directory.
     let base = file.and_then(Path::parent).unwrap_or(Path::new(""));
-    show_document(cli, &document, base, settings, caps)
+    show_document(
+        cli,
+        &document,
+        &path.to_string_lossy(),
+        base,
+        settings,
+        caps,
+    )
 }
 
 /// The README the directory `dir` shows: `README.md`, or else `README`.
@@ -258,10 +265,12 @@ fn readme(dir: &Path) -> Result<PathBuf, String> {
         .ok_or_else(|| format!("{}: no README.md or README", dir.display()))
 }
 
-/// Renders `document`, whose images are relative to `base`, on stdout.
+/// Renders `document`, called `name`, whose images are relative to
+/// `base`, on stdout.
 fn show_document(
     cli: &Cli,
     document: &Document,
+    name: &str,
     base: &Path,
     settings: Settings,
     mut caps: Capabilities,
@@ -287,7 +296,7 @@ fn show_document(
         theme: settings.theme,
         ..Inputs::new(caps)
     };
-    if let Some(result) = page(cli, document, &mut inputs, settings.paging) {
+    if let Some(result) = page(cli, document, name, &mut inputs, settings.paging) {
         return finish(result);
     }
     let mut out = io::stdout().lock();
@@ -311,6 +320,7 @@ fn only_always(paging: kiri::config::Paging) -> kiri::config::Paging {
 fn page(
     cli: &Cli,
     document: &Document,
+    name: &str,
     inputs: &mut Inputs,
     paging: kiri::config::Paging,
 ) -> Option<io::Result<()>> {
@@ -333,7 +343,7 @@ fn page(
         }
         return None;
     };
-    let result = kiri::pager::run(document, inputs, cli.width, &mut screen);
+    let result = kiri::pager::run(document, name, inputs, cli.width, &mut screen);
     screen.close();
     Some(result)
 }
@@ -411,7 +421,14 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), String> {
     let document = kiri::parse::parse(&markdown);
     let mut settings = choices.with_theme(theme);
     settings.paging = only_always(settings.paging);
-    show_document(cli, &document, Path::new(""), settings, detection.caps)
+    show_document(
+        cli,
+        &document,
+        "kiri --doctor",
+        Path::new(""),
+        settings,
+        detection.caps,
+    )
 }
 
 /// Where the value of the argument `id`, the flag `flag`, comes from.

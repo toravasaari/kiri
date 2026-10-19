@@ -58,6 +58,8 @@ pub struct Writer<'a> {
     caps: &'a Capabilities,
     background: Option<Color>,
     foreground: Option<Color>,
+    /// Every line dimmed, as behind a panel.
+    dim: bool,
     /// The images sent so far, by where and how large they are shown.
     sent: HashMap<Placement, graphics::ImageId>,
 }
@@ -70,8 +72,14 @@ impl<'a> Writer<'a> {
             caps,
             background: page.background.filter(|_| caps.color),
             foreground: page.foreground.filter(|_| caps.color),
+            dim: false,
             sent: HashMap::new(),
         }
+    }
+
+    /// Dims the lines written from now on, or stops dimming them.
+    pub fn dim(&mut self, dim: bool) {
+        self.dim = dim;
     }
 
     /// The rows `line` occupies.
@@ -121,11 +129,12 @@ impl<'a> Writer<'a> {
             }
             None => None,
         };
-        let (background, foreground) = (self.background, self.foreground);
+        let (background, foreground, dim) = (self.background, self.foreground, self.dim);
         let fill = self.fill();
         let paint = |style: &Style| Style {
             fg: style.fg.or(foreground),
             bg: style.bg.or(background),
+            dim: style.dim || dim,
             ..style.clone()
         };
         let scale = line.scale.max(1);
@@ -168,6 +177,16 @@ impl<'a> Writer<'a> {
             current = fill;
         }
         transition(&current, &Style::default(), caps, out)
+    }
+}
+
+impl Writer<'_> {
+    /// Writes `spans` in their own styles, without the page's colours, and
+    /// leaves the cursor at their end with the terminal's default style.
+    pub fn bar(&self, spans: &[Span], out: &mut impl Write) -> io::Result<()> {
+        let mut current = Style::default();
+        write_spans(spans, Style::clone, &mut current, self.caps, out)?;
+        transition(&current, &Style::default(), self.caps, out)
     }
 }
 
@@ -262,6 +281,7 @@ fn sgr_codes(style: &Style, caps: &Capabilities) -> Vec<String> {
         (style.bold, "1"),
         (style.dim, "2"),
         (style.italic, "3"),
+        (style.reverse, "7"),
         (style.strike, "9"),
     ] {
         if on {

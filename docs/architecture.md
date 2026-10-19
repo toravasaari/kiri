@@ -50,9 +50,11 @@ they work.
 The pager shows the same styled lines on the terminal's alternate screen.
 `src/pager/view.rs` chooses the lines that fit in the window, a scaled
 line whole or not at all, and moves them; `src/pager/keys.rs` turns the
-bytes the terminal sends into keys and keys into moves; `src/pager/mod.rs`
-draws each frame, row by row through the backend's writer, and lays the
-document out again when the window changes size. The terminal itself, the
+bytes the terminal sends into keys and keys into moves; `src/pager/status.rs`
+and `src/pager/help.rs` make the status line and the help panel as styled
+spans; `src/pager/mod.rs` draws each frame, row by row through the
+backend's writer, and lays the document out again when the window changes
+size. The terminal itself, the
 alternate screen, raw mode and reading keys from the controlling terminal,
 is opened in `src/term.rs`.
 
@@ -142,6 +144,8 @@ src/render/highlight.rs    syntax highlighting for code blocks (syntect)
 src/pager/mod.rs           the pager: frames and the loop of keys
 src/pager/view.rs          the lines a window shows, and scrolling
 src/pager/keys.rs          keys from the terminal and what they do
+src/pager/status.rs        the status line
+src/pager/help.rs          the help panel that lists the keys
 src/kitty/mod.rs           kitty-specific escape sequences
 src/kitty/text.rs          text sizing protocol (OSC 66)
 src/kitty/graphics.rs      graphics protocol with Unicode placeholders

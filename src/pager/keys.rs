@@ -27,63 +27,118 @@ pub enum Key {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Move(Motion),
+    Help,
     Quit,
 }
 
-/// The keys in `input`. Terminals write each key's sequence whole, so a
-/// sequence cut off at the end is taken as it is: a lone escape character
-/// is the Escape key, and one before a character is Alt with it.
+/// The keys in `input`, all of it: a sequence cut off at the end is taken
+/// as it is. A lone escape character is the Escape key, and one before a
+/// character is Alt with it.
 pub fn decode(input: &[u8]) -> Vec<Key> {
     let mut keys = Vec::new();
     let mut rest = input;
-    while let Some(&byte) = rest.first() {
-        let (key, length) = match byte {
-            0x1b => escape(rest),
-            b'\r' | b'\n' => (Key::Enter, 1),
-            0x01..=0x1a => (Key::Ctrl(char::from(byte - 1 + b'a')), 1),
-            0x00..=0x1f | 0x7f => (Key::Other, 1),
-            _ => character(rest),
-        };
+    while !rest.is_empty() {
+        let (key, length) = key(rest).unwrap_or_else(|| cut_off(rest));
         keys.push(key);
         rest = &rest[length..];
     }
     keys
 }
 
+/// The most bytes kept for a sequence that a read cut off; a longer one is
+/// taken as it is, so that keys pressed after an answer that never ends
+/// are not lost for good.
+const PENDING: usize = 64;
+
+/// Keys from reads of the terminal, which may cut a key's sequence in
+/// two: the part at the end of one read waits for the rest in the next.
+#[derive(Debug, Default)]
+pub struct Decoder {
+    pending: Vec<u8>,
+}
+
+impl Decoder {
+    /// The keys in `input`, after what the last read left cut off.
+    pub fn keys(&mut self, input: &[u8]) -> Vec<Key> {
+        let mut bytes = std::mem::take(&mut self.pending);
+        bytes.extend_from_slice(input);
+        let mut keys = Vec::new();
+        let mut rest = &bytes[..];
+        while !rest.is_empty() {
+            let Some((key, length)) =
+                key(rest).or_else(|| (rest.len() > PENDING).then(|| cut_off(rest)))
+            else {
+                self.pending = rest.to_vec();
+                break;
+            };
+            keys.push(key);
+            rest = &rest[length..];
+        }
+        keys
+    }
+
+    /// What the last read left cut off, taken as it is, when no more came.
+    pub fn flush(&mut self) -> Vec<Key> {
+        decode(&std::mem::take(&mut self.pending))
+    }
+}
+
+/// The key at the start of `input` and its length, or `None` when `input`
+/// ends before the key does.
+fn key(input: &[u8]) -> Option<(Key, usize)> {
+    let byte = input[0];
+    match byte {
+        0x1b => escape(input),
+        b'\r' | b'\n' => Some((Key::Enter, 1)),
+        0x01..=0x1a => Some((Key::Ctrl(char::from(byte - 1 + b'a')), 1)),
+        0x00..=0x1f | 0x7f => Some((Key::Other, 1)),
+        _ => character(input),
+    }
+}
+
+/// The key of a sequence that `input` cuts off, and its length.
+fn cut_off(input: &[u8]) -> (Key, usize) {
+    match input {
+        [0x1b, b'[' | b']' | b'P' | b'_' | b'^' | b'X', ..] | [0x1b, b'O'] => {
+            (Key::Other, input.len())
+        }
+        [0x1b, ..] => (Key::Escape, 1),
+        _ => (Key::Other, 1),
+    }
+}
+
 /// The key that starts with the escape character at the start of `input`,
 /// and its length.
-fn escape(input: &[u8]) -> (Key, usize) {
-    match input.get(1) {
-        Some(b'[') => {
+fn escape(input: &[u8]) -> Option<(Key, usize)> {
+    let key = match input.get(1)? {
+        b'[' => {
             // Parameters and intermediates up to the final byte.
             let body = &input[2..];
-            match body.iter().position(|byte| (0x40..=0x7e).contains(byte)) {
-                Some(end) => (csi(&body[..end], body[end]), end + 3),
-                None => (Key::Other, input.len()),
-            }
+            let end = body.iter().position(|byte| (0x40..=0x7e).contains(byte))?;
+            (csi(&body[..end], body[end]), end + 3)
         }
-        Some(b'O') => match input.get(2) {
-            Some(&last) => (csi(b"", last), 3),
-            None => (Key::Other, 2),
-        },
+        b'O' => (csi(b"", *input.get(2)?), 3),
         // Strings the terminal sends as answers, such as a late answer to
         // the probe: OSC, DCS, APC, PM and SOS. They end with ST, or BEL
         // for OSC.
-        Some(b']' | b'P' | b'_' | b'^' | b'X') => {
+        b']' | b'P' | b'_' | b'^' | b'X' => {
             let body = &input[2..];
             let end = (0..body.len()).find_map(|i| match body[i..] {
                 [0x07, ..] => Some(i + 1),
                 [0x1b, b'\\', ..] => Some(i + 2),
+                // Another sequence starts: this one was cut off.
+                [0x1b, _, ..] => Some(i),
                 _ => None,
-            });
-            (Key::Other, end.map_or(input.len(), |end| end + 2))
+            })?;
+            (Key::Other, end + 2)
         }
-        Some(0x20..=0x7e | 0x80..) => match character(&input[1..]) {
+        0x20..=0x7e | 0x80.. => match character(&input[1..])? {
             (Key::Char(c), length) => (Key::Alt(c), length + 1),
             _ => (Key::Escape, 1),
         },
         _ => (Key::Escape, 1),
-    }
+    };
+    Some(key)
 }
 
 /// The key of a control sequence with `parameters` and the final byte
@@ -101,39 +156,123 @@ fn csi(parameters: &[u8], last: u8) -> Key {
 }
 
 /// The character at the start of `input`, and its length in bytes.
-fn character(input: &[u8]) -> (Key, usize) {
+fn character(input: &[u8]) -> Option<(Key, usize)> {
     let length = match input[0] {
         0xc0..=0xdf => 2,
         0xe0..=0xef => 3,
         0xf0..=0xf7 => 4,
         _ => 1,
     };
-    let bytes = &input[..length.min(input.len())];
-    match std::str::from_utf8(bytes)
+    let bytes = input.get(..length)?;
+    let key = match std::str::from_utf8(bytes)
         .ok()
         .and_then(|text| text.chars().next())
     {
-        Some(c) => (Key::Char(c), bytes.len()),
+        Some(c) => (Key::Char(c), length),
         None => (Key::Other, 1),
-    }
+    };
+    Some(key)
 }
+
+/// The keys of one action, as the help shows them.
+#[derive(Debug)]
+pub struct Binding {
+    pub keys: &'static [Key],
+    /// The keys most people use, shortest first.
+    pub names: &'static str,
+    /// What the keys do.
+    pub what: &'static str,
+    pub action: Action,
+}
+
+/// Every key the pager knows, in the order the help lists them.
+pub const BINDINGS: &[Binding] = {
+    use Key::{Char, Ctrl};
+    use Motion::*;
+    &[
+        Binding {
+            keys: &[
+                Char('j'),
+                Char('e'),
+                Ctrl('e'),
+                Ctrl('n'),
+                Key::Enter,
+                Key::Down,
+            ],
+            names: "j ↓ Enter",
+            what: "down a line",
+            action: Action::Move(Down(1)),
+        },
+        Binding {
+            keys: &[
+                Char('k'),
+                Char('y'),
+                Ctrl('y'),
+                Ctrl('p'),
+                Ctrl('k'),
+                Key::Up,
+            ],
+            names: "k ↑",
+            what: "up a line",
+            action: Action::Move(Up(1)),
+        },
+        Binding {
+            keys: &[Char(' '), Char('f'), Ctrl('f'), Ctrl('v'), Key::PageDown],
+            names: "Space f PgDn",
+            what: "down a page",
+            action: Action::Move(PageDown),
+        },
+        Binding {
+            keys: &[Char('b'), Ctrl('b'), Key::PageUp],
+            names: "b PgUp",
+            what: "up a page",
+            action: Action::Move(PageUp),
+        },
+        Binding {
+            keys: &[Char('d'), Ctrl('d')],
+            names: "d",
+            what: "down half a page",
+            action: Action::Move(HalfPageDown),
+        },
+        Binding {
+            keys: &[Char('u'), Ctrl('u')],
+            names: "u",
+            what: "up half a page",
+            action: Action::Move(HalfPageUp),
+        },
+        Binding {
+            keys: &[Char('g'), Char('<'), Key::Home],
+            names: "g Home",
+            what: "top",
+            action: Action::Move(Start),
+        },
+        Binding {
+            keys: &[Char('G'), Char('>'), Key::End],
+            names: "G End",
+            what: "bottom",
+            action: Action::Move(End),
+        },
+        Binding {
+            keys: &[Char('?'), Char('h')],
+            names: "? h",
+            what: "this help",
+            action: Action::Help,
+        },
+        Binding {
+            keys: &[Char('q'), Char('Q'), Ctrl('c')],
+            names: "q",
+            what: "quit",
+            action: Action::Quit,
+        },
+    ]
+};
 
 /// What `key` does; `None` for a key without a binding.
 pub fn action(key: Key) -> Option<Action> {
-    use Key::{Char, Ctrl};
-    let motion = match key {
-        Char('j' | 'e') | Ctrl('e' | 'n') | Key::Enter | Key::Down => Motion::Down(1),
-        Char('k' | 'y') | Ctrl('y' | 'p' | 'k') | Key::Up => Motion::Up(1),
-        Char(' ' | 'f') | Ctrl('f' | 'v') | Key::PageDown => Motion::PageDown,
-        Char('b') | Ctrl('b') | Key::PageUp => Motion::PageUp,
-        Char('d') | Ctrl('d') => Motion::HalfPageDown,
-        Char('u') | Ctrl('u') => Motion::HalfPageUp,
-        Char('g' | '<') | Key::Home => Motion::Start,
-        Char('G' | '>') | Key::End => Motion::End,
-        Char('q' | 'Q') | Ctrl('c') => return Some(Action::Quit),
-        _ => return None,
-    };
-    Some(Action::Move(motion))
+    BINDINGS
+        .iter()
+        .find(|binding| binding.keys.contains(&key))
+        .map(|binding| binding.action)
 }
 
 #[cfg(test)]
@@ -228,6 +367,59 @@ mod tests {
     }
 
     #[test]
+    fn a_sequence_split_over_two_reads_is_one_key() {
+        let mut decoder = Decoder::default();
+        assert_eq!(decoder.keys(b"j\x1b["), [Key::Char('j')]);
+        assert_eq!(decoder.keys(b"6~k"), [Key::PageDown, Key::Char('k')]);
+        assert_eq!(decoder.keys(b"\x1b"), []);
+        assert_eq!(decoder.keys(b"OA"), [Key::Up]);
+        assert_eq!(decoder.keys(&"ä".as_bytes()[..1]), []);
+        assert_eq!(decoder.keys(&"ä".as_bytes()[1..]), [Key::Char('ä')]);
+        // A terminal answer in three reads.
+        assert_eq!(decoder.keys(b"\x1b]11;rgb:1e"), []);
+        assert_eq!(decoder.keys(b"1e/1e1e"), []);
+        assert_eq!(decoder.keys(b"/2e2e\x1b\\q"), [Key::Other, Key::Char('q')]);
+        assert_eq!(decoder.flush(), []);
+    }
+
+    #[test]
+    fn a_new_sequence_ends_a_cut_off_answer() {
+        let mut decoder = Decoder::default();
+        assert_eq!(decoder.keys(b"\x1b]11;"), []);
+        assert_eq!(
+            decoder.keys(b"\x1b[Aq"),
+            [Key::Other, Key::Up, Key::Char('q')]
+        );
+    }
+
+    #[test]
+    fn a_cut_off_answer_waits_for_its_end_only_so_long() {
+        let mut decoder = Decoder::default();
+        assert_eq!(decoder.keys(b"\x1b]"), []);
+        let mut keys = Vec::new();
+        for _ in 0..PENDING {
+            keys.extend(decoder.keys(b"q"));
+        }
+        // The answer is given up, and the keys after it are keys again.
+        assert_eq!(keys.first(), Some(&Key::Other), "{keys:?}");
+        assert!(
+            keys[1..].iter().all(|&key| key == Key::Char('q')),
+            "{keys:?}"
+        );
+        assert_eq!(decoder.keys(b"j"), [Key::Char('j')]);
+    }
+
+    #[test]
+    fn a_cut_off_sequence_without_a_rest_is_taken_as_it_is() {
+        let mut decoder = Decoder::default();
+        assert_eq!(decoder.keys(b"\x1b"), []);
+        assert_eq!(decoder.flush(), [Key::Escape]);
+        assert_eq!(decoder.keys(b"\x1b[1;"), []);
+        assert_eq!(decoder.flush(), [Key::Other]);
+        assert_eq!(decoder.flush(), []);
+    }
+
+    #[test]
     fn invalid_utf_8_is_skipped() {
         assert_eq!(decode(b"\xffj"), [Key::Other, Key::Char('j')]);
     }
@@ -273,6 +465,44 @@ mod tests {
         moves(&[Key::Char('u'), Key::Ctrl('u')], Motion::HalfPageUp);
         moves(&[Key::Char('g'), Key::Char('<'), Key::Home], Motion::Start);
         moves(&[Key::Char('G'), Key::Char('>'), Key::End], Motion::End);
+    }
+
+    #[test]
+    fn question_mark_and_h_open_the_help() {
+        for key in [Key::Char('?'), Key::Char('h')] {
+            assert_eq!(action(key), Some(Action::Help), "{key:?}");
+        }
+    }
+
+    #[test]
+    fn the_help_names_keys_of_their_own_binding() {
+        for binding in BINDINGS {
+            for name in binding.names.split(' ') {
+                let key = match name {
+                    "↓" => Key::Down,
+                    "↑" => Key::Up,
+                    "Enter" => Key::Enter,
+                    "Space" => Key::Char(' '),
+                    "PgDn" => Key::PageDown,
+                    "PgUp" => Key::PageUp,
+                    "Home" => Key::Home,
+                    "End" => Key::End,
+                    name if name.chars().count() == 1 => Key::Char(name.chars().next().unwrap()),
+                    name => panic!("unknown key name {name}"),
+                };
+                assert!(binding.keys.contains(&key), "{name} in {}", binding.names);
+            }
+        }
+        assert!(
+            BINDINGS
+                .iter()
+                .any(|binding| binding.action == Action::Help)
+        );
+        assert!(
+            BINDINGS
+                .iter()
+                .any(|binding| binding.action == Action::Quit)
+        );
     }
 
     #[test]

@@ -108,9 +108,10 @@ own, as `bat` does, so the shell's scrollback stays as it was; a shorter
 one is printed, and so is a document piped in, unless `-p` asks for the
 pager. The pager takes the keys of `less` for now: `j` and `k` or
 the arrow keys for a line, space and `b` for a page, `d` and `u` for half a
-page, `g` and `G` for the start and the end, and `q` to quit. The mouse
-wheel scrolls too. Large headings scroll in and out whole. Search and
-link navigation are planned.
+page, `g` and `G` for the start and the end, and `q` to quit; `?` or `h`
+lists them. The mouse wheel scrolls too. Large headings scroll in and out
+whole. A status line at the bottom shows the document's name and how far
+down it you are. Search and link navigation are planned.
 
 ## Documentation
 

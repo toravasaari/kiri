@@ -144,8 +144,11 @@ fn a_long_document_is_paged_until_q() {
     assert!(status.success());
     assert!(seen.starts_with(ENTER), "{seen:?}");
     assert!(seen.ends_with(LEAVE), "{seen:?}");
-    assert!(seen.contains("Line 3"), "{seen:?}");
-    assert!(!seen.contains("Line 4"), "{seen:?}");
+    // The bottom row is the status line's.
+    assert!(seen.contains("Line 2"), "{seen:?}");
+    assert!(!seen.contains("Line 3"), "{seen:?}");
+    assert!(seen.contains("\x1b[5;1H\x1b[0;1m kiri "), "{seen:?}");
+    assert!(seen.contains(" long.md "), "{seen:?}");
 }
 
 #[test]
