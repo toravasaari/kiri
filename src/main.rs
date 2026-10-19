@@ -25,8 +25,9 @@ use kiri::theme::{Paper, Theme};
 )]
 struct Cli {
     /// Markdown file to render, a CSV or TSV file to show as a table, an
-    /// image to show on its own, or a directory to show its README. Without one, or with -, kiri reads standard
-    /// input unless it is a terminal.
+    /// image to show on its own, or a directory to show its README.
+    /// Without one, or with -, kiri reads standard input unless it is a
+    /// terminal.
     file: Option<PathBuf>,
 
     /// Show what kiri finds out about the terminal and which settings it
