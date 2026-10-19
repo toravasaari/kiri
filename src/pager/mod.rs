@@ -9,6 +9,7 @@ pub mod status;
 pub mod view;
 
 use std::io::{self, Write};
+use std::ops::Range;
 use std::time::{Duration, Instant};
 
 use crate::config::{Paging, SearchCase};
@@ -324,11 +325,16 @@ impl State {
 
     /// Moves the last search to another match by `step` at `now`, and
     /// shows it.
-    fn step(&mut self, step: fn(&mut Search) -> bool, now: Instant, layout: &mut Layout) {
+    fn step(
+        &mut self,
+        step: fn(&mut Search, Range<usize>) -> bool,
+        now: Instant,
+        layout: &mut Layout,
+    ) {
         let Some(search) = &mut self.search else {
             return;
         };
-        let around = step(search);
+        let around = step(search, layout.view.visible());
         self.flash = around.then(|| now + FLASH);
         match search.current() {
             Some(found) => layout.view.reveal(found.line),
@@ -932,6 +938,20 @@ mod tests {
         assert!(at_top(&frames[5], "Line 2"), "{frames:#?}");
         let status = status_row(&frames[5], 6);
         assert!(status.contains("m1\x1b[0;7m/11"), "{frames:#?}");
+    }
+
+    #[test]
+    fn n_after_scrolling_away_goes_on_from_the_view() {
+        // At the first match, then to the end and back: n takes the first
+        // match in the view, not the one after the match left behind.
+        let reads: &[&[u8]] = &[b"/line 2\r", b"G", b"n"];
+        let mut terminal = Fake::new(60, 6, reads);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        let status = status_row(&frames[3], 6);
+        assert!(status.contains("/line 2 10/11"), "{frames:#?}");
+        assert!(unstyled(&frames[3]).contains("Line 29"), "{frames:#?}");
     }
 
     #[test]

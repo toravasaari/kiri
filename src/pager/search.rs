@@ -56,24 +56,38 @@ impl Search {
     }
 
     /// Moves to the next match, or from the last to the first; true when
-    /// it went around.
-    pub fn forward(&mut self) -> bool {
+    /// it went around. When the current match is out of the lines
+    /// `shown`, the next is the first from the top of them, as in `less`.
+    pub fn forward(&mut self, shown: Range<usize>) -> bool {
         let Some(current) = self.current else {
             return false;
         };
-        let around = current + 1 == self.matches.len();
-        self.current = Some(if around { 0 } else { current + 1 });
+        let next = if shown.contains(&self.matches[current].line) {
+            current + 1
+        } else {
+            self.matches
+                .partition_point(|found| found.line < shown.start)
+        };
+        let around = next == self.matches.len();
+        self.current = Some(if around { 0 } else { next });
         around
     }
 
     /// Moves to the previous match, or from the first to the last; true
-    /// when it went around.
-    pub fn backward(&mut self) -> bool {
+    /// when it went around. When the current match is out of the lines
+    /// `shown`, the previous is the last above them, as in `less`.
+    pub fn backward(&mut self, shown: Range<usize>) -> bool {
         let Some(current) = self.current else {
             return false;
         };
-        let around = current == 0;
-        self.current = Some(current.checked_sub(1).unwrap_or(self.matches.len() - 1));
+        let after = if shown.contains(&self.matches[current].line) {
+            current
+        } else {
+            self.matches
+                .partition_point(|found| found.line < shown.start)
+        };
+        let around = after == 0;
+        self.current = Some(after.checked_sub(1).unwrap_or(self.matches.len() - 1));
         around
     }
 
@@ -373,21 +387,49 @@ mod tests {
         let lines = [line("kiri"), line("kiri kiri")];
         let mut search = Search::new(&lines, "kiri", SearchCase::Smart, 1);
         assert_eq!(search.count(), Some((2, 3)));
-        assert!(!search.forward());
+        assert!(!search.forward(0..2));
         assert_eq!(search.current(), Some(&at(1, 5..9)));
-        assert!(search.forward());
+        assert!(search.forward(0..2));
         assert_eq!(search.count(), Some((1, 3)));
-        assert!(search.backward());
+        assert!(search.backward(0..2));
         assert_eq!(search.count(), Some((3, 3)));
-        assert!(!search.backward());
+        assert!(!search.backward(0..2));
         assert_eq!(search.count(), Some((2, 3)));
+    }
+
+    #[test]
+    fn next_and_previous_start_from_the_view_when_the_current_match_is_out_of_it() {
+        let lines = [
+            line("kiri"),
+            line("a"),
+            line("kiri"),
+            line("a"),
+            line("kiri"),
+            line("a"),
+        ];
+        let at_line = |top| Search::new(&lines, "kiri", SearchCase::Smart, top);
+        // Scrolled away from the current match to lines 2 and 3: the next
+        // match is the first in the view, the previous the last above it.
+        let mut search = at_line(0);
+        assert!(!search.forward(2..4));
+        assert_eq!(search.current(), Some(&at(2, 0..4)));
+        let mut search = at_line(4);
+        assert!(!search.backward(2..4));
+        assert_eq!(search.current(), Some(&at(0, 0..4)));
+        // With no match from the view down, or above it, around the end.
+        let mut search = at_line(0);
+        assert!(search.forward(5..6));
+        assert_eq!(search.current(), Some(&at(0, 0..4)));
+        let mut search = at_line(4);
+        assert!(search.backward(0..1));
+        assert_eq!(search.current(), Some(&at(4, 0..4)));
     }
 
     #[test]
     fn next_and_previous_without_matches_stay() {
         let mut search = Search::new(&[line("a")], "kiri", SearchCase::Smart, 0);
-        assert!(!search.forward());
-        assert!(!search.backward());
+        assert!(!search.forward(0..2));
+        assert!(!search.backward(0..2));
         assert_eq!(search.current(), None);
     }
 
@@ -401,7 +443,7 @@ mod tests {
         let lines = [line("kiri"), line("kiri a kiri"), line("kiri")];
         let mut search = Search::new(&lines, "kiri", SearchCase::Smart, 1);
         assert_eq!(search.on(1), [(0..4, true), (7..11, false)]);
-        search.forward();
+        search.forward(0..2);
         assert_eq!(search.on(1), [(0..4, false), (7..11, true)]);
         assert_eq!(search.on(0), [(0..4, false)]);
         assert_eq!(search.on(3), []);
