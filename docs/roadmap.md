@@ -293,9 +293,6 @@ Smaller polish that fits in whenever there is time, in any phase.
 - Table columns share the width by their content, as in a browser: a
   table too wide for the terminal narrows each column in proportion to
   its text, instead of narrowing the widest column first. (done)
-- The paper themes can be changed with `theme.light.toml` and
-  `theme.dark.toml` in the configuration directory, which `--light` and
-  `--dark` read on top of the built-in paper themes.
 - GitHub alert blocks, quotes that start with `[!NOTE]`, `[!TIP]`,
   `[!IMPORTANT]`, `[!WARNING]` or `[!CAUTION]`, drawn with a colour and an
   icon of their own and a title such as "Note". The colours stay even in
@@ -309,6 +306,11 @@ Smaller polish that fits in whenever there is time, in any phase.
   `h4` to `h6` are either the size of body text or at least twice it.
 - `--toc` puts a table of contents with links at the top of the document
   in print mode.
+- Several files on the command line, as the shell expands `kiri *.jpg`,
+  shown one after another at full size, each headed by its file name as
+  `bat` does.
+- Several images as a contact sheet: a grid of thumbnails with their file
+  names beneath.
 
 ## Bugs
 
