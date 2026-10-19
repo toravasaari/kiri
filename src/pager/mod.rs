@@ -933,7 +933,7 @@ mod tests {
     }
 
     #[test]
-    fn enter_on_an_empty_prompt_repeats_the_last_search_from_the_view() {
+    fn enter_on_an_empty_prompt_goes_on_from_the_view_after_scrolling_away() {
         let reads: &[&[u8]] = &[b"/line 20\r", b"g", b"/\r"];
         let mut terminal = Fake::new(60, 6, reads);
         show(&numbers(30), &mut terminal);
