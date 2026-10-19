@@ -271,6 +271,8 @@ impl State {
             Some(Action::Search) => {
                 self.prompt = layout.status.bar.then(Prompt::default);
             }
+            Some(Action::Next) => self.step(Search::next, layout),
+            Some(Action::Previous) => self.step(Search::previous, layout),
             None => {}
         }
         false
@@ -285,6 +287,18 @@ impl State {
             None => self.nowhere = true,
         }
         self.search = Some(search);
+    }
+
+    /// Moves the last search to another match by `step`, and shows it.
+    fn step(&mut self, step: fn(&mut Search) -> bool, layout: &mut Layout) {
+        let Some(search) = &mut self.search else {
+            return;
+        };
+        step(search);
+        match search.current() {
+            Some(found) => layout.view.reveal(found.line),
+            None => self.nowhere = true,
+        }
     }
 
     /// What the status line tells about the last search.
@@ -793,5 +807,40 @@ mod tests {
             "{frames:#?}"
         );
         assert!(!status_row(&frames[2], 6).contains("xyz"), "{frames:#?}");
+    }
+
+    #[test]
+    fn n_and_shift_n_move_between_matches_and_around_the_ends() {
+        let reads: &[&[u8]] = &[b"/line 2\r", b"n", b"N", b"N", b"n"];
+        let mut terminal = Fake::new(60, 6, reads);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        let shows =
+            |frame: &str, line, count| at_top(frame, line) && status_row(frame, 6).contains(count);
+        assert_eq!(frames.len(), 6, "{frames:#?}");
+        assert!(shows(&frames[1], "Line 1", "/line 2 1/11"), "{frames:#?}");
+        assert!(shows(&frames[2], "Line 20", "/line 2 2/11"), "{frames:#?}");
+        assert!(shows(&frames[3], "Line 2", "/line 2 1/11"), "{frames:#?}");
+        // Around the start to the last match, on the last page.
+        assert!(frames[4].contains("Line 29"), "{frames:#?}");
+        assert!(status_row(&frames[4], 6).contains("11/11"), "{frames:#?}");
+        assert!(shows(&frames[5], "Line 2", "/line 2 1/11"), "{frames:#?}");
+    }
+
+    #[test]
+    fn n_without_a_search_does_nothing() {
+        let mut terminal = Fake::new(60, 6, &[b"nN", b"jj"]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 2, "{frames:#?}");
+    }
+
+    #[test]
+    fn n_after_a_term_not_found_tells_it_again() {
+        let mut terminal = Fake::new(60, 6, &[b"/xyz\r", b"j", b"n"]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        let last = status_row(frames.last().unwrap(), 6);
+        assert!(last.contains("not found: xyz"), "{frames:#?}");
     }
 }

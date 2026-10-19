@@ -31,6 +31,10 @@ pub enum Action {
     Move(Motion),
     /// Opens the search prompt.
     Search,
+    /// Moves to the next match of the last search.
+    Next,
+    /// Moves to the previous match of the last search.
+    Previous,
     Help,
     Quit,
 }
@@ -262,6 +266,18 @@ pub const BINDINGS: &[Binding] = {
             names: "/",
             what: "search",
             action: Action::Search,
+        },
+        Binding {
+            keys: &[Char('n')],
+            names: "n",
+            what: "next match",
+            action: Action::Next,
+        },
+        Binding {
+            keys: &[Char('N')],
+            names: "N",
+            what: "previous match",
+            action: Action::Previous,
         },
         Binding {
             keys: &[Char('?'), Char('h')],
@@ -523,8 +539,10 @@ mod tests {
     }
 
     #[test]
-    fn a_slash_searches() {
+    fn a_slash_searches_and_n_moves_between_matches() {
         assert_eq!(action(Key::Char('/')), Some(Action::Search));
+        assert_eq!(action(Key::Char('n')), Some(Action::Next));
+        assert_eq!(action(Key::Char('N')), Some(Action::Previous));
     }
 
     #[test]
