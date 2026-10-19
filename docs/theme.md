@@ -183,6 +183,17 @@ background = "auto"
 foreground = "auto"
 badge_background = "auto"
 badge_foreground = "auto"
+
+# Search matches in the pager: every match shown, and the current one, the
+# match the reader is at, in bold. A colour, none, or auto. With both
+# colours of a kind auto, its matches are in reverse video; otherwise auto
+# and none keep the text's own colour. Without colours, as with NO_COLOR,
+# matches are in reverse video whatever the theme says.
+[search]
+match_foreground = "auto"
+match_background = "auto"
+current_foreground = "auto"
+current_background = "auto"
 ```
 
 ## Paper themes
@@ -225,6 +236,12 @@ background = "#e0e0e0"
 foreground = "#1f1f1f"
 badge_background = "#1f1f1f"
 badge_foreground = "#ffffff"
+
+[search]
+match_foreground = "#000000"
+match_background = "#cccccc"
+current_foreground = "#ffffff"
+current_background = "#1f1f1f"
 ```
 
 ### Dark paper
@@ -254,6 +271,12 @@ background = "#3a3a3a"
 foreground = "#e0e0e0"
 badge_background = "#d4d4d4"
 badge_foreground = "#1e1e1e"
+
+[search]
+match_foreground = "#ffffff"
+match_background = "#606060"
+current_foreground = "#1e1e1e"
+current_background = "#d4d4d4"
 ```
 
 The [example themes](../examples/themes/README.md) try out variations of the
