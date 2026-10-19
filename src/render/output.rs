@@ -35,34 +35,74 @@ pub fn write(
     page: Page,
     out: &mut impl Write,
 ) -> io::Result<()> {
-    let background = page.background.filter(|_| caps.color);
-    let foreground = page.foreground.filter(|_| caps.color);
-    // The images sent so far, by where and how large they are shown.
-    let mut sent: HashMap<&Placement, graphics::ImageId> = HashMap::new();
-    let fill = Style {
-        bg: background,
-        ..Style::default()
-    };
-    let paint = |style: &Style| Style {
-        fg: style.fg.or(foreground),
-        bg: style.bg.or(background),
-        ..style.clone()
-    };
+    let mut writer = Writer::new(images, caps, page);
     for line in lines {
+        for row in 0..writer.rows(line) {
+            writer.row(line, row, out)?;
+            out.write_all(b"\n")?;
+        }
+    }
+    Ok(())
+}
+
+/// Writes lines row by row, wherever the cursor is, and remembers which
+/// images it has sent.
+pub struct Writer<'a> {
+    images: &'a Images,
+    caps: &'a Capabilities,
+    background: Option<Color>,
+    foreground: Option<Color>,
+    /// The images sent so far, by where and how large they are shown.
+    sent: HashMap<Placement, graphics::ImageId>,
+}
+
+impl<'a> Writer<'a> {
+    /// A writer for lines on `page` with the pixels in `images`.
+    pub fn new(images: &'a Images, caps: &'a Capabilities, page: Page) -> Self {
+        Self {
+            images,
+            caps,
+            background: page.background.filter(|_| caps.color),
+            foreground: page.foreground.filter(|_| caps.color),
+            sent: HashMap::new(),
+        }
+    }
+
+    /// The rows `line` occupies.
+    pub fn rows(&self, line: &Line) -> u8 {
+        if self.caps.styling {
+            line.scale.max(1)
+        } else {
+            1
+        }
+    }
+
+    /// The style that fills the rest of a row: the page's background.
+    pub fn fill(&self) -> Style {
+        Style {
+            bg: self.background,
+            ..Style::default()
+        }
+    }
+
+    /// Writes row `row` of `line`, sending the image it shows first if it
+    /// has not been sent, and leaves the cursor at its end with the
+    /// terminal's default style.
+    pub fn row(&mut self, line: &Line, row: u8, out: &mut impl Write) -> io::Result<()> {
+        let caps = self.caps;
         if !caps.styling {
             let text: String = (line.lead.iter().chain(&line.spans).chain(&line.trail))
                 .map(|span| span.text.as_str())
                 .collect();
-            writeln!(out, "{}", text.trim_end())?;
-            continue;
+            return out.write_all(text.trim_end().as_bytes());
         }
         let image = match &line.image {
             Some(ImageRow { placement, row }) => {
-                let id = match sent.get(placement.as_ref()) {
+                let id = match self.sent.get(placement.as_ref()) {
                     Some(&id) => id,
                     None => {
-                        let id = send(placement, images, caps, out)?;
-                        sent.insert(placement, id);
+                        let id = send(placement, self.images, caps, out)?;
+                        self.sent.insert(placement.as_ref().clone(), id);
                         id
                     }
                 };
@@ -70,51 +110,54 @@ pub fn write(
             }
             None => None,
         };
+        let (background, foreground) = (self.background, self.foreground);
+        let fill = self.fill();
+        let paint = |style: &Style| Style {
+            fg: style.fg.or(foreground),
+            bg: style.bg.or(background),
+            ..style.clone()
+        };
         let scale = line.scale.max(1);
         // A scaled line occupies `scale` rows but is written only on the
         // first; the rows below get the lead, the trail and the fill around
         // it.
         let block_width = width(&line.spans) * usize::from(scale);
-        for row in 0..scale {
-            let mut current = Style::default();
-            write_spans(&line.lead, paint, &mut current, caps, out)?;
-            if row == 0 {
-                for span in &line.spans {
-                    let style = paint(&span.style);
-                    transition(&current, &style, caps, out)?;
-                    if scale > 1 {
-                        kitty::text::write_scaled(out, scale, &span.text)?;
-                    } else {
-                        out.write_all(span.text.as_bytes())?;
-                    }
-                    current = style;
+        let mut current = Style::default();
+        write_spans(&line.lead, paint, &mut current, caps, out)?;
+        if row == 0 {
+            for span in &line.spans {
+                let style = paint(&span.style);
+                transition(&current, &style, caps, out)?;
+                if scale > 1 {
+                    kitty::text::write_scaled(out, scale, &span.text)?;
+                } else {
+                    out.write_all(span.text.as_bytes())?;
                 }
-                if let Some((id, image_row, columns)) = image {
-                    // Placeholders are neither underlined nor links, and
-                    // their foreground colour is the image id.
-                    let plain = paint(&Style::default());
-                    transition(&current, &plain, caps, out)?;
-                    graphics::write_row(out, id, image_row, columns)?;
-                    // The placeholders leave the terminal's foreground.
-                    current = Style { fg: None, ..plain };
-                }
-            } else if (background.is_some() || !line.trail.is_empty()) && block_width > 0 {
-                // Step over the scaled text to write the trail and fill the
-                // rest of the row. `CSI 0 C` would still move one cell.
-                write!(out, "\x1b[{block_width}C")?;
+                current = style;
             }
-            write_spans(&line.trail, paint, &mut current, caps, out)?;
-            if background.is_some() {
-                // Erase to the end of the line in the background colour.
-                transition(&current, &fill, caps, out)?;
-                out.write_all(b"\x1b[K")?;
-                current = fill.clone();
+            if let Some((id, image_row, columns)) = image {
+                // Placeholders are neither underlined nor links, and
+                // their foreground colour is the image id.
+                let plain = paint(&Style::default());
+                transition(&current, &plain, caps, out)?;
+                graphics::write_row(out, id, image_row, columns)?;
+                // The placeholders leave the terminal's foreground.
+                current = Style { fg: None, ..plain };
             }
-            transition(&current, &Style::default(), caps, out)?;
-            out.write_all(b"\n")?;
+        } else if (background.is_some() || !line.trail.is_empty()) && block_width > 0 {
+            // Step over the scaled text to write the trail and fill the
+            // rest of the row. `CSI 0 C` would still move one cell.
+            write!(out, "\x1b[{block_width}C")?;
         }
+        write_spans(&line.trail, paint, &mut current, caps, out)?;
+        if background.is_some() {
+            // Erase to the end of the line in the background colour.
+            transition(&current, &fill, caps, out)?;
+            out.write_all(b"\x1b[K")?;
+            current = fill;
+        }
+        transition(&current, &Style::default(), caps, out)
     }
-    Ok(())
 }
 
 /// Scales the image `placement` shows to its size and sends it.
