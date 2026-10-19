@@ -1,7 +1,7 @@
 //! Images in HTML `<img>` tags.
 
+use kiri::caps::Capabilities;
 use kiri::images::{ImageError, Images};
-use kiri::term::Capabilities;
 
 mod common;
 

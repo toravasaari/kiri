@@ -1,7 +1,7 @@
 //! The HTML tags kiri reads besides `<img>`: `<details>` with its
 //! `<summary>`, `<kbd>`, `<mark>` and `<br>`.
 
-use kiri::term::Capabilities;
+use kiri::caps::Capabilities;
 use kiri::theme::Theme;
 
 mod common;

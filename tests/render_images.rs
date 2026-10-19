@@ -1,10 +1,10 @@
 //! Images: where they are drawn, their sizes and what is sent.
 
 use image::RgbaImage;
+use kiri::caps::Capabilities;
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, ImageError, Images, Source};
 use kiri::kitty::graphics::{DIACRITICS, PLACEHOLDER};
 use kiri::render::Inputs;
-use kiri::term::Capabilities;
 use kiri::theme::{Paper, Theme};
 
 mod common;

@@ -10,11 +10,11 @@ use image::imageops;
 use super::image::{Placement, Size, cell_size};
 use super::style::{ImageRow, Line, Span, Style};
 use super::wrap::width;
+use crate::caps::Capabilities;
 use crate::color::{Color, Underline};
 use crate::images::{Images, Source};
 use crate::kitty;
 use crate::kitty::graphics;
-use crate::term::Capabilities;
 
 /// The colours of the page the document is drawn on. `None` leaves the
 /// terminal's own showing through.
@@ -24,6 +24,22 @@ pub struct Page {
     pub background: Option<Color>,
     /// For text that has no colour of its own.
     pub foreground: Option<Color>,
+}
+
+/// Moves the cursor to `row` and `column`, counted from 1 at the top left.
+pub fn move_to(row: usize, column: usize, out: &mut impl Write) -> io::Result<()> {
+    write!(out, "\x1b[{row};{column}H")
+}
+
+/// Starts an update that the terminal shows at once at its end, through
+/// synchronized output. Terminals without it ignore it.
+pub fn begin_update(out: &mut impl Write) -> io::Result<()> {
+    out.write_all(b"\x1b[?2026h")
+}
+
+/// Ends the update [`begin_update`] started.
+pub fn end_update(out: &mut impl Write) -> io::Result<()> {
+    out.write_all(b"\x1b[?2026l")
 }
 
 /// Writes `lines` on `page`. `images` holds the pixels of the images the

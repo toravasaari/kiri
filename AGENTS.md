@@ -34,7 +34,7 @@ clickable links. It is written in Rust and ships as a single binary, `kiri`.
   must stay possible without touching the parser or the document model.
 - Rendering writes to a `std::io::Write` and takes terminal capabilities as
   input. Capability detection and other terminal I/O happen in one place
-  (`src/term.rs`), so renderers stay pure and testable.
+  (`src/term/`), so renderers stay pure and testable.
 - No global mutable state.
 
 ## Commands

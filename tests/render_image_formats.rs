@@ -1,6 +1,6 @@
 //! Images in the formats only the full build decodes.
 
-use kiri::term::Capabilities;
+use kiri::caps::Capabilities;
 
 mod common;
 

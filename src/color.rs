@@ -20,6 +20,16 @@ impl Color {
         };
         Some(Self::Rgb(channel(r1, r2), channel(g1, g2), channel(b1, b2)))
     }
+
+    /// This colour as RGB, a palette colour as `palette` tells it: the
+    /// terminal's 16 colours, where it told them. `None` when it is not
+    /// known.
+    pub fn rgb(self, palette: &[Option<Color>; 16]) -> Option<Color> {
+        match self {
+            Self::Rgb(..) => Some(self),
+            Self::Palette(index) => *palette.get(usize::from(index))?,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -31,4 +41,22 @@ pub enum Underline {
     Curly,
     Dotted,
     Dashed,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rgb_looks_palette_colours_up() {
+        let mut palette = [None; 16];
+        palette[3] = Some(Color::Rgb(200, 200, 0));
+        assert_eq!(Color::Rgb(1, 2, 3).rgb(&palette), Some(Color::Rgb(1, 2, 3)));
+        assert_eq!(
+            Color::Palette(3).rgb(&palette),
+            Some(Color::Rgb(200, 200, 0))
+        );
+        assert_eq!(Color::Palette(4).rgb(&palette), None);
+        assert_eq!(Color::Palette(16).rgb(&palette), None);
+    }
 }

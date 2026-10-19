@@ -5,10 +5,10 @@
 use std::ops::Range;
 
 use super::fade::Fade;
+use crate::caps::Capabilities;
 use crate::color::Underline;
 use crate::config::SearchCase;
-use crate::render::style::{Line, Span, Style};
-use crate::term::Capabilities;
+use crate::render::style::{self, Line, Span, Style};
 use crate::theme::{SearchColor, Theme};
 
 /// Where a search term is.
@@ -239,16 +239,11 @@ pub fn find(lines: &[Line], term: &str, case: SearchCase) -> Vec<Match> {
         .iter()
         .enumerate()
         .flat_map(|(index, line)| {
-            places(&text(line), &term, ignore_case)
+            places(&style::text(&line.spans), &term, ignore_case)
                 .into_iter()
                 .map(move |bytes| Match { line: index, bytes })
         })
         .collect()
-}
-
-/// The text of `line`'s spans one after another.
-fn text(line: &Line) -> String {
-    line.spans.iter().map(|span| span.text.as_str()).collect()
 }
 
 /// The bytes of each place of `term` in `text`, from left to right and

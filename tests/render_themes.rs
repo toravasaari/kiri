@@ -2,8 +2,8 @@
 
 use std::path::Path;
 
+use kiri::caps::Capabilities;
 use kiri::render::Inputs;
-use kiri::term::Capabilities;
 use kiri::theme::{Paper, Theme};
 
 mod common;
