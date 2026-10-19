@@ -72,9 +72,7 @@ impl Detection {
 /// terminal's own width. `NO_COLOR` turns colours off in every mode,
 /// including the forced ones.
 pub fn capabilities(mode: Mode, width: Option<u16>, env: &Environment) -> Capabilities {
-    let stdout = std::io::stdout();
-    let window = window_size(&stdout);
-    let terminal = rustix::termios::isatty(&stdout);
+    let (window, terminal) = stdout_window();
     detect(mode, width, env, window, terminal, probe::run).caps
 }
 
@@ -85,12 +83,16 @@ pub fn examine(mode: Mode, width: Option<u16>, env: &Environment) -> Detection {
     match probe::controlling_terminal() {
         Some(tty) => examine_on(&tty, mode, width, env),
         None => {
-            let stdout = std::io::stdout();
-            let window = window_size(&stdout);
-            let terminal = rustix::termios::isatty(&stdout);
+            let (window, terminal) = stdout_window();
             detect(mode, width, env, window, terminal, |_| None)
         }
     }
+}
+
+/// The window of stdout, and whether stdout is a terminal.
+fn stdout_window() -> (Option<WindowSize>, bool) {
+    let stdout = std::io::stdout();
+    (window_size(&stdout), rustix::termios::isatty(&stdout))
 }
 
 /// [`examine`] on the terminal `tty`.
