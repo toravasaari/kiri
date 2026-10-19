@@ -122,3 +122,38 @@ fn a_table_not_in_utf_8_is_an_error() {
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(text(&out.stderr), "kiri: <stdin>: not UTF-8 text\n");
 }
+
+#[test]
+fn rows_past_the_cell_limit_are_counted_below_the_table() {
+    let dir = Scratch::new("csv-limit");
+    let source = "x\n".repeat(kiri::parse::csv::MAX_CELLS + 2);
+    let out = kiri_on(&dir, "t.csv", source.as_bytes(), &["--mode", "plain"]);
+    let shown = shown(&out);
+    assert_eq!(
+        shown.matches("│ x │").count(),
+        kiri::parse::csv::MAX_CELLS,
+        "{}",
+        shown.len()
+    );
+    assert!(
+        shown.ends_with("╰───╯\n\n  … 2 more rows not shown\n"),
+        "{:?}",
+        &shown[shown.len() - 80..]
+    );
+}
+
+#[test]
+fn a_header_past_the_cell_limit_is_an_error() {
+    let dir = Scratch::new("csv-too-wide");
+    let header = vec!["x"; kiri::parse::csv::MAX_CELLS + 1].join(",");
+    let out = kiri_on(&dir, "t.csv", header.as_bytes(), &["--mode", "plain"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        text(&out.stderr),
+        format!(
+            "kiri: {}: too wide to show: 100 001 columns, and kiri shows at most 100 000 cells\n",
+            dir.join("t.csv").display()
+        )
+    );
+    assert_eq!(text(&out.stdout), "");
+}

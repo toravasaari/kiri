@@ -249,7 +249,8 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), String> {
     }
     let caps = kiri::term::capabilities(cli.mode.into(), cli.width, &env);
     let document = match input {
-        Input::Table(separator) => kiri::parse::csv::parse(&source, separator),
+        Input::Table(separator) => kiri::parse::csv::parse(&source, separator)
+            .map_err(|error| format!("{}: {error}", path.display()))?,
         _ => kiri::parse::parse(&source),
     };
     // Images in a piped document are relative to the current directory.

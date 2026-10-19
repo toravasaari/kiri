@@ -290,7 +290,8 @@ fn collect_blocks<'a>(blocks: &'a [Block], urls: &mut Vec<&'a str>) {
             | Block::Table(_)
             | Block::CodeBlock { .. }
             | Block::ThematicBreak
-            | Block::Html(_) => {}
+            | Block::Html(_)
+            | Block::Note(_) => {}
         }
     }
 }
