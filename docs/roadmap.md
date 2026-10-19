@@ -143,6 +143,9 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 
 - Search with `/`, `n` and `N`.
 - A status line with the position and key hints, and a `?` help panel.
+- Keys and terminal answers that arrive split over two reads are
+  decoded whole. Now the second half of such a sequence is read as keys
+  of its own, which a search prompt would make worse.
 
 #### 4.6.3 Reload
 
