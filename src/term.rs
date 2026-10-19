@@ -1027,7 +1027,7 @@ mod tests {
         use std::process::{Command, Stdio};
 
         let (mut reader, writer) = std::io::pipe().unwrap();
-        let child = Command::new(std::env::current_exe().unwrap())
+        let mut child = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "term::tests::panic_on_a_screen"])
             .args(["--ignored", "--nocapture", "--test-threads", "1"])
             .stdin(Stdio::null())
@@ -1036,8 +1036,28 @@ mod tests {
             .spawn()
             .unwrap();
         let mut output = Vec::new();
-        reader.read_to_end(&mut output).unwrap();
-        let _ = { child }.wait();
+        let mut buffer = [0; 4096];
+        // The child gets 10 s at most, so a hanging child fails the test
+        // instead of hanging it.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            use rustix::event::{PollFd, PollFlags, Timespec, poll};
+
+            let left = deadline.checked_duration_since(std::time::Instant::now());
+            let timeout = left.map(|left| Timespec::try_from(left).unwrap());
+            let mut fds = [PollFd::new(&reader, PollFlags::IN)];
+            if left.is_none() || poll(&mut fds, timeout.as_ref()).unwrap() == 0 {
+                child.kill().unwrap();
+                panic!("the child did not finish: {output:?}");
+            }
+            // Reading ends once the child, which holds the writing end,
+            // exits.
+            match reader.read(&mut buffer).unwrap() {
+                0 => break,
+                read => output.extend_from_slice(&buffer[..read]),
+            }
+        }
+        let _ = child.wait();
         let output = String::from_utf8_lossy(&output);
         let leave = output.find("\x1b[?1049l").expect("the screen is left");
         let message = output
