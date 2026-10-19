@@ -176,7 +176,7 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 - Jupyter notebooks (`.ipynb`): Markdown cells, code cells with syntax
   highlighting, and their outputs, images included.
 - CSV and TSV files, shown as a table. A file of more than 100 000 cells
-  shows its first rows and a note of how many were left out.
+  shows its first rows and a note of how many were left out. (done)
 
 #### 4.7.2 Large files
 
