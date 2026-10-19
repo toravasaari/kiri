@@ -163,10 +163,6 @@ const POLL: Duration = Duration::from_millis(100);
 /// it draws a step of it each time.
 const FRAME: Duration = Duration::from_millis(50);
 
-/// How long the match number flashes after a search went around an end
-/// of the document.
-const FLASH: Duration = Duration::from_secs(1);
-
 /// Why the pager stopped showing one layout of the document.
 enum Outcome {
     Quit,
@@ -190,8 +186,10 @@ struct Status<'a> {
 }
 
 impl Status<'_> {
-    /// The status line for `view` in `state`: the prompt while it is open.
-    fn spans(&self, view: &View, state: &State) -> Vec<Span> {
+    /// The status line for `view` in `state`, with the match number faded
+    /// by `fade` after the search went around an end: the prompt while it
+    /// is open.
+    fn spans(&self, view: &View, state: &State, fade: Option<Fade>) -> Vec<Span> {
         if !self.bar {
             return Vec::new();
         }
@@ -199,7 +197,10 @@ impl Status<'_> {
         match &state.prompt {
             Some(prompt) => status::prompt(prompt.term(), width, &self.styles),
             None => {
-                let found = state.found();
+                let flash = fade
+                    .filter(|_| state.jumped.is_some_and(|jump| jump.around))
+                    .map(|fade| self.styles.number(fade));
+                let found = state.found(flash);
                 status::spans(self.name, view.position(), found, width, &self.styles)
             }
         }
@@ -251,10 +252,16 @@ struct State {
     /// Whether the status line tells that the last search found nothing,
     /// which it does until the next key.
     nowhere: bool,
-    /// Until when the match number flashes.
-    flash: Option<Instant>,
-    /// When the last jump to a match was, while its fade is under way.
-    jumped: Option<Instant>,
+    /// The last jump to a match, while its fade is under way.
+    jumped: Option<Jump>,
+}
+
+/// A jump to a search match.
+#[derive(Debug, Clone, Copy)]
+struct Jump {
+    at: Instant,
+    /// Whether the search went around an end of the document to it.
+    around: bool,
 }
 
 impl State {
@@ -267,7 +274,6 @@ impl State {
             search: None,
             shown: false,
             nowhere: false,
-            flash: None,
             jumped: None,
         }
     }
@@ -322,17 +328,18 @@ impl State {
         let search = Search::new(layout.lines, term, self.case, layout.view.top());
         self.jumped = None;
         match search.current() {
-            Some(found) => self.jump(found.line, now, layout),
+            Some(found) => self.jump(found.line, now, false, layout),
             None => self.nowhere = true,
         }
         self.search = Some(search);
         self.shown = true;
     }
 
-    /// Shows the match on line `line`, jumped to at `now`.
-    fn jump(&mut self, line: usize, now: Instant, layout: &mut Layout) {
+    /// Shows the match on line `line`, jumped to at `now`, `around` an
+    /// end of the document or not.
+    fn jump(&mut self, line: usize, now: Instant, around: bool, layout: &mut Layout) {
         layout.view.reveal(line);
-        self.jumped = Some(now);
+        self.jumped = Some(Jump { at: now, around });
     }
 
     /// Finds the last search again in `lines`, laid out anew, from the
@@ -359,25 +366,25 @@ impl State {
             return;
         };
         let around = step(search, layout.view.visible());
-        self.flash = around.then(|| now + FLASH);
         match search.current().map(|found| found.line) {
-            Some(line) => self.jump(line, now, layout),
+            Some(line) => self.jump(line, now, around, layout),
             None => self.nowhere = true,
         }
         self.shown = true;
     }
 
-    /// Ends a flash and a fade that are over at `now`.
+    /// Ends a fade that is over at `now`.
     fn tick(&mut self, now: Instant) {
-        self.flash = self.flash.filter(|&until| now < until);
-        self.jumped = self.jumped.filter(|&at| now.duration_since(at) < FADE);
+        self.jumped = self
+            .jumped
+            .filter(|jump| now.saturating_duration_since(jump.at) < FADE);
     }
 
     /// The fade under way at `now`, mixing colours with `rgb`.
     fn fade<'a>(&self, now: Instant, rgb: Option<&'a Rgb>) -> Option<Fade<'a>> {
-        let at = self.jumped?;
+        let jump = self.jumped?;
         Some(Fade {
-            elapsed: now.saturating_duration_since(at),
+            elapsed: now.saturating_duration_since(jump.at),
             rgb,
         })
     }
@@ -396,8 +403,9 @@ impl State {
             .collect()
     }
 
-    /// What the status line tells about the last search.
-    fn found(&self) -> Option<status::Found<'_>> {
+    /// What the status line tells about the last search, with the match
+    /// number in `flash` when it is given.
+    fn found(&self, flash: Option<Style>) -> Option<status::Found<'_>> {
         let search = self.search.as_ref()?;
         if self.nowhere {
             return Some(status::Found::Nowhere(search.term()));
@@ -410,7 +418,7 @@ impl State {
             term: search.term(),
             current,
             total,
-            flash: self.flash.is_some(),
+            flash,
         })
     }
 }
@@ -454,7 +462,7 @@ impl Layout<'_> {
                 self.marks,
                 fade,
             ),
-            status: self.status.spans(self.view, state),
+            status: self.status.spans(self.view, state, fade),
             panel: self.status.panel(self.view, state.help),
         }
     }
@@ -1081,17 +1089,14 @@ mod tests {
     }
 
     #[test]
-    fn going_around_an_end_flashes_the_match_number_for_a_second() {
-        // N goes around to the last match, then `empty` polls without keys,
-        // each a tenth of a second.
+    fn without_colours_going_around_an_end_flashes_the_match_number() {
+        // N goes around to the last match, then `empty` polls without keys.
         let frames = |empty| {
-            let mut reads: Vec<&[u8]> = vec![b"/line 2\r", b"N"];
-            reads.extend(std::iter::repeat_n(b"".as_slice(), empty));
-            let mut terminal = Fake::new(60, 6, &reads);
-            show(&numbers(30), &mut terminal);
-            terminal.frames()
+            let mut caps = Capabilities::ansi(80);
+            caps.color = false;
+            frames_with(caps, &[b"/line 2\r", b"N"], empty)
         };
-        // Bold, without the bar's reverse video.
+        // Bold, without the bar's reverse video, for a second.
         let flashed = "\x1b[0;1m11\x1b[0;7m/11";
         // While the match fades, each poll is a twentieth of a second.
         let before = frames(19);
@@ -1264,5 +1269,38 @@ mod tests {
         assert_eq!(frames.len(), 3, "{frames:#?}");
         assert_eq!(current(&frames[1]), ["0", "1", "7", "4"]);
         assert_eq!(current(&frames[2]), ["0", "1", "7"]);
+    }
+
+    #[test]
+    fn going_around_an_end_fades_the_match_number() {
+        // A grey bar, mixed from the black page and this grey.
+        let mut caps = known_colours();
+        caps.palette[8] = Some(Color::Rgb(100, 100, 100));
+        let frames = frames_with(caps, &[b"/line 2\r", b"N"], 40);
+        // The search, then N, which fades for a second and a half.
+        assert_eq!(frames.len(), 33, "{frames:#?}");
+        let number = |frame: &str| style_before(&status_row(frame, 6), "11\x1b");
+        let colours = |fg: &str, bg: &str| {
+            let mut codes = vec!["0".to_owned(), "1".to_owned()];
+            codes.extend(format!("38;2;{fg};48;2;{bg}").split(';').map(str::to_owned));
+            codes
+        };
+        assert_eq!(number(&frames[2]), colours("0;0;0", "200;200;0"));
+        assert_eq!(number(&frames[17]), colours("100;100;100", "125;125;25"));
+        // At the end, in the bar's colours, with the rest of the search.
+        let status = status_row(&frames[32], 6);
+        assert_eq!(
+            style_before(&status, "/line 2 11/11"),
+            ["0", "48", "2", "50", "50", "50"]
+        );
+    }
+
+    #[test]
+    fn going_around_an_end_flashes_the_match_number_where_colours_are_not_known() {
+        let frames = frames_with(Capabilities::ansi(80), &[b"/line 2\r", b"N"], 30);
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        let number = |frame: &str| style_before(&status_row(frame, 6), "11\x1b");
+        assert_eq!(number(&frames[2]), ["0", "1", "30", "43"]);
+        assert!(status_row(&frames[3], 6).contains(" 11/11"), "{frames:#?}");
     }
 }

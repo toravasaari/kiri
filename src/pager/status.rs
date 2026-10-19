@@ -4,17 +4,20 @@
 
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+use super::fade::Fade;
 use super::view::Position;
 use crate::color::Color;
 use crate::render::style::{Span, Style};
 use crate::term::Capabilities;
-use crate::theme::{StatusColor, Theme};
+use crate::theme::{SearchColor, StatusColor, Theme};
 
-/// The styles of the status line.
+/// The styles of the status line, and of the match number just after a
+/// search went around an end of the document.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Styles {
     pub bar: Style,
     pub badge: Style,
+    pub flash: Style,
 }
 
 impl Styles {
@@ -23,53 +26,88 @@ impl Styles {
     /// the badge in reverse video; when the page's colour is not known
     /// either, the bar is in reverse video and the badge in bold.
     pub fn new(theme: &Theme, caps: &Capabilities) -> Self {
-        let status = &theme.status_line;
-        let bar = match status.background {
+        let (bar, badge) = bar_and_badge(theme, caps);
+        // In the search's flash colours; without them, bold and in
+        // reverse video against the bar.
+        let search = &theme.search;
+        let color = |color| match color {
+            SearchColor::Color(color) => color,
+            SearchColor::Auto => None,
+        };
+        let flash = match (search.flash_foreground, search.flash_background) {
+            (SearchColor::Auto, SearchColor::Auto) => None,
             _ if !caps.color => None,
-            StatusColor::Color(color) => Some(color),
-            StatusColor::Auto => mixed(theme, caps).map(Some),
-        };
-        let Some(background) = bar else {
-            return Self {
-                bar: Style {
-                    reverse: true,
-                    ..Style::default()
-                },
-                badge: Style {
-                    bold: true,
-                    ..Style::default()
-                },
-            };
-        };
-        let color = |color, auto| match color {
-            StatusColor::Color(color) => color,
-            StatusColor::Auto => auto,
-        };
-        let badge = match (status.badge_foreground, status.badge_background) {
-            (StatusColor::Auto, StatusColor::Auto) => Style {
-                reverse: true,
-                fg: theme.foreground,
-                bg: theme.background,
-                ..Style::default()
-            },
-            (foreground, background) => Style {
-                fg: color(foreground, None),
-                bg: color(background, None),
-                ..Style::default()
-            },
-        };
-        Self {
-            bar: Style {
-                fg: color(status.foreground, theme.foreground),
-                bg: background,
-                ..Style::default()
-            },
-            badge: Style {
+            (foreground, background) => Some(Style {
                 bold: true,
-                ..badge
-            },
-        }
+                fg: color(foreground),
+                bg: color(background),
+                ..Style::default()
+            }),
+        };
+        let flash = flash.unwrap_or_else(|| Style {
+            bold: true,
+            reverse: !bar.reverse,
+            ..bar.clone()
+        });
+        Self { bar, badge, flash }
     }
+
+    /// The match number's style `fade` into a flash, from the flash to
+    /// the bar's.
+    pub fn number(&self, fade: Fade) -> Style {
+        fade.step(&self.flash, &self.bar)
+    }
+}
+
+/// The styles of the bar and the badge for `theme` on a terminal with
+/// `caps`, as [`Styles::new`] tells.
+fn bar_and_badge(theme: &Theme, caps: &Capabilities) -> (Style, Style) {
+    let status = &theme.status_line;
+    let bar = match status.background {
+        _ if !caps.color => None,
+        StatusColor::Color(color) => Some(color),
+        StatusColor::Auto => mixed(theme, caps).map(Some),
+    };
+    let Some(background) = bar else {
+        return (
+            Style {
+                reverse: true,
+                ..Style::default()
+            },
+            Style {
+                bold: true,
+                ..Style::default()
+            },
+        );
+    };
+    let color = |color, auto| match color {
+        StatusColor::Color(color) => color,
+        StatusColor::Auto => auto,
+    };
+    let badge = match (status.badge_foreground, status.badge_background) {
+        (StatusColor::Auto, StatusColor::Auto) => Style {
+            reverse: true,
+            fg: theme.foreground,
+            bg: theme.background,
+            ..Style::default()
+        },
+        (foreground, background) => Style {
+            fg: color(foreground, None),
+            bg: color(background, None),
+            ..Style::default()
+        },
+    };
+    (
+        Style {
+            fg: color(status.foreground, theme.foreground),
+            bg: background,
+            ..Style::default()
+        },
+        Style {
+            bold: true,
+            ..badge
+        },
+    )
 }
 
 /// The page mixed halfway with bright black, a grey in most palettes;
@@ -84,16 +122,16 @@ fn mixed(theme: &Theme, caps: &Capabilities) -> Option<Color> {
 }
 
 /// What the status line tells about the last search.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Found<'a> {
     /// The reader is at match `current`, counted from 1, of the `total`
-    /// matches of `term`; `flash` shows `current` apart for a moment,
-    /// after the search went around an end of the document.
+    /// matches of `term`; `flash` is a style that shows `current` apart
+    /// for a moment, after the search went around an end of the document.
     At {
         term: &'a str,
         current: usize,
         total: usize,
-        flash: bool,
+        flash: Option<Style>,
     },
     /// `term` is nowhere in the document.
     Nowhere(&'a str),
@@ -181,16 +219,8 @@ fn search(found: Found, styles: &Styles) -> Vec<Span> {
         } => vec![
             span(&format!("/{} ", printable(term))),
             match flash {
-                // Bold, and in reverse video against the bar.
-                true => Span::new(
-                    &current.to_string(),
-                    Style {
-                        bold: true,
-                        reverse: !styles.bar.reverse,
-                        ..styles.bar.clone()
-                    },
-                ),
-                false => span(&current.to_string()),
+                Some(style) => Span::new(&current.to_string(), style),
+                None => span(&current.to_string()),
             },
             span(&format!("/{total}")),
         ],
@@ -285,6 +315,7 @@ mod tests {
         Styles {
             bar: Style::fg(Some(Color::Palette(1))),
             badge: Style::fg(Some(Color::Palette(2))),
+            flash: Style::fg(Some(Color::Palette(3))),
         }
     }
 
@@ -412,7 +443,7 @@ mod tests {
         term: "kiri",
         current: 3,
         total: 12,
-        flash: false,
+        flash: None,
     });
 
     #[test]
@@ -438,7 +469,7 @@ mod tests {
             term: "kiri",
             current: 1,
             total: 12,
-            flash: true,
+            flash: Some(styles().flash),
         });
         let spans = spans("notes.md", at(42), flash, 60, &styles());
         assert_eq!(
@@ -446,9 +477,29 @@ mod tests {
             text(&super::spans("notes.md", at(42), AT, 60, &styles())).replace("3/12", "1/12")
         );
         let one = spans.iter().find(|span| span.text == "1").unwrap();
-        assert!(one.style.reverse && one.style.bold, "{spans:?}");
+        assert_eq!(one.style, styles().flash);
         let twelve = spans.iter().find(|span| span.text == "/12").unwrap();
         assert_eq!(twelve.style, styles().bar);
+    }
+
+    #[test]
+    fn the_match_number_flashes_in_the_search_s_flash_colours() {
+        let styles = Styles::new(&Theme::default(), &Capabilities::kitty(80));
+        assert_eq!(
+            styles.flash,
+            Style {
+                bold: true,
+                fg: Some(Color::Palette(0)),
+                bg: Some(Color::Palette(3)),
+                ..Style::default()
+            }
+        );
+        // Without colours, bold against the bar's reverse video.
+        let mut caps = Capabilities::kitty(80);
+        caps.color = false;
+        let styles = Styles::new(&Theme::default(), &caps);
+        assert!(styles.flash.bold && !styles.flash.reverse);
+        assert_eq!((styles.flash.fg, styles.flash.bg), (None, None));
     }
 
     #[test]
