@@ -111,7 +111,7 @@ pub fn run(
             }
             None => View::new(heights, rows),
         };
-        state.lay_out(&lines, shown.top());
+        state.lay_out(&lines, shown.top(), bar);
         let status = Status {
             name,
             styles: status::Styles::new(&inputs.theme, &inputs.caps),
@@ -311,8 +311,12 @@ impl State {
     }
 
     /// Finds the last search again in `lines`, laid out anew, from the
-    /// line `top` of the view.
-    fn lay_out(&mut self, lines: &[Line], top: usize) {
+    /// line `top` of the view, and closes the prompt when the window has
+    /// no status line, `bar`, to show it on.
+    fn lay_out(&mut self, lines: &[Line], top: usize, bar: bool) {
+        if !bar {
+            self.prompt = None;
+        }
         if let Some(search) = &mut self.search {
             *search = Search::new(lines, search.term(), self.case, top);
         }
@@ -703,6 +707,17 @@ mod tests {
         assert_eq!(frames.len(), 1, "{frames:#?}");
         assert!(frames[0].contains("Line 1"), "{frames:#?}");
         assert!(!frames[0].contains(" kiri "), "{frames:#?}");
+    }
+
+    #[test]
+    fn a_window_shrunk_to_one_row_closes_the_prompt() {
+        // Without a status line the prompt cannot show, so G is a
+        // binding again and moves to the end.
+        let mut terminal = Fake::new(40, 6, &[b"/", b"", b"G"]);
+        terminal.sizes = [window(40, 6), window(40, 1)].into();
+        show(&numbers(10), &mut terminal);
+        let frames = terminal.frames();
+        assert!(frames.last().unwrap().contains("Line 10"), "{frames:#?}");
     }
 
     #[test]
