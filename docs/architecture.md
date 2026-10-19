@@ -54,6 +54,7 @@ bytes the terminal sends into keys and keys into moves; `src/pager/prompt.rs`
 keeps the search term as it is typed, and `src/pager/search.rs` finds it
 in the laid-out lines and splits a line where a match starts and ends, so
 the matches can be highlighted without a change to the writer;
+`src/pager/fade.rs` mixes the colours a match fades through after a jump;
 `src/pager/status.rs` and `src/pager/help.rs` make the status line and the
 help panel as styled spans; `src/pager/mod.rs` draws each frame, row by
 row through the backend's writer, and lays the document out again when the
@@ -148,6 +149,7 @@ src/pager/view.rs          the lines a window shows, and scrolling
 src/pager/keys.rs          keys from the terminal and what they do
 src/pager/prompt.rs        the search prompt on the status line
 src/pager/search.rs        search matches in the laid-out lines
+src/pager/fade.rs          a style fading into another after a jump
 src/pager/status.rs        the status line
 src/pager/help.rs          the help panel that lists the keys
 src/kitty/mod.rs           kitty-specific escape sequences

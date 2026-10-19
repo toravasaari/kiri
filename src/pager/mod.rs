@@ -1,6 +1,7 @@
 //! The interactive pager: the document on a screen of its own, scrolled
 //! with keys.
 
+pub mod fade;
 pub mod help;
 pub mod keys;
 pub mod prompt;
@@ -18,6 +19,7 @@ use crate::render::Inputs;
 use crate::render::output::{Page, Writer};
 use crate::render::style::{Line, Span, Style};
 use crate::term::{Capabilities, Screen, WindowSize};
+use fade::{FADE, Fade, Rgb};
 use help::Placed;
 use keys::{Action, Key};
 use prompt::{Edit, Prompt};
@@ -132,9 +134,11 @@ pub fn run(
             },
         };
         let marks = Marks::new(&inputs.theme, &inputs.caps);
+        let rgb = Rgb::new(&inputs.theme, &inputs.caps);
         let mut laid_out = Layout {
             lines: &lines,
             marks: &marks,
+            rgb: rgb.as_ref(),
             status: &status,
             view: &mut shown,
         };
@@ -154,6 +158,10 @@ const DEFAULT_ROWS: u16 = 24;
 /// How long the pager waits for a key before it looks at the window size
 /// again.
 const POLL: Duration = Duration::from_millis(100);
+
+/// How long the pager waits for a key while a fade is under way, so that
+/// it draws a step of it each time.
+const FRAME: Duration = Duration::from_millis(50);
 
 /// How long the match number flashes after a search went around an end
 /// of the document.
@@ -245,6 +253,8 @@ struct State {
     nowhere: bool,
     /// Until when the match number flashes.
     flash: Option<Instant>,
+    /// When the last jump to a match was, while its fade is under way.
+    jumped: Option<Instant>,
 }
 
 impl State {
@@ -258,6 +268,7 @@ impl State {
             shown: false,
             nowhere: false,
             flash: None,
+            jumped: None,
         }
     }
 
@@ -278,12 +289,12 @@ impl State {
                 Edit::Cancel => self.prompt = None,
                 Edit::Search(term) => {
                     self.prompt = None;
-                    self.find(&term, layout);
+                    self.find(&term, now, layout);
                 }
                 Edit::Repeat => {
                     self.prompt = None;
                     if let Some(term) = self.search.as_ref().map(|s| s.term().to_owned()) {
-                        self.find(&term, layout);
+                        self.find(&term, now, layout);
                     }
                 }
             }
@@ -305,16 +316,23 @@ impl State {
         false
     }
 
-    /// Searches for `term` from the top of the view, and shows the first
-    /// match.
-    fn find(&mut self, term: &str, layout: &mut Layout) {
+    /// Searches for `term` from the top of the view at `now`, and shows
+    /// the first match.
+    fn find(&mut self, term: &str, now: Instant, layout: &mut Layout) {
         let search = Search::new(layout.lines, term, self.case, layout.view.top());
+        self.jumped = None;
         match search.current() {
-            Some(found) => layout.view.reveal(found.line),
+            Some(found) => self.jump(found.line, now, layout),
             None => self.nowhere = true,
         }
         self.search = Some(search);
         self.shown = true;
+    }
+
+    /// Shows the match on line `line`, jumped to at `now`.
+    fn jump(&mut self, line: usize, now: Instant, layout: &mut Layout) {
+        layout.view.reveal(line);
+        self.jumped = Some(now);
     }
 
     /// Finds the last search again in `lines`, laid out anew, from the
@@ -342,26 +360,37 @@ impl State {
         };
         let around = step(search, layout.view.visible());
         self.flash = around.then(|| now + FLASH);
-        match search.current() {
-            Some(found) => layout.view.reveal(found.line),
+        match search.current().map(|found| found.line) {
+            Some(line) => self.jump(line, now, layout),
             None => self.nowhere = true,
         }
         self.shown = true;
     }
 
-    /// Ends a flash that is over at `now`.
+    /// Ends a flash and a fade that are over at `now`.
     fn tick(&mut self, now: Instant) {
         self.flash = self.flash.filter(|&until| now < until);
+        self.jumped = self.jumped.filter(|&at| now.duration_since(at) < FADE);
+    }
+
+    /// The fade under way at `now`, mixing colours with `rgb`.
+    fn fade<'a>(&self, now: Instant, rgb: Option<&'a Rgb>) -> Option<Fade<'a>> {
+        let at = self.jumped?;
+        Some(Fade {
+            elapsed: now.saturating_duration_since(at),
+            rgb,
+        })
     }
 
     /// `lines`, from line `first` of the document on, with the matches of
-    /// the last search marked with `marks` while it is shown.
-    fn marked(&self, lines: &[Line], first: usize, marks: &Marks) -> Vec<Line> {
+    /// the last search marked with `marks` while it is shown, the current
+    /// one faded by `fade`.
+    fn marked(&self, lines: &[Line], first: usize, marks: &Marks, fade: Option<Fade>) -> Vec<Line> {
         let search = self.search.as_ref().filter(|_| self.shown);
         (first..)
             .zip(lines)
             .map(|(index, line)| match search {
-                Some(search) => search::mark(line, &search.on(index), marks),
+                Some(search) => search::mark(line, &search.on(index), marks, fade),
                 None => line.clone(),
             })
             .collect()
@@ -391,6 +420,8 @@ impl State {
 struct Layout<'a> {
     lines: &'a [Line],
     marks: &'a Marks,
+    /// The colours a fade mixes, where they are known.
+    rgb: Option<&'a Rgb>,
     status: &'a Status<'a>,
     view: &'a mut View,
 }
@@ -412,11 +443,17 @@ impl Frame {
 }
 
 impl Layout<'_> {
-    /// What the screen shows in `state`.
-    fn frame(&self, state: &State) -> Frame {
+    /// What the screen shows in `state` at `now`.
+    fn frame(&self, state: &State, now: Instant) -> Frame {
         let visible = self.view.visible();
+        let fade = state.fade(now, self.rgb);
         Frame {
-            lines: state.marked(&self.lines[visible.clone()], visible.start, self.marks),
+            lines: state.marked(
+                &self.lines[visible.clone()],
+                visible.start,
+                self.marks,
+                fade,
+            ),
             status: self.status.spans(self.view, state),
             panel: self.status.panel(self.view, state.help),
         }
@@ -432,12 +469,15 @@ fn show(
     terminal: &mut impl Terminal,
     size: Option<WindowSize>,
 ) -> io::Result<Outcome> {
-    let mut shown = layout.frame(state);
+    let mut shown = layout.frame(state, terminal.now());
     shown.draw(layout.view.rows(), writer, terminal)?;
     terminal.flush()?;
     let mut decoder = keys::Decoder::default();
     loop {
-        let input = terminal.read(POLL)?;
+        let input = terminal.read(match state.jumped {
+            Some(_) => FRAME,
+            None => POLL,
+        })?;
         // Nothing more came for a key the last read cut off.
         let keys = if input.is_empty() {
             decoder.flush()
@@ -455,7 +495,7 @@ fn show(
         if window != size {
             return Ok(Outcome::Resized(window));
         }
-        let frame = layout.frame(state);
+        let frame = layout.frame(state, now);
         if frame != shown {
             shown = frame;
             shown.draw(layout.view.rows(), writer, terminal)?;
@@ -508,6 +548,7 @@ mod tests {
     use std::collections::VecDeque;
 
     use super::*;
+    use crate::color::Color;
 
     #[test]
     fn auto_pages_a_document_longer_than_the_window() {
@@ -1052,10 +1093,11 @@ mod tests {
         };
         // Bold, without the bar's reverse video.
         let flashed = "\x1b[0;1m11\x1b[0;7m/11";
-        let before = frames(9);
+        // While the match fades, each poll is a twentieth of a second.
+        let before = frames(19);
         assert_eq!(before.len(), 3, "{before:#?}");
         assert!(status_row(&before[2], 6).contains(flashed), "{before:#?}");
-        let after = frames(10);
+        let after = frames(20);
         assert_eq!(after.len(), 4, "{after:#?}");
         assert!(!status_row(&after[3], 6).contains(flashed), "{after:#?}");
         assert!(status_row(&after[3], 6).contains(" 11/11"), "{after:#?}");
@@ -1082,31 +1124,42 @@ mod tests {
 
     #[test]
     fn matches_in_view_are_marked_and_the_current_one_apart() {
-        let reads: &[&[u8]] = &[b"/line 2\r", b"n", b"\x1b", b""];
-        let mut terminal = Fake::new(60, 6, reads);
+        // Each jump flashes for a second, over after a second and a half.
+        let wait = [b"".as_slice(); 30];
+        let reads = [
+            &[b"/line 2\r".as_slice()],
+            &wait[..],
+            &[b"n"],
+            &wait,
+            &[b"\x1b", b""],
+        ];
+        let mut terminal = Fake::new(60, 6, &reads.concat());
         show(&numbers(30), &mut terminal);
         let frames = terminal.frames();
-        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert_eq!(frames.len(), 6, "{frames:#?}");
         // Line 2 is the current match, below Line 1.
-        let found = document_part(&frames[1], 6);
+        let found = document_part(&frames[2], 6);
         assert_eq!(style_before(found, "Line 2\x1b"), ["0", "1", "7"]);
         assert!(found.contains("  Line 1\x1b"), "{found:?}");
         // Line 20 is the current match, and Line 21 another.
-        let next = document_part(&frames[2], 6);
+        let next = document_part(&frames[4], 6);
         assert_eq!(style_before(next, "Line 2\x1b[0m0"), ["0", "1", "7"]);
         assert_eq!(style_before(next, "Line 2\x1b[0m1"), ["0", "7"]);
         // Escape takes the marks away.
-        let hidden = document_part(&frames[3], 6);
+        let hidden = document_part(&frames[5], 6);
         assert!(
             !hidden.contains(";7m") && !hidden.contains("[0;7"),
             "{hidden:?}"
         );
-        assert!(at_top(&frames[3], "Line 20"), "{frames:#?}");
+        assert!(at_top(&frames[5], "Line 20"), "{frames:#?}");
     }
 
     #[test]
     fn matches_are_marked_in_large_headings_and_in_tables() {
-        let mut terminal = Fake::new(60, 12, &[b"/kiri\r"]);
+        let mut reads = vec![b"/kiri\r".as_slice()];
+        // After the flash of the jump.
+        reads.extend([b"".as_slice(); 30]);
+        let mut terminal = Fake::new(60, 12, &reads);
         let source = "# Kiri title\n\n| a | b |\n|---|---|\n| c | kiri |\n";
         let mut inputs = Inputs::new(Capabilities::kitty(80));
         run(
@@ -1119,7 +1172,7 @@ mod tests {
         )
         .unwrap();
         let frames = terminal.frames();
-        let found = document_part(&frames[1], 12);
+        let found = document_part(frames.last().unwrap(), 12);
         // The heading is split where the match ends, both parts scaled.
         let heading = style_before(found, "\x1b]66;s=3;Kiri\x1b\\");
         assert!(heading.contains(&"1".into()) && heading.contains(&"7".into()));
@@ -1139,5 +1192,77 @@ mod tests {
             status_row(&frames[2], 6).contains("/line 2 2/11"),
             "{frames:#?}"
         );
+    }
+
+    /// The terminal colours of the fade tests: grey text on black, with
+    /// black and yellow in the palette.
+    fn known_colours() -> Capabilities {
+        let mut caps = Capabilities::ansi(80);
+        caps.truecolor = true;
+        caps.foreground = Some(Color::Rgb(200, 200, 200));
+        caps.background = Some(Color::Rgb(0, 0, 0));
+        caps.palette[0] = Some(Color::Rgb(0, 0, 0));
+        caps.palette[3] = Some(Color::Rgb(200, 200, 0));
+        caps
+    }
+
+    /// The frames drawn on a terminal with `caps` for `reads`, then
+    /// `empty` polls without keys.
+    fn frames_with(caps: Capabilities, reads: &[&[u8]], empty: usize) -> Vec<String> {
+        let mut reads = reads.to_vec();
+        reads.extend(std::iter::repeat_n(b"".as_slice(), empty));
+        let mut terminal = Fake::new(60, 6, &reads);
+        let mut inputs = Inputs::new(caps);
+        run(
+            &numbers(30),
+            "notes.md",
+            &mut inputs,
+            None,
+            SearchCase::Smart,
+            &mut terminal,
+        )
+        .unwrap();
+        terminal.frames()
+    }
+
+    #[test]
+    fn a_jump_shows_the_match_in_yellow_fading_into_reverse_video() {
+        let frames = frames_with(known_colours(), &[b"/line 2\r"], 40);
+        // The jump, a frame each twentieth of a second after it until a
+        // second and a half, and no more after the fade.
+        assert_eq!(frames.len(), 32, "{frames:#?}");
+        let current = |frame: &str| style_before(document_part(frame, 6), "Line 2\x1b");
+        let colours = |fg: &str, bg: &str| {
+            let mut codes = vec!["0".to_owned(), "1".to_owned()];
+            codes.extend(format!("38;2;{fg};48;2;{bg}").split(';').map(str::to_owned));
+            codes
+        };
+        assert_eq!(current(&frames[1]), colours("0;0;0", "200;200;0"));
+        assert_eq!(current(&frames[16]), colours("0;0;0", "200;200;100"));
+        assert_eq!(current(&frames[31]), ["0", "1", "7"]);
+    }
+
+    #[test]
+    fn n_and_shift_n_fade_the_match_too() {
+        let frames = frames_with(known_colours(), &[b"/line 2\r", b"n"], 0);
+        let current = style_before(document_part(&frames[2], 6), "Line 2\x1b[0m0");
+        assert!(current.contains(&"48".to_owned()), "{frames:#?}");
+    }
+
+    #[test]
+    fn colours_not_known_as_rgb_flash_for_a_second() {
+        // The terminal tells no colours: yellow until a second has gone.
+        let frames = frames_with(Capabilities::ansi(80), &[b"/line 2\r"], 30);
+        assert_eq!(frames.len(), 3, "{frames:#?}");
+        let current = |frame: &str| style_before(document_part(frame, 6), "Line 2\x1b");
+        assert_eq!(current(&frames[1]), ["0", "1", "30", "43"]);
+        assert_eq!(current(&frames[2]), ["0", "1", "7"]);
+        // Without colours, the match is underlined for that second.
+        let mut caps = known_colours();
+        caps.color = false;
+        let frames = frames_with(caps, &[b"/line 2\r"], 30);
+        assert_eq!(frames.len(), 3, "{frames:#?}");
+        assert_eq!(current(&frames[1]), ["0", "1", "7", "4"]);
+        assert_eq!(current(&frames[2]), ["0", "1", "7"]);
     }
 }

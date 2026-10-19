@@ -4,6 +4,8 @@
 
 use std::ops::Range;
 
+use super::fade::Fade;
+use crate::color::Underline;
 use crate::config::SearchCase;
 use crate::render::style::{Line, Span, Style};
 use crate::term::Capabilities;
@@ -110,12 +112,13 @@ impl Search {
     }
 }
 
-/// How matches are shown: the style laid over a match's text, and over the
-/// current match's.
+/// How matches are shown: the style laid over a match's text, over the
+/// current match's, and over the current match's just after a jump to it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Marks {
     pub found: Style,
     pub current: Style,
+    pub strong: Style,
 }
 
 impl Marks {
@@ -137,20 +140,42 @@ impl Marks {
                 ..Style::default()
             },
         };
+        let current = Style {
+            bold: true,
+            ..style(search.current_foreground, search.current_background)
+        };
+        let strong = match (search.flash_foreground, search.flash_background) {
+            // Without colours, underlined.
+            _ if !caps.color => Style {
+                underline: Underline::Single,
+                ..current.clone()
+            },
+            (SearchColor::Auto, SearchColor::Auto) => current.clone(),
+            (foreground, background) => Style {
+                bold: true,
+                fg: color(foreground),
+                bg: color(background),
+                ..Style::default()
+            },
+        };
         Self {
             found: style(search.match_foreground, search.match_background),
-            current: Style {
-                bold: true,
-                ..style(search.current_foreground, search.current_background)
-            },
+            current,
+            strong,
         }
     }
 }
 
 /// `line` with the bytes of each of `matches` in its text, from left to
 /// right, styled with `marks`: as the current match where its flag is
-/// true. A span a match starts or ends in is split there.
-pub fn mark(line: &Line, matches: &[(Range<usize>, bool)], marks: &Marks) -> Line {
+/// true, faded from the strong mark while a `fade` is under way. A span a
+/// match starts or ends in is split there.
+pub fn mark(
+    line: &Line,
+    matches: &[(Range<usize>, bool)],
+    marks: &Marks,
+    fade: Option<Fade>,
+) -> Line {
     let mut spans = Vec::new();
     // Where the span starts in the line's text.
     let mut start = 0;
@@ -164,17 +189,16 @@ pub fn mark(line: &Line, matches: &[(Range<usize>, bool)], marks: &Marks) -> Lin
         for (bytes, current) in inside {
             let from = bytes.start.max(start);
             let to = bytes.end.min(end);
-            let mark = if *current {
-                &marks.current
-            } else {
-                &marks.found
+            let style = match (current, fade) {
+                (false, _) => laid_over(&span.style, &marks.found),
+                (true, None) => laid_over(&span.style, &marks.current),
+                (true, Some(fade)) => fade.step(
+                    &laid_over(&span.style, &marks.strong),
+                    &laid_over(&span.style, &marks.current),
+                ),
             };
             spans.push(piece(span, cut - start..from - start, span.style.clone()));
-            spans.push(piece(
-                span,
-                from - start..to - start,
-                laid_over(&span.style, mark),
-            ));
+            spans.push(piece(span, from - start..to - start, style));
             cut = to;
         }
         spans.push(piece(span, cut - start..end - start, span.style.clone()));
@@ -195,12 +219,16 @@ fn piece(span: &Span, bytes: Range<usize>, style: Style) -> Span {
     }
 }
 
-/// `style` with `mark` laid over it: its colours where it has them, and its
-/// bold and reverse video.
+/// `style` with `mark` laid over it: its colours where it has them, its
+/// underline where it has one, and its bold and reverse video.
 fn laid_over(style: &Style, mark: &Style) -> Style {
     Style {
         bold: style.bold || mark.bold,
         reverse: style.reverse || mark.reverse,
+        underline: match mark.underline {
+            Underline::None => style.underline,
+            underline => underline,
+        },
         fg: mark.fg.or(style.fg),
         bg: mark.bg.or(style.bg),
         ..style.clone()
@@ -460,6 +488,11 @@ mod tests {
                 bg: Some(Color::Palette(3)),
                 ..Style::default()
             },
+            strong: Style {
+                bold: true,
+                bg: Some(Color::Palette(1)),
+                ..Style::default()
+            },
         }
     }
 
@@ -473,7 +506,7 @@ mod tests {
             Span::new("a ki", Style::default()),
             Span::new("ri b", bold.clone()),
         ]);
-        let marked = mark(&source, &[(2..6, false)], &marks());
+        let marked = mark(&source, &[(2..6, false)], &marks(), None);
         let reverse = |style: &Style| Style {
             reverse: true,
             ..style.clone()
@@ -498,7 +531,7 @@ mod tests {
             ..Style::default()
         };
         let source = Line::new(vec![Span::new("kiri, kiri", link.clone())]);
-        let marked = mark(&source, &[(0..4, false), (6..10, true)], &marks());
+        let marked = mark(&source, &[(0..4, false), (6..10, true)], &marks(), None);
         assert_eq!(
             marked.spans,
             [
@@ -530,7 +563,7 @@ mod tests {
             scale: 2,
             ..Line::new(vec![Span::new("Ä kiri", Style::default())])
         };
-        let marked = mark(&source, &[(3..7, true)], &marks());
+        let marked = mark(&source, &[(3..7, true)], &marks(), None);
         assert_eq!(
             Line {
                 spans: Vec::new(),
@@ -543,12 +576,17 @@ mod tests {
         );
         let texts: Vec<&str> = marked.spans.iter().map(|span| span.text.as_str()).collect();
         assert_eq!(texts, ["Ä ", "kiri"]);
-        assert_eq!(mark(&line("kiri"), &[], &marks()), line("kiri"));
+        assert_eq!(mark(&line("kiri"), &[], &marks(), None), line("kiri"));
     }
 
     #[test]
     fn matches_are_in_reverse_video_and_the_current_one_bold_by_default() {
         let marks = Marks::new(&Theme::default(), &Capabilities::kitty(80));
+        let current = Style {
+            reverse: true,
+            bold: true,
+            ..Style::default()
+        };
         assert_eq!(
             marks,
             Marks {
@@ -556,17 +594,53 @@ mod tests {
                     reverse: true,
                     ..Style::default()
                 },
-                current: Style {
-                    reverse: true,
+                current: current.clone(),
+                strong: Style {
                     bold: true,
+                    fg: Some(Color::Palette(0)),
+                    bg: Some(Color::Palette(3)),
                     ..Style::default()
                 },
             }
         );
-        // Without colours, the paper themes' greys give way too.
+        // Without colours, the paper themes' greys give way too, and the
+        // strong mark is underlined.
         let mut caps = Capabilities::kitty(80);
         caps.color = false;
-        assert_eq!(Marks::new(&Theme::paper(Paper::Light), &caps), marks);
+        assert_eq!(
+            Marks::new(&Theme::paper(Paper::Light), &caps),
+            Marks {
+                strong: Style {
+                    underline: Underline::Single,
+                    ..current
+                },
+                ..marks
+            }
+        );
+    }
+
+    #[test]
+    fn the_current_match_fades_from_the_strong_mark() {
+        let source = Line::new(vec![Span::new("kiri", Style::default())]);
+        let at = |millis| {
+            let fade = Fade {
+                elapsed: std::time::Duration::from_millis(millis),
+                rgb: None,
+            };
+            mark(&source, &[(0..4, true)], &marks(), Some(fade)).spans[0]
+                .style
+                .bg
+        };
+        // Without colours known as RGB, a flash.
+        assert_eq!(at(0), Some(Color::Palette(1)));
+        assert_eq!(at(1000), Some(Color::Palette(3)));
+        // Other matches do not fade.
+        let fade = Fade {
+            elapsed: std::time::Duration::ZERO,
+            rgb: None,
+        };
+        let other = mark(&source, &[(0..4, false)], &marks(), Some(fade));
+        assert!(other.spans[0].style.reverse);
     }
 
     #[test]
