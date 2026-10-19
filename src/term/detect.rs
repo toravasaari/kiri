@@ -5,7 +5,8 @@ use std::ffi::OsStr;
 use std::fs::File;
 
 use super::window::{WindowSize, window_size};
-use super::{Capabilities, answers, probe};
+use super::{answers, probe};
+use crate::caps::Capabilities;
 use crate::config::Environment;
 use crate::kitty::graphics;
 

@@ -6,9 +6,10 @@ use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+use kiri::caps::Capabilities;
 use kiri::config::{Environment, Options, Origin, Setting, choose};
 use kiri::doctor::{Facts, report};
-use kiri::term::{Capabilities, Detection, Mode, WindowSize};
+use kiri::term::{Detection, Mode, WindowSize};
 
 mod common;
 

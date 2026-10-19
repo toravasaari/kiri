@@ -1,7 +1,7 @@
 //! Tables: borders, column widths and stacking.
 
+use kiri::caps::Capabilities;
 use kiri::render::Inputs;
-use kiri::term::Capabilities;
 
 mod common;
 

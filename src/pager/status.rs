@@ -6,10 +6,10 @@ use unicode_width::UnicodeWidthStr;
 
 use super::fade::{FLASH, Fade};
 use super::view::Position;
+use crate::caps::Capabilities;
 use crate::color::Color;
 use crate::render::style::{Span, Style};
 use crate::render::wrap;
-use crate::term::Capabilities;
 use crate::theme::{StatusColor, Theme};
 
 /// The styles of the status line, and the one the match number fades

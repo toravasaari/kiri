@@ -3,11 +3,11 @@
 mod common;
 
 use common::{WIDTH, visible};
+use kiri::caps::Capabilities;
 use kiri::images::Images;
 use kiri::pager::view::{Motion, View};
 use kiri::render::Inputs;
 use kiri::render::output::{Page, Writer};
-use kiri::term::Capabilities;
 
 /// The frame `kiri::pager::draw` writes for `source` in a window of `rows`
 /// rows, after `motions`.

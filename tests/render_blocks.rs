@@ -1,7 +1,7 @@
 //! Paragraphs, lists, quotes, code and the space between blocks.
 
+use kiri::caps::Capabilities;
 use kiri::render::Inputs;
-use kiri::term::Capabilities;
 use kiri::theme::Theme;
 
 mod common;

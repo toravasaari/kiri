@@ -12,8 +12,8 @@
 //! A browser then shows that size, enlarged if need be, and kiri does too;
 //! the text width still bounds it.
 
+use crate::caps::Capabilities;
 use crate::model::Length;
-use crate::term::Capabilities;
 
 /// The cell size assumed when the terminal does not report one.
 pub const DEFAULT_CELL: (u16, u16) = (10, 20);

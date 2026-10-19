@@ -6,13 +6,13 @@ use std::process::ExitCode;
 use clap::error::ErrorKind;
 use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, ValueEnum};
+use kiri::caps::Capabilities;
 use kiri::config::{Environment, Options, Origin, Setting, Settings};
 use kiri::doctor::{Facts, Output};
 use kiri::images::{Fonts, Format, Images};
 use kiri::input::Input;
 use kiri::model::Document;
 use kiri::render::Inputs;
-use kiri::term::Capabilities;
 use kiri::theme::{Paper, Theme};
 
 /// Render a Markdown document, or show an image, in the terminal.

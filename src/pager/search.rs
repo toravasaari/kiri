@@ -5,10 +5,10 @@
 use std::ops::Range;
 
 use super::fade::Fade;
+use crate::caps::Capabilities;
 use crate::color::Underline;
 use crate::config::SearchCase;
 use crate::render::style::{self, Line, Span, Style};
-use crate::term::Capabilities;
 use crate::theme::{SearchColor, Theme};
 
 /// Where a search term is.

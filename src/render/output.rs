@@ -10,11 +10,11 @@ use image::imageops;
 use super::image::{Placement, Size, cell_size};
 use super::style::{ImageRow, Line, Span, Style};
 use super::wrap::width;
+use crate::caps::Capabilities;
 use crate::color::{Color, Underline};
 use crate::images::{Images, Source};
 use crate::kitty;
 use crate::kitty::graphics;
-use crate::term::Capabilities;
 
 /// The colours of the page the document is drawn on. `None` leaves the
 /// terminal's own showing through.

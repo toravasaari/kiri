@@ -13,12 +13,13 @@ use std::io::{self, Write};
 use std::ops::Range;
 use std::time::{Duration, Instant};
 
+use crate::caps::Capabilities;
 use crate::config::{Paging, SearchCase};
 use crate::model::Document;
 use crate::render::Inputs;
 use crate::render::output::{self, Page, Writer};
 use crate::render::style::{Line, Span, Style};
-use crate::term::{Capabilities, Screen, WindowSize};
+use crate::term::{Screen, WindowSize};
 use fade::{FADE, Fade, Rgb};
 use help::Placed;
 use keys::{Action, Key};

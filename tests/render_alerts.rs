@@ -1,8 +1,8 @@
 //! GitHub alert blocks: `> [!NOTE]` and the other kinds.
 
+use kiri::caps::Capabilities;
 use kiri::color::Color;
 use kiri::render::Inputs;
-use kiri::term::Capabilities;
 use kiri::theme::{Paper, Theme};
 
 mod common;

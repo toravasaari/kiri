@@ -9,10 +9,10 @@ use std::process::{Command, Output, Stdio};
 
 use base64::Engine;
 use image::{Rgba, RgbaImage};
+use kiri::caps::Capabilities;
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, Images, Source};
 use kiri::kitty::graphics::{DIACRITICS, PLACEHOLDER};
 use kiri::render::Inputs;
-use kiri::term::Capabilities;
 use kiri::theme::Theme;
 
 pub const WIDTH: u16 = 48;

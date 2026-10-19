@@ -4,9 +4,9 @@
 
 use std::time::Duration;
 
+use crate::caps::Capabilities;
 use crate::color::Color;
 use crate::render::style::Style;
-use crate::term::Capabilities;
 use crate::theme::Theme;
 
 /// How long a fade takes.
