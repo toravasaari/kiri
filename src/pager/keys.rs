@@ -475,17 +475,23 @@ mod tests {
     }
 
     #[test]
-    fn the_help_names_a_key_of_every_action() {
+    fn the_help_names_keys_of_their_own_binding() {
         for binding in BINDINGS {
-            let first = binding.names.split(' ').next().unwrap();
-            let key = match first {
-                "↓" => Key::Down,
-                "↑" => Key::Up,
-                "Space" => Key::Char(' '),
-                "PgUp" => Key::PageUp,
-                name => Key::Char(name.chars().next().unwrap()),
-            };
-            assert_eq!(action(key), Some(binding.action), "{}", binding.names);
+            for name in binding.names.split(' ') {
+                let key = match name {
+                    "↓" => Key::Down,
+                    "↑" => Key::Up,
+                    "Enter" => Key::Enter,
+                    "Space" => Key::Char(' '),
+                    "PgDn" => Key::PageDown,
+                    "PgUp" => Key::PageUp,
+                    "Home" => Key::Home,
+                    "End" => Key::End,
+                    name if name.chars().count() == 1 => Key::Char(name.chars().next().unwrap()),
+                    name => panic!("unknown key name {name}"),
+                };
+                assert!(binding.keys.contains(&key), "{name} in {}", binding.names);
+            }
         }
         assert!(
             BINDINGS
