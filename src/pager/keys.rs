@@ -45,6 +45,11 @@ pub fn decode(input: &[u8]) -> Vec<Key> {
     keys
 }
 
+/// The most bytes kept for a sequence that a read cut off; a longer one is
+/// taken as it is, so that keys pressed after an answer that never ends
+/// are not lost for good.
+const PENDING: usize = 64;
+
 /// Keys from reads of the terminal, which may cut a key's sequence in
 /// two: the part at the end of one read waits for the rest in the next.
 #[derive(Debug, Default)]
@@ -60,7 +65,9 @@ impl Decoder {
         let mut keys = Vec::new();
         let mut rest = &bytes[..];
         while !rest.is_empty() {
-            let Some((key, length)) = key(rest) else {
+            let Some((key, length)) =
+                key(rest).or_else(|| (rest.len() > PENDING).then(|| cut_off(rest)))
+            else {
                 self.pending = rest.to_vec();
                 break;
             };
@@ -119,6 +126,8 @@ fn escape(input: &[u8]) -> Option<(Key, usize)> {
             let end = (0..body.len()).find_map(|i| match body[i..] {
                 [0x07, ..] => Some(i + 1),
                 [0x1b, b'\\', ..] => Some(i + 2),
+                // Another sequence starts: this one was cut off.
+                [0x1b, _, ..] => Some(i),
                 _ => None,
             })?;
             (Key::Other, end + 2)
@@ -371,6 +380,33 @@ mod tests {
         assert_eq!(decoder.keys(b"1e/1e1e"), []);
         assert_eq!(decoder.keys(b"/2e2e\x1b\\q"), [Key::Other, Key::Char('q')]);
         assert_eq!(decoder.flush(), []);
+    }
+
+    #[test]
+    fn a_new_sequence_ends_a_cut_off_answer() {
+        let mut decoder = Decoder::default();
+        assert_eq!(decoder.keys(b"\x1b]11;"), []);
+        assert_eq!(
+            decoder.keys(b"\x1b[Aq"),
+            [Key::Other, Key::Up, Key::Char('q')]
+        );
+    }
+
+    #[test]
+    fn a_cut_off_answer_waits_for_its_end_only_so_long() {
+        let mut decoder = Decoder::default();
+        assert_eq!(decoder.keys(b"\x1b]"), []);
+        let mut keys = Vec::new();
+        for _ in 0..PENDING {
+            keys.extend(decoder.keys(b"q"));
+        }
+        // The answer is given up, and the keys after it are keys again.
+        assert_eq!(keys.first(), Some(&Key::Other), "{keys:?}");
+        assert!(
+            keys[1..].iter().all(|&key| key == Key::Char('q')),
+            "{keys:?}"
+        );
+        assert_eq!(decoder.keys(b"j"), [Key::Char('j')]);
     }
 
     #[test]
