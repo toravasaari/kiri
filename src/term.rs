@@ -2,7 +2,9 @@
 
 use std::ffi::OsStr;
 use std::fs::File;
+use std::io::{self, BufWriter, Read, Stdout, Write};
 use std::os::fd::AsFd;
+use std::time::Duration;
 
 use rustix::termios::{OptionalActions, Termios, tcgetattr, tcsetattr};
 
@@ -334,31 +336,117 @@ pub fn window_size(fd: impl AsFd) -> Option<WindowSize> {
 /// Raw mode on a terminal until dropped, also when a panic unwinds: keys
 /// arrive one by one without echo, and Ctrl+C is a key rather than a
 /// signal.
-pub(crate) struct RawMode<'a> {
-    tty: &'a File,
+pub(crate) struct RawMode {
+    tty: File,
     original: Termios,
 }
 
-impl<'a> RawMode<'a> {
-    pub(crate) fn enter(tty: &'a File) -> Option<Self> {
+impl RawMode {
+    pub(crate) fn enter(tty: &File) -> Option<Self> {
         let original = tcgetattr(tty).ok()?;
         let mut raw = original.clone();
         raw.make_raw();
         tcsetattr(tty, OptionalActions::Now, &raw).ok()?;
+        let tty = tty.try_clone().ok()?;
         Some(Self { tty, original })
     }
 }
 
-impl Drop for RawMode<'_> {
+impl Drop for RawMode {
     fn drop(&mut self) {
         // Flush also discards input that arrived but was not read, such as
         // probe answers after the timeout, so they do not show up at the
         // shell prompt. Keys typed meanwhile go with them. Answers that
         // arrive later still can show up; nothing here can wait for a
         // terminal that may never answer.
-        let _ = tcsetattr(self.tty, OptionalActions::Flush, &self.original);
+        let _ = tcsetattr(&self.tty, OptionalActions::Flush, &self.original);
     }
 }
+
+/// The terminal while the pager shows a document: the alternate screen on
+/// the output, and the controlling terminal in raw mode for keys. Both end
+/// when it is dropped, also when a panic unwinds.
+pub struct Screen<W: Write> {
+    tty: File,
+    out: W,
+    _raw: RawMode,
+}
+
+impl Screen<BufWriter<Stdout>> {
+    /// The pager's screen on standard output, with keys from the
+    /// controlling terminal, so a piped document can be paged too. `None`
+    /// without a controlling terminal or in the background, where raw mode
+    /// would stop kiri until it is brought to the foreground.
+    pub fn open() -> Option<Self> {
+        let tty = probe::controlling_terminal()?;
+        if probe::runs_in_background(&tty) {
+            return None;
+        }
+        Self::on(tty, BufWriter::new(std::io::stdout()))
+    }
+}
+
+impl<W: Write> Screen<W> {
+    /// The pager's screen on `out`, with keys from `tty`.
+    fn on(tty: File, mut out: W) -> Option<Self> {
+        let raw = RawMode::enter(&tty)?;
+        out.write_all(ENTER_SCREEN).ok()?;
+        out.flush().ok()?;
+        Some(Self {
+            tty,
+            out,
+            _raw: raw,
+        })
+    }
+
+    /// The size of the window now.
+    pub fn size(&self) -> Option<WindowSize> {
+        window_size(&self.tty)
+    }
+
+    /// The bytes of the keys pressed, waiting at most `timeout` for the
+    /// first; empty when none came.
+    pub fn read(&mut self, timeout: Duration) -> io::Result<Vec<u8>> {
+        use rustix::event::{PollFd, PollFlags, Timespec, poll};
+
+        let timeout = Timespec {
+            tv_sec: timeout.as_secs() as i64,
+            tv_nsec: i64::from(timeout.subsec_nanos()),
+        };
+        let mut fds = [PollFd::new(&self.tty, PollFlags::IN)];
+        match poll(&mut fds, Some(&timeout)) {
+            Ok(0) | Err(rustix::io::Errno::INTR) => return Ok(Vec::new()),
+            Ok(_) => {}
+            Err(error) => return Err(error.into()),
+        }
+        let mut buffer = [0; 1024];
+        let read = self.tty.read(&mut buffer)?;
+        Ok(buffer[..read].to_vec())
+    }
+}
+
+impl<W: Write> Write for Screen<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.out.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.out.flush()
+    }
+}
+
+impl<W: Write> Drop for Screen<W> {
+    fn drop(&mut self) {
+        // Raw mode ends after this, when the fields are dropped.
+        let _ = self.out.write_all(LEAVE_SCREEN);
+        let _ = self.out.flush();
+    }
+}
+
+/// The alternate screen, with the cursor hidden.
+const ENTER_SCREEN: &[u8] = b"\x1b[?1049h\x1b[?25l";
+/// Back to the main screen as it was, with the cursor shown.
+const LEAVE_SCREEN: &[u8] = b"\x1b[?25h\x1b[?1049l";
 
 /// Terminals known to support OSC 8 that cannot be recognised by a probe.
 fn hyperlinks_by_environment(env: &Environment) -> bool {
@@ -700,6 +788,85 @@ mod tests {
             assert_eq!(poll(&mut fds, Some(&timeout)).unwrap(), 1);
         }
         assert_eq!(rustix::io::ioctl_fionread(&tty).unwrap(), 0);
+    }
+
+    /// A screen on a pseudo-terminal, writing to memory, and the
+    /// terminal's side of the pseudo-terminal.
+    fn screen() -> (Screen<Vec<u8>>, File, File) {
+        let (terminal, tty) = pty();
+        let probe = tty.try_clone().unwrap();
+        let screen = Screen::on(tty, Vec::new()).expect("the screen opens");
+        (screen, terminal, probe)
+    }
+
+    #[test]
+    fn the_screen_is_the_alternate_screen_in_raw_mode() {
+        use rustix::termios::LocalModes;
+
+        let (screen, _terminal, tty) = screen();
+        assert_eq!(screen.out, b"\x1b[?1049h\x1b[?25l");
+        let modes = tcgetattr(&tty).unwrap().local_modes;
+        assert!(!modes.contains(LocalModes::ICANON));
+    }
+
+    #[test]
+    fn the_screen_ends_when_a_panic_unwinds() {
+        use std::sync::{Arc, Mutex};
+
+        /// Output that outlives the screen.
+        #[derive(Clone)]
+        struct Shared(Arc<Mutex<Vec<u8>>>);
+        impl Write for Shared {
+            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let (_terminal, tty) = pty();
+        let original = tcgetattr(&tty).unwrap();
+        let out = Shared(Arc::new(Mutex::new(Vec::new())));
+        let result = std::panic::catch_unwind({
+            let tty = tty.try_clone().unwrap();
+            let out = out.clone();
+            move || {
+                let _screen = Screen::on(tty, out).expect("the screen opens");
+                panic!("the pager fails");
+            }
+        });
+        assert!(result.is_err());
+        let written = out.0.lock().unwrap().clone();
+        assert!(written.ends_with(b"\x1b[?25h\x1b[?1049l"), "{written:?}");
+        let restored = tcgetattr(&tty).unwrap();
+        assert_eq!(restored.local_modes, original.local_modes);
+    }
+
+    #[test]
+    fn the_screen_reads_the_keys_pressed() {
+        use std::io::Write;
+
+        let (mut screen, mut terminal, _tty) = screen();
+        terminal.write_all(b"j\x1b[B").unwrap();
+        let keys = screen.read(Duration::from_secs(5)).unwrap();
+        assert_eq!(keys, b"j\x1b[B");
+    }
+
+    #[test]
+    fn the_screen_reads_nothing_when_no_key_comes() {
+        let (mut screen, _terminal, _tty) = screen();
+        let keys = screen.read(Duration::from_millis(10)).unwrap();
+        assert!(keys.is_empty());
+    }
+
+    #[test]
+    fn the_screen_tells_the_window_size() {
+        let (screen, _terminal, tty) = screen();
+        rustix::termios::tcsetwinsize(&tty, size(100, 30, 1000, 600)).unwrap();
+        let window = screen.size().expect("a pseudo-terminal has a size");
+        assert_eq!((window.columns, window.rows), (100, 30));
     }
 
     #[test]
