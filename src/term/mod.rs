@@ -17,6 +17,7 @@ use crate::color::Color;
 use crate::config::Environment;
 use crate::kitty::graphics;
 
+mod answers;
 mod probe;
 
 /// Terminal features the renderer may use. Built once at start-up and passed
@@ -159,7 +160,7 @@ impl Detection {
     /// `kitty(0.47.1)`.
     pub fn terminal(&self) -> Option<String> {
         let answers = String::from_utf8_lossy(self.answers.as_deref()?);
-        probe::version(&answers).map(str::to_owned)
+        answers::version(&answers).map(str::to_owned)
     }
 
     /// Where the cell size in `caps` comes from.
@@ -231,7 +232,7 @@ fn detect(
             let caps = with_window(caps, window);
             answers = ask(caps.cell_pixels.is_none());
             match &answers {
-                Some(answers) => with_probe(caps, &probe::interpret(answers)),
+                Some(answers) => with_probe(caps, &answers::interpret(answers)),
                 None => caps,
             }
         }
@@ -261,7 +262,7 @@ fn with_environment(mut caps: Capabilities, env: &Environment) -> Capabilities {
 }
 
 /// `caps` with what the terminal's answers to the probe tell.
-fn with_probe(mut caps: Capabilities, probe: &probe::Probe) -> Capabilities {
+fn with_probe(mut caps: Capabilities, probe: &answers::Probe) -> Capabilities {
     caps.text_sizing = probe.text_sizing;
     caps.graphics = probe.graphics;
     caps.max_image_cells = if probe.image_placeholders {
@@ -605,7 +606,7 @@ mod tests {
         let answers = "\x1b[5;1R\x1b[5;3R\x1b[5;5R\x1b_Gi=31;OK\x1b\\\x1b[?62;c";
         let caps = with_probe(
             Capabilities::ansi(80),
-            &probe::interpret(answers.as_bytes()),
+            &answers::interpret(answers.as_bytes()),
         );
         assert!(caps.draws_images());
         assert_eq!(caps.max_image_cells, graphics::MAX_CELLS);
@@ -614,9 +615,9 @@ mod tests {
 
     #[test]
     fn the_probe_tells_the_cell_size_only_when_the_window_does_not() {
-        let probe = probe::Probe {
+        let probe = answers::Probe {
             cell_pixels: Some((9, 19)),
-            ..probe::Probe::default()
+            ..answers::Probe::default()
         };
         let caps = with_probe(Capabilities::ansi(80), &probe);
         assert_eq!(caps.cell_pixels, Some((9, 19)));
@@ -625,7 +626,7 @@ mod tests {
             ..Capabilities::ansi(80)
         };
         assert_eq!(with_probe(window, &probe).cell_pixels, Some((10, 20)));
-        let caps = with_probe(Capabilities::ansi(80), &probe::Probe::default());
+        let caps = with_probe(Capabilities::ansi(80), &answers::Probe::default());
         assert_eq!(caps.cell_pixels, None);
     }
 
@@ -635,7 +636,7 @@ mod tests {
                        \x1bP>|kitty(0.28.0)\x1b\\\x1b[?62;c";
         let caps = with_probe(
             Capabilities::ansi(80),
-            &probe::interpret(answers.as_bytes()),
+            &answers::interpret(answers.as_bytes()),
         );
         assert!(caps.draws_images());
         assert!(!caps.text_sizing);
@@ -647,7 +648,7 @@ mod tests {
         let answers = "\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1b_Gi=31;OK\x1b\\\x1b[?62;c";
         let caps = with_probe(
             Capabilities::ansi(80),
-            &probe::interpret(answers.as_bytes()),
+            &answers::interpret(answers.as_bytes()),
         );
         assert!(caps.graphics);
         assert!(!caps.draws_images());
