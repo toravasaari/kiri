@@ -72,14 +72,32 @@ pub struct StatusLineTheme {
     pub badge_foreground: StatusColor,
 }
 
-/// The colours of the search matches in the pager: every match shown, and
-/// the one the reader is at.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// The colours of the search matches in the pager: every match shown, the
+/// one the reader is at, and the strong colours it fades from after a jump
+/// to it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SearchTheme {
     pub match_foreground: SearchColor,
     pub match_background: SearchColor,
     pub current_foreground: SearchColor,
     pub current_background: SearchColor,
+    pub flash_foreground: SearchColor,
+    pub flash_background: SearchColor,
+}
+
+impl Default for SearchTheme {
+    fn default() -> Self {
+        Self {
+            match_foreground: SearchColor::Auto,
+            match_background: SearchColor::Auto,
+            current_foreground: SearchColor::Auto,
+            current_background: SearchColor::Auto,
+            // Black on yellow, which the palettes of most terminals keep
+            // a yellow, where bright yellow may be a grey.
+            flash_foreground: SearchColor::Color(Some(Color::Palette(0))),
+            flash_background: SearchColor::Color(Some(Color::Palette(3))),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -309,12 +327,17 @@ struct PaperColors {
     /// Search matches in the pager and the text on them.
     found: Option<Color>,
     found_text: Option<Color>,
+    /// The current match just after a jump to it, and the text on it.
+    flash: Option<Color>,
+    flash_text: Option<Color>,
 }
 
 impl Theme {
-    /// A light or dark page in greys, with colour only in code blocks.
+    /// A light or dark page in greys, with colour only in code blocks and
+    /// in the moment after a jump to a search match.
     pub fn paper(paper: Paper) -> Self {
         let grey = |level: u8| Some(Color::Rgb(level, level, level));
+        const YELLOW: Option<Color> = Some(Color::Rgb(0xff, 0xd0, 0));
         let colors = match paper {
             Paper::Light => PaperColors {
                 background: grey(0xff),
@@ -331,6 +354,8 @@ impl Theme {
                 status_text: grey(0x1f),
                 found: grey(0xcc),
                 found_text: grey(0x00),
+                flash: YELLOW,
+                flash_text: grey(0x00),
             },
             Paper::Dark => PaperColors {
                 background: grey(0x1e),
@@ -347,6 +372,8 @@ impl Theme {
                 status_text: grey(0xe0),
                 found: grey(0x60),
                 found_text: grey(0xff),
+                flash: YELLOW,
+                flash_text: grey(0x1e),
             },
         };
         let mut theme = Self {
@@ -376,6 +403,8 @@ impl Theme {
                 match_background: SearchColor::Color(colors.found),
                 current_foreground: SearchColor::Color(colors.background),
                 current_background: SearchColor::Color(colors.text),
+                flash_foreground: SearchColor::Color(colors.flash_text),
+                flash_background: SearchColor::Color(colors.flash),
             },
             ..Self::default()
         };
@@ -537,6 +566,8 @@ pub fn parse(text: &str) -> Result<Theme, String> {
             (&mut target.match_background, search.match_background),
             (&mut target.current_foreground, search.current_foreground),
             (&mut target.current_background, search.current_background),
+            (&mut target.flash_foreground, search.flash_foreground),
+            (&mut target.flash_background, search.flash_background),
         ] {
             if let Some(value) = value {
                 *target = match value.as_str() {
@@ -664,6 +695,8 @@ struct SearchFile {
     match_background: Option<String>,
     current_foreground: Option<String>,
     current_background: Option<String>,
+    flash_foreground: Option<String>,
+    flash_background: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -816,7 +849,8 @@ mod tests {
     fn search_matches_take_colours_none_and_auto() {
         let theme = parse(
             "[search]\nmatch_foreground = \"#101010\"\nmatch_background = \"none\"\n\
-             current_foreground = \"auto\"\ncurrent_background = \"yellow\"\n",
+             current_foreground = \"auto\"\ncurrent_background = \"yellow\"\n\
+             flash_foreground = \"auto\"\nflash_background = \"bright-red\"\n",
         )
         .unwrap();
         assert_eq!(
@@ -826,6 +860,8 @@ mod tests {
                 match_background: SearchColor::Color(None),
                 current_foreground: SearchColor::Auto,
                 current_background: SearchColor::Color(Some(Color::Palette(3))),
+                flash_foreground: SearchColor::Auto,
+                flash_background: SearchColor::Color(Some(Color::Palette(9))),
             }
         );
         assert!(parse("[search]\nbackground = \"red\"\n").is_err());
@@ -855,6 +891,27 @@ mod tests {
         );
         let plain = Theme::paper(Paper::Dark).without_colors().search;
         assert_eq!(plain, SearchTheme::default());
+    }
+
+    #[test]
+    fn a_jump_to_a_match_flashes_black_on_yellow_and_in_yellow_on_paper() {
+        let palette = |index| SearchColor::Color(Some(Color::Palette(index)));
+        let search = Theme::default().search;
+        assert_eq!(
+            [search.flash_foreground, search.flash_background],
+            [palette(0), palette(3)]
+        );
+        let rgb = |r, g, b| SearchColor::Color(Some(Color::Rgb(r, g, b)));
+        let light = Theme::paper(Paper::Light).search;
+        assert_eq!(
+            [light.flash_foreground, light.flash_background],
+            [rgb(0, 0, 0), rgb(0xff, 0xd0, 0)]
+        );
+        let dark = Theme::paper(Paper::Dark).search;
+        assert_eq!(
+            [dark.flash_foreground, dark.flash_background],
+            [rgb(0x1e, 0x1e, 0x1e), rgb(0xff, 0xd0, 0)]
+        );
     }
 
     #[test]

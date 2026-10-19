@@ -194,6 +194,16 @@ match_foreground = "auto"
 match_background = "auto"
 current_foreground = "auto"
 current_background = "auto"
+# After each jump to a match, the current match is in the flash colours,
+# which fade to its own in about a second and a half; so does the match
+# number on the status line when the search goes around an end. The fade
+# needs both ends as RGB, from the theme or from the colours the terminal
+# tells; without them, the flash colours stay for a second and then go.
+# A colour, none for the text's own, or auto for the current match's.
+# Without colours, as with NO_COLOR, the current match is underlined
+# instead for that second.
+flash_foreground = "black"
+flash_background = "yellow"
 ```
 
 ## Paper themes
@@ -202,7 +212,8 @@ current_background = "auto"
 page of fixed colours, as a browser does, whatever your terminal's colour
 scheme. The page is in greys only: headings, links, quotes, rules, tables
 and inline code differ in shade, weight and underline, not in colour. Code
-blocks keep their colours, from a code theme that matches the page. Muted
+blocks keep their colours, from a code theme that matches the page, and a
+jump to a search match flashes yellow. Muted
 text, such as image alt text, is a grey that keeps a contrast of at least
 4.5:1 against the page, instead of the terminal's dim text.
 
@@ -242,6 +253,8 @@ match_foreground = "#000000"
 match_background = "#cccccc"
 current_foreground = "#ffffff"
 current_background = "#1f1f1f"
+flash_foreground = "#000000"
+flash_background = "#ffd000"
 ```
 
 ### Dark paper
@@ -277,6 +290,8 @@ match_foreground = "#ffffff"
 match_background = "#606060"
 current_foreground = "#1e1e1e"
 current_background = "#d4d4d4"
+flash_foreground = "#1e1e1e"
+flash_background = "#ffd000"
 ```
 
 The [example themes](../examples/themes/README.md) try out variations of the
