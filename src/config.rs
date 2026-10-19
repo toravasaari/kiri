@@ -24,6 +24,8 @@ pub struct Environment {
     pub kiri_theme: Option<OsString>,
     /// `KIRI_NO_IMAGES`: images off unless empty or `0`.
     pub kiri_no_images: Option<OsString>,
+    /// `KIRI_PAGING`: `always`, `auto` or `never`, or `1` or `0`.
+    pub kiri_paging: Option<OsString>,
     /// `NO_COLOR`: colours off unless empty.
     pub no_color: Option<OsString>,
     /// `COLORTERM`: 24-bit colour when `truecolor` or `24bit`.
@@ -46,6 +48,7 @@ impl Environment {
             kiri_config: std::env::var_os("KIRI_CONFIG"),
             kiri_theme: std::env::var_os("KIRI_THEME"),
             kiri_no_images: std::env::var_os("KIRI_NO_IMAGES"),
+            kiri_paging: std::env::var_os("KIRI_PAGING"),
             no_color: std::env::var_os("NO_COLOR"),
             colorterm: std::env::var_os("COLORTERM"),
             term: std::env::var_os("TERM"),
@@ -88,6 +91,21 @@ pub struct Config {
     pub theme: Option<PathBuf>,
     /// Whether images are shown, or only their alt text.
     pub images: Option<bool>,
+    /// When the document is shown in the pager.
+    pub paging: Option<Paging>,
+}
+
+/// When the document is shown in the pager rather than printed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Paging {
+    /// Always, even in a pipe.
+    Always,
+    /// When the output is a terminal and the document is longer than the
+    /// window.
+    Auto,
+    /// Never: the document is printed.
+    Never,
 }
 
 /// Where the configuration file is.
@@ -154,6 +172,7 @@ pub fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String
     Ok(Config {
         theme,
         images: file.images,
+        paging: file.paging,
     })
 }
 
@@ -162,6 +181,7 @@ pub fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String
 struct ConfigToml {
     theme: Option<PathBuf>,
     images: Option<bool>,
+    paging: Option<Paging>,
 }
 
 /// Where a setting comes from.
@@ -258,6 +278,51 @@ pub fn images(option: Option<bool>, env: &Environment, config: &Config) -> Setti
     }
 }
 
+/// When the document is paged and where that comes from, strongest
+/// first: the command line (`option`, from `--paging`, `-p` or `-P`), then
+/// `KIRI_PAGING`, then the configuration file; `auto` unless one says
+/// otherwise. `KIRI_PAGING` takes `always`, `auto` and `never`, `1` for
+/// `always` and `0` for `never`; empty is unset. Any other value is left
+/// out with the warning returned beside the setting.
+pub fn paging(
+    option: Option<Setting<Paging>>,
+    env: &Environment,
+    config: &Config,
+) -> (Setting<Paging>, Option<String>) {
+    if let Some(setting) = option {
+        return (setting, None);
+    }
+    let variable = env.kiri_paging.as_ref().filter(|value| !value.is_empty());
+    let mut warning = None;
+    if let Some(value) = variable {
+        let paging = match value.to_str() {
+            Some("always" | "1") => Some(Paging::Always),
+            Some("auto") => Some(Paging::Auto),
+            Some("never" | "0") => Some(Paging::Never),
+            _ => None,
+        };
+        match paging {
+            Some(paging) => {
+                return (
+                    Setting::new(paging, Origin::Environment("KIRI_PAGING")),
+                    None,
+                );
+            }
+            None => {
+                warning = Some(format!(
+                    "KIRI_PAGING: `{}` is not always, auto, never, 1 or 0; left out",
+                    value.to_string_lossy()
+                ))
+            }
+        }
+    }
+    let setting = match config.paging {
+        Some(paging) => Setting::new(paging, Origin::File),
+        None => Setting::new(Paging::Auto, Origin::Default),
+    };
+    (setting, warning)
+}
+
 /// What the command line asks for; `None` where it leaves the choice to
 /// the environment and the configuration file.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -270,6 +335,8 @@ pub struct Options {
     pub no_margins: bool,
     /// `--images` or `--no-images`.
     pub images: Option<bool>,
+    /// `--paging`, `-p` or `-P`, with the flag it came from.
+    pub paging: Option<Setting<Paging>>,
 }
 
 /// What the options, the environment and the configuration file choose
@@ -283,6 +350,8 @@ pub struct Settings {
     pub paper: Option<Paper>,
     /// Whether images are shown.
     pub images: bool,
+    /// When the document is paged.
+    pub paging: Paging,
 }
 
 /// What the options, the environment and the configuration file choose,
@@ -296,6 +365,10 @@ pub struct Choices {
     pub margins: Setting<bool>,
     /// Whether images are shown.
     pub images: Setting<bool>,
+    /// When the document is paged.
+    pub paging: Setting<Paging>,
+    /// What the user should know about settings that were left out.
+    pub warnings: Vec<String>,
 }
 
 impl Choices {
@@ -310,12 +383,14 @@ impl Choices {
             },
             paper: self.paper,
             images: self.images.value,
+            paging: self.paging.value,
         }
     }
 }
 
 /// What `options`, `env` and `config` choose.
 pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices {
+    let (paging, warning) = paging(options.paging.clone(), env, config);
     Choices {
         theme: theme_source(options.theme.as_deref(), options.paper, env, config),
         paper: options.paper,
@@ -324,6 +399,8 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
             false => Setting::new(true, Origin::Default),
         },
         images: images(options.images, env, config),
+        paging,
+        warnings: warning.into_iter().collect(),
     }
 }
 
@@ -670,6 +747,107 @@ mod tests {
         assert!(!images(None, &no_images_env(""), &with_images(false)).value);
         assert!(!images(None, &Environment::default(), &with_images(false)).value);
         assert!(images(None, &Environment::default(), &with_images(true)).value);
+    }
+
+    #[test]
+    fn the_paging_key_takes_always_auto_or_never() {
+        let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
+        for (text, paging) in [
+            ("paging = \"always\"\n", Paging::Always),
+            ("paging = \"auto\"\n", Paging::Auto),
+            ("paging = \"never\"\n", Paging::Never),
+        ] {
+            assert_eq!(parsed(text).unwrap().paging, Some(paging), "{text}");
+        }
+        assert!(parsed("paging = \"sometimes\"\n").is_err());
+        assert!(parsed("paging = true\n").is_err());
+    }
+
+    fn with_paging(paging: Paging) -> Config {
+        Config {
+            paging: Some(paging),
+            ..Config::default()
+        }
+    }
+
+    fn paging_env(value: &str) -> Environment {
+        Environment {
+            kiri_paging: Some(value.into()),
+            ..Environment::default()
+        }
+    }
+
+    fn flag(paging: Paging, flag: &'static str) -> Option<Setting<Paging>> {
+        Some(Setting::new(paging, Origin::Flag(flag)))
+    }
+
+    #[test]
+    fn paging_is_auto_by_default() {
+        let (chosen, warning) = paging(None, &Environment::default(), &Config::default());
+        assert_eq!(chosen, Setting::new(Paging::Auto, Origin::Default));
+        assert_eq!(warning, None);
+    }
+
+    #[test]
+    fn the_command_line_paging_is_strongest() {
+        let (chosen, _) = paging(
+            flag(Paging::Never, "-P"),
+            &paging_env("always"),
+            &with_paging(Paging::Always),
+        );
+        assert_eq!(chosen, Setting::new(Paging::Never, Origin::Flag("-P")));
+    }
+
+    #[test]
+    fn kiri_paging_comes_before_the_configuration_file() {
+        for (value, expected) in [
+            ("always", Paging::Always),
+            ("auto", Paging::Auto),
+            ("never", Paging::Never),
+            ("1", Paging::Always),
+            ("0", Paging::Never),
+        ] {
+            let (chosen, warning) = paging(None, &paging_env(value), &with_paging(Paging::Auto));
+            let origin = Origin::Environment("KIRI_PAGING");
+            assert_eq!(chosen, Setting::new(expected, origin), "{value}");
+            assert_eq!(warning, None, "{value}");
+        }
+    }
+
+    #[test]
+    fn an_empty_kiri_paging_leaves_it_to_the_configuration_file() {
+        let (chosen, warning) = paging(None, &paging_env(""), &with_paging(Paging::Never));
+        assert_eq!(chosen, Setting::new(Paging::Never, Origin::File));
+        assert_eq!(warning, None);
+    }
+
+    #[test]
+    fn an_unknown_kiri_paging_is_left_out_with_a_warning() {
+        let (chosen, warning) = paging(None, &paging_env("joo"), &with_paging(Paging::Never));
+        assert_eq!(chosen, Setting::new(Paging::Never, Origin::File));
+        assert_eq!(
+            warning.as_deref(),
+            Some("KIRI_PAGING: `joo` is not always, auto, never, 1 or 0; left out")
+        );
+        let (chosen, _) = paging(None, &paging_env("joo"), &Config::default());
+        assert_eq!(chosen, Setting::new(Paging::Auto, Origin::Default));
+    }
+
+    #[test]
+    fn the_choices_carry_the_paging_and_its_warning() {
+        let options = Options {
+            paging: flag(Paging::Always, "-p"),
+            ..Options::default()
+        };
+        let choices = choose(&options, &paging_env("joo"), &Config::default());
+        assert_eq!(
+            choices.paging,
+            Setting::new(Paging::Always, Origin::Flag("-p"))
+        );
+        assert!(choices.warnings.is_empty(), "{:?}", choices.warnings);
+        let choices = choose(&Options::default(), &paging_env("joo"), &Config::default());
+        assert_eq!(choices.warnings.len(), 1);
+        assert_eq!(choices.with_theme(Theme::default()).paging, Paging::Auto);
     }
 
     fn no_options() -> Options {

@@ -79,6 +79,19 @@ struct Cli {
     #[arg(long, conflicts_with = "no_images")]
     images: bool,
 
+    /// When to show the document in the pager: always, auto (when it is
+    /// longer than the window and the output is a terminal) or never.
+    #[arg(long, value_enum, value_name = "WHEN", conflicts_with_all = ["pager", "no_pager"])]
+    paging: Option<Paging>,
+
+    /// Show the document in the pager: --paging=always.
+    #[arg(short = 'p', conflicts_with = "no_pager")]
+    pager: bool,
+
+    /// Print the document without the pager: --paging=never.
+    #[arg(short = 'P')]
+    no_pager: bool,
+
     /// Largest image file to read, in megabytes (at most 100); larger
     /// images show their alt text.
     #[arg(long, value_name = "MB", default_value_t = 10, value_parser = max_image_size)]
@@ -120,6 +133,24 @@ impl From<Mode> for kiri::term::Mode {
             Mode::Plain => Self::Plain,
             Mode::Ansi => Self::Ansi,
             Mode::Kitty => Self::Kitty,
+        }
+    }
+}
+
+/// `config::Paging` for clap.
+#[derive(Clone, Copy, ValueEnum)]
+enum Paging {
+    Always,
+    Auto,
+    Never,
+}
+
+impl From<Paging> for kiri::config::Paging {
+    fn from(paging: Paging) -> Self {
+        match paging {
+            Paging::Always => Self::Always,
+            Paging::Auto => Self::Auto,
+            Paging::Never => Self::Never,
         }
     }
 }
@@ -203,7 +234,11 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), String> {
         ),
     })?;
     let config = kiri::config::load(&env)?;
-    let settings = kiri::config::settings(&options(cli), &env, &config)?;
+    let choices = kiri::config::choose(&options(cli), &env, &config);
+    for warning in &choices.warnings {
+        eprintln!("kiri: {warning}");
+    }
+    let settings = choices.with_theme(kiri::config::load_theme(&choices.theme.value)?);
     let caps = kiri::term::capabilities(cli.mode.into(), cli.width, &env);
     let document = kiri::parse::parse(&source);
     // Images in a piped document are relative to the current directory.
@@ -358,6 +393,12 @@ fn options(cli: &Cli) -> Options {
         images: match (cli.images, cli.no_images) {
             (true, _) => Some(true),
             (_, true) => Some(false),
+            _ => None,
+        },
+        paging: match (cli.paging, cli.pager, cli.no_pager) {
+            (Some(paging), _, _) => Some(Setting::new(paging.into(), Origin::Flag("--paging"))),
+            (_, true, _) => Some(Setting::new(Paging::Always.into(), Origin::Flag("-p"))),
+            (_, _, true) => Some(Setting::new(Paging::Never.into(), Origin::Flag("-P"))),
             _ => None,
         },
     }
