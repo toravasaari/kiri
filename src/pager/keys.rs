@@ -11,6 +11,8 @@ pub enum Key {
     Ctrl(char),
     Enter,
     Escape,
+    /// Backspace, which terminals send as DEL or as Ctrl+H.
+    Backspace,
     Up,
     Down,
     PageUp,
@@ -27,6 +29,14 @@ pub enum Key {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Move(Motion),
+    /// Opens the search prompt.
+    Search,
+    /// Moves to the next match of the last search.
+    Next,
+    /// Moves to the previous match of the last search.
+    Previous,
+    /// Stops showing the last search, which `n` takes up again.
+    Clear,
     Help,
     Quit,
 }
@@ -90,8 +100,9 @@ fn key(input: &[u8]) -> Option<(Key, usize)> {
     match byte {
         0x1b => escape(input),
         b'\r' | b'\n' => Some((Key::Enter, 1)),
+        0x7f | 0x08 => Some((Key::Backspace, 1)),
         0x01..=0x1a => Some((Key::Ctrl(char::from(byte - 1 + b'a')), 1)),
-        0x00..=0x1f | 0x7f => Some((Key::Other, 1)),
+        0x00..=0x1f => Some((Key::Other, 1)),
         _ => character(input),
     }
 }
@@ -253,6 +264,30 @@ pub const BINDINGS: &[Binding] = {
             action: Action::Move(End),
         },
         Binding {
+            keys: &[Char('/')],
+            names: "/",
+            what: "search",
+            action: Action::Search,
+        },
+        Binding {
+            keys: &[Char('n')],
+            names: "n",
+            what: "next match",
+            action: Action::Next,
+        },
+        Binding {
+            keys: &[Char('N')],
+            names: "N",
+            what: "previous match",
+            action: Action::Previous,
+        },
+        Binding {
+            keys: &[Key::Escape],
+            names: "Esc",
+            what: "hide the search",
+            action: Action::Clear,
+        },
+        Binding {
             keys: &[Char('?'), Char('h')],
             names: "? h",
             what: "this help",
@@ -282,16 +317,22 @@ mod tests {
     #[test]
     fn decodes_characters_and_control_keys() {
         assert_eq!(
-            decode("jä\r\n\x06\x7f".as_bytes()),
+            decode("jä\r\n\x06\x01".as_bytes()),
             [
                 Key::Char('j'),
                 Key::Char('ä'),
                 Key::Enter,
                 Key::Enter,
                 Key::Ctrl('f'),
-                Key::Other,
+                Key::Ctrl('a'),
             ]
         );
+        assert_eq!(decode(b"\x00\x1f"), [Key::Other, Key::Other]);
+    }
+
+    #[test]
+    fn decodes_backspace_in_both_forms() {
+        assert_eq!(decode(b"\x7f\x08"), [Key::Backspace, Key::Backspace]);
     }
 
     #[test]
@@ -482,6 +523,7 @@ mod tests {
                     "↓" => Key::Down,
                     "↑" => Key::Up,
                     "Enter" => Key::Enter,
+                    "Esc" => Key::Escape,
                     "Space" => Key::Char(' '),
                     "PgDn" => Key::PageDown,
                     "PgUp" => Key::PageUp,
@@ -506,6 +548,14 @@ mod tests {
     }
 
     #[test]
+    fn a_slash_searches_and_n_moves_between_matches() {
+        assert_eq!(action(Key::Char('/')), Some(Action::Search));
+        assert_eq!(action(Key::Char('n')), Some(Action::Next));
+        assert_eq!(action(Key::Char('N')), Some(Action::Previous));
+        assert_eq!(action(Key::Escape), Some(Action::Clear));
+    }
+
+    #[test]
     fn q_and_ctrl_c_quit() {
         for key in [Key::Char('q'), Key::Char('Q'), Key::Ctrl('c')] {
             assert_eq!(action(key), Some(Action::Quit), "{key:?}");
@@ -514,7 +564,7 @@ mod tests {
 
     #[test]
     fn other_keys_do_nothing() {
-        for key in [Key::Char('x'), Key::Escape, Key::Other, Key::Ctrl('z')] {
+        for key in [Key::Char('x'), Key::Other, Key::Ctrl('z')] {
             assert_eq!(action(key), None, "{key:?}");
         }
     }

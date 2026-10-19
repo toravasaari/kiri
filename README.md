@@ -5,8 +5,8 @@ terminal the way a browser would: headings in a genuinely larger font,
 images, formulas and diagrams drawn inline, and links you can click. It works
 like `kitten icat`, but for documents. Other document formats may follow.
 
-> **Status:** early development. Print mode and images work; formulas,
-> diagrams and the interactive pager are still to come. See the
+> **Status:** early development. Print mode, images and the interactive
+> pager work; formulas and diagrams are still to come. See the
 > [roadmap](docs/roadmap.md).
 
 ## Why
@@ -111,7 +111,16 @@ the arrow keys for a line, space and `b` for a page, `d` and `u` for half a
 page, `g` and `G` for the start and the end, and `q` to quit; `?` or `h`
 lists them. The mouse wheel scrolls too. Large headings scroll in and out
 whole. A status line at the bottom shows the document's name and how far
-down it you are. Search and link navigation are planned.
+down it you are.
+
+`/` searches the document for plain text, and `n` and `N` move to the next
+and the previous match; Escape hides the highlight. A term in lower case
+matches either case, and one with an upper-case letter matches exactly,
+unless `search_case = "literal"` in the
+[configuration file](docs/config.md#search-case) makes every search exact.
+The search looks at the lines as they are laid out, so a phrase broken
+over two lines is not found, and neither is the alt text of an image that
+is shown. Link navigation is planned.
 
 ## Documentation
 

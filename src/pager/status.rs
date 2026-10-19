@@ -4,17 +4,20 @@
 
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+use super::fade::{FLASH, Fade};
 use super::view::Position;
 use crate::color::Color;
 use crate::render::style::{Span, Style};
 use crate::term::Capabilities;
 use crate::theme::{StatusColor, Theme};
 
-/// The styles of the status line.
+/// The styles of the status line, and the one the match number fades
+/// into after a search went around an end of the document.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Styles {
     pub bar: Style,
     pub badge: Style,
+    pub inverse: Style,
 }
 
 impl Styles {
@@ -23,53 +26,81 @@ impl Styles {
     /// the badge in reverse video; when the page's colour is not known
     /// either, the bar is in reverse video and the badge in bold.
     pub fn new(theme: &Theme, caps: &Capabilities) -> Self {
-        let status = &theme.status_line;
-        let bar = match status.background {
-            _ if !caps.color => None,
-            StatusColor::Color(color) => Some(color),
-            StatusColor::Auto => mixed(theme, caps).map(Some),
-        };
-        let Some(background) = bar else {
-            return Self {
-                bar: Style {
-                    reverse: true,
-                    ..Style::default()
-                },
-                badge: Style {
-                    bold: true,
-                    ..Style::default()
-                },
-            };
-        };
-        let color = |color, auto| match color {
-            StatusColor::Color(color) => color,
-            StatusColor::Auto => auto,
-        };
-        let badge = match (status.badge_foreground, status.badge_background) {
-            (StatusColor::Auto, StatusColor::Auto) => Style {
-                reverse: true,
-                fg: theme.foreground,
-                bg: theme.background,
-                ..Style::default()
-            },
-            (foreground, background) => Style {
-                fg: color(foreground, None),
-                bg: color(background, None),
-                ..Style::default()
-            },
+        let (bar, badge) = bar_and_badge(theme, caps);
+        // Bold, and in reverse video against the bar.
+        let inverse = Style {
+            bold: true,
+            reverse: !bar.reverse,
+            ..bar.clone()
         };
         Self {
-            bar: Style {
-                fg: color(status.foreground, theme.foreground),
-                bg: background,
-                ..Style::default()
-            },
-            badge: Style {
-                bold: true,
-                ..badge
-            },
+            bar,
+            badge,
+            inverse,
         }
     }
+
+    /// The match number's style `fade` into a search going around an
+    /// end: the reverse of the bar's colours fading back into them. Where
+    /// they cannot fade, the reverse for [`FLASH`] and then the bar's.
+    pub fn number(&self, fade: Fade) -> Style {
+        match fade.mix(&self.inverse, &self.bar) {
+            Some(style) => style,
+            None if fade.elapsed < FLASH => self.inverse.clone(),
+            None => self.bar.clone(),
+        }
+    }
+}
+
+/// The styles of the bar and the badge for `theme` on a terminal with
+/// `caps`, as [`Styles::new`] tells.
+fn bar_and_badge(theme: &Theme, caps: &Capabilities) -> (Style, Style) {
+    let status = &theme.status_line;
+    let bar = match status.background {
+        _ if !caps.color => None,
+        StatusColor::Color(color) => Some(color),
+        StatusColor::Auto => mixed(theme, caps).map(Some),
+    };
+    let Some(background) = bar else {
+        return (
+            Style {
+                reverse: true,
+                ..Style::default()
+            },
+            Style {
+                bold: true,
+                ..Style::default()
+            },
+        );
+    };
+    let color = |color, auto| match color {
+        StatusColor::Color(color) => color,
+        StatusColor::Auto => auto,
+    };
+    let badge = match (status.badge_foreground, status.badge_background) {
+        (StatusColor::Auto, StatusColor::Auto) => Style {
+            reverse: true,
+            fg: theme.foreground,
+            bg: theme.background,
+            ..Style::default()
+        },
+        (foreground, background) => Style {
+            fg: color(foreground, None),
+            bg: color(background, None),
+            ..Style::default()
+        },
+    };
+    (
+        Style {
+            fg: color(status.foreground, theme.foreground),
+            bg: background,
+            ..Style::default()
+        },
+        Style {
+            bold: true,
+            ..badge
+        },
+    )
 }
 
 /// The page mixed halfway with bright black, a grey in most palettes;
@@ -83,20 +114,35 @@ fn mixed(theme: &Theme, caps: &Capabilities) -> Option<Color> {
     page.mix(rgb(Color::Palette(8))?, 0.5)
 }
 
-/// The status line for the document `name` at `position`, `width` cells
-/// wide. A narrow window leaves out the keys first, then the start of the
-/// name.
-pub fn spans(name: &str, position: Position, width: usize, styles: &Styles) -> Vec<Span> {
+/// What the status line tells about the last search.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Found<'a> {
+    /// The reader is at match `current`, counted from 1, of the `total`
+    /// matches of `term`; `flash` is a style that shows `current` apart
+    /// for a moment, after the search went around an end of the document.
+    At {
+        term: &'a str,
+        current: usize,
+        total: usize,
+        flash: Option<Style>,
+    },
+    /// `term` is nowhere in the document.
+    Nowhere(&'a str),
+}
+
+/// The status line for the document `name` at `position`, with what was
+/// `found` by a search, `width` cells wide. A narrow window leaves out the
+/// keys first, then the start of the name, then the search.
+pub fn spans(
+    name: &str,
+    position: Position,
+    found: Option<Found>,
+    width: usize,
+    styles: &Styles,
+) -> Vec<Span> {
     // Measured as shown: a file name may hold any character but `/`.
-    let name: String = name
-        .chars()
-        .map(|c| match c {
-            c if c.is_control() => char::REPLACEMENT_CHARACTER,
-            c => c,
-        })
-        .collect();
+    let name = printable(name);
     let name = name.as_str();
-    let badge = " kiri ";
     let percent = format!("{}%", position.percent);
     let keys = [("?", " help"), ("q", " quit")];
     let keys_width: usize = keys
@@ -105,28 +151,37 @@ pub fn spans(name: &str, position: Position, width: usize, styles: &Styles) -> V
         .sum();
     // The badge, the position and a space after it, and a space between
     // the badge and the name.
-    let fixed = badge.width() + percent.width() + 2;
+    let fixed = BADGE.width() + percent.width() + 2;
     if fixed > width {
-        // The badge is ASCII.
-        let badge = &badge[..width.min(badge.len())];
-        return [Span::new(badge, styles.badge.clone())]
-            .into_iter()
-            .filter(|span| !span.text.is_empty())
-            .collect();
+        return badge_only(width, styles);
     }
-    // The name needs a space between it and the position.
-    let with_keys = fixed + name.width() + 1 + keys_width <= width;
+    // The search and a gap of three before the position.
+    let search = found.map(|found| search(found, styles)).unwrap_or_default();
+    let search_width = if search.is_empty() {
+        0
+    } else {
+        width_of(&search) + 3
+    };
+    let with_search = fixed + search_width <= width;
+    let search_width = if with_search { search_width } else { 0 };
+    // The name needs a space between it and what comes after it.
+    let with_keys = fixed + search_width + name.width() + 1 + keys_width <= width;
     let keys_width = if with_keys { keys_width } else { 0 };
-    let room = (width - fixed - keys_width).saturating_sub(1);
+    let room = (width - fixed - search_width - keys_width).saturating_sub(1);
 
     let bold = Style {
         bold: true,
         ..styles.bar.clone()
     };
-    let mut spans = vec![Span::new(badge, styles.badge.clone())];
+    let mut spans = vec![Span::new(BADGE, styles.badge.clone())];
     let shown = tail(name, room);
     spans.push(Span::new(&format!(" {shown}"), styles.bar.clone()));
-    let mut right = vec![Span::new(&percent, styles.bar.clone())];
+    let mut right = Vec::new();
+    if with_search && !search.is_empty() {
+        right.extend(search);
+        right.push(Span::new("   ", styles.bar.clone()));
+    }
+    right.push(Span::new(&percent, styles.bar.clone()));
     if with_keys {
         for (key, what) in keys {
             right.push(Span::new("   ", styles.bar.clone()));
@@ -142,6 +197,75 @@ pub fn spans(name: &str, position: Position, width: usize, styles: &Styles) -> V
     ));
     spans.extend(right);
     spans
+}
+
+/// The spans that tell what was `found`: the term and the place among
+/// its matches, or that it is nowhere.
+fn search(found: Found, styles: &Styles) -> Vec<Span> {
+    let span = |text: &str| Span::new(text, styles.bar.clone());
+    match found {
+        Found::At {
+            term,
+            current,
+            total,
+            flash,
+        } => vec![
+            span(&format!("/{} ", printable(term))),
+            match flash {
+                Some(style) => Span::new(&current.to_string(), style),
+                None => span(&current.to_string()),
+            },
+            span(&format!("/{total}")),
+        ],
+        Found::Nowhere(term) => vec![span(&format!("not found: {}", printable(term)))],
+    }
+}
+
+/// The status line while the search prompt is open with `term` typed so
+/// far: the badge, then the prompt with a cursor after the term. A term
+/// too long for the window loses its start.
+pub fn prompt(term: &str, width: usize, styles: &Styles) -> Vec<Span> {
+    // The badge, and a space, the slash and the cursor.
+    let fixed = BADGE.width() + 3;
+    if fixed > width {
+        return badge_only(width, styles);
+    }
+    let shown = tail(&printable(term), width - fixed);
+    let mut spans = vec![
+        Span::new(BADGE, styles.badge.clone()),
+        Span::new(&format!(" /{shown}{CURSOR}"), styles.bar.clone()),
+    ];
+    let used = width_of(&spans);
+    spans.push(Span::new(&" ".repeat(width - used), styles.bar.clone()));
+    spans
+}
+
+/// The badge that tells the pager is on.
+const BADGE: &str = " kiri ";
+
+/// The cursor after the term in the prompt.
+const CURSOR: char = '\u{258f}';
+
+/// The badge alone, cut to `width` cells, for a window too narrow for
+/// more.
+fn badge_only(width: usize, styles: &Styles) -> Vec<Span> {
+    // The badge is ASCII.
+    let badge = &BADGE[..width.min(BADGE.len())];
+    [Span::new(badge, styles.badge.clone())]
+        .into_iter()
+        .filter(|span| !span.text.is_empty())
+        .collect()
+}
+
+/// `text` with each control character replaced, so that it takes as many
+/// cells as it is measured to.
+fn printable(text: &str) -> String {
+    text.chars()
+        .map(|c| match c {
+            c if c.is_control() => char::REPLACEMENT_CHARACTER,
+            c => c,
+        })
+        .collect()
 }
 
 /// The end of `name` in at most `room` cells, after `…` when its start is
@@ -184,6 +308,7 @@ mod tests {
         Styles {
             bar: Style::fg(Some(Color::Palette(1))),
             badge: Style::fg(Some(Color::Palette(2))),
+            inverse: Style::fg(Some(Color::Palette(3))),
         }
     }
 
@@ -193,7 +318,7 @@ mod tests {
 
     #[test]
     fn shows_the_badge_the_name_the_position_and_the_keys() {
-        let spans = spans("notes.md", at(42), 60, &styles());
+        let spans = spans("notes.md", at(42), None, 60, &styles());
         assert_eq!(
             text(&spans),
             " kiri  notes.md                       42%   ? help   q quit "
@@ -209,19 +334,19 @@ mod tests {
 
     #[test]
     fn the_badge_stays_at_the_end() {
-        let spans = spans("notes.md", at(100), 60, &styles());
+        let spans = spans("notes.md", at(100), None, 60, &styles());
         assert!(text(&spans).starts_with(" kiri  notes.md "), "{spans:?}");
     }
 
     #[test]
     fn the_keys_go_first_when_the_window_is_narrow() {
-        let spans = spans("notes.md", at(42), 30, &styles());
+        let spans = spans("notes.md", at(42), None, 30, &styles());
         assert_eq!(text(&spans), " kiri  notes.md           42% ");
     }
 
     #[test]
     fn a_long_name_loses_its_start() {
-        let spans = spans("docs/a/long/way/to/roadmap.md", at(7), 26, &styles());
+        let spans = spans("docs/a/long/way/to/roadmap.md", at(7), None, 26, &styles());
         assert_eq!(text(&spans), " kiri  …/to/roadmap.md 7% ");
         assert_eq!(width(&spans), 26);
     }
@@ -229,7 +354,7 @@ mod tests {
     #[test]
     fn the_line_fills_the_window_and_no_more() {
         for width in 0..80 {
-            let spans = spans("docs/notes.md", at(42), width, &styles());
+            let spans = spans("docs/notes.md", at(42), None, width, &styles());
             let expected = if width < 11 { width.min(6) } else { width };
             assert_eq!(super::width_of(&spans), expected, "{width}: {spans:?}");
         }
@@ -292,7 +417,7 @@ mod tests {
 
     #[test]
     fn control_characters_in_the_name_take_a_cell_each() {
-        let spans = spans("a\nb\x07.md", at(42), 40, &styles());
+        let spans = spans("a\nb\x07.md", at(42), None, 40, &styles());
         assert_eq!(width(&spans), 40, "{spans:?}");
         assert!(
             text(&spans).contains(" a\u{fffd}b\u{fffd}.md "),
@@ -302,14 +427,112 @@ mod tests {
 
     #[test]
     fn wide_characters_in_the_name_take_two_cells() {
-        let spans = spans("文書/説明.md", at(42), 18, &styles());
+        let spans = spans("文書/説明.md", at(42), None, 18, &styles());
         assert_eq!(width(&spans), 18, "{spans:?}");
         assert_eq!(text(&spans), " kiri  …明.md 42% ");
     }
 
+    const AT: Option<Found> = Some(Found::At {
+        term: "kiri",
+        current: 3,
+        total: 12,
+        flash: None,
+    });
+
+    #[test]
+    fn shows_the_search_between_the_name_and_the_position() {
+        let spans = spans("notes.md", at(42), AT, 60, &styles());
+        assert_eq!(
+            text(&spans),
+            " kiri  notes.md          /kiri 3/12   42%   ? help   q quit "
+        );
+        assert_eq!(width(&spans), 60);
+        let nowhere = Some(Found::Nowhere("xyz"));
+        let spans = super::spans("notes.md", at(42), nowhere, 60, &styles());
+        assert_eq!(
+            text(&spans),
+            " kiri  notes.md      not found: xyz   42%   ? help   q quit "
+        );
+        assert_eq!(width(&spans), 60);
+    }
+
+    #[test]
+    fn a_flash_shows_the_current_match_number_apart() {
+        let flash = Some(Found::At {
+            term: "kiri",
+            current: 1,
+            total: 12,
+            flash: Some(styles().inverse),
+        });
+        let spans = spans("notes.md", at(42), flash, 60, &styles());
+        assert_eq!(
+            text(&spans),
+            text(&super::spans("notes.md", at(42), AT, 60, &styles())).replace("3/12", "1/12")
+        );
+        let one = spans.iter().find(|span| span.text == "1").unwrap();
+        assert_eq!(one.style, styles().inverse);
+        let twelve = spans.iter().find(|span| span.text == "/12").unwrap();
+        assert_eq!(twelve.style, styles().bar);
+    }
+
+    #[test]
+    fn the_match_number_fades_into_the_bar_s_reverse() {
+        let mut caps = Capabilities::kitty(80);
+        caps.background = Some(Color::Rgb(0, 0, 0));
+        caps.palette[8] = Some(Color::Rgb(100, 100, 100));
+        let styles = Styles::new(&Theme::default(), &caps);
+        assert_eq!(
+            styles.inverse,
+            Style {
+                bold: true,
+                reverse: true,
+                ..styles.bar.clone()
+            }
+        );
+        // Without colours, bold against the bar's reverse video.
+        caps.color = false;
+        let styles = Styles::new(&Theme::default(), &caps);
+        assert!(styles.inverse.bold && !styles.inverse.reverse);
+        assert_eq!((styles.inverse.fg, styles.inverse.bg), (None, None));
+    }
+
+    #[test]
+    fn a_narrow_window_leaves_out_the_keys_then_the_name_then_the_search() {
+        let shown = |width| text(&spans("notes.md", at(42), AT, width, &styles()));
+        assert_eq!(shown(40), " kiri  notes.md        /kiri 3/12   42% ");
+        assert_eq!(shown(27), " kiri  …d /kiri 3/12   42% ");
+        assert_eq!(shown(24), " kiri  /kiri 3/12   42% ");
+        assert_eq!(shown(23), " kiri  notes.md    42% ");
+        for width in 0..80 {
+            let spans = spans("docs/notes.md", at(42), AT, width, &styles());
+            let expected = if width < 11 { width.min(6) } else { width };
+            assert_eq!(super::width_of(&spans), expected, "{width}: {spans:?}");
+        }
+    }
+
+    #[test]
+    fn the_prompt_replaces_the_name_and_the_keys() {
+        let spans = prompt("kiri", 30, &styles());
+        assert_eq!(text(&spans), " kiri  /kiri\u{258f}                 ");
+        assert_eq!(width(&spans), 30);
+        assert_eq!(spans[0].style, styles().badge);
+    }
+
+    #[test]
+    fn a_long_term_in_the_prompt_loses_its_start() {
+        let spans = prompt("a long search term", 20, &styles());
+        assert_eq!(text(&spans), " kiri  /…earch term\u{258f}");
+        assert_eq!(width(&spans), 20);
+        for width in 0..30 {
+            let spans = prompt("kiri", width, &styles());
+            let expected = if width < 9 { width.min(6) } else { width };
+            assert_eq!(super::width_of(&spans), expected, "{width}: {spans:?}");
+        }
+    }
+
     #[test]
     fn a_window_too_narrow_for_more_shows_the_badge() {
-        assert_eq!(text(&spans("notes.md", at(42), 4, &styles())), " kir");
-        assert_eq!(text(&spans("notes.md", at(42), 0, &styles())), "");
+        assert_eq!(text(&spans("notes.md", at(42), None, 4, &styles())), " kir");
+        assert_eq!(text(&spans("notes.md", at(42), None, 0, &styles())), "");
     }
 }

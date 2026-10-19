@@ -9,7 +9,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use image::ImageFormat;
 
-use crate::config::{Choices, Environment, Origin, Paging, Setting, ThemeSource};
+use crate::config::{Choices, Environment, Origin, Paging, SearchCase, Setting, ThemeSource};
 use crate::render::image::DEFAULT_CELL;
 use crate::term::{CellSize, Detection, Mode};
 use crate::theme::Paper;
@@ -217,6 +217,12 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
         Paging::Never => "never",
     };
     row(out, &["Paging", when, &from(paging.origin)])?;
+    let search_case = &choices.search_case;
+    let case = match search_case.value {
+        SearchCase::Smart => "smart",
+        SearchCase::Literal => "literal",
+    };
+    row(out, &["Search case", case, &from(search_case.origin)])?;
     let size = &facts.max_image_size;
     let mb = format!("{} MB", size.value);
     row(out, &["Largest image", &mb, &from(size.origin)])?;

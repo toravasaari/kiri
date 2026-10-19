@@ -296,7 +296,14 @@ fn show_document(
         theme: settings.theme,
         ..Inputs::new(caps)
     };
-    if let Some(result) = page(cli, document, name, &mut inputs, settings.paging) {
+    if let Some(result) = page(
+        cli,
+        document,
+        name,
+        &mut inputs,
+        settings.paging,
+        settings.search_case,
+    ) {
         return finish(result);
     }
     let mut out = io::stdout().lock();
@@ -316,13 +323,14 @@ fn only_always(paging: kiri::config::Paging) -> kiri::config::Paging {
 
 /// Shows `document` in the pager when `paging` asks for it and the output
 /// is a terminal that takes escape sequences; `None` when it is to be
-/// printed instead.
+/// printed instead. A search in the pager treats case as `case` says.
 fn page(
     cli: &Cli,
     document: &Document,
     name: &str,
     inputs: &mut Inputs,
     paging: kiri::config::Paging,
+    case: kiri::config::SearchCase,
 ) -> Option<io::Result<()>> {
     let terminal = kiri::term::stdout_is_terminal() && inputs.caps.styling;
     if !terminal || paging == kiri::config::Paging::Never {
@@ -343,7 +351,7 @@ fn page(
         }
         return None;
     };
-    let result = kiri::pager::run(document, name, inputs, cli.width, &mut screen);
+    let result = kiri::pager::run(document, name, inputs, cli.width, case, &mut screen);
     screen.close();
     Some(result)
 }

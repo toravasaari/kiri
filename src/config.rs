@@ -93,6 +93,8 @@ pub struct Config {
     pub images: Option<bool>,
     /// When the document is shown in the pager.
     pub paging: Option<Paging>,
+    /// How a search in the pager treats case.
+    pub search_case: Option<SearchCase>,
 }
 
 /// When the document is shown in the pager rather than printed.
@@ -107,6 +109,17 @@ pub enum Paging {
     Auto,
     /// Never: the document is printed.
     Never,
+}
+
+/// How a search in the pager treats upper and lower case.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchCase {
+    /// A search term with no upper-case letter ignores case; one with an
+    /// upper-case letter matches case exactly.
+    Smart,
+    /// Case matches exactly.
+    Literal,
 }
 
 /// Where the configuration file is.
@@ -174,6 +187,7 @@ pub fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String
         theme,
         images: file.images,
         paging: file.paging,
+        search_case: file.search_case,
     })
 }
 
@@ -183,6 +197,7 @@ struct ConfigToml {
     theme: Option<PathBuf>,
     images: Option<bool>,
     paging: Option<Paging>,
+    search_case: Option<SearchCase>,
 }
 
 /// Where a setting comes from.
@@ -353,6 +368,8 @@ pub struct Settings {
     pub images: bool,
     /// When the document is paged.
     pub paging: Paging,
+    /// How a search in the pager treats case.
+    pub search_case: SearchCase,
 }
 
 /// What the options, the environment and the configuration file choose,
@@ -368,6 +385,8 @@ pub struct Choices {
     pub images: Setting<bool>,
     /// When the document is paged.
     pub paging: Setting<Paging>,
+    /// How a search in the pager treats case.
+    pub search_case: Setting<SearchCase>,
     /// What the user should know about settings that were left out.
     pub warnings: Vec<String>,
 }
@@ -385,6 +404,7 @@ impl Choices {
             paper: self.paper,
             images: self.images.value,
             paging: self.paging.value,
+            search_case: self.search_case.value,
         }
     }
 }
@@ -401,6 +421,10 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
         },
         images: images(options.images, env, config),
         paging,
+        search_case: match config.search_case {
+            Some(case) => Setting::new(case, Origin::File),
+            None => Setting::new(SearchCase::Smart, Origin::Default),
+        },
         warnings: warning.into_iter().collect(),
     }
 }
@@ -849,6 +873,36 @@ mod tests {
         let choices = choose(&Options::default(), &paging_env("joo"), &Config::default());
         assert_eq!(choices.warnings.len(), 1);
         assert_eq!(choices.with_theme(Theme::default()).paging, Paging::Auto);
+    }
+
+    #[test]
+    fn the_search_case_key_takes_smart_or_literal() {
+        let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
+        for (text, case) in [
+            ("search_case = \"smart\"\n", SearchCase::Smart),
+            ("search_case = \"literal\"\n", SearchCase::Literal),
+        ] {
+            assert_eq!(parsed(text).unwrap().search_case, Some(case), "{text}");
+        }
+        assert!(parsed("search_case = \"ignore\"\n").is_err());
+        assert!(parsed("search_case = true\n").is_err());
+    }
+
+    #[test]
+    fn the_search_case_is_smart_unless_the_configuration_file_says_otherwise() {
+        let env = Environment::default();
+        let choices = choose(&Options::default(), &env, &Config::default());
+        let smart = Setting::new(SearchCase::Smart, Origin::Default);
+        assert_eq!(choices.search_case, smart);
+        let config = Config {
+            search_case: Some(SearchCase::Literal),
+            ..Config::default()
+        };
+        let choices = choose(&Options::default(), &env, &config);
+        let literal = Setting::new(SearchCase::Literal, Origin::File);
+        assert_eq!(choices.search_case, literal);
+        let settings = choices.with_theme(Theme::default());
+        assert_eq!(settings.search_case, SearchCase::Literal);
     }
 
     fn no_options() -> Options {

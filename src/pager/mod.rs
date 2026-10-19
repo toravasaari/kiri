@@ -1,22 +1,29 @@
 //! The interactive pager: the document on a screen of its own, scrolled
 //! with keys.
 
+pub mod fade;
 pub mod help;
 pub mod keys;
+pub mod prompt;
+pub mod search;
 pub mod status;
 pub mod view;
 
 use std::io::{self, Write};
-use std::time::Duration;
+use std::ops::Range;
+use std::time::{Duration, Instant};
 
-use crate::config::Paging;
+use crate::config::{Paging, SearchCase};
 use crate::model::Document;
 use crate::render::Inputs;
 use crate::render::output::{Page, Writer};
 use crate::render::style::{Line, Span, Style};
 use crate::term::{Capabilities, Screen, WindowSize};
+use fade::{FADE, Fade, Rgb};
 use help::Placed;
 use keys::{Action, Key};
+use prompt::{Edit, Prompt};
+use search::{Marks, Search};
 use view::View;
 
 /// Whether a document of `rows` rows is paged: never when the output is not
@@ -46,6 +53,10 @@ pub trait Terminal: Write {
     /// The bytes of the keys pressed, waiting at most `timeout` for the
     /// first; empty when none came.
     fn read(&mut self, timeout: Duration) -> io::Result<Vec<u8>>;
+    /// The time now.
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
 }
 
 impl<W: Write> Terminal for Screen<W> {
@@ -60,12 +71,13 @@ impl<W: Write> Terminal for Screen<W> {
 
 /// Shows `document`, called `name`, on `terminal` until the reader quits,
 /// laid out with `inputs` for the window's size, or `width` columns when
-/// it is given.
+/// it is given. A search treats case as `case` says.
 pub fn run(
     document: &Document,
     name: &str,
     inputs: &mut Inputs,
     width: Option<u16>,
+    case: SearchCase,
     terminal: &mut impl Terminal,
 ) -> io::Result<()> {
     let page = Page {
@@ -74,6 +86,7 @@ pub fn run(
     };
     let mut size = terminal.size();
     let mut view: Option<View> = None;
+    let mut state = State::new(case);
     loop {
         fit(&mut inputs.caps, size, width);
         let window = usize::from(inputs.caps.height.unwrap_or(DEFAULT_ROWS));
@@ -101,6 +114,7 @@ pub fn run(
             }
             None => View::new(heights, rows),
         };
+        state.lay_out(&lines, shown.top(), bar);
         let status = Status {
             name,
             styles: status::Styles::new(&inputs.theme, &inputs.caps),
@@ -119,7 +133,16 @@ pub fn run(
                 ..Style::default()
             },
         };
-        match show(&lines, &status, &mut shown, &mut writer, terminal, size)? {
+        let marks = Marks::new(&inputs.theme, &inputs.caps);
+        let rgb = Rgb::new(&inputs.theme, &inputs.caps);
+        let mut laid_out = Layout {
+            lines: &lines,
+            marks: &marks,
+            rgb: rgb.as_ref(),
+            status: &status,
+            view: &mut shown,
+        };
+        match show(&mut laid_out, &mut state, &mut writer, terminal, size)? {
             Outcome::Quit => return Ok(()),
             Outcome::Resized(new) => {
                 size = new;
@@ -135,6 +158,10 @@ const DEFAULT_ROWS: u16 = 24;
 /// How long the pager waits for a key before it looks at the window size
 /// again.
 const POLL: Duration = Duration::from_millis(100);
+
+/// How long the pager waits for a key while a fade is under way, so that
+/// it draws a step of it each time.
+const FRAME: Duration = Duration::from_millis(50);
 
 /// Why the pager stopped showing one layout of the document.
 enum Outcome {
@@ -159,12 +186,24 @@ struct Status<'a> {
 }
 
 impl Status<'_> {
-    fn spans(&self, view: &View) -> Vec<Span> {
+    /// The status line for `view` in `state`, with the match number faded
+    /// by `fade` after the search went around an end: the prompt while it
+    /// is open.
+    fn spans(&self, view: &View, state: &State, fade: Option<Fade>) -> Vec<Span> {
         if !self.bar {
             return Vec::new();
         }
         let width = usize::from(self.width);
-        status::spans(self.name, view.position(), width, &self.styles)
+        match &state.prompt {
+            Some(prompt) => status::prompt(prompt.term(), width, &self.styles),
+            None => {
+                let flash = fade
+                    .filter(|_| state.jumped.is_some_and(|jump| jump.around))
+                    .map(|fade| self.styles.number(fade));
+                let found = state.found(flash);
+                status::spans(self.name, view.position(), found, width, &self.styles)
+            }
+        }
     }
 
     /// The help panel over `view`, when `open`.
@@ -195,63 +234,290 @@ fn fit(caps: &mut Capabilities, size: Option<WindowSize>, width: Option<u16>) {
     }
 }
 
-/// Shows `lines` in `view` with `status` below them on `terminal`, whose
-/// window is of `size`, and scrolls them until the reader quits or the
-/// window changes size.
+/// What the reader does in the pager besides scrolling, which stays when
+/// the window changes size.
+#[derive(Debug)]
+struct State {
+    /// How a search treats case.
+    case: SearchCase,
+    /// Whether the help is open.
+    help: bool,
+    /// The search prompt, while it is open.
+    prompt: Option<Prompt>,
+    /// The last search.
+    search: Option<Search>,
+    /// Whether the last search is shown; Escape hides it until `n` or
+    /// `N`.
+    shown: bool,
+    /// Whether the status line tells that the last search found nothing,
+    /// which it does until the next key.
+    nowhere: bool,
+    /// The last jump to a match, while its fade is under way.
+    jumped: Option<Jump>,
+}
+
+/// A jump to a search match.
+#[derive(Debug, Clone, Copy)]
+struct Jump {
+    at: Instant,
+    /// Whether the search went around an end of the document to it.
+    around: bool,
+}
+
+impl State {
+    /// Nothing done yet, with searches that treat case as `case` says.
+    fn new(case: SearchCase) -> Self {
+        Self {
+            case,
+            help: false,
+            prompt: None,
+            search: None,
+            shown: false,
+            nowhere: false,
+            jumped: None,
+        }
+    }
+
+    /// Does what `key`, pressed at `now`, asks in `layout`; true when it
+    /// quits.
+    fn press(&mut self, key: Key, now: Instant, layout: &mut Layout) -> bool {
+        self.nowhere = false;
+        // Any key closes the help and does nothing else, but Ctrl+C
+        // still quits.
+        if self.help && key != Key::Ctrl('c') {
+            self.help = false;
+            return false;
+        }
+        // While the prompt is open, keys edit it.
+        if let Some(prompt) = &mut self.prompt {
+            match prompt.edit(key) {
+                Edit::Typing => {}
+                Edit::Cancel => self.prompt = None,
+                Edit::Search(term) => {
+                    self.prompt = None;
+                    self.find(&term, now, layout);
+                }
+                Edit::Repeat => {
+                    self.prompt = None;
+                    if let Some(term) = self.search.as_ref().map(|s| s.term().to_owned()) {
+                        self.find(&term, now, layout);
+                    }
+                }
+            }
+            return false;
+        }
+        match keys::action(key) {
+            Some(Action::Quit) => return true,
+            Some(Action::Move(motion)) => layout.view.scroll(motion),
+            // The help and the prompt need a row besides the status line's.
+            Some(Action::Help) => self.help = layout.status.bar,
+            Some(Action::Search) => {
+                self.prompt = layout.status.bar.then(Prompt::default);
+            }
+            Some(Action::Next) => self.step(Search::forward, now, layout),
+            Some(Action::Previous) => self.step(Search::backward, now, layout),
+            Some(Action::Clear) => self.shown = false,
+            None => {}
+        }
+        false
+    }
+
+    /// Searches for `term` from the top of the view at `now`, and shows
+    /// the first match.
+    fn find(&mut self, term: &str, now: Instant, layout: &mut Layout) {
+        let search = Search::new(layout.lines, term, self.case, layout.view.top());
+        self.jumped = None;
+        match search.current() {
+            Some(found) => self.jump(found.line, now, false, layout),
+            None => self.nowhere = true,
+        }
+        self.search = Some(search);
+        self.shown = true;
+    }
+
+    /// Shows the match on line `line`, jumped to at `now`, `around` an
+    /// end of the document or not.
+    fn jump(&mut self, line: usize, now: Instant, around: bool, layout: &mut Layout) {
+        layout.view.reveal(line);
+        self.jumped = Some(Jump { at: now, around });
+    }
+
+    /// Finds the last search again in `lines`, laid out anew, from the
+    /// line `top` of the view, and closes the prompt when the window has
+    /// no status line, `bar`, to show it on.
+    fn lay_out(&mut self, lines: &[Line], top: usize, bar: bool) {
+        if !bar {
+            self.prompt = None;
+        }
+        if let Some(search) = &mut self.search {
+            *search = Search::new(lines, search.term(), self.case, top);
+        }
+    }
+
+    /// Moves the last search to another match by `step` at `now`, and
+    /// shows it.
+    fn step(
+        &mut self,
+        step: fn(&mut Search, Range<usize>) -> bool,
+        now: Instant,
+        layout: &mut Layout,
+    ) {
+        let Some(search) = &mut self.search else {
+            return;
+        };
+        let around = step(search, layout.view.visible());
+        match search.current().map(|found| found.line) {
+            Some(line) => self.jump(line, now, around, layout),
+            None => self.nowhere = true,
+        }
+        self.shown = true;
+    }
+
+    /// Ends a fade that is over at `now`.
+    fn tick(&mut self, now: Instant) {
+        self.jumped = self
+            .jumped
+            .filter(|jump| now.saturating_duration_since(jump.at) < FADE);
+    }
+
+    /// The fade under way at `now`, mixing colours with `rgb`.
+    fn fade<'a>(&self, now: Instant, rgb: Option<&'a Rgb>) -> Option<Fade<'a>> {
+        let jump = self.jumped?;
+        Some(Fade {
+            elapsed: now.saturating_duration_since(jump.at),
+            rgb,
+        })
+    }
+
+    /// `lines`, from line `first` of the document on, with the matches of
+    /// the last search marked with `marks` while it is shown, the current
+    /// one faded by `fade`.
+    fn marked(&self, lines: &[Line], first: usize, marks: &Marks, fade: Option<Fade>) -> Vec<Line> {
+        let search = self.search.as_ref().filter(|_| self.shown);
+        (first..)
+            .zip(lines)
+            .map(|(index, line)| match search {
+                Some(search) => search::mark(line, &search.on(index), marks, fade),
+                None => line.clone(),
+            })
+            .collect()
+    }
+
+    /// What the status line tells about the last search, with the match
+    /// number in `flash` when it is given.
+    fn found(&self, flash: Option<Style>) -> Option<status::Found<'_>> {
+        let search = self.search.as_ref()?;
+        if self.nowhere {
+            return Some(status::Found::Nowhere(search.term()));
+        }
+        if !self.shown {
+            return None;
+        }
+        let (current, total) = search.count()?;
+        Some(status::Found::At {
+            term: search.term(),
+            current,
+            total,
+            flash,
+        })
+    }
+}
+
+/// One layout of the document: its lines, how search matches in them are
+/// marked, the view of them and the status line below it.
+struct Layout<'a> {
+    lines: &'a [Line],
+    marks: &'a Marks,
+    /// The colours a fade mixes, where they are known.
+    rgb: Option<&'a Rgb>,
+    status: &'a Status<'a>,
+    view: &'a mut View,
+}
+
+/// What the screen shows: the lines in view, the status line and the help
+/// panel.
+#[derive(PartialEq)]
+struct Frame {
+    lines: Vec<Line>,
+    status: Vec<Span>,
+    panel: Vec<Placed>,
+}
+
+impl Frame {
+    /// Draws the frame above a status line on the row below `rows`.
+    fn draw(&self, rows: usize, writer: &mut Writer, out: &mut impl Write) -> io::Result<()> {
+        draw(&self.lines, rows, &self.status, &self.panel, writer, out)
+    }
+}
+
+impl Layout<'_> {
+    /// What the screen shows in `state` at `now`.
+    fn frame(&self, state: &State, now: Instant) -> Frame {
+        let visible = self.view.visible();
+        let fade = state.fade(now, self.rgb);
+        Frame {
+            lines: state.marked(
+                &self.lines[visible.clone()],
+                visible.start,
+                self.marks,
+                fade,
+            ),
+            status: self.status.spans(self.view, state, fade),
+            panel: self.status.panel(self.view, state.help),
+        }
+    }
+}
+
+/// Shows `layout` in `state` on `terminal`, whose window is of `size`, and
+/// scrolls it until the reader quits or the window changes size.
 fn show(
-    lines: &[Line],
-    status: &Status,
-    view: &mut View,
+    layout: &mut Layout,
+    state: &mut State,
     writer: &mut Writer,
     terminal: &mut impl Terminal,
     size: Option<WindowSize>,
 ) -> io::Result<Outcome> {
-    draw(lines, view, &status.spans(view), &[], writer, terminal)?;
+    let mut shown = layout.frame(state, terminal.now());
+    shown.draw(layout.view.rows(), writer, terminal)?;
     terminal.flush()?;
     let mut decoder = keys::Decoder::default();
-    let mut help = false;
     loop {
-        let input = terminal.read(POLL)?;
-        let (top, was_open) = (view.top(), help);
+        let input = terminal.read(match state.jumped {
+            Some(_) => FRAME,
+            None => POLL,
+        })?;
         // Nothing more came for a key the last read cut off.
         let keys = if input.is_empty() {
             decoder.flush()
         } else {
             decoder.keys(&input)
         };
+        let now = terminal.now();
+        state.tick(now);
         for key in keys {
-            // Any key closes the help and does nothing else, but Ctrl+C
-            // still quits.
-            if help && key != Key::Ctrl('c') {
-                help = false;
-                continue;
-            }
-            match keys::action(key) {
-                Some(Action::Quit) => return Ok(Outcome::Quit),
-                Some(Action::Move(motion)) => view.scroll(motion),
-                // The help needs a row besides the status line's.
-                Some(Action::Help) => help = status.bar,
-                None => {}
+            if state.press(key, now, layout) {
+                return Ok(Outcome::Quit);
             }
         }
-        let now = terminal.size();
-        if now != size {
-            return Ok(Outcome::Resized(now));
+        let window = terminal.size();
+        if window != size {
+            return Ok(Outcome::Resized(window));
         }
-        if view.top() != top || help != was_open {
-            let panel = status.panel(view, help);
-            draw(lines, view, &status.spans(view), &panel, writer, terminal)?;
+        let frame = layout.frame(state, now);
+        if frame != shown {
+            shown = frame;
+            shown.draw(layout.view.rows(), writer, terminal)?;
             terminal.flush()?;
         }
     }
 }
 
-/// Draws the lines `view` shows from the top of the screen, with the rows
-/// below them empty, `status` on the row below the view and `panel` over
-/// the lines, which it dims, as one update so the screen does not flicker.
+/// Draws `lines` from the top of the screen, with the rows below them
+/// empty, `status` on the row below the view's `rows` and `panel` over the
+/// lines, which it dims, as one update so the screen does not flicker.
 pub fn draw(
     lines: &[Line],
-    view: &View,
+    rows: usize,
     status: &[Span],
     panel: &[Placed],
     writer: &mut Writer,
@@ -261,7 +527,7 @@ pub fn draw(
     writer.clear(out)?;
     writer.dim(!panel.is_empty());
     let mut top = 1;
-    for line in &lines[view.visible()] {
+    for line in lines {
         for row in 0..writer.rows(line) {
             write!(out, "\x1b[{};1H", top + usize::from(row))?;
             writer.row(line, row, out)?;
@@ -270,7 +536,7 @@ pub fn draw(
     }
     writer.dim(false);
     if !status.is_empty() {
-        write!(out, "\x1b[{};1H", view.rows() + 1)?;
+        write!(out, "\x1b[{};1H", rows + 1)?;
         writer.bar(status, out)?;
     }
     for placed in panel {
@@ -290,6 +556,7 @@ mod tests {
     use std::collections::VecDeque;
 
     use super::*;
+    use crate::color::Color;
 
     #[test]
     fn auto_pages_a_document_longer_than_the_window() {
@@ -320,6 +587,8 @@ mod tests {
         sizes: VecDeque<WindowSize>,
         size: WindowSize,
         out: Vec<u8>,
+        /// The time now, which each read moves on by a poll.
+        clock: Instant,
     }
 
     impl Fake {
@@ -329,6 +598,7 @@ mod tests {
                 sizes: VecDeque::new(),
                 size: window(columns, rows),
                 out: Vec::new(),
+                clock: Instant::now(),
             }
         }
 
@@ -367,12 +637,18 @@ mod tests {
             Some(self.size)
         }
 
-        fn read(&mut self, _timeout: Duration) -> io::Result<Vec<u8>> {
+        fn read(&mut self, timeout: Duration) -> io::Result<Vec<u8>> {
+            self.clock += timeout;
             if let Some(size) = self.sizes.pop_front() {
                 self.size = size;
             }
-            // Out of keys, the reader quits.
-            Ok(self.keys.pop_front().unwrap_or_else(|| b"q".to_vec()))
+            // Out of keys, the reader quits, with Ctrl+C, which also
+            // closes a prompt left open.
+            Ok(self.keys.pop_front().unwrap_or_else(|| b"\x03".to_vec()))
+        }
+
+        fn now(&self) -> Instant {
+            self.clock
         }
     }
 
@@ -383,7 +659,15 @@ mod tests {
 
     fn show(document: &Document, terminal: &mut Fake) {
         let mut inputs = Inputs::new(Capabilities::ansi(80));
-        run(document, "notes.md", &mut inputs, None, terminal).unwrap();
+        run(
+            document,
+            "notes.md",
+            &mut inputs,
+            None,
+            SearchCase::Smart,
+            terminal,
+        )
+        .unwrap();
     }
 
     #[test]
@@ -487,6 +771,17 @@ mod tests {
     }
 
     #[test]
+    fn a_window_shrunk_to_one_row_closes_the_prompt() {
+        // Without a status line the prompt cannot show, so G is a
+        // binding again and moves to the end.
+        let mut terminal = Fake::new(40, 6, &[b"/", b"", b"G"]);
+        terminal.sizes = [window(40, 6), window(40, 1)].into();
+        show(&numbers(10), &mut terminal);
+        let frames = terminal.frames();
+        assert!(frames.last().unwrap().contains("Line 10"), "{frames:#?}");
+    }
+
+    #[test]
     fn lays_the_document_out_again_for_a_new_window_size() {
         let mut terminal = Fake::new(40, 5, &[b"", b""]);
         terminal.sizes = [window(40, 5), window(8, 5)].into();
@@ -506,7 +801,15 @@ mod tests {
         let mut terminal = Fake::new(40, 3, &[b"G"]);
         let document = crate::parse::parse("# Title\n\nText\n");
         let mut inputs = Inputs::new(Capabilities::kitty(80));
-        run(&document, "notes.md", &mut inputs, None, &mut terminal).unwrap();
+        run(
+            &document,
+            "notes.md",
+            &mut inputs,
+            None,
+            SearchCase::Smart,
+            &mut terminal,
+        )
+        .unwrap();
         let frames = terminal.frames();
         assert!(frames[0].contains("Title"), "{frames:?}");
         assert!(!frames[0].contains("\x1b]66;"), "{frames:?}");
@@ -520,11 +823,518 @@ mod tests {
         terminal.sizes = [window(80, 5)].into();
         let document = crate::parse::parse("A paragraph of several words\n");
         let mut inputs = Inputs::new(Capabilities::ansi(80));
-        run(&document, "notes.md", &mut inputs, Some(10), &mut terminal).unwrap();
+        run(
+            &document,
+            "notes.md",
+            &mut inputs,
+            Some(10),
+            SearchCase::Smart,
+            &mut terminal,
+        )
+        .unwrap();
         // One frame before the window changed, and one after.
         assert_eq!(terminal.frames().len(), 2);
         for frame in terminal.frames() {
             assert!(!frame.contains("A paragraph of"), "{frame:?}");
         }
+    }
+
+    /// The status line of `frame`, on row `row`.
+    fn status_row(frame: &str, row: u16) -> String {
+        let at = format!("\x1b[{row};1H");
+        frame[frame.find(&at).unwrap()..].to_owned()
+    }
+
+    /// Whether `frame` shows `line` on its top row, in any style.
+    fn at_top(frame: &str, line: &str) -> bool {
+        unstyled(frame).contains(&format!("\x1b[1;1H  {line}\x1b"))
+    }
+
+    /// `frame` without its SGR sequences.
+    fn unstyled(frame: &str) -> String {
+        let mut rest = frame;
+        let mut kept = String::new();
+        while let Some(at) = rest.find("\x1b[") {
+            kept.push_str(&rest[..at]);
+            let after = &rest[at + 2..];
+            let parameters = after
+                .find(|c: char| !c.is_ascii_digit() && c != ';' && c != ':')
+                .unwrap_or(after.len());
+            if after[parameters..].starts_with('m') {
+                rest = &after[parameters + 1..];
+            } else {
+                kept.push_str("\x1b[");
+                rest = after;
+            }
+        }
+        kept.push_str(rest);
+        kept
+    }
+
+    #[test]
+    fn a_slash_opens_a_prompt_on_the_status_line() {
+        let mut terminal = Fake::new(40, 6, &[b"/", "lä".as_bytes()]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        for (frame, prompt) in [(&frames[1], "/\u{258f}"), (&frames[2], "/lä\u{258f}")] {
+            let status = status_row(frame, 6);
+            assert!(status.contains(" kiri "), "{status:?}");
+            assert!(status.contains(prompt), "{status:?}");
+            assert!(!status.contains("notes.md"), "{status:?}");
+            assert!(!status.contains("help"), "{status:?}");
+        }
+    }
+
+    #[test]
+    fn enter_moves_to_the_first_match_from_the_top_of_the_view() {
+        // Line 3 is above the view after a page down, so Line 30 is the
+        // first match.
+        let mut terminal = Fake::new(40, 6, &[b"jjjjjjjj", b"/line 3", b"\r"]);
+        show(&numbers(40), &mut terminal);
+        let frames = terminal.frames();
+        assert!(at_top(frames.last().unwrap(), "Line 30"), "{frames:#?}");
+        let status = status_row(frames.last().unwrap(), 6);
+        assert!(status.contains("notes.md"), "{status:?}");
+        assert!(!status.contains('\u{258f}'), "{status:?}");
+    }
+
+    #[test]
+    fn a_match_already_in_view_does_not_move_it() {
+        // Two lines down after the search shows Line 2 at the top.
+        let mut terminal = Fake::new(40, 6, &[b"/line 2\r", b"jj"]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert!(at_top(frames.last().unwrap(), "Line 2"), "{frames:#?}");
+    }
+
+    #[test]
+    fn escape_and_ctrl_c_cancel_the_prompt() {
+        let reads: &[&[u8]] = &[b"/line 20", b"\x1b", b"", b"/line 20", b"\x03", b"jj"];
+        let mut terminal = Fake::new(40, 6, reads);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        let last = frames.last().unwrap();
+        // Ctrl+C did not quit, and j moved down.
+        assert!(at_top(last, "Line 2"), "{frames:#?}");
+        assert!(status_row(last, 6).contains("notes.md"), "{frames:#?}");
+    }
+
+    #[test]
+    fn backspace_deletes_and_on_an_empty_prompt_cancels() {
+        let reads: &[&[u8]] = &[b"/line 2x", b"\x7f0\r", b"/a", b"\x7f\x08", b"jj"];
+        let mut terminal = Fake::new(40, 6, reads);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert!(
+            frames.iter().any(|frame| at_top(frame, "Line 20")),
+            "{frames:#?}"
+        );
+        assert!(at_top(frames.last().unwrap(), "Line 21"), "{frames:#?}");
+    }
+
+    #[test]
+    fn enter_on_an_empty_prompt_repeats_the_last_search_from_the_view() {
+        let reads: &[&[u8]] = &[b"/line 20\r", b"g", b"/\r"];
+        let mut terminal = Fake::new(60, 6, reads);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert!(at_top(&frames[2], "Line 1"), "{frames:#?}");
+        let last = frames.last().unwrap();
+        assert!(at_top(last, "Line 20"), "{frames:#?}");
+        assert!(status_row(last, 6).contains("/line 20 1/1"), "{frames:#?}");
+    }
+
+    #[test]
+    fn enter_on_an_empty_prompt_without_a_search_cancels() {
+        let mut terminal = Fake::new(40, 6, &[b"/\r", b"jj"]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        let last = frames.last().unwrap();
+        assert!(at_top(last, "Line 2"), "{frames:#?}");
+        assert!(status_row(last, 6).contains("notes.md"), "{frames:#?}");
+    }
+
+    #[test]
+    fn ctrl_u_clears_the_prompt() {
+        let mut terminal = Fake::new(40, 6, &[b"/xyz", b"\x15line 20\r"]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert!(at_top(frames.last().unwrap(), "Line 20"), "{frames:#?}");
+    }
+
+    #[test]
+    fn keys_go_to_the_prompt_while_it_is_open() {
+        // q and G are typed, not bindings.
+        let mut terminal = Fake::new(40, 6, &[b"/qG"]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert!(status_row(&frames[1], 6).contains("/qG"), "{frames:#?}");
+        assert!(at_top(&frames[1], "Line 1"), "{frames:#?}");
+    }
+
+    #[test]
+    fn the_status_line_counts_the_matches_after_a_search() {
+        let mut terminal = Fake::new(60, 6, &[b"/line 2\r"]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        let status = status_row(frames.last().unwrap(), 6);
+        assert!(status.contains("notes.md"), "{status:?}");
+        assert!(status.contains("/line 2 1/11"), "{status:?}");
+    }
+
+    #[test]
+    fn a_term_not_found_is_told_until_the_next_key() {
+        let mut terminal = Fake::new(60, 6, &[b"/xyz\r", b"x"]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 3, "{frames:#?}");
+        assert!(
+            status_row(&frames[1], 6).contains("not found: xyz"),
+            "{frames:#?}"
+        );
+        assert!(!status_row(&frames[2], 6).contains("xyz"), "{frames:#?}");
+    }
+
+    #[test]
+    fn n_and_shift_n_move_between_matches_and_around_the_ends() {
+        let reads: &[&[u8]] = &[b"/line 2\r", b"n", b"N", b"N", b"n"];
+        let mut terminal = Fake::new(60, 6, reads);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        let shows =
+            |frame: &str, line, count| at_top(frame, line) && status_row(frame, 6).contains(count);
+        assert_eq!(frames.len(), 6, "{frames:#?}");
+        assert!(shows(&frames[1], "Line 1", "/line 2 1/11"), "{frames:#?}");
+        assert!(shows(&frames[2], "Line 20", "/line 2 2/11"), "{frames:#?}");
+        assert!(shows(&frames[3], "Line 2", "/line 2 1/11"), "{frames:#?}");
+        // Around the start to the last match, on the last page, and
+        // around the end to the first, each with the number flashing.
+        assert!(unstyled(&frames[4]).contains("Line 29"), "{frames:#?}");
+        let status = status_row(&frames[4], 6);
+        assert!(status.contains("11\x1b[0;7m/11"), "{frames:#?}");
+        assert!(at_top(&frames[5], "Line 2"), "{frames:#?}");
+        let status = status_row(&frames[5], 6);
+        assert!(status.contains("m1\x1b[0;7m/11"), "{frames:#?}");
+    }
+
+    #[test]
+    fn n_after_scrolling_away_goes_on_from_the_view() {
+        // At the first match, then to the end and back: n takes the first
+        // match in the view, not the one after the match left behind.
+        let reads: &[&[u8]] = &[b"/line 2\r", b"G", b"n"];
+        let mut terminal = Fake::new(60, 6, reads);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        let status = status_row(&frames[3], 6);
+        assert!(status.contains("/line 2 10/11"), "{frames:#?}");
+        assert!(unstyled(&frames[3]).contains("Line 29"), "{frames:#?}");
+    }
+
+    #[test]
+    fn n_without_a_search_does_nothing() {
+        let mut terminal = Fake::new(60, 6, &[b"nN", b"jj"]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 2, "{frames:#?}");
+    }
+
+    #[test]
+    fn n_after_a_term_not_found_tells_it_again() {
+        let mut terminal = Fake::new(60, 6, &[b"/xyz\r", b"j", b"n"]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        let last = status_row(frames.last().unwrap(), 6);
+        assert!(last.contains("not found: xyz"), "{frames:#?}");
+    }
+
+    #[test]
+    fn escape_hides_the_search_and_n_takes_it_up_again() {
+        let reads: &[&[u8]] = &[b"/line 2\r", b"\x1b", b"", b"n"];
+        let mut terminal = Fake::new(60, 6, reads);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert!(
+            status_row(&frames[1], 6).contains("/line 2 1/11"),
+            "{frames:#?}"
+        );
+        assert!(!status_row(&frames[2], 6).contains("line 2"), "{frames:#?}");
+        assert!(at_top(&frames[3], "Line 20"), "{frames:#?}");
+        assert!(
+            status_row(&frames[3], 6).contains("/line 2 2/11"),
+            "{frames:#?}"
+        );
+    }
+
+    #[test]
+    fn a_new_window_size_finds_the_matches_again_from_the_top_of_the_view() {
+        let reads: &[&[u8]] = &[b"/line\r", b"jjjjjjjj", b""];
+        let mut terminal = Fake::new(60, 6, reads);
+        terminal.sizes = [window(60, 6), window(60, 6), window(70, 6)].into();
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert!(
+            status_row(&frames[2], 6).contains("/line 1/30"),
+            "{frames:#?}"
+        );
+        // Line 5 is at the top, and the view stays.
+        assert!(at_top(&frames[3], "Line 5"), "{frames:#?}");
+        assert!(
+            status_row(&frames[3], 6).contains("/line 5/30"),
+            "{frames:#?}"
+        );
+    }
+
+    #[test]
+    fn without_colours_going_around_an_end_flashes_the_match_number() {
+        // N goes around to the last match, then `empty` polls without keys.
+        let frames = |empty| {
+            let mut caps = Capabilities::ansi(80);
+            caps.color = false;
+            frames_with(caps, &[b"/line 2\r", b"N"], empty)
+        };
+        // Bold, without the bar's reverse video, for half a second.
+        let flashed = "\x1b[0;1m11\x1b[0;7m/11";
+        // While the match fades, each poll is a twentieth of a second.
+        let before = frames(9);
+        assert_eq!(before.len(), 3, "{before:#?}");
+        assert!(status_row(&before[2], 6).contains(flashed), "{before:#?}");
+        let after = frames(10);
+        assert_eq!(after.len(), 4, "{after:#?}");
+        assert!(!status_row(&after[3], 6).contains(flashed), "{after:#?}");
+        assert!(status_row(&after[3], 6).contains(" 11/11"), "{after:#?}");
+    }
+
+    /// The codes of the last SGR sequence before `text` in `frame`; none
+    /// when there is none.
+    fn style_before(frame: &str, text: &str) -> Vec<String> {
+        let at = frame
+            .find(text)
+            .unwrap_or_else(|| panic!("{text:?} in {frame:?}"));
+        let Some(start) = frame[..at].rfind("\x1b[0") else {
+            return Vec::new();
+        };
+        let start = start + 2;
+        let end = start + frame[start..].find('m').unwrap();
+        frame[start..end].split(';').map(str::to_owned).collect()
+    }
+
+    /// `frame` without its status line on row `row`.
+    fn document_part(frame: &str, row: u16) -> &str {
+        &frame[..frame.find(&format!("\x1b[{row};1H")).unwrap()]
+    }
+
+    #[test]
+    fn matches_in_view_are_marked_and_the_current_one_apart() {
+        // Without colours known as RGB, a jump marks the match at once.
+        let wait = [b"".as_slice(); 30];
+        let reads = [
+            &[b"/line 2\r".as_slice()],
+            &wait[..],
+            &[b"n"],
+            &wait,
+            &[b"\x1b", b""],
+        ];
+        let mut terminal = Fake::new(60, 6, &reads.concat());
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        // Line 2 is the current match, below Line 1.
+        let found = document_part(&frames[1], 6);
+        assert_eq!(style_before(found, "Line 2\x1b"), ["0", "1", "7"]);
+        assert!(found.contains("  Line 1\x1b"), "{found:?}");
+        // Line 20 is the current match, and Line 21 another.
+        let next = document_part(&frames[2], 6);
+        assert_eq!(style_before(next, "Line 2\x1b[0m0"), ["0", "1", "7"]);
+        assert_eq!(style_before(next, "Line 2\x1b[0m1"), ["0", "7"]);
+        // Escape takes the marks away.
+        let hidden = document_part(&frames[3], 6);
+        assert!(
+            !hidden.contains(";7m") && !hidden.contains("[0;7"),
+            "{hidden:?}"
+        );
+        assert!(at_top(&frames[3], "Line 20"), "{frames:#?}");
+    }
+
+    #[test]
+    fn matches_are_marked_in_large_headings_and_in_tables() {
+        let mut reads = vec![b"/kiri\r".as_slice()];
+        // After the fade of the jump.
+        reads.extend([b"".as_slice(); 30]);
+        let mut terminal = Fake::new(60, 12, &reads);
+        let source = "# Kiri title\n\n| a | b |\n|---|---|\n| c | kiri |\n";
+        let mut inputs = Inputs::new(Capabilities::kitty(80));
+        run(
+            &crate::parse::parse(source),
+            "notes.md",
+            &mut inputs,
+            None,
+            SearchCase::Smart,
+            &mut terminal,
+        )
+        .unwrap();
+        let frames = terminal.frames();
+        let found = document_part(frames.last().unwrap(), 12);
+        // The heading is split where the match ends, both parts scaled.
+        let heading = style_before(found, "\x1b]66;s=3;Kiri\x1b\\");
+        assert!(heading.contains(&"1".into()) && heading.contains(&"7".into()));
+        assert!(found.contains("\x1b]66;s=3; title\x1b"), "{found:?}");
+        let cell = style_before(found, "kiri");
+        assert!(cell.contains(&"7".into()) && !cell.contains(&"1".into()));
+        // Without the search, neither is marked.
+        assert!(!document_part(&frames[0], 12).contains(";7"), "{frames:#?}");
+    }
+
+    #[test]
+    fn n_without_going_around_does_not_flash() {
+        let mut terminal = Fake::new(60, 6, &[b"/line 2\r", b"n"]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert!(
+            status_row(&frames[2], 6).contains("/line 2 2/11"),
+            "{frames:#?}"
+        );
+    }
+
+    /// The terminal colours of the fade tests: grey text on black, with
+    /// black and yellow in the palette.
+    fn known_colours() -> Capabilities {
+        let mut caps = Capabilities::ansi(80);
+        caps.truecolor = true;
+        caps.foreground = Some(Color::Rgb(200, 200, 200));
+        caps.background = Some(Color::Rgb(0, 0, 0));
+        caps.palette[0] = Some(Color::Rgb(0, 0, 0));
+        caps.palette[3] = Some(Color::Rgb(200, 200, 0));
+        caps
+    }
+
+    /// The frames drawn on a terminal with `caps` for `reads`, then
+    /// `empty` polls without keys.
+    fn frames_with(caps: Capabilities, reads: &[&[u8]], empty: usize) -> Vec<String> {
+        frames_of(&numbers(30), Inputs::new(caps), reads, empty)
+    }
+
+    /// The frames drawn for `document` with `inputs` for `reads`, then
+    /// `empty` polls without keys.
+    fn frames_of(
+        document: &Document,
+        mut inputs: Inputs,
+        reads: &[&[u8]],
+        empty: usize,
+    ) -> Vec<String> {
+        let mut reads = reads.to_vec();
+        reads.extend(std::iter::repeat_n(b"".as_slice(), empty));
+        let mut terminal = Fake::new(60, 6, &reads);
+        run(
+            document,
+            "notes.md",
+            &mut inputs,
+            None,
+            SearchCase::Smart,
+            &mut terminal,
+        )
+        .unwrap();
+        terminal.frames()
+    }
+
+    /// The SGR codes of bold text in `fg` on `bg`, each as `r;g;b`.
+    fn colours(fg: &str, bg: &str) -> Vec<String> {
+        let mut codes = vec!["0".to_owned(), "1".to_owned()];
+        codes.extend(format!("38;2;{fg};48;2;{bg}").split(';').map(str::to_owned));
+        codes
+    }
+
+    #[test]
+    fn a_jump_fades_the_match_from_its_own_colours_into_reverse_video() {
+        let frames = frames_with(known_colours(), &[b"/line 2\r"], 40);
+        // The jump, a frame each twentieth of a second after it until
+        // three quarters of a second, and no more after the fade.
+        assert_eq!(frames.len(), 17, "{frames:#?}");
+        let current = |frame: &str| style_before(document_part(frame, 6), "Line 2\x1b");
+        // Grey on black, the text's own, into black on grey.
+        assert_eq!(current(&frames[1]), colours("200;200;200", "0;0;0"));
+        assert_eq!(current(&frames[7]), colours("120;120;120", "80;80;80"));
+        assert_eq!(current(&frames[15]), colours("13;13;13", "187;187;187"));
+        assert_eq!(current(&frames[16]), ["0", "1", "7"]);
+    }
+
+    #[test]
+    fn a_match_in_yellow_text_fades_into_its_reverse() {
+        // The title of a warning is in palette colour 3, a yellow.
+        let mut inputs = Inputs::new(known_colours());
+        inputs.theme.alerts.colors = crate::theme::AlertColors::Terminal;
+        let document = crate::parse::parse("> [!WARNING]\n> Mind the step.\n");
+        let frames = frames_of(&document, inputs, &[b"/warning\r"], 40);
+        assert_eq!(frames.len(), 17, "{frames:#?}");
+        let current = |frame: &str| style_before(document_part(frame, 6), "Warning\x1b");
+        // Yellow on the alert's yellow tint at the jump, into the tint on
+        // yellow.
+        assert_eq!(current(&frames[1]), colours("200;200;0", "30;30;0"));
+        assert_eq!(current(&frames[7]), colours("132;132;0", "98;98;0"));
+        assert_eq!(current(&frames[15]), colours("41;41;0", "189;189;0"));
+        let end = current(&frames[16]);
+        assert!(end.contains(&"7".to_owned()), "{end:?}");
+    }
+
+    #[test]
+    fn n_and_shift_n_fade_the_match_too() {
+        let frames = frames_with(known_colours(), &[b"/line 2\r", b"n"], 0);
+        let current = style_before(document_part(&frames[2], 6), "Line 2\x1b[0m0");
+        assert_eq!(current, colours("200;200;200", "0;0;0"), "{frames:#?}");
+    }
+
+    #[test]
+    fn colours_not_known_as_rgb_mark_the_match_at_once() {
+        // The terminal tells no colours: the current match's reverse
+        // video at once, and no frame after it.
+        let frames = frames_with(Capabilities::ansi(80), &[b"/line 2\r"], 30);
+        assert_eq!(frames.len(), 2, "{frames:#?}");
+        let current = |frame: &str| style_before(document_part(frame, 6), "Line 2\x1b");
+        assert_eq!(current(&frames[1]), ["0", "1", "7"]);
+        // Nor without colours.
+        let mut caps = known_colours();
+        caps.color = false;
+        let frames = frames_with(caps, &[b"/line 2\r"], 30);
+        assert_eq!(frames.len(), 2, "{frames:#?}");
+        assert_eq!(current(&frames[1]), ["0", "1", "7"]);
+    }
+
+    #[test]
+    fn going_around_an_end_fades_the_match_number_from_the_bar_s_reverse() {
+        // A grey bar, mixed from the black page and this grey.
+        let mut caps = known_colours();
+        caps.palette[8] = Some(Color::Rgb(100, 100, 100));
+        let frames = frames_with(caps, &[b"/line 2\r", b"N"], 40);
+        // The search, then N, which fades for three quarters of a second.
+        assert_eq!(frames.len(), 18, "{frames:#?}");
+        let number = |frame: &str| style_before(&status_row(frame, 6), "11\x1b");
+        let colours = |fg: &str, bg: &str| {
+            let mut codes = vec!["0".to_owned()];
+            codes.extend(format!("38;2;{fg};48;2;{bg}").split(';').map(str::to_owned));
+            codes
+        };
+        // Dark grey on grey back into the bar's grey on dark grey.
+        assert_eq!(number(&frames[2]), colours("50;50;50", "200;200;200"));
+        assert_eq!(number(&frames[8]), colours("110;110;110", "140;140;140"));
+        assert_eq!(number(&frames[16]), colours("190;190;190", "60;60;60"));
+        // At the end, in the bar's colours, with the rest of the search.
+        let status = status_row(&frames[17], 6);
+        assert_eq!(
+            style_before(&status, "/line 2 11/11"),
+            ["0", "48", "2", "50", "50", "50"]
+        );
+    }
+
+    #[test]
+    fn going_around_an_end_flashes_the_match_number_where_colours_are_not_known() {
+        // Bold, without the bar's reverse video, for half a second.
+        let frames = frames_with(Capabilities::ansi(80), &[b"/line 2\r", b"N"], 30);
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        let number = |frame: &str| style_before(&status_row(frame, 6), "11\x1b");
+        assert_eq!(number(&frames[2]), ["0", "1"]);
+        assert!(status_row(&frames[3], 6).contains(" 11/11"), "{frames:#?}");
     }
 }

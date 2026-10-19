@@ -127,6 +127,33 @@ mod tests {
     }
 
     #[test]
+    fn lists_the_search_keys() {
+        let panel = panel(80, 23, &Style::default(), &Style::default());
+        let rows: Vec<String> = panel.iter().map(text).collect();
+        for (names, what) in [
+            ("/", "search"),
+            ("n", "next match"),
+            ("N", "previous match"),
+        ] {
+            let listed = |row: &String| {
+                let row = row.trim_start_matches("│ ");
+                row.starts_with(&format!("{names} ")) && row.contains(&format!("   {what} "))
+            };
+            assert!(rows.iter().any(listed), "{names}: {rows:#?}");
+        }
+    }
+
+    #[test]
+    fn fits_a_window_of_24_rows_whole() {
+        // The status line takes one of the 24 rows.
+        let rows = 23;
+        let panel = panel(80, rows, &Style::default(), &Style::default());
+        assert_eq!(panel.len(), BINDINGS.len() + 4);
+        assert!(panel.len() <= rows, "{} rows", panel.len());
+        assert!(panel[0].row >= 1 && panel[panel.len() - 1].row <= rows);
+    }
+
+    #[test]
     fn sits_in_the_middle_of_the_window() {
         let panel = panel(80, 24, &Style::default(), &Style::default());
         let box_width = width(&panel[0].spans);

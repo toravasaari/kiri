@@ -26,7 +26,8 @@ fn frame(source: &str, caps: Capabilities, page: Page, rows: usize, motions: &[M
         view.scroll(motion);
     }
     let mut out = Vec::new();
-    kiri::pager::draw(&lines, &view, &[], &[], &mut writer, &mut out).unwrap();
+    let shown = &lines[view.visible()];
+    kiri::pager::draw(shown, view.rows(), &[], &[], &mut writer, &mut out).unwrap();
     String::from_utf8(out).unwrap()
 }
 
