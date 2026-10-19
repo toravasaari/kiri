@@ -25,6 +25,8 @@ pub struct Style {
     pub italic: bool,
     pub underline: Underline,
     pub strike: bool,
+    /// Foreground and background swapped.
+    pub reverse: bool,
     pub fg: Option<Color>,
     pub bg: Option<Color>,
     /// Target of an OSC 8 hyperlink.

@@ -2,6 +2,7 @@
 //! with keys.
 
 pub mod keys;
+pub mod status;
 pub mod view;
 
 use std::io::{self, Write};
@@ -11,7 +12,7 @@ use crate::config::Paging;
 use crate::model::Document;
 use crate::render::Inputs;
 use crate::render::output::{Page, Writer};
-use crate::render::style::Line;
+use crate::render::style::{Line, Span};
 use crate::term::{Capabilities, Screen, WindowSize};
 use keys::Action;
 use view::View;
@@ -55,10 +56,12 @@ impl<W: Write> Terminal for Screen<W> {
     }
 }
 
-/// Shows `document` on `terminal` until the reader quits, laid out with
-/// `inputs` for the window's size, or `width` columns when it is given.
+/// Shows `document`, called `name`, on `terminal` until the reader quits,
+/// laid out with `inputs` for the window's size, or `width` columns when
+/// it is given.
 pub fn run(
     document: &Document,
+    name: &str,
     inputs: &mut Inputs,
     width: Option<u16>,
     terminal: &mut impl Terminal,
@@ -71,7 +74,9 @@ pub fn run(
     let mut view: Option<View> = None;
     loop {
         fit(&mut inputs.caps, size, width);
-        let rows = usize::from(inputs.caps.height.unwrap_or(DEFAULT_ROWS));
+        let window = usize::from(inputs.caps.height.unwrap_or(DEFAULT_ROWS));
+        // The bottom row is the status line's.
+        let rows = window.saturating_sub(1);
         let mut lines = crate::render::layout::layout(document, inputs);
         // The text sizing protocol cannot draw part of a line, so a line
         // taller than the window is drawn at normal size.
@@ -92,7 +97,12 @@ pub fn run(
             }
             None => View::new(heights, rows),
         };
-        match show(&lines, &mut shown, &mut writer, terminal, size)? {
+        let status = Status {
+            name,
+            styles: status::Styles::new(&inputs.theme, &inputs.caps),
+            width: size.map_or(inputs.caps.width, |size| size.columns),
+        };
+        match show(&lines, &status, &mut shown, &mut writer, terminal, size)? {
             Outcome::Quit => return Ok(()),
             Outcome::Resized(new) => {
                 size = new;
@@ -116,6 +126,21 @@ enum Outcome {
     Resized(Option<WindowSize>),
 }
 
+/// What the status line shows and how, apart from the position.
+struct Status<'a> {
+    name: &'a str,
+    styles: status::Styles,
+    /// The window's columns.
+    width: u16,
+}
+
+impl Status<'_> {
+    fn spans(&self, view: &View) -> Vec<Span> {
+        let width = usize::from(self.width);
+        status::spans(self.name, view.position(), width, &self.styles)
+    }
+}
+
 /// `caps` for a window of `size`, `width` columns wide when it is given.
 fn fit(caps: &mut Capabilities, size: Option<WindowSize>, width: Option<u16>) {
     let Some(size) = size else {
@@ -129,16 +154,18 @@ fn fit(caps: &mut Capabilities, size: Option<WindowSize>, width: Option<u16>) {
     }
 }
 
-/// Shows `lines` in `view` on `terminal`, whose window is of `size`, and
-/// scrolls them until the reader quits or the window changes size.
+/// Shows `lines` in `view` with `status` below them on `terminal`, whose
+/// window is of `size`, and scrolls them until the reader quits or the
+/// window changes size.
 fn show(
     lines: &[Line],
+    status: &Status,
     view: &mut View,
     writer: &mut Writer,
     terminal: &mut impl Terminal,
     size: Option<WindowSize>,
 ) -> io::Result<Outcome> {
-    draw(lines, view, writer, terminal)?;
+    draw(lines, view, &status.spans(view), writer, terminal)?;
     terminal.flush()?;
     let mut decoder = keys::Decoder::default();
     loop {
@@ -162,17 +189,19 @@ fn show(
             return Ok(Outcome::Resized(now));
         }
         if view.top() != top {
-            draw(lines, view, writer, terminal)?;
+            draw(lines, view, &status.spans(view), writer, terminal)?;
             terminal.flush()?;
         }
     }
 }
 
 /// Draws the lines `view` shows from the top of the screen, with the rows
-/// below them empty, as one update so the screen does not flicker.
+/// below them empty and `status` on the row below the view, as one update
+/// so the screen does not flicker.
 pub fn draw(
     lines: &[Line],
     view: &View,
+    status: &[Span],
     writer: &mut Writer,
     out: &mut impl Write,
 ) -> io::Result<()> {
@@ -185,6 +214,10 @@ pub fn draw(
             writer.row(line, row, out)?;
         }
         top += usize::from(writer.rows(line));
+    }
+    if !status.is_empty() {
+        write!(out, "\x1b[{};1H", view.rows() + 1)?;
+        writer.bar(status, out)?;
     }
     out.write_all(END_UPDATE)
 }
@@ -292,12 +325,12 @@ mod tests {
 
     fn show(document: &Document, terminal: &mut Fake) {
         let mut inputs = Inputs::new(Capabilities::ansi(80));
-        run(document, &mut inputs, None, terminal).unwrap();
+        run(document, "notes.md", &mut inputs, None, terminal).unwrap();
     }
 
     #[test]
     fn draws_the_document_and_quits_on_q() {
-        let mut terminal = Fake::new(40, 5, &[b"q"]);
+        let mut terminal = Fake::new(40, 6, &[b"q"]);
         show(&numbers(10), &mut terminal);
         let frames = terminal.frames();
         assert_eq!(frames.len(), 1, "{frames:?}");
@@ -309,7 +342,7 @@ mod tests {
     #[test]
     fn redraws_after_keys_that_move() {
         // Two lines down, then a key that does nothing, then the end.
-        let mut terminal = Fake::new(40, 5, &[b"jj", b"x", b"", b"G"]);
+        let mut terminal = Fake::new(40, 6, &[b"jj", b"x", b"", b"G"]);
         show(&numbers(10), &mut terminal);
         let frames = terminal.frames();
         assert_eq!(frames.len(), 3, "{frames:?}");
@@ -321,11 +354,28 @@ mod tests {
     #[test]
     fn a_key_split_over_two_reads_moves() {
         // Page Down as an escape character and the rest of its sequence.
-        let mut terminal = Fake::new(40, 5, &[b"\x1b", b"[6~"]);
+        let mut terminal = Fake::new(40, 6, &[b"\x1b", b"[6~"]);
         show(&numbers(10), &mut terminal);
         let frames = terminal.frames();
         assert_eq!(frames.len(), 2, "{frames:?}");
         assert!(frames[1].contains("\x1b[2;1H  Line 4"), "{frames:?}");
+    }
+
+    #[test]
+    fn the_status_line_is_on_the_bottom_row() {
+        let mut terminal = Fake::new(40, 6, &[b"G"]);
+        show(&numbers(10), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 2, "{frames:?}");
+        // The document takes the rows above it.
+        assert!(frames[0].contains("\x1b[5;1H  Line 3"), "{frames:?}");
+        assert!(!frames[0].contains("\x1b[6;1H  "), "{frames:?}");
+        let status = |frame: &str| frame[frame.find("\x1b[6;1H").unwrap()..].to_owned();
+        assert!(status(&frames[0]).contains(" kiri "), "{frames:?}");
+        assert!(status(&frames[0]).contains(" notes.md "), "{frames:?}");
+        assert!(status(&frames[0]).contains(" help"), "{frames:?}");
+        assert!(status(&frames[1]).contains(" END "), "{frames:?}");
+        assert!(status(&frames[1]).contains("100%"), "{frames:?}");
     }
 
     #[test]
@@ -345,10 +395,10 @@ mod tests {
 
     #[test]
     fn a_heading_taller_than_the_window_is_drawn_at_normal_size() {
-        let mut terminal = Fake::new(40, 2, &[b"G"]);
+        let mut terminal = Fake::new(40, 3, &[b"G"]);
         let document = crate::parse::parse("# Title\n\nText\n");
         let mut inputs = Inputs::new(Capabilities::kitty(80));
-        run(&document, &mut inputs, None, &mut terminal).unwrap();
+        run(&document, "notes.md", &mut inputs, None, &mut terminal).unwrap();
         let frames = terminal.frames();
         assert!(frames[0].contains("Title"), "{frames:?}");
         assert!(!frames[0].contains("\x1b]66;"), "{frames:?}");
@@ -362,7 +412,7 @@ mod tests {
         terminal.sizes = [window(80, 5)].into();
         let document = crate::parse::parse("A paragraph of several words\n");
         let mut inputs = Inputs::new(Capabilities::ansi(80));
-        run(&document, &mut inputs, Some(10), &mut terminal).unwrap();
+        run(&document, "notes.md", &mut inputs, Some(10), &mut terminal).unwrap();
         // One frame before the window changed, and one after.
         assert_eq!(terminal.frames().len(), 2);
         for frame in terminal.frames() {

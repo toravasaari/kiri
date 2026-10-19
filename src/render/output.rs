@@ -171,6 +171,16 @@ impl<'a> Writer<'a> {
     }
 }
 
+impl Writer<'_> {
+    /// Writes `spans` in their own styles, without the page's colours, and
+    /// leaves the cursor at their end with the terminal's default style.
+    pub fn bar(&self, spans: &[Span], out: &mut impl Write) -> io::Result<()> {
+        let mut current = Style::default();
+        write_spans(spans, Style::clone, &mut current, self.caps, out)?;
+        transition(&current, &Style::default(), self.caps, out)
+    }
+}
+
 /// Scales the image `placement` shows to its size and sends it.
 fn send(
     placement: &Placement,
@@ -262,6 +272,7 @@ fn sgr_codes(style: &Style, caps: &Capabilities) -> Vec<String> {
         (style.bold, "1"),
         (style.dim, "2"),
         (style.italic, "3"),
+        (style.reverse, "7"),
         (style.strike, "9"),
     ] {
         if on {
