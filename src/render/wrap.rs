@@ -71,7 +71,7 @@ pub fn cut(spans: Vec<Span>, max: usize) -> Vec<Span> {
             }
             span.text.truncate(end);
         }
-        left -= span.text.width();
+        left = left.saturating_sub(span.text.width());
         if !span.text.is_empty() {
             kept.push(span);
         }
