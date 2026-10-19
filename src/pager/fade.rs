@@ -32,22 +32,17 @@ impl Rgb {
         if !caps.color {
             return None;
         }
-        let mut rgb = Self {
-            foreground: None,
-            background: None,
+        let rgb = |color: Option<Color>| color?.rgb(&caps.palette);
+        Some(Self {
+            foreground: rgb(theme.foreground.or(caps.foreground)),
+            background: rgb(theme.background.or(caps.background)),
             palette: caps.palette,
-        };
-        rgb.foreground = theme.foreground.or(caps.foreground).and_then(|c| rgb.of(c));
-        rgb.background = theme.background.or(caps.background).and_then(|c| rgb.of(c));
-        Some(rgb)
+        })
     }
 
     /// `color` as RGB; `None` when it is a palette colour not known.
     fn of(&self, color: Color) -> Option<Color> {
-        match color {
-            Color::Rgb(..) => Some(color),
-            Color::Palette(index) => *self.palette.get(usize::from(index))?,
-        }
+        color.rgb(&self.palette)
     }
 
     /// The colours text in `style` shows in, its text's and its

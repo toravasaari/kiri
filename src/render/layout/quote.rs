@@ -146,15 +146,8 @@ impl Layout<'_> {
             return None;
         }
         let page = self.theme.background.or(self.caps.background);
-        self.rgb(page?)?.mix(self.rgb(color?)?, amount)
-    }
-
-    /// `color` as RGB, a palette colour as the terminal told it.
-    fn rgb(&self, color: Color) -> Option<Color> {
-        match color {
-            Color::Rgb(..) => Some(color),
-            Color::Palette(index) => *self.caps.palette.get(usize::from(index))?,
-        }
+        let palette = &self.caps.palette;
+        page?.rgb(palette)?.mix(color?.rgb(palette)?, amount)
     }
 }
 

@@ -106,12 +106,8 @@ fn bar_and_badge(theme: &Theme, caps: &Capabilities) -> (Style, Style) {
 /// The page mixed halfway with bright black, a grey in most palettes;
 /// `None` when either is not known as RGB.
 fn mixed(theme: &Theme, caps: &Capabilities) -> Option<Color> {
-    let rgb = |color: Color| match color {
-        Color::Rgb(..) => Some(color),
-        Color::Palette(index) => *caps.palette.get(usize::from(index))?,
-    };
-    let page = rgb(theme.background.or(caps.background)?)?;
-    page.mix(rgb(Color::Palette(8))?, 0.5)
+    let page = theme.background.or(caps.background)?.rgb(&caps.palette)?;
+    page.mix(Color::Palette(8).rgb(&caps.palette)?, 0.5)
 }
 
 /// What the status line tells about the last search.
