@@ -24,6 +24,9 @@ images = true
 
 # When to show the document in the pager: "always", "auto" or "never".
 paging = "auto"
+
+# How a search in the pager treats case: "smart" or "literal".
+search_case = "smart"
 ```
 
 ## Theme
@@ -78,6 +81,14 @@ A document from standard input, often another command's output, and the
 `--doctor` report are paged only with `always`. Whatever the setting, kiri
 prints the document when its output is not a terminal or `--mode plain`
 asks for text without escape sequences.
+
+## Search case
+
+A search in the pager ignores case when its term has no upper-case letter,
+and matches case exactly when it has one: `kiri` finds `Kiri` too, but
+`Kiri` finds only `Kiri`. `search_case = "literal"` in the configuration
+file makes every search match case exactly. Only the configuration file
+sets this; there is no flag or environment variable for it.
 
 ## Environment variables
 
