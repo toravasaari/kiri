@@ -17,6 +17,89 @@ pub fn width(spans: &[Span]) -> usize {
     spans.iter().map(|span| span.text.width()).sum()
 }
 
+/// Splits styled code into lines of at most `max` cells, keeping every
+/// character, spaces included. Lines break between graphemes, measured as
+/// the wrapper measures them, so a flag or a joined emoji stays whole. A
+/// grapheme wider than `max` gets a line of its own and overflows it.
+pub fn split(spans: &[Span], max: usize) -> Vec<Vec<Span>> {
+    let mut lines = Vec::new();
+    let mut line = Vec::new();
+    split_onto(spans, max, &mut lines, &mut line, 0);
+    lines.push(line);
+    lines
+}
+
+/// Appends `spans` to `line`, which already takes `used` cells, and moves
+/// it to `lines` between graphemes wherever it is full, as `split` does.
+/// Returns the cells the last line takes.
+fn split_onto(
+    spans: &[Span],
+    max: usize,
+    lines: &mut Vec<Vec<Span>>,
+    line: &mut Vec<Span>,
+    mut used: usize,
+) -> usize {
+    for span in spans {
+        for grapheme in span.text.graphemes(true) {
+            let grapheme_width = grapheme.width();
+            if used + grapheme_width > max && used > 0 {
+                lines.push(std::mem::take(line));
+                used = 0;
+            }
+            push(line, grapheme, &span.style);
+            used += grapheme_width;
+        }
+    }
+    used
+}
+
+/// `spans` cut to at most `max` cells, between graphemes, measured as the
+/// wrapper measures them.
+pub fn cut(spans: Vec<Span>, max: usize) -> Vec<Span> {
+    let mut left = max;
+    let mut kept = Vec::new();
+    for mut span in spans {
+        if span.text.width() > left {
+            let mut end = 0;
+            let mut used = 0;
+            for (start, grapheme) in span.text.grapheme_indices(true) {
+                used += grapheme.width();
+                if used > left {
+                    break;
+                }
+                end = start + grapheme.len();
+            }
+            span.text.truncate(end);
+        }
+        left = left.saturating_sub(span.text.width());
+        if !span.text.is_empty() {
+            kept.push(span);
+        }
+    }
+    kept
+}
+
+/// The end of `text` in at most `max` cells, after `…` when its start is
+/// left out; empty when not even one grapheme fits after `…`.
+pub fn tail(text: &str, max: usize) -> String {
+    if text.width() <= max {
+        return text.to_owned();
+    }
+    let mut start = text.len();
+    let mut used = 1;
+    for (at, grapheme) in text.grapheme_indices(true).rev() {
+        used += grapheme.width();
+        if used > max {
+            break;
+        }
+        start = at;
+    }
+    if start == text.len() {
+        return String::new();
+    }
+    format!("…{}", &text[start..])
+}
+
 /// Wraps at spaces to lines of at most `max` cells. `\n` forces a break, and
 /// a word longer than a line is split. Runs of spaces collapse to one unless
 /// their style keeps them; either way, the spaces where a line breaks are
@@ -126,17 +209,7 @@ impl Wrapper {
 
     /// Breaks a word between graphemes wherever the line is full.
     fn split_long_word(&mut self, word: &[Span]) {
-        for span in word {
-            for grapheme in span.text.graphemes(true) {
-                let grapheme_width = grapheme.width();
-                if self.used + grapheme_width > self.max && self.used > 0 {
-                    self.lines.push(std::mem::take(&mut self.line));
-                    self.used = 0;
-                }
-                push(&mut self.line, grapheme, &span.style);
-                self.used += grapheme_width;
-            }
-        }
+        self.used = split_onto(word, self.max, &mut self.lines, &mut self.line, self.used);
     }
 }
 
@@ -232,16 +305,14 @@ fn pieces(span: &Span, split_together: bool) -> Vec<(&str, Style)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::style;
 
     fn plain(text: &str) -> Vec<Span> {
         vec![Span::new(text, Style::default())]
     }
 
     fn texts(lines: &[Vec<Span>]) -> Vec<String> {
-        lines
-            .iter()
-            .map(|line| line.iter().map(|span| span.text.as_str()).collect())
-            .collect()
+        lines.iter().map(|line| style::text(line)).collect()
     }
 
     #[test]
@@ -522,5 +593,62 @@ mod tests {
     fn breaks_lines_at_newlines() {
         let lines = wrap(&plain("one\ntwo"), 20);
         assert_eq!(texts(&lines), vec!["one", "two"]);
+    }
+
+    #[test]
+    fn cuts_between_graphemes() {
+        let cut_to = |text: &str, columns| -> String { style::text(&cut(plain(text), columns)) };
+        // A heart made an emoji by a variation selector, two cells wide.
+        assert_eq!(cut_to("a❤️b", 2), "a");
+        assert_eq!(cut_to("a❤️b", 3), "a❤️");
+        // An e with a combining acute accent, one cell.
+        assert_eq!(cut_to("ée", 1), "é");
+    }
+
+    #[test]
+    fn tail_keeps_whole_graphemes() {
+        // A heart made an emoji by a variation selector, two cells wide.
+        assert_eq!(tail("ab❤️", 3), "…❤️");
+        assert_eq!(tail("a❤️b", 3), "…b");
+        // An e with a combining acute accent, one cell.
+        assert_eq!(tail("abcé", 3), "…cé");
+    }
+
+    fn split_texts(text: &str, max: usize) -> Vec<String> {
+        texts(&split(&plain(text), max))
+    }
+
+    #[test]
+    fn splits_code_between_graphemes() {
+        // A flag is two regional indicators, two cells together.
+        assert_eq!(split_texts("ab🇫🇮", 3), vec!["ab", "🇫🇮"]);
+        // An emoji joined from three, two cells wide.
+        assert_eq!(split_texts("ab👨‍👩‍👧", 3), vec!["ab", "👨‍👩‍👧"]);
+        // A heart made an emoji by a variation selector, two cells wide.
+        assert_eq!(split_texts("a❤️", 2), vec!["a", "❤️"]);
+        // A letter with a combining accent.
+        assert_eq!(split_texts("abe\u{301}", 2), vec!["ab", "e\u{301}"]);
+        // Spaces are kept.
+        assert_eq!(split_texts("a  b", 2), vec!["a ", " b"]);
+    }
+
+    #[test]
+    fn a_grapheme_wider_than_the_line_gets_a_line_of_its_own() {
+        assert_eq!(split_texts("日本", 1), vec!["日", "本"]);
+        assert_eq!(split_texts("a日", 1), vec!["a", "日"]);
+    }
+
+    #[test]
+    fn a_leading_zero_width_grapheme_stays_with_what_follows() {
+        assert_eq!(split_texts("\u{200b}ab", 1), vec!["\u{200b}a", "b"]);
+    }
+
+    #[test]
+    fn measures_code_like_the_wrapper() {
+        for text in ["ab🇫🇮cd", "a❤️b👨‍👩‍👧c", "日本語"] {
+            for line in split(&[Span::new(text, Style::default())], 3) {
+                assert!(width(&line) <= 3, "{line:?}");
+            }
+        }
     }
 }

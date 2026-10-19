@@ -1,6 +1,6 @@
 //! Emoji shortcodes, shown as the emoji GitHub would show.
 
-use kiri::term::Capabilities;
+use kiri::caps::Capabilities;
 
 mod common;
 

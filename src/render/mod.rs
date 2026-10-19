@@ -11,10 +11,10 @@ pub mod wrap;
 use std::io::{self, Write};
 use std::rc::Rc;
 
+use crate::caps::Capabilities;
 use crate::images::{Images, Source};
 use crate::model::Document;
 use crate::render::style::Line;
-use crate::term::Capabilities;
 use crate::theme::Theme;
 
 /// Everything rendering takes besides the document. A new input gets a

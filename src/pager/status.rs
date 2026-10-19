@@ -2,13 +2,14 @@
 //! pager is on, the document's name, how far down it the view is, and the
 //! keys for help and quitting.
 
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthStr;
 
 use super::fade::{FLASH, Fade};
 use super::view::Position;
+use crate::caps::Capabilities;
 use crate::color::Color;
 use crate::render::style::{Span, Style};
-use crate::term::Capabilities;
+use crate::render::wrap;
 use crate::theme::{StatusColor, Theme};
 
 /// The styles of the status line, and the one the match number fades
@@ -106,12 +107,8 @@ fn bar_and_badge(theme: &Theme, caps: &Capabilities) -> (Style, Style) {
 /// The page mixed halfway with bright black, a grey in most palettes;
 /// `None` when either is not known as RGB.
 fn mixed(theme: &Theme, caps: &Capabilities) -> Option<Color> {
-    let rgb = |color: Color| match color {
-        Color::Rgb(..) => Some(color),
-        Color::Palette(index) => *caps.palette.get(usize::from(index))?,
-    };
-    let page = rgb(theme.background.or(caps.background)?)?;
-    page.mix(rgb(Color::Palette(8))?, 0.5)
+    let page = theme.background.or(caps.background)?.rgb(&caps.palette)?;
+    page.mix(Color::Palette(8).rgb(&caps.palette)?, 0.5)
 }
 
 /// What the status line tells about the last search.
@@ -160,7 +157,7 @@ pub fn spans(
     let search_width = if search.is_empty() {
         0
     } else {
-        width_of(&search) + 3
+        wrap::width(&search) + 3
     };
     let with_search = fixed + search_width <= width;
     let search_width = if with_search { search_width } else { 0 };
@@ -174,7 +171,7 @@ pub fn spans(
         ..styles.bar.clone()
     };
     let mut spans = vec![Span::new(BADGE, styles.badge.clone())];
-    let shown = tail(name, room);
+    let shown = wrap::tail(name, room);
     spans.push(Span::new(&format!(" {shown}"), styles.bar.clone()));
     let mut right = Vec::new();
     if with_search && !search.is_empty() {
@@ -190,7 +187,7 @@ pub fn spans(
         }
     }
     right.push(Span::new(" ", styles.bar.clone()));
-    let used = width_of(&spans) + width_of(&right);
+    let used = wrap::width(&spans) + wrap::width(&right);
     spans.push(Span::new(
         &" ".repeat(width.saturating_sub(used)),
         styles.bar.clone(),
@@ -230,12 +227,12 @@ pub fn prompt(term: &str, width: usize, styles: &Styles) -> Vec<Span> {
     if fixed > width {
         return badge_only(width, styles);
     }
-    let shown = tail(&printable(term), width - fixed);
+    let shown = wrap::tail(&printable(term), width - fixed);
     let mut spans = vec![
         Span::new(BADGE, styles.badge.clone()),
         Span::new(&format!(" /{shown}{CURSOR}"), styles.bar.clone()),
     ];
-    let used = width_of(&spans);
+    let used = wrap::width(&spans);
     spans.push(Span::new(&" ".repeat(width - used), styles.bar.clone()));
     spans
 }
@@ -268,35 +265,10 @@ fn printable(text: &str) -> String {
         .collect()
 }
 
-/// The end of `name` in at most `room` cells, after `…` when its start is
-/// left out; empty when not even one character fits after `…`.
-fn tail(name: &str, room: usize) -> String {
-    if name.width() <= room {
-        return name.to_owned();
-    }
-    let mut kept = Vec::new();
-    let mut used = 1;
-    for c in name.chars().rev() {
-        let cells = c.width().unwrap_or(0);
-        if used + cells > room {
-            break;
-        }
-        used += cells;
-        kept.push(c);
-    }
-    if kept.is_empty() {
-        return String::new();
-    }
-    std::iter::once('…').chain(kept.into_iter().rev()).collect()
-}
-
-fn width_of(spans: &[Span]) -> usize {
-    crate::render::wrap::width(spans)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::style::text;
     use crate::render::wrap::width;
     use crate::theme::{Paper, StatusLineTheme};
 
@@ -310,10 +282,6 @@ mod tests {
             badge: Style::fg(Some(Color::Palette(2))),
             inverse: Style::fg(Some(Color::Palette(3))),
         }
-    }
-
-    fn text(spans: &[Span]) -> String {
-        spans.iter().map(|span| span.text.as_str()).collect()
     }
 
     #[test]
@@ -356,7 +324,7 @@ mod tests {
         for width in 0..80 {
             let spans = spans("docs/notes.md", at(42), None, width, &styles());
             let expected = if width < 11 { width.min(6) } else { width };
-            assert_eq!(super::width_of(&spans), expected, "{width}: {spans:?}");
+            assert_eq!(wrap::width(&spans), expected, "{width}: {spans:?}");
         }
     }
 
@@ -506,7 +474,7 @@ mod tests {
         for width in 0..80 {
             let spans = spans("docs/notes.md", at(42), AT, width, &styles());
             let expected = if width < 11 { width.min(6) } else { width };
-            assert_eq!(super::width_of(&spans), expected, "{width}: {spans:?}");
+            assert_eq!(wrap::width(&spans), expected, "{width}: {spans:?}");
         }
     }
 
@@ -526,7 +494,7 @@ mod tests {
         for width in 0..30 {
             let spans = prompt("kiri", width, &styles());
             let expected = if width < 9 { width.min(6) } else { width };
-            assert_eq!(super::width_of(&spans), expected, "{width}: {spans:?}");
+            assert_eq!(wrap::width(&spans), expected, "{width}: {spans:?}");
         }
     }
 

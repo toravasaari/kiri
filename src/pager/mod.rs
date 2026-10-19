@@ -13,12 +13,13 @@ use std::io::{self, Write};
 use std::ops::Range;
 use std::time::{Duration, Instant};
 
+use crate::caps::Capabilities;
 use crate::config::{Paging, SearchCase};
 use crate::model::Document;
 use crate::render::Inputs;
-use crate::render::output::{Page, Writer};
+use crate::render::output::{self, Page, Writer};
 use crate::render::style::{Line, Span, Style};
-use crate::term::{Capabilities, Screen, WindowSize};
+use crate::term::{Screen, WindowSize};
 use fade::{FADE, Fade, Rgb};
 use help::Placed;
 use keys::{Action, Key};
@@ -71,9 +72,12 @@ impl<W: Write> Terminal for Screen<W> {
 
 /// Shows `document`, called `name`, on `terminal` until the reader quits,
 /// laid out with `inputs` for the window's size, or `width` columns when
-/// it is given. A search treats case as `case` says.
+/// it is given. `laid_out`, when given, is `document` laid out with
+/// `inputs` as they are now, used unless the window calls for another.
+/// A search treats case as `case` says.
 pub fn run(
     document: &Document,
+    laid_out: Option<Vec<Line>>,
     name: &str,
     inputs: &mut Inputs,
     width: Option<u16>,
@@ -84,6 +88,7 @@ pub fn run(
         background: inputs.theme.background,
         foreground: inputs.theme.foreground,
     };
+    let mut laid_out = laid_out.map(|lines| (inputs.caps.clone(), lines));
     let mut size = terminal.size();
     let mut view: Option<View> = None;
     let mut state = State::new(case);
@@ -94,7 +99,10 @@ pub fn run(
         // have no row left.
         let bar = window > 1;
         let rows = if bar { window - 1 } else { window };
-        let mut lines = crate::render::layout::layout(document, inputs);
+        let mut lines = match laid_out.take() {
+            Some((caps, lines)) if caps == inputs.caps => lines,
+            _ => crate::render::layout::layout(document, inputs),
+        };
         // The text sizing protocol cannot draw part of a line, so a line
         // taller than the window is drawn at normal size.
         for line in &mut lines {
@@ -523,33 +531,28 @@ pub fn draw(
     writer: &mut Writer,
     out: &mut impl Write,
 ) -> io::Result<()> {
-    out.write_all(BEGIN_UPDATE)?;
+    output::begin_update(out)?;
     writer.clear(out)?;
     writer.dim(!panel.is_empty());
     let mut top = 1;
     for line in lines {
         for row in 0..writer.rows(line) {
-            write!(out, "\x1b[{};1H", top + usize::from(row))?;
+            output::move_to(top + usize::from(row), 1, out)?;
             writer.row(line, row, out)?;
         }
         top += usize::from(writer.rows(line));
     }
     writer.dim(false);
     if !status.is_empty() {
-        write!(out, "\x1b[{};1H", rows + 1)?;
+        output::move_to(rows + 1, 1, out)?;
         writer.bar(status, out)?;
     }
     for placed in panel {
-        write!(out, "\x1b[{};{}H", placed.row, placed.column)?;
+        output::move_to(placed.row, placed.column, out)?;
         writer.bar(&placed.spans, out)?;
     }
-    out.write_all(END_UPDATE)
+    output::end_update(out)
 }
-
-/// Synchronized output: the terminal shows what comes between these at
-/// once. Terminals without it ignore them.
-const BEGIN_UPDATE: &[u8] = b"\x1b[?2026h";
-const END_UPDATE: &[u8] = b"\x1b[?2026l";
 
 #[cfg(test)]
 mod tests {
@@ -661,6 +664,7 @@ mod tests {
         let mut inputs = Inputs::new(Capabilities::ansi(80));
         run(
             document,
+            None,
             "notes.md",
             &mut inputs,
             None,
@@ -668,6 +672,47 @@ mod tests {
             terminal,
         )
         .unwrap();
+    }
+
+    /// `document` shown with its lines laid out beforehand from `before`,
+    /// with `caps`.
+    fn show_laid_out(document: &Document, before: &Document, caps: Capabilities) -> Vec<String> {
+        let mut terminal = Fake::new(40, 6, &[b"q"]);
+        let mut inputs = Inputs::new(caps);
+        let lines = crate::render::layout::layout(before, &inputs);
+        run(
+            document,
+            Some(lines),
+            "notes.md",
+            &mut inputs,
+            None,
+            SearchCase::Smart,
+            &mut terminal,
+        )
+        .unwrap();
+        terminal.frames()
+    }
+
+    fn others() -> Document {
+        crate::parse::parse("Other 1\n\nOther 2\n")
+    }
+
+    #[test]
+    fn shows_the_lines_laid_out_for_the_window() {
+        let caps = Capabilities {
+            height: Some(6),
+            ..Capabilities::ansi(40)
+        };
+        let frames = show_laid_out(&numbers(10), &others(), caps);
+        assert!(frames[0].contains("Other 1"), "{frames:?}");
+        assert!(!frames[0].contains("Line 1"), "{frames:?}");
+    }
+
+    #[test]
+    fn lays_the_document_out_again_for_another_window() {
+        let frames = show_laid_out(&numbers(10), &others(), Capabilities::ansi(80));
+        assert!(frames[0].contains("Line 1"), "{frames:?}");
+        assert!(!frames[0].contains("Other 1"), "{frames:?}");
     }
 
     #[test]
@@ -803,6 +848,7 @@ mod tests {
         let mut inputs = Inputs::new(Capabilities::kitty(80));
         run(
             &document,
+            None,
             "notes.md",
             &mut inputs,
             None,
@@ -825,6 +871,7 @@ mod tests {
         let mut inputs = Inputs::new(Capabilities::ansi(80));
         run(
             &document,
+            None,
             "notes.md",
             &mut inputs,
             Some(10),
@@ -1180,6 +1227,7 @@ mod tests {
         let mut inputs = Inputs::new(Capabilities::kitty(80));
         run(
             &crate::parse::parse(source),
+            None,
             "notes.md",
             &mut inputs,
             None,
@@ -1241,6 +1289,7 @@ mod tests {
         let mut terminal = Fake::new(60, 6, &reads);
         run(
             document,
+            None,
             "notes.md",
             &mut inputs,
             None,

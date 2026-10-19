@@ -11,10 +11,10 @@ use super::image::{self, Placement};
 use super::style::{Line, Spaces, Span, Style, push};
 use super::table::{self, Cells};
 use super::wrap::wrap;
+use crate::caps::Capabilities;
 use crate::color::Underline;
 use crate::images::Images;
 use crate::model::{Block, Document, Image, Inline, Table};
-use crate::term::Capabilities;
 use crate::theme::Theme;
 
 pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {

@@ -4,15 +4,16 @@
 use std::io::Read;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
-use std::process::{Command, Output, Stdio};
+use std::process::{Command, Stdio};
 
+use kiri::caps::Capabilities;
 use kiri::config::{Environment, Options, Origin, Setting, choose};
 use kiri::doctor::{Facts, report};
-use kiri::term::{Capabilities, Detection, Mode, WindowSize};
+use kiri::term::{Detection, Mode, WindowSize};
 
 mod common;
 
-use common::{Scratch, pty, text, write};
+use common::{Scratch, assert_succeeded, pty, text, write};
 
 /// `kiri --doctor` with `args`, with its home directory in `dir`. It runs
 /// in a session of its own, so it has no controlling terminal to ask
@@ -38,10 +39,6 @@ fn piped(dir: &Path, args: &[&str]) -> String {
     let out = doctor(dir, args).output().unwrap();
     assert_succeeded(&out);
     text(&out.stdout)
-}
-
-fn assert_succeeded(out: &Output) {
-    assert!(out.status.success(), "{}", text(&out.stderr));
 }
 
 /// The report with the parts that change between builds replaced: kiri's
