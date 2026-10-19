@@ -201,8 +201,6 @@ current_background = "auto"
 # both ends as RGB, from the theme or from the colours the terminal tells;
 # without them, the current match is marked at once and the match number
 # stands apart from the bar, bold and reversed, for half a second.
-flash_foreground = "black"
-flash_background = "yellow"
 ```
 
 ## Paper themes
@@ -211,8 +209,7 @@ flash_background = "yellow"
 page of fixed colours, as a browser does, whatever your terminal's colour
 scheme. The page is in greys only: headings, links, quotes, rules, tables
 and inline code differ in shade, weight and underline, not in colour. Code
-blocks keep their colours, from a code theme that matches the page, and a
-jump to a search match flashes yellow. Muted
+blocks keep their colours, from a code theme that matches the page. Muted
 text, such as image alt text, is a grey that keeps a contrast of at least
 4.5:1 against the page, instead of the terminal's dim text.
 
@@ -252,8 +249,6 @@ match_foreground = "#000000"
 match_background = "#cccccc"
 current_foreground = "#ffffff"
 current_background = "#1f1f1f"
-flash_foreground = "#000000"
-flash_background = "#ffd000"
 ```
 
 ### Dark paper
@@ -289,8 +284,6 @@ match_foreground = "#ffffff"
 match_background = "#606060"
 current_foreground = "#1e1e1e"
 current_background = "#d4d4d4"
-flash_foreground = "#1e1e1e"
-flash_background = "#ffd000"
 ```
 
 The [example themes](../examples/themes/README.md) try out variations of the
