@@ -47,6 +47,8 @@ Quotes that start with `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`
 or `[!CAUTION]` are drawn as GitHub draws these alerts: a bar and a title
 in the kind's colour, on a tint of it, and in kitty the kind's icon.
 
+Emoji shortcodes such as `:rocket:` are shown as their emoji, as on GitHub.
+
 A fenced code block with a language, such as `python`, names it in its
 top-right corner. The [theme](docs/theme.md) can turn the name off.
 
