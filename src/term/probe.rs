@@ -128,6 +128,16 @@ mod tests {
     use crate::term::answers::interpret;
 
     #[test]
+    fn a_process_group_other_than_the_foreground_one_is_in_the_background() {
+        let pid = |raw| rustix::process::Pid::from_raw(raw).unwrap();
+        assert!(in_background(Some(pid(10)), pid(20)));
+        assert!(!in_background(Some(pid(20)), pid(20)));
+        // A terminal that is not the controlling one has no foreground
+        // process group to compare with.
+        assert!(!in_background(None, pid(20)));
+    }
+
+    #[test]
     fn sends_the_queries_in_order() {
         assert_eq!(
             queries(false),
