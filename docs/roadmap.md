@@ -249,9 +249,13 @@ GitHub's Markdown first, then what is common elsewhere.
 
 #### 4.10.2 HTML tags
 
-- `<details>` and `<summary>`: open in print mode, with the summary marked
-  by a triangle; the pager can open and close them.
-- Small HTML tags: `<kbd>`, `<br>` and `<mark>`.
+- `<details>` and `<summary>` are shown open, the summary in bold after a
+  triangle, also nested and inside lists and quotes. (done)
+- Small HTML tags: `<kbd>` drawn as inline code, `<br>` as a line break
+  and `<mark>` in the theme's `mark` colours. (done)
+- The pager can close and open a `<details>`.
+- Tags inside a `<summary>`, such as `<b>`, `<i>` and `<code>`, which
+  GitHub READMEs often write; they stay source today.
 
 #### 4.10.3 Fractional sizes
 

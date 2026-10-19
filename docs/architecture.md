@@ -17,9 +17,10 @@ Markdown ──parse──▶ document model ──▶ backend ──▶ output
 ```
 
 - **Parse:** [comrak](https://crates.io/crates/comrak) turns the source into
-  a CommonMark + GitHub Flavored Markdown syntax tree. kiri reads the HTML
-  `<img>` tags in it itself, so an image means the same in the model
-  whether Markdown or HTML wrote it.
+  a CommonMark + GitHub Flavored Markdown syntax tree. kiri reads a few
+  HTML tags in it itself: `<img>`, so an image means the same in the model
+  whether Markdown or HTML wrote it, and `<details>`, `<summary>`, `<kbd>`,
+  `<mark>` and `<br>`.
 - **Document model:** kiri's own tree of blocks and inline spans. It holds
   what the document means (heading level 2, emphasis, image with alt text),
   not how any terminal draws it. Other input formats only need a converter
@@ -127,7 +128,7 @@ src/lib.rs                 library root
 src/input.rs               whether a file is a document, a table or an image
 src/model.rs               document model
 src/parse/mod.rs           comrak tree -> document model
-src/parse/html.rs          HTML <img> tags and their attributes
+src/parse/html.rs          the HTML tags kiri reads, <img> first
 src/parse/csv.rs           CSV and TSV -> a document of one table
 src/caps.rs                what the terminal can do, as plain data
 src/term/mod.rs            terminal I/O, all of it under src/term/; whether

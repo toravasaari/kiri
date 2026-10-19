@@ -63,6 +63,11 @@ tags work too, with `width` and `height` in pixels or a percentage width,
 also when a link, `<p>`, `<div>` or `<picture>` wraps them. Only such a
 size enlarges an image.
 
+HTML `<details>` blocks are shown open, their `<summary>` in bold after a
+`▼`, also nested and inside lists and quotes. `<kbd>` is drawn as inline
+code, `<br>` breaks the line, and `<mark>` takes the theme's `mark`
+colours, black on yellow by default. Other HTML is shown as muted source.
+
 An image file given on its own, `kiri photo.jpg`, is shown as large as
 fits the window but never enlarged, even when images are off. Its
 extension and first bytes tell kiri that it is an image, and `--format`
