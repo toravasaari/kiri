@@ -85,6 +85,15 @@ impl<'a> Writer<'a> {
         }
     }
 
+    /// Erases the whole screen in the page's background and leaves the
+    /// cursor at the top left with the terminal's default style.
+    pub fn clear(&self, out: &mut impl Write) -> io::Result<()> {
+        let fill = self.fill();
+        transition(&Style::default(), &fill, self.caps, out)?;
+        out.write_all(b"\x1b[H\x1b[2J")?;
+        transition(&fill, &Style::default(), self.caps, out)
+    }
+
     /// Writes row `row` of `line`, sending the image it shows first if it
     /// has not been sent, and leaves the cursor at its end with the
     /// terminal's default style.
