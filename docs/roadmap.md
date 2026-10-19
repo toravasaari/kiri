@@ -303,9 +303,19 @@ scale, built once for all of these:
 
 ### 4.13 Obsidian
 
+Obsidian notes reach past single Markdown files, so this part may grow or
+split once it is worked on.
+
 - Wikilinks, `[[note]]` and `[[note|text]]`, as links to `note.md`, and
   embeds such as `![[image.png]]` as images.
-- Obsidian's callouts share the syntax of GitHub alert blocks.
+- Links resolved as Obsidian resolves them, from anywhere in the vault
+  rather than from the note's directory, so kiri needs to find the vault.
+- Links to a heading or a block, `[[note#Heading]]` and `[[note#^id]]`.
+- Callouts, which share the syntax of GitHub alert blocks, with
+  Obsidian's other kinds and folding.
+- Tags such as `#idea`.
+- Properties, Obsidian's name for front matter (4.10.4), which is the
+  groundwork for them.
 
 ## Phase 5 – Beyond kitty
 
