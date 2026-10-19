@@ -87,6 +87,15 @@ fn mixed(theme: &Theme, caps: &Capabilities) -> Option<Color> {
 /// wide. A narrow window leaves out the keys first, then the start of the
 /// name.
 pub fn spans(name: &str, position: Position, width: usize, styles: &Styles) -> Vec<Span> {
+    // Measured as shown: a file name may hold any character but `/`.
+    let name: String = name
+        .chars()
+        .map(|c| match c {
+            c if c.is_control() => char::REPLACEMENT_CHARACTER,
+            c => c,
+        })
+        .collect();
+    let name = name.as_str();
     let badge = if position.end { " END " } else { " kiri " };
     let percent = format!("{}%", position.percent);
     let keys = [("?", " help"), ("q", " quit")];
@@ -279,6 +288,23 @@ mod tests {
             assert_eq!(styles.bar.bg, None);
             assert!(styles.badge.bold && !styles.badge.reverse);
         }
+    }
+
+    #[test]
+    fn control_characters_in_the_name_take_a_cell_each() {
+        let spans = spans("a\nb\x07.md", at(42, false), 40, &styles());
+        assert_eq!(width(&spans), 40, "{spans:?}");
+        assert!(
+            text(&spans).contains(" a\u{fffd}b\u{fffd}.md "),
+            "{spans:?}"
+        );
+    }
+
+    #[test]
+    fn wide_characters_in_the_name_take_two_cells() {
+        let spans = spans("文書/説明.md", at(42, false), 18, &styles());
+        assert_eq!(width(&spans), 18, "{spans:?}");
+        assert_eq!(text(&spans), " kiri  …明.md 42% ");
     }
 
     #[test]
