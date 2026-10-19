@@ -2,10 +2,10 @@
 
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io::{self, BufWriter, Read, Stdout, Write};
+use std::io::{self, Read, Stdout, Write};
 use std::os::fd::AsFd;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use signal_hook::SigId;
@@ -357,8 +357,9 @@ impl RawMode {
     }
 }
 
-impl Drop for RawMode {
-    fn drop(&mut self) {
+impl RawMode {
+    /// Ends raw mode.
+    fn restore(&self) {
         // Flush also discards input that arrived but was not read, such as
         // probe answers after the timeout, so they do not show up at the
         // shell prompt. Keys typed meanwhile go with them. Answers that
@@ -368,20 +369,56 @@ impl Drop for RawMode {
     }
 }
 
+impl Drop for RawMode {
+    fn drop(&mut self) {
+        self.restore();
+    }
+}
+
+/// Leaving the pager's screen: the alternate screen and raw mode end once,
+/// when the screen is dropped or, before that, when a panic hook runs.
+struct Leave {
+    raw: RawMode,
+    done: AtomicBool,
+}
+
+impl Leave {
+    /// Leaves the alternate screen on `out` and ends raw mode, unless that
+    /// has been done.
+    fn run(&self, out: &mut impl Write) {
+        if self.done.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let _ = out.write_all(LEAVE_SCREEN);
+        let _ = out.flush();
+        self.raw.restore();
+    }
+
+    fn is_done(&self) -> bool {
+        self.done.load(Ordering::SeqCst)
+    }
+}
+
 /// The terminal while the pager shows a document: the alternate screen on
 /// the output, and the controlling terminal in raw mode for keys. Both end
 /// when it is dropped, also when a panic unwinds.
 pub struct Screen<W: Write> {
     tty: File,
     out: W,
+    /// What has been written and not yet flushed to `out`; dropped when a
+    /// panic has left the screen, so no part of a frame lands on the main
+    /// screen.
+    buffer: Vec<u8>,
+    leave: Arc<Leave>,
+    /// Whether a panic hook of the screen's own is set.
+    hooked: bool,
     /// The signal that asked kiri to end, 0 before one came.
     signal: Arc<AtomicUsize>,
     /// The handlers that set it.
     handlers: Vec<SigId>,
-    _raw: RawMode,
 }
 
-impl Screen<BufWriter<Stdout>> {
+impl Screen<Stdout> {
     /// The pager's screen on standard output, with keys from the
     /// controlling terminal, so a piped document can be paged too. `None`
     /// without a controlling terminal or in the background, where raw mode
@@ -391,8 +428,9 @@ impl Screen<BufWriter<Stdout>> {
         if probe::runs_in_background(&tty) {
             return None;
         }
-        let mut screen = Self::on(tty, BufWriter::new(std::io::stdout()))?;
+        let mut screen = Self::on(tty, std::io::stdout())?;
         screen.catch_signals();
+        screen.catch_panics();
         Some(screen)
     }
 }
@@ -406,9 +444,14 @@ impl<W: Write> Screen<W> {
         Some(Self {
             tty,
             out,
+            buffer: Vec::new(),
+            leave: Arc::new(Leave {
+                raw,
+                done: AtomicBool::new(false),
+            }),
+            hooked: false,
             signal: Arc::new(AtomicUsize::new(0)),
             handlers: Vec::new(),
-            _raw: raw,
         })
     }
 
@@ -424,6 +467,19 @@ impl<W: Write> Screen<W> {
                 self.handlers.push(id);
             }
         }
+    }
+
+    /// Makes a panic leave the screen before its message is written, so the
+    /// message stays on the main screen.
+    fn catch_panics(&mut self) {
+        let leave = Arc::clone(&self.leave);
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            // Standard output is the screen's output: see `open`.
+            leave.run(&mut std::io::stdout());
+            previous(info);
+        }));
+        self.hooked = true;
     }
 
     /// The signal that asked kiri to end, if one came.
@@ -483,10 +539,13 @@ impl<W: Write> Screen<W> {
 
 impl<W: Write> Write for Screen<W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.out.write(buf)
+        self.buffer.extend_from_slice(buf);
+        Ok(buf.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
+        self.out.write_all(&self.buffer)?;
+        self.buffer.clear();
         self.out.flush()
     }
 }
@@ -496,9 +555,15 @@ impl<W: Write> Drop for Screen<W> {
         for &id in &self.handlers {
             signal_hook::low_level::unregister(id);
         }
-        // Raw mode ends after this, when the fields are dropped.
-        let _ = self.out.write_all(LEAVE_SCREEN);
-        let _ = self.out.flush();
+        if !self.leave.is_done() {
+            let _ = self.flush();
+        }
+        self.leave.run(&mut self.out);
+        // Back to the default hook, as kiri sets no other. The hook cannot
+        // be taken back while a panic runs it.
+        if self.hooked && !std::thread::panicking() {
+            let _ = std::panic::take_hook();
+        }
     }
 }
 
@@ -933,6 +998,47 @@ mod tests {
         let (mut screen, terminal, _tty) = screen();
         drop(terminal);
         assert!(screen.read(Duration::from_secs(5)).is_err());
+    }
+
+    /// Run on its own by [`a_panic_message_comes_after_the_screen`]: opens
+    /// a screen on standard output, leaves part of a frame unwritten and
+    /// panics.
+    #[test]
+    #[ignore = "run by a_panic_message_comes_after_the_screen"]
+    fn panic_on_a_screen() {
+        use std::io::Write;
+
+        let (_terminal, tty) = pty();
+        let mut screen = Screen::on(tty, std::io::stdout()).expect("the screen opens");
+        screen.catch_panics();
+        screen.write_all(b"[part of a frame]").unwrap();
+        panic!("[the pager fails]");
+    }
+
+    #[test]
+    fn a_panic_message_comes_after_the_screen() {
+        use std::process::{Command, Stdio};
+
+        let (mut reader, writer) = std::io::pipe().unwrap();
+        let child = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "term::tests::panic_on_a_screen"])
+            .args(["--ignored", "--nocapture", "--test-threads", "1"])
+            .stdin(Stdio::null())
+            .stdout(writer.try_clone().unwrap())
+            .stderr(writer)
+            .spawn()
+            .unwrap();
+        let mut output = Vec::new();
+        reader.read_to_end(&mut output).unwrap();
+        let _ = { child }.wait();
+        let output = String::from_utf8_lossy(&output);
+        let leave = output.find("\x1b[?1049l").expect("the screen is left");
+        let message = output
+            .find("[the pager fails]")
+            .expect("the message is written");
+        assert!(leave < message, "{output:?}");
+        assert_eq!(output.matches("\x1b[?1049l").count(), 1, "{output:?}");
+        assert!(!output.contains("[part of a frame]"), "{output:?}");
     }
 
     #[test]
