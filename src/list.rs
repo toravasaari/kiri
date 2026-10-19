@@ -109,15 +109,34 @@ mod tests {
         assert_eq!(escaped("😄"), "😄");
     }
 
-    /// Every emoji in the pipe's lines is a row of the document.
+    /// The document parses into a table under each group's heading, with a
+    /// row for every line of the pipe's form and no escape left showing.
     #[test]
-    fn the_document_has_a_row_per_line() {
-        let rows = emoji_document()
-            .lines()
-            .filter(|line| {
-                line.starts_with("| ") && !line.starts_with("| Emoji") && !line.starts_with("| ---")
-            })
+    fn the_document_has_a_table_row_per_line() {
+        use crate::model::{Block, Inline};
+
+        let blocks = crate::parse::parse(&emoji_document()).blocks;
+        let groups = blocks
+            .iter()
+            .filter(|block| matches!(block, Block::Heading { level: 2, .. }))
             .count();
-        assert_eq!(rows, emoji_lines().lines().count());
+        let tables: Vec<_> = blocks
+            .iter()
+            .filter_map(|block| match block {
+                Block::Table(table) => Some(table),
+                _ => None,
+            })
+            .collect();
+        assert!(groups > 0);
+        assert_eq!(tables.len(), groups);
+        let rows: Vec<_> = tables.iter().flat_map(|table| &table.rows).collect();
+        assert_eq!(rows.len(), emoji_lines().lines().count());
+        for cell in rows.iter().flat_map(|row| row.iter()) {
+            for inline in cell {
+                if let Inline::Text(text) = inline {
+                    assert!(!text.contains('\\'), "{text:?}");
+                }
+            }
+        }
     }
 }

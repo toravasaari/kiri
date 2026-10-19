@@ -2,10 +2,6 @@
 source: tests/cli_list.rs
 expression: "start.join(\"\\n\")"
 ---
-# Emoji shortcodes
-
-A shortcode such as `:smile:` in a document shows its emoji. These are the 1870 emoji kiri knows.
-
 ## Smileys & Emotion
 
 | Emoji | Shortcodes | Name |

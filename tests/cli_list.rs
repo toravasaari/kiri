@@ -48,11 +48,16 @@ fn a_file_or_a_format_is_a_usage_error() {
     }
 }
 
-/// The document a terminal gets starts with a title and a table for the
-/// first group.
+/// The document a terminal gets has a table for each group. The snapshot
+/// starts at the first group, leaving out the count of emoji above it,
+/// which changes with the emojis crate.
 #[test]
 fn the_document_starts_with_the_first_group() {
     let document = kiri::list::emoji_document();
-    let start: Vec<_> = document.lines().take(14).collect();
+    let start: Vec<_> = document
+        .lines()
+        .skip_while(|line| !line.starts_with("## "))
+        .take(10)
+        .collect();
     insta::assert_snapshot!(start.join("\n"));
 }
