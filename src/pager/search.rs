@@ -52,6 +52,12 @@ impl Search {
     pub fn current(&self) -> Option<&Match> {
         self.matches.get(self.current?)
     }
+
+    /// The place of the current match among all of them, counted from 1,
+    /// and how many there are; `None` when there is none.
+    pub fn count(&self) -> Option<(usize, usize)> {
+        Some((self.current? + 1, self.matches.len()))
+    }
 }
 
 /// The places of `term` in `lines`, from the top and from left to right,
@@ -205,6 +211,7 @@ mod tests {
         let search = Search::new(&lines, "kiri", SearchCase::Smart, 1);
         assert_eq!(search.term(), "kiri");
         assert_eq!(search.current(), Some(&at(2, 0..4)));
+        assert_eq!(search.count(), Some((2, 3)));
         let search = Search::new(&lines, "kiri", SearchCase::Smart, 0);
         assert_eq!(search.current(), Some(&at(0, 0..4)));
     }
@@ -216,6 +223,7 @@ mod tests {
         assert_eq!(search.current(), Some(&at(0, 0..4)));
         let search = Search::new(&lines, "xyz", SearchCase::Smart, 0);
         assert_eq!(search.current(), None);
+        assert_eq!(search.count(), None);
     }
 
     #[test]

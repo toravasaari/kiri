@@ -178,7 +178,10 @@ impl Status<'_> {
         let width = usize::from(self.width);
         match &state.prompt {
             Some(prompt) => status::prompt(prompt.term(), width, &self.styles),
-            None => status::spans(self.name, view.position(), width, &self.styles),
+            None => {
+                let found = state.found();
+                status::spans(self.name, view.position(), found, width, &self.styles)
+            }
         }
     }
 
@@ -222,6 +225,9 @@ struct State {
     prompt: Option<Prompt>,
     /// The last search.
     search: Option<Search>,
+    /// Whether the status line tells that the last search found nothing,
+    /// which it does until the next key.
+    nowhere: bool,
 }
 
 impl State {
@@ -232,11 +238,13 @@ impl State {
             help: false,
             prompt: None,
             search: None,
+            nowhere: false,
         }
     }
 
     /// Does what `key` asks in `layout`; true when it quits.
     fn press(&mut self, key: Key, layout: &mut Layout) -> bool {
+        self.nowhere = false;
         // Any key closes the help and does nothing else, but Ctrl+C
         // still quits.
         if self.help && key != Key::Ctrl('c') {
@@ -272,10 +280,25 @@ impl State {
     /// match.
     fn find(&mut self, term: &str, layout: &mut Layout) {
         let search = Search::new(layout.lines, term, self.case, layout.view.top());
-        if let Some(found) = search.current() {
-            layout.view.reveal(found.line);
+        match search.current() {
+            Some(found) => layout.view.reveal(found.line),
+            None => self.nowhere = true,
         }
         self.search = Some(search);
+    }
+
+    /// What the status line tells about the last search.
+    fn found(&self) -> Option<status::Found<'_>> {
+        let search = self.search.as_ref()?;
+        if self.nowhere {
+            return Some(status::Found::Nowhere(search.term()));
+        }
+        let (current, total) = search.count()?;
+        Some(status::Found::At {
+            term: search.term(),
+            current,
+            total,
+        })
     }
 }
 
@@ -747,5 +770,28 @@ mod tests {
         let frames = terminal.frames();
         assert!(status_row(&frames[1], 6).contains("/qG"), "{frames:#?}");
         assert!(at_top(&frames[1], "Line 1"), "{frames:#?}");
+    }
+
+    #[test]
+    fn the_status_line_counts_the_matches_after_a_search() {
+        let mut terminal = Fake::new(60, 6, &[b"/line 2\r"]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        let status = status_row(frames.last().unwrap(), 6);
+        assert!(status.contains("notes.md"), "{status:?}");
+        assert!(status.contains("/line 2 1/11"), "{status:?}");
+    }
+
+    #[test]
+    fn a_term_not_found_is_told_until_the_next_key() {
+        let mut terminal = Fake::new(60, 6, &[b"/xyz\r", b"x"]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 3, "{frames:#?}");
+        assert!(
+            status_row(&frames[1], 6).contains("not found: xyz"),
+            "{frames:#?}"
+        );
+        assert!(!status_row(&frames[2], 6).contains("xyz"), "{frames:#?}");
     }
 }

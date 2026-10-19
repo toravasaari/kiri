@@ -83,10 +83,30 @@ fn mixed(theme: &Theme, caps: &Capabilities) -> Option<Color> {
     page.mix(rgb(Color::Palette(8))?, 0.5)
 }
 
-/// The status line for the document `name` at `position`, `width` cells
-/// wide. A narrow window leaves out the keys first, then the start of the
-/// name.
-pub fn spans(name: &str, position: Position, width: usize, styles: &Styles) -> Vec<Span> {
+/// What the status line tells about the last search.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Found<'a> {
+    /// The reader is at match `current`, counted from 1, of the `total`
+    /// matches of `term`.
+    At {
+        term: &'a str,
+        current: usize,
+        total: usize,
+    },
+    /// `term` is nowhere in the document.
+    Nowhere(&'a str),
+}
+
+/// The status line for the document `name` at `position`, with what was
+/// `found` by a search, `width` cells wide. A narrow window leaves out the
+/// keys first, then the start of the name, then the search.
+pub fn spans(
+    name: &str,
+    position: Position,
+    found: Option<Found>,
+    width: usize,
+    styles: &Styles,
+) -> Vec<Span> {
     // Measured as shown: a file name may hold any character but `/`.
     let name = printable(name);
     let name = name.as_str();
@@ -102,10 +122,19 @@ pub fn spans(name: &str, position: Position, width: usize, styles: &Styles) -> V
     if fixed > width {
         return badge_only(width, styles);
     }
-    // The name needs a space between it and the position.
-    let with_keys = fixed + name.width() + 1 + keys_width <= width;
+    // The search and a gap of three before the position.
+    let search = found.map(|found| search(found, styles)).unwrap_or_default();
+    let search_width = if search.is_empty() {
+        0
+    } else {
+        width_of(&search) + 3
+    };
+    let with_search = fixed + search_width <= width;
+    let search_width = if with_search { search_width } else { 0 };
+    // The name needs a space between it and what comes after it.
+    let with_keys = fixed + search_width + name.width() + 1 + keys_width <= width;
     let keys_width = if with_keys { keys_width } else { 0 };
-    let room = (width - fixed - keys_width).saturating_sub(1);
+    let room = (width - fixed - search_width - keys_width).saturating_sub(1);
 
     let bold = Style {
         bold: true,
@@ -114,7 +143,12 @@ pub fn spans(name: &str, position: Position, width: usize, styles: &Styles) -> V
     let mut spans = vec![Span::new(BADGE, styles.badge.clone())];
     let shown = tail(name, room);
     spans.push(Span::new(&format!(" {shown}"), styles.bar.clone()));
-    let mut right = vec![Span::new(&percent, styles.bar.clone())];
+    let mut right = Vec::new();
+    if with_search && !search.is_empty() {
+        right.extend(search);
+        right.push(Span::new("   ", styles.bar.clone()));
+    }
+    right.push(Span::new(&percent, styles.bar.clone()));
     if with_keys {
         for (key, what) in keys {
             right.push(Span::new("   ", styles.bar.clone()));
@@ -130,6 +164,24 @@ pub fn spans(name: &str, position: Position, width: usize, styles: &Styles) -> V
     ));
     spans.extend(right);
     spans
+}
+
+/// The spans that tell what was `found`: the term and the place among
+/// its matches, or that it is nowhere.
+fn search(found: Found, styles: &Styles) -> Vec<Span> {
+    let span = |text: &str| Span::new(text, styles.bar.clone());
+    match found {
+        Found::At {
+            term,
+            current,
+            total,
+        } => vec![
+            span(&format!("/{} ", printable(term))),
+            span(&current.to_string()),
+            span(&format!("/{total}")),
+        ],
+        Found::Nowhere(term) => vec![span(&format!("not found: {}", printable(term)))],
+    }
 }
 
 /// The status line while the search prompt is open with `term` typed so
@@ -228,7 +280,7 @@ mod tests {
 
     #[test]
     fn shows_the_badge_the_name_the_position_and_the_keys() {
-        let spans = spans("notes.md", at(42), 60, &styles());
+        let spans = spans("notes.md", at(42), None, 60, &styles());
         assert_eq!(
             text(&spans),
             " kiri  notes.md                       42%   ? help   q quit "
@@ -244,19 +296,19 @@ mod tests {
 
     #[test]
     fn the_badge_stays_at_the_end() {
-        let spans = spans("notes.md", at(100), 60, &styles());
+        let spans = spans("notes.md", at(100), None, 60, &styles());
         assert!(text(&spans).starts_with(" kiri  notes.md "), "{spans:?}");
     }
 
     #[test]
     fn the_keys_go_first_when_the_window_is_narrow() {
-        let spans = spans("notes.md", at(42), 30, &styles());
+        let spans = spans("notes.md", at(42), None, 30, &styles());
         assert_eq!(text(&spans), " kiri  notes.md           42% ");
     }
 
     #[test]
     fn a_long_name_loses_its_start() {
-        let spans = spans("docs/a/long/way/to/roadmap.md", at(7), 26, &styles());
+        let spans = spans("docs/a/long/way/to/roadmap.md", at(7), None, 26, &styles());
         assert_eq!(text(&spans), " kiri  …/to/roadmap.md 7% ");
         assert_eq!(width(&spans), 26);
     }
@@ -264,7 +316,7 @@ mod tests {
     #[test]
     fn the_line_fills_the_window_and_no_more() {
         for width in 0..80 {
-            let spans = spans("docs/notes.md", at(42), width, &styles());
+            let spans = spans("docs/notes.md", at(42), None, width, &styles());
             let expected = if width < 11 { width.min(6) } else { width };
             assert_eq!(super::width_of(&spans), expected, "{width}: {spans:?}");
         }
@@ -327,7 +379,7 @@ mod tests {
 
     #[test]
     fn control_characters_in_the_name_take_a_cell_each() {
-        let spans = spans("a\nb\x07.md", at(42), 40, &styles());
+        let spans = spans("a\nb\x07.md", at(42), None, 40, &styles());
         assert_eq!(width(&spans), 40, "{spans:?}");
         assert!(
             text(&spans).contains(" a\u{fffd}b\u{fffd}.md "),
@@ -337,9 +389,46 @@ mod tests {
 
     #[test]
     fn wide_characters_in_the_name_take_two_cells() {
-        let spans = spans("文書/説明.md", at(42), 18, &styles());
+        let spans = spans("文書/説明.md", at(42), None, 18, &styles());
         assert_eq!(width(&spans), 18, "{spans:?}");
         assert_eq!(text(&spans), " kiri  …明.md 42% ");
+    }
+
+    const AT: Option<Found> = Some(Found::At {
+        term: "kiri",
+        current: 3,
+        total: 12,
+    });
+
+    #[test]
+    fn shows_the_search_between_the_name_and_the_position() {
+        let spans = spans("notes.md", at(42), AT, 60, &styles());
+        assert_eq!(
+            text(&spans),
+            " kiri  notes.md          /kiri 3/12   42%   ? help   q quit "
+        );
+        assert_eq!(width(&spans), 60);
+        let nowhere = Some(Found::Nowhere("xyz"));
+        let spans = super::spans("notes.md", at(42), nowhere, 60, &styles());
+        assert_eq!(
+            text(&spans),
+            " kiri  notes.md      not found: xyz   42%   ? help   q quit "
+        );
+        assert_eq!(width(&spans), 60);
+    }
+
+    #[test]
+    fn a_narrow_window_leaves_out_the_keys_then_the_name_then_the_search() {
+        let shown = |width| text(&spans("notes.md", at(42), AT, width, &styles()));
+        assert_eq!(shown(40), " kiri  notes.md        /kiri 3/12   42% ");
+        assert_eq!(shown(27), " kiri  …d /kiri 3/12   42% ");
+        assert_eq!(shown(24), " kiri  /kiri 3/12   42% ");
+        assert_eq!(shown(23), " kiri  notes.md    42% ");
+        for width in 0..80 {
+            let spans = spans("docs/notes.md", at(42), AT, width, &styles());
+            let expected = if width < 11 { width.min(6) } else { width };
+            assert_eq!(super::width_of(&spans), expected, "{width}: {spans:?}");
+        }
     }
 
     #[test]
@@ -364,7 +453,7 @@ mod tests {
 
     #[test]
     fn a_window_too_narrow_for_more_shows_the_badge() {
-        assert_eq!(text(&spans("notes.md", at(42), 4, &styles())), " kir");
-        assert_eq!(text(&spans("notes.md", at(42), 0, &styles())), "");
+        assert_eq!(text(&spans("notes.md", at(42), None, 4, &styles())), " kir");
+        assert_eq!(text(&spans("notes.md", at(42), None, 0, &styles())), "");
     }
 }
