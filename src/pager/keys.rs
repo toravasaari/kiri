@@ -17,6 +17,8 @@ pub enum Key {
     PageDown,
     Home,
     End,
+    /// A character with Alt, which arrives after an escape character.
+    Alt(char),
     /// A sequence the pager does not use.
     Other,
 }
@@ -30,7 +32,7 @@ pub enum Action {
 
 /// The keys in `input`. Terminals write each key's sequence whole, so a
 /// sequence cut off at the end is taken as it is: a lone escape character
-/// is the Escape key.
+/// is the Escape key, and one before a character is Alt with it.
 pub fn decode(input: &[u8]) -> Vec<Key> {
     let mut keys = Vec::new();
     let mut rest = input;
@@ -63,6 +65,22 @@ fn escape(input: &[u8]) -> (Key, usize) {
         Some(b'O') => match input.get(2) {
             Some(&last) => (csi(b"", last), 3),
             None => (Key::Other, 2),
+        },
+        // Strings the terminal sends as answers, such as a late answer to
+        // the probe: OSC, DCS, APC, PM and SOS. They end with ST, or BEL
+        // for OSC.
+        Some(b']' | b'P' | b'_' | b'^' | b'X') => {
+            let body = &input[2..];
+            let end = (0..body.len()).find_map(|i| match body[i..] {
+                [0x07, ..] => Some(i + 1),
+                [0x1b, b'\\', ..] => Some(i + 2),
+                _ => None,
+            });
+            (Key::Other, end.map_or(input.len(), |end| end + 2))
+        }
+        Some(0x20..=0x7e | 0x80..) => match character(&input[1..]) {
+            (Key::Char(c), length) => (Key::Alt(c), length + 1),
+            _ => (Key::Escape, 1),
         },
         _ => (Key::Escape, 1),
     }
@@ -177,8 +195,30 @@ mod tests {
     #[test]
     fn a_lone_escape_is_the_escape_key() {
         assert_eq!(decode(b"\x1b"), [Key::Escape]);
-        // Alt+j arrives as escape and the letter.
-        assert_eq!(decode(b"\x1bj"), [Key::Escape, Key::Char('j')]);
+    }
+
+    #[test]
+    fn escape_before_a_character_is_alt() {
+        assert_eq!(decode(b"\x1bj"), [Key::Alt('j')]);
+        assert_eq!(decode("\x1bä".as_bytes()), [Key::Alt('ä')]);
+        assert_eq!(action(Key::Alt('q')), None);
+        assert_eq!(action(Key::Alt('j')), None);
+    }
+
+    #[test]
+    fn terminal_answers_are_no_keys() {
+        // A late answer to the probe, ended by ST or BEL, then a key.
+        let keys = decode(b"\x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\q\x1b]4;1;rgb:cc/00/00\x07q");
+        assert_eq!(
+            keys,
+            [Key::Other, Key::Char('q'), Key::Other, Key::Char('q')]
+        );
+        assert_eq!(
+            decode(b"\x1bP>|kitty(0.47.1)\x1b\\j"),
+            [Key::Other, Key::Char('j')]
+        );
+        // Cut off at the end of the read.
+        assert_eq!(decode(b"\x1b]11;rgb:1e"), [Key::Other]);
     }
 
     #[test]
