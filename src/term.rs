@@ -405,7 +405,8 @@ impl<W: Write> Screen<W> {
     }
 
     /// The bytes of the keys pressed, waiting at most `timeout` for the
-    /// first; empty when none came.
+    /// first; empty when none came, and an error when the terminal has
+    /// gone away.
     pub fn read(&mut self, timeout: Duration) -> io::Result<Vec<u8>> {
         use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
@@ -420,8 +421,11 @@ impl<W: Write> Screen<W> {
             Err(error) => return Err(error.into()),
         }
         let mut buffer = [0; 1024];
-        let read = self.tty.read(&mut buffer)?;
-        Ok(buffer[..read].to_vec())
+        match self.tty.read(&mut buffer)? {
+            // Ready but empty: the terminal has gone away.
+            0 => Err(io::ErrorKind::UnexpectedEof.into()),
+            read => Ok(buffer[..read].to_vec()),
+        }
     }
 }
 
@@ -867,6 +871,13 @@ mod tests {
         rustix::termios::tcsetwinsize(&tty, size(100, 30, 1000, 600)).unwrap();
         let window = screen.size().expect("a pseudo-terminal has a size");
         assert_eq!((window.columns, window.rows), (100, 30));
+    }
+
+    #[test]
+    fn the_screen_fails_when_the_terminal_goes_away() {
+        let (mut screen, terminal, _tty) = screen();
+        drop(terminal);
+        assert!(screen.read(Duration::from_secs(5)).is_err());
     }
 
     #[test]
