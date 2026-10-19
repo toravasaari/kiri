@@ -228,24 +228,38 @@ document from the start.
 
 GitHub's Markdown first, then what is common elsewhere.
 
-- Footnotes (`[^1]`), listed at the end of the document as in a browser,
-  with links from each reference to its note and back.
-- YAML front matter, as in Jekyll, Hugo and Obsidian files, is not shown
-  as text; its title and date may head the document.
-- `<details>` and `<summary>`: open in print mode, with the summary marked
-  by a triangle; the pager can open and close them.
-- Small HTML tags: `<kbd>`, `<br>`, `<sub>`, `<sup>` and `<mark>`.
-  Subscripts, superscripts and footnote references are drawn smaller,
-  lowered or raised, with the text sizing protocol's fractional scale.
-- Heading scales with fractions, such as 1.5 for `h4`, drawn with the same
-  fractional scale. Scales are whole numbers today, so `h4` to `h6` are
-  either the size of body text or at least twice it.
-- Emoji shortcodes such as `:rocket:`, as GitHub shows them.
+#### 4.10.1 Links within the document
+
 - Heading anchors as GitHub makes them, so a link such as `[see](#install)`
   leads to its heading; the pager jumps there (4.6).
-- A base for Obsidian notes: wikilinks, `[[note]]` and `[[note|text]]`,
-  as links to `note.md`, and embeds such as `![[image.png]]` as images.
-  Obsidian's callouts share the syntax of GitHub alert blocks (Extras).
+- Footnotes (`[^1]`), listed at the end of the document as in a browser,
+  with links from each reference to its note and back.
+
+#### 4.10.2 HTML tags
+
+- `<details>` and `<summary>`: open in print mode, with the summary marked
+  by a triangle; the pager can open and close them.
+- Small HTML tags: `<kbd>`, `<br>` and `<mark>`.
+
+#### 4.10.3 Fractional sizes
+
+Text drawn smaller or larger with the text sizing protocol's fractional
+scale, built once for all of these:
+
+- `<sub>` and `<sup>`, drawn smaller and lowered or raised.
+- Footnote references, drawn smaller and raised.
+- Heading scales with fractions, such as 1.5 for `h4`. Scales are whole
+  numbers today, so `h4` to `h6` are either the size of body text or at
+  least twice it.
+
+#### 4.10.4 Front matter
+
+- YAML front matter, as in Jekyll, Hugo and Obsidian files, is not shown
+  as text; its title and date may head the document.
+
+#### 4.10.5 Emoji shortcodes
+
+- Emoji shortcodes such as `:rocket:`, as GitHub shows them.
 
 ### 4.11 More themes
 
@@ -286,6 +300,12 @@ GitHub's Markdown first, then what is common elsewhere.
 - Less image data over SSH. kitty only takes raw pixels or PNG, so
   compressed formats such as JPEG cannot be passed through as they are;
   this needs thought on what to send and when.
+
+### 4.13 Obsidian
+
+- Wikilinks, `[[note]]` and `[[note|text]]`, as links to `note.md`, and
+  embeds such as `![[image.png]]` as images.
+- Obsidian's callouts share the syntax of GitHub alert blocks.
 
 ## Phase 5 – Beyond kitty
 
