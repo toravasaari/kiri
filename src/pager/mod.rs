@@ -225,6 +225,9 @@ struct State {
     prompt: Option<Prompt>,
     /// The last search.
     search: Option<Search>,
+    /// Whether the last search is shown; Escape hides it until `n` or
+    /// `N`.
+    shown: bool,
     /// Whether the status line tells that the last search found nothing,
     /// which it does until the next key.
     nowhere: bool,
@@ -238,6 +241,7 @@ impl State {
             help: false,
             prompt: None,
             search: None,
+            shown: false,
             nowhere: false,
         }
     }
@@ -273,6 +277,7 @@ impl State {
             }
             Some(Action::Next) => self.step(Search::forward, layout),
             Some(Action::Previous) => self.step(Search::backward, layout),
+            Some(Action::Clear) => self.shown = false,
             None => {}
         }
         false
@@ -287,6 +292,7 @@ impl State {
             None => self.nowhere = true,
         }
         self.search = Some(search);
+        self.shown = true;
     }
 
     /// Moves the last search to another match by `step`, and shows it.
@@ -299,6 +305,7 @@ impl State {
             Some(found) => layout.view.reveal(found.line),
             None => self.nowhere = true,
         }
+        self.shown = true;
     }
 
     /// What the status line tells about the last search.
@@ -306,6 +313,9 @@ impl State {
         let search = self.search.as_ref()?;
         if self.nowhere {
             return Some(status::Found::Nowhere(search.term()));
+        }
+        if !self.shown {
+            return None;
         }
         let (current, total) = search.count()?;
         Some(status::Found::At {
@@ -842,5 +852,24 @@ mod tests {
         let frames = terminal.frames();
         let last = status_row(frames.last().unwrap(), 6);
         assert!(last.contains("not found: xyz"), "{frames:#?}");
+    }
+
+    #[test]
+    fn escape_hides_the_search_and_n_takes_it_up_again() {
+        let reads: &[&[u8]] = &[b"/line 2\r", b"\x1b", b"", b"n"];
+        let mut terminal = Fake::new(60, 6, reads);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert!(
+            status_row(&frames[1], 6).contains("/line 2 1/11"),
+            "{frames:#?}"
+        );
+        assert!(!status_row(&frames[2], 6).contains("line 2"), "{frames:#?}");
+        assert!(at_top(&frames[3], "Line 20"), "{frames:#?}");
+        assert!(
+            status_row(&frames[3], 6).contains("/line 2 2/11"),
+            "{frames:#?}"
+        );
     }
 }

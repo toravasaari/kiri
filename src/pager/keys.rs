@@ -35,6 +35,8 @@ pub enum Action {
     Next,
     /// Moves to the previous match of the last search.
     Previous,
+    /// Stops showing the last search, which `n` takes up again.
+    Clear,
     Help,
     Quit,
 }
@@ -280,6 +282,12 @@ pub const BINDINGS: &[Binding] = {
             action: Action::Previous,
         },
         Binding {
+            keys: &[Key::Escape],
+            names: "Esc",
+            what: "hide the search",
+            action: Action::Clear,
+        },
+        Binding {
             keys: &[Char('?'), Char('h')],
             names: "? h",
             what: "this help",
@@ -515,6 +523,7 @@ mod tests {
                     "↓" => Key::Down,
                     "↑" => Key::Up,
                     "Enter" => Key::Enter,
+                    "Esc" => Key::Escape,
                     "Space" => Key::Char(' '),
                     "PgDn" => Key::PageDown,
                     "PgUp" => Key::PageUp,
@@ -543,6 +552,7 @@ mod tests {
         assert_eq!(action(Key::Char('/')), Some(Action::Search));
         assert_eq!(action(Key::Char('n')), Some(Action::Next));
         assert_eq!(action(Key::Char('N')), Some(Action::Previous));
+        assert_eq!(action(Key::Escape), Some(Action::Clear));
     }
 
     #[test]
@@ -554,7 +564,7 @@ mod tests {
 
     #[test]
     fn other_keys_do_nothing() {
-        for key in [Key::Char('x'), Key::Escape, Key::Other, Key::Ctrl('z')] {
+        for key in [Key::Char('x'), Key::Other, Key::Ctrl('z')] {
             assert_eq!(action(key), None, "{key:?}");
         }
     }
