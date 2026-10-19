@@ -221,10 +221,9 @@ fn show(
         };
         for key in keys {
             // Any key closes the help and does nothing else, but Ctrl+C
-            // still quits. Sequences that are no keys, such as a late
-            // answer from the terminal, leave it open.
+            // still quits.
             if help && key != Key::Ctrl('c') {
-                help = key == Key::Other;
+                help = false;
                 continue;
             }
             match keys::action(key) {
@@ -458,15 +457,15 @@ mod tests {
     }
 
     #[test]
-    fn sequences_that_are_no_keys_leave_the_help_open() {
-        // F5 and a late answer from the terminal, then a key that closes
-        // the help instead of moving.
-        let mut terminal = Fake::new(60, 24, &[b"?", b"\x1b[15~", b"\x1b]11;rgb:0/0/0\x07", b"j"]);
+    fn keys_without_a_binding_close_the_help_too() {
+        // F5 closes the help, then j moves.
+        let mut terminal = Fake::new(60, 24, &[b"?", b"\x1b[15~", b"j"]);
         show(&numbers(30), &mut terminal);
         let frames = terminal.frames();
-        assert_eq!(frames.len(), 3, "{frames:#?}");
+        assert_eq!(frames.len(), 4, "{frames:#?}");
         assert!(frames[1].contains("down a line"), "{frames:#?}");
         assert_eq!(frames[2], frames[0]);
+        assert_ne!(frames[3], frames[0]);
     }
 
     #[test]
