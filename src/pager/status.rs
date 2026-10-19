@@ -8,7 +8,7 @@ use super::view::Position;
 use crate::color::Color;
 use crate::render::style::{Span, Style};
 use crate::term::Capabilities;
-use crate::theme::Theme;
+use crate::theme::{StatusColor, Theme};
 
 /// The styles of the status line.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,49 +18,69 @@ pub struct Styles {
 }
 
 impl Styles {
-    /// The status line for `theme` on a terminal with `caps`: a bar a
-    /// little apart from the page with the badge in reverse video, or,
-    /// when the page's colour is not known, the bar in reverse video and
-    /// the badge in bold.
+    /// The status line for `theme` on a terminal with `caps`. Without
+    /// colours from the theme, the bar is a little apart from the page with
+    /// the badge in reverse video; when the page's colour is not known
+    /// either, the bar is in reverse video and the badge in bold.
     pub fn new(theme: &Theme, caps: &Capabilities) -> Self {
-        let rgb = |color: Color| match color {
-            Color::Rgb(..) => Some(color),
-            Color::Palette(index) => *caps.palette.get(usize::from(index))?,
+        let status = &theme.status_line;
+        let bar = match status.background {
+            _ if !caps.color => None,
+            StatusColor::Color(color) => Some(color),
+            StatusColor::Auto => mixed(theme, caps).map(Some),
         };
-        let page = theme.background.or(caps.background);
-        // Bright black, a grey in most palettes.
-        let bar = page
-            .and_then(rgb)
-            .zip(rgb(Color::Palette(8)))
-            .and_then(|(page, grey)| page.mix(grey, 0.5))
-            .filter(|_| caps.color);
-        match bar {
-            Some(bar) => Self {
+        let Some(background) = bar else {
+            return Self {
                 bar: Style {
-                    fg: theme.foreground,
-                    bg: Some(bar),
+                    reverse: true,
                     ..Style::default()
                 },
                 badge: Style {
                     bold: true,
-                    reverse: true,
-                    fg: theme.foreground,
-                    bg: theme.background,
                     ..Style::default()
                 },
+            };
+        };
+        let color = |color, auto| match color {
+            StatusColor::Color(color) => color,
+            StatusColor::Auto => auto,
+        };
+        let badge = match (status.badge_foreground, status.badge_background) {
+            (StatusColor::Auto, StatusColor::Auto) => Style {
+                reverse: true,
+                fg: theme.foreground,
+                bg: theme.background,
+                ..Style::default()
             },
-            None => Self {
-                bar: Style {
-                    reverse: true,
-                    ..Style::default()
-                },
-                badge: Style {
-                    bold: true,
-                    ..Style::default()
-                },
+            (foreground, background) => Style {
+                fg: color(foreground, None),
+                bg: color(background, None),
+                ..Style::default()
+            },
+        };
+        Self {
+            bar: Style {
+                fg: color(status.foreground, theme.foreground),
+                bg: background,
+                ..Style::default()
+            },
+            badge: Style {
+                bold: true,
+                ..badge
             },
         }
     }
+}
+
+/// The page mixed halfway with bright black, a grey in most palettes;
+/// `None` when either is not known as RGB.
+fn mixed(theme: &Theme, caps: &Capabilities) -> Option<Color> {
+    let rgb = |color: Color| match color {
+        Color::Rgb(..) => Some(color),
+        Color::Palette(index) => *caps.palette.get(usize::from(index))?,
+    };
+    let page = rgb(theme.background.or(caps.background)?)?;
+    page.mix(rgb(Color::Palette(8))?, 0.5)
 }
 
 /// The status line for the document `name` at `position`, `width` cells
@@ -145,6 +165,7 @@ fn width_of(spans: &[Span]) -> usize {
 mod tests {
     use super::*;
     use crate::render::wrap::width;
+    use crate::theme::{Paper, StatusLineTheme};
 
     fn at(percent: u8, end: bool) -> Position {
         Position { percent, end }
@@ -214,6 +235,36 @@ mod tests {
         assert_eq!(styles.bar.bg, Some(Color::Rgb(50, 50, 50)));
         assert!(!styles.bar.reverse);
         assert!(styles.badge.reverse && styles.badge.bold);
+    }
+
+    #[test]
+    fn colours_from_the_theme_win() {
+        let mut theme = Theme::default();
+        let red = Some(Color::Palette(1));
+        let blue = Some(Color::Palette(4));
+        theme.status_line = StatusLineTheme {
+            background: StatusColor::Color(red),
+            foreground: StatusColor::Color(blue),
+            badge_background: StatusColor::Color(blue),
+            badge_foreground: StatusColor::Color(None),
+        };
+        let styles = Styles::new(&theme, &Capabilities::kitty(80));
+        assert_eq!((styles.bar.fg, styles.bar.bg), (blue, red));
+        assert!(!styles.bar.reverse);
+        assert_eq!((styles.badge.fg, styles.badge.bg), (None, blue));
+        assert!(styles.badge.bold && !styles.badge.reverse);
+    }
+
+    #[test]
+    fn the_paper_themes_have_grey_status_lines() {
+        let grey = |level| Some(Color::Rgb(level, level, level));
+        let caps = Capabilities::kitty(80);
+        let light = Styles::new(&Theme::paper(Paper::Light), &caps);
+        assert_eq!((light.bar.fg, light.bar.bg), (grey(0x1f), grey(0xe0)));
+        assert_eq!((light.badge.fg, light.badge.bg), (grey(0xff), grey(0x1f)));
+        let dark = Styles::new(&Theme::paper(Paper::Dark), &caps);
+        assert_eq!((dark.bar.fg, dark.bar.bg), (grey(0xe0), grey(0x3a)));
+        assert_eq!((dark.badge.fg, dark.badge.bg), (grey(0x1e), grey(0xd4)));
     }
 
     #[test]

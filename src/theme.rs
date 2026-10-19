@@ -59,6 +59,24 @@ pub struct Theme {
     pub show_language_label: bool,
     pub language_label: LabelColor,
     pub alerts: AlertTheme,
+    pub status_line: StatusLineTheme,
+}
+
+/// The colours of the pager's status line.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StatusLineTheme {
+    pub background: StatusColor,
+    pub foreground: StatusColor,
+    pub badge_background: StatusColor,
+    pub badge_foreground: StatusColor,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum StatusColor {
+    /// Chosen from the page and the terminal's colours.
+    #[default]
+    Auto,
+    Color(Option<Color>),
 }
 
 /// How alert blocks, such as `> [!NOTE]`, are coloured.
@@ -235,6 +253,7 @@ impl Default for Theme {
             show_language_label: true,
             language_label: LabelColor::CodeBlock,
             alerts: AlertTheme::default(),
+            status_line: StatusLineTheme::default(),
         }
     }
 }
@@ -263,6 +282,9 @@ struct PaperColors {
     line: Option<Color>,
     code_background: Option<Color>,
     code_theme: &'static str,
+    /// The pager's status line and the text on it.
+    status: Option<Color>,
+    status_text: Option<Color>,
 }
 
 impl Theme {
@@ -281,6 +303,8 @@ impl Theme {
                 line: grey(0xc8),
                 code_background: grey(0xeb),
                 code_theme: "base16-ocean.light",
+                status: grey(0xe0),
+                status_text: grey(0x1f),
             },
             Paper::Dark => PaperColors {
                 background: grey(0x1e),
@@ -293,6 +317,8 @@ impl Theme {
                 line: grey(0x50),
                 code_background: grey(0x35),
                 code_theme: "base16-eighties.dark",
+                status: grey(0x3a),
+                status_text: grey(0xe0),
             },
         };
         let mut theme = Self {
@@ -309,6 +335,13 @@ impl Theme {
             // The page is the same whatever the terminal's background.
             code_theme_dark: colors.code_theme.into(),
             code_theme_light: colors.code_theme.into(),
+            // The badge is the page's text and background swapped.
+            status_line: StatusLineTheme {
+                background: StatusColor::Color(colors.status),
+                foreground: StatusColor::Color(colors.status_text),
+                badge_background: StatusColor::Color(colors.text),
+                badge_foreground: StatusColor::Color(colors.background),
+            },
             ..Self::default()
         };
         for heading in &mut theme.headings {
@@ -362,6 +395,7 @@ impl Theme {
             heading.color = None;
             heading.background = None;
         }
+        self.status_line = StatusLineTheme::default();
         self
     }
 }
@@ -443,6 +477,22 @@ pub fn parse(text: &str) -> Result<Theme, String> {
     }
     if let Some(alerts) = file.alerts {
         apply_alerts(&mut theme.alerts, alerts)?;
+    }
+    if let Some(status_line) = file.status_line {
+        let target = &mut theme.status_line;
+        for (target, value) in [
+            (&mut target.background, status_line.background),
+            (&mut target.foreground, status_line.foreground),
+            (&mut target.badge_background, status_line.badge_background),
+            (&mut target.badge_foreground, status_line.badge_foreground),
+        ] {
+            if let Some(value) = value {
+                *target = match value.as_str() {
+                    "auto" => StatusColor::Auto,
+                    color => StatusColor::Color(parse_color(color)?),
+                };
+            }
+        }
     }
     Ok(theme)
 }
@@ -551,6 +601,16 @@ struct ThemeFile {
     show_language_label: Option<bool>,
     language_label: Option<String>,
     alerts: Option<AlertsFile>,
+    status_line: Option<StatusLineFile>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StatusLineFile {
+    background: Option<String>,
+    foreground: Option<String>,
+    badge_background: Option<String>,
+    badge_foreground: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -669,6 +729,25 @@ mod tests {
             + 8;
         let end = start + docs[start..].find("```").expect("the TOML block ends");
         &docs[start..end]
+    }
+
+    #[test]
+    fn the_status_line_takes_colours_none_and_auto() {
+        let theme = parse(
+            "[status_line]\nbackground = \"#101010\"\nforeground = \"none\"\n\
+             badge_background = \"red\"\nbadge_foreground = \"auto\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            theme.status_line,
+            StatusLineTheme {
+                background: StatusColor::Color(Some(Color::Rgb(16, 16, 16))),
+                foreground: StatusColor::Color(None),
+                badge_background: StatusColor::Color(Some(Color::Palette(1))),
+                badge_foreground: StatusColor::Auto,
+            }
+        );
+        assert!(parse("[status_line]\nbar = \"red\"\n").is_err());
     }
 
     #[test]

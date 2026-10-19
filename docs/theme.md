@@ -172,6 +172,17 @@ tip = "auto"
 important = "auto"
 warning = "auto"
 caution = "auto"
+
+# The pager's status line: a bar with a badge at its start. A colour, none,
+# or auto. With every colour auto, the bar is the page mixed with
+# bright-black, where kiri knows both as RGB, and the badge is in reverse
+# video; where it does not, the bar is in reverse video and the badge in
+# bold. An auto foreground is the page's.
+[status_line]
+background = "auto"
+foreground = "auto"
+badge_background = "auto"
+badge_foreground = "auto"
 ```
 
 ## Paper themes
@@ -208,6 +219,12 @@ color = "#000000"
 
 [h6]
 color = "#555555"
+
+[status_line]
+background = "#e0e0e0"
+foreground = "#1f1f1f"
+badge_background = "#1f1f1f"
+badge_foreground = "#ffffff"
 ```
 
 ### Dark paper
@@ -231,6 +248,12 @@ color = "#ffffff"
 
 [h6]
 color = "#a0a0a0"
+
+[status_line]
+background = "#3a3a3a"
+foreground = "#e0e0e0"
+badge_background = "#d4d4d4"
+badge_foreground = "#1e1e1e"
 ```
 
 The [example themes](../examples/themes/README.md) try out variations of the
