@@ -30,60 +30,105 @@ pub enum Action {
     Quit,
 }
 
-/// The keys in `input`. Terminals write each key's sequence whole, so a
-/// sequence cut off at the end is taken as it is: a lone escape character
-/// is the Escape key, and one before a character is Alt with it.
+/// The keys in `input`, all of it: a sequence cut off at the end is taken
+/// as it is. A lone escape character is the Escape key, and one before a
+/// character is Alt with it.
 pub fn decode(input: &[u8]) -> Vec<Key> {
     let mut keys = Vec::new();
     let mut rest = input;
-    while let Some(&byte) = rest.first() {
-        let (key, length) = match byte {
-            0x1b => escape(rest),
-            b'\r' | b'\n' => (Key::Enter, 1),
-            0x01..=0x1a => (Key::Ctrl(char::from(byte - 1 + b'a')), 1),
-            0x00..=0x1f | 0x7f => (Key::Other, 1),
-            _ => character(rest),
-        };
+    while !rest.is_empty() {
+        let (key, length) = key(rest).unwrap_or_else(|| cut_off(rest));
         keys.push(key);
         rest = &rest[length..];
     }
     keys
 }
 
+/// Keys from reads of the terminal, which may cut a key's sequence in
+/// two: the part at the end of one read waits for the rest in the next.
+#[derive(Debug, Default)]
+pub struct Decoder {
+    pending: Vec<u8>,
+}
+
+impl Decoder {
+    /// The keys in `input`, after what the last read left cut off.
+    pub fn keys(&mut self, input: &[u8]) -> Vec<Key> {
+        let mut bytes = std::mem::take(&mut self.pending);
+        bytes.extend_from_slice(input);
+        let mut keys = Vec::new();
+        let mut rest = &bytes[..];
+        while !rest.is_empty() {
+            let Some((key, length)) = key(rest) else {
+                self.pending = rest.to_vec();
+                break;
+            };
+            keys.push(key);
+            rest = &rest[length..];
+        }
+        keys
+    }
+
+    /// What the last read left cut off, taken as it is, when no more came.
+    pub fn flush(&mut self) -> Vec<Key> {
+        decode(&std::mem::take(&mut self.pending))
+    }
+}
+
+/// The key at the start of `input` and its length, or `None` when `input`
+/// ends before the key does.
+fn key(input: &[u8]) -> Option<(Key, usize)> {
+    let byte = input[0];
+    match byte {
+        0x1b => escape(input),
+        b'\r' | b'\n' => Some((Key::Enter, 1)),
+        0x01..=0x1a => Some((Key::Ctrl(char::from(byte - 1 + b'a')), 1)),
+        0x00..=0x1f | 0x7f => Some((Key::Other, 1)),
+        _ => character(input),
+    }
+}
+
+/// The key of a sequence that `input` cuts off, and its length.
+fn cut_off(input: &[u8]) -> (Key, usize) {
+    match input {
+        [0x1b, b'[' | b']' | b'P' | b'_' | b'^' | b'X', ..] | [0x1b, b'O'] => {
+            (Key::Other, input.len())
+        }
+        [0x1b, ..] => (Key::Escape, 1),
+        _ => (Key::Other, 1),
+    }
+}
+
 /// The key that starts with the escape character at the start of `input`,
 /// and its length.
-fn escape(input: &[u8]) -> (Key, usize) {
-    match input.get(1) {
-        Some(b'[') => {
+fn escape(input: &[u8]) -> Option<(Key, usize)> {
+    let key = match input.get(1)? {
+        b'[' => {
             // Parameters and intermediates up to the final byte.
             let body = &input[2..];
-            match body.iter().position(|byte| (0x40..=0x7e).contains(byte)) {
-                Some(end) => (csi(&body[..end], body[end]), end + 3),
-                None => (Key::Other, input.len()),
-            }
+            let end = body.iter().position(|byte| (0x40..=0x7e).contains(byte))?;
+            (csi(&body[..end], body[end]), end + 3)
         }
-        Some(b'O') => match input.get(2) {
-            Some(&last) => (csi(b"", last), 3),
-            None => (Key::Other, 2),
-        },
+        b'O' => (csi(b"", *input.get(2)?), 3),
         // Strings the terminal sends as answers, such as a late answer to
         // the probe: OSC, DCS, APC, PM and SOS. They end with ST, or BEL
         // for OSC.
-        Some(b']' | b'P' | b'_' | b'^' | b'X') => {
+        b']' | b'P' | b'_' | b'^' | b'X' => {
             let body = &input[2..];
             let end = (0..body.len()).find_map(|i| match body[i..] {
                 [0x07, ..] => Some(i + 1),
                 [0x1b, b'\\', ..] => Some(i + 2),
                 _ => None,
-            });
-            (Key::Other, end.map_or(input.len(), |end| end + 2))
+            })?;
+            (Key::Other, end + 2)
         }
-        Some(0x20..=0x7e | 0x80..) => match character(&input[1..]) {
+        0x20..=0x7e | 0x80.. => match character(&input[1..])? {
             (Key::Char(c), length) => (Key::Alt(c), length + 1),
             _ => (Key::Escape, 1),
         },
         _ => (Key::Escape, 1),
-    }
+    };
+    Some(key)
 }
 
 /// The key of a control sequence with `parameters` and the final byte
@@ -101,21 +146,22 @@ fn csi(parameters: &[u8], last: u8) -> Key {
 }
 
 /// The character at the start of `input`, and its length in bytes.
-fn character(input: &[u8]) -> (Key, usize) {
+fn character(input: &[u8]) -> Option<(Key, usize)> {
     let length = match input[0] {
         0xc0..=0xdf => 2,
         0xe0..=0xef => 3,
         0xf0..=0xf7 => 4,
         _ => 1,
     };
-    let bytes = &input[..length.min(input.len())];
-    match std::str::from_utf8(bytes)
+    let bytes = input.get(..length)?;
+    let key = match std::str::from_utf8(bytes)
         .ok()
         .and_then(|text| text.chars().next())
     {
-        Some(c) => (Key::Char(c), bytes.len()),
+        Some(c) => (Key::Char(c), length),
         None => (Key::Other, 1),
-    }
+    };
+    Some(key)
 }
 
 /// What `key` does; `None` for a key without a binding.
@@ -225,6 +271,32 @@ mod tests {
     fn a_sequence_cut_off_at_the_end_is_one_key() {
         assert_eq!(decode(b"\x1b[1;"), [Key::Other]);
         assert_eq!(decode(b"\x1bO"), [Key::Other]);
+    }
+
+    #[test]
+    fn a_sequence_split_over_two_reads_is_one_key() {
+        let mut decoder = Decoder::default();
+        assert_eq!(decoder.keys(b"j\x1b["), [Key::Char('j')]);
+        assert_eq!(decoder.keys(b"6~k"), [Key::PageDown, Key::Char('k')]);
+        assert_eq!(decoder.keys(b"\x1b"), []);
+        assert_eq!(decoder.keys(b"OA"), [Key::Up]);
+        assert_eq!(decoder.keys(&"ä".as_bytes()[..1]), []);
+        assert_eq!(decoder.keys(&"ä".as_bytes()[1..]), [Key::Char('ä')]);
+        // A terminal answer in three reads.
+        assert_eq!(decoder.keys(b"\x1b]11;rgb:1e"), []);
+        assert_eq!(decoder.keys(b"1e/1e1e"), []);
+        assert_eq!(decoder.keys(b"/2e2e\x1b\\q"), [Key::Other, Key::Char('q')]);
+        assert_eq!(decoder.flush(), []);
+    }
+
+    #[test]
+    fn a_cut_off_sequence_without_a_rest_is_taken_as_it_is() {
+        let mut decoder = Decoder::default();
+        assert_eq!(decoder.keys(b"\x1b"), []);
+        assert_eq!(decoder.flush(), [Key::Escape]);
+        assert_eq!(decoder.keys(b"\x1b[1;"), []);
+        assert_eq!(decoder.flush(), [Key::Other]);
+        assert_eq!(decoder.flush(), []);
     }
 
     #[test]

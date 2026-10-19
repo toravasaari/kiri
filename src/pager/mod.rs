@@ -140,10 +140,17 @@ fn show(
 ) -> io::Result<Outcome> {
     draw(lines, view, writer, terminal)?;
     terminal.flush()?;
+    let mut decoder = keys::Decoder::default();
     loop {
         let input = terminal.read(POLL)?;
         let top = view.top();
-        for key in keys::decode(&input) {
+        // Nothing more came for a key the last read cut off.
+        let keys = if input.is_empty() {
+            decoder.flush()
+        } else {
+            decoder.keys(&input)
+        };
+        for key in keys {
             match keys::action(key) {
                 Some(Action::Quit) => return Ok(Outcome::Quit),
                 Some(Action::Move(motion)) => view.scroll(motion),
@@ -309,6 +316,16 @@ mod tests {
         // Line 2 is at the top: the first row of the frame.
         assert!(frames[1].contains("\x1b[1;1H  Line 2"), "{frames:?}");
         assert!(frames[2].contains("Line 10"), "{frames:?}");
+    }
+
+    #[test]
+    fn a_key_split_over_two_reads_moves() {
+        // Page Down as an escape character and the rest of its sequence.
+        let mut terminal = Fake::new(40, 5, &[b"\x1b", b"[6~"]);
+        show(&numbers(10), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 2, "{frames:?}");
+        assert!(frames[1].contains("\x1b[2;1H  Line 4"), "{frames:?}");
     }
 
     #[test]
