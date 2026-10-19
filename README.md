@@ -3,7 +3,8 @@
 kiri shows Markdown documents in the [kitty](https://sw.kovidgoyal.net/kitty/)
 terminal the way a browser would: headings in a genuinely larger font,
 images, formulas and diagrams drawn inline, and links you can click. It works
-like `kitten icat`, but for documents. Other document formats may follow.
+like `kitten icat`, but for documents. CSV and TSV files are shown as
+tables, and other document formats may follow.
 
 > **Status:** early development. Print mode, images and the interactive
 > pager work; formulas and diagrams are still to come. See the
@@ -45,6 +46,11 @@ backticks.
 Quotes that start with `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`
 or `[!CAUTION]` are drawn as GitHub draws these alerts: a bar and a title
 in the kind's colour, on a tint of it, and in kitty the kind's icon.
+
+Emoji shortcodes such as `:rocket:` are shown as their emoji, as on GitHub.
+
+A fenced code block with a language, such as `python`, names it in its
+top-right corner. The [theme](docs/theme.md) can turn the name off.
 
 Tables too wide for the window wrap the text inside their cells, without
 splitting any word of ten cells or fewer. When that is not enough, each row
@@ -98,6 +104,7 @@ alt text with a warning.
 | `-p`, `-P` | The pager always (`--paging always`) or never (`--paging never`) |
 | `--doctor` | Show what kiri finds out about the terminal and which settings it uses |
 | `--raw` | With `--doctor`: the report as Markdown text, for a bug report |
+| `--list-emojis` | List the emoji shortcodes, such as `:smile:`: a table in a terminal, one line per emoji with tabs between the fields in a pipe or a file |
 
 A [configuration file](docs/config.md), `~/.config/kiri/config.toml`, can
 choose the theme, turn images off and say when to page, and so can the
@@ -120,9 +127,10 @@ whole. A status line at the bottom shows the document's name and how far
 down it you are.
 
 `/` searches the document for plain text, and `n` and `N` move to the next
-and the previous match; Escape hides the highlight. A term in lower case
-matches either case, and one with an upper-case letter matches exactly,
-unless `search_case = "literal"` in the
+and the previous match; Enter at an empty `/` prompt goes on to the next
+match of the last search, as in `less`. Escape hides the highlight. A term
+in lower case matches either case, and one with an upper-case letter
+matches exactly, unless `search_case = "literal"` in the
 [configuration file](docs/config.md#search-case) makes every search exact.
 The search looks at the lines as they are laid out, so a phrase broken
 over two lines is not found, and neither is the alt text of an image that

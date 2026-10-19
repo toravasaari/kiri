@@ -34,9 +34,9 @@ terminals arrive later as new backends instead of rewrites.
 A file given on the command line need not be Markdown: `src/input.rs`
 tells an image from a document by its extension and first bytes, and an
 image skips the parser and is drawn on its own, as large as fits the
-window. A CSV or TSV file, told by its extension, goes through a parser of
-its own, `src/parse/csv.rs`, into a document of one table, so the
-backends draw it as any other table.
+window. A CSV or TSV file, told by its extension or by `--format csv`
+or `--format tsv`, goes through a parser of its own, `src/parse/csv.rs`,
+into a document of one table, so the backends draw it as any other table.
 
 The document can also come from standard input, which errors call
 `<stdin>`, or from a directory, which stands for its README. Both are
@@ -140,6 +140,8 @@ src/term/answers.rs        reading the terminal's answers
 src/term/screen.rs         the pager's screen, raw mode and keys
 src/config.rs              settings: options, environment, configuration file
 src/doctor.rs              the --doctor report as Markdown
+src/list.rs                the --list-emojis output: Markdown for a terminal,
+                           tab-separated lines for a pipe
 src/theme/mod.rs           colours and sizes the renderer uses
 src/theme/paper.rs         the light and dark paper themes
 src/theme/file.rs          theme files
@@ -187,7 +189,8 @@ debug.
 
 - **Rust:** one fast binary with no runtime, and mature crates for each part:
   comrak (Markdown), syntect (syntax highlighting), image and resvg (raster
-  and SVG images), typst (formulas), rustix (terminal modes and pager input).
+  and SVG images), csv (CSV and TSV files), rustix (terminal modes and pager
+  input). Formulas are planned with typst.
 - **Text first:** the alternatives were rendering the whole document as an
   image, through a headless browser or a custom layout engine. Both look
   closer to a browser but lose text selection, search and the terminal font,
