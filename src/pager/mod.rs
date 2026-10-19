@@ -280,6 +280,12 @@ impl State {
                     self.prompt = None;
                     self.find(&term, layout);
                 }
+                Edit::Repeat => {
+                    self.prompt = None;
+                    if let Some(term) = self.search.as_ref().map(|s| s.term().to_owned()) {
+                        self.find(&term, layout);
+                    }
+                }
             }
             return false;
         }
@@ -875,6 +881,29 @@ mod tests {
             "{frames:#?}"
         );
         assert!(at_top(frames.last().unwrap(), "Line 21"), "{frames:#?}");
+    }
+
+    #[test]
+    fn enter_on_an_empty_prompt_repeats_the_last_search_from_the_view() {
+        let reads: &[&[u8]] = &[b"/line 20\r", b"g", b"/\r"];
+        let mut terminal = Fake::new(60, 6, reads);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert!(at_top(&frames[2], "Line 1"), "{frames:#?}");
+        let last = frames.last().unwrap();
+        assert!(at_top(last, "Line 20"), "{frames:#?}");
+        assert!(status_row(last, 6).contains("/line 20 1/1"), "{frames:#?}");
+    }
+
+    #[test]
+    fn enter_on_an_empty_prompt_without_a_search_cancels() {
+        let mut terminal = Fake::new(40, 6, &[b"/\r", b"jj"]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        let last = frames.last().unwrap();
+        assert!(at_top(last, "Line 2"), "{frames:#?}");
+        assert!(status_row(last, 6).contains("notes.md"), "{frames:#?}");
     }
 
     #[test]

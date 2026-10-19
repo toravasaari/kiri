@@ -17,6 +17,8 @@ pub enum Edit {
     Cancel,
     /// The prompt closes, and the pager searches for this term.
     Search(String),
+    /// The prompt closes, and the pager repeats the last search, if any.
+    Repeat,
 }
 
 impl Prompt {
@@ -25,13 +27,14 @@ impl Prompt {
         &self.term
     }
 
-    /// Edits the term with `key`: Enter searches, Escape and Ctrl+C cancel,
+    /// Edits the term with `key`: Enter searches, or repeats the last
+    /// search when there is no term, as in `less`; Escape and Ctrl+C cancel,
     /// Backspace deletes the last character and cancels when there is
     /// none, Ctrl+U clears the term. Other keys type their character, if
     /// they have one.
     pub fn edit(&mut self, key: Key) -> Edit {
         match key {
-            Key::Enter if self.term.is_empty() => Edit::Cancel,
+            Key::Enter if self.term.is_empty() => Edit::Repeat,
             Key::Enter => Edit::Search(std::mem::take(&mut self.term)),
             Key::Escape | Key::Ctrl('c') => Edit::Cancel,
             Key::Backspace => match self.term.pop() {
@@ -73,8 +76,8 @@ mod tests {
     }
 
     #[test]
-    fn enter_on_an_empty_prompt_cancels() {
-        assert_eq!(typed(&[Key::Enter]).1, Edit::Cancel);
+    fn enter_on_an_empty_prompt_repeats() {
+        assert_eq!(typed(&[Key::Enter]).1, Edit::Repeat);
     }
 
     #[test]
