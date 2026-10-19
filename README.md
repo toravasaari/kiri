@@ -5,8 +5,8 @@ terminal the way a browser would: headings in a genuinely larger font,
 images, formulas and diagrams drawn inline, and links you can click. It works
 like `kitten icat`, but for documents. Other document formats may follow.
 
-> **Status:** early development. Print mode and images work; formulas,
-> diagrams and the interactive pager are still to come. See the
+> **Status:** early development. Print mode, images and the interactive
+> pager work; formulas and diagrams are still to come. See the
 > [roadmap](docs/roadmap.md).
 
 ## Why
