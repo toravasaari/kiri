@@ -102,7 +102,7 @@ writes as it is into a pipe.
 | Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term.rs` | The pager's screen of its own |
 | Synchronized output | CSI ?2026h/l | `src/pager/mod.rs` | Pager frames without flicker |
 | Cell size query | CSI 16 t | `src/kitty/query.rs` | The cell size in pixels where the window size has none |
-| Generic queries | CSI 6n, OSC 11, OSC 4, CSI > q, CSI c | `src/term.rs` | Cursor position, background and palette colours, terminal version, end of the answers |
+| Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI c | `src/term.rs` | Cursor position, foreground, background and palette colours, terminal version, end of the answers |
 
 Sequences that only kitty's protocols define live under `src/kitty/`:
 text sizing, graphics, Unicode placeholders and the queries that detect
