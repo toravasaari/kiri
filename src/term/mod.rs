@@ -3,7 +3,6 @@
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{self, Read, Stdout, Write};
-use std::os::fd::AsFd;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
@@ -21,6 +20,9 @@ mod answers;
 mod probe;
 #[cfg(test)]
 mod testing;
+mod window;
+
+pub use window::{WindowSize, window_size};
 
 /// Terminal features the renderer may use. Built once at start-up and passed
 /// to the renderer, so rendering itself never talks to the terminal.
@@ -306,44 +308,11 @@ pub fn no_color(env: &Environment) -> bool {
         .is_some_and(|value| !value.is_empty())
 }
 
-/// The size of a terminal window, from one query.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WindowSize {
-    /// Columns and rows of cells.
-    pub columns: u16,
-    pub rows: u16,
-    /// Width and height in pixels; 0 when the terminal does not tell.
-    pub width: u16,
-    pub height: u16,
-}
-
-impl WindowSize {
-    /// Size of one cell in pixels, when the terminal reports its size in
-    /// pixels.
-    pub fn cell_pixels(&self) -> Option<(u16, u16)> {
-        let cell_width = self.width / self.columns.max(1);
-        let cell_height = self.height / self.rows.max(1);
-        (cell_width > 0 && cell_height > 0).then_some((cell_width, cell_height))
-    }
-}
-
 /// `caps` with the height and the cell size of `window`.
 fn with_window(mut caps: Capabilities, window: Option<WindowSize>) -> Capabilities {
     caps.height = window.map(|w| w.rows).filter(|&rows| rows > 0);
     caps.cell_pixels = window.and_then(|w| w.cell_pixels());
     caps
-}
-
-/// The size of the terminal window `fd` refers to, if it is a terminal
-/// that reports one.
-pub fn window_size(fd: impl AsFd) -> Option<WindowSize> {
-    let size = rustix::termios::tcgetwinsize(fd).ok()?;
-    (size.ws_col > 0).then_some(WindowSize {
-        columns: size.ws_col,
-        rows: size.ws_row,
-        width: size.ws_xpixel,
-        height: size.ws_ypixel,
-    })
 }
 
 /// Raw mode on a terminal until dropped, also when a panic unwinds: keys
@@ -744,21 +713,6 @@ mod tests {
     }
 
     #[test]
-    fn reads_the_window_size_in_cells_and_pixels() {
-        let (_terminal, tty) = pty();
-        rustix::termios::tcsetwinsize(&tty, size(80, 24, 800, 480)).unwrap();
-        assert_eq!(
-            window_size(&tty),
-            Some(WindowSize {
-                columns: 80,
-                rows: 24,
-                width: 800,
-                height: 480,
-            })
-        );
-    }
-
-    #[test]
     fn takes_the_height_and_the_cell_size_from_the_window() {
         let window = WindowSize {
             columns: 80,
@@ -979,12 +933,6 @@ mod tests {
         assert!(leave < message, "{output:?}");
         assert_eq!(output.matches("\x1b[?1049l").count(), 1, "{output:?}");
         assert!(!output.contains("[part of a frame]"), "{output:?}");
-    }
-
-    #[test]
-    fn a_pipe_has_no_window_size() {
-        let (reader, _writer) = std::io::pipe().unwrap();
-        assert_eq!(window_size(&reader), None);
     }
 
     fn env_with(set: impl Fn(&mut Environment)) -> Environment {
