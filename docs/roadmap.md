@@ -269,7 +269,7 @@ scale, built once for all of these:
 - YAML front matter, as in Jekyll, Hugo and Obsidian files, is not shown
   as text; its title and date may head the document.
 
-#### 4.10.5 Emoji shortcodes
+#### 4.10.5 Emoji shortcodes (done)
 
 - Emoji shortcodes such as `:rocket:`, as GitHub shows them.
 
