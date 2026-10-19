@@ -8,8 +8,8 @@ use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use rustix::process::{Pid, getpgrp};
 use rustix::termios::tcgetpgrp;
 
-use super::RawMode;
 use super::answers::{PALETTE_ANSWER, has_device_attributes};
+use super::screen::RawMode;
 use crate::kitty::query;
 
 /// Long enough for a terminal over SSH, short enough not to notice when
