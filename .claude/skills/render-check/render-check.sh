@@ -185,10 +185,12 @@ for file in "${files[@]}"; do
 	rm -f "$work/done" "$out/$name"-p[0-9][0-9].png
 
 	# The child must not talk to the kitty this script may run in, and kitty
-	# must use X11 even when a Wayland session is around.
+	# must use X11 even when a Wayland session is around. kiri prints rather
+	# than pages, as nobody can press a key in the pager; -p after -- still
+	# opens it.
 	env -u WAYLAND_DISPLAY -u KITTY_WINDOW_ID -u KITTY_PID \
 		-u KITTY_LISTEN_ON -u KITTY_PUBLIC_KEY -u KITTY_INSTALLATION_DIR \
-		DISPLAY="$display" \
+		DISPLAY="$display" KIRI_PAGING=never \
 		kitty --config "$kitty_config" -o linux_display_server=x11 \
 		-o remember_window_size=no -o cursor_blink_interval=0 \
 		-o initial_window_width="$width" -o initial_window_height="$height" \

@@ -38,6 +38,9 @@ From the repository root:
   scrolling. A narrower width checks wrapping and image shrinking. If a
   document is taller than the window, the script says so; the screen
   cannot be taller than about 16384 pixels.
+- kiri prints the document instead of paging it (`KIRI_PAGING=never`),
+  whatever the configuration file says, as nobody can press a key in the
+  pager. The script cannot check the pager.
 - The screenshot is taken once kitty shows the cursor where kiri's output
   ended and two screenshots in a row are equal. kitty's software renderer
   can take seconds to draw large images, and until then shows its last
