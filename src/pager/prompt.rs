@@ -17,7 +17,8 @@ pub enum Edit {
     Cancel,
     /// The prompt closes, and the pager searches for this term.
     Search(String),
-    /// The prompt closes, and the pager repeats the last search, if any.
+    /// The prompt closes, and the last search, if any, goes on to its
+    /// next match, as `n` does.
     Repeat,
 }
 
@@ -28,10 +29,10 @@ impl Prompt {
     }
 
     /// Edits the term with `key`: Enter searches, or repeats the last
-    /// search when there is no term, as in `less`; Escape and Ctrl+C cancel,
-    /// Backspace deletes the last character and cancels when there is
-    /// none, Ctrl+U clears the term. Other keys type their character, if
-    /// they have one.
+    /// search, on to its next match, when there is no term, as in `less`;
+    /// Escape and Ctrl+C cancel, Backspace deletes the last character and
+    /// cancels when there is none, Ctrl+U clears the term. Other keys type
+    /// their character, if they have one.
     pub fn edit(&mut self, key: Key) -> Edit {
         match key {
             Key::Enter if self.term.is_empty() => Edit::Repeat,
