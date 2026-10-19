@@ -87,11 +87,13 @@ fn mixed(theme: &Theme, caps: &Capabilities) -> Option<Color> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Found<'a> {
     /// The reader is at match `current`, counted from 1, of the `total`
-    /// matches of `term`.
+    /// matches of `term`; `flash` shows `current` apart for a moment,
+    /// after the search went around an end of the document.
     At {
         term: &'a str,
         current: usize,
         total: usize,
+        flash: bool,
     },
     /// `term` is nowhere in the document.
     Nowhere(&'a str),
@@ -175,9 +177,21 @@ fn search(found: Found, styles: &Styles) -> Vec<Span> {
             term,
             current,
             total,
+            flash,
         } => vec![
             span(&format!("/{} ", printable(term))),
-            span(&current.to_string()),
+            match flash {
+                // Bold, and in reverse video against the bar.
+                true => Span::new(
+                    &current.to_string(),
+                    Style {
+                        bold: true,
+                        reverse: !styles.bar.reverse,
+                        ..styles.bar.clone()
+                    },
+                ),
+                false => span(&current.to_string()),
+            },
             span(&format!("/{total}")),
         ],
         Found::Nowhere(term) => vec![span(&format!("not found: {}", printable(term)))],
@@ -398,6 +412,7 @@ mod tests {
         term: "kiri",
         current: 3,
         total: 12,
+        flash: false,
     });
 
     #[test]
@@ -415,6 +430,25 @@ mod tests {
             " kiri  notes.md      not found: xyz   42%   ? help   q quit "
         );
         assert_eq!(width(&spans), 60);
+    }
+
+    #[test]
+    fn a_flash_shows_the_current_match_number_apart() {
+        let flash = Some(Found::At {
+            term: "kiri",
+            current: 1,
+            total: 12,
+            flash: true,
+        });
+        let spans = spans("notes.md", at(42), flash, 60, &styles());
+        assert_eq!(
+            text(&spans),
+            text(&super::spans("notes.md", at(42), AT, 60, &styles())).replace("3/12", "1/12")
+        );
+        let one = spans.iter().find(|span| span.text == "1").unwrap();
+        assert!(one.style.reverse && one.style.bold, "{spans:?}");
+        let twelve = spans.iter().find(|span| span.text == "/12").unwrap();
+        assert_eq!(twelve.style, styles().bar);
     }
 
     #[test]

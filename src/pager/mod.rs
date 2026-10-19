@@ -9,7 +9,7 @@ pub mod status;
 pub mod view;
 
 use std::io::{self, Write};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::config::{Paging, SearchCase};
 use crate::model::Document;
@@ -50,6 +50,10 @@ pub trait Terminal: Write {
     /// The bytes of the keys pressed, waiting at most `timeout` for the
     /// first; empty when none came.
     fn read(&mut self, timeout: Duration) -> io::Result<Vec<u8>>;
+    /// The time now.
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
 }
 
 impl<W: Write> Terminal for Screen<W> {
@@ -148,6 +152,10 @@ const DEFAULT_ROWS: u16 = 24;
 /// again.
 const POLL: Duration = Duration::from_millis(100);
 
+/// How long the match number flashes after a search went around an end
+/// of the document.
+const FLASH: Duration = Duration::from_secs(1);
+
 /// Why the pager stopped showing one layout of the document.
 enum Outcome {
     Quit,
@@ -232,6 +240,8 @@ struct State {
     /// Whether the status line tells that the last search found nothing,
     /// which it does until the next key.
     nowhere: bool,
+    /// Until when the match number flashes.
+    flash: Option<Instant>,
 }
 
 impl State {
@@ -244,11 +254,13 @@ impl State {
             search: None,
             shown: false,
             nowhere: false,
+            flash: None,
         }
     }
 
-    /// Does what `key` asks in `layout`; true when it quits.
-    fn press(&mut self, key: Key, layout: &mut Layout) -> bool {
+    /// Does what `key`, pressed at `now`, asks in `layout`; true when it
+    /// quits.
+    fn press(&mut self, key: Key, now: Instant, layout: &mut Layout) -> bool {
         self.nowhere = false;
         // Any key closes the help and does nothing else, but Ctrl+C
         // still quits.
@@ -276,8 +288,8 @@ impl State {
             Some(Action::Search) => {
                 self.prompt = layout.status.bar.then(Prompt::default);
             }
-            Some(Action::Next) => self.step(Search::forward, layout),
-            Some(Action::Previous) => self.step(Search::backward, layout),
+            Some(Action::Next) => self.step(Search::forward, now, layout),
+            Some(Action::Previous) => self.step(Search::backward, now, layout),
             Some(Action::Clear) => self.shown = false,
             None => {}
         }
@@ -304,17 +316,24 @@ impl State {
         }
     }
 
-    /// Moves the last search to another match by `step`, and shows it.
-    fn step(&mut self, step: fn(&mut Search) -> bool, layout: &mut Layout) {
+    /// Moves the last search to another match by `step` at `now`, and
+    /// shows it.
+    fn step(&mut self, step: fn(&mut Search) -> bool, now: Instant, layout: &mut Layout) {
         let Some(search) = &mut self.search else {
             return;
         };
-        step(search);
+        let around = step(search);
+        self.flash = around.then(|| now + FLASH);
         match search.current() {
             Some(found) => layout.view.reveal(found.line),
             None => self.nowhere = true,
         }
         self.shown = true;
+    }
+
+    /// Ends a flash that is over at `now`.
+    fn tick(&mut self, now: Instant) {
+        self.flash = self.flash.filter(|&until| now < until);
     }
 
     /// What the status line tells about the last search.
@@ -331,6 +350,7 @@ impl State {
             term: search.term(),
             current,
             total,
+            flash: self.flash.is_some(),
         })
     }
 }
@@ -383,14 +403,16 @@ fn show(
         } else {
             decoder.keys(&input)
         };
+        let now = terminal.now();
+        state.tick(now);
         for key in keys {
-            if state.press(key, layout) {
+            if state.press(key, now, layout) {
                 return Ok(Outcome::Quit);
             }
         }
-        let now = terminal.size();
-        if now != size {
-            return Ok(Outcome::Resized(now));
+        let window = terminal.size();
+        if window != size {
+            return Ok(Outcome::Resized(window));
         }
         let frame = layout.frame(state);
         if frame != shown {
@@ -482,6 +504,8 @@ mod tests {
         sizes: VecDeque<WindowSize>,
         size: WindowSize,
         out: Vec<u8>,
+        /// The time now, which each read moves on by a poll.
+        clock: Instant,
     }
 
     impl Fake {
@@ -491,6 +515,7 @@ mod tests {
                 sizes: VecDeque::new(),
                 size: window(columns, rows),
                 out: Vec::new(),
+                clock: Instant::now(),
             }
         }
 
@@ -529,13 +554,18 @@ mod tests {
             Some(self.size)
         }
 
-        fn read(&mut self, _timeout: Duration) -> io::Result<Vec<u8>> {
+        fn read(&mut self, timeout: Duration) -> io::Result<Vec<u8>> {
+            self.clock += timeout;
             if let Some(size) = self.sizes.pop_front() {
                 self.size = size;
             }
             // Out of keys, the reader quits, with Ctrl+C, which also
             // closes a prompt left open.
             Ok(self.keys.pop_front().unwrap_or_else(|| b"\x03".to_vec()))
+        }
+
+        fn now(&self) -> Instant {
+            self.clock
         }
     }
 
@@ -840,10 +870,14 @@ mod tests {
         assert!(shows(&frames[1], "Line 1", "/line 2 1/11"), "{frames:#?}");
         assert!(shows(&frames[2], "Line 20", "/line 2 2/11"), "{frames:#?}");
         assert!(shows(&frames[3], "Line 2", "/line 2 1/11"), "{frames:#?}");
-        // Around the start to the last match, on the last page.
+        // Around the start to the last match, on the last page, and
+        // around the end to the first, each with the number flashing.
         assert!(frames[4].contains("Line 29"), "{frames:#?}");
-        assert!(status_row(&frames[4], 6).contains("11/11"), "{frames:#?}");
-        assert!(shows(&frames[5], "Line 2", "/line 2 1/11"), "{frames:#?}");
+        let status = status_row(&frames[4], 6);
+        assert!(status.contains("11\x1b[0;7m/11"), "{frames:#?}");
+        assert!(at_top(&frames[5], "Line 2"), "{frames:#?}");
+        let status = status_row(&frames[5], 6);
+        assert!(status.contains("m1\x1b[0;7m/11"), "{frames:#?}");
     }
 
     #[test]
@@ -898,6 +932,39 @@ mod tests {
         assert!(at_top(&frames[3], "Line 5"), "{frames:#?}");
         assert!(
             status_row(&frames[3], 6).contains("/line 5/30"),
+            "{frames:#?}"
+        );
+    }
+
+    #[test]
+    fn going_around_an_end_flashes_the_match_number_for_a_second() {
+        // N goes around to the last match, then `empty` polls without keys,
+        // each a tenth of a second.
+        let frames = |empty| {
+            let mut reads: Vec<&[u8]> = vec![b"/line 2\r", b"N"];
+            reads.extend(std::iter::repeat_n(b"".as_slice(), empty));
+            let mut terminal = Fake::new(60, 6, &reads);
+            show(&numbers(30), &mut terminal);
+            terminal.frames()
+        };
+        // Bold, without the bar's reverse video.
+        let flashed = "\x1b[0;1m11\x1b[0;7m/11";
+        let before = frames(9);
+        assert_eq!(before.len(), 3, "{before:#?}");
+        assert!(status_row(&before[2], 6).contains(flashed), "{before:#?}");
+        let after = frames(10);
+        assert_eq!(after.len(), 4, "{after:#?}");
+        assert!(!status_row(&after[3], 6).contains(flashed), "{after:#?}");
+        assert!(status_row(&after[3], 6).contains(" 11/11"), "{after:#?}");
+    }
+
+    #[test]
+    fn n_without_going_around_does_not_flash() {
+        let mut terminal = Fake::new(60, 6, &[b"/line 2\r", b"n"]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert!(
+            status_row(&frames[2], 6).contains("/line 2 2/11"),
             "{frames:#?}"
         );
     }
