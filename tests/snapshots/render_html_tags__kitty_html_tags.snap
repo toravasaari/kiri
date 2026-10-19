@@ -21,8 +21,7 @@ expression: "visible(&render_for(\"html-tags.md\", Capabilities::kitty(WIDTH)))"
   Press ␛[0;35;48;2;43;48;59m⍽Ctrl⍽␛[0m+␛[0;35;48;2;43;48;59m⍽C⍽␛[0m to copy, or ␛[0;35;48;2;43;48;59m⍽Page Down⍽␛[0m to
   move on.
 
-  Some text is ␛[0;2m<mark>␛[0mmarked as found␛[0;2m</mark>␛[0m,
-  even ␛[0;1;2m<mark>␛[0;1min bold␛[0;1;2m</mark>␛[0m.
+  Some text is ␛[0;30;43mmarked as found␛[0m, even ␛[0;1;30;43min bold␛[0m.
 
   A ␛[0;2m<kbd>␛[0mkey that never closes stays as
   source.

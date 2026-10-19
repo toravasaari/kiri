@@ -138,6 +138,7 @@ fn inlines(parent: Node<'_>) -> Vec<Inline> {
             let content: Vec<Inline> = inlines.drain(start..).skip(1).collect();
             inlines.push(match phrase {
                 html::Phrase::Kbd => Inline::Kbd(content),
+                html::Phrase::Mark => Inline::Mark(content),
             });
         }
     }
@@ -439,6 +440,19 @@ mod tests {
                 Inline::Emphasis(vec![html("<kbd>"), text("a")]),
                 text(" b"),
                 html("</kbd>"),
+            ])]
+        );
+    }
+
+    #[test]
+    fn reads_an_html_mark_as_marked_text() {
+        assert_eq!(
+            parse("Some <mark>marked *text*</mark>, <mark><kbd>A</kbd></mark>\n").blocks,
+            vec![Block::Paragraph(vec![
+                text("Some "),
+                Inline::Mark(vec![text("marked "), Inline::Emphasis(vec![text("text")])]),
+                text(", "),
+                Inline::Mark(vec![Inline::Kbd(vec![text("A")])]),
             ])]
         );
     }

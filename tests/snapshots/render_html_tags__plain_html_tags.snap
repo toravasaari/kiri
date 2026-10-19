@@ -17,8 +17,7 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
   Press `Ctrl`+`C` to copy, or `Page Down` to
   move on.
 
-  Some text is <mark>marked as found</mark>,
-  even <mark>in bold</mark>.
+  Some text is marked as found, even in bold.
 
   A <kbd>key that never closes stays as
   source.

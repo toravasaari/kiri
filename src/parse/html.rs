@@ -1,6 +1,6 @@
 //! The few HTML tags in Markdown that kiri reads instead of showing them
 //! as source: `<img>`, alone or in tags that only wrap it, `<a>` around
-//! an `<img>`, `<br>` and `<kbd>`.
+//! an `<img>`, `<br>`, `<kbd>` and `<mark>`.
 
 use crate::model::Length;
 
@@ -41,12 +41,14 @@ pub fn link_start(html: &str) -> Option<String> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phrase {
     Kbd,
+    Mark,
 }
 
 impl Phrase {
     fn from_name(name: &str) -> Option<Self> {
         match name {
             "kbd" => Some(Self::Kbd),
+            "mark" => Some(Self::Mark),
             _ => None,
         }
     }
@@ -548,6 +550,13 @@ mod tests {
         for other in ["<kbd>", "</kbdx>", "</b>", "</kbd></kbd>"] {
             assert_eq!(phrase_end(other), None, "{other:?}");
         }
+    }
+
+    #[test]
+    fn reads_the_tags_of_a_mark() {
+        assert_eq!(phrase_start("<mark class=x>"), Some(Phrase::Mark));
+        assert_eq!(phrase_end("</MARK>"), Some(Phrase::Mark));
+        assert_eq!(phrase_start("<marker>"), None);
     }
 
     #[test]

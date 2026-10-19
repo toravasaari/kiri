@@ -345,6 +345,22 @@ impl Layout<'_> {
                 }),
                 out,
             ),
+            Inline::Mark(content) => {
+                let mark = self.theme.mark;
+                let style = if self.caps.color {
+                    Style {
+                        fg: mark.foreground.or(style.fg),
+                        bg: mark.background.or(style.bg),
+                        ..style.clone()
+                    }
+                } else {
+                    Style {
+                        reverse: true,
+                        ..style.clone()
+                    }
+                };
+                self.inlines(content, &self.style(style), out)
+            }
             Inline::Link { url, content } => self.link(url, content, style, out),
             Inline::Image(Image { alt, .. }) => {
                 let image_style = self.muted(Style {

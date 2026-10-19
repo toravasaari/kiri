@@ -99,6 +99,8 @@ pub enum Inline {
     Strikethrough(Vec<Inline>),
     /// Keyboard input, such as a key to press: HTML's `<kbd>`.
     Kbd(Vec<Inline>),
+    /// Text marked as relevant, as a highlighter would: HTML's `<mark>`.
+    Mark(Vec<Inline>),
     Link {
         url: String,
         content: Vec<Inline>,
@@ -156,6 +158,7 @@ impl Inline {
                 | Inline::Strong(content)
                 | Inline::Strikethrough(content)
                 | Inline::Kbd(content)
+                | Inline::Mark(content)
                 | Inline::Link { content, .. }
                 | Inline::Image(Image { alt: content, .. }) => {
                     out.push_str(&Self::plain_text(content))

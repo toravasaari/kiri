@@ -61,6 +61,15 @@ pub struct Theme {
     pub alerts: AlertTheme,
     pub status_line: StatusLineTheme,
     pub search: SearchTheme,
+    pub mark: MarkTheme,
+}
+
+/// The colours of marked text, HTML's `<mark>`. Without colours, marked
+/// text is in reverse video.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MarkTheme {
+    pub foreground: Option<Color>,
+    pub background: Option<Color>,
 }
 
 /// The colours of the pager's status line.
@@ -275,6 +284,11 @@ impl Default for Theme {
             alerts: AlertTheme::default(),
             status_line: StatusLineTheme::default(),
             search: SearchTheme::default(),
+            // Black on yellow, as a browser shows it.
+            mark: MarkTheme {
+                foreground: Some(Color::Palette(0)),
+                background: Some(Color::Palette(3)),
+            },
         }
     }
 }
@@ -432,6 +446,7 @@ impl Theme {
         }
         self.status_line = StatusLineTheme::default();
         self.search = SearchTheme::default();
+        self.mark = MarkTheme::default();
         self
     }
 }
@@ -546,6 +561,10 @@ pub fn parse(text: &str) -> Result<Theme, String> {
             }
         }
     }
+    if let Some(mark) = file.mark {
+        set_color(&mut theme.mark.foreground, mark.foreground)?;
+        set_color(&mut theme.mark.background, mark.background)?;
+    }
     Ok(theme)
 }
 
@@ -655,6 +674,14 @@ struct ThemeFile {
     alerts: Option<AlertsFile>,
     status_line: Option<StatusLineFile>,
     search: Option<SearchFile>,
+    mark: Option<MarkFile>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MarkFile {
+    foreground: Option<String>,
+    background: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -861,6 +888,31 @@ mod tests {
     fn search_has_no_flash_colours() {
         assert!(parse("[search]\nflash_foreground = \"black\"\n").is_err());
         assert!(parse("[search]\nflash_background = \"yellow\"\n").is_err());
+    }
+
+    #[test]
+    fn marked_text_is_black_on_yellow_unless_the_theme_says_otherwise() {
+        let black_on_yellow = MarkTheme {
+            foreground: Some(Color::Palette(0)),
+            background: Some(Color::Palette(3)),
+        };
+        assert_eq!(Theme::default().mark, black_on_yellow);
+        assert_eq!(
+            parse("[mark]\nbackground = \"#fff8c5\"\n").unwrap().mark,
+            MarkTheme {
+                background: Some(Color::Rgb(0xff, 0xf8, 0xc5)),
+                ..black_on_yellow
+            }
+        );
+        assert_eq!(
+            parse("[mark]\nforeground = \"none\"\nbackground = \"none\"\n")
+                .unwrap()
+                .mark,
+            MarkTheme::default()
+        );
+        assert!(parse("[mark]\ncolor = \"red\"\n").is_err());
+        assert!(parse("[mark]\nbackground = \"auto\"\n").is_err());
+        assert_eq!(Theme::default().without_colors().mark, MarkTheme::default());
     }
 
     #[test]
