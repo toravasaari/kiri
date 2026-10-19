@@ -8,6 +8,7 @@ use std::process::{ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
+use rustix::process::Resource;
 
 mod common;
 
@@ -77,12 +78,17 @@ fn in_terminal_with(
         })
         .stdout(Stdio::from(tty))
         .stderr(Stdio::piped());
-    // SAFETY: setsid and ioctl are async-signal-safe and touch no memory.
+    // SAFETY: setsid, ioctl, getrlimit and setrlimit are async-signal-safe
+    // and touch no memory.
     unsafe {
         kiri.pre_exec(|| {
             rustix::process::setsid()?;
             // Standard output is the terminal by now.
             rustix::process::ioctl_tiocsctty(BorrowedFd::borrow_raw(1))?;
+            // No core dump when a test ends kiri with SIGQUIT.
+            let mut core = rustix::process::getrlimit(Resource::Core);
+            core.current = Some(0);
+            rustix::process::setrlimit(Resource::Core, core)?;
             Ok(())
         });
     }
