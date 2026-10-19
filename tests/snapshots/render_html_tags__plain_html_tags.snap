@@ -50,6 +50,25 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
   >
   > Content in the quote.
 
+  ▼ Outer, no blank line before the inner
+
+  ▼ Inner
+
+  Content of the inner one.
+
+  Content of the outer one.
+
+  ▼ With an HTML paragraph
+
+  The paragraph's text, read as plain text.
+
+  ▼ Text right after the end
+
+  Content.
+
+  Text after the details, in the same HTML
+  block.
+
 ## Other tags
 
   Text with <b>bold</b> and <span>a

@@ -39,83 +39,69 @@ pub fn link_start(html: &str) -> Option<String> {
     }
 }
 
-/// The start of a `<details>` that an HTML block holds.
+/// A part of an HTML block that holds `<details>` tags, as
+/// `details_parts` cuts it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DetailsStart<'a> {
-    /// The `<summary>`'s content as text and inline HTML; `None` without
-    /// a `<summary>`.
-    pub summary: Option<Vec<Inline>>,
-    /// The HTML after the summary, up to the `</details>` if the block
-    /// has it.
-    pub body: &'a str,
-    /// Whether the block also ends the `<details>`.
-    pub closed: bool,
+pub enum DetailsPart<'a> {
+    /// A `<details>`, with the content of the `<summary>` right after it
+    /// as text and inline HTML; `None` without one.
+    Start(Option<Vec<Inline>>),
+    /// A `</details>`, as written.
+    End(&'a str),
+    /// The HTML between those tags, when it is more than whitespace and
+    /// comments.
+    Html(&'a str),
 }
 
-/// The `<details>` an HTML block starts: one that opens it, optionally
-/// with its summary and more, and closes it or not. Only whitespace and
-/// comments may come before it and after its end.
-pub fn details_start(html: &str) -> Option<DetailsStart<'_>> {
+/// An HTML block cut at its `<details>` and `</details>` tags, each
+/// `<details>` with the `<summary>` right after it. `None` for a block
+/// without those tags, with a `<summary>` there that does not end, or
+/// that `tokens` cannot read.
+pub fn details_parts(html: &str) -> Option<Vec<DetailsPart<'_>>> {
     let tokens = spanned_tokens(html)?;
-    let mut rest = skip_blank(&tokens);
-    let [(Token::Open(tag), open), ..] = rest else {
-        return None;
-    };
-    if tag.name != "details" {
-        return None;
-    }
-    let mut body_start = open.end;
-    rest = skip_blank(&rest[1..]);
-    let mut summary = None;
-    if let [(Token::Open(tag), open), ..] = rest
-        && tag.name == "summary"
-    {
-        let end = rest
-            .iter()
-            .position(|(token, _)| matches!(token, Token::Close(name) if name == "summary"))?;
-        let close = &rest[end].1;
-        summary = Some(inlines(&html[open.end..close.start])?);
-        body_start = close.end;
-        rest = &rest[end + 1..];
-    }
-    // The `</details>` that matches the opening tag, past any nested one.
-    let mut depth = 0usize;
-    for (index, (token, span)) in rest.iter().enumerate() {
-        match token {
-            Token::Open(tag) if tag.name == "details" => depth += 1,
-            Token::Close(name) if name == "details" => {
-                if depth == 0 {
-                    if skip_blank(&rest[index + 1..]).is_empty() {
-                        return Some(DetailsStart {
-                            summary,
-                            body: &html[body_start..span.start],
-                            closed: true,
-                        });
+    let mut parts = Vec::new();
+    // The token and the byte where the HTML since the last tag starts.
+    let (mut html_token, mut html_start) = (0, 0);
+    let mut index = 0;
+    while let Some((token, span)) = tokens.get(index) {
+        // The part a tag makes, and the token and byte after it.
+        let (part, next, end) = match token {
+            Token::Open(tag) if tag.name == "details" => {
+                let rest = skip_blank(&tokens[index + 1..]);
+                match rest {
+                    [(Token::Open(tag), open), ..] if tag.name == "summary" => {
+                        let close = rest.iter().position(
+                            |(token, _)| matches!(token, Token::Close(name) if name == "summary"),
+                        )?;
+                        let close_span = &rest[close].1;
+                        let summary = inlines(&html[open.end..close_span.start])?;
+                        let next = tokens.len() - rest.len() + close + 1;
+                        (DetailsPart::Start(Some(summary)), next, close_span.end)
                     }
-                    return None;
+                    _ => (DetailsPart::Start(None), index + 1, span.end),
                 }
-                depth -= 1;
             }
-            _ => {}
+            Token::Close(name) if name == "details" => {
+                (DetailsPart::End(&html[span.clone()]), index + 1, span.end)
+            }
+            _ => {
+                index += 1;
+                continue;
+            }
+        };
+        if !skip_blank(&tokens[html_token..index]).is_empty() {
+            parts.push(DetailsPart::Html(&html[html_start..span.start]));
         }
+        parts.push(part);
+        (html_token, html_start, index) = (next, end, next);
     }
-    Some(DetailsStart {
-        summary,
-        body: &html[body_start..],
-        closed: false,
-    })
-}
-
-/// Whether an HTML block is one `</details>`, with nothing else but
-/// whitespace and comments.
-pub fn is_details_end(html: &str) -> bool {
-    let Some(tokens) = spanned_tokens(html) else {
-        return false;
-    };
-    match skip_blank(&tokens) {
-        [(Token::Close(name), _), rest @ ..] => name == "details" && skip_blank(rest).is_empty(),
-        _ => false,
+    if parts.is_empty() {
+        return None;
     }
+    if !skip_blank(&tokens[html_token..]).is_empty() {
+        parts.push(DetailsPart::Html(&html[html_start..]));
+    }
+    Some(parts)
 }
 
 /// The content of an HTML block that is one `<summary>` element, with
@@ -752,75 +738,101 @@ mod tests {
         Inline::Text(text.into())
     }
 
+    fn start(summary: &str) -> DetailsPart<'static> {
+        DetailsPart::Start(Some(vec![text(summary)]))
+    }
+
     #[test]
-    fn reads_the_start_of_a_details() {
+    fn cuts_a_block_at_its_details_start() {
         assert_eq!(
-            details_start("<details>\n<summary>A  <b>bold</b>\n &amp; more</summary>\n"),
-            Some(DetailsStart {
-                summary: Some(vec![
-                    text("A "),
-                    Inline::Html("<b>".into()),
-                    text("bold"),
-                    Inline::Html("</b>".into()),
-                    text(" & more"),
-                ]),
-                body: "\n",
-                closed: false,
-            })
+            details_parts("<details>\n<summary>A  <b>bold</b>\n &amp; more</summary>\n"),
+            Some(vec![DetailsPart::Start(Some(vec![
+                text("A "),
+                Inline::Html("<b>".into()),
+                text("bold"),
+                Inline::Html("</b>".into()),
+                text(" & more"),
+            ]))])
         );
         assert_eq!(
-            details_start("<!-- note -->\n<DETAILS open>\n"),
-            Some(DetailsStart {
-                summary: None,
-                body: "\n",
-                closed: false,
-            })
+            details_parts("<!-- note -->\n<DETAILS open>\n"),
+            Some(vec![DetailsPart::Start(None)])
         );
         assert_eq!(
-            details_start("<details><summary></summary>Text\n"),
-            Some(DetailsStart {
-                summary: Some(Vec::new()),
-                body: "Text\n",
-                closed: false,
-            })
+            details_parts("<details><summary></summary>Text\n"),
+            Some(vec![
+                DetailsPart::Start(Some(Vec::new())),
+                DetailsPart::Html("Text\n"),
+            ])
+        );
+        assert_eq!(
+            details_parts("<p>\n<details>\n<!-- c -->\n<summary>S</summary>\n"),
+            Some(vec![DetailsPart::Html("<p>\n"), start("S")])
         );
     }
 
     #[test]
-    fn reads_a_details_in_one_block() {
+    fn cuts_a_block_at_each_details_tag() {
         assert_eq!(
-            details_start("<details><summary>S</summary>Some <i>text</i></details> <!-- end -->\n"),
-            Some(DetailsStart {
-                summary: Some(vec![text("S")]),
-                body: "Some <i>text</i>",
-                closed: true,
-            })
+            details_parts("<details><summary>S</summary>Some <i>text</i></details> <!-- end -->\n"),
+            Some(vec![
+                start("S"),
+                DetailsPart::Html("Some <i>text</i>"),
+                DetailsPart::End("</details>"),
+            ])
         );
-        let nested = "<details><summary>S</summary><details>In</details>Out</details>\n";
         assert_eq!(
-            details_start(nested).map(|start| (start.body, start.closed)),
-            Some(("<details>In</details>Out", true))
+            details_parts("<details>\n<summary>A</summary>\n<details>\n<summary>B</summary>\n"),
+            Some(vec![start("A"), start("B")])
+        );
+        assert_eq!(
+            details_parts("<details><summary>S</summary><details>In</details>Out</details>\n"),
+            Some(vec![
+                start("S"),
+                DetailsPart::Start(None),
+                DetailsPart::Html("In"),
+                DetailsPart::End("</details>"),
+                DetailsPart::Html("Out"),
+                DetailsPart::End("</details>"),
+            ])
         );
     }
 
     #[test]
-    fn a_block_that_does_not_start_with_details_is_no_details() {
-        assert_eq!(details_start("<p>\n<details>\n"), None);
-        assert_eq!(details_start("Text <details>\n"), None);
-        assert_eq!(details_start("<detailsx>\n"), None);
-        assert_eq!(details_start("</details>\n"), None);
-        assert_eq!(details_start("<details>x</details><p>more</p>\n"), None);
-        assert_eq!(details_start("<details><summary>Cut short\n"), None);
-        assert_eq!(details_start("<details\n"), None);
+    fn cuts_a_block_at_its_details_end() {
+        assert_eq!(
+            details_parts("</details>\n"),
+            Some(vec![DetailsPart::End("</details>")])
+        );
+        assert_eq!(
+            details_parts("<!-- end -->\n</DETAILS >\n"),
+            Some(vec![DetailsPart::End("</DETAILS >")])
+        );
+        assert_eq!(
+            details_parts("</p>\n</details>\nAfter.\n"),
+            Some(vec![
+                DetailsPart::Html("</p>\n"),
+                DetailsPart::End("</details>"),
+                DetailsPart::Html("\nAfter.\n"),
+            ])
+        );
+        assert_eq!(
+            details_parts("</details></details>\n"),
+            Some(vec![
+                DetailsPart::End("</details>"),
+                DetailsPart::End("</details>"),
+            ])
+        );
     }
 
     #[test]
-    fn reads_the_end_of_a_details() {
-        assert!(is_details_end("</details>\n"));
-        assert!(is_details_end("<!-- end -->\n</DETAILS >\n"));
-        assert!(!is_details_end("</details>\n<p>\n"));
-        assert!(!is_details_end("</details></details>\n"));
-        assert!(!is_details_end("<details>\n"));
+    fn a_block_without_details_tags_has_no_parts() {
+        assert_eq!(details_parts("<p>\nText\n</p>\n"), None);
+        assert_eq!(details_parts("<detailsx>\n</detailsx>\n"), None);
+        assert_eq!(details_parts("<summary>S</summary>\n"), None);
+        assert_eq!(details_parts("<details><summary>Cut short\n"), None);
+        assert_eq!(details_parts("<details\n"), None);
+        assert_eq!(details_parts("<!-- <details> -->\n"), None);
     }
 
     #[test]

@@ -6,6 +6,7 @@ mod html;
 use comrak::nodes::{AlertType, ListType, NodeValue, TableAlignment};
 use comrak::{Arena, Node, Options, parse_document};
 
+use self::html::DetailsPart;
 use crate::model::{AlertKind, Alignment, Block, Document, Image, Inline, List, ListItem, Table};
 
 pub fn parse(source: &str) -> Document {
@@ -35,6 +36,12 @@ fn blocks(parent: Node<'_>) -> Vec<Block> {
 /// `<details>` with blank lines in it as an HTML block that starts it,
 /// the blocks inside and an HTML block that ends it. One that never ends
 /// runs to the end of `blocks`, as in a browser.
+///
+/// comrak ends an HTML block only at a blank line, so a block can hold
+/// more than a `<details>` with its `<summary>`, or more than a
+/// `</details>`. A block that starts with a `<details>`, or that holds a
+/// `</details>` while one is open, is read tag by tag; the HTML between
+/// its tags is read as the body of a `<details>` in one block is.
 fn join_details(blocks: impl Iterator<Item = Block>) -> Vec<Block> {
     let mut joined = Vec::new();
     // Each `<details>` still open: its summary and its blocks so far.
@@ -47,20 +54,28 @@ fn join_details(blocks: impl Iterator<Item = Block>) -> Vec<Block> {
     }
     for block in blocks {
         if let Block::Html(source) = &block {
-            if let Some(start) = html::details_start(source) {
-                let summary = start.summary.map(html_inlines);
-                let blocks = details_body(start.body);
-                if start.closed {
-                    push(&mut joined, &mut open, details(summary, blocks));
-                } else {
-                    open.push((summary, blocks));
-                }
-                continue;
-            }
-            if html::is_details_end(source)
-                && let Some((summary, blocks)) = open.pop()
+            if let Some(parts) = html::details_parts(source)
+                && reads_details(&parts, !open.is_empty())
             {
-                push(&mut joined, &mut open, details(summary, blocks));
+                for part in parts {
+                    match part {
+                        DetailsPart::Start(summary) => {
+                            open.push((summary.map(html_inlines), Vec::new()));
+                        }
+                        DetailsPart::End(tag) => match open.pop() {
+                            Some((summary, blocks)) => {
+                                push(&mut joined, &mut open, details(summary, blocks));
+                            }
+                            // A `</details>` with none open stays source.
+                            None => push(&mut joined, &mut open, Block::Html(tag.to_owned())),
+                        },
+                        DetailsPart::Html(body) => {
+                            for block in details_body(body) {
+                                push(&mut joined, &mut open, block);
+                            }
+                        }
+                    }
+                }
                 continue;
             }
             // A `<summary>` after a blank line is still the summary when
@@ -79,6 +94,15 @@ fn join_details(blocks: impl Iterator<Item = Block>) -> Vec<Block> {
         push(&mut joined, &mut open, details(summary, blocks));
     }
     joined
+}
+
+/// Whether `join_details` reads an HTML block of `parts` tag by tag: when
+/// it starts with a `<details>`, or holds a `</details>` and one is `open`.
+fn reads_details(parts: &[DetailsPart], open: bool) -> bool {
+    match parts {
+        [DetailsPart::Start(_), ..] => true,
+        _ => open && (parts.iter()).any(|part| matches!(part, DetailsPart::End(_))),
+    }
 }
 
 /// A `<details>` with `summary`, or with the one a browser gives it
@@ -638,6 +662,76 @@ mod tests {
     }
 
     #[test]
+    fn joins_nested_details_that_no_blank_line_splits() {
+        let source = "<details>\n<summary>Out</summary>\n<details>\n<summary>In</summary>\n\n\
+            Deep.\n\n</details>\n\nBack.\n\n</details>\n\nAfter.\n";
+        assert_eq!(
+            parse(source).blocks,
+            vec![
+                details(
+                    vec![text("Out")],
+                    vec![
+                        details(vec![text("In")], vec![paragraph("Deep.")]),
+                        paragraph("Back."),
+                    ]
+                ),
+                paragraph("After."),
+            ]
+        );
+    }
+
+    #[test]
+    fn reads_the_html_that_shares_a_block_with_details_tags_as_text() {
+        let source = "<details>\n<summary>S</summary>\n<p>\nIn a paragraph.\n\n</p>\n</details>\n\n\
+            After.\n";
+        assert_eq!(
+            parse(source).blocks,
+            vec![
+                details(vec![text("S")], vec![paragraph("In a paragraph.")]),
+                paragraph("After."),
+            ]
+        );
+        let source =
+            "<details>\n<summary>S</summary>\n\nIn.\n\n<p>More.</p>\n</details>\n\nAfter.\n";
+        assert_eq!(
+            parse(source).blocks,
+            vec![
+                details(vec![text("S")], vec![paragraph("In."), paragraph("More.")]),
+                paragraph("After."),
+            ]
+        );
+    }
+
+    #[test]
+    fn ends_a_details_at_a_block_that_holds_more_than_its_end() {
+        let source = "<details>\n<summary>S</summary>\n\nIn.\n\n</details>\nAfter.\n\nLast.\n";
+        assert_eq!(
+            parse(source).blocks,
+            vec![
+                details(vec![text("S")], vec![paragraph("In.")]),
+                paragraph("After."),
+                paragraph("Last."),
+            ]
+        );
+        let source = "<details>\n<summary>A</summary>\n\nIn A.\n\n</details>\n<details>\n\
+            <summary>B</summary>\n\nIn B.\n\n</details>\n";
+        assert_eq!(
+            parse(source).blocks,
+            vec![
+                details(vec![text("A")], vec![paragraph("In A.")]),
+                details(vec![text("B")], vec![paragraph("In B.")]),
+            ]
+        );
+        assert_eq!(
+            parse("<details>x</details><p>y</p>\n").blocks,
+            vec![
+                details(vec![text("Details")], vec![paragraph("x")]),
+                paragraph("y")
+            ]
+        );
+    }
+
+    #[test]
     fn a_details_never_closed_runs_to_the_end_of_its_container() {
         let source = "> <details>\n> <summary>S</summary>\n> More text.\n>\n> In.\n\nOut.\n";
         assert_eq!(
@@ -700,8 +794,16 @@ mod tests {
             vec![paragraph("Text."), Block::Html("</details>\n".into())]
         );
         assert_eq!(
-            parse("<details>x</details><p>y</p>\n").blocks,
-            vec![Block::Html("<details>x</details><p>y</p>\n".into())]
+            parse("</details>\n<p>y</p>\n").blocks,
+            vec![Block::Html("</details>\n<p>y</p>\n".into())]
+        );
+    }
+
+    #[test]
+    fn keeps_a_block_that_does_not_start_with_details_as_source() {
+        assert_eq!(
+            parse("<p>\n<details>\n\nText.\n").blocks,
+            vec![Block::Html("<p>\n<details>\n".into()), paragraph("Text.")]
         );
     }
 

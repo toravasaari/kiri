@@ -49,6 +49,35 @@ Without a summary, the block is called Details.
 >
 > </details>
 
+<details>
+<summary>Outer, no blank line before the inner</summary>
+<details>
+<summary>Inner</summary>
+
+Content of the inner one.
+
+</details>
+
+Content of the outer one.
+
+</details>
+
+<details>
+<summary>With an HTML paragraph</summary>
+<p>
+The paragraph's text, read as plain text.
+
+</p>
+</details>
+
+<details>
+<summary>Text right after the end</summary>
+
+Content.
+
+</details>
+Text after the details, in the same HTML block.
+
 ## Other tags
 
 Text with <b>bold</b> and <span>a span</span> stays as source.

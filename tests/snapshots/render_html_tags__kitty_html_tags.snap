@@ -55,6 +55,25 @@ expression: "visible(&render_for(\"html-tags.md\", Capabilities::kitty(WIDTH)))"
   ␛[0;90m│␛[0m
   ␛[0;90m│ ␛[0mContent in the quote.
 
+  ␛[0;1m▼ Outer, no blank line before the inner␛[0m
+
+  ␛[0;1m▼ Inner␛[0m
+
+  Content of the inner one.
+
+  Content of the outer one.
+
+  ␛[0;1m▼ With an HTML paragraph␛[0m
+
+  The paragraph's text, read as plain text.
+
+  ␛[0;1m▼ Text right after the end␛[0m
+
+  Content.
+
+  Text after the details, in the same HTML
+  block.
+
 ␛[0;1;4;34m␛]66;s=2;Other tags␛\␛[0m
 
 
