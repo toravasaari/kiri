@@ -324,7 +324,15 @@ fn page(
     if !kiri::pager::pages(paging, terminal, rows, height) {
         return None;
     }
-    let mut screen = kiri::term::Screen::open()?;
+    let Some(mut screen) = kiri::term::Screen::open() else {
+        // Without a terminal to read keys from, as in the background, the
+        // document is printed; only a reader who asked for the pager is
+        // told.
+        if paging == kiri::config::Paging::Always {
+            eprintln!("kiri: no terminal to read keys from, so the document is printed");
+        }
+        return None;
+    };
     Some(kiri::pager::run(document, inputs, cli.width, &mut screen))
 }
 

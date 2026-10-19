@@ -220,3 +220,45 @@ fn the_doctor_report_is_paged_only_when_paging_is_always() {
     assert!(status.success());
     assert!(!seen.contains(ENTER), "{seen:?}");
 }
+
+#[test]
+fn without_a_terminal_for_keys_p_prints_with_a_warning() {
+    let dir = Scratch::new("pager-no-keys");
+    std::fs::write(dir.join("long.md"), long()).unwrap();
+    let (mut terminal, tty) = common::pty();
+    let mut kiri = command(&dir);
+    kiri.current_dir(&*dir)
+        .args(["--mode", "ansi", "-p", "long.md"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(tty))
+        .stderr(Stdio::piped());
+    // SAFETY: setsid is async-signal-safe and touches no memory.
+    unsafe {
+        // A session of its own and no controlling terminal: standard
+        // output is a terminal, but there is none to read keys from.
+        kiri.pre_exec(|| {
+            rustix::process::setsid()?;
+            Ok(())
+        });
+    }
+    let mut child = kiri.spawn().unwrap();
+    drop(kiri);
+    let status = child.wait().unwrap();
+    let mut stderr = String::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut stderr)
+        .unwrap();
+    let mut output = Vec::new();
+    let _ = terminal.read_to_end(&mut output);
+    let seen = text(&output);
+    assert!(status.success(), "{stderr}");
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert!(seen.contains("Line 10"), "{seen:?}");
+    assert_eq!(
+        stderr,
+        "kiri: no terminal to read keys from, so the document is printed\n"
+    );
+}
