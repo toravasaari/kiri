@@ -29,6 +29,7 @@ kiri [version]: terminal features and settings.
 | Margins | on | default |
 | Images | on | default |
 | Paging | auto | default |
+| Search case | smart | default |
 | Largest image | 10 MB | default |
 | Width | 80 cells | default |
 

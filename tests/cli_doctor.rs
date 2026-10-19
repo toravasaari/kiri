@@ -142,6 +142,21 @@ fn paging_tells_where_it_comes_from() {
 }
 
 #[test]
+fn the_search_case_tells_where_it_comes_from() {
+    let dir = Scratch::new("doctor-search-case");
+    let report = piped(&dir, &[]);
+    let row = "| Search case | smart | default |";
+    assert!(report.contains(row), "{row}\n{report}");
+    write(
+        &dir.join("home/.config/kiri/config.toml"),
+        "search_case = \"literal\"\n",
+    );
+    let report = piped(&dir, &[]);
+    let row = "| Search case | literal | configuration file |";
+    assert!(report.contains(row), "{row}\n{report}");
+}
+
+#[test]
 fn an_unknown_kiri_paging_is_a_problem_in_the_report() {
     let dir = Scratch::new("doctor-paging-unknown");
     let mut command = doctor(&dir, &[]);

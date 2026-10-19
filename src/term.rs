@@ -54,8 +54,9 @@ pub struct Capabilities {
     pub cell_pixels: Option<(u16, u16)>,
     /// Whether the background is dark; `None` when unknown.
     pub dark_background: Option<bool>,
-    /// The background colour and the 16 palette colours as RGB, when the
-    /// terminal tells them, for colours mixed from them.
+    /// The foreground and background colours and the 16 palette colours
+    /// as RGB, when the terminal tells them, for colours mixed from them.
+    pub foreground: Option<Color>,
     pub background: Option<Color>,
     pub palette: [Option<Color>; 16],
 }
@@ -76,6 +77,7 @@ impl Capabilities {
             styled_underlines: false,
             cell_pixels: None,
             dark_background: None,
+            foreground: None,
             background: None,
             palette: [None; 16],
         }
@@ -266,6 +268,7 @@ fn with_probe(mut caps: Capabilities, probe: &probe::Probe) -> Capabilities {
         0
     };
     caps.dark_background = probe.dark_background;
+    caps.foreground = probe.foreground;
     caps.background = probe.background;
     caps.palette = probe.palette;
     // The window size in pixels, when the kernel has it, comes first.
@@ -739,7 +742,8 @@ mod tests {
             };
             let answers = format!(
                 "\x1b[5;1R\x1b[5;3R\x1b[5;5R\x1b_Gi=31;OK\x1b\\\
-                 \x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\\x1b]4;4;rgb:0000/0000/eeee\x1b\\\
+                 \x1b]10;rgb:dddd/dddd/dddd\x1b\\\x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\\
+                 \x1b]4;4;rgb:0000/0000/eeee\x1b\\\
                  \x1bP>|kitty(0.47.1)\x1b\\\
                  {cell_size}\x1b[?62;c"
             );
@@ -790,6 +794,7 @@ mod tests {
         assert_eq!(found.cell_size(), CellSize::Window(10, 20));
         assert_eq!(found.caps.width, 60);
         // The colours the terminal tells go into the capabilities.
+        assert_eq!(found.caps.foreground, Some(Color::Rgb(0xdd, 0xdd, 0xdd)));
         assert_eq!(found.caps.background, Some(Color::Rgb(0x1e, 0x1e, 0x2e)));
         assert_eq!(found.caps.palette[4], Some(Color::Rgb(0, 0, 0xee)));
     }
@@ -1168,6 +1173,8 @@ mod probe {
 
     /// Cursor position report.
     const CURSOR_POSITION: &str = "\x1b[6n";
+    /// Foreground colour, OSC 10.
+    const FOREGROUND: &str = "\x1b]10;?\x1b\\";
     /// Background colour, OSC 11.
     const BACKGROUND: &str = "\x1b]11;?\x1b\\";
     /// Start of an answer to [`palette`]: `ESC ] 4 ; index ; rgb:…`.
@@ -1188,10 +1195,11 @@ mod probe {
     }
 
     /// Cursor position reports around kitty's two text sizing tests, then a
-    /// graphics protocol query, the background and palette colours, the
-    /// terminal's version, the cell size if `ask_cell_size`, and primary
-    /// device attributes. Every terminal answers the last one, so its answer
-    /// marks the end, also when a terminal ignores the others.
+    /// graphics protocol query, the foreground, background and palette
+    /// colours, the terminal's version, the cell size if `ask_cell_size`,
+    /// and primary device attributes. Every terminal answers the last one,
+    /// so its answer marks the end, also when a terminal ignores the
+    /// others.
     fn queries(ask_cell_size: bool) -> String {
         let [width, scale] = query::text_sizing();
         [
@@ -1202,6 +1210,7 @@ mod probe {
             &scale,
             CURSOR_POSITION,
             query::GRAPHICS,
+            FOREGROUND,
             BACKGROUND,
             &palette(),
             VERSION,
@@ -1217,6 +1226,7 @@ mod probe {
         pub graphics: bool,
         pub image_placeholders: bool,
         pub dark_background: Option<bool>,
+        pub foreground: Option<Color>,
         pub background: Option<Color>,
         pub palette: [Option<Color>; 16],
         /// Width and height of a cell in pixels, when asked and answered.
@@ -1308,6 +1318,7 @@ mod probe {
             graphics,
             image_placeholders: graphics && (text_sizing || placeholders_by_version),
             dark_background: background_is_dark(&text),
+            foreground: foreground(&text),
             background: background(&text),
             palette: palette_colors(&text),
             cell_pixels: query::cell_size(&text),
@@ -1363,6 +1374,12 @@ mod probe {
         channels(&text[start..])
     }
 
+    /// The colour in the answer to [`FOREGROUND`].
+    fn foreground(text: &str) -> Option<Color> {
+        let start = text.find("\x1b]10;")? + "\x1b]10;".len();
+        channels(&text[start..]).map(rgb)
+    }
+
     fn background_is_dark(text: &str) -> Option<bool> {
         let [r, g, b] = background_channels(text)?;
         Some(0.2126 * r + 0.7152 * g + 0.0722 * b < 0.5)
@@ -1406,7 +1423,7 @@ mod probe {
                 queries(false),
                 [
                     "\r\x1b[6n\x1b]66;w=2; \x1b\\\x1b[6n\x1b]66;s=2; \x1b\\\x1b[6n\
-                     \x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b]11;?\x1b\\",
+                     \x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b]10;?\x1b\\\x1b]11;?\x1b\\",
                     &(0..16)
                         .map(|index| format!("\x1b]4;{index};?\x1b\\"))
                         .collect::<String>(),
@@ -1417,9 +1434,10 @@ mod probe {
         }
 
         #[test]
-        fn reads_the_background_and_palette_colours() {
+        fn reads_the_foreground_background_and_palette_colours() {
             // Four hex digits a channel ended by ST, two ended by BEL.
             let answers = concat!(
+                "\x1b]10;rgb:d4/d4/d4\x07",
                 "\x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\",
                 "\x1b]4;1;rgb:cccc/0000/0000\x1b\\",
                 "\x1b]4;12;rgb:44/93/f8\x07",
@@ -1427,6 +1445,7 @@ mod probe {
                 "\x1b[?62;c",
             );
             let probe = interpret(answers.as_bytes());
+            assert_eq!(probe.foreground, Some(Color::Rgb(0xd4, 0xd4, 0xd4)));
             assert_eq!(probe.background, Some(Color::Rgb(0x1e, 0x1e, 0x2e)));
             let mut palette = [None; 16];
             palette[1] = Some(Color::Rgb(0xcc, 0, 0));
@@ -1503,6 +1522,7 @@ mod probe {
                     graphics: true,
                     image_placeholders: true,
                     dark_background: Some(true),
+                    foreground: None,
                     background: Some(Color::Rgb(0x1e, 0x1e, 0x2e)),
                     palette: [None; 16],
                     cell_pixels: None,
@@ -1521,6 +1541,7 @@ mod probe {
                     graphics: false,
                     image_placeholders: false,
                     dark_background: Some(false),
+                    foreground: None,
                     background: Some(Color::Rgb(0xff, 0xff, 0xff)),
                     palette: [None; 16],
                     cell_pixels: None,

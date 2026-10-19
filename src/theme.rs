@@ -60,6 +60,7 @@ pub struct Theme {
     pub language_label: LabelColor,
     pub alerts: AlertTheme,
     pub status_line: StatusLineTheme,
+    pub search: SearchTheme,
 }
 
 /// The colours of the pager's status line.
@@ -69,6 +70,25 @@ pub struct StatusLineTheme {
     pub foreground: StatusColor,
     pub badge_background: StatusColor,
     pub badge_foreground: StatusColor,
+}
+
+/// The colours of the search matches in the pager: every match shown, and
+/// the one the reader is at.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SearchTheme {
+    pub match_foreground: SearchColor,
+    pub match_background: SearchColor,
+    pub current_foreground: SearchColor,
+    pub current_background: SearchColor,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SearchColor {
+    /// Reverse video when both colours of a match are auto; otherwise the
+    /// text's own colour.
+    #[default]
+    Auto,
+    Color(Option<Color>),
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -254,6 +274,7 @@ impl Default for Theme {
             language_label: LabelColor::CodeBlock,
             alerts: AlertTheme::default(),
             status_line: StatusLineTheme::default(),
+            search: SearchTheme::default(),
         }
     }
 }
@@ -285,6 +306,9 @@ struct PaperColors {
     /// The pager's status line and the text on it.
     status: Option<Color>,
     status_text: Option<Color>,
+    /// Search matches in the pager and the text on them.
+    found: Option<Color>,
+    found_text: Option<Color>,
 }
 
 impl Theme {
@@ -305,6 +329,8 @@ impl Theme {
                 code_theme: "base16-ocean.light",
                 status: grey(0xe0),
                 status_text: grey(0x1f),
+                found: grey(0xcc),
+                found_text: grey(0x00),
             },
             Paper::Dark => PaperColors {
                 background: grey(0x1e),
@@ -319,6 +345,8 @@ impl Theme {
                 code_theme: "base16-eighties.dark",
                 status: grey(0x3a),
                 status_text: grey(0xe0),
+                found: grey(0x60),
+                found_text: grey(0xff),
             },
         };
         let mut theme = Self {
@@ -341,6 +369,13 @@ impl Theme {
                 foreground: StatusColor::Color(colors.status_text),
                 badge_background: StatusColor::Color(colors.text),
                 badge_foreground: StatusColor::Color(colors.background),
+            },
+            // The current match is in the badge's colours.
+            search: SearchTheme {
+                match_foreground: SearchColor::Color(colors.found_text),
+                match_background: SearchColor::Color(colors.found),
+                current_foreground: SearchColor::Color(colors.background),
+                current_background: SearchColor::Color(colors.text),
             },
             ..Self::default()
         };
@@ -396,6 +431,7 @@ impl Theme {
             heading.background = None;
         }
         self.status_line = StatusLineTheme::default();
+        self.search = SearchTheme::default();
         self
     }
 }
@@ -490,6 +526,22 @@ pub fn parse(text: &str) -> Result<Theme, String> {
                 *target = match value.as_str() {
                     "auto" => StatusColor::Auto,
                     color => StatusColor::Color(parse_color(color)?),
+                };
+            }
+        }
+    }
+    if let Some(search) = file.search {
+        let target = &mut theme.search;
+        for (target, value) in [
+            (&mut target.match_foreground, search.match_foreground),
+            (&mut target.match_background, search.match_background),
+            (&mut target.current_foreground, search.current_foreground),
+            (&mut target.current_background, search.current_background),
+        ] {
+            if let Some(value) = value {
+                *target = match value.as_str() {
+                    "auto" => SearchColor::Auto,
+                    color => SearchColor::Color(parse_color(color)?),
                 };
             }
         }
@@ -602,6 +654,16 @@ struct ThemeFile {
     language_label: Option<String>,
     alerts: Option<AlertsFile>,
     status_line: Option<StatusLineFile>,
+    search: Option<SearchFile>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SearchFile {
+    match_foreground: Option<String>,
+    match_background: Option<String>,
+    current_foreground: Option<String>,
+    current_background: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -748,6 +810,57 @@ mod tests {
             }
         );
         assert!(parse("[status_line]\nbar = \"red\"\n").is_err());
+    }
+
+    #[test]
+    fn search_matches_take_colours_none_and_auto() {
+        let theme = parse(
+            "[search]\nmatch_foreground = \"#101010\"\nmatch_background = \"none\"\n\
+             current_foreground = \"auto\"\ncurrent_background = \"yellow\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            theme.search,
+            SearchTheme {
+                match_foreground: SearchColor::Color(Some(Color::Rgb(16, 16, 16))),
+                match_background: SearchColor::Color(None),
+                current_foreground: SearchColor::Auto,
+                current_background: SearchColor::Color(Some(Color::Palette(3))),
+            }
+        );
+        assert!(parse("[search]\nbackground = \"red\"\n").is_err());
+        assert!(parse("[search]\nmatch_background = \"pink\"\n").is_err());
+    }
+
+    #[test]
+    fn paper_themes_mark_matches_in_greys_and_no_colour_in_reverse_video() {
+        let grey = |level| SearchColor::Color(Some(Color::Rgb(level, level, level)));
+        let light = Theme::paper(Paper::Light).search;
+        assert_eq!(
+            [light.match_foreground, light.match_background],
+            [grey(0x00), grey(0xcc)]
+        );
+        assert_eq!(
+            [light.current_foreground, light.current_background],
+            [grey(0xff), grey(0x1f)]
+        );
+        let dark = Theme::paper(Paper::Dark).search;
+        assert_eq!(
+            [dark.match_foreground, dark.match_background],
+            [grey(0xff), grey(0x60)]
+        );
+        assert_eq!(
+            [dark.current_foreground, dark.current_background],
+            [grey(0x1e), grey(0xd4)]
+        );
+        let plain = Theme::paper(Paper::Dark).without_colors().search;
+        assert_eq!(plain, SearchTheme::default());
+    }
+
+    #[test]
+    fn search_has_no_flash_colours() {
+        assert!(parse("[search]\nflash_foreground = \"black\"\n").is_err());
+        assert!(parse("[search]\nflash_background = \"yellow\"\n").is_err());
     }
 
     #[test]

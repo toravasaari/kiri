@@ -147,7 +147,7 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   decoded whole. Now the second half of such a sequence is read as keys
   of its own, which a search prompt would make worse.
 
-#### 4.6.3 Search
+#### 4.6.3 Search (done)
 
 - Search with `/`, `n` and `N`; the status line shows the search term.
 
@@ -170,10 +170,26 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 
 ### 4.7 Other input formats
 
+#### 4.7.1 Formats
+
 - reStructuredText, Org, AsciiDoc, possibly through pandoc.
 - Jupyter notebooks (`.ipynb`): Markdown cells, code cells with syntax
   highlighting, and their outputs, images included.
-- CSV and TSV files, shown as a table.
+- CSV and TSV files, shown as a table. A file of more than 100 000 cells
+  shows its first rows and a note of how many were left out.
+
+#### 4.7.2 Large files
+
+- Lazy layout, so that a large file, such as a CSV export, opens at once
+  and takes little memory: only the source and where each line starts are
+  kept, and the lines near the view are laid out when they are shown.
+  Today every line is laid out up front, about 900 bytes for each table
+  cell.
+- Search over the source rather than the laid-out lines, which also finds
+  a phrase broken over two lines.
+- The position may be unknown until the end of the file has been read, as
+  in `less`.
+- With this in place, the cell limit for CSV and TSV goes or grows.
 
 ### 4.8 Diagnostics (done)
 
@@ -311,6 +327,8 @@ Smaller polish that fits in whenever there is time, in any phase.
   `bat` does.
 - Several images as a contact sheet: a grid of thumbnails with their file
   names beneath.
+- Search in the pager with regular expressions, beside the plain text
+  search of 4.6.3.
 
 ## Bugs
 
