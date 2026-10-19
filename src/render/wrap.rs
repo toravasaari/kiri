@@ -43,6 +43,27 @@ pub fn cut(spans: Vec<Span>, max: usize) -> Vec<Span> {
     kept
 }
 
+/// The end of `text` in at most `max` cells, after `…` when its start is
+/// left out; empty when not even one grapheme fits after `…`.
+pub fn tail(text: &str, max: usize) -> String {
+    if text.width() <= max {
+        return text.to_owned();
+    }
+    let mut start = text.len();
+    let mut used = 1;
+    for (at, grapheme) in text.grapheme_indices(true).rev() {
+        used += grapheme.width();
+        if used > max {
+            break;
+        }
+        start = at;
+    }
+    if start == text.len() {
+        return String::new();
+    }
+    format!("…{}", &text[start..])
+}
+
 /// Wraps at spaces to lines of at most `max` cells. `\n` forces a break, and
 /// a word longer than a line is split. Runs of spaces collapse to one unless
 /// their style keeps them; either way, the spaces where a line breaks are
@@ -561,5 +582,14 @@ mod tests {
         assert_eq!(cut_to("a❤️b", 3), "a❤️");
         // An e with a combining acute accent, one cell.
         assert_eq!(cut_to("ée", 1), "é");
+    }
+
+    #[test]
+    fn tail_keeps_whole_graphemes() {
+        // A heart made an emoji by a variation selector, two cells wide.
+        assert_eq!(tail("ab❤️", 3), "…❤️");
+        assert_eq!(tail("a❤️b", 3), "…b");
+        // An e with a combining acute accent, one cell.
+        assert_eq!(tail("abcé", 3), "…cé");
     }
 }

@@ -2,12 +2,13 @@
 //! pager is on, the document's name, how far down it the view is, and the
 //! keys for help and quitting.
 
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthStr;
 
 use super::fade::{FLASH, Fade};
 use super::view::Position;
 use crate::color::Color;
 use crate::render::style::{Span, Style};
+use crate::render::wrap;
 use crate::term::Capabilities;
 use crate::theme::{StatusColor, Theme};
 
@@ -170,7 +171,7 @@ pub fn spans(
         ..styles.bar.clone()
     };
     let mut spans = vec![Span::new(BADGE, styles.badge.clone())];
-    let shown = tail(name, room);
+    let shown = wrap::tail(name, room);
     spans.push(Span::new(&format!(" {shown}"), styles.bar.clone()));
     let mut right = Vec::new();
     if with_search && !search.is_empty() {
@@ -226,7 +227,7 @@ pub fn prompt(term: &str, width: usize, styles: &Styles) -> Vec<Span> {
     if fixed > width {
         return badge_only(width, styles);
     }
-    let shown = tail(&printable(term), width - fixed);
+    let shown = wrap::tail(&printable(term), width - fixed);
     let mut spans = vec![
         Span::new(BADGE, styles.badge.clone()),
         Span::new(&format!(" /{shown}{CURSOR}"), styles.bar.clone()),
@@ -262,28 +263,6 @@ fn printable(text: &str) -> String {
             c => c,
         })
         .collect()
-}
-
-/// The end of `name` in at most `room` cells, after `…` when its start is
-/// left out; empty when not even one character fits after `…`.
-fn tail(name: &str, room: usize) -> String {
-    if name.width() <= room {
-        return name.to_owned();
-    }
-    let mut kept = Vec::new();
-    let mut used = 1;
-    for c in name.chars().rev() {
-        let cells = c.width().unwrap_or(0);
-        if used + cells > room {
-            break;
-        }
-        used += cells;
-        kept.push(c);
-    }
-    if kept.is_empty() {
-        return String::new();
-    }
-    std::iter::once('…').chain(kept.into_iter().rev()).collect()
 }
 
 fn width_of(spans: &[Span]) -> usize {
