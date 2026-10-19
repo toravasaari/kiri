@@ -205,6 +205,7 @@ current_background = "auto"
 
 # Marked text, HTML's <mark>: a colour or none. Without colours, as with
 # NO_COLOR, marked text is in reverse video whatever the theme says.
+# With colours, setting both to none draws no mark at all.
 [mark]
 foreground = "black"
 background = "yellow"
