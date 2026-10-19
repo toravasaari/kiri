@@ -1,6 +1,7 @@
 //! The interactive pager: the document on a screen of its own, scrolled
 //! with keys.
 
+pub mod help;
 pub mod keys;
 pub mod status;
 pub mod view;
@@ -12,9 +13,10 @@ use crate::config::Paging;
 use crate::model::Document;
 use crate::render::Inputs;
 use crate::render::output::{Page, Writer};
-use crate::render::style::{Line, Span};
+use crate::render::style::{Line, Span, Style};
 use crate::term::{Capabilities, Screen, WindowSize};
-use keys::Action;
+use help::Placed;
+use keys::{Action, Key};
 use view::View;
 
 /// Whether a document of `rows` rows is paged: never when the output is not
@@ -101,6 +103,18 @@ pub fn run(
             name,
             styles: status::Styles::new(&inputs.theme, &inputs.caps),
             width: size.map_or(inputs.caps.width, |size| size.columns),
+            panel: Style {
+                fg: inputs.theme.foreground,
+                bg: inputs.theme.background,
+                ..Style::default()
+            },
+            muted: Style {
+                // Without a colour of its own, muted text is dimmed.
+                dim: inputs.theme.muted.is_none(),
+                fg: inputs.theme.muted.or(inputs.theme.foreground),
+                bg: inputs.theme.background,
+                ..Style::default()
+            },
         };
         match show(&lines, &status, &mut shown, &mut writer, terminal, size)? {
             Outcome::Quit => return Ok(()),
@@ -126,18 +140,36 @@ enum Outcome {
     Resized(Option<WindowSize>),
 }
 
-/// What the status line shows and how, apart from the position.
+/// What the status line and the help panel show and how, apart from the
+/// position.
 struct Status<'a> {
     name: &'a str,
     styles: status::Styles,
     /// The window's columns.
     width: u16,
+    /// The help panel's style, and that of its notes.
+    panel: Style,
+    muted: Style,
 }
 
 impl Status<'_> {
     fn spans(&self, view: &View) -> Vec<Span> {
         let width = usize::from(self.width);
         status::spans(self.name, view.position(), width, &self.styles)
+    }
+
+    /// The help panel over `view`, when `open`.
+    fn panel(&self, view: &View, open: bool) -> Vec<Placed> {
+        if open {
+            help::panel(
+                usize::from(self.width),
+                view.rows(),
+                &self.panel,
+                &self.muted,
+            )
+        } else {
+            Vec::new()
+        }
     }
 }
 
@@ -165,12 +197,13 @@ fn show(
     terminal: &mut impl Terminal,
     size: Option<WindowSize>,
 ) -> io::Result<Outcome> {
-    draw(lines, view, &status.spans(view), writer, terminal)?;
+    draw(lines, view, &status.spans(view), &[], writer, terminal)?;
     terminal.flush()?;
     let mut decoder = keys::Decoder::default();
+    let mut help = false;
     loop {
         let input = terminal.read(POLL)?;
-        let top = view.top();
+        let (top, was_open) = (view.top(), help);
         // Nothing more came for a key the last read cut off.
         let keys = if input.is_empty() {
             decoder.flush()
@@ -178,9 +211,16 @@ fn show(
             decoder.keys(&input)
         };
         for key in keys {
+            // Any key closes the help and does nothing else, but Ctrl+C
+            // still quits.
+            if help && key != Key::Ctrl('c') {
+                help = false;
+                continue;
+            }
             match keys::action(key) {
                 Some(Action::Quit) => return Ok(Outcome::Quit),
                 Some(Action::Move(motion)) => view.scroll(motion),
+                Some(Action::Help) => help = true,
                 None => {}
             }
         }
@@ -188,25 +228,28 @@ fn show(
         if now != size {
             return Ok(Outcome::Resized(now));
         }
-        if view.top() != top {
-            draw(lines, view, &status.spans(view), writer, terminal)?;
+        if view.top() != top || help != was_open {
+            let panel = status.panel(view, help);
+            draw(lines, view, &status.spans(view), &panel, writer, terminal)?;
             terminal.flush()?;
         }
     }
 }
 
 /// Draws the lines `view` shows from the top of the screen, with the rows
-/// below them empty and `status` on the row below the view, as one update
-/// so the screen does not flicker.
+/// below them empty, `status` on the row below the view and `panel` over
+/// the lines, which it dims, as one update so the screen does not flicker.
 pub fn draw(
     lines: &[Line],
     view: &View,
     status: &[Span],
+    panel: &[Placed],
     writer: &mut Writer,
     out: &mut impl Write,
 ) -> io::Result<()> {
     out.write_all(BEGIN_UPDATE)?;
     writer.clear(out)?;
+    writer.dim(!panel.is_empty());
     let mut top = 1;
     for line in &lines[view.visible()] {
         for row in 0..writer.rows(line) {
@@ -215,9 +258,14 @@ pub fn draw(
         }
         top += usize::from(writer.rows(line));
     }
+    writer.dim(false);
     if !status.is_empty() {
         write!(out, "\x1b[{};1H", view.rows() + 1)?;
         writer.bar(status, out)?;
+    }
+    for placed in panel {
+        write!(out, "\x1b[{};{}H", placed.row, placed.column)?;
+        writer.bar(&placed.spans, out)?;
     }
     out.write_all(END_UPDATE)
 }
@@ -376,6 +424,33 @@ mod tests {
         assert!(status(&frames[0]).contains(" help"), "{frames:?}");
         assert!(status(&frames[1]).contains(" END "), "{frames:?}");
         assert!(status(&frames[1]).contains("100%"), "{frames:?}");
+    }
+
+    #[test]
+    fn the_help_opens_over_the_dimmed_document_and_any_key_closes_it() {
+        // The help, a key that closes it without moving, the help again,
+        // and q, which closes it without quitting, then the end.
+        let mut terminal = Fake::new(60, 24, &[b"?", b"j", b"h", b"q", b"G"]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 6, "{frames:#?}");
+        let help = |frame: &str| frame.contains("down a line");
+        assert!(!help(&frames[0]), "{frames:#?}");
+        assert!(help(&frames[1]), "{frames:#?}");
+        assert!(frames[1].contains("[0;2m  Line 1"), "{frames:#?}");
+        assert!(!help(&frames[2]), "{frames:#?}");
+        assert!(!frames[2].contains("[0;2m"), "{frames:#?}");
+        assert_eq!(frames[0], frames[2]);
+        assert!(help(&frames[3]), "{frames:#?}");
+        assert_eq!(frames[0], frames[4]);
+        assert!(frames[5].contains(" END "), "{frames:#?}");
+    }
+
+    #[test]
+    fn ctrl_c_quits_even_from_the_help() {
+        let mut terminal = Fake::new(60, 24, &[b"?", b"", b"G"]);
+        show(&numbers(30), &mut terminal);
+        assert_eq!(terminal.frames().len(), 2);
     }
 
     #[test]

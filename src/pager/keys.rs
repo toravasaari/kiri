@@ -27,6 +27,7 @@ pub enum Key {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Move(Motion),
+    Help,
     Quit,
 }
 
@@ -164,22 +165,105 @@ fn character(input: &[u8]) -> Option<(Key, usize)> {
     Some(key)
 }
 
+/// The keys of one action, as the help shows them.
+#[derive(Debug)]
+pub struct Binding {
+    pub keys: &'static [Key],
+    /// The keys most people use, shortest first.
+    pub names: &'static str,
+    /// What the keys do.
+    pub what: &'static str,
+    pub action: Action,
+}
+
+/// Every key the pager knows, in the order the help lists them.
+pub const BINDINGS: &[Binding] = {
+    use Key::{Char, Ctrl};
+    use Motion::*;
+    &[
+        Binding {
+            keys: &[
+                Char('j'),
+                Char('e'),
+                Ctrl('e'),
+                Ctrl('n'),
+                Key::Enter,
+                Key::Down,
+            ],
+            names: "j ↓ Enter",
+            what: "down a line",
+            action: Action::Move(Down(1)),
+        },
+        Binding {
+            keys: &[
+                Char('k'),
+                Char('y'),
+                Ctrl('y'),
+                Ctrl('p'),
+                Ctrl('k'),
+                Key::Up,
+            ],
+            names: "k ↑",
+            what: "up a line",
+            action: Action::Move(Up(1)),
+        },
+        Binding {
+            keys: &[Char(' '), Char('f'), Ctrl('f'), Ctrl('v'), Key::PageDown],
+            names: "Space f PgDn",
+            what: "down a page",
+            action: Action::Move(PageDown),
+        },
+        Binding {
+            keys: &[Char('b'), Ctrl('b'), Key::PageUp],
+            names: "b PgUp",
+            what: "up a page",
+            action: Action::Move(PageUp),
+        },
+        Binding {
+            keys: &[Char('d'), Ctrl('d')],
+            names: "d",
+            what: "down half a page",
+            action: Action::Move(HalfPageDown),
+        },
+        Binding {
+            keys: &[Char('u'), Ctrl('u')],
+            names: "u",
+            what: "up half a page",
+            action: Action::Move(HalfPageUp),
+        },
+        Binding {
+            keys: &[Char('g'), Char('<'), Key::Home],
+            names: "g Home",
+            what: "top",
+            action: Action::Move(Start),
+        },
+        Binding {
+            keys: &[Char('G'), Char('>'), Key::End],
+            names: "G End",
+            what: "bottom",
+            action: Action::Move(End),
+        },
+        Binding {
+            keys: &[Char('?'), Char('h')],
+            names: "? h",
+            what: "this help",
+            action: Action::Help,
+        },
+        Binding {
+            keys: &[Char('q'), Char('Q'), Ctrl('c')],
+            names: "q",
+            what: "quit",
+            action: Action::Quit,
+        },
+    ]
+};
+
 /// What `key` does; `None` for a key without a binding.
 pub fn action(key: Key) -> Option<Action> {
-    use Key::{Char, Ctrl};
-    let motion = match key {
-        Char('j' | 'e') | Ctrl('e' | 'n') | Key::Enter | Key::Down => Motion::Down(1),
-        Char('k' | 'y') | Ctrl('y' | 'p' | 'k') | Key::Up => Motion::Up(1),
-        Char(' ' | 'f') | Ctrl('f' | 'v') | Key::PageDown => Motion::PageDown,
-        Char('b') | Ctrl('b') | Key::PageUp => Motion::PageUp,
-        Char('d') | Ctrl('d') => Motion::HalfPageDown,
-        Char('u') | Ctrl('u') => Motion::HalfPageUp,
-        Char('g' | '<') | Key::Home => Motion::Start,
-        Char('G' | '>') | Key::End => Motion::End,
-        Char('q' | 'Q') | Ctrl('c') => return Some(Action::Quit),
-        _ => return None,
-    };
-    Some(Action::Move(motion))
+    BINDINGS
+        .iter()
+        .find(|binding| binding.keys.contains(&key))
+        .map(|binding| binding.action)
 }
 
 #[cfg(test)]
@@ -345,6 +429,38 @@ mod tests {
         moves(&[Key::Char('u'), Key::Ctrl('u')], Motion::HalfPageUp);
         moves(&[Key::Char('g'), Key::Char('<'), Key::Home], Motion::Start);
         moves(&[Key::Char('G'), Key::Char('>'), Key::End], Motion::End);
+    }
+
+    #[test]
+    fn question_mark_and_h_open_the_help() {
+        for key in [Key::Char('?'), Key::Char('h')] {
+            assert_eq!(action(key), Some(Action::Help), "{key:?}");
+        }
+    }
+
+    #[test]
+    fn the_help_names_a_key_of_every_action() {
+        for binding in BINDINGS {
+            let first = binding.names.split(' ').next().unwrap();
+            let key = match first {
+                "↓" => Key::Down,
+                "↑" => Key::Up,
+                "Space" => Key::Char(' '),
+                "PgUp" => Key::PageUp,
+                name => Key::Char(name.chars().next().unwrap()),
+            };
+            assert_eq!(action(key), Some(binding.action), "{}", binding.names);
+        }
+        assert!(
+            BINDINGS
+                .iter()
+                .any(|binding| binding.action == Action::Help)
+        );
+        assert!(
+            BINDINGS
+                .iter()
+                .any(|binding| binding.action == Action::Quit)
+        );
     }
 
     #[test]
