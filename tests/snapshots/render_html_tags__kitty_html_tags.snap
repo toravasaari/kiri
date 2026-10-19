@@ -29,41 +29,31 @@ expression: "visible(&render_for(\"html-tags.md\", Capabilities::kitty(WIDTH)))"
 ␛[0;1;4;34m␛]66;s=2;Details␛\␛[0m
 
 
-  ␛[0;2m<details>␛[0m
-  ␛[0;2m<summary>A summary with <kbd>Esc</kbd></summary>␛[0m
+  ␛[0;1m▼ A summary with ␛[0;1;35;48;2;43;48;59m⍽Esc⍽␛[0m
 
   The content is ␛[0;3mMarkdown␛[0m, as GitHub shows it:
 
   ␛[0;90m• ␛[0mone
   ␛[0;90m• ␛[0mtwo
 
-  ␛[0;2m</details>␛[0m
+  ␛[0;1m▼ Written on one line␛[0m
 
-  ␛[0;2m<details><summary>Written on one line</summary>The content &amp; its␛[0m
-  ␛[0;2m<b>tags</b> are plain text.</details>␛[0m
+  The content & its tags are plain text.
 
-  ␛[0;2m<details>␛[0m
+  ␛[0;1m▼ Details␛[0m
 
   Without a summary, the block is called
   Details.
 
-  ␛[0;2m</details>␛[0m
-
   ␛[0;90m• ␛[0mA list item
 
-    ␛[0;2m<details>␛[0m
-    ␛[0;2m<summary>Inside a list</summary>␛[0m
+    ␛[0;1m▼ Inside a list␛[0m
 
     Content in the list.
 
-    ␛[0;2m</details>␛[0m
-
-  ␛[0;90m│ ␛[0;2m<details>␛[0m
-  ␛[0;90m│ ␛[0;2m<summary>Inside a quote</summary>␛[0m
+  ␛[0;90m│ ␛[0;1m▼ Inside a quote␛[0m
   ␛[0;90m│␛[0m
   ␛[0;90m│ ␛[0mContent in the quote.
-  ␛[0;90m│␛[0m
-  ␛[0;90m│ ␛[0;2m</details>␛[0m
 
 ␛[0;1;4;34m␛]66;s=2;Other tags␛\␛[0m
 
@@ -75,7 +65,6 @@ expression: "visible(&render_for(\"html-tags.md\", Capabilities::kitty(WIDTH)))"
   ␛[0;2mA div block stays as source.␛[0m
   ␛[0;2m</div>␛[0m
 
-  ␛[0;2m<details>␛[0m
-  ␛[0;2m<summary>Never closed</summary>␛[0m
+  ␛[0;1m▼ Never closed␛[0m
 
   Runs to the end of the document.

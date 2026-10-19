@@ -1,8 +1,11 @@
 //! The few HTML tags in Markdown that kiri reads instead of showing them
 //! as source: `<img>`, alone or in tags that only wrap it, `<a>` around
-//! an `<img>`, `<br>`, `<kbd>` and `<mark>`.
+//! an `<img>`, `<br>`, `<kbd>`, `<mark>`, and `<details>` with its
+//! `<summary>`.
 
-use crate::model::Length;
+use std::ops::Range;
+
+use crate::model::{Inline, Length};
 
 /// An `<img>` tag with a `src`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +37,179 @@ pub fn link_start(html: &str) -> Option<String> {
         [Token::Open(tag)] if tag.name == "a" => tag.get("href").map(str::to_owned),
         _ => None,
     }
+}
+
+/// The start of a `<details>` that an HTML block holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DetailsStart<'a> {
+    /// The `<summary>`'s content as text and inline HTML; `None` without
+    /// a `<summary>`.
+    pub summary: Option<Vec<Inline>>,
+    /// The HTML after the summary, up to the `</details>` if the block
+    /// has it.
+    pub body: &'a str,
+    /// Whether the block also ends the `<details>`.
+    pub closed: bool,
+}
+
+/// The `<details>` an HTML block starts: one that opens it, optionally
+/// with its summary and more, and closes it or not. Only whitespace and
+/// comments may come before it and after its end.
+pub fn details_start(html: &str) -> Option<DetailsStart<'_>> {
+    let tokens = spanned_tokens(html)?;
+    let mut rest = skip_blank(&tokens);
+    let [(Token::Open(tag), open), ..] = rest else {
+        return None;
+    };
+    if tag.name != "details" {
+        return None;
+    }
+    let mut body_start = open.end;
+    rest = skip_blank(&rest[1..]);
+    let mut summary = None;
+    if let [(Token::Open(tag), open), ..] = rest
+        && tag.name == "summary"
+    {
+        let end = rest
+            .iter()
+            .position(|(token, _)| matches!(token, Token::Close(name) if name == "summary"))?;
+        let close = &rest[end].1;
+        summary = Some(inlines(&html[open.end..close.start])?);
+        body_start = close.end;
+        rest = &rest[end + 1..];
+    }
+    // The `</details>` that matches the opening tag, past any nested one.
+    let mut depth = 0usize;
+    for (index, (token, span)) in rest.iter().enumerate() {
+        match token {
+            Token::Open(tag) if tag.name == "details" => depth += 1,
+            Token::Close(name) if name == "details" => {
+                if depth == 0 {
+                    if skip_blank(&rest[index + 1..]).is_empty() {
+                        return Some(DetailsStart {
+                            summary,
+                            body: &html[body_start..span.start],
+                            closed: true,
+                        });
+                    }
+                    return None;
+                }
+                depth -= 1;
+            }
+            _ => {}
+        }
+    }
+    Some(DetailsStart {
+        summary,
+        body: &html[body_start..],
+        closed: false,
+    })
+}
+
+/// Whether an HTML block is one `</details>`, with nothing else but
+/// whitespace and comments.
+pub fn is_details_end(html: &str) -> bool {
+    let Some(tokens) = spanned_tokens(html) else {
+        return false;
+    };
+    match skip_blank(&tokens) {
+        [(Token::Close(name), _), rest @ ..] => name == "details" && skip_blank(rest).is_empty(),
+        _ => false,
+    }
+}
+
+/// The content of an HTML block that is one `<summary>` element, with
+/// nothing else but whitespace and comments.
+pub fn summary(html: &str) -> Option<Vec<Inline>> {
+    let tokens = spanned_tokens(html)?;
+    let [(Token::Open(tag), open), rest @ ..] = skip_blank(&tokens) else {
+        return None;
+    };
+    if tag.name != "summary" {
+        return None;
+    }
+    let end = rest
+        .iter()
+        .position(|(token, _)| matches!(token, Token::Close(name) if name == "summary"))?;
+    if !skip_blank(&rest[end + 1..]).is_empty() {
+        return None;
+    }
+    inlines(&html[open.end..rest[end].1.start])
+}
+
+/// The text of HTML without its tags and comments, entities decoded and
+/// whitespace collapsed as a browser does. `None` for HTML that `tokens`
+/// cannot read.
+pub fn plain_text(html: &str) -> Option<String> {
+    let mut text = String::new();
+    for token in tokens(html)? {
+        if let Token::Text(raw) = token {
+            text.push_str(&decode_entities(raw));
+        }
+    }
+    Some(collapse_whitespace(&text).trim_matches(' ').to_owned())
+}
+
+/// HTML as inlines: its text, entities decoded and whitespace collapsed,
+/// and each tag as inline HTML, as comrak gives inline HTML in Markdown.
+fn inlines(html: &str) -> Option<Vec<Inline>> {
+    let mut inlines = Vec::new();
+    for (token, span) in spanned_tokens(html)? {
+        match token {
+            Token::Text(raw) => {
+                let text = collapse_whitespace(&decode_entities(raw));
+                match inlines.last_mut() {
+                    Some(Inline::Text(last)) => last.push_str(&text),
+                    _ => inlines.push(Inline::Text(text)),
+                }
+            }
+            Token::Open(_) | Token::Close(_) => inlines.push(Inline::Html(html[span].to_owned())),
+            Token::Comment => {}
+        }
+    }
+    // Whitespace at the start and the end shows nothing.
+    if let Some(Inline::Text(first)) = inlines.first_mut() {
+        *first = first.trim_start_matches(' ').to_owned();
+    }
+    if let Some(Inline::Text(last)) = inlines.last_mut() {
+        *last = last.trim_end_matches(' ').to_owned();
+    }
+    inlines.retain(|inline| !matches!(inline, Inline::Text(text) if text.is_empty()));
+    Some(inlines)
+}
+
+/// Runs of ASCII whitespace as one space each.
+fn collapse_whitespace(text: &str) -> String {
+    let mut out = String::new();
+    let mut space = false;
+    for c in text.chars() {
+        if c.is_ascii_whitespace() {
+            space = true;
+        } else {
+            if space {
+                out.push(' ');
+                space = false;
+            }
+            out.push(c);
+        }
+    }
+    if space {
+        out.push(' ');
+    }
+    out
+}
+
+/// `tokens` from the first one that is not whitespace or a comment.
+fn skip_blank<'t, 'a>(tokens: &'t [(Token<'a>, Range<usize>)]) -> &'t [(Token<'a>, Range<usize>)] {
+    let start = tokens
+        .iter()
+        .position(|(token, _)| match token {
+            Token::Comment => false,
+            Token::Text(text) => !text.trim().is_empty(),
+            _ => true,
+        })
+        .unwrap_or(tokens.len());
+    &tokens[start..]
 }
 
 /// An inline element that kiri reads from its opening and closing tags,
@@ -187,28 +363,41 @@ impl Tag {
 /// anything else that starts with `<`, such as a declaration, and for a
 /// tag or comment cut short.
 fn tokens(html: &str) -> Option<Vec<Token<'_>>> {
+    Some(
+        spanned_tokens(html)?
+            .into_iter()
+            .map(|(token, _)| token)
+            .collect(),
+    )
+}
+
+/// `tokens` with where each one is in `html`.
+fn spanned_tokens(html: &str) -> Option<Vec<(Token<'_>, Range<usize>)>> {
     let mut tokens = Vec::new();
     let mut rest = html;
     while !rest.is_empty() {
-        let Some(start) = rest.strip_prefix('<') else {
-            let end = rest.find('<').unwrap_or(rest.len());
-            tokens.push(Token::Text(&rest[..end]));
-            rest = &rest[end..];
-            continue;
-        };
-        if let Some(comment) = start.strip_prefix("!--") {
-            rest = &comment[comment.find("-->")? + 3..];
-            tokens.push(Token::Comment);
-        } else if let Some(closing) = start.strip_prefix('/') {
-            let (name, after) = tag_name(closing)?;
-            rest = after.trim_start().strip_prefix('>')?;
-            tokens.push(Token::Close(name));
+        let start = html.len() - rest.len();
+        let token;
+        if let Some(open) = rest.strip_prefix('<') {
+            if let Some(comment) = open.strip_prefix("!--") {
+                rest = &comment[comment.find("-->")? + 3..];
+                token = Token::Comment;
+            } else if let Some(closing) = open.strip_prefix('/') {
+                let (name, after) = tag_name(closing)?;
+                rest = after.trim_start().strip_prefix('>')?;
+                token = Token::Close(name);
+            } else {
+                let (name, after) = tag_name(open)?;
+                let (attributes, after) = attributes(after)?;
+                rest = after;
+                token = Token::Open(Tag { name, attributes });
+            }
         } else {
-            let (name, after) = tag_name(start)?;
-            let (attributes, after) = attributes(after)?;
-            rest = after;
-            tokens.push(Token::Open(Tag { name, attributes }));
+            let end = rest.find('<').unwrap_or(rest.len());
+            token = Token::Text(&rest[..end]);
+            rest = &rest[end..];
         }
+        tokens.push((token, start..html.len() - rest.len()));
     }
     Some(tokens)
 }
@@ -557,6 +746,107 @@ mod tests {
         assert_eq!(phrase_start("<mark class=x>"), Some(Phrase::Mark));
         assert_eq!(phrase_end("</MARK>"), Some(Phrase::Mark));
         assert_eq!(phrase_start("<marker>"), None);
+    }
+
+    fn text(text: &str) -> Inline {
+        Inline::Text(text.into())
+    }
+
+    #[test]
+    fn reads_the_start_of_a_details() {
+        assert_eq!(
+            details_start("<details>\n<summary>A  <b>bold</b>\n &amp; more</summary>\n"),
+            Some(DetailsStart {
+                summary: Some(vec![
+                    text("A "),
+                    Inline::Html("<b>".into()),
+                    text("bold"),
+                    Inline::Html("</b>".into()),
+                    text(" & more"),
+                ]),
+                body: "\n",
+                closed: false,
+            })
+        );
+        assert_eq!(
+            details_start("<!-- note -->\n<DETAILS open>\n"),
+            Some(DetailsStart {
+                summary: None,
+                body: "\n",
+                closed: false,
+            })
+        );
+        assert_eq!(
+            details_start("<details><summary></summary>Text\n"),
+            Some(DetailsStart {
+                summary: Some(Vec::new()),
+                body: "Text\n",
+                closed: false,
+            })
+        );
+    }
+
+    #[test]
+    fn reads_a_details_in_one_block() {
+        assert_eq!(
+            details_start("<details><summary>S</summary>Some <i>text</i></details> <!-- end -->\n"),
+            Some(DetailsStart {
+                summary: Some(vec![text("S")]),
+                body: "Some <i>text</i>",
+                closed: true,
+            })
+        );
+        let nested = "<details><summary>S</summary><details>In</details>Out</details>\n";
+        assert_eq!(
+            details_start(nested).map(|start| (start.body, start.closed)),
+            Some(("<details>In</details>Out", true))
+        );
+    }
+
+    #[test]
+    fn a_block_that_does_not_start_with_details_is_no_details() {
+        assert_eq!(details_start("<p>\n<details>\n"), None);
+        assert_eq!(details_start("Text <details>\n"), None);
+        assert_eq!(details_start("<detailsx>\n"), None);
+        assert_eq!(details_start("</details>\n"), None);
+        assert_eq!(details_start("<details>x</details><p>more</p>\n"), None);
+        assert_eq!(details_start("<details><summary>Cut short\n"), None);
+        assert_eq!(details_start("<details\n"), None);
+    }
+
+    #[test]
+    fn reads_the_end_of_a_details() {
+        assert!(is_details_end("</details>\n"));
+        assert!(is_details_end("<!-- end -->\n</DETAILS >\n"));
+        assert!(!is_details_end("</details>\n<p>\n"));
+        assert!(!is_details_end("</details></details>\n"));
+        assert!(!is_details_end("<details>\n"));
+    }
+
+    #[test]
+    fn reads_a_summary_block() {
+        assert_eq!(
+            summary("<summary>The <kbd>S</kbd></summary>\n"),
+            Some(vec![
+                text("The "),
+                Inline::Html("<kbd>".into()),
+                text("S"),
+                Inline::Html("</kbd>".into()),
+            ])
+        );
+        assert_eq!(summary("<summary>S</summary>more\n"), None);
+        assert_eq!(summary("<summary>S\n"), None);
+        assert_eq!(summary("<p>S</p>\n"), None);
+    }
+
+    #[test]
+    fn strips_tags_from_plain_text() {
+        assert_eq!(
+            plain_text("\n Some <b>bold</b>\n &amp;  <!-- not -->more \n"),
+            Some("Some bold & more".into())
+        );
+        assert_eq!(plain_text("<p></p>\n"), Some(String::new()));
+        assert_eq!(plain_text("a < b"), None);
     }
 
     #[test]

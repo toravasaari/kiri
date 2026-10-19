@@ -28,6 +28,12 @@ pub enum Block {
         blocks: Vec<Block>,
     },
     List(List),
+    /// HTML's `<details>`: blocks a reader can show or hide, under a
+    /// summary that is always shown.
+    Details {
+        summary: Vec<Inline>,
+        blocks: Vec<Block>,
+    },
     Table(Table),
     ThematicBreak,
     /// Raw HTML, shown as source until there is an HTML backend.

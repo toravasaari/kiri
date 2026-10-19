@@ -60,6 +60,6 @@ expression: "visible(&render_for(\"elements.md\", caps))"
 
   ␛[0;2;3m[image: A diagram]␛[0m
 
-  ␛[0;2m<details>raw html</details>␛[0m
+  ␛[0;2m<div>raw html</div>␛[0m
 
 ␛[0;3;4:4mSmallest heading␛[0m

@@ -28,7 +28,78 @@ fn options() -> Options<'static> {
 }
 
 fn blocks(parent: Node<'_>) -> Vec<Block> {
-    parent.children().filter_map(block).collect()
+    join_details(parent.children().filter_map(block))
+}
+
+/// `blocks` with each `<details>` in them as one block. comrak gives a
+/// `<details>` with blank lines in it as an HTML block that starts it,
+/// the blocks inside and an HTML block that ends it. One that never ends
+/// runs to the end of `blocks`, as in a browser.
+fn join_details(blocks: impl Iterator<Item = Block>) -> Vec<Block> {
+    let mut joined = Vec::new();
+    // Each `<details>` still open: its summary and its blocks so far.
+    let mut open: Vec<(Option<Vec<Inline>>, Vec<Block>)> = Vec::new();
+    fn push(joined: &mut Vec<Block>, open: &mut [(Option<Vec<Inline>>, Vec<Block>)], block: Block) {
+        match open.last_mut() {
+            Some((_, blocks)) => blocks.push(block),
+            None => joined.push(block),
+        }
+    }
+    for block in blocks {
+        if let Block::Html(source) = &block {
+            if let Some(start) = html::details_start(source) {
+                let summary = start.summary.map(html_inlines);
+                let blocks = details_body(start.body);
+                if start.closed {
+                    push(&mut joined, &mut open, details(summary, blocks));
+                } else {
+                    open.push((summary, blocks));
+                }
+                continue;
+            }
+            if html::is_details_end(source)
+                && let Some((summary, blocks)) = open.pop()
+            {
+                push(&mut joined, &mut open, details(summary, blocks));
+                continue;
+            }
+            // A `<summary>` after a blank line is still the summary when
+            // nothing came before it.
+            if let Some((summary @ None, blocks)) = open.last_mut()
+                && blocks.is_empty()
+                && let Some(content) = html::summary(source)
+            {
+                *summary = Some(html_inlines(content));
+                continue;
+            }
+        }
+        push(&mut joined, &mut open, block);
+    }
+    while let Some((summary, blocks)) = open.pop() {
+        push(&mut joined, &mut open, details(summary, blocks));
+    }
+    joined
+}
+
+/// A `<details>` with `summary`, or with the one a browser gives it
+/// without.
+fn details(summary: Option<Vec<Inline>>, blocks: Vec<Block>) -> Block {
+    Block::Details {
+        summary: summary.unwrap_or_else(|| vec![Inline::Text("Details".into())]),
+        blocks,
+    }
+}
+
+/// The blocks of HTML inside a `<details>` that is not Markdown: an image,
+/// or its text as one paragraph.
+fn details_body(body: &str) -> Vec<Block> {
+    if let Some(img) = html::block_img(body) {
+        return vec![Block::Paragraph(vec![linked_image(img)])];
+    }
+    match html::plain_text(body) {
+        Some(text) if !text.is_empty() => vec![Block::Paragraph(vec![Inline::Text(text)])],
+        _ => Vec::new(),
+    }
 }
 
 // Block types without a model counterpart yet are skipped.
@@ -111,38 +182,58 @@ fn alignment(alignment: TableAlignment) -> Alignment {
 fn inlines(parent: Node<'_>) -> Vec<Inline> {
     let mut inlines = Vec::new();
     for inline in parent.children().filter_map(inline) {
-        inlines.push(inline);
-        // `<a href>`, an `<img>` and `</a>` are a link around the image, as
-        // `[![]()]()` is.
-        if let [.., Inline::Html(start), Inline::Image(_), Inline::Html(end)] = inlines.as_slice()
-            && html::is_link_end(end)
-            && let Some(url) = html::link_start(start)
-        {
-            inlines.pop();
-            let image = inlines.pop().expect("the image");
-            inlines.pop();
-            inlines.push(Inline::Link {
-                url,
-                content: vec![image],
-            });
-        }
-        // A closing tag such as `</kbd>` ends the element its last opening
-        // tag among these inlines started.
-        if let Some(Inline::Html(end)) = inlines.last()
-            && let Some(phrase) = html::phrase_end(end)
-            && let Some(start) = inlines.iter().rposition(|inline| {
-                matches!(inline, Inline::Html(start) if html::phrase_start(start) == Some(phrase))
-            })
-        {
-            inlines.pop();
-            let content: Vec<Inline> = inlines.drain(start..).skip(1).collect();
-            inlines.push(match phrase {
-                html::Phrase::Kbd => Inline::Kbd(content),
-                html::Phrase::Mark => Inline::Mark(content),
-            });
-        }
+        push_inline(&mut inlines, inline);
     }
     inlines
+}
+
+/// Text and inline HTML, as `html` gives the content of a `<summary>`,
+/// with the tags kiri reads read.
+fn html_inlines(content: Vec<Inline>) -> Vec<Inline> {
+    let mut inlines = Vec::new();
+    for inline in content {
+        let inline = match inline {
+            Inline::Html(tag) => html_inline(tag),
+            inline => inline,
+        };
+        push_inline(&mut inlines, inline);
+    }
+    inlines
+}
+
+/// Pushes `inline`, joining it with the inlines before it into the
+/// element that HTML tags among them make.
+fn push_inline(inlines: &mut Vec<Inline>, inline: Inline) {
+    inlines.push(inline);
+    // `<a href>`, an `<img>` and `</a>` are a link around the image, as
+    // `[![]()]()` is.
+    if let [.., Inline::Html(start), Inline::Image(_), Inline::Html(end)] = inlines.as_slice()
+        && html::is_link_end(end)
+        && let Some(url) = html::link_start(start)
+    {
+        inlines.pop();
+        let image = inlines.pop().expect("the image");
+        inlines.pop();
+        inlines.push(Inline::Link {
+            url,
+            content: vec![image],
+        });
+    }
+    // A closing tag such as `</kbd>` ends the element its last opening
+    // tag among these inlines started.
+    if let Some(Inline::Html(end)) = inlines.last()
+        && let Some(phrase) = html::phrase_end(end)
+        && let Some(start) = inlines.iter().rposition(|inline| {
+            matches!(inline, Inline::Html(start) if html::phrase_start(start) == Some(phrase))
+        })
+    {
+        inlines.pop();
+        let content: Vec<Inline> = inlines.drain(start..).skip(1).collect();
+        inlines.push(match phrase {
+            html::Phrase::Kbd => Inline::Kbd(content),
+            html::Phrase::Mark => Inline::Mark(content),
+        });
+    }
 }
 
 fn inline(node: Node<'_>) -> Option<Inline> {
@@ -165,13 +256,20 @@ fn inline(node: Node<'_>) -> Option<Inline> {
         }),
         NodeValue::SoftBreak => Inline::SoftBreak,
         NodeValue::LineBreak => Inline::LineBreak,
-        NodeValue::HtmlInline(tag) if html::is_line_break(tag) => Inline::LineBreak,
-        NodeValue::HtmlInline(tag) => match html::inline_img(tag) {
-            Some(img) => image(img),
-            None => Inline::Html(tag.clone()),
-        },
+        NodeValue::HtmlInline(tag) => html_inline(tag.clone()),
         _ => return None,
     })
+}
+
+/// One tag of inline HTML: a line break, an image, or else the tag.
+fn html_inline(tag: String) -> Inline {
+    if html::is_line_break(&tag) {
+        return Inline::LineBreak;
+    }
+    match html::inline_img(&tag) {
+        Some(img) => image(img),
+        None => Inline::Html(tag),
+    }
 }
 
 /// An HTML `<img>` as Markdown would give it: the image, or a link around
@@ -454,6 +552,156 @@ mod tests {
                 text(", "),
                 Inline::Mark(vec![Inline::Kbd(vec![text("A")])]),
             ])]
+        );
+    }
+
+    fn details(summary: Vec<Inline>, blocks: Vec<Block>) -> Block {
+        Block::Details { summary, blocks }
+    }
+
+    fn paragraph(content: &str) -> Block {
+        Block::Paragraph(vec![text(content)])
+    }
+
+    #[test]
+    fn joins_a_details_that_blank_lines_split() {
+        let source = "<details>\n<summary>Open <kbd>K</kbd><br>me</summary>\n\n\
+            Some *text*.\n\n- an item\n\n</details>\n\nAfter.\n";
+        assert_eq!(
+            parse(source).blocks,
+            vec![
+                details(
+                    vec![
+                        text("Open "),
+                        Inline::Kbd(vec![text("K")]),
+                        Inline::LineBreak,
+                        text("me"),
+                    ],
+                    vec![
+                        Block::Paragraph(vec![
+                            text("Some "),
+                            Inline::Emphasis(vec![text("text")]),
+                            text("."),
+                        ]),
+                        Block::List(List {
+                            start: None,
+                            tight: true,
+                            items: vec![ListItem {
+                                checked: None,
+                                blocks: vec![paragraph("an item")],
+                            }],
+                        }),
+                    ]
+                ),
+                paragraph("After."),
+            ]
+        );
+    }
+
+    #[test]
+    fn joins_a_details_in_a_list_item_or_a_quote() {
+        let listed = "- Item\n  <details>\n  <summary>S</summary>\n\n  In.\n\n  </details>\n";
+        let Block::List(list) = &parse(listed).blocks[0] else {
+            panic!("expected a list");
+        };
+        assert_eq!(
+            list.items[0].blocks,
+            vec![
+                paragraph("Item"),
+                details(vec![text("S")], vec![paragraph("In.")]),
+            ]
+        );
+        let quoted = "> <details>\n> <summary>S</summary>\n>\n> In.\n>\n> </details>\n";
+        assert_eq!(
+            parse(quoted).blocks,
+            vec![Block::BlockQuote(vec![details(
+                vec![text("S")],
+                vec![paragraph("In.")]
+            )])]
+        );
+    }
+
+    #[test]
+    fn joins_nested_details() {
+        let source = "<details>\n<summary>Out</summary>\n\n<details>\n<summary>In</summary>\n\n\
+            Deep.\n\n</details>\n\nBack.\n\n</details>\n";
+        assert_eq!(
+            parse(source).blocks,
+            vec![details(
+                vec![text("Out")],
+                vec![
+                    details(vec![text("In")], vec![paragraph("Deep.")]),
+                    paragraph("Back."),
+                ]
+            )]
+        );
+    }
+
+    #[test]
+    fn a_details_never_closed_runs_to_the_end_of_its_container() {
+        let source = "> <details>\n> <summary>S</summary>\n> More text.\n>\n> In.\n\nOut.\n";
+        assert_eq!(
+            parse(source).blocks,
+            vec![
+                Block::BlockQuote(vec![details(
+                    vec![text("S")],
+                    vec![paragraph("More text."), paragraph("In.")]
+                )]),
+                paragraph("Out."),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_details_in_one_block_holds_its_text_as_a_paragraph() {
+        let source =
+            "<details><summary>One</summary>Hidden &amp; <b>text</b>\non two lines</details>\n";
+        assert_eq!(
+            parse(source).blocks,
+            vec![details(
+                vec![text("One")],
+                vec![paragraph("Hidden & text on two lines")]
+            )]
+        );
+        assert_eq!(
+            parse("<details><summary>Empty</summary> </details>\n").blocks,
+            vec![details(vec![text("Empty")], Vec::new())]
+        );
+        assert_eq!(
+            parse("<details><summary>Logo</summary><img src=a.png alt=x></details>\n").blocks,
+            vec![details(
+                vec![text("Logo")],
+                vec![Block::Paragraph(vec![Inline::Image(Image {
+                    url: "a.png".into(),
+                    alt: vec![text("x")],
+                    width: None,
+                    height: None,
+                })])]
+            )]
+        );
+    }
+
+    #[test]
+    fn a_details_without_a_summary_is_called_details() {
+        assert_eq!(
+            parse("<details>\n\nText.\n\n</details>\n").blocks,
+            vec![details(vec![text("Details")], vec![paragraph("Text.")])]
+        );
+        assert_eq!(
+            parse("<details>\n\n<summary>Later</summary>\n\nText.\n\n</details>\n").blocks,
+            vec![details(vec![text("Later")], vec![paragraph("Text.")])]
+        );
+    }
+
+    #[test]
+    fn keeps_a_details_end_without_a_start_as_source() {
+        assert_eq!(
+            parse("Text.\n\n</details>\n").blocks,
+            vec![paragraph("Text."), Block::Html("</details>\n".into())]
+        );
+        assert_eq!(
+            parse("<details>x</details><p>y</p>\n").blocks,
+            vec![Block::Html("<details>x</details><p>y</p>\n".into())]
         );
     }
 

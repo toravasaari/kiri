@@ -43,26 +43,23 @@ pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
         theme,
     };
 
-    // Headings stay at the edge and thematic breaks span the terminal;
-    // everything else keeps text_margin free on both sides.
+    // Everything but headings and thematic breaks keeps text_margin free
+    // on both sides.
     let margin = usize::from(theme.text_margin).min(width / 4);
     let mut lines = Vec::new();
-    for block in &document.blocks {
-        let block_lines = match block {
-            Block::ThematicBreak => vec![layout.rule(usize::from(caps.width).max(width))],
-            Block::Heading { .. } => layout.block(block, width, Context::default()),
-            _ => {
-                let mut block_lines = layout.block(block, width - 2 * margin, Context::default());
-                for line in &mut block_lines {
-                    if margin > 0 && !line.is_blank() {
-                        line.lead
-                            .insert(0, Span::new(&" ".repeat(margin), Style::default()));
-                    }
-                }
-                block_lines
+    layout.top_level(&document.blocks, width, margin, &mut lines);
+    lines
+}
+
+/// `lines` with `margin` cells before each one that is not blank.
+fn with_margin(mut lines: Vec<Line>, margin: usize) -> Vec<Line> {
+    if margin > 0 {
+        for line in &mut lines {
+            if !line.is_blank() {
+                line.lead
+                    .insert(0, Span::new(&" ".repeat(margin), Style::default()));
             }
-        };
-        append_block(&mut lines, block_lines, true);
+        }
     }
     lines
 }
@@ -97,6 +94,30 @@ struct Layout<'a> {
 }
 
 impl Layout<'_> {
+    /// Lays out the document's own blocks: headings stay at the edge and
+    /// thematic breaks span the terminal; everything else keeps `margin`
+    /// free on both sides. The blocks inside a details block are laid out
+    /// as the blocks around it are.
+    fn top_level(&self, blocks: &[Block], width: usize, margin: usize, lines: &mut Vec<Line>) {
+        for block in blocks {
+            let block_lines = match block {
+                Block::ThematicBreak => vec![self.rule(usize::from(self.caps.width).max(width))],
+                Block::Heading { .. } => self.block(block, width, Context::default()),
+                Block::Details { summary, blocks } => {
+                    let summary = self.summary(summary, width - 2 * margin);
+                    append_block(lines, with_margin(summary, margin), true);
+                    self.top_level(blocks, width, margin, lines);
+                    continue;
+                }
+                _ => with_margin(
+                    self.block(block, width - 2 * margin, Context::default()),
+                    margin,
+                ),
+            };
+            append_block(lines, block_lines, true);
+        }
+    }
+
     fn blocks(&self, blocks: &[Block], width: usize, context: Context) -> Vec<Line> {
         let mut lines = Vec::new();
         for block in blocks {
@@ -123,6 +144,15 @@ impl Layout<'_> {
                 blocks,
             } => self.alert(*kind, title.as_deref(), blocks, width, context),
             Block::List(list) => self.list(list, width, context),
+            Block::Details { summary, blocks } => {
+                let mut lines = self.summary(summary, width);
+                append_block(
+                    &mut lines,
+                    self.blocks(blocks, width, context),
+                    !context.tight,
+                );
+                lines
+            }
             Block::Table(table) => self.table(table, width),
             Block::ThematicBreak => vec![self.rule(width)],
             Block::Html(html) => {
@@ -224,6 +254,19 @@ impl Layout<'_> {
             lines.push(self.rule(rule_width));
         }
         lines
+    }
+
+    /// The summary of a details block, in bold after an open triangle, as
+    /// a browser shows an open `<details>`.
+    fn summary(&self, summary: &[Inline], width: usize) -> Vec<Line> {
+        let style = self.style(Style {
+            bold: true,
+            ..Style::default()
+        });
+        let mut spans = Vec::new();
+        push(&mut spans, "▼ ", &style);
+        self.inlines(summary, &style, &mut spans);
+        wrap(&spans, width).into_iter().map(Line::new).collect()
     }
 
     fn paragraph(&self, content: &[Inline], style: &Style, width: usize) -> Vec<Line> {

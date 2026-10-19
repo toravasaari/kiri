@@ -47,3 +47,33 @@ fn without_colours_marked_text_is_in_reverse_video() {
     );
     assert!(out.contains("\x1b[0;7mmarked\x1b[0m"), "{out:?}");
 }
+
+#[test]
+fn details_are_open_under_a_bold_summary() {
+    let source = "<details>\n<summary>Sum <mark>up</mark></summary>\n\nText.\n\n</details>\n";
+    let plain = render(
+        source,
+        &inputs(&Capabilities::plain(WIDTH), &Theme::default()),
+    );
+    assert_eq!(plain, "  ▼ Sum up\n\n  Text.\n");
+    let kitty = render(
+        source,
+        &inputs(&Capabilities::kitty(WIDTH), &Theme::default()),
+    );
+    assert!(
+        kitty.starts_with("  \x1b[0;1m▼ Sum \x1b[0;1;30;43mup\x1b[0m\n\n  Text.\n"),
+        "{kitty:?}"
+    );
+}
+
+#[test]
+fn a_heading_in_details_is_drawn_as_at_the_top_level() {
+    let source = "<details>\n<summary>S</summary>\n\n## Inside\n\n</details>\n\n## Outside\n";
+    let caps = Capabilities::kitty(WIDTH);
+    let out = render(source, &inputs(&caps, &Theme::default()));
+    let inside = out.replace("Outside", "Inside");
+    assert!(
+        inside.matches("\x1b[0;1;4;34m\x1b]66;s=2;Inside").count() == 2,
+        "{out:?}"
+    );
+}

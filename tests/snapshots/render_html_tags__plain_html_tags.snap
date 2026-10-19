@@ -24,41 +24,31 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
 
 ## Details
 
-  <details>
-  <summary>A summary with <kbd>Esc</kbd></summary>
+  ▼ A summary with `Esc`
 
   The content is Markdown, as GitHub shows it:
 
   - one
   - two
 
-  </details>
+  ▼ Written on one line
 
-  <details><summary>Written on one line</summary>The content &amp; its
-  <b>tags</b> are plain text.</details>
+  The content & its tags are plain text.
 
-  <details>
+  ▼ Details
 
   Without a summary, the block is called
   Details.
 
-  </details>
-
   - A list item
 
-    <details>
-    <summary>Inside a list</summary>
+    ▼ Inside a list
 
     Content in the list.
 
-    </details>
-
-  > <details>
-  > <summary>Inside a quote</summary>
+  > ▼ Inside a quote
   >
   > Content in the quote.
-  >
-  > </details>
 
 ## Other tags
 
@@ -69,7 +59,6 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
   A div block stays as source.
   </div>
 
-  <details>
-  <summary>Never closed</summary>
+  ▼ Never closed
 
   Runs to the end of the document.
