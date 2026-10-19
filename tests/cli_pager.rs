@@ -35,6 +35,25 @@ fn in_terminal(
     stdin: Option<&str>,
     keys: &[&[u8]],
 ) -> (ExitStatus, String) {
+    let mut typed = 0;
+    in_terminal_with(name, args, rows, stdin, |frames, terminal, _| {
+        if typed < frames.min(keys.len()) {
+            terminal.write_all(keys[typed]).unwrap();
+            typed += 1;
+        }
+    })
+}
+
+/// [`in_terminal`] with `act` called after each read of the terminal,
+/// with the number of frames drawn so far, the terminal side and kiri's
+/// process.
+fn in_terminal_with(
+    name: &str,
+    args: &[&str],
+    rows: u16,
+    stdin: Option<&str>,
+    mut act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
+) -> (ExitStatus, String) {
     let dir = Scratch::new(name);
     std::fs::write(dir.join("document.md"), paragraphs(3)).unwrap();
     std::fs::write(dir.join("long.md"), long()).unwrap();
@@ -76,7 +95,6 @@ fn in_terminal(
         input.write_all(document.as_bytes()).unwrap();
     }
     let mut seen = Vec::new();
-    let mut typed = 0;
     let mut buffer = [0; 4096];
     // kiri gets 10 s at most, so a hanging kiri fails the test instead of
     // hanging it.
@@ -95,10 +113,7 @@ fn in_terminal(
         };
         seen.extend_from_slice(&buffer[..read]);
         let frames = text(&seen).matches("\x1b[?2026l").count();
-        if typed < frames.min(keys.len()) {
-            terminal.write_all(keys[typed]).unwrap();
-            typed += 1;
-        }
+        act(frames, &mut terminal, &child);
     }
     let status = child.wait().unwrap();
     let mut stderr = String::new();
@@ -261,4 +276,25 @@ fn without_a_terminal_for_keys_p_prints_with_a_warning() {
         stderr,
         "kiri: no terminal to read keys from, so the document is printed\n"
     );
+}
+
+#[test]
+fn a_signal_to_end_kiri_leaves_the_screen_first() {
+    use std::os::unix::process::ExitStatusExt;
+
+    use rustix::process::{Pid, Signal, kill_process};
+
+    for signal in [Signal::TERM, Signal::HUP, Signal::INT, Signal::QUIT] {
+        let mut sent = false;
+        let (status, seen) =
+            in_terminal_with("pager-signal", &["long.md"], 5, None, |frames, _, child| {
+                if frames > 0 && !sent {
+                    let pid = Pid::from_raw(child.id() as i32).unwrap();
+                    kill_process(pid, signal).unwrap();
+                    sent = true;
+                }
+            });
+        assert!(seen.ends_with(LEAVE), "{signal:?}: {seen:?}");
+        assert_eq!(status.signal(), Some(signal.as_raw()), "{signal:?}");
+    }
 }

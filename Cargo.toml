@@ -40,6 +40,7 @@ kiri-image-utils = { version = "0.1.0", path = "crates/kiri-image-utils" }
 resvg = "0.48.1"
 rustix = { version = "1.1.5", features = ["termios", "event", "process"] }
 serde = { version = "1.0.229", features = ["derive"] }
+signal-hook = "0.4.5"
 syntect = { version = "5.3.0", default-features = false, features = ["default-fancy"] }
 toml = "1.1.8"
 unicode-segmentation = "1.13.3"

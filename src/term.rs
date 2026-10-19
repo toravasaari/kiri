@@ -4,7 +4,12 @@ use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{self, BufWriter, Read, Stdout, Write};
 use std::os::fd::AsFd;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
+
+use signal_hook::SigId;
+use signal_hook::consts::{SIGHUP, SIGINT, SIGQUIT, SIGTERM};
 
 use rustix::termios::{OptionalActions, Termios, tcgetattr, tcsetattr};
 
@@ -369,6 +374,10 @@ impl Drop for RawMode {
 pub struct Screen<W: Write> {
     tty: File,
     out: W,
+    /// The signal that asked kiri to end, 0 before one came.
+    signal: Arc<AtomicUsize>,
+    /// The handlers that set it.
+    handlers: Vec<SigId>,
     _raw: RawMode,
 }
 
@@ -382,7 +391,9 @@ impl Screen<BufWriter<Stdout>> {
         if probe::runs_in_background(&tty) {
             return None;
         }
-        Self::on(tty, BufWriter::new(std::io::stdout()))
+        let mut screen = Self::on(tty, BufWriter::new(std::io::stdout()))?;
+        screen.catch_signals();
+        Some(screen)
     }
 }
 
@@ -395,8 +406,42 @@ impl<W: Write> Screen<W> {
         Some(Self {
             tty,
             out,
+            signal: Arc::new(AtomicUsize::new(0)),
+            handlers: Vec::new(),
             _raw: raw,
         })
+    }
+
+    /// Makes the signals that would end kiri end the screen instead:
+    /// [`read`](Self::read) fails once one comes, and [`close`](Self::close)
+    /// then ends kiri with it, after the terminal is restored. Ctrl+C sends
+    /// no signal in raw mode; these come from elsewhere, such as `kill` or
+    /// a terminal that closes.
+    fn catch_signals(&mut self) {
+        for signal in [SIGTERM, SIGHUP, SIGINT, SIGQUIT] {
+            let flag = Arc::clone(&self.signal);
+            if let Ok(id) = signal_hook::flag::register_usize(signal, flag, signal as usize) {
+                self.handlers.push(id);
+            }
+        }
+    }
+
+    /// The signal that asked kiri to end, if one came.
+    fn signal(&self) -> Option<i32> {
+        match self.signal.load(Ordering::SeqCst) {
+            0 => None,
+            signal => Some(signal as i32),
+        }
+    }
+
+    /// Restores the terminal, and then ends kiri with the signal that
+    /// asked it to end, if one came.
+    pub fn close(self) {
+        let signal = self.signal();
+        drop(self);
+        if let Some(signal) = signal {
+            let _ = signal_hook::low_level::emulate_default_handler(signal);
+        }
     }
 
     /// The size of the window now.
@@ -406,7 +451,7 @@ impl<W: Write> Screen<W> {
 
     /// The bytes of the keys pressed, waiting at most `timeout` for the
     /// first; empty when none came, and an error when the terminal has
-    /// gone away.
+    /// gone away or a signal asked kiri to end.
     pub fn read(&mut self, timeout: Duration) -> io::Result<Vec<u8>> {
         use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
@@ -415,7 +460,14 @@ impl<W: Write> Screen<W> {
             tv_nsec: i64::from(timeout.subsec_nanos()),
         };
         let mut fds = [PollFd::new(&self.tty, PollFlags::IN)];
-        match poll(&mut fds, Some(&timeout)) {
+        let ready = poll(&mut fds, Some(&timeout));
+        if self.signal().is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "ended by a signal",
+            ));
+        }
+        match ready {
             Ok(0) | Err(rustix::io::Errno::INTR) => return Ok(Vec::new()),
             Ok(_) => {}
             Err(error) => return Err(error.into()),
@@ -441,6 +493,9 @@ impl<W: Write> Write for Screen<W> {
 
 impl<W: Write> Drop for Screen<W> {
     fn drop(&mut self) {
+        for &id in &self.handlers {
+            signal_hook::low_level::unregister(id);
+        }
         // Raw mode ends after this, when the fields are dropped.
         let _ = self.out.write_all(LEAVE_SCREEN);
         let _ = self.out.flush();

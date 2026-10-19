@@ -333,7 +333,9 @@ fn page(
         }
         return None;
     };
-    Some(kiri::pager::run(document, inputs, cli.width, &mut screen))
+    let result = kiri::pager::run(document, inputs, cli.width, &mut screen);
+    screen.close();
+    Some(result)
 }
 
 /// Shows the image file `path`, in `format`, read from `reader`. It
