@@ -470,12 +470,12 @@ pub fn parse(text: &str) -> Result<Theme, String> {
     }
     set_color(&mut theme.link, file.link)?;
     set_color(&mut theme.inline_code, file.inline_code)?;
-    if let Some(background) = file.inline_code_background {
-        theme.inline_code_background = match background.as_str() {
-            "code-block" => CodeBackground::CodeBlock,
-            color => CodeBackground::Color(parse_color(color)?),
-        };
-    }
+    set_keyword_or_color(
+        &mut theme.inline_code_background,
+        file.inline_code_background,
+        ("code-block", CodeBackground::CodeBlock),
+        CodeBackground::Color,
+    )?;
     if let Some(padding) = file.inline_code_padding {
         theme.inline_code_padding = padding;
     }
@@ -505,12 +505,12 @@ pub fn parse(text: &str) -> Result<Theme, String> {
     if let Some(show) = file.show_language_label {
         theme.show_language_label = show;
     }
-    if let Some(color) = file.language_label {
-        theme.language_label = match color.as_str() {
-            "code-block" => LabelColor::CodeBlock,
-            color => LabelColor::Color(parse_color(color)?),
-        };
-    }
+    set_keyword_or_color(
+        &mut theme.language_label,
+        file.language_label,
+        ("code-block", LabelColor::CodeBlock),
+        LabelColor::Color,
+    )?;
     if let Some(alerts) = file.alerts {
         apply_alerts(&mut theme.alerts, alerts)?;
     }
@@ -522,12 +522,12 @@ pub fn parse(text: &str) -> Result<Theme, String> {
             (&mut target.badge_background, status_line.badge_background),
             (&mut target.badge_foreground, status_line.badge_foreground),
         ] {
-            if let Some(value) = value {
-                *target = match value.as_str() {
-                    "auto" => StatusColor::Auto,
-                    color => StatusColor::Color(parse_color(color)?),
-                };
-            }
+            set_keyword_or_color(
+                target,
+                value,
+                ("auto", StatusColor::Auto),
+                StatusColor::Color,
+            )?;
         }
     }
     if let Some(search) = file.search {
@@ -538,12 +538,12 @@ pub fn parse(text: &str) -> Result<Theme, String> {
             (&mut target.current_foreground, search.current_foreground),
             (&mut target.current_background, search.current_background),
         ] {
-            if let Some(value) = value {
-                *target = match value.as_str() {
-                    "auto" => SearchColor::Auto,
-                    color => SearchColor::Color(parse_color(color)?),
-                };
-            }
+            set_keyword_or_color(
+                target,
+                value,
+                ("auto", SearchColor::Auto),
+                SearchColor::Color,
+            )?;
         }
     }
     Ok(theme)
@@ -579,12 +579,7 @@ fn apply_alerts(alerts: &mut AlertTheme, file: AlertsFile) -> Result<(), String>
         (&mut alerts.warning, file.warning),
         (&mut alerts.caution, file.caution),
     ] {
-        if let Some(value) = value {
-            *target = match value.as_str() {
-                "auto" => AlertColor::Auto,
-                color => AlertColor::Color(parse_color(color)?),
-            };
-        }
+        set_keyword_or_color(target, value, ("auto", AlertColor::Auto), AlertColor::Color)?;
     }
     Ok(())
 }
@@ -703,6 +698,25 @@ struct HeadingFile {
 fn set_color(target: &mut Option<Color>, value: Option<String>) -> Result<(), String> {
     if let Some(value) = value {
         *target = parse_color(&value)?;
+    }
+    Ok(())
+}
+
+/// Sets `target` from `value` when there is one: `keyword` names its own
+/// value, anything else is a colour that `color` makes the value of.
+fn set_keyword_or_color<T>(
+    target: &mut T,
+    value: Option<String>,
+    keyword: (&str, T),
+    color: impl FnOnce(Option<Color>) -> T,
+) -> Result<(), String> {
+    if let Some(value) = value {
+        let (name, named) = keyword;
+        *target = if value == name {
+            named
+        } else {
+            color(parse_color(&value)?)
+        };
     }
     Ok(())
 }
