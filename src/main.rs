@@ -35,8 +35,8 @@ struct Cli {
     #[arg(long, conflicts_with_all = ["file", "format"])]
     doctor: bool,
 
-    /// List the emoji shortcodes kiri shows as emoji, such as :smile:;
-    /// one tab-separated line per emoji when written to a file.
+    /// List the emoji shortcodes, such as :smile:. A terminal shows them
+    /// as a table; a pipe or a file gets one line per emoji.
     #[arg(long, conflicts_with_all = ["file", "format", "doctor"])]
     list_emojis: bool,
 
