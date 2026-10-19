@@ -24,8 +24,8 @@ use kiri::theme::{Paper, Theme};
                   0.28 or later; elsewhere they show their alt text."
 )]
 struct Cli {
-    /// Markdown file to render, an image to show on its own, or a directory
-    /// to show its README. Without one, or with -, kiri reads standard
+    /// Markdown file to render, a CSV or TSV file to show as a table, an
+    /// image to show on its own, or a directory to show its README. Without one, or with -, kiri reads standard
     /// input unless it is a terminal.
     file: Option<PathBuf>,
 
@@ -39,8 +39,8 @@ struct Cli {
     #[arg(long)]
     raw: bool,
 
-    /// What the file is: markdown, image, or an image format such as svg,
-    /// png or jpg. By default its extension and content tell.
+    /// What the file is: markdown, csv, tsv, image, or an image format such
+    /// as svg, png or jpg. By default its extension and content tell.
     #[arg(short, long, value_parser = format)]
     format: Option<Input>,
 
@@ -109,7 +109,7 @@ fn max_image_size(value: &str) -> Result<u64, String> {
 /// The `--format` value.
 fn format(value: &str) -> Result<Input, String> {
     kiri::input::format(value).ok_or_else(|| {
-        "give markdown, image, or an image format such as svg, png or jpg".to_owned()
+        "give markdown, csv, tsv, image, or an image format such as svg, png or jpg".to_owned()
     })
 }
 
@@ -226,12 +226,17 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), String> {
     }
     let mut bytes = head;
     reader.read_to_end(&mut bytes).map_err(failed)?;
-    let source = String::from_utf8(bytes).map_err(|_| match cli.format {
-        Some(_) => format!("{}: not UTF-8 text", path.display()),
-        None => format!(
-            "{}: neither Markdown nor an image kiri knows",
-            path.display()
-        ),
+    // Text named by `--format` or by its extension is not an image either.
+    let named = cli.format.is_some() || matches!(input, Input::Table(_));
+    let source = String::from_utf8(bytes).map_err(|_| {
+        if named {
+            format!("{}: not UTF-8 text", path.display())
+        } else {
+            format!(
+                "{}: neither Markdown nor an image kiri knows",
+                path.display()
+            )
+        }
     })?;
     let config = kiri::config::load(&env)?;
     let choices = kiri::config::choose(&options(cli), &env, &config);
@@ -243,7 +248,10 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), String> {
         settings.paging = only_always(settings.paging);
     }
     let caps = kiri::term::capabilities(cli.mode.into(), cli.width, &env);
-    let document = kiri::parse::parse(&source);
+    let document = match input {
+        Input::Table(separator) => kiri::parse::csv::parse(&source, separator),
+        _ => kiri::parse::parse(&source),
+    };
     // Images in a piped document are relative to the current directory.
     let base = file.and_then(Path::parent).unwrap_or(Path::new(""));
     show_document(
