@@ -1096,13 +1096,13 @@ mod tests {
             caps.color = false;
             frames_with(caps, &[b"/line 2\r", b"N"], empty)
         };
-        // Bold, without the bar's reverse video, for a second.
+        // Bold, without the bar's reverse video, for half a second.
         let flashed = "\x1b[0;1m11\x1b[0;7m/11";
         // While the match fades, each poll is a twentieth of a second.
-        let before = frames(19);
+        let before = frames(9);
         assert_eq!(before.len(), 3, "{before:#?}");
         assert!(status_row(&before[2], 6).contains(flashed), "{before:#?}");
-        let after = frames(20);
+        let after = frames(10);
         assert_eq!(after.len(), 4, "{after:#?}");
         assert!(!status_row(&after[3], 6).contains(flashed), "{after:#?}");
         assert!(status_row(&after[3], 6).contains(" 11/11"), "{after:#?}");
@@ -1129,7 +1129,8 @@ mod tests {
 
     #[test]
     fn matches_in_view_are_marked_and_the_current_one_apart() {
-        // Each jump flashes for a second, over after a second and a half.
+        // Each jump flashes for half a second, over after three quarters
+        // of a second.
         let wait = [b"".as_slice(); 30];
         let reads = [
             &[b"/line 2\r".as_slice()],
@@ -1233,9 +1234,9 @@ mod tests {
     #[test]
     fn a_jump_shows_the_match_in_yellow_fading_into_reverse_video() {
         let frames = frames_with(known_colours(), &[b"/line 2\r"], 40);
-        // The jump, a frame each twentieth of a second after it until a
-        // second and a half, and no more after the fade.
-        assert_eq!(frames.len(), 32, "{frames:#?}");
+        // The jump, a frame each twentieth of a second after it until
+        // three quarters of a second, and no more after the fade.
+        assert_eq!(frames.len(), 17, "{frames:#?}");
         let current = |frame: &str| style_before(document_part(frame, 6), "Line 2\x1b");
         let colours = |fg: &str, bg: &str| {
             let mut codes = vec!["0".to_owned(), "1".to_owned()];
@@ -1243,8 +1244,8 @@ mod tests {
             codes
         };
         assert_eq!(current(&frames[1]), colours("0;0;0", "200;200;0"));
-        assert_eq!(current(&frames[16]), colours("0;0;0", "200;200;100"));
-        assert_eq!(current(&frames[31]), ["0", "1", "7"]);
+        assert_eq!(current(&frames[7]), colours("0;0;0", "200;200;80"));
+        assert_eq!(current(&frames[16]), ["0", "1", "7"]);
     }
 
     #[test]
@@ -1255,14 +1256,15 @@ mod tests {
     }
 
     #[test]
-    fn colours_not_known_as_rgb_flash_for_a_second() {
-        // The terminal tells no colours: yellow until a second has gone.
+    fn colours_not_known_as_rgb_flash_for_half_a_second() {
+        // The terminal tells no colours: yellow until half a second has
+        // gone.
         let frames = frames_with(Capabilities::ansi(80), &[b"/line 2\r"], 30);
         assert_eq!(frames.len(), 3, "{frames:#?}");
         let current = |frame: &str| style_before(document_part(frame, 6), "Line 2\x1b");
         assert_eq!(current(&frames[1]), ["0", "1", "30", "43"]);
         assert_eq!(current(&frames[2]), ["0", "1", "7"]);
-        // Without colours, the match is underlined for that second.
+        // Without colours, the match is underlined for that time.
         let mut caps = known_colours();
         caps.color = false;
         let frames = frames_with(caps, &[b"/line 2\r"], 30);
@@ -1277,8 +1279,8 @@ mod tests {
         let mut caps = known_colours();
         caps.palette[8] = Some(Color::Rgb(100, 100, 100));
         let frames = frames_with(caps, &[b"/line 2\r", b"N"], 40);
-        // The search, then N, which fades for a second and a half.
-        assert_eq!(frames.len(), 33, "{frames:#?}");
+        // The search, then N, which fades for three quarters of a second.
+        assert_eq!(frames.len(), 18, "{frames:#?}");
         let number = |frame: &str| style_before(&status_row(frame, 6), "11\x1b");
         let colours = |fg: &str, bg: &str| {
             let mut codes = vec!["0".to_owned(), "1".to_owned()];
@@ -1286,9 +1288,9 @@ mod tests {
             codes
         };
         assert_eq!(number(&frames[2]), colours("0;0;0", "200;200;0"));
-        assert_eq!(number(&frames[17]), colours("100;100;100", "125;125;25"));
+        assert_eq!(number(&frames[8]), colours("80;80;80", "140;140;20"));
         // At the end, in the bar's colours, with the rest of the search.
-        let status = status_row(&frames[32], 6);
+        let status = status_row(&frames[17], 6);
         assert_eq!(
             style_before(&status, "/line 2 11/11"),
             ["0", "48", "2", "50", "50", "50"]

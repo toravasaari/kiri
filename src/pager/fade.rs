@@ -9,10 +9,10 @@ use crate::term::Capabilities;
 use crate::theme::Theme;
 
 /// How long a fade takes.
-pub const FADE: Duration = Duration::from_millis(1500);
+pub const FADE: Duration = Duration::from_millis(750);
 
 /// How long the strong style stays, all at once, where it cannot fade.
-pub const FLASH: Duration = Duration::from_secs(1);
+pub const FLASH: Duration = Duration::from_millis(500);
 
 /// The colours of the page and of the terminal's palette as RGB, where
 /// they are known: what a fade mixes.
@@ -184,17 +184,17 @@ mod tests {
             (Some(Color::Rgb(0, 0, 0)), Some(Color::Rgb(200, 200, 0)))
         );
         assert!(start.bold && !start.reverse);
-        let midway = at(750);
+        let midway = at(375);
         assert_eq!(
             (midway.fg, midway.bg),
             (Some(Color::Rgb(0, 0, 0)), Some(Color::Rgb(200, 200, 100)))
         );
-        assert_eq!(at(1500), to);
-        assert_eq!(at(2000), to);
+        assert_eq!(at(750), to);
+        assert_eq!(at(1000), to);
     }
 
     #[test]
-    fn colours_not_known_flash_for_a_second_without_steps() {
+    fn colours_not_known_flash_for_half_a_second_without_steps() {
         let from = Style {
             underline: Underline::Single,
             ..Style::default()
@@ -210,11 +210,11 @@ mod tests {
             let from_unknown = |millis| step(&unknown, &to, Duration::from_millis(millis), rgb);
             if rgb.is_none() {
                 assert_eq!(at(0), from);
-                assert_eq!(at(999), from);
-                assert_eq!(at(1000), to);
+                assert_eq!(at(499), from);
+                assert_eq!(at(500), to);
             }
-            assert_eq!(from_unknown(500), unknown);
-            assert_eq!(from_unknown(1000), to);
+            assert_eq!(from_unknown(250), unknown);
+            assert_eq!(from_unknown(500), to);
         }
     }
 }
