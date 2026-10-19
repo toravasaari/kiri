@@ -361,7 +361,15 @@ fn page(
         }
         return None;
     };
-    let result = kiri::pager::run(document, name, inputs, cli.width, case, &mut screen);
+    let result = kiri::pager::run(
+        document,
+        Some(lines),
+        name,
+        inputs,
+        cli.width,
+        case,
+        &mut screen,
+    );
     screen.close();
     Some(result)
 }

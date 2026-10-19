@@ -71,9 +71,12 @@ impl<W: Write> Terminal for Screen<W> {
 
 /// Shows `document`, called `name`, on `terminal` until the reader quits,
 /// laid out with `inputs` for the window's size, or `width` columns when
-/// it is given. A search treats case as `case` says.
+/// it is given. `laid_out`, when given, is `document` laid out with
+/// `inputs` as they are now, used unless the window calls for another.
+/// A search treats case as `case` says.
 pub fn run(
     document: &Document,
+    laid_out: Option<Vec<Line>>,
     name: &str,
     inputs: &mut Inputs,
     width: Option<u16>,
@@ -84,6 +87,7 @@ pub fn run(
         background: inputs.theme.background,
         foreground: inputs.theme.foreground,
     };
+    let mut laid_out = laid_out.map(|lines| (inputs.caps.clone(), lines));
     let mut size = terminal.size();
     let mut view: Option<View> = None;
     let mut state = State::new(case);
@@ -94,7 +98,10 @@ pub fn run(
         // have no row left.
         let bar = window > 1;
         let rows = if bar { window - 1 } else { window };
-        let mut lines = crate::render::layout::layout(document, inputs);
+        let mut lines = match laid_out.take() {
+            Some((caps, lines)) if caps == inputs.caps => lines,
+            _ => crate::render::layout::layout(document, inputs),
+        };
         // The text sizing protocol cannot draw part of a line, so a line
         // taller than the window is drawn at normal size.
         for line in &mut lines {
@@ -661,6 +668,7 @@ mod tests {
         let mut inputs = Inputs::new(Capabilities::ansi(80));
         run(
             document,
+            None,
             "notes.md",
             &mut inputs,
             None,
@@ -668,6 +676,47 @@ mod tests {
             terminal,
         )
         .unwrap();
+    }
+
+    /// `document` shown with its lines laid out beforehand from `before`,
+    /// with `caps`.
+    fn show_laid_out(document: &Document, before: &Document, caps: Capabilities) -> Vec<String> {
+        let mut terminal = Fake::new(40, 6, &[b"q"]);
+        let mut inputs = Inputs::new(caps);
+        let lines = crate::render::layout::layout(before, &inputs);
+        run(
+            document,
+            Some(lines),
+            "notes.md",
+            &mut inputs,
+            None,
+            SearchCase::Smart,
+            &mut terminal,
+        )
+        .unwrap();
+        terminal.frames()
+    }
+
+    fn others() -> Document {
+        crate::parse::parse("Other 1\n\nOther 2\n")
+    }
+
+    #[test]
+    fn shows_the_lines_laid_out_for_the_window() {
+        let caps = Capabilities {
+            height: Some(6),
+            ..Capabilities::ansi(40)
+        };
+        let frames = show_laid_out(&numbers(10), &others(), caps);
+        assert!(frames[0].contains("Other 1"), "{frames:?}");
+        assert!(!frames[0].contains("Line 1"), "{frames:?}");
+    }
+
+    #[test]
+    fn lays_the_document_out_again_for_another_window() {
+        let frames = show_laid_out(&numbers(10), &others(), Capabilities::ansi(80));
+        assert!(frames[0].contains("Line 1"), "{frames:?}");
+        assert!(!frames[0].contains("Other 1"), "{frames:?}");
     }
 
     #[test]
@@ -803,6 +852,7 @@ mod tests {
         let mut inputs = Inputs::new(Capabilities::kitty(80));
         run(
             &document,
+            None,
             "notes.md",
             &mut inputs,
             None,
@@ -825,6 +875,7 @@ mod tests {
         let mut inputs = Inputs::new(Capabilities::ansi(80));
         run(
             &document,
+            None,
             "notes.md",
             &mut inputs,
             Some(10),
@@ -1180,6 +1231,7 @@ mod tests {
         let mut inputs = Inputs::new(Capabilities::kitty(80));
         run(
             &crate::parse::parse(source),
+            None,
             "notes.md",
             &mut inputs,
             None,
@@ -1241,6 +1293,7 @@ mod tests {
         let mut terminal = Fake::new(60, 6, &reads);
         run(
             document,
+            None,
             "notes.md",
             &mut inputs,
             None,
