@@ -105,7 +105,9 @@ The network is strict there: crates.io and rustup work, GitHub does not.
   part of the [roadmap](docs/roadmap.md) is finished.
 - Reviewers never change the working tree or git state; experiments go in
   a scratch copy.
-- Report the findings to the maintainer; fix only what is agreed.
+- Fix the clear findings, a bug with one obvious fix or a missing test,
+  and report them as fixed. Ask the maintainer about the rest: findings
+  that are unclear, or that change agreed behaviour or the plan.
 
 ## Commits
 
