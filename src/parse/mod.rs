@@ -23,6 +23,7 @@ fn options() -> Options<'static> {
     options.extension.tasklist = true;
     options.extension.autolink = true;
     options.extension.alerts = true;
+    options.extension.shortcodes = true;
     options
 }
 
@@ -133,6 +134,7 @@ fn inline(node: Node<'_>) -> Option<Inline> {
     Some(match &node.data().value {
         NodeValue::Text(text) => Inline::Text(text.to_string()),
         NodeValue::Code(code) => Inline::Code(code.literal.clone()),
+        NodeValue::ShortCode(shortcode) => Inline::Text(shortcode.emoji.clone()),
         NodeValue::Emph => Inline::Emphasis(inlines(node)),
         NodeValue::Strong => Inline::Strong(inlines(node)),
         NodeValue::Strikethrough => Inline::Strikethrough(inlines(node)),
@@ -348,6 +350,36 @@ mod tests {
                 text("bold"),
                 Inline::Html("</b>".into()),
             ])]
+        );
+    }
+
+    #[test]
+    fn turns_emoji_shortcodes_into_emoji() {
+        assert_eq!(
+            parse("I :rocket: it\n").blocks,
+            vec![Block::Paragraph(vec![
+                text("I "),
+                text("\u{1F680}"),
+                text(" it")
+            ])]
+        );
+    }
+
+    #[test]
+    fn keeps_unknown_shortcodes_and_code_as_written() {
+        assert_eq!(
+            parse("A :not_a_real_code: and :octocat: `:rocket:`\n").blocks,
+            vec![Block::Paragraph(vec![
+                text("A :not_a_real_code: and :octocat: "),
+                Inline::Code(":rocket:".into()),
+            ])]
+        );
+        assert_eq!(
+            parse("```\n:rocket:\n```\n").blocks,
+            vec![Block::CodeBlock {
+                language: None,
+                code: ":rocket:\n".into(),
+            }]
         );
     }
 
