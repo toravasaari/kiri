@@ -135,3 +135,12 @@ fn a_note_is_muted_text_below_the_table() {
         "{kitty}"
     );
 }
+
+#[test]
+fn kitty_tsv_file() {
+    insta::assert_snapshot!(visible(&render_table_file(
+        "table.tsv",
+        Separator::Tab,
+        Capabilities::kitty(WIDTH)
+    )));
+}

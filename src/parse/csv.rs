@@ -211,6 +211,30 @@ mod tests {
     }
 
     #[test]
+    fn rows_end_at_any_line_break() {
+        assert_eq!(
+            csv("a,b\r\n1,2\r3,4\n5,6"),
+            table(&["a", "b"], &[&["1", "2"], &["3", "4"], &["5", "6"]])
+        );
+    }
+
+    #[test]
+    fn a_trailing_separator_ends_with_an_empty_cell() {
+        assert_eq!(
+            csv("a,b,\n1,2,\n"),
+            table(&["a", "b", ""], &[&["1", "2", ""]])
+        );
+    }
+
+    #[test]
+    fn text_beyond_ascii_is_kept() {
+        assert_eq!(
+            csv("city,note\nSäkylä,\"naïve, ☕\"\n"),
+            table(&["city", "note"], &[&["Säkylä", "naïve, ☕"]])
+        );
+    }
+
+    #[test]
     fn cells_are_plain_text_not_markdown() {
         assert_eq!(
             csv("*a*,`b`\n[c](d),# e\n"),
