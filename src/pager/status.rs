@@ -157,7 +157,7 @@ pub fn spans(
     let search_width = if search.is_empty() {
         0
     } else {
-        width_of(&search) + 3
+        wrap::width(&search) + 3
     };
     let with_search = fixed + search_width <= width;
     let search_width = if with_search { search_width } else { 0 };
@@ -187,7 +187,7 @@ pub fn spans(
         }
     }
     right.push(Span::new(" ", styles.bar.clone()));
-    let used = width_of(&spans) + width_of(&right);
+    let used = wrap::width(&spans) + wrap::width(&right);
     spans.push(Span::new(
         &" ".repeat(width.saturating_sub(used)),
         styles.bar.clone(),
@@ -232,7 +232,7 @@ pub fn prompt(term: &str, width: usize, styles: &Styles) -> Vec<Span> {
         Span::new(BADGE, styles.badge.clone()),
         Span::new(&format!(" /{shown}{CURSOR}"), styles.bar.clone()),
     ];
-    let used = width_of(&spans);
+    let used = wrap::width(&spans);
     spans.push(Span::new(&" ".repeat(width - used), styles.bar.clone()));
     spans
 }
@@ -263,10 +263,6 @@ fn printable(text: &str) -> String {
             c => c,
         })
         .collect()
-}
-
-fn width_of(spans: &[Span]) -> usize {
-    crate::render::wrap::width(spans)
 }
 
 #[cfg(test)]
@@ -331,7 +327,7 @@ mod tests {
         for width in 0..80 {
             let spans = spans("docs/notes.md", at(42), None, width, &styles());
             let expected = if width < 11 { width.min(6) } else { width };
-            assert_eq!(super::width_of(&spans), expected, "{width}: {spans:?}");
+            assert_eq!(wrap::width(&spans), expected, "{width}: {spans:?}");
         }
     }
 
@@ -481,7 +477,7 @@ mod tests {
         for width in 0..80 {
             let spans = spans("docs/notes.md", at(42), AT, width, &styles());
             let expected = if width < 11 { width.min(6) } else { width };
-            assert_eq!(super::width_of(&spans), expected, "{width}: {spans:?}");
+            assert_eq!(wrap::width(&spans), expected, "{width}: {spans:?}");
         }
     }
 
@@ -501,7 +497,7 @@ mod tests {
         for width in 0..30 {
             let spans = prompt("kiri", width, &styles());
             let expected = if width < 9 { width.min(6) } else { width };
-            assert_eq!(super::width_of(&spans), expected, "{width}: {spans:?}");
+            assert_eq!(wrap::width(&spans), expected, "{width}: {spans:?}");
         }
     }
 
