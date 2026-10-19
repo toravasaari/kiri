@@ -101,7 +101,7 @@ a sample of headings, a table and an image drawn below. `kiri --doctor
 --raw` gives the report as Markdown without the sample, to paste into a
 bug report; piped to a file, the report is Markdown with the sample.
 
-An interactive pager (`kiri -i`) with search and link navigation is
+An interactive pager (`kiri -p`) with search and link navigation is
 planned.
 
 ## Documentation

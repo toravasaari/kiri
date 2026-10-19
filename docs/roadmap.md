@@ -112,15 +112,52 @@ example, come before the rest of phase 3.
 
 ### 4.6 Pager
 
-- Interactive pager (`kiri -i`): scrolling, search, a table of contents,
-  link selection, anchor jumps, back history, reload on file change.
-- After a reload, a key jumps to the first block that changed.
+An interactive pager, so that a document can be read on a screen of its
+own and leaves the shell's scrollback as it was, as `bat` does through
+`less`. It comes in parts, so that the basic pager can be used early.
+
+#### 4.6.1 Basic pager
+
+- The document on the terminal's alternate screen; quitting returns to
+  the prompt as it was.
+- `--paging=always|auto|never`, with `-p` for `always` and `-P` for
+  `never`, the `KIRI_PAGING` environment variable (`1` is `always`, `0`
+  is `never`) and a `paging` key in the configuration file. `auto`, the
+  default, pages a document longer than the window when the output is a
+  terminal, as `bat` does; a shorter document is printed as before.
+  `--doctor` shows the choice and where it comes from.
+- Scrolling by line and by page, to the start and to the end, with the
+  keys of `less` for now, and with the mouse wheel. The keys are
+  provisional until they have been tried in daily use.
+- Large headings scroll in and out whole, as the text sizing protocol
+  draws them only from their top row.
+- Keys come from the terminal rather than standard input, as in `less`,
+  so a piped document can be paged too.
+- The document is laid out again when the window changes size.
+- Groundwork: raw mode, now inside the probe in `term.rs`, usable for
+  reading keys.
+
+#### 4.6.2 Search and status line
+
+- Search with `/`, `n` and `N`.
+- A status line with the position and key hints, and a `?` help panel.
+
+#### 4.6.3 Reload
+
+- Reload on file change, and a key that jumps to the first block that
+  changed.
 - A follow mode for a document another program is writing, such as one
   Claude is working on in the next window: it reloads on every change and
   shows the part that changed, without a key press.
-- Pager status line with key hints and a `?` help panel.
-- Groundwork: raw mode, now inside the probe in `term.rs`, usable for
-  reading keys.
+
+#### 4.6.4 Moving around
+
+- A table of contents, anchor jumps and back history.
+
+#### 4.6.5 Link selection
+
+- Choosing a link with the keyboard and following it; a Markdown target
+  opens in an overlay window, as in 4.5.
 
 ### 4.7 Other input formats
 
@@ -153,7 +190,7 @@ document from the start.
   Relative image paths are resolved against the current directory.
 - `kiri some/dir` shows the directory's `README.md`, or else its
   `README`, as GitHub does.
-- The pager (4.6) reads its keys from the terminal rather than from
+- The pager (4.6.1) reads its keys from the terminal rather than from
   standard input, as `less` does, so a piped document can be paged too.
 
 ### 4.10 More Markdown
