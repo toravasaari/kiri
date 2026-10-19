@@ -279,13 +279,39 @@ fn show_document(
     } else {
         Images::new()
     };
-    let inputs = Inputs {
+    let mut inputs = Inputs {
         images,
         theme: settings.theme,
         ..Inputs::new(caps)
     };
+    if let Some(result) = page(cli, document, &mut inputs, settings.paging) {
+        return finish(result);
+    }
     let mut out = io::stdout().lock();
     finish(kiri::render::render(document, &inputs, &mut out).and_then(|()| out.flush()))
+}
+
+/// Shows `document` in the pager when `paging` asks for it and the output
+/// is a terminal that takes escape sequences; `None` when it is to be
+/// printed instead.
+fn page(
+    cli: &Cli,
+    document: &Document,
+    inputs: &mut Inputs,
+    paging: kiri::config::Paging,
+) -> Option<io::Result<()>> {
+    let terminal = kiri::term::stdout_is_terminal() && inputs.caps.styling;
+    if !terminal || paging == kiri::config::Paging::Never {
+        return None;
+    }
+    let lines = kiri::render::layout::layout(document, inputs);
+    let rows = kiri::pager::rows(&lines, &inputs.caps);
+    let height = kiri::term::window_size(io::stdout()).map(|window| window.rows);
+    if !kiri::pager::pages(paging, terminal, rows, height) {
+        return None;
+    }
+    let mut screen = kiri::term::Screen::open()?;
+    Some(kiri::pager::run(document, inputs, cli.width, &mut screen))
 }
 
 /// Shows the image file `path`, in `format`, read from `reader`. It

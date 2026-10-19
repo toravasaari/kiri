@@ -45,6 +45,12 @@ pub fn write(
     Ok(())
 }
 
+/// The rows `line` occupies on a terminal with `caps`: a scaled line
+/// takes as many as its scale, unless the terminal gets plain text.
+pub fn rows(line: &Line, caps: &Capabilities) -> u8 {
+    if caps.styling { line.scale.max(1) } else { 1 }
+}
+
 /// Writes lines row by row, wherever the cursor is, and remembers which
 /// images it has sent.
 pub struct Writer<'a> {
@@ -70,11 +76,7 @@ impl<'a> Writer<'a> {
 
     /// The rows `line` occupies.
     pub fn rows(&self, line: &Line) -> u8 {
-        if self.caps.styling {
-            line.scale.max(1)
-        } else {
-            1
-        }
+        rows(line, self.caps)
     }
 
     /// The style that fills the rest of a row: the page's background.
