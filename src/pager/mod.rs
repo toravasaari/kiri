@@ -3,6 +3,7 @@
 
 pub mod help;
 pub mod keys;
+pub mod prompt;
 pub mod search;
 pub mod status;
 pub mod view;
@@ -10,7 +11,7 @@ pub mod view;
 use std::io::{self, Write};
 use std::time::Duration;
 
-use crate::config::Paging;
+use crate::config::{Paging, SearchCase};
 use crate::model::Document;
 use crate::render::Inputs;
 use crate::render::output::{Page, Writer};
@@ -18,6 +19,8 @@ use crate::render::style::{Line, Span, Style};
 use crate::term::{Capabilities, Screen, WindowSize};
 use help::Placed;
 use keys::{Action, Key};
+use prompt::{Edit, Prompt};
+use search::Search;
 use view::View;
 
 /// Whether a document of `rows` rows is paged: never when the output is not
@@ -61,12 +64,13 @@ impl<W: Write> Terminal for Screen<W> {
 
 /// Shows `document`, called `name`, on `terminal` until the reader quits,
 /// laid out with `inputs` for the window's size, or `width` columns when
-/// it is given.
+/// it is given. A search treats case as `case` says.
 pub fn run(
     document: &Document,
     name: &str,
     inputs: &mut Inputs,
     width: Option<u16>,
+    case: SearchCase,
     terminal: &mut impl Terminal,
 ) -> io::Result<()> {
     let page = Page {
@@ -75,6 +79,7 @@ pub fn run(
     };
     let mut size = terminal.size();
     let mut view: Option<View> = None;
+    let mut state = State::new(case);
     loop {
         fit(&mut inputs.caps, size, width);
         let window = usize::from(inputs.caps.height.unwrap_or(DEFAULT_ROWS));
@@ -120,7 +125,12 @@ pub fn run(
                 ..Style::default()
             },
         };
-        match show(&lines, &status, &mut shown, &mut writer, terminal, size)? {
+        let mut laid_out = Layout {
+            lines: &lines,
+            status: &status,
+            view: &mut shown,
+        };
+        match show(&mut laid_out, &mut state, &mut writer, terminal, size)? {
             Outcome::Quit => return Ok(()),
             Outcome::Resized(new) => {
                 size = new;
@@ -160,12 +170,16 @@ struct Status<'a> {
 }
 
 impl Status<'_> {
-    fn spans(&self, view: &View) -> Vec<Span> {
+    /// The status line for `view` in `state`: the prompt while it is open.
+    fn spans(&self, view: &View, state: &State) -> Vec<Span> {
         if !self.bar {
             return Vec::new();
         }
         let width = usize::from(self.width);
-        status::spans(self.name, view.position(), width, &self.styles)
+        match &state.prompt {
+            Some(prompt) => status::prompt(prompt.term(), width, &self.styles),
+            None => status::spans(self.name, view.position(), width, &self.styles),
+        }
     }
 
     /// The help panel over `view`, when `open`.
@@ -196,24 +210,117 @@ fn fit(caps: &mut Capabilities, size: Option<WindowSize>, width: Option<u16>) {
     }
 }
 
-/// Shows `lines` in `view` with `status` below them on `terminal`, whose
-/// window is of `size`, and scrolls them until the reader quits or the
-/// window changes size.
+/// What the reader does in the pager besides scrolling, which stays when
+/// the window changes size.
+#[derive(Debug)]
+struct State {
+    /// How a search treats case.
+    case: SearchCase,
+    /// Whether the help is open.
+    help: bool,
+    /// The search prompt, while it is open.
+    prompt: Option<Prompt>,
+    /// The last search.
+    search: Option<Search>,
+}
+
+impl State {
+    /// Nothing done yet, with searches that treat case as `case` says.
+    fn new(case: SearchCase) -> Self {
+        Self {
+            case,
+            help: false,
+            prompt: None,
+            search: None,
+        }
+    }
+
+    /// Does what `key` asks in `layout`; true when it quits.
+    fn press(&mut self, key: Key, layout: &mut Layout) -> bool {
+        // Any key closes the help and does nothing else, but Ctrl+C
+        // still quits.
+        if self.help && key != Key::Ctrl('c') {
+            self.help = false;
+            return false;
+        }
+        // While the prompt is open, keys edit it.
+        if let Some(prompt) = &mut self.prompt {
+            match prompt.edit(key) {
+                Edit::Typing => {}
+                Edit::Cancel => self.prompt = None,
+                Edit::Search(term) => {
+                    self.prompt = None;
+                    self.find(&term, layout);
+                }
+            }
+            return false;
+        }
+        match keys::action(key) {
+            Some(Action::Quit) => return true,
+            Some(Action::Move(motion)) => layout.view.scroll(motion),
+            // The help and the prompt need a row besides the status line's.
+            Some(Action::Help) => self.help = layout.status.bar,
+            Some(Action::Search) => {
+                self.prompt = layout.status.bar.then(Prompt::default);
+            }
+            None => {}
+        }
+        false
+    }
+
+    /// Searches for `term` from the top of the view, and shows the first
+    /// match.
+    fn find(&mut self, term: &str, layout: &mut Layout) {
+        let search = Search::new(layout.lines, term, self.case, layout.view.top());
+        if let Some(found) = search.current() {
+            layout.view.reveal(found.line);
+        }
+        self.search = Some(search);
+    }
+}
+
+/// One layout of the document: its lines, the view of them and the status
+/// line below it.
+struct Layout<'a> {
+    lines: &'a [Line],
+    status: &'a Status<'a>,
+    view: &'a mut View,
+}
+
+impl Layout<'_> {
+    /// What the screen shows in `state`: the top line, the status line and
+    /// the help panel.
+    fn frame(&self, state: &State) -> (usize, Vec<Span>, Vec<Placed>) {
+        (
+            self.view.top(),
+            self.status.spans(self.view, state),
+            self.status.panel(self.view, state.help),
+        )
+    }
+}
+
+/// Shows `layout` in `state` on `terminal`, whose window is of `size`, and
+/// scrolls it until the reader quits or the window changes size.
 fn show(
-    lines: &[Line],
-    status: &Status,
-    view: &mut View,
+    layout: &mut Layout,
+    state: &mut State,
     writer: &mut Writer,
     terminal: &mut impl Terminal,
     size: Option<WindowSize>,
 ) -> io::Result<Outcome> {
-    draw(lines, view, &status.spans(view), &[], writer, terminal)?;
+    let mut shown = layout.frame(state);
+    draw(
+        layout.lines,
+        layout.view,
+        &shown.1,
+        &shown.2,
+        writer,
+        terminal,
+    )?;
     terminal.flush()?;
     let mut decoder = keys::Decoder::default();
-    let mut help = false;
     loop {
         let input = terminal.read(POLL)?;
-        let (top, was_open) = (view.top(), help);
         // Nothing more came for a key the last read cut off.
         let keys = if input.is_empty() {
             decoder.flush()
@@ -221,27 +328,25 @@ fn show(
             decoder.keys(&input)
         };
         for key in keys {
-            // Any key closes the help and does nothing else, but Ctrl+C
-            // still quits.
-            if help && key != Key::Ctrl('c') {
-                help = false;
-                continue;
-            }
-            match keys::action(key) {
-                Some(Action::Quit) => return Ok(Outcome::Quit),
-                Some(Action::Move(motion)) => view.scroll(motion),
-                // The help needs a row besides the status line's.
-                Some(Action::Help) => help = status.bar,
-                None => {}
+            if state.press(key, layout) {
+                return Ok(Outcome::Quit);
             }
         }
         let now = terminal.size();
         if now != size {
             return Ok(Outcome::Resized(now));
         }
-        if view.top() != top || help != was_open {
-            let panel = status.panel(view, help);
-            draw(lines, view, &status.spans(view), &panel, writer, terminal)?;
+        let frame = layout.frame(state);
+        if frame != shown {
+            shown = frame;
+            draw(
+                layout.lines,
+                layout.view,
+                &shown.1,
+                &shown.2,
+                writer,
+                terminal,
+            )?;
             terminal.flush()?;
         }
     }
@@ -372,8 +477,9 @@ mod tests {
             if let Some(size) = self.sizes.pop_front() {
                 self.size = size;
             }
-            // Out of keys, the reader quits.
-            Ok(self.keys.pop_front().unwrap_or_else(|| b"q".to_vec()))
+            // Out of keys, the reader quits, with Ctrl+C, which also
+            // closes a prompt left open.
+            Ok(self.keys.pop_front().unwrap_or_else(|| b"\x03".to_vec()))
         }
     }
 
@@ -384,7 +490,15 @@ mod tests {
 
     fn show(document: &Document, terminal: &mut Fake) {
         let mut inputs = Inputs::new(Capabilities::ansi(80));
-        run(document, "notes.md", &mut inputs, None, terminal).unwrap();
+        run(
+            document,
+            "notes.md",
+            &mut inputs,
+            None,
+            SearchCase::Smart,
+            terminal,
+        )
+        .unwrap();
     }
 
     #[test]
@@ -507,7 +621,15 @@ mod tests {
         let mut terminal = Fake::new(40, 3, &[b"G"]);
         let document = crate::parse::parse("# Title\n\nText\n");
         let mut inputs = Inputs::new(Capabilities::kitty(80));
-        run(&document, "notes.md", &mut inputs, None, &mut terminal).unwrap();
+        run(
+            &document,
+            "notes.md",
+            &mut inputs,
+            None,
+            SearchCase::Smart,
+            &mut terminal,
+        )
+        .unwrap();
         let frames = terminal.frames();
         assert!(frames[0].contains("Title"), "{frames:?}");
         assert!(!frames[0].contains("\x1b]66;"), "{frames:?}");
@@ -521,11 +643,109 @@ mod tests {
         terminal.sizes = [window(80, 5)].into();
         let document = crate::parse::parse("A paragraph of several words\n");
         let mut inputs = Inputs::new(Capabilities::ansi(80));
-        run(&document, "notes.md", &mut inputs, Some(10), &mut terminal).unwrap();
+        run(
+            &document,
+            "notes.md",
+            &mut inputs,
+            Some(10),
+            SearchCase::Smart,
+            &mut terminal,
+        )
+        .unwrap();
         // One frame before the window changed, and one after.
         assert_eq!(terminal.frames().len(), 2);
         for frame in terminal.frames() {
             assert!(!frame.contains("A paragraph of"), "{frame:?}");
         }
+    }
+
+    /// The status line of `frame`, on row `row`.
+    fn status_row(frame: &str, row: u16) -> String {
+        let at = format!("\x1b[{row};1H");
+        frame[frame.find(&at).unwrap()..].to_owned()
+    }
+
+    /// Whether `frame` shows `line` on its top row.
+    fn at_top(frame: &str, line: &str) -> bool {
+        frame.contains(&format!("\x1b[1;1H  {line}\x1b"))
+    }
+
+    #[test]
+    fn a_slash_opens_a_prompt_on_the_status_line() {
+        let mut terminal = Fake::new(40, 6, &[b"/", "lä".as_bytes()]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        for (frame, prompt) in [(&frames[1], "/\u{258f}"), (&frames[2], "/lä\u{258f}")] {
+            let status = status_row(frame, 6);
+            assert!(status.contains(" kiri "), "{status:?}");
+            assert!(status.contains(prompt), "{status:?}");
+            assert!(!status.contains("notes.md"), "{status:?}");
+            assert!(!status.contains("help"), "{status:?}");
+        }
+    }
+
+    #[test]
+    fn enter_moves_to_the_first_match_from_the_top_of_the_view() {
+        // Line 3 is above the view after a page down, so Line 30 is the
+        // first match.
+        let mut terminal = Fake::new(40, 6, &[b"jjjjjjjj", b"/line 3", b"\r"]);
+        show(&numbers(40), &mut terminal);
+        let frames = terminal.frames();
+        assert!(at_top(frames.last().unwrap(), "Line 30"), "{frames:#?}");
+        let status = status_row(frames.last().unwrap(), 6);
+        assert!(status.contains("notes.md"), "{status:?}");
+        assert!(!status.contains('\u{258f}'), "{status:?}");
+    }
+
+    #[test]
+    fn a_match_already_in_view_does_not_move_it() {
+        // Two lines down after the search shows Line 2 at the top.
+        let mut terminal = Fake::new(40, 6, &[b"/line 2\r", b"jj"]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert!(at_top(frames.last().unwrap(), "Line 2"), "{frames:#?}");
+    }
+
+    #[test]
+    fn escape_and_ctrl_c_cancel_the_prompt() {
+        let reads: &[&[u8]] = &[b"/line 20", b"\x1b", b"", b"/line 20", b"\x03", b"jj"];
+        let mut terminal = Fake::new(40, 6, reads);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        let last = frames.last().unwrap();
+        // Ctrl+C did not quit, and j moved down.
+        assert!(at_top(last, "Line 2"), "{frames:#?}");
+        assert!(status_row(last, 6).contains("notes.md"), "{frames:#?}");
+    }
+
+    #[test]
+    fn backspace_deletes_and_on_an_empty_prompt_cancels() {
+        let reads: &[&[u8]] = &[b"/line 2x", b"\x7f0\r", b"/a", b"\x7f\x08", b"jj"];
+        let mut terminal = Fake::new(40, 6, reads);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert!(
+            frames.iter().any(|frame| at_top(frame, "Line 20")),
+            "{frames:#?}"
+        );
+        assert!(at_top(frames.last().unwrap(), "Line 21"), "{frames:#?}");
+    }
+
+    #[test]
+    fn ctrl_u_clears_the_prompt() {
+        let mut terminal = Fake::new(40, 6, &[b"/xyz", b"\x15line 20\r"]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert!(at_top(frames.last().unwrap(), "Line 20"), "{frames:#?}");
+    }
+
+    #[test]
+    fn keys_go_to_the_prompt_while_it_is_open() {
+        // q and G are typed, not bindings.
+        let mut terminal = Fake::new(40, 6, &[b"/qG"]);
+        show(&numbers(30), &mut terminal);
+        let frames = terminal.frames();
+        assert!(status_row(&frames[1], 6).contains("/qG"), "{frames:#?}");
+        assert!(at_top(&frames[1], "Line 1"), "{frames:#?}");
     }
 }

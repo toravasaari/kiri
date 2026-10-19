@@ -88,15 +88,8 @@ fn mixed(theme: &Theme, caps: &Capabilities) -> Option<Color> {
 /// name.
 pub fn spans(name: &str, position: Position, width: usize, styles: &Styles) -> Vec<Span> {
     // Measured as shown: a file name may hold any character but `/`.
-    let name: String = name
-        .chars()
-        .map(|c| match c {
-            c if c.is_control() => char::REPLACEMENT_CHARACTER,
-            c => c,
-        })
-        .collect();
+    let name = printable(name);
     let name = name.as_str();
-    let badge = " kiri ";
     let percent = format!("{}%", position.percent);
     let keys = [("?", " help"), ("q", " quit")];
     let keys_width: usize = keys
@@ -105,14 +98,9 @@ pub fn spans(name: &str, position: Position, width: usize, styles: &Styles) -> V
         .sum();
     // The badge, the position and a space after it, and a space between
     // the badge and the name.
-    let fixed = badge.width() + percent.width() + 2;
+    let fixed = BADGE.width() + percent.width() + 2;
     if fixed > width {
-        // The badge is ASCII.
-        let badge = &badge[..width.min(badge.len())];
-        return [Span::new(badge, styles.badge.clone())]
-            .into_iter()
-            .filter(|span| !span.text.is_empty())
-            .collect();
+        return badge_only(width, styles);
     }
     // The name needs a space between it and the position.
     let with_keys = fixed + name.width() + 1 + keys_width <= width;
@@ -123,7 +111,7 @@ pub fn spans(name: &str, position: Position, width: usize, styles: &Styles) -> V
         bold: true,
         ..styles.bar.clone()
     };
-    let mut spans = vec![Span::new(badge, styles.badge.clone())];
+    let mut spans = vec![Span::new(BADGE, styles.badge.clone())];
     let shown = tail(name, room);
     spans.push(Span::new(&format!(" {shown}"), styles.bar.clone()));
     let mut right = vec![Span::new(&percent, styles.bar.clone())];
@@ -142,6 +130,53 @@ pub fn spans(name: &str, position: Position, width: usize, styles: &Styles) -> V
     ));
     spans.extend(right);
     spans
+}
+
+/// The status line while the search prompt is open with `term` typed so
+/// far: the badge, then the prompt with a cursor after the term. A term
+/// too long for the window loses its start.
+pub fn prompt(term: &str, width: usize, styles: &Styles) -> Vec<Span> {
+    // The badge, and a space, the slash and the cursor.
+    let fixed = BADGE.width() + 3;
+    if fixed > width {
+        return badge_only(width, styles);
+    }
+    let shown = tail(&printable(term), width - fixed);
+    let mut spans = vec![
+        Span::new(BADGE, styles.badge.clone()),
+        Span::new(&format!(" /{shown}{CURSOR}"), styles.bar.clone()),
+    ];
+    let used = width_of(&spans);
+    spans.push(Span::new(&" ".repeat(width - used), styles.bar.clone()));
+    spans
+}
+
+/// The badge that tells the pager is on.
+const BADGE: &str = " kiri ";
+
+/// The cursor after the term in the prompt.
+const CURSOR: char = '\u{258f}';
+
+/// The badge alone, cut to `width` cells, for a window too narrow for
+/// more.
+fn badge_only(width: usize, styles: &Styles) -> Vec<Span> {
+    // The badge is ASCII.
+    let badge = &BADGE[..width.min(BADGE.len())];
+    [Span::new(badge, styles.badge.clone())]
+        .into_iter()
+        .filter(|span| !span.text.is_empty())
+        .collect()
+}
+
+/// `text` with each control character replaced, so that it takes as many
+/// cells as it is measured to.
+fn printable(text: &str) -> String {
+    text.chars()
+        .map(|c| match c {
+            c if c.is_control() => char::REPLACEMENT_CHARACTER,
+            c => c,
+        })
+        .collect()
 }
 
 /// The end of `name` in at most `room` cells, after `…` when its start is
@@ -305,6 +340,26 @@ mod tests {
         let spans = spans("文書/説明.md", at(42), 18, &styles());
         assert_eq!(width(&spans), 18, "{spans:?}");
         assert_eq!(text(&spans), " kiri  …明.md 42% ");
+    }
+
+    #[test]
+    fn the_prompt_replaces_the_name_and_the_keys() {
+        let spans = prompt("kiri", 30, &styles());
+        assert_eq!(text(&spans), " kiri  /kiri\u{258f}                 ");
+        assert_eq!(width(&spans), 30);
+        assert_eq!(spans[0].style, styles().badge);
+    }
+
+    #[test]
+    fn a_long_term_in_the_prompt_loses_its_start() {
+        let spans = prompt("a long search term", 20, &styles());
+        assert_eq!(text(&spans), " kiri  /…earch term\u{258f}");
+        assert_eq!(width(&spans), 20);
+        for width in 0..30 {
+            let spans = prompt("kiri", width, &styles());
+            let expected = if width < 9 { width.min(6) } else { width };
+            assert_eq!(super::width_of(&spans), expected, "{width}: {spans:?}");
+        }
     }
 
     #[test]

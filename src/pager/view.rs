@@ -144,6 +144,14 @@ impl View {
         self.top = top.min(self.last_top());
     }
 
+    /// Brings `line` into the view: when it is not shown, it becomes the
+    /// top line, or the last page shows it.
+    pub fn reveal(&mut self, line: usize) {
+        if !self.visible().contains(&line) {
+            self.top = line.min(self.last_top());
+        }
+    }
+
     /// The same view for lines laid out again, `heights` high, in a window
     /// of `rows` rows: the top stays at about the same place in the
     /// document.
@@ -314,6 +322,23 @@ mod tests {
         assert_eq!(plain(0, 4).position(), position(100));
         // A tall line that does not fit is not shown, so not counted.
         assert_eq!(View::new(vec![1, 1, 3], 4).position(), position(40));
+    }
+
+    #[test]
+    fn revealing_a_line_moves_only_when_it_is_not_shown() {
+        let mut view = plain(10, 4);
+        view.reveal(3);
+        assert_eq!(view.top(), 0);
+        view.reveal(5);
+        assert_eq!(view.top(), 5);
+        view.reveal(9);
+        assert_eq!(view.top(), 6);
+        view.reveal(1);
+        assert_eq!(view.top(), 1);
+        // A heading of two rows is shown whole.
+        let mut view = View::new(vec![1, 1, 1, 2, 1], 3);
+        view.reveal(3);
+        assert_eq!(view.visible(), 3..5);
     }
 
     #[test]

@@ -17,6 +17,43 @@ pub struct Match {
     pub bytes: Range<usize>,
 }
 
+/// A search: its term, where it is in the document and which place the
+/// reader is at.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Search {
+    term: String,
+    matches: Vec<Match>,
+    /// The index of the current match; `None` when there is none.
+    current: Option<usize>,
+}
+
+impl Search {
+    /// A search for `term` in `lines`, at its first match on line `top` or
+    /// below it, or at its first match when there is none there.
+    pub fn new(lines: &[Line], term: &str, case: SearchCase, top: usize) -> Self {
+        let matches = find(lines, term, case);
+        let current = matches
+            .iter()
+            .position(|found| found.line >= top)
+            .or((!matches.is_empty()).then_some(0));
+        Self {
+            term: term.to_owned(),
+            matches,
+            current,
+        }
+    }
+
+    /// The term searched for.
+    pub fn term(&self) -> &str {
+        &self.term
+    }
+
+    /// The match the reader is at.
+    pub fn current(&self) -> Option<&Match> {
+        self.matches.get(self.current?)
+    }
+}
+
 /// The places of `term` in `lines`, from the top and from left to right,
 /// none overlapping another. A no-break space matches a space. With
 /// `SearchCase::Smart`, a term with no upper-case letter ignores case.
@@ -160,6 +197,25 @@ mod tests {
             find(&lines, "äiti", SearchCase::Smart),
             [at(0, 3..8), at(0, 9..14)]
         );
+    }
+
+    #[test]
+    fn a_search_starts_at_the_first_match_from_the_top_line() {
+        let lines = [line("kiri"), line("a"), line("kiri kiri")];
+        let search = Search::new(&lines, "kiri", SearchCase::Smart, 1);
+        assert_eq!(search.term(), "kiri");
+        assert_eq!(search.current(), Some(&at(2, 0..4)));
+        let search = Search::new(&lines, "kiri", SearchCase::Smart, 0);
+        assert_eq!(search.current(), Some(&at(0, 0..4)));
+    }
+
+    #[test]
+    fn a_search_with_no_match_below_the_top_starts_at_the_first() {
+        let lines = [line("kiri"), line("a")];
+        let search = Search::new(&lines, "kiri", SearchCase::Smart, 1);
+        assert_eq!(search.current(), Some(&at(0, 0..4)));
+        let search = Search::new(&lines, "xyz", SearchCase::Smart, 0);
+        assert_eq!(search.current(), None);
     }
 
     #[test]

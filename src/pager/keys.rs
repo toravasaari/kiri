@@ -29,6 +29,8 @@ pub enum Key {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Move(Motion),
+    /// Opens the search prompt.
+    Search,
     Help,
     Quit,
 }
@@ -254,6 +256,12 @@ pub const BINDINGS: &[Binding] = {
             names: "G End",
             what: "bottom",
             action: Action::Move(End),
+        },
+        Binding {
+            keys: &[Char('/')],
+            names: "/",
+            what: "search",
+            action: Action::Search,
         },
         Binding {
             keys: &[Char('?'), Char('h')],
@@ -512,6 +520,11 @@ mod tests {
                 .iter()
                 .any(|binding| binding.action == Action::Quit)
         );
+    }
+
+    #[test]
+    fn a_slash_searches() {
+        assert_eq!(action(Key::Char('/')), Some(Action::Search));
     }
 
     #[test]
