@@ -27,3 +27,6 @@ docs/superpowers/
 # reading AGENTS.md, which it only loads when no CLAUDE*.md exists.
 .claude/settings.local.json
 CLAUDE.local.md
+
+# The jba skill is a personal tool of the maintainer, kept out of the tree.
+.claude/skills/jba/
