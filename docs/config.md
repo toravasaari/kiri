@@ -21,6 +21,9 @@ theme = "themes/mine.toml"
 
 # false shows every image as its alt text, without reading it.
 images = true
+
+# When to show the document in the pager: "always", "auto" or "never".
+paging = "auto"
 ```
 
 ## Theme
@@ -57,6 +60,25 @@ alt text, without warnings about images that would not have loaded.
 These settings are about images inside documents: an image file given on
 the command line, `kiri photo.jpg`, is shown whatever they say.
 
+## Paging
+
+The first of these that is given decides when a document is shown in the
+pager:
+
+1. `--paging always|auto|never`, `-p` for `always` or `-P` for `never`;
+   only one of them can be given
+2. `KIRI_PAGING`: `always`, `auto` or `never`, `1` for `always` and `0` for
+   `never`; an empty value counts as unset, and any other value is left
+   out with a warning
+3. `paging` in the configuration file
+4. `auto`
+
+`auto` pages a document longer than the window; a shorter one is printed.
+A document from standard input, often another command's output, and the
+`--doctor` report are paged only with `always`. Whatever the setting, kiri
+prints the document when its output is not a terminal or `--mode plain`
+asks for text without escape sequences.
+
 ## Environment variables
 
 | Variable | Meaning |
@@ -64,5 +86,6 @@ the command line, `kiri photo.jpg`, is shown whatever they say.
 | `KIRI_CONFIG` | The configuration file to read instead of the default |
 | `KIRI_THEME` | A theme file; see [Theme](#theme) |
 | `KIRI_NO_IMAGES` | Images as alt text; see [Images](#images) |
+| `KIRI_PAGING` | When to page; see [Paging](#paging) |
 | `NO_COLOR` | No colours, when set and not empty; see [no-color.org](https://no-color.org) |
 | `XDG_CONFIG_HOME` | Where the configuration directory is; `~/.config` when unset |

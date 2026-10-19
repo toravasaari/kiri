@@ -9,7 +9,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use image::ImageFormat;
 
-use crate::config::{Choices, Environment, Origin, Setting, ThemeSource};
+use crate::config::{Choices, Environment, Origin, Paging, Setting, ThemeSource};
 use crate::render::image::DEFAULT_CELL;
 use crate::term::{CellSize, Detection, Mode};
 use crate::theme::Paper;
@@ -96,6 +96,7 @@ fn write_problems(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     let problems: Vec<_> = [&facts.config_error, &facts.theme_error]
         .into_iter()
         .flatten()
+        .chain(&facts.choices.warnings)
         .collect();
     if problems.is_empty() {
         return Ok(());
@@ -209,6 +210,13 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     )?;
     let images = &choices.images;
     row(out, &["Images", on_off(images.value), &from(images.origin)])?;
+    let paging = &choices.paging;
+    let when = match paging.value {
+        Paging::Always => "always",
+        Paging::Auto => "auto",
+        Paging::Never => "never",
+    };
+    row(out, &["Paging", when, &from(paging.origin)])?;
     let size = &facts.max_image_size;
     let mb = format!("{} MB", size.value);
     row(out, &["Largest image", &mb, &from(size.origin)])?;
@@ -318,6 +326,7 @@ fn variable<'a>(env: &'a Environment, name: &str) -> Option<&'a OsStr> {
     match name {
         "KIRI_THEME" => env.kiri_theme.as_deref(),
         "KIRI_NO_IMAGES" => env.kiri_no_images.as_deref(),
+        "KIRI_PAGING" => env.kiri_paging.as_deref(),
         "KIRI_CONFIG" => env.kiri_config.as_deref(),
         "XDG_CONFIG_HOME" => env.xdg_config_home.as_deref(),
         _ => None,

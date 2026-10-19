@@ -7,6 +7,7 @@ pub mod images;
 pub mod input;
 pub mod kitty;
 pub mod model;
+pub mod pager;
 pub mod parse;
 pub mod render;
 pub mod term;

@@ -79,6 +79,19 @@ struct Cli {
     #[arg(long, conflicts_with = "no_images")]
     images: bool,
 
+    /// When to show the document in the pager: always, auto (when it is
+    /// longer than the window and the output is a terminal) or never.
+    #[arg(long, value_enum, value_name = "WHEN", conflicts_with_all = ["pager", "no_pager"])]
+    paging: Option<Paging>,
+
+    /// Show the document in the pager: --paging=always.
+    #[arg(short = 'p', conflicts_with = "no_pager")]
+    pager: bool,
+
+    /// Print the document without the pager: --paging=never.
+    #[arg(short = 'P')]
+    no_pager: bool,
+
     /// Largest image file to read, in megabytes (at most 100); larger
     /// images show their alt text.
     #[arg(long, value_name = "MB", default_value_t = 10, value_parser = max_image_size)]
@@ -120,6 +133,24 @@ impl From<Mode> for kiri::term::Mode {
             Mode::Plain => Self::Plain,
             Mode::Ansi => Self::Ansi,
             Mode::Kitty => Self::Kitty,
+        }
+    }
+}
+
+/// `config::Paging` for clap.
+#[derive(Clone, Copy, ValueEnum)]
+enum Paging {
+    Always,
+    Auto,
+    Never,
+}
+
+impl From<Paging> for kiri::config::Paging {
+    fn from(paging: Paging) -> Self {
+        match paging {
+            Paging::Always => Self::Always,
+            Paging::Auto => Self::Auto,
+            Paging::Never => Self::Never,
         }
     }
 }
@@ -203,7 +234,14 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), String> {
         ),
     })?;
     let config = kiri::config::load(&env)?;
-    let settings = kiri::config::settings(&options(cli), &env, &config)?;
+    let choices = kiri::config::choose(&options(cli), &env, &config);
+    for warning in &choices.warnings {
+        eprintln!("kiri: {warning}");
+    }
+    let mut settings = choices.with_theme(kiri::config::load_theme(&choices.theme.value)?);
+    if file.is_none() {
+        settings.paging = only_always(settings.paging);
+    }
     let caps = kiri::term::capabilities(cli.mode.into(), cli.width, &env);
     let document = kiri::parse::parse(&source);
     // Images in a piped document are relative to the current directory.
@@ -244,13 +282,60 @@ fn show_document(
     } else {
         Images::new()
     };
-    let inputs = Inputs {
+    let mut inputs = Inputs {
         images,
         theme: settings.theme,
         ..Inputs::new(caps)
     };
+    if let Some(result) = page(cli, document, &mut inputs, settings.paging) {
+        return finish(result);
+    }
     let mut out = io::stdout().lock();
     finish(kiri::render::render(document, &inputs, &mut out).and_then(|()| out.flush()))
+}
+
+/// `paging` for a document that is paged only when paging is `always`:
+/// one read from standard input, often the output of another command, and
+/// the `--doctor` report.
+fn only_always(paging: kiri::config::Paging) -> kiri::config::Paging {
+    use kiri::config::Paging;
+    match paging {
+        Paging::Always => Paging::Always,
+        Paging::Auto | Paging::Never => Paging::Never,
+    }
+}
+
+/// Shows `document` in the pager when `paging` asks for it and the output
+/// is a terminal that takes escape sequences; `None` when it is to be
+/// printed instead.
+fn page(
+    cli: &Cli,
+    document: &Document,
+    inputs: &mut Inputs,
+    paging: kiri::config::Paging,
+) -> Option<io::Result<()>> {
+    let terminal = kiri::term::stdout_is_terminal() && inputs.caps.styling;
+    if !terminal || paging == kiri::config::Paging::Never {
+        return None;
+    }
+    let lines = kiri::render::layout::layout(document, inputs);
+    let rows = kiri::pager::rows(&lines, &inputs.caps);
+    let height = kiri::term::window_size(io::stdout()).map(|window| window.rows);
+    if !kiri::pager::pages(paging, terminal, rows, height) {
+        return None;
+    }
+    let Some(mut screen) = kiri::term::Screen::open() else {
+        // Without a terminal to read keys from, as in the background, the
+        // document is printed; only a reader who asked for the pager is
+        // told.
+        if paging == kiri::config::Paging::Always {
+            eprintln!("kiri: no terminal to read keys from, so the document is printed");
+        }
+        return None;
+    };
+    let result = kiri::pager::run(document, inputs, cli.width, &mut screen);
+    screen.close();
+    Some(result)
 }
 
 /// Shows the image file `path`, in `format`, read from `reader`. It
@@ -324,7 +409,8 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), String> {
         );
     }
     let document = kiri::parse::parse(&markdown);
-    let settings = choices.with_theme(theme);
+    let mut settings = choices.with_theme(theme);
+    settings.paging = only_always(settings.paging);
     show_document(cli, &document, Path::new(""), settings, detection.caps)
 }
 
@@ -358,6 +444,12 @@ fn options(cli: &Cli) -> Options {
         images: match (cli.images, cli.no_images) {
             (true, _) => Some(true),
             (_, true) => Some(false),
+            _ => None,
+        },
+        paging: match (cli.paging, cli.pager, cli.no_pager) {
+            (Some(paging), _, _) => Some(Setting::new(paging.into(), Origin::Flag("--paging"))),
+            (_, true, _) => Some(Setting::new(Paging::Always.into(), Origin::Flag("-p"))),
+            (_, _, true) => Some(Setting::new(Paging::Never.into(), Origin::Flag("-P"))),
             _ => None,
         },
     }

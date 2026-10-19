@@ -265,3 +265,36 @@ fn no_margins_puts_the_text_at_the_edge() {
         assert_eq!(text(&out.stdout), "Text\n", "{option}");
     }
 }
+
+#[test]
+fn an_unknown_kiri_paging_is_a_warning() {
+    let dir = Scratch::new("paging-unknown");
+    let document = dir.join("document.md");
+    std::fs::write(&document, "Text\n").unwrap();
+    let out = command(&dir)
+        .env("KIRI_PAGING", "joo")
+        .arg(&document)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert_eq!(text(&out.stdout).trim(), "Text");
+    assert_eq!(
+        text(&out.stderr),
+        "kiri: KIRI_PAGING: `joo` is not always, auto, never, 1 or 0; left out\n"
+    );
+}
+
+#[test]
+fn the_paging_flags_exclude_each_other() {
+    let dir = Scratch::new("paging-flags");
+    let document = dir.join("document.md");
+    std::fs::write(&document, "Text\n").unwrap();
+    for args in [&["-p", "-P"][..], &["-p", "--paging", "never"][..]] {
+        let out = command(&dir).args(args).arg(&document).output().unwrap();
+        assert!(!out.status.success(), "{args:?}");
+        assert!(
+            text(&out.stderr).contains("cannot be used with"),
+            "{args:?}"
+        );
+    }
+}

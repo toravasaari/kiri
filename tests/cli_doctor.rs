@@ -84,6 +84,7 @@ fn settings_tell_where_they_come_from() {
             "72",
             "--max-image-size",
             "5",
+            "-P",
         ],
     );
     command.env("KIRI_THEME", dir.join("home/themes/mine.toml"));
@@ -96,6 +97,7 @@ fn settings_tell_where_they_come_from() {
         "| Margins | off | `--no-margins` |",
         "| Images | off | configuration file |",
         "| Largest image | 5 MB | `--max-image-size` |",
+        "| Paging | never | `-P` |",
         "| Width | 72 cells | `--width` |",
         "| Configuration file | `~/.config/kiri/config.toml` | default | read |",
     ] {
@@ -113,6 +115,43 @@ fn an_environment_variable_shows_its_value() {
     let report = text(&out.stdout);
     let row = "| Images | off | `KIRI_NO_IMAGES=1` |";
     assert!(report.contains(row), "{report}");
+}
+
+#[test]
+fn paging_tells_where_it_comes_from() {
+    let dir = Scratch::new("doctor-paging");
+    for (args, variable, row) in [
+        (&[][..], None, "| Paging | auto | default |"),
+        (&["-p"][..], None, "| Paging | always | `-p` |"),
+        (
+            &["--paging", "never"][..],
+            None,
+            "| Paging | never | `--paging` |",
+        ),
+        (&[][..], Some("1"), "| Paging | always | `KIRI_PAGING=1` |"),
+    ] {
+        let mut command = doctor(&dir, args);
+        if let Some(value) = variable {
+            command.env("KIRI_PAGING", value);
+        }
+        let out = command.output().unwrap();
+        assert_succeeded(&out);
+        let report = text(&out.stdout);
+        assert!(report.contains(row), "{row}\n{report}");
+    }
+}
+
+#[test]
+fn an_unknown_kiri_paging_is_a_problem_in_the_report() {
+    let dir = Scratch::new("doctor-paging-unknown");
+    let mut command = doctor(&dir, &[]);
+    command.env("KIRI_PAGING", "joo");
+    let out = command.output().unwrap();
+    assert_succeeded(&out);
+    let report = text(&out.stdout);
+    let problem = "- `KIRI_PAGING`: `joo` is not always, auto, never, 1 or 0; left out";
+    assert!(report.contains(problem), "{report}");
+    assert!(report.contains("| Paging | auto | default |"), "{report}");
 }
 
 #[test]

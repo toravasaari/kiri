@@ -47,6 +47,15 @@ use comes from the capabilities it is given: plain text for pipes, colours
 and attributes for any modern terminal, and kitty's protocols on top where
 they work.
 
+The pager shows the same styled lines on the terminal's alternate screen.
+`src/pager/view.rs` chooses the lines that fit in the window, a scaled
+line whole or not at all, and moves them; `src/pager/keys.rs` turns the
+bytes the terminal sends into keys and keys into moves; `src/pager/mod.rs`
+draws each frame, row by row through the backend's writer, and lays the
+document out again when the window changes size. The terminal itself, the
+alternate screen, raw mode and reading keys from the controlling terminal,
+is opened in `src/term.rs`.
+
 ## Terminal capabilities
 
 `src/term.rs` is the only place that talks to the terminal to find out what
@@ -85,7 +94,9 @@ writes as it is into a pipe.
 | Hyperlinks | OSC 8 | `src/render/output.rs` | Clickable links |
 | Text attributes and colours | SGR | `src/render/output.rs` | Bold, italic, colours |
 | Styled underlines | SGR 4:x | `src/render/output.rs` | Heading underline styles |
-| Cursor movement, erase | CSI C, CSI K | `src/render/output.rs` | Backgrounds beside scaled headings and across the width |
+| Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J | `src/render/output.rs`, `src/pager/mod.rs` | Backgrounds beside scaled headings and across the width; the pager's rows |
+| Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term.rs` | The pager's screen of its own |
+| Synchronized output | CSI ?2026h/l | `src/pager/mod.rs` | Pager frames without flicker |
 | Cell size query | CSI 16 t | `src/kitty/query.rs` | The cell size in pixels where the window size has none |
 | Generic queries | CSI 6n, OSC 11, OSC 4, CSI > q, CSI c | `src/term.rs` | Cursor position, background and palette colours, terminal version, end of the answers |
 
@@ -108,7 +119,8 @@ src/input.rs               whether a file is a document or an image
 src/model.rs               document model
 src/parse/mod.rs           comrak tree -> document model
 src/parse/html.rs          HTML <img> tags and their attributes
-src/term.rs                capability detection, the only terminal queries
+src/term.rs                capability detection, the only terminal queries,
+                           the pager's screen and keys
 src/config.rs              settings: options, environment, configuration file
 src/doctor.rs              the --doctor report as Markdown
 src/theme.rs               colours and sizes, theme files
@@ -127,6 +139,9 @@ src/render/image.rs        image sizes in pixels and terminal cells
 src/render/style.rs        styled text between layout and output
 src/render/output.rs       styled lines -> bytes (SGR, OSC 8, CSI C/K, OSC 66)
 src/render/highlight.rs    syntax highlighting for code blocks (syntect)
+src/pager/mod.rs           the pager: frames and the loop of keys
+src/pager/view.rs          the lines a window shows, and scrolling
+src/pager/keys.rs          keys from the terminal and what they do
 src/kitty/mod.rs           kitty-specific escape sequences
 src/kitty/text.rs          text sizing protocol (OSC 66)
 src/kitty/graphics.rs      graphics protocol with Unicode placeholders
@@ -147,7 +162,7 @@ debug.
 
 - **Rust:** one fast binary with no runtime, and mature crates for each part:
   comrak (Markdown), syntect (syntax highlighting), image and resvg (raster
-  and SVG images), typst (formulas), crossterm (pager input).
+  and SVG images), typst (formulas), rustix (terminal modes and pager input).
 - **Text first:** the alternatives were rendering the whole document as an
   image, through a headless browser or a custom layout engine. Both look
   closer to a browser but lose text selection, search and the terminal font,
