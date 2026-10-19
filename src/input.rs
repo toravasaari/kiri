@@ -1,5 +1,5 @@
-//! What a file given on the command line is: a Markdown document or an
-//! image to show on its own.
+//! What a file given on the command line is: a Markdown document, a CSV
+//! or TSV table, or an image to show on its own.
 
 use std::ffi::OsStr;
 use std::path::Path;
@@ -7,6 +7,7 @@ use std::path::Path;
 use image::ImageFormat;
 
 use crate::images::Format;
+use crate::parse::csv::Separator;
 
 /// How many bytes from the start of a file `detect` looks at.
 pub const HEAD: usize = 64;
@@ -15,6 +16,8 @@ pub const HEAD: usize = 64;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Input {
     Markdown,
+    /// CSV or TSV, shown as a table.
+    Table(Separator),
     Image(Format),
 }
 
@@ -22,17 +25,19 @@ pub enum Input {
 const MARKDOWN: &[&str] = &["md", "markdown", "mdown", "mkd", "mkdn", "mdwn"];
 
 /// What the file at `path`, which starts with `head`, is. A Markdown
-/// extension makes it Markdown and an SVG extension an SVG. Otherwise the
-/// content tells a raster image, unless it is text: a Markdown file may
-/// well start with `BM`, which also starts a BMP image. Then an image
-/// extension tells formats whose content does not, such as TGA. Anything
-/// else is Markdown.
+/// extension makes it Markdown, a CSV or TSV extension a table and an SVG
+/// extension an SVG. Otherwise the content tells a raster image, unless it
+/// is text: a Markdown file may well start with `BM`, which also starts a
+/// BMP image. Then an image extension tells formats whose content does
+/// not, such as TGA. Anything else is Markdown.
 pub fn detect(path: &Path, head: &[u8]) -> Input {
     let extension = path.extension().and_then(OsStr::to_str);
     let is =
         |names: &[&str]| extension.is_some_and(|e| names.iter().any(|n| e.eq_ignore_ascii_case(n)));
     if is(MARKDOWN) {
         Input::Markdown
+    } else if let Some(table) = extension.and_then(table) {
+        table
     } else if is(&["svg", "svgz"]) {
         Input::Image(Format::Svg)
     } else if !looks_like_text(head) && image::guess_format(head).is_ok() {
@@ -44,19 +49,34 @@ pub fn detect(path: &Path, head: &[u8]) -> Input {
     }
 }
 
-/// The input `name` asks for, as `--format` takes it: `markdown`, `image`
-/// for an image in whatever format its content tells, or an image format
-/// by its usual extension, such as `svg` or `png`. Any case goes.
+/// The input `name` asks for, as `--format` takes it: `markdown`, `csv`,
+/// `tsv`, `image` for an image in whatever format its content tells, or an
+/// image format by its usual extension, such as `svg` or `png`. Any case
+/// goes.
 pub fn format(name: &str) -> Option<Input> {
     let is = |names: &[&str]| names.iter().any(|n| name.eq_ignore_ascii_case(n));
     if is(&["markdown", "md"]) {
         Some(Input::Markdown)
+    } else if let Some(table) = table(name) {
+        Some(table)
     } else if is(&["image"]) {
         Some(Input::Image(Format::Detect))
     } else if is(&["svg", "svgz"]) {
         Some(Input::Image(Format::Svg))
     } else {
         ImageFormat::from_extension(name).map(|format| Input::Image(Format::Raster(format)))
+    }
+}
+
+/// The table `name`, an extension or a `--format` value, names: `csv` is
+/// comma-separated, `tsv` and `tab` tab-separated.
+fn table(name: &str) -> Option<Input> {
+    if name.eq_ignore_ascii_case("csv") {
+        Some(Input::Table(Separator::Comma))
+    } else if name.eq_ignore_ascii_case("tsv") || name.eq_ignore_ascii_case("tab") {
+        Some(Input::Table(Separator::Tab))
+    } else {
+        None
     }
 }
 
@@ -103,6 +123,9 @@ mod tests {
             format("tga"),
             Some(Input::Image(Format::Raster(ImageFormat::Tga)))
         );
+        assert_eq!(format("csv"), Some(Input::Table(Separator::Comma)));
+        assert_eq!(format("TSV"), Some(Input::Table(Separator::Tab)));
+        assert_eq!(format("tab"), Some(Input::Table(Separator::Tab)));
         assert_eq!(format("docx"), None);
         assert_eq!(format(""), None);
     }
@@ -120,6 +143,21 @@ mod tests {
         ] {
             assert_eq!(detected(name, PNG), Input::Markdown, "{name}");
         }
+    }
+
+    #[test]
+    fn a_table_is_told_by_its_extension() {
+        for (name, separator) in [
+            ("a.csv", Separator::Comma),
+            ("a.CSV", Separator::Comma),
+            ("a.tsv", Separator::Tab),
+            ("a.Tab", Separator::Tab),
+        ] {
+            assert_eq!(detected(name, b"BM,x\n"), Input::Table(separator), "{name}");
+            // Whatever the content looks like.
+            assert_eq!(detected(name, PNG), Input::Table(separator), "{name}");
+        }
+        assert_eq!(detected("a.txt", b"a,b\n1,2\n"), Input::Markdown);
     }
 
     #[test]

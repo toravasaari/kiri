@@ -62,6 +62,12 @@ fits the window but never enlarged, even when images are off. Its
 extension and first bytes tell kiri that it is an image, and `--format`
 can say so instead. A terminal without kitty's graphics gets an error.
 
+A CSV or TSV file is shown as a table with its first row as the header,
+as GitHub shows one: `.csv` is comma-separated and `.tsv` tab-separated,
+and `--format csv` or `--format tsv` says so for standard input. Cells are
+plain text. A file of more than 100 000 cells shows the rows that fit and
+a note of how many were left out.
+
 Without a file name, or with `-`, kiri reads the document from standard
 input, so another command's output can be piped into it; images in it are
 relative to the current directory. A directory shows its `README.md`, or
@@ -79,7 +85,7 @@ alt text with a warning.
 
 | Option | Meaning |
 |---|---|
-| `-f`, `--format FORMAT` | What the file is: `markdown`, `image`, or an image format such as `png` |
+| `-f`, `--format FORMAT` | What the file is: `markdown`, `csv`, `tsv`, `image`, or an image format such as `png` |
 | `--mode auto\|plain\|ansi\|kitty` | Override what kiri detects |
 | `--width N` | Render for `N` cells instead of the terminal width |
 | `--theme FILE` | Colours and heading sizes; see [Theme](docs/theme.md) |

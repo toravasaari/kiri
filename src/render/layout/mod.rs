@@ -131,6 +131,10 @@ impl Layout<'_> {
                     .map(|line| Line::new(vec![Span::new(line, style.clone())]))
                     .collect()
             }
+            Block::Note(note) => {
+                let content = [Inline::Text(note.clone())];
+                self.paragraph(&content, &self.muted(Style::default()), width)
+            }
         }
     }
 

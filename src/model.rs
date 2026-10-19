@@ -32,6 +32,9 @@ pub enum Block {
     ThematicBreak,
     /// Raw HTML, shown as source until there is an HTML backend.
     Html(String),
+    /// A note of kiri's own about the document rather than part of it,
+    /// such as how many rows of a table were left out.
+    Note(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

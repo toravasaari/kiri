@@ -1,5 +1,6 @@
 //! Markdown source to document model, through comrak's syntax tree.
 
+pub mod csv;
 mod html;
 
 use comrak::nodes::{AlertType, ListType, NodeValue, TableAlignment};

@@ -34,7 +34,9 @@ terminals arrive later as new backends instead of rewrites.
 A file given on the command line need not be Markdown: `src/input.rs`
 tells an image from a document by its extension and first bytes, and an
 image skips the parser and is drawn on its own, as large as fits the
-window.
+window. A CSV or TSV file, told by its extension, goes through a parser of
+its own, `src/parse/csv.rs`, into a document of one table, so the
+backends draw it as any other table.
 
 The document can also come from standard input, which errors call
 `<stdin>`, or from a directory, which stands for its README. Both are
@@ -120,10 +122,11 @@ when the probe finds kitty's protocols or `--mode kitty` asks for them.
 ```
 src/main.rs                command line (clap)
 src/lib.rs                 library root
-src/input.rs               whether a file is a document or an image
+src/input.rs               whether a file is a document, a table or an image
 src/model.rs               document model
 src/parse/mod.rs           comrak tree -> document model
 src/parse/html.rs          HTML <img> tags and their attributes
+src/parse/csv.rs           CSV and TSV -> a document of one table
 src/term.rs                capability detection, the only terminal queries,
                            the pager's screen and keys
 src/config.rs              settings: options, environment, configuration file
