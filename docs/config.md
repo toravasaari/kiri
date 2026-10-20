@@ -219,9 +219,9 @@ it writes. In the arguments:
 
 `{input}` and `{output}` must be there. No shell expands the arguments,
 so a leading `~/` is not your home directory: write the path in full. A
-program named without a path is looked for on `PATH`. For Mermaid, kiri puts a directive after
-any front matter of the source it writes, so that labels are drawn as
-SVG text rather than as HTML, which kiri cannot draw.
+program named without a path is looked for on `PATH`. For Mermaid, kiri
+puts a directive after any front matter of the source it writes, so that
+labels are drawn as SVG text rather than as HTML, which kiri cannot draw.
 
 Each diagram may take 10 seconds, and up to four are drawn at once. When
 drawing takes longer than half a second, a line such as
