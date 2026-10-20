@@ -185,9 +185,12 @@ pub fn fixture_images_with(name: &str, diagrams: &Diagrams<'_>) -> Images {
 }
 
 /// Draws Mermaid without merman, so tests do not depend on its output:
-/// an empty SVG 200 CSS pixels wide and one text row, 20 pixels, high for
-/// each line of source. A source with a line that opens more brackets
-/// than it closes fails, as merman fails on an unclosed label.
+/// an empty SVG one text row, 20 CSS pixels, high for each line of source,
+/// and 10 + n cells of 10 pixels wide, where n is the source's length in
+/// characters modulo 30. The width tells diagrams of equal line counts
+/// apart, so a snapshot shows which source got which image. A source with
+/// a line that opens more brackets than it closes fails, as merman fails
+/// on an unclosed label.
 pub struct StubDiagrams;
 
 impl Renderer for StubDiagrams {
@@ -205,9 +208,10 @@ impl Renderer for StubDiagrams {
         if source.lines().any(unclosed) {
             return Err("unclosed label".into());
         }
+        let width = 10 * (10 + source.chars().count() % 30);
         let height = 20 * source.lines().count();
         Ok(format!(
-            r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="{height}"/>"#
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}"/>"#
         ))
     }
 }

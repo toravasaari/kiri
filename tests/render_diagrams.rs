@@ -27,8 +27,9 @@ fn a_diagram_is_drawn_in_place_of_its_code() {
     let images = stub_diagram_images(FLOWCHART);
     let out = render(FLOWCHART, &with_images(&Capabilities::kitty(WIDTH), images));
     assert_eq!(sent(&out).len(), 1, "{out:?}");
-    // Two lines of source, 200 × 40 CSS pixels, in cells of 10 × 20.
-    assert_eq!(drawn(&out), ["⟦row 0: 20 cells⟧", "⟦row 1: 20 cells⟧"]);
+    // Two lines and 23 characters of source, 330 × 40 CSS pixels, in
+    // cells of 10 × 20.
+    assert_eq!(drawn(&out), ["⟦row 0: 33 cells⟧", "⟦row 1: 33 cells⟧"]);
     assert!(!out.contains("flowchart"), "{out:?}");
     assert!(out.contains("Before.") && out.contains("After."), "{out:?}");
 }
