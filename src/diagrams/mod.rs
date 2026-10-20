@@ -19,11 +19,11 @@ pub enum Theme {
 
 impl Theme {
     /// The theme for a page whose background is dark or not; a page whose
-    /// background is unknown counts as light.
+    /// background is unknown counts as dark, as it does for code blocks.
     pub fn for_page(dark_background: Option<bool>) -> Self {
         match dark_background {
-            Some(true) => Theme::Dark,
-            Some(false) | None => Theme::Light,
+            Some(true) | None => Theme::Dark,
+            Some(false) => Theme::Light,
         }
     }
 }
@@ -142,8 +142,9 @@ mod tests {
     }
 
     #[test]
-    fn an_unknown_page_counts_as_light() {
-        assert_eq!(Theme::for_page(None), Theme::Light);
+    fn an_unknown_page_counts_as_dark() {
+        // As for code blocks and quotes.
+        assert_eq!(Theme::for_page(None), Theme::Dark);
         assert_eq!(Theme::for_page(Some(false)), Theme::Light);
         assert_eq!(Theme::for_page(Some(true)), Theme::Dark);
     }
