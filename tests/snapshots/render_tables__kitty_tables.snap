@@ -26,6 +26,7 @@ expression: "visible(&render_for(\"tables.md\", Capabilities::kitty(WIDTH)))"
   ␛[0;90m│␛[0m          ␛[0;90m│␛[0m nothing about      ␛[0;90m│␛[0m          ␛[0;90m│␛[0m
   ␛[0;90m│␛[0m          ␛[0;90m│␛[0m terminals or their ␛[0;90m│␛[0m          ␛[0;90m│␛[0m
   ␛[0;90m│␛[0m          ␛[0;90m│␛[0m escape sequences   ␛[0;90m│␛[0m          ␛[0;90m│␛[0m
+  ␛[0;90m├──────────┼────────────────────┼──────────┤␛[0m
   ␛[0;90m│␛[0m Kitty    ␛[0;90m│␛[0m Draws headings,    ␛[0;90m│␛[0m in       ␛[0;90m│␛[0m
   ␛[0;90m│␛[0m backend  ␛[0;90m│␛[0m images and links   ␛[0;90m│␛[0m progress ␛[0;90m│␛[0m
   ␛[0;90m│␛[0m          ␛[0;90m│␛[0m with kitty's       ␛[0;90m│␛[0m          ␛[0;90m│␛[0m

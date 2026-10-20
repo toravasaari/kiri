@@ -11,12 +11,15 @@ use super::image::{self, Placement};
 use super::style::{Line, Spaces, Span, Style, push};
 use super::table::{self, Cells};
 use super::wrap::wrap;
-use super::{FrontMatterStyle, Inputs};
+use super::{FrontMatterStyle, Inputs, TableRows};
 use crate::caps::Capabilities;
-use crate::color::Underline;
+use crate::color::{Color, Underline};
 use crate::images::Images;
 use crate::model::{Block, Document, Image, Inline, Table};
 use crate::theme::Theme;
+
+/// How much of the text colour a striped table row mixes into the page.
+const STRIPE: f32 = 0.06;
 
 pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
     let Inputs {
@@ -24,6 +27,7 @@ pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
         caps,
         theme,
         front_matter,
+        table_rows,
     } = inputs;
     // Without colours, the layout leaves out what only shows a colour, such
     // as heading fills and the padding around inline code.
@@ -44,6 +48,7 @@ pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
         caps,
         theme,
         front_matter: *front_matter,
+        table_rows: *table_rows,
     };
 
     // Everything but headings and thematic breaks keeps text_margin free
@@ -95,6 +100,7 @@ struct Layout<'a> {
     caps: &'a Capabilities,
     theme: &'a Theme,
     front_matter: FrontMatterStyle,
+    table_rows: TableRows,
 }
 
 impl Layout<'_> {
@@ -360,11 +366,48 @@ impl Layout<'_> {
             alignments: table.alignments.clone(),
             header_column: false,
         };
-        let styles = table::Styles {
-            border: self.style(Style::fg(self.theme.table_border)),
-            header: header_style,
+        table::layout(&cells, width, &self.table_styles(header_style))
+    }
+
+    /// The styles of a table whose headers are in `header`.
+    fn table_styles(&self, header: Style) -> table::Styles {
+        let rows = match self.table_rows {
+            TableRows::Off => table::Rows::Plain,
+            TableRows::Lines => table::Rows::Lines,
+            TableRows::Zebra => match self.stripe() {
+                Some((stripe, page)) => table::Rows::Stripes { stripe, page },
+                None => table::Rows::Lines,
+            },
         };
-        table::layout(&cells, width, &styles)
+        table::Styles {
+            border: self.style(Style::fg(self.theme.table_border)),
+            header,
+            rows,
+            base: None,
+        }
+    }
+
+    /// The colour of a striped row and the page's: a little of the text
+    /// colour mixed into the page, so that it shows on a light page and a
+    /// dark one alike. `None` when either colour is not known as RGB, or
+    /// when the terminal could not show so small a difference, without
+    /// colours or 24-bit colour.
+    fn stripe(&self) -> Option<(Color, Color)> {
+        if !(self.caps.styling && self.caps.color && self.caps.truecolor) {
+            return None;
+        }
+        let palette = &self.caps.palette;
+        let page = self
+            .theme
+            .background
+            .or(self.caps.background)?
+            .rgb(palette)?;
+        let text = self
+            .theme
+            .foreground
+            .or(self.caps.foreground)?
+            .rgb(palette)?;
+        Some((page.mix(text, STRIPE)?, page))
     }
 
     fn rule(&self, width: usize) -> Line {

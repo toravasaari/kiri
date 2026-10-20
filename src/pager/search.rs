@@ -471,6 +471,21 @@ mod tests {
     }
 
     #[test]
+    fn a_match_on_a_striped_table_row_stays_marked() {
+        // The stripe is a background; reverse video swaps it with the
+        // text colour, and a match colour takes its place.
+        let striped = Style {
+            bg: Some(Color::Rgb(16, 16, 16)),
+            ..Style::default()
+        };
+        let found = laid_over(&striped, &marks().found);
+        assert!(found.reverse);
+        assert_eq!(found.bg, striped.bg);
+        let current = laid_over(&striped, &marks().current);
+        assert_eq!(current.bg, Some(Color::Palette(3)));
+    }
+
+    #[test]
     fn marking_splits_spans_where_matches_start_and_end() {
         let bold = Style {
             bold: true,

@@ -24,6 +24,7 @@ expression: "render_for(\"tables.md\", Capabilities::plain(WIDTH))"
   │          │ nothing about      │          │
   │          │ terminals or their │          │
   │          │ escape sequences   │          │
+  ├──────────┼────────────────────┼──────────┤
   │ Kitty    │ Draws headings,    │ in       │
   │ backend  │ images and links   │ progress │
   │          │ with kitty's       │          │

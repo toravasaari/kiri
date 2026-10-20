@@ -12,6 +12,7 @@ expression: "render_for(\"wide.md\", Capabilities::plain(WIDTH))"
   │ 名前 │ Emoji │
   ├──────┼───────┤
   │ 東京 │ 🦀    │
+  ├──────┼───────┤
   │ Oslo │ 🌲🌲  │
   ╰──────┴───────╯
 

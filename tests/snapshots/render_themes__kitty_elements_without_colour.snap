@@ -53,6 +53,7 @@ expression: "visible(&render_for(\"elements.md\", caps))"
   │ Headings │  done  │   Scaled with OSC 66 │
   │          │        │   in kitty, bold and │
   │          │        │   coloured elsewhere │
+  ├──────────┼────────┼──────────────────────┤
   │ Tables   │ `new`  │                right │
   ╰──────────┴────────┴──────────────────────╯
 

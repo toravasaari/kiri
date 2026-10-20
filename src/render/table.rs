@@ -4,6 +4,7 @@ use unicode_width::UnicodeWidthStr;
 
 use super::style::{self, Line, Span, Style, push};
 use super::wrap::{keeps_together, split, width, words, wrap};
+use crate::color::Color;
 use crate::model::Alignment;
 
 /// Cells as styled spans; rows may be shorter than the header.
@@ -131,10 +132,30 @@ fn stack_lines(parts: &[Cell], max: usize, styles: &Styles) -> Vec<Vec<Span>> {
     lines
 }
 
+#[derive(Clone)]
 pub struct Styles {
     pub border: Style,
     /// For the colon after a header in a stacked table.
     pub header: Style,
+    /// How the rows of a table drawn as a box are told apart.
+    pub rows: Rows,
+    /// Painted behind the table where nothing else is: the page colour
+    /// for a table in a striped row, so that its own stripes show.
+    pub base: Option<Color>,
+}
+
+/// How the rows of a table drawn as a box are told apart; a stacked table
+/// keeps its own layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Rows {
+    /// Not at all.
+    #[default]
+    Plain,
+    /// A rule between the body rows.
+    Lines,
+    /// Every second body row on `stripe`, from border to border. A table
+    /// in a striped row is drawn on `page`, so its stripes start afresh.
+    Stripes { stripe: Color, page: Color },
 }
 
 /// A word up to this many cells is split only when the table cannot fit
@@ -159,21 +180,46 @@ pub fn layout(cells: &Cells, max: usize, styles: &Styles) -> Vec<Line> {
         return stacked(cells, columns, max, styles);
     };
 
-    let mut lines = vec![border_line(&widths, ["╭", "┬", "╮"], border)];
+    let base = styles.base;
+    let rule = |ends| painted(border_line(&widths, ends, border), base);
+    let mut lines = vec![rule(["╭", "┬", "╮"])];
     if !cells.header_column {
         let header: Vec<Cell> = cells.header.iter().cloned().map(Cell::Text).collect();
-        lines.extend(row_lines(&header, &widths, &cells.alignments, styles));
-        lines.push(border_line(&widths, ["├", "┼", "┤"], border));
+        lines.extend(row_lines(&header, &widths, &cells.alignments, styles, base));
+        lines.push(rule(["├", "┼", "┤"]));
     }
     for (index, row) in cells.rows.iter().enumerate() {
-        // Each row of a header column is an entry of its own; a rule tells
-        // a value of two lines from two entries.
-        if cells.header_column && index > 0 {
-            lines.push(border_line(&widths, ["├", "┼", "┤"], border));
-        }
-        lines.extend(row_lines(row, &widths, &cells.alignments, styles));
+        let background = match styles.rows {
+            Rows::Lines if index > 0 => {
+                lines.push(rule(["├", "┼", "┤"]));
+                base
+            }
+            Rows::Stripes { stripe, page } if index % 2 == 1 => {
+                // Tables in the row start their stripes on the page.
+                let styles = Styles {
+                    base: Some(page),
+                    ..styles.clone()
+                };
+                lines.extend(row_lines(
+                    row,
+                    &widths,
+                    &cells.alignments,
+                    &styles,
+                    Some(stripe),
+                ));
+                continue;
+            }
+            _ => base,
+        };
+        lines.extend(row_lines(
+            row,
+            &widths,
+            &cells.alignments,
+            styles,
+            background,
+        ));
     }
-    lines.push(border_line(&widths, ["╰", "┴", "╯"], border));
+    lines.push(rule(["╰", "┴", "╯"]));
     lines
 }
 
@@ -395,11 +441,24 @@ fn border_line(widths: &[usize], [left, middle, right]: [&str; 3], style: &Style
     Line::new(vec![Span::new(&text, style.clone())])
 }
 
+/// `line` with `background` behind every span without a background of
+/// its own.
+fn painted(mut line: Line, background: Option<Color>) -> Line {
+    if background.is_some() {
+        for span in &mut line.spans {
+            span.style.bg = span.style.bg.or(background);
+        }
+    }
+    line
+}
+
+/// The lines of `row`, on `background` from border to border.
 fn row_lines(
     row: &[Cell],
     widths: &[usize],
     alignments: &[Alignment],
     styles: &Styles,
+    background: Option<Color>,
 ) -> Vec<Line> {
     let border = &styles.border;
     let empty = Vec::new();
@@ -430,7 +489,7 @@ fn row_lines(
                 spans.push(Span::new(&" ".repeat(after + 1), Style::default()));
                 spans.push(Span::new("│", border.clone()));
             }
-            Line::new(spans)
+            painted(Line::new(spans), background)
         })
         .collect()
 }
@@ -448,7 +507,14 @@ mod tests {
         Styles {
             border: Style::default(),
             header: Style::default(),
+            rows: Rows::Plain,
+            base: None,
         }
+    }
+
+    /// `styles` with `rows`.
+    fn with_rows(rows: Rows) -> Styles {
+        Styles { rows, ..styles() }
     }
 
     fn text(lines: &[Line]) -> Vec<String> {
@@ -745,6 +811,7 @@ mod tests {
         let styles = Styles {
             border: border.clone(),
             header: bold.clone(),
+            ..styles()
         };
         let lines = layout(&cells, 20, &styles);
         assert_eq!(
@@ -777,7 +844,7 @@ mod tests {
             ("tags", cell("docs, terminal").into()),
         ]);
         assert_eq!(
-            text(&layout(&cells, 80, &styles())),
+            text(&layout(&cells, 80, &with_rows(Rows::Lines))),
             vec![
                 "╭──────┬────────────────╮",
                 "│ name │ kiri           │",
@@ -799,7 +866,7 @@ mod tests {
             ("author", Cell::Table(author)),
         ]);
         assert_eq!(
-            text(&layout(&cells, 80, &styles())),
+            text(&layout(&cells, 80, &with_rows(Rows::Lines))),
             vec![
                 "╭────────┬──────────────────────────────────╮",
                 "│ title  │ Notes on a long and winding road │",
@@ -814,7 +881,7 @@ mod tests {
         );
         // Narrower, the text wraps while the table in the cell keeps its
         // box.
-        let lines = text(&layout(&cells, 36, &styles()));
+        let lines = text(&layout(&cells, 36, &with_rows(Rows::Lines)));
         assert!(lines.iter().all(|line| line.width() <= 36), "{lines:#?}");
         assert_eq!(
             lines,
@@ -864,7 +931,7 @@ mod tests {
         let features = Cell::Stack(vec![item("Fast"), cell("and").into(), item("Small")]);
         let cells = keyed(vec![("features", features)]);
         assert_eq!(
-            text(&layout(&cells, 80, &styles())),
+            text(&layout(&cells, 80, &with_rows(Rows::Lines))),
             vec![
                 "╭──────────┬───────────────────╮",
                 "│ features │ ╭───────┬──────╮  │",
@@ -912,7 +979,7 @@ mod tests {
             ("robots", cell("").into()),
         ]);
         assert_eq!(
-            text(&layout(&cells, 28, &styles())),
+            text(&layout(&cells, 28, &with_rows(Rows::Lines))),
             vec![
                 "╭─────────────┬────────────╮",
                 "│ description │ How the    │",
@@ -940,7 +1007,7 @@ mod tests {
             cell("More to come").into(),
         ]);
         assert_eq!(
-            cell_text(&stops.lines(18, &styles())),
+            cell_text(&stops.lines(18, &with_rows(Rows::Lines))),
             vec![
                 "name: Harbour",
                 "km: 0",
@@ -952,7 +1019,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            cell_text(&stops.lines(21, &styles()))[5],
+            cell_text(&stops.lines(21, &with_rows(Rows::Lines)))[5],
             "╭──────┬────────────╮"
         );
     }
@@ -988,5 +1055,112 @@ mod tests {
             text(&layout(&cells, 80, &styles()))[1],
             "│ linux │ flags:              │"
         );
+    }
+
+    #[test]
+    fn lines_go_between_the_body_rows_of_any_table() {
+        let cells = table(
+            &["City", "Notes"],
+            &[&["Helsinki", "Capital"], &["Oulu", "North"]],
+        );
+        assert_eq!(
+            text(&layout(&cells, 80, &with_rows(Rows::Lines))),
+            vec![
+                "╭──────────┬─────────╮",
+                "│ City     │ Notes   │",
+                "├──────────┼─────────┤",
+                "│ Helsinki │ Capital │",
+                "├──────────┼─────────┤",
+                "│ Oulu     │ North   │",
+                "╰──────────┴─────────╯",
+            ]
+        );
+        // Without them, a header column has no rules either.
+        let cells = keyed(vec![("a", cell("1").into()), ("b", cell("2").into())]);
+        assert_eq!(
+            text(&layout(&cells, 80, &styles())),
+            vec!["╭───┬───╮", "│ a │ 1 │", "│ b │ 2 │", "╰───┴───╯"]
+        );
+    }
+
+    const STRIPE: Color = Color::Rgb(1, 1, 1);
+    const PAGE: Color = Color::Rgb(0, 0, 0);
+
+    fn stripes() -> Styles {
+        with_rows(Rows::Stripes {
+            stripe: STRIPE,
+            page: PAGE,
+        })
+    }
+
+    /// The background of each span of `line`.
+    fn backgrounds(line: &Line) -> Vec<Option<Color>> {
+        line.spans.iter().map(|span| span.style.bg).collect()
+    }
+
+    #[test]
+    fn stripes_run_across_every_second_body_row() {
+        let cells = table(
+            &["City", "Notes"],
+            &[
+                &["Helsinki", "Capital"],
+                &["Oulu", "North"],
+                &["Turku", "West"],
+            ],
+        );
+        let lines = layout(&cells, 80, &stripes());
+        // No rules between the rows.
+        assert_eq!(text(&lines).len(), 7);
+        for (index, line) in lines.iter().enumerate() {
+            let expected = if index == 4 { Some(STRIPE) } else { None };
+            // From border to border, the borders between columns included.
+            assert!(
+                backgrounds(line).iter().all(|bg| *bg == expected),
+                "{index}: {line:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn stripes_start_afresh_in_a_table_in_a_striped_row() {
+        let inner = keyed(vec![("x", cell("1").into()), ("y", cell("2").into())]);
+        let cells = keyed(vec![("a", cell("text").into()), ("b", Cell::Table(inner))]);
+        let lines = layout(&cells, 80, &stripes());
+        assert_eq!(
+            text(&lines),
+            vec![
+                "╭───┬───────────╮",
+                "│ a │ text      │",
+                "│ b │ ╭───┬───╮ │",
+                "│   │ │ x │ 1 │ │",
+                "│   │ │ y │ 2 │ │",
+                "│   │ ╰───┴───╯ │",
+                "╰───┴───────────╯",
+            ]
+        );
+        let inner_backgrounds = |line: &Line| {
+            // The spans of the inner table: all but the outer row's own
+            // border, key cell and padding at each end.
+            let bgs = backgrounds(line);
+            bgs[5..bgs.len() - 2].to_vec()
+        };
+        // The outer row is striped around the inner table.
+        assert_eq!(backgrounds(&lines[3])[..5], [Some(STRIPE); 5]);
+        // The inner table is drawn on the page, its second row striped.
+        assert!(
+            inner_backgrounds(&lines[3])
+                .iter()
+                .all(|bg| *bg == Some(PAGE)),
+            "{:?}",
+            lines[3]
+        );
+        assert!(
+            inner_backgrounds(&lines[4])
+                .iter()
+                .all(|bg| *bg == Some(STRIPE)),
+            "{:?}",
+            lines[4]
+        );
+        assert!(backgrounds(&lines[1]).iter().all(Option::is_none));
     }
 }

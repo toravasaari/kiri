@@ -30,6 +30,22 @@ pub struct Inputs {
     pub theme: Theme,
     /// How front matter shows.
     pub front_matter: FrontMatterStyle,
+    /// How the rows of a table are told apart.
+    pub table_rows: TableRows,
+}
+
+/// How the rows of a table drawn as a box are told apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TableRows {
+    /// Not at all.
+    Off,
+    /// Every second row on a background a little towards the text colour,
+    /// as `lines` where that colour cannot be known or shown.
+    #[default]
+    Zebra,
+    /// A rule between the rows.
+    Lines,
 }
 
 /// How front matter shows.
@@ -66,6 +82,7 @@ impl Inputs {
             caps,
             theme: Theme::default(),
             front_matter: FrontMatterStyle::default(),
+            table_rows: TableRows::default(),
         }
     }
 }

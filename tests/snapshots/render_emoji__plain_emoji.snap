@@ -23,6 +23,8 @@ expression: "render_for(\"emoji.md\", Capabilities::plain(WIDTH))"
   │ Mood │ Emoji │ Note       │
   ├──────┼───────┼────────────┤
   │ Love │  ❤️   │ text after │
+  ├──────┼───────┼────────────┤
   │ Fire │  🔥   │ text after │
+  ├──────┼───────┼────────────┤
   │ Star │  ⭐   │ text after │
   ╰──────┴───────┴────────────╯

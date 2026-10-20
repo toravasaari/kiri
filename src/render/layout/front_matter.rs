@@ -19,10 +19,7 @@ impl Layout<'_> {
             FrontMatterStyle::Table => match &front_matter.value {
                 _ if front_matter.source.trim().is_empty() => Vec::new(),
                 Some(Ok(Value::Map(entries))) => {
-                    let styles = table::Styles {
-                        border: self.style(Style::fg(self.theme.table_border)),
-                        header: self.key_style(),
-                    };
+                    let styles = self.table_styles(self.key_style());
                     table::layout(&self.map_table(entries, 1), width, &styles)
                 }
                 // Another language, content that does not parse, or

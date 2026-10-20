@@ -55,6 +55,7 @@ expression: "visible(&render_for(\"elements.md\", Capabilities::kitty(WIDTH)))"
   ␛[0;90m│␛[0m Headings ␛[0;90m│␛[0m  done  ␛[0;90m│␛[0m   Scaled with OSC 66 ␛[0;90m│␛[0m
   ␛[0;90m│␛[0m          ␛[0;90m│␛[0m        ␛[0;90m│␛[0m   in kitty, bold and ␛[0;90m│␛[0m
   ␛[0;90m│␛[0m          ␛[0;90m│␛[0m        ␛[0;90m│␛[0m   coloured elsewhere ␛[0;90m│␛[0m
+  ␛[0;90m├──────────┼────────┼──────────────────────┤␛[0m
   ␛[0;90m│␛[0m Tables   ␛[0;90m│␛[0m ␛[0;35;48;2;43;48;59m⍽new⍽␛[0m  ␛[0;90m│␛[0m                right ␛[0;90m│␛[0m
   ␛[0;90m╰──────────┴────────┴──────────────────────╯␛[0m
 
