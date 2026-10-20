@@ -368,6 +368,10 @@ mod tests {
                 Block::FrontMatter(crate::model::FrontMatter {
                     language: "yaml".into(),
                     source: "title: A\n".into(),
+                    value: Some(Ok(crate::model::Value::Map(vec![(
+                        "title".into(),
+                        crate::model::Value::String("A".into())
+                    )]))),
                 }),
                 Block::Heading {
                     level: 1,

@@ -53,6 +53,22 @@ pub struct FrontMatter {
     pub language: String,
     /// The text between the delimiter lines, each line ending in `\n`.
     pub source: String,
+    /// What YAML, TOML or JSON source holds, or why it could not be read;
+    /// `None` for other languages.
+    pub value: Option<Result<Value, String>>,
+}
+
+/// A value in front matter, whatever format it was written in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Value {
+    String(String),
+    /// A number as its format gives it, such as `1.10` in YAML.
+    Number(String),
+    Bool(bool),
+    Null,
+    List(Vec<Value>),
+    /// Keys and their values in the order the source gives them.
+    Map(Vec<(String, Value)>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
