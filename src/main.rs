@@ -98,16 +98,16 @@ struct Cli {
     #[arg(short = 'P')]
     no_pager: bool,
 
-    /// How front matter, the metadata block at the start of a Markdown
-    /// file, shows: as a table, as a code block, hidden, or off, read as
-    /// Markdown.
+    /// Front matter render style: table, code (a code block), hide, or off
+    /// (read as Markdown); table unless set. Front matter is the metadata
+    /// block at the start of a Markdown file.
     #[arg(long, value_enum, value_name = "STYLE")]
     front_matter: Option<FrontMatter>,
 
-    /// How the rows of a table are told apart: zebra (every second row
-    /// shaded where the terminal's colours are known), lines, indent (the
-    /// lines after the first of a wrapped value start two cells in),
-    /// underline (each row's last line underlined), or off.
+    /// Table row style: zebra (every second row shaded where the
+    /// terminal's colours are known), lines, indent (the lines after the
+    /// first of a wrapped value start two cells in), underline (each row's
+    /// last line underlined), or off; zebra unless set.
     #[arg(long, value_enum, value_name = "STYLE")]
     table_rows: Option<TableRows>,
 
