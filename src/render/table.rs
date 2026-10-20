@@ -7,10 +7,86 @@ use super::wrap::{keeps_together, width, words, wrap};
 use crate::model::Alignment;
 
 /// Cells as styled spans; rows may be shorter than the header.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Cells {
     pub header: Vec<Vec<Span>>,
-    pub rows: Vec<Vec<Vec<Span>>>,
+    pub rows: Vec<Vec<Cell>>,
     pub alignments: Vec<Alignment>,
+    /// The first column holds the headers, styled as the caller styles
+    /// them, in place of a header row, which is then left out.
+    pub header_column: bool,
+}
+
+/// What a cell holds.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Cell {
+    /// Text, wrapped to the column.
+    Text(Vec<Span>),
+    /// A table, laid out in the column's width.
+    Table(Cells),
+    /// Text and tables one under another.
+    Stack(Vec<Cell>),
+}
+
+impl From<Vec<Span>> for Cell {
+    fn from(spans: Vec<Span>) -> Self {
+        Self::Text(spans)
+    }
+}
+
+impl Cell {
+    /// Cells it takes without wrapping.
+    fn natural(&self) -> usize {
+        match self {
+            Self::Text(spans) => width(spans),
+            Self::Table(cells) => natural_width(cells),
+            Self::Stack(parts) => parts.iter().map(Cell::natural).max().unwrap_or(0),
+        }
+    }
+
+    /// The fewest cells it takes without splitting a short word. A table
+    /// that narrow is stacked.
+    fn floor(&self) -> usize {
+        match self {
+            Self::Text(spans) => longest_word(spans).min(SHORT_WORD),
+            Self::Table(cells) => (column_maxima(cells, column_count(cells), Cell::floor))
+                .into_iter()
+                .max()
+                .unwrap_or(0),
+            Self::Stack(parts) => parts.iter().map(Cell::floor).max().unwrap_or(0),
+        }
+    }
+
+    /// The cells it would rather keep on one line: text kept together, or
+    /// a table as a box.
+    fn together(&self) -> usize {
+        match self {
+            Self::Text(spans) => longest_together(spans),
+            Self::Table(cells) => boxed_floor(cells),
+            Self::Stack(parts) => parts.iter().map(Cell::together).max().unwrap_or(0),
+        }
+    }
+
+    /// Its lines in `max` cells.
+    fn lines(&self, max: usize, styles: &Styles) -> Vec<Vec<Span>> {
+        match self {
+            Self::Text(spans) => wrap(spans, max),
+            Self::Table(cells) => (layout(cells, max, styles).into_iter())
+                .map(|line| line.spans)
+                .collect(),
+            Self::Stack(parts) => (parts.iter())
+                .flat_map(|part| part.lines(max, styles))
+                .collect(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        match self {
+            Self::Text(spans) => is_empty(spans),
+            Self::Table(cells) => cells.rows.is_empty(),
+            Self::Stack(parts) => parts.iter().all(Cell::is_empty),
+        }
+    }
 }
 
 pub struct Styles {
@@ -33,13 +109,7 @@ const COMFORT: usize = 16;
 /// have to split short words is stacked instead.
 pub fn layout(cells: &Cells, max: usize, styles: &Styles) -> Vec<Line> {
     let border = &styles.border;
-    let columns = cells
-        .rows
-        .iter()
-        .map(Vec::len)
-        .chain([cells.header.len(), cells.alignments.len()])
-        .max()
-        .unwrap_or(0);
+    let columns = column_count(cells);
     if columns == 0 {
         return Vec::new();
     }
@@ -48,30 +118,65 @@ pub fn layout(cells: &Cells, max: usize, styles: &Styles) -> Vec<Line> {
     };
 
     let mut lines = vec![border_line(&widths, ["╭", "┬", "╮"], border)];
-    lines.extend(row_lines(&cells.header, &widths, &cells.alignments, border));
-    lines.push(border_line(&widths, ["├", "┼", "┤"], border));
+    if !cells.header_column {
+        let header: Vec<Cell> = cells.header.iter().cloned().map(Cell::Text).collect();
+        lines.extend(row_lines(&header, &widths, &cells.alignments, styles));
+        lines.push(border_line(&widths, ["├", "┼", "┤"], border));
+    }
     for row in &cells.rows {
-        lines.extend(row_lines(row, &widths, &cells.alignments, border));
+        lines.extend(row_lines(row, &widths, &cells.alignments, styles));
     }
     lines.push(border_line(&widths, ["╰", "┴", "╯"], border));
     lines
 }
 
+fn column_count(cells: &Cells) -> usize {
+    (cells.rows.iter())
+        .map(Vec::len)
+        .chain([cells.header.len(), cells.alignments.len()])
+        .max()
+        .unwrap_or(0)
+}
+
+/// Each column's widest cell by `measure`.
+fn column_maxima(cells: &Cells, columns: usize, measure: impl Fn(&Cell) -> usize) -> Vec<usize> {
+    let mut maxima = vec![0; columns];
+    let header = (!cells.header_column).then(|| {
+        (cells.header.iter())
+            .map(|header| Cell::Text(header.clone()))
+            .collect::<Vec<_>>()
+    });
+    for row in header.iter().chain(&cells.rows) {
+        for (column, cell) in row.iter().enumerate() {
+            maxima[column] = maxima[column].max(measure(cell));
+        }
+    }
+    maxima
+}
+
+/// The width of the table drawn as a box without wrapping.
+fn natural_width(cells: &Cells) -> usize {
+    let columns = column_count(cells);
+    let widths = column_maxima(cells, columns, Cell::natural);
+    widths.iter().map(|width| width.max(&1)).sum::<usize>() + 3 * columns + 1
+}
+
+/// The fewest cells the table takes as a box.
+fn boxed_floor(cells: &Cells) -> usize {
+    let columns = column_count(cells);
+    let floors = column_maxima(cells, columns, Cell::floor);
+    floors.iter().map(|floor| floor.max(&1)).sum::<usize>() + 3 * columns + 1
+}
+
 /// Widths that fit in `max` without splitting short words, or `None`.
 fn column_widths(cells: &Cells, columns: usize, max: usize) -> Option<Vec<usize>> {
-    let mut widths = vec![1; columns];
     // No column is narrower than its longest short word. That covers its
     // widest character too, two cells for CJK and emoji, which would push
     // its borders out of line.
-    let mut minimums = vec![1; columns];
-    let mut together = vec![0; columns];
-    for row in std::iter::once(&cells.header).chain(&cells.rows) {
-        for (column, cell) in row.iter().enumerate() {
-            widths[column] = widths[column].max(width(cell));
-            minimums[column] = minimums[column].max(longest_word(cell).min(SHORT_WORD));
-            together[column] = together[column].max(longest_together(cell));
-        }
-    }
+    let at_least_one = |widths: Vec<usize>| widths.into_iter().map(|w| w.max(1)).collect();
+    let mut widths: Vec<usize> = at_least_one(column_maxima(cells, columns, Cell::natural));
+    let minimums: Vec<usize> = at_least_one(column_maxima(cells, columns, Cell::floor));
+    let together = column_maxima(cells, columns, Cell::together);
     // Each column costs its padding and one border, plus the closing border.
     let available = max.checked_sub(3 * columns + 1)?;
     if minimums.iter().sum::<usize>() > available {
@@ -123,55 +228,78 @@ fn shrink(widths: &mut [usize], floors: &[usize], available: usize) -> bool {
 
 /// Each body row as a block of `Header: value` lines, separated by rules.
 /// When the longest header leaves too little room for its value, every
-/// value goes on the lines under its header.
+/// value goes on the lines under its header. A table with a header column
+/// takes the header of each row from it, without rules between the rows.
 fn stacked(cells: &Cells, columns: usize, max: usize, styles: &Styles) -> Vec<Line> {
-    let empty = Vec::new();
-    let labels: Vec<Vec<Span>> = (0..columns)
-        .map(|column| {
-            let header = cells.header.get(column).unwrap_or(&empty);
-            let mut label = header.clone();
-            if !is_empty(header) {
-                push(&mut label, ":", &styles.header);
-            }
-            label
-        })
-        .collect();
-    let longest = labels.iter().map(|label| width(label)).max().unwrap_or(0);
-    let tight = max < longest + 1 + SHORT_WORD;
+    let label = |header: &[Span]| {
+        let mut label = header.to_vec();
+        if !is_empty(header) {
+            push(&mut label, ":", &styles.header);
+        }
+        label
+    };
+    let empty = Cell::Text(Vec::new());
     // A table with a header only still shows its headers.
-    let rows: &[Vec<Vec<Span>>] = if cells.rows.is_empty() {
-        &[Vec::new()]
+    let no_row = [Vec::new()];
+    let rows: &[Vec<Cell>] = if cells.rows.is_empty() && !cells.header_column {
+        &no_row
     } else {
         &cells.rows
     };
+    // Each row as its headers and its values.
+    let entries: Vec<Vec<(Vec<Span>, &Cell)>> = if cells.header_column {
+        (rows.iter())
+            .map(|row| {
+                let header = match row.first() {
+                    Some(Cell::Text(header)) => label(header),
+                    _ => Vec::new(),
+                };
+                let values = row.iter().skip(1).chain(std::iter::repeat(&empty));
+                let headers = std::iter::once(header).chain(std::iter::repeat(Vec::new()));
+                headers.zip(values).take(columns.max(2) - 1).collect()
+            })
+            .collect()
+    } else {
+        let labels: Vec<Vec<Span>> = (0..columns)
+            .map(|column| label(cells.header.get(column).map_or(&[], Vec::as_slice)))
+            .collect();
+        (rows.iter())
+            .map(|row| {
+                let values = row.iter().chain(std::iter::repeat(&empty));
+                labels.iter().cloned().zip(values).collect()
+            })
+            .collect()
+    };
+    let longest = (entries.iter().flatten())
+        .map(|(label, _)| width(label))
+        .max()
+        .unwrap_or(0);
+    let tight = max < longest + 1 + SHORT_WORD;
 
     let mut lines = Vec::new();
-    for (index, row) in rows.iter().enumerate() {
-        if index > 0 {
+    for (index, row) in entries.into_iter().enumerate() {
+        if index > 0 && !cells.header_column {
             lines.push(Line::new(vec![Span::new(
                 &"─".repeat(max),
                 styles.border.clone(),
             )]));
         }
-        for (label, value) in labels
-            .iter()
-            .zip(row.iter().chain(std::iter::repeat(&empty)))
-        {
-            let mut parts: Vec<Vec<Span>> = Vec::new();
-            match (is_empty(label), is_empty(value)) {
-                (true, true) => {}
-                (true, false) => parts.push(value.clone()),
-                (false, true) => parts.push(label.clone()),
-                (false, false) if tight => parts.extend([label.clone(), value.clone()]),
-                (false, false) => {
-                    let mut spans = label.clone();
+        for (label, value) in row {
+            let mut parts: Vec<Cell> = Vec::new();
+            match (is_empty(&label), value.is_empty(), value) {
+                (true, true, _) => {}
+                (true, false, _) => parts.push(value.clone()),
+                (false, true, _) => parts.push(Cell::Text(label)),
+                (false, false, Cell::Text(value)) if !tight => {
+                    let mut spans = label;
                     push(&mut spans, " ", &Style::default());
                     spans.extend(value.iter().cloned());
-                    parts.push(spans);
+                    parts.push(Cell::Text(spans));
                 }
+                (false, false, _) => parts.extend([Cell::Text(label), value.clone()]),
             }
             for part in parts {
-                lines.extend(wrap(&part, max).into_iter().map(Line::new));
+                lines.extend(part.lines(max, styles).into_iter().map(Line::new));
             }
         }
     }
@@ -208,16 +336,20 @@ fn border_line(widths: &[usize], [left, middle, right]: [&str; 3], style: &Style
 }
 
 fn row_lines(
-    row: &[Vec<Span>],
+    row: &[Cell],
     widths: &[usize],
     alignments: &[Alignment],
-    border: &Style,
+    styles: &Styles,
 ) -> Vec<Line> {
+    let border = &styles.border;
     let empty = Vec::new();
     let wrapped: Vec<Vec<Vec<Span>>> = widths
         .iter()
         .enumerate()
-        .map(|(column, &w)| wrap(row.get(column).unwrap_or(&empty), w))
+        .map(|(column, &w)| match row.get(column) {
+            Some(cell) => cell.lines(w, styles),
+            None => vec![Vec::new()],
+        })
         .collect();
     let height = wrapped.iter().map(Vec::len).max().unwrap_or(1);
 
@@ -267,8 +399,9 @@ mod tests {
     fn aligns_cells_within_columns() {
         let cells = Cells {
             header: vec![cell("left"), cell("right")],
-            rows: vec![vec![cell("a"), cell("b")]],
+            rows: vec![vec![cell("a").into(), cell("b").into()]],
             alignments: vec![Alignment::Left, Alignment::Right],
+            header_column: false,
         };
         assert_eq!(
             text(&layout(&cells, 80, &styles())),
@@ -331,8 +464,9 @@ mod tests {
         // characters fit and the borders stay in line.
         let cells = Cells {
             header: vec![cell("名前名前名前"), cell("ab")],
-            rows: vec![vec![cell("東京"), cell("🦀")]],
+            rows: vec![vec![cell("東京").into(), cell("🦀").into()]],
             alignments: vec![],
+            header_column: false,
         };
         let lines = text(&layout(&cells, 20, &styles()));
         let widths: Vec<usize> = lines.iter().map(|line| line.width()).collect();
@@ -345,8 +479,9 @@ mod tests {
     fn fills_missing_cells() {
         let cells = Cells {
             header: vec![cell("a"), cell("b")],
-            rows: vec![vec![cell("1")]],
+            rows: vec![vec![cell("1").into()]],
             alignments: vec![],
+            header_column: false,
         };
         assert_eq!(text(&layout(&cells, 80, &styles()))[3], "│ 1 │   │");
     }
@@ -355,9 +490,10 @@ mod tests {
         Cells {
             header: header.iter().map(|text| cell(text)).collect(),
             rows: (rows.iter())
-                .map(|row| row.iter().map(|text| cell(text)).collect())
+                .map(|row| row.iter().map(|text| cell(text).into()).collect())
                 .collect(),
             alignments: vec![],
+            header_column: false,
         }
     }
 
@@ -393,10 +529,11 @@ mod tests {
         Cells {
             header: vec![cell("Notes"), cell("Command")],
             rows: vec![vec![
-                cell("a fairly long note about the step"),
-                code("git commit -m message", spaces),
+                cell("a fairly long note about the step").into(),
+                code("git commit -m message", spaces).into(),
             ]],
             alignments: vec![],
+            header_column: false,
         }
     }
 
@@ -449,10 +586,11 @@ mod tests {
         let cells = Cells {
             header: vec![cell("Link"), cell("Command")],
             rows: vec![vec![
-                cell("https://example.com/a/very/long/path"),
-                code("git commit", Spaces::KeepTogether),
+                cell("https://example.com/a/very/long/path").into(),
+                code("git commit", Spaces::KeepTogether).into(),
             ]],
             alignments: vec![],
+            header_column: false,
         };
         let lines = text(&layout(&cells, 33, &styles()));
         assert!(lines.iter().all(|line| line.width() <= 33), "{lines:#?}");
@@ -531,10 +669,14 @@ mod tests {
                 vec![Span::new("Notes", bold.clone())],
             ],
             rows: vec![
-                vec![cell("Helsinki"), vec![Span::new("capital", code.clone())]],
-                vec![cell("Tampere"), cell("inland")],
+                vec![
+                    cell("Helsinki").into(),
+                    vec![Span::new("capital", code.clone())].into(),
+                ],
+                vec![cell("Tampere").into(), cell("inland").into()],
             ],
             alignments: vec![],
+            header_column: false,
         };
         let styles = Styles {
             border: border.clone(),
@@ -550,5 +692,145 @@ mod tests {
             ]
         );
         assert_eq!(lines[2].spans, vec![Span::new(&"─".repeat(20), border)]);
+    }
+
+    /// A table of `keys` in a header column and their values.
+    fn keyed(entries: Vec<(&str, Cell)>) -> Cells {
+        Cells {
+            header: Vec::new(),
+            rows: (entries.into_iter())
+                .map(|(key, value)| vec![cell(key).into(), value])
+                .collect(),
+            alignments: Vec::new(),
+            header_column: true,
+        }
+    }
+
+    #[test]
+    fn a_header_column_takes_the_place_of_the_header_row() {
+        let cells = keyed(vec![
+            ("name", cell("kiri").into()),
+            ("tags", cell("docs, terminal").into()),
+        ]);
+        assert_eq!(
+            text(&layout(&cells, 80, &styles())),
+            vec![
+                "╭──────┬────────────────╮",
+                "│ name │ kiri           │",
+                "│ tags │ docs, terminal │",
+                "╰──────┴────────────────╯",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_table_in_a_cell_is_laid_out_in_its_column() {
+        let author = keyed(vec![
+            ("name", cell("Aino").into()),
+            ("site", cell("example.com").into()),
+        ]);
+        let cells = keyed(vec![
+            ("title", cell("Notes on a long and winding road").into()),
+            ("author", Cell::Table(author)),
+        ]);
+        assert_eq!(
+            text(&layout(&cells, 80, &styles())),
+            vec![
+                "╭────────┬──────────────────────────────────╮",
+                "│ title  │ Notes on a long and winding road │",
+                "│ author │ ╭──────┬─────────────╮           │",
+                "│        │ │ name │ Aino        │           │",
+                "│        │ │ site │ example.com │           │",
+                "│        │ ╰──────┴─────────────╯           │",
+                "╰────────┴──────────────────────────────────╯",
+            ]
+        );
+        // Narrower, the text wraps while the table in the cell keeps its
+        // box.
+        let lines = text(&layout(&cells, 36, &styles()));
+        assert!(lines.iter().all(|line| line.width() <= 36), "{lines:#?}");
+        assert_eq!(
+            lines,
+            vec![
+                "╭────────┬─────────────────────────╮",
+                "│ title  │ Notes on a long and     │",
+                "│        │ winding road            │",
+                "│ author │ ╭──────┬─────────────╮  │",
+                "│        │ │ name │ Aino        │  │",
+                "│        │ │ site │ example.com │  │",
+                "│        │ ╰──────┴─────────────╯  │",
+                "╰────────┴─────────────────────────╯",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_table_in_a_cell_stacks_before_the_table_around_it() {
+        let author = keyed(vec![
+            ("name", cell("Aino").into()),
+            ("site", cell("example.com").into()),
+        ]);
+        let cells = keyed(vec![("author", Cell::Table(author))]);
+        assert_eq!(
+            text(&layout(&cells, 28, &styles())),
+            vec![
+                "╭────────┬─────────────────╮",
+                "│ author │ name:           │",
+                "│        │ Aino            │",
+                "│        │ site:           │",
+                "│        │ example.com     │",
+                "╰────────┴─────────────────╯",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_stack_puts_its_parts_one_under_another() {
+        let item = |title: &str| {
+            Cell::Table(keyed(vec![
+                ("title", cell(title).into()),
+                ("icon", cell("⚡").into()),
+            ]))
+        };
+        let features = Cell::Stack(vec![item("Fast"), cell("and").into(), item("Small")]);
+        let cells = keyed(vec![("features", features)]);
+        assert_eq!(
+            text(&layout(&cells, 80, &styles())),
+            vec![
+                "╭──────────┬───────────────────╮",
+                "│ features │ ╭───────┬──────╮  │",
+                "│          │ │ title │ Fast │  │",
+                "│          │ │ icon  │ ⚡   │  │",
+                "│          │ ╰───────┴──────╯  │",
+                "│          │ and               │",
+                "│          │ ╭───────┬───────╮ │",
+                "│          │ │ title │ Small │ │",
+                "│          │ │ icon  │ ⚡    │ │",
+                "│          │ ╰───────┴───────╯ │",
+                "╰──────────┴───────────────────╯",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_table_with_a_header_column_stacks_without_rules_between_rows() {
+        let author = keyed(vec![("name", cell("Aino").into())]);
+        let cells = keyed(vec![
+            ("title", cell("Notes").into()),
+            ("description", cell("A rather long description").into()),
+            ("author", Cell::Table(author)),
+        ]);
+        assert_eq!(
+            text(&layout(&cells, 24, &styles())),
+            vec![
+                "title: Notes",
+                "description: A rather",
+                "long description",
+                "author:",
+                "╭──────┬──────╮",
+                "│ name │ Aino │",
+                "╰──────┴──────╯",
+            ]
+        );
     }
 }

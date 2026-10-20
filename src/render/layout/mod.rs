@@ -349,9 +349,14 @@ impl Layout<'_> {
                 .map(|c| spans(c, &header_style))
                 .collect(),
             rows: (table.rows.iter())
-                .map(|row| row.iter().map(|c| spans(c, &Style::default())).collect())
+                .map(|row| {
+                    (row.iter())
+                        .map(|c| spans(c, &Style::default()).into())
+                        .collect()
+                })
                 .collect(),
             alignments: table.alignments.clone(),
+            header_column: false,
         };
         let styles = table::Styles {
             border: self.style(Style::fg(self.theme.table_border)),
