@@ -151,6 +151,60 @@ pub fn extension(language: &str) -> String {
     }
 }
 
+/// The page a Mermaid diagram chooses its colours for, in a directive
+/// such as `%%{init: {"theme": "forest"}}%%` or under `config:` in its
+/// front matter, read from the source for a renderer that does not tell.
+/// `None` when it chooses nothing, and for other languages.
+pub fn chosen_theme(language: &str, source: &str) -> Option<Theme> {
+    if !language.eq_ignore_ascii_case("mermaid") {
+        return None;
+    }
+    // The text of the front matter and of the directives.
+    let mut settings = String::new();
+    let mut lines = source.lines().skip_while(|line| line.trim().is_empty());
+    let mut directive = false;
+    let mut first = true;
+    while let Some(line) = lines.next() {
+        let text = line.trim();
+        if first && text == "---" {
+            for line in lines.by_ref().take_while(|line| line.trim() != "---") {
+                settings.push_str(line);
+                settings.push('\n');
+            }
+        } else if directive || text.starts_with("%%{") {
+            settings.push_str(text);
+            settings.push('\n');
+            directive = !text.ends_with("}%%");
+        }
+        first = false;
+    }
+    if value_of(&settings, "darkMode") == Some("true") {
+        return Some(Theme::Dark);
+    }
+    match value_of(&settings, "theme")? {
+        "null" => None,
+        name if name.ends_with("dark") => Some(Theme::Dark),
+        _ => Some(Theme::Light),
+    }
+}
+
+/// The value of the first `key` in `text`, YAML or JSON with or without
+/// quotes, as a word.
+fn value_of<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+    let word = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
+    let quote = |c: char| c == '"' || c == '\'';
+    text.match_indices(key).find_map(|(at, _)| {
+        if text[..at].ends_with(word) {
+            return None;
+        }
+        let rest = text[at + key.len()..].trim_start_matches(quote);
+        let rest = rest.trim_start_matches([' ', '\t']).strip_prefix(':')?;
+        let rest = rest.trim_start().trim_start_matches(quote);
+        let end = rest.find(|c: char| !word(c)).unwrap_or(rest.len());
+        Some(&rest[..end]).filter(|value| !value.is_empty())
+    })
+}
+
 /// The renderers built into kiri: merman for Mermaid, in a build with the
 /// `mermaid` feature.
 #[derive(Debug, Clone, Copy, Default)]
@@ -390,6 +444,50 @@ mod tests {
         assert!((2..=4).contains(&most), "{most} at once");
         assert_eq!(done.load(Ordering::SeqCst), 10);
         assert!(render_in_parallel(&slow, &[], Theme::Dark, 4, &count).is_empty());
+    }
+
+    #[test]
+    fn reads_the_theme_a_mermaid_diagram_chooses() {
+        let flowchart = "flowchart TD\n  A --> B\n";
+        let front_matter =
+            |config: &str| format!("---\ntitle: T\nconfig:\n{config}---\n{flowchart}");
+        let cases = [
+            (flowchart.to_owned(), None),
+            (
+                format!("%%{{init: {{\"theme\": \"forest\"}}}}%%\n{flowchart}"),
+                Some(Theme::Light),
+            ),
+            (
+                format!("%%{{init: {{'theme':'dark'}}}}%%\n{flowchart}"),
+                Some(Theme::Dark),
+            ),
+            (
+                format!(
+                    "%%{{ initialize: {{ \"themeVariables\": {{}}, \"theme\" : \"neutral\" }} }}%%\n{flowchart}"
+                ),
+                Some(Theme::Light),
+            ),
+            (
+                format!(
+                    "%%{{init: {{\"themeVariables\": {{\"primaryColor\": \"#000\"}}}}}}%%\n{flowchart}"
+                ),
+                None,
+            ),
+            (front_matter("  theme: base\n"), Some(Theme::Light)),
+            (front_matter("  theme: \"redux-dark\"\n"), Some(Theme::Dark)),
+            (
+                front_matter("  theme: base\n  themeVariables:\n    darkMode: true\n"),
+                Some(Theme::Dark),
+            ),
+            // Only the directives and the front matter count.
+            (format!("{flowchart}  C[theme: dark]\n"), None),
+        ];
+        for (source, theme) in cases {
+            assert_eq!(chosen_theme("mermaid", &source), theme, "{source}");
+        }
+        let forest = format!("%%{{init: {{\"theme\": \"forest\"}}}}%%\n{flowchart}");
+        assert_eq!(chosen_theme("Mermaid", &forest), Some(Theme::Light));
+        assert_eq!(chosen_theme("dot", &forest), None);
     }
 
     #[test]

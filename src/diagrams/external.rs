@@ -190,6 +190,8 @@ impl Renderer for External {
             return Err(format!("{language} diagrams have no command"));
         };
         let svg = self.run(command, language, source, theme)?;
+        // The program cannot tell which theme the diagram chose itself.
+        let theme = super::chosen_theme(language, source).unwrap_or(theme);
         Ok(Drawn { svg, theme })
     }
 }
@@ -313,6 +315,17 @@ mod tests {
             assert_eq!(drawn, Drawn { svg, theme });
         }
         assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+    }
+
+    #[test]
+    fn a_diagram_that_chooses_its_theme_is_drawn_for_that_page() {
+        let scratch = Scratch::new("own-theme");
+        let renderer = scratch.renderer("echo '<svg/>' > \"$2\"\n");
+        let forest = format!("%%{{init: {{\"theme\": \"forest\"}}}}%%\n{SOURCE}");
+        let drawn = renderer.render("mermaid", &forest, Theme::Dark).unwrap();
+        assert_eq!(drawn.theme, Theme::Light);
+        let drawn = renderer.render("mermaid", SOURCE, Theme::Dark).unwrap();
+        assert_eq!(drawn.theme, Theme::Dark);
     }
 
     #[test]
