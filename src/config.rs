@@ -395,45 +395,65 @@ pub fn front_matter(
     env: &Environment,
     config: &Config,
 ) -> (Setting<FrontMatter>, Option<String>) {
-    if let Some(front_matter) = option {
-        return (
-            Setting::new(front_matter, Origin::Flag("--front-matter")),
-            None,
-        );
+    named(
+        (option, "--front-matter"),
+        ("KIRI_FRONT_MATTER", env.kiri_front_matter.as_ref()),
+        config.front_matter,
+        FrontMatter::Table,
+    )
+}
+
+/// A setting whose values have names, such as `table`.
+trait Named: Copy + 'static {
+    /// Every value, in the order the warning lists them.
+    const ALL: &'static [Self];
+    fn name(self) -> &'static str;
+}
+
+impl Named for FrontMatter {
+    const ALL: &'static [Self] = &[Self::Table, Self::Code, Self::Hide, Self::Off];
+
+    fn name(self) -> &'static str {
+        FrontMatter::name(self)
     }
-    let variable = env
-        .kiri_front_matter
-        .as_ref()
-        .filter(|value| !value.is_empty());
+}
+
+/// A named setting and where it comes from, strongest first: the command
+/// line (`option`, from `flag`), then the environment variable `name`
+/// with `value`, then the configuration file (`file`), then `default`. The
+/// variable takes the values' names; empty is unset. Any other value is
+/// left out with the warning returned beside the setting.
+fn named<T: Named>(
+    (option, flag): (Option<T>, &'static str),
+    (name, value): (&'static str, Option<&OsString>),
+    file: Option<T>,
+    default: T,
+) -> (Setting<T>, Option<String>) {
+    if let Some(chosen) = option {
+        return (Setting::new(chosen, Origin::Flag(flag)), None);
+    }
     let mut warning = None;
-    if let Some(value) = variable {
-        let all = [
-            FrontMatter::Table,
-            FrontMatter::Code,
-            FrontMatter::Hide,
-            FrontMatter::Off,
-        ];
+    if let Some(value) = value.filter(|value| !value.is_empty()) {
+        let all = T::ALL.iter().copied();
         match all
-            .into_iter()
-            .find(|style| value.to_str() == Some(style.name()))
+            .clone()
+            .find(|named| value.to_str() == Some(named.name()))
         {
-            Some(front_matter) => {
-                return (
-                    Setting::new(front_matter, Origin::Environment("KIRI_FRONT_MATTER")),
-                    None,
-                );
-            }
+            Some(chosen) => return (Setting::new(chosen, Origin::Environment(name)), None),
             None => {
+                let names: Vec<&str> = all.map(T::name).collect();
+                let (last, rest) = names.split_last().expect("a setting has values");
                 warning = Some(format!(
-                    "KIRI_FRONT_MATTER: `{}` is not table, code, hide or off; left out",
-                    value.to_string_lossy()
-                ))
+                    "{name}: `{}` is not {} or {last}; left out",
+                    value.to_string_lossy(),
+                    rest.join(", "),
+                ));
             }
         }
     }
-    let setting = match config.front_matter {
-        Some(front_matter) => Setting::new(front_matter, Origin::File),
-        None => Setting::new(FrontMatter::Table, Origin::Default),
+    let setting = match file {
+        Some(chosen) => Setting::new(chosen, Origin::File),
+        None => Setting::new(default, Origin::Default),
     };
     (setting, warning)
 }
