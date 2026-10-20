@@ -256,6 +256,10 @@ GitHub's Markdown first, then what is common elsewhere.
 - The pager can close and open a `<details>`.
 - Tags inside a `<summary>`, such as `<b>`, `<i>` and `<code>`, which
   GitHub READMEs often write; they stay source today.
+- Links written as HTML: a centred row of `<a>` tags, often around
+  `<strong>`, in a `<p align="center">` below a README's title, as many
+  GitHub READMEs and Hugging Face model cards have it. Such a block stays
+  source today.
 
 #### 4.10.3 Fractional sizes
 
