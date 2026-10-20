@@ -31,6 +31,8 @@ pub struct Environment {
     pub kiri_front_matter: Option<OsString>,
     /// `KIRI_TABLE_ROWS`: `off`, `zebra`, `lines`, `indent` or `underline`.
     pub kiri_table_rows: Option<OsString>,
+    /// `KIRI_DIAGRAMS`: `on` or `off`, or `1` or `0`.
+    pub kiri_diagrams: Option<OsString>,
     /// `NO_COLOR`: colours off unless empty.
     pub no_color: Option<OsString>,
     /// `COLORTERM`: 24-bit colour when `truecolor` or `24bit`.
@@ -56,6 +58,7 @@ impl Environment {
             kiri_paging: std::env::var_os("KIRI_PAGING"),
             kiri_front_matter: std::env::var_os("KIRI_FRONT_MATTER"),
             kiri_table_rows: std::env::var_os("KIRI_TABLE_ROWS"),
+            kiri_diagrams: std::env::var_os("KIRI_DIAGRAMS"),
             no_color: std::env::var_os("NO_COLOR"),
             colorterm: std::env::var_os("COLORTERM"),
             term: std::env::var_os("TERM"),
@@ -106,6 +109,8 @@ pub struct Config {
     pub front_matter: Option<FrontMatter>,
     /// How the rows of a table are told apart.
     pub table_rows: Option<TableRows>,
+    /// Whether diagrams in code blocks are drawn, or shown as code.
+    pub diagrams: Option<bool>,
 }
 
 /// When the document is shown in the pager rather than printed.
@@ -238,6 +243,7 @@ pub fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String
         search_case: file.search_case,
         front_matter: file.front_matter,
         table_rows: file.table_rows,
+        diagrams: file.diagrams,
     })
 }
 
@@ -250,6 +256,7 @@ struct ConfigToml {
     search_case: Option<SearchCase>,
     front_matter: Option<FrontMatter>,
     table_rows: Option<TableRows>,
+    diagrams: Option<bool>,
 }
 
 /// Where a setting comes from.
@@ -429,6 +436,51 @@ pub fn table_rows(
     )
 }
 
+/// Whether diagrams in code blocks are drawn and where that comes from,
+/// strongest first: the command line (`option`, from `--diagrams`), then
+/// `KIRI_DIAGRAMS`, then the configuration file; on unless one says
+/// otherwise. `KIRI_DIAGRAMS` takes `on` and `off`, `1` for `on` and `0`
+/// for `off`; empty is unset. Any other value is left out with the warning
+/// returned beside the setting.
+pub fn diagrams(
+    option: Option<bool>,
+    env: &Environment,
+    config: &Config,
+) -> (Setting<bool>, Option<String>) {
+    if let Some(on) = option {
+        return (Setting::new(on, Origin::Flag("--diagrams")), None);
+    }
+    let variable = env.kiri_diagrams.as_ref().filter(|value| !value.is_empty());
+    let mut warning = None;
+    if let Some(value) = variable {
+        match value.to_str() {
+            Some("on" | "1") => {
+                return (
+                    Setting::new(true, Origin::Environment("KIRI_DIAGRAMS")),
+                    None,
+                );
+            }
+            Some("off" | "0") => {
+                return (
+                    Setting::new(false, Origin::Environment("KIRI_DIAGRAMS")),
+                    None,
+                );
+            }
+            _ => {
+                warning = Some(format!(
+                    "KIRI_DIAGRAMS: `{}` is not on, off, 1 or 0; left out",
+                    value.to_string_lossy()
+                ))
+            }
+        }
+    }
+    let setting = match config.diagrams {
+        Some(on) => Setting::new(on, Origin::File),
+        None => Setting::new(true, Origin::Default),
+    };
+    (setting, warning)
+}
+
 /// A setting whose values have names, such as `table`.
 trait Named: Copy + 'static {
     /// Every value, in the order the warning lists them.
@@ -516,6 +568,8 @@ pub struct Options {
     pub front_matter: Option<FrontMatter>,
     /// `--table-rows`.
     pub table_rows: Option<TableRows>,
+    /// `--diagrams`.
+    pub diagrams: Option<bool>,
 }
 
 /// What the options, the environment and the configuration file choose
@@ -537,6 +591,8 @@ pub struct Settings {
     pub front_matter: FrontMatter,
     /// How the rows of a table are told apart.
     pub table_rows: TableRows,
+    /// Whether diagrams in code blocks are drawn, or shown as code.
+    pub diagrams: bool,
 }
 
 /// What the options, the environment and the configuration file choose,
@@ -558,6 +614,8 @@ pub struct Choices {
     pub front_matter: Setting<FrontMatter>,
     /// How the rows of a table are told apart.
     pub table_rows: Setting<TableRows>,
+    /// Whether diagrams in code blocks are drawn, or shown as code.
+    pub diagrams: Setting<bool>,
     /// What the user should know about settings that were left out.
     pub warnings: Vec<String>,
 }
@@ -578,6 +636,7 @@ impl Choices {
             search_case: self.search_case.value,
             front_matter: self.front_matter.value,
             table_rows: self.table_rows.value,
+            diagrams: self.diagrams.value,
         }
     }
 }
@@ -587,6 +646,7 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
     let (paging, paging_warning) = paging(options.paging.clone(), env, config);
     let (front_matter, front_matter_warning) = front_matter(options.front_matter, env, config);
     let (table_rows, table_rows_warning) = table_rows(options.table_rows, env, config);
+    let (diagrams, diagrams_warning) = diagrams(options.diagrams, env, config);
     Choices {
         theme: theme_source(options.theme.as_deref(), options.paper, env, config),
         paper: options.paper,
@@ -602,10 +662,16 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
         },
         front_matter,
         table_rows,
-        warnings: [paging_warning, front_matter_warning, table_rows_warning]
-            .into_iter()
-            .flatten()
-            .collect(),
+        diagrams,
+        warnings: [
+            paging_warning,
+            front_matter_warning,
+            table_rows_warning,
+            diagrams_warning,
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
     }
 }
 
@@ -1187,6 +1253,93 @@ mod tests {
         assert_eq!(settings.front_matter, FrontMatter::Off);
         assert_eq!(settings.front_matter.style(), None);
         assert_eq!(FrontMatter::Code.style(), Some(FrontMatterStyle::Code));
+    }
+
+    #[test]
+    fn the_diagrams_key_turns_diagrams_on_or_off() {
+        let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
+        assert_eq!(parsed("diagrams = false\n").unwrap().diagrams, Some(false));
+        assert_eq!(parsed("diagrams = true\n").unwrap().diagrams, Some(true));
+        assert!(parsed("diagrams = \"off\"\n").is_err());
+    }
+
+    fn with_diagrams(on: bool) -> Config {
+        Config {
+            diagrams: Some(on),
+            ..Config::default()
+        }
+    }
+
+    fn diagrams_env(value: &str) -> Environment {
+        Environment {
+            kiri_diagrams: Some(value.into()),
+            ..Environment::default()
+        }
+    }
+
+    #[test]
+    fn diagrams_are_on_by_default() {
+        let (chosen, warning) = diagrams(None, &Environment::default(), &Config::default());
+        assert_eq!(chosen, Setting::new(true, Origin::Default));
+        assert_eq!(warning, None);
+    }
+
+    #[test]
+    fn the_command_line_diagrams_are_strongest() {
+        let flag = Origin::Flag("--diagrams");
+        let (chosen, _) = diagrams(Some(false), &diagrams_env("on"), &with_diagrams(true));
+        assert_eq!(chosen, Setting::new(false, flag));
+        let (chosen, _) = diagrams(Some(true), &diagrams_env("0"), &with_diagrams(false));
+        assert_eq!(chosen, Setting::new(true, flag));
+    }
+
+    #[test]
+    fn kiri_diagrams_comes_before_the_configuration_file() {
+        for (value, on) in [("on", true), ("off", false), ("1", true), ("0", false)] {
+            let (chosen, warning) = diagrams(None, &diagrams_env(value), &with_diagrams(!on));
+            let origin = Origin::Environment("KIRI_DIAGRAMS");
+            assert_eq!(chosen, Setting::new(on, origin), "{value}");
+            assert_eq!(warning, None, "{value}");
+        }
+    }
+
+    #[test]
+    fn an_empty_kiri_diagrams_leaves_it_to_the_configuration_file() {
+        let (chosen, warning) = diagrams(None, &diagrams_env(""), &with_diagrams(false));
+        assert_eq!(chosen, Setting::new(false, Origin::File));
+        assert_eq!(warning, None);
+    }
+
+    #[test]
+    fn an_unknown_kiri_diagrams_is_left_out_with_a_warning() {
+        let (chosen, warning) = diagrams(None, &diagrams_env("yes"), &with_diagrams(false));
+        assert_eq!(chosen, Setting::new(false, Origin::File));
+        assert_eq!(
+            warning.as_deref(),
+            Some("KIRI_DIAGRAMS: `yes` is not on, off, 1 or 0; left out")
+        );
+        let (chosen, _) = diagrams(None, &diagrams_env("yes"), &Config::default());
+        assert_eq!(chosen, Setting::new(true, Origin::Default));
+    }
+
+    #[test]
+    fn the_choices_carry_the_diagrams_and_their_warning() {
+        let options = Options {
+            diagrams: Some(false),
+            ..Options::default()
+        };
+        let choices = choose(&options, &diagrams_env("yes"), &Config::default());
+        let flag = Origin::Flag("--diagrams");
+        assert_eq!(choices.diagrams, Setting::new(false, flag));
+        assert!(choices.warnings.is_empty(), "{:?}", choices.warnings);
+        assert!(!choices.with_theme(Theme::default()).diagrams);
+        let choices = choose(
+            &Options::default(),
+            &diagrams_env("yes"),
+            &with_diagrams(false),
+        );
+        assert_eq!(choices.warnings.len(), 1, "{:?}", choices.warnings);
+        assert!(!choices.with_theme(Theme::default()).diagrams);
     }
 
     #[test]

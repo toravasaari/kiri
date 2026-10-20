@@ -8,7 +8,7 @@ use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, ValueEnum};
 use kiri::caps::Capabilities;
 use kiri::config::{Environment, Options, Origin, Setting, Settings};
-use kiri::diagrams::{BuiltIn, Diagrams};
+use kiri::diagrams::{BuiltIn, Diagrams, NoRenderer};
 use kiri::doctor::{Facts, Output};
 use kiri::images::{Fonts, Format, Images};
 use kiri::input::Input;
@@ -20,9 +20,10 @@ use kiri::theme::{Paper, Theme};
 #[derive(Parser)]
 #[command(
     version,
-    after_help = "Images are drawn only in terminals that support kitty's \
-                  graphics protocol with Unicode placeholders, such as kitty \
-                  0.28 or later; elsewhere they show their alt text."
+    after_help = "Images and diagrams are drawn only in terminals that support \
+                  kitty's graphics protocol with Unicode placeholders, such as \
+                  kitty 0.28 or later; elsewhere images show their alt text \
+                  and diagrams their code."
 )]
 struct Cli {
     /// Markdown file to render, a CSV or TSV file to show as a table, an
@@ -111,6 +112,11 @@ struct Cli {
     /// last line underlined), or off; zebra unless set.
     #[arg(long, value_enum, value_name = "STYLE")]
     table_rows: Option<TableRows>,
+
+    /// Diagrams in code blocks, such as Mermaid: on (drawn as images) or
+    /// off (shown as code); on unless set.
+    #[arg(long, value_enum, value_name = "SWITCH")]
+    diagrams: Option<Switch>,
 
     /// Largest image file to read, in megabytes (at most 100); larger
     /// images show their alt text.
@@ -214,6 +220,19 @@ impl From<TableRows> for kiri::render::TableRows {
             TableRows::Indent => Self::Indent,
             TableRows::Underline => Self::Underline,
         }
+    }
+}
+
+/// An on or off setting for clap.
+#[derive(Clone, Copy, ValueEnum)]
+enum Switch {
+    On,
+    Off,
+}
+
+impl From<Switch> for bool {
+    fn from(switch: Switch) -> Self {
+        matches!(switch, Switch::On)
     }
 }
 
@@ -369,7 +388,11 @@ fn show_document(
     let images = if settings.images && caps.draws_images() {
         let max_file_size = cli.max_image_size * kiri::images::MB;
         let diagrams = Diagrams {
-            renderer: &BuiltIn,
+            renderer: if settings.diagrams {
+                &BuiltIn
+            } else {
+                &NoRenderer
+            },
             theme: kiri::diagrams::Theme::for_page(caps.dark_background),
             by_line,
         };
@@ -610,5 +633,6 @@ fn options(cli: &Cli) -> Options {
         },
         front_matter: cli.front_matter.map(Into::into),
         table_rows: cli.table_rows.map(Into::into),
+        diagrams: cli.diagrams.map(Into::into),
     }
 }

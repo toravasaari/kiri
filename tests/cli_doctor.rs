@@ -200,6 +200,40 @@ fn table_rows_tell_where_they_come_from() {
 }
 
 #[test]
+fn diagrams_tell_where_they_come_from() {
+    let dir = Scratch::new("doctor-diagrams");
+    for (args, variable, row) in [
+        (&[][..], None, "| Diagrams | on | default |"),
+        (
+            &["--diagrams", "on"][..],
+            Some("0"),
+            "| Diagrams | on | `--diagrams` |",
+        ),
+        (
+            &[][..],
+            Some("off"),
+            "| Diagrams | off | `KIRI_DIAGRAMS=off` |",
+        ),
+    ] {
+        let mut command = doctor(&dir, args);
+        if let Some(value) = variable {
+            command.env("KIRI_DIAGRAMS", value);
+        }
+        let out = command.output().unwrap();
+        assert_succeeded(&out);
+        let report = text(&out.stdout);
+        assert!(report.contains(row), "{row}\n{report}");
+    }
+    write(
+        &dir.join("home/.config/kiri/config.toml"),
+        "diagrams = false\n",
+    );
+    let report = piped(&dir, &[]);
+    let row = "| Diagrams | off | configuration file |";
+    assert!(report.contains(row), "{row}\n{report}");
+}
+
+#[test]
 fn the_search_case_tells_where_it_comes_from() {
     let dir = Scratch::new("doctor-search-case");
     let report = piped(&dir, &[]);
