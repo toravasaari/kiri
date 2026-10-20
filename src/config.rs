@@ -36,6 +36,12 @@ pub struct Environment {
     pub kiri_table_rows: Option<OsString>,
     /// `KIRI_DIAGRAMS`: `on` or `off`, or `1` or `0`.
     pub kiri_diagrams: Option<OsString>,
+    /// `PATH`, where kiri looks for a program that draws diagrams.
+    pub path: Option<OsString>,
+    /// `NVM_DIR`: where nvm keeps the Node versions it installs.
+    pub nvm_dir: Option<OsString>,
+    /// `NPM_CONFIG_PREFIX`: npm's prefix for the programs it installs.
+    pub npm_config_prefix: Option<OsString>,
     /// `NO_COLOR`: colours off unless empty.
     pub no_color: Option<OsString>,
     /// `COLORTERM`: 24-bit colour when `truecolor` or `24bit`.
@@ -62,6 +68,11 @@ impl Environment {
             kiri_front_matter: std::env::var_os("KIRI_FRONT_MATTER"),
             kiri_table_rows: std::env::var_os("KIRI_TABLE_ROWS"),
             kiri_diagrams: std::env::var_os("KIRI_DIAGRAMS"),
+            path: std::env::var_os("PATH"),
+            nvm_dir: std::env::var_os("NVM_DIR"),
+            // npm reads its settings from the environment in either case.
+            npm_config_prefix: std::env::var_os("NPM_CONFIG_PREFIX")
+                .or_else(|| std::env::var_os("npm_config_prefix")),
             no_color: std::env::var_os("NO_COLOR"),
             colorterm: std::env::var_os("COLORTERM"),
             term: std::env::var_os("TERM"),

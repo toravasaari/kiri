@@ -221,3 +221,57 @@ fn a_configured_command_gets_the_theme_for_the_page() {
     }
     assert_eq!(std::fs::read_to_string(&record).unwrap(), "default\ndark\n");
 }
+
+/// A stand-in for mermaid-cli in `bin`: `mmdc`, a Node script, and the
+/// `node` it runs, which draws an SVG as high as the source has lines and
+/// notes in `called` that it ran.
+fn fake_mmdc(bin: &std::path::Path, called: &std::path::Path) {
+    common::executable(&bin.join("mmdc"), "#!/usr/bin/env node\n");
+    let node = format!(
+        "#!/bin/sh\n\
+         PATH=/usr/bin:/bin\n\
+         shift\n\
+         while [ $# -gt 0 ]; do\n\
+           case $1 in -i) input=$2 ;; -o) output=$2 ;; -t) theme=$2 ;; esac\n\
+           shift\n\
+         done\n\
+         echo \"$theme\" >> '{}'\n\
+         lines=$(wc -l < \"$input\")\n\
+         printf '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"%s\"/>' \
+         $((lines * 20)) > \"$output\"\n",
+        called.display()
+    );
+    common::executable(&bin.join("node"), &node);
+}
+
+#[test]
+fn a_build_without_merman_finds_mmdc_by_itself() {
+    let dir = Scratch::new("mermaid-find-mmdc");
+    let called = dir.join("called");
+    // On PATH, and in an nvm directory that is not on it.
+    let nvm = dir.join("home/.nvm/versions/node/v24.16.0/bin");
+    for (bin, path) in [(dir.join("bin"), dir.join("bin")), (nvm, dir.join("empty"))] {
+        let _ = std::fs::remove_file(&called);
+        fake_mmdc(&bin, &called);
+        let document = dir.join("document.md");
+        std::fs::write(&document, FLOWCHART).unwrap();
+        let out = common::command(&dir)
+            .env("PATH", &path)
+            .args(["--mode", "kitty", "--dark"])
+            .arg(&document)
+            .output()
+            .unwrap();
+        assert_eq!(text(&out.stderr), "", "{}", bin.display());
+        let images = sent(&text(&out.stdout));
+        assert_eq!(images.len(), 1, "{}", bin.display());
+        let called = std::fs::read_to_string(&called).ok();
+        if cfg!(feature = "mermaid") {
+            // merman draws it.
+            assert_eq!(called, None);
+        } else {
+            assert_eq!(called.as_deref(), Some("dark\n"));
+            assert_eq!(images[0].keys["v"], "40");
+        }
+        let _ = std::fs::remove_dir_all(&bin);
+    }
+}

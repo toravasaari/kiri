@@ -440,6 +440,27 @@ pub fn write(path: &Path, text: &str) {
     std::fs::write(path, text).unwrap();
 }
 
+/// A program at `path` that runs `script`. Another process writes it, so
+/// that no program started by this one, between its fork and its exec,
+/// holds the file open for writing when the program is run, which fails
+/// with "text file busy".
+pub fn executable(path: &Path, script: &str) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(path)
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(script.as_bytes())
+        .unwrap();
+    assert!(child.wait().unwrap().success());
+}
+
 /// A pseudo-terminal: the terminal side, and the program's side.
 pub fn pty() -> (std::fs::File, std::fs::File) {
     use std::ffi::OsStr;

@@ -345,16 +345,14 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), String> {
             document
         }
     };
-    // Images in a piped document are relative to the current directory.
-    let base = file.and_then(Path::parent).unwrap_or(Path::new(""));
     show_document(
         cli,
         &document,
         &path.to_string_lossy(),
-        base,
+        file,
         settings,
         caps,
-        file.is_some(),
+        &env,
     )
 }
 
@@ -367,18 +365,21 @@ fn readme(dir: &Path) -> Result<PathBuf, String> {
         .ok_or_else(|| format!("{}: no README.md or README", dir.display()))
 }
 
-/// Renders `document`, called `name`, whose images are relative to
-/// `base`, on stdout. Warnings name a diagram by its line when `by_line`,
-/// for a file the reader can open, and otherwise by its first line.
+/// Renders `document`, called `name`, on stdout. When it comes from
+/// `file`, its images are relative to the file's directory and warnings
+/// name a diagram by its line; otherwise images are relative to the
+/// current directory and a diagram is named by its first line. `env`
+/// tells where to look for a program that draws diagrams.
 fn show_document(
     cli: &Cli,
     document: &Document,
     name: &str,
-    base: &Path,
+    file: Option<&Path>,
     settings: Settings,
     mut caps: Capabilities,
-    by_line: bool,
+    env: &Environment,
 ) -> Result<(), String> {
+    let base = file.and_then(Path::parent).unwrap_or(Path::new(""));
     // The page decides, whatever the terminal's background is.
     if let Some(paper) = settings.paper {
         caps.dark_background = Some(paper == Paper::Dark);
@@ -390,13 +391,14 @@ fn show_document(
         let renderers;
         let diagrams = Diagrams {
             renderer: if settings.diagrams {
-                renderers = Renderers::new(&settings.diagram_commands);
+                let search = kiri::diagrams::find::Search::new(env);
+                renderers = Renderers::chosen(&settings.diagram_commands, &search);
                 &renderers
             } else {
                 &NoRenderer
             },
             theme: kiri::diagrams::Theme::for_page(caps.dark_background),
-            by_line,
+            by_line: file.is_some(),
         };
         let images = kiri::images::load(document, base, max_file_size, &diagrams);
         for warning in images.warnings() {
@@ -558,10 +560,10 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), String> {
         cli,
         &document,
         "kiri --doctor",
-        Path::new(""),
+        None,
         settings,
         detection.caps,
-        false,
+        &env,
     )
 }
 
@@ -588,10 +590,10 @@ fn list_emojis(cli: &Cli) -> Result<(), String> {
         cli,
         &document,
         "kiri --list-emojis",
-        Path::new(""),
+        None,
         settings,
         caps,
-        false,
+        &env,
     )
 }
 

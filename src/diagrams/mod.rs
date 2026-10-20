@@ -9,6 +9,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub mod external;
+pub mod find;
 #[cfg(feature = "mermaid")]
 mod mermaid;
 
@@ -252,15 +253,18 @@ pub struct Renderers {
 }
 
 impl Renderers {
-    /// The built-in renderers, and the external commands `commands`
-    /// configures, a program and its arguments for each language.
-    pub fn new(commands: &BTreeMap<String, Vec<String>>) -> Self {
-        let commands = (commands.iter())
-            .map(|(language, argv)| (language.clone(), Command::new(argv.clone())))
-            .collect();
+    /// The built-in renderers, and `commands`, the external command for
+    /// each language that has one.
+    pub fn new(commands: BTreeMap<String, Command>) -> Self {
         Renderers {
             external: External::new(commands),
         }
+    }
+
+    /// The built-in renderers, and the external commands that `configured`
+    /// gives or that `search` finds; see `find::choose`.
+    pub fn chosen(configured: &BTreeMap<String, Vec<String>>, search: &find::Search) -> Self {
+        Self::new(find::commands(configured, search))
     }
 }
 
@@ -375,14 +379,14 @@ mod tests {
                 .map(String::from)
                 .to_vec(),
         )]);
-        let renderers = Renderers::new(&commands);
+        let renderers = Renderers::chosen(&commands, &find::Search::default());
         assert!(renderers.draws("mermaid") && renderers.draws("Mermaid"));
         // It fails, and the built-in renderer does not step in.
         let drawn = renderers.render("mermaid", "flowchart TD\n  A --> B\n", Theme::Light);
         assert_eq!(drawn, Err("sh exited with status 4".to_owned()));
         let drawn = renderers.render_all(&[("mermaid", "flowchart TD\n")], Theme::Dark, &|| {});
         assert_eq!(drawn, [Err("sh exited with status 4".to_owned())]);
-        let none = Renderers::new(&BTreeMap::new());
+        let none = Renderers::new(BTreeMap::new());
         assert_eq!(none.draws("mermaid"), cfg!(feature = "mermaid"));
         assert!(!none.draws("dot"));
     }
