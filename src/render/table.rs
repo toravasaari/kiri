@@ -39,12 +39,17 @@ impl From<Vec<Span>> for Cell {
 }
 
 impl Cell {
-    /// Whether its last part is a table, whose bottom border, when it is
-    /// drawn as a box, ends the cell.
-    fn ends_in_table(&self) -> bool {
+    /// Whether its last line in `max` cells is the bottom border of a table
+    /// drawn as a box, rather than stacked.
+    fn ends_in_box(&self, max: usize) -> bool {
         match self {
-            Self::Table(_) => true,
-            Self::Stack(parts) => parts.last().is_some_and(Cell::ends_in_table),
+            Self::Table(cells) => {
+                let columns = column_count(cells);
+                columns > 0 && column_widths(cells, columns, max).is_some()
+            }
+            Self::Stack(parts) => {
+                stack_is_boxed(parts, max) && parts.last().is_some_and(|last| last.ends_in_box(max))
+            }
             Self::Text(_) | Self::Code { .. } => false,
         }
     }
@@ -123,10 +128,7 @@ fn code_width(lines: &[Vec<Span>]) -> usize {
 /// stacked when one of them does not fit as a box, so that they look
 /// alike; stacked, its parts are separated by rules.
 fn stack_lines(parts: &[Cell], max: usize, styles: &Styles) -> Vec<Vec<Span>> {
-    let boxed = (parts.iter()).all(|part| match part {
-        Cell::Table(cells) => boxed_floor(cells) <= max,
-        _ => true,
-    });
+    let boxed = stack_is_boxed(parts, max);
     let mut lines = Vec::new();
     for (index, part) in parts.iter().enumerate() {
         if !boxed && index > 0 {
@@ -141,6 +143,14 @@ fn stack_lines(parts: &[Cell], max: usize, styles: &Styles) -> Vec<Vec<Span>> {
         }
     }
     lines
+}
+
+/// Whether the tables of a stack in `max` cells are boxes.
+fn stack_is_boxed(parts: &[Cell], max: usize) -> bool {
+    (parts.iter()).all(|part| match part {
+        Cell::Table(cells) => boxed_floor(cells) <= max,
+        _ => true,
+    })
 }
 
 #[derive(Clone)]
@@ -229,14 +239,15 @@ pub fn layout(cells: &Cells, max: usize, styles: &Styles) -> Vec<Line> {
                 ));
                 continue;
             }
-            Rows::Underline { color }
-                if index + 1 < cells.rows.len() && !ends_in_box(row, &widths, styles) =>
-            {
-                let mut row = row_lines(row, &widths, &cells.alignments, styles, base);
-                if let Some(last) = row.last_mut() {
+            Rows::Underline { color } if index + 1 < cells.rows.len() => {
+                let wrapped = wrap_row(row, &widths, styles);
+                let mut row_lines = join_row(&wrapped, &widths, &cells.alignments, styles, base);
+                if !ends_in_box(row, &widths, &wrapped)
+                    && let Some(last) = row_lines.last_mut()
+                {
                     underline(last, color);
                 }
-                lines.extend(row);
+                lines.extend(row_lines);
                 continue;
             }
             _ => base,
@@ -507,20 +518,15 @@ fn painted(mut line: Line, background: Option<Color>) -> Line {
     line
 }
 
-/// Whether the last line of `row` is the bottom border of a table drawn
-/// as a box in it, which already closes the row, so an underline there
-/// would double it.
-fn ends_in_box(row: &[Cell], widths: &[usize], styles: &Styles) -> bool {
-    let ends: Vec<(usize, bool)> = (row.iter().zip(widths))
-        .map(|(cell, &width)| {
-            let lines = cell.lines(width, styles);
-            let boxed = cell.ends_in_table()
-                && (lines.last()).is_some_and(|line| style::text(line).starts_with('╰'));
-            (lines.len(), boxed)
-        })
-        .collect();
-    let height = ends.iter().map(|&(height, _)| height).max().unwrap_or(0);
-    ends.iter().any(|&(lines, boxed)| boxed && lines == height)
+/// Whether the last line of `row`, laid out as `wrapped`, is the bottom
+/// border of a table drawn as a box in it, which already closes the row,
+/// so an underline there would double it. A text cell as tall as that
+/// table then goes without the underline too: the border still marks
+/// where the row ends.
+fn ends_in_box(row: &[Cell], widths: &[usize], wrapped: &[Vec<Vec<Span>>]) -> bool {
+    let height = wrapped.iter().map(Vec::len).max().unwrap_or(0);
+    (row.iter().zip(widths).zip(wrapped))
+        .any(|((cell, &width), lines)| lines.len() == height && cell.ends_in_box(width))
 }
 
 /// Underlines `line` between the table's borders, dashed, all of it in
@@ -545,16 +551,30 @@ fn row_lines(
     styles: &Styles,
     background: Option<Color>,
 ) -> Vec<Line> {
-    let border = &styles.border;
-    let empty = Vec::new();
-    let wrapped: Vec<Vec<Vec<Span>>> = widths
-        .iter()
-        .enumerate()
+    let wrapped = wrap_row(row, widths, styles);
+    join_row(&wrapped, widths, alignments, styles, background)
+}
+
+/// The lines of each cell of `row` in its column's width.
+fn wrap_row(row: &[Cell], widths: &[usize], styles: &Styles) -> Vec<Vec<Vec<Span>>> {
+    (widths.iter().enumerate())
         .map(|(column, &w)| match row.get(column) {
             Some(cell) => cell.lines(w, styles),
             None => vec![Vec::new()],
         })
-        .collect();
+        .collect()
+}
+
+/// The cells' lines side by side between borders, on `background`.
+fn join_row(
+    wrapped: &[Vec<Vec<Span>>],
+    widths: &[usize],
+    alignments: &[Alignment],
+    styles: &Styles,
+    background: Option<Color>,
+) -> Vec<Line> {
+    let border = &styles.border;
+    let empty = Vec::new();
     let height = wrapped.iter().map(Vec::len).max().unwrap_or(1);
 
     (0..height)
@@ -1360,5 +1380,23 @@ mod tests {
         assert_eq!(outer(&lines[4]), 0, "{:?}", lines[4]);
         // The inner table still underlines its own row x.
         assert!(outer(&lines[2]) > 0, "{:?}", lines[2]);
+    }
+
+    #[test]
+    fn a_row_ending_in_a_stacked_table_is_underlined_whatever_its_text() {
+        let inner = keyed(vec![("x", cell("╰ bar").into())]);
+        let cells = keyed(vec![("a", Cell::Table(inner)), ("b", cell("text").into())]);
+        let rows = Rows::Underline { color: Some(PAGE) };
+        let lines = layout(&cells, 14, &with_rows(rows));
+        // Too narrow for a box, the inner table is stacked: its last line
+        // is text, even though it starts as a border would.
+        let last = lines
+            .iter()
+            .rposition(|line| style::text(&line.spans).contains("bar"));
+        let last = &lines[last.expect("the inner table's text")];
+        assert!(
+            (last.spans.iter()).any(|span| span.style.underline_color.is_some()),
+            "{last:?}"
+        );
     }
 }
