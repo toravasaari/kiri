@@ -9,6 +9,9 @@ pub struct Document {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Block {
+    /// Metadata at the very start of a file, as static site generators
+    /// and agent skills write it.
+    FrontMatter(FrontMatter),
     Heading {
         level: u8,
         content: Vec<Inline>,
@@ -41,6 +44,15 @@ pub enum Block {
     /// A note of kiri's own about the document rather than part of it,
     /// such as how many rows of a table were left out.
     Note(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FrontMatter {
+    /// `yaml`, `toml` or `json` from the delimiter, or the language
+    /// written after it, as in `---php`.
+    pub language: String,
+    /// The text between the delimiter lines, each line ending in `\n`.
+    pub source: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

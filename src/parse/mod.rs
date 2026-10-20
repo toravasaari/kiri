@@ -1,6 +1,7 @@
 //! Markdown source to document model, through comrak's syntax tree.
 
 pub mod csv;
+mod front_matter;
 mod html;
 
 use comrak::nodes::{AlertType, ListType, NodeValue, TableAlignment};
@@ -9,11 +10,16 @@ use comrak::{Arena, Node, Options, parse_document};
 use self::html::DetailsPart;
 use crate::model::{AlertKind, Alignment, Block, Document, Image, Inline, List, ListItem, Table};
 
+/// Parses Markdown that may start with front matter.
 pub fn parse(source: &str) -> Document {
+    let (front_matter, markdown) = match front_matter::split(source) {
+        Some((front_matter, markdown)) => (Some(Block::FrontMatter(front_matter)), markdown),
+        None => (None, source),
+    };
     let arena = Arena::new();
-    let root = parse_document(&arena, source, &options());
+    let root = parse_document(&arena, markdown, &options());
     Document {
-        blocks: blocks(root),
+        blocks: front_matter.into_iter().chain(blocks(root)).collect(),
     }
 }
 
@@ -349,6 +355,24 @@ mod tests {
                     Inline::Code("code".into()),
                     text("."),
                 ]),
+            ]
+        );
+    }
+
+    #[test]
+    fn front_matter_comes_before_the_markdown_after_it() {
+        let document = parse("---\ntitle: A\n---\n# Body\n");
+        assert_eq!(
+            document.blocks,
+            vec![
+                Block::FrontMatter(crate::model::FrontMatter {
+                    language: "yaml".into(),
+                    source: "title: A\n".into(),
+                }),
+                Block::Heading {
+                    level: 1,
+                    content: vec![text("Body")],
+                },
             ]
         );
     }

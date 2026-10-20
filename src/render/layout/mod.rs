@@ -132,6 +132,9 @@ impl Layout<'_> {
 
     fn block(&self, block: &Block, width: usize, context: Context) -> Vec<Line> {
         match block {
+            Block::FrontMatter(front_matter) => {
+                self.code_block(Some(&front_matter.language), &front_matter.source, width)
+            }
             Block::Heading { level, content } => self.heading(*level, content, width, context),
             Block::Paragraph(content) => self.paragraph(content, &Style::default(), width),
             Block::CodeBlock { language, code } => {
