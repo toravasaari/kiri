@@ -77,6 +77,7 @@ impl Cell {
     /// Its lines in `max` cells.
     fn lines(&self, max: usize, styles: &Styles) -> Vec<Vec<Span>> {
         match self {
+            Self::Text(spans) if styles.rows == Rows::Indent => hanging(spans, max),
             Self::Text(spans) => wrap(spans, max),
             Self::Table(cells) => (layout(cells, max, styles).into_iter())
                 .map(|line| line.spans)
@@ -153,6 +154,8 @@ pub enum Rows {
     Plain,
     /// A rule between the body rows.
     Lines,
+    /// The lines after the first of a text cell start two cells in.
+    Indent,
     /// Every second body row on `stripe`, from border to border. A table
     /// in a striped row is drawn on `page`, so its stripes start afresh.
     Stripes { stripe: Color, page: Color },
@@ -409,7 +412,12 @@ fn stacked(cells: &Cells, columns: usize, max: usize, styles: &Styles) -> Vec<Li
                 (false, false, _) => parts.extend([Cell::Text(label), value.clone()]),
             }
             for part in parts {
-                lines.extend(part.lines(max, styles).into_iter().map(Line::new));
+                // Text keeps the stacked layout, whatever the rows of a box.
+                let part_lines = match &part {
+                    Cell::Text(spans) => wrap(spans, max),
+                    part => part.lines(max, styles),
+                };
+                lines.extend(part_lines.into_iter().map(Line::new));
             }
         }
     }
@@ -437,6 +445,19 @@ fn longest_together(cell: &[Span]) -> usize {
         .map(|word| width(word))
         .max()
         .unwrap_or(0)
+}
+
+/// `spans` wrapped to `max` cells, the lines after the first two cells in.
+fn hanging(spans: &[Span], max: usize) -> Vec<Vec<Span>> {
+    let lines = wrap(spans, max);
+    if lines.len() < 2 {
+        return lines;
+    }
+    let mut lines = wrap(spans, max.saturating_sub(2).max(1));
+    for line in lines.iter_mut().skip(1) {
+        line.insert(0, Span::new("  ", Style::default()));
+    }
+    lines
 }
 
 /// A rule across the table: its ends, and between them the rule itself.
@@ -1182,5 +1203,47 @@ mod tests {
             [None, s, s, s, s, s, s, s, s, s, s, s, s, s, s, s, None]
         );
         assert!(cells(&lines[1]).iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn indent_starts_the_lines_after_the_first_of_a_cell_two_cells_in() {
+        let author = keyed(vec![("name", cell("Aino Virtanen").into())]);
+        let cells = keyed(vec![
+            (
+                "description",
+                cell("Drafts notes from merged pull requests").into(),
+            ),
+            ("notes", cell("one\ntwo").into()),
+            ("tags", cell("a, b").into()),
+            ("author", Cell::Table(author)),
+        ]);
+        assert_eq!(
+            text(&layout(&cells, 40, &with_rows(Rows::Indent))),
+            vec![
+                "╭─────────────┬────────────────────────╮",
+                "│ description │ Drafts notes from      │",
+                "│             │   merged pull requests │",
+                "│ notes       │ one                    │",
+                "│             │   two                  │",
+                "│ tags        │ a, b                   │",
+                "│ author      │ ╭──────┬─────────────╮ │",
+                "│             │ │ name │ Aino        │ │",
+                "│             │ │      │   Virtanen  │ │",
+                "│             │ ╰──────┴─────────────╯ │",
+                "╰─────────────┴────────────────────────╯",
+            ]
+        );
+    }
+
+    #[test]
+    fn indent_leaves_a_stacked_table_as_it_is() {
+        let cells = table(
+            &["Name", "Notes"],
+            &[&["Helsinki", "Capital of Finland since 1812"]],
+        );
+        assert_eq!(
+            layout(&cells, 20, &with_rows(Rows::Indent)),
+            layout(&cells, 20, &styles())
+        );
     }
 }

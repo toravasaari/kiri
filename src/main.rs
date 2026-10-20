@@ -105,7 +105,9 @@ struct Cli {
     front_matter: Option<FrontMatter>,
 
     /// How the rows of a table are told apart: zebra (every second row
-    /// shaded, or lines where shading cannot show), lines, or off.
+    /// shaded, or lines where shading cannot show), lines, indent (the
+    /// lines after the first of a wrapped value start two cells in), or
+    /// off.
     #[arg(long, value_enum, value_name = "STYLE")]
     table_rows: Option<TableRows>,
 
@@ -198,6 +200,7 @@ enum TableRows {
     Off,
     Zebra,
     Lines,
+    Indent,
 }
 
 impl From<TableRows> for kiri::render::TableRows {
@@ -206,6 +209,7 @@ impl From<TableRows> for kiri::render::TableRows {
             TableRows::Off => Self::Off,
             TableRows::Zebra => Self::Zebra,
             TableRows::Lines => Self::Lines,
+            TableRows::Indent => Self::Indent,
         }
     }
 }

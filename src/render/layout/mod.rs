@@ -374,6 +374,7 @@ impl Layout<'_> {
         let rows = match self.table_rows {
             TableRows::Off => table::Rows::Plain,
             TableRows::Lines => table::Rows::Lines,
+            TableRows::Indent => table::Rows::Indent,
             TableRows::Zebra => match self.stripe() {
                 Some((stripe, page)) => table::Rows::Stripes { stripe, page },
                 None => table::Rows::Lines,

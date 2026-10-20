@@ -46,6 +46,9 @@ pub enum TableRows {
     Zebra,
     /// A rule between the rows.
     Lines,
+    /// The lines after the first of a wrapped value start two cells in, so
+    /// that a new row is one that starts at the edge of its cell.
+    Indent,
 }
 
 impl TableRows {
@@ -55,6 +58,7 @@ impl TableRows {
             Self::Off => "off",
             Self::Zebra => "zebra",
             Self::Lines => "lines",
+            Self::Indent => "indent",
         }
     }
 }
