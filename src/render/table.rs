@@ -1,5 +1,7 @@
 //! Tables drawn with box-drawing characters, or stacked when too narrow.
 
+use std::ops::Range;
+
 use unicode_width::UnicodeWidthStr;
 
 use super::style::{self, Line, Span, Style, push};
@@ -45,7 +47,21 @@ impl Cell {
         match self {
             Self::Table(cells) => {
                 let columns = column_count(cells);
-                columns > 0 && column_widths(cells, columns, max).is_some()
+                if columns == 0 {
+                    return false;
+                }
+                if column_widths(cells, columns, max).is_some() {
+                    return true;
+                }
+                // Stacked, it ends in its last row's last value.
+                let last = if cells.header_column {
+                    columns.max(2) - 1
+                } else {
+                    columns - 1
+                };
+                (cells.rows.last())
+                    .and_then(|row| row.get(last))
+                    .is_some_and(|value| !value.is_empty() && value.ends_in_box(max))
             }
             Self::Stack(parts) => {
                 stack_is_boxed(parts, max) && parts.last().is_some_and(|last| last.ends_in_box(max))
@@ -242,10 +258,8 @@ pub fn layout(cells: &Cells, max: usize, styles: &Styles) -> Vec<Line> {
             Rows::Underline { color } if index + 1 < cells.rows.len() => {
                 let wrapped = wrap_row(row, &widths, styles);
                 let mut row_lines = join_row(&wrapped, &widths, &cells.alignments, styles, base);
-                if !ends_in_box(row, &widths, &wrapped)
-                    && let Some(last) = row_lines.last_mut()
-                {
-                    underline(last, color);
+                if let Some(last) = row_lines.last_mut() {
+                    underline(last, color, &boxed_spans(row, &widths, &wrapped));
                 }
                 lines.extend(row_lines);
                 continue;
@@ -518,24 +532,38 @@ fn painted(mut line: Line, background: Option<Color>) -> Line {
     line
 }
 
-/// Whether the last line of `row`, laid out as `wrapped`, is the bottom
-/// border of a table drawn as a box in it, which already closes the row,
-/// so an underline there would double it. A text cell as tall as that
-/// table then goes without the underline too: the border still marks
-/// where the row ends.
-fn ends_in_box(row: &[Cell], widths: &[usize], wrapped: &[Vec<Vec<Span>>]) -> bool {
+/// The spans of the last line of `row`, laid out as `wrapped` and joined
+/// by `join_row`, that belong to a column whose last line is the bottom
+/// border of a table drawn as a box. That border already closes the row
+/// in its column, so an underline there would double it.
+fn boxed_spans(row: &[Cell], widths: &[usize], wrapped: &[Vec<Vec<Span>>]) -> Vec<Range<usize>> {
     let height = wrapped.iter().map(Vec::len).max().unwrap_or(0);
-    (row.iter().zip(widths).zip(wrapped))
-        .any(|((cell, &width), lines)| lines.len() == height && cell.ends_in_box(width))
+    // After the left border, each column is its padding, its text, its
+    // padding and the border after it.
+    let mut start = 1;
+    let mut boxed = Vec::new();
+    for (column, lines) in wrapped.iter().enumerate() {
+        let spans = lines.get(height.saturating_sub(1)).map_or(0, Vec::len) + 2;
+        let ends = lines.len() == height
+            && (row.get(column)).is_some_and(|cell| cell.ends_in_box(widths[column]));
+        if ends {
+            boxed.push(start..start + spans);
+        }
+        start += spans + 1;
+    }
+    boxed
 }
 
 /// Underlines `line` between the table's borders, dashed, all of it in
-/// `color`. Text with an underline of its own, such as a link, keeps its
-/// style but takes the colour, so that the row's underline is one colour
-/// from border to border.
-fn underline(line: &mut Line, color: Option<Color>) {
+/// `color`, but for the spans in `skip`. Text with an underline of its own,
+/// such as a link, keeps its style but takes the colour, so that the row's
+/// underline is one colour from border to border.
+fn underline(line: &mut Line, color: Option<Color>, skip: &[Range<usize>]) {
     let inside = 1..line.spans.len().saturating_sub(1);
-    for span in line.spans.get_mut(inside).into_iter().flatten() {
+    let spans = (line.spans.iter_mut().enumerate())
+        .filter(|(index, _)| inside.contains(index))
+        .filter(|(index, _)| !skip.iter().any(|range| range.contains(index)));
+    for (_, span) in spans {
         if span.style.underline == Underline::None {
             span.style.underline = Underline::Dashed;
         }
@@ -1371,15 +1399,50 @@ mod tests {
                 "╰───┴───────────╯",
             ]
         );
-        // The inner table's bottom border already ends row a.
-        let outer = |line: &Line| {
-            (line.spans.iter())
-                .filter(|span| span.style.underline_color.is_some())
-                .count()
-        };
-        assert_eq!(outer(&lines[4]), 0, "{:?}", lines[4]);
+        assert_ends_row_around_its_border(&lines[4]);
         // The inner table still underlines its own row x.
-        assert!(outer(&lines[2]) > 0, "{:?}", lines[2]);
+        assert!(
+            (lines[2].spans.iter()).any(|span| span.style.underline_color.is_some()),
+            "{:?}",
+            lines[2]
+        );
+    }
+
+    /// The inner table's bottom border on `line` closes the row there
+    /// itself, so only the rest of the line, the key column, is underlined.
+    fn assert_ends_row_around_its_border(line: &Line) {
+        let on = |span: &Span| span.style.underline_color.is_some();
+        let border = |span: &Span| span.text.contains(['╰', '┴', '╯', '─']);
+        assert!(
+            (line.spans.iter())
+                .filter(|span| border(span))
+                .all(|span| !on(span)),
+            "{line:?}"
+        );
+        // The key column's padding, after the outer left border.
+        assert!(on(&line.spans[1]), "{line:?}");
+    }
+
+    #[test]
+    fn a_row_ending_in_a_box_inside_a_stacked_table_ends_around_its_border() {
+        let innermost = keyed(vec![("x", cell("1").into())]);
+        let inner = keyed(vec![("targets", Cell::Table(innermost))]);
+        let cells = keyed(vec![("a", Cell::Table(inner)), ("b", cell("text").into())]);
+        let rows = Rows::Underline { color: Some(PAGE) };
+        let lines = layout(&cells, 17, &with_rows(rows));
+        assert_eq!(
+            text(&lines),
+            vec![
+                "╭───┬───────────╮",
+                "│ a │ targets:  │",
+                "│   │ ╭───┬───╮ │",
+                "│   │ │ x │ 1 │ │",
+                "│   │ ╰───┴───╯ │",
+                "│ b │ text      │",
+                "╰───┴───────────╯",
+            ]
+        );
+        assert_ends_row_around_its_border(&lines[4]);
     }
 
     #[test]
