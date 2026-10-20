@@ -1,0 +1,111 @@
+---
+source: tests/render_diagrams.rs
+expression: "readable(&render_fixture(\"mermaid.md\",\n&with_images(&Capabilities::kitty(WIDTH), images)))"
+---
+␛[0;1;4;34m␛]66;s=3;Mermaid diagrams␛\␛[0m
+
+
+
+  A flowchart with a subgraph and Finnish
+  text:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=1077778,s=200,v=200,c=20,r=10,m=0;<1724 bytes>␛\  ␛[38;2;16;114;18m⟦row 0: 20 cells⟧␛[39m
+  ␛[38;2;16;114;18m⟦row 1: 20 cells⟧␛[39m
+  ␛[38;2;16;114;18m⟦row 2: 20 cells⟧␛[39m
+  ␛[38;2;16;114;18m⟦row 3: 20 cells⟧␛[39m
+  ␛[38;2;16;114;18m⟦row 4: 20 cells⟧␛[39m
+  ␛[38;2;16;114;18m⟦row 5: 20 cells⟧␛[39m
+  ␛[38;2;16;114;18m⟦row 6: 20 cells⟧␛[39m
+  ␛[38;2;16;114;18m⟦row 7: 20 cells⟧␛[39m
+  ␛[38;2;16;114;18m⟦row 8: 20 cells⟧␛[39m
+  ␛[38;2;16;114;18m⟦row 9: 20 cells⟧␛[39m
+
+  A sequence diagram with notes:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=14798968,s=200,v=220,c=20,r=11,m=0;<1892 bytes>␛\  ␛[38;2;225;208;120m⟦row 0: 20 cells⟧␛[39m
+  ␛[38;2;225;208;120m⟦row 1: 20 cells⟧␛[39m
+  ␛[38;2;225;208;120m⟦row 2: 20 cells⟧␛[39m
+  ␛[38;2;225;208;120m⟦row 3: 20 cells⟧␛[39m
+  ␛[38;2;225;208;120m⟦row 4: 20 cells⟧␛[39m
+  ␛[38;2;225;208;120m⟦row 5: 20 cells⟧␛[39m
+  ␛[38;2;225;208;120m⟦row 6: 20 cells⟧␛[39m
+  ␛[38;2;225;208;120m⟦row 7: 20 cells⟧␛[39m
+  ␛[38;2;225;208;120m⟦row 8: 20 cells⟧␛[39m
+  ␛[38;2;225;208;120m⟦row 9: 20 cells⟧␛[39m
+  ␛[38;2;225;208;120m⟦row 10: 20 cells⟧␛[39m
+
+  A class diagram:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=758609,s=200,v=340,c=20,r=17,m=0;<2900 bytes>␛\  ␛[38;2;11;147;81m⟦row 0: 20 cells⟧␛[39m
+  ␛[38;2;11;147;81m⟦row 1: 20 cells⟧␛[39m
+  ␛[38;2;11;147;81m⟦row 2: 20 cells⟧␛[39m
+  ␛[38;2;11;147;81m⟦row 3: 20 cells⟧␛[39m
+  ␛[38;2;11;147;81m⟦row 4: 20 cells⟧␛[39m
+  ␛[38;2;11;147;81m⟦row 5: 20 cells⟧␛[39m
+  ␛[38;2;11;147;81m⟦row 6: 20 cells⟧␛[39m
+  ␛[38;2;11;147;81m⟦row 7: 20 cells⟧␛[39m
+  ␛[38;2;11;147;81m⟦row 8: 20 cells⟧␛[39m
+  ␛[38;2;11;147;81m⟦row 9: 20 cells⟧␛[39m
+  ␛[38;2;11;147;81m⟦row 10: 20 cells⟧␛[39m
+  ␛[38;2;11;147;81m⟦row 11: 20 cells⟧␛[39m
+  ␛[38;2;11;147;81m⟦row 12: 20 cells⟧␛[39m
+  ␛[38;2;11;147;81m⟦row 13: 20 cells⟧␛[39m
+  ␛[38;2;11;147;81m⟦row 14: 20 cells⟧␛[39m
+  ␛[38;2;11;147;81m⟦row 15: 20 cells⟧␛[39m
+  ␛[38;2;11;147;81m⟦row 16: 20 cells⟧␛[39m
+
+  A Gantt chart:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=7449410,s=200,v=160,c=20,r=8,m=0;<1384 bytes>␛\  ␛[38;2;113;171;66m⟦row 0: 20 cells⟧␛[39m
+  ␛[38;2;113;171;66m⟦row 1: 20 cells⟧␛[39m
+  ␛[38;2;113;171;66m⟦row 2: 20 cells⟧␛[39m
+  ␛[38;2;113;171;66m⟦row 3: 20 cells⟧␛[39m
+  ␛[38;2;113;171;66m⟦row 4: 20 cells⟧␛[39m
+  ␛[38;2;113;171;66m⟦row 5: 20 cells⟧␛[39m
+  ␛[38;2;113;171;66m⟦row 6: 20 cells⟧␛[39m
+  ␛[38;2;113;171;66m⟦row 7: 20 cells⟧␛[39m
+
+  An entity relationship diagram:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=7449410,s=200,v=160,c=20,r=8,m=0;<1384 bytes>␛\  ␛[38;2;113;171;66m⟦row 0: 20 cells⟧␛[39m
+  ␛[38;2;113;171;66m⟦row 1: 20 cells⟧␛[39m
+  ␛[38;2;113;171;66m⟦row 2: 20 cells⟧␛[39m
+  ␛[38;2;113;171;66m⟦row 3: 20 cells⟧␛[39m
+  ␛[38;2;113;171;66m⟦row 4: 20 cells⟧␛[39m
+  ␛[38;2;113;171;66m⟦row 5: 20 cells⟧␛[39m
+  ␛[38;2;113;171;66m⟦row 6: 20 cells⟧␛[39m
+  ␛[38;2;113;171;66m⟦row 7: 20 cells⟧␛[39m
+
+  A state diagram:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=1810503,s=200,v=120,c=20,r=6,m=0;<1048 bytes>␛\  ␛[38;2;27;160;71m⟦row 0: 20 cells⟧␛[39m
+  ␛[38;2;27;160;71m⟦row 1: 20 cells⟧␛[39m
+  ␛[38;2;27;160;71m⟦row 2: 20 cells⟧␛[39m
+  ␛[38;2;27;160;71m⟦row 3: 20 cells⟧␛[39m
+  ␛[38;2;27;160;71m⟦row 4: 20 cells⟧␛[39m
+  ␛[38;2;27;160;71m⟦row 5: 20 cells⟧␛[39m
+
+  A diagram with a syntax error stays code,
+  with a warning:
+
+  ␛[0;48;2;43;48;59m                                    ␛[0;38;2;118;123;133;48;2;43;48;59mmermaid␛[0;48;2;43;48;59m ␛[0m
+  ␛[0;48;2;43;48;59m ␛[0;38;2;192;197;206;48;2;43;48;59mflowchart LR␛[0;48;2;43;48;59m                               ␛[0m
+  ␛[0;48;2;43;48;59m ␛[0;38;2;192;197;206;48;2;43;48;59m    A[Unclosed label --> B␛[0;48;2;43;48;59m                 ␛[0m
+  ␛[0;48;2;43;48;59m                                            ␛[0m
+
+  ␛[0;90m• ␛[0mA diagram in a list:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=11074361,s=200,v=40,c=20,r=2,m=0;<376 bytes>␛\    ␛[38;2;168;251;57m⟦row 0: 20 cells⟧␛[39m
+    ␛[38;2;168;251;57m⟦row 1: 20 cells⟧␛[39m
+
+  ␛[0;90m│ ␛[0mA diagram in a quote:
+  ␛[0;90m│␛[0m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=11074361,s=200,v=40,c=20,r=2,m=0;<376 bytes>␛\  ␛[0;90m│ ␛[0m␛[38;2;168;251;57m⟦row 0: 20 cells⟧␛[39m
+  ␛[0;90m│ ␛[0m␛[38;2;168;251;57m⟦row 1: 20 cells⟧␛[39m
+
+  A diagram that sets its own theme keeps it
+  on any page:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=14919370,s=200,v=60,c=20,r=3,m=0;<544 bytes>␛\  ␛[38;2;227;166;202m⟦row 0: 20 cells⟧␛[39m
+  ␛[38;2;227;166;202m⟦row 1: 20 cells⟧␛[39m
+  ␛[38;2;227;166;202m⟦row 2: 20 cells⟧␛[39m

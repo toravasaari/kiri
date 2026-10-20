@@ -8,6 +8,7 @@ use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, ValueEnum};
 use kiri::caps::Capabilities;
 use kiri::config::{Environment, Options, Origin, Setting, Settings};
+use kiri::diagrams::{BuiltIn, Diagrams};
 use kiri::doctor::{Facts, Output};
 use kiri::images::{Fonts, Format, Images};
 use kiri::input::Input;
@@ -334,6 +335,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), String> {
         base,
         settings,
         caps,
+        file.is_some(),
     )
 }
 
@@ -347,7 +349,8 @@ fn readme(dir: &Path) -> Result<PathBuf, String> {
 }
 
 /// Renders `document`, called `name`, whose images are relative to
-/// `base`, on stdout.
+/// `base`, on stdout. Warnings name a diagram by its line when `by_line`,
+/// for a file the reader can open, and otherwise by its first line.
 fn show_document(
     cli: &Cli,
     document: &Document,
@@ -355,6 +358,7 @@ fn show_document(
     base: &Path,
     settings: Settings,
     mut caps: Capabilities,
+    by_line: bool,
 ) -> Result<(), String> {
     // The page decides, whatever the terminal's background is.
     if let Some(paper) = settings.paper {
@@ -364,7 +368,12 @@ fn show_document(
     // show them; otherwise they are alt text, without warnings.
     let images = if settings.images && caps.draws_images() {
         let max_file_size = cli.max_image_size * kiri::images::MB;
-        let images = kiri::images::load(document, base, max_file_size);
+        let diagrams = Diagrams {
+            renderer: &BuiltIn,
+            theme: kiri::diagrams::Theme::for_page(caps.dark_background),
+            by_line,
+        };
+        let images = kiri::images::load(document, base, max_file_size, &diagrams);
         for warning in images.warnings() {
             eprintln!("kiri: {warning}");
         }
@@ -527,6 +536,7 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), String> {
         Path::new(""),
         settings,
         detection.caps,
+        false,
     )
 }
 
@@ -556,6 +566,7 @@ fn list_emojis(cli: &Cli) -> Result<(), String> {
         Path::new(""),
         settings,
         caps,
+        false,
     )
 }
 

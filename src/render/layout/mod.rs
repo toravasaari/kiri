@@ -146,7 +146,9 @@ impl Layout<'_> {
             Block::Heading { level, content } => self.heading(*level, content, width, context),
             Block::Paragraph(content) => self.paragraph(content, &Style::default(), width),
             Block::CodeBlock { language, code, .. } => {
-                self.code_block(language.as_deref(), code, width)
+                let language = language.as_deref();
+                (self.diagram(language, code, width))
+                    .unwrap_or_else(|| self.code_block(language, code, width))
             }
             Block::BlockQuote(blocks) => self.quote(blocks, width, context),
             Block::Alert {
@@ -308,20 +310,39 @@ impl Layout<'_> {
     /// The image inside a link is not clickable: OSC 8 around placeholders
     /// is not written yet.
     fn image_block(&self, content: &[Inline], width: usize) -> Option<Vec<Line>> {
+        let lone = Inline::lone_image(content)?;
+        let wanted = image::Wanted {
+            width: lone.width,
+            height: lone.height,
+        };
+        self.placed(ImageKey::from(lone.url.as_str()), wanted, width)
+    }
+
+    /// A code block drawn as a diagram, when it was.
+    fn diagram(&self, language: Option<&str>, code: &str, width: usize) -> Option<Vec<Line>> {
+        // Spares building a key for every code block of a document
+        // without images.
+        if self.images.is_empty() {
+            return None;
+        }
+        let key = ImageKey::Block {
+            language: language?.to_owned(),
+            source: code.to_owned(),
+        };
+        self.placed(key, image::Wanted::default(), width)
+    }
+
+    /// The image `key` at the size `wanted`, at most `width` cells wide,
+    /// when the terminal can draw it and it loaded.
+    fn placed(&self, key: ImageKey, wanted: image::Wanted, width: usize) -> Option<Vec<Line>> {
         if !self.caps.draws_images() {
             return None;
         }
-        let lone = Inline::lone_image(content)?;
-        let key = ImageKey::from(lone.url.as_str());
         let Some(Ok(source)) = self.images.get(&key) else {
             return None;
         };
         let max_cells = self.caps.max_image_cells;
         let max_columns = u16::try_from(width).unwrap_or(u16::MAX).min(max_cells);
-        let wanted = image::Wanted {
-            width: lone.width,
-            height: lone.height,
-        };
         let size = image::size(
             source.size(),
             wanted,

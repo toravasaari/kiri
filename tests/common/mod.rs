@@ -10,6 +10,7 @@ use std::process::{Command, Output, Stdio};
 use base64::Engine;
 use image::{Rgba, RgbaImage};
 use kiri::caps::Capabilities;
+use kiri::diagrams::{Diagrams, Renderer, Theme as DiagramTheme};
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, Images, Source};
 use kiri::kitty::graphics::{DIACRITICS, PLACEHOLDER};
 use kiri::render::Inputs;
@@ -156,12 +157,18 @@ pub fn one_image(url: &str, image: RgbaImage) -> Images {
 /// data compresses to a few bytes. Without fonts, as the sizes do not
 /// depend on them.
 pub fn fixture_images(name: &str) -> Images {
+    fixture_images_with(name, &Diagrams::none())
+}
+
+/// `fixture_images`, with the diagrams `diagrams` draws.
+pub fn fixture_images_with(name: &str, diagrams: &Diagrams<'_>) -> Images {
     let document = kiri::parse::parse(&fixture(name));
     let loaded = kiri::images::load_with(
         &document,
         &fixtures(),
         DEFAULT_MAX_FILE_SIZE,
         &Fonts::none(),
+        diagrams,
     );
     let mut images = Images::new();
     for (key, image) in loaded.iter() {
@@ -175,6 +182,55 @@ pub fn fixture_images(name: &str) -> Images {
         images.insert(key.clone(), image);
     }
     images
+}
+
+/// Draws Mermaid without merman, so tests do not depend on its output:
+/// an empty SVG 200 CSS pixels wide and one text row, 20 pixels, high for
+/// each line of source. A source with a line that opens more brackets
+/// than it closes fails, as merman fails on an unclosed label.
+pub struct StubDiagrams;
+
+impl Renderer for StubDiagrams {
+    fn draws(&self, language: &str) -> bool {
+        language.eq_ignore_ascii_case("mermaid")
+    }
+
+    fn render(
+        &self,
+        _language: &str,
+        source: &str,
+        _theme: DiagramTheme,
+    ) -> Result<String, String> {
+        let unclosed = |line: &str| line.matches('[').count() > line.matches(']').count();
+        if source.lines().any(unclosed) {
+            return Err("unclosed label".into());
+        }
+        let height = 20 * source.lines().count();
+        Ok(format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="{height}"/>"#
+        ))
+    }
+}
+
+/// Diagrams drawn by `StubDiagrams` for a light page, named by line.
+pub fn stub_diagrams() -> Diagrams<'static> {
+    Diagrams {
+        renderer: &StubDiagrams,
+        theme: DiagramTheme::Light,
+        by_line: true,
+    }
+}
+
+/// The images of `source`, a Markdown document, with its diagrams drawn
+/// by `StubDiagrams`.
+pub fn stub_diagram_images(source: &str) -> Images {
+    kiri::images::load_with(
+        &kiri::parse::parse(source),
+        &fixtures(),
+        DEFAULT_MAX_FILE_SIZE,
+        &Fonts::none(),
+        &stub_diagrams(),
+    )
 }
 
 /// The keys and base64 data of every graphics command in `output`.

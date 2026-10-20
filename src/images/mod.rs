@@ -1,8 +1,9 @@
 //! Loading the images a document refers to.
 //!
 //! This is the stage between the document model and layout: it resolves
-//! each image URL, reads the file and decodes it, so layout and output work
-//! on pixels and never touch the file system. A failure is a value, not an
+//! each image URL, reads the file and decodes it, and has each diagram in
+//! a code block drawn as an SVG, so layout and output work on pixels and
+//! never touch the file system. A failure is a value, not an
 //! error for the whole document, because the renderer still shows the alt
 //! text in place of an image it could not load.
 
@@ -18,6 +19,7 @@ use image::error::{ImageFormatHint, UnsupportedErrorKind};
 use image::{ImageFormat, RgbaImage};
 use kiri_image_utils::DecodeError;
 
+use crate::diagrams::Diagrams;
 use crate::model::{Block, Document, Inline};
 
 pub use svg::{Fonts, Svg};
@@ -123,6 +125,8 @@ pub enum ImageError {
     TooLarge { width: u32, height: u32 },
     /// The decoder rejected the data.
     Corrupt(String),
+    /// A diagram that could not be drawn: how warnings name it, and why.
+    Diagram { name: String, reason: String },
 }
 
 impl fmt::Display for ImageError {
@@ -159,13 +163,14 @@ impl fmt::Display for ImageError {
                 write!(f, "{width} × {height} pixels is too large to load")
             }
             ImageError::Corrupt(reason) => write!(f, "broken image: {reason}"),
+            ImageError::Diagram { name, reason } => write!(f, "{name}: {reason}"),
         }
     }
 }
 
 impl ImageError {
-    /// Whether the message names the file, so that it needs no other name
-    /// in front.
+    /// Whether the message names the file or the diagram, so that it
+    /// needs no other name in front.
     pub fn names_file(&self) -> bool {
         matches!(
             self,
@@ -173,6 +178,7 @@ impl ImageError {
                 | ImageError::Unreadable { .. }
                 | ImageError::NotAFile(_)
                 | ImageError::FileTooLarge { .. }
+                | ImageError::Diagram { .. }
         )
     }
 }
@@ -286,42 +292,98 @@ impl Images {
 
 /// Loads every image that `document` shows as an image block once,
 /// resolving relative paths against `base`, the directory of the Markdown
-/// file. Files larger than `max_file_size` bytes are refused, and text in
-/// SVGs is drawn with the system's fonts.
-pub fn load(document: &Document, base: &Path, max_file_size: u64) -> Images {
-    load_with(document, base, max_file_size, &Fonts::system())
+/// file, and draws each diagram `diagrams` can draw once. Files larger
+/// than `max_file_size` bytes are refused, and text in SVGs is drawn with
+/// the system's fonts.
+pub fn load(
+    document: &Document,
+    base: &Path,
+    max_file_size: u64,
+    diagrams: &Diagrams<'_>,
+) -> Images {
+    load_with(document, base, max_file_size, &Fonts::system(), diagrams)
 }
 
 /// `load`, drawing text in SVGs with `fonts`.
-pub fn load_with(document: &Document, base: &Path, max_file_size: u64, fonts: &Fonts) -> Images {
-    let mut urls = Vec::new();
-    collect_blocks(&document.blocks, &mut urls);
+pub fn load_with(
+    document: &Document,
+    base: &Path,
+    max_file_size: u64,
+    fonts: &Fonts,
+    diagrams: &Diagrams<'_>,
+) -> Images {
+    let mut wanted = Vec::new();
+    collect_blocks(&document.blocks, diagrams, &mut wanted);
     let mut images = Images::new();
-    for url in urls {
-        let key = ImageKey::from(url);
-        if images.get(&key).is_none() {
-            images.insert(key, load_url(url, base, max_file_size, fonts));
+    for image in wanted {
+        let key = image.key();
+        if images.get(&key).is_some() {
+            continue;
         }
+        let loaded = match image {
+            Wanted::Url(url) => load_url(url, base, max_file_size, fonts),
+            Wanted::Diagram {
+                language,
+                source,
+                line,
+            } => draw_diagram(language, source, line, max_file_size, fonts, diagrams),
+        };
+        images.insert(key, loaded);
     }
     images
 }
 
-/// The URLs of the images `blocks` show as image blocks. The others are
-/// only ever shown as alt text, so they are not loaded at all.
-fn collect_blocks<'a>(blocks: &'a [Block], urls: &mut Vec<&'a str>) {
+/// An image a document shows as a block.
+enum Wanted<'a> {
+    Url(&'a str),
+    /// A code block drawn as a diagram, and the line it starts on.
+    Diagram {
+        language: &'a str,
+        source: &'a str,
+        line: usize,
+    },
+}
+
+impl Wanted<'_> {
+    fn key(&self) -> ImageKey {
+        match *self {
+            Wanted::Url(url) => ImageKey::from(url),
+            Wanted::Diagram {
+                language, source, ..
+            } => ImageKey::Block {
+                language: language.to_owned(),
+                source: source.to_owned(),
+            },
+        }
+    }
+}
+
+/// The images `blocks` show as image blocks, and the code blocks among
+/// them that `diagrams` draws. Other images are only ever shown as alt
+/// text, so they are not loaded at all.
+fn collect_blocks<'a>(blocks: &'a [Block], diagrams: &Diagrams<'_>, wanted: &mut Vec<Wanted<'a>>) {
     for block in blocks {
         match block {
             Block::Paragraph(content) => {
-                urls.extend(Inline::lone_image(content).map(|image| image.url.as_str()));
+                wanted.extend(Inline::lone_image(content).map(|image| Wanted::Url(&image.url)));
             }
             Block::BlockQuote(blocks)
             | Block::Alert { blocks, .. }
-            | Block::Details { blocks, .. } => collect_blocks(blocks, urls),
+            | Block::Details { blocks, .. } => collect_blocks(blocks, diagrams, wanted),
             Block::List(list) => {
                 for item in &list.items {
-                    collect_blocks(&item.blocks, urls);
+                    collect_blocks(&item.blocks, diagrams, wanted);
                 }
             }
+            Block::CodeBlock {
+                language: Some(language),
+                code,
+                line,
+            } if diagrams.renderer.draws(language) => wanted.push(Wanted::Diagram {
+                language,
+                source: code,
+                line: *line,
+            }),
             Block::FrontMatter(_)
             | Block::Heading { .. }
             | Block::Table(_)
@@ -331,6 +393,26 @@ fn collect_blocks<'a>(blocks: &'a [Block], urls: &mut Vec<&'a str>) {
             | Block::Note(_) => {}
         }
     }
+}
+
+/// The diagram `source` in `language`, which starts on `line`, drawn by
+/// `diagrams` and decoded as an SVG.
+fn draw_diagram(
+    language: &str,
+    source: &str,
+    line: usize,
+    max_size: u64,
+    fonts: &Fonts,
+    diagrams: &Diagrams<'_>,
+) -> Result<Source, ImageError> {
+    let failed = |reason: String| ImageError::Diagram {
+        name: crate::diagrams::name(language, source, line, diagrams.by_line),
+        reason,
+    };
+    let svg = (diagrams.renderer)
+        .render(language, source, diagrams.theme)
+        .map_err(failed)?;
+    decode_svg(svg.as_bytes(), max_size, fonts).map_err(|error| failed(error.to_string()))
 }
 
 /// Reads and decodes the image file at `path` from `reader`, which gives
@@ -446,6 +528,7 @@ fn format_name(format: ImageFormat) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diagrams::{Renderer, Theme};
 
     pub(super) fn fixtures() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
@@ -489,7 +572,12 @@ mod tests {
         let document = crate::parse::parse(
             "<details>\n<summary>S</summary>\n\n![x](pattern.png)\n\n</details>\n",
         );
-        let images = load(&document, &fixtures().join("images"), DEFAULT_MAX_FILE_SIZE);
+        let images = load(
+            &document,
+            &fixtures().join("images"),
+            DEFAULT_MAX_FILE_SIZE,
+            &Diagrams::none(),
+        );
         assert!(
             matches!(images.get(&"pattern.png".into()), Some(Ok(_))),
             "{document:?}"
@@ -819,6 +907,7 @@ mod tests {
             &fixtures(),
             DEFAULT_MAX_FILE_SIZE,
             &Fonts::none(),
+            &Diagrams::none(),
         );
         assert_eq!(images.len(), 3);
         assert!(images.get(&"images/pattern.png".into()).unwrap().is_ok());
@@ -855,8 +944,172 @@ Text ![inline](images/pattern.png) and words.
             &fixtures(),
             DEFAULT_MAX_FILE_SIZE,
             &Fonts::none(),
+            &Diagrams::none(),
         );
         assert!(images.is_empty(), "{images:?}");
+    }
+
+    /// Draws Mermaid as an empty SVG one line high for each line of
+    /// source, and fails on a source that says `broken`. Remembers what
+    /// it was asked to draw.
+    #[derive(Default)]
+    struct Stub {
+        calls: std::cell::RefCell<Vec<(String, Theme)>>,
+    }
+
+    impl Renderer for Stub {
+        fn draws(&self, language: &str) -> bool {
+            language.eq_ignore_ascii_case("mermaid")
+        }
+
+        fn render(&self, _language: &str, source: &str, theme: Theme) -> Result<String, String> {
+            self.calls.borrow_mut().push((source.to_owned(), theme));
+            if source.contains("broken") {
+                return Err("parse error".into());
+            }
+            let height = 20 * source.lines().count();
+            Ok(format!(
+                r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="{height}"/>"#
+            ))
+        }
+    }
+
+    fn with_stub(stub: &Stub, theme: Theme, by_line: bool) -> Diagrams<'_> {
+        Diagrams {
+            renderer: stub,
+            theme,
+            by_line,
+        }
+    }
+
+    fn block(language: &str, source: &str) -> ImageKey {
+        ImageKey::Block {
+            language: language.into(),
+            source: source.into(),
+        }
+    }
+
+    #[test]
+    fn draws_each_diagram_once_wherever_a_lone_image_would_show() {
+        let source = "\
+```mermaid
+a
+```
+
+- ```mermaid
+  b
+  ```
+
+> ```Mermaid
+> c
+> ```
+
+> [!NOTE]
+> ```mermaid
+> d
+> ```
+
+<details>
+
+```mermaid
+e
+```
+
+</details>
+
+```mermaid
+a
+```
+
+```rust
+fn main() {}
+```
+
+| `x` |
+|---|
+";
+        let stub = Stub::default();
+        let images = load_with(
+            &crate::parse::parse(source),
+            &fixtures(),
+            DEFAULT_MAX_FILE_SIZE,
+            &Fonts::none(),
+            &with_stub(&stub, Theme::Dark, true),
+        );
+        let calls = stub.calls.into_inner();
+        let sources: Vec<&str> = calls.iter().map(|(source, _)| source.as_str()).collect();
+        assert_eq!(sources, ["a\n", "b\n", "c\n", "d\n", "e\n"]);
+        assert!(calls.iter().all(|(_, theme)| *theme == Theme::Dark));
+        assert_eq!(images.len(), 5);
+        for key in [block("mermaid", "a\n"), block("Mermaid", "c\n")] {
+            match images.get(&key) {
+                Some(Ok(Source::Svg(svg))) => assert_eq!(svg.size, (200, 20)),
+                other => panic!("{key:?}: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn draws_no_diagrams_without_a_renderer() {
+        let images = load_with(
+            &crate::parse::parse("```mermaid\na\n```\n"),
+            &fixtures(),
+            DEFAULT_MAX_FILE_SIZE,
+            &Fonts::none(),
+            &Diagrams::none(),
+        );
+        assert!(images.is_empty(), "{images:?}");
+    }
+
+    #[test]
+    fn a_diagram_that_fails_is_a_warning_naming_it() {
+        let source = "# Plan\n\n```mermaid\nflowchart TD\n  broken\n```\n";
+        let warnings = |by_line| {
+            let stub = Stub::default();
+            let images = load_with(
+                &crate::parse::parse(source),
+                &fixtures(),
+                DEFAULT_MAX_FILE_SIZE,
+                &Fonts::none(),
+                &with_stub(&stub, Theme::Light, by_line),
+            );
+            images.warnings()
+        };
+        assert_eq!(warnings(true), ["mermaid diagram on line 3: parse error"]);
+        assert_eq!(
+            warnings(false),
+            ["mermaid diagram \"flowchart TD\": parse error"]
+        );
+    }
+
+    #[test]
+    fn a_diagram_that_is_no_svg_is_a_warning_naming_it() {
+        struct Text;
+        impl Renderer for Text {
+            fn draws(&self, _language: &str) -> bool {
+                true
+            }
+            fn render(&self, _: &str, _: &str, _: Theme) -> Result<String, String> {
+                Ok("not svg".into())
+            }
+        }
+        let images = load_with(
+            &crate::parse::parse("```dot\ndigraph {}\n```\n"),
+            &fixtures(),
+            DEFAULT_MAX_FILE_SIZE,
+            &Fonts::none(),
+            &Diagrams {
+                renderer: &Text,
+                theme: Theme::Light,
+                by_line: true,
+            },
+        );
+        let warnings = images.warnings();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(
+            warnings[0].starts_with("dot diagram on line 1: "),
+            "{warnings:?}"
+        );
     }
 
     #[test]
