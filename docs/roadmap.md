@@ -91,7 +91,14 @@ example, come before the rest of phase 3.
 
 ### 4.3 Diagrams
 
+#### 4.3.1 Mermaid
+
 - Mermaid diagrams through an external renderer when one is installed.
+
+#### 4.3.2 Other diagram languages
+
+- Other diagram languages that a renderer turns into an image, in the way
+  Mermaid works, such as Graphviz (`dot`), PlantUML, D2 and Pikchr.
 
 ### 4.4 Animation and video
 
