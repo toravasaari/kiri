@@ -145,7 +145,7 @@ impl Layout<'_> {
             Block::FrontMatter(front_matter) => self.front_matter(front_matter, width),
             Block::Heading { level, content } => self.heading(*level, content, width, context),
             Block::Paragraph(content) => self.paragraph(content, &Style::default(), width),
-            Block::CodeBlock { language, code } => {
+            Block::CodeBlock { language, code, .. } => {
                 self.code_block(language.as_deref(), code, width)
             }
             Block::BlockQuote(blocks) => self.quote(blocks, width, context),
