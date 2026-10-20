@@ -70,6 +70,7 @@ inline_code_wrap = true
 quote_bar = "bright-black"
 rule = "bright-black"
 list_marker = "bright-black"
+# Also the colour of the underline between rows with --table-rows underline.
 table_border = "bright-black"
 
 # A box of background colour around code blocks, one cell and one line
@@ -77,7 +78,8 @@ table_border = "bright-black"
 code_padding = true
 
 # Code block colours, chosen by the terminal's background, or by --light
-# and --dark.
+# and --dark. A token whose colour is hard to read on the code background
+# is made darker or lighter, in its own hue, to WCAG's 4.5:1 contrast.
 # Available: base16-eighties.dark, base16-mocha.dark, base16-ocean.dark,
 # base16-ocean.light, InspiredGitHub, Solarized (dark), Solarized (light).
 code_theme_dark = "base16-ocean.dark"

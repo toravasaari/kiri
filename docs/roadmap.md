@@ -272,10 +272,20 @@ scale, built once for all of these:
   numbers today, so `h4` to `h6` are either the size of body text or at
   least twice it.
 
-#### 4.10.4 Front matter
+#### 4.10.4 Front matter (done)
 
-- YAML front matter, as in Jekyll, Hugo and Obsidian files, is not shown
-  as text; its title and date may head the document.
+- Front matter at the very start of a Markdown file: `---` YAML, `+++`
+  TOML, `;;;` JSON, or a language after the delimiter as GitLab writes it
+  (`---php`). Shown as GitHub's table (keys in a header column, nested
+  maps as tables three levels deep, lists of maps as stacked tables,
+  deeper values as highlighted YAML), as GitLab's code block, hidden, or
+  not recognised: `--front-matter`, `KIRI_FRONT_MATTER`, `front_matter`.
+- Table rows told apart, for every table: `--table-rows zebra` (the
+  default; every second row shaded from the page and text colours,
+  nothing where that cannot show), `lines`, `indent`, `underline` or
+  `off`, also as `KIRI_TABLE_ROWS` and `table_rows`.
+- Code token colours made readable (WCAG 4.5:1) in every code theme.
+- Later: its title and date heading the document.
 
 #### 4.10.5 Emoji shortcodes (done)
 

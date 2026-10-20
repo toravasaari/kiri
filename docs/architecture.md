@@ -20,7 +20,10 @@ Markdown ──parse──▶ document model ──▶ backend ──▶ output
   a CommonMark + GitHub Flavored Markdown syntax tree. kiri reads a few
   HTML tags in it itself: `<img>`, so an image means the same in the model
   whether Markdown or HTML wrote it, and `<details>`, `<summary>`, `<kbd>`,
-  `<mark>` and `<br>`.
+  `<mark>` and `<br>`. Front matter at the start of a Markdown file is
+  split off in `src/parse/front_matter.rs` before comrak sees the text and
+  read as YAML, TOML or JSON into the model's own value tree;
+  `--front-matter off` leaves it to comrak.
 - **Document model:** kiri's own tree of blocks and inline spans. It holds
   what the document means (heading level 2, emphasis, image with alt text),
   not how any terminal draws it. Other input formats only need a converter
@@ -103,7 +106,7 @@ writes as it is into a pipe.
 | Protocol queries | OSC 66 tests, APC `_G` query | `src/kitty/query.rs` | Telling whether kitty's protocols work |
 | Hyperlinks | OSC 8 | `src/render/output.rs` | Clickable links |
 | Text attributes and colours | SGR | `src/render/output.rs` | Bold, italic, colours |
-| Styled underlines | SGR 4:x | `src/render/output.rs` | Heading underline styles |
+| Styled underlines | SGR 4:x, SGR 58 | `src/render/output.rs` | Heading underline styles; the dashed underline between table rows in the border colour |
 | Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J | `src/render/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows |
 | Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term/screen.rs` | The pager's screen of its own |
 | Synchronized output | CSI ?2026h/l | `src/render/output.rs` | Pager frames without flicker |
@@ -130,6 +133,8 @@ src/model.rs               document model
 src/parse/mod.rs           comrak tree -> document model
 src/parse/html.rs          the HTML tags kiri reads, <img> first
 src/parse/csv.rs           CSV and TSV -> a document of one table
+src/parse/front_matter.rs  front matter: recognition and YAML, TOML and
+                           JSON values
 src/caps.rs                what the terminal can do, as plain data
 src/term/mod.rs            terminal I/O, all of it under src/term/; whether
                            stdin and stdout are terminals
@@ -156,8 +161,12 @@ src/render/layout/mod.rs   document model -> styled lines of a fixed width
 src/render/layout/code.rs  code blocks and their language label
 src/render/layout/list.rs  bullet, numbered and task lists
 src/render/layout/quote.rs block quotes
+src/render/layout/front_matter.rs
+                           front matter as a table or a code block
 src/render/wrap.rs         word wrapping, splitting and cutting styled text
-src/render/table.rs        tables with box-drawing characters, or stacked
+src/render/table.rs        tables with box-drawing characters, or stacked;
+                           tables in cells, header columns, and how rows
+                           are told apart
 src/render/image.rs        image sizes in pixels and terminal cells
 src/render/style.rs        styled text between layout and output
 src/render/output.rs       styled lines -> bytes (SGR, OSC 8, CSI C/K, OSC 66),

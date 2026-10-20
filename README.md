@@ -56,6 +56,12 @@ Tables too wide for the window wrap the text inside their cells, without
 splitting any word of ten cells or fewer. When that is not enough, each row
 is shown as its own block of `Header: value` lines instead.
 
+Every second row of a table is shaded a little, on light and dark
+backgrounds alike. Where shading cannot show, such as in a pipe or with
+`NO_COLOR`, nothing marks the rows: `--table-rows lines` draws a rule
+between them, and `--table-rows indent` starts the next lines of a
+wrapped value two cells in. `underline` and `off` are the other choices.
+
 An image that is the only thing in its paragraph is drawn as a block, at
 its size in CSS pixels as a browser would show it and no wider than the
 text; images inside running text show their alt text for now. HTML `<img>`
@@ -67,6 +73,13 @@ HTML `<details>` blocks are shown open, their `<summary>` in bold after a
 `▼`, also nested and inside lists and quotes. `<kbd>` is drawn as inline
 code, `<br>` breaks the line, and `<mark>` takes the theme's `mark`
 colours, black on yellow by default. Other HTML is shown as muted source.
+
+Front matter, the metadata block at the start of a file that Jekyll,
+Hugo, Obsidian and agent skills write, is shown as a table of its keys
+and values, as on GitHub: YAML between `---` lines, TOML between `+++`
+and JSON between `;;;`. Nested maps become tables in their cells.
+`--front-matter code` shows it as a code block, as GitLab does, `hide`
+leaves it out and `off` reads it as Markdown.
 
 An image file given on its own, `kiri photo.jpg`, is shown as large as
 fits the window but never enlarged, even when images are off. Its
@@ -107,6 +120,8 @@ alt text with a warning.
 | `--max-image-size MB` | Largest image file to read: 10 MB unless set, at most 100 |
 | `--paging always\|auto\|never` | When to show the document in the pager; `auto` unless set |
 | `-p`, `-P` | The pager always (`--paging always`) or never (`--paging never`) |
+| `--front-matter table\|code\|hide\|off` | Front matter render style; `table` unless set |
+| `--table-rows zebra\|lines\|indent\|underline\|off` | Table row style; `zebra` unless set |
 | `--doctor` | Show what kiri finds out about the terminal and which settings it uses |
 | `--raw` | With `--doctor`: the report as Markdown text, for a bug report |
 | `--list-emojis` | List the emoji shortcodes, such as `:smile:`: a table in a terminal, one line per emoji with tabs between the fields in a pipe or a file |

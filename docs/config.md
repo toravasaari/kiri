@@ -27,6 +27,12 @@ paging = "auto"
 
 # How a search in the pager treats case: "smart" or "literal".
 search_case = "smart"
+
+# Front matter render style: "table", "code", "hide" or "off".
+front_matter = "table"
+
+# Table row style: "zebra", "lines", "indent", "underline" or "off".
+table_rows = "zebra"
 ```
 
 ## Theme
@@ -90,6 +96,45 @@ and matches case exactly when it has one: `kiri` finds `Kiri` too, but
 file makes every search match case exactly. Only the configuration file
 sets this; there is no flag or environment variable for it.
 
+## Front matter
+
+The first of these that is given decides the front matter render style,
+for the metadata block at the very start of a Markdown file:
+
+1. `--front-matter table|code|hide|off`
+2. `KIRI_FRONT_MATTER` with the same values; an empty value counts as
+   unset, and any other value is left out with a warning
+3. `front_matter` in the configuration file
+4. `table`
+
+`table` shows its keys and values as a table, `code` as a code block in
+its language, `hide` not at all, and `off` treats the block as Markdown.
+YAML, TOML or JSON that does not parse shows as a code block in the
+table style, with a warning naming the line of the file, such as
+`kiri: front matter, line 4: …`. CSV and TSV files have no front matter.
+
+## Table rows
+
+The first of these that is given decides the table row style of tables
+drawn with borders:
+
+1. `--table-rows zebra|lines|indent|underline|off`
+2. `KIRI_TABLE_ROWS` with the same values, as for `KIRI_FRONT_MATTER`
+3. `table_rows` in the configuration file
+4. `zebra`
+
+`zebra` shades every second row with the page colour mixed a little
+towards the text colour. It needs 24-bit colour and the terminal's own
+colours, which kitty and most modern terminals tell, or a page colour
+from the theme, and draws nothing where it cannot have them. `lines`
+draws a rule between the rows. `indent` starts the lines after the first
+of a wrapped value two cells in. `underline` underlines each row's last
+line, dashed, in the table border colour; it needs underline styles, as
+kitty has them, and draws nothing elsewhere. `off` marks nothing. A
+table too narrow for its columns is stacked as `Header: value` lines and
+keeps that layout whatever this says. In plain output only `lines` and
+`indent` mark the rows.
+
 ## Environment variables
 
 | Variable | Meaning |
@@ -98,5 +143,7 @@ sets this; there is no flag or environment variable for it.
 | `KIRI_THEME` | A theme file; see [Theme](#theme) |
 | `KIRI_NO_IMAGES` | Images as alt text; see [Images](#images) |
 | `KIRI_PAGING` | When to page; see [Paging](#paging) |
+| `KIRI_FRONT_MATTER` | Front matter render style; see [Front matter](#front-matter) |
+| `KIRI_TABLE_ROWS` | Table row style; see [Table rows](#table-rows) |
 | `NO_COLOR` | No colours, when set and not empty; see [no-color.org](https://no-color.org) |
 | `XDG_CONFIG_HOME` | Where the configuration directory is; `~/.config` when unset |
