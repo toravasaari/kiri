@@ -10,7 +10,8 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use image::ImageFormat;
 
 use crate::config::{Choices, Environment, Origin, Paging, SearchCase, Setting, ThemeSource};
-use crate::diagrams::{BuiltIn, LANGUAGES};
+use crate::diagrams::find::{self, Choice, Search};
+use crate::diagrams::{BuiltIn, Command, LANGUAGES};
 use crate::render::image::DEFAULT_CELL;
 use crate::term::{CellSize, Detection, Mode};
 use crate::theme::Paper;
@@ -76,7 +77,7 @@ fn write_report(facts: &Facts, out: &mut String) -> std::fmt::Result {
     write_files(facts, &home, out)?;
     writeln!(out, "## Image formats\n")?;
     writeln!(out, "{}\n", image_formats())?;
-    write_diagrams(facts, out)?;
+    write_diagrams(facts, &home, out)?;
     if facts.output != Output::Raw {
         write_sample(out)?;
     }
@@ -275,19 +276,43 @@ fn write_files(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result
     writeln!(out)
 }
 
-/// The renderers for each diagram language, a row for each.
-fn write_diagrams(facts: &Facts, out: &mut String) -> std::fmt::Result {
+/// The renderers for each diagram language: the built-in one and the
+/// external command, a row for each.
+fn write_diagrams(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result {
+    let on = facts.choices.diagrams.value;
+    let search = Search::new(facts.env);
     writeln!(out, "## Diagrams\n")?;
     writeln!(out, "| Language | Renderer | Status |\n|---|---|---|")?;
     for language in LANGUAGES {
-        let (renderer, status) = match BuiltIn::version(language) {
-            Some(version) if facts.choices.diagrams.value => {
-                (format!("built-in: {version}"), "used")
-            }
+        let choice = find::choose(language, &facts.choices.diagram_commands, &search);
+        let command = |found: &str, command: &Command| {
+            format!(
+                "command {found}: {}",
+                code(&home.hide_in(&command.argv.join(" ")))
+            )
+        };
+        let (external, used) = match &choice {
+            Choice::Configured(argv) => (command("configured", argv), true),
+            Choice::Found(argv) => (command("found", argv), true),
+            Choice::NotFound(program) => (format!("command: {} not found", code(program)), false),
+            Choice::None => ("command: none configured".to_owned(), false),
+        };
+        let (built_in, status) = match BuiltIn::version(language) {
+            Some(version) if used => (
+                format!("built-in: {version}"),
+                "not used: a command is configured",
+            ),
+            Some(version) if on => (format!("built-in: {version}"), "used"),
             Some(version) => (format!("built-in: {version}"), "not used: diagrams are off"),
             None => ("built-in".to_owned(), "not in this build"),
         };
-        row(out, &[&code(language), &renderer, status])?;
+        row(out, &[&code(language), &built_in, status])?;
+        let status = match (used, on) {
+            (true, true) => "used",
+            (true, false) => "not used: diagrams are off",
+            (false, _) => "not used",
+        };
+        row(out, &[&code(language), &external, status])?;
     }
     writeln!(out)
 }

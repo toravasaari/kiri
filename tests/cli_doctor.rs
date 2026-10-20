@@ -42,8 +42,8 @@ fn piped(dir: &Path, args: &[&str]) -> String {
 }
 
 /// The report with the parts that change between builds replaced: kiri's
-/// version, and the image formats and the built-in diagram renderers,
-/// which depend on the build's features.
+/// version, and the image formats and the diagram renderers, which depend
+/// on the build's features.
 fn stable(report: &str) -> String {
     report
         .replace(env!("CARGO_PKG_VERSION"), "[version]")
@@ -53,6 +53,8 @@ fn stable(report: &str) -> String {
                 "[image formats]"
             } else if line.starts_with("| `mermaid` | built-in") {
                 "[built-in mermaid renderer]"
+            } else if line.starts_with("| `mermaid` | command") {
+                "[mermaid command]"
             } else {
                 line
             }
@@ -397,6 +399,43 @@ fn the_report_names_the_built_in_mermaid_renderer() {
     }
     let row = report_row(&piped(&dir, &[]), "| `mermaid` |");
     assert_eq!(row.contains("merman"), cfg!(feature = "mermaid"), "{row}");
+}
+
+#[test]
+fn the_report_names_the_mermaid_command() {
+    let dir = Scratch::new("doctor-mermaid-command");
+    let row = |args: &[&str]| report_row(&piped(&dir, args), "| `mermaid` | command");
+    let nothing = match cfg!(feature = "mermaid") {
+        true => "| `mermaid` | command: none configured | not used |",
+        false => "| `mermaid` | command: `mmdc` not found | not used |",
+    };
+    assert_eq!(row(&[]), nothing);
+    // Found where nvm installs programs, in a build without merman.
+    let nvm = "home/.nvm/versions/node/v24.16.0/bin/mmdc";
+    common::executable(&dir.join(nvm), "#!/bin/sh\n");
+    let found = match cfg!(feature = "mermaid") {
+        true => nothing.to_owned(),
+        false => "| `mermaid` | command found: `~/.nvm/versions/node/v24.16.0/bin/mmdc -i {input} \
+                  -o {output} -t {theme} -b transparent` | used |"
+            .to_owned(),
+    };
+    assert_eq!(row(&[]), found);
+    write(
+        &dir.join("home/.config/kiri/config.toml"),
+        "[diagrams.mermaid]\ncommand = [\"mmdc\", \"-i\", \"{input}\", \"-o\", \"{output}\"]\n",
+    );
+    let configured = "| `mermaid` | command configured: `mmdc -i {input} -o {output}` |";
+    assert_eq!(row(&[]), format!("{configured} used |"));
+    assert_eq!(
+        row(&["--diagrams", "off"]),
+        format!("{configured} not used: diagrams are off |")
+    );
+    let built_in = report_row(&piped(&dir, &[]), "| `mermaid` | built-in");
+    let status = match cfg!(feature = "mermaid") {
+        true => "| not used: a command is configured |",
+        false => "| not in this build |",
+    };
+    assert!(built_in.ends_with(status), "{built_in}");
 }
 
 /// The line of `report` that starts with `start`.
