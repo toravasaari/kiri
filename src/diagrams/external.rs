@@ -126,7 +126,8 @@ impl External {
             .join(format!("diagram.{}", super::extension(language)));
         let output = dir.0.join("diagram.svg");
         let errors = dir.0.join("errors.txt");
-        let written = fs::write(&input, source).and_then(|()| File::create(&errors));
+        let written =
+            fs::write(&input, self::input(language, source)).and_then(|()| File::create(&errors));
         let errors_file =
             written.map_err(|error| format!("cannot write the files for {program}: {error}"))?;
         let theme = super::theme_name(language, theme);
@@ -194,6 +195,37 @@ impl Renderer for External {
         let theme = super::chosen_theme(language, source).unwrap_or(theme);
         Ok(Drawn { svg, theme })
     }
+}
+
+/// A Mermaid directive that has a diagram's labels drawn as SVG text,
+/// which kiri can draw, rather than as HTML, which it cannot. Mermaid 11
+/// and later read the first setting; Mermaid 10 the others.
+const SVG_TEXT: &str = "%%{init: {\"htmlLabels\": false, \"flowchart\": {\"htmlLabels\": false}, \
+                        \"class\": {\"htmlLabels\": false}, \"state\": {\"htmlLabels\": false}}}%%";
+
+/// The source the program gets: for Mermaid, `SVG_TEXT` after the front
+/// matter, which must come first.
+fn input(language: &str, source: &str) -> String {
+    if !language.eq_ignore_ascii_case("mermaid") {
+        return source.to_owned();
+    }
+    let mut lines = (source.split_inclusive('\n'))
+        .scan(0, |end, line| {
+            *end += line.len();
+            Some((line.trim(), *end))
+        })
+        .skip_while(|(line, _)| line.is_empty());
+    let after_front_matter = match lines.next() {
+        Some(("---", _)) => lines.find(|(line, _)| *line == "---").map(|(_, end)| end),
+        _ => None,
+    };
+    let at = after_front_matter.unwrap_or(0);
+    let newline = if source[..at].ends_with('\n') || at == 0 {
+        ""
+    } else {
+        "\n"
+    };
+    format!("{}{newline}{SVG_TEXT}\n{}", &source[..at], &source[at..])
 }
 
 /// A directory that is removed with everything in it when dropped.
@@ -311,7 +343,7 @@ mod tests {
         assert!(!renderer.draws("dot"));
         for (theme, name) in [(Theme::Light, "default"), (Theme::Dark, "dark")] {
             let drawn = renderer.render("Mermaid", SOURCE, theme).unwrap();
-            let svg = format!("<svg theme=\"{name}\">flowchart TD\n  A --> B</svg>");
+            let svg = format!("<svg theme=\"{name}\">{SVG_TEXT}\nflowchart TD\n  A --> B</svg>");
             assert_eq!(drawn, Drawn { svg, theme });
         }
         assert_eq!(scratch.left(), Vec::<PathBuf>::new());
@@ -326,6 +358,38 @@ mod tests {
         assert_eq!(drawn.theme, Theme::Light);
         let drawn = renderer.render("mermaid", SOURCE, Theme::Dark).unwrap();
         assert_eq!(drawn.theme, Theme::Dark);
+    }
+
+    #[test]
+    fn mermaid_gets_its_labels_as_svg_text() {
+        let scratch = Scratch::new("labels");
+        let renderer = scratch.renderer("cat \"$1\" > \"$2\"\n");
+        let written = |source: &str| {
+            renderer
+                .render("mermaid", source, Theme::Light)
+                .unwrap()
+                .svg
+        };
+        assert_eq!(written(SOURCE), format!("{SVG_TEXT}\n{SOURCE}"));
+        let front_matter = "\n---\ntitle: T\n---\nflowchart TD\n";
+        assert_eq!(
+            written(front_matter),
+            format!("\n---\ntitle: T\n---\n{SVG_TEXT}\nflowchart TD\n")
+        );
+        // Other languages are left as they are.
+        let mut renderer = renderer;
+        renderer.commands = renderer
+            .commands
+            .into_values()
+            .map(|command| ("dot".to_owned(), command))
+            .collect();
+        assert_eq!(
+            renderer
+                .render("dot", "digraph {}", Theme::Light)
+                .unwrap()
+                .svg,
+            "digraph {}"
+        );
     }
 
     #[test]

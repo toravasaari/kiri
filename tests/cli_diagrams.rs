@@ -156,8 +156,9 @@ fn external(dir: &std::path::Path, script: &str) -> String {
     )
 }
 
-/// A stand-in for mmdc: an SVG as high as the source has lines.
-const DRAWS: &str = "lines=$(wc -l < \"$1\")\n\
+/// A stand-in for mmdc: an SVG as high as the source has lines, apart
+/// from the directives kiri adds.
+const DRAWS: &str = "lines=$(grep -vc '^%%' \"$1\")\n\
     printf '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"%s\"/>' \
     $((lines * 20)) > \"$2\"\n";
 
@@ -223,8 +224,8 @@ fn a_configured_command_gets_the_theme_for_the_page() {
 }
 
 /// A stand-in for mermaid-cli in `bin`: `mmdc`, a Node script, and the
-/// `node` it runs, which draws an SVG as high as the source has lines and
-/// notes in `called` that it ran.
+/// `node` it runs, which draws an SVG as high as the source has lines,
+/// apart from directives, and notes in `called` that it ran.
 fn fake_mmdc(bin: &std::path::Path, called: &std::path::Path) {
     common::executable(&bin.join("mmdc"), "#!/usr/bin/env node\n");
     let node = format!(
@@ -236,7 +237,7 @@ fn fake_mmdc(bin: &std::path::Path, called: &std::path::Path) {
            shift\n\
          done\n\
          echo \"$theme\" >> '{}'\n\
-         lines=$(wc -l < \"$input\")\n\
+         lines=$(grep -vc '^%%' \"$input\")\n\
          printf '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"%s\"/>' \
          $((lines * 20)) > \"$output\"\n",
         called.display()
