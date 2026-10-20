@@ -108,7 +108,7 @@ fn attribute_values<'a>(svg: &'a str, start: &'a str) -> impl Iterator<Item = &'
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::images::{DEFAULT_MAX_FILE_SIZE, Fonts, decode};
+    use crate::images::{DEFAULT_MAX_FILE_SIZE, Fonts, Source, decode, decode_diagram};
     use resvg::usvg;
 
     const FLOWCHART: &str = "flowchart TD\n    A[Start] --> B[Done]\n";
@@ -197,6 +197,28 @@ mod tests {
         let svg = render(source, Theme::Light).unwrap();
         let tree = usvg::Tree::from_str(&svg, &usvg::Options::default()).unwrap();
         assert_eq!(clipped(tree.root()), 0);
+    }
+
+    #[test]
+    fn merman_still_places_an_edge_label_past_the_left_edge() {
+        // merman measures text with metrics of its own, narrower than many
+        // fonts, such as DejaVu Sans here, and centres this label so close
+        // to the left edge that its first letter falls outside the drawing.
+        // kiri grows each diagram to show all of its text
+        // (`images::decode_diagram`). When this test fails, merman has
+        // fixed the fault, and the growing can go unless another renderer
+        // needs it.
+        let source = "stateDiagram-v2\n    [*] --> Parsed\n\
+            Parsed --> Loaded: images and diagrams\n    Loaded --> Shown\n";
+        let svg = render(source, Theme::Light).unwrap();
+        let fonts = Fonts::fixture();
+        let width = |image: Source| image.size().0;
+        let file = width(decode(svg.as_bytes(), DEFAULT_MAX_FILE_SIZE, &fonts).unwrap());
+        let grown = width(decode_diagram(&svg, DEFAULT_MAX_FILE_SIZE, &fonts).unwrap());
+        assert!(
+            grown > file,
+            "{grown} pixels grown, {file} as merman drew it"
+        );
     }
 
     #[test]

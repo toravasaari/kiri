@@ -412,7 +412,20 @@ fn draw_diagram(
     let svg = (diagrams.renderer)
         .render(language, source, diagrams.theme)
         .map_err(failed)?;
-    decode_svg(svg.as_bytes(), max_size, fonts).map_err(|error| failed(error.to_string()))
+    decode_diagram(&svg, max_size, fonts).map_err(|error| failed(error.to_string()))
+}
+
+/// A diagram's SVG decoded, and grown to show all of its text: its
+/// renderer may have measured the text narrower than `fonts` draw it.
+pub(crate) fn decode_diagram(
+    svg: &str,
+    max_size: u64,
+    fonts: &Fonts,
+) -> Result<Source, ImageError> {
+    match decode_svg(svg.as_bytes(), max_size, fonts)? {
+        Source::Svg(svg) => Ok(Source::Svg(svg.grown_to_text())),
+        other => Ok(other),
+    }
 }
 
 /// Reads and decodes the image file at `path` from `reader`, which gives
@@ -1110,6 +1123,49 @@ fn main() {}
             warnings[0].starts_with("dot diagram on line 1: "),
             "{warnings:?}"
         );
+    }
+
+    #[test]
+    fn a_diagram_grows_to_show_text_that_reaches_past_its_edges() {
+        // A word that starts 20 pixels left of a 100 × 40 drawing.
+        const SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="40">
+            <text x="-20" y="30" font-size="20" font-family="sans-serif">Kiri</text></svg>"#;
+        struct Overflowing;
+        impl Renderer for Overflowing {
+            fn draws(&self, _language: &str) -> bool {
+                true
+            }
+            fn render(&self, _: &str, _: &str, _: Theme) -> Result<String, String> {
+                Ok(SVG.into())
+            }
+        }
+        let fonts = Fonts::fixture();
+        let images = load_with(
+            &crate::parse::parse("```dot\ndigraph {}\n```\n"),
+            &fixtures(),
+            DEFAULT_MAX_FILE_SIZE,
+            &fonts,
+            &Diagrams {
+                renderer: &Overflowing,
+                theme: Theme::Light,
+                by_line: true,
+            },
+        );
+        let Some(Ok(Source::Svg(svg))) = images.get(&block("dot", "digraph {}\n")) else {
+            panic!("{images:?}");
+        };
+        let (width, height) = svg.size;
+        assert!((118..=120).contains(&width), "{width} pixels wide");
+        assert_eq!(height, 40);
+        // The K's stem is at the left edge.
+        let drawn = svg.render(width, height);
+        let mut left_edge = (0..3).flat_map(|x| (0..height).map(move |y| (x, y)));
+        assert!(left_edge.any(|(x, y)| rgba(&drawn, x, y)[3] > 0));
+        // An SVG file shows only what lies inside its edges, as in a browser.
+        match decode(SVG.as_bytes(), DEFAULT_MAX_FILE_SIZE, &fonts) {
+            Ok(Source::Svg(file)) => assert_eq!(file.size, (100, 40)),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]
