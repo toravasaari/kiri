@@ -1,5 +1,7 @@
 //! Mermaid diagrams, drawn by merman.
 
+use std::collections::HashSet;
+
 use merman::svg::SvgPipeline;
 use merman::{
     Engine, MermaidConfig, OperationControl, RenderOutput, RenderRequest, Renderer, SvgRequest,
@@ -26,15 +28,56 @@ pub fn render(source: &str, theme: Theme) -> Result<String, String> {
         ..SvgRequest::default()
     };
     match renderer.render(RenderRequest::svg(source, OperationControl::new(), request)) {
-        Ok(RenderOutput::Svg(Some(svg))) => Ok(svg.into_parts().0),
+        Ok(RenderOutput::Svg(Some(svg))) => Ok(with_references_found(&svg.into_parts().0)),
         Ok(_) => Err("no Mermaid diagram".into()),
         Err(error) => Err(error.to_string()),
     }
 }
 
+/// `svg` with each reference to an element it does not have, such as
+/// `url(#drop-shadow)`, pointed at the element of that name that merman
+/// prefixes with the diagram's id, `merman-drop-shadow`. resvg leaves out
+/// an element whose filter is missing, and with it a sequence diagram's
+/// notes in Mermaid 12's look.
+fn with_references_found(svg: &str) -> String {
+    let ids: HashSet<&str> = attribute_values(svg, " id=\"").collect();
+    let Some(root) = attribute_values(svg, "<svg id=\"").next() else {
+        return svg.to_owned();
+    };
+    let mut fixed = String::with_capacity(svg.len());
+    let mut rest = svg;
+    while let Some(start) = rest.find("url(#") {
+        let name_start = start + "url(#".len();
+        let Some(length) = rest[name_start..].find(')') else {
+            break;
+        };
+        let name = &rest[name_start..name_start + length];
+        fixed.push_str(&rest[..name_start]);
+        let prefixed = format!("{root}-{name}");
+        if !ids.contains(name) && ids.contains(prefixed.as_str()) {
+            fixed.push_str(&prefixed);
+        } else {
+            fixed.push_str(name);
+        }
+        rest = &rest[name_start + length..];
+    }
+    fixed.push_str(rest);
+    fixed
+}
+
+/// The values of the attribute that `start`, such as ` id="`, begins, in
+/// the order they come.
+fn attribute_values<'a>(svg: &'a str, start: &'a str) -> impl Iterator<Item = &'a str> {
+    svg.match_indices(start).filter_map(move |(index, _)| {
+        let value = &svg[index + start.len()..];
+        value.find('"').map(|end| &value[..end])
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::images::{DEFAULT_MAX_FILE_SIZE, Fonts, decode};
 
     const FLOWCHART: &str = "flowchart TD\n    A[Start] --> B[Done]\n";
 
@@ -76,6 +119,43 @@ mod tests {
                 assert_eq!(node_fill(&render(&source, theme).unwrap()), "#cde498");
             }
         }
+    }
+
+    /// How many pixels of `svg`, drawn at its natural size, are `colour`.
+    fn pixels_of(svg: &str, colour: [u8; 3]) -> usize {
+        let fonts = Fonts::none();
+        let image = decode(svg.as_bytes(), DEFAULT_MAX_FILE_SIZE, &fonts).unwrap();
+        let (width, height) = image.size();
+        let drawn = image.render(width, height);
+        let same = |pixel: &&image::Rgba<u8>| pixel.0[..3] == colour && pixel.0[3] == 255;
+        drawn.pixels().filter(same).count()
+    }
+
+    #[test]
+    fn notes_keep_their_shadow_filter_in_mermaid_12_s_look() {
+        // The CSS of this look points notes at `#drop-shadow`, which merman
+        // names `merman-drop-shadow`; resvg leaves out an element whose
+        // filter is missing.
+        let source = "---\nconfig:\n  look: neo\n  theme: redux-color\n---\n\
+            sequenceDiagram\n    A->>B: hello\n    Note right of B: a note\n";
+        let svg = render(source, Theme::Light).unwrap();
+        // The note's fill in this theme.
+        let note = pixels_of(&svg, [0xff, 0xf5, 0xad]);
+        assert!(note > 1000, "{note} pixels of the note's colour");
+    }
+
+    #[test]
+    fn points_references_at_the_elements_merman_prefixes() {
+        let svg = "<svg id=\"merman\"><style>.a{filter:url(#shadow);}\
+            .b{fill:url(#gradient);}.c{filter:url(#none)}</style>\
+            <filter id=\"merman-shadow\"/><linearGradient id=\"gradient\"/>\
+            <linearGradient id=\"merman-gradient\"/></svg>";
+        let fixed = with_references_found(svg);
+        assert!(fixed.contains(".a{filter:url(#merman-shadow);}"), "{fixed}");
+        // An element of the name itself, or none either way, is left.
+        assert!(fixed.contains(".b{fill:url(#gradient);}"), "{fixed}");
+        assert!(fixed.contains(".c{filter:url(#none)}"), "{fixed}");
+        assert_eq!(fixed.len(), svg.len() + "merman-".len());
     }
 
     #[test]
