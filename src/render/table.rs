@@ -49,8 +49,7 @@ impl Cell {
     fn floor(&self) -> usize {
         match self {
             Self::Text(spans) => longest_word(spans).min(SHORT_WORD),
-            Self::Table(cells) => (column_maxima(cells, column_count(cells), Cell::floor))
-                .into_iter()
+            Self::Table(cells) => (floors(cells, column_count(cells)).into_iter())
                 .max()
                 .unwrap_or(0),
             Self::Stack(parts) => parts.iter().map(Cell::floor).max().unwrap_or(0),
@@ -74,9 +73,7 @@ impl Cell {
             Self::Table(cells) => (layout(cells, max, styles).into_iter())
                 .map(|line| line.spans)
                 .collect(),
-            Self::Stack(parts) => (parts.iter())
-                .flat_map(|part| part.lines(max, styles))
-                .collect(),
+            Self::Stack(parts) => stack_lines(parts, max, styles),
         }
     }
 
@@ -87,6 +84,30 @@ impl Cell {
             Self::Stack(parts) => parts.iter().all(Cell::is_empty),
         }
     }
+}
+
+/// The lines of a stack in `max` cells. Its tables are all boxes, or all
+/// stacked when one of them does not fit as a box, so that they look
+/// alike; stacked, its parts are separated by rules.
+fn stack_lines(parts: &[Cell], max: usize, styles: &Styles) -> Vec<Vec<Span>> {
+    let boxed = (parts.iter()).all(|part| match part {
+        Cell::Table(cells) => boxed_floor(cells) <= max,
+        _ => true,
+    });
+    let mut lines = Vec::new();
+    for (index, part) in parts.iter().enumerate() {
+        if !boxed && index > 0 {
+            lines.push(vec![Span::new(&"─".repeat(max), styles.border.clone())]);
+        }
+        match part {
+            Cell::Table(cells) if !boxed => {
+                let stacked = stacked(cells, column_count(cells), max, styles);
+                lines.extend(stacked.into_iter().map(|line| line.spans));
+            }
+            part => lines.extend(part.lines(max, styles)),
+        }
+    }
+    lines
 }
 
 pub struct Styles {
@@ -154,6 +175,20 @@ fn column_maxima(cells: &Cells, columns: usize, measure: impl Fn(&Cell) -> usize
     maxima
 }
 
+/// The fewest cells each column takes without splitting a short word, or
+/// any word of a header column.
+fn floors(cells: &Cells, columns: usize) -> Vec<usize> {
+    let mut floors = column_maxima(cells, columns, Cell::floor);
+    if cells.header_column {
+        for row in &cells.rows {
+            if let Some(Cell::Text(header)) = row.first() {
+                floors[0] = floors[0].max(longest_word(header));
+            }
+        }
+    }
+    floors.into_iter().map(|floor| floor.max(1)).collect()
+}
+
 /// The width of the table drawn as a box without wrapping.
 fn natural_width(cells: &Cells) -> usize {
     let columns = column_count(cells);
@@ -164,8 +199,7 @@ fn natural_width(cells: &Cells) -> usize {
 /// The fewest cells the table takes as a box.
 fn boxed_floor(cells: &Cells) -> usize {
     let columns = column_count(cells);
-    let floors = column_maxima(cells, columns, Cell::floor);
-    floors.iter().map(|floor| floor.max(&1)).sum::<usize>() + 3 * columns + 1
+    floors(cells, columns).iter().sum::<usize>() + 3 * columns + 1
 }
 
 /// Widths that fit in `max` without splitting short words, or `None`.
@@ -175,7 +209,7 @@ fn column_widths(cells: &Cells, columns: usize, max: usize) -> Option<Vec<usize>
     // its borders out of line.
     let at_least_one = |widths: Vec<usize>| widths.into_iter().map(|w| w.max(1)).collect();
     let mut widths: Vec<usize> = at_least_one(column_maxima(cells, columns, Cell::natural));
-    let minimums: Vec<usize> = at_least_one(column_maxima(cells, columns, Cell::floor));
+    let minimums = floors(cells, columns);
     let together = column_maxima(cells, columns, Cell::together);
     // Each column costs its padding and one border, plus the closing border.
     let available = max.checked_sub(3 * columns + 1)?;
@@ -393,6 +427,10 @@ mod tests {
 
     fn text(lines: &[Line]) -> Vec<String> {
         lines.iter().map(|line| style::text(&line.spans)).collect()
+    }
+
+    fn cell_text(lines: &[Vec<Span>]) -> Vec<String> {
+        lines.iter().map(|line| style::text(line)).collect()
     }
 
     #[test]
@@ -831,6 +869,57 @@ mod tests {
                 "│ name │ Aino │",
                 "╰──────┴──────╯",
             ]
+        );
+    }
+
+    #[test]
+    fn words_in_a_header_column_stay_whole() {
+        let cells = keyed(vec![
+            ("description", cell("How the build is set up").into()),
+            ("robots", cell("").into()),
+        ]);
+        assert_eq!(
+            text(&layout(&cells, 28, &styles())),
+            vec![
+                "╭─────────────┬────────────╮",
+                "│ description │ How the    │",
+                "│             │ build is   │",
+                "│             │ set up     │",
+                "│ robots      │            │",
+                "╰─────────────┴────────────╯",
+            ]
+        );
+    }
+
+    #[test]
+    fn tables_in_a_stack_stack_together() {
+        let stop = |name: &str, km: &str| {
+            Cell::Table(keyed(vec![
+                ("name", cell(name).into()),
+                ("km", cell(km).into()),
+            ]))
+        };
+        // The second table needs 21 cells as a box, the first 18.
+        let stops = Cell::Stack(vec![
+            stop("Harbour", "0"),
+            stop("Lighthouse", "7.5"),
+            cell("More to come").into(),
+        ]);
+        assert_eq!(
+            cell_text(&stops.lines(18, &styles())),
+            vec![
+                "name: Harbour",
+                "km: 0",
+                "──────────────────",
+                "name: Lighthouse",
+                "km: 7.5",
+                "──────────────────",
+                "More to come",
+            ]
+        );
+        assert_eq!(
+            cell_text(&stops.lines(21, &styles()))[4],
+            "╭──────┬────────────╮"
         );
     }
 }
