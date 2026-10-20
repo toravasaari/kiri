@@ -10,7 +10,7 @@ use std::process::{Command, Output, Stdio};
 use base64::Engine;
 use image::{Rgba, RgbaImage};
 use kiri::caps::Capabilities;
-use kiri::diagrams::{Diagrams, Renderer, Theme as DiagramTheme};
+use kiri::diagrams::{Diagrams, Drawn, Renderer, Theme as DiagramTheme};
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, Images, Source};
 use kiri::kitty::graphics::{DIACRITICS, PLACEHOLDER};
 use kiri::render::Inputs;
@@ -198,21 +198,17 @@ impl Renderer for StubDiagrams {
         language.eq_ignore_ascii_case("mermaid")
     }
 
-    fn render(
-        &self,
-        _language: &str,
-        source: &str,
-        _theme: DiagramTheme,
-    ) -> Result<String, String> {
+    fn render(&self, _language: &str, source: &str, theme: DiagramTheme) -> Result<Drawn, String> {
         let unclosed = |line: &str| line.matches('[').count() > line.matches(']').count();
         if source.lines().any(unclosed) {
             return Err("unclosed label".into());
         }
         let width = 10 * (10 + source.chars().count() % 30);
         let height = 20 * source.lines().count();
-        Ok(format!(
+        let svg = format!(
             r#"<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}"/>"#
-        ))
+        );
+        Ok(Drawn { svg, theme })
     }
 }
 

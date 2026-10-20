@@ -23,6 +23,8 @@ pub struct Svg {
     /// The part of the drawing that is shown, in its CSS pixels: from its
     /// top left corner to its size, unless it was grown.
     view: tiny_skia::Rect,
+    /// The colour of a card under the whole image, if it lies on one.
+    card: Option<[u8; 3]>,
     /// The natural size in whole CSS pixels.
     pub(super) size: (u32, u32),
 }
@@ -36,6 +38,7 @@ impl Svg {
             tree: Arc::new(tree),
             bytes: bytes.into(),
             view,
+            card: None,
             size: (0, 0),
         }
         .showing(view)
@@ -68,12 +71,32 @@ impl Svg {
         self.showing(view)
     }
 
+    /// This SVG on a card of `colour`, `padding` CSS pixels wider than
+    /// what it shows on each side.
+    pub(super) fn on_card(self, colour: [u8; 3], padding: f32) -> Self {
+        let view = self.view;
+        let view = tiny_skia::Rect::from_ltrb(
+            view.left() - padding,
+            view.top() - padding,
+            view.right() + padding,
+            view.bottom() + padding,
+        )
+        .unwrap_or(view);
+        Self {
+            card: Some(colour),
+            ..self.showing(view)
+        }
+    }
+
     pub(super) fn render(&self, width: u32, height: u32) -> RgbaImage {
         let mut image = RgbaImage::new(width, height);
         let Some(mut pixmap) = tiny_skia::Pixmap::new(width, height) else {
             // Too large for the renderer; left transparent.
             return image;
         };
+        if let Some([red, green, blue]) = self.card {
+            pixmap.fill(tiny_skia::Color::from_rgba8(red, green, blue, 255));
+        }
         let view = self.view;
         let transform = tiny_skia::Transform::from_scale(
             width as f32 / view.width(),
@@ -92,7 +115,7 @@ impl Svg {
 
 impl PartialEq for Svg {
     fn eq(&self, other: &Self) -> bool {
-        self.bytes == other.bytes && self.view == other.view
+        self.bytes == other.bytes && self.view == other.view && self.card == other.card
     }
 }
 

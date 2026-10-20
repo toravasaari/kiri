@@ -28,15 +28,25 @@ impl Theme {
     }
 }
 
+/// A diagram drawn as SVG.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Drawn {
+    pub svg: String,
+    /// The page its colours are for: the theme it was asked for, unless
+    /// the diagram chose colours of its own.
+    pub theme: Theme,
+}
+
 /// Draws the diagrams of some languages.
 pub trait Renderer {
     /// Whether code blocks in `language`, as the info string gives it, are
     /// drawn as diagrams.
     fn draws(&self, language: &str) -> bool;
 
-    /// The diagram `source`, written in `language`, as an SVG document, or
-    /// why it could not be drawn.
-    fn render(&self, language: &str, source: &str, theme: Theme) -> Result<String, String>;
+    /// The diagram `source`, written in `language`, as an SVG document in
+    /// `theme` unless it chooses its own colours, or why it could not be
+    /// drawn.
+    fn render(&self, language: &str, source: &str, theme: Theme) -> Result<Drawn, String>;
 }
 
 /// The renderers built into kiri: merman for Mermaid, in a build with the
@@ -55,7 +65,7 @@ impl Renderer for BuiltIn {
         Self::is_mermaid(language)
     }
 
-    fn render(&self, language: &str, source: &str, theme: Theme) -> Result<String, String> {
+    fn render(&self, language: &str, source: &str, theme: Theme) -> Result<Drawn, String> {
         #[cfg(feature = "mermaid")]
         if Self::is_mermaid(language) {
             return mermaid::render(source, theme);
@@ -96,7 +106,7 @@ impl Renderer for NoRenderer {
         false
     }
 
-    fn render(&self, language: &str, _source: &str, _theme: Theme) -> Result<String, String> {
+    fn render(&self, language: &str, _source: &str, _theme: Theme) -> Result<Drawn, String> {
         Err(format!("{language} diagrams are not drawn"))
     }
 }

@@ -19,7 +19,7 @@ use image::error::{ImageFormatHint, UnsupportedErrorKind};
 use image::{ImageFormat, RgbaImage};
 use kiri_image_utils::DecodeError;
 
-use crate::diagrams::Diagrams;
+use crate::diagrams::{Diagrams, Theme};
 use crate::model::{Block, Document, Inline};
 
 pub use svg::{Fonts, Svg};
@@ -409,11 +409,27 @@ fn draw_diagram(
         name: crate::diagrams::name(language, source, line, diagrams.by_line),
         reason,
     };
-    let svg = (diagrams.renderer)
+    let drawn = (diagrams.renderer)
         .render(language, source, diagrams.theme)
         .map_err(failed)?;
-    decode_diagram(&svg, max_size, fonts).map_err(|error| failed(error.to_string()))
+    let image =
+        decode_diagram(&drawn.svg, max_size, fonts).map_err(|error| failed(error.to_string()))?;
+    // A diagram that chose a light theme of its own would be dark lines
+    // and text on a dark page.
+    Ok(match image {
+        Source::Svg(svg) if diagrams.theme == Theme::Dark && drawn.theme == Theme::Light => {
+            Source::Svg(svg.on_card(CARD, CARD_PADDING))
+        }
+        other => other,
+    })
 }
+
+/// The colour of the card under a light diagram on a dark page.
+const CARD: [u8; 3] = [255, 255, 255];
+
+/// How far, in CSS pixels, the card reaches past the diagram on each side,
+/// beyond the margin of its own that the diagram has.
+const CARD_PADDING: f32 = 8.0;
 
 /// A diagram's SVG decoded, and grown to show all of its text: its
 /// renderer may have measured the text narrower than `fonts` draw it.
@@ -541,7 +557,7 @@ fn format_name(format: ImageFormat) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diagrams::{Renderer, Theme};
+    use crate::diagrams::{Drawn, Renderer};
 
     pub(super) fn fixtures() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
@@ -975,15 +991,16 @@ Text ![inline](images/pattern.png) and words.
             language.eq_ignore_ascii_case("mermaid")
         }
 
-        fn render(&self, _language: &str, source: &str, theme: Theme) -> Result<String, String> {
+        fn render(&self, _language: &str, source: &str, theme: Theme) -> Result<Drawn, String> {
             self.calls.borrow_mut().push((source.to_owned(), theme));
             if source.contains("broken") {
                 return Err("parse error".into());
             }
             let height = 20 * source.lines().count();
-            Ok(format!(
+            let svg = format!(
                 r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="{height}"/>"#
-            ))
+            );
+            Ok(Drawn { svg, theme })
         }
     }
 
@@ -1102,8 +1119,9 @@ fn main() {}
             fn draws(&self, _language: &str) -> bool {
                 true
             }
-            fn render(&self, _: &str, _: &str, _: Theme) -> Result<String, String> {
-                Ok("not svg".into())
+            fn render(&self, _: &str, _: &str, theme: Theme) -> Result<Drawn, String> {
+                let svg = "not svg".into();
+                Ok(Drawn { svg, theme })
             }
         }
         let images = load_with(
@@ -1135,8 +1153,9 @@ fn main() {}
             fn draws(&self, _language: &str) -> bool {
                 true
             }
-            fn render(&self, _: &str, _: &str, _: Theme) -> Result<String, String> {
-                Ok(SVG.into())
+            fn render(&self, _: &str, _: &str, theme: Theme) -> Result<Drawn, String> {
+                let svg = SVG.into();
+                Ok(Drawn { svg, theme })
             }
         }
         let fonts = Fonts::fixture();
@@ -1165,6 +1184,60 @@ fn main() {}
         match decode(SVG.as_bytes(), DEFAULT_MAX_FILE_SIZE, &fonts) {
             Ok(Source::Svg(file)) => assert_eq!(file.size, (100, 40)),
             other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_light_diagram_on_a_dark_page_lies_on_a_white_card() {
+        /// An empty 100 × 40 drawing, for a page of the theme it holds.
+        struct Themed(Theme);
+        impl Renderer for Themed {
+            fn draws(&self, _language: &str) -> bool {
+                true
+            }
+            fn render(&self, _: &str, _: &str, _: Theme) -> Result<Drawn, String> {
+                let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="40"/>"#;
+                let svg = svg.into();
+                Ok(Drawn { svg, theme: self.0 })
+            }
+        }
+        let drawn = |page, own| {
+            let images = load_with(
+                &crate::parse::parse("```dot\ndigraph {}\n```\n"),
+                &fixtures(),
+                DEFAULT_MAX_FILE_SIZE,
+                &Fonts::none(),
+                &Diagrams {
+                    renderer: &Themed(own),
+                    theme: page,
+                    by_line: true,
+                },
+            );
+            match images.get(&block("dot", "digraph {}\n")) {
+                Some(Ok(Source::Svg(svg))) => svg.clone(),
+                other => panic!("{other:?}"),
+            }
+        };
+        // Eight pixels of card around the drawing on each side.
+        let card = drawn(Theme::Dark, Theme::Light);
+        assert_eq!(card.size, (116, 56));
+        let pixels = card.render(116, 56);
+        for (x, y) in [(0, 0), (58, 28), (115, 55)] {
+            assert_eq!(rgba(&pixels, x, y), [255, 255, 255, 255], "({x}, {y})");
+        }
+        // kiri's own choice of theme, or a dark diagram on a light page.
+        for (page, own) in [
+            (Theme::Dark, Theme::Dark),
+            (Theme::Light, Theme::Light),
+            (Theme::Light, Theme::Dark),
+        ] {
+            let svg = drawn(page, own);
+            assert_eq!(svg.size, (100, 40), "{own:?} on {page:?}");
+            assert_eq!(
+                rgba(&svg.render(100, 40), 0, 0)[3],
+                0,
+                "{own:?} on {page:?}"
+            );
         }
     }
 

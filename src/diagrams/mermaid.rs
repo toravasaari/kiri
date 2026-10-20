@@ -3,15 +3,16 @@
 use std::collections::HashSet;
 
 use merman::svg::SvgPipeline;
+use merman::theme_color::is_dark;
 use merman::{
-    Engine, MermaidConfig, OperationControl, RenderOutput, RenderRequest, Renderer, SvgRequest,
+    Engine, MermaidConfig, OperationControl, RenderOutput, RenderTarget, Renderer, SvgRequest,
 };
 
-use super::Theme;
+use super::{Drawn, Theme};
 
 /// The diagram `source` as an SVG document, in `theme` unless the diagram
 /// chooses its own, or merman's message saying why it could not be drawn.
-pub fn render(source: &str, theme: Theme) -> Result<String, String> {
+pub fn render(source: &str, theme: Theme) -> Result<Drawn, String> {
     // GitHub's themes and look. The site configuration is what a diagram's
     // own directive or front matter overrides.
     let site = MermaidConfig::from_value(serde_json::json!({
@@ -27,14 +28,38 @@ pub fn render(source: &str, theme: Theme) -> Result<String, String> {
         pipeline: Some(SvgPipeline::resvg_safe()),
         ..SvgRequest::default()
     };
-    match renderer.render(RenderRequest::svg(source, OperationControl::new(), request)) {
+    let no_diagram = || "no Mermaid diagram".to_owned();
+    let diagram = (renderer.prepare_semantic(source, OperationControl::new()))
+        .map_err(|error| error.to_string())?
+        .ok_or_else(no_diagram)?;
+    // The diagram's own configuration over the site's.
+    let theme = page_of(diagram.metadata().effective_config.as_value()).unwrap_or(theme);
+    match diagram.render(RenderTarget::Svg(request)) {
         Ok(RenderOutput::Svg(Some(svg))) => {
             let svg = with_references_found(&svg.into_parts().0);
-            Ok(with_labels_unclipped(&svg))
+            Ok(Drawn {
+                svg: with_labels_unclipped(&svg),
+                theme,
+            })
         }
-        Ok(_) => Err("no Mermaid diagram".into()),
+        Ok(_) => Err(no_diagram()),
         Err(error) => Err(error.to_string()),
     }
+}
+
+/// The page that a diagram of the Mermaid configuration `config` is drawn
+/// for: a dark one in Mermaid's dark mode, and otherwise one as dark as
+/// the theme's background. `None` when the configuration does not say.
+fn page_of(config: &serde_json::Value) -> Option<Theme> {
+    let variables = config.get("themeVariables")?;
+    let dark = match variables
+        .get("darkMode")
+        .and_then(serde_json::Value::as_bool)
+    {
+        Some(true) => true,
+        _ => is_dark(variables.get("background")?.as_str()?).ok()?,
+    };
+    Some(if dark { Theme::Dark } else { Theme::Light })
 }
 
 /// `svg` with each reference to an element it does not have, such as
@@ -123,7 +148,7 @@ mod tests {
 
     #[test]
     fn draws_a_flowchart_as_svg() {
-        let svg = render(FLOWCHART, Theme::Light).unwrap();
+        let svg = render(FLOWCHART, Theme::Light).unwrap().svg;
         assert!(svg.starts_with("<svg"), "{svg}");
         assert!(svg.contains("Start") && svg.contains("Done"), "{svg}");
     }
@@ -132,11 +157,11 @@ mod tests {
     fn draws_in_the_default_theme_on_a_light_page_and_dark_on_a_dark_one() {
         // The node colours of Mermaid's default and dark themes.
         assert_eq!(
-            node_fill(&render(FLOWCHART, Theme::Light).unwrap()),
+            node_fill(&render(FLOWCHART, Theme::Light).unwrap().svg),
             "#ECECFF"
         );
         assert_eq!(
-            node_fill(&render(FLOWCHART, Theme::Dark).unwrap()),
+            node_fill(&render(FLOWCHART, Theme::Dark).unwrap().svg),
             "#1f2020"
         );
     }
@@ -148,9 +173,31 @@ mod tests {
         let front_matter = format!("---\nconfig:\n  theme: forest\n---\n{FLOWCHART}");
         for source in [directive, front_matter] {
             for theme in [Theme::Light, Theme::Dark] {
-                assert_eq!(node_fill(&render(&source, theme).unwrap()), "#cde498");
+                assert_eq!(node_fill(&render(&source, theme).unwrap().svg), "#cde498");
             }
         }
+    }
+
+    #[test]
+    fn tells_the_theme_a_diagram_chooses_for_itself() {
+        let drawn = |source: &str, page| render(source, page).unwrap().theme;
+        let with = |theme: &str| format!("---\nconfig:\n  theme: {theme}\n---\n{FLOWCHART}");
+        // kiri's own choice.
+        assert_eq!(drawn(FLOWCHART, Theme::Dark), Theme::Dark);
+        assert_eq!(drawn(FLOWCHART, Theme::Light), Theme::Light);
+        for theme in ["default", "forest", "neutral", "base", "neo", "redux"] {
+            assert_eq!(drawn(&with(theme), Theme::Dark), Theme::Light, "{theme}");
+        }
+        for theme in ["dark", "neo-dark", "redux-dark"] {
+            assert_eq!(drawn(&with(theme), Theme::Light), Theme::Dark, "{theme}");
+        }
+        let directive = format!("%%{{init: {{\"theme\": \"default\"}}}}%%\n{FLOWCHART}");
+        assert_eq!(drawn(&directive, Theme::Dark), Theme::Light);
+        // Mermaid's switch for the base theme on a dark page.
+        let dark_base = format!(
+            "---\nconfig:\n  theme: base\n  themeVariables:\n    darkMode: true\n---\n{FLOWCHART}"
+        );
+        assert_eq!(drawn(&dark_base, Theme::Light), Theme::Dark);
     }
 
     /// How many pixels of `svg`, drawn at its natural size, are `colour`.
@@ -170,7 +217,7 @@ mod tests {
         // filter is missing.
         let source = "---\nconfig:\n  look: neo\n  theme: redux-color\n---\n\
             sequenceDiagram\n    A->>B: hello\n    Note right of B: a note\n";
-        let svg = render(source, Theme::Light).unwrap();
+        let svg = render(source, Theme::Light).unwrap().svg;
         // The note's fill in this theme.
         let note = pixels_of(&svg, [0xff, 0xf5, 0xad]);
         assert!(note > 1000, "{note} pixels of the note's colour");
@@ -194,7 +241,7 @@ mod tests {
         // a box of that size; the font resvg draws with is often wider.
         let source = "classDiagram\n    class KittyBackend {\n        -Capabilities caps\n\
             +render(doc, out) Result\n    }\n";
-        let svg = render(source, Theme::Light).unwrap();
+        let svg = render(source, Theme::Light).unwrap().svg;
         let tree = usvg::Tree::from_str(&svg, &usvg::Options::default()).unwrap();
         assert_eq!(clipped(tree.root()), 0);
     }
@@ -210,7 +257,7 @@ mod tests {
         // needs it.
         let source = "stateDiagram-v2\n    [*] --> Parsed\n\
             Parsed --> Loaded: images and diagrams\n    Loaded --> Shown\n";
-        let svg = render(source, Theme::Light).unwrap();
+        let svg = render(source, Theme::Light).unwrap().svg;
         let fonts = Fonts::fixture();
         let width = |image: Source| image.size().0;
         let file = width(decode(svg.as_bytes(), DEFAULT_MAX_FILE_SIZE, &fonts).unwrap());
