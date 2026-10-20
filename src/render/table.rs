@@ -182,7 +182,11 @@ pub fn layout(cells: &Cells, max: usize, styles: &Styles) -> Vec<Line> {
 
     let base = styles.base;
     let rule = |ends| painted(border_line(&widths, ends, border), base);
-    let mut lines = vec![rule(["╭", "┬", "╮"])];
+    // The top and bottom borders are not painted: a rule is drawn through
+    // the middle of its cells, so `base` behind them would show half a
+    // cell outside the box.
+    let edge = |ends| border_line(&widths, ends, border);
+    let mut lines = vec![edge(["╭", "┬", "╮"])];
     if !cells.header_column {
         let header: Vec<Cell> = cells.header.iter().cloned().map(Cell::Text).collect();
         lines.extend(row_lines(&header, &widths, &cells.alignments, styles, base));
@@ -219,7 +223,7 @@ pub fn layout(cells: &Cells, max: usize, styles: &Styles) -> Vec<Line> {
             background,
         ));
     }
-    lines.push(rule(["╰", "┴", "╯"]));
+    lines.push(edge(["╰", "┴", "╯"]));
     lines
 }
 
@@ -1166,9 +1170,16 @@ mod tests {
             cells(&lines[4]),
             [None, s, s, s, s, s, s, s, s, s, s, s, s, s, s, s, None]
         );
+        // The inner table's top and bottom borders are on the stripe: its
+        // rules are drawn through the middle of their cells, and the page
+        // colour behind them would show half a cell outside its box.
         assert_eq!(
             cells(&lines[2]),
-            [None, s, s, s, s, s, s, p, p, p, p, p, p, p, s, s, None]
+            [None, s, s, s, s, s, s, s, s, s, s, s, s, s, s, s, None]
+        );
+        assert_eq!(
+            cells(&lines[5]),
+            [None, s, s, s, s, s, s, s, s, s, s, s, s, s, s, s, None]
         );
         assert!(cells(&lines[1]).iter().all(Option::is_none));
     }
