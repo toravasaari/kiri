@@ -4,7 +4,6 @@ expression: "render_with(\"front-matter.md\", Capabilities::plain(WIDTH),\nFront
 ---
   ╭─────────────┬────────────────────────────╮
   │ name        │ release-notes              │
-  ├─────────────┼────────────────────────────┤
   │ description │ Drafts release notes from  │
   │             │ the pull requests merged   │
   │             │ since the last tag,        │
@@ -12,21 +11,14 @@ expression: "render_with(\"front-matter.md\", Capabilities::plain(WIDTH),\nFront
   │             │ before it publishes        │
   │             │ anything. Use it when a    │
   │             │ release is near.           │
-  ├─────────────┼────────────────────────────┤
   │ version     │ 1.10                       │
-  ├─────────────┼────────────────────────────┤
   │ draft       │ false                      │
-  ├─────────────┼────────────────────────────┤
   │ reviewer    │                            │
-  ├─────────────┼────────────────────────────┤
   │ tags        │ docs, release, changelog   │
-  ├─────────────┼────────────────────────────┤
   │ author      │ ╭───────┬────────────────╮ │
   │             │ │ name  │ Aino Virtanen  │ │
-  │             │ ├───────┼────────────────┤ │
   │             │ │ email │ aino@example.c │ │
   │             │ │       │ om             │ │
-  │             │ ├───────┼────────────────┤ │
   │             │ │ links │ site:          │ │
   │             │ │       │ https://exampl │ │
   │             │ │       │ e.com/aino     │ │
@@ -35,12 +27,9 @@ expression: "render_with(\"front-matter.md\", Capabilities::plain(WIDTH),\nFront
   │             │ │       │ e.com/aino/fee │ │
   │             │ │       │ d.xml          │ │
   │             │ ╰───────┴────────────────╯ │
-  ├─────────────┼────────────────────────────┤
   │ features    │ ╭─────────┬──────────────╮ │
   │             │ │ icon    │ ⚡           │ │
-  │             │ ├─────────┼──────────────┤ │
   │             │ │ title   │ Fast         │ │
-  │             │ ├─────────┼──────────────┤ │
   │             │ │ details │ Reads the    │ │
   │             │ │         │ history once │ │
   │             │ │         │ and keeps    │ │
@@ -49,20 +38,16 @@ expression: "render_with(\"front-matter.md\", Capabilities::plain(WIDTH),\nFront
   │             │ ╰─────────┴──────────────╯ │
   │             │ ╭─────────┬──────────────╮ │
   │             │ │ icon    │ 🧩           │ │
-  │             │ ├─────────┼──────────────┤ │
   │             │ │ title   │ Modular      │ │
-  │             │ ├─────────┼──────────────┤ │
   │             │ │ details │ Each section │ │
   │             │ │         │ of the notes │ │
   │             │ │         │ comes from a │ │
   │             │ │         │ template of  │ │
   │             │ │         │ its own.     │ │
-  │             │ ├─────────┼──────────────┤ │
   │             │ │ link    │ /guide/templ │ │
   │             │ │         │ ates         │ │
   │             │ ╰─────────┴──────────────╯ │
   │             │ More to come               │
-  ├─────────────┼────────────────────────────┤
   │ build       │ ╭─────────┬──────────────╮ │
   │             │ │ targets │ linux:       │ │
   │             │ │         │ flags:       │ │
@@ -72,7 +57,6 @@ expression: "render_with(\"front-matter.md\", Capabilities::plain(WIDTH),\nFront
   │             │ │         │   - CI=1     │ │
   │             │ │         │   - LANG=C   │ │
   │             │ ╰─────────┴──────────────╯ │
-  ├─────────────┼────────────────────────────┤
   │ notes       │ The first line of a        │
   │             │ literal block.             │
   │             │ The second line keeps its  │

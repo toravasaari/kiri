@@ -185,8 +185,8 @@ fn table_rows_are_striped_by_default_a_little_towards_the_text_colour() {
 }
 
 #[test]
-fn zebra_draws_lines_where_stripes_cannot_show() {
-    let lined = "│ Helsinki │ Capital │\n  ├──────────┼─────────┤\n  │ Oulu ";
+fn zebra_draws_nothing_where_stripes_cannot_show() {
+    let plain = "│ Helsinki │ Capital │\n  │ Oulu ";
     // Plain text, colours unknown, no colours, no 24-bit colour.
     let mut no_color = kitty_on((0, 0, 0), (200, 200, 200));
     no_color.color = false;
@@ -198,8 +198,10 @@ fn zebra_draws_lines_where_stripes_cannot_show() {
         no_color,
         no_truecolor,
     ] {
-        let out = strip_own_sequences(&render(ROWS, &Inputs::new(caps)));
-        assert!(out.contains(lined), "{out}");
+        let out = render(ROWS, &Inputs::new(caps));
+        assert!(!out.contains("48;2;"), "{}", visible(&out));
+        let out = strip_own_sequences(&out);
+        assert!(out.contains(plain), "{out}");
     }
 }
 

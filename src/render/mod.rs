@@ -40,8 +40,8 @@ pub struct Inputs {
 pub enum TableRows {
     /// Not at all.
     Off,
-    /// Every second row on a background a little towards the text colour,
-    /// as `lines` where that colour cannot be known or shown.
+    /// Every second row on a background a little towards the text colour;
+    /// nothing where that colour cannot be known or shown.
     #[default]
     Zebra,
     /// A rule between the rows.

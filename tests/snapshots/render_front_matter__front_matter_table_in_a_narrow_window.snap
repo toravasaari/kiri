@@ -18,10 +18,8 @@ expression: "render_with(\"front-matter.md\", Capabilities::plain(30),\nFrontMat
   author:
   ╭───────┬────────────────╮
   │ name  │ Aino Virtanen  │
-  ├───────┼────────────────┤
   │ email │ aino@example.c │
   │       │ om             │
-  ├───────┼────────────────┤
   │ links │ site:          │
   │       │ https://exampl │
   │       │ e.com/aino     │
@@ -33,9 +31,7 @@ expression: "render_with(\"front-matter.md\", Capabilities::plain(30),\nFrontMat
   features:
   ╭─────────┬──────────────╮
   │ icon    │ ⚡           │
-  ├─────────┼──────────────┤
   │ title   │ Fast         │
-  ├─────────┼──────────────┤
   │ details │ Reads the    │
   │         │ history once │
   │         │ and keeps    │
@@ -44,15 +40,12 @@ expression: "render_with(\"front-matter.md\", Capabilities::plain(30),\nFrontMat
   ╰─────────┴──────────────╯
   ╭─────────┬──────────────╮
   │ icon    │ 🧩           │
-  ├─────────┼──────────────┤
   │ title   │ Modular      │
-  ├─────────┼──────────────┤
   │ details │ Each section │
   │         │ of the notes │
   │         │ comes from a │
   │         │ template of  │
   │         │ its own.     │
-  ├─────────┼──────────────┤
   │ link    │ /guide/templ │
   │         │ ates         │
   ╰─────────┴──────────────╯

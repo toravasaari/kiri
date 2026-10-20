@@ -377,7 +377,7 @@ impl Layout<'_> {
             TableRows::Indent => table::Rows::Indent,
             TableRows::Zebra => match self.stripe() {
                 Some((stripe, page)) => table::Rows::Stripes { stripe, page },
-                None => table::Rows::Lines,
+                None => table::Rows::Plain,
             },
         };
         table::Styles {

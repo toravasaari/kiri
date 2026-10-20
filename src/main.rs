@@ -105,7 +105,7 @@ struct Cli {
     front_matter: Option<FrontMatter>,
 
     /// How the rows of a table are told apart: zebra (every second row
-    /// shaded, or lines where shading cannot show), lines, indent (the
+    /// shaded where the terminal's colours are known), lines, indent (the
     /// lines after the first of a wrapped value start two cells in), or
     /// off.
     #[arg(long, value_enum, value_name = "STYLE")]

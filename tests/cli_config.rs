@@ -391,8 +391,8 @@ fn table_rows_come_from_the_flag_the_environment_and_the_configuration_file() {
     };
     let lined = "  │ 1 │ 2 │\n  ├───┼───┤\n  │ 3 │ 4 │\n";
     let plain = "  │ 1 │ 2 │\n  │ 3 │ 4 │\n";
-    // Zebra by default, drawn as lines without colours.
-    assert!(shown(&mut command(&dir)).0.contains(lined));
+    // Zebra by default, which draws nothing without colours.
+    assert!(shown(&mut command(&dir)).0.contains(plain));
     let (out, _) = shown(command(&dir).args(["--table-rows", "off"]));
     assert!(out.contains(plain), "{out}");
     write(
