@@ -18,7 +18,7 @@ path = "src/main.rs"
 
 # Optional parts of kiri; `full` turns them all on. Without them, kiri
 # shows PNG, JPEG, GIF, WebP and SVG images; `full` adds the image formats
-# the `image` crate decodes cheaply.
+# the `image` crate decodes cheaply, and Mermaid diagrams.
 [features]
 default = ["full"]
 full = [
@@ -28,7 +28,13 @@ full = [
     "image/qoi",
     "image/pnm",
     "image/tga",
+    "mermaid",
 ]
+# Mermaid diagrams drawn by kiri itself, through merman with its default
+# features: every diagram type, the Cytoscape and ELK layouts and math.
+# Its png, native-fonts and system-fonts features would bring in a second
+# resvg.
+mermaid = ["dep:merman"]
 
 [dependencies]
 base64 = "0.22.1"
@@ -39,6 +45,7 @@ emojis = "0.9.1"
 flate2 = "1.1.10"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 kiri-image-utils = { version = "0.1.0", path = "crates/kiri-image-utils" }
+merman = { version = "0.9.1", optional = true }
 resvg = "0.48.1"
 rustix = { version = "1.1.5", features = ["termios", "event", "process"] }
 serde = { version = "1.0.229", features = ["derive"] }

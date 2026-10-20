@@ -4,6 +4,9 @@
 //! knows nothing about terminals: the image loader decodes the SVG as it
 //! does an SVG file, and another backend could use the same SVG.
 
+#[cfg(feature = "mermaid")]
+mod mermaid;
+
 /// The colours a diagram is drawn in when it does not choose its own.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Theme {
@@ -36,16 +39,28 @@ pub trait Renderer {
     fn render(&self, language: &str, source: &str, theme: Theme) -> Result<String, String>;
 }
 
-/// The renderers built into kiri: none yet.
+/// The renderers built into kiri: merman for Mermaid, in a build with the
+/// `mermaid` feature.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BuiltIn;
 
+impl BuiltIn {
+    fn is_mermaid(language: &str) -> bool {
+        cfg!(feature = "mermaid") && language.eq_ignore_ascii_case("mermaid")
+    }
+}
+
 impl Renderer for BuiltIn {
-    fn draws(&self, _language: &str) -> bool {
-        false
+    fn draws(&self, language: &str) -> bool {
+        Self::is_mermaid(language)
     }
 
-    fn render(&self, language: &str, _source: &str, _theme: Theme) -> Result<String, String> {
+    fn render(&self, language: &str, source: &str, theme: Theme) -> Result<String, String> {
+        #[cfg(feature = "mermaid")]
+        if Self::is_mermaid(language) {
+            return mermaid::render(source, theme);
+        }
+        let _ = (source, theme);
         Err(format!("{language} diagrams are not drawn in this build"))
     }
 }
@@ -117,6 +132,14 @@ pub fn name(language: &str, source: &str, line: usize, by_line: bool) -> String 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mermaid_is_built_in_with_its_feature() {
+        for language in ["mermaid", "Mermaid"] {
+            assert_eq!(BuiltIn.draws(language), cfg!(feature = "mermaid"));
+        }
+        assert!(!BuiltIn.draws("dot"));
+    }
 
     #[test]
     fn an_unknown_page_counts_as_light() {

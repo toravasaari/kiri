@@ -157,6 +157,7 @@ src/images/url.rs          data URLs, file URLs and paths, read up to a limit
 src/images/svg.rs          SVG images and the fonts for their text
 src/diagrams/mod.rs        diagrams written in code blocks, drawn as SVG
                            for the image loader
+src/diagrams/mermaid.rs    Mermaid through merman (feature `mermaid`)
 src/color.rs               colours and underline styles for theme and render
 src/render/mod.rs          document model -> terminal output
 src/render/layout/mod.rs   document model -> styled lines of a fixed width
