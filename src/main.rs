@@ -399,8 +399,23 @@ fn show_document(
             },
             theme: kiri::diagrams::Theme::for_page(caps.dark_background),
             by_line: file.is_some(),
+            progress: None,
         };
-        let images = kiri::images::load(document, base, max_file_size, &diagrams);
+        let load =
+            |diagrams: &Diagrams| kiri::images::load(document, base, max_file_size, diagrams);
+        // Drawing diagrams can take seconds with an external program; a
+        // terminal tells how far it has got.
+        let images = if kiri::term::stderr_is_terminal() {
+            use kiri::term::progress::{DELAY, while_working};
+            while_working(io::stderr(), DELAY, |progress| {
+                load(&Diagrams {
+                    progress: Some(&|done, total| progress.update(done, total)),
+                    ..diagrams
+                })
+            })
+        } else {
+            load(&diagrams)
+        };
         for warning in images.warnings() {
             eprintln!("kiri: {warning}");
         }

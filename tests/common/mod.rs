@@ -218,6 +218,7 @@ pub fn stub_diagrams() -> Diagrams<'static> {
         renderer: &StubDiagrams,
         theme: DiagramTheme::Light,
         by_line: true,
+        progress: None,
     }
 }
 

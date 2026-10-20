@@ -309,6 +309,9 @@ pub struct Diagrams<'a> {
     /// by its own first line, for a document that has no lines the reader
     /// can look up, such as one piped in.
     pub by_line: bool,
+    /// Told how many of a document's diagrams are drawn, and of how many:
+    /// first none, and then each time one more is.
+    pub progress: Option<&'a (dyn Fn(usize, usize) + Sync)>,
 }
 
 impl Diagrams<'static> {
@@ -318,6 +321,7 @@ impl Diagrams<'static> {
             renderer: &NoRenderer,
             theme: Theme::Light,
             by_line: true,
+            progress: None,
         }
     }
 }

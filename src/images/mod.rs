@@ -14,6 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use image::error::{ImageFormatHint, UnsupportedErrorKind};
 use image::{ImageFormat, RgbaImage};
@@ -326,8 +327,20 @@ pub fn load_with(
             Wanted::Url(_) => None,
         })
         .collect();
+    let total = sources.len();
+    let done = AtomicUsize::new(0);
+    let progress = diagrams.progress;
+    let tell = |done| {
+        if let Some(progress) = progress {
+            progress(done, total);
+        }
+    };
+    if total > 0 {
+        tell(0);
+    }
+    let one_more = || tell(done.fetch_add(1, Ordering::Relaxed) + 1);
     let mut drawn = (diagrams.renderer)
-        .render_all(&sources, diagrams.theme, &|| {})
+        .render_all(&sources, diagrams.theme, &one_more)
         .into_iter();
     let mut images = Images::new();
     for image in wanted {
@@ -1031,6 +1044,7 @@ Text ![inline](images/pattern.png) and words.
             renderer: stub,
             theme,
             by_line,
+            progress: None,
         }
     }
 
@@ -1102,6 +1116,33 @@ fn main() {}
     }
 
     #[test]
+    fn tells_how_many_diagrams_are_drawn_of_how_many() {
+        let source = "```mermaid\na\n```\n\n```mermaid\nb\n```\n\n```mermaid\na\n```\n";
+        let told = std::sync::Mutex::new(Vec::new());
+        let tell = |done, total| told.lock().unwrap().push((done, total));
+        let stub = Stub::default();
+        let diagrams = Diagrams {
+            progress: Some(&tell),
+            ..with_stub(&stub, Theme::Light, true)
+        };
+        let load = |source: &str| {
+            load_with(
+                &crate::parse::parse(source),
+                &fixtures(),
+                DEFAULT_MAX_FILE_SIZE,
+                &Fonts::none(),
+                &diagrams,
+            )
+        };
+        load(source);
+        // The same diagram twice is drawn once.
+        assert_eq!(*told.lock().unwrap(), [(0, 2), (1, 2), (2, 2)]);
+        told.lock().unwrap().clear();
+        load("No diagrams.\n");
+        assert_eq!(*told.lock().unwrap(), []);
+    }
+
+    #[test]
     fn draws_no_diagrams_without_a_renderer() {
         let images = load_with(
             &crate::parse::parse("```mermaid\na\n```\n"),
@@ -1155,6 +1196,7 @@ fn main() {}
                 renderer: &Text,
                 theme: Theme::Light,
                 by_line: true,
+                progress: None,
             },
         );
         let warnings = images.warnings();
@@ -1190,6 +1232,7 @@ fn main() {}
                 renderer: &Overflowing,
                 theme: Theme::Light,
                 by_line: true,
+                progress: None,
             },
         );
         let Some(Ok(Source::Svg(svg))) = images.get(&block("dot", "digraph {}\n")) else {
@@ -1233,6 +1276,7 @@ fn main() {}
                     renderer: &Themed(own),
                     theme: page,
                     by_line: true,
+                    progress: None,
                 },
             );
             match images.get(&block("dot", "digraph {}\n")) {

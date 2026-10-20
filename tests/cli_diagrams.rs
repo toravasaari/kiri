@@ -275,3 +275,45 @@ fn a_build_without_merman_finds_mmdc_by_itself() {
         let _ = std::fs::remove_dir_all(&bin);
     }
 }
+
+/// Runs kiri in kitty mode on `source` with the configuration `config`,
+/// its stderr a terminal: what the terminal got, and the document.
+fn on_terminal(dir: &std::path::Path, source: &str, config: &str) -> (String, String) {
+    use std::io::Read;
+    common::write(&dir.join("config/kiri/config.toml"), config);
+    let document = dir.join("document.md");
+    std::fs::write(&document, source).unwrap();
+    let (mut terminal, tty) = common::pty();
+    let out = common::command(dir)
+        .args(["--mode", "kitty"])
+        .arg(&document)
+        .stderr(std::process::Stdio::from(tty))
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    // Reading ends with an error once no one holds the terminal side.
+    let mut stderr = Vec::new();
+    let _ = terminal.read_to_end(&mut stderr);
+    (text(&stderr), text(&out.stdout))
+}
+
+#[test]
+fn slow_diagrams_show_their_progress_on_a_terminal() {
+    let dir = Scratch::new("mermaid-progress");
+    let config = external(&dir, &format!("sleep 0.8\n{DRAWS}"));
+    let (stderr, stdout) = on_terminal(&dir, FLOWCHART, &config);
+    // Wiped at the end; 1/1 may show for a moment before.
+    let shown = "\r\x1b[2Kkiri: rendering diagrams 0/1…";
+    let done = "\r\x1b[2Kkiri: rendering diagrams 1/1…";
+    let wiped = "\r\x1b[2K";
+    assert!(
+        [format!("{shown}{wiped}"), format!("{shown}{done}{wiped}")].contains(&stderr),
+        "{stderr:?}"
+    );
+    assert_eq!(sent(&stdout).len(), 1);
+    // Quick ones show nothing.
+    let config = external(&dir, DRAWS);
+    let (stderr, stdout) = on_terminal(&dir, FLOWCHART, &config);
+    assert_eq!(stderr, "");
+    assert_eq!(sent(&stdout).len(), 1);
+}
