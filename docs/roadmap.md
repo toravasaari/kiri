@@ -372,11 +372,12 @@ split once it is worked on.
 - Editing support: an editor and kiri side by side in kitty with live reload,
   and a key to open the editor at the current position.
 
-## Extras
+## Uncategorized
 
-Quick notes on smaller polish and ideas, in any phase; a line or two is
-enough. Each time a part of the roadmap is finished, the list is sorted:
-an item moves to a part or to Bugs, or is dropped, and done items go.
+Ideas not yet placed in a part, from small polish to features; a line or
+two is enough. Each time a part of the roadmap is finished, the list is
+sorted: an item moves to a part or to Bugs, or is dropped, and done items
+go.
 
 - Code blocks can be copied to the clipboard (OSC 52): in the pager with a
   key, and in print mode through a link beside the block that kitty's
@@ -386,6 +387,10 @@ an item moves to a part or to Bugs, or is dropped, and done items go.
   `--list-languages` for code block languages, `--list-themes` for named
   themes (4.11), `--list-code-themes` for the `code_theme` keys, which
   `docs/theme.md` lists by hand.
+- Front matter (4.10.4) in Forgejo's style: a table with one column per
+  key, as GitHub used to draw it.
+- Only the front matter of a document, without its body, as a value of
+  the front matter setting or a flag of its own.
 
 ## Bugs
 
