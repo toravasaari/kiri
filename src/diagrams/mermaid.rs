@@ -28,7 +28,10 @@ pub fn render(source: &str, theme: Theme) -> Result<String, String> {
         ..SvgRequest::default()
     };
     match renderer.render(RenderRequest::svg(source, OperationControl::new(), request)) {
-        Ok(RenderOutput::Svg(Some(svg))) => Ok(with_references_found(&svg.into_parts().0)),
+        Ok(RenderOutput::Svg(Some(svg))) => {
+            let svg = with_references_found(&svg.into_parts().0);
+            Ok(with_labels_unclipped(&svg))
+        }
         Ok(_) => Err("no Mermaid diagram".into()),
         Err(error) => Err(error.to_string()),
     }
@@ -65,6 +68,34 @@ fn with_references_found(svg: &str) -> String {
     fixed
 }
 
+/// `svg` with the boxes around labels, nested `<svg>` elements, letting
+/// their text overflow. merman sizes a box by its own measure of the text,
+/// and the font resvg draws it with is often wider, which would cut off
+/// the ends of class diagram labels.
+fn with_labels_unclipped(svg: &str) -> String {
+    let mut fixed = String::with_capacity(svg.len());
+    let mut rest = svg;
+    // The root element is left as it is.
+    let mut root = true;
+    while let Some(start) = rest.find("<svg") {
+        let Some(length) = rest[start..].find('>') else {
+            break;
+        };
+        let end = start + length;
+        fixed.push_str(&rest[..start]);
+        let tag = &rest[start..end];
+        if root {
+            fixed.push_str(tag);
+            root = false;
+        } else {
+            fixed.push_str(&tag.replace("overflow:hidden", "overflow:visible"));
+        }
+        rest = &rest[end..];
+    }
+    fixed.push_str(rest);
+    fixed
+}
+
 /// The values of the attribute that `start`, such as ` id="`, begins, in
 /// the order they come.
 fn attribute_values<'a>(svg: &'a str, start: &'a str) -> impl Iterator<Item = &'a str> {
@@ -78,6 +109,7 @@ fn attribute_values<'a>(svg: &'a str, start: &'a str) -> impl Iterator<Item = &'
 mod tests {
     use super::*;
     use crate::images::{DEFAULT_MAX_FILE_SIZE, Fonts, decode};
+    use resvg::usvg;
 
     const FLOWCHART: &str = "flowchart TD\n    A[Start] --> B[Done]\n";
 
@@ -142,6 +174,40 @@ mod tests {
         // The note's fill in this theme.
         let note = pixels_of(&svg, [0xff, 0xf5, 0xad]);
         assert!(note > 1000, "{note} pixels of the note's colour");
+    }
+
+    /// How many groups in `group` and below are clipped.
+    fn clipped(group: &usvg::Group) -> usize {
+        let own = usize::from(group.clip_path().is_some());
+        let below: usize = (group.children().iter())
+            .map(|node| match node {
+                usvg::Node::Group(group) => clipped(group),
+                _ => 0,
+            })
+            .sum();
+        own + below
+    }
+
+    #[test]
+    fn class_diagram_labels_are_not_clipped() {
+        // merman measures text with its own metrics and fits each label in
+        // a box of that size; the font resvg draws with is often wider.
+        let source = "classDiagram\n    class KittyBackend {\n        -Capabilities caps\n\
+            +render(doc, out) Result\n    }\n";
+        let svg = render(source, Theme::Light).unwrap();
+        let tree = usvg::Tree::from_str(&svg, &usvg::Options::default()).unwrap();
+        assert_eq!(clipped(tree.root()), 0);
+    }
+
+    #[test]
+    fn lets_only_nested_svg_elements_overflow() {
+        let svg = "<svg id=\"merman\" style=\"overflow:hidden\"><g style=\"overflow:hidden\">\
+            <svg style=\"overflow:hidden;opacity:1\"><text>overflow:hidden</text></svg></g></svg>";
+        assert_eq!(
+            with_labels_unclipped(svg),
+            "<svg id=\"merman\" style=\"overflow:hidden\"><g style=\"overflow:hidden\">\
+            <svg style=\"overflow:visible;opacity:1\"><text>overflow:hidden</text></svg></g></svg>"
+        );
     }
 
     #[test]
