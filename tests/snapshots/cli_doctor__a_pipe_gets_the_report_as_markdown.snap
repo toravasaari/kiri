@@ -47,6 +47,12 @@ kiri [version]: terminal features and settings.
 
 [image formats]
 
+## Diagrams
+
+| Language | Renderer | Status |
+|---|---|---|
+[built-in mermaid renderer]
+
 ## Sample
 
 ### A third-level heading

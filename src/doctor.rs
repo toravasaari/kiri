@@ -10,6 +10,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use image::ImageFormat;
 
 use crate::config::{Choices, Environment, Origin, Paging, SearchCase, Setting, ThemeSource};
+use crate::diagrams::{BuiltIn, LANGUAGES};
 use crate::render::image::DEFAULT_CELL;
 use crate::term::{CellSize, Detection, Mode};
 use crate::theme::Paper;
@@ -75,6 +76,7 @@ fn write_report(facts: &Facts, out: &mut String) -> std::fmt::Result {
     write_files(facts, &home, out)?;
     writeln!(out, "## Image formats\n")?;
     writeln!(out, "{}\n", image_formats())?;
+    write_diagrams(facts, out)?;
     if facts.output != Output::Raw {
         write_sample(out)?;
     }
@@ -269,6 +271,23 @@ fn write_files(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result
         let status = if path.exists() { "found" } else { "not found" };
         let from = origin_text(crate::config::directory_origin(facts.env), facts.env, home);
         row(out, &["Theme file", &home.path(&path), &from, status])?;
+    }
+    writeln!(out)
+}
+
+/// The renderers for each diagram language, a row for each.
+fn write_diagrams(facts: &Facts, out: &mut String) -> std::fmt::Result {
+    writeln!(out, "## Diagrams\n")?;
+    writeln!(out, "| Language | Renderer | Status |\n|---|---|---|")?;
+    for language in LANGUAGES {
+        let (renderer, status) = match BuiltIn::version(language) {
+            Some(version) if facts.choices.diagrams.value => {
+                (format!("built-in: {version}"), "used")
+            }
+            Some(version) => (format!("built-in: {version}"), "not used: diagrams are off"),
+            None => ("built-in".to_owned(), "not in this build"),
+        };
+        row(out, &[&code(language), &renderer, status])?;
     }
     writeln!(out)
 }

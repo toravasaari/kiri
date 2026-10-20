@@ -7,6 +7,10 @@
 #[cfg(feature = "mermaid")]
 mod mermaid;
 
+/// The languages kiri can draw diagrams in, as the info strings of code
+/// blocks name them.
+pub const LANGUAGES: &[&str] = &["mermaid"];
+
 /// The colours a diagram is drawn in when it does not choose its own.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Theme {
@@ -57,6 +61,17 @@ pub struct BuiltIn;
 impl BuiltIn {
     fn is_mermaid(language: &str) -> bool {
         cfg!(feature = "mermaid") && language.eq_ignore_ascii_case("mermaid")
+    }
+
+    /// What this build has built in to draw `language`, with its version,
+    /// such as `merman 0.9.1, Mermaid 12.1.0`; `None` when it has nothing.
+    pub fn version(language: &str) -> Option<String> {
+        #[cfg(feature = "mermaid")]
+        if Self::is_mermaid(language) {
+            return Some(mermaid::version());
+        }
+        let _ = language;
+        None
     }
 }
 
@@ -149,6 +164,19 @@ mod tests {
             assert_eq!(BuiltIn.draws(language), cfg!(feature = "mermaid"));
         }
         assert!(!BuiltIn.draws("dot"));
+    }
+
+    #[test]
+    fn the_built_in_renderer_tells_its_version() {
+        assert_eq!(
+            BuiltIn::version("mermaid").is_some(),
+            cfg!(feature = "mermaid")
+        );
+        for language in LANGUAGES {
+            let drawn = BuiltIn.draws(language);
+            assert_eq!(BuiltIn::version(language).is_some(), drawn, "{language}");
+        }
+        assert_eq!(BuiltIn::version("dot"), None);
     }
 
     #[test]

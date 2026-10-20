@@ -10,6 +10,18 @@ use merman::{
 
 use super::{Drawn, Theme};
 
+/// merman's version. Cargo tells a crate only its own version, so a test
+/// keeps this one in step with `Cargo.lock`.
+const MERMAN_VERSION: &str = "0.9.1";
+
+/// merman's version and the Mermaid version it follows.
+pub fn version() -> String {
+    format!(
+        "merman {MERMAN_VERSION}, Mermaid {}",
+        merman::baseline::PINNED_MERMAID_BASELINE_VERSION
+    )
+}
+
 /// The diagram `source` as an SVG document, in `theme` unless the diagram
 /// chooses its own, or merman's message saying why it could not be drawn.
 pub fn render(source: &str, theme: Theme) -> Result<Drawn, String> {
@@ -137,6 +149,14 @@ mod tests {
     use resvg::usvg;
 
     const FLOWCHART: &str = "flowchart TD\n    A[Start] --> B[Done]\n";
+
+    #[test]
+    fn the_merman_version_is_the_one_in_cargo_lock() {
+        let lock = include_str!("../../Cargo.lock");
+        let entry = format!("name = \"merman\"\nversion = \"{MERMAN_VERSION}\"\n");
+        assert!(lock.contains(&entry), "{entry}");
+        assert!(version().starts_with("merman "), "{}", version());
+    }
 
     /// The fill of a node in the CSS of `svg`.
     fn node_fill(svg: &str) -> &str {

@@ -42,14 +42,20 @@ fn piped(dir: &Path, args: &[&str]) -> String {
 }
 
 /// The report with the parts that change between builds replaced: kiri's
-/// version, and the image formats, which depend on the build's features.
+/// version, and the image formats and the built-in diagram renderers,
+/// which depend on the build's features.
 fn stable(report: &str) -> String {
     report
         .replace(env!("CARGO_PKG_VERSION"), "[version]")
         .lines()
-        .map(|line| match line.contains("PNG") {
-            true => "[image formats]",
-            false => line,
+        .map(|line| {
+            if line.contains("PNG") {
+                "[image formats]"
+            } else if line.starts_with("| `mermaid` | built-in") {
+                "[built-in mermaid renderer]"
+            } else {
+                line
+            }
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -372,6 +378,34 @@ fn the_report_lists_the_image_formats_this_build_decodes() {
         assert!(line.contains(format), "{format}: {line}");
     }
     assert_eq!(line.contains("BMP"), cfg!(feature = "full"), "{line}");
+}
+
+#[test]
+fn the_report_names_the_built_in_mermaid_renderer() {
+    let dir = Scratch::new("doctor-mermaid");
+    for (args, status) in [
+        (&[][..], "used"),
+        (&["--diagrams", "off"][..], "not used: diagrams are off"),
+    ] {
+        let report = piped(&dir, args);
+        assert!(report.contains("## Diagrams"), "{report}");
+        let row = match kiri::diagrams::BuiltIn::version("mermaid") {
+            Some(version) => format!("| `mermaid` | built-in: {version} | {status} |"),
+            None => "| `mermaid` | built-in | not in this build |".to_owned(),
+        };
+        assert!(report.contains(&row), "{row}\n{report}");
+    }
+    let row = report_row(&piped(&dir, &[]), "| `mermaid` |");
+    assert_eq!(row.contains("merman"), cfg!(feature = "mermaid"), "{row}");
+}
+
+/// The line of `report` that starts with `start`.
+fn report_row(report: &str, start: &str) -> String {
+    report
+        .lines()
+        .find(|line| line.starts_with(start))
+        .unwrap_or_else(|| panic!("{start}\n{report}"))
+        .to_owned()
 }
 
 #[test]
