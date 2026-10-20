@@ -48,6 +48,9 @@ example, come before the rest of phase 3.
   about a fifth smaller.
 - Shell completions and a man page, generated from the command-line
   definition.
+- Third-party notices with the release binaries for the dependencies
+  compiled in, among them merman's ELK layout (EPL-2.0) and the KaTeX
+  font data of its math (OFL-1.1).
 
 ### 3.4 Render check (done)
 
@@ -83,17 +86,42 @@ example, come before the rest of phase 3.
   Typst syntax, rendered to images through Typst's math engine.
 - A cache for rendered images.
 - Groundwork, before formulas and diagrams are worked on side by side:
-  images that come from a block rather than a URL. `Images` maps URLs to
-  images; formulas and diagrams need keys of their own and one cache.
+  images that come from a block rather than a URL. `Images` keys images
+  by a URL or a block, its language and source, and Mermaid diagrams
+  (4.3.1) are the first images from blocks. (done)
 - Groundwork: `render/layout.rs` split by block type (lists, quotes, code)
   before the next block type joins it, formulas or GitHub alert blocks,
   whichever comes first. (done)
 
 ### 4.3 Diagrams
 
-#### 4.3.1 Mermaid
+#### 4.3.1 Mermaid (done)
 
-- Mermaid diagrams through an external renderer when one is installed.
+- Mermaid code blocks drawn as diagrams, as GitHub draws them, with
+  Mermaid's `default` theme on a light page and `dark` on a dark one
+  unless a diagram chooses its own. A diagram in light colours on a dark
+  page lies on a white card.
+- The full build draws them itself through merman: every diagram type,
+  the Cytoscape and ELK layouts, and math. The minimal build uses
+  mermaid-cli's `mmdc`, found on `PATH` or where npm, nvm and Homebrew
+  install it.
+- An external command for a language in the configuration file,
+  `[diagrams.mermaid]`, with `{input}`, `{output}` and `{theme}`. It
+  replaces the built-in renderer, and one that fails does not fall back
+  to it.
+- `--diagrams on|off`, `KIRI_DIAGRAMS` and `diagrams` in the
+  configuration file; `--doctor` shows the switch and each language's
+  renderers.
+- A diagram that does not draw stays code, with a warning naming its
+  line. Drawing that takes longer than half a second shows how far it
+  has got.
+- merman's SVG fixed where resvg would lose part of it: sequence-diagram
+  notes, clipped class-diagram labels and text past a diagram's edge,
+  each pinned with a test.
+- Later: a disk cache for diagrams across runs, mainly for `mmdc`.
+- Later: in the pager, showing the document at once and filling the
+  diagrams in as they are drawn.
+- Later: `kiri file.mmd`, a Mermaid file shown on its own.
 
 #### 4.3.2 Other diagram languages
 
@@ -213,9 +241,9 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   setting with where it came from (default, configuration file,
   environment variable or command-line flag), the configuration file
   paths and the image formats this build decodes.
-- The external tools later parts need (Typst, a Mermaid renderer, ffmpeg,
-  pandoc) join the report with the part that uses each, saying whether it
-  was found.
+- The external tools later parts need (Typst, ffmpeg, pandoc) join the
+  report with the part that uses each, saying whether it was found, as
+  the Mermaid renderers did with 4.3.1.
 - The report is a Markdown document that kiri renders itself, so it also
   shows how headings, tables and images look in this terminal. Piped to a
   file it stays plain Markdown, ready to paste into a bug report.

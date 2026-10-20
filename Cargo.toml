@@ -17,8 +17,10 @@ name = "kiri"
 path = "src/main.rs"
 
 # Optional parts of kiri; `full` turns them all on. Without them, kiri
-# shows PNG, JPEG, GIF, WebP and SVG images; `full` adds the image formats
-# the `image` crate decodes cheaply, and Mermaid diagrams.
+# shows PNG, JPEG, GIF, WebP and SVG images, and draws Mermaid diagrams
+# only with an external program such as mermaid-cli's mmdc. `full` adds
+# the image formats the `image` crate decodes cheaply (BMP, ICO, TIFF,
+# QOI, PNM and TGA), and Mermaid diagrams drawn by kiri itself.
 [features]
 default = ["full"]
 full = [

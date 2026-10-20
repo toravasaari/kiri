@@ -68,6 +68,47 @@ window changes size. The terminal itself, the alternate screen, raw mode
 and reading keys from the controlling terminal, is opened in
 `src/term/screen.rs`.
 
+## Diagrams
+
+A diagram stays a code block in the document model, `Block::CodeBlock`
+with its language, so the parser knows nothing about renderers and a
+diagram that cannot be drawn is shown as the code it already is. Whether
+it is drawn is decided when images are loaded. `src/images/mod.rs` keys
+each image by an `ImageKey`, a URL or a block (its language and source),
+and collects the code blocks whose language a renderer draws besides the
+lone images. It hands all of a document's diagrams to the renderer at
+once, then decodes each SVG it gets back as it decodes an SVG file, so
+sizing, the width limit and redrawing after a window resize work as for
+any image. There it also grows a diagram whose text runs past its edges,
+and lays one drawn in light colours on a white card on a dark page.
+
+Renderers live in `src/diagrams/`, outside `src/kitty/` and the parser.
+A renderer implements the `Renderer` trait: whether it draws a language,
+and a diagram's source and a `Theme`, for a light or a dark page, turned
+into SVG text and the page its colours are for. It knows nothing about
+terminals, so an HTML backend could use the same SVG.
+
+- **Built-in:** `BuiltIn` draws Mermaid through merman, in a build with
+  the `mermaid` feature. `src/diagrams/mermaid.rs` fixes merman's SVG
+  where resvg would lose part of it, and tests the fixes through merman
+  itself. A fault that kiri works around elsewhere, such as text past a
+  diagram's edge, has a test that fails once merman no longer has it.
+- **External:** `External`, in `src/diagrams/external.rs`, runs the
+  command the configuration file gives for a language, without a shell
+  and with a time limit, several at once, with its files in a directory
+  of its own. `src/diagrams/find.rs` finds a default command, `mmdc` for
+  Mermaid, when nothing is configured and the build has no renderer of
+  its own for the language; `--doctor` reports the same choice.
+- **Together:** `Renderers` draws each language with its external
+  command when it has one and with the built-in renderer otherwise. An
+  external command that fails does not fall back to the built-in one.
+
+`src/main.rs` builds the renderers from the settings and the
+environment, and `src/term/progress.rs` tells on the terminal how far
+drawing has got when it takes long. A new diagram language joins
+`LANGUAGES` in `src/diagrams/mod.rs`, with a default command in
+`src/diagrams/find.rs` or a built-in renderer.
+
 ## Terminal capabilities
 
 `src/term/` is the only place that talks to the terminal to find out what
@@ -101,7 +142,7 @@ writes as it is into a pipe.
 | Feature | Escape sequence | Written by | Used for |
 |---|---|---|---|
 | Text sizing | OSC 66 (kitty 0.40+) | `src/kitty/text.rs` | Headings in a larger font |
-| Graphics | APC `_G` | `src/kitty/graphics.rs` | Images, later formulas and diagrams |
+| Graphics | APC `_G` | `src/kitty/graphics.rs` | Images and diagrams, later formulas |
 | Unicode placeholders | U+10EEEE with graphics | `src/kitty/graphics.rs` | Images that scroll with text, work in pagers and tmux |
 | Protocol queries | OSC 66 tests, APC `_G` query | `src/kitty/query.rs` | Telling whether kitty's protocols work |
 | Hyperlinks | OSC 8 | `src/render/output.rs` | Clickable links |
@@ -144,6 +185,8 @@ src/term/window.rs         the window size in cells and pixels
 src/term/probe.rs          the queries to the terminal, the only ones
 src/term/answers.rs        reading the terminal's answers
 src/term/screen.rs         the pager's screen, raw mode and keys
+src/term/progress.rs       the line that tells how far drawing diagrams has
+                           got
 src/term/testing.rs        pseudo-terminals for the tests
 src/config.rs              settings: options, environment, configuration file
 src/doctor.rs              the --doctor report as Markdown
@@ -158,6 +201,9 @@ src/images/svg.rs          SVG images and the fonts for their text
 src/diagrams/mod.rs        diagrams written in code blocks, drawn as SVG
                            for the image loader
 src/diagrams/mermaid.rs    Mermaid through merman (feature `mermaid`)
+src/diagrams/external.rs   diagrams drawn by a command outside kiri
+src/diagrams/find.rs       finding a command, such as mmdc, when none is
+                           configured
 src/color.rs               colours and underline styles for theme and render
 src/render/mod.rs          document model -> terminal output
 src/render/layout/mod.rs   document model -> styled lines of a fixed width
@@ -199,12 +245,35 @@ debug builds, where it decodes and scales a large photo in tenths of a
 second at most instead of seconds, while kiri's own code stays easy to
 debug.
 
+## Builds
+
+The default build, `full`, has every Cargo feature; a build without
+default features (`--no-default-features`) is the minimal one. `full`
+adds the image formats the `image` crate decodes cheaply (BMP, ICO,
+TIFF, QOI, PNM and TGA) and the `mermaid` feature, which draws Mermaid
+diagrams with merman inside kiri. The minimal build shows PNG, JPEG,
+GIF, WebP and SVG, and draws Mermaid only through an external command:
+one the configuration file gives, or `mmdc` when kiri finds it. Both
+builds take the same options and settings.
+
 ## Choices
 
 - **Rust:** one fast binary with no runtime, and mature crates for each part:
   comrak (Markdown), syntect (syntax highlighting), image and resvg (raster
   and SVG images), csv (CSV and TSV files), rustix (terminal modes and pager
-  input). Formulas are planned with typst.
+  input), merman (Mermaid diagrams). Formulas are planned with typst.
+- **merman for Mermaid:** a Rust implementation of Mermaid that checks
+  its parsing, layout and SVG against Mermaid's own, so diagrams look as
+  GitHub draws them. It draws a diagram in milliseconds, needs no fonts,
+  files or network, and its SVG goes through the resvg kiri already has.
+  It adds about 24 MB to a stripped binary. Its ELK layout is EPL-2.0 and
+  its math may bundle OFL-1.1 font data, both accepted; their notices
+  must go with distributed binaries. mermaid-cli (`mmdc`), Mermaid itself
+  in a headless Chrome, takes about a second a diagram and about 1.1 GB
+  with Node and Chrome, so it is the minimal build's renderer and a
+  configured choice rather than the default. mermaid-rs-renderer was
+  left out: its layout has visible errors, and it keeps process-wide
+  mutable state and writes a font copy to the user's cache directory.
 - **Text first:** the alternatives were rendering the whole document as an
   image, through a headless browser or a custom layout engine. Both look
   closer to a browser but lose text selection, search and the terminal font,

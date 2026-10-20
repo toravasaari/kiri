@@ -6,9 +6,9 @@ images, formulas and diagrams drawn inline, and links you can click. It works
 like `kitten icat`, but for documents. CSV and TSV files are shown as
 tables, and other document formats may follow.
 
-> **Status:** early development. Print mode, images and the interactive
-> pager work; formulas and diagrams are still to come. See the
-> [roadmap](docs/roadmap.md).
+> **Status:** early development. Print mode, images, Mermaid diagrams
+> and the interactive pager work; formulas and other diagram languages
+> are still to come. See the [roadmap](docs/roadmap.md).
 
 ## Why
 
@@ -69,6 +69,25 @@ tags work too, with `width` and `height` in pixels or a percentage width,
 also when a link, `<p>`, `<div>` or `<picture>` wraps them. Only such a
 size enlarges an image.
 
+A code block in Mermaid is drawn as a diagram, as GitHub draws it:
+
+````markdown
+```mermaid
+flowchart LR
+    Draft --> Review --> Merge
+```
+````
+
+kiri's default build draws Mermaid itself, every diagram type, through
+[merman](https://crates.io/crates/merman); a build without default
+features uses mermaid-cli's `mmdc` when it finds one. On a dark page a
+diagram takes Mermaid's dark theme, unless it chooses a theme of its own.
+Diagrams are drawn where images are, so they stay code with
+`--no-images`, in terminals without kitty's graphics and with
+`--diagrams off`; a diagram that does not draw stays code with a warning.
+The [configuration file](docs/config.md#diagrams) can name another
+program to draw them.
+
 HTML `<details>` blocks are shown open, their `<summary>` in bold after a
 `▼`, also nested and inside lists and quotes. `<kbd>` is drawn as inline
 code, `<br>` breaks the line, and `<mark>` takes the theme's `mark`
@@ -122,19 +141,23 @@ alt text with a warning.
 | `-p`, `-P` | The pager always (`--paging always`) or never (`--paging never`) |
 | `--front-matter table\|code\|hide\|off` | Front matter render style; `table` unless set |
 | `--table-rows zebra\|lines\|indent\|underline\|off` | Table row style; `zebra` unless set |
+| `--diagrams on\|off` | Diagrams in code blocks, such as Mermaid, drawn or shown as code; `on` unless set |
 | `--doctor` | Show what kiri finds out about the terminal and which settings it uses |
 | `--raw` | With `--doctor`: the report as Markdown text, for a bug report |
 | `--list-emojis` | List the emoji shortcodes, such as `:smile:`: a table in a terminal, one line per emoji with tabs between the fields in a pipe or a file |
 
 A [configuration file](docs/config.md), `~/.config/kiri/config.toml`, can
-choose the theme, turn images off and say when to page, and so can the
-environment variables `KIRI_THEME`, `KIRI_NO_IMAGES` and `KIRI_PAGING`.
+choose the theme, turn images or diagrams off, say when to page and name
+a program that draws diagrams, and the environment variables `KIRI_THEME`,
+`KIRI_NO_IMAGES`, `KIRI_DIAGRAMS` and `KIRI_PAGING` can do all but the
+last.
 
 When the output looks wrong, `kiri --doctor` shows what kiri found out
-about the terminal, which settings it uses and where each came from, with
-a sample of headings, a table and an image drawn below. `kiri --doctor
---raw` gives the report as Markdown without the sample, to paste into a
-bug report; piped to a file, the report is Markdown with the sample.
+about the terminal, which settings it uses and where each came from, and
+what draws diagrams, with a sample of headings, a table and an image drawn
+below. `kiri --doctor --raw` gives the report as Markdown without the
+sample, to paste into a bug report; piped to a file, the report is
+Markdown with the sample.
 
 A document longer than the window opens in a pager on a screen of its
 own, as `bat` does, so the shell's scrollback stays as it was; a shorter

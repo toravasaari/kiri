@@ -33,6 +33,18 @@ front_matter = "table"
 
 # Table row style: "zebra", "lines", "indent", "underline" or "off".
 table_rows = "zebra"
+
+# false shows diagrams in code blocks, such as Mermaid, as code. A file
+# that gives a diagram command below leaves this key out.
+diagrams = true
+```
+
+A program that draws Mermaid diagrams instead of kiri; see
+[Diagram commands](#diagram-commands):
+
+```toml
+[diagrams.mermaid]
+command = ["mmdc", "-i", "{input}", "-o", "{output}", "-t", "{theme}", "-b", "transparent"]
 ```
 
 ## Theme
@@ -135,6 +147,94 @@ table too narrow for its columns is stacked as `Header: value` lines and
 keeps that layout whatever this says. In plain output only `lines` and
 `indent` mark the rows.
 
+## Diagrams
+
+A code block whose language kiri draws, `mermaid` for now, is shown as a
+diagram. The first of these that is given decides whether it is:
+
+1. `--diagrams on|off`
+2. `KIRI_DIAGRAMS`: `on` or `1`, `off` or `0`; an empty value counts as
+   unset, and any other value is left out with a warning
+3. `diagrams = true` or `false` in the configuration file
+4. on
+
+Off shows diagrams as code. They are drawn as images, so with
+[images](#images) off or in a terminal without kitty's graphics they
+stay code whatever this says.
+
+What draws a Mermaid diagram:
+
+- In the default, full build, kiri itself, through
+  [merman](https://crates.io/crates/merman): every diagram type, with no
+  program to install and no network.
+- In a build without default features, mermaid-cli's `mmdc`, when kiri
+  finds it: on `PATH`, then in npm's global `bin` directory
+  (`NPM_CONFIG_PREFIX`, or `prefix` in `~/.npmrc`), in the `bin`
+  directories of nvm's Node versions, the newest first (`NVM_DIR`, or
+  `~/.nvm`), and in Homebrew's `/opt/homebrew/bin` and
+  `/home/linuxbrew/.linuxbrew/bin`. A program found off `PATH` runs with
+  its own directory first on `PATH`, so that it finds the `node` beside
+  it. kiri runs it with the command line shown under
+  [Diagram commands](#diagram-commands). Without one, diagrams stay
+  code.
+- In either build, the command the configuration file gives. kiri then
+  neither draws the language itself nor looks for `mmdc`.
+
+A diagram that sets its own theme, in a `%%{init: {"theme": …}}%%`
+directive or under `config:` in its front matter, keeps it. Otherwise it
+takes Mermaid's `default` theme on a light page and `dark` on a dark one.
+The page is light with `--light`, dark with `--dark`, and otherwise as
+the terminal's background is; an unknown background counts as dark. A
+diagram in light colours on a dark page is drawn on a white card.
+
+A diagram that does not draw, such as one with a syntax error, stays
+code with a warning that names it by its line, as in
+`kiri: mermaid diagram on line 12: …`, or by its first line for a
+document piped in.
+
+`kiri --doctor` lists, for each language, the renderer built into this
+build and the external command, configured, found or not found, and
+which of them is used.
+
+### Diagram commands
+
+A table under `diagrams` for a language gives the program that draws its
+diagrams and the program's arguments:
+
+```toml
+[diagrams.mermaid]
+command = ["mmdc", "-i", "{input}", "-o", "{output}", "-t", "{theme}", "-b", "transparent"]
+```
+
+This is mermaid-cli's command line, the same one kiri runs when it finds
+`mmdc` by itself. kiri writes the diagram's source to a file in a
+directory of its own under the temporary directory (`TMPDIR`, or
+`/tmp`), runs the program directly, without a shell, and reads the SVG
+it writes. In the arguments:
+
+- `{input}` is the file of the diagram's source, which ends in `.mmd`
+  for Mermaid;
+- `{output}` is the SVG file the program writes;
+- `{theme}` is the theme kiri chose: `default` or `dark` for Mermaid.
+
+`{input}` and `{output}` must be there. No shell expands the arguments,
+so a leading `~/` is not your home directory: write the path in full. A
+program named without a path is looked for on `PATH`. For Mermaid, kiri puts a directive after
+any front matter of the source it writes, so that labels are drawn as
+SVG text rather than as HTML, which kiri cannot draw.
+
+Each diagram may take 10 seconds, and up to four are drawn at once. When
+drawing takes longer than half a second, a line such as
+`kiri: rendering diagrams 2/5…` on the terminal tells how far it has
+got, and is wiped before the document is shown. A program that fails,
+runs out of time or writes no SVG leaves its diagram as code with a
+warning; kiri does not fall back to drawing it itself, so that a
+command that does not work shows.
+
+TOML cannot give one key both a value and tables, so a file cannot have
+both `diagrams = false` and a `[diagrams.mermaid]` table. With a command
+configured, `--diagrams off` or `KIRI_DIAGRAMS=0` turns diagrams off.
+
 ## Environment variables
 
 | Variable | Meaning |
@@ -145,5 +245,6 @@ keeps that layout whatever this says. In plain output only `lines` and
 | `KIRI_PAGING` | When to page; see [Paging](#paging) |
 | `KIRI_FRONT_MATTER` | Front matter render style; see [Front matter](#front-matter) |
 | `KIRI_TABLE_ROWS` | Table row style; see [Table rows](#table-rows) |
+| `KIRI_DIAGRAMS` | Diagrams drawn or shown as code; see [Diagrams](#diagrams) |
 | `NO_COLOR` | No colours, when set and not empty; see [no-color.org](https://no-color.org) |
 | `XDG_CONFIG_HOME` | Where the configuration directory is; `~/.config` when unset |
