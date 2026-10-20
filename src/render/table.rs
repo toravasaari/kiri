@@ -39,6 +39,16 @@ impl From<Vec<Span>> for Cell {
 }
 
 impl Cell {
+    /// Whether its last part is a table, whose bottom border, when it is
+    /// drawn as a box, ends the cell.
+    fn ends_in_table(&self) -> bool {
+        match self {
+            Self::Table(_) => true,
+            Self::Stack(parts) => parts.last().is_some_and(Cell::ends_in_table),
+            Self::Text(_) | Self::Code { .. } => false,
+        }
+    }
+
     /// Cells it takes without wrapping.
     fn natural(&self) -> usize {
         match self {
@@ -219,7 +229,9 @@ pub fn layout(cells: &Cells, max: usize, styles: &Styles) -> Vec<Line> {
                 ));
                 continue;
             }
-            Rows::Underline { color } if index + 1 < cells.rows.len() => {
+            Rows::Underline { color }
+                if index + 1 < cells.rows.len() && !ends_in_box(row, &widths, styles) =>
+            {
                 let mut row = row_lines(row, &widths, &cells.alignments, styles, base);
                 if let Some(last) = row.last_mut() {
                     underline(last, color);
@@ -493,6 +505,22 @@ fn painted(mut line: Line, background: Option<Color>) -> Line {
         }
     }
     line
+}
+
+/// Whether the last line of `row` is the bottom border of a table drawn
+/// as a box in it, which already closes the row, so an underline there
+/// would double it.
+fn ends_in_box(row: &[Cell], widths: &[usize], styles: &Styles) -> bool {
+    let ends: Vec<(usize, bool)> = (row.iter().zip(widths))
+        .map(|(cell, &width)| {
+            let lines = cell.lines(width, styles);
+            let boxed = cell.ends_in_table()
+                && (lines.last()).is_some_and(|line| style::text(line).starts_with('╰'));
+            (lines.len(), boxed)
+        })
+        .collect();
+    let height = ends.iter().map(|&(height, _)| height).max().unwrap_or(0);
+    ends.iter().any(|&(lines, boxed)| boxed && lines == height)
 }
 
 /// Underlines `line` between the table's borders, dashed, all of it in
@@ -1303,5 +1331,34 @@ mod tests {
         for index in [1, 3] {
             assert!(underlined(&lines[index]).iter().all(|on| !on), "{index}");
         }
+    }
+
+    #[test]
+    fn a_row_that_ends_in_a_table_is_not_underlined_under_its_border() {
+        let inner = keyed(vec![("x", cell("1").into()), ("y", cell("2").into())]);
+        let cells = keyed(vec![("a", Cell::Table(inner)), ("b", cell("text").into())]);
+        let rows = Rows::Underline { color: Some(PAGE) };
+        let lines = layout(&cells, 80, &with_rows(rows));
+        assert_eq!(
+            text(&lines),
+            vec![
+                "╭───┬───────────╮",
+                "│ a │ ╭───┬───╮ │",
+                "│   │ │ x │ 1 │ │",
+                "│   │ │ y │ 2 │ │",
+                "│   │ ╰───┴───╯ │",
+                "│ b │ text      │",
+                "╰───┴───────────╯",
+            ]
+        );
+        // The inner table's bottom border already ends row a.
+        let outer = |line: &Line| {
+            (line.spans.iter())
+                .filter(|span| span.style.underline_color.is_some())
+                .count()
+        };
+        assert_eq!(outer(&lines[4]), 0, "{:?}", lines[4]);
+        // The inner table still underlines its own row x.
+        assert!(outer(&lines[2]) > 0, "{:?}", lines[2]);
     }
 }
