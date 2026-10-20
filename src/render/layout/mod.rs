@@ -1,16 +1,17 @@
 //! Document model to styled lines of a fixed width.
 
 mod code;
+mod front_matter;
 mod list;
 mod quote;
 
 use std::rc::Rc;
 
-use super::Inputs;
 use super::image::{self, Placement};
 use super::style::{Line, Spaces, Span, Style, push};
 use super::table::{self, Cells};
 use super::wrap::wrap;
+use super::{FrontMatterStyle, Inputs};
 use crate::caps::Capabilities;
 use crate::color::Underline;
 use crate::images::Images;
@@ -22,6 +23,7 @@ pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
         images,
         caps,
         theme,
+        front_matter,
     } = inputs;
     // Without colours, the layout leaves out what only shows a colour, such
     // as heading fills and the padding around inline code.
@@ -41,6 +43,7 @@ pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
         images,
         caps,
         theme,
+        front_matter: *front_matter,
     };
 
     // Everything but headings and thematic breaks keeps text_margin free
@@ -91,6 +94,7 @@ struct Layout<'a> {
     images: &'a Images,
     caps: &'a Capabilities,
     theme: &'a Theme,
+    front_matter: FrontMatterStyle,
 }
 
 impl Layout<'_> {
@@ -132,9 +136,7 @@ impl Layout<'_> {
 
     fn block(&self, block: &Block, width: usize, context: Context) -> Vec<Line> {
         match block {
-            Block::FrontMatter(front_matter) => {
-                self.code_block(Some(&front_matter.language), &front_matter.source, width)
-            }
+            Block::FrontMatter(front_matter) => self.front_matter(front_matter, width),
             Block::Heading { level, content } => self.heading(*level, content, width, context),
             Block::Paragraph(content) => self.paragraph(content, &Style::default(), width),
             Block::CodeBlock { language, code } => {

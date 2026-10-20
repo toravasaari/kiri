@@ -13,7 +13,7 @@ use std::rc::Rc;
 
 use crate::caps::Capabilities;
 use crate::images::{Images, Source};
-use crate::model::Document;
+use crate::model::{Block, Document, FrontMatter};
 use crate::render::style::Line;
 use crate::theme::Theme;
 
@@ -28,6 +28,34 @@ pub struct Inputs {
     pub caps: Capabilities,
     /// Colours, sizes and margins.
     pub theme: Theme,
+    /// How front matter shows.
+    pub front_matter: FrontMatterStyle,
+}
+
+/// How front matter shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FrontMatterStyle {
+    /// As GitHub shows it: a table of keys and values, with tables in it
+    /// for nested values.
+    #[default]
+    Table,
+    /// As GitLab shows it: a code block in its language.
+    Code,
+    /// Not at all.
+    Hide,
+}
+
+/// The warning for `document`'s front matter shown as `style`: the
+/// parser's message when its YAML, TOML or JSON does not parse and it is
+/// to be a table.
+pub fn front_matter_warning(document: &Document, style: FrontMatterStyle) -> Option<String> {
+    match document.blocks.first() {
+        Some(Block::FrontMatter(FrontMatter {
+            value: Some(Err(error)),
+            ..
+        })) if style == FrontMatterStyle::Table => Some(format!("front matter: {error}")),
+        _ => None,
+    }
 }
 
 impl Inputs {
@@ -37,6 +65,7 @@ impl Inputs {
             images: Images::new(),
             caps,
             theme: Theme::default(),
+            front_matter: FrontMatterStyle::default(),
         }
     }
 }

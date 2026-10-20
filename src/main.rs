@@ -261,6 +261,10 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), String> {
             .map_err(|error| format!("{}: {error}", path.display()))?,
         _ => kiri::parse::parse(&source),
     };
+    let front_matter = kiri::render::FrontMatterStyle::default();
+    if let Some(warning) = kiri::render::front_matter_warning(&document, front_matter) {
+        eprintln!("kiri: {warning}");
+    }
     // Images in a piped document are relative to the current directory.
     let base = file.and_then(Path::parent).unwrap_or(Path::new(""));
     show_document(

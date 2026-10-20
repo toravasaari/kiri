@@ -1,0 +1,38 @@
+---
+name: release-notes
+description: Drafts release notes from the pull requests merged since the last tag, grouped by area, and asks before it publishes anything. Use it when a release is near.
+version: 1.10
+draft: false
+reviewer: ~
+tags: [docs, release, changelog]
+author:
+  name: Aino Virtanen
+  email: aino@example.com
+  links:
+    site: https://example.com/aino
+    feed: https://example.com/aino/feed.xml
+features:
+  - icon: ⚡
+    title: Fast
+    details: Reads the history once and keeps what it learned.
+  - icon: 🧩
+    title: Modular
+    details: Each section of the notes comes from a template of its own.
+    link: /guide/templates
+  - More to come
+build:
+  targets:
+    linux:
+      flags:
+        opt: 3
+        lto: true
+      env: [CI=1, LANG=C]
+notes: |
+  The first line of a literal block.
+  The second line keeps its own break.
+---
+
+# Release notes
+
+The front matter above describes this page. kiri shows it before the first
+block of the document, as GitHub does, or as a code block, as GitLab does.
