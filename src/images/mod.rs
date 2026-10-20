@@ -10,7 +10,7 @@
 mod svg;
 mod url;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -19,7 +19,7 @@ use image::error::{ImageFormatHint, UnsupportedErrorKind};
 use image::{ImageFormat, RgbaImage};
 use kiri_image_utils::DecodeError;
 
-use crate::diagrams::{Diagrams, Theme};
+use crate::diagrams::{Diagrams, Drawn, Theme};
 use crate::model::{Block, Document, Inline};
 
 pub use svg::{Fonts, Svg};
@@ -314,19 +314,42 @@ pub fn load_with(
 ) -> Images {
     let mut wanted = Vec::new();
     collect_blocks(&document.blocks, diagrams, &mut wanted);
+    let mut keys = HashSet::new();
+    wanted.retain(|image| keys.insert(image.key()));
+    // The diagrams first, all together, so a renderer can draw several
+    // at once.
+    let sources: Vec<(&str, &str)> = (wanted.iter())
+        .filter_map(|image| match *image {
+            Wanted::Diagram {
+                language, source, ..
+            } => Some((language, source)),
+            Wanted::Url(_) => None,
+        })
+        .collect();
+    let mut drawn = (diagrams.renderer)
+        .render_all(&sources, diagrams.theme, &|| {})
+        .into_iter();
     let mut images = Images::new();
     for image in wanted {
         let key = image.key();
-        if images.get(&key).is_some() {
-            continue;
-        }
         let loaded = match image {
             Wanted::Url(url) => load_url(url, base, max_file_size, fonts),
             Wanted::Diagram {
                 language,
                 source,
                 line,
-            } => draw_diagram(language, source, line, max_file_size, fonts, diagrams),
+            } => {
+                let drawn = drawn.next().expect("a drawing for each diagram");
+                finish_diagram(
+                    language,
+                    source,
+                    line,
+                    drawn,
+                    max_file_size,
+                    fonts,
+                    diagrams,
+                )
+            }
         };
         images.insert(key, loaded);
     }
@@ -395,12 +418,13 @@ fn collect_blocks<'a>(blocks: &'a [Block], diagrams: &Diagrams<'_>, wanted: &mut
     }
 }
 
-/// The diagram `source` in `language`, which starts on `line`, drawn by
-/// `diagrams` and decoded as an SVG.
-fn draw_diagram(
+/// The diagram `source` in `language`, which starts on `line`, as
+/// `diagrams` drew it, decoded as an SVG.
+fn finish_diagram(
     language: &str,
     source: &str,
     line: usize,
+    drawn: Result<Drawn, String>,
     max_size: u64,
     fonts: &Fonts,
     diagrams: &Diagrams<'_>,
@@ -409,9 +433,7 @@ fn draw_diagram(
         name: crate::diagrams::name(language, source, line, diagrams.by_line),
         reason,
     };
-    let drawn = (diagrams.renderer)
-        .render(language, source, diagrams.theme)
-        .map_err(failed)?;
+    let drawn = drawn.map_err(failed)?;
     let image =
         decode_diagram(&drawn.svg, max_size, fonts).map_err(|error| failed(error.to_string()))?;
     // A diagram that chose a light theme of its own would be dark lines

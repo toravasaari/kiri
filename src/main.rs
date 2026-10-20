@@ -8,7 +8,7 @@ use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, ValueEnum};
 use kiri::caps::Capabilities;
 use kiri::config::{Environment, Options, Origin, Setting, Settings};
-use kiri::diagrams::{BuiltIn, Diagrams, NoRenderer};
+use kiri::diagrams::{Diagrams, NoRenderer, Renderers};
 use kiri::doctor::{Facts, Output};
 use kiri::images::{Fonts, Format, Images};
 use kiri::input::Input;
@@ -387,9 +387,11 @@ fn show_document(
     // show them; otherwise they are alt text, without warnings.
     let images = if settings.images && caps.draws_images() {
         let max_file_size = cli.max_image_size * kiri::images::MB;
+        let renderers;
         let diagrams = Diagrams {
             renderer: if settings.diagrams {
-                &BuiltIn
+                renderers = Renderers::new(&settings.diagram_commands);
+                &renderers
             } else {
                 &NoRenderer
             },

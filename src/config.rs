@@ -5,11 +5,14 @@
 //! Everything here takes the environment as a value, so the rules can be
 //! tested without touching the process environment.
 
+use std::collections::BTreeMap;
 use std::ffi::OsString;
+use std::fmt;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
+use serde::de::{self, Deserializer, MapAccess};
 
 use crate::render::{FrontMatterStyle, TableRows};
 use crate::theme::{Paper, Theme};
@@ -111,6 +114,10 @@ pub struct Config {
     pub table_rows: Option<TableRows>,
     /// Whether diagrams in code blocks are drawn, or shown as code.
     pub diagrams: Option<bool>,
+    /// The external command for each diagram language that has one, from
+    /// `[diagrams.<language>]`: the program and its arguments, with
+    /// `{input}`, `{output}` and `{theme}` in them.
+    pub diagram_commands: BTreeMap<String, Vec<String>>,
 }
 
 /// When the document is shown in the pager rather than printed.
@@ -243,7 +250,8 @@ pub fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String
         search_case: file.search_case,
         front_matter: file.front_matter,
         table_rows: file.table_rows,
-        diagrams: file.diagrams,
+        diagrams: file.diagrams.switch,
+        diagram_commands: file.diagrams.commands,
     })
 }
 
@@ -256,7 +264,82 @@ struct ConfigToml {
     search_case: Option<SearchCase>,
     front_matter: Option<FrontMatter>,
     table_rows: Option<TableRows>,
-    diagrams: Option<bool>,
+    #[serde(default)]
+    diagrams: DiagramsToml,
+}
+
+/// The `diagrams` key: `true` or `false`, or a table of the external
+/// commands for diagram languages, such as `[diagrams.mermaid]`. TOML
+/// cannot have both under one key.
+#[derive(Debug, Default)]
+struct DiagramsToml {
+    switch: Option<bool>,
+    commands: BTreeMap<String, Vec<String>>,
+}
+
+/// One language's table under `diagrams`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DiagramToml {
+    command: Vec<String>,
+}
+
+impl<'de> Deserialize<'de> for DiagramsToml {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+
+        impl<'de> de::Visitor<'de> for Visitor {
+            type Value = DiagramsToml;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("true or false, or tables such as [diagrams.mermaid]")
+            }
+
+            fn visit_bool<E: de::Error>(self, on: bool) -> Result<DiagramsToml, E> {
+                Ok(DiagramsToml {
+                    switch: Some(on),
+                    ..DiagramsToml::default()
+                })
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<DiagramsToml, A::Error> {
+                let languages = crate::diagrams::LANGUAGES;
+                let mut commands = BTreeMap::new();
+                while let Some(language) = map.next_key::<String>()? {
+                    if !languages.contains(&language.as_str()) {
+                        return Err(de::Error::unknown_field(&language, languages));
+                    }
+                    let table: DiagramToml = map.next_value()?;
+                    check_command(&table.command).map_err(de::Error::custom)?;
+                    commands.insert(language, table.command);
+                }
+                Ok(DiagramsToml {
+                    switch: None,
+                    commands,
+                })
+            }
+        }
+
+        deserializer.deserialize_any(Visitor)
+    }
+}
+
+/// Why `command`, a diagram language's external command, cannot work.
+fn check_command(command: &[String]) -> Result<(), String> {
+    match command.first() {
+        None => Err("command: give the program and its arguments".to_owned()),
+        Some(program) if program.is_empty() => Err("command: the program is empty".to_owned()),
+        Some(_) => {
+            let has = |name: &str| command.iter().any(|arg| arg.contains(name));
+            match ["{input}", "{output}"].into_iter().find(|name| !has(name)) {
+                Some(missing) => Err(format!(
+                    "command: give {missing} where the program takes its {} file",
+                    &missing[1..missing.len() - 1]
+                )),
+                None => Ok(()),
+            }
+        }
+    }
 }
 
 /// Where a setting comes from.
@@ -593,6 +676,8 @@ pub struct Settings {
     pub table_rows: TableRows,
     /// Whether diagrams in code blocks are drawn, or shown as code.
     pub diagrams: bool,
+    /// The external command for each diagram language that has one.
+    pub diagram_commands: BTreeMap<String, Vec<String>>,
 }
 
 /// What the options, the environment and the configuration file choose,
@@ -616,6 +701,9 @@ pub struct Choices {
     pub table_rows: Setting<TableRows>,
     /// Whether diagrams in code blocks are drawn, or shown as code.
     pub diagrams: Setting<bool>,
+    /// The external command for each diagram language that has one, all
+    /// from the configuration file.
+    pub diagram_commands: BTreeMap<String, Vec<String>>,
     /// What the user should know about settings that were left out.
     pub warnings: Vec<String>,
 }
@@ -637,6 +725,7 @@ impl Choices {
             front_matter: self.front_matter.value,
             table_rows: self.table_rows.value,
             diagrams: self.diagrams.value,
+            diagram_commands: self.diagram_commands.clone(),
         }
     }
 }
@@ -663,6 +752,7 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
         front_matter,
         table_rows,
         diagrams,
+        diagram_commands: config.diagram_commands.clone(),
         warnings: [
             paging_warning,
             front_matter_warning,
@@ -1261,6 +1351,74 @@ mod tests {
         assert_eq!(parsed("diagrams = false\n").unwrap().diagrams, Some(false));
         assert_eq!(parsed("diagrams = true\n").unwrap().diagrams, Some(true));
         assert!(parsed("diagrams = \"off\"\n").is_err());
+    }
+
+    #[test]
+    fn a_diagram_language_table_gives_its_external_command() {
+        let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
+        let config = parsed(
+            "[diagrams.mermaid]\n\
+             command = [\"mmdc\", \"-i\", \"{input}\", \"-o\", \"{output}\", \"-t\", \"{theme}\"]\n",
+        )
+        .unwrap();
+        let command = ["mmdc", "-i", "{input}", "-o", "{output}", "-t", "{theme}"];
+        assert_eq!(
+            config.diagram_commands,
+            BTreeMap::from([("mermaid".to_owned(), command.map(String::from).to_vec())])
+        );
+        // Without a switch of its own.
+        assert_eq!(config.diagrams, None);
+        let choices = choose(&Options::default(), &Environment::default(), &config);
+        assert_eq!(choices.diagram_commands, config.diagram_commands);
+        let settings = choices.with_theme(Theme::default());
+        assert_eq!(settings.diagram_commands, config.diagram_commands);
+        assert!(
+            parsed("diagrams = true\n")
+                .unwrap()
+                .diagram_commands
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_diagram_command_must_be_able_to_work() {
+        let error = |text: &str| {
+            parse(text, Path::new("/c"), &Environment::default())
+                .map(|config| format!("{config:?}"))
+                .unwrap_err()
+        };
+        let cases = [
+            (
+                "[diagrams.dot]\ncommand = [\"dot\", \"{input}\", \"{output}\"]\n",
+                "unknown field `dot`, expected `mermaid`",
+            ),
+            (
+                "[diagrams.mermaid]\ncommand = []\n",
+                "command: give the program and its arguments",
+            ),
+            (
+                "[diagrams.mermaid]\ncommand = [\"\", \"{input}\", \"{output}\"]\n",
+                "command: the program is empty",
+            ),
+            (
+                "[diagrams.mermaid]\ncommand = [\"mmdc\", \"-o\", \"{output}\"]\n",
+                "command: give {input} where the program takes its input file",
+            ),
+            (
+                "[diagrams.mermaid]\ncommand = [\"mmdc\", \"-i\", \"{input}\"]\n",
+                "command: give {output} where the program takes its output file",
+            ),
+            ("[diagrams.mermaid]\ncommand = \"mmdc\"\n", "invalid type"),
+            ("[diagrams.mermaid]\nargs = []\n", "unknown field `args`"),
+            (
+                "diagrams = 1\n",
+                "true or false, or tables such as [diagrams.mermaid]",
+            ),
+        ];
+        for (text, expected) in cases {
+            let error = error(text);
+            assert!(error.contains(expected), "{text}: {error}");
+        }
     }
 
     fn with_diagrams(on: bool) -> Config {

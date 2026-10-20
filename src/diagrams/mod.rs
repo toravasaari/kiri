@@ -4,8 +4,15 @@
 //! knows nothing about terminals: the image loader decodes the SVG as it
 //! does an SVG file, and another backend could use the same SVG.
 
+use std::collections::BTreeMap;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+pub mod external;
 #[cfg(feature = "mermaid")]
 mod mermaid;
+
+pub use external::{Command, External};
 
 /// The languages kiri can draw diagrams in, as the info strings of code
 /// blocks name them.
@@ -51,6 +58,97 @@ pub trait Renderer {
     /// `theme` unless it chooses its own colours, or why it could not be
     /// drawn.
     fn render(&self, language: &str, source: &str, theme: Theme) -> Result<Drawn, String>;
+
+    /// Each of `diagrams`, a language and a source, drawn as `render`
+    /// draws it, in order; `done` is called as each one is finished.
+    fn render_all(
+        &self,
+        diagrams: &[(&str, &str)],
+        theme: Theme,
+        done: &(dyn Fn() + Sync),
+    ) -> Vec<Result<Drawn, String>> {
+        render_one_by_one(self, diagrams, theme, done)
+    }
+}
+
+/// `render_all` by `renderer`, one diagram after another.
+fn render_one_by_one<R: Renderer + ?Sized>(
+    renderer: &R,
+    diagrams: &[(&str, &str)],
+    theme: Theme,
+    done: &(dyn Fn() + Sync),
+) -> Vec<Result<Drawn, String>> {
+    (diagrams.iter())
+        .map(|&(language, source)| {
+            let drawn = renderer.render(language, source, theme);
+            done();
+            drawn
+        })
+        .collect()
+}
+
+/// `render_all` by `renderer`, drawing up to `at_once` diagrams at a time.
+pub fn render_in_parallel<R: Renderer + Sync + ?Sized>(
+    renderer: &R,
+    diagrams: &[(&str, &str)],
+    theme: Theme,
+    at_once: usize,
+    done: &(dyn Fn() + Sync),
+) -> Vec<Result<Drawn, String>> {
+    let next = AtomicUsize::new(0);
+    let results: Vec<Mutex<Option<Result<Drawn, String>>>> =
+        diagrams.iter().map(|_| Mutex::new(None)).collect();
+    std::thread::scope(|scope| {
+        for _ in 0..at_once.max(1).min(diagrams.len()) {
+            // As large a stack as the main thread's, for a built-in
+            // renderer among the external ones.
+            let thread = std::thread::Builder::new().stack_size(8 << 20);
+            let spawned = thread.spawn_scoped(scope, || {
+                loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(&(language, source)) = diagrams.get(i) else {
+                        break;
+                    };
+                    let drawn = renderer.render(language, source, theme);
+                    *results[i].lock().unwrap_or_else(|e| e.into_inner()) = Some(drawn);
+                    done();
+                }
+            });
+            // A thread that does not start leaves its share to the others;
+            // the last diagrams not drawn by any say so.
+            if spawned.is_err() {
+                break;
+            }
+        }
+    });
+    (results.into_iter())
+        .map(|result| {
+            let result = result.into_inner().unwrap_or_else(|e| e.into_inner());
+            result.unwrap_or_else(|| Err("not drawn".to_owned()))
+        })
+        .collect()
+}
+
+/// The name of `theme` that the external command for `language` gets as
+/// `{theme}`: Mermaid's own theme names for Mermaid, `light` or `dark`
+/// otherwise.
+pub fn theme_name(language: &str, theme: Theme) -> &'static str {
+    let mermaid = language.eq_ignore_ascii_case("mermaid");
+    match (theme, mermaid) {
+        (Theme::Light, true) => "default",
+        (Theme::Light, false) => "light",
+        (Theme::Dark, _) => "dark",
+    }
+}
+
+/// The extension of a file of source in `language`, by which a program
+/// such as `mmdc` tells what the file is.
+pub fn extension(language: &str) -> String {
+    if language.eq_ignore_ascii_case("mermaid") {
+        "mmd".to_owned()
+    } else {
+        language.to_ascii_lowercase()
+    }
 }
 
 /// The renderers built into kiri: merman for Mermaid, in a build with the
@@ -87,6 +185,60 @@ impl Renderer for BuiltIn {
         }
         let _ = (source, theme);
         Err(format!("{language} diagrams are not drawn in this build"))
+    }
+}
+
+/// The renderers a run draws with: for each language, its external
+/// command when it has one, and otherwise the renderer built into kiri.
+/// An external command that fails does not fall back to the built-in
+/// renderer, so the user sees that their choice did not work.
+#[derive(Debug)]
+pub struct Renderers {
+    external: External,
+}
+
+impl Renderers {
+    /// The built-in renderers, and the external commands `commands`
+    /// configures, a program and its arguments for each language.
+    pub fn new(commands: &BTreeMap<String, Vec<String>>) -> Self {
+        let commands = (commands.iter())
+            .map(|(language, argv)| (language.clone(), Command::new(argv.clone())))
+            .collect();
+        Renderers {
+            external: External::new(commands),
+        }
+    }
+}
+
+impl Renderer for Renderers {
+    fn draws(&self, language: &str) -> bool {
+        self.external.draws(language) || BuiltIn.draws(language)
+    }
+
+    fn render(&self, language: &str, source: &str, theme: Theme) -> Result<Drawn, String> {
+        match self.external.draws(language) {
+            true => self.external.render(language, source, theme),
+            false => BuiltIn.render(language, source, theme),
+        }
+    }
+
+    /// Several at once when an external command draws any of them: it
+    /// spends most of its time starting up, as `mmdc` does a browser.
+    fn render_all(
+        &self,
+        diagrams: &[(&str, &str)],
+        theme: Theme,
+        done: &(dyn Fn() + Sync),
+    ) -> Vec<Result<Drawn, String>> {
+        if diagrams
+            .iter()
+            .any(|(language, _)| self.external.draws(language))
+        {
+            render_in_parallel(self, diagrams, theme, external::AT_ONCE, done)
+        } else {
+            // On this thread, whose stack is larger.
+            render_one_by_one(self, diagrams, theme, done)
+        }
     }
 }
 
@@ -156,7 +308,99 @@ pub fn name(language: &str, source: &str, line: usize, by_line: bool) -> String 
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::time::Duration;
+
     use super::*;
+
+    #[test]
+    fn a_configured_command_draws_in_place_of_the_built_in_renderer() {
+        let commands = BTreeMap::from([(
+            "mermaid".to_owned(),
+            ["/bin/sh", "-c", "exit 4", "{input}", "{output}"]
+                .map(String::from)
+                .to_vec(),
+        )]);
+        let renderers = Renderers::new(&commands);
+        assert!(renderers.draws("mermaid") && renderers.draws("Mermaid"));
+        // It fails, and the built-in renderer does not step in.
+        let drawn = renderers.render("mermaid", "flowchart TD\n  A --> B\n", Theme::Light);
+        assert_eq!(drawn, Err("sh exited with status 4".to_owned()));
+        let drawn = renderers.render_all(&[("mermaid", "flowchart TD\n")], Theme::Dark, &|| {});
+        assert_eq!(drawn, [Err("sh exited with status 4".to_owned())]);
+        let none = Renderers::new(&BTreeMap::new());
+        assert_eq!(none.draws("mermaid"), cfg!(feature = "mermaid"));
+        assert!(!none.draws("dot"));
+    }
+
+    /// Counts how many diagrams it draws at once.
+    #[derive(Default)]
+    struct Slow {
+        now: AtomicUsize,
+        most: AtomicUsize,
+    }
+
+    impl Renderer for Slow {
+        fn draws(&self, _language: &str) -> bool {
+            true
+        }
+
+        fn render(&self, language: &str, source: &str, theme: Theme) -> Result<Drawn, String> {
+            let now = self.now.fetch_add(1, Ordering::SeqCst) + 1;
+            self.most.fetch_max(now, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(50));
+            self.now.fetch_sub(1, Ordering::SeqCst);
+            match source {
+                "bad" => Err(format!("{language}: bad")),
+                _ => Ok(Drawn {
+                    svg: source.to_owned(),
+                    theme,
+                }),
+            }
+        }
+    }
+
+    #[test]
+    fn draws_up_to_four_diagrams_at_once_and_keeps_their_order() {
+        let sources: Vec<String> = (0..10).map(|n| n.to_string()).collect();
+        let mut diagrams: Vec<(&str, &str)> = sources
+            .iter()
+            .map(|source| ("mermaid", source.as_str()))
+            .collect();
+        diagrams[3].1 = "bad";
+        let slow = Slow::default();
+        let done = AtomicUsize::new(0);
+        let count = || {
+            done.fetch_add(1, Ordering::SeqCst);
+        };
+        let drawn = render_in_parallel(&slow, &diagrams, Theme::Dark, external::AT_ONCE, &count);
+        let svgs: Vec<Result<String, String>> = (drawn.into_iter())
+            .map(|drawn| drawn.map(|drawn| drawn.svg))
+            .collect();
+        let expected: Vec<Result<String, String>> = (0..10)
+            .map(|n| match n {
+                3 => Err("mermaid: bad".to_owned()),
+                n => Ok(n.to_string()),
+            })
+            .collect();
+        assert_eq!(svgs, expected);
+        // Never more than four, but more than one, however slowly the
+        // threads start.
+        let most = slow.most.load(Ordering::SeqCst);
+        assert!((2..=4).contains(&most), "{most} at once");
+        assert_eq!(done.load(Ordering::SeqCst), 10);
+        assert!(render_in_parallel(&slow, &[], Theme::Dark, 4, &count).is_empty());
+    }
+
+    #[test]
+    fn the_theme_has_mermaid_names_for_mermaid() {
+        assert_eq!(theme_name("mermaid", Theme::Light), "default");
+        assert_eq!(theme_name("Mermaid", Theme::Dark), "dark");
+        assert_eq!(theme_name("dot", Theme::Light), "light");
+        assert_eq!(theme_name("dot", Theme::Dark), "dark");
+        assert_eq!(extension("Mermaid"), "mmd");
+        assert_eq!(extension("Dot"), "dot");
+    }
 
     #[test]
     fn mermaid_is_built_in_with_its_feature() {

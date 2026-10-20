@@ -143,3 +143,81 @@ fn help_explains_diagrams() {
     assert!(help.contains("--diagrams <SWITCH>"), "{help}");
     assert!(help.contains("[possible values: on, off]"), "{help}");
 }
+
+/// A configuration file that draws Mermaid with the shell script `script`,
+/// which gets the input file, the output file and the theme. Through sh,
+/// so the test does not run a file it has just written.
+fn external(dir: &std::path::Path, script: &str) -> String {
+    let path = dir.join("render.sh");
+    std::fs::write(&path, script).unwrap();
+    format!(
+        "[diagrams.mermaid]\ncommand = [\"/bin/sh\", \"{}\", \"{{input}}\", \"{{output}}\", \"{{theme}}\"]\n",
+        path.display()
+    )
+}
+
+/// A stand-in for mmdc: an SVG as high as the source has lines.
+const DRAWS: &str = "lines=$(wc -l < \"$1\")\n\
+    printf '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"%s\"/>' \
+    $((lines * 20)) > \"$2\"\n";
+
+#[test]
+fn a_configured_command_draws_the_diagrams() {
+    let dir = Scratch::new("mermaid-external");
+    let config = external(&dir, DRAWS);
+    let source = format!("{FLOWCHART}\n```mermaid\nsequenceDiagram\n```\n");
+    let out = with_settings(&dir, &source, &[], None, &config);
+    assert_eq!(text(&out.stderr), "");
+    let images = sent(&text(&out.stdout));
+    assert_eq!(images.len(), 2);
+    assert_eq!(images[0].keys["s"], "200");
+    assert_eq!(images[0].keys["v"], "40");
+    assert_eq!(images[1].keys["v"], "20");
+}
+
+#[test]
+fn a_command_that_fails_leaves_the_code_with_a_warning() {
+    let dir = Scratch::new("mermaid-external-fails");
+    let config = external(&dir, "echo 'Error: Parse error on line 2:' >&2\nexit 1\n");
+    let out = with_settings(&dir, FLOWCHART, &[], None, &config);
+    assert!(out.status.success());
+    // Not drawn by merman either, in a build that has it.
+    assert_eq!(
+        text(&out.stderr),
+        "kiri: mermaid diagram on line 3: sh exited with status 1: \
+         Error: Parse error on line 2:\n"
+    );
+    let stdout = text(&out.stdout);
+    assert!(sent(&stdout).is_empty(), "{stdout:?}");
+    assert!(stdout.contains("flowchart TD"), "{stdout:?}");
+}
+
+#[test]
+fn a_command_that_writes_no_svg_leaves_the_code_with_a_warning() {
+    let dir = Scratch::new("mermaid-external-not-svg");
+    let config = external(&dir, "echo 'not an SVG' > \"$2\"\n");
+    let out = with_settings(&dir, FLOWCHART, &[], None, &config);
+    assert!(out.status.success());
+    let stderr = text(&out.stderr);
+    assert!(
+        stderr.starts_with("kiri: mermaid diagram on line 3: "),
+        "{stderr:?}"
+    );
+    assert_eq!(stderr.lines().count(), 1, "{stderr:?}");
+    let stdout = text(&out.stdout);
+    assert!(sent(&stdout).is_empty(), "{stdout:?}");
+    assert!(stdout.contains("flowchart TD"), "{stdout:?}");
+}
+
+#[test]
+fn a_configured_command_gets_the_theme_for_the_page() {
+    let dir = Scratch::new("mermaid-external-theme");
+    let record = dir.join("theme");
+    let script = format!("echo \"$3\" >> '{}'\n{DRAWS}", record.display());
+    let config = external(&dir, &script);
+    for args in [&["--light"][..], &["--dark"]] {
+        let out = with_settings(&dir, FLOWCHART, args, None, &config);
+        assert_eq!(text(&out.stderr), "", "{args:?}");
+    }
+    assert_eq!(std::fs::read_to_string(&record).unwrap(), "default\ndark\n");
+}
