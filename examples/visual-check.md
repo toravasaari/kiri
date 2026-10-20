@@ -278,3 +278,26 @@ In running text, ![an icon](../tests/fixtures/images/icon.png) stays alt
 text, as does a missing file:
 
 ![Missing image](../tests/fixtures/images/no-such-file.png)
+
+## Diagrams
+
+A Mermaid diagram in a code block is drawn as an image in kitty, as GitHub
+draws it, and stays code elsewhere and with `--no-images`. This flowchart
+runs top to bottom: a rounded box, then a box titled "Saunan lämmitys"
+around four steps. From its diamond, the arrow "ei" leads to "Lisää
+puita" and another arrow back up, and the arrow "kyllä" leaves the box
+for a rounded box at the end. On a light page the boxes are lavender with
+dark text; on a dark page they are dark grey with light text. The letters
+ä and ö show, the labels sit on their arrows, and no text is cut off.
+
+```mermaid
+flowchart TD
+    Alku([Lauantai-ilta]) --> Puut
+    subgraph Sauna [Saunan lämmitys]
+        Puut[Kanna puut sisään] --> Sytytä[Sytytä tuli]
+        Sytytä --> Lämmin{Onko jo 80 astetta?}
+        Lämmin -->|ei| Lisää[Lisää puita]
+        Lisää --> Lämmin
+    end
+    Lämmin -->|kyllä| Löyly([Löylyyn])
+```
