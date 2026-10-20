@@ -24,6 +24,8 @@ pub struct Style {
     pub dim: bool,
     pub italic: bool,
     pub underline: Underline,
+    /// The underline's own colour; `None` draws it in the text colour.
+    pub underline_color: Option<Color>,
     pub strike: bool,
     /// Foreground and background swapped.
     pub reverse: bool,

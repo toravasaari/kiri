@@ -106,8 +106,8 @@ struct Cli {
 
     /// How the rows of a table are told apart: zebra (every second row
     /// shaded where the terminal's colours are known), lines, indent (the
-    /// lines after the first of a wrapped value start two cells in), or
-    /// off.
+    /// lines after the first of a wrapped value start two cells in),
+    /// underline (each row's last line underlined), or off.
     #[arg(long, value_enum, value_name = "STYLE")]
     table_rows: Option<TableRows>,
 
@@ -201,6 +201,7 @@ enum TableRows {
     Zebra,
     Lines,
     Indent,
+    Underline,
 }
 
 impl From<TableRows> for kiri::render::TableRows {
@@ -210,6 +211,7 @@ impl From<TableRows> for kiri::render::TableRows {
             TableRows::Zebra => Self::Zebra,
             TableRows::Lines => Self::Lines,
             TableRows::Indent => Self::Indent,
+            TableRows::Underline => Self::Underline,
         }
     }
 }

@@ -375,6 +375,14 @@ impl Layout<'_> {
             TableRows::Off => table::Rows::Plain,
             TableRows::Lines => table::Rows::Lines,
             TableRows::Indent => table::Rows::Indent,
+            // Without underline styles there is no underline colour, and
+            // each cell's underline would take its own text colour.
+            TableRows::Underline if self.caps.styling && self.caps.styled_underlines => {
+                table::Rows::Underline {
+                    color: self.theme.table_border.filter(|_| self.caps.color),
+                }
+            }
+            TableRows::Underline => table::Rows::Plain,
             TableRows::Zebra => match self.stripe() {
                 Some((stripe, page)) => table::Rows::Stripes { stripe, page },
                 None => table::Rows::Plain,

@@ -412,7 +412,7 @@ fn table_rows_come_from_the_flag_the_environment_and_the_configuration_file() {
     assert!(out.contains(plain), "{out}");
     assert_eq!(
         warning,
-        "kiri: KIRI_TABLE_ROWS: `stripes` is not off, zebra, lines or indent; left out\n"
+        "kiri: KIRI_TABLE_ROWS: `stripes` is not off, zebra, lines, indent or underline; left out\n"
     );
     let out = kiri(&dir, TABLE, &["--table-rows", "stripes"]);
     assert!(!out.status.success());

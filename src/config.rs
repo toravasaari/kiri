@@ -437,7 +437,13 @@ trait Named: Copy + 'static {
 }
 
 impl Named for TableRows {
-    const ALL: &'static [Self] = &[Self::Off, Self::Zebra, Self::Lines, Self::Indent];
+    const ALL: &'static [Self] = &[
+        Self::Off,
+        Self::Zebra,
+        Self::Lines,
+        Self::Indent,
+        Self::Underline,
+    ];
 
     fn name(self) -> &'static str {
         TableRows::name(self)
@@ -1235,7 +1241,9 @@ mod tests {
         assert_eq!(chosen, Setting::new(TableRows::Lines, Origin::File));
         assert_eq!(
             warning.as_deref(),
-            Some("KIRI_TABLE_ROWS: `stripes` is not off, zebra, lines or indent; left out")
+            Some(
+                "KIRI_TABLE_ROWS: `stripes` is not off, zebra, lines, indent or underline; left out"
+            )
         );
         let choices = choose(&Options::default(), &table_rows_env("stripes"), &config);
         assert_eq!(choices.warnings.len(), 1);

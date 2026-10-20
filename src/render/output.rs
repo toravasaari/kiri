@@ -317,7 +317,23 @@ fn sgr_codes(style: &Style, caps: &Capabilities) -> Vec<String> {
     if let Some(color) = style.bg {
         codes.push(color_code(color, 40, truecolor));
     }
+    // An underline colour (SGR 58) comes with the underline styles: kitty
+    // introduced both, and the terminals that took one took the other.
+    if let Some(color) = style.underline_color.filter(|_| caps.styled_underlines)
+        && style.underline != Underline::None
+    {
+        codes.push(underline_color_code(color, truecolor));
+    }
     codes
+}
+
+/// SGR 58, which has no short form for the first 16 colours.
+fn underline_color_code(color: Color, truecolor: bool) -> String {
+    match color {
+        Color::Palette(index) => format!("58;5;{index}"),
+        Color::Rgb(r, g, b) if truecolor => format!("58;2;{r};{g};{b}"),
+        Color::Rgb(r, g, b) => format!("58;5;{}", rgb_to_256(r, g, b)),
+    }
 }
 
 /// Underline styles other than single use the `4:n` form that kitty
@@ -399,6 +415,22 @@ mod tests {
         .unwrap();
         let out = String::from_utf8(out).unwrap();
         assert!(!out.contains("\x1b[0C"), "{out:?}");
+    }
+
+    #[test]
+    fn an_underline_colour_needs_styled_underlines_and_colours() {
+        let style = Style {
+            underline: Underline::Dashed,
+            underline_color: Some(Color::Palette(8)),
+            ..Style::default()
+        };
+        let mut caps = Capabilities::kitty(10);
+        assert_eq!(sgr_codes(&style, &caps), ["4:5", "58;5;8"]);
+        caps.styled_underlines = false;
+        assert_eq!(sgr_codes(&style, &caps), ["4"]);
+        caps = Capabilities::kitty(10);
+        caps.color = false;
+        assert_eq!(sgr_codes(&style, &caps), ["4:5"]);
     }
 
     #[test]

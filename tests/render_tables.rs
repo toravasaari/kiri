@@ -242,3 +242,38 @@ fn inline_styles_keep_their_colours_on_a_striped_row() {
         format!("{};48;2;12;12;12", style(&alone, "link"))
     );
 }
+
+#[test]
+fn every_underlined_cell_of_a_row_has_one_underline_colour() {
+    use kiri::color::Underline;
+    let source = "| A | B |\n|---|---|\n\
+                  | **key** `code` [link](https://example.com) | y |\n| z | w |\n";
+    let inputs = with_rows(Capabilities::kitty(WIDTH), TableRows::Underline);
+    let lines = kiri::render::layout::layout(&kiri::parse::parse(source), &inputs);
+    let row = lines
+        .iter()
+        .find(|line| line.spans.iter().any(|span| span.text.contains("link")))
+        .unwrap();
+    let colours: Vec<_> = (row.spans.iter())
+        .filter(|span| span.style.underline != Underline::None)
+        .map(|span| (span.text.clone(), span.style.underline_color))
+        .collect();
+    // The text, the padding, the border between the columns, the code and
+    // the link: all underlined in the table border's colour.
+    assert!(colours.len() >= 6, "{colours:?}");
+    let border = inputs.theme.table_border;
+    assert!(border.is_some());
+    for (text, colour) in &colours {
+        assert_eq!(*colour, border, "{text:?} in {colours:?}");
+    }
+}
+
+#[test]
+fn underline_draws_nothing_where_its_colour_cannot_show() {
+    // Without underline styles there is no underline colour either, and
+    // each cell's underline would take its own text colour.
+    let caps = Capabilities::ansi(WIDTH);
+    assert!(caps.color && !caps.styled_underlines);
+    let out = render(ROWS, &with_rows(caps.clone(), TableRows::Underline));
+    assert_eq!(out, render(ROWS, &with_rows(caps, TableRows::Off)));
+}

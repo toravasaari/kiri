@@ -4,7 +4,7 @@ use unicode_width::UnicodeWidthStr;
 
 use super::style::{self, Line, Span, Style, push};
 use super::wrap::{keeps_together, split, width, words, wrap};
-use crate::color::Color;
+use crate::color::{Color, Underline};
 use crate::model::Alignment;
 
 /// Cells as styled spans; rows may be shorter than the header.
@@ -156,6 +156,9 @@ pub enum Rows {
     Lines,
     /// The lines after the first of a text cell start two cells in.
     Indent,
+    /// The last line of each body row but the last is underlined, dashed,
+    /// in `color` or else the text colour, between the table's borders.
+    Underline { color: Option<Color> },
     /// Every second body row on `stripe`, from border to border. A table
     /// in a striped row is drawn on `page`, so its stripes start afresh.
     Stripes { stripe: Color, page: Color },
@@ -214,6 +217,14 @@ pub fn layout(cells: &Cells, max: usize, styles: &Styles) -> Vec<Line> {
                     &styles,
                     Some(stripe),
                 ));
+                continue;
+            }
+            Rows::Underline { color } if index + 1 < cells.rows.len() => {
+                let mut row = row_lines(row, &widths, &cells.alignments, styles, base);
+                if let Some(last) = row.last_mut() {
+                    underline(last, color);
+                }
+                lines.extend(row);
                 continue;
             }
             _ => base,
@@ -482,6 +493,20 @@ fn painted(mut line: Line, background: Option<Color>) -> Line {
         }
     }
     line
+}
+
+/// Underlines `line` between the table's borders, dashed, all of it in
+/// `color`. Text with an underline of its own, such as a link, keeps its
+/// style but takes the colour, so that the row's underline is one colour
+/// from border to border.
+fn underline(line: &mut Line, color: Option<Color>) {
+    let inside = 1..line.spans.len().saturating_sub(1);
+    for span in line.spans.get_mut(inside).into_iter().flatten() {
+        if span.style.underline == Underline::None {
+            span.style.underline = Underline::Dashed;
+        }
+        span.style.underline_color = color;
+    }
 }
 
 /// The lines of `row`, on `background` from border to border.
@@ -1245,5 +1270,38 @@ mod tests {
             layout(&cells, 20, &with_rows(Rows::Indent)),
             layout(&cells, 20, &styles())
         );
+    }
+
+    #[test]
+    fn underline_marks_the_last_line_of_each_row_but_the_last() {
+        let cells = keyed(vec![
+            ("a", cell("one two").into()),
+            ("b", cell("three").into()),
+        ]);
+        let rows = Rows::Underline { color: Some(PAGE) };
+        let lines = layout(&cells, 13, &with_rows(rows));
+        assert_eq!(
+            text(&lines),
+            [
+                "╭───┬───────╮",
+                "│ a │ one   │",
+                "│   │ two   │",
+                "│ b │ three │",
+                "╰───┴───────╯"
+            ]
+        );
+        let underlined = |line: &Line| {
+            (line.spans.iter())
+                .map(|span| span.style.underline != Underline::None)
+                .collect::<Vec<_>>()
+        };
+        // Only row a's last line, between the outer borders.
+        let row = underlined(&lines[2]);
+        assert!(!row[0] && !row[row.len() - 1], "{:?}", lines[2]);
+        assert!(row[1..row.len() - 1].iter().all(|on| *on), "{:?}", lines[2]);
+        assert_eq!(lines[2].spans[1].style.underline_color, Some(PAGE));
+        for index in [1, 3] {
+            assert!(underlined(&lines[index]).iter().all(|on| !on), "{index}");
+        }
     }
 }

@@ -49,6 +49,10 @@ pub enum TableRows {
     /// The lines after the first of a wrapped value start two cells in, so
     /// that a new row is one that starts at the edge of its cell.
     Indent,
+    /// The last line of each row but the last is underlined, dashed, in
+    /// the border colour; nothing where the terminal has no underline
+    /// colours, as each cell's underline would take its own text colour.
+    Underline,
 }
 
 impl TableRows {
@@ -59,6 +63,7 @@ impl TableRows {
             Self::Zebra => "zebra",
             Self::Lines => "lines",
             Self::Indent => "indent",
+            Self::Underline => "underline",
         }
     }
 }
