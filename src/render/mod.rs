@@ -48,6 +48,17 @@ pub enum TableRows {
     Lines,
 }
 
+impl TableRows {
+    /// The value as kiri writes it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Zebra => "zebra",
+            Self::Lines => "lines",
+        }
+    }
+}
+
 /// How front matter shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FrontMatterStyle {

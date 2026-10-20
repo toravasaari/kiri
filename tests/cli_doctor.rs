@@ -173,6 +173,33 @@ fn front_matter_tells_where_it_comes_from() {
 }
 
 #[test]
+fn table_rows_tell_where_they_come_from() {
+    let dir = Scratch::new("doctor-table-rows");
+    for (args, variable, row) in [
+        (&[][..], None, "| Table rows | zebra | default |"),
+        (
+            &["--table-rows", "off"][..],
+            Some("lines"),
+            "| Table rows | off | `--table-rows` |",
+        ),
+        (
+            &[][..],
+            Some("lines"),
+            "| Table rows | lines | `KIRI_TABLE_ROWS=lines` |",
+        ),
+    ] {
+        let mut command = doctor(&dir, args);
+        if let Some(value) = variable {
+            command.env("KIRI_TABLE_ROWS", value);
+        }
+        let out = command.output().unwrap();
+        assert_succeeded(&out);
+        let report = text(&out.stdout);
+        assert!(report.contains(row), "{row}\n{report}");
+    }
+}
+
+#[test]
 fn the_search_case_tells_where_it_comes_from() {
     let dir = Scratch::new("doctor-search-case");
     let report = piped(&dir, &[]);

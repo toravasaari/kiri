@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::render::FrontMatterStyle;
+use crate::render::{FrontMatterStyle, TableRows};
 use crate::theme::{Paper, Theme};
 
 /// The environment variables kiri reads for its settings.
@@ -29,6 +29,8 @@ pub struct Environment {
     pub kiri_paging: Option<OsString>,
     /// `KIRI_FRONT_MATTER`: `table`, `code`, `hide` or `off`.
     pub kiri_front_matter: Option<OsString>,
+    /// `KIRI_TABLE_ROWS`: `off`, `zebra` or `lines`.
+    pub kiri_table_rows: Option<OsString>,
     /// `NO_COLOR`: colours off unless empty.
     pub no_color: Option<OsString>,
     /// `COLORTERM`: 24-bit colour when `truecolor` or `24bit`.
@@ -53,6 +55,7 @@ impl Environment {
             kiri_no_images: std::env::var_os("KIRI_NO_IMAGES"),
             kiri_paging: std::env::var_os("KIRI_PAGING"),
             kiri_front_matter: std::env::var_os("KIRI_FRONT_MATTER"),
+            kiri_table_rows: std::env::var_os("KIRI_TABLE_ROWS"),
             no_color: std::env::var_os("NO_COLOR"),
             colorterm: std::env::var_os("COLORTERM"),
             term: std::env::var_os("TERM"),
@@ -101,6 +104,8 @@ pub struct Config {
     pub search_case: Option<SearchCase>,
     /// How front matter shows.
     pub front_matter: Option<FrontMatter>,
+    /// How the rows of a table are told apart.
+    pub table_rows: Option<TableRows>,
 }
 
 /// When the document is shown in the pager rather than printed.
@@ -232,6 +237,7 @@ pub fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String
         paging: file.paging,
         search_case: file.search_case,
         front_matter: file.front_matter,
+        table_rows: file.table_rows,
     })
 }
 
@@ -243,6 +249,7 @@ struct ConfigToml {
     paging: Option<Paging>,
     search_case: Option<SearchCase>,
     front_matter: Option<FrontMatter>,
+    table_rows: Option<TableRows>,
 }
 
 /// Where a setting comes from.
@@ -403,11 +410,38 @@ pub fn front_matter(
     )
 }
 
+/// How the rows of a table are told apart and where that comes from,
+/// strongest first: the command line (`option`, from `--table-rows`),
+/// then `KIRI_TABLE_ROWS`, then the configuration file; `zebra` unless one
+/// says otherwise. `KIRI_TABLE_ROWS` takes `off`, `zebra` and `lines`;
+/// empty is unset. Any other value is left out with the warning returned
+/// beside the setting.
+pub fn table_rows(
+    option: Option<TableRows>,
+    env: &Environment,
+    config: &Config,
+) -> (Setting<TableRows>, Option<String>) {
+    named(
+        (option, "--table-rows"),
+        ("KIRI_TABLE_ROWS", env.kiri_table_rows.as_ref()),
+        config.table_rows,
+        TableRows::Zebra,
+    )
+}
+
 /// A setting whose values have names, such as `table`.
 trait Named: Copy + 'static {
     /// Every value, in the order the warning lists them.
     const ALL: &'static [Self];
     fn name(self) -> &'static str;
+}
+
+impl Named for TableRows {
+    const ALL: &'static [Self] = &[Self::Off, Self::Zebra, Self::Lines];
+
+    fn name(self) -> &'static str {
+        TableRows::name(self)
+    }
 }
 
 impl Named for FrontMatter {
@@ -474,6 +508,8 @@ pub struct Options {
     pub paging: Option<Setting<Paging>>,
     /// `--front-matter`.
     pub front_matter: Option<FrontMatter>,
+    /// `--table-rows`.
+    pub table_rows: Option<TableRows>,
 }
 
 /// What the options, the environment and the configuration file choose
@@ -493,6 +529,8 @@ pub struct Settings {
     pub search_case: SearchCase,
     /// How front matter shows.
     pub front_matter: FrontMatter,
+    /// How the rows of a table are told apart.
+    pub table_rows: TableRows,
 }
 
 /// What the options, the environment and the configuration file choose,
@@ -512,6 +550,8 @@ pub struct Choices {
     pub search_case: Setting<SearchCase>,
     /// How front matter shows.
     pub front_matter: Setting<FrontMatter>,
+    /// How the rows of a table are told apart.
+    pub table_rows: Setting<TableRows>,
     /// What the user should know about settings that were left out.
     pub warnings: Vec<String>,
 }
@@ -531,6 +571,7 @@ impl Choices {
             paging: self.paging.value,
             search_case: self.search_case.value,
             front_matter: self.front_matter.value,
+            table_rows: self.table_rows.value,
         }
     }
 }
@@ -539,6 +580,7 @@ impl Choices {
 pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices {
     let (paging, paging_warning) = paging(options.paging.clone(), env, config);
     let (front_matter, front_matter_warning) = front_matter(options.front_matter, env, config);
+    let (table_rows, table_rows_warning) = table_rows(options.table_rows, env, config);
     Choices {
         theme: theme_source(options.theme.as_deref(), options.paper, env, config),
         paper: options.paper,
@@ -553,7 +595,8 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
             None => Setting::new(SearchCase::Smart, Origin::Default),
         },
         front_matter,
-        warnings: [paging_warning, front_matter_warning]
+        table_rows,
+        warnings: [paging_warning, front_matter_warning, table_rows_warning]
             .into_iter()
             .flatten()
             .collect(),
@@ -1138,6 +1181,67 @@ mod tests {
         assert_eq!(settings.front_matter, FrontMatter::Off);
         assert_eq!(settings.front_matter.style(), None);
         assert_eq!(FrontMatter::Code.style(), Some(FrontMatterStyle::Code));
+    }
+
+    #[test]
+    fn the_table_rows_key_takes_off_zebra_or_lines() {
+        let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
+        for (text, rows) in [
+            ("table_rows = \"off\"\n", TableRows::Off),
+            ("table_rows = \"zebra\"\n", TableRows::Zebra),
+            ("table_rows = \"lines\"\n", TableRows::Lines),
+        ] {
+            assert_eq!(parsed(text).unwrap().table_rows, Some(rows), "{text}");
+        }
+        assert!(parsed("table_rows = \"stripes\"\n").is_err());
+        assert!(parsed("table_rows = true\n").is_err());
+    }
+
+    fn table_rows_env(value: &str) -> Environment {
+        Environment {
+            kiri_table_rows: Some(value.into()),
+            ..Environment::default()
+        }
+    }
+
+    fn with_table_rows(rows: TableRows) -> Config {
+        Config {
+            table_rows: Some(rows),
+            ..Config::default()
+        }
+    }
+
+    #[test]
+    fn table_rows_are_zebra_unless_something_says_otherwise() {
+        let (chosen, warning) = table_rows(None, &Environment::default(), &Config::default());
+        assert_eq!(chosen, Setting::new(TableRows::Zebra, Origin::Default));
+        assert_eq!(warning, None);
+        let config = with_table_rows(TableRows::Off);
+        let (chosen, _) = table_rows(None, &table_rows_env(""), &config);
+        assert_eq!(chosen, Setting::new(TableRows::Off, Origin::File));
+        let (chosen, _) = table_rows(None, &table_rows_env("lines"), &config);
+        let variable = Origin::Environment("KIRI_TABLE_ROWS");
+        assert_eq!(chosen, Setting::new(TableRows::Lines, variable));
+        let (chosen, _) = table_rows(Some(TableRows::Zebra), &table_rows_env("lines"), &config);
+        let flag = Origin::Flag("--table-rows");
+        assert_eq!(chosen, Setting::new(TableRows::Zebra, flag));
+    }
+
+    #[test]
+    fn an_unknown_kiri_table_rows_is_left_out_with_a_warning() {
+        let config = with_table_rows(TableRows::Lines);
+        let (chosen, warning) = table_rows(None, &table_rows_env("stripes"), &config);
+        assert_eq!(chosen, Setting::new(TableRows::Lines, Origin::File));
+        assert_eq!(
+            warning.as_deref(),
+            Some("KIRI_TABLE_ROWS: `stripes` is not off, zebra or lines; left out")
+        );
+        let choices = choose(&Options::default(), &table_rows_env("stripes"), &config);
+        assert_eq!(choices.warnings.len(), 1);
+        assert_eq!(
+            choices.with_theme(Theme::default()).table_rows,
+            TableRows::Lines
+        );
     }
 
     fn no_options() -> Options {

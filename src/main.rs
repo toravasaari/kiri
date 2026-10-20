@@ -104,6 +104,11 @@ struct Cli {
     #[arg(long, value_enum, value_name = "STYLE")]
     front_matter: Option<FrontMatter>,
 
+    /// How the rows of a table are told apart: zebra (every second row
+    /// shaded, or lines where shading cannot show), lines, or off.
+    #[arg(long, value_enum, value_name = "STYLE")]
+    table_rows: Option<TableRows>,
+
     /// Largest image file to read, in megabytes (at most 100); larger
     /// images show their alt text.
     #[arg(long, value_name = "MB", default_value_t = 10, value_parser = max_image_size)]
@@ -183,6 +188,24 @@ impl From<FrontMatter> for kiri::config::FrontMatter {
             FrontMatter::Code => Self::Code,
             FrontMatter::Hide => Self::Hide,
             FrontMatter::Off => Self::Off,
+        }
+    }
+}
+
+/// `render::TableRows` for clap.
+#[derive(Clone, Copy, ValueEnum)]
+enum TableRows {
+    Off,
+    Zebra,
+    Lines,
+}
+
+impl From<TableRows> for kiri::render::TableRows {
+    fn from(rows: TableRows) -> Self {
+        match rows {
+            TableRows::Off => Self::Off,
+            TableRows::Zebra => Self::Zebra,
+            TableRows::Lines => Self::Lines,
         }
     }
 }
@@ -347,6 +370,7 @@ fn show_document(
         images,
         theme: settings.theme,
         front_matter: settings.front_matter.style().unwrap_or_default(),
+        table_rows: settings.table_rows,
         ..Inputs::new(caps)
     };
     if let Some(result) = page(
@@ -568,5 +592,6 @@ fn options(cli: &Cli) -> Options {
             _ => None,
         },
         front_matter: cli.front_matter.map(Into::into),
+        table_rows: cli.table_rows.map(Into::into),
     }
 }

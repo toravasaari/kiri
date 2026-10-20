@@ -371,3 +371,50 @@ fn front_matter_that_does_not_parse_is_a_warning_only_as_a_table() {
         assert_eq!(warning(&["--front-matter", style]), "", "{style}");
     }
 }
+
+/// A table of two body rows.
+const TABLE: &str = "| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n";
+
+#[test]
+fn table_rows_come_from_the_flag_the_environment_and_the_configuration_file() {
+    let dir = Scratch::new("table-rows");
+    let document = dir.join("document.md");
+    std::fs::write(&document, TABLE).unwrap();
+    let shown = |command: &mut std::process::Command| {
+        let out = command
+            .args(["--mode", "plain"])
+            .arg(&document)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        (text(&out.stdout), text(&out.stderr))
+    };
+    let lined = "  │ 1 │ 2 │\n  ├───┼───┤\n  │ 3 │ 4 │\n";
+    let plain = "  │ 1 │ 2 │\n  │ 3 │ 4 │\n";
+    // Zebra by default, drawn as lines without colours.
+    assert!(shown(&mut command(&dir)).0.contains(lined));
+    let (out, _) = shown(command(&dir).args(["--table-rows", "off"]));
+    assert!(out.contains(plain), "{out}");
+    write(
+        &dir.join("config/kiri/config.toml"),
+        "table_rows = \"off\"\n",
+    );
+    assert!(shown(&mut command(&dir)).0.contains(plain));
+    let (out, _) = shown(command(&dir).env("KIRI_TABLE_ROWS", "lines"));
+    assert!(out.contains(lined), "{out}");
+    let (out, _) = shown(
+        command(&dir)
+            .env("KIRI_TABLE_ROWS", "lines")
+            .args(["--table-rows", "off"]),
+    );
+    assert!(out.contains(plain), "{out}");
+    let (out, warning) = shown(command(&dir).env("KIRI_TABLE_ROWS", "stripes"));
+    assert!(out.contains(plain), "{out}");
+    assert_eq!(
+        warning,
+        "kiri: KIRI_TABLE_ROWS: `stripes` is not off, zebra or lines; left out\n"
+    );
+    let out = kiri(&dir, TABLE, &["--table-rows", "stripes"]);
+    assert!(!out.status.success());
+    assert!(text(&out.stderr).contains("invalid value 'stripes'"));
+}
