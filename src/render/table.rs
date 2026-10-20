@@ -176,7 +176,8 @@ pub enum Rows {
     /// The lines after the first of a text cell start two cells in.
     Indent,
     /// The last line of each body row but the last is underlined, dashed,
-    /// in `color` or else the text colour, between the table's borders.
+    /// in `color` or else the text colour, between the table's borders,
+    /// except in a column where a nested table's box closes the row.
     Underline { color: Option<Color> },
     /// Every second body row on `stripe`, from border to border. A table
     /// in a striped row is drawn on `page`, so its stripes start afresh.
