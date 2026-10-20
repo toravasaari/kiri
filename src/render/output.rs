@@ -213,10 +213,10 @@ fn send(
     caps: &Capabilities,
     out: &mut impl Write,
 ) -> io::Result<graphics::ImageId> {
-    let Some(Ok(source)) = images.get(&placement.url) else {
+    let Some(Ok(source)) = images.get(&placement.key) else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("no pixels for image {}", placement.url),
+            format!("no pixels for image {}", placement.key),
         ));
     };
     let pixels = fit(source, placement.size, cell_size(caps));

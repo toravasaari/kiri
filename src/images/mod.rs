@@ -190,12 +190,43 @@ fn size(bytes: u64) -> String {
     }
 }
 
-/// Every image of a document by URL, loaded or not.
+/// What an image is made from, the key into `Images`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ImageKey {
+    /// An image file or `data:` URL, as the document gives it.
+    Url(String),
+    /// A code block drawn as an image, such as a diagram: its language and
+    /// its source.
+    Block { language: String, source: String },
+}
+
+impl From<&str> for ImageKey {
+    fn from(url: &str) -> Self {
+        ImageKey::Url(url.to_owned())
+    }
+}
+
+impl From<String> for ImageKey {
+    fn from(url: String) -> Self {
+        ImageKey::Url(url)
+    }
+}
+
+impl fmt::Display for ImageKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ImageKey::Url(url) => f.write_str(url),
+            ImageKey::Block { language, .. } => write!(f, "{language} block"),
+        }
+    }
+}
+
+/// Every image of a document by its key, loaded or not.
 #[derive(Debug, Default)]
 pub struct Images {
-    by_url: HashMap<String, Result<Source, ImageError>>,
-    /// The URLs in the order they were first inserted, the document's order.
-    order: Vec<String>,
+    by_key: HashMap<ImageKey, Result<Source, ImageError>>,
+    /// The keys in the order they were first inserted, the document's order.
+    order: Vec<ImageKey>,
 }
 
 impl Images {
@@ -203,49 +234,51 @@ impl Images {
         Self::default()
     }
 
-    /// Records the outcome of loading `url`, replacing an earlier one.
-    pub fn insert(&mut self, url: impl Into<String>, image: Result<Source, ImageError>) {
-        let url = url.into();
-        if !self.by_url.contains_key(&url) {
-            self.order.push(url.clone());
+    /// Records the outcome of loading `key`, replacing an earlier one.
+    pub fn insert(&mut self, key: impl Into<ImageKey>, image: Result<Source, ImageError>) {
+        let key = key.into();
+        if !self.by_key.contains_key(&key) {
+            self.order.push(key.clone());
         }
-        self.by_url.insert(url, image);
+        self.by_key.insert(key, image);
     }
 
-    /// The outcome for `url`, or `None` when it was never loaded.
-    pub fn get(&self, url: &str) -> Option<&Result<Source, ImageError>> {
-        self.by_url.get(url)
+    /// The outcome for `key`, or `None` when it was never loaded.
+    pub fn get(&self, key: &ImageKey) -> Option<&Result<Source, ImageError>> {
+        self.by_key.get(key)
     }
 
-    /// How many distinct URLs were loaded.
+    /// How many distinct keys were loaded.
     pub fn len(&self) -> usize {
-        self.by_url.len()
+        self.by_key.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.by_url.is_empty()
+        self.by_key.is_empty()
     }
 
-    /// Every URL and its outcome, in the order they were first inserted.
-    pub fn iter(&self) -> impl Iterator<Item = (&str, &Result<Source, ImageError>)> {
-        (self.order.iter()).map(|url| (url.as_str(), &self.by_url[url]))
+    /// Every key and its outcome, in the order they were first inserted.
+    pub fn iter(&self) -> impl Iterator<Item = (&ImageKey, &Result<Source, ImageError>)> {
+        (self.order.iter()).map(|key| (key, &self.by_key[key]))
     }
 
     /// One message for each image that did not load, in document order.
     pub fn warnings(&self) -> Vec<String> {
         self.iter()
-            .filter_map(|(url, image)| match image {
-                Ok(_) => None,
+            .filter_map(|(key, image)| match (key, image) {
+                (_, Ok(_)) => None,
                 // These name the file, resolved against the document.
-                Err(error) if error.names_file() => Some(error.to_string()),
-                Err(ImageError::NoPath) if url.is_empty() => {
+                (_, Err(error)) if error.names_file() => Some(error.to_string()),
+                (ImageKey::Url(url), Err(ImageError::NoPath)) if url.is_empty() => {
                     Some("an image URL is empty".to_owned())
                 }
                 // A data: URL is the image itself, too long for a message.
-                Err(error) if scheme(url).is_some_and(|s| s.eq_ignore_ascii_case("data")) => {
+                (ImageKey::Url(url), Err(error))
+                    if scheme(url).is_some_and(|s| s.eq_ignore_ascii_case("data")) =>
+                {
                     Some(format!("data: URL: {error}"))
                 }
-                Err(error) => Some(format!("{url}: {error}")),
+                (key, Err(error)) => Some(format!("{key}: {error}")),
             })
             .collect()
     }
@@ -265,8 +298,9 @@ pub fn load_with(document: &Document, base: &Path, max_file_size: u64, fonts: &F
     collect_blocks(&document.blocks, &mut urls);
     let mut images = Images::new();
     for url in urls {
-        if images.get(url).is_none() {
-            images.insert(url, load_url(url, base, max_file_size, fonts));
+        let key = ImageKey::from(url);
+        if images.get(&key).is_none() {
+            images.insert(key, load_url(url, base, max_file_size, fonts));
         }
     }
     images
@@ -457,7 +491,7 @@ mod tests {
         );
         let images = load(&document, &fixtures().join("images"), DEFAULT_MAX_FILE_SIZE);
         assert!(
-            matches!(images.get("pattern.png"), Some(Ok(_))),
+            matches!(images.get(&"pattern.png".into()), Some(Ok(_))),
             "{document:?}"
         );
     }
@@ -787,13 +821,18 @@ mod tests {
             &Fonts::none(),
         );
         assert_eq!(images.len(), 3);
-        assert!(images.get("images/pattern.png").unwrap().is_ok());
-        assert!(images.get("images/transparent.png").unwrap().is_ok());
+        assert!(images.get(&"images/pattern.png".into()).unwrap().is_ok());
+        assert!(
+            images
+                .get(&"images/transparent.png".into())
+                .unwrap()
+                .is_ok()
+        );
         assert!(matches!(
-            images.get("images/missing.png"),
+            images.get(&"images/missing.png".into()),
             Some(Err(ImageError::Missing(_)))
         ));
-        assert!(images.get("https://example.com").is_none());
+        assert!(images.get(&"https://example.com".into()).is_none());
     }
 
     #[test]
@@ -827,9 +866,32 @@ Text ![inline](images/pattern.png) and words.
             images.insert(url, Err(ImageError::Remote));
         }
         images.insert("a.png", Err(ImageError::InvalidData));
-        let urls: Vec<&str> = images.iter().map(|(url, _)| url).collect();
+        let urls: Vec<String> = images.iter().map(|(key, _)| key.to_string()).collect();
         assert_eq!(urls, ["b.png", "a.png", "c.png"]);
-        assert_eq!(images.get("a.png"), Some(&Err(ImageError::InvalidData)));
+        assert_eq!(
+            images.get(&"a.png".into()),
+            Some(&Err(ImageError::InvalidData))
+        );
+    }
+
+    #[test]
+    fn keeps_a_block_apart_from_a_url_with_the_same_text() {
+        let block = ImageKey::Block {
+            language: "mermaid".into(),
+            source: "a.png".into(),
+        };
+        let mut images = Images::new();
+        images.insert("a.png", Err(ImageError::Remote));
+        images.insert(block.clone(), Err(ImageError::UnknownFormat));
+        assert_eq!(images.len(), 2);
+        assert_eq!(images.get(&block), Some(&Err(ImageError::UnknownFormat)));
+        assert_eq!(
+            images.warnings(),
+            [
+                "a.png: remote images are not loaded",
+                "mermaid block: not an image format kiri knows",
+            ]
+        );
     }
 
     #[test]

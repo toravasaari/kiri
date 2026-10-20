@@ -13,6 +13,7 @@
 //! the text width still bounds it.
 
 use crate::caps::Capabilities;
+use crate::images::ImageKey;
 use crate::model::Length;
 
 /// The cell size assumed when the terminal does not report one.
@@ -148,8 +149,8 @@ fn shrink_to(shown: (f64, f64), cell: (u16, u16), max_columns: u16, max_rows: u1
 /// An image shown as a block: which one, and at what size.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Placement {
-    /// The URL the document gives, the key into `Images`.
-    pub url: String,
+    /// Which image, the key into `Images`.
+    pub key: ImageKey,
     pub size: Size,
 }
 

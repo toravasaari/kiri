@@ -12,7 +12,7 @@ use std::io::{self, Write};
 use std::rc::Rc;
 
 use crate::caps::Capabilities;
-use crate::images::{Images, Source};
+use crate::images::{ImageKey, Images, Source};
 use crate::model::{Block, Document, FrontMatter};
 use crate::render::style::Line;
 use crate::theme::Theme;
@@ -142,14 +142,15 @@ pub fn render_image(image: Source, caps: &Capabilities, out: &mut impl Write) ->
     ) else {
         return Ok(());
     };
+    let key = ImageKey::from("");
     let placement = Rc::new(image::Placement {
-        url: String::new(),
+        key: key.clone(),
         size,
     });
     let lines: Vec<Line> = (0..size.rows)
         .map(|row| Line::image(Rc::clone(&placement), row))
         .collect();
     let mut images = Images::new();
-    images.insert(String::new(), Ok(image));
+    images.insert(key, Ok(image));
     output::write(&lines, &images, caps, output::Page::default(), out)
 }

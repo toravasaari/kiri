@@ -164,7 +164,7 @@ pub fn fixture_images(name: &str) -> Images {
         &Fonts::none(),
     );
     let mut images = Images::new();
-    for (url, image) in loaded.iter() {
+    for (key, image) in loaded.iter() {
         let image = match image {
             Ok(source) => {
                 let (width, height) = source.size();
@@ -172,7 +172,7 @@ pub fn fixture_images(name: &str) -> Images {
             }
             Err(error) => Err(error.clone()),
         };
-        images.insert(url, image);
+        images.insert(key.clone(), image);
     }
     images
 }

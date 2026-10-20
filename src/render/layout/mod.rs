@@ -14,7 +14,7 @@ use super::wrap::wrap;
 use super::{FrontMatterStyle, Inputs, TableRows};
 use crate::caps::Capabilities;
 use crate::color::{Color, Underline};
-use crate::images::Images;
+use crate::images::{ImageKey, Images};
 use crate::model::{Block, Document, Image, Inline, Table};
 use crate::theme::Theme;
 
@@ -312,8 +312,8 @@ impl Layout<'_> {
             return None;
         }
         let lone = Inline::lone_image(content)?;
-        let url = &lone.url;
-        let Some(Ok(source)) = self.images.get(url) else {
+        let key = ImageKey::from(lone.url.as_str());
+        let Some(Ok(source)) = self.images.get(&key) else {
             return None;
         };
         let max_cells = self.caps.max_image_cells;
@@ -329,10 +329,7 @@ impl Layout<'_> {
             max_columns,
             max_cells,
         )?;
-        let placement = Rc::new(Placement {
-            url: url.to_owned(),
-            size,
-        });
+        let placement = Rc::new(Placement { key, size });
         Some(
             (0..size.rows)
                 .map(|row| Line::image(Rc::clone(&placement), row))
