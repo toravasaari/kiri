@@ -92,11 +92,23 @@ pub fn while_working<T>(
     let progress = Progress::default();
     std::thread::scope(|scope| {
         let shower = scope.spawn(|| progress.show(&mut out, delay));
+        // Finished also when `work` panics: the scope waits for the line's
+        // thread before it passes the panic on.
+        let finish = Finish(&progress);
         let result = work(&progress);
-        progress.finish();
+        drop(finish);
         let _ = shower.join();
         result
     })
+}
+
+/// Tells the line that the work is over when dropped.
+struct Finish<'a>(&'a Progress);
+
+impl Drop for Finish<'_> {
+    fn drop(&mut self) {
+        self.0.finish();
+    }
 }
 
 #[cfg(test)]
@@ -174,6 +186,31 @@ mod tests {
         );
         assert!(text.contains(&format!("{WIPE}{}", line(2, 3))), "{text:?}");
         assert!(text.ends_with(&format!("…{WIPE}")), "{text:?}");
+    }
+
+    #[test]
+    fn work_that_panics_ends_the_line_and_passes_the_panic_on() {
+        let out = Shared::default();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let shown = out.clone();
+        // In a thread of its own, so that a hang fails the test.
+        std::thread::spawn(move || {
+            let result = std::panic::catch_unwind(|| {
+                while_working(shown.clone(), Duration::ZERO, |progress| {
+                    progress.update(0, 1);
+                    shown.wait_for("0/1");
+                    panic!("drawing failed");
+                })
+            });
+            let _ = sender.send(result.is_err());
+        });
+        let panicked = receiver.recv_timeout(Duration::from_secs(5));
+        assert_eq!(panicked, Ok(true));
+        assert!(
+            out.text().ends_with(&format!("…{WIPE}")),
+            "{:?}",
+            out.text()
+        );
     }
 
     #[test]
