@@ -435,17 +435,24 @@ fn longest_together(cell: &[Span]) -> usize {
         .unwrap_or(0)
 }
 
+/// A rule across the table: its ends, and between them the rule itself.
 fn border_line(widths: &[usize], [left, middle, right]: [&str; 3], style: &Style) -> Line {
     let segments: Vec<String> = widths.iter().map(|w| "─".repeat(w + 2)).collect();
-    let text = format!("{left}{}{right}", segments.join(middle));
-    Line::new(vec![Span::new(&text, style.clone())])
+    Line::new(vec![
+        Span::new(left, style.clone()),
+        Span::new(&segments.join(middle), style.clone()),
+        Span::new(right, style.clone()),
+    ])
 }
 
-/// `line` with `background` behind every span without a background of
-/// its own.
+/// `line` of a table with `background` behind every span without a
+/// background of its own, but for its first and last, the table's own
+/// borders: a background behind them would stick out half a cell past the
+/// lines they draw.
 fn painted(mut line: Line, background: Option<Color>) -> Line {
     if background.is_some() {
-        for span in &mut line.spans {
+        let inside = 1..line.spans.len().saturating_sub(1);
+        for span in line.spans.get_mut(inside).into_iter().flatten() {
             span.style.bg = span.style.bg.or(background);
         }
     }
@@ -1113,11 +1120,14 @@ mod tests {
         assert_eq!(text(&lines).len(), 7);
         for (index, line) in lines.iter().enumerate() {
             let expected = if index == 4 { Some(STRIPE) } else { None };
-            // From border to border, the borders between columns included.
-            assert!(
-                backgrounds(line).iter().all(|bg| *bg == expected),
-                "{index}: {line:?}"
-            );
+            // Between the table's own borders, the border between columns
+            // included; the outer borders keep the page, as a stripe there
+            // would stick out half a cell past the box.
+            let bgs = backgrounds(line);
+            let (first, last) = (bgs.first().copied(), bgs.last().copied());
+            let inside = bgs.get(1..bgs.len().saturating_sub(1)).unwrap_or_default();
+            assert_eq!((first, last), (Some(None), Some(None)), "{index}: {line:?}");
+            assert!(inside.iter().all(|bg| *bg == expected), "{index}: {line:?}");
         }
     }
 
@@ -1138,29 +1148,28 @@ mod tests {
                 "╰───┴───────────╯",
             ]
         );
-        let inner_backgrounds = |line: &Line| {
-            // The spans of the inner table: all but the outer row's own
-            // border, key cell and padding at each end.
-            let bgs = backgrounds(line);
-            bgs[5..bgs.len() - 2].to_vec()
+        // The background of each cell of a line.
+        let cells = |line: &Line| -> Vec<Option<Color>> {
+            (line.spans.iter())
+                .flat_map(|span| span.text.chars().map(|_| span.style.bg))
+                .collect()
         };
-        // The outer row is striped around the inner table.
-        assert_eq!(backgrounds(&lines[3])[..5], [Some(STRIPE); 5]);
-        // The inner table is drawn on the page, its second row striped.
-        assert!(
-            inner_backgrounds(&lines[3])
-                .iter()
-                .all(|bg| *bg == Some(PAGE)),
-            "{:?}",
-            lines[3]
+        let (s, p) = (Some(STRIPE), Some(PAGE));
+        // The outer row is striped from inside its left border to inside its
+        // right one, the inner table's own borders included; inside them
+        // the inner table is drawn on the page, its second row striped.
+        assert_eq!(
+            cells(&lines[3]),
+            [None, s, s, s, s, s, s, p, p, p, p, p, p, p, s, s, None]
         );
-        assert!(
-            inner_backgrounds(&lines[4])
-                .iter()
-                .all(|bg| *bg == Some(STRIPE)),
-            "{:?}",
-            lines[4]
+        assert_eq!(
+            cells(&lines[4]),
+            [None, s, s, s, s, s, s, s, s, s, s, s, s, s, s, s, None]
         );
-        assert!(backgrounds(&lines[1]).iter().all(Option::is_none));
+        assert_eq!(
+            cells(&lines[2]),
+            [None, s, s, s, s, s, s, p, p, p, p, p, p, p, s, s, None]
+        );
+        assert!(cells(&lines[1]).iter().all(Option::is_none));
     }
 }
