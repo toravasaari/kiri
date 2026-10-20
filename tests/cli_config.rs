@@ -298,3 +298,76 @@ fn the_paging_flags_exclude_each_other() {
         );
     }
 }
+
+/// A document with front matter, and the Markdown after it.
+const FRONT_MATTER: &str = "---\ntitle: A\n---\nBody\n";
+
+#[test]
+fn front_matter_is_a_table_unless_the_flag_says_otherwise() {
+    let dir = Scratch::new("front-matter-flag");
+    let shown = |args: &[&str]| {
+        let out = kiri(&dir, FRONT_MATTER, &[&["--mode", "plain"], args].concat());
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        text(&out.stdout)
+    };
+    let table = "  ╭───────┬───╮\n  │ title │ A │\n  ╰───────┴───╯\n\n  Body\n";
+    assert_eq!(shown(&[]), table);
+    assert_eq!(shown(&["--front-matter", "table"]), table);
+    assert_eq!(
+        shown(&["--front-matter", "code"]),
+        "    title: A\n\n  Body\n"
+    );
+    assert_eq!(shown(&["--front-matter", "hide"]), "  Body\n");
+    // Off, the text is Markdown: a thematic break and a heading.
+    let off = shown(&["--front-matter", "off"]);
+    assert!(off.contains("## title: A\n"), "{off}");
+    let out = kiri(&dir, FRONT_MATTER, &["--front-matter", "list"]);
+    assert!(!out.status.success());
+    assert!(text(&out.stderr).contains("invalid value 'list'"));
+}
+
+#[test]
+fn front_matter_comes_from_the_environment_and_the_configuration_file() {
+    let dir = Scratch::new("front-matter-setting");
+    let document = dir.join("document.md");
+    std::fs::write(&document, FRONT_MATTER).unwrap();
+    let shown = |command: &mut std::process::Command| {
+        let out = command
+            .args(["--mode", "plain"])
+            .arg(&document)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        (text(&out.stdout), text(&out.stderr))
+    };
+    write(
+        &dir.join("config/kiri/config.toml"),
+        "front_matter = \"hide\"\n",
+    );
+    assert_eq!(shown(&mut command(&dir)).0, "  Body\n");
+    let (out, _) = shown(command(&dir).env("KIRI_FRONT_MATTER", "code"));
+    assert_eq!(out, "    title: A\n\n  Body\n");
+    let (out, _) = shown(
+        command(&dir)
+            .env("KIRI_FRONT_MATTER", "code")
+            .args(["--front-matter", "table"]),
+    );
+    assert!(out.contains("│ title │ A │"), "{out}");
+    let (out, warning) = shown(command(&dir).env("KIRI_FRONT_MATTER", "joo"));
+    assert_eq!(out, "  Body\n");
+    assert_eq!(
+        warning,
+        "kiri: KIRI_FRONT_MATTER: `joo` is not table, code, hide or off; left out\n"
+    );
+}
+
+#[test]
+fn front_matter_that_does_not_parse_is_a_warning_only_as_a_table() {
+    let dir = Scratch::new("front-matter-invalid");
+    let source = "---\ntags: [unclosed\n---\nBody\n";
+    let warning = |args: &[&str]| text(&kiri(&dir, source, args).stderr);
+    assert!(warning(&[]).starts_with("kiri: front matter: "));
+    for style in ["code", "hide", "off"] {
+        assert_eq!(warning(&["--front-matter", style]), "", "{style}");
+    }
+}

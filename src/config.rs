@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::render::FrontMatterStyle;
 use crate::theme::{Paper, Theme};
 
 /// The environment variables kiri reads for its settings.
@@ -26,6 +27,8 @@ pub struct Environment {
     pub kiri_no_images: Option<OsString>,
     /// `KIRI_PAGING`: `always`, `auto` or `never`, or `1` or `0`.
     pub kiri_paging: Option<OsString>,
+    /// `KIRI_FRONT_MATTER`: `table`, `code`, `hide` or `off`.
+    pub kiri_front_matter: Option<OsString>,
     /// `NO_COLOR`: colours off unless empty.
     pub no_color: Option<OsString>,
     /// `COLORTERM`: 24-bit colour when `truecolor` or `24bit`.
@@ -49,6 +52,7 @@ impl Environment {
             kiri_theme: std::env::var_os("KIRI_THEME"),
             kiri_no_images: std::env::var_os("KIRI_NO_IMAGES"),
             kiri_paging: std::env::var_os("KIRI_PAGING"),
+            kiri_front_matter: std::env::var_os("KIRI_FRONT_MATTER"),
             no_color: std::env::var_os("NO_COLOR"),
             colorterm: std::env::var_os("COLORTERM"),
             term: std::env::var_os("TERM"),
@@ -95,6 +99,8 @@ pub struct Config {
     pub paging: Option<Paging>,
     /// How a search in the pager treats case.
     pub search_case: Option<SearchCase>,
+    /// How front matter shows.
+    pub front_matter: Option<FrontMatter>,
 }
 
 /// When the document is shown in the pager rather than printed.
@@ -109,6 +115,43 @@ pub enum Paging {
     Auto,
     /// Never: the document is printed.
     Never,
+}
+
+/// How the front matter at the start of a Markdown document shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FrontMatter {
+    /// A table of its keys and values, as GitHub shows it.
+    Table,
+    /// A code block in its language, as GitLab shows it.
+    Code,
+    /// Not at all.
+    Hide,
+    /// Not recognised: the document is Markdown from its first line.
+    Off,
+}
+
+impl FrontMatter {
+    /// The value as kiri writes it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Table => "table",
+            Self::Code => "code",
+            Self::Hide => "hide",
+            Self::Off => "off",
+        }
+    }
+
+    /// How the renderer shows recognised front matter; `None` when it is
+    /// not to be recognised.
+    pub fn style(self) -> Option<FrontMatterStyle> {
+        match self {
+            Self::Table => Some(FrontMatterStyle::Table),
+            Self::Code => Some(FrontMatterStyle::Code),
+            Self::Hide => Some(FrontMatterStyle::Hide),
+            Self::Off => None,
+        }
+    }
 }
 
 /// How a search in the pager treats upper and lower case.
@@ -188,6 +231,7 @@ pub fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String
         images: file.images,
         paging: file.paging,
         search_case: file.search_case,
+        front_matter: file.front_matter,
     })
 }
 
@@ -198,6 +242,7 @@ struct ConfigToml {
     images: Option<bool>,
     paging: Option<Paging>,
     search_case: Option<SearchCase>,
+    front_matter: Option<FrontMatter>,
 }
 
 /// Where a setting comes from.
@@ -339,6 +384,60 @@ pub fn paging(
     (setting, warning)
 }
 
+/// How front matter shows and where that comes from, strongest first:
+/// the command line (`option`, from `--front-matter`), then
+/// `KIRI_FRONT_MATTER`, then the configuration file; `table` unless one
+/// says otherwise. `KIRI_FRONT_MATTER` takes `table`, `code`, `hide` and
+/// `off`; empty is unset. Any other value is left out with the warning
+/// returned beside the setting.
+pub fn front_matter(
+    option: Option<FrontMatter>,
+    env: &Environment,
+    config: &Config,
+) -> (Setting<FrontMatter>, Option<String>) {
+    if let Some(front_matter) = option {
+        return (
+            Setting::new(front_matter, Origin::Flag("--front-matter")),
+            None,
+        );
+    }
+    let variable = env
+        .kiri_front_matter
+        .as_ref()
+        .filter(|value| !value.is_empty());
+    let mut warning = None;
+    if let Some(value) = variable {
+        let all = [
+            FrontMatter::Table,
+            FrontMatter::Code,
+            FrontMatter::Hide,
+            FrontMatter::Off,
+        ];
+        match all
+            .into_iter()
+            .find(|style| value.to_str() == Some(style.name()))
+        {
+            Some(front_matter) => {
+                return (
+                    Setting::new(front_matter, Origin::Environment("KIRI_FRONT_MATTER")),
+                    None,
+                );
+            }
+            None => {
+                warning = Some(format!(
+                    "KIRI_FRONT_MATTER: `{}` is not table, code, hide or off; left out",
+                    value.to_string_lossy()
+                ))
+            }
+        }
+    }
+    let setting = match config.front_matter {
+        Some(front_matter) => Setting::new(front_matter, Origin::File),
+        None => Setting::new(FrontMatter::Table, Origin::Default),
+    };
+    (setting, warning)
+}
+
 /// What the command line asks for; `None` where it leaves the choice to
 /// the environment and the configuration file.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -353,6 +452,8 @@ pub struct Options {
     pub images: Option<bool>,
     /// `--paging`, `-p` or `-P`, with the flag it came from.
     pub paging: Option<Setting<Paging>>,
+    /// `--front-matter`.
+    pub front_matter: Option<FrontMatter>,
 }
 
 /// What the options, the environment and the configuration file choose
@@ -370,6 +471,8 @@ pub struct Settings {
     pub paging: Paging,
     /// How a search in the pager treats case.
     pub search_case: SearchCase,
+    /// How front matter shows.
+    pub front_matter: FrontMatter,
 }
 
 /// What the options, the environment and the configuration file choose,
@@ -387,6 +490,8 @@ pub struct Choices {
     pub paging: Setting<Paging>,
     /// How a search in the pager treats case.
     pub search_case: Setting<SearchCase>,
+    /// How front matter shows.
+    pub front_matter: Setting<FrontMatter>,
     /// What the user should know about settings that were left out.
     pub warnings: Vec<String>,
 }
@@ -405,13 +510,15 @@ impl Choices {
             images: self.images.value,
             paging: self.paging.value,
             search_case: self.search_case.value,
+            front_matter: self.front_matter.value,
         }
     }
 }
 
 /// What `options`, `env` and `config` choose.
 pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices {
-    let (paging, warning) = paging(options.paging.clone(), env, config);
+    let (paging, paging_warning) = paging(options.paging.clone(), env, config);
+    let (front_matter, front_matter_warning) = front_matter(options.front_matter, env, config);
     Choices {
         theme: theme_source(options.theme.as_deref(), options.paper, env, config),
         paper: options.paper,
@@ -425,7 +532,11 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
             Some(case) => Setting::new(case, Origin::File),
             None => Setting::new(SearchCase::Smart, Origin::Default),
         },
-        warnings: warning.into_iter().collect(),
+        front_matter,
+        warnings: [paging_warning, front_matter_warning]
+            .into_iter()
+            .flatten()
+            .collect(),
     }
 }
 
@@ -903,6 +1014,110 @@ mod tests {
         assert_eq!(choices.search_case, literal);
         let settings = choices.with_theme(Theme::default());
         assert_eq!(settings.search_case, SearchCase::Literal);
+    }
+
+    #[test]
+    fn the_front_matter_key_takes_table_code_hide_or_off() {
+        let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
+        for (text, front_matter) in [
+            ("front_matter = \"table\"\n", FrontMatter::Table),
+            ("front_matter = \"code\"\n", FrontMatter::Code),
+            ("front_matter = \"hide\"\n", FrontMatter::Hide),
+            ("front_matter = \"off\"\n", FrontMatter::Off),
+        ] {
+            let config = parsed(text).unwrap();
+            assert_eq!(config.front_matter, Some(front_matter), "{text}");
+        }
+        assert!(parsed("front_matter = \"list\"\n").is_err());
+        assert!(parsed("front_matter = false\n").is_err());
+        assert!(parsed("front-matter = \"code\"\n").is_err());
+    }
+
+    fn with_front_matter(front_matter: FrontMatter) -> Config {
+        Config {
+            front_matter: Some(front_matter),
+            ..Config::default()
+        }
+    }
+
+    fn front_matter_env(value: &str) -> Environment {
+        Environment {
+            kiri_front_matter: Some(value.into()),
+            ..Environment::default()
+        }
+    }
+
+    #[test]
+    fn front_matter_is_a_table_by_default() {
+        let (chosen, warning) = front_matter(None, &Environment::default(), &Config::default());
+        assert_eq!(chosen, Setting::new(FrontMatter::Table, Origin::Default));
+        assert_eq!(warning, None);
+    }
+
+    #[test]
+    fn the_command_line_front_matter_is_strongest() {
+        let (chosen, _) = front_matter(
+            Some(FrontMatter::Hide),
+            &front_matter_env("code"),
+            &with_front_matter(FrontMatter::Off),
+        );
+        let flag = Origin::Flag("--front-matter");
+        assert_eq!(chosen, Setting::new(FrontMatter::Hide, flag));
+    }
+
+    #[test]
+    fn kiri_front_matter_comes_before_the_configuration_file() {
+        for (value, expected) in [
+            ("table", FrontMatter::Table),
+            ("code", FrontMatter::Code),
+            ("hide", FrontMatter::Hide),
+            ("off", FrontMatter::Off),
+        ] {
+            let config = with_front_matter(FrontMatter::Code);
+            let (chosen, warning) = front_matter(None, &front_matter_env(value), &config);
+            let origin = Origin::Environment("KIRI_FRONT_MATTER");
+            assert_eq!(chosen, Setting::new(expected, origin), "{value}");
+            assert_eq!(warning, None, "{value}");
+        }
+    }
+
+    #[test]
+    fn an_empty_kiri_front_matter_leaves_it_to_the_configuration_file() {
+        let config = with_front_matter(FrontMatter::Code);
+        let (chosen, warning) = front_matter(None, &front_matter_env(""), &config);
+        assert_eq!(chosen, Setting::new(FrontMatter::Code, Origin::File));
+        assert_eq!(warning, None);
+    }
+
+    #[test]
+    fn an_unknown_kiri_front_matter_is_left_out_with_a_warning() {
+        let config = with_front_matter(FrontMatter::Hide);
+        let (chosen, warning) = front_matter(None, &front_matter_env("Code"), &config);
+        assert_eq!(chosen, Setting::new(FrontMatter::Hide, Origin::File));
+        assert_eq!(
+            warning.as_deref(),
+            Some("KIRI_FRONT_MATTER: `Code` is not table, code, hide or off; left out")
+        );
+    }
+
+    #[test]
+    fn the_choices_carry_the_front_matter_and_both_warnings() {
+        let env = Environment {
+            kiri_paging: Some("joo".into()),
+            kiri_front_matter: Some("joo".into()),
+            ..Environment::default()
+        };
+        let config = with_front_matter(FrontMatter::Off);
+        let choices = choose(&Options::default(), &env, &config);
+        assert_eq!(
+            choices.front_matter,
+            Setting::new(FrontMatter::Off, Origin::File)
+        );
+        assert_eq!(choices.warnings.len(), 2, "{:?}", choices.warnings);
+        let settings = choices.with_theme(Theme::default());
+        assert_eq!(settings.front_matter, FrontMatter::Off);
+        assert_eq!(settings.front_matter.style(), None);
+        assert_eq!(FrontMatter::Code.style(), Some(FrontMatterStyle::Code));
     }
 
     fn no_options() -> Options {

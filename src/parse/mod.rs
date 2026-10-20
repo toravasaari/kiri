@@ -12,7 +12,14 @@ use crate::model::{AlertKind, Alignment, Block, Document, Image, Inline, List, L
 
 /// Parses Markdown that may start with front matter.
 pub fn parse(source: &str) -> Document {
-    let (front_matter, markdown) = match front_matter::split(source) {
+    parse_with(source, true)
+}
+
+/// Parses Markdown, with or without recognising `front_matter` at its
+/// start.
+pub fn parse_with(source: &str, front_matter: bool) -> Document {
+    let split = front_matter.then(|| front_matter::split(source)).flatten();
+    let (front_matter, markdown) = match split {
         Some((front_matter, markdown)) => (Some(Block::FrontMatter(front_matter)), markdown),
         None => (None, source),
     };
@@ -379,6 +386,27 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn front_matter_off_leaves_the_text_to_markdown() {
+        let source = "---\ntitle: A\n---\n# Body\n";
+        let document = parse_with(source, false);
+        assert_eq!(
+            document.blocks,
+            vec![
+                Block::ThematicBreak,
+                Block::Heading {
+                    level: 2,
+                    content: vec![text("title: A")],
+                },
+                Block::Heading {
+                    level: 1,
+                    content: vec![text("Body")],
+                },
+            ]
+        );
+        assert_eq!(parse_with(source, true), parse(source));
     }
 
     #[test]

@@ -98,6 +98,12 @@ struct Cli {
     #[arg(short = 'P')]
     no_pager: bool,
 
+    /// How front matter, the metadata block at the start of a Markdown
+    /// file, shows: as a table, as a code block, hidden, or off, read as
+    /// Markdown.
+    #[arg(long, value_enum, value_name = "STYLE")]
+    front_matter: Option<FrontMatter>,
+
     /// Largest image file to read, in megabytes (at most 100); larger
     /// images show their alt text.
     #[arg(long, value_name = "MB", default_value_t = 10, value_parser = max_image_size)]
@@ -157,6 +163,26 @@ impl From<Paging> for kiri::config::Paging {
             Paging::Always => Self::Always,
             Paging::Auto => Self::Auto,
             Paging::Never => Self::Never,
+        }
+    }
+}
+
+/// `config::FrontMatter` for clap.
+#[derive(Clone, Copy, ValueEnum)]
+enum FrontMatter {
+    Table,
+    Code,
+    Hide,
+    Off,
+}
+
+impl From<FrontMatter> for kiri::config::FrontMatter {
+    fn from(front_matter: FrontMatter) -> Self {
+        match front_matter {
+            FrontMatter::Table => Self::Table,
+            FrontMatter::Code => Self::Code,
+            FrontMatter::Hide => Self::Hide,
+            FrontMatter::Off => Self::Off,
         }
     }
 }
@@ -259,12 +285,17 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), String> {
     let document = match input {
         Input::Table(separator) => kiri::parse::csv::parse(&source, separator)
             .map_err(|error| format!("{}: {error}", path.display()))?,
-        _ => kiri::parse::parse(&source),
+        _ => {
+            let style = settings.front_matter.style();
+            let document = kiri::parse::parse_with(&source, style.is_some());
+            let warning =
+                style.and_then(|style| kiri::render::front_matter_warning(&document, style));
+            if let Some(warning) = warning {
+                eprintln!("kiri: {warning}");
+            }
+            document
+        }
     };
-    let front_matter = kiri::render::FrontMatterStyle::default();
-    if let Some(warning) = kiri::render::front_matter_warning(&document, front_matter) {
-        eprintln!("kiri: {warning}");
-    }
     // Images in a piped document are relative to the current directory.
     let base = file.and_then(Path::parent).unwrap_or(Path::new(""));
     show_document(
@@ -315,6 +346,7 @@ fn show_document(
     let mut inputs = Inputs {
         images,
         theme: settings.theme,
+        front_matter: settings.front_matter.style().unwrap_or_default(),
         ..Inputs::new(caps)
     };
     if let Some(result) = page(
@@ -535,5 +567,6 @@ fn options(cli: &Cli) -> Options {
             (_, _, true) => Some(Setting::new(Paging::Never.into(), Origin::Flag("-P"))),
             _ => None,
         },
+        front_matter: cli.front_matter.map(Into::into),
     }
 }
