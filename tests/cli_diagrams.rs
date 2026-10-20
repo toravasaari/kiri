@@ -318,3 +318,13 @@ fn slow_diagrams_show_their_progress_on_a_terminal() {
     assert_eq!(stderr, "");
     assert_eq!(sent(&stdout).len(), 1);
 }
+
+#[test]
+fn slow_diagrams_show_no_progress_when_stderr_is_not_a_terminal() {
+    let dir = Scratch::new("mermaid-progress-piped");
+    let config = external(&dir, &format!("sleep 0.8\n{DRAWS}"));
+    let out = with_settings(&dir, FLOWCHART, &[], None, &config);
+    assert!(out.status.success());
+    assert_eq!(text(&out.stderr), "");
+    assert_eq!(sent(&text(&out.stdout)).len(), 1);
+}
