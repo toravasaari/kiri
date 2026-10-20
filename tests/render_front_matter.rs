@@ -177,8 +177,7 @@ fn front_matter_that_does_not_parse_is_a_warning() {
     assert!(out.status.success());
     assert_eq!(
         text(&out.stderr),
-        "kiri: front matter: while parsing a flow sequence, \
-         expected ',' or ']' at byte 57 line 3 column 1\n"
+        "kiri: front matter, line 4: while parsing a flow sequence, expected ',' or ']'\n"
     );
     assert!(text(&out.stdout).contains("tags: [does, not, close"));
 }

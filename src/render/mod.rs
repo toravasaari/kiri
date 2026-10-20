@@ -53,7 +53,7 @@ pub fn front_matter_warning(document: &Document, style: FrontMatterStyle) -> Opt
         Some(Block::FrontMatter(FrontMatter {
             value: Some(Err(error)),
             ..
-        })) if style == FrontMatterStyle::Table => Some(format!("front matter: {error}")),
+        })) if style == FrontMatterStyle::Table => Some(error.to_string()),
         _ => None,
     }
 }

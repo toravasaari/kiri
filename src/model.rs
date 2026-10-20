@@ -55,7 +55,26 @@ pub struct FrontMatter {
     pub source: String,
     /// What YAML, TOML or JSON source holds, or why it could not be read;
     /// `None` for other languages.
-    pub value: Option<Result<Value, String>>,
+    pub value: Option<Result<Value, FrontMatterError>>,
+}
+
+/// Why front matter could not be read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FrontMatterError {
+    /// The line of the file the parser stopped at, counting from 1, when
+    /// the parser tells.
+    pub line: Option<usize>,
+    /// The parser's message, without a position.
+    pub message: String,
+}
+
+impl std::fmt::Display for FrontMatterError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.line {
+            Some(line) => write!(f, "front matter, line {line}: {}", self.message),
+            None => write!(f, "front matter: {}", self.message),
+        }
+    }
 }
 
 /// A value in front matter, whatever format it was written in.

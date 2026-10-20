@@ -1,7 +1,7 @@
 //! Front matter: a block of metadata at the very start of a file, between
 //! two delimiter lines, as Jekyll, Hugo and GitLab read it.
 
-use crate::model::{FrontMatter, Value};
+use crate::model::{FrontMatter, FrontMatterError, Value};
 
 /// The delimiters and the language each one stands for.
 const DELIMITERS: [(&str, &str); 3] = [("---", "yaml"), ("+++", "toml"), (";;;", "json")];
@@ -29,7 +29,8 @@ pub fn split(source: &str) -> Option<(FrontMatter, &str)> {
     for line in lines.by_ref() {
         if line == delimiter {
             let front_matter = FrontMatter {
-                value: value(language, &text),
+                // The block starts on the file's second line.
+                value: value(language, &text).map(|value| value.map_err(|error| below(error, 1))),
                 language: language.to_owned(),
                 source: text,
             };
@@ -41,10 +42,19 @@ pub fn split(source: &str) -> Option<(FrontMatter, &str)> {
     None
 }
 
+/// `error` in a block that starts after `lines` lines of the file.
+fn below(error: FrontMatterError, lines: usize) -> FrontMatterError {
+    FrontMatterError {
+        line: error.line.map(|line| line + lines),
+        ..error
+    }
+}
+
 /// What `source` in `language` holds: `None` for a language other than
 /// YAML, TOML or JSON, an error message for source that does not parse.
 /// Blank source, or YAML with only comments, is an empty map.
-fn value(language: &str, source: &str) -> Option<Result<Value, String>> {
+/// The line of an error counts from the first line of `source`.
+fn value(language: &str, source: &str) -> Option<Result<Value, FrontMatterError>> {
     let read = match language.to_ascii_lowercase().as_str() {
         "yaml" | "yml" => yaml,
         "toml" => toml,
@@ -59,8 +69,12 @@ fn value(language: &str, source: &str) -> Option<Result<Value, String>> {
 
 /// The first YAML document in `source`, with aliases taking the value of
 /// their anchors.
-fn yaml(source: &str) -> Result<Value, String> {
-    let documents = yaml_rust2::YamlLoader::load_from_str(source).map_err(|e| e.to_string())?;
+fn yaml(source: &str) -> Result<Value, FrontMatterError> {
+    let documents =
+        yaml_rust2::YamlLoader::load_from_str(source).map_err(|error| FrontMatterError {
+            line: Some(error.marker().line()),
+            message: error.info().to_owned(),
+        })?;
     Ok(match documents.into_iter().next() {
         Some(document) => from_yaml(document),
         None => Value::Map(Vec::new()),
@@ -102,8 +116,11 @@ fn yaml_key(key: yaml_rust2::Yaml) -> String {
     }
 }
 
-fn toml(source: &str) -> Result<Value, String> {
-    let table: toml::Table = toml::from_str(source).map_err(|e| e.to_string())?;
+fn toml(source: &str) -> Result<Value, FrontMatterError> {
+    let table: toml::Table = toml::from_str(source).map_err(|error| FrontMatterError {
+        line: (error.span()).map(|span| source[..span.start].matches('\n').count() + 1),
+        message: error.message().trim_end().to_owned(),
+    })?;
     Ok(from_toml(toml::Value::Table(table)))
 }
 
@@ -124,8 +141,19 @@ fn from_toml(toml: toml::Value) -> Value {
     }
 }
 
-fn json(source: &str) -> Result<Value, String> {
-    let json = serde_json::from_str(source).map_err(|e| e.to_string())?;
+fn json(source: &str) -> Result<Value, FrontMatterError> {
+    let json = serde_json::from_str(source).map_err(|error| {
+        // The message ends in the position, which the line replaces.
+        let message = error.to_string();
+        let position = format!(" at line {} column {}", error.line(), error.column());
+        FrontMatterError {
+            line: (error.line() > 0).then_some(error.line()),
+            message: message
+                .strip_suffix(&position)
+                .unwrap_or(&message)
+                .to_owned(),
+        }
+    })?;
     Ok(from_json(json))
 }
 
@@ -440,22 +468,43 @@ mod tests {
         assert_eq!(value("yaml", "# a comment\n"), Some(Ok(map(&[]))));
     }
 
+    fn error(line: usize, message: &str) -> Option<Result<Value, FrontMatterError>> {
+        Some(Err(FrontMatterError {
+            line: Some(line),
+            message: message.into(),
+        }))
+    }
+
     #[test]
-    fn content_that_does_not_parse_keeps_the_parsers_message() {
+    fn content_that_does_not_parse_keeps_the_parsers_message_and_line() {
         assert_eq!(
-            value("yaml", "title: [unclosed\n"),
-            Some(Err(
-                "while parsing a flow sequence, expected ',' or ']' at byte 17 line 2 column 1"
-                    .into()
-            ))
+            value("yaml", "title: A\ntags: [unclosed\n"),
+            error(3, "while parsing a flow sequence, expected ',' or ']'")
         );
+        assert_eq!(value("json", "{\n\"a\": }"), error(2, "expected value"));
         assert_eq!(
-            value("json", "{\"a\": }"),
-            Some(Err("expected value at line 1 column 7".into()))
+            value("toml", "a = 1\nb = \n"),
+            error(2, "string values must be quoted, expected literal string")
         );
-        let Some(Err(error)) = value("toml", "a = \n") else {
-            panic!("expected an error");
-        };
-        assert!(error.starts_with("TOML parse error at line 1"), "{error}");
+    }
+
+    #[test]
+    fn the_line_of_an_error_counts_from_the_start_of_the_file() {
+        let (front_matter, _) = super::split("---\ntitle: A\ntags: [unclosed\n---\n").unwrap();
+        assert_eq!(
+            front_matter.value,
+            error(4, "while parsing a flow sequence, expected ',' or ']'")
+        );
+        // A byte order mark takes no line.
+        let (front_matter, _) = super::split("\u{feff};;;\n{\n\"a\": }\n;;;\n").unwrap();
+        assert_eq!(front_matter.value, error(3, "expected value"));
+        assert_eq!(
+            FrontMatterError {
+                line: Some(4),
+                message: "expected value".into()
+            }
+            .to_string(),
+            "front matter, line 4: expected value"
+        );
     }
 }

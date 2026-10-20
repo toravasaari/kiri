@@ -366,7 +366,7 @@ fn front_matter_that_does_not_parse_is_a_warning_only_as_a_table() {
     let dir = Scratch::new("front-matter-invalid");
     let source = "---\ntags: [unclosed\n---\nBody\n";
     let warning = |args: &[&str]| text(&kiri(&dir, source, args).stderr);
-    assert!(warning(&[]).starts_with("kiri: front matter: "));
+    assert!(warning(&[]).starts_with("kiri: front matter, line 3: "));
     for style in ["code", "hide", "off"] {
         assert_eq!(warning(&["--front-matter", style]), "", "{style}");
     }
