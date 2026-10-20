@@ -144,7 +144,12 @@ pub fn layout(cells: &Cells, max: usize, styles: &Styles) -> Vec<Line> {
         lines.extend(row_lines(&header, &widths, &cells.alignments, styles));
         lines.push(border_line(&widths, ["├", "┼", "┤"], border));
     }
-    for row in &cells.rows {
+    for (index, row) in cells.rows.iter().enumerate() {
+        // Each row of a header column is an entry of its own; a rule tells
+        // a value of two lines from two entries.
+        if cells.header_column && index > 0 {
+            lines.push(border_line(&widths, ["├", "┼", "┤"], border));
+        }
         lines.extend(row_lines(row, &widths, &cells.alignments, styles));
     }
     lines.push(border_line(&widths, ["╰", "┴", "╯"], border));
@@ -755,6 +760,7 @@ mod tests {
             vec![
                 "╭──────┬────────────────╮",
                 "│ name │ kiri           │",
+                "├──────┼────────────────┤",
                 "│ tags │ docs, terminal │",
                 "╰──────┴────────────────╯",
             ]
@@ -776,8 +782,10 @@ mod tests {
             vec![
                 "╭────────┬──────────────────────────────────╮",
                 "│ title  │ Notes on a long and winding road │",
+                "├────────┼──────────────────────────────────┤",
                 "│ author │ ╭──────┬─────────────╮           │",
                 "│        │ │ name │ Aino        │           │",
+                "│        │ ├──────┼─────────────┤           │",
                 "│        │ │ site │ example.com │           │",
                 "│        │ ╰──────┴─────────────╯           │",
                 "╰────────┴──────────────────────────────────╯",
@@ -793,8 +801,10 @@ mod tests {
                 "╭────────┬─────────────────────────╮",
                 "│ title  │ Notes on a long and     │",
                 "│        │ winding road            │",
+                "├────────┼─────────────────────────┤",
                 "│ author │ ╭──────┬─────────────╮  │",
                 "│        │ │ name │ Aino        │  │",
+                "│        │ ├──────┼─────────────┤  │",
                 "│        │ │ site │ example.com │  │",
                 "│        │ ╰──────┴─────────────╯  │",
                 "╰────────┴─────────────────────────╯",
@@ -838,11 +848,13 @@ mod tests {
                 "╭──────────┬───────────────────╮",
                 "│ features │ ╭───────┬──────╮  │",
                 "│          │ │ title │ Fast │  │",
+                "│          │ ├───────┼──────┤  │",
                 "│          │ │ icon  │ ⚡   │  │",
                 "│          │ ╰───────┴──────╯  │",
                 "│          │ and               │",
                 "│          │ ╭───────┬───────╮ │",
                 "│          │ │ title │ Small │ │",
+                "│          │ ├───────┼───────┤ │",
                 "│          │ │ icon  │ ⚡    │ │",
                 "│          │ ╰───────┴───────╯ │",
                 "╰──────────┴───────────────────╯",
@@ -885,6 +897,7 @@ mod tests {
                 "│ description │ How the    │",
                 "│             │ build is   │",
                 "│             │ set up     │",
+                "├─────────────┼────────────┤",
                 "│ robots      │            │",
                 "╰─────────────┴────────────╯",
             ]
@@ -918,7 +931,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            cell_text(&stops.lines(21, &styles()))[4],
+            cell_text(&stops.lines(21, &styles()))[5],
             "╭──────┬────────────╮"
         );
     }
