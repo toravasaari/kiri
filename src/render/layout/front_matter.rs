@@ -2,9 +2,9 @@
 
 use super::Layout;
 use crate::model::{FrontMatter, Value};
-use crate::render::FrontMatterStyle;
 use crate::render::style::{Line, Spaces, Span, Style};
 use crate::render::table::{self, Cell, Cells};
+use crate::render::{FrontMatterStyle, highlight};
 
 /// The deepest table: the top table is level 1, a table in one of its
 /// cells level 2. Values nested deeper show as YAML-like text.
@@ -88,9 +88,47 @@ impl Layout<'_> {
             Value::Map(_) | Value::List(_) => {
                 let mut yaml = String::new();
                 write_yaml(value, 0, &mut yaml);
-                text(yaml.trim_end(), Spaces::Keep)
+                self.yaml_code(&yaml)
             }
             scalar => text(self::scalar(scalar).unwrap_or_default(), Spaces::Collapse),
+        }
+    }
+
+    /// `yaml` as code in a cell: highlighted on the code background as a
+    /// fenced ```yaml block is, or as it is written without colour.
+    fn yaml_code(&self, yaml: &str) -> Cell {
+        let highlighted = if self.caps.styling && self.caps.color {
+            highlight::highlight(yaml, Some("yaml"), self.code_theme())
+        } else {
+            None
+        };
+        let Some(highlighted) = highlighted else {
+            return Cell::Code {
+                lines: (yaml.lines())
+                    .map(|line| vec![Span::new(line, Style::default())])
+                    .collect(),
+                fill: Style::default(),
+            };
+        };
+        let fill = Style {
+            bg: highlighted.background,
+            ..Style::default()
+        };
+        Cell::Code {
+            lines: (highlighted.lines.into_iter())
+                .map(|line| {
+                    (line.into_iter())
+                        .map(|span| Span {
+                            style: Style {
+                                bg: highlighted.background,
+                                ..span.style
+                            },
+                            ..span
+                        })
+                        .collect()
+                })
+                .collect(),
+            fill,
         }
     }
 }

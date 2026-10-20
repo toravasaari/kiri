@@ -181,3 +181,28 @@ fn front_matter_that_does_not_parse_is_a_warning() {
     );
     assert!(text(&out.stdout).contains("tags: [does, not, close"));
 }
+
+#[test]
+fn values_past_the_third_level_look_like_yaml_code() {
+    let source = "---\na:\n  b:\n    c:\n      d: 1\n      e: [x]\n---\n";
+    let inputs = styled(Capabilities::kitty(WIDTH), FrontMatterStyle::Table);
+    let out = visible(&render(source, &inputs));
+    // The key `d` in the code theme's key colour on its background, as in
+    // a fenced ```yaml block, which has the same colours.
+    let code = visible(&render("```yaml\nd: 1\n```\n", &inputs));
+    let key = "␛[0;38;2;191;97;106;48;2;43;48;59md";
+    assert!(code.contains(key), "{code}");
+    assert!(out.contains(key), "{out}");
+    // The background fills the cell to its border.
+    let line = out.lines().find(|line| line.contains("me␛")).unwrap();
+    assert!(
+        line.contains(":␛[0;48;2;43;48;59m   ␛[0m ␛[0;90m│"),
+        "{line}"
+    );
+    // Without colour it is plain text, indented as written.
+    let plain = styled(Capabilities::plain(WIDTH), FrontMatterStyle::Table);
+    let out = render(source, &plain);
+    assert!(out.contains("│ d: 1  │"), "{out}");
+    assert!(out.contains("│ e:    │"), "{out}");
+    assert!(out.contains("│   - x │"), "{out}");
+}

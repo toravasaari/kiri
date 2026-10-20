@@ -3,7 +3,7 @@
 use unicode_width::UnicodeWidthStr;
 
 use super::style::{self, Line, Span, Style, push};
-use super::wrap::{keeps_together, width, words, wrap};
+use super::wrap::{keeps_together, split, width, words, wrap};
 use crate::model::Alignment;
 
 /// Cells as styled spans; rows may be shorter than the header.
@@ -26,6 +26,9 @@ pub enum Cell {
     Table(Cells),
     /// Text and tables one under another.
     Stack(Vec<Cell>),
+    /// Lines of code, kept as written and split where they are too long,
+    /// each filled to the column's width in `fill`, as a code block is.
+    Code { lines: Vec<Vec<Span>>, fill: Style },
 }
 
 impl From<Vec<Span>> for Cell {
@@ -41,6 +44,7 @@ impl Cell {
             Self::Text(spans) => width(spans),
             Self::Table(cells) => natural_width(cells),
             Self::Stack(parts) => parts.iter().map(Cell::natural).max().unwrap_or(0),
+            Self::Code { lines, .. } => code_width(lines),
         }
     }
 
@@ -53,6 +57,7 @@ impl Cell {
                 .max()
                 .unwrap_or(0),
             Self::Stack(parts) => parts.iter().map(Cell::floor).max().unwrap_or(0),
+            Self::Code { lines, .. } => code_width(lines).min(SHORT_WORD),
         }
     }
 
@@ -63,6 +68,8 @@ impl Cell {
             Self::Text(spans) => longest_together(spans),
             Self::Table(cells) => boxed_floor(cells),
             Self::Stack(parts) => parts.iter().map(Cell::together).max().unwrap_or(0),
+            // Code split at the edge reads badly.
+            Self::Code { lines, .. } => code_width(lines),
         }
     }
 
@@ -74,6 +81,14 @@ impl Cell {
                 .map(|line| line.spans)
                 .collect(),
             Self::Stack(parts) => stack_lines(parts, max, styles),
+            Self::Code { lines, fill } => (lines.iter())
+                .flat_map(|line| split(line, max))
+                .map(|mut line| {
+                    let used = width(&line);
+                    push(&mut line, &" ".repeat(max.saturating_sub(used)), fill);
+                    line
+                })
+                .collect(),
         }
     }
 
@@ -82,8 +97,14 @@ impl Cell {
             Self::Text(spans) => is_empty(spans),
             Self::Table(cells) => cells.rows.is_empty(),
             Self::Stack(parts) => parts.iter().all(Cell::is_empty),
+            Self::Code { lines, .. } => lines.iter().all(|line| is_empty(line)),
         }
     }
+}
+
+/// The width of the longest line of code.
+fn code_width(lines: &[Vec<Span>]) -> usize {
+    lines.iter().map(|line| width(line)).max().unwrap_or(0)
 }
 
 /// The lines of a stack in `max` cells. Its tables are all boxes, or all
@@ -933,6 +954,39 @@ mod tests {
         assert_eq!(
             cell_text(&stops.lines(21, &styles()))[5],
             "╭──────┬────────────╮"
+        );
+    }
+
+    #[test]
+    fn code_in_a_cell_keeps_its_spaces_and_fills_the_column() {
+        let fill = Style {
+            italic: true,
+            ..Style::default()
+        };
+        let code = Cell::Code {
+            lines: vec![
+                cell("flags:"),
+                cell("  opt: 3"),
+                cell("  name: a-long-name"),
+            ],
+            fill: fill.clone(),
+        };
+        let lines = code.lines(12, &styles());
+        assert_eq!(
+            cell_text(&lines),
+            vec![
+                "flags:      ",
+                "  opt: 3    ",
+                "  name: a-lo",
+                "ng-name     "
+            ]
+        );
+        assert_eq!(lines[0][1], Span::new("      ", fill));
+        // It is as wide as its longest line, and would rather not split.
+        let cells = keyed(vec![("linux", code)]);
+        assert_eq!(
+            text(&layout(&cells, 80, &styles()))[1],
+            "│ linux │ flags:              │"
         );
     }
 }

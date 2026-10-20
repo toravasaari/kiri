@@ -136,7 +136,7 @@ impl Layout<'_> {
         }
     }
 
-    fn code_theme(&self) -> &str {
+    pub(super) fn code_theme(&self) -> &str {
         if self.caps.dark_background.unwrap_or(true) {
             &self.theme.code_theme_dark
         } else {
