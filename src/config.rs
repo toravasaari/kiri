@@ -29,7 +29,7 @@ pub struct Environment {
     pub kiri_paging: Option<OsString>,
     /// `KIRI_FRONT_MATTER`: `table`, `code`, `hide` or `off`.
     pub kiri_front_matter: Option<OsString>,
-    /// `KIRI_TABLE_ROWS`: `off`, `zebra` or `lines`.
+    /// `KIRI_TABLE_ROWS`: `off`, `zebra`, `lines`, `indent` or `underline`.
     pub kiri_table_rows: Option<OsString>,
     /// `NO_COLOR`: colours off unless empty.
     pub no_color: Option<OsString>,
@@ -413,9 +413,9 @@ pub fn front_matter(
 /// How the rows of a table are told apart and where that comes from,
 /// strongest first: the command line (`option`, from `--table-rows`),
 /// then `KIRI_TABLE_ROWS`, then the configuration file; `zebra` unless one
-/// says otherwise. `KIRI_TABLE_ROWS` takes `off`, `zebra` and `lines`;
-/// empty is unset. Any other value is left out with the warning returned
-/// beside the setting.
+/// says otherwise. `KIRI_TABLE_ROWS` takes `off`, `zebra`, `lines`,
+/// `indent` and `underline`; empty is unset. Any other value is left out
+/// with the warning returned beside the setting.
 pub fn table_rows(
     option: Option<TableRows>,
     env: &Environment,
