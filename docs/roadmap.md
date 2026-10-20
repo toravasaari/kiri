@@ -372,10 +372,11 @@ split once it is worked on.
 - Editing support: an editor and kiri side by side in kitty with live reload,
   and a key to open the editor at the current position.
 
-## Uncategorized
+## Uncategorized (extras)
 
 Ideas not yet placed in a part, from small polish to features; a line or
-two is enough. Each time a part of the roadmap is finished, the list is
+two is enough. Also called extras: an idea "for the extras" goes here.
+Each time a part of the roadmap is finished, the list is
 sorted: an item moves to a part or to Bugs, or is dropped, and done items
 go.
 
