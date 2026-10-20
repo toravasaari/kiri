@@ -386,6 +386,16 @@ mod tests {
     }
 
     #[test]
+    fn yaml_after_a_document_end_marker_is_left_out() {
+        // `...` ends the YAML document; what follows would be a second one,
+        // which front matter does not show.
+        assert_eq!(
+            value("yaml", "a: 1\n...\nb: 2\n"),
+            Some(Ok(map(&[("a", number("1"))])))
+        );
+    }
+
+    #[test]
     fn reads_toml_in_source_order() {
         let source = "title = \"Notes\"\nweight = 2\nratio = 1.5\nwhole = 1.0\n\
                       date = 2026-10-20\ndraft = true\n\
