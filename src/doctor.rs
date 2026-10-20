@@ -223,6 +223,12 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
         SearchCase::Literal => "literal",
     };
     row(out, &["Search case", case, &from(search_case.origin)])?;
+    let front_matter = &choices.front_matter;
+    let style = front_matter.value.name();
+    row(out, &["Front matter", style, &from(front_matter.origin)])?;
+    let rows = &choices.table_rows;
+    let name = rows.value.name();
+    row(out, &["Table rows", name, &from(rows.origin)])?;
     let size = &facts.max_image_size;
     let mb = format!("{} MB", size.value);
     row(out, &["Largest image", &mb, &from(size.origin)])?;
@@ -333,6 +339,8 @@ fn variable<'a>(env: &'a Environment, name: &str) -> Option<&'a OsStr> {
         "KIRI_THEME" => env.kiri_theme.as_deref(),
         "KIRI_NO_IMAGES" => env.kiri_no_images.as_deref(),
         "KIRI_PAGING" => env.kiri_paging.as_deref(),
+        "KIRI_FRONT_MATTER" => env.kiri_front_matter.as_deref(),
+        "KIRI_TABLE_ROWS" => env.kiri_table_rows.as_deref(),
         "KIRI_CONFIG" => env.kiri_config.as_deref(),
         "XDG_CONFIG_HOME" => env.xdg_config_home.as_deref(),
         _ => None,

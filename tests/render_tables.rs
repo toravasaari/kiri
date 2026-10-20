@@ -1,11 +1,12 @@
 //! Tables: borders, column widths and stacking.
 
 use kiri::caps::Capabilities;
-use kiri::render::Inputs;
+use kiri::color::Color;
+use kiri::render::{Inputs, TableRows};
 
 mod common;
 
-use common::{WIDTH, fixture, inputs, render, render_for, visible};
+use common::{WIDTH, fixture, inputs, render, render_for, strip_own_sequences, visible};
 use kiri::parse::csv::Separator;
 
 #[test]
@@ -143,4 +144,136 @@ fn kitty_tsv_file() {
         Separator::Tab,
         Capabilities::kitty(WIDTH)
     )));
+}
+
+/// kitty with the terminal's colours known, as the probe finds them.
+fn kitty_on(background: (u8, u8, u8), foreground: (u8, u8, u8)) -> Capabilities {
+    let mut caps = Capabilities::kitty(WIDTH);
+    caps.background = Some(Color::Rgb(background.0, background.1, background.2));
+    caps.foreground = Some(Color::Rgb(foreground.0, foreground.1, foreground.2));
+    caps
+}
+
+const ROWS: &str =
+    "| City | Notes |\n|---|---|\n| Helsinki | Capital |\n| Oulu | North |\n| Turku | West |\n";
+
+fn with_rows(caps: Capabilities, rows: TableRows) -> Inputs {
+    Inputs {
+        table_rows: rows,
+        ..Inputs::new(caps)
+    }
+}
+
+#[test]
+fn table_rows_are_striped_by_default_a_little_towards_the_text_colour() {
+    // A dark page gets a lighter stripe, a light page a darker one.
+    for (caps, stripe) in [
+        (kitty_on((0, 0, 0), (200, 200, 200)), "48;2;12;12;12m"),
+        (kitty_on((255, 255, 255), (31, 35, 40)), "48;2;242;242;242m"),
+    ] {
+        let out = render(ROWS, &Inputs::new(caps));
+        let lines: Vec<&str> = out.lines().collect();
+        // The second body row, Oulu, is striped; the others are not, and
+        // no rules go between them.
+        assert!(lines[4].contains("Oulu"), "{out}");
+        assert!(lines[4].contains(stripe), "{}", visible(lines[4]));
+        for line in [lines[3], lines[5]] {
+            assert!(!line.contains("48;2;"), "{}", visible(line));
+        }
+        assert_eq!(lines.len(), 7, "{out}");
+    }
+}
+
+#[test]
+fn zebra_draws_nothing_where_stripes_cannot_show() {
+    let plain = "│ Helsinki │ Capital │\n  │ Oulu ";
+    // Plain text, colours unknown, no colours, no 24-bit colour.
+    let mut no_color = kitty_on((0, 0, 0), (200, 200, 200));
+    no_color.color = false;
+    let mut no_truecolor = kitty_on((0, 0, 0), (200, 200, 200));
+    no_truecolor.truecolor = false;
+    for caps in [
+        Capabilities::plain(WIDTH),
+        Capabilities::kitty(WIDTH),
+        no_color,
+        no_truecolor,
+    ] {
+        let out = render(ROWS, &Inputs::new(caps));
+        assert!(!out.contains("48;2;"), "{}", visible(&out));
+        let out = strip_own_sequences(&out);
+        assert!(out.contains(plain), "{out}");
+    }
+}
+
+#[test]
+fn table_rows_take_lines_or_nothing_as_asked() {
+    let caps = kitty_on((0, 0, 0), (200, 200, 200));
+    let out = render(ROWS, &with_rows(caps.clone(), TableRows::Lines));
+    let out = strip_own_sequences(&out);
+    assert!(out.contains("│ Helsinki │ Capital │\n  ├"), "{out}");
+    let out = render(ROWS, &with_rows(caps, TableRows::Off));
+    assert!(!out.contains("48;2;"), "{}", visible(&out));
+    let out = strip_own_sequences(&out);
+    assert!(out.contains("│ Helsinki │ Capital │\n  │ Oulu"), "{out}");
+}
+
+#[test]
+fn inline_styles_keep_their_colours_on_a_striped_row() {
+    let source = "| A | B |\n|---|---|\n| x | y |\n\
+                  | `code` [link](https://example.com) <mark>marked</mark> | z |\n";
+    let inputs = Inputs::new(kitty_on((0, 0, 0), (200, 200, 200)));
+    let striped = visible(&render(source, &inputs));
+    let row = striped.lines().find(|line| line.contains("code")).unwrap();
+    let alone = visible(&render(
+        "`code` [link](https://example.com) <mark>marked</mark>\n",
+        &inputs,
+    ));
+    // The style written just before `word`.
+    let style = |text: &str, word: &str| {
+        let at = text.find(&format!("m{word}")).unwrap();
+        text[..at].rsplit('␛').next().unwrap().to_owned()
+    };
+    // Inline code and the mark keep their own colours.
+    assert_eq!(style(row, "⍽code"), style(&alone, "⍽code"));
+    assert_eq!(style(row, "marked"), style(&alone, "marked"));
+    // The link keeps its colour, on the stripe.
+    assert_eq!(
+        style(row, "link"),
+        format!("{};48;2;12;12;12", style(&alone, "link"))
+    );
+}
+
+#[test]
+fn every_underlined_cell_of_a_row_has_one_underline_colour() {
+    use kiri::color::Underline;
+    let source = "| A | B |\n|---|---|\n\
+                  | **key** `code` [link](https://example.com) | y |\n| z | w |\n";
+    let inputs = with_rows(Capabilities::kitty(WIDTH), TableRows::Underline);
+    let lines = kiri::render::layout::layout(&kiri::parse::parse(source), &inputs);
+    let row = lines
+        .iter()
+        .find(|line| line.spans.iter().any(|span| span.text.contains("link")))
+        .unwrap();
+    let colours: Vec<_> = (row.spans.iter())
+        .filter(|span| span.style.underline != Underline::None)
+        .map(|span| (span.text.clone(), span.style.underline_color))
+        .collect();
+    // The text, the padding, the border between the columns, the code and
+    // the link: all underlined in the table border's colour.
+    assert!(colours.len() >= 6, "{colours:?}");
+    let border = inputs.theme.table_border;
+    assert!(border.is_some());
+    for (text, colour) in &colours {
+        assert_eq!(*colour, border, "{text:?} in {colours:?}");
+    }
+}
+
+#[test]
+fn underline_draws_nothing_where_its_colour_cannot_show() {
+    // Without underline styles there is no underline colour either, and
+    // each cell's underline would take its own text colour.
+    let caps = Capabilities::ansi(WIDTH);
+    assert!(caps.color && !caps.styled_underlines);
+    let out = render(ROWS, &with_rows(caps.clone(), TableRows::Underline));
+    assert_eq!(out, render(ROWS, &with_rows(caps, TableRows::Off)));
 }

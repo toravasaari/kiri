@@ -9,6 +9,9 @@ pub struct Document {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Block {
+    /// Metadata at the very start of a file, as static site generators
+    /// and agent skills write it.
+    FrontMatter(FrontMatter),
     Heading {
         level: u8,
         content: Vec<Inline>,
@@ -41,6 +44,50 @@ pub enum Block {
     /// A note of kiri's own about the document rather than part of it,
     /// such as how many rows of a table were left out.
     Note(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FrontMatter {
+    /// `yaml`, `toml` or `json` from the delimiter, or the language
+    /// written after it, as in `---php`.
+    pub language: String,
+    /// The text between the delimiter lines, each line ending in `\n`.
+    pub source: String,
+    /// What YAML, TOML or JSON source holds, or why it could not be read;
+    /// `None` for other languages.
+    pub value: Option<Result<Value, FrontMatterError>>,
+}
+
+/// Why front matter could not be read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FrontMatterError {
+    /// The line of the file the parser stopped at, counting from 1, when
+    /// the parser tells.
+    pub line: Option<usize>,
+    /// The parser's message, without a position.
+    pub message: String,
+}
+
+impl std::fmt::Display for FrontMatterError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.line {
+            Some(line) => write!(f, "front matter, line {line}: {}", self.message),
+            None => write!(f, "front matter: {}", self.message),
+        }
+    }
+}
+
+/// A value in front matter, whatever format it was written in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Value {
+    String(String),
+    /// A number as its format gives it, such as `1.10` in YAML.
+    Number(String),
+    Bool(bool),
+    Null,
+    List(Vec<Value>),
+    /// Keys and their values in the order the source gives them.
+    Map(Vec<(String, Value)>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

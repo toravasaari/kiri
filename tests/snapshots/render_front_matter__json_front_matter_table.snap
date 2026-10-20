@@ -1,0 +1,23 @@
+---
+source: tests/render_front_matter.rs
+expression: "render_with(\"front-matter-json.md\", Capabilities::plain(WIDTH),\nFrontMatterStyle::Table)"
+---
+  ╭─────────┬────────────────────────────────╮
+  │ title   │ Configuring the build          │
+  │ layout  │ doc                            │
+  │ sidebar │ true                           │
+  │ order   │ 3                              │
+  │ authors │ Leena, Ossi                    │
+  │ meta    │ ╭─────────────┬──────────────╮ │
+  │         │ │ description │ How the      │ │
+  │         │ │             │ build is set │ │
+  │         │ │             │ up and where │ │
+  │         │ │             │ its settings │ │
+  │         │ │             │ live.        │ │
+  │         │ │ robots      │              │ │
+  │         │ ╰─────────────┴──────────────╯ │
+  ╰─────────┴────────────────────────────────╯
+
+# Configuring the build
+
+  Front matter in JSON, between `;;;` lines.

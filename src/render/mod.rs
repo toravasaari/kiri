@@ -13,7 +13,7 @@ use std::rc::Rc;
 
 use crate::caps::Capabilities;
 use crate::images::{Images, Source};
-use crate::model::Document;
+use crate::model::{Block, Document, FrontMatter};
 use crate::render::style::Line;
 use crate::theme::Theme;
 
@@ -28,6 +28,70 @@ pub struct Inputs {
     pub caps: Capabilities,
     /// Colours, sizes and margins.
     pub theme: Theme,
+    /// How front matter shows.
+    pub front_matter: FrontMatterStyle,
+    /// How the rows of a table are told apart.
+    pub table_rows: TableRows,
+}
+
+/// How the rows of a table drawn as a box are told apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TableRows {
+    /// Not at all.
+    Off,
+    /// Every second row on a background a little towards the text colour;
+    /// nothing where that colour cannot be known or shown.
+    #[default]
+    Zebra,
+    /// A rule between the rows.
+    Lines,
+    /// The lines after the first of a wrapped value start two cells in, so
+    /// that a new row is one that starts at the edge of its cell.
+    Indent,
+    /// The last line of each row but the last is underlined, dashed, in
+    /// the border colour; nothing where the terminal has no underline
+    /// colours, as each cell's underline would take its own text colour.
+    Underline,
+}
+
+impl TableRows {
+    /// The value as kiri writes it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Zebra => "zebra",
+            Self::Lines => "lines",
+            Self::Indent => "indent",
+            Self::Underline => "underline",
+        }
+    }
+}
+
+/// How front matter shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FrontMatterStyle {
+    /// As GitHub shows it: a table of keys and values, with tables in it
+    /// for nested values.
+    #[default]
+    Table,
+    /// As GitLab shows it: a code block in its language.
+    Code,
+    /// Not at all.
+    Hide,
+}
+
+/// The warning for `document`'s front matter shown as `style`: the
+/// parser's message when its YAML, TOML or JSON does not parse and it is
+/// to be a table.
+pub fn front_matter_warning(document: &Document, style: FrontMatterStyle) -> Option<String> {
+    match document.blocks.first() {
+        Some(Block::FrontMatter(FrontMatter {
+            value: Some(Err(error)),
+            ..
+        })) if style == FrontMatterStyle::Table => Some(error.to_string()),
+        _ => None,
+    }
 }
 
 impl Inputs {
@@ -37,6 +101,8 @@ impl Inputs {
             images: Images::new(),
             caps,
             theme: Theme::default(),
+            front_matter: FrontMatterStyle::default(),
+            table_rows: TableRows::default(),
         }
     }
 }

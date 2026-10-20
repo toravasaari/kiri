@@ -288,7 +288,8 @@ fn collect_blocks<'a>(blocks: &'a [Block], urls: &mut Vec<&'a str>) {
                     collect_blocks(&item.blocks, urls);
                 }
             }
-            Block::Heading { .. }
+            Block::FrontMatter(_)
+            | Block::Heading { .. }
             | Block::Table(_)
             | Block::CodeBlock { .. }
             | Block::ThematicBreak
