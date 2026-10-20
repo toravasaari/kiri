@@ -1190,13 +1190,14 @@ mod tests {
     }
 
     #[test]
-    fn the_table_rows_key_takes_off_zebra_or_lines() {
+    fn the_table_rows_key_takes_each_value() {
         let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
         for (text, rows) in [
             ("table_rows = \"off\"\n", TableRows::Off),
             ("table_rows = \"zebra\"\n", TableRows::Zebra),
             ("table_rows = \"lines\"\n", TableRows::Lines),
             ("table_rows = \"indent\"\n", TableRows::Indent),
+            ("table_rows = \"underline\"\n", TableRows::Underline),
         ] {
             assert_eq!(parsed(text).unwrap().table_rows, Some(rows), "{text}");
         }
