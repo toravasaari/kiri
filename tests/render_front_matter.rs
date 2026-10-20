@@ -190,7 +190,7 @@ fn values_past_the_third_level_look_like_yaml_code() {
     // The key `d` in the code theme's key colour on its background, as in
     // a fenced ```yaml block, which has the same colours.
     let code = visible(&render("```yaml\nd: 1\n```\n", &inputs));
-    let key = "␛[0;38;2;191;97;106;48;2;43;48;59md";
+    let key = "␛[0;38;2;205;130;137;48;2;43;48;59md";
     assert!(code.contains(key), "{code}");
     assert!(out.contains(key), "{out}");
     // The background fills the cell to its border.
