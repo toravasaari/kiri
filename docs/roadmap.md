@@ -392,6 +392,9 @@ go.
   key, as GitHub used to draw it.
 - Only the front matter of a document, without its body, as a value of
   the front matter setting or a flag of its own.
+- Front matter tables: tell a list's items from a nested map, such as a
+  muted `1.` line above each item's table or the number in its top
+  border. Tried on `feature/front-matter`; the line survives stacking.
 
 ## Bugs
 
