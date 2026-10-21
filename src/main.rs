@@ -14,6 +14,7 @@ use kiri::images::{Fonts, Format, Images};
 use kiri::input::Input;
 use kiri::model::Document;
 use kiri::render::Inputs;
+use kiri::term::Interrupt;
 use kiri::theme::{Paper, Theme};
 
 /// Render a Markdown document, or show an image, in the terminal.
@@ -267,10 +268,26 @@ fn main() -> ExitCode {
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
+        Err(Failure::Error(error)) => {
             eprintln!("kiri: {error}");
             ExitCode::FAILURE
         }
+        // As a shell ends a command that Ctrl-C stopped.
+        Err(Failure::Interrupted) => ExitCode::from(130),
+    }
+}
+
+/// Why kiri ends without doing what it was asked.
+enum Failure {
+    /// An error, which kiri tells.
+    Error(String),
+    /// Ctrl-C stopped it.
+    Interrupted,
+}
+
+impl From<String> for Failure {
+    fn from(error: String) -> Self {
+        Failure::Error(error)
     }
 }
 
@@ -280,7 +297,7 @@ const STDIN: &str = "<stdin>";
 
 /// Shows the file at `path`, the README of a directory there, or standard
 /// input without one.
-fn run(cli: &Cli, file: Option<&Path>) -> Result<(), String> {
+fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     let readme;
     let file = match file {
         Some(dir) if dir.is_dir() => {
@@ -305,7 +322,13 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), String> {
         .format
         .unwrap_or_else(|| kiri::input::detect(path, &head));
     if let Input::Image(format) = input {
-        return show_image(cli, path, format, Cursor::new(head).chain(reader), &env);
+        return Ok(show_image(
+            cli,
+            path,
+            format,
+            Cursor::new(head).chain(reader),
+            &env,
+        )?);
     }
     let mut bytes = head;
     reader.read_to_end(&mut bytes).map_err(failed)?;
@@ -378,24 +401,34 @@ fn show_document(
     settings: Settings,
     mut caps: Capabilities,
     env: &Environment,
-) -> Result<(), String> {
+) -> Result<(), Failure> {
     let base = file.and_then(Path::parent).unwrap_or(Path::new(""));
     // The page decides, whatever the terminal's background is.
     if let Some(paper) = settings.paper {
         caps.dark_background = Some(paper == Paper::Dark);
     }
+    // Ctrl-C while programs draw diagrams stops them first.
+    let mut interrupt = None;
     // Images are read only when the user wants them and the terminal can
     // show them; otherwise they are alt text, without warnings.
     let images = if settings.images && caps.draws_images() {
         let max_file_size = cli.max_image_size * kiri::images::MB;
-        let renderers;
+        let mut renderers = None;
+        if settings.diagrams {
+            let search = kiri::diagrams::find::Search::new(env);
+            let mut chosen = Renderers::chosen(&settings.diagram_commands, &search);
+            if chosen.runs_programs() {
+                interrupt = Interrupt::catch();
+                if let Some(interrupt) = &interrupt {
+                    chosen = chosen.stopped_by(interrupt.flag());
+                }
+            }
+            renderers = Some(chosen);
+        }
         let diagrams = Diagrams {
-            renderer: if settings.diagrams {
-                let search = kiri::diagrams::find::Search::new(env);
-                renderers = Renderers::chosen(&settings.diagram_commands, &search);
-                &renderers
-            } else {
-                &NoRenderer
+            renderer: match &renderers {
+                Some(renderers) => renderers,
+                None => &NoRenderer,
             },
             theme: kiri::diagrams::Theme::for_page(caps.dark_background),
             by_line: file.is_some(),
@@ -416,6 +449,12 @@ fn show_document(
         } else {
             load(&diagrams)
         };
+        if let Some(interrupt) = &interrupt {
+            if interrupt.came() {
+                return Err(Failure::Interrupted);
+            }
+            interrupt.release();
+        }
         for warning in images.warnings() {
             eprintln!("kiri: {warning}");
         }
@@ -437,11 +476,14 @@ fn show_document(
         &mut inputs,
         settings.paging,
         settings.search_case,
+        &mut interrupt,
     ) {
-        return finish(result);
+        return Ok(finish(result)?);
     }
     let mut out = io::stdout().lock();
-    finish(kiri::render::render(document, &inputs, &mut out).and_then(|()| out.flush()))
+    Ok(finish(
+        kiri::render::render(document, &inputs, &mut out).and_then(|()| out.flush()),
+    )?)
 }
 
 /// `paging` for a document that is paged only when paging is `always`:
@@ -457,7 +499,8 @@ fn only_always(paging: kiri::config::Paging) -> kiri::config::Paging {
 
 /// Shows `document` in the pager when `paging` asks for it and the output
 /// is a terminal that takes escape sequences; `None` when it is to be
-/// printed instead. A search in the pager treats case as `case` says.
+/// printed instead. A search in the pager treats case as `case` says. The
+/// pager catches Ctrl-C itself, so `interrupt` goes before it opens.
 fn page(
     cli: &Cli,
     document: &Document,
@@ -465,6 +508,7 @@ fn page(
     inputs: &mut Inputs,
     paging: kiri::config::Paging,
     case: kiri::config::SearchCase,
+    interrupt: &mut Option<Interrupt>,
 ) -> Option<io::Result<()>> {
     let terminal = kiri::term::stdout_is_terminal() && inputs.caps.styling;
     if !terminal || paging == kiri::config::Paging::Never {
@@ -476,6 +520,9 @@ fn page(
     if !kiri::pager::pages(paging, terminal, rows, height) {
         return None;
     }
+    // Ctrl-C would otherwise end kiri before the pager restores the
+    // terminal.
+    drop(interrupt.take());
     let Some(mut screen) = kiri::term::Screen::open() else {
         // Without a terminal to read keys from, as in the background, the
         // document is printed; only a reader who asked for the pager is
@@ -530,7 +577,7 @@ fn show_image(
 /// otherwise or with `--raw`.
 /// Problems with the configuration file and the theme are part of the
 /// report instead of errors, and kiri goes on without them.
-fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), String> {
+fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), Failure> {
     let env = Environment::from_process();
     let (config, config_error) = match kiri::config::load(&env) {
         Ok(config) => (config, None),
@@ -563,10 +610,10 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), String> {
     });
     if output != Output::Rendered {
         let mut out = io::stdout().lock();
-        return finish(
+        return Ok(finish(
             out.write_all(markdown.as_bytes())
                 .and_then(|()| out.flush()),
-        );
+        )?);
     }
     let document = kiri::parse::parse(&markdown);
     let mut settings = choices.with_theme(theme);
@@ -584,13 +631,13 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), String> {
 
 /// Writes the emoji shortcodes: a rendered document for a terminal, one
 /// line per emoji otherwise.
-fn list_emojis(cli: &Cli) -> Result<(), String> {
+fn list_emojis(cli: &Cli) -> Result<(), Failure> {
     if !kiri::term::stdout_is_terminal() {
         let mut out = io::stdout().lock();
-        return finish(
+        return Ok(finish(
             out.write_all(kiri::list::emoji_lines().as_bytes())
                 .and_then(|()| out.flush()),
-        );
+        )?);
     }
     let env = Environment::from_process();
     let config = kiri::config::load(&env)?;

@@ -234,7 +234,9 @@ without a path is looked for on `PATH`.
 Each diagram may take 10 seconds, and up to four are drawn at once. When
 drawing takes longer than half a second, a line such as
 `kiri: rendering diagrams 2/5…` on the terminal tells how far it has
-got, and is wiped before the document is shown. A program that fails,
+got, and is wiped before the document is shown. Ctrl-C meanwhile stops
+the programs, removes their files and ends kiri with status 130, as a
+shell ends a command that Ctrl-C stopped. A program that fails,
 runs out of time or writes no SVG leaves its diagram as code with a
 warning; kiri does not fall back to drawing it itself, so that a
 command that does not work shows.

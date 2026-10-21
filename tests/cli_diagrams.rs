@@ -332,3 +332,90 @@ fn slow_diagrams_show_no_progress_when_stderr_is_not_a_terminal() {
     assert_eq!(text(&out.stderr), "");
     assert_eq!(sent(&text(&out.stdout)).len(), 1);
 }
+
+/// Whether the processes in `pids` have all ended, or are zombies being
+/// reaped, within 2 s.
+fn all_gone(pids: &[String]) -> bool {
+    let start = std::time::Instant::now();
+    loop {
+        let alive = pids.iter().any(|pid| {
+            let stat = std::path::Path::new("/proc").join(pid).join("stat");
+            std::fs::read_to_string(stat).is_ok_and(|stat| {
+                stat.rsplit_once(") ")
+                    .is_some_and(|(_, state)| !state.starts_with('Z'))
+            })
+        });
+        if !alive {
+            return true;
+        }
+        if start.elapsed() > std::time::Duration::from_secs(2) {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn ctrl_c_stops_the_programs_removes_their_files_and_ends_kiri() {
+    use rustix::process::{Pid, Signal, kill_process};
+    use std::time::{Duration, Instant};
+
+    let dir = Scratch::new("mermaid-interrupt");
+    let started = dir.join("started");
+    // Each diagram's program starts a program of its own and waits for it.
+    let script = format!("sleep 30 &\necho $! >> '{}'\nwait\n", started.display());
+    common::write(
+        &dir.join("config/kiri/config.toml"),
+        &external(&dir, &script),
+    );
+    let source = format!("{FLOWCHART}\n```mermaid\nsequenceDiagram\n```\n");
+    let document = dir.join("document.md");
+    std::fs::write(&document, source).unwrap();
+    let temp = dir.join("temp");
+    std::fs::create_dir_all(&temp).unwrap();
+    let mut kiri = common::command(&dir)
+        .env("TMPDIR", &temp)
+        .args(["--mode", "kitty"])
+        .arg(&document)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let pids = || -> Vec<String> {
+        let started = std::fs::read_to_string(&started).unwrap_or_default();
+        started.lines().map(str::to_owned).collect()
+    };
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while pids().len() < 2 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(pids().len(), 2, "both programs start");
+    let pid = Pid::from_raw(kiri.id() as i32).unwrap();
+    kill_process(pid, Signal::INT).unwrap();
+    // kiri gets 10 s at most, so a hanging kiri fails the test instead of
+    // hanging it.
+    let status = loop {
+        if let Some(status) = kiri.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() > deadline {
+            kiri.kill().unwrap();
+            panic!("kiri did not end");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let out = kiri.wait_with_output().unwrap();
+    let gone = all_gone(&pids());
+    if !gone {
+        for pid in pids() {
+            let _ = std::process::Command::new("kill").arg(pid).status();
+        }
+    }
+    // As a shell ends on Ctrl-C.
+    assert_eq!(status.code(), Some(130), "{status:?}");
+    assert_eq!(text(&out.stderr), "");
+    assert_eq!(text(&out.stdout), "");
+    assert!(gone, "the programs' own programs still run");
+    let left: Vec<_> = std::fs::read_dir(&temp).unwrap().collect();
+    assert!(left.is_empty(), "{left:?}");
+}

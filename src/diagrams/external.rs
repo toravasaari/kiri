@@ -14,7 +14,8 @@ use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{self, ExitStatus, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use super::{Drawn, Renderer, Theme};
@@ -61,6 +62,8 @@ pub struct External {
     temp: PathBuf,
     /// How many directories this renderer has made, to name the next one.
     made: AtomicUsize,
+    /// Set when the programs are to stop, such as on Ctrl-C.
+    stop: Option<Arc<AtomicBool>>,
 }
 
 impl External {
@@ -73,7 +76,22 @@ impl External {
             time_limit: TIME_LIMIT,
             temp: std::env::temp_dir(),
             made: AtomicUsize::new(0),
+            stop: None,
         }
+    }
+
+    /// This renderer stopping its programs, and starting no more, once
+    /// `stop` is set.
+    pub fn stopped_by(self, stop: Arc<AtomicBool>) -> Self {
+        External {
+            stop: Some(stop),
+            ..self
+        }
+    }
+
+    /// Whether the programs are to stop.
+    fn stopped(&self) -> bool {
+        (self.stop.as_ref()).is_some_and(|stop| stop.load(Ordering::SeqCst))
     }
 
     /// This renderer stopping each program after `limit`.
@@ -121,6 +139,9 @@ impl External {
         theme: Theme,
     ) -> Result<String, String> {
         let program = command.program();
+        if self.stopped() {
+            return Err(format!("{program} was not started: interrupted"));
+        }
         let dir = self
             .temp_dir()
             .map_err(|error| format!("cannot make a directory for {program}: {error}"))?;
@@ -168,11 +189,13 @@ impl External {
         let child = child
             .spawn()
             .map_err(|error| format!("{}: {error}", argv[0]))?;
-        let status = wait(child, self.time_limit).map_err(|error| match error {
+        let stop = || self.stopped();
+        let status = wait(child, self.time_limit, &stop).map_err(|error| match error {
             Waited::TimedOut => format!(
                 "{program} did not finish in {} s",
                 self.time_limit.as_secs_f32()
             ),
+            Waited::Stopped => format!("{program} was stopped: interrupted"),
             Waited::Failed(error) => format!("{program}: {error}"),
         })?;
         if !status.success() {
@@ -239,22 +262,31 @@ impl Drop for TempDir {
 /// Why waiting for a program did not give its exit status.
 enum Waited {
     TimedOut,
+    /// `stop` said so.
+    Stopped,
     Failed(io::Error),
 }
 
-/// How `child` exited, waiting at most `limit`; past that, `child` and
-/// the rest of its process group are killed.
-fn wait(mut child: process::Child, limit: Duration) -> Result<ExitStatus, Waited> {
+/// How `child` exited, waiting at most `limit` and until `stop` says
+/// otherwise; then `child` and the rest of its process group are killed.
+fn wait(
+    mut child: process::Child,
+    limit: Duration,
+    stop: &dyn Fn() -> bool,
+) -> Result<ExitStatus, Waited> {
     let deadline = Instant::now() + limit;
     let mut pause = Duration::from_millis(1);
     loop {
         match child.try_wait() {
             Ok(Some(status)) => return Ok(status),
-            Ok(None) if Instant::now() >= deadline => {
+            Ok(None) if stop() || Instant::now() >= deadline => {
                 let group = rustix::process::Pid::from_child(&child);
                 let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
                 let _ = child.wait();
-                return Err(Waited::TimedOut);
+                return Err(match stop() {
+                    true => Waited::Stopped,
+                    false => Waited::TimedOut,
+                });
             }
             Ok(None) => {
                 std::thread::sleep(pause.min(deadline.saturating_duration_since(Instant::now())));
@@ -490,6 +522,55 @@ mod tests {
             !alive
         });
         assert!(gone, "sleep {pid} still runs");
+    }
+
+    #[test]
+    fn a_stop_kills_the_program_with_what_it_started_and_starts_no_more() {
+        let scratch = Scratch::new("stop");
+        let started = scratch.0.join("started");
+        let script = format!(
+            "sleep 30 &\necho $! > '{}'\nwait\n",
+            started.to_string_lossy()
+        );
+        let stop = Arc::new(AtomicBool::new(false));
+        let renderer = scratch.renderer(&script).stopped_by(Arc::clone(&stop));
+        let start = Instant::now();
+        let drawn = std::thread::scope(|scope| {
+            let drawing = scope.spawn(|| renderer.render("mermaid", SOURCE, Theme::Light));
+            while !started.exists() && start.elapsed() < Duration::from_secs(5) {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            stop.store(true, Ordering::SeqCst);
+            drawing.join().unwrap()
+        });
+        assert_eq!(drawn, Err("sh was stopped: interrupted".to_owned()));
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            start.elapsed()
+        );
+        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+        let pid = fs::read_to_string(&started).unwrap();
+        let stat = Path::new("/proc").join(pid.trim()).join("stat");
+        let gone = (0..100).any(|_| {
+            let alive = fs::read_to_string(&stat).is_ok_and(|stat| {
+                stat.rsplit_once(") ")
+                    .is_some_and(|(_, s)| !s.starts_with('Z'))
+            });
+            if alive {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            !alive
+        });
+        assert!(gone, "sleep {pid} still runs");
+        // Once stopped, nothing more starts.
+        fs::remove_file(&started).unwrap();
+        assert_eq!(
+            renderer.render("mermaid", SOURCE, Theme::Light),
+            Err("sh was not started: interrupted".to_owned())
+        );
+        assert!(!started.exists());
+        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
     }
 
     #[test]

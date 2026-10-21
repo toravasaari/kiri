@@ -5,8 +5,8 @@
 //! does an SVG file, and another backend could use the same SVG.
 
 use std::collections::BTreeMap;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 pub mod external;
 pub mod find;
@@ -265,6 +265,19 @@ impl Renderers {
     /// gives or that `search` finds; see `find::choose`.
     pub fn chosen(configured: &BTreeMap<String, Vec<String>>, search: &find::Search) -> Self {
         Self::new(find::commands(configured, search))
+    }
+
+    /// Whether programs outside kiri draw any language.
+    pub fn runs_programs(&self) -> bool {
+        !self.external.is_empty()
+    }
+
+    /// These renderers stopping the programs they run, and starting no
+    /// more, once `stop` is set.
+    pub fn stopped_by(self, stop: Arc<AtomicBool>) -> Self {
+        Renderers {
+            external: self.external.stopped_by(stop),
+        }
     }
 }
 

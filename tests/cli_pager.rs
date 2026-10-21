@@ -53,11 +53,25 @@ fn in_terminal_with(
     args: &[&str],
     rows: u16,
     stdin: Option<&str>,
+    act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
+) -> (ExitStatus, String) {
+    in_terminal_after(name, |_| {}, args, rows, stdin, act)
+}
+
+/// [`in_terminal_with`], with `prepare` called with the scratch directory
+/// before kiri starts.
+fn in_terminal_after(
+    name: &str,
+    prepare: impl FnOnce(&std::path::Path),
+    args: &[&str],
+    rows: u16,
+    stdin: Option<&str>,
     mut act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
 ) -> (ExitStatus, String) {
     let dir = Scratch::new(name);
     std::fs::write(dir.join("document.md"), paragraphs(3)).unwrap();
     std::fs::write(dir.join("long.md"), long()).unwrap();
+    prepare(&dir);
     let (mut terminal, tty) = common::pty();
     let window = rustix::termios::Winsize {
         ws_col: 40,
@@ -306,4 +320,47 @@ fn a_signal_to_end_kiri_leaves_the_screen_first() {
         assert!(seen.ends_with(LEAVE), "{signal:?}: {seen:?}");
         assert_eq!(status.signal(), Some(signal.as_raw()), "{signal:?}");
     }
+}
+
+#[test]
+fn a_signal_after_a_program_drew_the_diagrams_leaves_the_screen_first() {
+    use std::os::unix::process::ExitStatusExt;
+
+    use rustix::process::{Pid, Signal, kill_process};
+
+    // kiri catches Ctrl-C while the program draws, and the pager catches
+    // it once the document shows.
+    let prepare = |dir: &std::path::Path| {
+        let script = dir.join("render.sh");
+        std::fs::write(
+            &script,
+            "echo '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\"/>' > \"$2\"\n",
+        )
+        .unwrap();
+        let config = format!(
+            "[diagrams.mermaid]\ncommand = [\"/bin/sh\", \"{}\", \"{{input}}\", \"{{output}}\"]\n",
+            script.display()
+        );
+        common::write(&dir.join("config/kiri/config.toml"), &config);
+        let document = format!("```mermaid\nflowchart TD\n```\n\n{}", long());
+        std::fs::write(dir.join("diagram.md"), document).unwrap();
+    };
+    let mut sent = false;
+    let (status, seen) = in_terminal_after(
+        "pager-signal-diagrams",
+        prepare,
+        &["--mode", "kitty", "diagram.md"],
+        5,
+        None,
+        |frames, _, child| {
+            if frames > 0 && !sent {
+                let pid = Pid::from_raw(child.id() as i32).unwrap();
+                kill_process(pid, Signal::INT).unwrap();
+                sent = true;
+            }
+        },
+    );
+    assert!(seen.contains("\x1b_G"), "the diagram is drawn: {seen:?}");
+    assert!(seen.ends_with(LEAVE), "{seen:?}");
+    assert_eq!(status.signal(), Some(Signal::INT.as_raw()));
 }
