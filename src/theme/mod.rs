@@ -50,6 +50,9 @@ pub struct Theme {
     pub rule: Option<Color>,
     pub list_marker: Option<Color>,
     pub table_border: Option<Color>,
+    /// Messages kiri writes into the document, such as why a diagram
+    /// could not be drawn.
+    pub error: Option<Color>,
     /// A box of background colour around code blocks, with one cell and one
     /// line of padding. Without it, code starts at the margin.
     pub code_padding: bool,
@@ -243,6 +246,7 @@ impl HeadingTheme {
     }
 }
 
+const RED: Option<Color> = Some(Color::Palette(1));
 const BLUE: Option<Color> = Some(Color::Palette(4));
 const MAGENTA: Option<Color> = Some(Color::Palette(5));
 const CYAN: Option<Color> = Some(Color::Palette(6));
@@ -278,6 +282,7 @@ impl Default for Theme {
             rule: GREY,
             list_marker: GREY,
             table_border: GREY,
+            error: RED,
             code_padding: true,
             code_theme_dark: "base16-ocean.dark".into(),
             code_theme_light: "InspiredGitHub".into(),
@@ -326,6 +331,7 @@ impl Theme {
         self.rule = None;
         self.list_marker = None;
         self.table_border = None;
+        self.error = None;
         self.language_label = LabelColor::Color(None);
         self.alerts = AlertTheme {
             tint: false,
@@ -362,6 +368,23 @@ mod tests {
     }
 
     #[test]
+    fn errors_are_red_on_every_page() {
+        // The terminal's own red, unless the page has colours of its own.
+        assert_eq!(Theme::default().error, Some(Color::Palette(1)));
+        // A dark red on the light paper page, a light one on the dark.
+        let light = Theme::paper(Paper::Light).error;
+        assert_eq!(light, Some(Color::Rgb(0xb3, 0x26, 0x1e)));
+        let dark = Theme::paper(Paper::Dark).error;
+        assert_eq!(dark, Some(Color::Rgb(0xff, 0x78, 0x6e)));
+        assert_eq!(
+            parse("error = \"#00ff00\"\n").unwrap().error,
+            Some(Color::Rgb(0, 0xff, 0))
+        );
+        assert_eq!(parse("error = \"none\"\n").unwrap().error, None);
+        assert_eq!(Theme::default().without_colors().error, None);
+    }
+
+    #[test]
     fn without_colors_leaves_not_one_colour() {
         // Every field is named, so a new one does not compile until it is
         // sorted here into the colours, which must go, and the rest.
@@ -386,6 +409,7 @@ mod tests {
                 rule,
                 list_marker,
                 table_border,
+                error,
                 code_padding: _,
                 code_theme_dark: _,
                 code_theme_light: _,
@@ -406,8 +430,9 @@ mod tests {
                 rule,
                 list_marker,
                 table_border,
+                error,
             ];
-            assert_eq!(colors, [None; 9]);
+            assert_eq!(colors, [None; 10]);
             assert_eq!(inline_code_background, CodeBackground::Color(None));
             assert_eq!(language_label, LabelColor::Color(None));
             for heading in headings {
