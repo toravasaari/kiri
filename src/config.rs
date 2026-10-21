@@ -25,6 +25,10 @@ pub struct Environment {
     pub xdg_config_home: Option<OsString>,
     /// `XDG_CACHE_HOME`: where kiri's cache directory goes.
     pub xdg_cache_home: Option<OsString>,
+    /// `TMPDIR`: the system's temporary directory, where the files of the
+    /// programs that draw diagrams go when the cache directory cannot be
+    /// used.
+    pub tmpdir: Option<OsString>,
     /// `KIRI_CONFIG`: the configuration file to read instead of the default.
     pub kiri_config: Option<OsString>,
     /// `KIRI_THEME`: a theme file.
@@ -65,6 +69,7 @@ impl Environment {
             home: std::env::var_os("HOME"),
             xdg_config_home: std::env::var_os("XDG_CONFIG_HOME"),
             xdg_cache_home: std::env::var_os("XDG_CACHE_HOME"),
+            tmpdir: std::env::var_os("TMPDIR"),
             kiri_config: std::env::var_os("KIRI_CONFIG"),
             kiri_theme: std::env::var_os("KIRI_THEME"),
             kiri_no_images: std::env::var_os("KIRI_NO_IMAGES"),
@@ -127,6 +132,33 @@ pub fn cache_directory(env: &Environment) -> Option<PathBuf> {
                 .map(|home| PathBuf::from(home).join(".cache"))
         })?;
     Some(cache.join("kiri"))
+}
+
+/// Where the cache directory comes from: `XDG_CACHE_HOME`, or the
+/// default under the home directory.
+pub fn cache_directory_origin(env: &Environment) -> Origin {
+    let set = (env.xdg_cache_home.as_deref()).is_some_and(|dir| Path::new(dir).is_absolute());
+    match set {
+        true => Origin::Environment("XDG_CACHE_HOME"),
+        false => Origin::Default,
+    }
+}
+
+/// The system's temporary directory, as the standard library finds it:
+/// `TMPDIR`, or `/tmp` when that is unset or empty.
+pub fn temp_directory(env: &Environment) -> PathBuf {
+    match env.tmpdir.as_ref().filter(|dir| !dir.is_empty()) {
+        Some(dir) => PathBuf::from(dir),
+        None => PathBuf::from("/tmp"),
+    }
+}
+
+/// Where the temporary directory comes from: `TMPDIR`, or the default.
+pub fn temp_directory_origin(env: &Environment) -> Origin {
+    match env.tmpdir.as_ref().filter(|dir| !dir.is_empty()) {
+        Some(_) => Origin::Environment("TMPDIR"),
+        None => Origin::Default,
+    }
 }
 
 /// What the configuration file sets; `None` for what it leaves out.

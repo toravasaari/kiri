@@ -43,10 +43,10 @@ fn piped(dir: &Path, args: &[&str]) -> String {
 
 /// The report with the parts that change between builds replaced: kiri's
 /// version, and the image formats and the diagram renderers, which depend
-/// on the build's features.
+/// on the build's features; and the rows for where diagram programs work,
+/// one or two, which depend on the directories the tests run in.
 fn stable(report: &str) -> String {
-    report
-        .replace(env!("CARGO_PKG_VERSION"), "[version]")
+    let mut lines: Vec<&str> = report
         .lines()
         .map(|line| {
             if line.contains("PNG") {
@@ -55,12 +55,17 @@ fn stable(report: &str) -> String {
                 "[built-in mermaid renderer]"
             } else if line.starts_with("| `mermaid` | command") {
                 "[mermaid command]"
+            } else if line.starts_with("| Diagram work files |") {
+                "[diagram work files]"
             } else {
                 line
             }
         })
-        .collect::<Vec<_>>()
+        .collect();
+    lines.dedup_by(|a, b| a == b && *a == "[diagram work files]");
+    lines
         .join("\n")
+        .replace(env!("CARGO_PKG_VERSION"), "[version]")
 }
 
 #[test]
@@ -352,6 +357,65 @@ fn the_files_tell_where_their_paths_come_from() {
     ] {
         assert!(report.contains(row), "{row}\n{report}");
     }
+}
+
+#[test]
+fn the_files_tell_where_diagram_programs_work() {
+    // A short name, so that a cache directory in it is short enough.
+    let dir = Scratch::new("dw");
+    write(&dir.join("home/file"), "");
+    std::fs::create_dir_all(dir.join("home/tmp")).unwrap();
+    let rows = |cache: Option<&Path>| {
+        let mut command = doctor(&dir, &[]);
+        command.env("TMPDIR", dir.join("home/tmp"));
+        if let Some(cache) = cache {
+            command.env("XDG_CACHE_HOME", cache);
+        }
+        let out = command.output().unwrap();
+        assert_succeeded(&out);
+        let report = text(&out.stdout);
+        (report.lines())
+            .filter(|line| line.starts_with("| Diagram work files"))
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let default = &rows(None)[0];
+    let start = "| Diagram work files | `~/.cache/kiri/diagrams` | default |";
+    assert!(default.starts_with(start), "{default}");
+    let cache = dir.join("c");
+    let work = cache.join("kiri/diagrams");
+    assert!(
+        work.as_os_str().len() <= 49,
+        "the tests need a shorter TMPDIR"
+    );
+    assert_eq!(
+        rows(Some(&cache)),
+        [format!(
+            "| Diagram work files | `{}` | `XDG_CACHE_HOME={}` | usable |",
+            work.display(),
+            cache.display()
+        )]
+    );
+    // Where the cache directory cannot be made, or its path is too long
+    // for the sockets a browser makes, the temporary directory is used.
+    let temp = "| Diagram work files | `~/tmp` | `TMPDIR=~/tmp` | usable |";
+    assert_eq!(
+        rows(Some(&dir.join("home/file"))),
+        [
+            "| Diagram work files | `~/file/kiri/diagrams` | `XDG_CACHE_HOME=~/file` \
+             | not usable: `~/file` is not a directory |",
+            temp
+        ]
+    );
+    let long = dir.join("home").join("x".repeat(60));
+    let row = rows(Some(&long));
+    assert_eq!(row.len(), 2, "{row:?}");
+    assert!(
+        row[0].ends_with("| not usable: its path is longer than 49 bytes |"),
+        "{row:?}"
+    );
+    assert_eq!(row[1], temp);
+    assert!(!long.exists());
 }
 
 #[test]

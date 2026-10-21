@@ -34,8 +34,54 @@ pub const AT_ONCE: usize = 4;
 /// files go in. A program gets one of them as its temporary directory, and
 /// Chromium, which `mmdc` runs, may make a socket in that: a socket's path
 /// takes at most 107 bytes, and a longer one would fail.
-const LONGEST_WORK_DIR: usize =
+pub const LONGEST_WORK_DIR: usize =
     107 - "/.org.chromium.Chromium.XXXXXX/SingletonSocket".len() - "/4194304-999".len();
+
+/// Why a directory cannot hold the directories for diagrams' files.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Unusable {
+    /// Its path is longer than [`LONGEST_WORK_DIR`] bytes.
+    TooLong,
+    /// This, on its path, is a file rather than a directory.
+    NotADirectory(PathBuf),
+    /// This directory on its path cannot be written to or searched.
+    NotWritable(PathBuf),
+}
+
+/// Why `work` cannot hold the directories for diagrams' files, as
+/// [`External::with_work_dir`] uses it, without making it; `None` when it
+/// can, as far as can be told before trying.
+pub fn unusable(work: &Path) -> Option<Unusable> {
+    if work.as_os_str().len() > LONGEST_WORK_DIR {
+        return Some(Unusable::TooLong);
+    }
+    not_writable(work)
+}
+
+/// Why no directory can be made in `dir`, or in what of it can be made;
+/// `None` when one can.
+pub fn not_writable(dir: &Path) -> Option<Unusable> {
+    use rustix::fs::{Access, access};
+
+    // The nearest part of its path that is there decides.
+    for part in dir.ancestors().filter(|part| !part.as_os_str().is_empty()) {
+        match fs::metadata(part) {
+            Ok(found) if found.is_dir() => {
+                let writable = access(part, Access::WRITE_OK | Access::EXEC_OK).is_ok();
+                return (!writable).then(|| Unusable::NotWritable(part.to_owned()));
+            }
+            Ok(_) => return Some(Unusable::NotADirectory(part.to_owned())),
+            // A file further up the path tells.
+            Err(error)
+                if matches!(error.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) =>
+            {
+                continue;
+            }
+            Err(_) => return Some(Unusable::NotWritable(part.to_owned())),
+        }
+    }
+    None
+}
 
 /// A program that draws diagrams and its arguments, in which `{input}`
 /// stands for the file of the diagram's source, `{output}` for the SVG
@@ -865,6 +911,34 @@ mod tests {
             assert!(!tmpdir.exists());
         }
         assert!(!long.exists());
+    }
+
+    #[test]
+    fn tells_why_a_directory_cannot_hold_the_files() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = Scratch::new("unusable");
+        let file = scratch.0.join("file");
+        fs::write(&file, "").unwrap();
+        let locked = scratch.0.join("locked");
+        fs::create_dir(&locked).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o500)).unwrap();
+        let work = scratch.0.join("temp/kiri/diagrams");
+        assert_eq!(not_writable(&work), None);
+        assert_eq!(
+            not_writable(&file.join("kiri/diagrams")),
+            Some(Unusable::NotADirectory(file.clone()))
+        );
+        let long = scratch.0.join("x".repeat(LONGEST_WORK_DIR));
+        assert_eq!(unusable(&long), Some(Unusable::TooLong));
+        // Unless the tests run as root, who may write anywhere.
+        if rustix::fs::access(&locked, rustix::fs::Access::WRITE_OK).is_err() {
+            assert_eq!(
+                not_writable(&locked.join("kiri")),
+                Some(Unusable::NotWritable(locked.clone()))
+            );
+        }
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
     }
 
     #[test]

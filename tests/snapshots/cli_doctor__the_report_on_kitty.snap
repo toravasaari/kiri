@@ -44,6 +44,7 @@ kiri [version]: terminal features and settings.
 |---|---|---|---|
 | Configuration file | `~/.config/kiri/config.toml` | default | not found |
 | Theme file | `~/.config/kiri/theme.toml` | default | not found |
+[diagram work files]
 
 ## Image formats
 

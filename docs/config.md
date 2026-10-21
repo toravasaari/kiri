@@ -244,7 +244,9 @@ directory as its `TMPDIR` too, so that what it leaves there, such as the
 profile of `mmdc`'s browser, goes with the directory once the diagram
 is drawn. A directory left in `diagrams` by a kiri that did not end
 normally, such as one killed with SIGKILL, goes the next time kiri
-draws there. In the arguments:
+draws there. `kiri --doctor` shows these directories under *Diagram
+work files*, and why the cache directory cannot be used when it
+cannot. In the arguments:
 
 - `{input}` is the file of the diagram's source, which ends in `.mmd`
   for Mermaid;

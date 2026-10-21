@@ -281,7 +281,41 @@ fn write_files(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result
         let from = origin_text(crate::config::directory_origin(facts.env), facts.env, home);
         row(out, &["Theme file", &home.path(&path), &from, status])?;
     }
+    write_work_files(facts, home, out)?;
     writeln!(out)
+}
+
+/// Rows for where programs that draw diagrams keep their files: the
+/// cache directory, and the temporary directory when that cannot be used.
+fn write_work_files(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result {
+    use crate::diagrams::external::{LONGEST_WORK_DIR, Unusable, not_writable, unusable};
+
+    const WORK_FILES: &str = "Diagram work files";
+    let env = facts.env;
+    let why = |problem: Unusable| match problem {
+        Unusable::TooLong => format!("its path is longer than {LONGEST_WORK_DIR} bytes"),
+        Unusable::NotADirectory(path) => format!("{} is not a directory", home.path(&path)),
+        Unusable::NotWritable(path) => format!("{} cannot be written to", home.path(&path)),
+    };
+    match crate::config::cache_directory(env) {
+        Some(cache) => {
+            let work = cache.join("diagrams");
+            let from = origin_text(crate::config::cache_directory_origin(env), env, home);
+            let Some(problem) = unusable(&work) else {
+                return row(out, &[WORK_FILES, &home.path(&work), &from, "usable"]);
+            };
+            let status = format!("not usable: {}", why(problem));
+            row(out, &[WORK_FILES, &home.path(&work), &from, &status])?;
+        }
+        None => row(out, &[WORK_FILES, "none: `HOME` is not set", "", ""])?,
+    }
+    let temp = crate::config::temp_directory(env);
+    let from = origin_text(crate::config::temp_directory_origin(env), env, home);
+    let status = match not_writable(&temp) {
+        None => "usable".to_owned(),
+        Some(problem) => format!("not usable: {}", why(problem)),
+    };
+    row(out, &[WORK_FILES, &home.path(&temp), &from, &status])
 }
 
 /// The renderers for each diagram language: the built-in one and the
@@ -408,6 +442,8 @@ fn variable<'a>(env: &'a Environment, name: &str) -> Option<&'a OsStr> {
         "KIRI_DIAGRAMS" => env.kiri_diagrams.as_deref(),
         "KIRI_CONFIG" => env.kiri_config.as_deref(),
         "XDG_CONFIG_HOME" => env.xdg_config_home.as_deref(),
+        "XDG_CACHE_HOME" => env.xdg_cache_home.as_deref(),
+        "TMPDIR" => env.tmpdir.as_deref(),
         _ => None,
     }
 }
