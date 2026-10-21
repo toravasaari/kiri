@@ -1,6 +1,6 @@
 //! Front matter, as a table of its keys and values or as a code block.
 
-use super::Layout;
+use super::{Layout, code};
 use crate::model::{FrontMatter, Value};
 use crate::render::style::{Line, Spaces, Span, Style};
 use crate::render::table::{self, Cell, Cells};
@@ -113,17 +113,7 @@ impl Layout<'_> {
         };
         Cell::Code {
             lines: (highlighted.lines.into_iter())
-                .map(|line| {
-                    (line.into_iter())
-                        .map(|span| Span {
-                            style: Style {
-                                bg: highlighted.background,
-                                ..span.style
-                            },
-                            ..span
-                        })
-                        .collect()
-                })
+                .map(|line| code::on_background(line, highlighted.background))
                 .collect(),
             fill,
         }

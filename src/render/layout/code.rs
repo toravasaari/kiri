@@ -75,16 +75,7 @@ impl Layout<'_> {
             lines.push(label.unwrap_or_else(|| padded(Vec::new())));
         }
         for source_line in highlighted.lines {
-            let with_background: Vec<Span> = source_line
-                .into_iter()
-                .map(|span| Span {
-                    style: Style {
-                        bg: highlighted.background,
-                        ..span.style
-                    },
-                    ..span
-                })
-                .collect();
+            let with_background = on_background(source_line, highlighted.background);
             for chunk in wrap::split(&with_background, inner.max(1)) {
                 lines.push(padded(chunk));
             }
@@ -180,6 +171,20 @@ impl Layout<'_> {
 fn halfway(a: Option<Color>, b: Option<Color>) -> Option<Color> {
     let a = a?;
     Some(b.and_then(|b| a.mix(b, 0.5)).unwrap_or(a))
+}
+
+/// The spans of a highlighted `line` on the code's `background`, which
+/// sets off the code from the page.
+pub(super) fn on_background(line: Vec<Span>, background: Option<Color>) -> Vec<Span> {
+    (line.into_iter())
+        .map(|span| Span {
+            style: Style {
+                bg: background,
+                ..span.style
+            },
+            ..span
+        })
+        .collect()
 }
 
 fn expand_tabs(line: &str) -> String {
