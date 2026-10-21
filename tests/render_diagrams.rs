@@ -120,9 +120,17 @@ fn a_raster_diagram_is_placed_at_the_size_of_its_css_pixels() {
     assert_eq!(alone(&dense), expected);
 }
 
-/// Two diagrams that `StubDiagrams` cannot draw, one of them in a list.
+/// Diagrams that `StubDiagrams` cannot draw: at the top level, in a list,
+/// a quote, an alert and details.
 const BROKEN: &str = "Before.\n\n```mermaid\nflowchart TD\n  A[open --> B\n```\n\nAfter.\n\n\
-                      - Item:\n\n  ```mermaid\n  flowchart LR\n    C[shut\n  ```\n";
+                      - Item:\n\n  ```mermaid\n  flowchart LR\n    C[shut\n  ```\n\n\
+                      > Quoted:\n>\n> ```mermaid\n> flowchart TD\n>   D[quoted\n> ```\n\n\
+                      > [!NOTE]\n> ```mermaid\n> flowchart TD\n>   E[noted\n> ```\n\n\
+                      <details>\n<summary>More</summary>\n\n\
+                      ```mermaid\nflowchart TD\n  F[hidden\n```\n\n</details>\n";
+
+/// How many diagrams `BROKEN` has.
+const BROKEN_COUNT: usize = 5;
 
 /// `BROKEN` rendered for `caps` with `theme`, its errors told as `errors`
 /// says.
@@ -197,7 +205,7 @@ fn the_setting_decides_whether_the_document_tells_why() {
             let out = broken(&caps, Theme::default(), errors);
             assert_eq!(
                 out.matches(WHY).count(),
-                2 * usize::from(inline),
+                BROKEN_COUNT * usize::from(inline),
                 "{errors:?}: {out:?}"
             );
             assert!(out.contains("A[open --> B"), "{errors:?}: {out:?}");
@@ -209,4 +217,21 @@ fn the_setting_decides_whether_the_document_tells_why() {
     let images = stub_diagram_images(&source);
     let out = render(&source, &with_images(&Capabilities::kitty(WIDTH), images));
     assert!(!out.contains("could not be drawn"), "{out:?}");
+}
+
+#[test]
+fn the_error_below_a_diagram_wraps_in_a_narrow_window() {
+    let out = broken(
+        &Capabilities::plain(20),
+        Theme::default(),
+        RenderErrors::Both,
+    );
+    insta::assert_snapshot!(out);
+    // Down to windows too narrow for a word.
+    for width in 3..=12 {
+        for caps in [Capabilities::kitty(width), Capabilities::plain(width)] {
+            let out = broken(&caps, Theme::default(), RenderErrors::Both);
+            assert_eq!(out.matches('✗').count(), BROKEN_COUNT, "{width}: {out:?}");
+        }
+    }
 }

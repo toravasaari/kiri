@@ -1063,31 +1063,64 @@ fn help_explains_render_errors() {
 fn a_mermaid_file_that_fails_tells_why_below_its_source_as_the_setting_says() {
     let dir = Scratch::new("mermaid-file-render-errors");
     let config = external(&dir, FAILS);
-    let warning = format!(
-        "kiri: {}: sh exited with status 1: Error: bad\n",
-        dir.join("flow.mmd").display()
-    );
-    for (setting, inline, stderr) in [
-        (None, true, true),
-        (Some("both"), true, true),
-        (Some("inline"), true, false),
-        (Some("stderr"), false, true),
+    let path = dir.join("flow.mmd");
+    std::fs::write(&path, FLOWCHART_FILE).unwrap();
+    // The setting as an option, as KIRI_RENDER_ERRORS or in the
+    // configuration file, for the file and for standard input.
+    for (args, variable, file, inline, stderr) in [
+        (&[][..], None, "", true, true),
+        (&["--render-errors", "both"][..], None, "", true, true),
+        (&["--render-errors", "inline"][..], None, "", true, false),
+        (&["--render-errors", "stderr"][..], None, "", false, true),
+        (&[][..], Some("inline"), "", true, false),
+        (
+            &[][..],
+            Some("stderr"),
+            "render_errors = \"inline\"\n",
+            false,
+            true,
+        ),
+        (&[][..], None, "render_errors = \"inline\"\n", true, false),
+        (&[][..], None, "render_errors = \"stderr\"\n", false, true),
     ] {
-        let mut args = vec!["--width", "120"];
-        args.extend(setting.iter().flat_map(|value| ["--render-errors", value]));
-        let out = on_file(&dir, "flow.mmd", FLOWCHART_FILE, &args, &config);
-        // A failure whichever way it is told.
-        assert_eq!(out.status.code(), Some(1), "{setting:?}");
-        let expected = if stderr { warning.as_str() } else { "" };
-        assert_eq!(text(&out.stderr), expected, "{setting:?}");
-        let stdout = text(&out.stdout);
-        assert!(sent(&stdout).is_empty(), "{setting:?}: {stdout:?}");
-        let shown = common::strip_own_sequences(&stdout);
-        assert!(shown.contains("A --> B"), "{setting:?}: {shown:?}");
-        assert_eq!(shown.contains(INLINE), inline, "{setting:?}: {shown:?}");
-        // Below the source, not above it.
-        if inline {
-            assert!(shown.find("A --> B") < shown.find(INLINE), "{shown:?}");
+        common::write(
+            &dir.join("config/kiri/config.toml"),
+            &format!("{file}{config}"),
+        );
+        for piped in [false, true] {
+            let case = format!("{args:?} {variable:?} {file:?} piped: {piped}");
+            let mut command = common::command(&dir);
+            command
+                .current_dir(&*dir)
+                .args(["--mode", "kitty", "--width", "120"])
+                .args(args);
+            if let Some(value) = variable {
+                command.env("KIRI_RENDER_ERRORS", value);
+            }
+            let (out, name) = if piped {
+                command.args(["--format", "mermaid", "-"]);
+                let out = common::piped(command, FLOWCHART_FILE.as_bytes());
+                (out, "<stdin>".to_owned())
+            } else {
+                (
+                    command.arg(&path).output().unwrap(),
+                    path.display().to_string(),
+                )
+            };
+            // A failure whichever way it is told.
+            assert_eq!(out.status.code(), Some(1), "{case}");
+            let warning = format!("kiri: {name}: sh exited with status 1: Error: bad\n");
+            let expected = if stderr { warning.as_str() } else { "" };
+            assert_eq!(text(&out.stderr), expected, "{case}");
+            let stdout = text(&out.stdout);
+            assert!(sent(&stdout).is_empty(), "{case}: {stdout:?}");
+            let shown = common::strip_own_sequences(&stdout);
+            assert!(shown.contains("A --> B"), "{case}: {shown:?}");
+            assert_eq!(shown.contains(INLINE), inline, "{case}: {shown:?}");
+            // Below the source, not above it.
+            if inline {
+                assert!(shown.find("A --> B") < shown.find(INLINE), "{shown:?}");
+            }
         }
     }
 }

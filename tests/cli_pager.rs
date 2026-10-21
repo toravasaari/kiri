@@ -373,3 +373,41 @@ fn a_signal_after_a_program_drew_the_diagrams_leaves_the_screen_first() {
     assert!(seen.ends_with(LEAVE), "{seen:?}");
     assert_eq!(status.signal(), Some(Signal::INT.as_raw()));
 }
+
+#[test]
+fn the_pager_shows_why_a_diagram_was_not_drawn_and_finds_it() {
+    let prepare = |dir: &std::path::Path| {
+        let script = dir.join("render.sh");
+        std::fs::write(&script, "echo 'Error: bad' >&2\nexit 1\n").unwrap();
+        let config = format!(
+            "render_errors = \"inline\"\n\
+             [diagrams.mermaid]\ncommand = [\"/bin/sh\", \"{}\", \"{{input}}\", \"{{output}}\"]\n",
+            script.display()
+        );
+        common::write(&dir.join("config/kiri/config.toml"), &config);
+        let document = format!("{}```mermaid\nflowchart TD\n```\n", long());
+        std::fs::write(dir.join("diagram.md"), document).unwrap();
+    };
+    let keys: [&[u8]; 8] = [b"/", b"d", b"r", b"a", b"w", b"n", b"\r", b"q"];
+    let mut typed = 0;
+    let (status, seen) = in_terminal_after(
+        "pager-render-error",
+        prepare,
+        &["--mode", "kitty", "diagram.md"],
+        5,
+        None,
+        |frames, terminal, _| {
+            if typed < frames.min(keys.len()) {
+                terminal.write_all(keys[typed]).unwrap();
+                typed += 1;
+            }
+        },
+    );
+    assert!(status.success());
+    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
+    // Below the end of the first page, and shown once found.
+    assert!(!frames[0].contains("could not be"), "{seen:?}");
+    let found = frames.last().unwrap();
+    assert!(found.contains("✗ Mermaid diagram could not be"), "{seen:?}");
+    assert!(found.contains("/drawn 1/1"), "{seen:?}");
+}
