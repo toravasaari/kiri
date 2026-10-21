@@ -133,13 +133,11 @@ pub fn run(
                 bg: inputs.theme.background,
                 ..Style::default()
             },
-            muted: Style {
-                // Without a colour of its own, muted text is dimmed.
-                dim: inputs.theme.muted.is_none(),
-                fg: inputs.theme.muted.or(inputs.theme.foreground),
+            muted: inputs.theme.muted_style(Style {
+                fg: inputs.theme.foreground,
                 bg: inputs.theme.background,
                 ..Style::default()
-            },
+            }),
         };
         let marks = Marks::new(&inputs.theme, &inputs.caps);
         let rgb = Rgb::new(&inputs.theme, &inputs.caps);
@@ -783,6 +781,37 @@ mod tests {
         assert!(help(&frames[3]), "{frames:#?}");
         assert_eq!(frames[0], frames[4]);
         assert!(frames[5].contains("100%"), "{frames:#?}");
+    }
+
+    #[test]
+    fn the_help_s_footer_is_muted_text_on_the_page() {
+        let footer = |theme: &str| {
+            let mut terminal = Fake::new(60, 24, &[b"?"]);
+            let mut inputs = Inputs::new(Capabilities::ansi(80));
+            inputs.theme = crate::theme::parse(theme).unwrap();
+            let document = numbers(30);
+            run(
+                &document,
+                None,
+                "notes.md",
+                &mut inputs,
+                None,
+                SearchCase::Smart,
+                &mut terminal,
+            )
+            .unwrap();
+            let help = terminal.frames()[1].clone();
+            let end = help.find("Any key closes this.").unwrap();
+            help[help[..end].rfind('\x1b').unwrap()..end].to_owned()
+        };
+        // In the muted colour, on the page's background, as the 256-colour
+        // palette has them.
+        let page = "background = \"#ffffff\"\nforeground = \"#000000\"\n";
+        let muted = footer(&format!("{page}muted = \"#767676\"\n"));
+        assert_eq!(muted, "\x1b[0;38;5;243;48;5;231m");
+        // Without a muted colour, the text's colour dimmed.
+        let dimmed = footer(&format!("{page}muted = \"none\"\n"));
+        assert_eq!(dimmed, "\x1b[0;2;38;5;16;48;5;231m");
     }
 
     #[test]

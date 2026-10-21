@@ -621,16 +621,9 @@ impl Layout<'_> {
         }
     }
 
-    /// Text played down: in the theme's muted colour, or dimmed when the
-    /// theme has none.
+    /// Text played down, as [`Theme::muted_style`] has it.
     fn muted(&self, style: Style) -> Style {
-        self.style(match self.theme.muted {
-            Some(color) => Style {
-                fg: Some(color),
-                ..style
-            },
-            None => Style { dim: true, ..style },
-        })
+        self.style(self.theme.muted_style(style))
     }
 
     /// Drops all styling when the terminal gets plain text.
