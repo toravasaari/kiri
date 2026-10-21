@@ -8,7 +8,7 @@ use merman::{
     Engine, MermaidConfig, OperationControl, RenderOutput, RenderTarget, Renderer, SvgRequest,
 };
 
-use super::{MERMAID, MERMAID_SITE};
+use super::{Colours, MERMAID, MERMAID_SITE, page};
 use crate::diagrams::{Drawn, Theme};
 
 /// merman's version. Cargo tells a crate only its own version, so a test
@@ -58,18 +58,17 @@ pub fn render(source: &str, theme: Theme) -> Result<Drawn, String> {
 }
 
 /// The page that a diagram of the Mermaid configuration `config` is drawn
-/// for: a dark one in Mermaid's dark mode, and otherwise one as dark as
-/// the theme's background. `None` when the configuration does not say.
+/// for, as `mermaid::page` decides it. `None` when the configuration does
+/// not say.
 fn page_of(config: &serde_json::Value) -> Option<Theme> {
-    let variables = config.get("themeVariables")?;
-    let dark = match variables
-        .get("darkMode")
-        .and_then(serde_json::Value::as_bool)
-    {
-        Some(true) => true,
-        _ => is_dark(variables.get("background")?.as_str()?).ok()?,
+    let variables = config.get("themeVariables");
+    let variable = |name: &str| variables.and_then(|variables| variables.get(name));
+    let colours = Colours {
+        theme: config.get("theme").and_then(serde_json::Value::as_str),
+        dark_mode: variable("darkMode").and_then(serde_json::Value::as_bool) == Some(true),
+        background: variable("background").and_then(serde_json::Value::as_str),
     };
-    Some(if dark { Theme::Dark } else { Theme::Light })
+    page(&colours, |colour| is_dark(colour).ok())
 }
 
 /// The background colour of the theme in the Mermaid configuration
@@ -232,6 +231,20 @@ mod tests {
             "---\nconfig:\n  theme: base\n  themeVariables:\n    darkMode: true\n---\n{FLOWCHART}"
         );
         assert_eq!(drawn(&dark_base, Theme::Light), Theme::Dark);
+    }
+
+    #[test]
+    fn the_page_is_the_one_the_source_tells_for_other_renderers() {
+        // External programs draw the same diagrams; kiri reads their page
+        // from the source.
+        for source in super::super::tests::CHOOSING {
+            let source = format!("{source}{FLOWCHART}");
+            for page in [Theme::Light, Theme::Dark] {
+                let chosen = super::super::chosen_page(&source).unwrap_or(page);
+                let drawn = render(&source, page).unwrap().theme;
+                assert_eq!(drawn, chosen, "{source} on {page:?}");
+            }
+        }
     }
 
     #[test]

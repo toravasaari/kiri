@@ -42,8 +42,12 @@ takes Mermaid's `default` theme on a light page and `dark` on a dark one.
 The page is light with `--light`, dark with `--dark`, and otherwise as
 the terminal's background is; an unknown background counts as dark.
 
-A diagram whose own theme is for the other page is drawn on a panel, so
-that its lines and text show: one in light colours on a dark page on a
+A diagram's own colours are for a dark page in Mermaid's dark mode,
+`darkMode: true` among its theme variables, and otherwise when its
+background is dark: the `background` it sets, or else its theme's, as
+`dark`, `neo-dark`, `redux-dark` and `redux-dark-color` have. A diagram
+whose own theme is for the other page is drawn on a panel, so that its
+lines and text show: one in light colours on a dark page on a
 white panel, and one in dark colours on a light page on a panel of its
 theme's background. When kiri cannot tell that background, as with an
 external program, the panel is Mermaid's dark grey, `#333333`.
