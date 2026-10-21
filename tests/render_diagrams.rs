@@ -85,7 +85,7 @@ fn a_raster_diagram_is_placed_at_the_size_of_its_css_pixels() {
     // pixels are 20 × 10 CSS pixels, as large as such an SVG.
     let dense = Source::Dense {
         image: RgbaImage::from_pixel(60, 30, image::Rgba([0, 0, 255, 255])),
-        scale: 3,
+        css: (20, 10),
     };
     let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10">
         <rect width="20" height="10" fill="#0000ff"/></svg>"##;

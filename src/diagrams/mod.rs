@@ -402,6 +402,10 @@ pub struct Diagrams<'a> {
     /// Whether a diagram whose colours are for the other page, light or
     /// dark, lies on a panel of its own background.
     pub panel: bool,
+    /// The most pixels, wide and high, an image can be shown at: a
+    /// diagram drawn in pixels is reduced to fit them as it loads. `None`
+    /// keeps it as drawn.
+    pub largest: Option<(u32, u32)>,
 }
 
 impl Diagrams<'static> {
@@ -413,6 +417,7 @@ impl Diagrams<'static> {
             by_line: true,
             progress: None,
             panel: true,
+            largest: None,
         }
     }
 }

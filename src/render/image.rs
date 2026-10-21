@@ -29,6 +29,14 @@ pub fn cell_size(caps: &Capabilities) -> (u16, u16) {
         .unwrap_or(DEFAULT_CELL)
 }
 
+/// The most pixels, wide and high, an image can be shown at: as many
+/// cells as one image can cover each way.
+pub fn largest(caps: &Capabilities) -> (u32, u32) {
+    let (width, height) = cell_size(caps);
+    let cells = u32::from(caps.max_image_cells);
+    (cells * u32::from(width), cells * u32::from(height))
+}
+
 /// The size an image is shown at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Size {
@@ -159,6 +167,22 @@ mod tests {
     use super::*;
 
     const CELL: (u16, u16) = (10, 20);
+
+    #[test]
+    fn an_image_is_shown_at_most_as_many_cells_as_it_can_cover() {
+        let caps = Capabilities {
+            max_image_cells: 300,
+            cell_pixels: Some((9, 18)),
+            ..Capabilities::kitty(80)
+        };
+        assert_eq!(largest(&caps), (2700, 5400));
+        // The cell size assumed when the terminal tells none.
+        let caps = Capabilities {
+            cell_pixels: None,
+            ..caps
+        };
+        assert_eq!(largest(&caps), (3000, 6000));
+    }
     const NATURAL: Wanted = Wanted {
         width: None,
         height: None,

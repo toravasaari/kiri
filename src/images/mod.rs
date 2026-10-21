@@ -60,10 +60,10 @@ pub enum Source {
     Raster(RgbaImage),
     /// A vector image, drawn at whatever size it is shown.
     Svg(Svg),
-    /// Pixels in 8-bit RGBA drawn for a display with `scale` pixels to the
-    /// CSS pixel, as a browser draws a diagram, so that it is shown at the
-    /// size of its CSS pixels.
-    Dense { image: RgbaImage, scale: u32 },
+    /// Pixels in 8-bit RGBA drawn for a display with more than one pixel
+    /// to the CSS pixel, as a browser draws a diagram, and shown at `css`,
+    /// its width and height in CSS pixels.
+    Dense { image: RgbaImage, css: (u32, u32) },
 }
 
 impl Source {
@@ -73,10 +73,7 @@ impl Source {
         match self {
             Source::Raster(image) => image.dimensions(),
             Source::Svg(svg) => svg.size,
-            Source::Dense { image, scale } => {
-                let css = |pixels: u32| pixels.div_ceil((*scale).max(1));
-                (css(image.width()), css(image.height()))
-            }
+            Source::Dense { css, .. } => *css,
         }
     }
 
@@ -487,10 +484,7 @@ fn finish_diagram(
     let image = match looks_like_svg(&drawn.image) {
         true => decode_diagram(&String::from_utf8_lossy(&drawn.image), max_size, fonts),
         false => match decode_raster(&drawn.image, None) {
-            Ok(Source::Raster(image)) => Ok(Source::Dense {
-                image,
-                scale: drawn.scale.max(1),
-            }),
+            Ok(Source::Raster(image)) => Ok(dense(image, drawn.scale, diagrams.largest)),
             other => other,
         },
     }
@@ -505,15 +499,40 @@ fn finish_diagram(
     };
     Ok(match (image, panel) {
         (Source::Svg(svg), Some(colour)) => Source::Svg(svg.on_panel(colour, PANEL_PADDING)),
-        (Source::Dense { image, scale }, Some(colour)) => {
-            let padding = (PANEL_PADDING as u32).saturating_mul(scale);
+        (Source::Dense { image, css }, Some(colour)) => {
+            let per_css = f64::from(image.width()) / f64::from(css.0.max(1));
+            let padding = (f64::from(PANEL_PADDING) * per_css).round() as u32;
+            let grown = |length: u32| length.saturating_add(2 * PANEL_PADDING as u32);
             Source::Dense {
                 image: on_panel(&image, colour, padding),
-                scale,
+                css: (grown(css.0), grown(css.1)),
             }
         }
         (image, _) => image,
     })
+}
+
+/// `image`, drawn at `per_css` pixels to the CSS pixel, as a dense image
+/// of as many CSS pixels; reduced, keeping its shape, when it has more
+/// pixels than fit in `largest`, as large as it can be shown, so that a
+/// large diagram holds no more memory than showing it needs.
+fn dense(image: RgbaImage, per_css: u32, largest: Option<(u32, u32)>) -> Source {
+    let (width, height) = image.dimensions();
+    let per_css = per_css.max(1);
+    let css = (width.div_ceil(per_css), height.div_ceil(per_css));
+    let factor = largest.map_or(1.0, |(most_wide, most_high)| {
+        let wide = f64::from(most_wide.max(1)) / f64::from(width.max(1));
+        let high = f64::from(most_high.max(1)) / f64::from(height.max(1));
+        wide.min(high)
+    });
+    if factor >= 1.0 {
+        return Source::Dense { image, css };
+    }
+    let reduced = |length: u32| ((f64::from(length) * factor).round() as u32).max(1);
+    Source::Dense {
+        image: scale(&image, reduced(width), reduced(height)),
+        css,
+    }
 }
 
 /// `image` over a panel of `colour`, `padding` pixels wider than it on
@@ -1131,6 +1150,7 @@ Text ![inline](images/pattern.png) and words.
             by_line,
             progress: None,
             panel: true,
+            largest: None,
         }
     }
 
@@ -1283,6 +1303,7 @@ fn main() {}
                 by_line: true,
                 progress: None,
                 panel: true,
+                largest: None,
             },
         );
         let warnings = images.warnings();
@@ -1319,6 +1340,7 @@ fn main() {}
                 by_line: true,
                 progress: None,
                 panel: true,
+                largest: None,
             },
         );
         let Some(Ok(Source::Svg(svg))) = images.get(&block("dot", "digraph {}\n")) else {
@@ -1364,6 +1386,7 @@ fn main() {}
                     by_line: true,
                     progress: None,
                     panel,
+                    largest: None,
                 },
             );
             match images.get(&block("dot", "digraph {}\n")) {
@@ -1433,6 +1456,16 @@ fn main() {}
 
     /// The diagram that `renderer` draws, on a page of `page`.
     fn drawn_by(renderer: &dyn Renderer, page: Theme) -> Result<Source, ImageError> {
+        drawn_within(renderer, page, None)
+    }
+
+    /// The diagram that `renderer` draws, on a page of `page`, where it is
+    /// shown at most `largest` pixels large.
+    fn drawn_within(
+        renderer: &dyn Renderer,
+        page: Theme,
+        largest: Option<(u32, u32)>,
+    ) -> Result<Source, ImageError> {
         let images = load_with(
             &crate::parse::parse("```dot\ndigraph {}\n```\n"),
             &fixtures(),
@@ -1444,19 +1477,47 @@ fn main() {}
                 by_line: true,
                 progress: None,
                 panel: true,
+                largest,
             },
         );
         (images.get(&block("dot", "digraph {}\n")).cloned()).expect("the diagram")
     }
 
     #[test]
+    fn a_raster_diagram_larger_than_it_can_be_shown_is_reduced_as_it_loads() {
+        // 60 × 30 pixels at three to the CSS pixel, 20 × 10 CSS pixels.
+        let reduced = |largest, page| {
+            let drawn = drawn_within(&Png(3, Theme::Light), page, Some(largest)).unwrap();
+            let Source::Dense { image, .. } = &drawn else {
+                panic!("{drawn:?}");
+            };
+            (image.dimensions(), drawn.size(), rgba(image, 0, 0))
+        };
+        let red = [255, 0, 0, 128];
+        // At most 15 pixels wide: a quarter of the pixels each way, and
+        // the same CSS pixels.
+        assert_eq!(reduced((15, 100), Theme::Light), ((15, 8), (20, 10), red));
+        // At most 15 pixels high: half of them.
+        assert_eq!(reduced((100, 15), Theme::Light), ((30, 15), (20, 10), red));
+        // One that fits stays as drawn.
+        assert_eq!(reduced((60, 30), Theme::Light), ((60, 30), (20, 10), red));
+        // Reduced before the panel goes under it: its eight CSS pixels are
+        // six pixels at three quarters of a pixel to the CSS pixel.
+        let white = [255, 255, 255, 255];
+        assert_eq!(reduced((15, 100), Theme::Dark), ((27, 20), (36, 26), white));
+    }
+
+    #[test]
     fn a_raster_diagram_is_shown_at_the_size_of_its_css_pixels() {
         for scale in [1, 3] {
             let drawn = drawn_by(&Png(scale, Theme::Light), Theme::Light);
-            let Ok(Source::Dense { image, scale: kept }) = &drawn else {
+            let Ok(Source::Dense { image, css }) = &drawn else {
                 panic!("{drawn:?}");
             };
-            assert_eq!((image.dimensions(), *kept), ((60, 30), scale));
+            assert_eq!(
+                (image.dimensions(), *css),
+                ((60, 30), (60 / scale, 30 / scale))
+            );
             let source = drawn.unwrap();
             assert_eq!(source.size(), (60 / scale, 30 / scale));
             assert_eq!(rgba(&source.render(60, 30), 5, 5), [255, 0, 0, 128]);

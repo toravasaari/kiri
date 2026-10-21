@@ -220,6 +220,7 @@ pub fn stub_diagrams() -> Diagrams<'static> {
         by_line: true,
         progress: None,
         panel: true,
+        largest: None,
     }
 }
 

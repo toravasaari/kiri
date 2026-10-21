@@ -597,6 +597,7 @@ fn load_images(
         by_line: file.is_some(),
         progress: None,
         panel: settings.diagram_panel,
+        largest: Some(kiri::render::image::largest(caps)),
     };
     let load = |diagrams: &Diagrams| kiri::images::load(document, base, max_file_size, diagrams);
     // Drawing diagrams can take seconds with an external program; a

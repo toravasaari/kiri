@@ -88,10 +88,14 @@ once, then decodes each image it gets back by its content, as it decodes
 an image file, so sizing, the width limit and redrawing after a window
 resize work as for any image. An SVG is decoded as an SVG file is; a
 raster image, such as the PNG of a browser's drawing, becomes
-`Source::Dense`, pixels with the number of them to a CSS pixel, so that
-it is sized in CSS pixels as an SVG is. There it also grows an SVG
+`Source::Dense`, pixels with their size in CSS pixels, so that it is
+sized in CSS pixels as an SVG is. Its pixels are reduced there to the
+most an image can be shown at, as many cells as one image covers each
+way, so that a large diagram holds no more memory than showing it
+needs; its size in CSS pixels stays. There it also grows an SVG
 diagram whose text runs past its edges, and lays one drawn in colours
-for the other page, light or dark, on a panel of its own background.
+for the other page, light or dark, on a panel of its own background,
+after the reduction, so the panel's copy is small too.
 
 Renderers live in `src/diagrams/`, outside `src/kitty/` and the parser.
 A renderer implements the `Renderer` trait: whether it draws a language,
