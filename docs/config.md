@@ -241,6 +241,11 @@ runs out of time or writes no SVG leaves its diagram as code with a
 warning; kiri does not fall back to drawing it itself, so that a
 command that does not work shows.
 
+kiri stops a program as Ctrl-C would, with SIGINT to its process group,
+and kills what is left of the group half a second later. `mmdc` closes
+its browser on SIGINT; the browser runs outside the group, so killing
+`mmdc` alone would leave it running.
+
 With a command configured, `enabled = false` in the `[diagrams]` table,
 `--diagrams off` or `KIRI_DIAGRAMS=0` turns diagrams off.
 

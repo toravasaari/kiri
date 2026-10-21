@@ -280,9 +280,7 @@ fn wait(
         match child.try_wait() {
             Ok(Some(status)) => return Ok(status),
             Ok(None) if stop() || Instant::now() >= deadline => {
-                let group = rustix::process::Pid::from_child(&child);
-                let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
-                let _ = child.wait();
+                end(&mut child);
                 return Err(match stop() {
                     true => Waited::Stopped,
                     false => Waited::TimedOut,
@@ -299,6 +297,32 @@ fn wait(
             }
         }
     }
+}
+
+/// How long a program that is to stop may take to end by itself.
+const GRACE: Duration = Duration::from_millis(500);
+
+/// Ends `child` and the rest of its process group. It gets SIGINT first,
+/// as from Ctrl-C, and `GRACE` to end by itself: mermaid-cli then closes
+/// its browser, which runs in a session of its own, out of the group's
+/// reach. Then the group is killed.
+fn end(child: &mut process::Child) {
+    use rustix::process::{Signal, WaitId, WaitIdOptions, kill_process_group, waitid};
+
+    let group = rustix::process::Pid::from_child(child);
+    let _ = kill_process_group(group, Signal::INT);
+    let deadline = Instant::now() + GRACE;
+    // Left unreaped, so that the group's id cannot go to another process
+    // before it is killed.
+    let ended = || {
+        let options = WaitIdOptions::EXITED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT;
+        !matches!(waitid(WaitId::Pid(group), options), Ok(None))
+    };
+    while !ended() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let _ = kill_process_group(group, Signal::KILL);
+    let _ = child.wait();
 }
 
 /// The first line of `text` with something on it, shortened to a length
@@ -522,6 +546,33 @@ mod tests {
             !alive
         });
         assert!(gone, "sleep {pid} still runs");
+    }
+
+    #[test]
+    fn a_program_that_is_stopped_may_clean_up_first() {
+        // mermaid-cli closes its browser on SIGINT, which runs in a session
+        // of its own that killing mmdc's process group does not reach.
+        let scratch = Scratch::new("clean-up");
+        let cleaned = scratch.0.join("cleaned");
+        let script = format!(
+            "trap \"echo yes > '{}'; exit 130\" INT\nsleep 30 &\nwait\n",
+            cleaned.to_string_lossy()
+        );
+        let renderer = scratch
+            .renderer(&script)
+            .with_time_limit(Duration::from_millis(300));
+        let start = Instant::now();
+        assert_eq!(
+            renderer.render("mermaid", SOURCE, Theme::Light),
+            Err("sh did not finish in 0.3 s".to_owned())
+        );
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            start.elapsed()
+        );
+        assert_eq!(fs::read_to_string(&cleaned).ok().as_deref(), Some("yes\n"));
+        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
     }
 
     #[test]
