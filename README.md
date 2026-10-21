@@ -85,7 +85,8 @@ its browser draws. On a dark page a
 diagram takes Mermaid's dark theme, unless it chooses a theme of its own.
 Diagrams are drawn where images are, so they stay code with
 `--no-images`, in terminals without kitty's graphics and with
-`--diagrams off`; a diagram that does not draw stays code with a warning.
+`--diagrams off`; a diagram that does not draw stays code, with the
+reason in red below it and a warning.
 The [configuration file](docs/config.md#diagrams) can name another
 program to draw them.
 

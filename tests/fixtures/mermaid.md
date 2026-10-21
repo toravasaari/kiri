@@ -90,7 +90,7 @@ stateDiagram-v2
     Shown --> [*]
 ```
 
-A diagram with a syntax error stays code, with a warning:
+A diagram with a syntax error stays code and says why:
 
 ```mermaid
 flowchart LR

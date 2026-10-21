@@ -32,6 +32,44 @@ pub struct Inputs {
     pub front_matter: FrontMatterStyle,
     /// How the rows of a table are told apart.
     pub table_rows: TableRows,
+    /// Whether a diagram that could not be drawn tells why in the
+    /// document.
+    pub render_errors: RenderErrors,
+}
+
+/// Where kiri tells why something it draws from source, such as a
+/// diagram, could not be drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RenderErrors {
+    /// In the document, below the source.
+    Inline,
+    /// In a warning on standard error.
+    Stderr,
+    /// In both.
+    #[default]
+    Both,
+}
+
+impl RenderErrors {
+    /// The value as kiri writes it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Inline => "inline",
+            Self::Stderr => "stderr",
+            Self::Both => "both",
+        }
+    }
+
+    /// Whether the document tells.
+    pub fn inline(self) -> bool {
+        matches!(self, Self::Inline | Self::Both)
+    }
+
+    /// Whether a warning on standard error tells.
+    pub fn stderr(self) -> bool {
+        matches!(self, Self::Stderr | Self::Both)
+    }
 }
 
 /// How the rows of a table drawn as a box are told apart.
@@ -103,6 +141,7 @@ impl Inputs {
             theme: Theme::default(),
             front_matter: FrontMatterStyle::default(),
             table_rows: TableRows::default(),
+            render_errors: RenderErrors::default(),
         }
     }
 }

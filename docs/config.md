@@ -208,8 +208,10 @@ external program, the panel is Mermaid's dark grey, `#333333`.
 out.
 
 A diagram that does not draw, such as one with a syntax error, stays
-code with a warning that names it by its line, as in
-`kiri: mermaid diagram on line 12: …`, or by its first line for a
+code. Below the code, in the theme's `error` colour, kiri tells why, as
+in `✗ Mermaid diagram could not be drawn: …`, which shows in the pager
+too, and a warning on standard error names the diagram by its line, as
+in `kiri: mermaid diagram on line 12: …`, or by its first line for a
 document piped in.
 
 A Mermaid file given on its own, `kiri plan.mmd`, `.mermaid` or

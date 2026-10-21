@@ -11,10 +11,10 @@ use super::image::{self, Placement};
 use super::style::{Line, Spaces, Span, Style, push};
 use super::table::{self, Cells};
 use super::wrap::wrap;
-use super::{FrontMatterStyle, Inputs, TableRows};
+use super::{FrontMatterStyle, Inputs, RenderErrors, TableRows};
 use crate::caps::Capabilities;
 use crate::color::{Color, Underline};
-use crate::images::{ImageKey, Images};
+use crate::images::{ImageError, ImageKey, Images};
 use crate::model::{Block, Document, Image, Inline, Table};
 use crate::theme::Theme;
 
@@ -28,6 +28,7 @@ pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
         theme,
         front_matter,
         table_rows,
+        render_errors,
     } = inputs;
     // Without colours, the layout leaves out what only shows a colour, such
     // as heading fills and the padding around inline code.
@@ -49,6 +50,7 @@ pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
         theme,
         front_matter: *front_matter,
         table_rows: *table_rows,
+        render_errors: *render_errors,
     };
 
     // Everything but headings and thematic breaks keeps text_margin free
@@ -101,6 +103,7 @@ struct Layout<'a> {
     theme: &'a Theme,
     front_matter: FrontMatterStyle,
     table_rows: TableRows,
+    render_errors: RenderErrors,
 }
 
 impl Layout<'_> {
@@ -147,8 +150,12 @@ impl Layout<'_> {
             Block::Paragraph(content) => self.paragraph(content, &Style::default(), width),
             Block::CodeBlock { language, code, .. } => {
                 let language = language.as_deref();
-                (self.diagram(language, code, width))
-                    .unwrap_or_else(|| self.code_block(language, code, width))
+                if let Some(lines) = self.diagram(language, code, width) {
+                    return lines;
+                }
+                let mut lines = self.code_block(language, code, width);
+                lines.extend(self.render_error(language, code, width));
+                lines
             }
             Block::BlockQuote(blocks) => self.quote(blocks, width, context),
             Block::Alert {
@@ -330,6 +337,30 @@ impl Layout<'_> {
             source: code.to_owned(),
         };
         self.placed(key, image::Wanted::default(), width)
+    }
+
+    /// Why the code block `code` in `language` could not be drawn as a
+    /// diagram, in the error colour, to go below it; nothing when it was
+    /// drawn, is no diagram, or the setting keeps the reason out of the
+    /// document.
+    fn render_error(&self, language: Option<&str>, code: &str, width: usize) -> Vec<Line> {
+        let language = match language {
+            Some(language) if self.render_errors.inline() && !self.images.is_empty() => language,
+            _ => return Vec::new(),
+        };
+        let key = ImageKey::Block {
+            language: language.to_owned(),
+            source: code.to_owned(),
+        };
+        let Some(Err(ImageError::Diagram { reason, .. })) = self.images.get(&key) else {
+            return Vec::new();
+        };
+        let text = format!(
+            "✗ {} diagram could not be drawn: {reason}",
+            crate::diagrams::display_name(language)
+        );
+        let spans = [Span::new(&text, self.style(Style::fg(self.theme.error)))];
+        wrap(&spans, width).into_iter().map(Line::new).collect()
     }
 
     /// The image `key` at the size `wanted`, at most `width` cells wide,

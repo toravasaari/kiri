@@ -4,12 +4,14 @@
 use image::RgbaImage;
 use kiri::caps::Capabilities;
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, ImageKey, Images, Source};
+use kiri::render::{Inputs, RenderErrors};
+use kiri::theme::{Paper, Theme};
 
 mod common;
 
 use common::{
     WIDTH, drawn, fixture_images_with, readable, render, render_fixture, sent, stub_diagram_images,
-    stub_diagrams, with_images,
+    stub_diagrams, visible, with_images,
 };
 
 const FLOWCHART: &str = "Before.\n\n```mermaid\nflowchart TD\n  A --> B\n```\n\nAfter.\n";
@@ -116,4 +118,95 @@ fn a_raster_diagram_is_placed_at_the_size_of_its_css_pixels() {
     assert_eq!(in_document(&dense), expected);
     assert_eq!(alone(&svg), expected);
     assert_eq!(alone(&dense), expected);
+}
+
+/// Two diagrams that `StubDiagrams` cannot draw, one of them in a list.
+const BROKEN: &str = "Before.\n\n```mermaid\nflowchart TD\n  A[open --> B\n```\n\nAfter.\n\n\
+                      - Item:\n\n  ```mermaid\n  flowchart LR\n    C[shut\n  ```\n";
+
+/// `BROKEN` rendered for `caps` with `theme`, its errors told as `errors`
+/// says.
+fn broken(caps: &Capabilities, theme: Theme, errors: RenderErrors) -> String {
+    let inputs = Inputs {
+        images: stub_diagram_images(BROKEN),
+        theme,
+        render_errors: errors,
+        ..Inputs::new(caps.clone())
+    };
+    render(BROKEN, &inputs)
+}
+
+const WHY: &str = "Mermaid diagram could not be drawn: unclosed label";
+
+#[test]
+fn a_diagram_that_did_not_draw_tells_why_below_its_code() {
+    let out = broken(
+        &Capabilities::kitty(WIDTH),
+        Theme::default(),
+        RenderErrors::default(),
+    );
+    assert!(sent(&out).is_empty(), "{out:?}");
+    insta::assert_snapshot!(visible(&out));
+}
+
+#[test]
+fn the_error_below_a_diagram_is_red_on_the_paper_pages() {
+    for (paper, name) in [(Paper::Light, "light"), (Paper::Dark, "dark")] {
+        let out = broken(
+            &Capabilities::kitty(WIDTH),
+            Theme::paper(paper),
+            RenderErrors::Both,
+        );
+        insta::assert_snapshot!(
+            format!("error_below_a_diagram_on_{name}_paper"),
+            visible(&out)
+        );
+    }
+}
+
+#[test]
+fn the_error_below_a_diagram_is_plain_text_in_plain_output() {
+    let out = broken(
+        &Capabilities::plain(WIDTH),
+        Theme::default(),
+        RenderErrors::Both,
+    );
+    assert!(!out.contains('\x1b'), "{out:?}");
+    insta::assert_snapshot!(out);
+}
+
+#[test]
+fn the_error_below_a_diagram_has_no_colour_without_colours() {
+    let caps = Capabilities {
+        color: false,
+        ..Capabilities::kitty(WIDTH)
+    };
+    let out = broken(&caps, Theme::default(), RenderErrors::Both);
+    assert!(out.contains("✗ Mermaid diagram could not be"), "{out:?}");
+    assert!(common::colour_codes(&out).is_empty(), "{out:?}");
+}
+
+#[test]
+fn the_setting_decides_whether_the_document_tells_why() {
+    for (errors, inline) in [
+        (RenderErrors::Inline, true),
+        (RenderErrors::Both, true),
+        (RenderErrors::Stderr, false),
+    ] {
+        for caps in [Capabilities::kitty(200), Capabilities::plain(200)] {
+            let out = broken(&caps, Theme::default(), errors);
+            assert_eq!(
+                out.matches(WHY).count(),
+                2 * usize::from(inline),
+                "{errors:?}: {out:?}"
+            );
+            assert!(out.contains("A[open --> B"), "{errors:?}: {out:?}");
+        }
+    }
+    // Nothing to tell for a diagram that was drawn, or for a code block
+    // that is no diagram.
+    let source = format!("{FLOWCHART}\n```rust\nfn main() {{\n```\n");
+    let images = stub_diagram_images(&source);
+    let out = render(&source, &with_images(&Capabilities::kitty(WIDTH), images));
+    assert!(!out.contains("could not be drawn"), "{out:?}");
 }

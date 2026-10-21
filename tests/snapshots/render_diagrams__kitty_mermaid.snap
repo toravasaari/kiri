@@ -85,13 +85,15 @@ expression: "readable(&render_fixture(\"mermaid.md\",\n&with_images(&Capabilitie
   ␛[38;2;251;98;248m⟦row 4: 14 cells⟧␛[39m
   ␛[38;2;251;98;248m⟦row 5: 14 cells⟧␛[39m
 
-  A diagram with a syntax error stays code,
-  with a warning:
+  A diagram with a syntax error stays code and
+  says why:
 
   ␛[0;48;2;43;48;59m                                    ␛[0;38;2;118;123;133;48;2;43;48;59mmermaid␛[0;48;2;43;48;59m ␛[0m
   ␛[0;48;2;43;48;59m ␛[0;38;2;192;197;206;48;2;43;48;59mflowchart LR␛[0;48;2;43;48;59m                               ␛[0m
   ␛[0;48;2;43;48;59m ␛[0;38;2;192;197;206;48;2;43;48;59m    A[Unclosed label --> B␛[0;48;2;43;48;59m                 ␛[0m
   ␛[0;48;2;43;48;59m                                            ␛[0m
+  ␛[0;31m✗ Mermaid diagram could not be drawn:␛[0m
+  ␛[0;31munclosed label␛[0m
 
   ␛[0;90m• ␛[0mA diagram in a list:
 
