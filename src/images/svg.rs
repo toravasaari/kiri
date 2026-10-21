@@ -23,8 +23,8 @@ pub struct Svg {
     /// The part of the drawing that is shown, in its CSS pixels: from its
     /// top left corner to its size, unless it was grown.
     view: tiny_skia::Rect,
-    /// The colour of a card under the whole image, if it lies on one.
-    card: Option<[u8; 3]>,
+    /// The colour of a panel under the whole image, if it lies on one.
+    panel: Option<[u8; 3]>,
     /// The natural size in whole CSS pixels.
     pub(super) size: (u32, u32),
 }
@@ -38,7 +38,7 @@ impl Svg {
             tree: Arc::new(tree),
             bytes: bytes.into(),
             view,
-            card: None,
+            panel: None,
             size: (0, 0),
         }
         .showing(view)
@@ -71,9 +71,9 @@ impl Svg {
         self.showing(view)
     }
 
-    /// This SVG on a card of `colour`, `padding` CSS pixels wider than
+    /// This SVG on a panel of `colour`, `padding` CSS pixels wider than
     /// what it shows on each side.
-    pub(super) fn on_card(self, colour: [u8; 3], padding: f32) -> Self {
+    pub(super) fn on_panel(self, colour: [u8; 3], padding: f32) -> Self {
         let view = self.view;
         let view = tiny_skia::Rect::from_ltrb(
             view.left() - padding,
@@ -83,7 +83,7 @@ impl Svg {
         )
         .unwrap_or(view);
         Self {
-            card: Some(colour),
+            panel: Some(colour),
             ..self.showing(view)
         }
     }
@@ -94,7 +94,7 @@ impl Svg {
             // Too large for the renderer; left transparent.
             return image;
         };
-        if let Some([red, green, blue]) = self.card {
+        if let Some([red, green, blue]) = self.panel {
             pixmap.fill(tiny_skia::Color::from_rgba8(red, green, blue, 255));
         }
         let view = self.view;
@@ -115,7 +115,7 @@ impl Svg {
 
 impl PartialEq for Svg {
     fn eq(&self, other: &Self) -> bool {
-        self.bytes == other.bytes && self.view == other.view && self.card == other.card
+        self.bytes == other.bytes && self.view == other.view && self.panel == other.panel
     }
 }
 

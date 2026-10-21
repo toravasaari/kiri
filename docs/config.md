@@ -191,7 +191,7 @@ directive or under `config:` in its front matter, keeps it. Otherwise it
 takes Mermaid's `default` theme on a light page and `dark` on a dark one.
 The page is light with `--light`, dark with `--dark`, and otherwise as
 the terminal's background is; an unknown background counts as dark. A
-diagram in light colours on a dark page is drawn on a white card.
+diagram in light colours on a dark page is drawn on a white panel.
 
 A diagram that does not draw, such as one with a syntax error, stays
 code with a warning that names it by its line, as in

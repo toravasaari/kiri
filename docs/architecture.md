@@ -80,7 +80,7 @@ lone images. It hands all of a document's diagrams to the renderer at
 once, then decodes each SVG it gets back as it decodes an SVG file, so
 sizing, the width limit and redrawing after a window resize work as for
 any image. There it also grows a diagram whose text runs past its edges,
-and lays one drawn in light colours on a white card on a dark page.
+and lays one drawn in light colours on a white panel on a dark page.
 
 Renderers live in `src/diagrams/`, outside `src/kitty/` and the parser.
 A renderer implements the `Renderer` trait: whether it draws a language,

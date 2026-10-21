@@ -453,18 +453,18 @@ fn finish_diagram(
     // and text on a dark page.
     Ok(match image {
         Source::Svg(svg) if diagrams.theme == Theme::Dark && drawn.theme == Theme::Light => {
-            Source::Svg(svg.on_card(CARD, CARD_PADDING))
+            Source::Svg(svg.on_panel(LIGHT_PANEL, PANEL_PADDING))
         }
         other => other,
     })
 }
 
-/// The colour of the card under a light diagram on a dark page.
-const CARD: [u8; 3] = [255, 255, 255];
+/// The colour of the panel under a light diagram on a dark page.
+const LIGHT_PANEL: [u8; 3] = [255, 255, 255];
 
-/// How far, in CSS pixels, the card reaches past the diagram on each side,
+/// How far, in CSS pixels, the panel reaches past the diagram on each side,
 /// beyond the margin of its own that the diagram has.
-const CARD_PADDING: f32 = 8.0;
+const PANEL_PADDING: f32 = 8.0;
 
 /// A diagram's SVG decoded, and grown to show all of its text: its
 /// renderer may have measured the text narrower than `fonts` draw it.
@@ -1253,7 +1253,7 @@ fn main() {}
     }
 
     #[test]
-    fn a_light_diagram_on_a_dark_page_lies_on_a_white_card() {
+    fn a_light_diagram_on_a_dark_page_lies_on_a_white_panel() {
         /// An empty 100 × 40 drawing, for a page of the theme it holds.
         struct Themed(Theme);
         impl Renderer for Themed {
@@ -1284,10 +1284,10 @@ fn main() {}
                 other => panic!("{other:?}"),
             }
         };
-        // Eight pixels of card around the drawing on each side.
-        let card = drawn(Theme::Dark, Theme::Light);
-        assert_eq!(card.size, (116, 56));
-        let pixels = card.render(116, 56);
+        // Eight pixels of panel around the drawing on each side.
+        let panel = drawn(Theme::Dark, Theme::Light);
+        assert_eq!(panel.size, (116, 56));
+        let pixels = panel.render(116, 56);
         for (x, y) in [(0, 0), (58, 28), (115, 55)] {
             assert_eq!(rgba(&pixels, x, y), [255, 255, 255, 255], "({x}, {y})");
         }

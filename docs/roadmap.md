@@ -100,7 +100,7 @@ example, come before the rest of phase 3.
 - Mermaid code blocks drawn as diagrams, as GitHub draws them, with
   Mermaid's `default` theme on a light page and `dark` on a dark one
   unless a diagram chooses its own. A diagram in light colours on a dark
-  page lies on a white card.
+  page lies on a white panel.
 - The full build draws them itself through merman: every diagram type,
   the Cytoscape and ELK layouts, and math. The minimal build uses
   mermaid-cli's `mmdc`, found on `PATH` or where npm, nvm and Homebrew
