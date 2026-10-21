@@ -222,17 +222,17 @@ pub(crate) fn size(bytes: u64) -> String {
 pub enum ImageKey {
     /// An image file or `data:` URL, as the document gives it.
     Url(String),
-    /// A code block drawn as an image, such as a diagram: its language and
-    /// its source.
+    /// A code block drawn as an image, such as a diagram: its language, in
+    /// lower case as code blocks match it in any case, and its source.
     Block { language: String, source: String },
 }
 
 impl ImageKey {
     /// The key of the code block `source` in `language`, drawn as an
-    /// image.
+    /// image: the same for a language in any case.
     pub fn block(language: &str, source: &str) -> Self {
         ImageKey::Block {
-            language: language.to_owned(),
+            language: language.to_ascii_lowercase(),
             source: source.to_owned(),
         }
     }
@@ -1231,6 +1231,25 @@ fn main() {}
                 Some(Ok(Source::Svg(svg))) => assert_eq!(svg.size, (200, 20)),
                 other => panic!("{key:?}: {other:?}"),
             }
+        }
+    }
+
+    #[test]
+    fn a_diagram_is_drawn_once_whatever_the_case_of_its_language() {
+        let source = "```Mermaid\na\n```\n\n```mermaid\na\n```\n\n```MERMAID\na\n```\n";
+        let stub = Stub::default();
+        let images = load_with(
+            &crate::parse::parse(source),
+            &fixtures(),
+            DEFAULT_MAX_FILE_SIZE,
+            &Fonts::none(),
+            &with_stub(&stub, Theme::Light, true),
+        );
+        assert_eq!(stub.calls.into_inner().len(), 1);
+        assert_eq!(images.len(), 1);
+        for language in ["Mermaid", "mermaid", "MERMAID"] {
+            let key = ImageKey::block(language, "a\n");
+            assert!(matches!(images.get(&key), Some(Ok(_))), "{language}");
         }
     }
 
