@@ -17,7 +17,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::diagrams::{Diagrams, Renderer, Request};
+use crate::diagrams::{NoRenderer, Renderer, Request, Theme};
 use crate::model::{Block, Document, Inline};
 
 pub use decode::{DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image};
@@ -179,6 +179,44 @@ impl fmt::Display for ImageKey {
     }
 }
 
+/// How the images of a document are loaded, and its diagrams drawn.
+#[derive(Clone, Copy)]
+pub struct LoadOptions<'a> {
+    /// What draws the diagrams; by default nothing, so that every code
+    /// block stays code.
+    pub renderer: &'a dyn Renderer,
+    /// The page the diagrams are drawn for, unless they choose their own
+    /// colours; by default a light one.
+    pub theme: Theme,
+    /// Whether a warning names a diagram by its line in the document, or
+    /// by its own first line, for a document that has no lines the reader
+    /// can look up, such as one piped in; by default by its line.
+    pub by_line: bool,
+    /// Told how many of a document's diagrams are drawn, and of how many:
+    /// first none, and then each time one more is.
+    pub progress: Option<&'a (dyn Fn(usize, usize) + Sync)>,
+    /// Whether a diagram whose colours are for the other page, light or
+    /// dark, lies on a panel of its own background; by default it does.
+    pub panel: bool,
+    /// The most pixels, wide and high, an image can be shown at: a
+    /// diagram drawn in pixels is reduced to fit them as it loads. `None`,
+    /// the default, keeps it as drawn.
+    pub largest: Option<(u32, u32)>,
+}
+
+impl Default for LoadOptions<'_> {
+    fn default() -> Self {
+        LoadOptions {
+            renderer: &NoRenderer,
+            theme: Theme::Light,
+            by_line: true,
+            progress: None,
+            panel: true,
+            largest: None,
+        }
+    }
+}
+
 /// Every image of a document by its key, loaded or not.
 #[derive(Debug, Default)]
 pub struct Images {
@@ -258,16 +296,16 @@ impl Images {
 
 /// Loads every image that `document` shows as an image block once,
 /// resolving relative paths against `base`, the directory of the Markdown
-/// file, and draws each diagram `diagrams` can draw once. Files larger
+/// file, and draws each diagram that `options` can draw once. Files larger
 /// than `max_file_size` bytes are refused, and text in SVGs is drawn with
 /// the system's fonts.
 pub fn load(
     document: &Document,
     base: &Path,
     max_file_size: u64,
-    diagrams: &Diagrams<'_>,
+    options: &LoadOptions<'_>,
 ) -> Images {
-    load_with(document, base, max_file_size, &Fonts::system(), diagrams)
+    load_with(document, base, max_file_size, &Fonts::system(), options)
 }
 
 /// `load`, drawing text in SVGs with `fonts`.
@@ -276,10 +314,10 @@ pub fn load_with(
     base: &Path,
     max_file_size: u64,
     fonts: &Fonts,
-    diagrams: &Diagrams<'_>,
+    options: &LoadOptions<'_>,
 ) -> Images {
     let mut wanted = Vec::new();
-    collect_blocks(&document.blocks, diagrams.renderer, &mut wanted);
+    collect_blocks(&document.blocks, options.renderer, &mut wanted);
     let mut keys = HashSet::new();
     wanted.retain(|image| keys.insert(image.key()));
     // The diagrams first, all together, so a renderer can draw several
@@ -288,13 +326,13 @@ pub fn load_with(
         .filter_map(|image| match *image {
             Wanted::Diagram {
                 language, source, ..
-            } => Some(Request::new(language, source, diagrams.theme)),
+            } => Some(Request::new(language, source, options.theme)),
             Wanted::Url(_) => None,
         })
         .collect();
     let total = requests.len();
     let done = AtomicUsize::new(0);
-    let progress = diagrams.progress;
+    let progress = options.progress;
     let tell = |done| {
         if let Some(progress) = progress {
             progress(done, total);
@@ -304,7 +342,7 @@ pub fn load_with(
         tell(0);
     }
     let one_more = || tell(done.fetch_add(1, Ordering::Relaxed) + 1);
-    let mut drawn = (diagrams.renderer)
+    let mut drawn = (options.renderer)
         .render_all(&requests, &one_more)
         .into_iter();
     let mut images = Images::new();
@@ -318,15 +356,7 @@ pub fn load_with(
                 line,
             } => {
                 let drawn = drawn.next().expect("a drawing for each diagram");
-                finish_diagram(
-                    language,
-                    source,
-                    line,
-                    drawn,
-                    max_file_size,
-                    fonts,
-                    diagrams,
-                )
+                finish_diagram(language, source, line, drawn, max_file_size, fonts, options)
             }
         };
         images.insert(key, loaded);
@@ -439,7 +469,7 @@ mod tests {
             &document,
             &fixtures().join("images"),
             DEFAULT_MAX_FILE_SIZE,
-            &Diagrams::none(),
+            &LoadOptions::default(),
         );
         assert!(
             matches!(images.get(&"pattern.png".into()), Some(Ok(_))),
@@ -463,7 +493,7 @@ mod tests {
             &fixtures(),
             DEFAULT_MAX_FILE_SIZE,
             &Fonts::none(),
-            &Diagrams::none(),
+            &LoadOptions::default(),
         );
         assert_eq!(images.len(), 3);
         assert!(images.get(&"images/pattern.png".into()).unwrap().is_ok());
@@ -500,7 +530,7 @@ Text ![inline](images/pattern.png) and words.
             &fixtures(),
             DEFAULT_MAX_FILE_SIZE,
             &Fonts::none(),
-            &Diagrams::none(),
+            &LoadOptions::default(),
         );
         assert!(images.is_empty(), "{images:?}");
     }
@@ -532,14 +562,12 @@ Text ![inline](images/pattern.png) and words.
         }
     }
 
-    pub(super) fn with_stub(stub: &Stub, theme: Theme, by_line: bool) -> Diagrams<'_> {
-        Diagrams {
+    pub(super) fn with_stub(stub: &Stub, theme: Theme, by_line: bool) -> LoadOptions<'_> {
+        LoadOptions {
             renderer: stub,
             theme,
             by_line,
-            progress: None,
-            panel: true,
-            largest: None,
+            ..LoadOptions::default()
         }
     }
 
@@ -631,7 +659,7 @@ fn main() {}
         let told = std::sync::Mutex::new(Vec::new());
         let tell = |done, total| told.lock().unwrap().push((done, total));
         let stub = Stub::default();
-        let diagrams = Diagrams {
+        let options = LoadOptions {
             progress: Some(&tell),
             ..with_stub(&stub, Theme::Light, true)
         };
@@ -641,7 +669,7 @@ fn main() {}
                 &fixtures(),
                 DEFAULT_MAX_FILE_SIZE,
                 &Fonts::none(),
-                &diagrams,
+                &options,
             )
         };
         load(source);
@@ -659,7 +687,7 @@ fn main() {}
             &fixtures(),
             DEFAULT_MAX_FILE_SIZE,
             &Fonts::none(),
-            &Diagrams::none(),
+            &LoadOptions::default(),
         );
         assert!(images.is_empty(), "{images:?}");
     }

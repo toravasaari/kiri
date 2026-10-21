@@ -4,10 +4,11 @@
 
 use image::RgbaImage;
 
+use super::LoadOptions;
 use super::decode::{decode_raster, scale};
 use super::svg::{Fonts, decode_svg, looks_like_svg};
 use super::{ImageError, Source};
-use crate::diagrams::{Diagrams, Drawn, Theme};
+use crate::diagrams::{Drawn, Theme};
 
 /// The diagram `source` in `language`, which starts on `line`, as
 /// `diagrams` drew it, decoded by its content as an image file is.
@@ -18,23 +19,23 @@ pub(super) fn finish_diagram(
     drawn: Result<Drawn, String>,
     max_size: u64,
     fonts: &Fonts,
-    diagrams: &Diagrams<'_>,
+    options: &LoadOptions<'_>,
 ) -> Result<Source, ImageError> {
     let failed = |reason: String| ImageError::Diagram {
-        name: crate::diagrams::name(language, source, line, diagrams.by_line),
+        name: crate::diagrams::name(language, source, line, options.by_line),
         reason,
     };
     let drawn = drawn.map_err(failed)?;
     let image = match looks_like_svg(&drawn.image) {
         true => decode_diagram(&drawn.image, max_size, fonts),
         false => decode_raster(&drawn.image, None)
-            .map(|image| dense(image, drawn.scale, diagrams.largest)),
+            .map(|image| dense(image, drawn.scale, options.largest)),
     }
     .map_err(|error| failed(error.to_string()))?;
     // A diagram that chose colours of its own for the other page would
     // be dark lines and text on a dark page, or light ones on a light page.
-    let panel = match (diagrams.theme, drawn.theme) {
-        _ if !diagrams.panel => None,
+    let panel = match (options.theme, drawn.theme) {
+        _ if !options.panel => None,
         (Theme::Dark, Theme::Light) => Some(LIGHT_PANEL),
         (Theme::Light, Theme::Dark) => {
             let language = crate::diagrams::dark_background(language);
@@ -175,13 +176,9 @@ mod tests {
             &fixtures(),
             DEFAULT_MAX_FILE_SIZE,
             &Fonts::none(),
-            &Diagrams {
+            &LoadOptions {
                 renderer: &Text,
-                theme: Theme::Light,
-                by_line: true,
-                progress: None,
-                panel: true,
-                largest: None,
+                ..LoadOptions::default()
             },
         );
         let warnings = images.warnings();
@@ -242,13 +239,9 @@ mod tests {
             &fixtures(),
             DEFAULT_MAX_FILE_SIZE,
             &fonts,
-            &Diagrams {
+            &LoadOptions {
                 renderer: &Overflowing,
-                theme: Theme::Light,
-                by_line: true,
-                progress: None,
-                panel: true,
-                largest: None,
+                ..LoadOptions::default()
             },
         );
         let Some(Ok(Source::Svg(svg))) = images.get(&ImageKey::block("dot", "digraph {}\n")) else {
@@ -288,13 +281,11 @@ mod tests {
                 &fixtures(),
                 DEFAULT_MAX_FILE_SIZE,
                 &Fonts::none(),
-                &Diagrams {
+                &LoadOptions {
                     renderer: &Themed(own, background),
                     theme: page,
-                    by_line: true,
-                    progress: None,
                     panel,
-                    largest: None,
+                    ..LoadOptions::default()
                 },
             );
             match images.get(&ImageKey::block("dot", "digraph {}\n")) {
@@ -379,13 +370,11 @@ mod tests {
             &fixtures(),
             DEFAULT_MAX_FILE_SIZE,
             &Fonts::none(),
-            &Diagrams {
+            &LoadOptions {
                 renderer,
                 theme: page,
-                by_line: true,
-                progress: None,
-                panel: true,
                 largest,
+                ..LoadOptions::default()
             },
         );
         (images.get(&ImageKey::block("dot", "digraph {}\n")).cloned()).expect("the diagram")

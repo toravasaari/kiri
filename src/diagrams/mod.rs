@@ -320,41 +320,6 @@ impl Renderer for Renderers {
     }
 }
 
-/// How the diagrams of a document are drawn.
-#[derive(Clone, Copy)]
-pub struct Diagrams<'a> {
-    pub renderer: &'a dyn Renderer,
-    pub theme: Theme,
-    /// Whether a warning names a diagram by its line in the document, or
-    /// by its own first line, for a document that has no lines the reader
-    /// can look up, such as one piped in.
-    pub by_line: bool,
-    /// Told how many of a document's diagrams are drawn, and of how many:
-    /// first none, and then each time one more is.
-    pub progress: Option<&'a (dyn Fn(usize, usize) + Sync)>,
-    /// Whether a diagram whose colours are for the other page, light or
-    /// dark, lies on a panel of its own background.
-    pub panel: bool,
-    /// The most pixels, wide and high, an image can be shown at: a
-    /// diagram drawn in pixels is reduced to fit them as it loads. `None`
-    /// keeps it as drawn.
-    pub largest: Option<(u32, u32)>,
-}
-
-impl Diagrams<'static> {
-    /// No diagrams: every code block stays code.
-    pub fn none() -> Self {
-        Diagrams {
-            renderer: &NoRenderer,
-            theme: Theme::Light,
-            by_line: true,
-            progress: None,
-            panel: true,
-            largest: None,
-        }
-    }
-}
-
 /// No renderer at all.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NoRenderer;

@@ -339,9 +339,8 @@ mod tests {
     use base64::Engine;
     use base64::engine::general_purpose::STANDARD;
 
-    use crate::diagrams::Diagrams;
     use crate::images::tests::{fixture, fixtures, open, rgba};
-    use crate::images::{DEFAULT_MAX_FILE_SIZE, Source, decode, load_url, load_with};
+    use crate::images::{DEFAULT_MAX_FILE_SIZE, LoadOptions, Source, decode, load_url, load_with};
 
     /// `bytes` decoded, which must give an SVG.
     fn svg(bytes: &[u8], fonts: &Fonts) -> Source {
@@ -529,7 +528,7 @@ mod tests {
             &fixtures(),
             DEFAULT_MAX_FILE_SIZE,
             &fonts,
-            &Diagrams::none(),
+            &LoadOptions::default(),
         );
         assert!(!fonts.loaded());
         let with = "![d](images/pattern.svg)\n";
@@ -538,7 +537,7 @@ mod tests {
             &fixtures(),
             DEFAULT_MAX_FILE_SIZE,
             &fonts,
-            &Diagrams::none(),
+            &LoadOptions::default(),
         );
         assert!(fonts.loaded());
     }

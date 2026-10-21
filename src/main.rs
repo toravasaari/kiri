@@ -8,9 +8,9 @@ use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, ValueEnum};
 use kiri::caps::Capabilities;
 use kiri::config::{Environment, Options, Origin, Setting, Settings};
-use kiri::diagrams::{Diagrams, ExternalSettings, NoRenderer, Renderers};
+use kiri::diagrams::{ExternalSettings, NoRenderer, Renderers};
 use kiri::doctor::{Facts, Output};
-use kiri::images::{Fonts, Format, ImageError, ImageKey, Images};
+use kiri::images::{Fonts, Format, ImageError, ImageKey, Images, LoadOptions};
 use kiri::input::Input;
 use kiri::model::Document;
 use kiri::render::Inputs;
@@ -588,7 +588,7 @@ fn load_images(
         external.stop = interrupt.as_ref().map(Interrupt::flag);
         renderers = Some(Renderers::chosen(configured, no_search, &search, external));
     }
-    let diagrams = Diagrams {
+    let options = LoadOptions {
         renderer: match &renderers {
             Some(renderers) => renderers,
             None => &NoRenderer,
@@ -599,19 +599,19 @@ fn load_images(
         panel: settings.diagram_panel,
         largest: Some(kiri::render::image::largest(caps)),
     };
-    let load = |diagrams: &Diagrams| kiri::images::load(document, base, max_file_size, diagrams);
+    let load = |options: &LoadOptions| kiri::images::load(document, base, max_file_size, options);
     // Drawing diagrams can take seconds with an external program; a
     // terminal tells how far it has got.
     let images = if kiri::term::stderr_is_terminal() {
         use kiri::term::progress::{DELAY, while_working};
         while_working(io::stderr(), DELAY, |progress| {
-            load(&Diagrams {
+            load(&LoadOptions {
                 progress: Some(&|done, total| progress.update(done, total)),
-                ..diagrams
+                ..options
             })
         })
     } else {
-        load(&diagrams)
+        load(&options)
     };
     if let Some(signal) = interrupt.as_ref().and_then(Interrupt::release) {
         return Err(Failure::Signal(signal));
