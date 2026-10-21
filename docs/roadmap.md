@@ -108,11 +108,14 @@ example, come before the rest of phase 3.
   layout; merman follows Mermaid 12, whose default is ELK. The minimal
   build uses mermaid-cli's `mmdc`, found on `PATH` or where npm, nvm and
   Homebrew install it, unless `auto_detect` in `[diagrams.mermaid]` is
-  off.
+  off, and shows the PNG that its browser draws at three pixels to the
+  CSS pixel.
 - An external command for a language in the configuration file,
-  `[diagrams.mermaid]`, with `{input}`, `{output}`, `{theme}` and
-  `{config}`; the Mermaid configuration it gets as `{config}` has the
-  built-in renderer's look and layout. It
+  `[diagrams.mermaid]`, with `{input}`, `{output}`, `{theme}`,
+  `{config}` and `{scale}`; it may write SVG or a raster image, and one
+  that takes `{scale}` writes a PNG at that scale. The Mermaid
+  configuration it gets as `{config}` has the built-in renderer's look
+  and layout, and each diagram at its own width. It
   replaces the built-in renderer, and one that fails does not fall back
   to it. Its time limit, 20 s unless `timeout` says otherwise, and
   Ctrl-C, SIGTERM and SIGHUP stop it and what it started.

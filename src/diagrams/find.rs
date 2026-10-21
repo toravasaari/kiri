@@ -24,6 +24,8 @@ pub const MMDC: &[&str] = &[
     "transparent",
     "-c",
     "{config}",
+    "-s",
+    "{scale}",
 ];
 
 /// The command line kiri looks for to draw `language` when nothing is
@@ -362,6 +364,19 @@ mod tests {
                 PathBuf::from("/home/linuxbrew/.linuxbrew/bin")
             ]
         );
+    }
+
+    #[test]
+    fn mmdc_draws_a_png_at_kiri_s_scale_on_a_transparent_background() {
+        let argv = MMDC.join(" ");
+        assert!(argv.contains(" -s {scale}"), "{argv}");
+        assert!(argv.contains(" -b transparent"), "{argv}");
+        // The command that the configuration reference shows.
+        let docs = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/config.md");
+        let shown = format!("command = {}", serde_json::to_string(MMDC).unwrap());
+        let shown = shown.replace("\",\"", "\", \"");
+        let docs = fs::read_to_string(docs).unwrap();
+        assert_eq!(docs.matches(&shown).count(), 2, "{shown}");
     }
 
     #[test]

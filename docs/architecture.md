@@ -109,7 +109,11 @@ image.
   command the configuration file gives for a language, without a shell
   and with a time limit, several at once, with its files in a directory
   of its own in kiri's cache directory, which is also the program's
-  `TMPDIR`. `src/diagrams/find.rs` finds a default command, `mmdc` for
+  `TMPDIR`. A command that takes `{scale}` writes a raster image, such
+  as `mmdc`'s PNG, at that many pixels to the CSS pixel, and gets a
+  Mermaid configuration that leaves labels in HTML, as a browser draws
+  them; another is taken to write SVG, with labels as SVG text, which
+  resvg draws. `src/diagrams/find.rs` finds a default command, `mmdc` for
   Mermaid, when nothing is configured, the configuration file does not
   turn the search off and the build has no renderer of its own for the
   language; `--doctor` reports the same choice.

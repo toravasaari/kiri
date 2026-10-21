@@ -80,7 +80,8 @@ flowchart LR
 
 kiri's default build draws Mermaid itself, every diagram type, through
 [merman](https://crates.io/crates/merman); a build without default
-features uses mermaid-cli's `mmdc` when it finds one. On a dark page a
+features uses mermaid-cli's `mmdc` when it finds one, and shows the PNG
+its browser draws. On a dark page a
 diagram takes Mermaid's dark theme, unless it chooses a theme of its own.
 Diagrams are drawn where images are, so they stay code with
 `--no-images`, in terminals without kitty's graphics and with

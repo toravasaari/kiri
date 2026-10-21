@@ -46,7 +46,7 @@ background_panel = true
 # A program that draws Mermaid diagrams instead of kiri; see
 # Diagram commands below.
 [diagrams.mermaid]
-command = ["mmdc", "-i", "{input}", "-o", "{output}", "-t", "{theme}", "-b", "transparent", "-c", "{config}"]
+command = ["mmdc", "-i", "{input}", "-o", "{output}", "-t", "{theme}", "-b", "transparent", "-c", "{config}", "-s", "{scale}"]
 # false: a build without default features does not look for mmdc.
 auto_detect = true
 ```
@@ -231,11 +231,13 @@ diagrams and the program's arguments:
 
 ```toml
 [diagrams.mermaid]
-command = ["mmdc", "-i", "{input}", "-o", "{output}", "-t", "{theme}", "-b", "transparent", "-c", "{config}"]
+command = ["mmdc", "-i", "{input}", "-o", "{output}", "-t", "{theme}", "-b", "transparent", "-c", "{config}", "-s", "{scale}"]
 ```
 
 This is mermaid-cli's command line, the same one kiri runs when it finds
-`mmdc` by itself. kiri writes the diagram's source to a file in a
+`mmdc` by itself. `mmdc` draws the diagram in its browser and writes a
+PNG of it, three pixels to the CSS pixel, which kiri shrinks to the size
+it shows the diagram at; the diagram then looks as it does in a browser. kiri writes the diagram's source to a file in a
 directory of its own, runs the program directly, without a shell, and
 reads the image it writes. The directory is in `diagrams` in kiri's cache
 directory (`$XDG_CACHE_HOME/kiri`, or `~/.cache/kiri`), made for you
@@ -253,18 +255,29 @@ cannot. In the arguments:
 - `{input}` is the file of the diagram's source, which ends in `.mmd`
   for Mermaid;
 - `{output}` is the image file the program writes: SVG, or a raster
-  image such as PNG, which kiri tells apart by its content;
+  image such as PNG, which kiri tells apart by its content. Its name
+  ends in `.png` when the command has `{scale}`, and in `.svg`
+  otherwise, so that a program such as `mmdc`, which writes the format
+  its output file's name ends in, writes the one kiri expects;
 - `{theme}` is the theme kiri chose: `default` or `dark` for Mermaid;
-- `{config}` is a Mermaid configuration file, in JSON, that has labels
-  drawn as SVG text rather than as HTML, which kiri cannot draw, and
-  the classic look and the dagre layout that kiri's built-in renderer
-  uses too; a diagram's own settings win over it.
+- `{scale}` is `3`, the number of pixels to the CSS pixel that the
+  program is to draw a raster image with. kiri shows such an image at a
+  third of its size in pixels, in CSS pixels as it shows an SVG. A
+  raster image from a command without `{scale}` is shown at one pixel to
+  the CSS pixel;
+- `{config}` is a Mermaid configuration file, in JSON, that has each
+  diagram drawn at its own width, rather than at most as wide as the
+  800-pixel page of `mmdc`'s browser, and the classic look and the dagre
+  layout that kiri's built-in renderer uses too; a diagram's own
+  settings win over it. For a command without `{scale}`, which is taken
+  to write SVG, it also has labels drawn as SVG text rather than as
+  HTML, which kiri cannot draw in an SVG.
 
 `{input}` and `{output}` must be there. The source file is the diagram
 as the document has it, so line numbers in the program's errors are the
 diagram's own. A command without `{config}` works too, but `mmdc` then
-draws the labels of some diagram types, such as flowcharts, as HTML,
-and they may show blank. No shell expands the arguments, so a leading `~/`
+draws a wide diagram narrower, and when it writes SVG, the labels of
+some diagram types, such as flowcharts, as HTML, which may show blank. No shell expands the arguments, so a leading `~/`
 is not your home directory: write the path in full. A program named
 without a path is looked for on `PATH`.
 

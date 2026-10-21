@@ -30,6 +30,10 @@ pub const TIME_LIMIT: Duration = Duration::from_secs(20);
 /// How many programs draw diagrams at once.
 pub const AT_ONCE: usize = 4;
 
+/// How many pixels to the CSS pixel a command draws a raster image with
+/// when it takes the scale as `{scale}`.
+pub const SCALE: u32 = 3;
+
 /// The longest path of the directory that the directories for diagrams'
 /// files go in. A program gets one of them as its temporary directory, and
 /// Chromium, which `mmdc` runs, may make a socket in that: a socket's path
@@ -85,9 +89,11 @@ pub fn not_writable(dir: &Path) -> Option<Unusable> {
 
 /// A program that draws diagrams and its arguments, in which `{input}`
 /// stands for the file of the diagram's source, `{output}` for the image
-/// file the program writes, `{theme}` for the theme kiri chose, and
-/// `{config}` for a configuration file kiri writes for the language, such
-/// as Mermaid's.
+/// file the program writes, `{theme}` for the theme kiri chose, `{config}`
+/// for a configuration file kiri writes for the language, such as
+/// Mermaid's, and `{scale}` for the number of pixels to the CSS pixel
+/// that a program which takes it draws a raster image with. `{output}`
+/// ends in `.png` for such a program and in `.svg` for others.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Command {
     pub argv: Vec<String>,
@@ -98,6 +104,16 @@ pub struct Command {
 impl Command {
     pub fn new(argv: Vec<String>) -> Self {
         Command { argv, path: None }
+    }
+
+    /// What the program writes: a raster image at [`SCALE`] when it takes
+    /// `{scale}`, and otherwise SVG, or a raster image at one pixel to the
+    /// CSS pixel.
+    fn writes(&self) -> Output {
+        match self.argv.iter().any(|arg| arg.contains("{scale}")) {
+            true => Output::Raster,
+            false => Output::Svg,
+        }
     }
 
     /// The program's name for messages: the last part of its path.
@@ -251,9 +267,13 @@ impl External {
         let input = dir
             .0
             .join(format!("diagram.{}", super::extension(language)));
-        let output = dir.0.join("diagram.svg");
+        let writes = command.writes();
+        let output = dir.0.join(match writes {
+            Output::Svg => "diagram.svg",
+            Output::Raster => "diagram.png",
+        });
         let errors = dir.0.join("errors.txt");
-        let config = config(language).map(|(text, extension)| {
+        let config = config(language, writes).map(|(text, extension)| {
             let path = dir.0.join(format!("config.{extension}"));
             (path, text)
         });
@@ -270,7 +290,8 @@ impl External {
             .map(|arg| {
                 let arg = (arg.replace("{input}", &input.to_string_lossy()))
                     .replace("{output}", &output.to_string_lossy())
-                    .replace("{theme}", theme);
+                    .replace("{theme}", theme)
+                    .replace("{scale}", &SCALE.to_string());
                 match &config {
                     Some((path, _)) => arg.replace("{config}", &path.to_string_lossy()),
                     None => arg,
@@ -338,38 +359,98 @@ impl Renderer for External {
         let image = self.run(command, language, source, theme)?;
         // The program cannot tell which theme the diagram chose itself.
         let theme = super::chosen_theme(language, source).unwrap_or(theme);
+        let scale = match command.writes() {
+            Output::Svg => 1,
+            Output::Raster => SCALE,
+        };
         Ok(Drawn {
             image,
-            scale: 1,
+            scale,
             theme,
             background: None,
         })
     }
 }
 
+/// The kinds of Mermaid diagram whose configuration has `useMaxWidth`,
+/// as Mermaid 12 names them.
+const MERMAID_DIAGRAMS: &[&str] = &[
+    "flowchart",
+    "swimlane",
+    "agentflow",
+    "sequence",
+    "gantt",
+    "journey",
+    "timeline",
+    "class",
+    "state",
+    "er",
+    "pie",
+    "quadrantChart",
+    "xyChart",
+    "requirement",
+    "architecture",
+    "mindmap",
+    "ishikawa",
+    "kanban",
+    "gitGraph",
+    "c4",
+    "sankey",
+    "packet",
+    "block",
+    "eventmodeling",
+    "treeView",
+    "radar",
+    "usecase",
+    "venn",
+    "wardley-beta",
+    "cynefin",
+    "railroad",
+];
+
 /// The Mermaid configuration that a command gets as `{config}`, which a
-/// diagram's own directive or front matter overrides. It has a diagram's
-/// labels drawn as SVG text, which kiri can draw, rather than as HTML,
-/// which it cannot: Mermaid 11 and later read the first `htmlLabels`;
-/// Mermaid 10 the others. It has the look and layout that the built-in
-/// renderer gives too, so that both draw a diagram alike.
-fn mermaid_config() -> String {
-    let mut config = serde_json::json!({
-        "htmlLabels": false,
-        "flowchart": {"htmlLabels": false},
-        "class": {"htmlLabels": false},
-        "state": {"htmlLabels": false},
-    });
+/// diagram's own directive or front matter overrides, for a command that
+/// writes `output`.
+///
+/// It has each diagram drawn at its own width, rather than at most as wide
+/// as the page it is drawn on, which in mmdc's browser is 800 pixels: kiri
+/// shrinks a diagram to the window itself. It has the look and layout that
+/// the built-in renderer gives too, so that both draw a diagram alike.
+///
+/// For SVG, it has the labels drawn as SVG text, which kiri can draw,
+/// rather than as HTML, which it cannot: Mermaid 11 and later read the
+/// first `htmlLabels`, Mermaid 10 the others. A raster image is a
+/// browser's drawing, which has the labels as Mermaid draws them.
+fn mermaid_config(output: Output) -> String {
+    let mut config = serde_json::json!({});
+    for diagram in MERMAID_DIAGRAMS {
+        config[diagram] = serde_json::json!({"useMaxWidth": false});
+    }
+    if output == Output::Svg {
+        config["htmlLabels"] = false.into();
+        for diagram in ["flowchart", "class", "state"] {
+            config[diagram]["htmlLabels"] = false.into();
+        }
+    }
     for (key, value) in super::MERMAID_SITE {
         config[key] = value.into();
     }
     format!("{config}\n")
 }
 
-/// The configuration a command for `language` gets as `{config}`, and
-/// the extension of its file.
-fn config(language: &str) -> Option<(String, &'static str)> {
-    (language.eq_ignore_ascii_case("mermaid")).then(|| (mermaid_config(), "json"))
+/// The configuration a command for `language` that writes `output` gets
+/// as `{config}`, and the extension of its file.
+fn config(language: &str, output: Output) -> Option<(String, &'static str)> {
+    (language.eq_ignore_ascii_case("mermaid")).then(|| (mermaid_config(output), "json"))
+}
+
+/// What a command writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Output {
+    /// SVG, or a raster image at one pixel to the CSS pixel.
+    Svg,
+    /// A raster image at [`SCALE`], when the command takes `{scale}`.
+    Raster,
 }
 
 /// A directory that is removed with everything in it when dropped.
@@ -597,8 +678,8 @@ mod tests {
             assert_eq!(source_file, Ok(source.to_owned()));
         }
         let config = written("cat \"$4\" > \"$2\"\n", SOURCE);
-        assert_eq!(config, Ok(mermaid_config()));
-        let config: serde_json::Value = serde_json::from_str(&mermaid_config()).unwrap();
+        assert_eq!(config, Ok(mermaid_config(Output::Svg)));
+        let config: serde_json::Value = serde_json::from_str(&mermaid_config(Output::Svg)).unwrap();
         assert_eq!(config["htmlLabels"], false);
         for diagram in ["flowchart", "class", "state"] {
             assert_eq!(config[diagram]["htmlLabels"], false, "{diagram}");
@@ -608,6 +689,67 @@ mod tests {
         assert_eq!(config["look"], "classic");
         assert_eq!(config["layout"], "dagre");
         assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+    }
+
+    #[test]
+    fn a_command_that_takes_the_scale_draws_a_png_at_it() {
+        // It writes the name of its output file, its scale and its
+        // configuration.
+        let scratch = Scratch::new("scale");
+        let path = scratch.0.join("render.sh");
+        fs::write(
+            &path,
+            "printf '%s %s ' \"${2##*/}\" \"$3\" > \"$2\"\ncat \"$4\" >> \"$2\"\n",
+        )
+        .unwrap();
+        let command = |scale: &str| {
+            let argv = [
+                "/bin/sh",
+                &path.to_string_lossy(),
+                "{input}",
+                "{output}",
+                scale,
+                "{config}",
+            ];
+            let command = Command::new(argv.map(String::from).to_vec());
+            External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
+                .with_work_dir(scratch.0.join("temp"))
+        };
+        let drawn = command("-s{scale}")
+            .render("mermaid", SOURCE, Theme::Light)
+            .unwrap();
+        let text = drawn.text();
+        let (start, config) = text.split_at(text.find('{').unwrap());
+        assert_eq!(start, "diagram.png -s3 ");
+        assert_eq!(drawn.scale, SCALE);
+        // Labels as a browser draws them, in HTML.
+        assert_eq!(config, mermaid_config(Output::Raster));
+        let config: serde_json::Value = serde_json::from_str(config).unwrap();
+        assert_eq!(config.get("htmlLabels"), None);
+        assert_eq!(config["flowchart"].get("htmlLabels"), None);
+        // A command without it writes SVG, or a raster image at one pixel
+        // to the CSS pixel, and gets labels as SVG text.
+        let drawn = command("1")
+            .render("mermaid", SOURCE, Theme::Light)
+            .unwrap();
+        let text = drawn.text();
+        let (start, config) = text.split_at(text.find('{').unwrap());
+        assert_eq!(start, "diagram.svg 1 ");
+        assert_eq!(drawn.scale, 1);
+        assert_eq!(config, mermaid_config(Output::Svg));
+        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+    }
+
+    #[test]
+    fn mermaid_draws_diagrams_at_their_own_width() {
+        // Not as wide as the page at most, which is 800 pixels in mmdc's
+        // browser.
+        for output in [Output::Svg, Output::Raster] {
+            let config: serde_json::Value = serde_json::from_str(&mermaid_config(output)).unwrap();
+            for diagram in ["flowchart", "sequence", "class", "state", "er", "gitGraph"] {
+                assert_eq!(config[diagram]["useMaxWidth"], false, "{diagram}");
+            }
+        }
     }
 
     #[test]
