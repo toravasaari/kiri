@@ -2,6 +2,8 @@
 
 mod common;
 
+use std::path::Path;
+
 use common::{Scratch, kiri, sent, text};
 
 const FLOWCHART: &str = "# Plan\n\n```mermaid\nflowchart TD\n    A --> B\n```\n";
@@ -418,8 +420,8 @@ fn a_signal_stops_the_programs_removes_their_files_and_ends_kiri() {
 
     // Ctrl-C, a request to end and a terminal that closes.
     for signal in [Signal::INT, Signal::TERM, Signal::HUP] {
-        // A short name, so that the cache directory is used.
-        let dir = Scratch::new("s");
+        // A short path, so that the cache directory is used.
+        let dir = Scratch::in_dir(Path::new("/tmp"), "s");
         let started = dir.join("started");
         // Each diagram's program starts a program of its own and waits
         // for it.
@@ -634,9 +636,9 @@ fn ctrl_c_ends_kiri_when_the_pager_cannot_open_and_it_prints_instead() {
 fn a_program_s_files_are_in_kiri_s_cache_directory_until_it_is_done() {
     use std::os::unix::fs::PermissionsExt;
 
-    // A short name, so that the cache directory's path is short enough
-    // for the sockets a browser makes in it.
-    let dir = Scratch::new("c");
+    // A short path, whatever the length of TMPDIR, so that the cache
+    // directory's is short enough for the sockets a browser makes in it.
+    let dir = Scratch::in_dir(Path::new("/tmp"), "c");
     let record = dir.join("tmpdir");
     let script = format!("printf '%s' \"$TMPDIR\" > '{}'\n{DRAWS}", record.display());
     let config = external(&dir, &script);
