@@ -125,6 +125,12 @@ struct Cli {
     #[arg(long, value_enum, value_name = "SWITCH")]
     diagrams: Option<Switch>,
 
+    /// Where to tell why a diagram could not be drawn: inline (in the
+    /// document, below its code), stderr (a warning) or both; both unless
+    /// set.
+    #[arg(long, value_enum, value_name = "WHERE")]
+    render_errors: Option<RenderErrors>,
+
     /// Largest image file to read, in megabytes (at most 100); larger
     /// images show their alt text.
     #[arg(long, value_name = "MB", default_value_t = 10, value_parser = max_image_size)]
@@ -228,6 +234,24 @@ impl From<TableRows> for kiri::render::TableRows {
             TableRows::Lines => Self::Lines,
             TableRows::Indent => Self::Indent,
             TableRows::Underline => Self::Underline,
+        }
+    }
+}
+
+/// `render::RenderErrors` for clap.
+#[derive(Clone, Copy, ValueEnum)]
+enum RenderErrors {
+    Inline,
+    Stderr,
+    Both,
+}
+
+impl From<RenderErrors> for kiri::render::RenderErrors {
+    fn from(errors: RenderErrors) -> Self {
+        match errors {
+            RenderErrors::Inline => Self::Inline,
+            RenderErrors::Stderr => Self::Stderr,
+            RenderErrors::Both => Self::Both,
         }
     }
 }
@@ -429,7 +453,7 @@ fn show_document(
     let caps = on_page(caps, &settings);
     let mut interrupt = None;
     let images = load_images(cli, document, file, &settings, &caps, env, &mut interrupt)?;
-    for warning in images.warnings() {
+    for warning in images.warnings_with(settings.render_errors.stderr()) {
         eprintln!("kiri: {warning}");
     }
     print_document(cli, document, name, images, settings, caps, &mut interrupt)
@@ -599,6 +623,7 @@ fn print_document(
         theme: settings.theme,
         front_matter: settings.front_matter.style().unwrap_or_default(),
         table_rows: settings.table_rows,
+        render_errors: settings.render_errors,
         ..Inputs::new(caps)
     };
     if let Some(result) = page(
@@ -840,5 +865,6 @@ fn options(cli: &Cli) -> Options {
         front_matter: cli.front_matter.map(Into::into),
         table_rows: cli.table_rows.map(Into::into),
         diagrams: cli.diagrams.map(Into::into),
+        render_errors: cli.render_errors.map(Into::into),
     }
 }

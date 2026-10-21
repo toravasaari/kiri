@@ -15,7 +15,7 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde::de::{self, Deserializer, MapAccess};
 
-use crate::render::{FrontMatterStyle, TableRows};
+use crate::render::{FrontMatterStyle, RenderErrors, TableRows};
 use crate::theme::{Paper, Theme};
 
 /// The environment variables kiri reads for its settings.
@@ -43,6 +43,8 @@ pub struct Environment {
     pub kiri_table_rows: Option<OsString>,
     /// `KIRI_DIAGRAMS`: `on` or `off`, or `1` or `0`.
     pub kiri_diagrams: Option<OsString>,
+    /// `KIRI_RENDER_ERRORS`: `inline`, `stderr` or `both`.
+    pub kiri_render_errors: Option<OsString>,
     /// `PATH`, where kiri looks for a program that draws diagrams.
     pub path: Option<OsString>,
     /// `NVM_DIR`: where nvm keeps the Node versions it installs.
@@ -77,6 +79,7 @@ impl Environment {
             kiri_front_matter: std::env::var_os("KIRI_FRONT_MATTER"),
             kiri_table_rows: std::env::var_os("KIRI_TABLE_ROWS"),
             kiri_diagrams: std::env::var_os("KIRI_DIAGRAMS"),
+            kiri_render_errors: std::env::var_os("KIRI_RENDER_ERRORS"),
             path: std::env::var_os("PATH"),
             nvm_dir: std::env::var_os("NVM_DIR"),
             // npm reads its settings from the environment in either case.
@@ -192,6 +195,8 @@ pub struct Config {
     pub diagram_panel: Option<bool>,
     /// The diagram languages whose program kiri is not to look for.
     pub diagram_no_search: BTreeSet<String>,
+    /// Where kiri tells why a diagram could not be drawn.
+    pub render_errors: Option<RenderErrors>,
 }
 
 /// When the document is shown in the pager rather than printed.
@@ -327,6 +332,7 @@ pub fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String
         diagram_timeout: file.diagrams.timeout,
         diagram_panel: file.diagrams.background_panel,
         diagram_no_search: file.diagrams.no_search,
+        render_errors: file.render_errors,
     })
 }
 
@@ -339,6 +345,7 @@ struct ConfigToml {
     search_case: Option<SearchCase>,
     front_matter: Option<FrontMatter>,
     table_rows: Option<TableRows>,
+    render_errors: Option<RenderErrors>,
     #[serde(default)]
     diagrams: DiagramsToml,
 }
@@ -710,6 +717,25 @@ pub fn diagrams(
     (setting, warning)
 }
 
+/// Where kiri tells why a diagram could not be drawn, and where that
+/// comes from, strongest first: the command line (`option`, from
+/// `--render-errors`), then `KIRI_RENDER_ERRORS`, then the configuration
+/// file; `both` unless one says otherwise. `KIRI_RENDER_ERRORS` takes
+/// `inline`, `stderr` and `both`; empty is unset. Any other value is left
+/// out with the warning returned beside the setting.
+pub fn render_errors(
+    option: Option<RenderErrors>,
+    env: &Environment,
+    config: &Config,
+) -> (Setting<RenderErrors>, Option<String>) {
+    named(
+        (option, "--render-errors"),
+        ("KIRI_RENDER_ERRORS", env.kiri_render_errors.as_ref()),
+        config.render_errors,
+        RenderErrors::Both,
+    )
+}
+
 /// A setting whose values have names, such as `table`.
 trait Named: Copy + 'static {
     /// Every value, in the order the warning lists them.
@@ -728,6 +754,14 @@ impl Named for TableRows {
 
     fn name(self) -> &'static str {
         TableRows::name(self)
+    }
+}
+
+impl Named for RenderErrors {
+    const ALL: &'static [Self] = &[Self::Inline, Self::Stderr, Self::Both];
+
+    fn name(self) -> &'static str {
+        RenderErrors::name(self)
     }
 }
 
@@ -799,6 +833,8 @@ pub struct Options {
     pub table_rows: Option<TableRows>,
     /// `--diagrams`.
     pub diagrams: Option<bool>,
+    /// `--render-errors`.
+    pub render_errors: Option<RenderErrors>,
 }
 
 /// What the options, the environment and the configuration file choose
@@ -830,6 +866,8 @@ pub struct Settings {
     pub diagram_panel: bool,
     /// The diagram languages whose program kiri is not to look for.
     pub diagram_no_search: BTreeSet<String>,
+    /// Where kiri tells why a diagram could not be drawn.
+    pub render_errors: RenderErrors,
 }
 
 /// What the options, the environment and the configuration file choose,
@@ -863,6 +901,8 @@ pub struct Choices {
     /// The diagram languages whose program kiri is not to look for, all
     /// from the configuration file.
     pub diagram_no_search: BTreeSet<String>,
+    /// Where kiri tells why a diagram could not be drawn.
+    pub render_errors: Setting<RenderErrors>,
     /// What the user should know about settings that were left out.
     pub warnings: Vec<String>,
 }
@@ -888,6 +928,7 @@ impl Choices {
             diagram_timeout: self.diagram_timeout.value,
             diagram_panel: self.diagram_panel.value,
             diagram_no_search: self.diagram_no_search.clone(),
+            render_errors: self.render_errors.value,
         }
     }
 }
@@ -898,6 +939,7 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
     let (front_matter, front_matter_warning) = front_matter(options.front_matter, env, config);
     let (table_rows, table_rows_warning) = table_rows(options.table_rows, env, config);
     let (diagrams, diagrams_warning) = diagrams(options.diagrams, env, config);
+    let (render_errors, render_errors_warning) = render_errors(options.render_errors, env, config);
     Choices {
         theme: theme_source(options.theme.as_deref(), options.paper, env, config),
         paper: options.paper,
@@ -924,11 +966,13 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
             None => Setting::new(true, Origin::Default),
         },
         diagram_no_search: config.diagram_no_search.clone(),
+        render_errors,
         warnings: [
             paging_warning,
             front_matter_warning,
             table_rows_warning,
             diagrams_warning,
+            render_errors_warning,
         ]
         .into_iter()
         .flatten()
@@ -1909,6 +1953,69 @@ mod tests {
         assert_eq!(
             choices.with_theme(Theme::default()).table_rows,
             TableRows::Lines
+        );
+    }
+
+    #[test]
+    fn the_render_errors_key_takes_each_value() {
+        let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
+        for (text, errors) in [
+            ("render_errors = \"inline\"\n", RenderErrors::Inline),
+            ("render_errors = \"stderr\"\n", RenderErrors::Stderr),
+            ("render_errors = \"both\"\n", RenderErrors::Both),
+        ] {
+            assert_eq!(parsed(text).unwrap().render_errors, Some(errors), "{text}");
+        }
+        assert_eq!(parsed("").unwrap().render_errors, None);
+        assert!(parsed("render_errors = \"never\"\n").is_err());
+        assert!(parsed("render_errors = true\n").is_err());
+    }
+
+    fn render_errors_env(value: &str) -> Environment {
+        Environment {
+            kiri_render_errors: Some(value.into()),
+            ..Environment::default()
+        }
+    }
+
+    fn with_render_errors(errors: RenderErrors) -> Config {
+        Config {
+            render_errors: Some(errors),
+            ..Config::default()
+        }
+    }
+
+    #[test]
+    fn render_errors_go_to_both_unless_something_says_otherwise() {
+        let (chosen, warning) = render_errors(None, &Environment::default(), &Config::default());
+        assert_eq!(chosen, Setting::new(RenderErrors::Both, Origin::Default));
+        assert_eq!(warning, None);
+        let config = with_render_errors(RenderErrors::Inline);
+        let (chosen, _) = render_errors(None, &render_errors_env(""), &config);
+        assert_eq!(chosen, Setting::new(RenderErrors::Inline, Origin::File));
+        let (chosen, _) = render_errors(None, &render_errors_env("stderr"), &config);
+        let variable = Origin::Environment("KIRI_RENDER_ERRORS");
+        assert_eq!(chosen, Setting::new(RenderErrors::Stderr, variable));
+        let flag = Some(RenderErrors::Both);
+        let (chosen, _) = render_errors(flag, &render_errors_env("stderr"), &config);
+        let flag = Origin::Flag("--render-errors");
+        assert_eq!(chosen, Setting::new(RenderErrors::Both, flag));
+    }
+
+    #[test]
+    fn an_unknown_kiri_render_errors_is_left_out_with_a_warning() {
+        let config = with_render_errors(RenderErrors::Stderr);
+        let (chosen, warning) = render_errors(None, &render_errors_env("never"), &config);
+        assert_eq!(chosen, Setting::new(RenderErrors::Stderr, Origin::File));
+        assert_eq!(
+            warning.as_deref(),
+            Some("KIRI_RENDER_ERRORS: `never` is not inline, stderr or both; left out")
+        );
+        let choices = choose(&Options::default(), &render_errors_env("never"), &config);
+        assert_eq!(choices.warnings.len(), 1);
+        assert_eq!(
+            choices.with_theme(Theme::default()).render_errors,
+            RenderErrors::Stderr
         );
     }
 

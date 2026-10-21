@@ -247,6 +247,40 @@ fn diagrams_tell_where_they_come_from() {
 }
 
 #[test]
+fn render_errors_tell_where_they_come_from() {
+    let dir = Scratch::new("doctor-render-errors");
+    for (args, variable, row) in [
+        (&[][..], None, "| Render errors | both | default |"),
+        (
+            &["--render-errors", "stderr"][..],
+            Some("inline"),
+            "| Render errors | stderr | `--render-errors` |",
+        ),
+        (
+            &[][..],
+            Some("inline"),
+            "| Render errors | inline | `KIRI_RENDER_ERRORS=inline` |",
+        ),
+    ] {
+        let mut command = doctor(&dir, args);
+        if let Some(value) = variable {
+            command.env("KIRI_RENDER_ERRORS", value);
+        }
+        let out = command.output().unwrap();
+        assert_succeeded(&out);
+        let report = text(&out.stdout);
+        assert!(report.contains(row), "{row}\n{report}");
+    }
+    write(
+        &dir.join("home/.config/kiri/config.toml"),
+        "render_errors = \"inline\"\n",
+    );
+    let report = piped(&dir, &[]);
+    let row = "| Render errors | inline | configuration file |";
+    assert!(report.contains(row), "{row}\n{report}");
+}
+
+#[test]
 fn the_diagrams_time_limit_and_panels_tell_where_they_come_from() {
     let dir = Scratch::new("doctor-diagram-settings");
     let report = piped(&dir, &[]);

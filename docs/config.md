@@ -35,6 +35,10 @@ front_matter = "table"
 # Table row style: "zebra", "lines", "indent", "underline" or "off".
 table_rows = "zebra"
 
+# Where kiri tells why a diagram could not be drawn: "inline", "stderr"
+# or "both"; see Render errors below.
+render_errors = "both"
+
 # Diagrams in code blocks, such as Mermaid; see Diagrams below.
 [diagrams]
 # false shows them as code.
@@ -212,7 +216,8 @@ code. Below the code, in the theme's `error` colour, kiri tells why, as
 in `✗ Mermaid diagram could not be drawn: …`, which shows in the pager
 too, and a warning on standard error names the diagram by its line, as
 in `kiri: mermaid diagram on line 12: …`, or by its first line for a
-document piped in.
+document piped in. [Render errors](#render-errors) choose either one
+alone.
 
 A Mermaid file given on its own, `kiri plan.mmd`, `.mermaid` or
 `--format mermaid`, is drawn with these same settings and shown as large
@@ -223,8 +228,8 @@ shown as `--format text` shows it; one that fails to draw is an error,
 draw, although diagrams are on and the terminal shows them, gets the
 hint `kiri: plan.mmd: no program to draw Mermaid diagrams; see --doctor`.
 
-`kiri --doctor` shows the switch, the time limit and whether panels are
-on, each with where it comes from, and lists, for each language, the
+`kiri --doctor` shows the switch, the time limit, whether panels are
+on and where render errors go, each with where it comes from, and lists, for each language, the
 renderer built into this build and the external command, configured,
 found, not found or not looked for, and which of them is used.
 
@@ -315,6 +320,21 @@ its browser on SIGINT; the browser runs outside the group, so killing
 With a command configured, `enabled = false` in the `[diagrams]` table,
 `--diagrams off` or `KIRI_DIAGRAMS=0` turns diagrams off.
 
+## Render errors
+
+The first of these that is given decides where kiri tells why a diagram
+could not be drawn:
+
+1. `--render-errors inline|stderr|both`
+2. `KIRI_RENDER_ERRORS` with the same values, as for `KIRI_FRONT_MATTER`
+3. `render_errors` in the configuration file
+4. `both`
+
+`inline` tells it only in the document, below the diagram's code, in the
+theme's `error` colour, or without colour where there are none;
+`stderr` only in a warning on standard error; `both` in both. Warnings
+about images that do not load go to standard error whatever this says.
+
 ## Environment variables
 
 | Variable | Meaning |
@@ -326,6 +346,7 @@ With a command configured, `enabled = false` in the `[diagrams]` table,
 | `KIRI_FRONT_MATTER` | Front matter render style; see [Front matter](#front-matter) |
 | `KIRI_TABLE_ROWS` | Table row style; see [Table rows](#table-rows) |
 | `KIRI_DIAGRAMS` | Diagrams drawn or shown as code; see [Diagrams](#diagrams) |
+| `KIRI_RENDER_ERRORS` | Where kiri tells why a diagram was not drawn; see [Render errors](#render-errors) |
 | `NO_COLOR` | No colours, when set and not empty; see [no-color.org](https://no-color.org) |
 | `HOME` | Your home directory, `~`, for the default configuration and cache directories, a theme under `~/` and programs found under it; ignored when empty or not an absolute path |
 | `XDG_CONFIG_HOME` | Where the configuration directory is; `~/.config` when unset or not an absolute path |

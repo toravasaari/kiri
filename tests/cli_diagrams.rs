@@ -941,3 +941,120 @@ fn help_names_the_mermaid_format() {
         "{help}"
     );
 }
+
+// Where a diagram's error goes
+
+/// A stand-in for mmdc that fails.
+const FAILS: &str = "echo 'Error: bad' >&2\nexit 1\n";
+
+/// Runs kiri in kitty mode on `source` with `args`, `KIRI_RENDER_ERRORS`
+/// set to `variable`, and `config` as its configuration file.
+fn with_render_errors(
+    dir: &std::path::Path,
+    source: &str,
+    args: &[&str],
+    variable: Option<&str>,
+    config: &str,
+) -> std::process::Output {
+    common::write(&dir.join("config/kiri/config.toml"), config);
+    let document = dir.join("document.md");
+    std::fs::write(&document, source).unwrap();
+    let mut command = common::command(dir);
+    command
+        .args(["--mode", "kitty", "--width", "120"])
+        .args(args);
+    if let Some(value) = variable {
+        command.env("KIRI_RENDER_ERRORS", value);
+    }
+    command.arg(&document).output().unwrap()
+}
+
+/// What kiri tells in the document of `FAILS`'s diagram.
+const INLINE: &str = "✗ Mermaid diagram could not be drawn: sh exited with status 1: Error: bad";
+
+#[test]
+fn render_errors_go_into_the_document_on_stderr_or_both() {
+    let dir = Scratch::new("render-errors");
+    let config = external(&dir, FAILS);
+    let warning = "kiri: mermaid diagram on line 3: sh exited with status 1: Error: bad\n";
+    for (args, variable, file, inline, stderr) in [
+        (&[][..], None, "", true, true),
+        (&["--render-errors", "inline"][..], None, "", true, false),
+        (&["--render-errors", "stderr"][..], None, "", false, true),
+        (
+            &["--render-errors", "both"][..],
+            Some("inline"),
+            "render_errors = \"stderr\"\n",
+            true,
+            true,
+        ),
+        (
+            &[][..],
+            Some("stderr"),
+            "render_errors = \"inline\"\n",
+            false,
+            true,
+        ),
+        (
+            &[][..],
+            Some(""),
+            "render_errors = \"inline\"\n",
+            true,
+            false,
+        ),
+        (&[][..], None, "render_errors = \"stderr\"\n", false, true),
+        (&[][..], Some("inline"), "", true, false),
+    ] {
+        let case = format!("{args:?} {variable:?} {file:?}");
+        let config = format!("{file}{config}");
+        let out = with_render_errors(&dir, FLOWCHART, args, variable, &config);
+        assert!(out.status.success(), "{case}: {}", text(&out.stderr));
+        let expected = if stderr { warning } else { "" };
+        assert_eq!(text(&out.stderr), expected, "{case}");
+        let shown = common::strip_own_sequences(&text(&out.stdout));
+        assert!(shown.contains("flowchart TD"), "{case}: {shown:?}");
+        assert_eq!(shown.contains(INLINE), inline, "{case}: {shown:?}");
+    }
+}
+
+#[test]
+fn render_errors_leave_the_warnings_about_images_alone() {
+    let dir = Scratch::new("render-errors-images");
+    let config = external(&dir, FAILS);
+    let source = format!("![gone](missing.png)\n\n{FLOWCHART}");
+    let out = with_render_errors(&dir, &source, &["--render-errors", "inline"], None, &config);
+    let missing = dir.join("missing.png");
+    assert_eq!(
+        text(&out.stderr),
+        format!("kiri: {}: file not found\n", missing.display())
+    );
+    assert!(common::strip_own_sequences(&text(&out.stdout)).contains(INLINE));
+}
+
+#[test]
+fn an_unknown_kiri_render_errors_is_left_out_with_a_warning() {
+    let dir = Scratch::new("render-errors-unknown");
+    let config = format!("render_errors = \"inline\"\n{}", external(&dir, FAILS));
+    let out = with_render_errors(&dir, FLOWCHART, &[], Some("never"), &config);
+    assert!(out.status.success());
+    assert_eq!(
+        text(&out.stderr),
+        "kiri: KIRI_RENDER_ERRORS: `never` is not inline, stderr or both; left out\n"
+    );
+    assert!(common::strip_own_sequences(&text(&out.stdout)).contains(INLINE));
+    let out = with_render_errors(&dir, FLOWCHART, &["--render-errors", "never"], None, "");
+    assert_eq!(out.status.code(), Some(2));
+    assert!(text(&out.stderr).contains("invalid value 'never'"));
+}
+
+#[test]
+fn help_explains_render_errors() {
+    let dir = Scratch::new("render-errors-help");
+    let out = common::command(&dir).arg("--help").output().unwrap();
+    let help = text(&out.stdout);
+    assert!(help.contains("--render-errors <WHERE>"), "{help}");
+    assert!(
+        help.contains("[possible values: inline, stderr, both]"),
+        "{help}"
+    );
+}

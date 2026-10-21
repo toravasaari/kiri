@@ -244,6 +244,9 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     let panel = &choices.diagram_panel;
     let on = on_off(panel.value);
     row(out, &["Diagram panels", on, &from(panel.origin)])?;
+    let errors = &choices.render_errors;
+    let name = errors.value.name();
+    row(out, &["Render errors", name, &from(errors.origin)])?;
     let size = &facts.max_image_size;
     let mb = format!("{} MB", size.value);
     row(out, &["Largest image", &mb, &from(size.origin)])?;
@@ -441,6 +444,7 @@ fn variable<'a>(env: &'a Environment, name: &str) -> Option<&'a OsStr> {
         "KIRI_FRONT_MATTER" => env.kiri_front_matter.as_deref(),
         "KIRI_TABLE_ROWS" => env.kiri_table_rows.as_deref(),
         "KIRI_DIAGRAMS" => env.kiri_diagrams.as_deref(),
+        "KIRI_RENDER_ERRORS" => env.kiri_render_errors.as_deref(),
         "KIRI_CONFIG" => env.kiri_config.as_deref(),
         "XDG_CONFIG_HOME" => env.xdg_config_home.as_deref(),
         "XDG_CACHE_HOME" => env.xdg_cache_home.as_deref(),

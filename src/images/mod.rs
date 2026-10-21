@@ -301,9 +301,16 @@ impl Images {
 
     /// One message for each image that did not load, in document order.
     pub fn warnings(&self) -> Vec<String> {
+        self.warnings_with(true)
+    }
+
+    /// `warnings`, with one for each diagram that could not be drawn only
+    /// when `render_errors`.
+    pub fn warnings_with(&self, render_errors: bool) -> Vec<String> {
         self.iter()
             .filter_map(|(key, image)| match (key, image) {
                 (_, Ok(_)) => None,
+                (_, Err(ImageError::Diagram { .. })) if !render_errors => None,
                 // These name the file, resolved against the document.
                 (_, Err(error)) if error.names_file() => Some(error.to_string()),
                 (ImageKey::Url(url), Err(ImageError::NoPath)) if url.is_empty() => {
