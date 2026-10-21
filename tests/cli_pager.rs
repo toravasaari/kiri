@@ -278,6 +278,12 @@ fn without_a_terminal_for_keys_p_prints_with_a_warning() {
     }
     let mut child = kiri.spawn().unwrap();
     drop(kiri);
+    let output = read_terminal(
+        &mut terminal,
+        &mut child,
+        Duration::from_secs(10),
+        |_, _, _| {},
+    );
     let status = child.wait().unwrap();
     let mut stderr = String::new();
     child
@@ -286,8 +292,6 @@ fn without_a_terminal_for_keys_p_prints_with_a_warning() {
         .unwrap()
         .read_to_string(&mut stderr)
         .unwrap();
-    let mut output = Vec::new();
-    let _ = terminal.read_to_end(&mut output);
     let seen = text(&output);
     assert!(status.success(), "{stderr}");
     assert!(!seen.contains(ENTER), "{seen:?}");

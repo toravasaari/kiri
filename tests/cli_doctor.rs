@@ -1,10 +1,10 @@
 //! `kiri --doctor` end to end: the report as Markdown in a pipe, and
 //! rendered in a terminal.
 
-use std::io::Read;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use kiri::caps::Capabilities;
 use kiri::config::{Environment, Options, Origin, Setting, choose};
@@ -604,17 +604,7 @@ fn doctor_takes_no_file_or_format() {
 #[test]
 fn a_terminal_gets_the_report_rendered_with_its_test_image() {
     let dir = Scratch::new("doctor-terminal");
-    let (mut terminal, tty) = pty();
-    let mut child = doctor(&dir, &["--mode", "kitty"])
-        .stdout(Stdio::from(tty))
-        .spawn()
-        .unwrap();
-    let status = child.wait().unwrap();
-    assert!(status.success());
-    // Reading ends with an error once no one holds the terminal side.
-    let mut output = Vec::new();
-    let _ = terminal.read_to_end(&mut output);
-    let output = text(&output);
+    let output = in_terminal(&dir, &["--mode", "kitty"], None);
     assert!(!output.contains("## Terminal"), "{output:?}");
     assert!(output.contains("kiri doctor"), "{output:?}");
     assert!(output.contains("kiri --doctor --raw"), "{output:?}");
@@ -626,40 +616,42 @@ fn a_terminal_gets_the_report_rendered_with_its_test_image() {
 #[test]
 fn without_a_controlling_terminal_the_report_tells_of_stdout() {
     let dir = Scratch::new("doctor-no-tty");
-    let (mut terminal, tty) = pty();
     let size = rustix::termios::Winsize {
         ws_col: 100,
         ws_row: 30,
         ws_xpixel: 1200,
         ws_ypixel: 600,
     };
-    rustix::termios::tcsetwinsize(&tty, size).unwrap();
-    let mut child = doctor(&dir, &[]).stdout(Stdio::from(tty)).spawn().unwrap();
-    assert!(child.wait().unwrap().success());
-    // Reading ends with an error once no one holds the terminal side.
-    let mut output = Vec::new();
-    let _ = terminal.read_to_end(&mut output);
-    let output = text(&output);
+    let output = in_terminal(&dir, &[], Some(size));
     assert!(output.contains("100 × 30 cells"), "{output:?}");
     assert!(output.contains("12 × 20 pixels"), "{output:?}");
     assert!(output.contains("\x1b["), "{output:?}");
 }
 
-/// What `kiri --doctor` with `args` writes into a terminal.
-fn in_terminal(dir: &Path, args: &[&str]) -> String {
+/// What `kiri --doctor` with `args` writes into a terminal, of the window
+/// size `size` when one is given.
+fn in_terminal(dir: &Path, args: &[&str], size: Option<rustix::termios::Winsize>) -> String {
     let (mut terminal, tty) = pty();
+    if let Some(size) = size {
+        rustix::termios::tcsetwinsize(&tty, size).unwrap();
+    }
     let mut child = doctor(dir, args).stdout(Stdio::from(tty)).spawn().unwrap();
+    // Read while kiri writes, so that a report larger than the terminal
+    // holds unread does not hang the test.
+    let output = common::read_terminal(
+        &mut terminal,
+        &mut child,
+        Duration::from_secs(10),
+        |_, _, _| {},
+    );
     assert!(child.wait().unwrap().success());
-    // Reading ends with an error once no one holds the terminal side.
-    let mut output = Vec::new();
-    let _ = terminal.read_to_end(&mut output);
     text(&output)
 }
 
 #[test]
 fn raw_writes_the_markdown_into_a_terminal_too() {
     let dir = Scratch::new("doctor-raw-terminal");
-    let output = in_terminal(&dir, &["--raw", "--mode", "kitty"]);
+    let output = in_terminal(&dir, &["--raw", "--mode", "kitty"], None);
     assert!(!output.contains('\x1b'), "{output:?}");
     assert!(output.contains("## Terminal"), "{output:?}");
     assert!(output.contains("| Mode | kitty | `--mode` |"), "{output:?}");
