@@ -9,11 +9,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::io::ErrorKind;
+use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::Deserialize;
-use serde::de::{self, Deserializer, MapAccess};
+use serde::de::{self, Deserializer, EnumAccess, MapAccess, VariantAccess};
 
 use crate::render::{FrontMatterStyle, RenderErrors, TableRows};
 use crate::theme::{Paper, Theme};
@@ -200,8 +201,7 @@ pub struct Config {
 }
 
 /// When the document is shown in the pager rather than printed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Paging {
     /// Whenever the output is a terminal.
     Always,
@@ -215,8 +215,7 @@ pub enum Paging {
 }
 
 /// How the front matter at the start of a Markdown document shows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FrontMatter {
     /// A table of its keys and values, as GitHub shows it.
     #[default]
@@ -243,8 +242,7 @@ impl FrontMatter {
 }
 
 /// How a search in the pager treats upper and lower case.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SearchCase {
     /// A search term with no upper-case letter ignores case; one with an
     /// upper-case letter matches case exactly.
@@ -335,13 +333,65 @@ fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String> {
 struct ConfigToml {
     theme: Option<PathBuf>,
     images: Option<bool>,
+    #[serde(default, deserialize_with = "named")]
     paging: Option<Paging>,
+    #[serde(default, deserialize_with = "named")]
     search_case: Option<SearchCase>,
+    #[serde(default, deserialize_with = "named")]
     front_matter: Option<FrontMatter>,
+    #[serde(default, deserialize_with = "named")]
     table_rows: Option<TableRows>,
+    #[serde(default, deserialize_with = "named")]
     render_errors: Option<RenderErrors>,
     #[serde(default)]
     diagrams: DiagramsToml,
+}
+
+/// A value of `T` by its name, as serde reads an enum of unit variants.
+fn named<'de, D: Deserializer<'de>, T: Named>(deserializer: D) -> Result<Option<T>, D::Error> {
+    struct Visitor<T>(PhantomData<T>);
+
+    impl<'de, T: Named> de::Visitor<'de> for Visitor<T> {
+        type Value = T;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("one of ")?;
+            f.write_str(&T::NAMES.join(", "))
+        }
+
+        fn visit_enum<A: EnumAccess<'de>>(self, data: A) -> Result<T, A::Error> {
+            let (value, variant) = data.variant_seed(Name(PhantomData))?;
+            variant.unit_variant()?;
+            Ok(value)
+        }
+    }
+
+    /// The name of the variant, which must be one of `T`'s.
+    struct Name<T>(PhantomData<T>);
+
+    impl<'de, T: Named> de::DeserializeSeed<'de> for Name<T> {
+        type Value = T;
+
+        fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<T, D::Error> {
+            deserializer.deserialize_identifier(self)
+        }
+    }
+
+    impl<'de, T: Named> de::Visitor<'de> for Name<T> {
+        type Value = T;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("variant identifier")
+        }
+
+        fn visit_str<E: de::Error>(self, name: &str) -> Result<T, E> {
+            T::named(name).ok_or_else(|| E::unknown_variant(name, T::NAMES))
+        }
+    }
+
+    deserializer
+        .deserialize_enum("", T::NAMES, Visitor(PhantomData))
+        .map(Some)
 }
 
 /// The `diagrams` key: a `[diagrams]` table of the settings for every

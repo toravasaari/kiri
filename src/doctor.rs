@@ -9,9 +9,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use image::ImageFormat;
 
-use crate::config::{
-    AUTO_DETECT, Choices, Environment, Named, Origin, Paging, SearchCase, Setting, ThemeSource,
-};
+use crate::config::{AUTO_DETECT, Choices, Environment, Named, Origin, Setting, ThemeSource};
 use crate::diagrams::find::{self, Choice, Search};
 use crate::diagrams::{BuiltIn, Command, LANGUAGES};
 use crate::render::image::DEFAULT_CELL;
@@ -144,7 +142,7 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
         }
         (None, Mode::Auto) if caps.styling => "did not answer".into(),
         (None, Mode::Auto) => "none".into(),
-        (None, mode) => format!("not asked in mode {}", mode_name(mode)),
+        (None, mode) => format!("not asked in mode {}", mode.name()),
     };
     if let Some(term) = &facts.env.term {
         let term = format!("TERM={}", term.to_string_lossy());
@@ -195,12 +193,11 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
 
 fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result {
     let choices = facts.choices;
-    let on_off = |on| if on { "on" } else { "off" };
     let from = |origin| origin_text(origin, facts.env, home);
     writeln!(out, "## Settings\n")?;
     writeln!(out, "| Setting | Value | From |\n|---|---|---|")?;
     let mode = &facts.mode;
-    row(out, &["Mode", mode_name(mode.value), &from(mode.origin)])?;
+    row(out, &["Mode", mode.value.name(), &from(mode.origin)])?;
     let theme = match &choices.theme.value {
         ThemeSource::File(path) | ThemeSource::DefaultFile(path) => home.path(path),
         ThemeSource::BuiltIn => "built-in".into(),
@@ -211,22 +208,14 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     let margins = &choices.margins;
     row(
         out,
-        &["Margins", on_off(margins.value), &from(margins.origin)],
+        &["Margins", margins.value.name(), &from(margins.origin)],
     )?;
     let images = &choices.images;
-    row(out, &["Images", on_off(images.value), &from(images.origin)])?;
+    row(out, &["Images", images.value.name(), &from(images.origin)])?;
     let paging = &choices.paging;
-    let when = match paging.value {
-        Paging::Always => "always",
-        Paging::Auto => "auto",
-        Paging::Never => "never",
-    };
-    row(out, &["Paging", when, &from(paging.origin)])?;
+    row(out, &["Paging", paging.value.name(), &from(paging.origin)])?;
     let search_case = &choices.search_case;
-    let case = match search_case.value {
-        SearchCase::Smart => "smart",
-        SearchCase::Literal => "literal",
-    };
+    let case = search_case.value.name();
     row(out, &["Search case", case, &from(search_case.origin)])?;
     let front_matter = &choices.front_matter;
     let style = front_matter.value.name();
@@ -235,13 +224,13 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     let name = rows.value.name();
     row(out, &["Table rows", name, &from(rows.origin)])?;
     let diagrams = &choices.diagrams;
-    let on = on_off(diagrams.value);
+    let on = diagrams.value.name();
     row(out, &["Diagrams", on, &from(diagrams.origin)])?;
     let limit = &choices.diagram_timeout;
     let seconds = format!("{} s", limit.value.as_secs_f64());
     row(out, &["Diagram time limit", &seconds, &from(limit.origin)])?;
     let panel = &choices.diagram_panel;
-    let on = on_off(panel.value);
+    let on = panel.value.name();
     row(out, &["Diagram panels", on, &from(panel.origin)])?;
     let errors = &choices.render_errors;
     let name = errors.value.name();
@@ -409,15 +398,6 @@ fn image_formats() -> String {
     names.sort_by_key(|name| name.to_lowercase());
     let last = names.pop().unwrap_or_default();
     format!("{}, {last} and SVG.", names.join(", "))
-}
-
-fn mode_name(mode: Mode) -> &'static str {
-    match mode {
-        Mode::Auto => "auto",
-        Mode::Plain => "plain",
-        Mode::Ansi => "ansi",
-        Mode::Kitty => "kitty",
-    }
 }
 
 /// Where a setting comes from, in words; an environment variable with its

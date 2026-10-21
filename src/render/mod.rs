@@ -39,8 +39,7 @@ pub struct Inputs {
 
 /// Where kiri tells why something it draws from source, such as a
 /// diagram, could not be drawn.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RenderErrors {
     /// In the document, below the source.
     Inline,
@@ -64,8 +63,7 @@ impl RenderErrors {
 }
 
 /// How the rows of a table drawn as a box are told apart.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TableRows {
     /// Not at all.
     Off,
