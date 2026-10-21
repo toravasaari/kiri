@@ -74,6 +74,24 @@ fn format_text_reads_standard_input() {
 }
 
 #[test]
+fn format_text_writes_plain_output_as_the_file_is() {
+    // As cat does: no indent, no wrapping, no added lines, so that the
+    // output can be copied or piped on.
+    let dir = Scratch::new("text-bare");
+    let source = format!("line one\n    indented\n{}\nlast", "word ".repeat(30));
+    let path = dir.join("notes.txt");
+    write(&path, &source);
+    for args in [&["-f", "text"][..], &["--mode", "plain", "-f", "text"]] {
+        let out = kiri_on(&dir, &path, args);
+        assert_succeeded(&out);
+        assert_eq!(text(&out.stdout), source, "{args:?}");
+        let out = kiri_piped(&dir, args, source.as_bytes());
+        assert_succeeded(&out);
+        assert_eq!(text(&out.stdout), source, "{args:?} from standard input");
+    }
+}
+
+#[test]
 fn format_text_keeps_the_file_s_escapes_from_the_terminal() {
     let dir = Scratch::new("text-escapes");
     let path = dir.join("log.txt");

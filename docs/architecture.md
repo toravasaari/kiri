@@ -46,7 +46,8 @@ diagram is drawn as in any document and then shown on its own as an
 image file is, or the document is shown when it is not drawn.
 `--format text` skips the parser too: the file becomes a document of one
 code block, in the language its extension names, so it is highlighted,
-wrapped and paged as any code block is.
+wrapped and paged as any code block is. Plain output, without styling,
+gets the file as it is instead, from `src/main.rs`.
 
 The document can also come from standard input, which errors call
 `<stdin>`, or from a directory, which stands for its README. Both are

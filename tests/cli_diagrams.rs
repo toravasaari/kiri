@@ -780,6 +780,15 @@ fn a_mermaid_file_that_is_not_drawn_shows_its_source() {
     let out = on_file(&dir, "flow.mmd", FLOWCHART_FILE, &[], &off);
     assert_shown_as_code(&out, FLOWCHART_FILE, "enabled = false");
     assert!(!called.exists());
+    // Plain output gets it as it is, as `--format text` does.
+    let out = on_file(
+        &dir,
+        "flow.mmd",
+        FLOWCHART_FILE,
+        &["--mode", "plain"],
+        &config,
+    );
+    assert_eq!(text(&out.stdout), FLOWCHART_FILE);
 }
 
 #[test]

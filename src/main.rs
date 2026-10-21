@@ -372,6 +372,8 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     let document = match input {
         Input::Table(separator) => kiri::parse::csv::parse(&source, separator)
             .map_err(|error| format!("{}: {error}", path.display()))?,
+        // Plain output gets the text as it is, as from cat.
+        Input::Text if !caps.styling => return Ok(write_as_is(&source)?),
         Input::Text => {
             // The source of a diagram stays source.
             settings.diagrams = false;
@@ -470,16 +472,20 @@ fn show_diagram(
         Some(Err(error)) => Some(error.to_string()),
         None => None,
     };
-    let name = path.to_string_lossy();
-    print_document(
-        cli,
-        &document,
-        &name,
-        images,
-        settings,
-        caps,
-        &mut interrupt,
-    )?;
+    if caps.styling {
+        let name = path.to_string_lossy();
+        print_document(
+            cli,
+            &document,
+            &name,
+            images,
+            settings,
+            caps,
+            &mut interrupt,
+        )?;
+    } else {
+        write_as_is(source)?;
+    }
     match error {
         Some(error) => Err(Failure::Error(format!("{}: {error}", path.display()))),
         None => Ok(()),
@@ -778,6 +784,13 @@ fn origin(matches: &ArgMatches, id: &str, flag: &'static str) -> Origin {
         Some(ValueSource::CommandLine) => Origin::Flag(flag),
         _ => Origin::Default,
     }
+}
+
+/// Writes `text` on stdout as it is, as cat would, without rendering it:
+/// for `--format text` in plain output.
+fn write_as_is(text: &str) -> Result<(), String> {
+    let mut out = io::stdout().lock();
+    finish(out.write_all(text.as_bytes()).and_then(|()| out.flush()))
 }
 
 /// The outcome of writing the output.
