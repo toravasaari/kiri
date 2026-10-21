@@ -1396,7 +1396,7 @@ mod tests {
     /// What a command that takes `{scale}` draws of a diagram as large as
     /// `sizes` gives for each scale, and the scales it was asked for.
     fn drawn_at_scales(name: &str, sizes: &[(u32, Vec<u8>)]) -> (Result<Drawn, String>, String) {
-        let scratch = scratch(name);
+        let scratch = scratch(&format!("scales-{name}"));
         let calls = scratch.join("calls");
         let mut script = format!("echo \"$3\" >> '{}'\ncase \"$3\" in\n", calls.display());
         for (scale, image) in sizes {
