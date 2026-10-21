@@ -396,7 +396,8 @@ impl Renderer for External {
 }
 
 /// The kinds of Mermaid diagram whose configuration has `useMaxWidth`,
-/// as Mermaid 12 names them.
+/// as Mermaid 12 names them. Mermaid's configuration type leaves
+/// `treemap` out, but its default configuration has it.
 const MERMAID_DIAGRAMS: &[&str] = &[
     "flowchart",
     "swimlane",
@@ -429,6 +430,7 @@ const MERMAID_DIAGRAMS: &[&str] = &[
     "wardley-beta",
     "cynefin",
     "railroad",
+    "treemap",
 ];
 
 /// The Mermaid configuration that a command gets as `{config}`, which a
@@ -801,7 +803,16 @@ mod tests {
         // browser.
         for output in [Output::Svg, Output::Raster] {
             let config: serde_json::Value = serde_json::from_str(&mermaid_config(output)).unwrap();
-            for diagram in ["flowchart", "sequence", "class", "state", "er", "gitGraph"] {
+            let diagrams = [
+                "flowchart",
+                "sequence",
+                "class",
+                "state",
+                "er",
+                "gitGraph",
+                "treemap",
+            ];
+            for diagram in diagrams {
                 assert_eq!(config[diagram]["useMaxWidth"], false, "{diagram}");
             }
         }
