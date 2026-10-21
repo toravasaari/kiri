@@ -49,8 +49,10 @@ example, come before the rest of phase 3.
 - Shell completions and a man page, generated from the command-line
   definition.
 - Third-party notices with the release binaries for the dependencies
-  compiled in, among them merman's ELK layout (EPL-2.0) and the KaTeX
-  font data of its math (OFL-1.1).
+  compiled in, among them merman's ELK layout (EPL-2.0), the KaTeX font
+  data of its math (OFL-1.1), and the CSS crates it brings, cssparser,
+  cssparser-macros, selectors and dtoa-short (MPL-2.0), whose notice
+  also tells where their source is.
 
 ### 3.4 Render check (done)
 

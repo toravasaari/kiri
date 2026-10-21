@@ -296,9 +296,11 @@ builds take the same options and settings.
   its parsing, layout and SVG against Mermaid's own, so diagrams look as
   GitHub draws them. It draws a diagram in milliseconds, needs no fonts,
   files or network, and its SVG goes through the resvg kiri already has.
-  It adds about 24 MB to a stripped binary. Its ELK layout is EPL-2.0 and
-  its math may bundle OFL-1.1 font data, both accepted; their notices
-  must go with distributed binaries. mermaid-cli (`mmdc`), Mermaid itself
+  It adds about 24 MB to a stripped binary. Its ELK layout is EPL-2.0,
+  its math may bundle OFL-1.1 font data, and the CSS crates it brings
+  (cssparser, cssparser-macros, selectors, dtoa-short) are MPL-2.0, all
+  accepted; their notices must go with distributed binaries, MPL-2.0's
+  with where to get the source. mermaid-cli (`mmdc`), Mermaid itself
   in a headless Chrome, takes about a second a diagram and about 1.1 GB
   with Node and Chrome, so it is the minimal build's renderer and a
   configured choice rather than the default. mermaid-rs-renderer was
