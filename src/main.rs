@@ -563,8 +563,8 @@ fn load_images(
 
 /// Renders `document`, called `name`, with `images` on stdout: in the
 /// pager when `settings` ask for it, and otherwise printed. The pager
-/// catches the signals itself, so `interrupt` goes once its screen has
-/// opened.
+/// catches the signals itself, so `interrupt` goes once its screen
+/// catches them.
 fn print_document(
     cli: &Cli,
     document: &Document,
@@ -612,8 +612,8 @@ fn only_always(paging: kiri::config::Paging) -> kiri::config::Paging {
 /// Shows `document` in the pager when `paging` asks for it and the output
 /// is a terminal that takes escape sequences; `None` when it is to be
 /// printed instead. A search in the pager treats case as `case` says. The
-/// pager catches Ctrl-C itself, so `interrupt` goes once its screen has
-/// opened.
+/// pager catches Ctrl-C itself, so `interrupt` goes once its screen
+/// catches the signals.
 fn page(
     cli: &Cli,
     document: &Document,
@@ -633,7 +633,10 @@ fn page(
     if !kiri::pager::pages(paging, terminal, rows, height) {
         return None;
     }
-    let Some(mut screen) = kiri::term::Screen::open() else {
+    // The screen catches the signals before the terminal is raw; the
+    // guard, which would otherwise end kiri with the terminal raw, goes
+    // then.
+    let Some(mut screen) = kiri::term::Screen::open(|| drop(interrupt.take())) else {
         // Without a terminal to read keys from, as in the background, the
         // document is printed, and the signals still end kiri; only a
         // reader who asked for the pager is told.
@@ -642,9 +645,6 @@ fn page(
         }
         return None;
     };
-    // The screen catches the signals now; they would otherwise end kiri
-    // before the pager restores the terminal.
-    drop(interrupt.take());
     let result = kiri::pager::run(
         document,
         Some(lines),

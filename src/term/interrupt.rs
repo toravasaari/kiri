@@ -17,8 +17,8 @@ const SIGNALS: [i32; 3] = [SIGINT, SIGTERM, SIGHUP];
 /// ignored: one sets a flag instead of ending kiri, until
 /// [`release`](Self::release). Dropping it takes its handlers away, which
 /// leaves the signals ignored until another catches them, as the pager's
-/// screen does; so it lives until kiri ends or the pager's screen has
-/// opened.
+/// screen does; so it lives until kiri ends or the pager's screen catches
+/// the signals, before the terminal is raw.
 #[derive(Debug)]
 pub struct Interrupt {
     /// The signal that came, 0 before one did.
