@@ -224,7 +224,7 @@ impl External {
             .and_then(|work| {
                 let made = DirBuilder::new().recursive(true).mode(0o700).create(work);
                 made.ok()?;
-                self.swept.call_once(|| remove_stale(work));
+                self.swept.call_once(|| remove_stale(work, &host_name()));
                 self.new_dir(work, "").ok()
             });
         match work {
@@ -234,15 +234,38 @@ impl External {
     }
 
     /// A new directory in `parent`, its name `prefix` followed by kiri's
-    /// process id and a number.
+    /// process id and a number, with a file in it that names this machine.
+    /// It gets its name once the file is there, so that no kiri on another
+    /// machine that shares the directory takes it for one of its own.
     fn new_dir(&self, parent: &Path, prefix: &str) -> io::Result<TempDir> {
+        let host = format!("{}\n", host_name());
         loop {
             let n = self.made.fetch_add(1, Ordering::Relaxed);
-            let dir = parent.join(format!("{prefix}{}-{n}", process::id()));
-            match DirBuilder::new().mode(0o700).create(&dir) {
-                Ok(()) => return Ok(TempDir(dir)),
-                // Left over from an earlier kiri with the same process id.
-                Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
+            let name = format!("{prefix}{}-{n}", process::id());
+            let dir = parent.join(&name);
+            let making = parent.join(format!("{name}{MAKING}"));
+            // Left over from an earlier kiri with the same process id, or
+            // made by one on another machine.
+            let taken = |error: &io::Error| {
+                matches!(
+                    error.kind(),
+                    ErrorKind::AlreadyExists | ErrorKind::DirectoryNotEmpty
+                )
+            };
+            if fs::symlink_metadata(&dir).is_ok() {
+                continue;
+            }
+            match DirBuilder::new().mode(0o700).create(&making) {
+                Ok(()) => {}
+                Err(error) if taken(&error) => continue,
+                Err(error) => return Err(error),
+            }
+            // Removed, should anything below fail.
+            let making = TempDir(making);
+            fs::write(making.0.join(HOST_FILE), &host)?;
+            match making.renamed(dir) {
+                Ok(dir) => return Ok(dir),
+                Err(error) if taken(&error) => continue,
                 Err(error) => return Err(error),
             }
         }
@@ -453,8 +476,31 @@ enum Output {
     Raster,
 }
 
+/// The file in each directory for a diagram's files that names the machine
+/// it was made on.
+const HOST_FILE: &str = "host";
+
+/// What the name of a directory for a diagram's files ends in until the
+/// file that names the machine is in it.
+const MAKING: &str = ".new";
+
+/// This machine's name, as `uname -n` gives it.
+fn host_name() -> String {
+    (rustix::system::uname().nodename().to_string_lossy()).into_owned()
+}
+
 /// A directory that is removed with everything in it when dropped.
 struct TempDir(PathBuf);
+
+impl TempDir {
+    /// This directory under the path `to`, unless it cannot be renamed;
+    /// then it is removed.
+    fn renamed(mut self, to: PathBuf) -> io::Result<TempDir> {
+        fs::rename(&self.0, &to)?;
+        self.0 = to;
+        Ok(self)
+    }
+}
 
 impl Drop for TempDir {
     fn drop(&mut self) {
@@ -462,12 +508,15 @@ impl Drop for TempDir {
     }
 }
 
-/// Removes the directories in `work` that a kiri which has ended left
-/// there, such as one killed while a program drew: those named, as
-/// `new_dir` names them, by the id of a process that no longer runs. A
-/// directory whose process still runs, or might, is left alone, as is
-/// anything else in `work`.
-fn remove_stale(work: &Path) {
+/// Removes the directories in `work` that a kiri on this machine, named
+/// `host`, left there when it ended, such as one killed while a program
+/// drew: those named, as `new_dir` names them, by the id of a process that
+/// no longer runs, and whose file names this machine. A directory whose
+/// process still runs, or might, is left alone, as is one that names
+/// another machine, whose processes kiri cannot see, one that names no
+/// machine, which no kiri that writes the file made, and anything else in
+/// `work`.
+fn remove_stale(work: &Path, host: &str) {
     use rustix::io::Errno;
     use rustix::process::{Pid, test_kill_process};
 
@@ -479,6 +528,8 @@ fn remove_stale(work: &Path) {
         let Some(name) = name.to_str() else {
             continue;
         };
+        // Also one that a kiri was making when it was killed.
+        let name = name.strip_suffix(MAKING).unwrap_or(name);
         let Some((pid, n)) = name.split_once('-') else {
             continue;
         };
@@ -493,7 +544,11 @@ fn remove_stale(work: &Path) {
             continue;
         };
         let is_dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
-        if is_dir && test_kill_process(pid) == Err(Errno::SRCH) {
+        let made_here = || {
+            let named = fs::read_to_string(entry.path().join(HOST_FILE));
+            !host.is_empty() && named.is_ok_and(|named| named.trim_end_matches('\n') == host)
+        };
+        if is_dir && made_here() && test_kill_process(pid) == Err(Errno::SRCH) {
             let _ = fs::remove_dir_all(entry.path());
         }
     }
@@ -1023,14 +1078,19 @@ mod tests {
         assert_eq!(fs::read_dir(&work).unwrap().count(), 0);
     }
 
+    /// A process id that no process has now.
+    fn ended_process() -> u32 {
+        let mut child = process::Command::new("true").spawn().unwrap();
+        let ended = child.id();
+        child.wait().unwrap();
+        ended
+    }
+
     #[test]
     fn directories_left_by_a_kiri_that_has_ended_are_removed() {
         let scratch = Scratch::new("stale");
         let work = scratch.0.join("temp");
-        // A process id that no process has now.
-        let mut child = process::Command::new("true").spawn().unwrap();
-        let ended = child.id();
-        child.wait().unwrap();
+        let ended = ended_process();
         let alive = process::id();
         let stale = [format!("{ended}-0"), format!("{ended}-17")];
         let kept = [
@@ -1045,6 +1105,11 @@ mod tests {
         ];
         for name in stale.iter().chain(&kept) {
             fs::create_dir_all(work.join(name).join("profile")).unwrap();
+            fs::write(
+                work.join(name).join(HOST_FILE),
+                format!("{}\n", host_name()),
+            )
+            .unwrap();
         }
         // A file with such a name is not a directory of kiri's.
         let file = format!("{ended}-1");
@@ -1058,6 +1123,47 @@ mod tests {
         let mut expected: Vec<String> = kept.into_iter().chain([file]).collect();
         expected.sort();
         assert_eq!(left, expected);
+    }
+
+    #[test]
+    fn directories_of_other_machines_are_left_alone() {
+        // A cache directory that machines or containers share: a process
+        // id tells nothing about another machine's processes.
+        let scratch = Scratch::new("hosts");
+        let work = scratch.0.join("temp");
+        let ended = ended_process();
+        let dir = |name: &str, host: Option<&str>| {
+            fs::create_dir_all(work.join(name)).unwrap();
+            if let Some(host) = host {
+                fs::write(work.join(name).join(HOST_FILE), format!("{host}\n")).unwrap();
+            }
+        };
+        dir(&format!("{ended}-0"), Some("this"));
+        dir(&format!("{ended}-1"), Some("other"));
+        dir(&format!("{ended}-2"), Some(""));
+        // One that names no machine: not one that kiri made.
+        dir(&format!("{ended}-3"), None);
+        // One that a kiri made and was killed before it got its name.
+        dir(&format!("{ended}-4.new"), Some("this"));
+        dir(&format!("{ended}-5.new"), Some("other"));
+        remove_stale(&work, "this");
+        let mut left: Vec<String> = (scratch.left().iter())
+            .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        let expected = [1, 2, 3].map(|n| format!("{ended}-{n}"));
+        let mut expected = expected.to_vec();
+        expected.push(format!("{ended}-5.new"));
+        assert_eq!(left, expected);
+    }
+
+    #[test]
+    fn each_directory_names_the_machine_it_was_made_on() {
+        let scratch = Scratch::new("host-file");
+        let renderer = scratch.renderer("cat \"$TMPDIR/host\" > \"$2\"\n");
+        let drawn = renderer.render("mermaid", SOURCE, Theme::Light).unwrap();
+        assert_eq!(drawn.text(), format!("{}\n", host_name()));
+        assert!(!host_name().is_empty());
     }
 
     #[test]

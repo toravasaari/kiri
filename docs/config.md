@@ -248,7 +248,9 @@ directory as its `TMPDIR` too, so that what it leaves there, such as the
 profile of `mmdc`'s browser, goes with the directory once the diagram
 is drawn. A directory left in `diagrams` by a kiri that did not end
 normally, such as one killed with SIGKILL, goes the next time kiri
-draws there. `kiri --doctor` shows these directories under *Diagram
+draws there. Each directory has a file, `host`, with the name of the
+machine it was made on, and only a kiri on that machine removes it, so
+that machines or containers can share the cache directory. `kiri --doctor` shows these directories under *Diagram
 work files*, and why the cache directory cannot be used when it
 cannot. In the arguments:
 
