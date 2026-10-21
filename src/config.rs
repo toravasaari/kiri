@@ -442,13 +442,15 @@ impl<'de> Deserialize<'de> for DiagramsToml {
                             let seconds = seconds.ok_or_else(|| de::Error::custom(error))?;
                             diagrams.timeout = Some(seconds);
                         }
-                        language if languages.contains(&language) => {
+                        // In any case, as code blocks name it.
+                        language if languages.iter().any(|l| l.eq_ignore_ascii_case(language)) => {
+                            let language = language.to_ascii_lowercase();
                             let table: DiagramToml = map.next_value()?;
                             if table.auto_detect == Some(false) {
-                                diagrams.no_search.insert(key.clone());
+                                diagrams.no_search.insert(language.clone());
                             }
                             if let Some(command) = table.command {
-                                diagrams.commands.insert(key, command);
+                                diagrams.commands.insert(language, command);
                             }
                         }
                         _ => {
@@ -1750,6 +1752,24 @@ mod tests {
         assert!(
             error.contains("unknown field `args`, expected `command` or `auto_detect`"),
             "{error}"
+        );
+    }
+
+    #[test]
+    fn a_diagram_language_table_is_named_in_any_case() {
+        // As code blocks name the language.
+        let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
+        let config = parsed(
+            "[diagrams.Mermaid]\ncommand = [\"m\", \"{input}\", \"{output}\"]\n\n\
+             [diagrams.MERMAID]\nauto_detect = false\n",
+        );
+        let command = ["m", "{input}", "{output}"].map(String::from).to_vec();
+        assert_eq!(
+            config.map(|config| (config.diagram_commands, config.diagram_no_search)),
+            Ok((
+                BTreeMap::from([("mermaid".to_owned(), command)]),
+                BTreeSet::from(["mermaid".to_owned()])
+            ))
         );
     }
 

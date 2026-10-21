@@ -88,7 +88,8 @@ command = ["mmdc", "-i", "{input}", "-o", "{output}", "-t", "{theme}", "-b", "tr
 ```
 
 This is mermaid-cli's command line, the same one kiri runs when it finds
-`mmdc` by itself. `mmdc` draws the diagram in its browser and writes a
+`mmdc` by itself. The table's language may be written in any case, as a
+code block's is: `[diagrams.Mermaid]` is the same table. `mmdc` draws the diagram in its browser and writes a
 PNG of it, three pixels to the CSS pixel, which kiri shrinks to the size
 it shows the diagram at; the diagram then looks as it does in a browser.
 kiri writes the diagram's source to a file in a directory of its own,
