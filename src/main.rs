@@ -63,7 +63,7 @@ struct Cli {
     width: Option<u16>,
 
     /// Which terminal features to use. Colours stay off when NO_COLOR is set.
-    #[arg(long, value_parser = named_with_help(mode_help), default_value = "auto")]
+    #[arg(long, value_parser = named_with_help(mode_help), default_value = Mode::Auto.name())]
     mode: Mode,
 
     /// Theme file; overrides --light, --dark, KIRI_THEME and the
