@@ -9,6 +9,7 @@
 
 mod decode;
 mod drawn;
+mod pipeline;
 mod svg;
 mod url;
 
@@ -21,6 +22,7 @@ use crate::diagrams::{NoRenderer, Renderer, Request, Theme};
 use crate::model::{Block, Document, Inline};
 
 pub use decode::{DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image};
+pub use pipeline::{Interrupted, Loaded, Loading, load_document};
 pub use svg::{Fonts, Svg};
 
 pub(crate) use decode::{MAX_PIXELS, png_size};

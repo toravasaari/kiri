@@ -143,24 +143,25 @@ panel colour.
   command when it has one and with the built-in renderer otherwise. An
   external command that fails does not fall back to the built-in one.
 
-`src/main.rs` builds the renderers from the settings and the
-environment, and `src/term/progress.rs` tells on the terminal how far
-drawing has got when it takes long. The programs run in process groups
-of their own, which Ctrl-C from the terminal does not reach, nor a
-signal sent to kiri alone. So when the document has a diagram that a
-program draws, `src/term/interrupt.rs` catches SIGINT, SIGTERM and
-SIGHUP while its images load: `External` stops the programs, SIGINT
-first so that `mmdc` can close its browser, removes their files, and
-kiri then ends by the signal that came. Without such a diagram, and
-once the images are loaded, the signals end kiri as before, and the
-pager catches them itself, from before its terminal is raw until it
-has been restored, or until its screen fails to open, when they end
-kiri again while the document is printed. A signal that was ignored
-when kiri started, as under `nohup`, stays ignored in both. A new
-diagram language is a new entry in `LANGUAGES` in
-`src/diagrams/language.rs`, in a module of its own as Mermaid's is, with
-a default command, a built-in renderer or both; the rest follows from
-the entry.
+`src/images/pipeline.rs` builds the renderers from the settings and the
+environment, given as values, and loads a document's images with them;
+`src/main.rs` hands it `src/term/progress.rs`, which tells on the
+terminal how far drawing has got when it takes long, and another caller
+may tell it elsewhere. The programs run in process groups of their own,
+which Ctrl-C from the terminal does not reach, nor a signal sent to kiri
+alone. So when the document has a diagram that a program draws,
+`src/term/interrupt.rs` catches SIGINT, SIGTERM and SIGHUP while its
+images load: `External` stops the programs, SIGINT first so that `mmdc`
+can close its browser, removes their files, and kiri then ends by the
+signal that came. Without such a diagram, and once the images are
+loaded, the signals end kiri as before, and the pager catches them
+itself, from before its terminal is raw until it has been restored, or
+until its screen fails to open, when they end kiri again while the
+document is printed. A signal that was ignored when kiri started, as
+under `nohup`, stays ignored in both. A new diagram language is a new
+entry in `LANGUAGES` in `src/diagrams/language.rs`, in a module of its
+own as Mermaid's is, with a default command, a built-in renderer or
+both; the rest follows from the entry.
 
 ## Terminal capabilities
 
@@ -254,6 +255,8 @@ src/theme/file.rs          theme files
 src/images/mod.rs          loading the images a document shows
 src/images/decode.rs       decoding image files, raster and SVG
 src/images/drawn.rs        diagrams as their renderers drew them, made images
+src/images/pipeline.rs     a document's images for a run: renderers from the
+                           settings, the signal guard, the loading
 src/images/url.rs          data URLs, file URLs and paths, read up to a limit
 src/images/svg.rs          SVG images and the fonts for their text
 src/diagrams/mod.rs        diagrams written in code blocks, drawn as images
