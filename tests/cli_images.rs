@@ -477,7 +477,8 @@ fn format_takes_only_formats_kiri_knows() {
     );
     assert!(
         stderr.contains(
-            "give markdown, csv, tsv, text, image, or an image format such as svg, png or jpg"
+            "give markdown, csv, tsv, mermaid, text, image, or an image format such as svg, png \
+             or jpg"
         ),
         "{stderr}"
     );

@@ -210,6 +210,13 @@ code with a warning that names it by its line, as in
 `kiri: mermaid diagram on line 12: …`, or by its first line for a
 document piped in.
 
+A Mermaid file given on its own, `kiri plan.mmd`, `.mermaid` or
+`--format mermaid`, is drawn with these same settings and shown as large
+as fits the window, as an image file is; unlike a document's diagrams,
+it is drawn with images off too. When it is not drawn, its source is
+shown as `--format text` shows it; one that fails to draw is an error,
+`kiri: plan.mmd: …`, and kiri exits with status 1.
+
 `kiri --doctor` shows the switch, the time limit and whether panels are
 on, each with where it comes from, and lists, for each language, the
 renderer built into this build and the external command, configured,

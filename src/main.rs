@@ -10,10 +10,11 @@ use kiri::caps::Capabilities;
 use kiri::config::{Environment, Options, Origin, Setting, Settings};
 use kiri::diagrams::{Diagrams, NoRenderer, Renderers};
 use kiri::doctor::{Facts, Output};
-use kiri::images::{Fonts, Format, Images};
+use kiri::images::{Fonts, Format, ImageError, ImageKey, Images};
 use kiri::input::Input;
 use kiri::model::Document;
 use kiri::render::Inputs;
+use kiri::render::output::Page;
 use kiri::term::Interrupt;
 use kiri::theme::{Paper, Theme};
 
@@ -28,7 +29,8 @@ use kiri::theme::{Paper, Theme};
 )]
 struct Cli {
     /// Markdown file to render, a CSV or TSV file to show as a table, an
-    /// image to show on its own, or a directory to show its README.
+    /// image or a Mermaid diagram (.mmd) to show on its own, or a directory
+    /// to show its README.
     /// Without one, or with -, kiri reads standard input unless it is a
     /// terminal.
     file: Option<PathBuf>,
@@ -48,9 +50,10 @@ struct Cli {
     #[arg(long)]
     raw: bool,
 
-    /// What the file is: markdown, csv, tsv, text (the file as it is,
-    /// without rendering it), image, or an image format such as svg, png or
-    /// jpg. By default its extension and content tell.
+    /// What the file is: markdown, csv, tsv, mermaid (a diagram shown on
+    /// its own), text (the file as it is, without rendering it), image, or
+    /// an image format such as svg, png or jpg. By default its extension and
+    /// content tell.
     #[arg(short, long, value_parser = format)]
     format: Option<Input>,
 
@@ -137,7 +140,8 @@ fn max_image_size(value: &str) -> Result<u64, String> {
 /// The `--format` value.
 fn format(value: &str) -> Result<Input, String> {
     kiri::input::format(value).ok_or_else(|| {
-        "give markdown, csv, tsv, text, image, or an image format such as svg, png or jpg"
+        "give markdown, csv, tsv, mermaid, text, image, or an image format such as svg, png \
+         or jpg"
             .to_owned()
     })
 }
@@ -362,6 +366,9 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
         settings.paging = only_always(settings.paging);
     }
     let caps = kiri::term::capabilities(cli.mode.into(), cli.width, &env);
+    if let Input::Diagram(language) = input {
+        return show_diagram(cli, language, &source, path, file, settings, caps, &env);
+    }
     let document = match input {
         Input::Table(separator) => kiri::parse::csv::parse(&source, separator)
             .map_err(|error| format!("{}: {error}", path.display()))?,
@@ -412,73 +419,161 @@ fn show_document(
     name: &str,
     file: Option<&Path>,
     settings: Settings,
-    mut caps: Capabilities,
+    caps: Capabilities,
     env: &Environment,
 ) -> Result<(), Failure> {
-    let base = file.and_then(Path::parent).unwrap_or(Path::new(""));
-    // The page decides, whatever the terminal's background is.
+    let caps = on_page(caps, &settings);
+    let mut interrupt = None;
+    let images = load_images(cli, document, file, &settings, &caps, env, &mut interrupt)?;
+    for warning in images.warnings() {
+        eprintln!("kiri: {warning}");
+    }
+    print_document(cli, document, name, images, settings, caps, &mut interrupt)
+}
+
+/// Shows the diagram `source`, in `language`, from the file at `path` or
+/// from standard input, on its own and as large as fits the window, as an
+/// image file is shown: drawn as in a document, also with images off.
+/// Where it is not drawn, its source is shown as `--format text` shows
+/// it, and a diagram that fails to draw is an error after that.
+#[allow(clippy::too_many_arguments)]
+fn show_diagram(
+    cli: &Cli,
+    language: &str,
+    source: &str,
+    path: &Path,
+    file: Option<&Path>,
+    mut settings: Settings,
+    caps: Capabilities,
+    env: &Environment,
+) -> Result<(), Failure> {
+    let caps = on_page(caps, &settings);
+    let document = kiri::parse::code(source, Some(language));
+    settings.images = true;
+    let mut interrupt = None;
+    let mut images = load_images(cli, &document, file, &settings, &caps, env, &mut interrupt)?;
+    let key = ImageKey::Block {
+        language: language.to_owned(),
+        source: source.to_owned(),
+    };
+    let error = match images.remove(&key) {
+        Some(Ok(image)) => {
+            let page = Page {
+                background: settings.theme.background,
+                foreground: settings.theme.foreground,
+            };
+            let mut out = io::stdout().lock();
+            let shown = kiri::render::render_image_on(image, &caps, page, &mut out);
+            return Ok(finish(shown.and_then(|()| out.flush()))?);
+        }
+        Some(Err(ImageError::Diagram { reason, .. })) => Some(reason),
+        Some(Err(error)) => Some(error.to_string()),
+        None => None,
+    };
+    let name = path.to_string_lossy();
+    print_document(
+        cli,
+        &document,
+        &name,
+        images,
+        settings,
+        caps,
+        &mut interrupt,
+    )?;
+    match error {
+        Some(error) => Err(Failure::Error(format!("{}: {error}", path.display()))),
+        None => Ok(()),
+    }
+}
+
+/// `caps` for the page `settings` choose: a light or dark page decides
+/// whatever the terminal's background is.
+fn on_page(mut caps: Capabilities, settings: &Settings) -> Capabilities {
     if let Some(paper) = settings.paper {
         caps.dark_background = Some(paper == Paper::Dark);
     }
-    // Ctrl-C, SIGTERM or SIGHUP while programs draw diagrams stops them
-    // first.
-    let mut interrupt = None;
-    // Images are read only when the user wants them and the terminal can
-    // show them; otherwise they are alt text, without warnings.
-    let images = if settings.images && caps.draws_images() {
-        let max_file_size = cli.max_image_size * kiri::images::MB;
-        let mut renderers = None;
-        if settings.diagrams {
-            let search = kiri::diagrams::find::Search::new(env);
-            let configured = &settings.diagram_commands;
-            let mut chosen = Renderers::chosen(configured, &settings.diagram_no_search, &search)
-                .with_time_limit(settings.diagram_timeout);
-            if let Some(cache) = kiri::config::cache_directory(env) {
-                chosen = chosen.with_work_dir(cache.join("diagrams"));
+    caps
+}
+
+/// The images of `document`, from `file` or not as for `show_document`,
+/// loaded and drawn when `settings` want them and `caps` can show them;
+/// otherwise none, as they are alt text, without warnings. While programs
+/// draw diagrams, `interrupt` catches Ctrl-C, SIGTERM and SIGHUP, which
+/// stop them; such a signal is the failure.
+fn load_images(
+    cli: &Cli,
+    document: &Document,
+    file: Option<&Path>,
+    settings: &Settings,
+    caps: &Capabilities,
+    env: &Environment,
+    interrupt: &mut Option<Interrupt>,
+) -> Result<Images, Failure> {
+    if !settings.images || !caps.draws_images() {
+        return Ok(Images::new());
+    }
+    let base = file.and_then(Path::parent).unwrap_or(Path::new(""));
+    let max_file_size = cli.max_image_size * kiri::images::MB;
+    let mut renderers = None;
+    if settings.diagrams {
+        let search = kiri::diagrams::find::Search::new(env);
+        let configured = &settings.diagram_commands;
+        let mut chosen = Renderers::chosen(configured, &settings.diagram_no_search, &search)
+            .with_time_limit(settings.diagram_timeout);
+        if let Some(cache) = kiri::config::cache_directory(env) {
+            chosen = chosen.with_work_dir(cache.join("diagrams"));
+        }
+        if chosen.runs_programs() {
+            *interrupt = Interrupt::catch();
+            if let Some(interrupt) = interrupt {
+                chosen = chosen.stopped_by(interrupt.flag());
             }
-            if chosen.runs_programs() {
-                interrupt = Interrupt::catch();
-                if let Some(interrupt) = &interrupt {
-                    chosen = chosen.stopped_by(interrupt.flag());
-                }
-            }
-            renderers = Some(chosen);
         }
-        let diagrams = Diagrams {
-            renderer: match &renderers {
-                Some(renderers) => renderers,
-                None => &NoRenderer,
-            },
-            theme: kiri::diagrams::Theme::for_page(caps.dark_background),
-            by_line: file.is_some(),
-            progress: None,
-            panel: settings.diagram_panel,
-        };
-        let load =
-            |diagrams: &Diagrams| kiri::images::load(document, base, max_file_size, diagrams);
-        // Drawing diagrams can take seconds with an external program; a
-        // terminal tells how far it has got.
-        let images = if kiri::term::stderr_is_terminal() {
-            use kiri::term::progress::{DELAY, while_working};
-            while_working(io::stderr(), DELAY, |progress| {
-                load(&Diagrams {
-                    progress: Some(&|done, total| progress.update(done, total)),
-                    ..diagrams
-                })
-            })
-        } else {
-            load(&diagrams)
-        };
-        if let Some(signal) = interrupt.as_ref().and_then(Interrupt::release) {
-            return Err(Failure::Signal(signal));
-        }
-        for warning in images.warnings() {
-            eprintln!("kiri: {warning}");
-        }
-        images
-    } else {
-        Images::new()
+        renderers = Some(chosen);
+    }
+    let diagrams = Diagrams {
+        renderer: match &renderers {
+            Some(renderers) => renderers,
+            None => &NoRenderer,
+        },
+        theme: kiri::diagrams::Theme::for_page(caps.dark_background),
+        by_line: file.is_some(),
+        progress: None,
+        panel: settings.diagram_panel,
     };
+    let load = |diagrams: &Diagrams| kiri::images::load(document, base, max_file_size, diagrams);
+    // Drawing diagrams can take seconds with an external program; a
+    // terminal tells how far it has got.
+    let images = if kiri::term::stderr_is_terminal() {
+        use kiri::term::progress::{DELAY, while_working};
+        while_working(io::stderr(), DELAY, |progress| {
+            load(&Diagrams {
+                progress: Some(&|done, total| progress.update(done, total)),
+                ..diagrams
+            })
+        })
+    } else {
+        load(&diagrams)
+    };
+    if let Some(signal) = interrupt.as_ref().and_then(Interrupt::release) {
+        return Err(Failure::Signal(signal));
+    }
+    Ok(images)
+}
+
+/// Renders `document`, called `name`, with `images` on stdout: in the
+/// pager when `settings` ask for it, and otherwise printed. The pager
+/// catches the signals itself, so `interrupt` goes once its screen has
+/// opened.
+fn print_document(
+    cli: &Cli,
+    document: &Document,
+    name: &str,
+    images: Images,
+    settings: Settings,
+    caps: Capabilities,
+    interrupt: &mut Option<Interrupt>,
+) -> Result<(), Failure> {
     let mut inputs = Inputs {
         images,
         theme: settings.theme,
@@ -493,7 +588,7 @@ fn show_document(
         &mut inputs,
         settings.paging,
         settings.search_case,
-        &mut interrupt,
+        interrupt,
     ) {
         return Ok(finish(result)?);
     }

@@ -122,13 +122,15 @@ example, come before the rest of phase 3.
 - A diagram that does not draw stays code, with a warning naming its
   line. Drawing that takes longer than half a second shows how far it
   has got.
+- `kiri file.mmd` (or `.mermaid`, or `--format mermaid`): a Mermaid file
+  drawn on its own, fit to the window as an image file is; its source as
+  text when it is not drawn, and an error when it fails to draw.
 - merman's SVG fixed where resvg would lose part of it: sequence-diagram
   notes, clipped class-diagram labels and text past a diagram's edge,
   each pinned with a test.
 - Later: a disk cache for diagrams across runs, mainly for `mmdc`.
 - Later: in the pager, showing the document at once and filling the
   diagrams in as they are drawn.
-- Later: `kiri file.mmd`, a Mermaid file shown on its own.
 
 #### 4.3.2 Other diagram languages
 

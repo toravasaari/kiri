@@ -668,3 +668,208 @@ fn a_diagram_for_the_other_page_lies_on_a_panel_unless_turned_off() {
     let off = format!("[diagrams]\nbackground_panel = false\n\n{command}");
     assert_eq!(width(&["--light"], &off), "200");
 }
+
+// A Mermaid file on its own
+
+/// The flowchart of `FLOWCHART`, as a file of its own.
+const FLOWCHART_FILE: &str = "flowchart TD\n    A --> B\n";
+
+/// Runs kiri with `args` on the file `name` of `source` in `dir`, with
+/// `config` as its configuration file; in kitty mode unless `args` choose
+/// a mode.
+fn on_file(
+    dir: &std::path::Path,
+    name: &str,
+    source: &str,
+    args: &[&str],
+    config: &str,
+) -> std::process::Output {
+    common::write(&dir.join("config/kiri/config.toml"), config);
+    let path = dir.join(name);
+    std::fs::write(&path, source).unwrap();
+    let mut command = common::command(dir);
+    if !args.contains(&"--mode") {
+        command.args(["--mode", "kitty"]);
+    }
+    command.args(args).arg(&path).output().unwrap()
+}
+
+/// Fails unless `out` shows `source`, a diagram, as code, without a word
+/// on standard error.
+fn assert_shown_as_code(out: &std::process::Output, source: &str, case: &str) {
+    assert!(out.status.success(), "{case}: {}", text(&out.stderr));
+    assert_eq!(text(&out.stderr), "", "{case}");
+    let stdout = text(&out.stdout);
+    assert!(sent(&stdout).is_empty(), "{case}: {stdout:?}");
+    let shown = common::strip_own_sequences(&stdout);
+    for line in source.lines() {
+        assert!(shown.contains(line), "{case}: {line:?} in {shown:?}");
+    }
+}
+
+#[test]
+fn a_mermaid_file_is_drawn_on_its_own_like_an_image() {
+    let dir = Scratch::new("mermaid-file");
+    let config = external(&dir, DRAWS);
+    // What DRAWS draws for the flowchart, as an image file.
+    let svg = dir.join("same.svg");
+    std::fs::write(
+        &svg,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="40"/>"#,
+    )
+    .unwrap();
+    for args in [&[][..], &["--width", "5"]] {
+        let image = common::kiri_on(&dir, &svg, &[&["--mode", "kitty"][..], args].concat());
+        assert_eq!(sent(&text(&image.stdout)).len(), 1, "{args:?}");
+        for name in ["flow.mmd", "flow.mermaid", "FLOW.MMD"] {
+            let out = on_file(&dir, name, FLOWCHART_FILE, args, &config);
+            assert!(out.status.success(), "{name}: {}", text(&out.stderr));
+            assert_eq!(text(&out.stderr), "", "{name}");
+            assert_eq!(text(&out.stdout), text(&image.stdout), "{name} {args:?}");
+        }
+    }
+}
+
+#[test]
+fn format_mermaid_draws_standard_input_or_a_file_of_another_name() {
+    let dir = Scratch::new("mermaid-format");
+    common::write(&dir.join("config/kiri/config.toml"), &external(&dir, DRAWS));
+    for format in ["mermaid", "Mermaid", "mmd"] {
+        let args = ["--mode", "kitty", "-f", format];
+        let out = common::kiri_piped(&dir, &args, FLOWCHART_FILE.as_bytes());
+        assert_eq!(text(&out.stderr), "", "{format}");
+        assert_eq!(sent(&text(&out.stdout)).len(), 1, "{format}");
+        let out = on_file(
+            &dir,
+            "diagram.txt",
+            FLOWCHART_FILE,
+            &args[2..],
+            &external(&dir, DRAWS),
+        );
+        assert_eq!(text(&out.stderr), "", "{format}");
+        assert_eq!(sent(&text(&out.stdout)).len(), 1, "{format}");
+    }
+}
+
+#[test]
+fn a_mermaid_file_is_drawn_even_with_images_off() {
+    let dir = Scratch::new("mermaid-file-images-off");
+    let config = format!("images = false\n{}", external(&dir, DRAWS));
+    for args in [&[][..], &["-I"]] {
+        let out = on_file(&dir, "flow.mmd", FLOWCHART_FILE, args, &config);
+        assert_eq!(text(&out.stderr), "", "{args:?}");
+        assert_eq!(sent(&text(&out.stdout)).len(), 1, "{args:?}");
+    }
+}
+
+#[test]
+fn a_mermaid_file_that_is_not_drawn_shows_its_source() {
+    let dir = Scratch::new("mermaid-file-not-drawn");
+    let called = dir.join("called");
+    let config = external(&dir, &format!("touch '{}'\n{DRAWS}", called.display()));
+    for args in [
+        &["--diagrams", "off"][..],
+        &["--mode", "ansi"],
+        &["--mode", "plain"],
+        &["-f", "text"],
+    ] {
+        let out = on_file(&dir, "flow.mmd", FLOWCHART_FILE, args, &config);
+        assert_shown_as_code(&out, FLOWCHART_FILE, &format!("{args:?}"));
+    }
+    let off = format!("[diagrams]\nenabled = false\n\n{config}");
+    let out = on_file(&dir, "flow.mmd", FLOWCHART_FILE, &[], &off);
+    assert_shown_as_code(&out, FLOWCHART_FILE, "enabled = false");
+    assert!(!called.exists());
+}
+
+#[test]
+fn a_mermaid_file_that_fails_to_draw_shows_its_source_and_is_an_error() {
+    let dir = Scratch::new("mermaid-file-fails");
+    let config = external(&dir, "echo 'Error: Parse error on line 2:' >&2\nexit 1\n");
+    let out = on_file(&dir, "flow.mmd", FLOWCHART_FILE, &[], &config);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        text(&out.stderr),
+        format!(
+            "kiri: {}: sh exited with status 1: Error: Parse error on line 2:\n",
+            dir.join("flow.mmd").display()
+        )
+    );
+    let stdout = text(&out.stdout);
+    assert!(sent(&stdout).is_empty(), "{stdout:?}");
+    assert!(stdout.contains("flowchart TD"), "{stdout:?}");
+    // Standard input is named as in other errors.
+    let args = ["--mode", "kitty", "-f", "mermaid"];
+    let out = common::kiri_piped(&dir, &args, FLOWCHART_FILE.as_bytes());
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        text(&out.stderr),
+        "kiri: <stdin>: sh exited with status 1: Error: Parse error on line 2:\n"
+    );
+}
+
+#[test]
+fn a_mermaid_file_takes_the_theme_and_the_panel_of_the_page() {
+    let dir = Scratch::new("mermaid-file-theme");
+    let record = dir.join("theme");
+    let config = external(
+        &dir,
+        &format!("echo \"$3\" >> '{}'\n{DRAWS}", record.display()),
+    );
+    let light = on_file(&dir, "flow.mmd", FLOWCHART_FILE, &["--light"], &config);
+    let dark = on_file(&dir, "flow.mmd", FLOWCHART_FILE, &["--dark"], &config);
+    assert_eq!(std::fs::read_to_string(&record).unwrap(), "default\ndark\n");
+    // The page's background behind it, as behind a document.
+    for (out, page) in [(light, "48;2;255;255;255m"), (dark, "48;2;30;30;30m")] {
+        assert_eq!(text(&out.stderr), "");
+        let stdout = text(&out.stdout);
+        assert_eq!(sent(&stdout).len(), 1);
+        assert!(stdout.contains(page), "{stdout:?}");
+    }
+    let dark_diagram = format!("%%{{init: {{\"theme\": \"dark\"}}}}%%\n{FLOWCHART_FILE}");
+    let out = on_file(&dir, "dark.mmd", &dark_diagram, &["--light"], &config);
+    let images = sent(&text(&out.stdout));
+    assert_eq!(images.len(), 1);
+    assert_eq!(images[0].keys["s"], "220");
+}
+
+#[cfg(not(feature = "mermaid"))]
+#[test]
+fn a_mermaid_file_without_a_renderer_shows_its_source() {
+    let dir = Scratch::new("mermaid-file-no-renderer");
+    let config = "[diagrams.mermaid]\nauto_detect = false\n";
+    let out = on_file(&dir, "flow.mmd", FLOWCHART_FILE, &[], config);
+    assert_shown_as_code(&out, FLOWCHART_FILE, "no renderer");
+}
+
+#[cfg(feature = "mermaid")]
+#[test]
+fn merman_draws_a_mermaid_file() {
+    let dir = Scratch::new("mermaid-file-merman");
+    let out = on_file(&dir, "flow.mmd", FLOWCHART_FILE, &[], "");
+    assert_eq!(text(&out.stderr), "");
+    assert_eq!(sent(&text(&out.stdout)).len(), 1);
+    let broken = "flowchart TD\n    A[Unclosed --> B\n";
+    let out = on_file(&dir, "broken.mmd", broken, &[], "");
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        text(&out.stderr),
+        format!(
+            "kiri: {}: Diagram parse error (flowchart-v2): \
+             Unterminated node label (missing `]`)\n",
+            dir.join("broken.mmd").display()
+        )
+    );
+    assert!(text(&out.stdout).contains("A[Unclosed --> B"));
+}
+
+#[test]
+fn help_names_the_mermaid_format() {
+    let dir = Scratch::new("mermaid-format-help");
+    let out = common::command(&dir).arg("--help").output().unwrap();
+    let help = text(&out.stdout);
+    assert!(
+        help.contains("markdown, csv, tsv, mermaid (a diagram"),
+        "{help}"
+    );
+}

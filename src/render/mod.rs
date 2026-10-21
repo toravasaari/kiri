@@ -122,6 +122,17 @@ pub fn render(document: &Document, inputs: &Inputs, out: &mut impl Write) -> io:
 /// SVG in CSS pixels. A row is left below it for the shell's prompt. Does
 /// nothing when `caps` cannot draw images.
 pub fn render_image(image: Source, caps: &Capabilities, out: &mut impl Write) -> io::Result<()> {
+    render_image_on(image, caps, output::Page::default(), out)
+}
+
+/// `render_image` on `page`, whose colours fill the rows beside the image,
+/// as they do beside a document's lines.
+pub fn render_image_on(
+    image: Source,
+    caps: &Capabilities,
+    page: output::Page,
+    out: &mut impl Write,
+) -> io::Result<()> {
     if !caps.draws_images() {
         return Ok(());
     }
@@ -152,5 +163,5 @@ pub fn render_image(image: Source, caps: &Capabilities, out: &mut impl Write) ->
         .collect();
     let mut images = Images::new();
     images.insert(key, Ok(image));
-    output::write(&lines, &images, caps, output::Page::default(), out)
+    output::write(&lines, &images, caps, page, out)
 }

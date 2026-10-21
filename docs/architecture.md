@@ -41,6 +41,9 @@ image skips the parser and is drawn on its own, as large as fits the
 window. A CSV or TSV file, told by its extension or by `--format csv`
 or `--format tsv`, goes through a parser of its own, `src/parse/csv.rs`,
 into a document of one table, so the backends draw it as any other table.
+A Mermaid file becomes a document of one Mermaid code block, whose
+diagram is drawn as in any document and then shown on its own as an
+image file is, or the document is shown when it is not drawn.
 `--format text` skips the parser too: the file becomes a document of one
 code block, in the language its extension names, so it is highlighted,
 wrapped and paged as any code block is.

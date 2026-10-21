@@ -105,6 +105,14 @@ fits the window but never enlarged, even when images are off. Its
 extension and first bytes tell kiri that it is an image, and `--format`
 can say so instead. A terminal without kitty's graphics gets an error.
 
+A Mermaid file, `kiri plan.mmd` or `.mermaid`, is drawn on its own in
+the same way, by the same renderer and settings as a diagram in a
+document, and also with images off; `--format mermaid` says so for
+standard input or another name. Where it is not drawn, as with
+`--diagrams off` or in a terminal without kitty's graphics, its source is
+shown as `--format text` shows it, and a diagram that fails to draw is an
+error after its source.
+
 A CSV or TSV file is shown as a table with its first row as the header,
 as GitHub shows one: `.csv` is comma-separated and `.tsv` tab-separated,
 and `--format csv` or `--format tsv` says so for standard input. Cells are
@@ -133,7 +141,7 @@ alt text with a warning.
 
 | Option | Meaning |
 |---|---|
-| `-f`, `--format FORMAT` | What the file is: `markdown`, `csv`, `tsv`, `text` (shown as it is), `image`, or an image format such as `png` |
+| `-f`, `--format FORMAT` | What the file is: `markdown`, `csv`, `tsv`, `mermaid`, `text` (shown as it is), `image`, or an image format such as `png` |
 | `--mode auto\|plain\|ansi\|kitty` | Override what kiri detects |
 | `--width N` | Render for `N` cells instead of the terminal width |
 | `--theme FILE` | Colours and heading sizes; see [Theme](docs/theme.md) |

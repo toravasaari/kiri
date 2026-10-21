@@ -250,6 +250,13 @@ impl Images {
         self.by_key.insert(key, image);
     }
 
+    /// Takes the outcome for `key` out, as for an image shown on its own;
+    /// `None` when it was never loaded.
+    pub fn remove(&mut self, key: &ImageKey) -> Option<Result<Source, ImageError>> {
+        self.order.retain(|loaded| loaded != key);
+        self.by_key.remove(key)
+    }
+
     /// The outcome for `key`, or `None` when it was never loaded.
     pub fn get(&self, key: &ImageKey) -> Option<&Result<Source, ImageError>> {
         self.by_key.get(key)
