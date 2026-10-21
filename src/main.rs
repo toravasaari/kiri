@@ -510,7 +510,8 @@ fn only_always(paging: kiri::config::Paging) -> kiri::config::Paging {
 /// Shows `document` in the pager when `paging` asks for it and the output
 /// is a terminal that takes escape sequences; `None` when it is to be
 /// printed instead. A search in the pager treats case as `case` says. The
-/// pager catches Ctrl-C itself, so `interrupt` goes before it opens.
+/// pager catches Ctrl-C itself, so `interrupt` goes once its screen has
+/// opened.
 fn page(
     cli: &Cli,
     document: &Document,
@@ -530,18 +531,18 @@ fn page(
     if !kiri::pager::pages(paging, terminal, rows, height) {
         return None;
     }
-    // Ctrl-C would otherwise end kiri before the pager restores the
-    // terminal.
-    drop(interrupt.take());
     let Some(mut screen) = kiri::term::Screen::open() else {
         // Without a terminal to read keys from, as in the background, the
-        // document is printed; only a reader who asked for the pager is
-        // told.
+        // document is printed, and the signals still end kiri; only a
+        // reader who asked for the pager is told.
         if paging == kiri::config::Paging::Always {
             eprintln!("kiri: no terminal to read keys from, so the document is printed");
         }
         return None;
     };
+    // The screen catches the signals now; they would otherwise end kiri
+    // before the pager restores the terminal.
+    drop(interrupt.take());
     let result = kiri::pager::run(
         document,
         Some(lines),

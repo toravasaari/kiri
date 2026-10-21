@@ -503,6 +503,66 @@ fn a_signal_ignored_when_kiri_starts_stays_ignored() {
 }
 
 #[test]
+fn ctrl_c_ends_kiri_when_the_pager_cannot_open_and_it_prints_instead() {
+    use std::io::{BufRead, BufReader};
+    use std::os::unix::process::{CommandExt, ExitStatusExt};
+    use std::time::{Duration, Instant};
+
+    use rustix::process::{Pid, Signal, kill_process};
+
+    let dir = Scratch::new("mermaid-printed");
+    common::write(&dir.join("config/kiri/config.toml"), &external(&dir, DRAWS));
+    // Longer than a terminal holds unread, so that printing it waits.
+    let lines: String = (0..20_000).map(|n| format!("Line {n}\n\n")).collect();
+    let document = dir.join("document.md");
+    std::fs::write(&document, format!("{FLOWCHART}\n{lines}")).unwrap();
+    // The terminal side is not read.
+    let (_terminal, tty) = common::pty();
+    let mut command = common::command(&dir);
+    command
+        .args(["--mode", "kitty", "-p"])
+        .arg(&document)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::from(tty))
+        .stderr(std::process::Stdio::piped());
+    // SAFETY: setsid is async-signal-safe and touches no memory.
+    unsafe {
+        // A session of its own and no controlling terminal: standard
+        // output is a terminal, but there is none to read keys from.
+        command.pre_exec(|| {
+            rustix::process::setsid()?;
+            Ok(())
+        });
+    }
+    let mut kiri = command.spawn().unwrap();
+    let mut stderr = BufReader::new(kiri.stderr.take().unwrap());
+    let mut line = String::new();
+    stderr.read_line(&mut line).unwrap();
+    assert_eq!(
+        line,
+        "kiri: no terminal to read keys from, so the document is printed\n"
+    );
+    // Printing, and waiting for the terminal.
+    std::thread::sleep(Duration::from_millis(300));
+    let pid = Pid::from_raw(kiri.id() as i32).unwrap();
+    kill_process(pid, Signal::INT).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        if let Some(status) = kiri.try_wait().unwrap() {
+            break Some(status);
+        }
+        if Instant::now() > deadline {
+            kiri.kill().unwrap();
+            kiri.wait().unwrap();
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let status = status.map(|status| status.signal());
+    assert_eq!(status, Some(Some(Signal::INT.as_raw())), "Ctrl-C ends kiri");
+}
+
+#[test]
 fn a_program_s_files_are_in_kiri_s_cache_directory_until_it_is_done() {
     use std::os::unix::fs::PermissionsExt;
 
