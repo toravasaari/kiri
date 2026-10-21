@@ -178,13 +178,8 @@ impl Layout<'_> {
 /// A code theme without a text colour so leaves the label in the
 /// terminal's; every bundled theme has one.
 fn halfway(a: Option<Color>, b: Option<Color>) -> Option<Color> {
-    match (a, b) {
-        (Some(Color::Rgb(r1, g1, b1)), Some(Color::Rgb(r2, g2, b2))) => {
-            let mid = |x: u8, y: u8| ((u16::from(x) + u16::from(y)).div_ceil(2)) as u8;
-            Some(Color::Rgb(mid(r1, r2), mid(g1, g2), mid(b1, b2)))
-        }
-        _ => a,
-    }
+    let a = a?;
+    Some(b.and_then(|b| a.mix(b, 0.5)).unwrap_or(a))
 }
 
 fn expand_tabs(line: &str) -> String {
@@ -198,4 +193,23 @@ fn expand_tabs(line: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn halfway_rounds_up_and_keeps_the_first_colour_it_cannot_mix() {
+        let text = Color::Rgb(0xc0, 0xc5, 0xce);
+        let page = Color::Rgb(0x2b, 0x30, 0x3b);
+        let mid = Some(Color::Rgb(118, 123, 133));
+        assert_eq!(halfway(Some(text), Some(page)), mid);
+        assert_eq!(halfway(Some(page), Some(text)), mid);
+        assert_eq!(halfway(Some(text), None), Some(text));
+        assert_eq!(halfway(Some(text), Some(Color::Palette(0))), Some(text));
+        let palette = Some(Color::Palette(7));
+        assert_eq!(halfway(palette, Some(page)), palette);
+        assert_eq!(halfway(None, Some(page)), None);
+    }
 }
