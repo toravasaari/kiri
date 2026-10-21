@@ -36,6 +36,18 @@ pub fn parse_with(source: &str, front_matter: bool) -> Document {
     }
 }
 
+/// `source` as it is, without reading it as Markdown: a document of one
+/// code block in `language`, which starts on the first line.
+pub fn code(source: &str, language: Option<&str>) -> Document {
+    Document {
+        blocks: vec![Block::CodeBlock {
+            language: language.map(str::to_owned),
+            code: source.to_owned(),
+            line: 1,
+        }],
+    }
+}
+
 /// Moves the line of each code block in `blocks` `by` lines down.
 fn move_lines(blocks: &mut [Block], by: usize) {
     for block in blocks {

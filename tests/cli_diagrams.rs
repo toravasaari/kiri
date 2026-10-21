@@ -197,6 +197,29 @@ fn a_configured_command_draws_the_diagrams() {
 }
 
 #[test]
+fn format_text_shows_a_document_s_diagrams_as_written() {
+    let dir = Scratch::new("mermaid-text");
+    let called = dir.join("called");
+    let script = format!("touch '{}'\n{DRAWS}", called.display());
+    let out = with_settings(
+        &dir,
+        FLOWCHART,
+        &["-f", "text"],
+        None,
+        &external(&dir, &script),
+    );
+    assert!(out.status.success());
+    assert_eq!(text(&out.stderr), "");
+    let stdout = text(&out.stdout);
+    assert!(sent(&stdout).is_empty(), "{stdout:?}");
+    let shown = common::strip_own_sequences(&stdout);
+    for line in ["```mermaid", "flowchart TD", "A --> B"] {
+        assert!(shown.contains(line), "{line:?} in {shown:?}");
+    }
+    assert!(!called.exists());
+}
+
+#[test]
 fn a_command_that_fails_leaves_the_code_with_a_warning() {
     let dir = Scratch::new("mermaid-external-fails");
     let config = external(&dir, "echo 'Error: Parse error on line 2:' >&2\nexit 1\n");

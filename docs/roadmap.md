@@ -227,6 +227,8 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   highlighting, and their outputs, images included.
 - CSV and TSV files, shown as a table. A file of more than 100 000 cells
   shows its first rows and a note of how many were left out. (done)
+- `--format text`: any file shown as it is, in a code block highlighted
+  by its extension, such as a Markdown or Mermaid file's source. (done)
 
 #### 4.7.2 Large files
 

@@ -41,6 +41,9 @@ image skips the parser and is drawn on its own, as large as fits the
 window. A CSV or TSV file, told by its extension or by `--format csv`
 or `--format tsv`, goes through a parser of its own, `src/parse/csv.rs`,
 into a document of one table, so the backends draw it as any other table.
+`--format text` skips the parser too: the file becomes a document of one
+code block, in the language its extension names, so it is highlighted,
+wrapped and paged as any code block is.
 
 The document can also come from standard input, which errors call
 `<stdin>`, or from a directory, which stands for its README. Both are

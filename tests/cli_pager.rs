@@ -183,6 +183,15 @@ fn ctrl_c_quits_and_leaves_the_screen() {
 }
 
 #[test]
+fn a_long_file_shown_as_text_is_paged_too() {
+    let (status, seen) = in_terminal("pager-text", &["-f", "text", "long.md"], 5, None, &[b"q"]);
+    assert!(status.success());
+    assert!(seen.starts_with(ENTER), "{seen:?}");
+    assert!(seen.contains("Line 1"), "{seen:?}");
+    assert!(seen.ends_with(LEAVE), "{seen:?}");
+}
+
+#[test]
 fn a_short_document_is_printed() {
     let (status, seen) = in_terminal("pager-short", &["document.md"], 24, None, &[]);
     assert!(status.success());

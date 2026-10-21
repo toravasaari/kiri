@@ -111,6 +111,11 @@ and `--format csv` or `--format tsv` says so for standard input. Cells are
 plain text. A file of more than 100 000 cells shows the rows that fit and
 a note of how many were left out.
 
+`--format text` shows any file as it is, without rendering it: a
+Markdown file's source, or a Mermaid file's, in a code block, highlighted
+when its extension names a language kiri knows. It is paged as a document
+is, and `-M` leaves out the code block's padding for copying.
+
 Without a file name, or with `-`, kiri reads the document from standard
 input, so another command's output can be piped into it; images in it are
 relative to the current directory. A directory shows its `README.md`, or
@@ -128,7 +133,7 @@ alt text with a warning.
 
 | Option | Meaning |
 |---|---|
-| `-f`, `--format FORMAT` | What the file is: `markdown`, `csv`, `tsv`, `image`, or an image format such as `png` |
+| `-f`, `--format FORMAT` | What the file is: `markdown`, `csv`, `tsv`, `text` (shown as it is), `image`, or an image format such as `png` |
 | `--mode auto\|plain\|ansi\|kitty` | Override what kiri detects |
 | `--width N` | Render for `N` cells instead of the terminal width |
 | `--theme FILE` | Colours and heading sizes; see [Theme](docs/theme.md) |

@@ -48,8 +48,9 @@ struct Cli {
     #[arg(long)]
     raw: bool,
 
-    /// What the file is: markdown, csv, tsv, image, or an image format such
-    /// as svg, png or jpg. By default its extension and content tell.
+    /// What the file is: markdown, csv, tsv, text (the file as it is,
+    /// without rendering it), image, or an image format such as svg, png or
+    /// jpg. By default its extension and content tell.
     #[arg(short, long, value_parser = format)]
     format: Option<Input>,
 
@@ -136,7 +137,8 @@ fn max_image_size(value: &str) -> Result<u64, String> {
 /// The `--format` value.
 fn format(value: &str) -> Result<Input, String> {
     kiri::input::format(value).ok_or_else(|| {
-        "give markdown, csv, tsv, image, or an image format such as svg, png or jpg".to_owned()
+        "give markdown, csv, tsv, text, image, or an image format such as svg, png or jpg"
+            .to_owned()
     })
 }
 
@@ -363,6 +365,11 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     let document = match input {
         Input::Table(separator) => kiri::parse::csv::parse(&source, separator)
             .map_err(|error| format!("{}: {error}", path.display()))?,
+        Input::Text => {
+            // The source of a diagram stays source.
+            settings.diagrams = false;
+            kiri::parse::code(&source, kiri::input::language(path).as_deref())
+        }
         _ => {
             let style = settings.front_matter.style();
             let document = kiri::parse::parse_with(&source, style.is_some());
