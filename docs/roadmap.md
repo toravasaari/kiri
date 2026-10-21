@@ -467,6 +467,13 @@ go.
   such as `diagrams.timeout=60`; with it, a way to list the keys, and a
   `[diagrams.mermaid.config]` table passed to Mermaid as it is, which
   4.3.2's languages could have too.
+- Zooming images and diagrams in the pager, or opening one in a view of
+  its own. A diagram drawn by an external program as PNG is drawn again
+  at a larger scale when it is zoomed past the one it has.
+- Writing a drawn diagram to a file, SVG or PNG, instead of the
+  terminal, such as for a review or a web page, without finding the
+  Mermaid program by hand. `--format` names the input, so this needs an
+  option of its own.
 
 ## Bugs
 
