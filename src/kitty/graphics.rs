@@ -130,7 +130,9 @@ pub fn transmit(
         return Err(invalid("pixel data does not match the image size"));
     }
     if !(1..=MAX_CELLS).contains(&cells.columns) || !(1..=MAX_CELLS).contains(&cells.rows) {
-        return Err(invalid("an image covers 1 to 297 rows and columns"));
+        return Err(invalid(&format!(
+            "an image covers 1 to {MAX_CELLS} rows and columns"
+        )));
     }
     let mut compressor = ZlibEncoder::new(Vec::new(), Compression::default());
     compressor.write_all(pixels.rgba)?;
@@ -312,6 +314,8 @@ mod tests {
         ] {
             let error = transmit(&mut Vec::new(), ID, &pixels, cells).unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::InvalidInput, "{cells:?}");
+            let message = "an image covers 1 to 297 rows and columns";
+            assert_eq!(error.to_string(), message, "{cells:?}");
         }
         let error = write_row(&mut Vec::new(), ID, MAX_CELLS, 1).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
