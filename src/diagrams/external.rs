@@ -206,11 +206,6 @@ impl External {
         External { temp: dir, ..self }
     }
 
-    /// Whether no language has a command.
-    pub fn is_empty(&self) -> bool {
-        self.commands.is_empty()
-    }
-
     fn command(&self, language: &str) -> Option<&Command> {
         self.commands.get(&language.to_ascii_lowercase())
     }
