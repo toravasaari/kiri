@@ -112,7 +112,8 @@ cannot be used when it cannot. In the arguments:
 - `{input}` is the file of the diagram's source, which ends in `.mmd`
   for Mermaid;
 - `{output}` is the image file the program writes: SVG, or a raster
-  image such as PNG, which kiri tells apart by its content. Its name
+  image such as PNG, which kiri tells apart by its content, and reads
+  only up to the size limit of an image file, `--max-image-size`. Its name
   ends in `.png` when the command has `{scale}`, and in `.svg`
   otherwise, so that a program such as `mmdc`, which writes the format
   its output file's name ends in, writes the one kiri expects;
