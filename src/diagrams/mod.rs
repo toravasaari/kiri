@@ -1,8 +1,10 @@
-//! Diagrams written as code, such as Mermaid, drawn as SVG.
+//! Diagrams written as code, such as Mermaid, drawn as images.
 //!
-//! A renderer takes a diagram's source and a theme and gives SVG text. It
-//! knows nothing about terminals: the image loader decodes the SVG as it
-//! does an SVG file, and another backend could use the same SVG.
+//! A renderer takes a diagram's source and a theme and gives an image
+//! file: SVG text, or a raster image such as the PNG of a browser's
+//! drawing. It knows nothing about terminals: the image loader decodes it
+//! as it does an image file, and another backend could use the same
+//! image.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -49,15 +51,40 @@ impl Theme {
     }
 }
 
-/// A diagram drawn as SVG.
+/// A diagram drawn as an image.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Drawn {
-    pub svg: String,
+    /// The image file: SVG, or a raster image such as PNG, told apart by
+    /// its content.
+    pub image: Vec<u8>,
+    /// How many pixels of a raster image make one CSS pixel, as a browser
+    /// draws for a display of that density. An SVG has its own size.
+    pub scale: u32,
     /// The page its colours are for: the theme it was asked for, unless
     /// the diagram chose colours of its own.
     pub theme: Theme,
     /// The background colour of its theme, when the renderer tells it.
     pub background: Option<[u8; 3]>,
+}
+
+impl Drawn {
+    /// A diagram drawn as the SVG document `svg`, for a page of `theme`,
+    /// with the background colour `background` when the renderer tells
+    /// it.
+    pub fn svg(svg: impl Into<String>, theme: Theme, background: Option<[u8; 3]>) -> Self {
+        Drawn {
+            image: svg.into().into_bytes(),
+            scale: 1,
+            theme,
+            background,
+        }
+    }
+
+    /// The image as text, as an SVG is.
+    #[cfg(test)]
+    pub(crate) fn text(&self) -> String {
+        String::from_utf8_lossy(&self.image).into_owned()
+    }
 }
 
 /// Draws the diagrams of some languages.
@@ -66,9 +93,8 @@ pub trait Renderer {
     /// drawn as diagrams.
     fn draws(&self, language: &str) -> bool;
 
-    /// The diagram `source`, written in `language`, as an SVG document in
-    /// `theme` unless it chooses its own colours, or why it could not be
-    /// drawn.
+    /// The diagram `source`, written in `language`, as an image in `theme`
+    /// unless it chooses its own colours, or why it could not be drawn.
     fn render(&self, language: &str, source: &str, theme: Theme) -> Result<Drawn, String>;
 
     /// Each of `diagrams`, a language and a source, drawn as `render`
@@ -478,11 +504,7 @@ mod tests {
             self.now.fetch_sub(1, Ordering::SeqCst);
             match source {
                 "bad" => Err(format!("{language}: bad")),
-                _ => Ok(Drawn {
-                    svg: source.to_owned(),
-                    theme,
-                    background: None,
-                }),
+                _ => Ok(Drawn::svg(source, theme, None)),
             }
         }
     }
@@ -502,7 +524,7 @@ mod tests {
         };
         let drawn = render_in_parallel(&slow, &diagrams, Theme::Dark, external::AT_ONCE, &count);
         let svgs: Vec<Result<String, String>> = (drawn.into_iter())
-            .map(|drawn| drawn.map(|drawn| drawn.svg))
+            .map(|drawn| drawn.map(|drawn| drawn.text()))
             .collect();
         let expected: Vec<Result<String, String>> = (0..10)
             .map(|n| match n {

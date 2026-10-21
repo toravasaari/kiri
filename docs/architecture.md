@@ -84,17 +84,21 @@ it is drawn is decided when images are loaded. `src/images/mod.rs` keys
 each image by an `ImageKey`, a URL or a block (its language and source),
 and collects the code blocks whose language a renderer draws besides the
 lone images. It hands all of a document's diagrams to the renderer at
-once, then decodes each SVG it gets back as it decodes an SVG file, so
-sizing, the width limit and redrawing after a window resize work as for
-any image. There it also grows a diagram whose text runs past its edges,
-and lays one drawn in colours for the other page, light or dark, on a
-panel of its own background.
+once, then decodes each image it gets back by its content, as it decodes
+an image file, so sizing, the width limit and redrawing after a window
+resize work as for any image. An SVG is decoded as an SVG file is; a
+raster image, such as the PNG of a browser's drawing, becomes
+`Source::Dense`, pixels with the number of them to a CSS pixel, so that
+it is sized in CSS pixels as an SVG is. There it also grows an SVG
+diagram whose text runs past its edges, and lays one drawn in colours
+for the other page, light or dark, on a panel of its own background.
 
 Renderers live in `src/diagrams/`, outside `src/kitty/` and the parser.
 A renderer implements the `Renderer` trait: whether it draws a language,
 and a diagram's source and a `Theme`, for a light or a dark page, turned
-into SVG text and the page its colours are for. It knows nothing about
-terminals, so an HTML backend could use the same SVG.
+into an image file, SVG or raster, and the page its colours are for. It
+knows nothing about terminals, so an HTML backend could use the same
+image.
 
 - **Built-in:** `BuiltIn` draws Mermaid through merman, in a build with
   the `mermaid` feature. `src/diagrams/mermaid.rs` fixes merman's SVG
@@ -218,7 +222,7 @@ src/theme/file.rs          theme files
 src/images/mod.rs          loading and decoding the images a document shows
 src/images/url.rs          data URLs, file URLs and paths, read up to a limit
 src/images/svg.rs          SVG images and the fonts for their text
-src/diagrams/mod.rs        diagrams written in code blocks, drawn as SVG
+src/diagrams/mod.rs        diagrams written in code blocks, drawn as images
                            for the image loader
 src/diagrams/mermaid.rs    Mermaid through merman (feature `mermaid`)
 src/diagrams/external.rs   diagrams drawn by a command outside kiri

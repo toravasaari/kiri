@@ -54,11 +54,7 @@ pub fn render(source: &str, theme: Theme) -> Result<Drawn, String> {
     match diagram.render(RenderTarget::Svg(request)) {
         Ok(RenderOutput::Svg(Some(svg))) => {
             let svg = with_references_found(&svg.into_parts().0);
-            Ok(Drawn {
-                svg: with_labels_unclipped(&svg),
-                theme,
-                background,
-            })
+            Ok(Drawn::svg(with_labels_unclipped(&svg), theme, background))
         }
         Ok(_) => Err(no_diagram()),
         Err(error) => Err(error.to_string()),
@@ -187,7 +183,7 @@ mod tests {
 
     #[test]
     fn draws_a_flowchart_as_svg() {
-        let svg = render(FLOWCHART, Theme::Light).unwrap().svg;
+        let svg = render(FLOWCHART, Theme::Light).unwrap().text();
         assert!(svg.starts_with("<svg"), "{svg}");
         assert!(svg.contains("Start") && svg.contains("Done"), "{svg}");
     }
@@ -196,11 +192,11 @@ mod tests {
     fn draws_in_the_default_theme_on_a_light_page_and_dark_on_a_dark_one() {
         // The node colours of Mermaid's default and dark themes.
         assert_eq!(
-            node_fill(&render(FLOWCHART, Theme::Light).unwrap().svg),
+            node_fill(&render(FLOWCHART, Theme::Light).unwrap().text()),
             "#ECECFF"
         );
         assert_eq!(
-            node_fill(&render(FLOWCHART, Theme::Dark).unwrap().svg),
+            node_fill(&render(FLOWCHART, Theme::Dark).unwrap().text()),
             "#1f2020"
         );
     }
@@ -212,7 +208,10 @@ mod tests {
         let front_matter = format!("---\nconfig:\n  theme: forest\n---\n{FLOWCHART}");
         for source in [directive, front_matter] {
             for theme in [Theme::Light, Theme::Dark] {
-                assert_eq!(node_fill(&render(&source, theme).unwrap().svg), "#cde498");
+                assert_eq!(
+                    node_fill(&render(&source, theme).unwrap().text()),
+                    "#cde498"
+                );
             }
         }
     }
@@ -290,7 +289,7 @@ mod tests {
         let source = "flowchart TD\n    A[Start] --> B{Ok?}\n    B -->|yes| C[Done]\n\
             B -->|no| A\n";
         let curved = |source: &str| {
-            let svg = render(source, Theme::Light).unwrap().svg;
+            let svg = render(source, Theme::Light).unwrap().text();
             let edges = edges(&svg);
             (edges.iter().all(|d| d.contains('C')), edges.join("\n"))
         };
@@ -309,7 +308,7 @@ mod tests {
         // filter is missing.
         let source = "---\nconfig:\n  look: neo\n  theme: redux-color\n---\n\
             sequenceDiagram\n    A->>B: hello\n    Note right of B: a note\n";
-        let svg = render(source, Theme::Light).unwrap().svg;
+        let svg = render(source, Theme::Light).unwrap().text();
         // The note's fill in this theme.
         let note = pixels_of(&svg, [0xff, 0xf5, 0xad]);
         assert!(note > 1000, "{note} pixels of the note's colour");
@@ -333,7 +332,7 @@ mod tests {
         // a box of that size; the font resvg draws with is often wider.
         let source = "classDiagram\n    class KittyBackend {\n        -Capabilities caps\n\
             +render(doc, out) Result\n    }\n";
-        let svg = render(source, Theme::Light).unwrap().svg;
+        let svg = render(source, Theme::Light).unwrap().text();
         let tree = usvg::Tree::from_str(&svg, &usvg::Options::default()).unwrap();
         assert_eq!(clipped(tree.root()), 0);
     }
@@ -349,7 +348,7 @@ mod tests {
         // needs it.
         let source = "stateDiagram-v2\n    [*] --> Parsed\n\
             Parsed --> Loaded: images and diagrams\n    Loaded --> Shown\n";
-        let svg = render(source, Theme::Light).unwrap().svg;
+        let svg = render(source, Theme::Light).unwrap().text();
         let fonts = Fonts::fixture();
         let width = |image: Source| image.size().0;
         let file = width(decode(svg.as_bytes(), DEFAULT_MAX_FILE_SIZE, &fonts).unwrap());

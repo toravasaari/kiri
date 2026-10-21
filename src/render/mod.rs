@@ -138,7 +138,7 @@ pub fn render_image_on(
     }
     let unit = match &image {
         Source::Raster(_) => image::Unit::Pixel,
-        Source::Svg(_) => image::Unit::Css,
+        Source::Svg(_) | Source::Dense { .. } => image::Unit::Css,
     };
     let max_cells = caps.max_image_cells;
     let max_rows = caps.height.map_or(max_cells, |rows| {

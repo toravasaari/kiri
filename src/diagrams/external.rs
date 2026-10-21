@@ -4,7 +4,7 @@
 //! and for Mermaid the program's settings beside it. It runs the command
 //! that kiri's configuration file gives, or that kiri found, without a
 //! shell and with that directory as its temporary directory, and reads
-//! the SVG the program wrote. The directory goes, with whatever the
+//! the image the program wrote, SVG or raster. The directory goes, with whatever the
 //! program left in it, when the program has finished, failed, run out of
 //! time or been stopped; one that a kiri which was killed left goes the
 //! next time a kiri draws there.
@@ -84,7 +84,7 @@ pub fn not_writable(dir: &Path) -> Option<Unusable> {
 }
 
 /// A program that draws diagrams and its arguments, in which `{input}`
-/// stands for the file of the diagram's source, `{output}` for the SVG
+/// stands for the file of the diagram's source, `{output}` for the image
 /// file the program writes, `{theme}` for the theme kiri chose, and
 /// `{config}` for a configuration file kiri writes for the language, such
 /// as Mermaid's.
@@ -232,14 +232,15 @@ impl External {
         }
     }
 
-    /// The SVG that `command` draws of `source`, in `language`, in `theme`.
+    /// The image file that `command` draws of `source`, in `language`, in
+    /// `theme`.
     fn run(
         &self,
         command: &Command,
         language: &str,
         source: &str,
         theme: Theme,
-    ) -> Result<String, String> {
+    ) -> Result<Vec<u8>, String> {
         let program = command.program();
         if self.stopped() {
             return Err(format!("{program} was not started: interrupted"));
@@ -316,7 +317,7 @@ impl External {
             });
         }
         match fs::read(&output) {
-            Ok(bytes) => String::from_utf8(bytes).map_err(|_| format!("{program} wrote no SVG")),
+            Ok(bytes) => Ok(bytes),
             Err(error) if error.kind() == ErrorKind::NotFound => {
                 Err(format!("{program} wrote no output file"))
             }
@@ -334,11 +335,12 @@ impl Renderer for External {
         let Some(command) = self.command(language) else {
             return Err(format!("{language} diagrams have no command"));
         };
-        let svg = self.run(command, language, source, theme)?;
+        let image = self.run(command, language, source, theme)?;
         // The program cannot tell which theme the diagram chose itself.
         let theme = super::chosen_theme(language, source).unwrap_or(theme);
         Ok(Drawn {
-            svg,
+            image,
+            scale: 1,
             theme,
             background: None,
         })
@@ -562,15 +564,7 @@ mod tests {
         for (theme, name) in [(Theme::Light, "default"), (Theme::Dark, "dark")] {
             let drawn = renderer.render("Mermaid", SOURCE, theme).unwrap();
             let svg = format!("<svg theme=\"{name}\">flowchart TD\n  A --> B</svg>");
-            let background = None;
-            assert_eq!(
-                drawn,
-                Drawn {
-                    svg,
-                    theme,
-                    background
-                }
-            );
+            assert_eq!(drawn, Drawn::svg(svg, theme, None));
         }
         assert_eq!(scratch.left(), Vec::<PathBuf>::new());
     }
@@ -593,7 +587,7 @@ mod tests {
             let renderer = scratch.renderer(script);
             renderer
                 .render("mermaid", source, Theme::Light)
-                .map(|drawn| drawn.svg)
+                .map(|drawn| drawn.text())
         };
         // The source as it is, so that the program's line numbers are the
         // diagram's.
@@ -626,7 +620,7 @@ mod tests {
         let renderer = External::new(BTreeMap::from([("dot".to_owned(), command)]))
             .with_work_dir(scratch.0.join("temp"));
         let svg = renderer.render("dot", "digraph {}", Theme::Light);
-        assert_eq!(svg.map(|drawn| drawn.svg), Ok("digraph {}".to_owned()));
+        assert_eq!(svg.map(|drawn| drawn.text()), Ok("digraph {}".to_owned()));
     }
 
     #[test]
@@ -657,11 +651,17 @@ mod tests {
             renderer.render("mermaid", SOURCE, Theme::Light),
             Err("sh wrote no output file".to_owned())
         );
-        let renderer = scratch.renderer("printf '\\377\\376' > \"$2\"\n");
-        assert_eq!(
-            renderer.render("mermaid", SOURCE, Theme::Light),
-            Err("sh wrote no SVG".to_owned())
-        );
+        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+    }
+
+    #[test]
+    fn a_command_may_write_a_raster_image() {
+        // The image loader tells what it is by its content.
+        let scratch = Scratch::new("raster");
+        let renderer = scratch.renderer("printf '\\211PNG\\r\\n\\032\\n\\377' > \"$2\"\n");
+        let drawn = renderer.render("mermaid", SOURCE, Theme::Light).unwrap();
+        assert_eq!(drawn.image, b"\x89PNG\r\n\x1a\n\xff");
+        assert_eq!(drawn.scale, 1);
         assert_eq!(scratch.left(), Vec::<PathBuf>::new());
     }
 
@@ -830,7 +830,10 @@ mod tests {
         let command = Command::new(argv.map(String::from).to_vec());
         let renderer = External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
             .with_work_dir(scratch.0.join("temp"));
-        let svg = renderer.render("mermaid", SOURCE, Theme::Dark).unwrap().svg;
+        let svg = renderer
+            .render("mermaid", SOURCE, Theme::Dark)
+            .unwrap()
+            .text();
         let dir = scratch.0.join("temp").join(format!("{}-0", process::id()));
         let dir = dir.to_string_lossy();
         assert_eq!(
@@ -851,7 +854,7 @@ mod tests {
         let tmpdir = renderer
             .render("mermaid", SOURCE, Theme::Light)
             .unwrap()
-            .svg;
+            .text();
         let expected = scratch.0.join("temp").join(format!("{}-0", process::id()));
         assert_eq!(Path::new(&tmpdir), expected);
         assert_eq!(scratch.left(), Vec::<PathBuf>::new());
@@ -869,7 +872,7 @@ mod tests {
         let tmpdir = renderer
             .render("mermaid", SOURCE, Theme::Light)
             .unwrap()
-            .svg;
+            .text();
         assert_eq!(Path::new(&tmpdir).parent(), Some(work.as_path()));
         for dir in [scratch.0.join("c"), scratch.0.join("c/kiri"), work.clone()] {
             let mode = fs::metadata(&dir).unwrap().permissions().mode();
@@ -929,7 +932,7 @@ mod tests {
             let tmpdir = renderer
                 .render("mermaid", SOURCE, Theme::Light)
                 .unwrap()
-                .svg;
+                .text();
             let tmpdir = Path::new(&tmpdir);
             assert_eq!(tmpdir.parent(), Some(std::env::temp_dir().as_path()));
             let name = tmpdir.file_name().unwrap().to_string_lossy();
@@ -979,7 +982,10 @@ mod tests {
         };
         let renderer = External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
             .with_work_dir(scratch.0.join("temp"));
-        let svg = renderer.render("mermaid", SOURCE, Theme::Dark).unwrap().svg;
+        let svg = renderer
+            .render("mermaid", SOURCE, Theme::Dark)
+            .unwrap()
+            .text();
         assert_eq!(svg, "/opt/node/bin:/usr/bin");
     }
 

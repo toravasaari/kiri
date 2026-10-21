@@ -50,14 +50,23 @@ pub enum Source {
     Raster(RgbaImage),
     /// A vector image, drawn at whatever size it is shown.
     Svg(Svg),
+    /// Pixels in 8-bit RGBA drawn for a display with `scale` pixels to the
+    /// CSS pixel, as a browser draws a diagram, so that it is shown at the
+    /// size of its CSS pixels.
+    Dense { image: RgbaImage, scale: u32 },
 }
 
 impl Source {
-    /// Width and height in pixels; for an SVG, in CSS pixels.
+    /// Width and height in pixels; for an SVG or a dense image, in CSS
+    /// pixels.
     pub fn size(&self) -> (u32, u32) {
         match self {
             Source::Raster(image) => image.dimensions(),
             Source::Svg(svg) => svg.size,
+            Source::Dense { image, scale } => {
+                let css = |pixels: u32| pixels.div_ceil((*scale).max(1));
+                (css(image.width()), css(image.height()))
+            }
         }
     }
 
@@ -65,8 +74,12 @@ impl Source {
     /// scaled, an SVG drawn at that size.
     pub fn render(&self, width: u32, height: u32) -> RgbaImage {
         match self {
-            Source::Raster(image) if image.dimensions() == (width, height) => image.clone(),
-            Source::Raster(image) => scale(image, width, height),
+            Source::Raster(image) | Source::Dense { image, .. }
+                if image.dimensions() == (width, height) =>
+            {
+                image.clone()
+            }
+            Source::Raster(image) | Source::Dense { image, .. } => scale(image, width, height),
             Source::Svg(svg) => svg.render(width, height),
         }
     }
@@ -454,8 +467,17 @@ fn finish_diagram(
         reason,
     };
     let drawn = drawn.map_err(failed)?;
-    let image =
-        decode_diagram(&drawn.svg, max_size, fonts).map_err(|error| failed(error.to_string()))?;
+    let image = match looks_like_svg(&drawn.image) {
+        true => decode_diagram(&String::from_utf8_lossy(&drawn.image), max_size, fonts),
+        false => match decode_raster(&drawn.image, None) {
+            Ok(Source::Raster(image)) => Ok(Source::Dense {
+                image,
+                scale: drawn.scale.max(1),
+            }),
+            other => other,
+        },
+    }
+    .map_err(|error| failed(error.to_string()))?;
     // A diagram that chose colours of its own for the other page would
     // be dark lines and text on a dark page, or light ones on a light page.
     let panel = match (diagrams.theme, drawn.theme) {
@@ -466,8 +488,39 @@ fn finish_diagram(
     };
     Ok(match (image, panel) {
         (Source::Svg(svg), Some(colour)) => Source::Svg(svg.on_panel(colour, PANEL_PADDING)),
+        (Source::Dense { image, scale }, Some(colour)) => {
+            let padding = (PANEL_PADDING as u32).saturating_mul(scale);
+            Source::Dense {
+                image: on_panel(&image, colour, padding),
+                scale,
+            }
+        }
         (image, _) => image,
     })
+}
+
+/// `image` over a panel of `colour`, `padding` pixels wider than it on
+/// each side.
+fn on_panel(image: &RgbaImage, colour: [u8; 3], padding: u32) -> RgbaImage {
+    let [red, green, blue] = colour;
+    let (width, height) = image.dimensions();
+    let grown = |length: u32| length.saturating_add(padding.saturating_mul(2));
+    let mut panel = RgbaImage::from_pixel(
+        grown(width),
+        grown(height),
+        image::Rgba([red, green, blue, 255]),
+    );
+    for (x, y, pixel) in image.enumerate_pixels() {
+        let [r, g, b, alpha] = pixel.0;
+        let over = |top: u8, under: u8| {
+            let mixed =
+                u32::from(top) * u32::from(alpha) + u32::from(under) * (255 - u32::from(alpha));
+            ((mixed + 127) / 255) as u8
+        };
+        let below = panel.get_pixel_mut(x + padding, y + padding);
+        below.0 = [over(r, red), over(g, green), over(b, blue), 255];
+    }
+    panel
 }
 
 /// The colour of the panel under a light diagram on a dark page.
@@ -1050,11 +1103,7 @@ Text ![inline](images/pattern.png) and words.
             let svg = format!(
                 r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="{height}"/>"#
             );
-            Ok(Drawn {
-                svg,
-                theme,
-                background: None,
-            })
+            Ok(Drawn::svg(svg, theme, None))
         }
     }
 
@@ -1203,12 +1252,7 @@ fn main() {}
                 true
             }
             fn render(&self, _: &str, _: &str, theme: Theme) -> Result<Drawn, String> {
-                let svg = "not svg".into();
-                Ok(Drawn {
-                    svg,
-                    theme,
-                    background: None,
-                })
+                Ok(Drawn::svg("not svg", theme, None))
             }
         }
         let images = load_with(
@@ -1243,12 +1287,7 @@ fn main() {}
                 true
             }
             fn render(&self, _: &str, _: &str, theme: Theme) -> Result<Drawn, String> {
-                let svg = SVG.into();
-                Ok(Drawn {
-                    svg,
-                    theme,
-                    background: None,
-                })
+                Ok(Drawn::svg(SVG, theme, None))
             }
         }
         let fonts = Fonts::fixture();
@@ -1293,11 +1332,7 @@ fn main() {}
             }
             fn render(&self, _: &str, _: &str, _: Theme) -> Result<Drawn, String> {
                 let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="40"/>"#;
-                Ok(Drawn {
-                    svg: svg.into(),
-                    theme: self.0,
-                    background: self.1,
-                })
+                Ok(Drawn::svg(svg, self.0, self.1))
             }
         }
         let drawn = |page, own, background, panel| {
@@ -1349,6 +1384,86 @@ fn main() {}
             let svg = drawn(page, own, navy, panel);
             assert_eq!(svg.size, (100, 40), "{case}");
             assert_eq!(rgba(&svg.render(100, 40), 0, 0)[3], 0, "{case}");
+        }
+    }
+
+    /// `image` as a PNG file.
+    fn png(image: &RgbaImage) -> Vec<u8> {
+        let mut bytes = io::Cursor::new(Vec::new());
+        image.write_to(&mut bytes, ImageFormat::Png).unwrap();
+        bytes.into_inner()
+    }
+
+    /// Draws every diagram as the PNG of a 60 × 30 pixel image, half
+    /// transparent red, at its scale, for a page of its theme.
+    struct Png(u32, Theme);
+
+    impl Renderer for Png {
+        fn draws(&self, _language: &str) -> bool {
+            true
+        }
+
+        fn render(&self, _: &str, _: &str, _: Theme) -> Result<Drawn, String> {
+            let image = RgbaImage::from_pixel(60, 30, image::Rgba([255, 0, 0, 128]));
+            Ok(Drawn {
+                image: png(&image),
+                scale: self.0,
+                theme: self.1,
+                background: None,
+            })
+        }
+    }
+
+    /// The diagram that `renderer` draws, on a page of `page`.
+    fn drawn_by(renderer: &dyn Renderer, page: Theme) -> Result<Source, ImageError> {
+        let images = load_with(
+            &crate::parse::parse("```dot\ndigraph {}\n```\n"),
+            &fixtures(),
+            DEFAULT_MAX_FILE_SIZE,
+            &Fonts::none(),
+            &Diagrams {
+                renderer,
+                theme: page,
+                by_line: true,
+                progress: None,
+                panel: true,
+            },
+        );
+        (images.get(&block("dot", "digraph {}\n")).cloned()).expect("the diagram")
+    }
+
+    #[test]
+    fn a_raster_diagram_is_shown_at_the_size_of_its_css_pixels() {
+        for scale in [1, 3] {
+            let drawn = drawn_by(&Png(scale, Theme::Light), Theme::Light);
+            let Ok(Source::Dense { image, scale: kept }) = &drawn else {
+                panic!("{drawn:?}");
+            };
+            assert_eq!((image.dimensions(), *kept), ((60, 30), scale));
+            let source = drawn.unwrap();
+            assert_eq!(source.size(), (60 / scale, 30 / scale));
+            assert_eq!(rgba(&source.render(60, 30), 5, 5), [255, 0, 0, 128]);
+        }
+    }
+
+    #[test]
+    fn a_raster_diagram_for_the_other_page_lies_on_a_panel() {
+        // Eight CSS pixels of panel on each side, and the drawing over it.
+        for scale in [1, 3] {
+            let drawn = drawn_by(&Png(scale, Theme::Light), Theme::Dark).unwrap();
+            let pad = 8 * scale;
+            assert_eq!(drawn.size(), (60 / scale + 16, 30 / scale + 16));
+            let Source::Dense { image, .. } = &drawn else {
+                panic!("{drawn:?}");
+            };
+            assert_eq!(image.dimensions(), (60 + 2 * pad, 30 + 2 * pad));
+            assert_eq!(rgba(image, 0, 0), [255, 255, 255, 255]);
+            assert_eq!(rgba(image, pad + 5, pad + 5), [255, 127, 127, 255]);
+            let drawn = drawn_by(&Png(scale, Theme::Dark), Theme::Light).unwrap();
+            let Source::Dense { image, .. } = &drawn else {
+                panic!("{drawn:?}");
+            };
+            assert_eq!(rgba(image, 0, 0), [0x33, 0x33, 0x33, 255]);
         }
     }
 

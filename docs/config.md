@@ -237,7 +237,7 @@ command = ["mmdc", "-i", "{input}", "-o", "{output}", "-t", "{theme}", "-b", "tr
 This is mermaid-cli's command line, the same one kiri runs when it finds
 `mmdc` by itself. kiri writes the diagram's source to a file in a
 directory of its own, runs the program directly, without a shell, and
-reads the SVG it writes. The directory is in `diagrams` in kiri's cache
+reads the image it writes. The directory is in `diagrams` in kiri's cache
 directory (`$XDG_CACHE_HOME/kiri`, or `~/.cache/kiri`), made for you
 alone when it is needed, or in the temporary directory (`TMPDIR`, or
 `/tmp`) when that cannot be made or its path is longer than 49 bytes,
@@ -252,7 +252,8 @@ cannot. In the arguments:
 
 - `{input}` is the file of the diagram's source, which ends in `.mmd`
   for Mermaid;
-- `{output}` is the SVG file the program writes;
+- `{output}` is the image file the program writes: SVG, or a raster
+  image such as PNG, which kiri tells apart by its content;
 - `{theme}` is the theme kiri chose: `default` or `dark` for Mermaid;
 - `{config}` is a Mermaid configuration file, in JSON, that has labels
   drawn as SVG text rather than as HTML, which kiri cannot draw, and
@@ -277,7 +278,7 @@ SIGHUP meanwhile stops the programs and removes their files, and then
 the signal ends kiri as it would have otherwise, so that a shell shows
 status 130 after Ctrl-C. A signal that was ignored when kiri started,
 as under `nohup`, stays ignored. A program that fails,
-runs out of time or writes no SVG leaves its diagram as code with a
+runs out of time or writes no image leaves its diagram as code with a
 warning; kiri does not fall back to drawing it itself, so that a
 command that does not work shows.
 
