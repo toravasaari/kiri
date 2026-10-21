@@ -14,10 +14,11 @@ use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 const SIGNALS: [i32; 3] = [SIGINT, SIGTERM, SIGHUP];
 
 /// Catches Ctrl-C, SIGTERM and SIGHUP while it lives, unless they are
-/// ignored: one sets a flag instead of ending kiri, until [`release`](Self::release). Dropping it
-/// takes its handlers away, which leaves the signals ignored until another
-/// catches them, as the pager's screen does; so it lives until kiri ends
-/// or the pager's screen has opened.
+/// ignored: one sets a flag instead of ending kiri, until
+/// [`release`](Self::release). Dropping it takes its handlers away, which
+/// leaves the signals ignored until another catches them, as the pager's
+/// screen does; so it lives until kiri ends or the pager's screen has
+/// opened.
 #[derive(Debug)]
 pub struct Interrupt {
     /// The signal that came, 0 before one did.

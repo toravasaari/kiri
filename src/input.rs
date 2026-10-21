@@ -35,10 +35,11 @@ const DIAGRAMS: &[(&str, &str)] = &[("mmd", "mermaid"), ("mermaid", "mermaid")];
 
 /// What the file at `path`, which starts with `head`, is. A Markdown
 /// extension makes it Markdown, a CSV or TSV extension a table, a diagram
-/// extension such as `mmd` a diagram and an SVG extension an SVG. Otherwise the content tells a raster image, unless it
-/// is text: a Markdown file may well start with `BM`, which also starts a
-/// BMP image. Then an image extension tells formats whose content does
-/// not, such as TGA. Anything else is Markdown.
+/// extension such as `mmd` a diagram and an SVG extension an SVG.
+/// Otherwise the content tells a raster image, unless it is text: a
+/// Markdown file may well start with `BM`, which also starts a BMP image.
+/// Then an image extension tells formats whose content does not, such as
+/// TGA. Anything else is Markdown.
 pub fn detect(path: &Path, head: &[u8]) -> Input {
     let extension = path.extension().and_then(OsStr::to_str);
     let is =
