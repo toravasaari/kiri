@@ -25,14 +25,17 @@ pub fn version() -> String {
 /// The diagram `source` as an SVG document, in `theme` unless the diagram
 /// chooses its own, or merman's message saying why it could not be drawn.
 pub fn render(source: &str, theme: Theme) -> Result<Drawn, String> {
-    // GitHub's themes and look. The site configuration is what a diagram's
-    // own directive or front matter overrides.
+    // GitHub's themes, look and layout. The site configuration is what a
+    // diagram's own directive or front matter overrides. merman follows
+    // Mermaid 12, whose default layout is ELK; GitHub's Mermaid 11 lays
+    // diagrams out with dagre.
     let site = MermaidConfig::from_value(serde_json::json!({
         "theme": match theme {
             Theme::Light => "default",
             Theme::Dark => "dark",
         },
         "look": "classic",
+        "layout": "dagre",
     }));
     let renderer = Renderer::new().with_engine(Engine::new().with_site_config(site));
     // SVG that resvg draws: text as SVG text rather than HTML labels.
@@ -265,6 +268,38 @@ mod tests {
         let drawn = image.render(width, height);
         let same = |pixel: &&image::Rgba<u8>| pixel.0[..3] == colour && pixel.0[3] == 255;
         drawn.pixels().filter(same).count()
+    }
+
+    /// The paths of the edges between the nodes of a flowchart.
+    fn edges(svg: &str) -> Vec<&str> {
+        let paths = svg.match_indices("<path ").map(|(at, _)| {
+            let tag = &svg[at..];
+            &tag[..tag.find('>').expect("the end of the tag")]
+        });
+        let links: Vec<&str> = paths.filter(|tag| tag.contains("flowchart-link")).collect();
+        assert!(!links.is_empty(), "{svg}");
+        (links.into_iter())
+            .map(|tag| attribute_values(tag, " d=\"").next().expect("a path"))
+            .collect()
+    }
+
+    #[test]
+    fn flowcharts_are_laid_out_with_curved_edges_as_on_github() {
+        // Dagre, Mermaid 11's layout, which GitHub uses, draws curves; ELK,
+        // Mermaid 12's and merman's default, lines at right angles.
+        let source = "flowchart TD\n    A[Start] --> B{Ok?}\n    B -->|yes| C[Done]\n\
+            B -->|no| A\n";
+        let curved = |source: &str| {
+            let svg = render(source, Theme::Light).unwrap().svg;
+            let edges = edges(&svg);
+            (edges.iter().all(|d| d.contains('C')), edges.join("\n"))
+        };
+        let (all, edges) = curved(source);
+        assert!(all, "{edges}");
+        // A diagram may still ask for ELK.
+        let elk = format!("---\nconfig:\n  layout: elk\n---\n{source}");
+        let (all, edges) = curved(&elk);
+        assert!(!all && !edges.contains('C'), "{edges}");
     }
 
     #[test]

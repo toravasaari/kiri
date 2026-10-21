@@ -103,9 +103,12 @@ example, come before the rest of phase 3.
   page lies on a panel of its own background, unless `background_panel`
   is off.
 - The full build draws them itself through merman: every diagram type,
-  the Cytoscape and ELK layouts, and math. The minimal build uses
-  mermaid-cli's `mmdc`, found on `PATH` or where npm, nvm and Homebrew
-  install it, unless `auto_detect` in `[diagrams.mermaid]` is off.
+  the Cytoscape and ELK layouts, and math. It lays diagrams out with
+  dagre, as GitHub's Mermaid 11 does, unless a diagram asks for another
+  layout; merman follows Mermaid 12, whose default is ELK. The minimal
+  build uses mermaid-cli's `mmdc`, found on `PATH` or where npm, nvm and
+  Homebrew install it, unless `auto_detect` in `[diagrams.mermaid]` is
+  off.
 - An external command for a language in the configuration file,
   `[diagrams.mermaid]`, with `{input}`, `{output}`, `{theme}` and
   `{config}`. It
