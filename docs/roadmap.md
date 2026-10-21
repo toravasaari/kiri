@@ -127,8 +127,8 @@ example, come before the rest of phase 3.
 - A diagram that does not draw stays code, with the reason in red below
   it and a warning naming its line; `--render-errors inline|stderr|both`,
   `KIRI_RENDER_ERRORS` and `render_errors` in the configuration file
-  choose one of them or both, as they will for formulas. Drawing that takes longer than half a second shows how far it
-  has got.
+  choose one of them or both, as they will for formulas. Drawing that
+  takes longer than half a second shows how far it has got.
 - `kiri file.mmd` (or `.mermaid`, or `--format mermaid`): a Mermaid file
   drawn on its own, fit to the window as an image file is; its source as
   text when it is not drawn, and an error when it fails to draw.

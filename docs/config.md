@@ -226,14 +226,15 @@ it is drawn with images off too. When it is not drawn, its source is
 shown as `--format text` shows it; one that fails to draw is an error,
 told below its source and as `kiri: plan.mmd: …` on standard error, or
 in one of them as [render errors](#render-errors) say, and kiri exits
-with status 1 either way. One that nothing can
-draw, although diagrams are on and the terminal shows them, gets the
-hint `kiri: plan.mmd: no program to draw Mermaid diagrams; see --doctor`.
+with status 1 either way. One that nothing can draw, although diagrams
+are on and the terminal shows them, gets the hint
+`kiri: plan.mmd: no program to draw Mermaid diagrams; see --doctor`.
 
 `kiri --doctor` shows the switch, the time limit, whether panels are
-on and where render errors go, each with where it comes from, and lists, for each language, the
-renderer built into this build and the external command, configured,
-found, not found or not looked for, and which of them is used.
+on and where render errors go, each with where it comes from, and
+lists, for each language, the renderer built into this build and the
+external command, configured, found, not found or not looked for, and
+which of them is used.
 
 ### Diagram commands
 
@@ -281,9 +282,10 @@ cannot. In the arguments:
   or `1`, the largest that fits; kiri tells from the PNG's header, before
   loading it, and shows the second image at the same size in CSS
   pixels. The second drawing has a time limit of its own. A diagram too
-  large even then stays code with a warning that tells its size in
-  pixels. A raster image from a command without `{scale}` is shown at one
-  pixel to the CSS pixel;
+  large even then stays code, and kiri tells its size in pixels as it
+  tells why any diagram did not draw: below the code, in a warning or
+  both, as [Render errors](#render-errors) says. A raster image from a
+  command without `{scale}` is shown at one pixel to the CSS pixel;
 - `{config}` is a Mermaid configuration file, in JSON, that has each
   diagram drawn at its own width, rather than at most as wide as the
   800-pixel page of `mmdc`'s browser, and the classic look and the dagre

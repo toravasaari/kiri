@@ -81,14 +81,14 @@ flowchart LR
 kiri's default build draws Mermaid itself, every diagram type, through
 [merman](https://crates.io/crates/merman); a build without default
 features uses mermaid-cli's `mmdc` when it finds one, and shows the PNG
-its browser draws. On a dark page a
-diagram takes Mermaid's dark theme, unless it chooses a theme of its own.
-Diagrams are drawn where images are, so they stay code with
-`--no-images`, in terminals without kitty's graphics and with
-`--diagrams off`; a diagram that does not draw stays code, with the
-reason in red below it and a warning.
-The [configuration file](docs/config.md#diagrams) can name another
-program to draw them.
+its browser draws. On a dark page a diagram takes Mermaid's dark theme,
+unless it chooses a theme of its own. Diagrams are drawn where images
+are, so they stay code with `--no-images`, in terminals without kitty's
+graphics and with `--diagrams off`. A diagram that does not draw stays
+code, and kiri tells why in red below it and in a warning, or in only
+one of them with `--render-errors`. The
+[configuration file](docs/config.md#diagrams) can name another program
+to draw them.
 
 HTML `<details>` blocks are shown open, their `<summary>` in bold after a
 `▼`, also nested and inside lists and quotes. `<kbd>` is drawn as inline
@@ -113,9 +113,9 @@ document, and also with images off; `--format mermaid` says so for
 standard input or another name. Where it is not drawn, as with
 `--diagrams off` or in a terminal without kitty's graphics, its source is
 shown as `--format text` shows it, and a diagram that fails to draw is an
-error, told below its source as in a document. When no program can draw it, as in a build
-without the built-in renderer and without `mmdc`, a hint on standard
-error points to `kiri --doctor`.
+error, told below its source as in a document. When no program can draw
+it, as in a build without the built-in renderer and without `mmdc`, a
+hint on standard error points to `kiri --doctor`.
 
 A CSV or TSV file is shown as a table with its first row as the header,
 as GitHub shows one: `.csv` is comma-separated and `.tsv` tab-separated,
