@@ -186,7 +186,7 @@ pub struct Config {
     pub diagrams: Option<bool>,
     /// The external command for each diagram language that has one, from
     /// `[diagrams.<language>]`: the program and its arguments, with
-    /// `{input}`, `{output}`, `{theme}` and `{config}` in them.
+    /// `{input}`, `{output}`, `{theme}`, `{config}` and `{scale}` in them.
     pub diagram_commands: BTreeMap<String, Vec<String>>,
     /// How long an external command may take to draw one diagram.
     pub diagram_timeout: Option<Duration>,

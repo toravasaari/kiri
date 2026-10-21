@@ -2,10 +2,10 @@
 //!
 //! This is the stage between the document model and layout: it resolves
 //! each image URL, reads the file and decodes it, and has each diagram in
-//! a code block drawn as an SVG, so layout and output work on pixels and
-//! never touch the file system. A failure is a value, not an
-//! error for the whole document, because the renderer still shows the alt
-//! text in place of an image it could not load.
+//! a code block drawn as an image, SVG or raster, so layout and output
+//! work on pixels and never touch the file system. A failure is a value,
+//! not an error for the whole document, because the renderer still shows
+//! the alt text in place of an image it could not load.
 
 mod svg;
 mod url;
@@ -487,7 +487,7 @@ fn collect_blocks<'a>(blocks: &'a [Block], renderer: &dyn Renderer, wanted: &mut
 }
 
 /// The diagram `source` in `language`, which starts on `line`, as
-/// `diagrams` drew it, decoded as an SVG.
+/// `diagrams` drew it, decoded by its content as an image file is.
 fn finish_diagram(
     language: &str,
     source: &str,

@@ -4,10 +4,10 @@
 //! and for Mermaid the program's settings beside it. It runs the command
 //! that kiri's configuration file gives, or that kiri found, without a
 //! shell and with that directory as its temporary directory, and reads
-//! the image the program wrote, SVG or raster. The directory goes, with whatever the
-//! program left in it, when the program has finished, failed, run out of
-//! time or been stopped; one that a kiri which was killed left goes the
-//! next time a kiri draws there.
+//! the image the program wrote, SVG or raster. The directory goes, with
+//! whatever the program left in it, when the program has finished,
+//! failed, run out of time or been stopped; one that a kiri which was
+//! killed left goes the next time a kiri draws there.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
