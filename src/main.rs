@@ -272,8 +272,14 @@ fn main() -> ExitCode {
             eprintln!("kiri: {error}");
             ExitCode::FAILURE
         }
-        // As a shell ends a command that Ctrl-C stopped.
-        Err(Failure::Interrupted) => ExitCode::from(130),
+        Err(Failure::Signal(signal)) => {
+            // As the signal would have ended kiri, now that the programs
+            // it started have stopped and their files are gone.
+            kiri::term::end_by(signal);
+            // As a shell tells that a signal ended a command, should the
+            // signal not end kiri.
+            ExitCode::from(128u8.saturating_add(signal as u8))
+        }
     }
 }
 
@@ -281,8 +287,8 @@ fn main() -> ExitCode {
 enum Failure {
     /// An error, which kiri tells.
     Error(String),
-    /// Ctrl-C stopped it.
-    Interrupted,
+    /// A signal, such as Ctrl-C's, stopped it.
+    Signal(i32),
 }
 
 impl From<String> for Failure {
@@ -407,7 +413,8 @@ fn show_document(
     if let Some(paper) = settings.paper {
         caps.dark_background = Some(paper == Paper::Dark);
     }
-    // Ctrl-C while programs draw diagrams stops them first.
+    // Ctrl-C, SIGTERM or SIGHUP while programs draw diagrams stops them
+    // first.
     let mut interrupt = None;
     // Images are read only when the user wants them and the terminal can
     // show them; otherwise they are alt text, without warnings.
@@ -455,11 +462,8 @@ fn show_document(
         } else {
             load(&diagrams)
         };
-        if let Some(interrupt) = &interrupt {
-            if interrupt.came() {
-                return Err(Failure::Interrupted);
-            }
-            interrupt.release();
+        if let Some(signal) = interrupt.as_ref().and_then(Interrupt::release) {
+            return Err(Failure::Signal(signal));
         }
         for warning in images.warnings() {
             eprintln!("kiri: {warning}");

@@ -17,7 +17,7 @@ mod testing;
 mod window;
 
 pub use detect::{CellSize, Detection, Mode, capabilities, examine, no_color};
-pub use interrupt::Interrupt;
+pub use interrupt::{Interrupt, end_by};
 pub use screen::Screen;
 pub use window::{WindowSize, window_size};
 

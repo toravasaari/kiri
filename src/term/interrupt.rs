@@ -1,54 +1,75 @@
-//! Ctrl-C while programs outside kiri draw diagrams. They run in process
-//! groups of their own, which Ctrl-C does not reach, so kiri catches it,
-//! stops them and removes their files before it ends.
+//! Signals that would end kiri while programs outside kiri draw diagrams:
+//! Ctrl-C (SIGINT), SIGTERM and SIGHUP. The programs run in process groups
+//! of their own, which Ctrl-C does not reach, nor a signal sent to kiri
+//! alone, so kiri catches these, stops the programs and removes their
+//! files, and then ends as the signal would have ended it.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use signal_hook::SigId;
-use signal_hook::consts::SIGINT;
+use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 
-/// Catches Ctrl-C (SIGINT) while it lives: one sets a flag instead of
-/// ending kiri, until [`release`](Self::release). Dropping it takes its
-/// handlers away, which leaves SIGINT ignored until another catches it, as
-/// the pager's screen does; so it lives until kiri ends or the pager opens.
+/// The signals an [`Interrupt`] catches.
+const SIGNALS: [i32; 3] = [SIGINT, SIGTERM, SIGHUP];
+
+/// Catches Ctrl-C, SIGTERM and SIGHUP while it lives: one sets a flag
+/// instead of ending kiri, until [`release`](Self::release). Dropping it
+/// takes its handlers away, which leaves the signals ignored until another
+/// catches them, as the pager's screen does; so it lives until kiri ends
+/// or the pager's screen has opened.
 #[derive(Debug)]
 pub struct Interrupt {
-    /// Whether Ctrl-C came.
-    came: Arc<AtomicBool>,
-    /// Whether Ctrl-C ends kiri as it does by default.
+    /// The signal that came, 0 before one did.
+    came: Arc<AtomicUsize>,
+    /// Set when one came, for the work it is to stop.
+    stop: Arc<AtomicBool>,
+    /// Whether the signals end kiri as they do by default.
     ends: Arc<AtomicBool>,
     handlers: Vec<SigId>,
 }
 
 impl Interrupt {
-    /// Catches Ctrl-C from now on; `None` when the handlers cannot be set.
+    /// Catches the signals from now on; `None` when the handlers cannot be
+    /// set.
     pub fn catch() -> Option<Self> {
         let mut interrupt = Interrupt {
-            came: Arc::new(AtomicBool::new(false)),
+            came: Arc::new(AtomicUsize::new(0)),
+            stop: Arc::new(AtomicBool::new(false)),
             ends: Arc::new(AtomicBool::new(false)),
             handlers: Vec::new(),
         };
-        let ends = signal_hook::flag::register_conditional_default(SIGINT, interrupt.ends.clone());
-        interrupt.handlers.push(ends.ok()?);
-        let came = signal_hook::flag::register(SIGINT, interrupt.came.clone());
-        interrupt.handlers.push(came.ok()?);
+        for signal in SIGNALS {
+            // The handlers run in this order. Noting the signal before
+            // looking at `ends`, as `release` sets `ends` before it looks
+            // at the signal, means that a signal either ends kiri or is
+            // seen by `release`.
+            let came = Arc::clone(&interrupt.came);
+            let came = signal_hook::flag::register_usize(signal, came, signal as usize);
+            interrupt.handlers.push(came.ok()?);
+            let stop = signal_hook::flag::register(signal, Arc::clone(&interrupt.stop));
+            interrupt.handlers.push(stop.ok()?);
+            let ends = Arc::clone(&interrupt.ends);
+            let ends = signal_hook::flag::register_conditional_default(signal, ends);
+            interrupt.handlers.push(ends.ok()?);
+        }
         Some(interrupt)
     }
 
-    /// The flag that Ctrl-C sets, for the work it is to stop.
+    /// The flag that a signal sets, for the work it is to stop.
     pub fn flag(&self) -> Arc<AtomicBool> {
-        Arc::clone(&self.came)
+        Arc::clone(&self.stop)
     }
 
-    /// Whether Ctrl-C came.
-    pub fn came(&self) -> bool {
-        self.came.load(Ordering::SeqCst)
-    }
-
-    /// Makes Ctrl-C end kiri again, as it does by default.
-    pub fn release(&self) {
+    /// Makes the signals end kiri again, as they do by default; the
+    /// signal that came before, if one did, which kiri is then to end by
+    /// with [`end_by`].
+    pub fn release(&self) -> Option<i32> {
         self.ends.store(true, Ordering::SeqCst);
+        match self.came.load(Ordering::SeqCst) {
+            0 => None,
+            signal => Some(signal as i32),
+        }
     }
 }
 
@@ -58,4 +79,10 @@ impl Drop for Interrupt {
             signal_hook::low_level::unregister(id);
         }
     }
+}
+
+/// Ends kiri as `signal` does by default, so that the shell that started
+/// it sees that the signal ended it.
+pub fn end_by(signal: i32) {
+    let _ = signal_hook::low_level::emulate_default_handler(signal);
 }

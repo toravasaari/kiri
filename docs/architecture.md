@@ -109,11 +109,13 @@ terminals, so an HTML backend could use the same SVG.
 `src/main.rs` builds the renderers from the settings and the
 environment, and `src/term/progress.rs` tells on the terminal how far
 drawing has got when it takes long. The programs run in process groups
-of their own, which Ctrl-C from the terminal does not reach, so while
-they draw, `src/term/interrupt.rs` catches it: `External` stops them,
-SIGINT first so that `mmdc` can close its browser, removes their files,
-and kiri ends with status 130. Once the diagrams are drawn, Ctrl-C ends
-kiri as before, and the pager catches it itself. A new diagram language
+of their own, which Ctrl-C from the terminal does not reach, nor a
+signal sent to kiri alone, so while they draw, `src/term/interrupt.rs`
+catches SIGINT, SIGTERM and SIGHUP: `External` stops them, SIGINT first
+so that `mmdc` can close its browser, removes their files, and kiri then
+ends by the signal that came. Once the diagrams are drawn, the signals
+end kiri as before, and the pager catches them itself once its screen
+is open. A new diagram language
 joins `LANGUAGES` in `src/diagrams/mod.rs`, with a default command in
 `src/diagrams/find.rs` or a built-in renderer.
 
@@ -195,7 +197,7 @@ src/term/answers.rs        reading the terminal's answers
 src/term/screen.rs         the pager's screen, raw mode and keys
 src/term/progress.rs       the line that tells how far drawing diagrams has
                            got
-src/term/interrupt.rs      Ctrl-C while programs draw diagrams
+src/term/interrupt.rs      signals while programs draw diagrams
 src/term/testing.rs        pseudo-terminals for the tests
 src/config.rs              settings: options, environment, configuration file
 src/doctor.rs              the --doctor report as Markdown

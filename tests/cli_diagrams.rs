@@ -374,68 +374,79 @@ fn all_gone(pids: &[String]) -> bool {
 }
 
 #[test]
-fn ctrl_c_stops_the_programs_removes_their_files_and_ends_kiri() {
-    use rustix::process::{Pid, Signal, kill_process};
+fn a_signal_stops_the_programs_removes_their_files_and_ends_kiri() {
+    use std::os::unix::process::ExitStatusExt;
     use std::time::{Duration, Instant};
 
-    let dir = Scratch::new("mermaid-interrupt");
-    let started = dir.join("started");
-    // Each diagram's program starts a program of its own and waits for it.
-    let script = format!("sleep 30 &\necho $! >> '{}'\nwait\n", started.display());
-    common::write(
-        &dir.join("config/kiri/config.toml"),
-        &external(&dir, &script),
-    );
-    let source = format!("{FLOWCHART}\n```mermaid\nsequenceDiagram\n```\n");
-    let document = dir.join("document.md");
-    std::fs::write(&document, source).unwrap();
-    let temp = dir.join("temp");
-    std::fs::create_dir_all(&temp).unwrap();
-    let mut kiri = common::command(&dir)
-        .env("TMPDIR", &temp)
-        .args(["--mode", "kitty"])
-        .arg(&document)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    let pids = || -> Vec<String> {
-        let started = std::fs::read_to_string(&started).unwrap_or_default();
-        started.lines().map(str::to_owned).collect()
-    };
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while pids().len() < 2 && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(20));
+    use rustix::process::{Pid, Signal, kill_process};
+
+    // Ctrl-C, a request to end and a terminal that closes.
+    for signal in [Signal::INT, Signal::TERM, Signal::HUP] {
+        // A short name, so that the cache directory is used.
+        let dir = Scratch::new("s");
+        let started = dir.join("started");
+        // Each diagram's program starts a program of its own and waits
+        // for it.
+        let script = format!("sleep 30 &\necho $! >> '{}'\nwait\n", started.display());
+        common::write(
+            &dir.join("config/kiri/config.toml"),
+            &external(&dir, &script),
+        );
+        let source = format!("{FLOWCHART}\n```mermaid\nsequenceDiagram\n```\n");
+        let document = dir.join("document.md");
+        std::fs::write(&document, source).unwrap();
+        let temp = dir.join("temp");
+        std::fs::create_dir_all(&temp).unwrap();
+        let mut kiri = common::command(&dir)
+            .env("TMPDIR", &temp)
+            .env("XDG_CACHE_HOME", dir.join("x"))
+            .args(["--mode", "kitty"])
+            .arg(&document)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let pids = || -> Vec<String> {
+            let started = std::fs::read_to_string(&started).unwrap_or_default();
+            started.lines().map(str::to_owned).collect()
+        };
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while pids().len() < 2 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(pids().len(), 2, "{signal:?}: both programs start");
+        let pid = Pid::from_raw(kiri.id() as i32).unwrap();
+        kill_process(pid, signal).unwrap();
+        // kiri gets 10 s at most, so a hanging kiri fails the test instead
+        // of hanging it.
+        let status = loop {
+            if let Some(status) = kiri.try_wait().unwrap() {
+                break status;
+            }
+            if Instant::now() > deadline {
+                kiri.kill().unwrap();
+                panic!("{signal:?}: kiri did not end");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        let out = kiri.wait_with_output().unwrap();
+        let gone = all_gone(&pids());
+        if !gone {
+            for pid in pids() {
+                let _ = std::process::Command::new("kill").arg(pid).status();
+            }
+        }
+        // Ended by the signal, as without the programs: a shell shows
+        // status 130 after Ctrl-C.
+        assert_eq!(status.signal(), Some(signal.as_raw()), "{status:?}");
+        assert_eq!(text(&out.stderr), "", "{signal:?}");
+        assert_eq!(text(&out.stdout), "", "{signal:?}");
+        assert!(gone, "{signal:?}: the programs' own programs still run");
+        for dir in [temp, dir.join("x/kiri/diagrams")] {
+            let left: Vec<_> = std::fs::read_dir(&dir).unwrap().collect();
+            assert!(left.is_empty(), "{signal:?}: {left:?}");
+        }
     }
-    assert_eq!(pids().len(), 2, "both programs start");
-    let pid = Pid::from_raw(kiri.id() as i32).unwrap();
-    kill_process(pid, Signal::INT).unwrap();
-    // kiri gets 10 s at most, so a hanging kiri fails the test instead of
-    // hanging it.
-    let status = loop {
-        if let Some(status) = kiri.try_wait().unwrap() {
-            break status;
-        }
-        if Instant::now() > deadline {
-            kiri.kill().unwrap();
-            panic!("kiri did not end");
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    };
-    let out = kiri.wait_with_output().unwrap();
-    let gone = all_gone(&pids());
-    if !gone {
-        for pid in pids() {
-            let _ = std::process::Command::new("kill").arg(pid).status();
-        }
-    }
-    // As a shell ends on Ctrl-C.
-    assert_eq!(status.code(), Some(130), "{status:?}");
-    assert_eq!(text(&out.stderr), "");
-    assert_eq!(text(&out.stdout), "");
-    assert!(gone, "the programs' own programs still run");
-    let left: Vec<_> = std::fs::read_dir(&temp).unwrap().collect();
-    assert!(left.is_empty(), "{left:?}");
 }
 
 #[test]
