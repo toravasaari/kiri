@@ -116,8 +116,9 @@ example, come before the rest of phase 3.
   to it. Its time limit, 20 s unless `timeout` says otherwise, and
   Ctrl-C, SIGTERM and SIGHUP stop it and what it started.
 - `--diagrams on|off`, `KIRI_DIAGRAMS` and `enabled` in the configuration
-  file's `[diagrams]` table; `--doctor` shows the switch and each
-  language's renderers.
+  file's `[diagrams]` table; `--doctor` shows the switch, the time
+  limit and the panels with their origins, and each language's
+  renderers.
 - A diagram that does not draw stays code, with a warning naming its
   line. Drawing that takes longer than half a second shows how far it
   has got.

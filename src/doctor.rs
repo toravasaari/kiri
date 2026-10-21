@@ -237,6 +237,12 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     let diagrams = &choices.diagrams;
     let on = on_off(diagrams.value);
     row(out, &["Diagrams", on, &from(diagrams.origin)])?;
+    let limit = &choices.diagram_timeout;
+    let seconds = format!("{} s", limit.value.as_secs_f64());
+    row(out, &["Diagram time limit", &seconds, &from(limit.origin)])?;
+    let panel = &choices.diagram_panel;
+    let on = on_off(panel.value);
+    row(out, &["Diagram panels", on, &from(panel.origin)])?;
     let size = &facts.max_image_size;
     let mb = format!("{} MB", size.value);
     row(out, &["Largest image", &mb, &from(size.origin)])?;

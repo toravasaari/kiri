@@ -825,9 +825,9 @@ pub struct Choices {
     /// from the configuration file.
     pub diagram_commands: BTreeMap<String, Vec<String>>,
     /// How long an external command may take to draw one diagram.
-    pub diagram_timeout: Duration,
+    pub diagram_timeout: Setting<Duration>,
     /// Whether a diagram in colours for the other page lies on a panel.
-    pub diagram_panel: bool,
+    pub diagram_panel: Setting<bool>,
     /// The diagram languages whose program kiri is not to look for, all
     /// from the configuration file.
     pub diagram_no_search: BTreeSet<String>,
@@ -853,8 +853,8 @@ impl Choices {
             table_rows: self.table_rows.value,
             diagrams: self.diagrams.value,
             diagram_commands: self.diagram_commands.clone(),
-            diagram_timeout: self.diagram_timeout,
-            diagram_panel: self.diagram_panel,
+            diagram_timeout: self.diagram_timeout.value,
+            diagram_panel: self.diagram_panel.value,
             diagram_no_search: self.diagram_no_search.clone(),
         }
     }
@@ -883,8 +883,14 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
         table_rows,
         diagrams,
         diagram_commands: config.diagram_commands.clone(),
-        diagram_timeout: (config.diagram_timeout).unwrap_or(crate::diagrams::external::TIME_LIMIT),
-        diagram_panel: config.diagram_panel.unwrap_or(true),
+        diagram_timeout: match config.diagram_timeout {
+            Some(limit) => Setting::new(limit, Origin::File),
+            None => Setting::new(crate::diagrams::external::TIME_LIMIT, Origin::Default),
+        },
+        diagram_panel: match config.diagram_panel {
+            Some(on) => Setting::new(on, Origin::File),
+            None => Setting::new(true, Origin::Default),
+        },
         diagram_no_search: config.diagram_no_search.clone(),
         warnings: [
             paging_warning,
@@ -1544,8 +1550,12 @@ mod tests {
         let choices =
             |config: &Config| choose(&Options::default(), &Environment::default(), config);
         let default = choices(&Config::default());
-        assert_eq!(default.diagram_timeout, Duration::from_secs(20));
+        assert_eq!(
+            default.diagram_timeout,
+            Setting::new(Duration::from_secs(20), Origin::Default)
+        );
         let config = parsed("[diagrams]\ntimeout = 3\n").unwrap();
+        assert_eq!(choices(&config).diagram_timeout.origin, Origin::File);
         let settings = choices(&config).with_theme(Theme::default());
         assert_eq!(settings.diagram_timeout, Duration::from_secs(3));
     }
@@ -1565,8 +1575,15 @@ mod tests {
         assert_eq!(panel("[diagrams]\n"), Ok(None));
         let choices =
             |config: &Config| choose(&Options::default(), &Environment::default(), config);
-        assert!(choices(&Config::default()).diagram_panel);
+        assert_eq!(
+            choices(&Config::default()).diagram_panel,
+            Setting::new(true, Origin::Default)
+        );
         let config = parsed("[diagrams]\nbackground_panel = false\n").unwrap();
+        assert_eq!(
+            choices(&config).diagram_panel,
+            Setting::new(false, Origin::File)
+        );
         assert!(!choices(&config).with_theme(Theme::default()).diagram_panel);
     }
 

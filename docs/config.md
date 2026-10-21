@@ -210,9 +210,10 @@ code with a warning that names it by its line, as in
 `kiri: mermaid diagram on line 12: …`, or by its first line for a
 document piped in.
 
-`kiri --doctor` lists, for each language, the renderer built into this
-build and the external command, configured, found, not found or not
-looked for, and which of them is used.
+`kiri --doctor` shows the switch, the time limit and whether panels are
+on, each with where it comes from, and lists, for each language, the
+renderer built into this build and the external command, configured,
+found, not found or not looked for, and which of them is used.
 
 ### Diagram commands
 

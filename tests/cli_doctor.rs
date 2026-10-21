@@ -242,6 +242,29 @@ fn diagrams_tell_where_they_come_from() {
 }
 
 #[test]
+fn the_diagrams_time_limit_and_panels_tell_where_they_come_from() {
+    let dir = Scratch::new("doctor-diagram-settings");
+    let report = piped(&dir, &[]);
+    for row in [
+        "| Diagram time limit | 20 s | default |",
+        "| Diagram panels | on | default |",
+    ] {
+        assert!(report.contains(row), "{row}\n{report}");
+    }
+    write(
+        &dir.join("home/.config/kiri/config.toml"),
+        "[diagrams]\ntimeout = 2.5\nbackground_panel = false\n",
+    );
+    let report = piped(&dir, &[]);
+    for row in [
+        "| Diagram time limit | 2.5 s | configuration file |",
+        "| Diagram panels | off | configuration file |",
+    ] {
+        assert!(report.contains(row), "{row}\n{report}");
+    }
+}
+
+#[test]
 fn the_search_case_tells_where_it_comes_from() {
     let dir = Scratch::new("doctor-search-case");
     let report = piped(&dir, &[]);

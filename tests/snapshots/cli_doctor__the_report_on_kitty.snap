@@ -33,6 +33,8 @@ kiri [version]: terminal features and settings.
 | Front matter | table | default |
 | Table rows | zebra | default |
 | Diagrams | on | default |
+| Diagram time limit | 20 s | default |
+| Diagram panels | on | default |
 | Largest image | 10 MB | default |
 | Width | 120 cells | terminal |
 
