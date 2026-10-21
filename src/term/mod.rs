@@ -11,6 +11,8 @@ mod detect;
 mod interrupt;
 mod probe;
 pub mod progress;
+#[cfg(test)]
+mod pty;
 mod screen;
 #[cfg(test)]
 mod testing;
