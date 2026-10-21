@@ -52,8 +52,7 @@ impl Layout<'_> {
             return lines;
         }
 
-        let dark = self.caps.dark_background.unwrap_or(true);
-        let color = self.theme.alerts.color(kind, dark);
+        let color = self.theme.alerts.color(kind, self.dark());
         let tint = |amount| self.tint(color, amount);
         let fill = Style {
             bg: tint(0.15),
@@ -138,16 +137,13 @@ impl Layout<'_> {
         lines
     }
 
-    /// `amount` of `color` mixed into the page: the theme's background, or
-    /// else the terminal's. `None` when either is not known as RGB, or the
-    /// theme has no tints.
+    /// `amount` of `color` mixed into the page. `None` when either is not
+    /// known as RGB, or the theme has no tints.
     fn tint(&self, color: Option<Color>, amount: f32) -> Option<Color> {
         if !self.theme.alerts.tint {
             return None;
         }
-        let page = self.theme.background.or(self.caps.background);
-        let palette = &self.caps.palette;
-        page?.rgb(palette)?.mix(color?.rgb(palette)?, amount)
+        self.mixed_into_page(color, amount)
     }
 }
 

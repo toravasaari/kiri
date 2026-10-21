@@ -467,18 +467,27 @@ impl Layout<'_> {
         if !(self.caps.styling && self.caps.color && self.caps.truecolor) {
             return None;
         }
-        let palette = &self.caps.palette;
-        let page = self
-            .theme
-            .background
-            .or(self.caps.background)?
-            .rgb(palette)?;
-        let text = self
-            .theme
-            .foreground
-            .or(self.caps.foreground)?
-            .rgb(palette)?;
-        Some((page.mix(text, STRIPE)?, page))
+        let text = self.theme.foreground.or(self.caps.foreground);
+        Some((self.mixed_into_page(text, STRIPE)?, self.page()?))
+    }
+
+    /// The page's colour as RGB: the theme's background, or else the
+    /// terminal's. `None` when it is not known.
+    fn page(&self) -> Option<Color> {
+        let page = self.theme.background.or(self.caps.background)?;
+        page.rgb(&self.caps.palette)
+    }
+
+    /// `amount` of `color` mixed into the page. `None` when either is not
+    /// known as RGB.
+    fn mixed_into_page(&self, color: Option<Color>, amount: f32) -> Option<Color> {
+        self.page()?.mix(color?.rgb(&self.caps.palette)?, amount)
+    }
+
+    /// Whether the page is dark, as it is taken to be when the terminal
+    /// did not tell.
+    fn dark(&self) -> bool {
+        self.caps.dark_background.unwrap_or(true)
     }
 
     fn rule(&self, width: usize) -> Line {
