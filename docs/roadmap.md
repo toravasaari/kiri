@@ -202,7 +202,8 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   changed.
 - A follow mode for a document another program is writing, such as one
   Claude is working on in the next window: it reloads on every change and
-  shows the part that changed, without a key press.
+  shows the part that changed, without a key press. `-f` is `--format`'s
+  short flag today; it may move to `--follow`.
 - Changes shown as a diff, added text green and removed text red, fading
   out slowly: after a reload, and against a git revision.
 
