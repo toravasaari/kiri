@@ -20,6 +20,8 @@ use super::window::{WindowSize, window_size};
 struct Signals {
     /// The signal that came, 0 before one did.
     came: Arc<AtomicUsize>,
+    /// The signals caught.
+    caught: Vec<i32>,
     handlers: Vec<SigId>,
 }
 
@@ -28,6 +30,7 @@ impl Signals {
     fn none() -> Self {
         Signals {
             came: Arc::new(AtomicUsize::new(0)),
+            caught: Vec::new(),
             handlers: Vec::new(),
         }
     }
@@ -45,10 +48,30 @@ impl Signals {
             }
             let flag = Arc::clone(&signals.came);
             if let Ok(id) = signal_hook::flag::register_usize(signal, flag, signal as usize) {
+                signals.caught.push(signal);
                 signals.handlers.push(id);
             }
         }
         signals
+    }
+
+    /// Makes the signals end kiri again, as they do by default, for a
+    /// screen that did not open; one that came meanwhile ends kiri now.
+    /// Taking the handlers away would not do: signal-hook's own handler
+    /// stays, and would leave the signals doing nothing while the
+    /// document is printed instead. The new handlers stay as long as
+    /// kiri runs.
+    fn give_back(self) {
+        let ends = Arc::new(AtomicBool::new(true));
+        for &signal in &self.caught {
+            let _ = signal_hook::flag::register_conditional_default(signal, Arc::clone(&ends));
+        }
+        match self.came.load(Ordering::SeqCst) {
+            0 => {}
+            signal => {
+                let _ = signal_hook::low_level::emulate_default_handler(signal as i32);
+            }
+        }
     }
 }
 
@@ -171,11 +194,23 @@ impl<W: Write> Screen<W> {
     }
 
     /// The pager's screen on `out`, with keys from `tty`, and `signals`
-    /// caught while it is open.
+    /// caught while it is open. When it cannot open, the signals end kiri
+    /// again.
     fn on(tty: File, mut out: W, signals: Signals) -> Option<Self> {
-        let raw = RawMode::enter(&tty)?;
-        out.write_all(ENTER_SCREEN).ok()?;
-        out.flush().ok()?;
+        let Some(raw) = RawMode::enter(&tty) else {
+            signals.give_back();
+            return None;
+        };
+        if out
+            .write_all(ENTER_SCREEN)
+            .and_then(|()| out.flush())
+            .is_err()
+        {
+            // The terminal restored before a signal that came ends kiri.
+            drop(raw);
+            signals.give_back();
+            return None;
+        }
         Some(Self {
             tty,
             out,
@@ -450,6 +485,26 @@ mod tests {
         }
     }
 
+    /// Output that cannot enter the screen, after it raises `signal`, if
+    /// one is given, as the terminal is raw.
+    struct FailOnEnter(Option<i32>);
+
+    impl Write for FailOnEnter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if buf != ENTER_SCREEN {
+                return Ok(buf.len());
+            }
+            if let Some(signal) = self.0 {
+                signal_hook::low_level::raise(signal)?;
+            }
+            Err(io::Error::other("no screen"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     /// The terminal that [`in_child`] gives a child test.
     const PTY: &str = "KIRI_TEST_PTY";
 
@@ -503,6 +558,39 @@ mod tests {
         let screen = Screen::catching_on(tty, RaiseOnEnter(SIGTERM), || drop(interrupt))
             .expect("the screen opens");
         screen.close();
+    }
+
+    /// Run on its own by [`in_child`]: as kiri does after external
+    /// programs drew diagrams, fails to open a screen on the terminal
+    /// `KIRI_TEST_PTY` names, and then gets SIGINT, as Ctrl-C sends while
+    /// the document is printed instead.
+    #[test]
+    #[ignore = "run by in_child"]
+    fn sigint_after_the_screen_fails_to_open() {
+        let tty = File::options()
+            .read(true)
+            .write(true)
+            .open(std::env::var_os(PTY).unwrap())
+            .unwrap();
+        let interrupt = super::super::Interrupt::catch().unwrap();
+        assert_eq!(interrupt.release(), None);
+        let screen = Screen::catching_on(tty, FailOnEnter(None), || drop(interrupt));
+        assert!(screen.is_none());
+        signal_hook::low_level::raise(SIGINT).unwrap();
+    }
+
+    /// Run on its own by [`in_child`]: gets SIGINT while a screen on the
+    /// terminal `KIRI_TEST_PTY` names fails to open.
+    #[test]
+    #[ignore = "run by in_child"]
+    fn sigint_while_the_screen_fails_to_open() {
+        let tty = File::options()
+            .read(true)
+            .write(true)
+            .open(std::env::var_os(PTY).unwrap())
+            .unwrap();
+        let screen = Screen::catching_on(tty, FailOnEnter(Some(SIGINT)), || {});
+        assert!(screen.is_none());
     }
 
     /// Runs the ignored test `name` in a process of its own with a
@@ -567,6 +655,25 @@ mod tests {
             "the terminal is left raw"
         );
         assert_eq!(status.signal(), Some(SIGTERM), "{status}");
+    }
+
+    #[test]
+    fn ctrl_c_ends_kiri_when_the_screen_fails_to_open() {
+        use std::os::unix::process::ExitStatusExt;
+
+        use rustix::termios::LocalModes;
+
+        for name in [
+            "sigint_after_the_screen_fails_to_open",
+            "sigint_while_the_screen_fails_to_open",
+        ] {
+            let (status, terminal) = in_child(name);
+            assert!(
+                terminal.local_modes.contains(LocalModes::ICANON),
+                "{name}: the terminal is left raw"
+            );
+            assert_eq!(status.signal(), Some(SIGINT), "{name}: {status}");
+        }
     }
 
     #[test]
