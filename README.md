@@ -145,32 +145,13 @@ also BMP, ICO, TIFF, QOI, PNM and TGA. A build without default features
 (`cargo build --no-default-features`) leaves those out and shows their
 alt text with a warning.
 
-| Option | Meaning |
-|---|---|
-| `-f`, `--format FORMAT` | What the file is: `markdown`, `csv`, `tsv`, `mermaid`, `text` (shown as it is), `image`, or an image format such as `png` |
-| `--mode auto\|plain\|ansi\|kitty` | Override what kiri detects |
-| `--width N` | Render for `N` cells instead of the terminal width |
-| `--theme FILE` | Colours and heading sizes; see [Theme](docs/theme.md) |
-| `--light`, `--dark` | A light or dark page in greys; see [Paper themes](docs/theme.md#paper-themes) |
-| `-M`, `--no-margins` | No margins or padding, so text and code copy cleanly |
-| `-I`, `--no-images` | Show images as their alt text, without reading them, and diagrams as code |
-| `--images` | Show images, whatever the environment and configuration say |
-| `--max-image-size MB` | Largest image file to read: 10 MB unless set, at most 100 |
-| `--paging always\|auto\|never` | When to show the document in the pager; `auto` unless set |
-| `-p`, `-P` | The pager always (`--paging always`) or never (`--paging never`) |
-| `--front-matter table\|code\|hide\|off` | Front matter render style; `table` unless set |
-| `--table-rows zebra\|lines\|indent\|underline\|off` | Table row style; `zebra` unless set |
-| `--diagrams on\|off` | Diagrams in code blocks, such as Mermaid, drawn or shown as code; `on` unless set |
-| `--render-errors inline\|stderr\|both` | Why a diagram was not drawn: below its code, in a warning, or both; `both` unless set |
-| `--doctor` | Show what kiri finds out about the terminal and which settings it uses |
-| `--raw` | With `--doctor`: the report as Markdown text, for a bug report |
-| `--list-emojis` | List the emoji shortcodes, such as `:smile:`: a table in a terminal, one line per emoji with tabs between the fields in a pipe or a file |
+Every option is listed in [Options](docs/options.md).
 
 A [configuration file](docs/config.md), `~/.config/kiri/config.toml`, can
 choose the theme, turn images or diagrams off, say when to page and name
-a program that draws diagrams, and the environment variables `KIRI_THEME`,
-`KIRI_NO_IMAGES`, `KIRI_DIAGRAMS` and `KIRI_PAGING` can do all but the
-last.
+a program that draws diagrams, and the
+[environment variables](docs/config.md#environment-variables) can do all
+but the last.
 
 When the output looks wrong, `kiri --doctor` shows what kiri found out
 about the terminal, which settings it uses and where each came from, and
@@ -205,6 +186,7 @@ is shown. Link navigation is planned.
 - [Architecture](docs/architecture.md)
 - [Configuration](docs/config.md)
 - [Diagrams](docs/diagrams.md)
+- [Options](docs/options.md)
 - [Theme](docs/theme.md)
 - [Visual check](examples/visual-check.md) – a document for checking the
   output by eye, and [another for images](examples/visual-check-images.md)
