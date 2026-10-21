@@ -352,7 +352,7 @@ mod tests {
         let fonts = Fonts::fixture();
         let width = |image: Source| image.size().0;
         let file = width(decode(svg.as_bytes(), DEFAULT_MAX_FILE_SIZE, &fonts).unwrap());
-        let grown = width(decode_diagram(&svg, DEFAULT_MAX_FILE_SIZE, &fonts).unwrap());
+        let grown = width(decode_diagram(svg.as_bytes(), DEFAULT_MAX_FILE_SIZE, &fonts).unwrap());
         assert!(
             grown > file,
             "{grown} pixels grown, {file} as merman drew it"

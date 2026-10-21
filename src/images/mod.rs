@@ -499,7 +499,7 @@ fn finish_diagram(
     };
     let drawn = drawn.map_err(failed)?;
     let image = match looks_like_svg(&drawn.image) {
-        true => decode_diagram(&String::from_utf8_lossy(&drawn.image), max_size, fonts),
+        true => decode_diagram(&drawn.image, max_size, fonts),
         false => match decode_raster(&drawn.image, None) {
             Ok(Source::Raster(image)) => Ok(dense(image, drawn.scale, diagrams.largest)),
             other => other,
@@ -590,11 +590,11 @@ const PANEL_PADDING: f32 = 8.0;
 /// A diagram's SVG decoded, and grown to show all of its text: its
 /// renderer may have measured the text narrower than `fonts` draw it.
 pub(crate) fn decode_diagram(
-    svg: &str,
+    svg: &[u8],
     max_size: u64,
     fonts: &Fonts,
 ) -> Result<Source, ImageError> {
-    match decode_svg(svg.as_bytes(), max_size, fonts)? {
+    match decode_svg(svg, max_size, fonts)? {
         Source::Svg(svg) => Ok(Source::Svg(svg.grown_to_text())),
         other => Ok(other),
     }
@@ -1329,6 +1329,34 @@ fn main() {}
             warnings[0].starts_with("dot diagram on line 1: "),
             "{warnings:?}"
         );
+    }
+
+    #[test]
+    fn a_diagram_may_be_a_compressed_svg() {
+        // As a program may write it, in bytes that are no UTF-8.
+        struct Gzipped;
+        impl Renderer for Gzipped {
+            fn draws(&self, _language: &str) -> bool {
+                true
+            }
+            fn render(&self, _: &str, _: &str, theme: Theme) -> Result<Drawn, String> {
+                use std::io::Write;
+                let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="70" height="30"/>"#;
+                let mut gzip = flate2::write::GzEncoder::new(Vec::new(), Default::default());
+                gzip.write_all(svg.as_bytes()).unwrap();
+                Ok(Drawn {
+                    image: gzip.finish().unwrap(),
+                    scale: 1,
+                    theme,
+                    background: None,
+                })
+            }
+        }
+        let drawn = drawn_by(&Gzipped, Theme::Light);
+        match drawn {
+            Ok(Source::Svg(svg)) => assert_eq!(svg.size, (70, 30)),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]
