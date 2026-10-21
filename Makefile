@@ -1,6 +1,6 @@
 .PHONY: check build fmt fmt-check clippy test release
 
-# The definition of done; CI runs the same target. Every target covers
+# The definition of done, and the target CI is to run. Every target covers
 # all crates in the workspace.
 check: fmt-check clippy test
 
