@@ -52,15 +52,6 @@ pub enum RenderErrors {
 }
 
 impl RenderErrors {
-    /// The value as kiri writes it.
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Inline => "inline",
-            Self::Stderr => "stderr",
-            Self::Both => "both",
-        }
-    }
-
     /// Whether the document tells.
     pub fn inline(self) -> bool {
         matches!(self, Self::Inline | Self::Both)
@@ -91,19 +82,6 @@ pub enum TableRows {
     /// the border colour; nothing where the terminal has no underline
     /// colours, as each cell's underline would take its own text colour.
     Underline,
-}
-
-impl TableRows {
-    /// The value as kiri writes it.
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Off => "off",
-            Self::Zebra => "zebra",
-            Self::Lines => "lines",
-            Self::Indent => "indent",
-            Self::Underline => "underline",
-        }
-    }
 }
 
 /// How front matter shows.

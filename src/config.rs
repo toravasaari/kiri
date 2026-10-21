@@ -200,7 +200,7 @@ pub struct Config {
 }
 
 /// When the document is shown in the pager rather than printed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Paging {
     /// Whenever the output is a terminal.
@@ -208,16 +208,18 @@ pub enum Paging {
     /// When the output is a terminal and the document is longer than the
     /// window, unless it comes from standard input or is the `--doctor`
     /// report.
+    #[default]
     Auto,
     /// Never: the document is printed.
     Never,
 }
 
 /// How the front matter at the start of a Markdown document shows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FrontMatter {
     /// A table of its keys and values, as GitHub shows it.
+    #[default]
     Table,
     /// A code block in its language, as GitLab shows it.
     Code,
@@ -228,16 +230,6 @@ pub enum FrontMatter {
 }
 
 impl FrontMatter {
-    /// The value as kiri writes it.
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Table => "table",
-            Self::Code => "code",
-            Self::Hide => "hide",
-            Self::Off => "off",
-        }
-    }
-
     /// How the renderer shows recognised front matter; `None` when it is
     /// not to be recognised.
     pub fn style(self) -> Option<FrontMatterStyle> {
@@ -251,11 +243,12 @@ impl FrontMatter {
 }
 
 /// How a search in the pager treats upper and lower case.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SearchCase {
     /// A search term with no upper-case letter ignores case; one with an
     /// upper-case letter matches case exactly.
+    #[default]
     Smart,
     /// Case matches exactly.
     Literal,
@@ -309,7 +302,7 @@ pub fn load(env: &Environment) -> Result<Config, String> {
 }
 
 /// Parses a configuration file in `dir`.
-pub fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String> {
+fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String> {
     let file: ConfigToml = toml::from_str(text).map_err(|error| error.to_string())?;
     let theme = match file.theme {
         Some(theme) => Some(match theme.strip_prefix("~") {
@@ -539,7 +532,7 @@ pub enum ThemeSource {
 /// `--theme`, a paper theme from `--light` or `--dark`, `KIRI_THEME` when it
 /// is not empty, the configuration file, `theme.toml` in the configuration
 /// directory, the built-in theme.
-pub fn theme_source(
+fn theme_source(
     cli: Option<&Path>,
     paper: Option<Paper>,
     env: &Environment,
@@ -573,176 +566,59 @@ pub fn theme_source(
 }
 
 /// Whether images are shown and where that comes from, strongest first:
-/// the command line (`option`, from `--images` or `--no-images`), then
+/// the command line (`flag`, from `--images` or `--no-images`), then
 /// `KIRI_NO_IMAGES`, then the configuration file; on unless one turns them
 /// off. `KIRI_NO_IMAGES` turns them off when it is set to anything but an
 /// empty value or `0`, and `0` turns them on whatever the configuration
 /// file says.
-pub fn images(option: Option<bool>, env: &Environment, config: &Config) -> Setting<bool> {
-    if let Some(on) = option {
-        let flag = if on { "--images" } else { "--no-images" };
-        return Setting::new(on, Origin::Flag(flag));
-    }
-    let no_images = env.kiri_no_images.as_ref();
-    match (no_images.filter(|value| !value.is_empty()), config.images) {
-        (Some(value), _) => Setting::new(value == "0", Origin::Environment("KIRI_NO_IMAGES")),
-        (None, Some(on)) => Setting::new(on, Origin::File),
-        (None, None) => Setting::new(true, Origin::Default),
-    }
-}
-
-/// When the document is paged and where that comes from, strongest
-/// first: the command line (`option`, from `--paging`, `-p` or `-P`), then
-/// `KIRI_PAGING`, then the configuration file; `auto` unless one says
-/// otherwise. `KIRI_PAGING` takes `always`, `auto` and `never`, `1` for
-/// `always` and `0` for `never`; empty is unset. Any other value is left
-/// out with the warning returned beside the setting.
-pub fn paging(
-    option: Option<Setting<Paging>>,
-    env: &Environment,
-    config: &Config,
-) -> (Setting<Paging>, Option<String>) {
-    if let Some(setting) = option {
-        return (setting, None);
-    }
-    let variable = env.kiri_paging.as_ref().filter(|value| !value.is_empty());
-    let mut warning = None;
-    if let Some(value) = variable {
-        let paging = match value.to_str() {
-            Some("always" | "1") => Some(Paging::Always),
-            Some("auto") => Some(Paging::Auto),
-            Some("never" | "0") => Some(Paging::Never),
-            _ => None,
-        };
-        match paging {
-            Some(paging) => {
-                return (
-                    Setting::new(paging, Origin::Environment("KIRI_PAGING")),
-                    None,
-                );
-            }
-            None => {
-                warning = Some(format!(
-                    "KIRI_PAGING: `{}` is not always, auto, never, 1 or 0; left out",
-                    value.to_string_lossy()
-                ))
-            }
-        }
-    }
-    let setting = match config.paging {
-        Some(paging) => Setting::new(paging, Origin::File),
-        None => Setting::new(Paging::Auto, Origin::Default),
+fn images(flag: Option<Setting<bool>>, env: &Environment, config: &Config) -> Setting<bool> {
+    let name = "KIRI_NO_IMAGES";
+    let variable = |_: &mut Vec<String>| {
+        let value = env.get(name).filter(|value| !value.is_empty())?;
+        Some(Setting::new(value == "0", Origin::Environment(name)))
     };
-    (setting, warning)
+    resolve(flag, variable, config.images, true, &mut Vec::new())
 }
 
-/// How front matter shows and where that comes from, strongest first:
-/// the command line (`option`, from `--front-matter`), then
-/// `KIRI_FRONT_MATTER`, then the configuration file; `table` unless one
-/// says otherwise. `KIRI_FRONT_MATTER` takes `table`, `code`, `hide` and
-/// `off`; empty is unset. Any other value is left out with the warning
-/// returned beside the setting.
-pub fn front_matter(
-    option: Option<FrontMatter>,
-    env: &Environment,
-    config: &Config,
-) -> (Setting<FrontMatter>, Option<String>) {
-    named(
-        (option, "--front-matter"),
-        ("KIRI_FRONT_MATTER", env.kiri_front_matter.as_ref()),
-        config.front_matter,
-        FrontMatter::Table,
-    )
-}
-
-/// How the rows of a table are told apart and where that comes from,
-/// strongest first: the command line (`option`, from `--table-rows`),
-/// then `KIRI_TABLE_ROWS`, then the configuration file; `zebra` unless one
-/// says otherwise. `KIRI_TABLE_ROWS` takes `off`, `zebra`, `lines`,
-/// `indent` and `underline`; empty is unset. Any other value is left out
-/// with the warning returned beside the setting.
-pub fn table_rows(
-    option: Option<TableRows>,
-    env: &Environment,
-    config: &Config,
-) -> (Setting<TableRows>, Option<String>) {
-    named(
-        (option, "--table-rows"),
-        ("KIRI_TABLE_ROWS", env.kiri_table_rows.as_ref()),
-        config.table_rows,
-        TableRows::Zebra,
-    )
-}
-
-/// Whether diagrams in code blocks are drawn and where that comes from,
-/// strongest first: the command line (`option`, from `--diagrams`), then
-/// `KIRI_DIAGRAMS`, then the configuration file; on unless one says
-/// otherwise. `KIRI_DIAGRAMS` takes `on` and `off`, `1` for `on` and `0`
-/// for `off`; empty is unset. Any other value is left out with the warning
-/// returned beside the setting.
-pub fn diagrams(
-    option: Option<bool>,
-    env: &Environment,
-    config: &Config,
-) -> (Setting<bool>, Option<String>) {
-    if let Some(on) = option {
-        return (Setting::new(on, Origin::Flag("--diagrams")), None);
-    }
-    let variable = env.kiri_diagrams.as_ref().filter(|value| !value.is_empty());
-    let mut warning = None;
-    if let Some(value) = variable {
-        match value.to_str() {
-            Some("on" | "1") => {
-                return (
-                    Setting::new(true, Origin::Environment("KIRI_DIAGRAMS")),
-                    None,
-                );
-            }
-            Some("off" | "0") => {
-                return (
-                    Setting::new(false, Origin::Environment("KIRI_DIAGRAMS")),
-                    None,
-                );
-            }
-            _ => {
-                warning = Some(format!(
-                    "KIRI_DIAGRAMS: `{}` is not on, off, 1 or 0; left out",
-                    value.to_string_lossy()
-                ))
-            }
-        }
-    }
-    let setting = match config.diagrams {
-        Some(on) => Setting::new(on, Origin::File),
-        None => Setting::new(true, Origin::Default),
-    };
-    (setting, warning)
-}
-
-/// Where kiri tells why a diagram could not be drawn, and where that
-/// comes from, strongest first: the command line (`option`, from
-/// `--render-errors`), then `KIRI_RENDER_ERRORS`, then the configuration
-/// file; `both` unless one says otherwise. `KIRI_RENDER_ERRORS` takes
-/// `inline`, `stderr` and `both`; empty is unset. Any other value is left
-/// out with the warning returned beside the setting.
-pub fn render_errors(
-    option: Option<RenderErrors>,
-    env: &Environment,
-    config: &Config,
-) -> (Setting<RenderErrors>, Option<String>) {
-    named(
-        (option, "--render-errors"),
-        ("KIRI_RENDER_ERRORS", env.kiri_render_errors.as_ref()),
-        config.render_errors,
-        RenderErrors::Both,
-    )
-}
-
-/// A setting whose values have names, such as `table`.
-trait Named: Copy + 'static {
-    /// Every value, in the order the warning lists them.
+/// A setting whose values have names, such as `table`: the names that the
+/// command line, the environment and the configuration file take, and
+/// that the `--doctor` report shows.
+pub trait Named: Copy + PartialEq + 'static {
+    /// Every value, in the order the help and the warnings list them.
     const ALL: &'static [Self];
-    fn name(self) -> &'static str;
+    /// The name of each value in `ALL`, in the same order.
+    const NAMES: &'static [&'static str];
+    /// More names that an environment variable takes, such as `1` for
+    /// `always`.
+    const ALIASES: &'static [(&'static str, Self)] = &[];
+
+    /// The value as kiri writes it.
+    fn name(self) -> &'static str {
+        let at = Self::ALL.iter().position(|&value| value == self);
+        Self::NAMES[at.expect("ALL holds every value")]
+    }
+
+    /// The value called `name`, if one is.
+    fn named(name: &str) -> Option<Self> {
+        let at = Self::NAMES.iter().position(|&known| known == name)?;
+        Some(Self::ALL[at])
+    }
+}
+
+impl Named for Paging {
+    const ALL: &'static [Self] = &[Self::Always, Self::Auto, Self::Never];
+    const NAMES: &'static [&'static str] = &["always", "auto", "never"];
+    const ALIASES: &'static [(&'static str, Self)] = &[("1", Self::Always), ("0", Self::Never)];
+}
+
+impl Named for SearchCase {
+    const ALL: &'static [Self] = &[Self::Smart, Self::Literal];
+    const NAMES: &'static [&'static str] = &["smart", "literal"];
+}
+
+impl Named for FrontMatter {
+    const ALL: &'static [Self] = &[Self::Table, Self::Code, Self::Hide, Self::Off];
+    const NAMES: &'static [&'static str] = &["table", "code", "hide", "off"];
 }
 
 impl Named for TableRows {
@@ -753,66 +629,82 @@ impl Named for TableRows {
         Self::Indent,
         Self::Underline,
     ];
-
-    fn name(self) -> &'static str {
-        TableRows::name(self)
-    }
+    const NAMES: &'static [&'static str] = &["off", "zebra", "lines", "indent", "underline"];
 }
 
 impl Named for RenderErrors {
     const ALL: &'static [Self] = &[Self::Inline, Self::Stderr, Self::Both];
-
-    fn name(self) -> &'static str {
-        RenderErrors::name(self)
-    }
+    const NAMES: &'static [&'static str] = &["inline", "stderr", "both"];
 }
 
-impl Named for FrontMatter {
-    const ALL: &'static [Self] = &[Self::Table, Self::Code, Self::Hide, Self::Off];
-
-    fn name(self) -> &'static str {
-        FrontMatter::name(self)
-    }
+impl Named for crate::term::Mode {
+    const ALL: &'static [Self] = &[Self::Auto, Self::Plain, Self::Ansi, Self::Kitty];
+    const NAMES: &'static [&'static str] = &["auto", "plain", "ansi", "kitty"];
 }
 
-/// A named setting and where it comes from, strongest first: the command
-/// line (`option`, from `flag`), then the environment variable `name`
-/// with `value`, then the configuration file (`file`), then `default`. The
-/// variable takes the values' names; empty is unset. Any other value is
-/// left out with the warning returned beside the setting.
-fn named<T: Named>(
-    (option, flag): (Option<T>, &'static str),
-    (name, value): (&'static str, Option<&OsString>),
+/// An on or off switch, such as `diagrams`.
+impl Named for bool {
+    const ALL: &'static [Self] = &[true, false];
+    const NAMES: &'static [&'static str] = &["on", "off"];
+    const ALIASES: &'static [(&'static str, Self)] = &[("1", true), ("0", false)];
+}
+
+/// A setting and where it comes from, strongest first: the command line
+/// (`flag`), the environment (`variable`, read only without the flag),
+/// the configuration file (`file`), `default`. What the variable has to
+/// say about a value it leaves out goes in `warnings`.
+fn resolve<T>(
+    flag: Option<Setting<T>>,
+    variable: impl FnOnce(&mut Vec<String>) -> Option<Setting<T>>,
     file: Option<T>,
     default: T,
-) -> (Setting<T>, Option<String>) {
-    if let Some(chosen) = option {
-        return (Setting::new(chosen, Origin::Flag(flag)), None);
-    }
-    let mut warning = None;
-    if let Some(value) = value.filter(|value| !value.is_empty()) {
-        let all = T::ALL.iter().copied();
-        match all
-            .clone()
-            .find(|named| value.to_str() == Some(named.name()))
-        {
-            Some(chosen) => return (Setting::new(chosen, Origin::Environment(name)), None),
-            None => {
-                let names: Vec<&str> = all.map(T::name).collect();
-                let (last, rest) = names.split_last().expect("a setting has values");
-                warning = Some(format!(
-                    "{name}: `{}` is not {} or {last}; left out",
-                    value.to_string_lossy(),
-                    rest.join(", "),
-                ));
-            }
+    warnings: &mut Vec<String>,
+) -> Setting<T> {
+    flag.or_else(|| variable(warnings))
+        .or_else(|| file.map(|value| Setting::new(value, Origin::File)))
+        .unwrap_or_else(|| Setting::new(default, Origin::Default))
+}
+
+/// No environment variable, for `resolve`.
+fn unset<T>(_: &mut Vec<String>) -> Option<Setting<T>> {
+    None
+}
+
+/// The environment variable `name`, for `resolve`, which takes the names
+/// and the aliases of `T`'s values; empty is unset. Any other value is
+/// left out with a warning.
+fn variable<T: Named>(
+    env: &Environment,
+    name: &'static str,
+) -> impl FnOnce(&mut Vec<String>) -> Option<Setting<T>> {
+    move |warnings| {
+        let value = env.get(name).filter(|value| !value.is_empty())?;
+        let alias = |text: &str| {
+            let mut aliases = T::ALIASES.iter();
+            aliases
+                .find(|(alias, _)| *alias == text)
+                .map(|&(_, value)| value)
+        };
+        let chosen = value
+            .to_str()
+            .and_then(|text| T::named(text).or_else(|| alias(text)));
+        if chosen.is_none() {
+            let aliases = T::ALIASES.iter().map(|&(alias, _)| alias);
+            let names: Vec<&str> = T::NAMES.iter().copied().chain(aliases).collect();
+            let (last, rest) = names.split_last().expect("a setting has values");
+            warnings.push(format!(
+                "{name}: `{}` is not {} or {last}; left out",
+                value.to_string_lossy(),
+                rest.join(", "),
+            ));
         }
+        chosen.map(|value| Setting::new(value, Origin::Environment(name)))
     }
-    let setting = match file {
-        Some(chosen) => Setting::new(chosen, Origin::File),
-        None => Setting::new(default, Origin::Default),
-    };
-    (setting, warning)
+}
+
+/// `value`, from the flag `name`.
+fn flag<T>(value: Option<T>, name: &'static str) -> Option<Setting<T>> {
+    value.map(|value| Setting::new(value, Origin::Flag(name)))
 }
 
 /// What the command line asks for; `None` where it leaves the choice to
@@ -937,48 +829,67 @@ impl Choices {
 
 /// What `options`, `env` and `config` choose.
 pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices {
-    let (paging, paging_warning) = paging(options.paging.clone(), env, config);
-    let (front_matter, front_matter_warning) = front_matter(options.front_matter, env, config);
-    let (table_rows, table_rows_warning) = table_rows(options.table_rows, env, config);
-    let (diagrams, diagrams_warning) = diagrams(options.diagrams, env, config);
-    let (render_errors, render_errors_warning) = render_errors(options.render_errors, env, config);
+    let mut warnings = Vec::new();
+    let w = &mut warnings;
+    let margins = flag(options.no_margins.then_some(false), "--no-margins");
+    let images_flag = match options.images {
+        Some(true) => "--images",
+        _ => "--no-images",
+    };
+    let paging = variable(env, "KIRI_PAGING");
+    let paging = resolve(
+        options.paging.clone(),
+        paging,
+        config.paging,
+        Paging::default(),
+        w,
+    );
+    let front_matter = flag(options.front_matter, "--front-matter");
+    let front_matter = resolve(
+        front_matter,
+        variable(env, "KIRI_FRONT_MATTER"),
+        config.front_matter,
+        FrontMatter::default(),
+        w,
+    );
+    let table_rows = resolve(
+        flag(options.table_rows, "--table-rows"),
+        variable(env, "KIRI_TABLE_ROWS"),
+        config.table_rows,
+        TableRows::default(),
+        w,
+    );
+    let diagrams = resolve(
+        flag(options.diagrams, "--diagrams"),
+        variable(env, "KIRI_DIAGRAMS"),
+        config.diagrams,
+        true,
+        w,
+    );
+    let render_errors = resolve(
+        flag(options.render_errors, "--render-errors"),
+        variable(env, "KIRI_RENDER_ERRORS"),
+        config.render_errors,
+        RenderErrors::default(),
+        w,
+    );
+    let time_limit = crate::diagrams::external::TIME_LIMIT;
     Choices {
         theme: theme_source(options.theme.as_deref(), options.paper, env, config),
         paper: options.paper,
-        margins: match options.no_margins {
-            true => Setting::new(false, Origin::Flag("--no-margins")),
-            false => Setting::new(true, Origin::Default),
-        },
-        images: images(options.images, env, config),
+        margins: resolve(margins, unset, None, true, w),
+        images: images(flag(options.images, images_flag), env, config),
         paging,
-        search_case: match config.search_case {
-            Some(case) => Setting::new(case, Origin::File),
-            None => Setting::new(SearchCase::Smart, Origin::Default),
-        },
+        search_case: resolve(None, unset, config.search_case, SearchCase::default(), w),
         front_matter,
         table_rows,
         diagrams,
         diagram_commands: config.diagram_commands.clone(),
-        diagram_timeout: match config.diagram_timeout {
-            Some(limit) => Setting::new(limit, Origin::File),
-            None => Setting::new(crate::diagrams::external::TIME_LIMIT, Origin::Default),
-        },
-        diagram_panel: match config.diagram_panel {
-            Some(on) => Setting::new(on, Origin::File),
-            None => Setting::new(true, Origin::Default),
-        },
+        diagram_timeout: resolve(None, unset, config.diagram_timeout, time_limit, w),
+        diagram_panel: resolve(None, unset, config.diagram_panel, true, w),
         diagram_no_search: config.diagram_no_search.clone(),
         render_errors,
-        warnings: [
-            paging_warning,
-            front_matter_warning,
-            table_rows_warning,
-            diagrams_warning,
-            render_errors_warning,
-        ]
-        .into_iter()
-        .flatten()
-        .collect(),
+        warnings,
     }
 }
 
@@ -1404,54 +1315,6 @@ mod tests {
         );
     }
 
-    fn with_images(on: bool) -> Config {
-        Config {
-            images: Some(on),
-            ..Config::default()
-        }
-    }
-
-    fn no_images_env(value: &str) -> Environment {
-        Environment {
-            kiri_no_images: Some(value.into()),
-            ..Environment::default()
-        }
-    }
-
-    #[test]
-    fn images_are_on_by_default() {
-        assert!(images(None, &Environment::default(), &Config::default()).value);
-    }
-
-    #[test]
-    fn the_command_line_is_strongest() {
-        assert!(!images(Some(false), &no_images_env("0"), &with_images(true)).value);
-        assert!(images(Some(true), &no_images_env("1"), &with_images(false)).value);
-        assert!(images(Some(true), &Environment::default(), &with_images(false)).value);
-    }
-
-    #[test]
-    fn kiri_no_images_turns_images_off_with_any_value_but_empty_or_0() {
-        for value in ["1", "yes", "false"] {
-            assert!(!images(None, &no_images_env(value), &with_images(true)).value);
-        }
-        assert!(images(None, &no_images_env(""), &Config::default()).value);
-        assert!(images(None, &no_images_env("0"), &Config::default()).value);
-    }
-
-    #[test]
-    fn kiri_no_images_comes_before_the_configuration_file() {
-        assert!(!images(None, &no_images_env("1"), &with_images(true)).value);
-        assert!(images(None, &no_images_env("0"), &with_images(false)).value);
-    }
-
-    #[test]
-    fn an_empty_kiri_no_images_leaves_it_to_the_configuration_file() {
-        assert!(!images(None, &no_images_env(""), &with_images(false)).value);
-        assert!(!images(None, &Environment::default(), &with_images(false)).value);
-        assert!(images(None, &Environment::default(), &with_images(true)).value);
-    }
-
     #[test]
     fn the_paging_key_takes_always_auto_or_never() {
         let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
@@ -1464,93 +1327,6 @@ mod tests {
         }
         assert!(parsed("paging = \"sometimes\"\n").is_err());
         assert!(parsed("paging = true\n").is_err());
-    }
-
-    fn with_paging(paging: Paging) -> Config {
-        Config {
-            paging: Some(paging),
-            ..Config::default()
-        }
-    }
-
-    fn paging_env(value: &str) -> Environment {
-        Environment {
-            kiri_paging: Some(value.into()),
-            ..Environment::default()
-        }
-    }
-
-    fn flag(paging: Paging, flag: &'static str) -> Option<Setting<Paging>> {
-        Some(Setting::new(paging, Origin::Flag(flag)))
-    }
-
-    #[test]
-    fn paging_is_auto_by_default() {
-        let (chosen, warning) = paging(None, &Environment::default(), &Config::default());
-        assert_eq!(chosen, Setting::new(Paging::Auto, Origin::Default));
-        assert_eq!(warning, None);
-    }
-
-    #[test]
-    fn the_command_line_paging_is_strongest() {
-        let (chosen, _) = paging(
-            flag(Paging::Never, "-P"),
-            &paging_env("always"),
-            &with_paging(Paging::Always),
-        );
-        assert_eq!(chosen, Setting::new(Paging::Never, Origin::Flag("-P")));
-    }
-
-    #[test]
-    fn kiri_paging_comes_before_the_configuration_file() {
-        for (value, expected) in [
-            ("always", Paging::Always),
-            ("auto", Paging::Auto),
-            ("never", Paging::Never),
-            ("1", Paging::Always),
-            ("0", Paging::Never),
-        ] {
-            let (chosen, warning) = paging(None, &paging_env(value), &with_paging(Paging::Auto));
-            let origin = Origin::Environment("KIRI_PAGING");
-            assert_eq!(chosen, Setting::new(expected, origin), "{value}");
-            assert_eq!(warning, None, "{value}");
-        }
-    }
-
-    #[test]
-    fn an_empty_kiri_paging_leaves_it_to_the_configuration_file() {
-        let (chosen, warning) = paging(None, &paging_env(""), &with_paging(Paging::Never));
-        assert_eq!(chosen, Setting::new(Paging::Never, Origin::File));
-        assert_eq!(warning, None);
-    }
-
-    #[test]
-    fn an_unknown_kiri_paging_is_left_out_with_a_warning() {
-        let (chosen, warning) = paging(None, &paging_env("joo"), &with_paging(Paging::Never));
-        assert_eq!(chosen, Setting::new(Paging::Never, Origin::File));
-        assert_eq!(
-            warning.as_deref(),
-            Some("KIRI_PAGING: `joo` is not always, auto, never, 1 or 0; left out")
-        );
-        let (chosen, _) = paging(None, &paging_env("joo"), &Config::default());
-        assert_eq!(chosen, Setting::new(Paging::Auto, Origin::Default));
-    }
-
-    #[test]
-    fn the_choices_carry_the_paging_and_its_warning() {
-        let options = Options {
-            paging: flag(Paging::Always, "-p"),
-            ..Options::default()
-        };
-        let choices = choose(&options, &paging_env("joo"), &Config::default());
-        assert_eq!(
-            choices.paging,
-            Setting::new(Paging::Always, Origin::Flag("-p"))
-        );
-        assert!(choices.warnings.is_empty(), "{:?}", choices.warnings);
-        let choices = choose(&Options::default(), &paging_env("joo"), &Config::default());
-        assert_eq!(choices.warnings.len(), 1);
-        assert_eq!(choices.with_theme(Theme::default()).paging, Paging::Auto);
     }
 
     #[test]
@@ -1598,93 +1374,6 @@ mod tests {
         assert!(parsed("front_matter = \"list\"\n").is_err());
         assert!(parsed("front_matter = false\n").is_err());
         assert!(parsed("front-matter = \"code\"\n").is_err());
-    }
-
-    fn with_front_matter(front_matter: FrontMatter) -> Config {
-        Config {
-            front_matter: Some(front_matter),
-            ..Config::default()
-        }
-    }
-
-    fn front_matter_env(value: &str) -> Environment {
-        Environment {
-            kiri_front_matter: Some(value.into()),
-            ..Environment::default()
-        }
-    }
-
-    #[test]
-    fn front_matter_is_a_table_by_default() {
-        let (chosen, warning) = front_matter(None, &Environment::default(), &Config::default());
-        assert_eq!(chosen, Setting::new(FrontMatter::Table, Origin::Default));
-        assert_eq!(warning, None);
-    }
-
-    #[test]
-    fn the_command_line_front_matter_is_strongest() {
-        let (chosen, _) = front_matter(
-            Some(FrontMatter::Hide),
-            &front_matter_env("code"),
-            &with_front_matter(FrontMatter::Off),
-        );
-        let flag = Origin::Flag("--front-matter");
-        assert_eq!(chosen, Setting::new(FrontMatter::Hide, flag));
-    }
-
-    #[test]
-    fn kiri_front_matter_comes_before_the_configuration_file() {
-        for (value, expected) in [
-            ("table", FrontMatter::Table),
-            ("code", FrontMatter::Code),
-            ("hide", FrontMatter::Hide),
-            ("off", FrontMatter::Off),
-        ] {
-            let config = with_front_matter(FrontMatter::Code);
-            let (chosen, warning) = front_matter(None, &front_matter_env(value), &config);
-            let origin = Origin::Environment("KIRI_FRONT_MATTER");
-            assert_eq!(chosen, Setting::new(expected, origin), "{value}");
-            assert_eq!(warning, None, "{value}");
-        }
-    }
-
-    #[test]
-    fn an_empty_kiri_front_matter_leaves_it_to_the_configuration_file() {
-        let config = with_front_matter(FrontMatter::Code);
-        let (chosen, warning) = front_matter(None, &front_matter_env(""), &config);
-        assert_eq!(chosen, Setting::new(FrontMatter::Code, Origin::File));
-        assert_eq!(warning, None);
-    }
-
-    #[test]
-    fn an_unknown_kiri_front_matter_is_left_out_with_a_warning() {
-        let config = with_front_matter(FrontMatter::Hide);
-        let (chosen, warning) = front_matter(None, &front_matter_env("Code"), &config);
-        assert_eq!(chosen, Setting::new(FrontMatter::Hide, Origin::File));
-        assert_eq!(
-            warning.as_deref(),
-            Some("KIRI_FRONT_MATTER: `Code` is not table, code, hide or off; left out")
-        );
-    }
-
-    #[test]
-    fn the_choices_carry_the_front_matter_and_both_warnings() {
-        let env = Environment {
-            kiri_paging: Some("joo".into()),
-            kiri_front_matter: Some("joo".into()),
-            ..Environment::default()
-        };
-        let config = with_front_matter(FrontMatter::Off);
-        let choices = choose(&Options::default(), &env, &config);
-        assert_eq!(
-            choices.front_matter,
-            Setting::new(FrontMatter::Off, Origin::File)
-        );
-        assert_eq!(choices.warnings.len(), 2, "{:?}", choices.warnings);
-        let settings = choices.with_theme(Theme::default());
-        assert_eq!(settings.front_matter, FrontMatter::Off);
-        assert_eq!(settings.front_matter.style(), None);
-        assert_eq!(FrontMatter::Code.style(), Some(FrontMatterStyle::Code));
     }
 
     #[test]
@@ -1876,85 +1565,6 @@ mod tests {
         }
     }
 
-    fn with_diagrams(on: bool) -> Config {
-        Config {
-            diagrams: Some(on),
-            ..Config::default()
-        }
-    }
-
-    fn diagrams_env(value: &str) -> Environment {
-        Environment {
-            kiri_diagrams: Some(value.into()),
-            ..Environment::default()
-        }
-    }
-
-    #[test]
-    fn diagrams_are_on_by_default() {
-        let (chosen, warning) = diagrams(None, &Environment::default(), &Config::default());
-        assert_eq!(chosen, Setting::new(true, Origin::Default));
-        assert_eq!(warning, None);
-    }
-
-    #[test]
-    fn the_command_line_diagrams_are_strongest() {
-        let flag = Origin::Flag("--diagrams");
-        let (chosen, _) = diagrams(Some(false), &diagrams_env("on"), &with_diagrams(true));
-        assert_eq!(chosen, Setting::new(false, flag));
-        let (chosen, _) = diagrams(Some(true), &diagrams_env("0"), &with_diagrams(false));
-        assert_eq!(chosen, Setting::new(true, flag));
-    }
-
-    #[test]
-    fn kiri_diagrams_comes_before_the_configuration_file() {
-        for (value, on) in [("on", true), ("off", false), ("1", true), ("0", false)] {
-            let (chosen, warning) = diagrams(None, &diagrams_env(value), &with_diagrams(!on));
-            let origin = Origin::Environment("KIRI_DIAGRAMS");
-            assert_eq!(chosen, Setting::new(on, origin), "{value}");
-            assert_eq!(warning, None, "{value}");
-        }
-    }
-
-    #[test]
-    fn an_empty_kiri_diagrams_leaves_it_to_the_configuration_file() {
-        let (chosen, warning) = diagrams(None, &diagrams_env(""), &with_diagrams(false));
-        assert_eq!(chosen, Setting::new(false, Origin::File));
-        assert_eq!(warning, None);
-    }
-
-    #[test]
-    fn an_unknown_kiri_diagrams_is_left_out_with_a_warning() {
-        let (chosen, warning) = diagrams(None, &diagrams_env("yes"), &with_diagrams(false));
-        assert_eq!(chosen, Setting::new(false, Origin::File));
-        assert_eq!(
-            warning.as_deref(),
-            Some("KIRI_DIAGRAMS: `yes` is not on, off, 1 or 0; left out")
-        );
-        let (chosen, _) = diagrams(None, &diagrams_env("yes"), &Config::default());
-        assert_eq!(chosen, Setting::new(true, Origin::Default));
-    }
-
-    #[test]
-    fn the_choices_carry_the_diagrams_and_their_warning() {
-        let options = Options {
-            diagrams: Some(false),
-            ..Options::default()
-        };
-        let choices = choose(&options, &diagrams_env("yes"), &Config::default());
-        let flag = Origin::Flag("--diagrams");
-        assert_eq!(choices.diagrams, Setting::new(false, flag));
-        assert!(choices.warnings.is_empty(), "{:?}", choices.warnings);
-        assert!(!choices.with_theme(Theme::default()).diagrams);
-        let choices = choose(
-            &Options::default(),
-            &diagrams_env("yes"),
-            &with_diagrams(false),
-        );
-        assert_eq!(choices.warnings.len(), 1, "{:?}", choices.warnings);
-        assert!(!choices.with_theme(Theme::default()).diagrams);
-    }
-
     #[test]
     fn the_table_rows_key_takes_each_value() {
         let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
@@ -1969,55 +1579,6 @@ mod tests {
         }
         assert!(parsed("table_rows = \"stripes\"\n").is_err());
         assert!(parsed("table_rows = true\n").is_err());
-    }
-
-    fn table_rows_env(value: &str) -> Environment {
-        Environment {
-            kiri_table_rows: Some(value.into()),
-            ..Environment::default()
-        }
-    }
-
-    fn with_table_rows(rows: TableRows) -> Config {
-        Config {
-            table_rows: Some(rows),
-            ..Config::default()
-        }
-    }
-
-    #[test]
-    fn table_rows_are_zebra_unless_something_says_otherwise() {
-        let (chosen, warning) = table_rows(None, &Environment::default(), &Config::default());
-        assert_eq!(chosen, Setting::new(TableRows::Zebra, Origin::Default));
-        assert_eq!(warning, None);
-        let config = with_table_rows(TableRows::Off);
-        let (chosen, _) = table_rows(None, &table_rows_env(""), &config);
-        assert_eq!(chosen, Setting::new(TableRows::Off, Origin::File));
-        let (chosen, _) = table_rows(None, &table_rows_env("lines"), &config);
-        let variable = Origin::Environment("KIRI_TABLE_ROWS");
-        assert_eq!(chosen, Setting::new(TableRows::Lines, variable));
-        let (chosen, _) = table_rows(Some(TableRows::Zebra), &table_rows_env("lines"), &config);
-        let flag = Origin::Flag("--table-rows");
-        assert_eq!(chosen, Setting::new(TableRows::Zebra, flag));
-    }
-
-    #[test]
-    fn an_unknown_kiri_table_rows_is_left_out_with_a_warning() {
-        let config = with_table_rows(TableRows::Lines);
-        let (chosen, warning) = table_rows(None, &table_rows_env("stripes"), &config);
-        assert_eq!(chosen, Setting::new(TableRows::Lines, Origin::File));
-        assert_eq!(
-            warning.as_deref(),
-            Some(
-                "KIRI_TABLE_ROWS: `stripes` is not off, zebra, lines, indent or underline; left out"
-            )
-        );
-        let choices = choose(&Options::default(), &table_rows_env("stripes"), &config);
-        assert_eq!(choices.warnings.len(), 1);
-        assert_eq!(
-            choices.with_theme(Theme::default()).table_rows,
-            TableRows::Lines
-        );
     }
 
     #[test]
@@ -2035,56 +1596,326 @@ mod tests {
         assert!(parsed("render_errors = true\n").is_err());
     }
 
-    fn render_errors_env(value: &str) -> Environment {
-        Environment {
-            kiri_render_errors: Some(value.into()),
-            ..Environment::default()
-        }
-    }
-
-    fn with_render_errors(errors: RenderErrors) -> Config {
-        Config {
-            render_errors: Some(errors),
-            ..Config::default()
-        }
-    }
-
-    #[test]
-    fn render_errors_go_to_both_unless_something_says_otherwise() {
-        let (chosen, warning) = render_errors(None, &Environment::default(), &Config::default());
-        assert_eq!(chosen, Setting::new(RenderErrors::Both, Origin::Default));
-        assert_eq!(warning, None);
-        let config = with_render_errors(RenderErrors::Inline);
-        let (chosen, _) = render_errors(None, &render_errors_env(""), &config);
-        assert_eq!(chosen, Setting::new(RenderErrors::Inline, Origin::File));
-        let (chosen, _) = render_errors(None, &render_errors_env("stderr"), &config);
-        let variable = Origin::Environment("KIRI_RENDER_ERRORS");
-        assert_eq!(chosen, Setting::new(RenderErrors::Stderr, variable));
-        let flag = Some(RenderErrors::Both);
-        let (chosen, _) = render_errors(flag, &render_errors_env("stderr"), &config);
-        let flag = Origin::Flag("--render-errors");
-        assert_eq!(chosen, Setting::new(RenderErrors::Both, flag));
-    }
-
-    #[test]
-    fn an_unknown_kiri_render_errors_is_left_out_with_a_warning() {
-        let config = with_render_errors(RenderErrors::Stderr);
-        let (chosen, warning) = render_errors(None, &render_errors_env("never"), &config);
-        assert_eq!(chosen, Setting::new(RenderErrors::Stderr, Origin::File));
-        assert_eq!(
-            warning.as_deref(),
-            Some("KIRI_RENDER_ERRORS: `never` is not inline, stderr or both; left out")
-        );
-        let choices = choose(&Options::default(), &render_errors_env("never"), &config);
-        assert_eq!(choices.warnings.len(), 1);
-        assert_eq!(
-            choices.with_theme(Theme::default()).render_errors,
-            RenderErrors::Stderr
-        );
-    }
-
     fn no_options() -> Options {
         Options::default()
+    }
+
+    /// An environment with only the variables `vars`.
+    fn vars(vars: &[(&str, &str)]) -> Environment {
+        Environment::read(|name| {
+            let mut found = vars.iter().filter(|(var, _)| *var == name);
+            found.next().map(|(_, value)| OsString::from(value))
+        })
+    }
+
+    #[test]
+    fn a_setting_comes_from_the_flag_the_variable_the_file_or_the_default() {
+        let flag = || Some(Setting::new(1, Origin::Flag("--n")));
+        let variable = |warnings: &mut Vec<String>| {
+            warnings.push("read".to_owned());
+            Some(Setting::new(2, Origin::Environment("N")))
+        };
+        let mut warnings = Vec::new();
+        let chosen = resolve(flag(), variable, Some(3), 4, &mut warnings);
+        assert_eq!(chosen, Setting::new(1, Origin::Flag("--n")));
+        // The variable is read only without the flag, so it warns only then.
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let chosen = resolve(None, variable, Some(3), 4, &mut warnings);
+        assert_eq!(chosen, Setting::new(2, Origin::Environment("N")));
+        assert_eq!(warnings, ["read"]);
+        let chosen = resolve(None, unset, Some(3), 4, &mut warnings);
+        assert_eq!(chosen, Setting::new(3, Origin::File));
+        let chosen = resolve(None, unset, None, 4, &mut warnings);
+        assert_eq!(chosen, Setting::new(4, Origin::Default));
+        assert_eq!(warnings, ["read"]);
+    }
+
+    #[test]
+    fn a_variable_takes_the_names_and_the_aliases_of_the_values() {
+        let read = |value: &str| {
+            let env = vars(&[("KIRI_PAGING", value)]);
+            let mut warnings = Vec::new();
+            let chosen = variable::<Paging>(&env, "KIRI_PAGING")(&mut warnings);
+            (chosen, warnings)
+        };
+        let origin = Origin::Environment("KIRI_PAGING");
+        for (value, paging) in [
+            ("always", Paging::Always),
+            ("auto", Paging::Auto),
+            ("never", Paging::Never),
+            ("1", Paging::Always),
+            ("0", Paging::Never),
+        ] {
+            let chosen = Some(Setting::new(paging, origin));
+            assert_eq!(read(value), (chosen, vec![]), "{value}");
+        }
+        // Empty is unset, and so is a variable that is not there.
+        assert_eq!(read(""), (None, vec![]));
+        let env = Environment::default();
+        assert_eq!(variable::<Paging>(&env, "KIRI_PAGING")(&mut vec![]), None);
+        let warning = "KIRI_PAGING: `Auto` is not always, auto, never, 1 or 0; left out";
+        assert_eq!(read("Auto"), (None, vec![warning.to_owned()]));
+    }
+
+    #[test]
+    fn each_value_has_one_name() {
+        fn check<T: Named + std::fmt::Debug>() {
+            assert_eq!(T::ALL.len(), T::NAMES.len());
+            for &value in T::ALL {
+                assert_eq!(T::named(value.name()), Some(value), "{value:?}");
+            }
+            assert_eq!(T::named("nothing"), None);
+        }
+        check::<Paging>();
+        check::<SearchCase>();
+        check::<FrontMatter>();
+        check::<TableRows>();
+        check::<RenderErrors>();
+        check::<crate::term::Mode>();
+        check::<bool>();
+    }
+
+    /// Fails unless the variable `name` chooses `field` of the choices as
+    /// `values` say, before the configuration file's `file`, and leaves out
+    /// `wrong` with `warning`.
+    fn check_variable<T: Named + std::fmt::Debug>(
+        field: fn(&Choices) -> &Setting<T>,
+        name: &'static str,
+        values: &[(&str, T)],
+        file: Config,
+        (wrong, warning): (&str, &str),
+    ) {
+        let choices = |value: &str, config: &Config| {
+            choose(&Options::default(), &vars(&[(name, value)]), config)
+        };
+        for &(value, expected) in values {
+            let chosen = choices(value, &file);
+            let variable = Setting::new(expected, Origin::Environment(name));
+            assert_eq!(field(&chosen), &variable, "{value}");
+            assert!(chosen.warnings.is_empty(), "{value}: {:?}", chosen.warnings);
+        }
+        assert_eq!(field(&choices("", &file)).origin, Origin::File);
+        let chosen = choices(wrong, &file);
+        assert_eq!(field(&chosen).origin, Origin::File);
+        assert_eq!(chosen.warnings, [warning]);
+        let chosen = choices(wrong, &Config::default());
+        assert_eq!(field(&chosen).origin, Origin::Default);
+    }
+
+    #[test]
+    fn kiri_paging_chooses_the_paging() {
+        check_variable(
+            |choices| &choices.paging,
+            "KIRI_PAGING",
+            &[
+                ("always", Paging::Always),
+                ("auto", Paging::Auto),
+                ("never", Paging::Never),
+                ("1", Paging::Always),
+                ("0", Paging::Never),
+            ],
+            Config {
+                paging: Some(Paging::Never),
+                ..Config::default()
+            },
+            (
+                "joo",
+                "KIRI_PAGING: `joo` is not always, auto, never, 1 or 0; left out",
+            ),
+        );
+    }
+
+    #[test]
+    fn kiri_front_matter_chooses_the_front_matter() {
+        check_variable(
+            |choices| &choices.front_matter,
+            "KIRI_FRONT_MATTER",
+            &[
+                ("table", FrontMatter::Table),
+                ("code", FrontMatter::Code),
+                ("hide", FrontMatter::Hide),
+                ("off", FrontMatter::Off),
+            ],
+            Config {
+                front_matter: Some(FrontMatter::Hide),
+                ..Config::default()
+            },
+            (
+                "Code",
+                "KIRI_FRONT_MATTER: `Code` is not table, code, hide or off; left out",
+            ),
+        );
+    }
+
+    #[test]
+    fn kiri_table_rows_chooses_the_table_rows() {
+        check_variable(
+            |choices| &choices.table_rows,
+            "KIRI_TABLE_ROWS",
+            &[
+                ("off", TableRows::Off),
+                ("zebra", TableRows::Zebra),
+                ("lines", TableRows::Lines),
+                ("indent", TableRows::Indent),
+                ("underline", TableRows::Underline),
+            ],
+            Config {
+                table_rows: Some(TableRows::Lines),
+                ..Config::default()
+            },
+            (
+                "stripes",
+                "KIRI_TABLE_ROWS: `stripes` is not off, zebra, lines, indent or underline; left out",
+            ),
+        );
+    }
+
+    #[test]
+    fn kiri_diagrams_turns_diagrams_on_or_off() {
+        check_variable(
+            |choices| &choices.diagrams,
+            "KIRI_DIAGRAMS",
+            &[("on", true), ("off", false), ("1", true), ("0", false)],
+            Config {
+                diagrams: Some(false),
+                ..Config::default()
+            },
+            (
+                "yes",
+                "KIRI_DIAGRAMS: `yes` is not on, off, 1 or 0; left out",
+            ),
+        );
+    }
+
+    #[test]
+    fn kiri_render_errors_chooses_where_render_errors_go() {
+        check_variable(
+            |choices| &choices.render_errors,
+            "KIRI_RENDER_ERRORS",
+            &[
+                ("inline", RenderErrors::Inline),
+                ("stderr", RenderErrors::Stderr),
+                ("both", RenderErrors::Both),
+            ],
+            Config {
+                render_errors: Some(RenderErrors::Stderr),
+                ..Config::default()
+            },
+            (
+                "never",
+                "KIRI_RENDER_ERRORS: `never` is not inline, stderr or both; left out",
+            ),
+        );
+    }
+
+    #[test]
+    fn kiri_no_images_turns_images_off_with_any_value_but_empty_or_0() {
+        let images = |value: &str, file: Option<bool>| {
+            let config = Config {
+                images: file,
+                ..Config::default()
+            };
+            choose(
+                &Options::default(),
+                &vars(&[("KIRI_NO_IMAGES", value)]),
+                &config,
+            )
+            .images
+        };
+        let variable = Origin::Environment("KIRI_NO_IMAGES");
+        for value in ["1", "yes", "false"] {
+            assert_eq!(images(value, Some(true)), Setting::new(false, variable));
+        }
+        assert_eq!(images("0", Some(false)), Setting::new(true, variable));
+        assert_eq!(images("", Some(false)), Setting::new(false, Origin::File));
+        assert_eq!(images("", None), Setting::new(true, Origin::Default));
+    }
+
+    #[test]
+    fn the_settings_have_their_defaults() {
+        let choices = choose(
+            &Options::default(),
+            &Environment::default(),
+            &Config::default(),
+        );
+        let default = |value| Setting::new(value, Origin::Default);
+        assert_eq!(choices.margins, default(true));
+        assert_eq!(choices.images, default(true));
+        assert_eq!(choices.paging, Setting::new(Paging::Auto, Origin::Default));
+        let front_matter = Setting::new(FrontMatter::Table, Origin::Default);
+        assert_eq!(choices.front_matter, front_matter);
+        let table_rows = Setting::new(TableRows::Zebra, Origin::Default);
+        assert_eq!(choices.table_rows, table_rows);
+        assert_eq!(choices.diagrams, default(true));
+        let render_errors = Setting::new(RenderErrors::Both, Origin::Default);
+        assert_eq!(choices.render_errors, render_errors);
+        assert!(choices.warnings.is_empty());
+    }
+
+    #[test]
+    fn the_flags_come_before_the_variables() {
+        let env = vars(&[
+            ("KIRI_NO_IMAGES", "0"),
+            ("KIRI_PAGING", "joo"),
+            ("KIRI_FRONT_MATTER", "code"),
+            ("KIRI_TABLE_ROWS", "lines"),
+            ("KIRI_DIAGRAMS", "on"),
+            ("KIRI_RENDER_ERRORS", "stderr"),
+        ]);
+        let options = Options {
+            images: Some(false),
+            paging: Some(Setting::new(Paging::Never, Origin::Flag("-P"))),
+            front_matter: Some(FrontMatter::Hide),
+            table_rows: Some(TableRows::Off),
+            diagrams: Some(false),
+            render_errors: Some(RenderErrors::Inline),
+            ..Options::default()
+        };
+        let choices = choose(&options, &env, &Config::default());
+        let flag = |flag| Origin::Flag(flag);
+        assert_eq!(choices.images, Setting::new(false, flag("--no-images")));
+        assert_eq!(choices.paging, Setting::new(Paging::Never, flag("-P")));
+        let front_matter = Setting::new(FrontMatter::Hide, flag("--front-matter"));
+        assert_eq!(choices.front_matter, front_matter);
+        let table_rows = Setting::new(TableRows::Off, flag("--table-rows"));
+        assert_eq!(choices.table_rows, table_rows);
+        assert_eq!(choices.diagrams, Setting::new(false, flag("--diagrams")));
+        let render_errors = Setting::new(RenderErrors::Inline, flag("--render-errors"));
+        assert_eq!(choices.render_errors, render_errors);
+        // Without a word about the variable the flag stands in for.
+        assert!(choices.warnings.is_empty(), "{:?}", choices.warnings);
+        let options = Options {
+            images: Some(true),
+            ..Options::default()
+        };
+        let choices = choose(
+            &options,
+            &vars(&[("KIRI_NO_IMAGES", "1")]),
+            &Config::default(),
+        );
+        assert_eq!(choices.images, Setting::new(true, flag("--images")));
+    }
+
+    #[test]
+    fn the_settings_carry_the_values_of_the_choices() {
+        let env = vars(&[("KIRI_PAGING", "joo"), ("KIRI_FRONT_MATTER", "joo")]);
+        let config = Config {
+            front_matter: Some(FrontMatter::Off),
+            table_rows: Some(TableRows::Lines),
+            diagrams: Some(false),
+            render_errors: Some(RenderErrors::Stderr),
+            ..Config::default()
+        };
+        let (warnings, settings) = settings(&Options::default(), &env, &config);
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
+        let settings = settings.unwrap();
+        assert_eq!(settings.paging, Paging::Auto);
+        assert_eq!(settings.front_matter, FrontMatter::Off);
+        assert_eq!(settings.front_matter.style(), None);
+        assert_eq!(FrontMatter::Code.style(), Some(FrontMatterStyle::Code));
+        assert_eq!(settings.table_rows, TableRows::Lines);
+        assert!(!settings.diagrams);
+        assert_eq!(settings.render_errors, RenderErrors::Stderr);
     }
 
     #[test]
@@ -2173,31 +2004,6 @@ mod tests {
     }
 
     #[test]
-    fn images_tell_where_they_come_from() {
-        let origin =
-            |option, env: &Environment, config: &Config| images(option, env, config).origin;
-        let default = Environment::default();
-        assert_eq!(origin(None, &default, &Config::default()), Origin::Default);
-        assert_eq!(origin(None, &default, &with_images(false)), Origin::File);
-        assert_eq!(
-            origin(None, &no_images_env("0"), &with_images(false)),
-            Origin::Environment("KIRI_NO_IMAGES")
-        );
-        assert_eq!(
-            origin(None, &no_images_env(""), &with_images(false)),
-            Origin::File
-        );
-        assert_eq!(
-            origin(Some(true), &no_images_env("1"), &Config::default()),
-            Origin::Flag("--images")
-        );
-        assert_eq!(
-            origin(Some(false), &default, &Config::default()),
-            Origin::Flag("--no-images")
-        );
-    }
-
-    #[test]
     fn the_choices_tell_where_they_come_from() {
         let options = Options {
             no_margins: true,
@@ -2223,9 +2029,13 @@ mod tests {
 
     #[test]
     fn settings_turn_images_off_as_the_environment_says() {
-        let settings = settings(&no_options(), &no_images_env("1"), &Config::default())
-            .1
-            .unwrap();
+        let settings = settings(
+            &no_options(),
+            &vars(&[("KIRI_NO_IMAGES", "1")]),
+            &Config::default(),
+        )
+        .1
+        .unwrap();
         assert!(!settings.images);
     }
 

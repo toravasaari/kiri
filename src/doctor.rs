@@ -10,7 +10,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use image::ImageFormat;
 
 use crate::config::{
-    AUTO_DETECT, Choices, Environment, Origin, Paging, SearchCase, Setting, ThemeSource,
+    AUTO_DETECT, Choices, Environment, Named, Origin, Paging, SearchCase, Setting, ThemeSource,
 };
 use crate::diagrams::find::{self, Choice, Search};
 use crate::diagrams::{BuiltIn, Command, LANGUAGES};
