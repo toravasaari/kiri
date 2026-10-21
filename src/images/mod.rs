@@ -26,6 +26,7 @@ use crate::model::{Block, Document, Inline};
 pub use svg::{Fonts, Svg};
 
 use svg::{decode_svg, looks_like_svg};
+pub(crate) use url::read_at_most;
 use url::{load_url, scheme};
 
 /// The most pixels kiri decodes in one image: 64 megapixels, 256 MiB as
@@ -208,7 +209,7 @@ impl std::error::Error for ImageError {}
 /// A size limit in bytes for people, to go before a noun: whole megabytes
 /// when it is that, as in "the 10 MB limit", and otherwise "the 1500-byte
 /// limit".
-fn size(bytes: u64) -> String {
+pub(crate) fn size(bytes: u64) -> String {
     if bytes >= MB && bytes.is_multiple_of(MB) {
         format!("{} MB", bytes / MB)
     } else {

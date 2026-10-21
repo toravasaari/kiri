@@ -330,6 +330,14 @@ impl Renderers {
         }
     }
 
+    /// These renderers reading an image a program draws of at most
+    /// `limit` bytes.
+    pub fn with_max_size(self, limit: u64) -> Self {
+        Renderers {
+            external: self.external.with_max_size(limit),
+        }
+    }
+
     /// These renderers with the files of the programs they run in
     /// directories under `dir`; see `External::with_work_dir`.
     pub fn with_work_dir(self, dir: PathBuf) -> Self {

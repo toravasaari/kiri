@@ -574,6 +574,7 @@ fn load_images(
         let configured = &settings.diagram_commands;
         let mut chosen = Renderers::chosen(configured, &settings.diagram_no_search, &search)
             .with_time_limit(settings.diagram_timeout)
+            .with_max_size(max_file_size)
             .with_temp_dir(kiri::config::temp_directory(env));
         if let Some(cache) = kiri::config::cache_directory(env) {
             chosen = chosen.with_work_dir(cache.join("diagrams"));

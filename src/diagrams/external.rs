@@ -12,7 +12,7 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs::{self, DirBuilder, File};
-use std::io::{self, ErrorKind};
+use std::io::{self, ErrorKind, Read};
 use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -133,6 +133,8 @@ pub struct External {
     /// The command for each language, by its lower-case name.
     commands: BTreeMap<String, Command>,
     time_limit: Duration,
+    /// The most bytes of an image that it reads.
+    max_size: u64,
     /// Where the directories for the files go, unless it cannot be made
     /// or its path is too long; then they go in `temp`.
     work: Option<PathBuf>,
@@ -155,6 +157,7 @@ impl External {
                 .map(|(language, command)| (language.to_ascii_lowercase(), command))
                 .collect(),
             time_limit: TIME_LIMIT,
+            max_size: crate::images::DEFAULT_MAX_FILE_SIZE,
             work: None,
             temp: crate::config::temp_directory(&crate::config::Environment {
                 tmpdir: std::env::var_os("TMPDIR"),
@@ -204,6 +207,16 @@ impl External {
     /// process's `TMPDIR`.
     pub fn with_temp_dir(self, dir: PathBuf) -> Self {
         External { temp: dir, ..self }
+    }
+
+    /// This renderer reading an image of at most `limit` bytes; by
+    /// default, as large an image file as kiri reads unless told
+    /// otherwise.
+    pub fn with_max_size(self, limit: u64) -> Self {
+        External {
+            max_size: limit,
+            ..self
+        }
     }
 
     fn command(&self, language: &str) -> Option<&Command> {
@@ -348,18 +361,23 @@ impl External {
             Waited::Failed(error) => format!("{program}: {error}"),
         })?;
         if !status.success() {
-            let said = fs::read_to_string(&errors).unwrap_or_default();
+            let said = read_start(&errors, SAID);
             let ended = match status.code() {
                 Some(code) => format!("{program} exited with status {code}"),
                 None => format!("{program} was stopped by a signal"),
             };
-            return Err(match first_lines(&said) {
+            return Err(match first_lines(&String::from_utf8_lossy(&said)) {
                 Some(line) => format!("{ended}: {line}"),
                 None => ended,
             });
         }
-        match fs::read(&output) {
-            Ok(bytes) => Ok(bytes),
+        let limit = self.max_size;
+        match File::open(&output).and_then(|file| crate::images::read_at_most(file, limit)) {
+            Ok(Some(bytes)) => Ok(bytes),
+            Ok(None) => Err(format!(
+                "{program} wrote an image larger than the {} limit; see --max-image-size",
+                crate::images::size(limit)
+            )),
             Err(error) if error.kind() == ErrorKind::NotFound => {
                 Err(format!("{program} wrote no output file"))
             }
@@ -651,6 +669,20 @@ fn end(child: &mut process::Child) {
     let _ = child.wait();
 }
 
+/// How many bytes of what a program says on standard error kiri reads:
+/// far more than the first lines it quotes take.
+const SAID: u64 = 64 * 1024;
+
+/// The first `limit` bytes of the file at `path`, or as many as it has;
+/// none when it cannot be read.
+fn read_start(path: &Path, limit: u64) -> Vec<u8> {
+    let mut start = Vec::new();
+    if let Ok(file) = File::open(path) {
+        let _ = file.take(limit).read_to_end(&mut start);
+    }
+    start
+}
+
 /// The first lines of `text` with something on them, at most five, each
 /// shortened to a length that fits in a warning. They end where a stack
 /// trace starts, as after mmdc's message, its pointer to the mistake and
@@ -906,6 +938,40 @@ mod tests {
             Err("sh exited with status 2".to_owned())
         );
         assert_eq!(left(&scratch), Vec::<PathBuf>::new());
+    }
+
+    #[test]
+    fn an_image_larger_than_the_limit_is_not_read() {
+        let scratch = scratch("too-large");
+        let renderer = script_renderer(&scratch, "printf '%0100d' 0 > \"$2\"\n");
+        let drawn = renderer
+            .with_max_size(100)
+            .render("mermaid", SOURCE, Theme::Light);
+        assert_eq!(drawn.map(|drawn| drawn.image.len()), Ok(100));
+        let renderer = script_renderer(&scratch, "printf '%0101d' 0 > \"$2\"\n");
+        assert_eq!(
+            renderer
+                .with_max_size(100)
+                .render("mermaid", SOURCE, Theme::Light),
+            Err(
+                "sh wrote an image larger than the 100-byte limit; see --max-image-size".to_owned()
+            )
+        );
+        assert_eq!(left(&scratch), Vec::<PathBuf>::new());
+    }
+
+    #[test]
+    fn what_a_command_says_is_read_only_as_far_as_its_first_lines() {
+        // Past a megabyte, its first lines still tell why.
+        let scratch = scratch("says-much");
+        let renderer = script_renderer(
+            &scratch,
+            "echo 'Error: it failed' >&2\nyes 'more' | head -c 2000000 >&2\nexit 1\n",
+        );
+        assert_eq!(
+            renderer.render("mermaid", SOURCE, Theme::Light),
+            Err("sh exited with status 1: Error: it failed\nmore\nmore\nmore\nmore".to_owned())
+        );
     }
 
     #[test]

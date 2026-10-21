@@ -237,6 +237,27 @@ fn a_command_that_fails_leaves_the_code_with_a_warning() {
 }
 
 #[test]
+fn a_command_s_image_is_read_up_to_the_image_size_limit() {
+    let dir = Scratch::new("mermaid-external-large");
+    // An SVG of two megabytes, most of it spaces.
+    let config = external(
+        &dir,
+        "{ printf '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"40\">'\n\
+         head -c 2000000 /dev/zero | tr '\\0' ' '\nprintf '</svg>'; } > \"$2\"\n",
+    );
+    let out = with_settings(&dir, FLOWCHART, &["--max-image-size", "3"], None, &config);
+    assert_eq!(text(&out.stderr), "");
+    assert_eq!(sent(&text(&out.stdout)).len(), 1);
+    let out = with_settings(&dir, FLOWCHART, &["--max-image-size", "1"], None, &config);
+    assert_eq!(
+        text(&out.stderr),
+        "kiri: mermaid diagram on line 3: sh wrote an image larger than the 1 MB limit; \
+         see --max-image-size\n"
+    );
+    assert!(sent(&text(&out.stdout)).is_empty());
+}
+
+#[test]
 fn a_command_that_writes_no_svg_leaves_the_code_with_a_warning() {
     let dir = Scratch::new("mermaid-external-not-svg");
     let config = external(&dir, "echo 'not an SVG' > \"$2\"\n");
