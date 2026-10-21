@@ -27,9 +27,9 @@ pub fn parse(text: &str) -> Result<Theme, String> {
     if let Some(margin) = file.text_margin {
         theme.text_margin = margin;
     }
-    set_color(&mut theme.background, file.background)?;
-    set_color(&mut theme.foreground, file.foreground)?;
-    set_color(&mut theme.muted, file.muted)?;
+    set_color(&mut theme.background, file.background, "background")?;
+    set_color(&mut theme.foreground, file.foreground, "foreground")?;
+    set_color(&mut theme.muted, file.muted, "muted")?;
     // [headings] applies to every level, then [h1] to [h6] refine it.
     if let Some(all) = &file.headings {
         for heading in &mut theme.headings {
@@ -42,13 +42,14 @@ pub fn parse(text: &str) -> Result<Theme, String> {
             apply_heading(heading, &overrides, &format!("h{}", level + 1))?;
         }
     }
-    set_color(&mut theme.link, file.link)?;
-    set_color(&mut theme.inline_code, file.inline_code)?;
+    set_color(&mut theme.link, file.link, "link")?;
+    set_color(&mut theme.inline_code, file.inline_code, "inline_code")?;
     set_keyword_or_color(
         &mut theme.inline_code_background,
         file.inline_code_background,
         ("code-block", CodeBackground::CodeBlock),
         CodeBackground::Color,
+        "inline_code_background",
     )?;
     if let Some(padding) = file.inline_code_padding {
         theme.inline_code_padding = padding;
@@ -59,11 +60,11 @@ pub fn parse(text: &str) -> Result<Theme, String> {
     if let Some(padding) = file.code_padding {
         theme.code_padding = padding;
     }
-    set_color(&mut theme.quote_bar, file.quote_bar)?;
-    set_color(&mut theme.rule, file.rule)?;
-    set_color(&mut theme.list_marker, file.list_marker)?;
-    set_color(&mut theme.table_border, file.table_border)?;
-    set_color(&mut theme.error, file.error)?;
+    set_color(&mut theme.quote_bar, file.quote_bar, "quote_bar")?;
+    set_color(&mut theme.rule, file.rule, "rule")?;
+    set_color(&mut theme.list_marker, file.list_marker, "list_marker")?;
+    set_color(&mut theme.table_border, file.table_border, "table_border")?;
+    set_color(&mut theme.error, file.error, "error")?;
     for (target, name) in [
         (&mut theme.code_theme_dark, file.code_theme_dark),
         (&mut theme.code_theme_light, file.code_theme_light),
@@ -85,45 +86,80 @@ pub fn parse(text: &str) -> Result<Theme, String> {
         file.language_label,
         ("code-block", LabelColor::CodeBlock),
         LabelColor::Color,
+        "language_label",
     )?;
     if let Some(alerts) = file.alerts {
         apply_alerts(&mut theme.alerts, alerts)?;
     }
     if let Some(status_line) = file.status_line {
         let target = &mut theme.status_line;
-        for (target, value) in [
-            (&mut target.background, status_line.background),
-            (&mut target.foreground, status_line.foreground),
-            (&mut target.badge_background, status_line.badge_background),
-            (&mut target.badge_foreground, status_line.badge_foreground),
+        for (target, value, key) in [
+            (&mut target.background, status_line.background, "background"),
+            (&mut target.foreground, status_line.foreground, "foreground"),
+            (
+                &mut target.badge_background,
+                status_line.badge_background,
+                "badge_background",
+            ),
+            (
+                &mut target.badge_foreground,
+                status_line.badge_foreground,
+                "badge_foreground",
+            ),
         ] {
             set_keyword_or_color(
                 target,
                 value,
                 ("auto", StatusColor::Auto),
                 StatusColor::Color,
+                &format!("status_line.{key}"),
             )?;
         }
     }
     if let Some(search) = file.search {
         let target = &mut theme.search;
-        for (target, value) in [
-            (&mut target.match_foreground, search.match_foreground),
-            (&mut target.match_background, search.match_background),
-            (&mut target.current_foreground, search.current_foreground),
-            (&mut target.current_background, search.current_background),
+        for (target, value, key) in [
+            (
+                &mut target.match_foreground,
+                search.match_foreground,
+                "match_foreground",
+            ),
+            (
+                &mut target.match_background,
+                search.match_background,
+                "match_background",
+            ),
+            (
+                &mut target.current_foreground,
+                search.current_foreground,
+                "current_foreground",
+            ),
+            (
+                &mut target.current_background,
+                search.current_background,
+                "current_background",
+            ),
         ] {
             set_keyword_or_color(
                 target,
                 value,
                 ("auto", SearchColor::Auto),
                 SearchColor::Color,
+                &format!("search.{key}"),
             )?;
         }
     }
     if let Some(mark) = file.mark {
-        set_color(&mut theme.mark.foreground, mark.foreground)?;
-        set_color(&mut theme.mark.background, mark.background)?;
+        set_color(
+            &mut theme.mark.foreground,
+            mark.foreground,
+            "mark.foreground",
+        )?;
+        set_color(
+            &mut theme.mark.background,
+            mark.background,
+            "mark.background",
+        )?;
     }
     Ok(theme)
 }
@@ -151,14 +187,20 @@ fn apply_alerts(alerts: &mut AlertTheme, file: AlertsFile) -> Result<(), String>
             }
         };
     }
-    for (target, value) in [
-        (&mut alerts.note, file.note),
-        (&mut alerts.tip, file.tip),
-        (&mut alerts.important, file.important),
-        (&mut alerts.warning, file.warning),
-        (&mut alerts.caution, file.caution),
+    for (target, value, key) in [
+        (&mut alerts.note, file.note, "note"),
+        (&mut alerts.tip, file.tip, "tip"),
+        (&mut alerts.important, file.important, "important"),
+        (&mut alerts.warning, file.warning, "warning"),
+        (&mut alerts.caution, file.caution, "caution"),
     ] {
-        set_keyword_or_color(target, value, ("auto", AlertColor::Auto), AlertColor::Color)?;
+        set_keyword_or_color(
+            target,
+            value,
+            ("auto", AlertColor::Auto),
+            AlertColor::Color,
+            &format!("alerts.{key}"),
+        )?;
     }
     Ok(())
 }
@@ -177,7 +219,11 @@ fn apply_heading(
         }
         heading.scale = scale;
     }
-    set_color(&mut heading.color, overrides.color.clone())?;
+    set_color(
+        &mut heading.color,
+        overrides.color.clone(),
+        &format!("{table}.color"),
+    )?;
     if let Some(bold) = overrides.bold {
         heading.bold = bold;
     }
@@ -190,7 +236,11 @@ fn apply_heading(
     if let Some(underline) = &overrides.underline {
         heading.underline = parse_underline(underline)?;
     }
-    set_color(&mut heading.background, overrides.background.clone())?;
+    set_color(
+        &mut heading.background,
+        overrides.background.clone(),
+        &format!("{table}.background"),
+    )?;
     if let Some(indent) = overrides.indent {
         heading.indent = indent;
     }
@@ -283,27 +333,30 @@ struct HeadingFile {
     indent: Option<u8>,
 }
 
-fn set_color(target: &mut Option<Color>, value: Option<String>) -> Result<(), String> {
+/// Sets `target` from the colour `value` of `key` when there is one.
+fn set_color(target: &mut Option<Color>, value: Option<String>, key: &str) -> Result<(), String> {
     if let Some(value) = value {
-        *target = parse_color(&value)?;
+        *target = color(&value, key)?;
     }
     Ok(())
 }
 
-/// Sets `target` from `value` when there is one: `keyword` names its own
-/// value, anything else is a colour that `color` makes the value of.
+/// Sets `target` from the `value` of `key` when there is one: `keyword`
+/// names its own value, anything else is a colour that `color` makes the
+/// value of.
 fn set_keyword_or_color<T>(
     target: &mut T,
     value: Option<String>,
     keyword: (&str, T),
     color: impl FnOnce(Option<Color>) -> T,
+    key: &str,
 ) -> Result<(), String> {
     if let Some(value) = value {
         let (name, named) = keyword;
         *target = if value == name {
             named
         } else {
-            color(parse_color(&value)?)
+            color(self::color(&value, key)?)
         };
     }
     Ok(())
@@ -329,11 +382,22 @@ const COLOR_NAMES: [&str; 8] = [
     "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
 ];
 
+/// The colour `value` of `key`, or an error that names the key.
+fn color(value: &str, key: &str) -> Result<Option<Color>, String> {
+    parse_color(value).ok_or_else(|| {
+        format!(
+            "unknown colour \"{value}\" for {key}; use a name such as blue or bright-blue, \
+             0-255, #rrggbb or none"
+        )
+    })
+}
+
 /// A palette colour by name (`blue`, `bright-blue`) or number (`0`-`255`),
-/// `#rrggbb`, or `none` for the terminal's default colour.
-fn parse_color(value: &str) -> Result<Option<Color>, String> {
+/// `#rrggbb`, or `none` for the terminal's default colour; `None` when
+/// `value` is none of them.
+fn parse_color(value: &str) -> Option<Option<Color>> {
     if value == "none" {
-        return Ok(None);
+        return Some(None);
     }
     // Digits only: from_str_radix and parse would also take a leading `+`.
     if let Some(hex) = value.strip_prefix('#')
@@ -342,23 +406,19 @@ fn parse_color(value: &str) -> Result<Option<Color>, String> {
         && let Ok(rgb) = u32::from_str_radix(hex, 16)
     {
         let [_, r, g, b] = rgb.to_be_bytes();
-        return Ok(Some(Color::Rgb(r, g, b)));
+        return Some(Some(Color::Rgb(r, g, b)));
     }
     if value.bytes().all(|b| b.is_ascii_digit())
         && let Ok(index) = value.parse::<u8>()
     {
-        return Ok(Some(Color::Palette(index)));
+        return Some(Some(Color::Palette(index)));
     }
     let (bright, name) = match value.strip_prefix("bright-") {
         Some(name) => (8, name),
         None => (0, value),
     };
-    match COLOR_NAMES.iter().position(|&known| known == name) {
-        Some(index) => Ok(Some(Color::Palette(bright + index as u8))),
-        None => Err(format!(
-            "unknown colour \"{value}\"; use a name such as blue or bright-blue, 0-255, #rrggbb or none"
-        )),
-    }
+    let index = COLOR_NAMES.iter().position(|&known| known == name)?;
+    Some(Some(Color::Palette(bright + index as u8)))
 }
 
 #[cfg(test)]
@@ -560,18 +620,18 @@ mod tests {
 
     #[test]
     fn parses_colour_names_and_numbers() {
-        assert_eq!(parse_color("cyan"), Ok(Some(Color::Palette(6))));
-        assert_eq!(parse_color("bright-black"), Ok(Some(Color::Palette(8))));
-        assert_eq!(parse_color("208"), Ok(Some(Color::Palette(208))));
-        assert_eq!(parse_color("none"), Ok(None));
+        assert_eq!(parse_color("cyan"), Some(Some(Color::Palette(6))));
+        assert_eq!(parse_color("bright-black"), Some(Some(Color::Palette(8))));
+        assert_eq!(parse_color("208"), Some(Some(Color::Palette(208))));
+        assert_eq!(parse_color("none"), Some(None));
         assert_eq!(
             parse_color("#1a2B3c"),
-            Ok(Some(Color::Rgb(0x1a, 0x2b, 0x3c)))
+            Some(Some(Color::Rgb(0x1a, 0x2b, 0x3c)))
         );
-        assert!(parse_color("#12345").is_err());
-        assert!(parse_color("#+12345").is_err());
-        assert!(parse_color("+12").is_err());
-        assert!(parse_color("purple").is_err());
+        assert!(parse_color("#12345").is_none());
+        assert!(parse_color("#+12345").is_none());
+        assert!(parse_color("+12").is_none());
+        assert!(parse_color("purple").is_none());
     }
 
     #[test]
@@ -629,16 +689,32 @@ mod tests {
     }
 
     #[test]
-    fn a_keyword_or_colour_field_tells_why_a_value_is_wrong() {
-        let unknown = "unknown colour \"pink\"; use a name such as blue or bright-blue, \
-                       0-255, #rrggbb or none";
-        for file in [
-            "inline_code_background = \"pink\"",
-            "language_label = \"pink\"",
-            "[alerts]\nnote = \"pink\"",
-            "[status_line]\nbackground = \"pink\"",
-            "[search]\nmatch_background = \"pink\"",
+    fn a_colour_that_is_wrong_names_its_key() {
+        for (file, key) in [
+            ("background = \"pink\"", "background"),
+            ("muted = \"pink\"", "muted"),
+            ("[headings]\ncolor = \"pink\"", "headings.color"),
+            ("[h2]\nbackground = \"pink\"", "h2.background"),
+            ("[mark]\nforeground = \"pink\"", "mark.foreground"),
+            (
+                "inline_code_background = \"pink\"",
+                "inline_code_background",
+            ),
+            ("language_label = \"pink\"", "language_label"),
+            ("[alerts]\nnote = \"pink\"", "alerts.note"),
+            (
+                "[status_line]\nbackground = \"pink\"",
+                "status_line.background",
+            ),
+            (
+                "[search]\nmatch_background = \"pink\"",
+                "search.match_background",
+            ),
         ] {
+            let unknown = format!(
+                "unknown colour \"pink\" for {key}; use a name such as blue or \
+                 bright-blue, 0-255, #rrggbb or none"
+            );
             assert_eq!(parse(&format!("{file}\n")).unwrap_err(), unknown, "{file}");
         }
     }
