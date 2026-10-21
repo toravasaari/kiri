@@ -107,9 +107,9 @@ fn write_problems(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     }
     writeln!(out, "## Problems\n")?;
     for problem in problems {
-        // The errors start with the path of the file they are about. A
-        // longer error, such as one that shows the line in the file, goes
-        // in a code block of its own.
+        // A problem starts with what it is about: the path of a file, or
+        // the name of an environment variable. A longer error, such as one
+        // that shows the line in the file, goes in a code block of its own.
         match problem.split_once(": ") {
             Some((path, error)) if error.contains('\n') => {
                 writeln!(out, "- {}:\n\n  ```text", code(&home.hide(path)))?;
