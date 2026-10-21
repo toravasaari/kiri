@@ -31,7 +31,17 @@ use url::scheme;
 
 /// The most pixels kiri decodes in one image: 64 megapixels, 256 MiB as
 /// RGBA. A photo from a phone has about 12.
-const MAX_PIXELS: u64 = 64 * 1024 * 1024;
+pub(crate) const MAX_PIXELS: u64 = 64 * 1024 * 1024;
+
+/// The width and height in pixels that the header of the PNG file `bytes`
+/// gives, read without decoding the image; `None` for what is no PNG.
+pub(crate) fn png_size(bytes: &[u8]) -> Option<(u32, u32)> {
+    let header = bytes.strip_prefix(b"\x89PNG\r\n\x1a\n")?;
+    let ihdr = header.get(4..8)?;
+    let number = |at: usize| Some(u32::from_be_bytes(header.get(at..at + 4)?.try_into().ok()?));
+    (ihdr == b"IHDR").then_some(())?;
+    Some((number(8)?, number(12)?))
+}
 
 /// The most memory a decoder may allocate, a guard for decoders that would
 /// otherwise need more than the pixels themselves.
@@ -1465,6 +1475,21 @@ fn main() {}
             };
             assert_eq!(rgba(image, 0, 0), [0x33, 0x33, 0x33, 255]);
         }
+    }
+
+    #[test]
+    fn reads_the_size_of_a_png_from_its_header() {
+        let mut png = Vec::new();
+        RgbaImage::new(7, 3)
+            .write_to(&mut io::Cursor::new(&mut png), ImageFormat::Png)
+            .unwrap();
+        assert_eq!(png_size(&png), Some((7, 3)));
+        assert_eq!(png_size(&png[..24]), Some((7, 3)));
+        assert_eq!(png_size(&png[..23]), None);
+        assert_eq!(png_size(b"GIF89a"), None);
+        let mut not_ihdr = png.clone();
+        not_ihdr[12..16].copy_from_slice(b"IDAT");
+        assert_eq!(png_size(&not_ihdr), None);
     }
 
     #[test]

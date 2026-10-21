@@ -265,9 +265,15 @@ cannot. In the arguments:
 - `{theme}` is the theme kiri chose: `default` or `dark` for Mermaid;
 - `{scale}` is `3`, the number of pixels to the CSS pixel that the
   program is to draw a raster image with. kiri shows such an image at a
-  third of its size in pixels, in CSS pixels as it shows an SVG. A
-  raster image from a command without `{scale}` is shown at one pixel to
-  the CSS pixel;
+  third of its size in pixels, in CSS pixels as it shows an SVG. A PNG
+  with more than 64 megapixels, more than kiri loads, as a long
+  sequence diagram may have, is drawn once more at a smaller scale, `2`
+  or `1`, the largest that fits; kiri tells from the PNG's header, before
+  loading it, and shows the second image at the same size in CSS
+  pixels. The second drawing has a time limit of its own. A diagram too
+  large even then stays code with a warning that tells its size in
+  pixels. A raster image from a command without `{scale}` is shown at one
+  pixel to the CSS pixel;
 - `{config}` is a Mermaid configuration file, in JSON, that has each
   diagram drawn at its own width, rather than at most as wide as the
   800-pixel page of `mmdc`'s browser, and the classic look and the dagre

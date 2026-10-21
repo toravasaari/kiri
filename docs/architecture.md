@@ -113,7 +113,9 @@ image.
   as `mmdc`'s PNG, at that many pixels to the CSS pixel, and gets a
   Mermaid configuration that leaves labels in HTML, as a browser draws
   them; another is taken to write SVG, with labels as SVG text, which
-  resvg draws. `src/diagrams/find.rs` finds a default command, `mmdc` for
+  resvg draws. A PNG with more pixels than kiri loads, as its header
+  tells before it is decoded, is drawn once more at the largest whole
+  scale that fits. `src/diagrams/find.rs` finds a default command, `mmdc` for
   Mermaid, when nothing is configured, the configuration file does not
   turn the search off and the build has no renderer of its own for the
   language; `--doctor` reports the same choice.

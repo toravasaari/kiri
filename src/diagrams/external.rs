@@ -31,7 +31,8 @@ pub const TIME_LIMIT: Duration = Duration::from_secs(20);
 pub const AT_ONCE: usize = 4;
 
 /// How many pixels to the CSS pixel a command draws a raster image with
-/// when it takes the scale as `{scale}`.
+/// when it takes the scale as `{scale}`, unless the image is then too
+/// large to load; see `smaller_scale`.
 pub const SCALE: u32 = 3;
 
 /// The longest path of the directory that the directories for diagrams'
@@ -92,8 +93,9 @@ pub fn not_writable(dir: &Path) -> Option<Unusable> {
 /// file the program writes, `{theme}` for the theme kiri chose, `{config}`
 /// for a configuration file kiri writes for the language, such as
 /// Mermaid's, and `{scale}` for the number of pixels to the CSS pixel
-/// that a program which takes it draws a raster image with. `{output}`
-/// ends in `.png` for such a program and in `.svg` for others.
+/// that a program which takes it draws a raster image with, a whole
+/// number. `{output}` ends in `.png` for such a program and in `.svg` for
+/// others.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Command {
     pub argv: Vec<String>,
@@ -272,13 +274,14 @@ impl External {
     }
 
     /// The image file that `command` draws of `source`, in `language`, in
-    /// `theme`.
+    /// `theme`, at `scale` pixels to the CSS pixel when it takes `{scale}`.
     fn run(
         &self,
         command: &Command,
         language: &str,
         source: &str,
         theme: Theme,
+        scale: u32,
     ) -> Result<Vec<u8>, String> {
         let program = command.program();
         if self.stopped() {
@@ -314,7 +317,7 @@ impl External {
                 let arg = (arg.replace("{input}", &input.to_string_lossy()))
                     .replace("{output}", &output.to_string_lossy())
                     .replace("{theme}", theme)
-                    .replace("{scale}", &SCALE.to_string());
+                    .replace("{scale}", &scale.to_string());
                 match &config {
                     Some((path, _)) => arg.replace("{config}", &path.to_string_lossy()),
                     None => arg,
@@ -379,13 +382,20 @@ impl Renderer for External {
         let Some(command) = self.command(language) else {
             return Err(format!("{language} diagrams have no command"));
         };
-        let image = self.run(command, language, source, theme)?;
-        // The program cannot tell which theme the diagram chose itself.
-        let theme = super::chosen_theme(language, source).unwrap_or(theme);
-        let scale = match command.writes() {
+        let mut scale = match command.writes() {
             Output::Svg => 1,
             Output::Raster => SCALE,
         };
+        let mut image = self.run(command, language, source, theme, scale)?;
+        // Once more at a scale that fits, rather than not at all.
+        if command.writes() == Output::Raster
+            && let Some(smaller) = smaller_scale(&image, scale)
+        {
+            image = self.run(command, language, source, theme, smaller)?;
+            scale = smaller;
+        }
+        // The program cannot tell which theme the diagram chose itself.
+        let theme = super::chosen_theme(language, source).unwrap_or(theme);
         Ok(Drawn {
             image,
             scale,
@@ -393,6 +403,24 @@ impl Renderer for External {
             background: None,
         })
     }
+}
+
+/// A scale smaller than `scale`, at least one pixel to the CSS pixel, at
+/// which the PNG `image`, drawn at `scale`, would have no more pixels than
+/// kiri loads, when it has more: as many pixels to the CSS pixel as fit,
+/// in whole pixels, as a program may take no other. `None` when it fits,
+/// when it would not fit even at one, and when it is no PNG, whose size
+/// cannot be told without decoding it.
+fn smaller_scale(image: &[u8], scale: u32) -> Option<u32> {
+    let (width, height) = crate::images::png_size(image)?;
+    let pixels = u64::from(width) * u64::from(height);
+    if pixels <= crate::images::MAX_PIXELS {
+        return None;
+    }
+    // The pixels grow with the square of the scale.
+    let fits = f64::from(scale) * (crate::images::MAX_PIXELS as f64 / pixels as f64).sqrt();
+    let smaller = (fits.floor() as u32).min(scale.saturating_sub(1));
+    (smaller >= 1).then_some(smaller)
 }
 
 /// The kinds of Mermaid diagram whose configuration has `useMaxWidth`,
@@ -1251,6 +1279,87 @@ mod tests {
             .unwrap()
             .text();
         assert_eq!(svg, "/opt/node/bin:/usr/bin");
+    }
+
+    /// The start of a PNG file of `width` × `height` pixels, as far as its
+    /// header, which is all that tells its size.
+    fn png_header(width: u32, height: u32) -> Vec<u8> {
+        let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();
+        png.extend(width.to_be_bytes());
+        png.extend(height.to_be_bytes());
+        png.extend([8, 6, 0, 0, 0]);
+        png
+    }
+
+    /// What a command that takes `{scale}` draws of a diagram as large as
+    /// `sizes` gives for each scale, and the scales it was asked for.
+    fn drawn_at_scales(name: &str, sizes: &[(u32, Vec<u8>)]) -> (Result<Drawn, String>, String) {
+        let scratch = Scratch::new(name);
+        let calls = scratch.0.join("calls");
+        let mut script = format!("echo \"$3\" >> '{}'\ncase \"$3\" in\n", calls.display());
+        for (scale, image) in sizes {
+            let octal: String = image.iter().map(|byte| format!("\\{byte:03o}")).collect();
+            script.push_str(&format!("  {scale}) printf '{octal}' > \"$2\" ;;\n"));
+        }
+        script.push_str("  *) exit 9 ;;\nesac\n");
+        let path = scratch.0.join("render.sh");
+        fs::write(&path, script).unwrap();
+        let argv = [
+            "/bin/sh",
+            &path.to_string_lossy(),
+            "{input}",
+            "{output}",
+            "{scale}",
+        ];
+        let command = Command::new(argv.map(String::from).to_vec());
+        let renderer = External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
+            .with_work_dir(scratch.0.join("temp"));
+        let drawn = renderer.render("mermaid", SOURCE, Theme::Light);
+        let calls = fs::read_to_string(&calls).unwrap_or_default();
+        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+        (
+            drawn,
+            calls.split_whitespace().collect::<Vec<_>>().join(" "),
+        )
+    }
+
+    #[test]
+    fn a_png_too_large_to_load_is_drawn_again_at_a_scale_that_fits() {
+        // 64 megapixels at most: 9000 × 9000 at three pixels to the CSS
+        // pixel is too many, 6000 × 6000 at two is not.
+        let large = png_header(9000, 9000);
+        let smaller = png_header(6000, 6000);
+        let sizes = [(3, large.clone()), (2, smaller.clone())];
+        let (drawn, calls) = drawn_at_scales("smaller", &sizes);
+        let drawn = drawn.unwrap();
+        assert_eq!((&drawn.image, drawn.scale), (&smaller, 2));
+        assert_eq!(calls, "3 2");
+        // One that fits is drawn once.
+        let (drawn, calls) = drawn_at_scales("fits", &[(3, smaller.clone())]);
+        assert_eq!(drawn.unwrap().scale, 3);
+        assert_eq!(calls, "3");
+        // Only once more: one still too large is left for the image loader
+        // to refuse, which tells its size.
+        let sizes = [(3, large.clone()), (2, large.clone())];
+        let (drawn, calls) = drawn_at_scales("still-large", &sizes);
+        let drawn = drawn.unwrap();
+        assert_eq!((drawn.image, drawn.scale), (large, 2));
+        assert_eq!(calls, "3 2");
+        // One that would not fit even at one pixel to the CSS pixel is not
+        // drawn again.
+        let huge = png_header(30000, 30000);
+        let (drawn, calls) = drawn_at_scales("huge", &[(3, huge.clone())]);
+        assert_eq!(drawn.unwrap().image, huge);
+        assert_eq!(calls, "3");
+        // Nor is what is no PNG, whose size kiri cannot tell before
+        // decoding it.
+        let (drawn, calls) = drawn_at_scales("not-png", &[(3, b"GIF89a".to_vec())]);
+        assert_eq!(drawn.unwrap().scale, 3);
+        assert_eq!(calls, "3");
+        // A program that fails the second time fails.
+        let (drawn, calls) = drawn_at_scales("fails", &[(3, png_header(9000, 9000))]);
+        assert_eq!(drawn, Err("sh exited with status 9".to_owned()));
+        assert_eq!(calls, "3 2");
     }
 
     #[test]

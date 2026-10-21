@@ -113,7 +113,8 @@ example, come before the rest of phase 3.
 - An external command for a language in the configuration file,
   `[diagrams.mermaid]`, with `{input}`, `{output}`, `{theme}`,
   `{config}` and `{scale}`; it may write SVG or a raster image, and one
-  that takes `{scale}` writes a PNG at that scale. The Mermaid
+  that takes `{scale}` writes a PNG at that scale, or at a smaller one
+  for a diagram that would be too large to load. The Mermaid
   configuration it gets as `{config}` has the built-in renderer's look
   and layout, and each diagram at its own width. It
   replaces the built-in renderer, and one that fails does not fall back
