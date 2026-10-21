@@ -24,10 +24,9 @@ use crate::diagrams::{Diagrams, Drawn, Renderer, Theme};
 use crate::model::{Block, Document, Inline};
 
 pub use svg::{Fonts, Svg};
-pub use url::load_url;
 
 use svg::{decode_svg, looks_like_svg};
-use url::scheme;
+use url::{load_url, scheme};
 
 /// The most pixels kiri decodes in one image: 64 megapixels, 256 MiB as
 /// RGBA. A photo from a phone has about 12.

@@ -21,7 +21,7 @@ const BASE64: GeneralPurpose = GeneralPurpose::new(
 /// that is absolute or relative to `base`. Paths may use URL percent
 /// escapes and end in a `?query` or `#fragment`, as in a browser. Only
 /// regular files of at most `max_file_size` bytes are read.
-pub fn load_url(
+pub(super) fn load_url(
     url: &str,
     base: &Path,
     max_file_size: u64,

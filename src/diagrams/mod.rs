@@ -126,7 +126,7 @@ fn render_one_by_one<R: Renderer + ?Sized>(
 }
 
 /// `render_all` by `renderer`, drawing up to `at_once` diagrams at a time.
-pub fn render_in_parallel<R: Renderer + Sync + ?Sized>(
+fn render_in_parallel<R: Renderer + Sync + ?Sized>(
     renderer: &R,
     diagrams: &[(&str, &str)],
     theme: Theme,

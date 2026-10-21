@@ -33,7 +33,7 @@ pub const AT_ONCE: usize = 4;
 /// How many pixels to the CSS pixel a command draws a raster image with
 /// when it takes the scale as `{scale}`, unless the image is then too
 /// large to load; see `smaller_scale`.
-pub const SCALE: u32 = 3;
+const SCALE: u32 = 3;
 
 /// The longest path of the directory that the directories for diagrams'
 /// files go in. A program gets one of them as its temporary directory, and
