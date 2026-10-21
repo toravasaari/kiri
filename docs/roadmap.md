@@ -450,11 +450,11 @@ go.
 - Code blocks can be copied to the clipboard (OSC 52): in the pager with a
   key, and in print mode through a link beside the block that kitty's
   `open-actions.conf` hands to kiri.
-- A `--list-` family that shows what a value can be: `--list-emojis` (a
-  prototype, done); ideas: `--list-formats` for `--format`,
-  `--list-languages` for code block languages, `--list-themes` for named
-  themes (4.11), `--list-code-themes` for the `code_theme` keys, which
-  `docs/theme.md` lists by hand.
+- A `--list-` family that shows what a value can be, as `--list-emojis`
+  does: `--list-formats` for `--format`, `--list-languages` for code
+  block languages, `--list-themes` for named themes (4.11),
+  `--list-code-themes` for the `code_theme_dark` and `code_theme_light`
+  keys, which `docs/theme.md` lists by hand.
 - Front matter (4.10.4) in Forgejo's style: a table with one column per
   key, as GitHub used to draw it.
 - Only the front matter of a document, without its body, as a value of

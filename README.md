@@ -147,11 +147,9 @@ alt text with a warning.
 
 Every option is listed in [Options](docs/options.md).
 
-A [configuration file](docs/config.md), `~/.config/kiri/config.toml`, can
-choose the theme, turn images or diagrams off, say when to page and name
-a program that draws diagrams, and the
-[environment variables](docs/config.md#environment-variables) can do all
-but the last.
+A [configuration file](docs/config.md), `~/.config/kiri/config.toml`, and
+[environment variables](docs/config.md#environment-variables) can choose
+most settings; [Configuration](docs/config.md) tells which.
 
 When the output looks wrong, `kiri --doctor` shows what kiri found out
 about the terminal, which settings it uses and where each came from, and

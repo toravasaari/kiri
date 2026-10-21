@@ -90,22 +90,23 @@ command = ["mmdc", "-i", "{input}", "-o", "{output}", "-t", "{theme}", "-b", "tr
 This is mermaid-cli's command line, the same one kiri runs when it finds
 `mmdc` by itself. `mmdc` draws the diagram in its browser and writes a
 PNG of it, three pixels to the CSS pixel, which kiri shrinks to the size
-it shows the diagram at; the diagram then looks as it does in a browser. kiri writes the diagram's source to a file in a
-directory of its own, runs the program directly, without a shell, and
-reads the image it writes. The directory is in `diagrams` in kiri's cache
-directory (`$XDG_CACHE_HOME/kiri`, or `~/.cache/kiri`), made for you
-alone when it is needed, or in the temporary directory (`TMPDIR`, or
-`/tmp`) when that cannot be made or its path is longer than 49 bytes,
-too long for the sockets a browser may make in it. The program gets the
-directory as its `TMPDIR` too, so that what it leaves there, such as the
-profile of `mmdc`'s browser, goes with the directory once the diagram
-is drawn. A directory left in `diagrams` by a kiri that did not end
-normally, such as one killed with SIGKILL, goes the next time kiri
-draws there. Each directory has a file, `host`, with the name of the
-machine it was made on, and only a kiri on that machine removes it, so
-that machines or containers can share the cache directory. `kiri --doctor` shows these directories under *Diagram
-work files*, and why the cache directory cannot be used when it
-cannot. In the arguments:
+it shows the diagram at; the diagram then looks as it does in a browser.
+kiri writes the diagram's source to a file in a directory of its own,
+runs the program directly, without a shell, and reads the image it
+writes. The directory is in `diagrams` in kiri's cache directory
+(`$XDG_CACHE_HOME/kiri`, or `~/.cache/kiri`), made for you alone when it
+is needed, or in the temporary directory (`TMPDIR`, or `/tmp`) when that
+cannot be made or its path is longer than 49 bytes, too long for the
+sockets a browser may make in it. The program gets the directory as its
+`TMPDIR` too, so that what it leaves there, such as the profile of
+`mmdc`'s browser, goes with the directory once the diagram is drawn. A
+directory left in `diagrams` by a kiri that did not end normally, such
+as one killed with SIGKILL, goes the next time kiri draws there. Each
+directory has a file, `host`, with the name of the machine it was made
+on, and only a kiri on that machine removes it, so that machines or
+containers can share the cache directory. `kiri --doctor` shows these
+directories under *Diagram work files*, and why the cache directory
+cannot be used when it cannot. In the arguments:
 
 - `{input}` is the file of the diagram's source, which ends in `.mmd`
   for Mermaid;
@@ -141,9 +142,10 @@ cannot. In the arguments:
 as the document has it, so line numbers in the program's errors are the
 diagram's own. A command without `{config}` works too, but `mmdc` then
 draws a wide diagram narrower, and when it writes SVG, the labels of
-some diagram types, such as flowcharts, as HTML, which may show blank. No shell expands the arguments, so a leading `~/`
-is not your home directory: write the path in full. A program named
-without a path is looked for on `PATH`.
+some diagram types, such as flowcharts, as HTML, which may show blank.
+No shell expands the arguments, so a leading `~/` is not your home
+directory: write the path in full. A program named without a path is
+looked for on `PATH`.
 
 Each diagram may take 20 seconds, or as long as `timeout` in the
 `[diagrams]` table says, such as `timeout = 60` or `timeout = 2.5`; up

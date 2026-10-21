@@ -197,3 +197,4 @@ about images that do not load go to standard error whatever this says.
 | `HOME` | Your home directory, `~`, for the default configuration and cache directories, a theme under `~/` and programs found under it; ignored when empty or not an absolute path |
 | `XDG_CONFIG_HOME` | Where the configuration directory is; `~/.config` when unset or not an absolute path |
 | `XDG_CACHE_HOME` | Where kiri's cache directory is, for the files of [diagram commands](diagrams.md#diagram-commands); `~/.cache` when unset or not an absolute path |
+| `TMPDIR` | The temporary directory, for the files of [diagram commands](diagrams.md#diagram-commands) when the cache directory cannot be used; `/tmp` when unset or empty |
