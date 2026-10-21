@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Once};
 use std::time::{Duration, Instant};
 
-use super::{Drawn, Renderer, Request, Theme};
+use super::{Drawn, Renderer, Request};
 
 /// How long a program may take to draw one diagram before kiri stops it,
 /// unless the configuration file says otherwise.
@@ -256,14 +256,14 @@ impl External {
         }
     }
 
-    /// The image file that `command` draws of `source`, in `language`, in
-    /// `theme`, at `scale` pixels to the CSS pixel when it takes `{scale}`.
+    /// The image file that `command`, which writes `writes`, draws of the
+    /// diagram `request` asks for, at `scale` pixels to the CSS pixel when
+    /// it takes `{scale}`.
     fn run(
         &self,
         command: &Command,
-        language: &str,
-        source: &str,
-        theme: Theme,
+        writes: Output,
+        request: &Request,
         scale: u32,
     ) -> Result<Vec<u8>, String> {
         let program = command.program();
@@ -273,46 +273,16 @@ impl External {
         let dir = self
             .temp_dir()
             .map_err(|error| format!("cannot make a directory for {program}: {error}"))?;
-        let input = dir
-            .0
-            .join(format!("diagram.{}", super::extension(language)));
-        let writes = command.writes();
-        let output = dir.0.join(match writes {
-            Output::Svg => "diagram.svg",
-            Output::Raster => "diagram.png",
-        });
-        let errors = dir.0.join("errors.txt");
-        let config = config(language, writes).map(|(text, extension)| {
-            let path = dir.0.join(format!("config.{extension}"));
-            (path, text)
-        });
-        let written = (fs::write(&input, source))
-            .and_then(|()| match &config {
-                Some((path, text)) => fs::write(path, text),
-                None => Ok(()),
-            })
-            .and_then(|()| File::create(&errors));
-        let errors_file =
-            written.map_err(|error| format!("cannot write the files for {program}: {error}"))?;
-        let theme = super::theme_name(language, theme);
-        let argv: Vec<String> = (command.argv.iter())
-            .map(|arg| {
-                let arg = (arg.replace("{input}", &input.to_string_lossy()))
-                    .replace("{output}", &output.to_string_lossy())
-                    .replace("{theme}", theme)
-                    .replace("{scale}", &scale.to_string());
-                match &config {
-                    Some((path, _)) => arg.replace("{config}", &path.to_string_lossy()),
-                    None => arg,
-                }
-            })
-            .collect();
+        let (files, errors) = Files::write(&dir.0, request, writes)
+            .map_err(|error| format!("cannot write the files for {program}: {error}"))?;
+        let theme = super::theme_name(request.language, request.theme);
+        let argv = files.arguments(&command.argv, theme, scale);
         let mut child = process::Command::new(&argv[0]);
         child
             .args(&argv[1..])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(errors_file)
+            .stderr(errors)
             // Its temporary files, such as the profile of mermaid-cli's
             // browser, in its directory, so that they go with it, also when
             // it is killed.
@@ -326,28 +296,40 @@ impl External {
         let child = child
             .spawn()
             .map_err(|error| format!("{}: {error}", argv[0]))?;
+        self.finish(child, &program, &files)?;
+        self.read_output(&program, &files.output)
+    }
+
+    /// Waits for `child`, the program `program` that draws into `files`,
+    /// to end, until the time limit or a stop; why it failed, as the first
+    /// lines it wrote on standard error tell, when it did.
+    fn finish(&self, child: process::Child, program: &str, files: &Files) -> Result<(), String> {
+        let limit = self.settings.time_limit;
         let stop = || self.stopped();
-        let status = wait(child, self.settings.time_limit, &stop).map_err(|error| match error {
-            Waited::TimedOut => format!(
-                "{program} did not finish in {} s",
-                self.settings.time_limit.as_secs_f32()
-            ),
+        let status = wait(child, limit, &stop).map_err(|error| match error {
+            Waited::TimedOut => format!("{program} did not finish in {} s", limit.as_secs_f32()),
             Waited::Stopped => format!("{program} was stopped: interrupted"),
             Waited::Failed(error) => format!("{program}: {error}"),
         })?;
-        if !status.success() {
-            let said = read_start(&errors, SAID);
-            let ended = match status.code() {
-                Some(code) => format!("{program} exited with status {code}"),
-                None => format!("{program} was stopped by a signal"),
-            };
-            return Err(match first_lines(&String::from_utf8_lossy(&said)) {
-                Some(line) => format!("{ended}: {line}"),
-                None => ended,
-            });
+        if status.success() {
+            return Ok(());
         }
+        let said = read_start(&files.errors, SAID);
+        let ended = match status.code() {
+            Some(code) => format!("{program} exited with status {code}"),
+            None => format!("{program} was stopped by a signal"),
+        };
+        Err(match first_lines(&String::from_utf8_lossy(&said)) {
+            Some(line) => format!("{ended}: {line}"),
+            None => ended,
+        })
+    }
+
+    /// The image file at `output` that `program` wrote, up to the size
+    /// limit.
+    fn read_output(&self, program: &str, output: &Path) -> Result<Vec<u8>, String> {
         let limit = self.settings.max_size;
-        match File::open(&output).and_then(|file| crate::images::read_at_most(file, limit)) {
+        match File::open(output).and_then(|file| crate::images::read_at_most(file, limit)) {
             Ok(Some(bytes)) => Ok(bytes),
             Ok(None) => Err(format!(
                 "{program} wrote an image larger than the {} limit; see --max-image-size",
@@ -361,38 +343,95 @@ impl External {
     }
 }
 
+/// The files of one drawing, in its directory.
+struct Files {
+    /// The diagram's source.
+    input: PathBuf,
+    /// The image the program writes.
+    output: PathBuf,
+    /// What the program says on standard error.
+    errors: PathBuf,
+    /// The configuration for its language, if it has one.
+    config: Option<PathBuf>,
+}
+
+impl Files {
+    /// The files in `dir` for drawing the diagram `request` asks for with
+    /// a command that writes `writes`: its source and its language's
+    /// configuration written, and the file for what the program says
+    /// made, open for writing.
+    fn write(dir: &Path, request: &Request, writes: Output) -> io::Result<(Files, File)> {
+        let input = dir.join(format!("diagram.{}", super::extension(request.language)));
+        let output = dir.join(match writes {
+            Output::Svg => "diagram.svg",
+            Output::Raster => "diagram.png",
+        });
+        fs::write(&input, request.source)?;
+        let config = match config(request.language, writes) {
+            Some((text, extension)) => {
+                let path = dir.join(format!("config.{extension}"));
+                fs::write(&path, text)?;
+                Some(path)
+            }
+            None => None,
+        };
+        let errors = dir.join("errors.txt");
+        let errors_file = File::create(&errors)?;
+        let files = Files {
+            input,
+            output,
+            errors,
+            config,
+        };
+        Ok((files, errors_file))
+    }
+
+    /// The arguments `argv` with the placeholders in them filled in, the
+    /// theme by the name `theme` and the scale as `scale`.
+    fn arguments(&self, argv: &[String], theme: &str, scale: u32) -> Vec<String> {
+        (argv.iter())
+            .map(|arg| {
+                let arg = (arg.replace("{input}", &self.input.to_string_lossy()))
+                    .replace("{output}", &self.output.to_string_lossy())
+                    .replace("{theme}", theme)
+                    .replace("{scale}", &scale.to_string());
+                match &self.config {
+                    Some(path) => arg.replace("{config}", &path.to_string_lossy()),
+                    None => arg,
+                }
+            })
+            .collect()
+    }
+}
+
 impl Renderer for External {
     fn draws(&self, language: &str) -> bool {
         self.command(language).is_some()
     }
 
     fn render(&self, request: &Request) -> Result<Drawn, String> {
-        let &Request {
-            language,
-            source,
-            theme,
-        } = request;
-        let Some(command) = self.command(language) else {
-            return Err(format!("{language} diagrams have no command"));
+        let Some(command) = self.command(request.language) else {
+            return Err(format!("{} diagrams have no command", request.language));
         };
-        let mut scale = match command.writes() {
+        let writes = command.writes();
+        let mut scale = match writes {
             Output::Svg => 1,
             Output::Raster => SCALE,
         };
-        let mut image = self.run(command, language, source, theme, scale)?;
+        let mut image = self.run(command, writes, request, scale)?;
         // Once more at a scale that fits, rather than not at all.
-        if command.writes() == Output::Raster
+        if writes == Output::Raster
             && let Some(smaller) = smaller_scale(&image, scale)
         {
-            image = self.run(command, language, source, theme, smaller)?;
+            image = self.run(command, writes, request, smaller)?;
             scale = smaller;
         }
         // The program cannot tell which theme the diagram chose itself.
-        let theme = super::chosen_theme(language, source).unwrap_or(theme);
+        let theme = super::chosen_theme(request.language, request.source);
         Ok(Drawn {
             image,
             scale,
-            theme,
+            theme: theme.unwrap_or(request.theme),
             background: None,
         })
     }
@@ -637,7 +676,7 @@ fn is_stack_frame(line: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diagrams::mermaid;
+    use crate::diagrams::{Theme, mermaid};
     use crate::testing::Scratch;
 
     /// A directory of its own for the test that calls it `name`, with
