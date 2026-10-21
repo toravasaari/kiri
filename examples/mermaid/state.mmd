@@ -1,0 +1,16 @@
+stateDiagram-v2
+    [*] --> Draft
+    Draft --> InReview : open a pull request
+    InReview --> Draft : changes requested
+    InReview --> Approved : approve
+    Approved --> Merged : merge
+    Merged --> [*]
+    state InReview {
+        [*] --> Waiting
+        Waiting --> Reviewing : reviewer starts
+        Reviewing --> Waiting : new push
+    }
+    note right of Approved
+        Needs one approval
+        and green tests
+    end note

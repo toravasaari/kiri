@@ -9,7 +9,11 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use image::ImageFormat;
 
-use crate::config::{Choices, Environment, Origin, Paging, SearchCase, Setting, ThemeSource};
+use crate::config::{
+    AUTO_DETECT, Choices, Environment, Origin, Paging, SearchCase, Setting, ThemeSource,
+};
+use crate::diagrams::find::{self, Choice, Search};
+use crate::diagrams::{BuiltIn, Command, LANGUAGES};
 use crate::render::image::DEFAULT_CELL;
 use crate::term::{CellSize, Detection, Mode};
 use crate::theme::Paper;
@@ -62,7 +66,8 @@ pub fn report(facts: &Facts) -> String {
 }
 
 fn write_report(facts: &Facts, out: &mut String) -> std::fmt::Result {
-    let home = Home(facts.env.home.as_deref());
+    let home_dir = crate::config::home_directory(facts.env);
+    let home = Home(home_dir.as_deref().map(Path::as_os_str));
     writeln!(out, "# kiri doctor\n")?;
     writeln!(
         out,
@@ -75,6 +80,7 @@ fn write_report(facts: &Facts, out: &mut String) -> std::fmt::Result {
     write_files(facts, &home, out)?;
     writeln!(out, "## Image formats\n")?;
     writeln!(out, "{}\n", image_formats())?;
+    write_diagrams(facts, &home, out)?;
     if facts.output != Output::Raw {
         write_sample(out)?;
     }
@@ -229,6 +235,18 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     let rows = &choices.table_rows;
     let name = rows.value.name();
     row(out, &["Table rows", name, &from(rows.origin)])?;
+    let diagrams = &choices.diagrams;
+    let on = on_off(diagrams.value);
+    row(out, &["Diagrams", on, &from(diagrams.origin)])?;
+    let limit = &choices.diagram_timeout;
+    let seconds = format!("{} s", limit.value.as_secs_f64());
+    row(out, &["Diagram time limit", &seconds, &from(limit.origin)])?;
+    let panel = &choices.diagram_panel;
+    let on = on_off(panel.value);
+    row(out, &["Diagram panels", on, &from(panel.origin)])?;
+    let errors = &choices.render_errors;
+    let name = errors.value.name();
+    row(out, &["Render errors", name, &from(errors.origin)])?;
     let size = &facts.max_image_size;
     let mb = format!("{} MB", size.value);
     row(out, &["Largest image", &mb, &from(size.origin)])?;
@@ -266,6 +284,90 @@ fn write_files(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result
         let status = if path.exists() { "found" } else { "not found" };
         let from = origin_text(crate::config::directory_origin(facts.env), facts.env, home);
         row(out, &["Theme file", &home.path(&path), &from, status])?;
+    }
+    write_work_files(facts, home, out)?;
+    writeln!(out)
+}
+
+/// Rows for where programs that draw diagrams keep their files: the
+/// cache directory, and the temporary directory when that cannot be used.
+fn write_work_files(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result {
+    use crate::diagrams::external::{LONGEST_WORK_DIR, Unusable, not_writable, unusable};
+
+    const WORK_FILES: &str = "Diagram work files";
+    let env = facts.env;
+    let why = |problem: Unusable| match problem {
+        Unusable::TooLong => format!("its path is longer than {LONGEST_WORK_DIR} bytes"),
+        Unusable::NotADirectory(path) => format!("{} is not a directory", home.path(&path)),
+        Unusable::NotWritable(path) => format!("{} cannot be written to", home.path(&path)),
+    };
+    match crate::config::cache_directory(env) {
+        Some(cache) => {
+            let work = cache.join("diagrams");
+            let from = origin_text(crate::config::cache_directory_origin(env), env, home);
+            let Some(problem) = unusable(&work) else {
+                return row(out, &[WORK_FILES, &home.path(&work), &from, "usable"]);
+            };
+            let status = format!("not usable: {}", why(problem));
+            row(out, &[WORK_FILES, &home.path(&work), &from, &status])?;
+        }
+        None => row(out, &[WORK_FILES, "none: `HOME` is not set", "", ""])?,
+    }
+    let temp = crate::config::temp_directory(env);
+    let from = origin_text(crate::config::temp_directory_origin(env), env, home);
+    let status = match not_writable(&temp) {
+        None => "usable".to_owned(),
+        Some(problem) => format!("not usable: {}", why(problem)),
+    };
+    row(out, &[WORK_FILES, &home.path(&temp), &from, &status])
+}
+
+/// The renderers for each diagram language: the built-in one and the
+/// external command, a row for each.
+fn write_diagrams(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result {
+    let on = facts.choices.diagrams.value;
+    let search = Search::new(facts.env);
+    writeln!(out, "## Diagrams\n")?;
+    writeln!(out, "| Language | Renderer | Status |\n|---|---|---|")?;
+    for language in LANGUAGES {
+        let choices = facts.choices;
+        let configured = &choices.diagram_commands;
+        let choice = find::choose(language, configured, &choices.diagram_no_search, &search);
+        let command = |found: &str, command: &Command| {
+            format!(
+                "command {found}: {}",
+                code(&home.hide_in(&command.argv.join(" ")))
+            )
+        };
+        let (external, used) = match &choice {
+            Choice::Configured(argv) => (command("configured", argv), true),
+            Choice::Found(argv) => (command("found", argv), true),
+            Choice::NotFound(program) => (format!("command: {} not found", code(program)), false),
+            Choice::NotLookedFor(program) => {
+                let off = code(&format!("{AUTO_DETECT} = false"));
+                (
+                    format!("command: {} not looked for: {off}", code(program)),
+                    false,
+                )
+            }
+            Choice::None => ("command: none configured".to_owned(), false),
+        };
+        let (built_in, status) = match BuiltIn::version(language) {
+            Some(version) if used => (
+                format!("built-in: {version}"),
+                "not used: a command is configured",
+            ),
+            Some(version) if on => (format!("built-in: {version}"), "used"),
+            Some(version) => (format!("built-in: {version}"), "not used: diagrams are off"),
+            None => ("built-in".to_owned(), "not in this build"),
+        };
+        row(out, &[&code(language), &built_in, status])?;
+        let status = match (used, on) {
+            (true, true) => "used",
+            (true, false) => "not used: diagrams are off",
+            (false, _) => "not used",
+        };
+        row(out, &[&code(language), &external, status])?;
     }
     writeln!(out)
 }
@@ -341,8 +443,12 @@ fn variable<'a>(env: &'a Environment, name: &str) -> Option<&'a OsStr> {
         "KIRI_PAGING" => env.kiri_paging.as_deref(),
         "KIRI_FRONT_MATTER" => env.kiri_front_matter.as_deref(),
         "KIRI_TABLE_ROWS" => env.kiri_table_rows.as_deref(),
+        "KIRI_DIAGRAMS" => env.kiri_diagrams.as_deref(),
+        "KIRI_RENDER_ERRORS" => env.kiri_render_errors.as_deref(),
         "KIRI_CONFIG" => env.kiri_config.as_deref(),
         "XDG_CONFIG_HOME" => env.xdg_config_home.as_deref(),
+        "XDG_CACHE_HOME" => env.xdg_cache_home.as_deref(),
+        "TMPDIR" => env.tmpdir.as_deref(),
         _ => None,
     }
 }

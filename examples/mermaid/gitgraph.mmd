@@ -1,0 +1,15 @@
+gitGraph
+    commit id: "init"
+    commit id: "readme"
+    branch feature/search
+    checkout feature/search
+    commit id: "search box"
+    commit id: "highlight"
+    checkout main
+    commit id: "fix typo"
+    merge feature/search
+    branch release
+    checkout release
+    commit id: "v1.0" tag: "v1.0"
+    checkout main
+    commit id: "next"

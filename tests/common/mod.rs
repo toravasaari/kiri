@@ -10,6 +10,7 @@ use std::process::{Command, Output, Stdio};
 use base64::Engine;
 use image::{Rgba, RgbaImage};
 use kiri::caps::Capabilities;
+use kiri::diagrams::{Diagrams, Drawn, Renderer, Theme as DiagramTheme};
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, Images, Source};
 use kiri::kitty::graphics::{DIACRITICS, PLACEHOLDER};
 use kiri::render::Inputs;
@@ -156,15 +157,21 @@ pub fn one_image(url: &str, image: RgbaImage) -> Images {
 /// data compresses to a few bytes. Without fonts, as the sizes do not
 /// depend on them.
 pub fn fixture_images(name: &str) -> Images {
+    fixture_images_with(name, &Diagrams::none())
+}
+
+/// `fixture_images`, with the diagrams `diagrams` draws.
+pub fn fixture_images_with(name: &str, diagrams: &Diagrams<'_>) -> Images {
     let document = kiri::parse::parse(&fixture(name));
     let loaded = kiri::images::load_with(
         &document,
         &fixtures(),
         DEFAULT_MAX_FILE_SIZE,
         &Fonts::none(),
+        diagrams,
     );
     let mut images = Images::new();
-    for (url, image) in loaded.iter() {
+    for (key, image) in loaded.iter() {
         let image = match image {
             Ok(source) => {
                 let (width, height) = source.size();
@@ -172,9 +179,61 @@ pub fn fixture_images(name: &str) -> Images {
             }
             Err(error) => Err(error.clone()),
         };
-        images.insert(url, image);
+        images.insert(key.clone(), image);
     }
     images
+}
+
+/// Draws Mermaid without merman, so tests do not depend on its output:
+/// an empty SVG one text row, 20 CSS pixels, high for each line of source,
+/// and 10 + n cells of 10 pixels wide, where n is the source's length in
+/// characters modulo 30. The width tells diagrams of equal line counts
+/// apart, so a snapshot shows which source got which image. A source with
+/// a line that opens more brackets than it closes fails, as merman fails
+/// on an unclosed label.
+pub struct StubDiagrams;
+
+impl Renderer for StubDiagrams {
+    fn draws(&self, language: &str) -> bool {
+        language.eq_ignore_ascii_case("mermaid")
+    }
+
+    fn render(&self, _language: &str, source: &str, theme: DiagramTheme) -> Result<Drawn, String> {
+        let unclosed = |line: &str| line.matches('[').count() > line.matches(']').count();
+        if source.lines().any(unclosed) {
+            return Err("unclosed label".into());
+        }
+        let width = 10 * (10 + source.chars().count() % 30);
+        let height = 20 * source.lines().count();
+        let svg = format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}"/>"#
+        );
+        Ok(Drawn::svg(svg, theme, None))
+    }
+}
+
+/// Diagrams drawn by `StubDiagrams` for a light page, named by line.
+pub fn stub_diagrams() -> Diagrams<'static> {
+    Diagrams {
+        renderer: &StubDiagrams,
+        theme: DiagramTheme::Light,
+        by_line: true,
+        progress: None,
+        panel: true,
+        largest: None,
+    }
+}
+
+/// The images of `source`, a Markdown document, with its diagrams drawn
+/// by `StubDiagrams`.
+pub fn stub_diagram_images(source: &str) -> Images {
+    kiri::images::load_with(
+        &kiri::parse::parse(source),
+        &fixtures(),
+        DEFAULT_MAX_FILE_SIZE,
+        &Fonts::none(),
+        &stub_diagrams(),
+    )
 }
 
 /// The keys and base64 data of every graphics command in `output`.
@@ -314,13 +373,28 @@ impl Drop for Scratch {
 
 /// The kiri binary with nothing from the environment of the tests: no
 /// colour settings, and the home and configuration directories in `dir`,
-/// so the user's theme stays out.
+/// so the user's theme stays out. The signals that end kiri do so, also
+/// when the tests run in the background or under nohup, which ignore some
+/// of them, and kiri leaves an ignored signal ignored.
 pub fn command(dir: &Path) -> Command {
+    use std::os::unix::process::CommandExt;
+
     let mut command = Command::new(env!("CARGO_BIN_EXE_kiri"));
     command
         .env_clear()
         .env("HOME", dir.join("home"))
         .env("XDG_CONFIG_HOME", dir.join("config"));
+    // SAFETY: signal is async-signal-safe and touches no memory.
+    unsafe {
+        command.pre_exec(|| {
+            for signal in [libc::SIGINT, libc::SIGHUP, libc::SIGTERM, libc::SIGQUIT] {
+                if libc::signal(signal, libc::SIG_DFL) == libc::SIG_ERR {
+                    return Err(std::io::Error::last_os_error());
+                }
+            }
+            Ok(())
+        });
+    }
     command
 }
 
@@ -382,6 +456,27 @@ pub fn text(bytes: &[u8]) -> String {
 pub fn write(path: &Path, text: &str) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, text).unwrap();
+}
+
+/// A program at `path` that runs `script`. Another process writes it, so
+/// that no program started by this one, between its fork and its exec,
+/// holds the file open for writing when the program is run, which fails
+/// with "text file busy".
+pub fn executable(path: &Path, script: &str) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(path)
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(script.as_bytes())
+        .unwrap();
+    assert!(child.wait().unwrap().success());
 }
 
 /// A pseudo-terminal: the terminal side, and the program's side.

@@ -42,17 +42,30 @@ fn piped(dir: &Path, args: &[&str]) -> String {
 }
 
 /// The report with the parts that change between builds replaced: kiri's
-/// version, and the image formats, which depend on the build's features.
+/// version, and the image formats and the diagram renderers, which depend
+/// on the build's features; and the rows for where diagram programs work,
+/// one or two, which depend on the directories the tests run in.
 fn stable(report: &str) -> String {
-    report
-        .replace(env!("CARGO_PKG_VERSION"), "[version]")
+    let mut lines: Vec<&str> = report
         .lines()
-        .map(|line| match line.contains("PNG") {
-            true => "[image formats]",
-            false => line,
+        .map(|line| {
+            if line.contains("PNG") {
+                "[image formats]"
+            } else if line.starts_with("| `mermaid` | built-in") {
+                "[built-in mermaid renderer]"
+            } else if line.starts_with("| `mermaid` | command") {
+                "[mermaid command]"
+            } else if line.starts_with("| Diagram work files |") {
+                "[diagram work files]"
+            } else {
+                line
+            }
         })
-        .collect::<Vec<_>>()
+        .collect();
+    lines.dedup_by(|a, b| a == b && *a == "[diagram work files]");
+    lines
         .join("\n")
+        .replace(env!("CARGO_PKG_VERSION"), "[version]")
 }
 
 #[test]
@@ -200,6 +213,97 @@ fn table_rows_tell_where_they_come_from() {
 }
 
 #[test]
+fn diagrams_tell_where_they_come_from() {
+    let dir = Scratch::new("doctor-diagrams");
+    for (args, variable, row) in [
+        (&[][..], None, "| Diagrams | on | default |"),
+        (
+            &["--diagrams", "on"][..],
+            Some("0"),
+            "| Diagrams | on | `--diagrams` |",
+        ),
+        (
+            &[][..],
+            Some("off"),
+            "| Diagrams | off | `KIRI_DIAGRAMS=off` |",
+        ),
+    ] {
+        let mut command = doctor(&dir, args);
+        if let Some(value) = variable {
+            command.env("KIRI_DIAGRAMS", value);
+        }
+        let out = command.output().unwrap();
+        assert_succeeded(&out);
+        let report = text(&out.stdout);
+        assert!(report.contains(row), "{row}\n{report}");
+    }
+    write(
+        &dir.join("home/.config/kiri/config.toml"),
+        "diagrams = false\n",
+    );
+    let report = piped(&dir, &[]);
+    let row = "| Diagrams | off | configuration file |";
+    assert!(report.contains(row), "{row}\n{report}");
+}
+
+#[test]
+fn render_errors_tell_where_they_come_from() {
+    let dir = Scratch::new("doctor-render-errors");
+    for (args, variable, row) in [
+        (&[][..], None, "| Render errors | both | default |"),
+        (
+            &["--render-errors", "stderr"][..],
+            Some("inline"),
+            "| Render errors | stderr | `--render-errors` |",
+        ),
+        (
+            &[][..],
+            Some("inline"),
+            "| Render errors | inline | `KIRI_RENDER_ERRORS=inline` |",
+        ),
+    ] {
+        let mut command = doctor(&dir, args);
+        if let Some(value) = variable {
+            command.env("KIRI_RENDER_ERRORS", value);
+        }
+        let out = command.output().unwrap();
+        assert_succeeded(&out);
+        let report = text(&out.stdout);
+        assert!(report.contains(row), "{row}\n{report}");
+    }
+    write(
+        &dir.join("home/.config/kiri/config.toml"),
+        "render_errors = \"inline\"\n",
+    );
+    let report = piped(&dir, &[]);
+    let row = "| Render errors | inline | configuration file |";
+    assert!(report.contains(row), "{row}\n{report}");
+}
+
+#[test]
+fn the_diagrams_time_limit_and_panels_tell_where_they_come_from() {
+    let dir = Scratch::new("doctor-diagram-settings");
+    let report = piped(&dir, &[]);
+    for row in [
+        "| Diagram time limit | 20 s | default |",
+        "| Diagram panels | on | default |",
+    ] {
+        assert!(report.contains(row), "{row}\n{report}");
+    }
+    write(
+        &dir.join("home/.config/kiri/config.toml"),
+        "[diagrams]\ntimeout = 2.5\nbackground_panel = false\n",
+    );
+    let report = piped(&dir, &[]);
+    for row in [
+        "| Diagram time limit | 2.5 s | configuration file |",
+        "| Diagram panels | off | configuration file |",
+    ] {
+        assert!(report.contains(row), "{row}\n{report}");
+    }
+}
+
+#[test]
 fn the_search_case_tells_where_it_comes_from() {
     let dir = Scratch::new("doctor-search-case");
     let report = piped(&dir, &[]);
@@ -290,6 +394,65 @@ fn the_files_tell_where_their_paths_come_from() {
 }
 
 #[test]
+fn the_files_tell_where_diagram_programs_work() {
+    // A short name, so that a cache directory in it is short enough.
+    let dir = Scratch::new("dw");
+    write(&dir.join("home/file"), "");
+    std::fs::create_dir_all(dir.join("home/tmp")).unwrap();
+    let rows = |cache: Option<&Path>| {
+        let mut command = doctor(&dir, &[]);
+        command.env("TMPDIR", dir.join("home/tmp"));
+        if let Some(cache) = cache {
+            command.env("XDG_CACHE_HOME", cache);
+        }
+        let out = command.output().unwrap();
+        assert_succeeded(&out);
+        let report = text(&out.stdout);
+        (report.lines())
+            .filter(|line| line.starts_with("| Diagram work files"))
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let default = &rows(None)[0];
+    let start = "| Diagram work files | `~/.cache/kiri/diagrams` | default |";
+    assert!(default.starts_with(start), "{default}");
+    let cache = dir.join("c");
+    let work = cache.join("kiri/diagrams");
+    assert!(
+        work.as_os_str().len() <= 49,
+        "the tests need a shorter TMPDIR"
+    );
+    assert_eq!(
+        rows(Some(&cache)),
+        [format!(
+            "| Diagram work files | `{}` | `XDG_CACHE_HOME={}` | usable |",
+            work.display(),
+            cache.display()
+        )]
+    );
+    // Where the cache directory cannot be made, or its path is too long
+    // for the sockets a browser makes, the temporary directory is used.
+    let temp = "| Diagram work files | `~/tmp` | `TMPDIR=~/tmp` | usable |";
+    assert_eq!(
+        rows(Some(&dir.join("home/file"))),
+        [
+            "| Diagram work files | `~/file/kiri/diagrams` | `XDG_CACHE_HOME=~/file` \
+             | not usable: `~/file` is not a directory |",
+            temp
+        ]
+    );
+    let long = dir.join("home").join("x".repeat(60));
+    let row = rows(Some(&long));
+    assert_eq!(row.len(), 2, "{row:?}");
+    assert!(
+        row[0].ends_with("| not usable: its path is longer than 49 bytes |"),
+        "{row:?}"
+    );
+    assert_eq!(row[1], temp);
+    assert!(!long.exists());
+}
+
+#[test]
 fn values_with_pipes_backticks_and_control_characters_stay_in_their_cells() {
     let dir = Scratch::new("doctor-escapes");
     let mut command = doctor(&dir, &[]);
@@ -338,6 +501,88 @@ fn the_report_lists_the_image_formats_this_build_decodes() {
         assert!(line.contains(format), "{format}: {line}");
     }
     assert_eq!(line.contains("BMP"), cfg!(feature = "full"), "{line}");
+}
+
+#[test]
+fn the_report_names_the_built_in_mermaid_renderer() {
+    let dir = Scratch::new("doctor-mermaid");
+    for (args, status) in [
+        (&[][..], "used"),
+        (&["--diagrams", "off"][..], "not used: diagrams are off"),
+    ] {
+        let report = piped(&dir, args);
+        assert!(report.contains("## Diagrams"), "{report}");
+        let row = match kiri::diagrams::BuiltIn::version("mermaid") {
+            Some(version) => format!("| `mermaid` | built-in: {version} | {status} |"),
+            None => "| `mermaid` | built-in | not in this build |".to_owned(),
+        };
+        assert!(report.contains(&row), "{row}\n{report}");
+    }
+    let row = report_row(&piped(&dir, &[]), "| `mermaid` |");
+    assert_eq!(row.contains("merman"), cfg!(feature = "mermaid"), "{row}");
+}
+
+#[test]
+fn the_report_names_the_mermaid_command() {
+    let dir = Scratch::new("doctor-mermaid-command");
+    let row = |args: &[&str]| report_row(&piped(&dir, args), "| `mermaid` | command");
+    let none = "| `mermaid` | command: none configured | not used |";
+    let nothing = match cfg!(feature = "mermaid") {
+        true => none,
+        false => "| `mermaid` | command: `mmdc` not found | not used |",
+    };
+    // Unless Homebrew has mmdc on this machine.
+    let homebrew = [
+        "/opt/homebrew/bin/mmdc",
+        "/home/linuxbrew/.linuxbrew/bin/mmdc",
+    ];
+    if !homebrew.iter().any(|path| Path::new(path).exists()) {
+        assert_eq!(row(&[]), nothing);
+    }
+    // Found where nvm installs programs, in a build without merman, but
+    // not looked for when the configuration file says so.
+    let nvm = "home/.nvm/versions/node/v24.16.0/bin/mmdc";
+    common::executable(&dir.join(nvm), "#!/bin/sh\n");
+    let config = dir.join("home/.config/kiri/config.toml");
+    write(&config, "[diagrams.mermaid]\nauto_detect = false\n");
+    let off = match cfg!(feature = "mermaid") {
+        true => none,
+        false => "| `mermaid` | command: `mmdc` not looked for: `auto_detect = false` | not used |",
+    };
+    assert_eq!(row(&[]), off);
+    std::fs::remove_file(&config).unwrap();
+    let found = match cfg!(feature = "mermaid") {
+        true => none.to_owned(),
+        false => "| `mermaid` | command found: `~/.nvm/versions/node/v24.16.0/bin/mmdc -i {input} \
+                  -o {output} -t {theme} -b transparent -c {config} -s {scale}` | used |"
+            .to_owned(),
+    };
+    assert_eq!(row(&[]), found);
+    write(
+        &dir.join("home/.config/kiri/config.toml"),
+        "[diagrams.mermaid]\ncommand = [\"mmdc\", \"-i\", \"{input}\", \"-o\", \"{output}\"]\n",
+    );
+    let configured = "| `mermaid` | command configured: `mmdc -i {input} -o {output}` |";
+    assert_eq!(row(&[]), format!("{configured} used |"));
+    assert_eq!(
+        row(&["--diagrams", "off"]),
+        format!("{configured} not used: diagrams are off |")
+    );
+    let built_in = report_row(&piped(&dir, &[]), "| `mermaid` | built-in");
+    let status = match cfg!(feature = "mermaid") {
+        true => "| not used: a command is configured |",
+        false => "| not in this build |",
+    };
+    assert!(built_in.ends_with(status), "{built_in}");
+}
+
+/// The line of `report` that starts with `start`.
+fn report_row(report: &str, start: &str) -> String {
+    report
+        .lines()
+        .find(|line| line.starts_with(start))
+        .unwrap_or_else(|| panic!("{start}\n{report}"))
+        .to_owned()
 }
 
 #[test]

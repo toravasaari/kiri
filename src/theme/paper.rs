@@ -39,10 +39,14 @@ struct PaperColors {
     /// the pager's matches stand out from it.
     marked: Option<Color>,
     marked_text: Option<Color>,
+    /// Messages kiri writes into the document: the one colour outside
+    /// code blocks, as they should stand out.
+    error: Option<Color>,
 }
 
 impl Theme {
-    /// A light or dark page in greys, with colour only in code blocks.
+    /// A light or dark page in greys, with colour only in code blocks and
+    /// in kiri's own error messages.
     pub fn paper(paper: Paper) -> Self {
         let grey = |level: u8| Some(Color::Rgb(level, level, level));
         let colors = match paper {
@@ -63,6 +67,7 @@ impl Theme {
                 found_text: grey(0x00),
                 marked: grey(0xdc),
                 marked_text: grey(0x00),
+                error: Some(Color::Rgb(0xb3, 0x26, 0x1e)),
             },
             Paper::Dark => PaperColors {
                 background: grey(0x1e),
@@ -81,6 +86,7 @@ impl Theme {
                 found_text: grey(0xff),
                 marked: grey(0x4a),
                 marked_text: grey(0xff),
+                error: Some(Color::Rgb(0xff, 0x78, 0x6e)),
             },
         };
         let mut theme = Self {
@@ -94,6 +100,7 @@ impl Theme {
             rule: colors.line,
             list_marker: colors.marker,
             table_border: colors.border,
+            error: colors.error,
             // The page is the same whatever the terminal's background.
             code_theme_dark: colors.code_theme.into(),
             code_theme_light: colors.code_theme.into(),

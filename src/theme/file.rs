@@ -63,6 +63,7 @@ pub fn parse(text: &str) -> Result<Theme, String> {
     set_color(&mut theme.rule, file.rule)?;
     set_color(&mut theme.list_marker, file.list_marker)?;
     set_color(&mut theme.table_border, file.table_border)?;
+    set_color(&mut theme.error, file.error)?;
     for (target, name) in [
         (&mut theme.code_theme_dark, file.code_theme_dark),
         (&mut theme.code_theme_light, file.code_theme_light),
@@ -220,6 +221,7 @@ struct ThemeFile {
     rule: Option<String>,
     list_marker: Option<String>,
     table_border: Option<String>,
+    error: Option<String>,
     code_padding: Option<bool>,
     code_theme_dark: Option<String>,
     code_theme_light: Option<String>,

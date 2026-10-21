@@ -13,6 +13,7 @@
 //! the text width still bounds it.
 
 use crate::caps::Capabilities;
+use crate::images::ImageKey;
 use crate::model::Length;
 
 /// The cell size assumed when the terminal does not report one.
@@ -26,6 +27,14 @@ pub fn cell_size(caps: &Capabilities) -> (u16, u16) {
     caps.cell_pixels
         .filter(|&(width, height)| width > 0 && height > 0)
         .unwrap_or(DEFAULT_CELL)
+}
+
+/// The most pixels, wide and high, an image can be shown at: as many
+/// cells as one image can cover each way.
+pub fn largest(caps: &Capabilities) -> (u32, u32) {
+    let (width, height) = cell_size(caps);
+    let cells = u32::from(caps.max_image_cells);
+    (cells * u32::from(width), cells * u32::from(height))
 }
 
 /// The size an image is shown at.
@@ -148,8 +157,8 @@ fn shrink_to(shown: (f64, f64), cell: (u16, u16), max_columns: u16, max_rows: u1
 /// An image shown as a block: which one, and at what size.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Placement {
-    /// The URL the document gives, the key into `Images`.
-    pub url: String,
+    /// Which image, the key into `Images`.
+    pub key: ImageKey,
     pub size: Size,
 }
 
@@ -158,6 +167,22 @@ mod tests {
     use super::*;
 
     const CELL: (u16, u16) = (10, 20);
+
+    #[test]
+    fn an_image_is_shown_at_most_as_many_cells_as_it_can_cover() {
+        let caps = Capabilities {
+            max_image_cells: 300,
+            cell_pixels: Some((9, 18)),
+            ..Capabilities::kitty(80)
+        };
+        assert_eq!(largest(&caps), (2700, 5400));
+        // The cell size assumed when the terminal tells none.
+        let caps = Capabilities {
+            cell_pixels: None,
+            ..caps
+        };
+        assert_eq!(largest(&caps), (3000, 6000));
+    }
     const NATURAL: Wanted = Wanted {
         width: None,
         height: None,

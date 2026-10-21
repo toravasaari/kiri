@@ -1,0 +1,21 @@
+sequenceDiagram
+    autonumber
+    actor User
+    participant App as Mobile app
+    participant API
+    participant DB as Database
+    User->>App: Tap "Log in"
+    App->>API: POST /login
+    activate API
+    API->>DB: Look up the user
+    DB-->>API: User and password hash
+    Note over API: Check the password
+    alt password is right
+        API-->>App: 200 OK and a token
+        App-->>User: Show the home screen
+    else password is wrong
+        API-->>App: 401 Unauthorized
+        App-->>User: Show an error
+    end
+    deactivate API
+    Note right of App: The token is kept<br/>until the user logs out

@@ -48,6 +48,11 @@ example, come before the rest of phase 3.
   about a fifth smaller.
 - Shell completions and a man page, generated from the command-line
   definition.
+- Third-party notices with the release binaries for the dependencies
+  compiled in, among them merman's ELK layout (EPL-2.0), the KaTeX font
+  data of its math (OFL-1.1), and the CSS crates it brings, cssparser,
+  cssparser-macros, selectors and dtoa-short (MPL-2.0), whose notice
+  also tells where their source is.
 
 ### 3.4 Render check (done)
 
@@ -83,17 +88,58 @@ example, come before the rest of phase 3.
   Typst syntax, rendered to images through Typst's math engine.
 - A cache for rendered images.
 - Groundwork, before formulas and diagrams are worked on side by side:
-  images that come from a block rather than a URL. `Images` maps URLs to
-  images; formulas and diagrams need keys of their own and one cache.
+  images that come from a block rather than a URL. `Images` keys images
+  by a URL or a block, its language and source, and Mermaid diagrams
+  (4.3.1) are the first images from blocks. (done)
 - Groundwork: `render/layout.rs` split by block type (lists, quotes, code)
   before the next block type joins it, formulas or GitHub alert blocks,
   whichever comes first. (done)
 
 ### 4.3 Diagrams
 
-#### 4.3.1 Mermaid
+#### 4.3.1 Mermaid (done)
 
-- Mermaid diagrams through an external renderer when one is installed.
+- Mermaid code blocks drawn as diagrams, as GitHub draws them, with
+  Mermaid's `default` theme on a light page and `dark` on a dark one
+  unless a diagram chooses its own. A diagram in colours for the other
+  page lies on a panel of its own background, unless `background_panel`
+  is off.
+- The full build draws them itself through merman: every diagram type,
+  the Cytoscape and ELK layouts, and math. It lays diagrams out with
+  dagre, as GitHub's Mermaid 11 does, unless a diagram asks for another
+  layout; merman follows Mermaid 12, whose default is ELK. The minimal
+  build uses mermaid-cli's `mmdc`, found on `PATH` or where npm, nvm and
+  Homebrew install it, unless `auto_detect` in `[diagrams.mermaid]` is
+  off, and shows the PNG that its browser draws at three pixels to the
+  CSS pixel.
+- An external command for a language in the configuration file,
+  `[diagrams.mermaid]`, with `{input}`, `{output}`, `{theme}`,
+  `{config}` and `{scale}`; it may write SVG or a raster image, and one
+  that takes `{scale}` writes a PNG at that scale, or at a smaller one
+  for a diagram that would be too large to load. The Mermaid
+  configuration it gets as `{config}` has the built-in renderer's look
+  and layout, and each diagram at its own width. It
+  replaces the built-in renderer, and one that fails does not fall back
+  to it. Its time limit, 20 s unless `timeout` says otherwise, and
+  Ctrl-C, SIGTERM and SIGHUP stop it and what it started.
+- `--diagrams on|off`, `KIRI_DIAGRAMS` and `enabled` in the configuration
+  file's `[diagrams]` table; `--doctor` shows the switch, the time
+  limit and the panels with their origins, and each language's
+  renderers.
+- A diagram that does not draw stays code, with the reason in red below
+  it and a warning naming its line; `--render-errors inline|stderr|both`,
+  `KIRI_RENDER_ERRORS` and `render_errors` in the configuration file
+  choose one of them or both, as they will for formulas. Drawing that
+  takes longer than half a second shows how far it has got.
+- `kiri file.mmd` (or `.mermaid`, or `--format mermaid`): a Mermaid file
+  drawn on its own, fit to the window as an image file is; its source as
+  text when it is not drawn, and an error when it fails to draw.
+- merman's SVG fixed where resvg would lose part of it: sequence-diagram
+  notes, clipped class-diagram labels and text past a diagram's edge,
+  each pinned with a test.
+- Later: a disk cache for diagrams across runs, mainly for `mmdc`.
+- Later: in the pager, showing the document at once and filling the
+  diagrams in as they are drawn.
 
 #### 4.3.2 Other diagram languages
 
@@ -165,7 +211,8 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   changed.
 - A follow mode for a document another program is writing, such as one
   Claude is working on in the next window: it reloads on every change and
-  shows the part that changed, without a key press.
+  shows the part that changed, without a key press. `-f` is `--format`'s
+  short flag today; it may move to `--follow`.
 - Changes shown as a diff, added text green and removed text red, fading
   out slowly: after a reload, and against a git revision.
 
@@ -192,6 +239,9 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   highlighting, and their outputs, images included.
 - CSV and TSV files, shown as a table. A file of more than 100 000 cells
   shows its first rows and a note of how many were left out. (done)
+- `--format text`: any file shown as it is, in a code block highlighted
+  by its extension, such as a Markdown or Mermaid file's source; plain
+  output, such as into a pipe, gets the file as `cat` gives it. (done)
 
 #### 4.7.2 Large files
 
@@ -213,9 +263,9 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   setting with where it came from (default, configuration file,
   environment variable or command-line flag), the configuration file
   paths and the image formats this build decodes.
-- The external tools later parts need (Typst, a Mermaid renderer, ffmpeg,
-  pandoc) join the report with the part that uses each, saying whether it
-  was found.
+- The external tools later parts need (Typst, ffmpeg, pandoc) join the
+  report with the part that uses each, saying whether it was found, as
+  the Mermaid renderers did with 4.3.1.
 - The report is a Markdown document that kiri renders itself, so it also
   shows how headings, tables and images look in this terminal. Piped to a
   file it stays plain Markdown, ready to paste into a bug report.
@@ -412,6 +462,27 @@ go.
 - Front matter tables: tell a list's items from a nested map, such as a
   muted `1.` line above each item's table or the number in its top
   border. Tried on `feature/front-matter`; the line survives stacking.
+- kiri creates a default configuration file, and perhaps settings edited
+  from the UI.
+- Question: how should the text format be shown? Today `--format text`
+  writes a highlighted code block on a terminal and the file as it is
+  elsewhere; to be decided.
+- `--config KEY=VALUE` (named so rather than `--option`) overrides any
+  configuration key on the command line, as cargo's `--config` does,
+  such as `diagrams.timeout=60`; with it, a way to list the keys, and a
+  `[diagrams.mermaid.config]` table passed to Mermaid as it is, which
+  4.3.2's languages could have too.
+- Zooming images and diagrams in the pager, or opening one in a view of
+  its own. A diagram drawn by an external program as PNG is drawn again
+  at a larger scale when it is zoomed past the one it has. A diagram
+  too large to load as PNG even at one pixel to the CSS pixel, or one
+  to be zoomed further than a PNG allows, may be drawn as SVG instead,
+  behind an option of its own; PNG stays the normal path, as the more
+  reliable one.
+- Writing a drawn diagram to a file, SVG or PNG, instead of the
+  terminal, such as for a review or a web page, without finding the
+  Mermaid program by hand. `--format` names the input, so this needs an
+  option of its own.
 
 ## Bugs
 

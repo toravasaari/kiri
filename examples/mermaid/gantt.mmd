@@ -1,0 +1,13 @@
+gantt
+    title Kesämökin remontti
+    dateFormat YYYY-MM-DD
+    axisFormat %d.%m.
+    section Suunnittelu
+        Mittaukset          :done,    mitat, 2026-05-04, 3d
+        Tarvikkeet tilattu  :done,    tilaus, after mitat, 4d
+    section Työt
+        Vanha terassi pois  :active,  purku, 2026-05-14, 3d
+        Uusi terassi        :         terassi, after purku, 6d
+        Maalaus             :         maali, after terassi, 4d
+    section Valmis
+        Juhannus            :milestone, 2026-06-19, 0d

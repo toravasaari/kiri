@@ -41,6 +41,13 @@ image skips the parser and is drawn on its own, as large as fits the
 window. A CSV or TSV file, told by its extension or by `--format csv`
 or `--format tsv`, goes through a parser of its own, `src/parse/csv.rs`,
 into a document of one table, so the backends draw it as any other table.
+A Mermaid file becomes a document of one Mermaid code block, whose
+diagram is drawn as in any document and then shown on its own as an
+image file is, or the document is shown when it is not drawn.
+`--format text` skips the parser too: the file becomes a document of one
+code block, in the language its extension names, so it is highlighted,
+wrapped and paged as any code block is. Plain output, without styling,
+gets the file as it is instead, from `src/main.rs`.
 
 The document can also come from standard input, which errors call
 `<stdin>`, or from a directory, which stands for its README. Both are
@@ -67,6 +74,75 @@ row through the backend's writer, and lays the document out again when the
 window changes size. The terminal itself, the alternate screen, raw mode
 and reading keys from the controlling terminal, is opened in
 `src/term/screen.rs`.
+
+## Diagrams
+
+A diagram stays a code block in the document model, `Block::CodeBlock`
+with its language, so the parser knows nothing about renderers and a
+diagram that cannot be drawn is shown as the code it already is. Whether
+it is drawn is decided when images are loaded. `src/images/mod.rs` keys
+each image by an `ImageKey`, a URL or a block (its language and source),
+and collects the code blocks whose language a renderer draws besides the
+lone images. It hands all of a document's diagrams to the renderer at
+once, then decodes each image it gets back by its content, as it decodes
+an image file, so sizing, the width limit and redrawing after a window
+resize work as for any image. An SVG is decoded as an SVG file is; a
+raster image, such as the PNG of a browser's drawing, becomes
+`Source::Dense`, pixels with their size in CSS pixels, so that it is
+sized in CSS pixels as an SVG is. Its pixels are reduced there to the
+most an image can be shown at, as many cells as one image covers each
+way, so that a large diagram holds no more memory than showing it
+needs; its size in CSS pixels stays. There it also grows an SVG
+diagram whose text runs past its edges, and lays one drawn in colours
+for the other page, light or dark, on a panel of its own background,
+after the reduction, so the panel's copy is small too.
+
+Renderers live in `src/diagrams/`, outside `src/kitty/` and the parser.
+A renderer implements the `Renderer` trait: whether it draws a language,
+and a diagram's source and a `Theme`, for a light or a dark page, turned
+into an image file, SVG or raster, and the page its colours are for. It
+knows nothing about terminals, so an HTML backend could use the same
+image.
+
+- **Built-in:** `BuiltIn` draws Mermaid through merman, in a build with
+  the `mermaid` feature. `src/diagrams/mermaid.rs` fixes merman's SVG
+  where resvg would lose part of it, and tests the fixes through merman
+  itself. A fault that kiri works around elsewhere, such as text past a
+  diagram's edge, has a test that fails once merman no longer has it.
+- **External:** `External`, in `src/diagrams/external.rs`, runs the
+  command the configuration file gives for a language, without a shell
+  and with a time limit, several at once, with its files in a directory
+  of its own in kiri's cache directory, which is also the program's
+  `TMPDIR`. A command that takes `{scale}` writes a raster image, such
+  as `mmdc`'s PNG, at that many pixels to the CSS pixel, and gets a
+  Mermaid configuration that leaves labels in HTML, as a browser draws
+  them; another is taken to write SVG, with labels as SVG text, which
+  resvg draws. A PNG with more pixels than kiri loads, as its header
+  tells before it is decoded, is drawn once more at the largest whole
+  scale that fits. `src/diagrams/find.rs` finds a default command, `mmdc` for
+  Mermaid, when nothing is configured, the configuration file does not
+  turn the search off and the build has no renderer of its own for the
+  language; `--doctor` reports the same choice.
+- **Together:** `Renderers` draws each language with its external
+  command when it has one and with the built-in renderer otherwise. An
+  external command that fails does not fall back to the built-in one.
+
+`src/main.rs` builds the renderers from the settings and the
+environment, and `src/term/progress.rs` tells on the terminal how far
+drawing has got when it takes long. The programs run in process groups
+of their own, which Ctrl-C from the terminal does not reach, nor a
+signal sent to kiri alone. So when the document has a diagram that a
+program draws, `src/term/interrupt.rs` catches SIGINT, SIGTERM and
+SIGHUP while its images load: `External` stops the programs, SIGINT
+first so that `mmdc` can close its browser, removes their files, and
+kiri then ends by the signal that came. Without such a diagram, and
+once the images are loaded, the signals end kiri as before, and the
+pager catches them itself, from before its terminal is raw until it
+has been restored, or until its screen fails to open, when they end
+kiri again while the document is printed. A signal that was ignored
+when kiri started, as under `nohup`, stays ignored in both. A new
+diagram language joins `LANGUAGES` in `src/diagrams/mod.rs`, with a
+default command in `src/diagrams/find.rs` or a built-in renderer.
 
 ## Terminal capabilities
 
@@ -101,7 +177,7 @@ writes as it is into a pipe.
 | Feature | Escape sequence | Written by | Used for |
 |---|---|---|---|
 | Text sizing | OSC 66 (kitty 0.40+) | `src/kitty/text.rs` | Headings in a larger font |
-| Graphics | APC `_G` | `src/kitty/graphics.rs` | Images, later formulas and diagrams |
+| Graphics | APC `_G` | `src/kitty/graphics.rs` | Images and diagrams, later formulas |
 | Unicode placeholders | U+10EEEE with graphics | `src/kitty/graphics.rs` | Images that scroll with text, work in pagers and tmux |
 | Protocol queries | OSC 66 tests, APC `_G` query | `src/kitty/query.rs` | Telling whether kitty's protocols work |
 | Hyperlinks | OSC 8 | `src/render/output.rs` | Clickable links |
@@ -144,6 +220,9 @@ src/term/window.rs         the window size in cells and pixels
 src/term/probe.rs          the queries to the terminal, the only ones
 src/term/answers.rs        reading the terminal's answers
 src/term/screen.rs         the pager's screen, raw mode and keys
+src/term/progress.rs       the line that tells how far drawing diagrams has
+                           got
+src/term/interrupt.rs      signals while programs draw diagrams
 src/term/testing.rs        pseudo-terminals for the tests
 src/config.rs              settings: options, environment, configuration file
 src/doctor.rs              the --doctor report as Markdown
@@ -155,6 +234,12 @@ src/theme/file.rs          theme files
 src/images/mod.rs          loading and decoding the images a document shows
 src/images/url.rs          data URLs, file URLs and paths, read up to a limit
 src/images/svg.rs          SVG images and the fonts for their text
+src/diagrams/mod.rs        diagrams written in code blocks, drawn as images
+                           for the image loader
+src/diagrams/mermaid.rs    Mermaid through merman (feature `mermaid`)
+src/diagrams/external.rs   diagrams drawn by a command outside kiri
+src/diagrams/find.rs       finding a command, such as mmdc, when none is
+                           configured
 src/color.rs               colours and underline styles for theme and render
 src/render/mod.rs          document model -> terminal output
 src/render/layout/mod.rs   document model -> styled lines of a fixed width
@@ -196,12 +281,37 @@ debug builds, where it decodes and scales a large photo in tenths of a
 second at most instead of seconds, while kiri's own code stays easy to
 debug.
 
+## Builds
+
+The default build, `full`, has every Cargo feature; a build without
+default features (`--no-default-features`) is the minimal one. `full`
+adds the image formats the `image` crate decodes cheaply (BMP, ICO,
+TIFF, QOI, PNM and TGA) and the `mermaid` feature, which draws Mermaid
+diagrams with merman inside kiri. The minimal build shows PNG, JPEG,
+GIF, WebP and SVG, and draws Mermaid only through an external command:
+one the configuration file gives, or `mmdc` when kiri finds it. Both
+builds take the same options and settings.
+
 ## Choices
 
 - **Rust:** one fast binary with no runtime, and mature crates for each part:
   comrak (Markdown), syntect (syntax highlighting), image and resvg (raster
   and SVG images), csv (CSV and TSV files), rustix (terminal modes and pager
-  input). Formulas are planned with typst.
+  input), merman (Mermaid diagrams). Formulas are planned with typst.
+- **merman for Mermaid:** a Rust implementation of Mermaid that checks
+  its parsing, layout and SVG against Mermaid's own, so diagrams look as
+  GitHub draws them. It draws a diagram in milliseconds, needs no fonts,
+  files or network, and its SVG goes through the resvg kiri already has.
+  It adds about 24 MB to a stripped binary. Its ELK layout is EPL-2.0,
+  its math may bundle OFL-1.1 font data, and the CSS crates it brings
+  (cssparser, cssparser-macros, selectors, dtoa-short) are MPL-2.0, all
+  accepted; their notices must go with distributed binaries, MPL-2.0's
+  with where to get the source. mermaid-cli (`mmdc`), Mermaid itself
+  in a headless Chrome, takes about a second a diagram and about 1.1 GB
+  with Node and Chrome, so it is the minimal build's renderer and a
+  configured choice rather than the default. mermaid-rs-renderer was
+  left out: its layout has visible errors, and it keeps process-wide
+  mutable state and writes a font copy to the user's cache directory.
 - **Text first:** the alternatives were rendering the whole document as an
   image, through a headless browser or a custom layout engine. Both look
   closer to a browser but lose text selection, search and the terminal font,

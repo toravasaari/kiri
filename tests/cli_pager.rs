@@ -53,11 +53,25 @@ fn in_terminal_with(
     args: &[&str],
     rows: u16,
     stdin: Option<&str>,
+    act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
+) -> (ExitStatus, String) {
+    in_terminal_after(name, |_| {}, args, rows, stdin, act)
+}
+
+/// [`in_terminal_with`], with `prepare` called with the scratch directory
+/// before kiri starts.
+fn in_terminal_after(
+    name: &str,
+    prepare: impl FnOnce(&std::path::Path),
+    args: &[&str],
+    rows: u16,
+    stdin: Option<&str>,
     mut act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
 ) -> (ExitStatus, String) {
     let dir = Scratch::new(name);
     std::fs::write(dir.join("document.md"), paragraphs(3)).unwrap();
     std::fs::write(dir.join("long.md"), long()).unwrap();
+    prepare(&dir);
     let (mut terminal, tty) = common::pty();
     let window = rustix::termios::Winsize {
         ws_col: 40,
@@ -165,6 +179,15 @@ fn keys_scroll_the_document() {
 fn ctrl_c_quits_and_leaves_the_screen() {
     let (status, seen) = in_terminal("pager-ctrl-c", &["long.md"], 5, None, &[b"\x03"]);
     assert!(status.success());
+    assert!(seen.ends_with(LEAVE), "{seen:?}");
+}
+
+#[test]
+fn a_long_file_shown_as_text_is_paged_too() {
+    let (status, seen) = in_terminal("pager-text", &["-f", "text", "long.md"], 5, None, &[b"q"]);
+    assert!(status.success());
+    assert!(seen.starts_with(ENTER), "{seen:?}");
+    assert!(seen.contains("Line 1"), "{seen:?}");
     assert!(seen.ends_with(LEAVE), "{seen:?}");
 }
 
@@ -306,4 +329,85 @@ fn a_signal_to_end_kiri_leaves_the_screen_first() {
         assert!(seen.ends_with(LEAVE), "{signal:?}: {seen:?}");
         assert_eq!(status.signal(), Some(signal.as_raw()), "{signal:?}");
     }
+}
+
+#[test]
+fn a_signal_after_a_program_drew_the_diagrams_leaves_the_screen_first() {
+    use std::os::unix::process::ExitStatusExt;
+
+    use rustix::process::{Pid, Signal, kill_process};
+
+    // kiri catches Ctrl-C while the program draws, and the pager catches
+    // it once the document shows.
+    let prepare = |dir: &std::path::Path| {
+        let script = dir.join("render.sh");
+        std::fs::write(
+            &script,
+            "echo '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\"/>' > \"$2\"\n",
+        )
+        .unwrap();
+        let config = format!(
+            "[diagrams.mermaid]\ncommand = [\"/bin/sh\", \"{}\", \"{{input}}\", \"{{output}}\"]\n",
+            script.display()
+        );
+        common::write(&dir.join("config/kiri/config.toml"), &config);
+        let document = format!("```mermaid\nflowchart TD\n```\n\n{}", long());
+        std::fs::write(dir.join("diagram.md"), document).unwrap();
+    };
+    let mut sent = false;
+    let (status, seen) = in_terminal_after(
+        "pager-signal-diagrams",
+        prepare,
+        &["--mode", "kitty", "diagram.md"],
+        5,
+        None,
+        |frames, _, child| {
+            if frames > 0 && !sent {
+                let pid = Pid::from_raw(child.id() as i32).unwrap();
+                kill_process(pid, Signal::INT).unwrap();
+                sent = true;
+            }
+        },
+    );
+    assert!(seen.contains("\x1b_G"), "the diagram is drawn: {seen:?}");
+    assert!(seen.ends_with(LEAVE), "{seen:?}");
+    assert_eq!(status.signal(), Some(Signal::INT.as_raw()));
+}
+
+#[test]
+fn the_pager_shows_why_a_diagram_was_not_drawn_and_finds_it() {
+    let prepare = |dir: &std::path::Path| {
+        let script = dir.join("render.sh");
+        std::fs::write(&script, "echo 'Error: bad' >&2\nexit 1\n").unwrap();
+        let config = format!(
+            "render_errors = \"inline\"\n\
+             [diagrams.mermaid]\ncommand = [\"/bin/sh\", \"{}\", \"{{input}}\", \"{{output}}\"]\n",
+            script.display()
+        );
+        common::write(&dir.join("config/kiri/config.toml"), &config);
+        let document = format!("{}```mermaid\nflowchart TD\n```\n", long());
+        std::fs::write(dir.join("diagram.md"), document).unwrap();
+    };
+    let keys: [&[u8]; 8] = [b"/", b"d", b"r", b"a", b"w", b"n", b"\r", b"q"];
+    let mut typed = 0;
+    let (status, seen) = in_terminal_after(
+        "pager-render-error",
+        prepare,
+        &["--mode", "kitty", "diagram.md"],
+        5,
+        None,
+        |frames, terminal, _| {
+            if typed < frames.min(keys.len()) {
+                terminal.write_all(keys[typed]).unwrap();
+                typed += 1;
+            }
+        },
+    );
+    assert!(status.success());
+    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
+    // Below the end of the first page, and shown once found.
+    assert!(!frames[0].contains("could not be"), "{seen:?}");
+    let found = frames.last().unwrap();
+    assert!(found.contains("✗ mermaid diagram could not be"), "{seen:?}");
+    assert!(found.contains("/drawn 1/1"), "{seen:?}");
 }

@@ -1,0 +1,10 @@
+flowchart LR
+    Push([Push to a branch]) --> Build[Build]
+    subgraph CI [Continuous integration]
+        Build --> Tests[Run the tests]
+        Tests --> Green{All green?}
+    end
+    Green -->|yes| Review[Code review]
+    Green -->|no| Fix[Fix and push again]
+    Fix -.-> Push
+    Review --> Merge[(Merge into main)]

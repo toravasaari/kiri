@@ -43,7 +43,7 @@ fn plain_html_images() {
 #[test]
 fn the_fixture_loads_the_images_its_blocks_show() {
     let images = fixture_images("images-html.md");
-    let mut urls: Vec<&str> = images.iter().map(|(url, _)| url).collect();
+    let mut urls: Vec<String> = images.iter().map(|(key, _)| key.to_string()).collect();
     urls.sort();
     assert_eq!(
         urls,

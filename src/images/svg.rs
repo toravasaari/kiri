@@ -20,22 +20,89 @@ pub struct Svg {
     tree: Arc<usvg::Tree>,
     /// The file it was parsed from, which tells two SVGs apart.
     bytes: Arc<[u8]>,
+    /// The part of the drawing that is shown, in its CSS pixels: from its
+    /// top left corner to its size, unless it was grown.
+    view: tiny_skia::Rect,
+    /// The colour of a panel under the whole image, if it lies on one.
+    panel: Option<[u8; 3]>,
     /// The natural size in whole CSS pixels.
     pub(super) size: (u32, u32),
 }
 
 impl Svg {
+    fn new(tree: usvg::Tree, bytes: &[u8]) -> Self {
+        let size = tree.size();
+        let view = tiny_skia::Rect::from_xywh(0.0, 0.0, size.width(), size.height())
+            .expect("an SVG's size is positive");
+        Self {
+            tree: Arc::new(tree),
+            bytes: bytes.into(),
+            view,
+            panel: None,
+            size: (0, 0),
+        }
+        .showing(view)
+    }
+
+    /// This SVG showing `view` of its drawing.
+    fn showing(self, view: tiny_skia::Rect) -> Self {
+        let natural = |length: f32| (length.round() as u32).max(1);
+        Self {
+            view,
+            size: (natural(view.width()), natural(view.height())),
+            ..self
+        }
+    }
+
+    /// This SVG grown to show all of its text, also where the text reaches
+    /// past its edges. A renderer that measures text with metrics of its
+    /// own may place it there, when the fonts it is drawn with are wider.
+    pub(super) fn grown_to_text(self) -> Self {
+        let mut view = self.view;
+        each_text_bounds(self.tree.root(), &mut |bounds| {
+            view = tiny_skia::Rect::from_ltrb(
+                view.left().min(bounds.left()),
+                view.top().min(bounds.top()),
+                view.right().max(bounds.right()),
+                view.bottom().max(bounds.bottom()),
+            )
+            .unwrap_or(view);
+        });
+        self.showing(view)
+    }
+
+    /// This SVG on a panel of `colour`, `padding` CSS pixels wider than
+    /// what it shows on each side.
+    pub(super) fn on_panel(self, colour: [u8; 3], padding: f32) -> Self {
+        let view = self.view;
+        let view = tiny_skia::Rect::from_ltrb(
+            view.left() - padding,
+            view.top() - padding,
+            view.right() + padding,
+            view.bottom() + padding,
+        )
+        .unwrap_or(view);
+        Self {
+            panel: Some(colour),
+            ..self.showing(view)
+        }
+    }
+
     pub(super) fn render(&self, width: u32, height: u32) -> RgbaImage {
         let mut image = RgbaImage::new(width, height);
         let Some(mut pixmap) = tiny_skia::Pixmap::new(width, height) else {
             // Too large for the renderer; left transparent.
             return image;
         };
-        let size = self.tree.size();
+        if let Some([red, green, blue]) = self.panel {
+            pixmap.fill(tiny_skia::Color::from_rgba8(red, green, blue, 255));
+        }
+        let view = self.view;
         let transform = tiny_skia::Transform::from_scale(
-            width as f32 / size.width(),
-            height as f32 / size.height(),
-        );
+            width as f32 / view.width(),
+            height as f32 / view.height(),
+        )
+        .pre_translate(-view.left(), -view.top());
         resvg::render(&self.tree, transform, &mut pixmap.as_mut());
         // The renderer works in premultiplied alpha, the terminal does not.
         for (pixel, drawn) in image.pixels_mut().zip(pixmap.pixels()) {
@@ -48,7 +115,19 @@ impl Svg {
 
 impl PartialEq for Svg {
     fn eq(&self, other: &Self) -> bool {
-        self.bytes == other.bytes
+        self.bytes == other.bytes && self.view == other.view && self.panel == other.panel
+    }
+}
+
+/// Calls `found` with the bounds of each text in `group` and below, on the
+/// canvas.
+fn each_text_bounds(group: &usvg::Group, found: &mut impl FnMut(tiny_skia::Rect)) {
+    for node in group.children() {
+        match node {
+            usvg::Node::Group(group) => each_text_bounds(group, found),
+            usvg::Node::Text(text) => found(text.abs_stroke_bounding_box()),
+            usvg::Node::Path(_) | usvg::Node::Image(_) => {}
+        }
     }
 }
 
@@ -87,6 +166,22 @@ impl Fonts {
             load,
             database: OnceCell::new(),
         }
+    }
+
+    /// DejaVu Sans from the test fixtures and nothing else, so text in SVGs
+    /// looks the same on every machine.
+    #[cfg(test)]
+    pub(crate) fn fixture() -> Self {
+        Self::new(|| {
+            let mut database = fontdb::Database::new();
+            let font = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/fonts/DejaVuSans.ttf");
+            database
+                .load_font_file(font)
+                .expect("the fixture font loads");
+            choose_generic_families(&mut database);
+            database
+        })
     }
 
     /// Whether an SVG has needed the fonts yet.
@@ -222,13 +317,7 @@ pub(super) fn decode_svg(bytes: &[u8], max_size: u64, fonts: &Fonts) -> Result<S
     // From text, so usvg never decompresses anything itself.
     let tree = usvg::Tree::from_str(text, &options)
         .map_err(|error| ImageError::Corrupt(error.to_string()))?;
-    let natural = |length: f32| (length.round() as u32).max(1);
-    let size = (natural(tree.size().width()), natural(tree.size().height()));
-    Ok(Source::Svg(Svg {
-        tree: Arc::new(tree),
-        bytes: bytes.into(),
-        size,
-    }))
+    Ok(Source::Svg(Svg::new(tree, bytes)))
 }
 
 /// `bytes` decompressed with gzip, if that gives at most `limit` bytes.
@@ -250,6 +339,7 @@ mod tests {
     use base64::Engine;
     use base64::engine::general_purpose::STANDARD;
 
+    use crate::diagrams::Diagrams;
     use crate::images::tests::{fixture, fixtures, open, rgba};
     use crate::images::{DEFAULT_MAX_FILE_SIZE, decode, load_url, load_with};
 
@@ -439,6 +529,7 @@ mod tests {
             &fixtures(),
             DEFAULT_MAX_FILE_SIZE,
             &fonts,
+            &Diagrams::none(),
         );
         assert!(!fonts.loaded());
         let with = "![d](images/pattern.svg)\n";
@@ -447,6 +538,7 @@ mod tests {
             &fixtures(),
             DEFAULT_MAX_FILE_SIZE,
             &fonts,
+            &Diagrams::none(),
         );
         assert!(fonts.loaded());
     }
@@ -459,24 +551,9 @@ mod tests {
         assert!(image.pixels().all(|pixel| pixel.0[3] == 0));
     }
 
-    /// DejaVu Sans from the fixtures and nothing else, so text in SVGs
-    /// looks the same on every machine.
-    fn fixture_fonts() -> Fonts {
-        Fonts::new(|| {
-            let mut database = fontdb::Database::new();
-            let font =
-                Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fonts/DejaVuSans.ttf");
-            database
-                .load_font_file(font)
-                .expect("the fixture font loads");
-            choose_generic_families(&mut database);
-            database
-        })
-    }
-
     #[test]
     fn draws_svg_text_with_the_fonts_it_is_given() {
-        let fonts = fixture_fonts();
+        let fonts = Fonts::fixture();
         // Greek words in sans-serif, set by a style sheet, and English ones
         // in the default font.
         for (name, width, height) in [

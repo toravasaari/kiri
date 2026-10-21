@@ -113,7 +113,7 @@ fn help_explains_max_image_size_and_images() {
     assert!(help.contains("--images"), "{help}");
     assert!(help.contains("-f, --format <FORMAT>"), "{help}");
     assert!(
-        help.contains("Images are drawn only in terminals"),
+        help.contains("Images and diagrams are drawn only in terminals"),
         "{help}"
     );
 }
@@ -476,8 +476,10 @@ fn format_takes_only_formats_kiri_knows() {
         "{stderr}"
     );
     assert!(
-        stderr
-            .contains("give markdown, csv, tsv, image, or an image format such as svg, png or jpg"),
+        stderr.contains(
+            "give markdown, csv, tsv, mermaid, text, image, or an image format such as svg, png \
+             or jpg"
+        ),
         "{stderr}"
     );
 }

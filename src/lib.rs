@@ -3,6 +3,7 @@
 pub mod caps;
 pub mod color;
 pub mod config;
+pub mod diagrams;
 pub mod doctor;
 pub mod images;
 pub mod input;

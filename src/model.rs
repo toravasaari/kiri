@@ -20,6 +20,9 @@ pub enum Block {
     CodeBlock {
         language: Option<String>,
         code: String,
+        /// The line of the source its opening fence or first line is on,
+        /// counting from 1, for messages about it.
+        line: usize,
     },
     BlockQuote(Vec<Block>),
     /// A GitHub alert: a quote that starts with `[!NOTE]` or one of the

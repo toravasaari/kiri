@@ -5,13 +5,17 @@
 //! Everything here takes the environment as a value, so the rules can be
 //! tested without touching the process environment.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
+use std::fmt;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use serde::Deserialize;
+use serde::de::{self, Deserializer, MapAccess};
 
-use crate::render::{FrontMatterStyle, TableRows};
+use crate::render::{FrontMatterStyle, RenderErrors, TableRows};
 use crate::theme::{Paper, Theme};
 
 /// The environment variables kiri reads for its settings.
@@ -19,6 +23,12 @@ use crate::theme::{Paper, Theme};
 pub struct Environment {
     pub home: Option<OsString>,
     pub xdg_config_home: Option<OsString>,
+    /// `XDG_CACHE_HOME`: where kiri's cache directory goes.
+    pub xdg_cache_home: Option<OsString>,
+    /// `TMPDIR`: the system's temporary directory, where the files of the
+    /// programs that draw diagrams go when the cache directory cannot be
+    /// used.
+    pub tmpdir: Option<OsString>,
     /// `KIRI_CONFIG`: the configuration file to read instead of the default.
     pub kiri_config: Option<OsString>,
     /// `KIRI_THEME`: a theme file.
@@ -31,6 +41,16 @@ pub struct Environment {
     pub kiri_front_matter: Option<OsString>,
     /// `KIRI_TABLE_ROWS`: `off`, `zebra`, `lines`, `indent` or `underline`.
     pub kiri_table_rows: Option<OsString>,
+    /// `KIRI_DIAGRAMS`: `on` or `off`, or `1` or `0`.
+    pub kiri_diagrams: Option<OsString>,
+    /// `KIRI_RENDER_ERRORS`: `inline`, `stderr` or `both`.
+    pub kiri_render_errors: Option<OsString>,
+    /// `PATH`, where kiri looks for a program that draws diagrams.
+    pub path: Option<OsString>,
+    /// `NVM_DIR`: where nvm keeps the Node versions it installs.
+    pub nvm_dir: Option<OsString>,
+    /// `NPM_CONFIG_PREFIX`: npm's prefix for the programs it installs.
+    pub npm_config_prefix: Option<OsString>,
     /// `NO_COLOR`: colours off unless empty.
     pub no_color: Option<OsString>,
     /// `COLORTERM`: 24-bit colour when `truecolor` or `24bit`.
@@ -50,12 +70,21 @@ impl Environment {
         Self {
             home: std::env::var_os("HOME"),
             xdg_config_home: std::env::var_os("XDG_CONFIG_HOME"),
+            xdg_cache_home: std::env::var_os("XDG_CACHE_HOME"),
+            tmpdir: std::env::var_os("TMPDIR"),
             kiri_config: std::env::var_os("KIRI_CONFIG"),
             kiri_theme: std::env::var_os("KIRI_THEME"),
             kiri_no_images: std::env::var_os("KIRI_NO_IMAGES"),
             kiri_paging: std::env::var_os("KIRI_PAGING"),
             kiri_front_matter: std::env::var_os("KIRI_FRONT_MATTER"),
             kiri_table_rows: std::env::var_os("KIRI_TABLE_ROWS"),
+            kiri_diagrams: std::env::var_os("KIRI_DIAGRAMS"),
+            kiri_render_errors: std::env::var_os("KIRI_RENDER_ERRORS"),
+            path: std::env::var_os("PATH"),
+            nvm_dir: std::env::var_os("NVM_DIR"),
+            // npm reads its settings from the environment in either case.
+            npm_config_prefix: std::env::var_os("NPM_CONFIG_PREFIX")
+                .or_else(|| std::env::var_os("npm_config_prefix")),
             no_color: std::env::var_os("NO_COLOR"),
             colorterm: std::env::var_os("COLORTERM"),
             term: std::env::var_os("TERM"),
@@ -65,29 +94,75 @@ impl Environment {
     }
 }
 
+/// The home directory, from `HOME`; `None` when that is unset, empty or
+/// not an absolute path.
+pub fn home_directory(env: &Environment) -> Option<PathBuf> {
+    (env.home.as_ref().map(PathBuf::from)).filter(|home| home.is_absolute())
+}
+
 /// Where the configuration directory comes from: `XDG_CONFIG_HOME`, or
 /// the default under the home directory.
 pub fn directory_origin(env: &Environment) -> Origin {
-    match env.xdg_config_home.as_ref().filter(|dir| !dir.is_empty()) {
-        Some(_) => Origin::Environment("XDG_CONFIG_HOME"),
-        None => Origin::Default,
+    let set = (env.xdg_config_home.as_deref()).is_some_and(|dir| Path::new(dir).is_absolute());
+    match set {
+        true => Origin::Environment("XDG_CONFIG_HOME"),
+        false => Origin::Default,
     }
 }
 
 /// kiri's configuration directory: `$XDG_CONFIG_HOME/kiri`, or
-/// `~/.config/kiri` when that is unset or empty.
+/// `~/.config/kiri` when that is unset, empty or relative, which the XDG
+/// base directory specification calls invalid. Without either, there is
+/// none.
 pub fn directory(env: &Environment) -> Option<PathBuf> {
     let config = env
         .xdg_config_home
         .clone()
-        .filter(|dir| !dir.is_empty())
         .map(PathBuf::from)
-        .or_else(|| {
-            env.home
-                .as_ref()
-                .map(|home| PathBuf::from(home).join(".config"))
-        })?;
+        .filter(|dir| dir.is_absolute())
+        .or_else(|| home_directory(env).map(|home| home.join(".config")))?;
     Some(config.join("kiri"))
+}
+
+/// kiri's cache directory, for files it may remove at any time, such as
+/// those of the programs that draw diagrams: `$XDG_CACHE_HOME/kiri`, or
+/// `~/.cache/kiri` when that is unset, empty or relative, which the XDG
+/// base directory specification calls invalid.
+pub fn cache_directory(env: &Environment) -> Option<PathBuf> {
+    let cache = env
+        .xdg_cache_home
+        .clone()
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute())
+        .or_else(|| home_directory(env).map(|home| home.join(".cache")))?;
+    Some(cache.join("kiri"))
+}
+
+/// Where the cache directory comes from: `XDG_CACHE_HOME`, or the
+/// default under the home directory.
+pub fn cache_directory_origin(env: &Environment) -> Origin {
+    let set = (env.xdg_cache_home.as_deref()).is_some_and(|dir| Path::new(dir).is_absolute());
+    match set {
+        true => Origin::Environment("XDG_CACHE_HOME"),
+        false => Origin::Default,
+    }
+}
+
+/// The system's temporary directory, as the standard library finds it:
+/// `TMPDIR`, or `/tmp` when that is unset or empty.
+pub fn temp_directory(env: &Environment) -> PathBuf {
+    match env.tmpdir.as_ref().filter(|dir| !dir.is_empty()) {
+        Some(dir) => PathBuf::from(dir),
+        None => PathBuf::from("/tmp"),
+    }
+}
+
+/// Where the temporary directory comes from: `TMPDIR`, or the default.
+pub fn temp_directory_origin(env: &Environment) -> Origin {
+    match env.tmpdir.as_ref().filter(|dir| !dir.is_empty()) {
+        Some(_) => Origin::Environment("TMPDIR"),
+        None => Origin::Default,
+    }
 }
 
 /// What the configuration file sets; `None` for what it leaves out.
@@ -106,6 +181,22 @@ pub struct Config {
     pub front_matter: Option<FrontMatter>,
     /// How the rows of a table are told apart.
     pub table_rows: Option<TableRows>,
+    /// Whether diagrams in code blocks are drawn, or shown as code:
+    /// `enabled` in the `[diagrams]` table, or `diagrams` on its own.
+    pub diagrams: Option<bool>,
+    /// The external command for each diagram language that has one, from
+    /// `[diagrams.<language>]`: the program and its arguments, with
+    /// `{input}`, `{output}`, `{theme}` and `{config}` in them.
+    pub diagram_commands: BTreeMap<String, Vec<String>>,
+    /// How long an external command may take to draw one diagram.
+    pub diagram_timeout: Option<Duration>,
+    /// Whether a diagram in colours for the other page, light or dark,
+    /// lies on a panel: `background_panel` in the `[diagrams]` table.
+    pub diagram_panel: Option<bool>,
+    /// The diagram languages whose program kiri is not to look for.
+    pub diagram_no_search: BTreeSet<String>,
+    /// Where kiri tells why a diagram could not be drawn.
+    pub render_errors: Option<RenderErrors>,
 }
 
 /// When the document is shown in the pager rather than printed.
@@ -221,12 +312,10 @@ pub fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String
     let file: ConfigToml = toml::from_str(text).map_err(|error| error.to_string())?;
     let theme = match file.theme {
         Some(theme) => Some(match theme.strip_prefix("~") {
-            Ok(rest) if !rest.as_os_str().is_empty() => {
-                match env.home.as_ref().filter(|home| !home.is_empty()) {
-                    Some(home) => Path::new(home).join(rest),
-                    None => return Err(format!("theme {}: HOME is not set", theme.display())),
-                }
-            }
+            Ok(rest) if !rest.as_os_str().is_empty() => match home_directory(env) {
+                Some(home) => home.join(rest),
+                None => return Err(format!("theme {}: HOME is not set", theme.display())),
+            },
             _ => dir.join(theme),
         }),
         None => None,
@@ -238,6 +327,12 @@ pub fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String
         search_case: file.search_case,
         front_matter: file.front_matter,
         table_rows: file.table_rows,
+        diagrams: file.diagrams.enabled,
+        diagram_commands: file.diagrams.commands,
+        diagram_timeout: file.diagrams.timeout,
+        diagram_panel: file.diagrams.background_panel,
+        diagram_no_search: file.diagrams.no_search,
+        render_errors: file.render_errors,
     })
 }
 
@@ -250,6 +345,154 @@ struct ConfigToml {
     search_case: Option<SearchCase>,
     front_matter: Option<FrontMatter>,
     table_rows: Option<TableRows>,
+    render_errors: Option<RenderErrors>,
+    #[serde(default)]
+    diagrams: DiagramsToml,
+}
+
+/// The `diagrams` key: a `[diagrams]` table of the settings for every
+/// diagram, beside a table for each language, such as
+/// `[diagrams.mermaid]`; or `true` or `false`, short for `enabled` in it.
+#[derive(Debug, Default)]
+struct DiagramsToml {
+    enabled: Option<bool>,
+    timeout: Option<Duration>,
+    background_panel: Option<bool>,
+    commands: BTreeMap<String, Vec<String>>,
+    no_search: BTreeSet<String>,
+}
+
+/// The keys of the `[diagrams]` table other than the languages.
+const DIAGRAMS_KEYS: &[&str] = &["enabled", "timeout", "background_panel"];
+
+/// The key in a diagram language's table that turns the search for its
+/// program off or on, such as `mmdc` for Mermaid in a build without merman.
+pub const AUTO_DETECT: &str = "auto_detect";
+
+/// The keys of a diagram language's table.
+const LANGUAGE_KEYS: &[&str] = &["command", AUTO_DETECT];
+
+/// One language's table under `diagrams`.
+#[derive(Debug, Default)]
+struct DiagramToml {
+    command: Option<Vec<String>>,
+    auto_detect: Option<bool>,
+}
+
+impl<'de> Deserialize<'de> for DiagramToml {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+
+        impl<'de> de::Visitor<'de> for Visitor {
+            type Value = DiagramToml;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a table such as [diagrams.mermaid]")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<DiagramToml, A::Error> {
+                let mut table = DiagramToml::default();
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "command" => {
+                            let command: Vec<String> = map.next_value()?;
+                            check_command(&command).map_err(de::Error::custom)?;
+                            table.command = Some(command);
+                        }
+                        key if key == AUTO_DETECT => table.auto_detect = Some(map.next_value()?),
+                        key => return Err(de::Error::unknown_field(key, LANGUAGE_KEYS)),
+                    }
+                }
+                Ok(table)
+            }
+        }
+
+        deserializer.deserialize_map(Visitor)
+    }
+}
+
+impl<'de> Deserialize<'de> for DiagramsToml {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+
+        impl<'de> de::Visitor<'de> for Visitor {
+            type Value = DiagramsToml;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("true or false, or a [diagrams] table")
+            }
+
+            fn visit_bool<E: de::Error>(self, on: bool) -> Result<DiagramsToml, E> {
+                Ok(DiagramsToml {
+                    enabled: Some(on),
+                    ..DiagramsToml::default()
+                })
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<DiagramsToml, A::Error> {
+                let languages = crate::diagrams::LANGUAGES;
+                let mut diagrams = DiagramsToml::default();
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "enabled" => diagrams.enabled = Some(map.next_value()?),
+                        "background_panel" => diagrams.background_panel = Some(map.next_value()?),
+                        "timeout" => {
+                            let seconds = map.next_value().ok().and_then(seconds);
+                            let error = "timeout: give a positive number of seconds";
+                            let seconds = seconds.ok_or_else(|| de::Error::custom(error))?;
+                            diagrams.timeout = Some(seconds);
+                        }
+                        language if languages.contains(&language) => {
+                            let table: DiagramToml = map.next_value()?;
+                            if table.auto_detect == Some(false) {
+                                diagrams.no_search.insert(key.clone());
+                            }
+                            if let Some(command) = table.command {
+                                diagrams.commands.insert(key, command);
+                            }
+                        }
+                        _ => {
+                            let keys = DIAGRAMS_KEYS.iter().chain(languages);
+                            let keys: Vec<String> = keys.map(|key| format!("`{key}`")).collect();
+                            return Err(de::Error::custom(format!(
+                                "unknown field `{key}`, expected one of {}",
+                                keys.join(", ")
+                            )));
+                        }
+                    }
+                }
+                Ok(diagrams)
+            }
+        }
+
+        deserializer.deserialize_any(Visitor)
+    }
+}
+
+/// `seconds` as a duration, when it is a positive number of them that a
+/// duration can hold.
+fn seconds(seconds: f64) -> Option<Duration> {
+    (seconds > 0.0)
+        .then(|| Duration::try_from_secs_f64(seconds).ok())
+        .flatten()
+}
+
+/// Why `command`, a diagram language's external command, cannot work.
+fn check_command(command: &[String]) -> Result<(), String> {
+    match command.first() {
+        None => Err("command: give the program and its arguments".to_owned()),
+        Some(program) if program.is_empty() => Err("command: the program is empty".to_owned()),
+        Some(_) => {
+            let has = |name: &str| command.iter().any(|arg| arg.contains(name));
+            match ["{input}", "{output}"].into_iter().find(|name| !has(name)) {
+                Some(missing) => Err(format!(
+                    "command: give {missing} where the program takes its {} file",
+                    &missing[1..missing.len() - 1]
+                )),
+                None => Ok(()),
+            }
+        }
+    }
 }
 
 /// Where a setting comes from.
@@ -429,6 +672,70 @@ pub fn table_rows(
     )
 }
 
+/// Whether diagrams in code blocks are drawn and where that comes from,
+/// strongest first: the command line (`option`, from `--diagrams`), then
+/// `KIRI_DIAGRAMS`, then the configuration file; on unless one says
+/// otherwise. `KIRI_DIAGRAMS` takes `on` and `off`, `1` for `on` and `0`
+/// for `off`; empty is unset. Any other value is left out with the warning
+/// returned beside the setting.
+pub fn diagrams(
+    option: Option<bool>,
+    env: &Environment,
+    config: &Config,
+) -> (Setting<bool>, Option<String>) {
+    if let Some(on) = option {
+        return (Setting::new(on, Origin::Flag("--diagrams")), None);
+    }
+    let variable = env.kiri_diagrams.as_ref().filter(|value| !value.is_empty());
+    let mut warning = None;
+    if let Some(value) = variable {
+        match value.to_str() {
+            Some("on" | "1") => {
+                return (
+                    Setting::new(true, Origin::Environment("KIRI_DIAGRAMS")),
+                    None,
+                );
+            }
+            Some("off" | "0") => {
+                return (
+                    Setting::new(false, Origin::Environment("KIRI_DIAGRAMS")),
+                    None,
+                );
+            }
+            _ => {
+                warning = Some(format!(
+                    "KIRI_DIAGRAMS: `{}` is not on, off, 1 or 0; left out",
+                    value.to_string_lossy()
+                ))
+            }
+        }
+    }
+    let setting = match config.diagrams {
+        Some(on) => Setting::new(on, Origin::File),
+        None => Setting::new(true, Origin::Default),
+    };
+    (setting, warning)
+}
+
+/// Where kiri tells why a diagram could not be drawn, and where that
+/// comes from, strongest first: the command line (`option`, from
+/// `--render-errors`), then `KIRI_RENDER_ERRORS`, then the configuration
+/// file; `both` unless one says otherwise. `KIRI_RENDER_ERRORS` takes
+/// `inline`, `stderr` and `both`; empty is unset. Any other value is left
+/// out with the warning returned beside the setting.
+pub fn render_errors(
+    option: Option<RenderErrors>,
+    env: &Environment,
+    config: &Config,
+) -> (Setting<RenderErrors>, Option<String>) {
+    named(
+        (option, "--render-errors"),
+        ("KIRI_RENDER_ERRORS", env.kiri_render_errors.as_ref()),
+        config.render_errors,
+        RenderErrors::Both,
+    )
+}
+
 /// A setting whose values have names, such as `table`.
 trait Named: Copy + 'static {
     /// Every value, in the order the warning lists them.
@@ -447,6 +754,14 @@ impl Named for TableRows {
 
     fn name(self) -> &'static str {
         TableRows::name(self)
+    }
+}
+
+impl Named for RenderErrors {
+    const ALL: &'static [Self] = &[Self::Inline, Self::Stderr, Self::Both];
+
+    fn name(self) -> &'static str {
+        RenderErrors::name(self)
     }
 }
 
@@ -516,6 +831,10 @@ pub struct Options {
     pub front_matter: Option<FrontMatter>,
     /// `--table-rows`.
     pub table_rows: Option<TableRows>,
+    /// `--diagrams`.
+    pub diagrams: Option<bool>,
+    /// `--render-errors`.
+    pub render_errors: Option<RenderErrors>,
 }
 
 /// What the options, the environment and the configuration file choose
@@ -537,6 +856,18 @@ pub struct Settings {
     pub front_matter: FrontMatter,
     /// How the rows of a table are told apart.
     pub table_rows: TableRows,
+    /// Whether diagrams in code blocks are drawn, or shown as code.
+    pub diagrams: bool,
+    /// The external command for each diagram language that has one.
+    pub diagram_commands: BTreeMap<String, Vec<String>>,
+    /// How long an external command may take to draw one diagram.
+    pub diagram_timeout: Duration,
+    /// Whether a diagram in colours for the other page lies on a panel.
+    pub diagram_panel: bool,
+    /// The diagram languages whose program kiri is not to look for.
+    pub diagram_no_search: BTreeSet<String>,
+    /// Where kiri tells why a diagram could not be drawn.
+    pub render_errors: RenderErrors,
 }
 
 /// What the options, the environment and the configuration file choose,
@@ -558,6 +889,20 @@ pub struct Choices {
     pub front_matter: Setting<FrontMatter>,
     /// How the rows of a table are told apart.
     pub table_rows: Setting<TableRows>,
+    /// Whether diagrams in code blocks are drawn, or shown as code.
+    pub diagrams: Setting<bool>,
+    /// The external command for each diagram language that has one, all
+    /// from the configuration file.
+    pub diagram_commands: BTreeMap<String, Vec<String>>,
+    /// How long an external command may take to draw one diagram.
+    pub diagram_timeout: Setting<Duration>,
+    /// Whether a diagram in colours for the other page lies on a panel.
+    pub diagram_panel: Setting<bool>,
+    /// The diagram languages whose program kiri is not to look for, all
+    /// from the configuration file.
+    pub diagram_no_search: BTreeSet<String>,
+    /// Where kiri tells why a diagram could not be drawn.
+    pub render_errors: Setting<RenderErrors>,
     /// What the user should know about settings that were left out.
     pub warnings: Vec<String>,
 }
@@ -578,6 +923,12 @@ impl Choices {
             search_case: self.search_case.value,
             front_matter: self.front_matter.value,
             table_rows: self.table_rows.value,
+            diagrams: self.diagrams.value,
+            diagram_commands: self.diagram_commands.clone(),
+            diagram_timeout: self.diagram_timeout.value,
+            diagram_panel: self.diagram_panel.value,
+            diagram_no_search: self.diagram_no_search.clone(),
+            render_errors: self.render_errors.value,
         }
     }
 }
@@ -587,6 +938,8 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
     let (paging, paging_warning) = paging(options.paging.clone(), env, config);
     let (front_matter, front_matter_warning) = front_matter(options.front_matter, env, config);
     let (table_rows, table_rows_warning) = table_rows(options.table_rows, env, config);
+    let (diagrams, diagrams_warning) = diagrams(options.diagrams, env, config);
+    let (render_errors, render_errors_warning) = render_errors(options.render_errors, env, config);
     Choices {
         theme: theme_source(options.theme.as_deref(), options.paper, env, config),
         paper: options.paper,
@@ -602,10 +955,28 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
         },
         front_matter,
         table_rows,
-        warnings: [paging_warning, front_matter_warning, table_rows_warning]
-            .into_iter()
-            .flatten()
-            .collect(),
+        diagrams,
+        diagram_commands: config.diagram_commands.clone(),
+        diagram_timeout: match config.diagram_timeout {
+            Some(limit) => Setting::new(limit, Origin::File),
+            None => Setting::new(crate::diagrams::external::TIME_LIMIT, Origin::Default),
+        },
+        diagram_panel: match config.diagram_panel {
+            Some(on) => Setting::new(on, Origin::File),
+            None => Setting::new(true, Origin::Default),
+        },
+        diagram_no_search: config.diagram_no_search.clone(),
+        render_errors,
+        warnings: [
+            paging_warning,
+            front_matter_warning,
+            table_rows_warning,
+            diagrams_warning,
+            render_errors_warning,
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
     }
 }
 
@@ -678,6 +1049,69 @@ mod tests {
     fn there_is_no_directory_without_home_or_xdg_config_home() {
         assert_eq!(directory(&env(None, None)), None);
         assert_eq!(directory(&env(None, Some(""))), None);
+    }
+
+    #[test]
+    fn the_cache_directory_is_under_xdg_cache_home_or_dot_cache() {
+        let env = |home: Option<&str>, cache: Option<&str>| Environment {
+            home: home.map(OsString::from),
+            xdg_cache_home: cache.map(OsString::from),
+            ..Environment::default()
+        };
+        let cache = |home, cache| cache_directory(&env(home, cache));
+        let dot_cache = Some(PathBuf::from("/home/u/.cache/kiri"));
+        assert_eq!(
+            cache(Some("/home/u"), Some("/c")),
+            Some(PathBuf::from("/c/kiri"))
+        );
+        assert_eq!(cache(None, Some("/c")), Some(PathBuf::from("/c/kiri")));
+        assert_eq!(cache(Some("/home/u"), None), dot_cache);
+        assert_eq!(cache(Some("/home/u"), Some("")), dot_cache);
+        assert_eq!(cache(None, None), None);
+    }
+
+    #[test]
+    fn a_relative_xdg_config_home_is_ignored() {
+        // As XDG_CACHE_HOME is.
+        let relative = env(Some("/home/u"), Some("config"));
+        assert_eq!(
+            directory(&relative),
+            Some(PathBuf::from("/home/u/.config/kiri"))
+        );
+        assert_eq!(directory_origin(&relative), Origin::Default);
+        assert_eq!(directory(&env(None, Some("config"))), None);
+    }
+
+    #[test]
+    fn an_empty_or_relative_home_is_not_set() {
+        // As a relative XDG_CONFIG_HOME and XDG_CACHE_HOME are not, so
+        // that kiri makes no files under the current directory.
+        for home in ["", "home", ".", "./u"] {
+            let env = env(Some(home), None);
+            assert_eq!(directory(&env), None, "{home:?}");
+            assert_eq!(cache_directory(&env), None, "{home:?}");
+            let error = parse("theme = \"~/t.toml\"\n", Path::new("/c"), &env).unwrap_err();
+            assert!(error.contains("HOME is not set"), "{home:?}: {error}");
+            assert_eq!(home_directory(&env), None, "{home:?}");
+        }
+        let env = env(Some("/home/u"), None);
+        assert_eq!(home_directory(&env), Some(PathBuf::from("/home/u")));
+    }
+
+    #[test]
+    fn a_relative_xdg_cache_home_is_ignored() {
+        // The XDG base directory specification calls a relative path
+        // invalid.
+        let env = |home: Option<&str>| Environment {
+            home: home.map(OsString::from),
+            xdg_cache_home: Some(OsString::from("cache")),
+            ..Environment::default()
+        };
+        assert_eq!(
+            cache_directory(&env(Some("/home/u"))),
+            Some(PathBuf::from("/home/u/.cache/kiri"))
+        );
+        assert_eq!(cache_directory(&env(None)), None);
     }
 
     #[test]
@@ -1190,6 +1624,274 @@ mod tests {
     }
 
     #[test]
+    fn the_diagrams_key_turns_diagrams_on_or_off() {
+        let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
+        assert_eq!(parsed("diagrams = false\n").unwrap().diagrams, Some(false));
+        assert_eq!(parsed("diagrams = true\n").unwrap().diagrams, Some(true));
+        assert!(parsed("diagrams = \"off\"\n").is_err());
+    }
+
+    #[test]
+    fn the_diagrams_table_turns_diagrams_on_or_off_beside_a_language_table() {
+        let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
+        let enabled = |text| parsed(text).map(|config| config.diagrams);
+        assert_eq!(enabled("[diagrams]\nenabled = false\n"), Ok(Some(false)));
+        assert_eq!(enabled("[diagrams]\nenabled = true\n"), Ok(Some(true)));
+        assert_eq!(enabled("[diagrams]\n"), Ok(None));
+        let both = "[diagrams]\nenabled = false\n\n\
+                    [diagrams.mermaid]\ncommand = [\"mmdc\", \"{input}\", \"{output}\"]\n";
+        let config = parsed(both).map(|config| (config.diagrams, config.diagram_commands));
+        let command = ["mmdc", "{input}", "{output}"].map(String::from).to_vec();
+        assert_eq!(
+            config,
+            Ok((
+                Some(false),
+                BTreeMap::from([("mermaid".to_owned(), command)])
+            ))
+        );
+        let error = enabled("[diagrams]\nenabled = \"no\"\n").unwrap_err();
+        assert!(error.contains("invalid type"), "{error}");
+    }
+
+    #[test]
+    fn the_diagrams_table_gives_the_time_limit_in_seconds() {
+        let parsed = |text: &str| parse(text, Path::new("/c"), &Environment::default());
+        let timeout = |text: &str| parsed(text).map(|config| config.diagram_timeout);
+        let seconds = |seconds| Ok(Some(Duration::from_secs_f64(seconds)));
+        assert_eq!(timeout("[diagrams]\ntimeout = 5\n"), seconds(5.0));
+        assert_eq!(timeout("[diagrams]\ntimeout = 2.5\n"), seconds(2.5));
+        assert_eq!(timeout("[diagrams]\nenabled = true\n"), Ok(None));
+        for wrong in ["0", "-1", "0.0", "nan", "inf", "1e300", "\"5\""] {
+            let error = timeout(&format!("[diagrams]\ntimeout = {wrong}\n"));
+            let error = error.unwrap_err();
+            assert!(error.contains("timeout: give"), "{wrong}: {error}");
+        }
+        // 20 s unless the file says otherwise.
+        let choices =
+            |config: &Config| choose(&Options::default(), &Environment::default(), config);
+        let default = choices(&Config::default());
+        assert_eq!(
+            default.diagram_timeout,
+            Setting::new(Duration::from_secs(20), Origin::Default)
+        );
+        let config = parsed("[diagrams]\ntimeout = 3\n").unwrap();
+        assert_eq!(choices(&config).diagram_timeout.origin, Origin::File);
+        let settings = choices(&config).with_theme(Theme::default());
+        assert_eq!(settings.diagram_timeout, Duration::from_secs(3));
+    }
+
+    #[test]
+    fn the_diagrams_table_turns_the_background_panel_off() {
+        let parsed = |text: &str| parse(text, Path::new("/c"), &Environment::default());
+        let panel = |text: &str| parsed(text).map(|config| config.diagram_panel);
+        assert_eq!(
+            panel("[diagrams]\nbackground_panel = false\n"),
+            Ok(Some(false))
+        );
+        assert_eq!(
+            panel("[diagrams]\nbackground_panel = true\n"),
+            Ok(Some(true))
+        );
+        assert_eq!(panel("[diagrams]\n"), Ok(None));
+        let choices =
+            |config: &Config| choose(&Options::default(), &Environment::default(), config);
+        assert_eq!(
+            choices(&Config::default()).diagram_panel,
+            Setting::new(true, Origin::Default)
+        );
+        let config = parsed("[diagrams]\nbackground_panel = false\n").unwrap();
+        assert_eq!(
+            choices(&config).diagram_panel,
+            Setting::new(false, Origin::File)
+        );
+        assert!(!choices(&config).with_theme(Theme::default()).diagram_panel);
+    }
+
+    #[test]
+    fn a_diagram_language_table_turns_the_search_for_its_program_off() {
+        let parsed = |text: &str| parse(text, Path::new("/c"), &Environment::default());
+        let off = |text: &str| {
+            parsed(text).map(|config| (config.diagram_no_search, config.diagram_commands))
+        };
+        let mermaid = BTreeSet::from(["mermaid".to_owned()]);
+        assert_eq!(
+            off("[diagrams.mermaid]\nauto_detect = false\n"),
+            Ok((mermaid.clone(), BTreeMap::new()))
+        );
+        assert_eq!(
+            off("[diagrams.mermaid]\nauto_detect = true\n"),
+            Ok((BTreeSet::new(), BTreeMap::new()))
+        );
+        let both = "[diagrams.mermaid]\nauto_detect = false\ncommand = [\"m\", \"{input}\", \"{output}\"]\n";
+        let command = ["m", "{input}", "{output}"].map(String::from).to_vec();
+        assert_eq!(
+            off(both),
+            Ok((
+                mermaid.clone(),
+                BTreeMap::from([("mermaid".to_owned(), command)])
+            ))
+        );
+        let config = parsed("[diagrams.mermaid]\nauto_detect = false\n").unwrap();
+        let choices = choose(&Options::default(), &Environment::default(), &config);
+        assert_eq!(choices.diagram_no_search, mermaid);
+        assert_eq!(
+            choices.with_theme(Theme::default()).diagram_no_search,
+            mermaid
+        );
+        let error = off("[diagrams.mermaid]\nauto_detect = \"no\"\n").unwrap_err();
+        assert!(error.contains("invalid type"), "{error}");
+        let error = off("[diagrams.mermaid]\nargs = []\n").unwrap_err();
+        assert!(
+            error.contains("unknown field `args`, expected `command` or `auto_detect`"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_diagram_language_table_gives_its_external_command() {
+        let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
+        let config = parsed(
+            "[diagrams.mermaid]\n\
+             command = [\"mmdc\", \"-i\", \"{input}\", \"-o\", \"{output}\", \"-t\", \"{theme}\"]\n",
+        )
+        .unwrap();
+        let command = ["mmdc", "-i", "{input}", "-o", "{output}", "-t", "{theme}"];
+        assert_eq!(
+            config.diagram_commands,
+            BTreeMap::from([("mermaid".to_owned(), command.map(String::from).to_vec())])
+        );
+        // Without a switch of its own.
+        assert_eq!(config.diagrams, None);
+        let choices = choose(&Options::default(), &Environment::default(), &config);
+        assert_eq!(choices.diagram_commands, config.diagram_commands);
+        let settings = choices.with_theme(Theme::default());
+        assert_eq!(settings.diagram_commands, config.diagram_commands);
+        assert!(
+            parsed("diagrams = true\n")
+                .unwrap()
+                .diagram_commands
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_diagram_command_must_be_able_to_work() {
+        let error = |text: &str| {
+            parse(text, Path::new("/c"), &Environment::default())
+                .map(|config| format!("{config:?}"))
+                .unwrap_err()
+        };
+        let cases = [
+            (
+                "[diagrams.dot]\ncommand = [\"dot\", \"{input}\", \"{output}\"]\n",
+                "unknown field `dot`, expected one of `enabled`, `timeout`, `background_panel`, `mermaid`",
+            ),
+            (
+                "[diagrams.mermaid]\ncommand = []\n",
+                "command: give the program and its arguments",
+            ),
+            (
+                "[diagrams.mermaid]\ncommand = [\"\", \"{input}\", \"{output}\"]\n",
+                "command: the program is empty",
+            ),
+            (
+                "[diagrams.mermaid]\ncommand = [\"mmdc\", \"-o\", \"{output}\"]\n",
+                "command: give {input} where the program takes its input file",
+            ),
+            (
+                "[diagrams.mermaid]\ncommand = [\"mmdc\", \"-i\", \"{input}\"]\n",
+                "command: give {output} where the program takes its output file",
+            ),
+            ("[diagrams.mermaid]\ncommand = \"mmdc\"\n", "invalid type"),
+            ("[diagrams.mermaid]\nargs = []\n", "unknown field `args`"),
+            ("diagrams = 1\n", "true or false, or a [diagrams] table"),
+        ];
+        for (text, expected) in cases {
+            let error = error(text);
+            assert!(error.contains(expected), "{text}: {error}");
+        }
+    }
+
+    fn with_diagrams(on: bool) -> Config {
+        Config {
+            diagrams: Some(on),
+            ..Config::default()
+        }
+    }
+
+    fn diagrams_env(value: &str) -> Environment {
+        Environment {
+            kiri_diagrams: Some(value.into()),
+            ..Environment::default()
+        }
+    }
+
+    #[test]
+    fn diagrams_are_on_by_default() {
+        let (chosen, warning) = diagrams(None, &Environment::default(), &Config::default());
+        assert_eq!(chosen, Setting::new(true, Origin::Default));
+        assert_eq!(warning, None);
+    }
+
+    #[test]
+    fn the_command_line_diagrams_are_strongest() {
+        let flag = Origin::Flag("--diagrams");
+        let (chosen, _) = diagrams(Some(false), &diagrams_env("on"), &with_diagrams(true));
+        assert_eq!(chosen, Setting::new(false, flag));
+        let (chosen, _) = diagrams(Some(true), &diagrams_env("0"), &with_diagrams(false));
+        assert_eq!(chosen, Setting::new(true, flag));
+    }
+
+    #[test]
+    fn kiri_diagrams_comes_before_the_configuration_file() {
+        for (value, on) in [("on", true), ("off", false), ("1", true), ("0", false)] {
+            let (chosen, warning) = diagrams(None, &diagrams_env(value), &with_diagrams(!on));
+            let origin = Origin::Environment("KIRI_DIAGRAMS");
+            assert_eq!(chosen, Setting::new(on, origin), "{value}");
+            assert_eq!(warning, None, "{value}");
+        }
+    }
+
+    #[test]
+    fn an_empty_kiri_diagrams_leaves_it_to_the_configuration_file() {
+        let (chosen, warning) = diagrams(None, &diagrams_env(""), &with_diagrams(false));
+        assert_eq!(chosen, Setting::new(false, Origin::File));
+        assert_eq!(warning, None);
+    }
+
+    #[test]
+    fn an_unknown_kiri_diagrams_is_left_out_with_a_warning() {
+        let (chosen, warning) = diagrams(None, &diagrams_env("yes"), &with_diagrams(false));
+        assert_eq!(chosen, Setting::new(false, Origin::File));
+        assert_eq!(
+            warning.as_deref(),
+            Some("KIRI_DIAGRAMS: `yes` is not on, off, 1 or 0; left out")
+        );
+        let (chosen, _) = diagrams(None, &diagrams_env("yes"), &Config::default());
+        assert_eq!(chosen, Setting::new(true, Origin::Default));
+    }
+
+    #[test]
+    fn the_choices_carry_the_diagrams_and_their_warning() {
+        let options = Options {
+            diagrams: Some(false),
+            ..Options::default()
+        };
+        let choices = choose(&options, &diagrams_env("yes"), &Config::default());
+        let flag = Origin::Flag("--diagrams");
+        assert_eq!(choices.diagrams, Setting::new(false, flag));
+        assert!(choices.warnings.is_empty(), "{:?}", choices.warnings);
+        assert!(!choices.with_theme(Theme::default()).diagrams);
+        let choices = choose(
+            &Options::default(),
+            &diagrams_env("yes"),
+            &with_diagrams(false),
+        );
+        assert_eq!(choices.warnings.len(), 1, "{:?}", choices.warnings);
+        assert!(!choices.with_theme(Theme::default()).diagrams);
+    }
+
+    #[test]
     fn the_table_rows_key_takes_each_value() {
         let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
         for (text, rows) in [
@@ -1251,6 +1953,69 @@ mod tests {
         assert_eq!(
             choices.with_theme(Theme::default()).table_rows,
             TableRows::Lines
+        );
+    }
+
+    #[test]
+    fn the_render_errors_key_takes_each_value() {
+        let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
+        for (text, errors) in [
+            ("render_errors = \"inline\"\n", RenderErrors::Inline),
+            ("render_errors = \"stderr\"\n", RenderErrors::Stderr),
+            ("render_errors = \"both\"\n", RenderErrors::Both),
+        ] {
+            assert_eq!(parsed(text).unwrap().render_errors, Some(errors), "{text}");
+        }
+        assert_eq!(parsed("").unwrap().render_errors, None);
+        assert!(parsed("render_errors = \"never\"\n").is_err());
+        assert!(parsed("render_errors = true\n").is_err());
+    }
+
+    fn render_errors_env(value: &str) -> Environment {
+        Environment {
+            kiri_render_errors: Some(value.into()),
+            ..Environment::default()
+        }
+    }
+
+    fn with_render_errors(errors: RenderErrors) -> Config {
+        Config {
+            render_errors: Some(errors),
+            ..Config::default()
+        }
+    }
+
+    #[test]
+    fn render_errors_go_to_both_unless_something_says_otherwise() {
+        let (chosen, warning) = render_errors(None, &Environment::default(), &Config::default());
+        assert_eq!(chosen, Setting::new(RenderErrors::Both, Origin::Default));
+        assert_eq!(warning, None);
+        let config = with_render_errors(RenderErrors::Inline);
+        let (chosen, _) = render_errors(None, &render_errors_env(""), &config);
+        assert_eq!(chosen, Setting::new(RenderErrors::Inline, Origin::File));
+        let (chosen, _) = render_errors(None, &render_errors_env("stderr"), &config);
+        let variable = Origin::Environment("KIRI_RENDER_ERRORS");
+        assert_eq!(chosen, Setting::new(RenderErrors::Stderr, variable));
+        let flag = Some(RenderErrors::Both);
+        let (chosen, _) = render_errors(flag, &render_errors_env("stderr"), &config);
+        let flag = Origin::Flag("--render-errors");
+        assert_eq!(chosen, Setting::new(RenderErrors::Both, flag));
+    }
+
+    #[test]
+    fn an_unknown_kiri_render_errors_is_left_out_with_a_warning() {
+        let config = with_render_errors(RenderErrors::Stderr);
+        let (chosen, warning) = render_errors(None, &render_errors_env("never"), &config);
+        assert_eq!(chosen, Setting::new(RenderErrors::Stderr, Origin::File));
+        assert_eq!(
+            warning.as_deref(),
+            Some("KIRI_RENDER_ERRORS: `never` is not inline, stderr or both; left out")
+        );
+        let choices = choose(&Options::default(), &render_errors_env("never"), &config);
+        assert_eq!(choices.warnings.len(), 1);
+        assert_eq!(
+            choices.with_theme(Theme::default()).render_errors,
+            RenderErrors::Stderr
         );
     }
 

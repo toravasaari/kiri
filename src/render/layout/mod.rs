@@ -11,10 +11,10 @@ use super::image::{self, Placement};
 use super::style::{Line, Spaces, Span, Style, push};
 use super::table::{self, Cells};
 use super::wrap::wrap;
-use super::{FrontMatterStyle, Inputs, TableRows};
+use super::{FrontMatterStyle, Inputs, RenderErrors, TableRows};
 use crate::caps::Capabilities;
 use crate::color::{Color, Underline};
-use crate::images::Images;
+use crate::images::{ImageError, ImageKey, Images};
 use crate::model::{Block, Document, Image, Inline, Table};
 use crate::theme::Theme;
 
@@ -28,6 +28,7 @@ pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
         theme,
         front_matter,
         table_rows,
+        render_errors,
     } = inputs;
     // Without colours, the layout leaves out what only shows a colour, such
     // as heading fills and the padding around inline code.
@@ -49,6 +50,7 @@ pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
         theme,
         front_matter: *front_matter,
         table_rows: *table_rows,
+        render_errors: *render_errors,
     };
 
     // Everything but headings and thematic breaks keeps text_margin free
@@ -101,6 +103,7 @@ struct Layout<'a> {
     theme: &'a Theme,
     front_matter: FrontMatterStyle,
     table_rows: TableRows,
+    render_errors: RenderErrors,
 }
 
 impl Layout<'_> {
@@ -145,8 +148,14 @@ impl Layout<'_> {
             Block::FrontMatter(front_matter) => self.front_matter(front_matter, width),
             Block::Heading { level, content } => self.heading(*level, content, width, context),
             Block::Paragraph(content) => self.paragraph(content, &Style::default(), width),
-            Block::CodeBlock { language, code } => {
-                self.code_block(language.as_deref(), code, width)
+            Block::CodeBlock { language, code, .. } => {
+                let language = language.as_deref();
+                if let Some(lines) = self.diagram(language, code, width) {
+                    return lines;
+                }
+                let mut lines = self.code_block(language, code, width);
+                lines.extend(self.render_error(language, code, width));
+                lines
             }
             Block::BlockQuote(blocks) => self.quote(blocks, width, context),
             Block::Alert {
@@ -308,20 +317,76 @@ impl Layout<'_> {
     /// The image inside a link is not clickable: OSC 8 around placeholders
     /// is not written yet.
     fn image_block(&self, content: &[Inline], width: usize) -> Option<Vec<Line>> {
-        if !self.caps.draws_images() {
-            return None;
-        }
         let lone = Inline::lone_image(content)?;
-        let url = &lone.url;
-        let Some(Ok(source)) = self.images.get(url) else {
-            return None;
-        };
-        let max_cells = self.caps.max_image_cells;
-        let max_columns = u16::try_from(width).unwrap_or(u16::MAX).min(max_cells);
         let wanted = image::Wanted {
             width: lone.width,
             height: lone.height,
         };
+        self.placed(ImageKey::from(lone.url.as_str()), wanted, width)
+    }
+
+    /// A code block drawn as a diagram, when it was.
+    fn diagram(&self, language: Option<&str>, code: &str, width: usize) -> Option<Vec<Line>> {
+        // Spares building a key for every code block of a document
+        // without images.
+        if self.images.is_empty() {
+            return None;
+        }
+        let key = ImageKey::Block {
+            language: language?.to_owned(),
+            source: code.to_owned(),
+        };
+        self.placed(key, image::Wanted::default(), width)
+    }
+
+    /// Why the code block `code` in `language` could not be drawn as a
+    /// diagram, in the error colour, to go below it; nothing when it was
+    /// drawn, is no diagram, or the setting keeps the reason out of the
+    /// document.
+    fn render_error(&self, language: Option<&str>, code: &str, width: usize) -> Vec<Line> {
+        let language = match language {
+            Some(language) if self.render_errors.inline() && !self.images.is_empty() => language,
+            _ => return Vec::new(),
+        };
+        let key = ImageKey::Block {
+            language: language.to_owned(),
+            source: code.to_owned(),
+        };
+        let Some(Err(ImageError::Diagram { reason, .. })) = self.images.get(&key) else {
+            return Vec::new();
+        };
+        // The language as written, as the warning on standard error has it.
+        let text = format!("✗ {language} diagram could not be drawn: {reason}");
+        let style = self.style(Style::fg(self.theme.error));
+        let (indent, max) = self.below_code(width);
+        // Each line of the reason wrapped on its own and keeping its indent,
+        // such as a pointer to the column of a mistake in the line above.
+        let mut lines = Vec::new();
+        for line in text.lines() {
+            let text = line.trim_start();
+            let own = (line.len() - text.len()).min(max.saturating_sub(1));
+            let spans = [Span::new(text, style.clone())];
+            for mut spans in wrap(&spans, max - own) {
+                if indent + own > 0 {
+                    spans.insert(0, Span::new(&" ".repeat(indent + own), Style::default()));
+                }
+                lines.push(Line::new(spans));
+            }
+        }
+        lines
+    }
+
+    /// The image `key` at the size `wanted`, at most `width` cells wide,
+    /// when the terminal can draw it and it loaded.
+    fn placed(&self, key: ImageKey, wanted: image::Wanted, width: usize) -> Option<Vec<Line>> {
+        if !self.caps.draws_images() {
+            return None;
+        }
+        let Some(Ok(source)) = self.images.get(&key) else {
+            return None;
+        };
+        let max_cells = self.caps.max_image_cells;
+        let max_columns = u16::try_from(width).unwrap_or(u16::MAX).min(max_cells);
         let size = image::size(
             source.size(),
             wanted,
@@ -329,10 +394,7 @@ impl Layout<'_> {
             max_columns,
             max_cells,
         )?;
-        let placement = Rc::new(Placement {
-            url: url.to_owned(),
-            size,
-        });
+        let placement = Rc::new(Placement { key, size });
         Some(
             (0..size.rows)
                 .map(|row| Line::image(Rc::clone(&placement), row))

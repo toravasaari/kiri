@@ -8,19 +8,27 @@ use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
 mod answers;
 mod detect;
+mod interrupt;
 mod probe;
+pub mod progress;
 mod screen;
 #[cfg(test)]
 mod testing;
 mod window;
 
 pub use detect::{CellSize, Detection, Mode, capabilities, examine, no_color};
+pub use interrupt::{Interrupt, end_by};
 pub use screen::Screen;
 pub use window::{WindowSize, window_size};
 
 /// Whether stdout is a terminal.
 pub fn stdout_is_terminal() -> bool {
     rustix::termios::isatty(std::io::stdout())
+}
+
+/// Whether stderr is a terminal.
+pub fn stderr_is_terminal() -> bool {
+    rustix::termios::isatty(std::io::stderr())
 }
 
 /// Whether stdin is a terminal.

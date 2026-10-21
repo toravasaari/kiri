@@ -1,5 +1,6 @@
 //! What a file given on the command line is: a Markdown document, a CSV
-//! or TSV table, or an image to show on its own.
+//! or TSV table, an image or a diagram to show on its own, or any text to
+//! show as it is.
 
 use std::ffi::OsStr;
 use std::path::Path;
@@ -19,17 +20,26 @@ pub enum Input {
     /// CSV or TSV, shown as a table.
     Table(Separator),
     Image(Format),
+    /// The source of a diagram in this language, such as `mermaid`, drawn
+    /// on its own.
+    Diagram(&'static str),
+    /// Any text, shown as it is, without reading it as Markdown.
+    Text,
 }
 
 /// Extensions of Markdown files, which are Markdown whatever they hold.
 const MARKDOWN: &[&str] = &["md", "markdown", "mdown", "mkd", "mkdn", "mdwn"];
 
+/// Extensions of files of diagram source, and the language each holds.
+const DIAGRAMS: &[(&str, &str)] = &[("mmd", "mermaid"), ("mermaid", "mermaid")];
+
 /// What the file at `path`, which starts with `head`, is. A Markdown
-/// extension makes it Markdown, a CSV or TSV extension a table and an SVG
-/// extension an SVG. Otherwise the content tells a raster image, unless it
-/// is text: a Markdown file may well start with `BM`, which also starts a
-/// BMP image. Then an image extension tells formats whose content does
-/// not, such as TGA. Anything else is Markdown.
+/// extension makes it Markdown, a CSV or TSV extension a table, a diagram
+/// extension such as `mmd` a diagram and an SVG extension an SVG.
+/// Otherwise the content tells a raster image, unless it is text: a
+/// Markdown file may well start with `BM`, which also starts a BMP image.
+/// Then an image extension tells formats whose content does not, such as
+/// TGA. Anything else is Markdown.
 pub fn detect(path: &Path, head: &[u8]) -> Input {
     let extension = path.extension().and_then(OsStr::to_str);
     let is =
@@ -38,6 +48,8 @@ pub fn detect(path: &Path, head: &[u8]) -> Input {
         Input::Markdown
     } else if let Some(table) = extension.and_then(table) {
         table
+    } else if let Some(language) = extension.and_then(diagram) {
+        Input::Diagram(language)
     } else if is(&["svg", "svgz"]) {
         Input::Image(Format::Svg)
     } else if !looks_like_text(head) && image::guess_format(head).is_ok() {
@@ -50,15 +62,20 @@ pub fn detect(path: &Path, head: &[u8]) -> Input {
 }
 
 /// The input `name` asks for, as `--format` takes it: `markdown`, `csv`,
-/// `tsv`, `image` for an image in whatever format its content tells, or an
-/// image format by its usual extension, such as `svg` or `png`. Any case
-/// goes.
+/// `tsv`, a diagram language such as `mermaid` or its extension, `mmd`,
+/// `text` or `txt` for any text as it is, `image` for an image in
+/// whatever format its content tells, or an image format by its usual
+/// extension, such as `svg` or `png`. Any case goes.
 pub fn format(name: &str) -> Option<Input> {
     let is = |names: &[&str]| names.iter().any(|n| name.eq_ignore_ascii_case(n));
     if is(&["markdown", "md"]) {
         Some(Input::Markdown)
+    } else if is(&["text", "txt"]) {
+        Some(Input::Text)
     } else if let Some(table) = table(name) {
         Some(table)
+    } else if let Some(language) = diagram(name) {
+        Some(Input::Diagram(language))
     } else if is(&["image"]) {
         Some(Input::Image(Format::Detect))
     } else if is(&["svg", "svgz"]) {
@@ -66,6 +83,27 @@ pub fn format(name: &str) -> Option<Input> {
     } else {
         ImageFormat::from_extension(name).map(|format| Input::Image(Format::Raster(format)))
     }
+}
+
+/// The language of the file at `path` shown as text, for highlighting:
+/// the language its extension names, as code blocks name it. A diagram
+/// file's extension names the diagram's language, `mmd` Mermaid; any other
+/// is taken as it is, as highlighting knows `rs` or `py`. `None` without an
+/// extension.
+pub fn language(path: &Path) -> Option<String> {
+    let extension = path.extension().and_then(OsStr::to_str)?;
+    Some(match diagram(extension) {
+        Some(language) => language.to_owned(),
+        None => extension.to_ascii_lowercase(),
+    })
+}
+
+/// The diagram language whose files have the extension `name`, which is
+/// also how `--format` names them.
+fn diagram(name: &str) -> Option<&'static str> {
+    (DIAGRAMS.iter())
+        .find(|(extension, _)| name.eq_ignore_ascii_case(extension))
+        .map(|&(_, language)| language)
 }
 
 /// The table `name`, an extension or a `--format` value, names: `csv` is
@@ -126,8 +164,22 @@ mod tests {
         assert_eq!(format("csv"), Some(Input::Table(Separator::Comma)));
         assert_eq!(format("TSV"), Some(Input::Table(Separator::Tab)));
         assert_eq!(format("tab"), Some(Input::Table(Separator::Tab)));
+        assert_eq!(format("mermaid"), Some(Input::Diagram("mermaid")));
+        assert_eq!(format("MMD"), Some(Input::Diagram("mermaid")));
+        assert_eq!(format("text"), Some(Input::Text));
+        assert_eq!(format("TXT"), Some(Input::Text));
         assert_eq!(format("docx"), None);
         assert_eq!(format(""), None);
+    }
+
+    #[test]
+    fn the_extension_names_the_language_of_text() {
+        assert_eq!(language(Path::new("a.rs")).as_deref(), Some("rs"));
+        assert_eq!(language(Path::new("a.MD")).as_deref(), Some("md"));
+        assert_eq!(language(Path::new("a.mmd")).as_deref(), Some("mermaid"));
+        assert_eq!(language(Path::new("a.Mermaid")).as_deref(), Some("mermaid"));
+        assert_eq!(language(Path::new("Makefile")), None);
+        assert_eq!(language(Path::new("<stdin>")), None);
     }
 
     #[test]
@@ -158,6 +210,16 @@ mod tests {
             assert_eq!(detected(name, PNG), Input::Table(separator), "{name}");
         }
         assert_eq!(detected("a.txt", b"a,b\n1,2\n"), Input::Markdown);
+    }
+
+    #[test]
+    fn a_diagram_is_told_by_its_extension() {
+        for name in ["a.mmd", "a.MMD", "a.mermaid"] {
+            assert_eq!(detected(name, b"flowchart TD\n"), Input::Diagram("mermaid"));
+            // Whatever the content looks like.
+            assert_eq!(detected(name, PNG), Input::Diagram("mermaid"), "{name}");
+        }
+        assert_eq!(detected("a.txt", b"flowchart TD\n"), Input::Markdown);
     }
 
     #[test]

@@ -72,6 +72,9 @@ rule = "bright-black"
 list_marker = "bright-black"
 # Also the colour of the underline between rows with --table-rows underline.
 table_border = "bright-black"
+# Messages kiri writes into the document, such as why a diagram could
+# not be drawn, below its code.
+error = "red"
 
 # A box of background colour around code blocks, one cell and one line
 # wide. Without it, code starts at the margin and copies cleanly.
@@ -220,8 +223,10 @@ page of fixed colours, as a browser does, whatever your terminal's colour
 scheme. The page is in greys only: headings, links, quotes, rules, tables,
 inline code and marked text differ in shade, weight and underline, not in
 colour. Code blocks keep their colours, from a code theme that matches the
-page. Muted text, such as image alt text, is a grey that keeps a contrast of
-at least 4.5:1 against the page, instead of the terminal's dim text.
+page, and a message kiri writes into the document, such as why a diagram
+could not be drawn, is red so that it stands out. Muted text, such as
+image alt text, is a grey that keeps a contrast of at least 4.5:1 against
+the page, instead of the terminal's dim text.
 
 The paper themes are the defaults above with these changes. To change one,
 start a theme file of your own from its keys.
@@ -239,6 +244,7 @@ quote_bar = "#c8c8c8"
 rule = "#c8c8c8"
 list_marker = "#707070"
 table_border = "#b4b4b4"
+error = "#b3261e"
 code_theme_dark = "base16-ocean.light"
 code_theme_light = "base16-ocean.light"
 
@@ -278,6 +284,7 @@ quote_bar = "#505050"
 rule = "#505050"
 list_marker = "#9a9a9a"
 table_border = "#5a5a5a"
+error = "#ff786e"
 code_theme_dark = "base16-eighties.dark"
 code_theme_light = "base16-eighties.dark"
 

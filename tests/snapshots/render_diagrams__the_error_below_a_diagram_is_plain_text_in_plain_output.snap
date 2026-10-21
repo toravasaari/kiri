@@ -1,0 +1,39 @@
+---
+source: tests/render_diagrams.rs
+expression: out
+---
+  Before.
+
+    flowchart TD
+      A[open --> B
+    ✗ mermaid diagram could not be drawn:
+    unclosed label
+
+  After.
+
+  - Item:
+
+      flowchart LR
+        C[shut
+      ✗ mermaid diagram could not be drawn:
+      unclosed label
+
+  > Quoted:
+  >
+  >   flowchart TD
+  >     D[quoted
+  >   ✗ mermaid diagram could not be drawn:
+  >   unclosed label
+
+  > Note
+  >   flowchart TD
+  >     E[noted
+  >   ✗ mermaid diagram could not be drawn:
+  >   unclosed label
+
+  ▼ More
+
+    flowchart TD
+      F[hidden
+    ✗ mermaid diagram could not be drawn:
+    unclosed label

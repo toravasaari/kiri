@@ -4,6 +4,7 @@
 use std::path::Path;
 
 use kiri::caps::Capabilities;
+use kiri::diagrams::Diagrams;
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts};
 use kiri::render::Inputs;
 use kiri::theme::{Paper, Theme};
@@ -85,8 +86,13 @@ fn the_visual_check_documents_fit_every_mode() {
         // Layout needs only the sizes of the images, so it gets the real
         // ones; rendering them at every width would only take longer. Text
         // in SVGs does not change their size, so no fonts are loaded.
-        let images =
-            kiri::images::load_with(&document, &examples, DEFAULT_MAX_FILE_SIZE, &Fonts::none());
+        let images = kiri::images::load_with(
+            &document,
+            &examples,
+            DEFAULT_MAX_FILE_SIZE,
+            &Fonts::none(),
+            &Diagrams::none(),
+        );
         assert_eq!(images.warnings().len(), warnings, "{name}: {images:?}");
         let mut without_images = Inputs::new(Capabilities::plain(16));
         let mut with_images = Inputs {

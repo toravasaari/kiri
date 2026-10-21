@@ -12,7 +12,7 @@ use std::io::{self, Write};
 use std::rc::Rc;
 
 use crate::caps::Capabilities;
-use crate::images::{Images, Source};
+use crate::images::{ImageKey, Images, Source};
 use crate::model::{Block, Document, FrontMatter};
 use crate::render::style::Line;
 use crate::theme::Theme;
@@ -32,6 +32,44 @@ pub struct Inputs {
     pub front_matter: FrontMatterStyle,
     /// How the rows of a table are told apart.
     pub table_rows: TableRows,
+    /// Whether a diagram that could not be drawn tells why in the
+    /// document.
+    pub render_errors: RenderErrors,
+}
+
+/// Where kiri tells why something it draws from source, such as a
+/// diagram, could not be drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RenderErrors {
+    /// In the document, below the source.
+    Inline,
+    /// In a warning on standard error.
+    Stderr,
+    /// In both.
+    #[default]
+    Both,
+}
+
+impl RenderErrors {
+    /// The value as kiri writes it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Inline => "inline",
+            Self::Stderr => "stderr",
+            Self::Both => "both",
+        }
+    }
+
+    /// Whether the document tells.
+    pub fn inline(self) -> bool {
+        matches!(self, Self::Inline | Self::Both)
+    }
+
+    /// Whether a warning on standard error tells.
+    pub fn stderr(self) -> bool {
+        matches!(self, Self::Stderr | Self::Both)
+    }
 }
 
 /// How the rows of a table drawn as a box are told apart.
@@ -103,6 +141,7 @@ impl Inputs {
             theme: Theme::default(),
             front_matter: FrontMatterStyle::default(),
             table_rows: TableRows::default(),
+            render_errors: RenderErrors::default(),
         }
     }
 }
@@ -122,12 +161,23 @@ pub fn render(document: &Document, inputs: &Inputs, out: &mut impl Write) -> io:
 /// SVG in CSS pixels. A row is left below it for the shell's prompt. Does
 /// nothing when `caps` cannot draw images.
 pub fn render_image(image: Source, caps: &Capabilities, out: &mut impl Write) -> io::Result<()> {
+    render_image_on(image, caps, output::Page::default(), out)
+}
+
+/// `render_image` on `page`, whose colours fill the rows beside the image,
+/// as they do beside a document's lines.
+pub fn render_image_on(
+    image: Source,
+    caps: &Capabilities,
+    page: output::Page,
+    out: &mut impl Write,
+) -> io::Result<()> {
     if !caps.draws_images() {
         return Ok(());
     }
     let unit = match &image {
         Source::Raster(_) => image::Unit::Pixel,
-        Source::Svg(_) => image::Unit::Css,
+        Source::Svg(_) | Source::Dense { .. } => image::Unit::Css,
     };
     let max_cells = caps.max_image_cells;
     let max_rows = caps.height.map_or(max_cells, |rows| {
@@ -142,14 +192,15 @@ pub fn render_image(image: Source, caps: &Capabilities, out: &mut impl Write) ->
     ) else {
         return Ok(());
     };
+    let key = ImageKey::from("");
     let placement = Rc::new(image::Placement {
-        url: String::new(),
+        key: key.clone(),
         size,
     });
     let lines: Vec<Line> = (0..size.rows)
         .map(|row| Line::image(Rc::clone(&placement), row))
         .collect();
     let mut images = Images::new();
-    images.insert(String::new(), Ok(image));
-    output::write(&lines, &images, caps, output::Page::default(), out)
+    images.insert(key, Ok(image));
+    output::write(&lines, &images, caps, page, out)
 }

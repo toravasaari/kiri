@@ -25,8 +25,50 @@ pub fn parse_with(source: &str, front_matter: bool) -> Document {
     };
     let arena = Arena::new();
     let root = parse_document(&arena, markdown, &options());
+    let mut blocks = blocks(root);
+    // comrak counts lines from the end of the front matter.
+    let front_matter_lines = source[..source.len() - markdown.len()]
+        .matches('\n')
+        .count();
+    move_lines(&mut blocks, front_matter_lines);
     Document {
-        blocks: front_matter.into_iter().chain(blocks(root)).collect(),
+        blocks: front_matter.into_iter().chain(blocks).collect(),
+    }
+}
+
+/// `source` as it is, without reading it as Markdown: a document of one
+/// code block in `language`, which starts on the first line.
+pub fn code(source: &str, language: Option<&str>) -> Document {
+    Document {
+        blocks: vec![Block::CodeBlock {
+            language: language.map(str::to_owned),
+            code: source.to_owned(),
+            line: 1,
+        }],
+    }
+}
+
+/// Moves the line of each code block in `blocks` `by` lines down.
+fn move_lines(blocks: &mut [Block], by: usize) {
+    for block in blocks {
+        match block {
+            Block::CodeBlock { line, .. } => *line += by,
+            Block::BlockQuote(blocks)
+            | Block::Alert { blocks, .. }
+            | Block::Details { blocks, .. } => move_lines(blocks, by),
+            Block::List(list) => {
+                for item in &mut list.items {
+                    move_lines(&mut item.blocks, by);
+                }
+            }
+            Block::FrontMatter(_)
+            | Block::Heading { .. }
+            | Block::Paragraph(_)
+            | Block::Table(_)
+            | Block::ThematicBreak
+            | Block::Html(_)
+            | Block::Note(_) => {}
+        }
     }
 }
 
@@ -150,6 +192,7 @@ fn block(node: Node<'_>) -> Option<Block> {
         NodeValue::CodeBlock(code) => Block::CodeBlock {
             language: code.info.split_whitespace().next().map(str::to_owned),
             code: code.literal.clone(),
+            line: node.data().sourcepos.start.line,
         },
         NodeValue::BlockQuote => Block::BlockQuote(blocks(node)),
         NodeValue::Alert(alert) => Block::Alert {
@@ -913,6 +956,7 @@ mod tests {
             vec![Block::CodeBlock {
                 language: None,
                 code: ":rocket:\n".into(),
+                line: 1,
             }]
         );
     }
@@ -925,7 +969,57 @@ mod tests {
             vec![Block::CodeBlock {
                 language: Some("rust".into()),
                 code: "fn main() {}\n".into(),
+                line: 1,
             }]
         );
+    }
+
+    /// The lines the code blocks of `source` start on.
+    fn code_lines(blocks: &[Block], lines: &mut Vec<usize>) {
+        for block in blocks {
+            match block {
+                Block::CodeBlock { line, .. } => lines.push(*line),
+                Block::BlockQuote(blocks) => code_lines(blocks, lines),
+                Block::List(list) => {
+                    for item in &list.items {
+                        code_lines(&item.blocks, lines);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn records_the_line_each_code_block_starts_on() {
+        let source = "\
+---
+title: x
+---
+# Heading
+
+```mermaid
+graph TD
+```
+
+- item
+
+  ```
+  in a list
+  ```
+
+> ~~~
+> quoted
+> ~~~
+
+    indented
+";
+        let mut lines = Vec::new();
+        code_lines(&parse(source).blocks, &mut lines);
+        assert_eq!(lines, [6, 12, 16, 20]);
+        // Without front matter the lines are the same.
+        let mut lines = Vec::new();
+        code_lines(&parse_with(source, false).blocks, &mut lines);
+        assert_eq!(lines, [6, 12, 16, 20]);
     }
 }
