@@ -43,7 +43,7 @@ impl Layout<'_> {
             ..Style::default()
         };
         let padded = |content: Vec<Span>| {
-            let used = crate::render::wrap::width(&content);
+            let used = wrap::width(&content);
             let mut spans = vec![Span::new(" ", background.clone())];
             spans.extend(content);
             push(
@@ -111,7 +111,7 @@ impl Layout<'_> {
             ..background.clone()
         };
         let name = [Span::new(language, label.clone())];
-        let used = crate::render::wrap::width(&name) + 2;
+        let used = wrap::width(&name) + 2;
         if used > width {
             return None;
         }

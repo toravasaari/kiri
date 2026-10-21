@@ -201,17 +201,7 @@ mod tests {
     /// The hue of an RGB colour in whole degrees.
     fn hue(color: Color) -> i32 {
         let Color::Rgb(r, g, b) = color else { panic!() };
-        let (r, g, b) = (f64::from(r), f64::from(g), f64::from(b));
-        let (max, min) = (r.max(g).max(b), r.min(g).min(b));
-        let d = max - min;
-        let h = if max == r {
-            ((g - b) / d).rem_euclid(6.0)
-        } else if max == g {
-            (b - r) / d + 2.0
-        } else {
-            (r - g) / d + 4.0
-        };
-        (h * 60.0).round() as i32
+        (hsl(r, g, b).0 * 360.0).round() as i32
     }
 
     #[test]
