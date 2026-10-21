@@ -355,10 +355,8 @@ impl Layout<'_> {
         let Some(Err(ImageError::Diagram { reason, .. })) = self.images.get(&key) else {
             return Vec::new();
         };
-        let text = format!(
-            "✗ {} diagram could not be drawn: {reason}",
-            crate::diagrams::display_name(language)
-        );
+        // The language as written, as the warning on standard error has it.
+        let text = format!("✗ {language} diagram could not be drawn: {reason}");
         let spans = [Span::new(&text, self.style(Style::fg(self.theme.error)))];
         let (indent, max) = self.below_code(width);
         (wrap(&spans, max).into_iter())

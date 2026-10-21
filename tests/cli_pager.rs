@@ -408,6 +408,6 @@ fn the_pager_shows_why_a_diagram_was_not_drawn_and_finds_it() {
     // Below the end of the first page, and shown once found.
     assert!(!frames[0].contains("could not be"), "{seen:?}");
     let found = frames.last().unwrap();
-    assert!(found.contains("✗ Mermaid diagram could not be"), "{seen:?}");
+    assert!(found.contains("✗ mermaid diagram could not be"), "{seen:?}");
     assert!(found.contains("/drawn 1/1"), "{seen:?}");
 }

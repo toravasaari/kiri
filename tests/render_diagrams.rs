@@ -144,7 +144,7 @@ fn broken(caps: &Capabilities, theme: Theme, errors: RenderErrors) -> String {
     render(BROKEN, &inputs)
 }
 
-const WHY: &str = "Mermaid diagram could not be drawn: unclosed label";
+const WHY: &str = "mermaid diagram could not be drawn: unclosed label";
 
 #[test]
 fn a_diagram_that_did_not_draw_tells_why_below_its_code() {
@@ -190,7 +190,7 @@ fn the_error_below_a_diagram_has_no_colour_without_colours() {
         ..Capabilities::kitty(WIDTH)
     };
     let out = broken(&caps, Theme::default(), RenderErrors::Both);
-    assert!(out.contains("✗ Mermaid diagram could not be"), "{out:?}");
+    assert!(out.contains("✗ mermaid diagram could not be"), "{out:?}");
     assert!(common::colour_codes(&out).is_empty(), "{out:?}");
 }
 

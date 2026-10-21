@@ -1024,7 +1024,7 @@ fn with_render_errors(
 }
 
 /// What kiri tells in the document of `FAILS`'s diagram.
-const INLINE: &str = "✗ Mermaid diagram could not be drawn: sh exited with status 1: Error: bad";
+const INLINE: &str = "✗ mermaid diagram could not be drawn: sh exited with status 1: Error: bad";
 
 #[test]
 fn render_errors_go_into_the_document_on_stderr_or_both() {

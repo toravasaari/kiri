@@ -6,7 +6,7 @@ expression: out
 
     flowchart TD
       A[open --> B
-    ✗ Mermaid
+    ✗ mermaid
     diagram could
     not be drawn:
     unclosed label
@@ -17,7 +17,7 @@ expression: out
 
       flowchart LR
         C[shut
-      ✗ Mermaid
+      ✗ mermaid
       diagram
       could not be
       drawn:
@@ -28,7 +28,7 @@ expression: out
   >
   >   flowchart TD
   >     D[quoted
-  >   ✗ Mermaid
+  >   ✗ mermaid
   >   diagram
   >   could not be
   >   drawn:
@@ -38,7 +38,7 @@ expression: out
   > Note
   >   flowchart TD
   >     E[noted
-  >   ✗ Mermaid
+  >   ✗ mermaid
   >   diagram
   >   could not be
   >   drawn:
@@ -49,7 +49,7 @@ expression: out
 
     flowchart TD
       F[hidden
-    ✗ Mermaid
+    ✗ mermaid
     diagram could
     not be drawn:
     unclosed label

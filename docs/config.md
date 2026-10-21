@@ -213,7 +213,7 @@ out.
 
 A diagram that does not draw, such as one with a syntax error, stays
 code. Below the code, in the theme's `error` colour, kiri tells why, as
-in `✗ Mermaid diagram could not be drawn: …`, which shows in the pager
+in `✗ mermaid diagram could not be drawn: …`, which shows in the pager
 too. The lines start at the edge of the code's box and are no wider than
 the code in it; without a box, they start where the code does. A warning
 on standard error names the diagram by its line, as in
