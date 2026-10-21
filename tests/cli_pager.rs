@@ -5,14 +5,13 @@ use std::io::{Read, Write};
 use std::os::fd::BorrowedFd;
 use std::os::unix::process::CommandExt;
 use std::process::{ExitStatus, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use rustix::process::Resource;
 
 mod common;
 
-use common::{Scratch, command, text};
+use common::{Scratch, command, read_terminal, text};
 
 /// The alternate screen, which the pager draws on.
 const ENTER: &str = "\x1b[?1049h";
@@ -114,27 +113,16 @@ fn in_terminal_after(
         let mut input = child.stdin.take().unwrap();
         input.write_all(document.as_bytes()).unwrap();
     }
-    let mut seen = Vec::new();
-    let mut buffer = [0; 4096];
-    // kiri gets 10 s at most, so a hanging kiri fails the test instead of
-    // hanging it.
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        let left = deadline.checked_duration_since(Instant::now());
-        let timeout = left.map(|left| Timespec::try_from(left).unwrap());
-        let mut fds = [PollFd::new(&terminal, PollFlags::IN)];
-        if left.is_none() || poll(&mut fds, timeout.as_ref()).unwrap() == 0 {
-            child.kill().unwrap();
-            panic!("kiri did not finish: {:?}", text(&seen));
-        }
-        // Reading ends with an error once no one holds the program's side.
-        let Ok(read @ 1..) = terminal.read(&mut buffer) else {
-            break;
-        };
-        seen.extend_from_slice(&buffer[..read]);
-        let frames = text(&seen).matches("\x1b[?2026l").count();
-        act(frames, &mut terminal, &child);
-    }
+    // kiri gets 10 s at most.
+    let seen = read_terminal(
+        &mut terminal,
+        &mut child,
+        Duration::from_secs(10),
+        |seen, terminal, child| {
+            let frames = text(seen).matches("\x1b[?2026l").count();
+            act(frames, terminal, child);
+        },
+    );
     let status = child.wait().unwrap();
     let mut stderr = String::new();
     child

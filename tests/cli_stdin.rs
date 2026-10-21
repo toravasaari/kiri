@@ -4,13 +4,13 @@ use std::io::{Read, Write};
 use std::os::fd::BorrowedFd;
 use std::os::unix::process::CommandExt;
 use std::process::Stdio;
-use std::time::{Duration, Instant};
-
-use rustix::event::{PollFd, PollFlags, Timespec, poll};
+use std::time::Duration;
 
 mod common;
 
-use common::{Scratch, assert_succeeded, command, fixtures, kiri_piped, piped, text, write};
+use common::{
+    Scratch, assert_succeeded, command, fixtures, kiri_piped, piped, read_terminal, text, write,
+};
 
 #[test]
 fn reads_the_document_from_a_pipe_without_a_file_name() {
@@ -191,36 +191,25 @@ fn the_terminal_is_asked_on_the_controlling_terminal_not_standard_input() {
     stdin.write_all(b"# Title\n\n![Icon](icon.png)\n").unwrap();
     drop(stdin);
 
-    let mut seen = Vec::new();
     let mut answered = false;
-    let mut buffer = [0; 4096];
-    // kiri gets 10 s at most, so a hanging kiri fails the test instead of
-    // hanging it.
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        let left = deadline.checked_duration_since(Instant::now());
-        let timeout = left.map(|left| Timespec::try_from(left).unwrap());
-        let mut fds = [PollFd::new(&terminal, PollFlags::IN)];
-        if left.is_none() || poll(&mut fds, timeout.as_ref()).unwrap() == 0 {
-            child.kill().unwrap();
-            panic!("kiri did not finish: {:?}", text(&seen));
-        }
-        // Reading ends with an error once no one holds the program's side.
-        let Ok(read @ 1..) = terminal.read(&mut buffer) else {
-            break;
-        };
-        seen.extend_from_slice(&buffer[..read]);
-        if !answered && seen.windows(3).any(|w| w == b"\x1b[c") {
-            terminal
-                .write_all(
-                    b"\x1b[5;1R\x1b[5;3R\x1b[5;5R\x1b_Gi=31;OK\x1b\\\
-                      \x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\\x1bP>|kitty(0.47.1)\x1b\\\
-                      \x1b[?62;c",
-                )
-                .unwrap();
-            answered = true;
-        }
-    }
+    // kiri gets 10 s at most.
+    let seen = read_terminal(
+        &mut terminal,
+        &mut child,
+        Duration::from_secs(10),
+        |seen, terminal, _| {
+            if !answered && seen.windows(3).any(|w| w == b"\x1b[c") {
+                terminal
+                    .write_all(
+                        b"\x1b[5;1R\x1b[5;3R\x1b[5;5R\x1b_Gi=31;OK\x1b\\\
+                          \x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\\x1bP>|kitty(0.47.1)\x1b\\\
+                          \x1b[?62;c",
+                    )
+                    .unwrap();
+                answered = true;
+            }
+        },
+    );
     let status = child.wait().unwrap();
     let mut stderr = String::new();
     child

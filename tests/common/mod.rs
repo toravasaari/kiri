@@ -3,9 +3,11 @@
 #![allow(dead_code)]
 
 use std::collections::HashMap;
+use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, ExitStatus, Output, Stdio};
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use image::{Rgba, RgbaImage};
@@ -482,7 +484,6 @@ pub fn executable(path: &Path, script: &str) {
 /// A pseudo-terminal: the terminal side, and the program's side.
 pub fn pty() -> (std::fs::File, std::fs::File) {
     use std::ffi::OsStr;
-    use std::fs::File;
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::OpenOptionsExt;
 
@@ -500,4 +501,70 @@ pub fn pty() -> (std::fs::File, std::fs::File) {
         .open(OsStr::from_bytes(name.as_bytes()))
         .unwrap();
     (File::from(terminal), tty)
+}
+
+/// Whether `done` holds within `limit`, asked every 20 ms.
+pub fn wait_until(limit: Duration, mut done: impl FnMut() -> bool) -> bool {
+    let deadline = Instant::now() + limit;
+    loop {
+        if done() {
+            return true;
+        }
+        if Instant::now() > deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// How `child` exited, or `None` when it did not within `limit`; then it
+/// is killed and reaped, so a hanging program fails the test instead of
+/// hanging it.
+pub fn wait_or_kill(child: &mut Child, limit: Duration) -> Option<ExitStatus> {
+    let deadline = Instant::now() + limit;
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            return Some(status);
+        }
+        if Instant::now() > deadline {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Everything `child` writes to the terminal side `terminal` until no one
+/// holds the program's side any more, with `act` called after each read
+/// with everything read so far, the terminal side and `child`. `child`
+/// gets `limit` to finish, so a hanging one fails the test instead of
+/// hanging it: it is killed and the test panics.
+pub fn read_terminal(
+    terminal: &mut File,
+    child: &mut Child,
+    limit: Duration,
+    mut act: impl FnMut(&[u8], &mut File, &Child),
+) -> Vec<u8> {
+    use rustix::event::{PollFd, PollFlags, Timespec, poll};
+
+    let mut seen = Vec::new();
+    let mut buffer = [0; 4096];
+    let deadline = Instant::now() + limit;
+    loop {
+        let left = deadline.checked_duration_since(Instant::now());
+        let timeout = left.map(|left| Timespec::try_from(left).unwrap());
+        let mut fds = [PollFd::new(&*terminal, PollFlags::IN)];
+        if left.is_none() || poll(&mut fds, timeout.as_ref()).unwrap() == 0 {
+            child.kill().unwrap();
+            panic!("kiri did not finish: {:?}", text(&seen));
+        }
+        // Reading ends with an error once no one holds the program's side.
+        let Ok(read @ 1..) = terminal.read(&mut buffer) else {
+            break;
+        };
+        seen.extend_from_slice(&buffer[..read]);
+        act(&seen, terminal, child);
+    }
+    seen
 }

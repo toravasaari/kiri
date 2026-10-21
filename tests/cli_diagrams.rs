@@ -377,29 +377,21 @@ fn slow_diagrams_show_no_progress_when_stderr_is_not_a_terminal() {
 /// Whether the processes in `pids` have all ended, or are zombies being
 /// reaped, within 2 s.
 fn all_gone(pids: &[String]) -> bool {
-    let start = std::time::Instant::now();
-    loop {
-        let alive = pids.iter().any(|pid| {
+    common::wait_until(std::time::Duration::from_secs(2), || {
+        !pids.iter().any(|pid| {
             let stat = std::path::Path::new("/proc").join(pid).join("stat");
             std::fs::read_to_string(stat).is_ok_and(|stat| {
                 stat.rsplit_once(") ")
                     .is_some_and(|(_, state)| !state.starts_with('Z'))
             })
-        });
-        if !alive {
-            return true;
-        }
-        if start.elapsed() > std::time::Duration::from_secs(2) {
-            return false;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
+        })
+    })
 }
 
 #[test]
 fn a_signal_stops_the_programs_removes_their_files_and_ends_kiri() {
     use std::os::unix::process::ExitStatusExt;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     use rustix::process::{Pid, Signal, kill_process};
 
@@ -433,25 +425,13 @@ fn a_signal_stops_the_programs_removes_their_files_and_ends_kiri() {
             let started = std::fs::read_to_string(&started).unwrap_or_default();
             started.lines().map(str::to_owned).collect()
         };
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while pids().len() < 2 && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(20));
-        }
+        common::wait_until(Duration::from_secs(10), || pids().len() >= 2);
         assert_eq!(pids().len(), 2, "{signal:?}: both programs start");
         let pid = Pid::from_raw(kiri.id() as i32).unwrap();
         kill_process(pid, signal).unwrap();
-        // kiri gets 10 s at most, so a hanging kiri fails the test instead
-        // of hanging it.
-        let status = loop {
-            if let Some(status) = kiri.try_wait().unwrap() {
-                break status;
-            }
-            if Instant::now() > deadline {
-                kiri.kill().unwrap();
-                panic!("{signal:?}: kiri did not end");
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        };
+        // kiri gets 10 s at most.
+        let status = common::wait_or_kill(&mut kiri, Duration::from_secs(10))
+            .unwrap_or_else(|| panic!("{signal:?}: kiri did not end"));
         let out = kiri.wait_with_output().unwrap();
         let gone = all_gone(&pids());
         if !gone {
@@ -474,7 +454,7 @@ fn a_signal_stops_the_programs_removes_their_files_and_ends_kiri() {
 
 #[test]
 fn a_signal_ignored_when_kiri_starts_stays_ignored() {
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     use rustix::process::{Pid, Signal, kill_process};
 
@@ -500,25 +480,14 @@ fn a_signal_ignored_when_kiri_starts_stays_ignored() {
         .stderr(std::process::Stdio::piped())
         .spawn()
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while !started.exists() && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    assert!(started.exists(), "the program starts");
+    let start = common::wait_until(Duration::from_secs(10), || started.exists());
+    assert!(start, "the program starts");
     let pid = Pid::from_raw(kiri.id() as i32).unwrap();
     for signal in [Signal::INT, Signal::TERM, Signal::HUP] {
         kill_process(pid, signal).unwrap();
     }
-    let status = loop {
-        if let Some(status) = kiri.try_wait().unwrap() {
-            break status;
-        }
-        if Instant::now() > deadline {
-            kiri.kill().unwrap();
-            panic!("kiri did not end");
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    };
+    let status =
+        common::wait_or_kill(&mut kiri, Duration::from_secs(10)).expect("kiri did not end");
     let out = kiri.wait_with_output().unwrap();
     assert!(status.success(), "{status:?}: {}", text(&out.stderr));
     assert_eq!(text(&out.stderr), "");
@@ -528,7 +497,7 @@ fn a_signal_ignored_when_kiri_starts_stays_ignored() {
 #[test]
 fn ctrl_c_ends_kiri_at_once_when_no_diagram_runs_a_program() {
     use std::os::unix::process::ExitStatusExt;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     use rustix::process::{Pid, Signal, kill_process};
 
@@ -563,18 +532,7 @@ fn ctrl_c_ends_kiri_at_once_when_no_diagram_runs_a_program() {
     std::thread::sleep(Duration::from_millis(500));
     let pid = Pid::from_raw(kiri.id() as i32).unwrap();
     kill_process(pid, Signal::INT).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let status = loop {
-        if let Some(status) = kiri.try_wait().unwrap() {
-            break Some(status);
-        }
-        if Instant::now() > deadline {
-            kiri.kill().unwrap();
-            kiri.wait().unwrap();
-            break None;
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    };
+    let status = common::wait_or_kill(&mut kiri, Duration::from_secs(5));
     let status = status.map(|status| status.signal());
     assert_eq!(status, Some(Some(Signal::INT.as_raw())), "Ctrl-C ends kiri");
 }
@@ -583,7 +541,7 @@ fn ctrl_c_ends_kiri_at_once_when_no_diagram_runs_a_program() {
 fn ctrl_c_ends_kiri_when_the_pager_cannot_open_and_it_prints_instead() {
     use std::io::{BufRead, BufReader};
     use std::os::unix::process::{CommandExt, ExitStatusExt};
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     use rustix::process::{Pid, Signal, kill_process};
 
@@ -623,18 +581,7 @@ fn ctrl_c_ends_kiri_when_the_pager_cannot_open_and_it_prints_instead() {
     std::thread::sleep(Duration::from_millis(300));
     let pid = Pid::from_raw(kiri.id() as i32).unwrap();
     kill_process(pid, Signal::INT).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let status = loop {
-        if let Some(status) = kiri.try_wait().unwrap() {
-            break Some(status);
-        }
-        if Instant::now() > deadline {
-            kiri.kill().unwrap();
-            kiri.wait().unwrap();
-            break None;
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    };
+    let status = common::wait_or_kill(&mut kiri, Duration::from_secs(5));
     let status = status.map(|status| status.signal());
     assert_eq!(status, Some(Some(Signal::INT.as_raw())), "Ctrl-C ends kiri");
 }
