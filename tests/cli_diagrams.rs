@@ -437,3 +437,23 @@ fn the_configuration_file_sets_the_time_limit() {
     assert!(sent(&text(&out.stdout)).is_empty());
     assert!(start.elapsed() < std::time::Duration::from_secs(4));
 }
+
+#[test]
+fn a_diagram_for_the_other_page_lies_on_a_panel_unless_turned_off() {
+    let dir = Scratch::new("mermaid-panel");
+    let dark = "# Plan\n\n```mermaid\n%%{init: {\"theme\": \"dark\"}}%%\nflowchart TD\n```\n";
+    let command = external(&dir, DRAWS);
+    let width = |args: &[&str], config: &str| {
+        let out = with_settings(&dir, dark, args, None, config);
+        assert_eq!(text(&out.stderr), "", "{args:?} {config:?}");
+        let images = sent(&text(&out.stdout));
+        assert_eq!(images.len(), 1, "{args:?} {config:?}");
+        images[0].keys["s"].clone()
+    };
+    // Eight pixels of panel on each side, on a light page: 216 pixels,
+    // sent as whole cells of 10.
+    assert_eq!(width(&["--light"], &command), "220");
+    assert_eq!(width(&["--dark"], &command), "200");
+    let off = format!("[diagrams]\nbackground_panel = false\n\n{command}");
+    assert_eq!(width(&["--light"], &off), "200");
+}

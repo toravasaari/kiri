@@ -40,6 +40,8 @@ table_rows = "zebra"
 enabled = true
 # How long a program may take to draw one diagram, in seconds.
 timeout = 20
+# false draws no panel under a diagram in colours for the other page.
+background_panel = true
 
 # A program that draws Mermaid diagrams instead of kiri; see
 # Diagram commands below.
@@ -190,8 +192,15 @@ A diagram that sets its own theme, in a `%%{init: {"theme": …}}%%`
 directive or under `config:` in its front matter, keeps it. Otherwise it
 takes Mermaid's `default` theme on a light page and `dark` on a dark one.
 The page is light with `--light`, dark with `--dark`, and otherwise as
-the terminal's background is; an unknown background counts as dark. A
-diagram in light colours on a dark page is drawn on a white panel.
+the terminal's background is; an unknown background counts as dark.
+
+A diagram whose own theme is for the other page is drawn on a panel, so
+that its lines and text show: one in light colours on a dark page on a
+white panel, and one in dark colours on a light page on a panel of its
+theme's background. When kiri cannot tell that background, as with an
+external program, the panel is Mermaid's dark grey, `#333333`.
+`background_panel = false` in the `[diagrams]` table leaves the panels
+out.
 
 A diagram that does not draw, such as one with a syntax error, stays
 code with a warning that names it by its line, as in

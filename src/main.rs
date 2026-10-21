@@ -434,6 +434,7 @@ fn show_document(
             theme: kiri::diagrams::Theme::for_page(caps.dark_background),
             by_line: file.is_some(),
             progress: None,
+            panel: settings.diagram_panel,
         };
         let load =
             |diagrams: &Diagrams| kiri::images::load(document, base, max_file_size, diagrams);

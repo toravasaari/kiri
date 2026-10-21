@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use merman::svg::SvgPipeline;
-use merman::theme_color::is_dark;
+use merman::theme_color::{ColorChannel, ThemeColor, is_dark};
 use merman::{
     Engine, MermaidConfig, OperationControl, RenderOutput, RenderTarget, Renderer, SvgRequest,
 };
@@ -45,13 +45,16 @@ pub fn render(source: &str, theme: Theme) -> Result<Drawn, String> {
         .map_err(|error| error.to_string())?
         .ok_or_else(no_diagram)?;
     // The diagram's own configuration over the site's.
-    let theme = page_of(diagram.metadata().effective_config.as_value()).unwrap_or(theme);
+    let config = diagram.metadata().effective_config.as_value();
+    let theme = page_of(config).unwrap_or(theme);
+    let background = background_of(config);
     match diagram.render(RenderTarget::Svg(request)) {
         Ok(RenderOutput::Svg(Some(svg))) => {
             let svg = with_references_found(&svg.into_parts().0);
             Ok(Drawn {
                 svg: with_labels_unclipped(&svg),
                 theme,
+                background,
             })
         }
         Ok(_) => Err(no_diagram()),
@@ -72,6 +75,19 @@ fn page_of(config: &serde_json::Value) -> Option<Theme> {
         _ => is_dark(variables.get("background")?.as_str()?).ok()?,
     };
     Some(if dark { Theme::Dark } else { Theme::Light })
+}
+
+/// The background colour of the theme in the Mermaid configuration
+/// `config`, when it gives one that is a colour.
+fn background_of(config: &serde_json::Value) -> Option<[u8; 3]> {
+    let background = config.get("themeVariables")?.get("background")?.as_str()?;
+    let colour = ThemeColor::parse(background).ok()?;
+    let channel = |channel| colour.channel(channel).round().clamp(0.0, 255.0) as u8;
+    Some([
+        channel(ColorChannel::Red),
+        channel(ColorChannel::Green),
+        channel(ColorChannel::Blue),
+    ])
 }
 
 /// `svg` with each reference to an element it does not have, such as
@@ -218,6 +234,27 @@ mod tests {
             "---\nconfig:\n  theme: base\n  themeVariables:\n    darkMode: true\n---\n{FLOWCHART}"
         );
         assert_eq!(drawn(&dark_base, Theme::Light), Theme::Dark);
+    }
+
+    #[test]
+    fn tells_the_background_of_a_dark_theme() {
+        let background = |source: &str, page| render(source, page).unwrap().background;
+        // Mermaid's dark theme.
+        assert_eq!(background(FLOWCHART, Theme::Dark), Some([0x33, 0x33, 0x33]));
+        let own = |colour: &str| {
+            format!(
+                "---\nconfig:\n  theme: base\n  themeVariables:\n    darkMode: true\n    \
+                 background: \"{colour}\"\n---\n{FLOWCHART}"
+            )
+        };
+        assert_eq!(
+            background(&own("#102030"), Theme::Light),
+            Some([0x10, 0x20, 0x30])
+        );
+        assert_eq!(
+            background(&own("hsl(0, 0%, 10%)"), Theme::Light),
+            Some([26, 26, 26])
+        );
     }
 
     /// How many pixels of `svg`, drawn at its natural size, are `colour`.

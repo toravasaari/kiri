@@ -232,7 +232,11 @@ impl Renderer for External {
         let svg = self.run(command, language, source, theme)?;
         // The program cannot tell which theme the diagram chose itself.
         let theme = super::chosen_theme(language, source).unwrap_or(theme);
-        Ok(Drawn { svg, theme })
+        Ok(Drawn {
+            svg,
+            theme,
+            background: None,
+        })
     }
 }
 
@@ -402,7 +406,15 @@ mod tests {
         for (theme, name) in [(Theme::Light, "default"), (Theme::Dark, "dark")] {
             let drawn = renderer.render("Mermaid", SOURCE, theme).unwrap();
             let svg = format!("<svg theme=\"{name}\">flowchart TD\n  A --> B</svg>");
-            assert_eq!(drawn, Drawn { svg, theme });
+            let background = None;
+            assert_eq!(
+                drawn,
+                Drawn {
+                    svg,
+                    theme,
+                    background
+                }
+            );
         }
         assert_eq!(scratch.left(), Vec::<PathBuf>::new());
     }

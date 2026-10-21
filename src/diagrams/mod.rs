@@ -48,6 +48,8 @@ pub struct Drawn {
     /// The page its colours are for: the theme it was asked for, unless
     /// the diagram chose colours of its own.
     pub theme: Theme,
+    /// The background colour of its theme, when the renderer tells it.
+    pub background: Option<[u8; 3]>,
 }
 
 /// Draws the diagrams of some languages.
@@ -333,6 +335,9 @@ pub struct Diagrams<'a> {
     /// Told how many of a document's diagrams are drawn, and of how many:
     /// first none, and then each time one more is.
     pub progress: Option<&'a (dyn Fn(usize, usize) + Sync)>,
+    /// Whether a diagram whose colours are for the other page, light or
+    /// dark, lies on a panel of its own background.
+    pub panel: bool,
 }
 
 impl Diagrams<'static> {
@@ -343,6 +348,7 @@ impl Diagrams<'static> {
             theme: Theme::Light,
             by_line: true,
             progress: None,
+            panel: true,
         }
     }
 }
@@ -437,6 +443,7 @@ mod tests {
                 _ => Ok(Drawn {
                     svg: source.to_owned(),
                     theme,
+                    background: None,
                 }),
             }
         }

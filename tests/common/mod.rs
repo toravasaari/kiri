@@ -208,7 +208,11 @@ impl Renderer for StubDiagrams {
         let svg = format!(
             r#"<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}"/>"#
         );
-        Ok(Drawn { svg, theme })
+        Ok(Drawn {
+            svg,
+            theme,
+            background: None,
+        })
     }
 }
 
@@ -219,6 +223,7 @@ pub fn stub_diagrams() -> Diagrams<'static> {
         theme: DiagramTheme::Light,
         by_line: true,
         progress: None,
+        panel: true,
     }
 }
 

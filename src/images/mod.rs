@@ -449,18 +449,26 @@ fn finish_diagram(
     let drawn = drawn.map_err(failed)?;
     let image =
         decode_diagram(&drawn.svg, max_size, fonts).map_err(|error| failed(error.to_string()))?;
-    // A diagram that chose a light theme of its own would be dark lines
-    // and text on a dark page.
-    Ok(match image {
-        Source::Svg(svg) if diagrams.theme == Theme::Dark && drawn.theme == Theme::Light => {
-            Source::Svg(svg.on_panel(LIGHT_PANEL, PANEL_PADDING))
-        }
-        other => other,
+    // A diagram that chose colours of its own for the other page would
+    // be dark lines and text on a dark page, or light ones on a light page.
+    let panel = match (diagrams.theme, drawn.theme) {
+        _ if !diagrams.panel => None,
+        (Theme::Dark, Theme::Light) => Some(LIGHT_PANEL),
+        (Theme::Light, Theme::Dark) => Some(drawn.background.unwrap_or(DARK_PANEL)),
+        (Theme::Light, Theme::Light) | (Theme::Dark, Theme::Dark) => None,
+    };
+    Ok(match (image, panel) {
+        (Source::Svg(svg), Some(colour)) => Source::Svg(svg.on_panel(colour, PANEL_PADDING)),
+        (image, _) => image,
     })
 }
 
 /// The colour of the panel under a light diagram on a dark page.
 const LIGHT_PANEL: [u8; 3] = [255, 255, 255];
+
+/// The colour of the panel under a dark diagram on a light page, when its
+/// renderer does not tell its background: that of Mermaid's dark theme.
+const DARK_PANEL: [u8; 3] = [0x33, 0x33, 0x33];
 
 /// How far, in CSS pixels, the panel reaches past the diagram on each side,
 /// beyond the margin of its own that the diagram has.
@@ -1035,7 +1043,11 @@ Text ![inline](images/pattern.png) and words.
             let svg = format!(
                 r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="{height}"/>"#
             );
-            Ok(Drawn { svg, theme })
+            Ok(Drawn {
+                svg,
+                theme,
+                background: None,
+            })
         }
     }
 
@@ -1045,6 +1057,7 @@ Text ![inline](images/pattern.png) and words.
             theme,
             by_line,
             progress: None,
+            panel: true,
         }
     }
 
@@ -1184,7 +1197,11 @@ fn main() {}
             }
             fn render(&self, _: &str, _: &str, theme: Theme) -> Result<Drawn, String> {
                 let svg = "not svg".into();
-                Ok(Drawn { svg, theme })
+                Ok(Drawn {
+                    svg,
+                    theme,
+                    background: None,
+                })
             }
         }
         let images = load_with(
@@ -1197,6 +1214,7 @@ fn main() {}
                 theme: Theme::Light,
                 by_line: true,
                 progress: None,
+                panel: true,
             },
         );
         let warnings = images.warnings();
@@ -1219,7 +1237,11 @@ fn main() {}
             }
             fn render(&self, _: &str, _: &str, theme: Theme) -> Result<Drawn, String> {
                 let svg = SVG.into();
-                Ok(Drawn { svg, theme })
+                Ok(Drawn {
+                    svg,
+                    theme,
+                    background: None,
+                })
             }
         }
         let fonts = Fonts::fixture();
@@ -1233,6 +1255,7 @@ fn main() {}
                 theme: Theme::Light,
                 by_line: true,
                 progress: None,
+                panel: true,
             },
         );
         let Some(Ok(Source::Svg(svg))) = images.get(&block("dot", "digraph {}\n")) else {
@@ -1253,30 +1276,35 @@ fn main() {}
     }
 
     #[test]
-    fn a_light_diagram_on_a_dark_page_lies_on_a_white_panel() {
-        /// An empty 100 × 40 drawing, for a page of the theme it holds.
-        struct Themed(Theme);
+    fn a_diagram_for_the_other_page_lies_on_a_panel_of_its_background() {
+        /// An empty 100 × 40 drawing, for a page of the theme it holds and
+        /// with the background it holds.
+        struct Themed(Theme, Option<[u8; 3]>);
         impl Renderer for Themed {
             fn draws(&self, _language: &str) -> bool {
                 true
             }
             fn render(&self, _: &str, _: &str, _: Theme) -> Result<Drawn, String> {
                 let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="40"/>"#;
-                let svg = svg.into();
-                Ok(Drawn { svg, theme: self.0 })
+                Ok(Drawn {
+                    svg: svg.into(),
+                    theme: self.0,
+                    background: self.1,
+                })
             }
         }
-        let drawn = |page, own| {
+        let drawn = |page, own, background, panel| {
             let images = load_with(
                 &crate::parse::parse("```dot\ndigraph {}\n```\n"),
                 &fixtures(),
                 DEFAULT_MAX_FILE_SIZE,
                 &Fonts::none(),
                 &Diagrams {
-                    renderer: &Themed(own),
+                    renderer: &Themed(own, background),
                     theme: page,
                     by_line: true,
                     progress: None,
+                    panel,
                 },
             );
             match images.get(&block("dot", "digraph {}\n")) {
@@ -1284,26 +1312,36 @@ fn main() {}
                 other => panic!("{other:?}"),
             }
         };
-        // Eight pixels of panel around the drawing on each side.
-        let panel = drawn(Theme::Dark, Theme::Light);
-        assert_eq!(panel.size, (116, 56));
-        let pixels = panel.render(116, 56);
-        for (x, y) in [(0, 0), (58, 28), (115, 55)] {
-            assert_eq!(rgba(&pixels, x, y), [255, 255, 255, 255], "({x}, {y})");
-        }
-        // kiri's own choice of theme, or a dark diagram on a light page.
-        for (page, own) in [
-            (Theme::Dark, Theme::Dark),
-            (Theme::Light, Theme::Light),
-            (Theme::Light, Theme::Dark),
+        let navy = Some([0x12, 0x34, 0x56]);
+        // Eight pixels of panel around the drawing on each side: white
+        // under a light diagram, whatever its background, and its own
+        // background, or Mermaid's dark one, under a dark diagram.
+        for (page, own, background, colour) in [
+            (Theme::Dark, Theme::Light, None, [255, 255, 255]),
+            (Theme::Dark, Theme::Light, navy, [255, 255, 255]),
+            (Theme::Light, Theme::Dark, navy, [0x12, 0x34, 0x56]),
+            (Theme::Light, Theme::Dark, None, [0x33, 0x33, 0x33]),
         ] {
-            let svg = drawn(page, own);
-            assert_eq!(svg.size, (100, 40), "{own:?} on {page:?}");
-            assert_eq!(
-                rgba(&svg.render(100, 40), 0, 0)[3],
-                0,
-                "{own:?} on {page:?}"
-            );
+            let case = format!("{own:?} on {page:?} with {background:?}");
+            let panel = drawn(page, own, background, true);
+            assert_eq!(panel.size, (116, 56), "{case}");
+            let pixels = panel.render(116, 56);
+            for (x, y) in [(0, 0), (58, 28), (115, 55)] {
+                let [red, green, blue] = colour;
+                assert_eq!(rgba(&pixels, x, y), [red, green, blue, 255], "{case}");
+            }
+        }
+        // kiri's own choice of theme, and no panels when they are off.
+        for (page, own, panel) in [
+            (Theme::Dark, Theme::Dark, true),
+            (Theme::Light, Theme::Light, true),
+            (Theme::Dark, Theme::Light, false),
+            (Theme::Light, Theme::Dark, false),
+        ] {
+            let case = format!("{own:?} on {page:?}, panel {panel}");
+            let svg = drawn(page, own, navy, panel);
+            assert_eq!(svg.size, (100, 40), "{case}");
+            assert_eq!(rgba(&svg.render(100, 40), 0, 0)[3], 0, "{case}");
         }
     }
 

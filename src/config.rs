@@ -133,6 +133,9 @@ pub struct Config {
     pub diagram_commands: BTreeMap<String, Vec<String>>,
     /// How long an external command may take to draw one diagram.
     pub diagram_timeout: Option<Duration>,
+    /// Whether a diagram in colours for the other page, light or dark,
+    /// lies on a panel: `background_panel` in the `[diagrams]` table.
+    pub diagram_panel: Option<bool>,
 }
 
 /// When the document is shown in the pager rather than printed.
@@ -268,6 +271,7 @@ pub fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String
         diagrams: file.diagrams.enabled,
         diagram_commands: file.diagrams.commands,
         diagram_timeout: file.diagrams.timeout,
+        diagram_panel: file.diagrams.background_panel,
     })
 }
 
@@ -291,11 +295,12 @@ struct ConfigToml {
 struct DiagramsToml {
     enabled: Option<bool>,
     timeout: Option<Duration>,
+    background_panel: Option<bool>,
     commands: BTreeMap<String, Vec<String>>,
 }
 
 /// The keys of the `[diagrams]` table other than the languages.
-const DIAGRAMS_KEYS: &[&str] = &["enabled", "timeout"];
+const DIAGRAMS_KEYS: &[&str] = &["enabled", "timeout", "background_panel"];
 
 /// One language's table under `diagrams`.
 #[derive(Deserialize)]
@@ -328,6 +333,7 @@ impl<'de> Deserialize<'de> for DiagramsToml {
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
                         "enabled" => diagrams.enabled = Some(map.next_value()?),
+                        "background_panel" => diagrams.background_panel = Some(map.next_value()?),
                         "timeout" => {
                             let seconds = map.next_value().ok().and_then(seconds);
                             let error = "timeout: give a positive number of seconds";
@@ -721,6 +727,8 @@ pub struct Settings {
     pub diagram_commands: BTreeMap<String, Vec<String>>,
     /// How long an external command may take to draw one diagram.
     pub diagram_timeout: Duration,
+    /// Whether a diagram in colours for the other page lies on a panel.
+    pub diagram_panel: bool,
 }
 
 /// What the options, the environment and the configuration file choose,
@@ -749,6 +757,8 @@ pub struct Choices {
     pub diagram_commands: BTreeMap<String, Vec<String>>,
     /// How long an external command may take to draw one diagram.
     pub diagram_timeout: Duration,
+    /// Whether a diagram in colours for the other page lies on a panel.
+    pub diagram_panel: bool,
     /// What the user should know about settings that were left out.
     pub warnings: Vec<String>,
 }
@@ -772,6 +782,7 @@ impl Choices {
             diagrams: self.diagrams.value,
             diagram_commands: self.diagram_commands.clone(),
             diagram_timeout: self.diagram_timeout,
+            diagram_panel: self.diagram_panel,
         }
     }
 }
@@ -800,6 +811,7 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
         diagrams,
         diagram_commands: config.diagram_commands.clone(),
         diagram_timeout: (config.diagram_timeout).unwrap_or(crate::diagrams::external::TIME_LIMIT),
+        diagram_panel: config.diagram_panel.unwrap_or(true),
         warnings: [
             paging_warning,
             front_matter_warning,
@@ -1446,6 +1458,26 @@ mod tests {
     }
 
     #[test]
+    fn the_diagrams_table_turns_the_background_panel_off() {
+        let parsed = |text: &str| parse(text, Path::new("/c"), &Environment::default());
+        let panel = |text: &str| parsed(text).map(|config| config.diagram_panel);
+        assert_eq!(
+            panel("[diagrams]\nbackground_panel = false\n"),
+            Ok(Some(false))
+        );
+        assert_eq!(
+            panel("[diagrams]\nbackground_panel = true\n"),
+            Ok(Some(true))
+        );
+        assert_eq!(panel("[diagrams]\n"), Ok(None));
+        let choices =
+            |config: &Config| choose(&Options::default(), &Environment::default(), config);
+        assert!(choices(&Config::default()).diagram_panel);
+        let config = parsed("[diagrams]\nbackground_panel = false\n").unwrap();
+        assert!(!choices(&config).with_theme(Theme::default()).diagram_panel);
+    }
+
+    #[test]
     fn a_diagram_language_table_gives_its_external_command() {
         let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
         let config = parsed(
@@ -1482,7 +1514,7 @@ mod tests {
         let cases = [
             (
                 "[diagrams.dot]\ncommand = [\"dot\", \"{input}\", \"{output}\"]\n",
-                "unknown field `dot`, expected one of `enabled`, `timeout`, `mermaid`",
+                "unknown field `dot`, expected one of `enabled`, `timeout`, `background_panel`, `mermaid`",
             ),
             (
                 "[diagrams.mermaid]\ncommand = []\n",
