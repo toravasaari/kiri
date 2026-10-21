@@ -682,11 +682,16 @@ fn first_lines(text: &str) -> Option<String> {
     Some(told.join("\n"))
 }
 
-/// Whether `line` is a frame of a JavaScript stack trace: `at f (…)`, or a
-/// function name followed by its place in a file or at a URL.
+/// Whether `line` is a frame of a JavaScript stack trace: one that ends in
+/// a place in a file, `…:line:column` or `…:line:column)`, as in
+/// `at f (file.js:1:2)` or `Parser.parse (https://…/a.js:1:2)`.
 fn is_stack_frame(line: &str) -> bool {
-    let line = line.trim_start();
-    line.starts_with("at ") || (line.ends_with(')') && line.contains("://"))
+    let place = line.trim_end().trim_end_matches(')');
+    let mut parts = place.rsplitn(3, ':');
+    let number = |part: Option<&str>| {
+        part.is_some_and(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+    };
+    number(parts.next()) && number(parts.next()) && parts.next().is_some()
 }
 
 #[cfg(test)]
@@ -1413,6 +1418,28 @@ mod tests {
         let line = "x".repeat(300);
         assert_eq!(first_lines(&line), Some(format!("{}…", "x".repeat(200))));
         assert_eq!(first_lines(" \n\n"), None);
+    }
+
+    #[test]
+    fn a_stack_frame_ends_with_its_place_in_a_file() {
+        for frame in [
+            "Parser.parseError (https://x.invalid/a.js:1:2)",
+            "    at #evaluate (file:///x/b.js:3:4)",
+            "Parser.parse (/usr/lib/x.js:10:20)",
+            "    at async run (node:internal/main:5:7)",
+            "    at /usr/lib/x.js:1:2",
+        ] {
+            assert!(is_stack_frame(frame), "{frame}");
+        }
+        // Lines of a message that look a little like one.
+        for line in [
+            "at least one node is needed",
+            "at position 5",
+            "...B(Docs http://x.org)",
+            "Expecting 'SQE', got 'PE' (line 3)",
+        ] {
+            assert!(!is_stack_frame(line), "{line}");
+        }
     }
 
     #[test]
