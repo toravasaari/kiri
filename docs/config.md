@@ -224,7 +224,9 @@ A Mermaid file given on its own, `kiri plan.mmd`, `.mermaid` or
 as fits the window, as an image file is; unlike a document's diagrams,
 it is drawn with images off too. When it is not drawn, its source is
 shown as `--format text` shows it; one that fails to draw is an error,
-`kiri: plan.mmd: …`, and kiri exits with status 1. One that nothing can
+told below its source and as `kiri: plan.mmd: …` on standard error, or
+in one of them as [render errors](#render-errors) say, and kiri exits
+with status 1 either way. One that nothing can
 draw, although diagrams are on and the terminal shows them, gets the
 hint `kiri: plan.mmd: no program to draw Mermaid diagrams; see --doctor`.
 

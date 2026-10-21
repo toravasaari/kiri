@@ -1058,3 +1058,36 @@ fn help_explains_render_errors() {
         "{help}"
     );
 }
+
+#[test]
+fn a_mermaid_file_that_fails_tells_why_below_its_source_as_the_setting_says() {
+    let dir = Scratch::new("mermaid-file-render-errors");
+    let config = external(&dir, FAILS);
+    let warning = format!(
+        "kiri: {}: sh exited with status 1: Error: bad\n",
+        dir.join("flow.mmd").display()
+    );
+    for (setting, inline, stderr) in [
+        (None, true, true),
+        (Some("both"), true, true),
+        (Some("inline"), true, false),
+        (Some("stderr"), false, true),
+    ] {
+        let mut args = vec!["--width", "120"];
+        args.extend(setting.iter().flat_map(|value| ["--render-errors", value]));
+        let out = on_file(&dir, "flow.mmd", FLOWCHART_FILE, &args, &config);
+        // A failure whichever way it is told.
+        assert_eq!(out.status.code(), Some(1), "{setting:?}");
+        let expected = if stderr { warning.as_str() } else { "" };
+        assert_eq!(text(&out.stderr), expected, "{setting:?}");
+        let stdout = text(&out.stdout);
+        assert!(sent(&stdout).is_empty(), "{setting:?}: {stdout:?}");
+        let shown = common::strip_own_sequences(&stdout);
+        assert!(shown.contains("A --> B"), "{setting:?}: {shown:?}");
+        assert_eq!(shown.contains(INLINE), inline, "{setting:?}: {shown:?}");
+        // Below the source, not above it.
+        if inline {
+            assert!(shown.find("A --> B") < shown.find(INLINE), "{shown:?}");
+        }
+    }
+}

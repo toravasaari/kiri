@@ -113,7 +113,7 @@ document, and also with images off; `--format mermaid` says so for
 standard input or another name. Where it is not drawn, as with
 `--diagrams off` or in a terminal without kitty's graphics, its source is
 shown as `--format text` shows it, and a diagram that fails to draw is an
-error after its source. When no program can draw it, as in a build
+error, told below its source as in a document. When no program can draw it, as in a build
 without the built-in renderer and without `mmdc`, a hint on standard
 error points to `kiri --doctor`.
 

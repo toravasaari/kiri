@@ -304,6 +304,7 @@ fn main() -> ExitCode {
             eprintln!("kiri: {error}");
             ExitCode::FAILURE
         }
+        Err(Failure::Told) => ExitCode::FAILURE,
         Err(Failure::Signal(signal)) => {
             // As the signal would have ended kiri, now that the programs
             // it started have stopped and their files are gone.
@@ -319,6 +320,8 @@ fn main() -> ExitCode {
 enum Failure {
     /// An error, which kiri tells.
     Error(String),
+    /// An error that the output has told already.
+    Told,
     /// A signal, such as Ctrl-C's, stopped it.
     Signal(i32),
 }
@@ -463,9 +466,10 @@ fn show_document(
 /// from standard input, on its own and as large as fits the window, as an
 /// image file is shown: drawn as in a document, also with images off.
 /// Where it is not drawn, its source is shown as `--format text` shows
-/// it, and a diagram that fails to draw is an error after that. One that
-/// nothing could draw, where diagrams are on and the terminal shows them,
-/// gets a hint after it.
+/// it, and a diagram that fails to draw is an error after that, told
+/// below the source, on standard error or both, as the settings say. One
+/// that nothing could draw, where diagrams are on and the terminal shows
+/// them, gets a hint after it.
 #[allow(clippy::too_many_arguments)]
 fn show_diagram(
     cli: &Cli,
@@ -496,10 +500,18 @@ fn show_diagram(
             let shown = kiri::render::render_image_on(image, &caps, page, &mut out);
             return Ok(finish(shown.and_then(|()| out.flush()))?);
         }
-        Some(Err(ImageError::Diagram { reason, .. })) => Some(reason),
-        Some(Err(error)) => Some(error.to_string()),
+        Some(Err(error)) => {
+            let reason = match &error {
+                ImageError::Diagram { reason, .. } => reason.clone(),
+                error => error.to_string(),
+            };
+            // Back in, so that the document tells it below the source.
+            images.insert(key, Err(error));
+            Some(reason)
+        }
         None => None,
     };
+    let stderr = settings.render_errors.stderr();
     // Not drawn, though it could have been shown: no renderer for it.
     let no_renderer = settings.diagrams && caps.draws_images() && error.is_none();
     if caps.styling {
@@ -524,7 +536,8 @@ fn show_diagram(
         );
     }
     match error {
-        Some(error) => Err(Failure::Error(format!("{}: {error}", path.display()))),
+        Some(error) if stderr => Err(Failure::Error(format!("{}: {error}", path.display()))),
+        Some(_) => Err(Failure::Told),
         None => Ok(()),
     }
 }
