@@ -416,7 +416,7 @@ fn the_report_names_the_mermaid_command() {
     let found = match cfg!(feature = "mermaid") {
         true => nothing.to_owned(),
         false => "| `mermaid` | command found: `~/.nvm/versions/node/v24.16.0/bin/mmdc -i {input} \
-                  -o {output} -t {theme} -b transparent` | used |"
+                  -o {output} -t {theme} -b transparent -c {config}` | used |"
             .to_owned(),
     };
     assert_eq!(row(&[]), found);

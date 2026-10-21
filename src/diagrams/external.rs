@@ -1,9 +1,10 @@
 //! Diagrams drawn by a program outside kiri, such as mermaid-cli's `mmdc`.
 //!
 //! kiri writes the diagram's source to a file in a directory of its own,
-//! runs the command the configuration file gives, without a shell, and
-//! reads the SVG the program wrote. The directory goes when the program
-//! has finished, failed or run out of time.
+//! and for Mermaid the program's settings beside it. It runs the command
+//! that kiri's configuration file gives, or that kiri found, without a
+//! shell, and reads the SVG the program wrote. The directory goes when
+//! the program has finished, failed or run out of time.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -26,7 +27,9 @@ pub const AT_ONCE: usize = 4;
 
 /// A program that draws diagrams and its arguments, in which `{input}`
 /// stands for the file of the diagram's source, `{output}` for the SVG
-/// file the program writes, and `{theme}` for the theme kiri chose.
+/// file the program writes, `{theme}` for the theme kiri chose, and
+/// `{config}` for a configuration file kiri writes for the language, such
+/// as Mermaid's.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Command {
     pub argv: Vec<String>,
@@ -126,16 +129,28 @@ impl External {
             .join(format!("diagram.{}", super::extension(language)));
         let output = dir.0.join("diagram.svg");
         let errors = dir.0.join("errors.txt");
-        let written =
-            fs::write(&input, self::input(language, source)).and_then(|()| File::create(&errors));
+        let config = config(language).map(|(text, extension)| {
+            let path = dir.0.join(format!("config.{extension}"));
+            (path, text)
+        });
+        let written = (fs::write(&input, source))
+            .and_then(|()| match &config {
+                Some((path, text)) => fs::write(path, text),
+                None => Ok(()),
+            })
+            .and_then(|()| File::create(&errors));
         let errors_file =
             written.map_err(|error| format!("cannot write the files for {program}: {error}"))?;
         let theme = super::theme_name(language, theme);
         let argv: Vec<String> = (command.argv.iter())
             .map(|arg| {
-                arg.replace("{input}", &input.to_string_lossy())
+                let arg = (arg.replace("{input}", &input.to_string_lossy()))
                     .replace("{output}", &output.to_string_lossy())
-                    .replace("{theme}", theme)
+                    .replace("{theme}", theme);
+                match &config {
+                    Some((path, _)) => arg.replace("{config}", &path.to_string_lossy()),
+                    None => arg,
+                }
             })
             .collect();
         let mut child = process::Command::new(&argv[0]);
@@ -197,35 +212,19 @@ impl Renderer for External {
     }
 }
 
-/// A Mermaid directive that has a diagram's labels drawn as SVG text,
-/// which kiri can draw, rather than as HTML, which it cannot. Mermaid 11
-/// and later read the first setting; Mermaid 10 the others.
-const SVG_TEXT: &str = "%%{init: {\"htmlLabels\": false, \"flowchart\": {\"htmlLabels\": false}, \
-                        \"class\": {\"htmlLabels\": false}, \"state\": {\"htmlLabels\": false}}}%%";
+/// The Mermaid configuration that a command gets as `{config}`: it has a
+/// diagram's labels drawn as SVG text, which kiri can draw, rather than as
+/// HTML, which it cannot. Mermaid 11 and later read the first setting;
+/// Mermaid 10 the others.
+const MERMAID_CONFIG: &str = "{\"htmlLabels\": false, \"flowchart\": {\"htmlLabels\": false}, \
+                              \"class\": {\"htmlLabels\": false}, \"state\": {\"htmlLabels\": false}}\n";
 
-/// The source the program gets: for Mermaid, `SVG_TEXT` after the front
-/// matter, which must come first.
-fn input(language: &str, source: &str) -> String {
-    if !language.eq_ignore_ascii_case("mermaid") {
-        return source.to_owned();
-    }
-    let mut lines = (source.split_inclusive('\n'))
-        .scan(0, |end, line| {
-            *end += line.len();
-            Some((line.trim(), *end))
-        })
-        .skip_while(|(line, _)| line.is_empty());
-    let after_front_matter = match lines.next() {
-        Some(("---", _)) => lines.find(|(line, _)| *line == "---").map(|(_, end)| end),
-        _ => None,
-    };
-    let at = after_front_matter.unwrap_or(0);
-    let newline = if source[..at].ends_with('\n') || at == 0 {
-        ""
-    } else {
-        "\n"
-    };
-    format!("{}{newline}{SVG_TEXT}\n{}", &source[..at], &source[at..])
+/// The configuration a command for `language` gets as `{config}`, and
+/// the extension of its file.
+fn config(language: &str) -> Option<(&'static str, &'static str)> {
+    language
+        .eq_ignore_ascii_case("mermaid")
+        .then_some((MERMAID_CONFIG, "json"))
 }
 
 /// A directory that is removed with everything in it when dropped.
@@ -297,7 +296,8 @@ mod tests {
         }
 
         /// A renderer that runs the shell script `script` for Mermaid,
-        /// with the input, output and theme as its arguments.
+        /// with the input, output, theme and configuration as its
+        /// arguments.
         fn renderer(&self, script: &str) -> External {
             let path = self.0.join("render.sh");
             fs::write(&path, script).unwrap();
@@ -310,6 +310,7 @@ mod tests {
                 "{input}",
                 "{output}",
                 "{theme}",
+                "{config}",
             ];
             let command = Command::new(argv.map(String::from).to_vec());
             External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
@@ -343,7 +344,7 @@ mod tests {
         assert!(!renderer.draws("dot"));
         for (theme, name) in [(Theme::Light, "default"), (Theme::Dark, "dark")] {
             let drawn = renderer.render("Mermaid", SOURCE, theme).unwrap();
-            let svg = format!("<svg theme=\"{name}\">{SVG_TEXT}\nflowchart TD\n  A --> B</svg>");
+            let svg = format!("<svg theme=\"{name}\">flowchart TD\n  A --> B</svg>");
             assert_eq!(drawn, Drawn { svg, theme });
         }
         assert_eq!(scratch.left(), Vec::<PathBuf>::new());
@@ -361,35 +362,42 @@ mod tests {
     }
 
     #[test]
-    fn mermaid_gets_its_labels_as_svg_text() {
+    fn mermaid_gets_its_source_unchanged_and_a_configuration_for_svg_text() {
         let scratch = Scratch::new("labels");
-        let renderer = scratch.renderer("cat \"$1\" > \"$2\"\n");
-        let written = |source: &str| {
+        let written = |script: &str, source: &str| {
+            let renderer = scratch.renderer(script);
             renderer
                 .render("mermaid", source, Theme::Light)
-                .unwrap()
-                .svg
+                .map(|drawn| drawn.svg)
         };
-        assert_eq!(written(SOURCE), format!("{SVG_TEXT}\n{SOURCE}"));
+        // The source as it is, so that the program's line numbers are the
+        // diagram's.
         let front_matter = "\n---\ntitle: T\n---\nflowchart TD\n";
-        assert_eq!(
-            written(front_matter),
-            format!("\n---\ntitle: T\n---\n{SVG_TEXT}\nflowchart TD\n")
-        );
-        // Other languages are left as they are.
-        let mut renderer = renderer;
-        renderer.commands = renderer
-            .commands
-            .into_values()
-            .map(|command| ("dot".to_owned(), command))
-            .collect();
-        assert_eq!(
-            renderer
-                .render("dot", "digraph {}", Theme::Light)
-                .unwrap()
-                .svg,
-            "digraph {}"
-        );
+        for source in [SOURCE, front_matter] {
+            let source_file = written("cat \"$1\" > \"$2\"\n", source);
+            assert_eq!(source_file, Ok(source.to_owned()));
+        }
+        let config = written("cat \"$4\" > \"$2\"\n", SOURCE);
+        assert_eq!(config, Ok(MERMAID_CONFIG.to_owned()));
+        let config: serde_json::Value = serde_json::from_str(MERMAID_CONFIG).unwrap();
+        assert_eq!(config["htmlLabels"], false);
+        for diagram in ["flowchart", "class", "state"] {
+            assert_eq!(config[diagram]["htmlLabels"], false, "{diagram}");
+        }
+        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+    }
+
+    #[test]
+    fn a_command_may_leave_the_configuration_out() {
+        let scratch = Scratch::new("no-config");
+        let path = scratch.0.join("render.sh");
+        fs::write(&path, "cat \"$1\" > \"$2\"\n").unwrap();
+        let argv = ["/bin/sh", &path.to_string_lossy(), "{input}", "{output}"];
+        let command = Command::new(argv.map(String::from).to_vec());
+        let renderer = External::new(BTreeMap::from([("dot".to_owned(), command)]))
+            .with_temp_dir(scratch.0.join("temp"));
+        let svg = renderer.render("dot", "digraph {}", Theme::Light);
+        assert_eq!(svg.map(|drawn| drawn.svg), Ok("digraph {}".to_owned()));
     }
 
     #[test]

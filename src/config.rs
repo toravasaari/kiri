@@ -128,7 +128,7 @@ pub struct Config {
     pub diagrams: Option<bool>,
     /// The external command for each diagram language that has one, from
     /// `[diagrams.<language>]`: the program and its arguments, with
-    /// `{input}`, `{output}` and `{theme}` in them.
+    /// `{input}`, `{output}`, `{theme}` and `{config}` in them.
     pub diagram_commands: BTreeMap<String, Vec<String>>,
 }
 

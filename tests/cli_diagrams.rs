@@ -159,7 +159,7 @@ fn external(dir: &std::path::Path, script: &str) -> String {
 }
 
 /// A stand-in for mmdc: an SVG as high as the source has lines, apart
-/// from the directives kiri adds.
+/// from directives.
 const DRAWS: &str = "lines=$(grep -vc '^%%' \"$1\")\n\
     printf '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"%s\"/>' \
     $((lines * 20)) > \"$2\"\n";
@@ -227,7 +227,8 @@ fn a_configured_command_gets_the_theme_for_the_page() {
 
 /// A stand-in for mermaid-cli in `bin`: `mmdc`, a Node script, and the
 /// `node` it runs, which draws an SVG as high as the source has lines,
-/// apart from directives, and notes in `called` that it ran.
+/// apart from directives, and notes in `called` the theme it got and
+/// whether it got a configuration file.
 fn fake_mmdc(bin: &std::path::Path, called: &std::path::Path) {
     common::executable(&bin.join("mmdc"), "#!/usr/bin/env node\n");
     let node = format!(
@@ -235,9 +236,10 @@ fn fake_mmdc(bin: &std::path::Path, called: &std::path::Path) {
          PATH=/usr/bin:/bin\n\
          shift\n\
          while [ $# -gt 0 ]; do\n\
-           case $1 in -i) input=$2 ;; -o) output=$2 ;; -t) theme=$2 ;; esac\n\
+           case $1 in -i) input=$2 ;; -o) output=$2 ;; -t) theme=$2 ;; -c) config=$2 ;; esac\n\
            shift\n\
          done\n\
+         [ -f \"$config\" ] && theme=\"$theme config\"\n\
          echo \"$theme\" >> '{}'\n\
          lines=$(grep -vc '^%%' \"$input\")\n\
          printf '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"%s\"/>' \
@@ -272,7 +274,7 @@ fn a_build_without_merman_finds_mmdc_by_itself() {
             // merman draws it.
             assert_eq!(called, None);
         } else {
-            assert_eq!(called.as_deref(), Some("dark\n"));
+            assert_eq!(called.as_deref(), Some("dark config\n"));
             assert_eq!(images[0].keys["v"], "40");
         }
         let _ = std::fs::remove_dir_all(&bin);

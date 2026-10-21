@@ -42,7 +42,7 @@ enabled = true
 # A program that draws Mermaid diagrams instead of kiri; see
 # Diagram commands below.
 [diagrams.mermaid]
-command = ["mmdc", "-i", "{input}", "-o", "{output}", "-t", "{theme}", "-b", "transparent"]
+command = ["mmdc", "-i", "{input}", "-o", "{output}", "-t", "{theme}", "-b", "transparent", "-c", "{config}"]
 ```
 
 `diagrams = false` on its own, among the keys above the tables, is short
@@ -207,7 +207,7 @@ diagrams and the program's arguments:
 
 ```toml
 [diagrams.mermaid]
-command = ["mmdc", "-i", "{input}", "-o", "{output}", "-t", "{theme}", "-b", "transparent"]
+command = ["mmdc", "-i", "{input}", "-o", "{output}", "-t", "{theme}", "-b", "transparent", "-c", "{config}"]
 ```
 
 This is mermaid-cli's command line, the same one kiri runs when it finds
@@ -219,13 +219,17 @@ it writes. In the arguments:
 - `{input}` is the file of the diagram's source, which ends in `.mmd`
   for Mermaid;
 - `{output}` is the SVG file the program writes;
-- `{theme}` is the theme kiri chose: `default` or `dark` for Mermaid.
+- `{theme}` is the theme kiri chose: `default` or `dark` for Mermaid;
+- `{config}` is a Mermaid configuration file, in JSON, that has labels
+  drawn as SVG text rather than as HTML, which kiri cannot draw.
 
-`{input}` and `{output}` must be there. No shell expands the arguments,
-so a leading `~/` is not your home directory: write the path in full. A
-program named without a path is looked for on `PATH`. For Mermaid, kiri
-puts a directive after any front matter of the source it writes, so that
-labels are drawn as SVG text rather than as HTML, which kiri cannot draw.
+`{input}` and `{output}` must be there. The source file is the diagram
+as the document has it, so line numbers in the program's errors are the
+diagram's own. A command without `{config}` works too, but `mmdc` then
+draws the labels of some diagram types, such as flowcharts, as HTML,
+and they may show blank. No shell expands the arguments, so a leading `~/`
+is not your home directory: write the path in full. A program named
+without a path is looked for on `PATH`.
 
 Each diagram may take 10 seconds, and up to four are drawn at once. When
 drawing takes longer than half a second, a line such as

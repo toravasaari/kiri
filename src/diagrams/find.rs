@@ -22,6 +22,8 @@ pub const MMDC: &[&str] = &[
     "{theme}",
     "-b",
     "transparent",
+    "-c",
+    "{config}",
 ];
 
 /// The command line kiri looks for to draw `language` when nothing is

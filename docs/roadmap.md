@@ -106,7 +106,8 @@ example, come before the rest of phase 3.
   mermaid-cli's `mmdc`, found on `PATH` or where npm, nvm and Homebrew
   install it.
 - An external command for a language in the configuration file,
-  `[diagrams.mermaid]`, with `{input}`, `{output}` and `{theme}`. It
+  `[diagrams.mermaid]`, with `{input}`, `{output}`, `{theme}` and
+  `{config}`. It
   replaces the built-in renderer, and one that fails does not fall back
   to it.
 - `--diagrams on|off`, `KIRI_DIAGRAMS` and `enabled` in the configuration
