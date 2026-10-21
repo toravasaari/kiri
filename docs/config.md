@@ -294,4 +294,4 @@ With a command configured, `enabled = false` in the `[diagrams]` table,
 | `KIRI_DIAGRAMS` | Diagrams drawn or shown as code; see [Diagrams](#diagrams) |
 | `NO_COLOR` | No colours, when set and not empty; see [no-color.org](https://no-color.org) |
 | `XDG_CONFIG_HOME` | Where the configuration directory is; `~/.config` when unset |
-| `XDG_CACHE_HOME` | Where kiri's cache directory is, for the files of [diagram commands](#diagram-commands); `~/.cache` when unset |
+| `XDG_CACHE_HOME` | Where kiri's cache directory is, for the files of [diagram commands](#diagram-commands); `~/.cache` when unset or not an absolute path |

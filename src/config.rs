@@ -113,13 +113,14 @@ pub fn directory(env: &Environment) -> Option<PathBuf> {
 
 /// kiri's cache directory, for files it may remove at any time, such as
 /// those of the programs that draw diagrams: `$XDG_CACHE_HOME/kiri`, or
-/// `~/.cache/kiri` when that is unset or empty.
+/// `~/.cache/kiri` when that is unset, empty or relative, which the XDG
+/// base directory specification calls invalid.
 pub fn cache_directory(env: &Environment) -> Option<PathBuf> {
     let cache = env
         .xdg_cache_home
         .clone()
-        .filter(|dir| !dir.is_empty())
         .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute())
         .or_else(|| {
             env.home
                 .as_ref()
@@ -992,6 +993,22 @@ mod tests {
         assert_eq!(cache(Some("/home/u"), None), dot_cache);
         assert_eq!(cache(Some("/home/u"), Some("")), dot_cache);
         assert_eq!(cache(None, None), None);
+    }
+
+    #[test]
+    fn a_relative_xdg_cache_home_is_ignored() {
+        // The XDG base directory specification calls a relative path
+        // invalid.
+        let env = |home: Option<&str>| Environment {
+            home: home.map(OsString::from),
+            xdg_cache_home: Some(OsString::from("cache")),
+            ..Environment::default()
+        };
+        assert_eq!(
+            cache_directory(&env(Some("/home/u"))),
+            Some(PathBuf::from("/home/u/.cache/kiri"))
+        );
+        assert_eq!(cache_directory(&env(None)), None);
     }
 
     #[test]
