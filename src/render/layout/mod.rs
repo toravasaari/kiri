@@ -394,12 +394,7 @@ impl Layout<'_> {
             max_columns,
             max_cells,
         )?;
-        let placement = Rc::new(Placement { key, size });
-        Some(
-            (0..size.rows)
-                .map(|row| Line::image(Rc::clone(&placement), row))
-                .collect(),
-        )
+        Some(image_rows(Placement { key, size }))
     }
 
     fn table(&self, table: &Table, width: usize) -> Vec<Line> {
@@ -646,4 +641,13 @@ impl Layout<'_> {
             Style::default()
         }
     }
+}
+
+/// The lines of an image at `placement`, one for each row it covers.
+pub(super) fn image_rows(placement: Placement) -> Vec<Line> {
+    let rows = placement.size.rows;
+    let placement = Rc::new(placement);
+    (0..rows)
+        .map(|row| Line::image(Rc::clone(&placement), row))
+        .collect()
 }
