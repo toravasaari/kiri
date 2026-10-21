@@ -226,6 +226,17 @@ pub enum ImageKey {
     Block { language: String, source: String },
 }
 
+impl ImageKey {
+    /// The key of the code block `source` in `language`, drawn as an
+    /// image.
+    pub fn block(language: &str, source: &str) -> Self {
+        ImageKey::Block {
+            language: language.to_owned(),
+            source: source.to_owned(),
+        }
+    }
+}
+
 impl From<&str> for ImageKey {
     fn from(url: &str) -> Self {
         ImageKey::Url(url.to_owned())
@@ -432,10 +443,7 @@ impl Wanted<'_> {
             Wanted::Url(url) => ImageKey::from(url),
             Wanted::Diagram {
                 language, source, ..
-            } => ImageKey::Block {
-                language: language.to_owned(),
-                source: source.to_owned(),
-            },
+            } => ImageKey::block(language, source),
         }
     }
 }
@@ -1162,13 +1170,6 @@ Text ![inline](images/pattern.png) and words.
         }
     }
 
-    fn block(language: &str, source: &str) -> ImageKey {
-        ImageKey::Block {
-            language: language.into(),
-            source: source.into(),
-        }
-    }
-
     #[test]
     fn draws_each_diagram_once_wherever_a_lone_image_would_show() {
         let source = "\
@@ -1221,7 +1222,10 @@ fn main() {}
         assert_eq!(sources, ["a\n", "b\n", "c\n", "d\n", "e\n"]);
         assert!(calls.iter().all(|(_, theme)| *theme == Theme::Dark));
         assert_eq!(images.len(), 5);
-        for key in [block("mermaid", "a\n"), block("Mermaid", "c\n")] {
+        for key in [
+            ImageKey::block("mermaid", "a\n"),
+            ImageKey::block("Mermaid", "c\n"),
+        ] {
             match images.get(&key) {
                 Some(Ok(Source::Svg(svg))) => assert_eq!(svg.size, (200, 20)),
                 other => panic!("{key:?}: {other:?}"),
@@ -1379,7 +1383,7 @@ fn main() {}
                 largest: None,
             },
         );
-        let Some(Ok(Source::Svg(svg))) = images.get(&block("dot", "digraph {}\n")) else {
+        let Some(Ok(Source::Svg(svg))) = images.get(&ImageKey::block("dot", "digraph {}\n")) else {
             panic!("{images:?}");
         };
         let (width, height) = svg.size;
@@ -1425,7 +1429,7 @@ fn main() {}
                     largest: None,
                 },
             );
-            match images.get(&block("dot", "digraph {}\n")) {
+            match images.get(&ImageKey::block("dot", "digraph {}\n")) {
                 Some(Ok(Source::Svg(svg))) => svg.clone(),
                 other => panic!("{other:?}"),
             }
@@ -1516,7 +1520,7 @@ fn main() {}
                 largest,
             },
         );
-        (images.get(&block("dot", "digraph {}\n")).cloned()).expect("the diagram")
+        (images.get(&ImageKey::block("dot", "digraph {}\n")).cloned()).expect("the diagram")
     }
 
     #[test]
@@ -1613,10 +1617,7 @@ fn main() {}
 
     #[test]
     fn keeps_a_block_apart_from_a_url_with_the_same_text() {
-        let block = ImageKey::Block {
-            language: "mermaid".into(),
-            source: "a.png".into(),
-        };
+        let block = ImageKey::block("mermaid", "a.png");
         let mut images = Images::new();
         images.insert("a.png", Err(ImageError::Remote));
         images.insert(block.clone(), Err(ImageError::UnknownFormat));

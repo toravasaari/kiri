@@ -486,10 +486,7 @@ fn show_diagram(
     settings.images = true;
     let mut interrupt = None;
     let mut images = load_images(cli, &document, file, &settings, &caps, env, &mut interrupt)?;
-    let key = ImageKey::Block {
-        language: language.to_owned(),
-        source: source.to_owned(),
-    };
+    let key = ImageKey::block(language, source);
     let error = match images.remove(&key) {
         Some(Ok(image)) => {
             let page = Page {
