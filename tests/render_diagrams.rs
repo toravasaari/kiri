@@ -3,7 +3,7 @@
 
 use image::RgbaImage;
 use kiri::caps::Capabilities;
-use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, ImageKey, Images, Source};
+use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, ImageError, ImageKey, Images, Source};
 use kiri::render::{Inputs, RenderErrors};
 use kiri::theme::{Paper, Theme};
 
@@ -302,4 +302,38 @@ fn without_a_code_box_the_error_lines_up_with_the_code() {
             assert!(!text.starts_with(' '), "{error:?}");
         }
     }
+}
+
+#[test]
+fn an_error_of_several_lines_keeps_them_apart() {
+    // As mmdc tells a parse error: its pointer points at a column of the
+    // line above it, so the two stay lines of their own, side by side.
+    let mut images = Images::new();
+    images.insert(
+        ImageKey::Block {
+            language: "mermaid".to_owned(),
+            source: "flowchart TD\n  A[open --> B\n".to_owned(),
+        },
+        Err(ImageError::Diagram {
+            name: "mermaid diagram on line 1".to_owned(),
+            reason: "Parse error on line 2:\n...A[open --> B\n-----^".to_owned(),
+        }),
+    );
+    let inputs = Inputs {
+        images,
+        ..Inputs::new(Capabilities::plain(100))
+    };
+    let shown = render(ONE_BROKEN, &inputs);
+    let lines: Vec<&str> = shown.lines().collect();
+    let error = lines.iter().position(|line| line.contains('✗')).unwrap();
+    let indent = lines[error].find('✗').unwrap();
+    assert!(
+        lines[error].ends_with("could not be drawn: Parse error on line 2:"),
+        "{shown}"
+    );
+    assert_eq!(
+        lines[error + 1],
+        format!("{}...A[open --> B", " ".repeat(indent))
+    );
+    assert_eq!(lines[error + 2], format!("{}-----^", " ".repeat(indent)));
 }

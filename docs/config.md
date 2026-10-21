@@ -318,7 +318,9 @@ status 130 after Ctrl-C. A signal that was ignored when kiri started,
 as under `nohup`, stays ignored. A program that fails,
 runs out of time or writes no image leaves its diagram as code with a
 warning; kiri does not fall back to drawing it itself, so that a
-command that does not work shows.
+command that does not work shows. The warning quotes the first lines
+the program wrote on standard error, at most five and none of a stack
+trace, so that mmdc's pointer to a mistake shows under its line.
 
 kiri stops a program as Ctrl-C would, with SIGINT to its process group,
 and kills what is left of the group half a second later. `mmdc` closes

@@ -358,7 +358,7 @@ impl External {
                 Some(code) => format!("{program} exited with status {code}"),
                 None => format!("{program} was stopped by a signal"),
             };
-            return Err(match first_line(&said) {
+            return Err(match first_lines(&said) {
                 Some(line) => format!("{ended}: {line}"),
                 None => ended,
             });
@@ -656,15 +656,37 @@ fn end(child: &mut process::Child) {
     let _ = child.wait();
 }
 
-/// The first line of `text` with something on it, shortened to a length
-/// that fits in a warning.
-fn first_line(text: &str) -> Option<String> {
+/// The first lines of `text` with something on them, at most five, each
+/// shortened to a length that fits in a warning. They end where a stack
+/// trace starts, as after mmdc's message, its pointer to the mistake and
+/// what it expected. Lines after the first keep their indent, so that a
+/// pointer still points at its column.
+fn first_lines(text: &str) -> Option<String> {
+    const MOST: usize = 5;
     const LONGEST: usize = 200;
-    let line = text.lines().map(str::trim).find(|line| !line.is_empty())?;
-    Some(match line.char_indices().nth(LONGEST) {
+    let shortened = |line: &str| match line.char_indices().nth(LONGEST) {
         Some((end, _)) => format!("{}…", &line[..end]),
         None => line.to_owned(),
-    })
+    };
+    let mut lines = text
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| !line.is_empty());
+    let mut told = vec![shortened(lines.next()?.trim_start())];
+    told.extend(
+        lines
+            .take_while(|line| !is_stack_frame(line))
+            .take(MOST - 1)
+            .map(shortened),
+    );
+    Some(told.join("\n"))
+}
+
+/// Whether `line` is a frame of a JavaScript stack trace: `at f (…)`, or a
+/// function name followed by its place in a file or at a URL.
+fn is_stack_frame(line: &str) -> bool {
+    let line = line.trim_start();
+    line.starts_with("at ") || (line.ends_with(')') && line.contains("://"))
 }
 
 #[cfg(test)]
@@ -862,16 +884,26 @@ mod tests {
     }
 
     #[test]
-    fn a_command_that_fails_tells_why_in_its_first_line() {
+    fn a_command_that_fails_tells_why_in_its_first_lines() {
         let scratch = Scratch::new("fails");
+        // As mmdc tells a parse error: the message, the line with the
+        // mistake, a pointer to it and what was expected, then the
+        // JavaScript stack.
         let renderer = scratch.renderer(
             "echo > \"$2\"\n\
-             printf '\\n  Error: Parse error on line 2:\\n...A[Unclosed\\n' >&2\n\
+             printf '\\n  Error: Parse error on line 2:\\n...A[Unclosed\\n\
+             -----^\\n\\nExpecting SQE, got EOF\\n\
+             Parser.parseError (https://x.invalid/a.js:1:2)\\n\
+             \\x20   at #evaluate (file:///x/b.js:3:4)\\n' >&2\n\
              exit 1\n",
         );
         assert_eq!(
             renderer.render("mermaid", SOURCE, Theme::Light),
-            Err("sh exited with status 1: Error: Parse error on line 2:".to_owned())
+            Err("sh exited with status 1: Error: Parse error on line 2:\n\
+                 ...A[Unclosed\n\
+                 -----^\n\
+                 Expecting SQE, got EOF"
+                .to_owned())
         );
         let renderer = scratch.renderer("exit 2\n");
         assert_eq!(
@@ -1377,9 +1409,18 @@ mod tests {
     }
 
     #[test]
-    fn a_long_first_line_is_shortened() {
+    fn a_long_line_is_shortened() {
         let line = "x".repeat(300);
-        assert_eq!(first_line(&line), Some(format!("{}…", "x".repeat(200))));
-        assert_eq!(first_line(" \n\n"), None);
+        assert_eq!(first_lines(&line), Some(format!("{}…", "x".repeat(200))));
+        assert_eq!(first_lines(" \n\n"), None);
+    }
+
+    #[test]
+    fn at_most_five_lines_tell_why() {
+        let said = "\n one\ntwo\n\n  three\nfour\nfive\nsix\n";
+        assert_eq!(
+            first_lines(said),
+            Some("one\ntwo\n  three\nfour\nfive".to_owned())
+        );
     }
 }
