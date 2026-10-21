@@ -87,9 +87,10 @@ instead:
 3. `images` in the configuration file
 
 With images off, kiri reads no image files and shows every image as its
-alt text, without warnings about images that would not have loaded.
-These settings are about images inside documents: an image file given on
-the command line, `kiri photo.jpg`, is shown whatever they say.
+alt text, without warnings about images that would not have loaded, and
+[diagrams](#diagrams) in code blocks stay code. These settings are about
+images inside documents: an image or Mermaid file given on the command
+line, `kiri photo.jpg` or `kiri plan.mmd`, is shown whatever they say.
 
 ## Paging
 

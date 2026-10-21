@@ -152,7 +152,7 @@ alt text with a warning.
 | `--theme FILE` | Colours and heading sizes; see [Theme](docs/theme.md) |
 | `--light`, `--dark` | A light or dark page in greys; see [Paper themes](docs/theme.md#paper-themes) |
 | `-M`, `--no-margins` | No margins or padding, so text and code copy cleanly |
-| `-I`, `--no-images` | Show images as their alt text, without reading them |
+| `-I`, `--no-images` | Show images as their alt text, without reading them, and diagrams as code |
 | `--images` | Show images, whatever the environment and configuration say |
 | `--max-image-size MB` | Largest image file to read: 10 MB unless set, at most 100 |
 | `--paging always\|auto\|never` | When to show the document in the pager; `auto` unless set |

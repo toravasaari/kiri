@@ -84,11 +84,13 @@ struct Cli {
     #[arg(short = 'M', long)]
     no_margins: bool,
 
-    /// Show images as their alt text, without reading them.
+    /// Show images as their alt text, without reading them, and diagrams
+    /// as code. An image or diagram file given on its own is still shown.
     #[arg(short = 'I', long)]
     no_images: bool,
 
-    /// Show images, whatever KIRI_NO_IMAGES and the configuration file say.
+    /// Show images, and diagrams unless they are off, whatever
+    /// KIRI_NO_IMAGES and the configuration file say.
     #[arg(long, conflicts_with = "no_images")]
     images: bool,
 
