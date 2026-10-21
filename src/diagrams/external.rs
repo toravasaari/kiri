@@ -515,9 +515,11 @@ impl Drop for TempDir {
 /// drew: those named, as `new_dir` names them, by the id of a process that
 /// no longer runs, and whose file names this machine. A directory whose
 /// process still runs, or might, is left alone, as is one that names
-/// another machine, whose processes kiri cannot see, one that names no
-/// machine, which no kiri that writes the file made, and anything else in
-/// `work`.
+/// another machine, whose processes kiri cannot see, and anything else in
+/// `work`. So is one that names no machine: no kiri made it, or one was
+/// killed after making it and before writing the file. Then it is empty
+/// and its name ends in `.new`, and kiri cannot tell whether a kiri on
+/// another machine is still writing the file.
 fn remove_stale(work: &Path, host: &str) {
     use rustix::io::Errno;
     use rustix::process::{Pid, test_kill_process};
@@ -1157,6 +1159,9 @@ mod tests {
         // One that a kiri made and was killed before it got its name.
         dir(&format!("{ended}-4.new"), Some("this"));
         dir(&format!("{ended}-5.new"), Some("other"));
+        // One that a kiri was killed while making, before the file was in
+        // it, or that a kiri on another machine is making now: left, empty.
+        dir(&format!("{ended}-6.new"), None);
         remove_stale(&work, "this");
         let mut left: Vec<String> = (scratch.left().iter())
             .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
@@ -1164,7 +1169,7 @@ mod tests {
         left.sort();
         let expected = [1, 2, 3].map(|n| format!("{ended}-{n}"));
         let mut expected = expected.to_vec();
-        expected.push(format!("{ended}-5.new"));
+        expected.extend([5, 6].map(|n| format!("{ended}-{n}.new")));
         assert_eq!(left, expected);
     }
 
