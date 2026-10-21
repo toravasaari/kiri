@@ -372,13 +372,28 @@ impl Drop for Scratch {
 
 /// The kiri binary with nothing from the environment of the tests: no
 /// colour settings, and the home and configuration directories in `dir`,
-/// so the user's theme stays out.
+/// so the user's theme stays out. The signals that end kiri do so, also
+/// when the tests run in the background or under nohup, which ignore some
+/// of them, and kiri leaves an ignored signal ignored.
 pub fn command(dir: &Path) -> Command {
+    use std::os::unix::process::CommandExt;
+
     let mut command = Command::new(env!("CARGO_BIN_EXE_kiri"));
     command
         .env_clear()
         .env("HOME", dir.join("home"))
         .env("XDG_CONFIG_HOME", dir.join("config"));
+    // SAFETY: signal is async-signal-safe and touches no memory.
+    unsafe {
+        command.pre_exec(|| {
+            for signal in [libc::SIGINT, libc::SIGHUP, libc::SIGTERM, libc::SIGQUIT] {
+                if libc::signal(signal, libc::SIG_DFL) == libc::SIG_ERR {
+                    return Err(std::io::Error::last_os_error());
+                }
+            }
+            Ok(())
+        });
+    }
     command
 }
 
