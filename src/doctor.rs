@@ -202,9 +202,8 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     let mode = &facts.mode;
     row(out, &["Mode", mode_name(mode.value), &from(mode.origin)])?;
     let theme = match &choices.theme.value {
-        ThemeSource::File(path) => home.path(path),
-        ThemeSource::DefaultFile(path) if path.exists() => home.path(path),
-        ThemeSource::DefaultFile(_) | ThemeSource::BuiltIn => "built-in".into(),
+        ThemeSource::File(path) | ThemeSource::DefaultFile(path) => home.path(path),
+        ThemeSource::BuiltIn => "built-in".into(),
         ThemeSource::Paper(Paper::Light) => "light paper".into(),
         ThemeSource::Paper(Paper::Dark) => "dark paper".into(),
     };

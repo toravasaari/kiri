@@ -527,9 +527,9 @@ impl<T> Setting<T> {
 pub enum ThemeSource {
     /// A theme file the user chose; it must exist.
     File(PathBuf),
-    /// `theme.toml` in the configuration directory, when it exists.
+    /// `theme.toml` in the configuration directory, which exists.
     DefaultFile(PathBuf),
-    /// The built-in theme.
+    /// The built-in theme, without a theme file.
     BuiltIn,
     /// A built-in paper theme, from `--light` or `--dark`.
     Paper(Paper),
@@ -564,8 +564,9 @@ pub fn theme_source(
     if let Some(path) = &config.theme {
         return Setting::new(ThemeSource::File(path.clone()), Origin::File);
     }
-    let source = match directory(env) {
-        Some(dir) => ThemeSource::DefaultFile(dir.value.join("theme.toml")),
+    let file = directory(env).map(|dir| dir.value.join("theme.toml"));
+    let source = match file.filter(|path| path.exists()) {
+        Some(path) => ThemeSource::DefaultFile(path),
         None => ThemeSource::BuiltIn,
     };
     Setting::new(source, Origin::Default)
@@ -995,13 +996,11 @@ pub fn settings(
     (warnings, settings)
 }
 
-/// The theme that `source` names; the built-in theme when it is a default
-/// file that does not exist.
+/// The theme that `source` names.
 pub fn load_theme(source: &ThemeSource) -> Result<Theme, String> {
     match source {
-        ThemeSource::File(path) => crate::theme::load(path),
-        ThemeSource::DefaultFile(path) if path.exists() => crate::theme::load(path),
-        ThemeSource::DefaultFile(_) | ThemeSource::BuiltIn => Ok(Theme::default()),
+        ThemeSource::File(path) | ThemeSource::DefaultFile(path) => crate::theme::load(path),
+        ThemeSource::BuiltIn => Ok(Theme::default()),
         ThemeSource::Paper(paper) => Ok(Theme::paper(*paper)),
     }
 }
@@ -1375,14 +1374,18 @@ mod tests {
 
     #[test]
     fn theme_toml_in_the_directory_comes_before_the_built_in_theme() {
-        assert_eq!(
-            theme_source(None, None, &env(Some("/home/u"), None), &Config::default()).value,
-            ThemeSource::DefaultFile(PathBuf::from("/home/u/.config/kiri/theme.toml"))
-        );
-        assert_eq!(
-            theme_source(None, None, &env(None, None), &Config::default()).value,
-            ThemeSource::BuiltIn
-        );
+        let scratch = crate::testing::Scratch::new("config-theme-toml");
+        let home = scratch.to_str().unwrap();
+        let source = |home| theme_source(None, None, &env(home, None), &Config::default());
+        // Only when it exists.
+        let built_in = Setting::new(ThemeSource::BuiltIn, Origin::Default);
+        assert_eq!(source(Some(home)), built_in);
+        assert_eq!(source(None), built_in);
+        let theme = scratch.join(".config/kiri/theme.toml");
+        std::fs::create_dir_all(theme.parent().unwrap()).unwrap();
+        std::fs::write(&theme, "").unwrap();
+        let default = Setting::new(ThemeSource::DefaultFile(theme), Origin::Default);
+        assert_eq!(source(Some(home)), default);
     }
 
     #[test]

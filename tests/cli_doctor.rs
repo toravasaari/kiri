@@ -147,6 +147,17 @@ fn flags_tell_where_they_come_from() {
 }
 
 #[test]
+fn theme_toml_is_the_theme_only_when_it_exists() {
+    let dir = Scratch::new("doctor-theme-toml");
+    let row = "| Theme | built-in | default |";
+    assert!(piped(&dir, &[]).contains(row));
+    write(&dir.join("home/.config/kiri/theme.toml"), "");
+    let report = piped(&dir, &[]);
+    let row = "| Theme | `~/.config/kiri/theme.toml` | default |";
+    assert!(report.contains(row), "{row}\n{report}");
+}
+
+#[test]
 fn an_environment_variable_shows_its_value() {
     let dir = Scratch::new("doctor-env");
     let mut command = doctor(&dir, &[]);
