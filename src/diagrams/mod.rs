@@ -4,7 +4,7 @@
 //! knows nothing about terminals: the image loader decodes the SVG as it
 //! does an SVG file, and another backend could use the same SVG.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -265,9 +265,14 @@ impl Renderers {
     }
 
     /// The built-in renderers, and the external commands that `configured`
-    /// gives or that `search` finds; see `find::choose`.
-    pub fn chosen(configured: &BTreeMap<String, Vec<String>>, search: &find::Search) -> Self {
-        Self::new(find::commands(configured, search))
+    /// gives or that `search` finds for the languages `no_search` does not
+    /// have; see `find::choose`.
+    pub fn chosen(
+        configured: &BTreeMap<String, Vec<String>>,
+        no_search: &BTreeSet<String>,
+        search: &find::Search,
+    ) -> Self {
+        Self::new(find::commands(configured, no_search, search))
     }
 
     /// Whether programs outside kiri draw any language.
@@ -409,7 +414,7 @@ mod tests {
                 .map(String::from)
                 .to_vec(),
         )]);
-        let renderers = Renderers::chosen(&commands, &find::Search::default());
+        let renderers = Renderers::chosen(&commands, &BTreeSet::new(), &find::Search::default());
         assert!(renderers.draws("mermaid") && renderers.draws("Mermaid"));
         // It fails, and the built-in renderer does not step in.
         let drawn = renderers.render("mermaid", "flowchart TD\n  A --> B\n", Theme::Light);

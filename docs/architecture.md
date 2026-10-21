@@ -98,8 +98,9 @@ terminals, so an HTML backend could use the same SVG.
   command the configuration file gives for a language, without a shell
   and with a time limit, several at once, with its files in a directory
   of its own. `src/diagrams/find.rs` finds a default command, `mmdc` for
-  Mermaid, when nothing is configured and the build has no renderer of
-  its own for the language; `--doctor` reports the same choice.
+  Mermaid, when nothing is configured, the configuration file does not
+  turn the search off and the build has no renderer of its own for the
+  language; `--doctor` reports the same choice.
 - **Together:** `Renderers` draws each language with its external
   command when it has one and with the built-in renderer otherwise. An
   external command that fails does not fall back to the built-in one.

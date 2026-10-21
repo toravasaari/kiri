@@ -9,7 +9,9 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use image::ImageFormat;
 
-use crate::config::{Choices, Environment, Origin, Paging, SearchCase, Setting, ThemeSource};
+use crate::config::{
+    AUTO_DETECT, Choices, Environment, Origin, Paging, SearchCase, Setting, ThemeSource,
+};
 use crate::diagrams::find::{self, Choice, Search};
 use crate::diagrams::{BuiltIn, Command, LANGUAGES};
 use crate::render::image::DEFAULT_CELL;
@@ -284,7 +286,9 @@ fn write_diagrams(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     writeln!(out, "## Diagrams\n")?;
     writeln!(out, "| Language | Renderer | Status |\n|---|---|---|")?;
     for language in LANGUAGES {
-        let choice = find::choose(language, &facts.choices.diagram_commands, &search);
+        let choices = facts.choices;
+        let configured = &choices.diagram_commands;
+        let choice = find::choose(language, configured, &choices.diagram_no_search, &search);
         let command = |found: &str, command: &Command| {
             format!(
                 "command {found}: {}",
@@ -295,6 +299,13 @@ fn write_diagrams(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
             Choice::Configured(argv) => (command("configured", argv), true),
             Choice::Found(argv) => (command("found", argv), true),
             Choice::NotFound(program) => (format!("command: {} not found", code(program)), false),
+            Choice::NotLookedFor(program) => {
+                let off = code(&format!("{AUTO_DETECT} = false"));
+                (
+                    format!("command: {} not looked for: {off}", code(program)),
+                    false,
+                )
+            }
             Choice::None => ("command: none configured".to_owned(), false),
         };
         let (built_in, status) = match BuiltIn::version(language) {

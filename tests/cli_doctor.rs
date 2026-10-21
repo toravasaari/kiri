@@ -405,16 +405,33 @@ fn the_report_names_the_built_in_mermaid_renderer() {
 fn the_report_names_the_mermaid_command() {
     let dir = Scratch::new("doctor-mermaid-command");
     let row = |args: &[&str]| report_row(&piped(&dir, args), "| `mermaid` | command");
+    let none = "| `mermaid` | command: none configured | not used |";
     let nothing = match cfg!(feature = "mermaid") {
-        true => "| `mermaid` | command: none configured | not used |",
+        true => none,
         false => "| `mermaid` | command: `mmdc` not found | not used |",
     };
-    assert_eq!(row(&[]), nothing);
-    // Found where nvm installs programs, in a build without merman.
+    // Unless Homebrew has mmdc on this machine.
+    let homebrew = [
+        "/opt/homebrew/bin/mmdc",
+        "/home/linuxbrew/.linuxbrew/bin/mmdc",
+    ];
+    if !homebrew.iter().any(|path| Path::new(path).exists()) {
+        assert_eq!(row(&[]), nothing);
+    }
+    // Found where nvm installs programs, in a build without merman, but
+    // not looked for when the configuration file says so.
     let nvm = "home/.nvm/versions/node/v24.16.0/bin/mmdc";
     common::executable(&dir.join(nvm), "#!/bin/sh\n");
+    let config = dir.join("home/.config/kiri/config.toml");
+    write(&config, "[diagrams.mermaid]\nauto_detect = false\n");
+    let off = match cfg!(feature = "mermaid") {
+        true => none,
+        false => "| `mermaid` | command: `mmdc` not looked for: `auto_detect = false` | not used |",
+    };
+    assert_eq!(row(&[]), off);
+    std::fs::remove_file(&config).unwrap();
     let found = match cfg!(feature = "mermaid") {
-        true => nothing.to_owned(),
+        true => none.to_owned(),
         false => "| `mermaid` | command found: `~/.nvm/versions/node/v24.16.0/bin/mmdc -i {input} \
                   -o {output} -t {theme} -b transparent -c {config}` | used |"
             .to_owned(),

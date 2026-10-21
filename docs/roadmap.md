@@ -105,7 +105,7 @@ example, come before the rest of phase 3.
 - The full build draws them itself through merman: every diagram type,
   the Cytoscape and ELK layouts, and math. The minimal build uses
   mermaid-cli's `mmdc`, found on `PATH` or where npm, nvm and Homebrew
-  install it.
+  install it, unless `auto_detect` in `[diagrams.mermaid]` is off.
 - An external command for a language in the configuration file,
   `[diagrams.mermaid]`, with `{input}`, `{output}`, `{theme}` and
   `{config}`. It

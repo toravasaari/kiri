@@ -54,14 +54,32 @@ fn diagrams_are_code_without_images() {
 
 #[cfg(not(feature = "mermaid"))]
 #[test]
-fn diagrams_are_code_in_a_build_without_mermaid() {
+fn diagrams_are_code_in_a_build_without_mermaid_when_mmdc_is_not_looked_for() {
     let dir = Scratch::new("mermaid-not-built");
-    let out = kiri(&dir, BROKEN, &["--mode", "kitty"]);
+    // mmdc on PATH, which kiri would find.
+    let called = dir.join("called");
+    fake_mmdc(&dir.join("bin"), &called);
+    let config = dir.join("kiri.toml");
+    common::write(&config, "[diagrams.mermaid]\nauto_detect = false\n");
+    let run = |source: &str| {
+        let document = dir.join("document.md");
+        std::fs::write(&document, source).unwrap();
+        common::command(&dir)
+            .env("KIRI_CONFIG", &config)
+            .env("PATH", dir.join("bin"))
+            .args(["--mode", "kitty"])
+            .arg(&document)
+            .output()
+            .unwrap()
+    };
+    let out = run(BROKEN);
     assert_eq!(text(&out.stderr), "");
-    let out = kiri(&dir, FLOWCHART, &["--mode", "kitty"]);
+    let out = run(FLOWCHART);
+    assert_eq!(text(&out.stderr), "");
     let stdout = text(&out.stdout);
     assert!(sent(&stdout).is_empty(), "{stdout:?}");
     assert!(stdout.contains("flowchart TD"), "{stdout:?}");
+    assert!(!called.exists());
 }
 
 /// Runs kiri in kitty mode on `source` with `args` and `KIRI_DIAGRAMS` set

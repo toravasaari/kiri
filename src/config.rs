@@ -5,7 +5,7 @@
 //! Everything here takes the environment as a value, so the rules can be
 //! tested without touching the process environment.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fmt;
 use std::io::ErrorKind;
@@ -136,6 +136,8 @@ pub struct Config {
     /// Whether a diagram in colours for the other page, light or dark,
     /// lies on a panel: `background_panel` in the `[diagrams]` table.
     pub diagram_panel: Option<bool>,
+    /// The diagram languages whose program kiri is not to look for.
+    pub diagram_no_search: BTreeSet<String>,
 }
 
 /// When the document is shown in the pager rather than printed.
@@ -272,6 +274,7 @@ pub fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String
         diagram_commands: file.diagrams.commands,
         diagram_timeout: file.diagrams.timeout,
         diagram_panel: file.diagrams.background_panel,
+        diagram_no_search: file.diagrams.no_search,
     })
 }
 
@@ -297,16 +300,56 @@ struct DiagramsToml {
     timeout: Option<Duration>,
     background_panel: Option<bool>,
     commands: BTreeMap<String, Vec<String>>,
+    no_search: BTreeSet<String>,
 }
 
 /// The keys of the `[diagrams]` table other than the languages.
 const DIAGRAMS_KEYS: &[&str] = &["enabled", "timeout", "background_panel"];
 
+/// The key in a diagram language's table that turns the search for its
+/// program off or on, such as `mmdc` for Mermaid in a build without merman.
+pub const AUTO_DETECT: &str = "auto_detect";
+
+/// The keys of a diagram language's table.
+const LANGUAGE_KEYS: &[&str] = &["command", AUTO_DETECT];
+
 /// One language's table under `diagrams`.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Default)]
 struct DiagramToml {
-    command: Vec<String>,
+    command: Option<Vec<String>>,
+    auto_detect: Option<bool>,
+}
+
+impl<'de> Deserialize<'de> for DiagramToml {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+
+        impl<'de> de::Visitor<'de> for Visitor {
+            type Value = DiagramToml;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a table such as [diagrams.mermaid]")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<DiagramToml, A::Error> {
+                let mut table = DiagramToml::default();
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "command" => {
+                            let command: Vec<String> = map.next_value()?;
+                            check_command(&command).map_err(de::Error::custom)?;
+                            table.command = Some(command);
+                        }
+                        key if key == AUTO_DETECT => table.auto_detect = Some(map.next_value()?),
+                        key => return Err(de::Error::unknown_field(key, LANGUAGE_KEYS)),
+                    }
+                }
+                Ok(table)
+            }
+        }
+
+        deserializer.deserialize_map(Visitor)
+    }
 }
 
 impl<'de> Deserialize<'de> for DiagramsToml {
@@ -342,8 +385,12 @@ impl<'de> Deserialize<'de> for DiagramsToml {
                         }
                         language if languages.contains(&language) => {
                             let table: DiagramToml = map.next_value()?;
-                            check_command(&table.command).map_err(de::Error::custom)?;
-                            diagrams.commands.insert(key, table.command);
+                            if table.auto_detect == Some(false) {
+                                diagrams.no_search.insert(key.clone());
+                            }
+                            if let Some(command) = table.command {
+                                diagrams.commands.insert(key, command);
+                            }
                         }
                         _ => {
                             let keys = DIAGRAMS_KEYS.iter().chain(languages);
@@ -729,6 +776,8 @@ pub struct Settings {
     pub diagram_timeout: Duration,
     /// Whether a diagram in colours for the other page lies on a panel.
     pub diagram_panel: bool,
+    /// The diagram languages whose program kiri is not to look for.
+    pub diagram_no_search: BTreeSet<String>,
 }
 
 /// What the options, the environment and the configuration file choose,
@@ -759,6 +808,9 @@ pub struct Choices {
     pub diagram_timeout: Duration,
     /// Whether a diagram in colours for the other page lies on a panel.
     pub diagram_panel: bool,
+    /// The diagram languages whose program kiri is not to look for, all
+    /// from the configuration file.
+    pub diagram_no_search: BTreeSet<String>,
     /// What the user should know about settings that were left out.
     pub warnings: Vec<String>,
 }
@@ -783,6 +835,7 @@ impl Choices {
             diagram_commands: self.diagram_commands.clone(),
             diagram_timeout: self.diagram_timeout,
             diagram_panel: self.diagram_panel,
+            diagram_no_search: self.diagram_no_search.clone(),
         }
     }
 }
@@ -812,6 +865,7 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
         diagram_commands: config.diagram_commands.clone(),
         diagram_timeout: (config.diagram_timeout).unwrap_or(crate::diagrams::external::TIME_LIMIT),
         diagram_panel: config.diagram_panel.unwrap_or(true),
+        diagram_no_search: config.diagram_no_search.clone(),
         warnings: [
             paging_warning,
             front_matter_warning,
@@ -1475,6 +1529,46 @@ mod tests {
         assert!(choices(&Config::default()).diagram_panel);
         let config = parsed("[diagrams]\nbackground_panel = false\n").unwrap();
         assert!(!choices(&config).with_theme(Theme::default()).diagram_panel);
+    }
+
+    #[test]
+    fn a_diagram_language_table_turns_the_search_for_its_program_off() {
+        let parsed = |text: &str| parse(text, Path::new("/c"), &Environment::default());
+        let off = |text: &str| {
+            parsed(text).map(|config| (config.diagram_no_search, config.diagram_commands))
+        };
+        let mermaid = BTreeSet::from(["mermaid".to_owned()]);
+        assert_eq!(
+            off("[diagrams.mermaid]\nauto_detect = false\n"),
+            Ok((mermaid.clone(), BTreeMap::new()))
+        );
+        assert_eq!(
+            off("[diagrams.mermaid]\nauto_detect = true\n"),
+            Ok((BTreeSet::new(), BTreeMap::new()))
+        );
+        let both = "[diagrams.mermaid]\nauto_detect = false\ncommand = [\"m\", \"{input}\", \"{output}\"]\n";
+        let command = ["m", "{input}", "{output}"].map(String::from).to_vec();
+        assert_eq!(
+            off(both),
+            Ok((
+                mermaid.clone(),
+                BTreeMap::from([("mermaid".to_owned(), command)])
+            ))
+        );
+        let config = parsed("[diagrams.mermaid]\nauto_detect = false\n").unwrap();
+        let choices = choose(&Options::default(), &Environment::default(), &config);
+        assert_eq!(choices.diagram_no_search, mermaid);
+        assert_eq!(
+            choices.with_theme(Theme::default()).diagram_no_search,
+            mermaid
+        );
+        let error = off("[diagrams.mermaid]\nauto_detect = \"no\"\n").unwrap_err();
+        assert!(error.contains("invalid type"), "{error}");
+        let error = off("[diagrams.mermaid]\nargs = []\n").unwrap_err();
+        assert!(
+            error.contains("unknown field `args`, expected `command` or `auto_detect`"),
+            "{error}"
+        );
     }
 
     #[test]

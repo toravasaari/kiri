@@ -47,6 +47,8 @@ background_panel = true
 # Diagram commands below.
 [diagrams.mermaid]
 command = ["mmdc", "-i", "{input}", "-o", "{output}", "-t", "{theme}", "-b", "transparent", "-c", "{config}"]
+# false: a build without default features does not look for mmdc.
+auto_detect = true
 ```
 
 `diagrams = false` on its own, among the keys above the tables, is short
@@ -184,7 +186,8 @@ What draws a Mermaid diagram:
   its own directory first on `PATH`, so that it finds the `node` beside
   it. kiri runs it with the command line shown under
   [Diagram commands](#diagram-commands). Without one, diagrams stay
-  code.
+  code. `auto_detect = false` in the `[diagrams.mermaid]` table keeps
+  kiri from looking for `mmdc`.
 - In either build, the command the configuration file gives. kiri then
   neither draws the language itself nor looks for `mmdc`.
 
@@ -208,8 +211,8 @@ code with a warning that names it by its line, as in
 document piped in.
 
 `kiri --doctor` lists, for each language, the renderer built into this
-build and the external command, configured, found or not found, and
-which of them is used.
+build and the external command, configured, found, not found or not
+looked for, and which of them is used.
 
 ### Diagram commands
 

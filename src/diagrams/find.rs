@@ -2,7 +2,7 @@
 //! configuration file names none and kiri has no renderer of its own for
 //! it, such as `mmdc` in a build without merman.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -174,6 +174,9 @@ pub enum Choice {
     Found(Command),
     /// kiri looked for a program and did not find it.
     NotFound(&'static str),
+    /// kiri would look for the program, but the configuration file says
+    /// not to.
+    NotLookedFor(&'static str),
     /// Nothing is configured, and kiri does not look: it draws the
     /// language itself, or knows no program for it.
     None,
@@ -181,10 +184,12 @@ pub enum Choice {
 
 /// The external command that draws `language`: the one `configured`
 /// names, or else, in a build without a renderer of its own for the
-/// language, the default command line with its program found by `search`.
+/// language, the default command line with its program found by `search`,
+/// unless `no_search` has the language.
 pub fn choose(
     language: &str,
     configured: &BTreeMap<String, Vec<String>>,
+    no_search: &BTreeSet<String>,
     search: &Search,
 ) -> Choice {
     let named = (configured.iter()).find(|(name, _)| name.eq_ignore_ascii_case(language));
@@ -197,24 +202,33 @@ pub fn choose(
     if BuiltIn.draws(language) {
         return Choice::None;
     }
+    if no_search
+        .iter()
+        .any(|name| name.eq_ignore_ascii_case(language))
+    {
+        return Choice::NotLookedFor(argv[0]);
+    }
     match search.find(argv[0]) {
         Some(program) => Choice::Found(search.command_at(&program, argv)),
         None => Choice::NotFound(argv[0]),
     }
 }
 
-/// The external command for each language that has one.
+/// The external command for each language that has one; see `choose`.
 pub fn commands(
     configured: &BTreeMap<String, Vec<String>>,
+    no_search: &BTreeSet<String>,
     search: &Search,
 ) -> BTreeMap<String, Command> {
     (super::LANGUAGES.iter())
-        .filter_map(|&language| match choose(language, configured, search) {
-            Choice::Configured(command) | Choice::Found(command) => {
-                Some((language.to_owned(), command))
-            }
-            Choice::NotFound(_) | Choice::None => None,
-        })
+        .filter_map(
+            |&language| match choose(language, configured, no_search, search) {
+                Choice::Configured(command) | Choice::Found(command) => {
+                    Some((language.to_owned(), command))
+                }
+                Choice::NotFound(_) | Choice::NotLookedFor(_) | Choice::None => None,
+            },
+        )
         .collect()
 }
 
@@ -384,19 +398,25 @@ mod tests {
             ..Search::default()
         };
         let none = BTreeMap::new();
+        let all = BTreeSet::new();
         let expected = |found| match cfg!(feature = "mermaid") {
             true => Choice::None,
             false => found,
         };
         assert_eq!(
-            choose("mermaid", &none, &search),
+            choose("mermaid", &none, &all, &search),
             expected(Choice::NotFound("mmdc"))
         );
         let program = scratch.program("bin/mmdc", 0o755);
         let found = Choice::Found(search.command_at(&program, MMDC));
-        assert_eq!(choose("mermaid", &none, &search), expected(found.clone()));
         assert_eq!(
-            commands(&none, &search).into_iter().collect::<Vec<_>>(),
+            choose("mermaid", &none, &all, &search),
+            expected(found.clone())
+        );
+        assert_eq!(
+            commands(&none, &all, &search)
+                .into_iter()
+                .collect::<Vec<_>>(),
             match found {
                 Choice::Found(command) if !cfg!(feature = "mermaid") =>
                     vec![("mermaid".to_owned(), command)],
@@ -410,9 +430,21 @@ mod tests {
         ];
         let configured = BTreeMap::from([("mermaid".to_owned(), argv.clone())]);
         assert_eq!(
-            choose("Mermaid", &configured, &search),
+            choose("Mermaid", &configured, &all, &search),
+            Choice::Configured(Command::new(argv.clone()))
+        );
+        assert_eq!(choose("dot", &none, &all, &search), Choice::None);
+        // Not looked for when the configuration file says so, though it
+        // is there.
+        let off = BTreeSet::from(["mermaid".to_owned()]);
+        assert_eq!(
+            choose("Mermaid", &none, &off, &search),
+            expected(Choice::NotLookedFor("mmdc"))
+        );
+        assert!(commands(&none, &off, &search).is_empty());
+        assert_eq!(
+            choose("mermaid", &configured, &off, &search),
             Choice::Configured(Command::new(argv))
         );
-        assert_eq!(choose("dot", &none, &search), Choice::None);
     }
 }
