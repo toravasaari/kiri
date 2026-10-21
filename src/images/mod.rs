@@ -499,10 +499,8 @@ fn finish_diagram(
     let drawn = drawn.map_err(failed)?;
     let image = match looks_like_svg(&drawn.image) {
         true => decode_diagram(&drawn.image, max_size, fonts),
-        false => match decode_raster(&drawn.image, None) {
-            Ok(Source::Raster(image)) => Ok(dense(image, drawn.scale, diagrams.largest)),
-            other => other,
-        },
+        false => decode_raster(&drawn.image, None)
+            .map(|image| dense(image, drawn.scale, diagrams.largest)),
     }
     .map_err(|error| failed(error.to_string()))?;
     // A diagram that chose colours of its own for the other page would
@@ -593,10 +591,7 @@ pub(crate) fn decode_diagram(
     max_size: u64,
     fonts: &Fonts,
 ) -> Result<Source, ImageError> {
-    match decode_svg(svg, max_size, fonts)? {
-        Source::Svg(svg) => Ok(Source::Svg(svg.grown_to_text())),
-        other => Ok(other),
-    }
+    decode_svg(svg, max_size, fonts).map(|svg| Source::Svg(svg.grown_to_text()))
 }
 
 /// Reads and decodes the image file at `path` from `reader`, which gives
@@ -620,10 +615,11 @@ pub fn read_image(
         })?;
     match format {
         Format::Detect => decode(&bytes, max_file_size, fonts),
-        Format::Svg => decode_svg(&bytes, max_file_size, fonts),
+        Format::Svg => decode_svg(&bytes, max_file_size, fonts).map(Source::Svg),
         Format::Raster(format) => decoded(kiri_image_utils::decode_rgba8_as(
             &bytes, format, MAX_PIXELS, MAX_ALLOC,
-        )),
+        ))
+        .map(Source::Raster),
     }
 }
 
@@ -645,13 +641,13 @@ fn decode_named(
     fonts: &Fonts,
 ) -> Result<Source, ImageError> {
     if looks_like_svg(bytes) {
-        decode_svg(bytes, max_size, fonts)
+        decode_svg(bytes, max_size, fonts).map(Source::Svg)
     } else {
-        decode_raster(bytes, named)
+        decode_raster(bytes, named).map(Source::Raster)
     }
 }
 
-fn decode_raster(bytes: &[u8], named: Option<ImageFormat>) -> Result<Source, ImageError> {
+fn decode_raster(bytes: &[u8], named: Option<ImageFormat>) -> Result<RgbaImage, ImageError> {
     // Only TGA has no signature; for other formats a wrong name must not
     // turn data that is no image into a broken image.
     let fallback = named.filter(|&format| format == ImageFormat::Tga);
@@ -661,9 +657,9 @@ fn decode_raster(bytes: &[u8], named: Option<ImageFormat>) -> Result<Source, Ima
 }
 
 /// The image `kiri_image_utils` decoded, or why it gave none.
-fn decoded(result: Result<RgbaImage, DecodeError>) -> Result<Source, ImageError> {
+fn decoded(result: Result<RgbaImage, DecodeError>) -> Result<RgbaImage, ImageError> {
     match result {
-        Ok(image) => Ok(Source::Raster(image)),
+        Ok(image) => Ok(image),
         Err(DecodeError::UnknownFormat) => Err(ImageError::UnknownFormat),
         Err(DecodeError::TooLarge { width, height }) => Err(ImageError::TooLarge { width, height }),
         Err(DecodeError::Image(error)) => Err(from_image_error(error)),
