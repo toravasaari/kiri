@@ -6,7 +6,8 @@
 //! shell and with that directory as its temporary directory, and reads
 //! the SVG the program wrote. The directory goes, with whatever the
 //! program left in it, when the program has finished, failed, run out of
-//! time or been stopped.
+//! time or been stopped; one that a kiri which was killed left goes the
+//! next time a kiri draws there.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -16,8 +17,8 @@ use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{self, ExitStatus, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Once};
 use std::time::{Duration, Instant};
 
 use super::{Drawn, Renderer, Theme};
@@ -74,6 +75,9 @@ pub struct External {
     work: Option<PathBuf>,
     /// How many directories this renderer has made, to name the next one.
     made: AtomicUsize,
+    /// Run once the work directory is there, to remove what an earlier
+    /// kiri left in it.
+    swept: Once,
     /// Set when the programs are to stop, such as on Ctrl-C.
     stop: Option<Arc<AtomicBool>>,
 }
@@ -88,6 +92,7 @@ impl External {
             time_limit: TIME_LIMIT,
             work: None,
             made: AtomicUsize::new(0),
+            swept: Once::new(),
             stop: None,
         }
     }
@@ -136,13 +141,17 @@ impl External {
 
     /// A new directory of its own for one diagram's files: in the work
     /// directory when it can be, and otherwise in the system's temporary
-    /// directory, where its name says whose it is.
+    /// directory, where its name says whose it is. The first time, the
+    /// directories that a kiri which has ended left in the work directory
+    /// go.
     fn temp_dir(&self) -> io::Result<TempDir> {
         let work = (self.work.as_deref())
             .filter(|work| work.as_os_str().len() <= LONGEST_WORK_DIR)
             .and_then(|work| {
                 let made = DirBuilder::new().recursive(true).mode(0o700).create(work);
-                made.and_then(|()| self.new_dir(work, "")).ok()
+                made.ok()?;
+                self.swept.call_once(|| remove_stale(work));
+                self.new_dir(work, "").ok()
             });
         match work {
             Some(dir) => Ok(dir),
@@ -299,6 +308,43 @@ struct TempDir(PathBuf);
 impl Drop for TempDir {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Removes the directories in `work` that a kiri which has ended left
+/// there, such as one killed while a program drew: those named, as
+/// `new_dir` names them, by the id of a process that no longer runs. A
+/// directory whose process still runs, or might, is left alone, as is
+/// anything else in `work`.
+fn remove_stale(work: &Path) {
+    use rustix::io::Errno;
+    use rustix::process::{Pid, test_kill_process};
+
+    let Ok(entries) = fs::read_dir(work) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let Some((pid, n)) = name.split_once('-') else {
+            continue;
+        };
+        let (Ok(id), Ok(number)) = (pid.parse::<i32>(), n.parse::<usize>()) else {
+            continue;
+        };
+        // Only the names kiri gives, without signs or leading zeros.
+        if format!("{id}-{number}") != name {
+            continue;
+        }
+        let Some(pid) = Pid::from_raw(id) else {
+            continue;
+        };
+        let is_dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
+        if is_dir && test_kill_process(pid) == Err(Errno::SRCH) {
+            let _ = fs::remove_dir_all(entry.path());
+        }
     }
 }
 
@@ -758,6 +804,43 @@ mod tests {
             assert_eq!(mode & 0o777, 0o700, "{}", dir.display());
         }
         assert_eq!(fs::read_dir(&work).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn directories_left_by_a_kiri_that_has_ended_are_removed() {
+        let scratch = Scratch::new("stale");
+        let work = scratch.0.join("temp");
+        // A process id that no process has now.
+        let mut child = process::Command::new("true").spawn().unwrap();
+        let ended = child.id();
+        child.wait().unwrap();
+        let alive = process::id();
+        let stale = [format!("{ended}-0"), format!("{ended}-17")];
+        let kept = [
+            format!("{alive}-90"),
+            "1-0".to_owned(),
+            format!("{ended}"),
+            format!("{ended}-"),
+            format!("{ended}-x"),
+            format!("0{ended}-0"),
+            format!("kiri-diagram-{ended}-0"),
+            "notes".to_owned(),
+        ];
+        for name in stale.iter().chain(&kept) {
+            fs::create_dir_all(work.join(name).join("profile")).unwrap();
+        }
+        // A file with such a name is not a directory of kiri's.
+        let file = format!("{ended}-1");
+        fs::write(work.join(&file), "").unwrap();
+        let renderer = scratch.renderer("echo '<svg/>' > \"$2\"\n");
+        renderer.render("mermaid", SOURCE, Theme::Light).unwrap();
+        let mut left: Vec<String> = (scratch.left().iter())
+            .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        let mut expected: Vec<String> = kept.into_iter().chain([file]).collect();
+        expected.sort();
+        assert_eq!(left, expected);
     }
 
     #[test]

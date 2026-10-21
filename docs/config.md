@@ -242,7 +242,9 @@ alone when it is needed, or in the temporary directory (`TMPDIR`, or
 too long for the sockets a browser may make in it. The program gets the
 directory as its `TMPDIR` too, so that what it leaves there, such as the
 profile of `mmdc`'s browser, goes with the directory once the diagram
-is drawn. In the arguments:
+is drawn. A directory left in `diagrams` by a kiri that did not end
+normally, such as one killed with SIGKILL, goes the next time kiri
+draws there. In the arguments:
 
 - `{input}` is the file of the diagram's source, which ends in `.mmd`
   for Mermaid;
