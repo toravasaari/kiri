@@ -1,0 +1,25 @@
+classDiagram
+    direction LR
+    class Kirja {
+        +String nimi
+        +String kirjoittaja
+        +int vuosi
+        +lainaa(Asiakas) Laina
+    }
+    class Asiakas {
+        +String nimi
+        +String kortinNumero
+        +lainat() List~Laina~
+    }
+    class Laina {
+        +Date eräpäivä
+        +palauta()
+        +onMyöhässä() bool
+    }
+    class Aineisto {
+        <<interface>>
+        +hylly() String
+    }
+    Aineisto <|.. Kirja
+    Asiakas "1" --> "0..*" Laina : has
+    Laina "0..*" --> "1" Kirja : of

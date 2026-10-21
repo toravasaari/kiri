@@ -200,6 +200,8 @@ is shown. Link navigation is planned.
 - [Theme](docs/theme.md)
 - [Visual check](examples/visual-check.md) – a document for checking the
   output by eye, and [another for images](examples/visual-check-images.md)
+- [Mermaid showcase](examples/mermaid-showcase.md) – one diagram of each
+  common Mermaid type, also as [files of their own](examples/mermaid/)
 - [AGENTS.md](AGENTS.md) – conventions for coding agents and contributors
 
 ## License
