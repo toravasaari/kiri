@@ -450,6 +450,59 @@ fn a_signal_stops_the_programs_removes_their_files_and_ends_kiri() {
 }
 
 #[test]
+fn a_signal_ignored_when_kiri_starts_stays_ignored() {
+    use std::time::{Duration, Instant};
+
+    use rustix::process::{Pid, Signal, kill_process};
+
+    let dir = Scratch::new("mermaid-ignored");
+    let started = dir.join("started");
+    let script = format!("touch '{}'\nsleep 1\n{DRAWS}", started.display());
+    common::write(
+        &dir.join("config/kiri/config.toml"),
+        &external(&dir, &script),
+    );
+    let document = dir.join("document.md");
+    std::fs::write(&document, FLOWCHART).unwrap();
+    // As nohup and a shell's background jobs leave them.
+    let mut kiri = std::process::Command::new("/bin/sh")
+        .env_clear()
+        .env("HOME", dir.join("home"))
+        .env("XDG_CONFIG_HOME", dir.join("config"))
+        .args(["-c", "trap '' INT TERM HUP\nexec \"$0\" \"$@\""])
+        .arg(env!("CARGO_BIN_EXE_kiri"))
+        .args(["--mode", "kitty"])
+        .arg(&document)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !started.exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(started.exists(), "the program starts");
+    let pid = Pid::from_raw(kiri.id() as i32).unwrap();
+    for signal in [Signal::INT, Signal::TERM, Signal::HUP] {
+        kill_process(pid, signal).unwrap();
+    }
+    let status = loop {
+        if let Some(status) = kiri.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() > deadline {
+            kiri.kill().unwrap();
+            panic!("kiri did not end");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let out = kiri.wait_with_output().unwrap();
+    assert!(status.success(), "{status:?}: {}", text(&out.stderr));
+    assert_eq!(text(&out.stderr), "");
+    assert_eq!(sent(&text(&out.stdout)).len(), 1);
+}
+
+#[test]
 fn a_program_s_files_are_in_kiri_s_cache_directory_until_it_is_done() {
     use std::os::unix::fs::PermissionsExt;
 

@@ -1096,6 +1096,7 @@ dependencies = [
  "image",
  "insta",
  "kiri-image-utils",
+ "libc",
  "merman",
  "resvg",
  "rustix",

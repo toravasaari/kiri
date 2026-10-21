@@ -13,8 +13,8 @@ use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 /// The signals an [`Interrupt`] catches.
 const SIGNALS: [i32; 3] = [SIGINT, SIGTERM, SIGHUP];
 
-/// Catches Ctrl-C, SIGTERM and SIGHUP while it lives: one sets a flag
-/// instead of ending kiri, until [`release`](Self::release). Dropping it
+/// Catches Ctrl-C, SIGTERM and SIGHUP while it lives, unless they are
+/// ignored: one sets a flag instead of ending kiri, until [`release`](Self::release). Dropping it
 /// takes its handlers away, which leaves the signals ignored until another
 /// catches them, as the pager's screen does; so it lives until kiri ends
 /// or the pager's screen has opened.
@@ -39,7 +39,8 @@ impl Interrupt {
             ends: Arc::new(AtomicBool::new(false)),
             handlers: Vec::new(),
         };
-        for signal in SIGNALS {
+        // One that is ignored, as under nohup, stays so.
+        for signal in SIGNALS.into_iter().filter(|&signal| !ignored(signal)) {
             // The handlers run in this order. Noting the signal before
             // looking at `ends`, as `release` sets `ends` before it looks
             // at the signal, means that a signal either ends kiri or is
@@ -79,6 +80,21 @@ impl Drop for Interrupt {
             signal_hook::low_level::unregister(id);
         }
     }
+}
+
+/// Whether `signal` is ignored, as one stays that kiri's parent ignored;
+/// false when that cannot be told.
+fn ignored(signal: i32) -> bool {
+    let mut action = std::mem::MaybeUninit::<libc::sigaction>::zeroed();
+    // SAFETY: with no new action, sigaction only writes the current one
+    // to `action`, which is valid for writes of its size.
+    let result = unsafe { libc::sigaction(signal, std::ptr::null(), action.as_mut_ptr()) };
+    if result != 0 {
+        return false;
+    }
+    // SAFETY: sigaction succeeded, so it wrote the whole action.
+    let action = unsafe { action.assume_init() };
+    action.sa_sigaction == libc::SIG_IGN
 }
 
 /// Ends kiri as `signal` does by default, so that the shell that started

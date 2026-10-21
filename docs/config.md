@@ -259,7 +259,8 @@ drawing takes longer than half a second, a line such as
 got, and is wiped before the document is shown. Ctrl-C, SIGTERM or
 SIGHUP meanwhile stops the programs and removes their files, and then
 the signal ends kiri as it would have otherwise, so that a shell shows
-status 130 after Ctrl-C. A program that fails,
+status 130 after Ctrl-C. A signal that was ignored when kiri started,
+as under `nohup`, stays ignored. A program that fails,
 runs out of time or writes no SVG leaves its diagram as code with a
 warning; kiri does not fall back to drawing it itself, so that a
 command that does not work shows.
