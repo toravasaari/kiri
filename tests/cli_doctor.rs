@@ -115,6 +115,37 @@ fn settings_tell_where_they_come_from() {
     }
 }
 
+/// Each flag that chooses a setting, as the report names it: by its long
+/// name, or by its short one where it has no long one.
+#[test]
+fn flags_tell_where_they_come_from() {
+    let dir = Scratch::new("doctor-flags");
+    write(&dir.join("mine.toml"), "");
+    let theme = dir.join("mine.toml");
+    let theme = theme.to_str().unwrap();
+    for (args, row) in [
+        (&["-I"][..], "| Images | off | `--no-images` |"),
+        (&["--no-images"][..], "| Images | off | `--no-images` |"),
+        (&["--images"][..], "| Images | on | `--images` |"),
+        (&["-M"][..], "| Margins | off | `--no-margins` |"),
+        (&["--light"][..], "| Theme | light paper | `--light` |"),
+        (&["--dark"][..], "| Theme | dark paper | `--dark` |"),
+        (&["--dark", "--theme", theme][..], "| `--theme` |"),
+        (&["-P"][..], "| Paging | never | `-P` |"),
+        (&["--mode", "plain"][..], "| Mode | plain | `--mode` |"),
+        (&["--mode=auto"][..], "| Mode | auto | `--mode` |"),
+        (&["--diagrams=off"][..], "| Diagrams | off | `--diagrams` |"),
+        (&["--width", "50"][..], "| Width | 50 cells | `--width` |"),
+        (
+            &["--max-image-size", "10"][..],
+            "| Largest image | 10 MB | `--max-image-size` |",
+        ),
+    ] {
+        let report = piped(&dir, args);
+        assert!(report.contains(row), "{args:?}: {row}\n{report}");
+    }
+}
+
 #[test]
 fn an_environment_variable_shows_its_value() {
     let dir = Scratch::new("doctor-env");

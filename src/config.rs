@@ -2170,4 +2170,28 @@ mod tests {
             .unwrap();
         assert!(!settings.images);
     }
+
+    #[test]
+    fn a_wrong_value_in_the_file_names_the_values_it_takes() {
+        let error = |text: &str| parse(text, Path::new("/c"), &Environment::default()).unwrap_err();
+        let errors: Vec<String> = [
+            "paging = \"sometimes\"\n",
+            "paging = true\n",
+            "paging = \"1\"\n",
+            "search_case = \"ignore\"\n",
+            "search_case = 1\n",
+            "front_matter = \"list\"\n",
+            "front_matter = false\n",
+            "table_rows = \"stripes\"\n",
+            "table_rows = [\"off\"]\n",
+            "render_errors = \"never\"\n",
+            "render_errors = { a = 1 }\n",
+            "diagrams = \"off\"\n",
+            "images = \"no\"\n",
+        ]
+        .into_iter()
+        .map(error)
+        .collect();
+        insta::assert_snapshot!(errors.join("---\n"));
+    }
 }
