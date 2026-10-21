@@ -7,17 +7,15 @@
 //! image.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub mod external;
 pub mod find;
 mod language;
 mod mermaid;
 
-pub use external::{Command, External};
+pub use external::{Command, External, ExternalSettings};
 pub use language::{LANGUAGES, Language, ThemeNames, language};
 pub use mermaid::MMDC;
 
@@ -269,66 +267,28 @@ pub struct Renderers {
 
 impl Renderers {
     /// The built-in renderers, and `commands`, the external command for
-    /// each language that has one.
-    pub fn new(commands: BTreeMap<String, Command>) -> Self {
+    /// each language that has one, run as `settings` say.
+    pub fn new(commands: BTreeMap<String, Command>, settings: ExternalSettings) -> Self {
         Renderers {
-            external: External::new(commands),
+            external: External::new(commands, settings),
         }
     }
 
     /// The built-in renderers, and the external commands that `configured`
     /// gives or that `search` finds for the languages `no_search` does not
-    /// have; see `find::choose`.
+    /// have, run as `settings` say; see `find::choose`.
     pub fn chosen(
         configured: &BTreeMap<String, Vec<String>>,
         no_search: &BTreeSet<String>,
         search: &find::Search,
+        settings: ExternalSettings,
     ) -> Self {
-        Self::new(find::commands(configured, no_search, search))
+        Self::new(find::commands(configured, no_search, search), settings)
     }
 
     /// Whether programs outside kiri draw any of `languages`.
     pub fn runs_programs_for<'a>(&self, languages: impl IntoIterator<Item = &'a str>) -> bool {
         (languages.into_iter()).any(|language| self.external.draws(language))
-    }
-
-    /// These renderers stopping each program they run after `limit`.
-    pub fn with_time_limit(self, limit: Duration) -> Self {
-        Renderers {
-            external: self.external.with_time_limit(limit),
-        }
-    }
-
-    /// These renderers reading an image a program draws of at most
-    /// `limit` bytes.
-    pub fn with_max_size(self, limit: u64) -> Self {
-        Renderers {
-            external: self.external.with_max_size(limit),
-        }
-    }
-
-    /// These renderers with the files of the programs they run in
-    /// directories under `dir`; see `External::with_work_dir`.
-    pub fn with_work_dir(self, dir: PathBuf) -> Self {
-        Renderers {
-            external: self.external.with_work_dir(dir),
-        }
-    }
-
-    /// These renderers with `dir` as the system's temporary directory;
-    /// see `External::with_temp_dir`.
-    pub fn with_temp_dir(self, dir: PathBuf) -> Self {
-        Renderers {
-            external: self.external.with_temp_dir(dir),
-        }
-    }
-
-    /// These renderers stopping the programs they run, and starting no
-    /// more, once `stop` is set.
-    pub fn stopped_by(self, stop: Arc<AtomicBool>) -> Self {
-        Renderers {
-            external: self.external.stopped_by(stop),
-        }
     }
 }
 
@@ -430,6 +390,7 @@ pub fn name(language: &str, source: &str, line: usize, by_line: bool) -> String 
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicUsize;
+    use std::time::Duration;
 
     use super::*;
 
@@ -441,7 +402,13 @@ mod tests {
                 .map(String::from)
                 .to_vec(),
         )]);
-        let renderers = Renderers::chosen(&commands, &BTreeSet::new(), &find::Search::default());
+        let settings = || ExternalSettings::new(std::env::temp_dir());
+        let renderers = Renderers::chosen(
+            &commands,
+            &BTreeSet::new(),
+            &find::Search::default(),
+            settings(),
+        );
         assert!(renderers.draws("mermaid") && renderers.draws("Mermaid"));
         // It fails, and the built-in renderer does not step in.
         let drawn = renderers.render(&Request::new(
@@ -453,7 +420,7 @@ mod tests {
         let request = Request::new("mermaid", "flowchart TD\n", Theme::Dark);
         let drawn = renderers.render_all(&[request], &|| {});
         assert_eq!(drawn, [Err("sh exited with status 4".to_owned())]);
-        let none = Renderers::new(BTreeMap::new());
+        let none = Renderers::new(BTreeMap::new(), settings());
         assert_eq!(none.draws("mermaid"), cfg!(feature = "mermaid"));
         assert!(!none.draws("dot"));
     }

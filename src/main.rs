@@ -8,7 +8,7 @@ use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, ValueEnum};
 use kiri::caps::Capabilities;
 use kiri::config::{Environment, Options, Origin, Setting, Settings};
-use kiri::diagrams::{Diagrams, NoRenderer, Renderers};
+use kiri::diagrams::{Diagrams, ExternalSettings, NoRenderer, Renderers};
 use kiri::doctor::{Facts, Output};
 use kiri::images::{Fonts, Format, ImageError, ImageKey, Images};
 use kiri::input::Input;
@@ -572,22 +572,21 @@ fn load_images(
     if settings.diagrams {
         let search = kiri::diagrams::find::Search::new(env);
         let configured = &settings.diagram_commands;
-        let mut chosen = Renderers::chosen(configured, &settings.diagram_no_search, &search)
-            .with_time_limit(settings.diagram_timeout)
-            .with_max_size(max_file_size)
-            .with_temp_dir(kiri::config::temp_directory(env));
-        if let Some(cache) = kiri::config::cache_directory(env) {
-            chosen = chosen.with_work_dir(cache.join("diagrams"));
-        }
+        let no_search = &settings.diagram_no_search;
+        let mut external = ExternalSettings {
+            time_limit: settings.diagram_timeout,
+            max_size: max_file_size,
+            work_dir: kiri::config::cache_directory(env).map(|cache| cache.join("diagrams")),
+            ..ExternalSettings::new(kiri::config::temp_directory(env))
+        };
+        let chosen = Renderers::chosen(configured, no_search, &search, external.clone());
         // Only while a program draws one of the document's diagrams: they
         // otherwise end kiri at once, as without diagrams.
         if chosen.runs_programs_for(kiri::images::diagram_languages(document, &chosen)) {
             *interrupt = Interrupt::catch();
-            if let Some(interrupt) = interrupt {
-                chosen = chosen.stopped_by(interrupt.flag());
-            }
         }
-        renderers = Some(chosen);
+        external.stop = interrupt.as_ref().map(Interrupt::flag);
+        renderers = Some(Renderers::chosen(configured, no_search, &search, external));
     }
     let diagrams = Diagrams {
         renderer: match &renderers {

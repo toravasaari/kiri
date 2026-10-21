@@ -54,8 +54,8 @@ pub enum Unusable {
 }
 
 /// Why `work` cannot hold the directories for diagrams' files, as
-/// [`External::with_work_dir`] uses it, without making it; `None` when it
-/// can, as far as can be told before trying.
+/// [`ExternalSettings::work_dir`] is used, without making it; `None`
+/// when it can, as far as can be told before trying.
 pub fn unusable(work: &Path) -> Option<Unusable> {
     if work.as_os_str().len() > LONGEST_WORK_DIR {
         return Some(Unusable::TooLong);
@@ -127,96 +127,71 @@ impl Command {
     }
 }
 
+/// How an [`External`] runs its programs.
+#[derive(Debug, Clone)]
+pub struct ExternalSettings {
+    /// How long a program may take to draw one diagram before it is
+    /// stopped.
+    pub time_limit: Duration,
+    /// The most bytes of an image that is read.
+    pub max_size: u64,
+    /// Where the directories for the programs' files go, made when it is
+    /// needed, for the user alone, such as `diagrams` in kiri's cache
+    /// directory. Without it, or when it cannot be made or its path is too
+    /// long, they go in `temp_dir`.
+    pub work_dir: Option<PathBuf>,
+    /// The system's temporary directory, such as `config::temp_directory`
+    /// gives.
+    pub temp_dir: PathBuf,
+    /// Set when the programs are to stop, and no more are to start, such
+    /// as on Ctrl-C.
+    pub stop: Option<Arc<AtomicBool>>,
+}
+
+impl ExternalSettings {
+    /// The settings kiri has unless told otherwise, with `temp_dir` as the
+    /// system's temporary directory.
+    pub fn new(temp_dir: PathBuf) -> Self {
+        ExternalSettings {
+            time_limit: TIME_LIMIT,
+            max_size: crate::images::DEFAULT_MAX_FILE_SIZE,
+            work_dir: None,
+            temp_dir,
+            stop: None,
+        }
+    }
+}
+
 /// Draws the diagrams of some languages with external commands.
 #[derive(Debug)]
 pub struct External {
     /// The command for each language, by its lower-case name.
     commands: BTreeMap<String, Command>,
-    time_limit: Duration,
-    /// The most bytes of an image that it reads.
-    max_size: u64,
-    /// Where the directories for the files go, unless it cannot be made
-    /// or its path is too long; then they go in `temp`.
-    work: Option<PathBuf>,
-    /// The system's temporary directory.
-    temp: PathBuf,
+    settings: ExternalSettings,
     /// How many directories this renderer has made, to name the next one.
     made: AtomicUsize,
     /// Run once the work directory is there, to remove what an earlier
     /// kiri left in it.
     swept: Once,
-    /// Set when the programs are to stop, such as on Ctrl-C.
-    stop: Option<Arc<AtomicBool>>,
 }
 
 impl External {
-    /// Draws each language in `commands` with its command.
-    pub fn new(commands: BTreeMap<String, Command>) -> Self {
+    /// Draws each language in `commands` with its command, as `settings`
+    /// say.
+    pub fn new(commands: BTreeMap<String, Command>, settings: ExternalSettings) -> Self {
         External {
             commands: (commands.into_iter())
                 .map(|(language, command)| (language.to_ascii_lowercase(), command))
                 .collect(),
-            time_limit: TIME_LIMIT,
-            max_size: crate::images::DEFAULT_MAX_FILE_SIZE,
-            work: None,
-            temp: crate::config::temp_directory(&crate::config::Environment {
-                tmpdir: std::env::var_os("TMPDIR"),
-                ..Default::default()
-            }),
+            settings,
             made: AtomicUsize::new(0),
             swept: Once::new(),
-            stop: None,
-        }
-    }
-
-    /// This renderer stopping its programs, and starting no more, once
-    /// `stop` is set.
-    pub fn stopped_by(self, stop: Arc<AtomicBool>) -> Self {
-        External {
-            stop: Some(stop),
-            ..self
         }
     }
 
     /// Whether the programs are to stop.
     fn stopped(&self) -> bool {
-        (self.stop.as_ref()).is_some_and(|stop| stop.load(Ordering::SeqCst))
-    }
-
-    /// This renderer stopping each program after `limit`.
-    pub fn with_time_limit(self, limit: Duration) -> Self {
-        External {
-            time_limit: limit,
-            ..self
-        }
-    }
-
-    /// This renderer with its files in directories under `dir`, which is
-    /// made when it is needed, for the user alone, such as `diagrams` in
-    /// kiri's cache directory. Without it, or when it cannot be made or
-    /// its path is too long, they go in the system's temporary directory.
-    pub fn with_work_dir(self, dir: PathBuf) -> Self {
-        External {
-            work: Some(dir),
-            ..self
-        }
-    }
-
-    /// This renderer with `dir` as the system's temporary directory,
-    /// such as `config::temp_directory` gives; by default, that of this
-    /// process's `TMPDIR`.
-    pub fn with_temp_dir(self, dir: PathBuf) -> Self {
-        External { temp: dir, ..self }
-    }
-
-    /// This renderer reading an image of at most `limit` bytes; by
-    /// default, as large an image file as kiri reads unless told
-    /// otherwise.
-    pub fn with_max_size(self, limit: u64) -> Self {
-        External {
-            max_size: limit,
-            ..self
-        }
+        (self.settings.stop.as_ref()).is_some_and(|stop| stop.load(Ordering::SeqCst))
     }
 
     fn command(&self, language: &str) -> Option<&Command> {
@@ -229,7 +204,7 @@ impl External {
     /// directories that a kiri which has ended left in the work directory
     /// go.
     fn temp_dir(&self) -> io::Result<TempDir> {
-        let work = (self.work.as_deref())
+        let work = (self.settings.work_dir.as_deref())
             .filter(|work| work.as_os_str().len() <= LONGEST_WORK_DIR)
             .and_then(|work| {
                 let made = DirBuilder::new().recursive(true).mode(0o700).create(work);
@@ -239,7 +214,7 @@ impl External {
             });
         match work {
             Some(dir) => Ok(dir),
-            None => self.new_dir(&self.temp, "kiri-diagram-"),
+            None => self.new_dir(&self.settings.temp_dir, "kiri-diagram-"),
         }
     }
 
@@ -352,10 +327,10 @@ impl External {
             .spawn()
             .map_err(|error| format!("{}: {error}", argv[0]))?;
         let stop = || self.stopped();
-        let status = wait(child, self.time_limit, &stop).map_err(|error| match error {
+        let status = wait(child, self.settings.time_limit, &stop).map_err(|error| match error {
             Waited::TimedOut => format!(
                 "{program} did not finish in {} s",
-                self.time_limit.as_secs_f32()
+                self.settings.time_limit.as_secs_f32()
             ),
             Waited::Stopped => format!("{program} was stopped: interrupted"),
             Waited::Failed(error) => format!("{program}: {error}"),
@@ -371,7 +346,7 @@ impl External {
                 None => ended,
             });
         }
-        let limit = self.max_size;
+        let limit = self.settings.max_size;
         match File::open(&output).and_then(|file| crate::images::read_at_most(file, limit)) {
             Ok(Some(bytes)) => Ok(bytes),
             Ok(None) => Err(format!(
@@ -673,13 +648,28 @@ mod tests {
     fn scratch(name: &str) -> Scratch {
         let scratch = Scratch::in_dir(Path::new("/tmp"), &format!("x-{name}"));
         fs::create_dir_all(scratch.join("temp")).unwrap();
+        fs::create_dir_all(scratch.join("tmp")).unwrap();
         scratch
+    }
+
+    /// The settings for a renderer with its files in `temp` under `dir`,
+    /// and `tmp` there as the system's temporary directory.
+    fn settings(dir: &Path) -> ExternalSettings {
+        ExternalSettings {
+            work_dir: Some(dir.join("temp")),
+            ..ExternalSettings::new(dir.join("tmp"))
+        }
     }
 
     /// A renderer that runs the shell script `script` for Mermaid, with
     /// the input, output, theme and configuration as its arguments, and
     /// its files in `temp` under `dir`.
     fn script_renderer(dir: &Path, script: &str) -> External {
+        script_renderer_with(dir, script, settings(dir))
+    }
+
+    /// `script_renderer` with `settings`.
+    fn script_renderer_with(dir: &Path, script: &str, settings: ExternalSettings) -> External {
         let path = dir.join("render.sh");
         fs::write(&path, script).unwrap();
         // Through sh, so the test does not run a file it has just
@@ -694,8 +684,7 @@ mod tests {
             "{config}",
         ];
         let command = Command::new(argv.map(String::from).to_vec());
-        External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
-            .with_work_dir(dir.join("temp"))
+        External::new(BTreeMap::from([("mermaid".to_owned(), command)]), settings)
     }
 
     /// What the directory for the files under `dir` has in it.
@@ -794,8 +783,10 @@ mod tests {
                 "{config}",
             ];
             let command = Command::new(argv.map(String::from).to_vec());
-            External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
-                .with_work_dir(scratch.join("temp"))
+            External::new(
+                BTreeMap::from([("mermaid".to_owned(), command)]),
+                settings(&scratch),
+            )
         };
         let drawn = command("-s{scale}")
             .render(&Request::new("mermaid", SOURCE, Theme::Light))
@@ -829,8 +820,10 @@ mod tests {
         fs::write(&path, "cat \"$1\" > \"$2\"\n").unwrap();
         let argv = ["/bin/sh", &path.to_string_lossy(), "{input}", "{output}"];
         let command = Command::new(argv.map(String::from).to_vec());
-        let renderer = External::new(BTreeMap::from([("dot".to_owned(), command)]))
-            .with_work_dir(scratch.join("temp"));
+        let renderer = External::new(
+            BTreeMap::from([("dot".to_owned(), command)]),
+            settings(&scratch),
+        );
         let svg = renderer.render(&Request::new("dot", "digraph {}", Theme::Light));
         assert_eq!(svg.map(|drawn| drawn.text()), Ok("digraph {}".to_owned()));
     }
@@ -869,17 +862,19 @@ mod tests {
     #[test]
     fn an_image_larger_than_the_limit_is_not_read() {
         let scratch = scratch("too-large");
-        let renderer = script_renderer(&scratch, "printf '%0100d' 0 > \"$2\"\n");
-        let drawn =
-            renderer
-                .with_max_size(100)
-                .render(&Request::new("mermaid", SOURCE, Theme::Light));
+        let limited = |script: &str| {
+            let settings = ExternalSettings {
+                max_size: 100,
+                ..settings(&scratch)
+            };
+            script_renderer_with(&scratch, script, settings)
+        };
+        let renderer = limited("printf '%0100d' 0 > \"$2\"\n");
+        let drawn = renderer.render(&Request::new("mermaid", SOURCE, Theme::Light));
         assert_eq!(drawn.map(|drawn| drawn.image.len()), Ok(100));
-        let renderer = script_renderer(&scratch, "printf '%0101d' 0 > \"$2\"\n");
+        let renderer = limited("printf '%0101d' 0 > \"$2\"\n");
         assert_eq!(
-            renderer
-                .with_max_size(100)
-                .render(&Request::new("mermaid", SOURCE, Theme::Light)),
+            renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)),
             Err(
                 "sh wrote an image larger than the 100-byte limit; see --max-image-size".to_owned()
             )
@@ -933,8 +928,10 @@ mod tests {
             "{input}".into(),
             "{output}".into(),
         ]);
-        let renderer = External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
-            .with_work_dir(scratch.join("temp"));
+        let renderer = External::new(
+            BTreeMap::from([("mermaid".to_owned(), command)]),
+            settings(&scratch),
+        );
         let error = renderer
             .render(&Request::new("mermaid", SOURCE, Theme::Light))
             .unwrap_err();
@@ -954,7 +951,11 @@ mod tests {
         // far as the sleep in time. Then it gets a longer limit.
         let mut limit = Duration::from_millis(300);
         let pid = loop {
-            let renderer = script_renderer(&scratch, &script).with_time_limit(limit);
+            let settings = ExternalSettings {
+                time_limit: limit,
+                ..settings(&scratch)
+            };
+            let renderer = script_renderer_with(&scratch, &script, settings);
             let start = Instant::now();
             assert_eq!(
                 renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)),
@@ -993,8 +994,11 @@ mod tests {
         // The configuration file takes any number of seconds that a
         // Duration holds, more than an Instant can be moved by.
         let scratch = scratch("long-limit");
-        let renderer = script_renderer(&scratch, "echo '<svg/>' > \"$2\"\n")
-            .with_time_limit(Duration::from_secs_f64(1e19));
+        let settings = ExternalSettings {
+            time_limit: Duration::from_secs_f64(1e19),
+            ..settings(&scratch)
+        };
+        let renderer = script_renderer_with(&scratch, "echo '<svg/>' > \"$2\"\n", settings);
         let drawn = renderer
             .render(&Request::new("mermaid", SOURCE, Theme::Light))
             .unwrap();
@@ -1015,7 +1019,11 @@ mod tests {
             ready.to_string_lossy()
         );
         let stop = Arc::new(AtomicBool::new(false));
-        let renderer = script_renderer(&scratch, &script).stopped_by(Arc::clone(&stop));
+        let settings = ExternalSettings {
+            stop: Some(Arc::clone(&stop)),
+            ..settings(&scratch)
+        };
+        let renderer = script_renderer_with(&scratch, &script, settings);
         let start = Instant::now();
         // Stopped once the trap is set, however long sh takes to start.
         let drawn = std::thread::scope(|scope| {
@@ -1046,7 +1054,11 @@ mod tests {
             started.to_string_lossy()
         );
         let stop = Arc::new(AtomicBool::new(false));
-        let renderer = script_renderer(&scratch, &script).stopped_by(Arc::clone(&stop));
+        let settings = ExternalSettings {
+            stop: Some(Arc::clone(&stop)),
+            ..settings(&scratch)
+        };
+        let renderer = script_renderer_with(&scratch, &script, settings);
         let start = Instant::now();
         let drawn = std::thread::scope(|scope| {
             let drawing =
@@ -1105,8 +1117,10 @@ mod tests {
             "{input}",
         ];
         let command = Command::new(argv.map(String::from).to_vec());
-        let renderer = External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
-            .with_work_dir(scratch.join("temp"));
+        let renderer = External::new(
+            BTreeMap::from([("mermaid".to_owned(), command)]),
+            settings(&scratch),
+        );
         let svg = renderer
             .render(&Request::new("mermaid", SOURCE, Theme::Dark))
             .unwrap()
@@ -1143,7 +1157,11 @@ mod tests {
 
         let scratch = scratch("made");
         let work = scratch.join("c/kiri/diagrams");
-        let renderer = script_renderer(&scratch, MAKES_A_PROFILE).with_work_dir(work.clone());
+        let settings = ExternalSettings {
+            work_dir: Some(work.clone()),
+            ..settings(&scratch)
+        };
+        let renderer = script_renderer_with(&scratch, MAKES_A_PROFILE, settings);
         let tmpdir = renderer
             .render(&Request::new("mermaid", SOURCE, Theme::Light))
             .unwrap()
@@ -1259,13 +1277,17 @@ mod tests {
         // the sockets a browser makes in it.
         let long = scratch.join("x".repeat(LONGEST_WORK_DIR));
         for work in [scratch.join("file/diagrams"), long.clone()] {
-            let renderer = script_renderer(&scratch, MAKES_A_PROFILE).with_work_dir(work.clone());
+            let settings = ExternalSettings {
+                work_dir: Some(work.clone()),
+                ..settings(&scratch)
+            };
+            let renderer = script_renderer_with(&scratch, MAKES_A_PROFILE, settings);
             let tmpdir = renderer
                 .render(&Request::new("mermaid", SOURCE, Theme::Light))
                 .unwrap()
                 .text();
             let tmpdir = Path::new(&tmpdir);
-            assert_eq!(tmpdir.parent(), Some(std::env::temp_dir().as_path()));
+            assert_eq!(tmpdir.parent(), Some(scratch.join("tmp").as_path()));
             let name = tmpdir.file_name().unwrap().to_string_lossy();
             assert!(name.starts_with("kiri-diagram-"), "{name}");
             assert!(!tmpdir.exists());
@@ -1311,8 +1333,10 @@ mod tests {
             argv: argv.map(String::from).to_vec(),
             path: Some("/opt/node/bin:/usr/bin".into()),
         };
-        let renderer = External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
-            .with_work_dir(scratch.join("temp"));
+        let renderer = External::new(
+            BTreeMap::from([("mermaid".to_owned(), command)]),
+            settings(&scratch),
+        );
         let svg = renderer
             .render(&Request::new("mermaid", SOURCE, Theme::Dark))
             .unwrap()
@@ -1351,8 +1375,10 @@ mod tests {
             "{scale}",
         ];
         let command = Command::new(argv.map(String::from).to_vec());
-        let renderer = External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
-            .with_work_dir(scratch.join("temp"));
+        let renderer = External::new(
+            BTreeMap::from([("mermaid".to_owned(), command)]),
+            settings(&scratch),
+        );
         let drawn = renderer.render(&Request::new("mermaid", SOURCE, Theme::Light));
         let calls = fs::read_to_string(&calls).unwrap_or_default();
         assert_eq!(left(&scratch), Vec::<PathBuf>::new());
