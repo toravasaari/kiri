@@ -540,7 +540,11 @@ fn ctrl_c_ends_kiri_at_once_when_no_diagram_runs_a_program() {
             .unwrap_or(0)
     };
     let loading = common::wait_until(Duration::from_secs(5), || read() > size);
-    assert!(loading, "kiri loads the images");
+    if !loading {
+        kiri.kill().unwrap();
+        kiri.wait().unwrap();
+        panic!("kiri does not load the images");
+    }
     let pid = Pid::from_raw(kiri.id() as i32).unwrap();
     kill_process(pid, Signal::INT).unwrap();
     let status = common::wait_or_kill(&mut kiri, Duration::from_secs(5));
@@ -592,7 +596,12 @@ fn ctrl_c_ends_kiri_when_the_pager_cannot_open_and_it_prints_instead() {
     // Printing, and waiting for the terminal: the document reaches it.
     let mut fds = [PollFd::new(&terminal, PollFlags::IN)];
     let timeout = Timespec::try_from(Duration::from_secs(5)).unwrap();
-    assert_eq!(poll(&mut fds, Some(&timeout)).unwrap(), 1, "kiri prints");
+    if poll(&mut fds, Some(&timeout)).unwrap() == 0 {
+        // Writing to a terminal nobody reads, it would wait for ever.
+        kiri.kill().unwrap();
+        kiri.wait().unwrap();
+        panic!("kiri does not print");
+    }
     let pid = Pid::from_raw(kiri.id() as i32).unwrap();
     kill_process(pid, Signal::INT).unwrap();
     let status = common::wait_or_kill(&mut kiri, Duration::from_secs(5));
