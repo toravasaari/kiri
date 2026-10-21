@@ -274,17 +274,19 @@ enum Waited {
 
 /// How `child` exited, waiting at most `limit` and until `stop` says
 /// otherwise; then `child` and the rest of its process group are killed.
+/// A limit longer than the clock reaches means no limit.
 fn wait(
     mut child: process::Child,
     limit: Duration,
     stop: &dyn Fn() -> bool,
 ) -> Result<ExitStatus, Waited> {
-    let deadline = Instant::now() + limit;
+    let deadline = Instant::now().checked_add(limit);
+    let passed = || deadline.is_some_and(|deadline| Instant::now() >= deadline);
     let mut pause = Duration::from_millis(1);
     loop {
         match child.try_wait() {
             Ok(Some(status)) => return Ok(status),
-            Ok(None) if stop() || Instant::now() >= deadline => {
+            Ok(None) if stop() || passed() => {
                 end(&mut child);
                 return Err(match stop() {
                     true => Waited::Stopped,
@@ -292,7 +294,9 @@ fn wait(
                 });
             }
             Ok(None) => {
-                std::thread::sleep(pause.min(deadline.saturating_duration_since(Instant::now())));
+                let left =
+                    deadline.map(|deadline| deadline.saturating_duration_since(Instant::now()));
+                std::thread::sleep(left.map_or(pause, |left| pause.min(left)));
                 pause = (pause * 2).min(Duration::from_millis(20));
             }
             Err(error) => {
@@ -559,6 +563,19 @@ mod tests {
             !alive
         });
         assert!(gone, "sleep {pid} still runs");
+    }
+
+    #[test]
+    fn a_time_limit_too_long_for_the_clock_means_no_limit() {
+        // The configuration file takes any number of seconds that a
+        // Duration holds, more than an Instant can be moved by.
+        let scratch = Scratch::new("long-limit");
+        let renderer = scratch
+            .renderer("echo '<svg/>' > \"$2\"\n")
+            .with_time_limit(Duration::from_secs_f64(1e19));
+        let drawn = renderer.render("mermaid", SOURCE, Theme::Light).unwrap();
+        assert_eq!(drawn.theme, Theme::Light);
+        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
     }
 
     #[test]
