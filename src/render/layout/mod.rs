@@ -360,7 +360,15 @@ impl Layout<'_> {
             crate::diagrams::display_name(language)
         );
         let spans = [Span::new(&text, self.style(Style::fg(self.theme.error)))];
-        wrap(&spans, width).into_iter().map(Line::new).collect()
+        let (indent, max) = self.below_code(width);
+        (wrap(&spans, max).into_iter())
+            .map(|mut spans| {
+                if indent > 0 {
+                    spans.insert(0, Span::new(&" ".repeat(indent), Style::default()));
+                }
+                Line::new(spans)
+            })
+            .collect()
     }
 
     /// The image `key` at the size `wanted`, at most `width` cells wide,

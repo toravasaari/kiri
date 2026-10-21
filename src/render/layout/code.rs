@@ -9,18 +9,20 @@ use crate::render::style::{Line, Span, Style, push};
 use crate::render::wrap;
 use crate::theme::{CodeBackground, LabelColor};
 
+/// What sets off code without a box, when code has padding.
+const PLAIN_INDENT: &str = "  ";
+
 impl Layout<'_> {
     pub(super) fn code_block(&self, language: Option<&str>, code: &str, width: usize) -> Vec<Line> {
         let code: String = code.lines().map(|line| expand_tabs(line) + "\n").collect();
-        // Highlighting is all colour, down to the box around the code.
-        let highlighted = if self.caps.styling && self.caps.color {
+        let highlighted = if self.highlights_code() {
             highlight::highlight(&code, language, self.code_theme())
         } else {
             None
         };
         let padding = self.theme.code_padding;
         let Some(highlighted) = highlighted else {
-            let indent = if padding { "  " } else { "" };
+            let indent = if padding { PLAIN_INDENT } else { "" };
             return code
                 .lines()
                 .flat_map(|line| {
@@ -134,6 +136,32 @@ impl Layout<'_> {
             CodeBackground::CodeBlock => highlight::background(self.code_theme()).flatten(),
             CodeBackground::Color(color) => color,
         }
+    }
+
+    /// Whether code blocks are highlighted, and in a box when they have
+    /// padding: highlighting is all colour, down to the box around the
+    /// code, and needs a theme kiri has.
+    fn highlights_code(&self) -> bool {
+        self.caps.styling && self.caps.color && highlight::background(self.code_theme()).is_some()
+    }
+
+    /// How lines below a code block `width` cells wide, such as why it was
+    /// not drawn as a diagram, line up with it: the cells before them, and
+    /// the most cells they take after those. Below a box they start at its
+    /// edge and are at most as wide as the code in it; below code without
+    /// one, they start where the code does.
+    pub(super) fn below_code(&self, width: usize) -> (usize, usize) {
+        let padding = self.theme.code_padding;
+        let indent = match padding && !self.highlights_code() {
+            true => PLAIN_INDENT.len(),
+            false => 0,
+        };
+        let inner = if padding {
+            width.saturating_sub(2)
+        } else {
+            width
+        };
+        (indent, inner.max(1))
     }
 
     pub(super) fn code_theme(&self) -> &str {

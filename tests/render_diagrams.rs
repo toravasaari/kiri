@@ -235,3 +235,71 @@ fn the_error_below_a_diagram_wraps_in_a_narrow_window() {
         }
     }
 }
+
+/// A diagram that does not draw, alone.
+const ONE_BROKEN: &str = "```mermaid\nflowchart TD\n  A[open --> B\n```\n";
+
+/// `ONE_BROKEN` rendered for `caps` with `theme`, without kiri's own
+/// sequences: its code's lines and then its error's lines.
+fn one_broken(caps: Capabilities, theme: Theme) -> (Vec<String>, Vec<String>) {
+    let inputs = Inputs {
+        images: stub_diagram_images(ONE_BROKEN),
+        theme,
+        ..Inputs::new(caps)
+    };
+    let shown = common::strip_own_sequences(&render(ONE_BROKEN, &inputs));
+    let lines: Vec<String> = shown.lines().map(str::to_owned).collect();
+    let error = lines.iter().position(|line| line.contains('✗'));
+    let error = error.unwrap_or_else(|| panic!("{shown}"));
+    let (code, error) = lines.split_at(error);
+    (code.to_vec(), error.to_vec())
+}
+
+#[test]
+fn the_error_below_a_diagram_is_no_wider_than_the_code_in_its_box() {
+    let cells = |line: &str| line.trim_end().chars().count();
+    for width in 20..=110 {
+        let (code, error) = one_broken(Capabilities::kitty(width), Theme::default());
+        // The box's lines reach its right edge, and its code starts a cell
+        // in from its left edge.
+        let edge = code[0].chars().count();
+        let left = code[1].len() - code[1].trim_start().len() - 1;
+        for line in &error {
+            assert!(cells(line) <= edge - 2, "{width}: {code:?} {error:?}");
+            assert!(line[..left].trim().is_empty(), "{width}: {error:?}");
+        }
+        assert!(error[0][left..].starts_with('✗'), "{width}: {error:?}");
+    }
+}
+
+#[test]
+fn without_a_code_box_the_error_lines_up_with_the_code() {
+    let no_padding = Theme {
+        code_padding: false,
+        ..Theme::default()
+    };
+    let colourless = Capabilities {
+        color: false,
+        ..Capabilities::kitty(WIDTH)
+    };
+    // The margin, and the indent of code without a box.
+    for (caps, theme, indent) in [
+        (Capabilities::plain(WIDTH), Theme::default(), "    "),
+        (colourless, Theme::default(), "    "),
+        (Capabilities::plain(WIDTH), no_padding.clone(), "  "),
+        (Capabilities::kitty(WIDTH), no_padding, "  "),
+    ] {
+        let (code, error) = one_broken(caps, theme);
+        assert!(
+            code[0].starts_with(&format!("{indent}flowchart")),
+            "{code:?}"
+        );
+        assert!(error[0].starts_with(&format!("{indent}✗")), "{error:?}");
+        for line in &error[1..] {
+            let text = line
+                .strip_prefix(indent)
+                .unwrap_or_else(|| panic!("{error:?}"));
+            assert!(!text.starts_with(' '), "{error:?}");
+        }
+    }
+}
