@@ -111,7 +111,9 @@ document, and also with images off; `--format mermaid` says so for
 standard input or another name. Where it is not drawn, as with
 `--diagrams off` or in a terminal without kitty's graphics, its source is
 shown as `--format text` shows it, and a diagram that fails to draw is an
-error after its source.
+error after its source. When no program can draw it, as in a build
+without the built-in renderer and without `mmdc`, a hint on standard
+error points to `kiri --doctor`.
 
 A CSV or TSV file is shown as a table with its first row as the header,
 as GitHub shows one: `.csv` is comma-separated and `.tsv` tab-separated,

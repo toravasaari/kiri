@@ -153,6 +153,15 @@ pub fn theme_name(language: &str, theme: Theme) -> &'static str {
     }
 }
 
+/// The name of `language` in a sentence: `Mermaid` for Mermaid, and
+/// otherwise the name as the info string gives it.
+pub fn display_name(language: &str) -> &str {
+    match language.eq_ignore_ascii_case("mermaid") {
+        true => "Mermaid",
+        false => language,
+    }
+}
+
 /// The extension of a file of source in `language`, by which a program
 /// such as `mmdc` tells what the file is.
 pub fn extension(language: &str) -> String {
@@ -553,6 +562,8 @@ mod tests {
         assert_eq!(theme_name("dot", Theme::Light), "light");
         assert_eq!(theme_name("dot", Theme::Dark), "dark");
         assert_eq!(extension("Mermaid"), "mmd");
+        assert_eq!(display_name("mermaid"), "Mermaid");
+        assert_eq!(display_name("dot"), "dot");
         assert_eq!(extension("Dot"), "dot");
     }
 

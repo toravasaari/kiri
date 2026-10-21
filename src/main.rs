@@ -437,7 +437,9 @@ fn show_document(
 /// from standard input, on its own and as large as fits the window, as an
 /// image file is shown: drawn as in a document, also with images off.
 /// Where it is not drawn, its source is shown as `--format text` shows
-/// it, and a diagram that fails to draw is an error after that.
+/// it, and a diagram that fails to draw is an error after that. One that
+/// nothing could draw, where diagrams are on and the terminal shows them,
+/// gets a hint after it.
 #[allow(clippy::too_many_arguments)]
 fn show_diagram(
     cli: &Cli,
@@ -472,6 +474,8 @@ fn show_diagram(
         Some(Err(error)) => Some(error.to_string()),
         None => None,
     };
+    // Not drawn, though it could have been shown: no renderer for it.
+    let no_renderer = settings.diagrams && caps.draws_images() && error.is_none();
     if caps.styling {
         let name = path.to_string_lossy();
         print_document(
@@ -485,6 +489,13 @@ fn show_diagram(
         )?;
     } else {
         write_as_is(source)?;
+    }
+    if no_renderer {
+        eprintln!(
+            "kiri: {}: no program to draw {} diagrams; see --doctor",
+            path.display(),
+            kiri::diagrams::display_name(language)
+        );
     }
     match error {
         Some(error) => Err(Failure::Error(format!("{}: {error}", path.display()))),

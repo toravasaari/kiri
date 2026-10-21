@@ -858,11 +858,25 @@ fn a_mermaid_file_takes_the_theme_and_the_panel_of_the_page() {
 
 #[cfg(not(feature = "mermaid"))]
 #[test]
-fn a_mermaid_file_without_a_renderer_shows_its_source() {
+fn a_mermaid_file_without_a_renderer_shows_its_source_and_a_hint() {
     let dir = Scratch::new("mermaid-file-no-renderer");
     let config = "[diagrams.mermaid]\nauto_detect = false\n";
     let out = on_file(&dir, "flow.mmd", FLOWCHART_FILE, &[], config);
-    assert_shown_as_code(&out, FLOWCHART_FILE, "no renderer");
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert_eq!(
+        text(&out.stderr),
+        format!(
+            "kiri: {}: no program to draw Mermaid diagrams; see --doctor\n",
+            dir.join("flow.mmd").display()
+        )
+    );
+    let shown = common::strip_own_sequences(&text(&out.stdout));
+    assert!(shown.contains("flowchart TD"), "{shown:?}");
+    // Not when diagrams are off, or the terminal cannot show them.
+    for args in [&["--diagrams", "off"][..], &["--mode", "ansi"]] {
+        let out = on_file(&dir, "flow.mmd", FLOWCHART_FILE, args, config);
+        assert_shown_as_code(&out, FLOWCHART_FILE, &format!("{args:?}"));
+    }
 }
 
 #[cfg(feature = "mermaid")]
