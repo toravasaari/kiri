@@ -109,10 +109,6 @@ impl ImageId {
         }
         ImageId(fold(hash))
     }
-
-    pub fn get(self) -> u32 {
-        self.0
-    }
 }
 
 /// Folds a 64-bit hash into a 24-bit id that is not zero.
@@ -353,7 +349,7 @@ mod tests {
 
     #[test]
     fn id_is_stable_across_runs() {
-        assert_eq!(ImageId::new(b"kiri", 40, 20, cells(4, 1)).get(), 0x4351F5);
+        assert_eq!(ImageId::new(b"kiri", 40, 20, cells(4, 1)).0, 0x4351F5);
     }
 
     #[test]

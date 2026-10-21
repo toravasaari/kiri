@@ -229,7 +229,7 @@ fn color(color: SearchColor) -> Option<crate::color::Color> {
 /// The places of `term` in `lines`, from the top and from left to right,
 /// none overlapping another. A no-break space matches a space. With
 /// `SearchCase::Smart`, a term with no upper-case letter ignores case.
-pub fn find(lines: &[Line], term: &str, case: SearchCase) -> Vec<Match> {
+fn find(lines: &[Line], term: &str, case: SearchCase) -> Vec<Match> {
     let ignore_case = match case {
         SearchCase::Smart => !term.chars().any(char::is_uppercase),
         SearchCase::Literal => false,
