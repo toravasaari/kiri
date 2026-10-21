@@ -928,23 +928,30 @@ mod tests {
             "sleep 30 &\necho $! > '{}'\nwait\n",
             started.to_string_lossy()
         );
-        let renderer = scratch
-            .renderer(&script)
-            .with_time_limit(Duration::from_millis(300));
-        let start = Instant::now();
-        assert_eq!(
-            renderer.render("mermaid", SOURCE, Theme::Light),
-            Err("sh did not finish in 0.3 s".to_owned())
-        );
-        assert!(
-            start.elapsed() < Duration::from_secs(5),
-            "{:?}",
-            start.elapsed()
-        );
-        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+        // The limit starts with sh, so on a busy machine sh may not get as
+        // far as the sleep in time. Then it gets a longer limit.
+        let mut limit = Duration::from_millis(300);
+        let pid = loop {
+            let renderer = scratch.renderer(&script).with_time_limit(limit);
+            let start = Instant::now();
+            assert_eq!(
+                renderer.render("mermaid", SOURCE, Theme::Light),
+                Err(format!("sh did not finish in {} s", limit.as_secs_f32()))
+            );
+            assert!(
+                start.elapsed() < limit + Duration::from_secs(5),
+                "{:?}",
+                start.elapsed()
+            );
+            assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+            match fs::read_to_string(&started) {
+                Ok(pid) if pid.ends_with('\n') => break pid,
+                _ if limit < Duration::from_secs(10) => limit *= 2,
+                read => panic!("sh did not start the sleep: {read:?}"),
+            }
+        };
         // The sleep the script started is gone too, or a zombie that is
         // being reaped.
-        let pid = fs::read_to_string(&started).unwrap();
         let stat = Path::new("/proc").join(pid.trim()).join("stat");
         let gone = (0..100).any(|_| {
             let alive = fs::read_to_string(&stat).is_ok_and(|stat| {
@@ -978,18 +985,25 @@ mod tests {
         // of its own that killing mmdc's process group does not reach.
         let scratch = Scratch::new("clean-up");
         let cleaned = scratch.0.join("cleaned");
+        let ready = scratch.0.join("ready");
         let script = format!(
-            "trap \"echo yes > '{}'; exit 130\" INT\nsleep 30 &\nwait\n",
-            cleaned.to_string_lossy()
+            "trap \"echo yes > '{}'; exit 130\" INT\nsleep 30 &\ntouch '{}'\nwait\n",
+            cleaned.to_string_lossy(),
+            ready.to_string_lossy()
         );
-        let renderer = scratch
-            .renderer(&script)
-            .with_time_limit(Duration::from_millis(300));
+        let stop = Arc::new(AtomicBool::new(false));
+        let renderer = scratch.renderer(&script).stopped_by(Arc::clone(&stop));
         let start = Instant::now();
-        assert_eq!(
-            renderer.render("mermaid", SOURCE, Theme::Light),
-            Err("sh did not finish in 0.3 s".to_owned())
-        );
+        // Stopped once the trap is set, however long sh takes to start.
+        let drawn = std::thread::scope(|scope| {
+            let drawing = scope.spawn(|| renderer.render("mermaid", SOURCE, Theme::Light));
+            while !ready.exists() && start.elapsed() < Duration::from_secs(5) {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            stop.store(true, Ordering::SeqCst);
+            drawing.join().unwrap()
+        });
+        assert_eq!(drawn, Err("sh was stopped: interrupted".to_owned()));
         assert!(
             start.elapsed() < Duration::from_secs(5),
             "{:?}",
