@@ -84,9 +84,9 @@ it is drawn is decided when images are loaded. `src/images/mod.rs` keys
 each image by an `ImageKey`, a URL or a block (its language and source),
 and collects the code blocks whose language a renderer draws besides the
 lone images. It hands all of a document's diagrams to the renderer at
-once, then decodes each image it gets back by its content, as it decodes
-an image file, so sizing, the width limit and redrawing after a window
-resize work as for any image. An SVG is decoded as an SVG file is; a
+once, then `src/images/drawn.rs` decodes each image it gets back by its
+content, as it decodes an image file, so sizing, the width limit and
+redrawing after a window resize work as for any image. An SVG is decoded as an SVG file is; a
 raster image, such as the PNG of a browser's drawing, becomes
 `Source::Dense`, pixels with their size in CSS pixels, so that it is
 sized in CSS pixels as an SVG is. Its pixels are reduced there to the
@@ -233,7 +233,9 @@ src/list.rs                the --list-emojis output: Markdown for a terminal,
 src/theme/mod.rs           colours and sizes the renderer uses
 src/theme/paper.rs         the light and dark paper themes
 src/theme/file.rs          theme files
-src/images/mod.rs          loading and decoding the images a document shows
+src/images/mod.rs          loading the images a document shows
+src/images/decode.rs       decoding image files, raster and SVG
+src/images/drawn.rs        diagrams as their renderers drew them, made images
 src/images/url.rs          data URLs, file URLs and paths, read up to a limit
 src/images/svg.rs          SVG images and the fonts for their text
 src/diagrams/mod.rs        diagrams written in code blocks, drawn as images
