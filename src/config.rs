@@ -112,69 +112,57 @@ pub fn home_directory(env: &Environment) -> Option<PathBuf> {
     (env.home.as_ref().map(PathBuf::from)).filter(|home| home.is_absolute())
 }
 
-/// Where the configuration directory comes from: `XDG_CONFIG_HOME`, or
-/// the default under the home directory.
-pub fn directory_origin(env: &Environment) -> Origin {
-    let set = (env.xdg_config_home.as_deref()).is_some_and(|dir| Path::new(dir).is_absolute());
-    match set {
-        true => Origin::Environment("XDG_CONFIG_HOME"),
-        false => Origin::Default,
+/// A directory and where it comes from: the variable `name` when it is
+/// set to a path that `valid` takes, else `fallback`, kiri's default.
+fn directory_in(
+    env: &Environment,
+    name: &'static str,
+    valid: fn(&Path) -> bool,
+    fallback: Option<PathBuf>,
+) -> Option<Setting<PathBuf>> {
+    match env.get(name).map(Path::new).filter(|dir| valid(dir)) {
+        Some(dir) => Some(Setting::new(dir.to_owned(), Origin::Environment(name))),
+        None => fallback.map(|dir| Setting::new(dir, Origin::Default)),
     }
 }
 
-/// kiri's configuration directory: `$XDG_CONFIG_HOME/kiri`, or
-/// `~/.config/kiri` when that is unset, empty or relative, which the XDG
-/// base directory specification calls invalid. Without either, there is
-/// none.
-pub fn directory(env: &Environment) -> Option<PathBuf> {
-    let config = env
-        .xdg_config_home
-        .clone()
-        .map(PathBuf::from)
-        .filter(|dir| dir.is_absolute())
-        .or_else(|| home_directory(env).map(|home| home.join(".config")))?;
-    Some(config.join("kiri"))
+/// kiri's configuration directory and where it comes from:
+/// `$XDG_CONFIG_HOME/kiri`, or `~/.config/kiri` when that is unset, empty
+/// or relative, which the XDG base directory specification calls invalid.
+/// Without either, there is none.
+pub fn directory(env: &Environment) -> Option<Setting<PathBuf>> {
+    let home = home_directory(env).map(|home| home.join(".config"));
+    let config = directory_in(env, "XDG_CONFIG_HOME", Path::is_absolute, home)?;
+    Some(Setting::new(config.value.join("kiri"), config.origin))
 }
 
 /// kiri's cache directory, for files it may remove at any time, such as
-/// those of the programs that draw diagrams: `$XDG_CACHE_HOME/kiri`, or
-/// `~/.cache/kiri` when that is unset, empty or relative, which the XDG
-/// base directory specification calls invalid.
+/// those of the programs that draw diagrams.
 pub fn cache_directory(env: &Environment) -> Option<PathBuf> {
-    let cache = env
-        .xdg_cache_home
-        .clone()
-        .map(PathBuf::from)
-        .filter(|dir| dir.is_absolute())
-        .or_else(|| home_directory(env).map(|home| home.join(".cache")))?;
-    Some(cache.join("kiri"))
+    cache_directory_setting(env).map(|dir| dir.value)
 }
 
-/// Where the cache directory comes from: `XDG_CACHE_HOME`, or the
-/// default under the home directory.
-pub fn cache_directory_origin(env: &Environment) -> Origin {
-    let set = (env.xdg_cache_home.as_deref()).is_some_and(|dir| Path::new(dir).is_absolute());
-    match set {
-        true => Origin::Environment("XDG_CACHE_HOME"),
-        false => Origin::Default,
-    }
+/// kiri's cache directory and where it comes from: `$XDG_CACHE_HOME/kiri`,
+/// or `~/.cache/kiri` when that is unset, empty or relative, which the XDG
+/// base directory specification calls invalid.
+pub fn cache_directory_setting(env: &Environment) -> Option<Setting<PathBuf>> {
+    let home = home_directory(env).map(|home| home.join(".cache"));
+    let cache = directory_in(env, "XDG_CACHE_HOME", Path::is_absolute, home)?;
+    Some(Setting::new(cache.value.join("kiri"), cache.origin))
 }
 
-/// The system's temporary directory, as the standard library finds it:
-/// `TMPDIR`, or `/tmp` when that is unset or empty.
+/// The system's temporary directory.
 pub fn temp_directory(env: &Environment) -> PathBuf {
-    match env.tmpdir.as_ref().filter(|dir| !dir.is_empty()) {
-        Some(dir) => PathBuf::from(dir),
-        None => PathBuf::from("/tmp"),
-    }
+    temp_directory_setting(env).value
 }
 
-/// Where the temporary directory comes from: `TMPDIR`, or the default.
-pub fn temp_directory_origin(env: &Environment) -> Origin {
-    match env.tmpdir.as_ref().filter(|dir| !dir.is_empty()) {
-        Some(_) => Origin::Environment("TMPDIR"),
-        None => Origin::Default,
-    }
+/// The system's temporary directory, as the standard library finds it,
+/// and where it comes from: `TMPDIR`, or `/tmp` when that is unset or
+/// empty.
+pub fn temp_directory_setting(env: &Environment) -> Setting<PathBuf> {
+    let not_empty = |dir: &Path| !dir.as_os_str().is_empty();
+    let tmp = Some(PathBuf::from("/tmp"));
+    directory_in(env, "TMPDIR", not_empty, tmp).expect("/tmp is a fallback")
 }
 
 /// What the configuration file sets; `None` for what it leaves out.
@@ -294,10 +282,11 @@ pub fn file(env: &Environment) -> Option<ConfigFile> {
             origin: Origin::Environment("KIRI_CONFIG"),
         });
     }
+    let dir = directory(env)?;
     Some(ConfigFile {
-        path: directory(env)?.join("config.toml"),
+        path: dir.value.join("config.toml"),
         required: false,
-        origin: directory_origin(env),
+        origin: dir.origin,
     })
 }
 
@@ -576,7 +565,7 @@ pub fn theme_source(
         return Setting::new(ThemeSource::File(path.clone()), Origin::File);
     }
     let source = match directory(env) {
-        Some(dir) => ThemeSource::DefaultFile(dir.join("theme.toml")),
+        Some(dir) => ThemeSource::DefaultFile(dir.value.join("theme.toml")),
         None => ThemeSource::BuiltIn,
     };
     Setting::new(source, Origin::Default)
@@ -1050,7 +1039,7 @@ mod tests {
     #[test]
     fn the_directory_is_under_xdg_config_home() {
         assert_eq!(
-            directory(&env(Some("/home/u"), Some("/xdg"))),
+            directory(&env(Some("/home/u"), Some("/xdg"))).map(|dir| dir.value),
             Some(PathBuf::from("/xdg/kiri"))
         );
     }
@@ -1058,13 +1047,14 @@ mod tests {
     #[test]
     fn the_directory_falls_back_to_dot_config_in_home() {
         let expected = Some(PathBuf::from("/home/u/.config/kiri"));
-        assert_eq!(directory(&env(Some("/home/u"), None)), expected);
-        assert_eq!(directory(&env(Some("/home/u"), Some(""))), expected);
+        let dir = |home, xdg| directory(&env(home, xdg)).map(|dir| dir.value);
+        assert_eq!(dir(Some("/home/u"), None), expected);
+        assert_eq!(dir(Some("/home/u"), Some("")), expected);
     }
 
     #[test]
     fn the_directory_tells_where_it_comes_from() {
-        let origin = |home, xdg| directory_origin(&env(home, xdg));
+        let origin = |home, xdg| directory(&env(home, xdg)).unwrap().origin;
         assert_eq!(
             origin(Some("/home/u"), Some("/xdg")),
             Origin::Environment("XDG_CONFIG_HOME")
@@ -1112,9 +1102,11 @@ mod tests {
         let relative = env(Some("/home/u"), Some("config"));
         assert_eq!(
             directory(&relative),
-            Some(PathBuf::from("/home/u/.config/kiri"))
+            Some(Setting::new(
+                PathBuf::from("/home/u/.config/kiri"),
+                Origin::Default
+            ))
         );
-        assert_eq!(directory_origin(&relative), Origin::Default);
         assert_eq!(directory(&env(None, Some("config"))), None);
     }
 
@@ -1132,6 +1124,39 @@ mod tests {
         }
         let env = env(Some("/home/u"), None);
         assert_eq!(home_directory(&env), Some(PathBuf::from("/home/u")));
+    }
+
+    #[test]
+    fn the_cache_and_temporary_directories_tell_where_they_come_from() {
+        let env = |cache: Option<&str>, tmp: Option<&str>| Environment {
+            home: Some("/home/u".into()),
+            xdg_cache_home: cache.map(OsString::from),
+            tmpdir: tmp.map(OsString::from),
+            ..Environment::default()
+        };
+        let cache = |cache| cache_directory_setting(&env(cache, None));
+        let variable = Origin::Environment("XDG_CACHE_HOME");
+        let dot_cache = PathBuf::from("/home/u/.cache/kiri");
+        assert_eq!(
+            cache(Some("/c")),
+            Some(Setting::new(PathBuf::from("/c/kiri"), variable))
+        );
+        assert_eq!(
+            cache(Some("c")),
+            Some(Setting::new(dot_cache, Origin::Default))
+        );
+        let temp = |tmp| temp_directory_setting(&env(None, tmp));
+        let variable = Origin::Environment("TMPDIR");
+        // Relative is not left out, as the standard library does not.
+        assert_eq!(temp(Some("t")), Setting::new(PathBuf::from("t"), variable));
+        assert_eq!(
+            temp(Some("/t")),
+            Setting::new(PathBuf::from("/t"), variable)
+        );
+        let tmp = Setting::new(PathBuf::from("/tmp"), Origin::Default);
+        assert_eq!(temp(Some("")), tmp);
+        assert_eq!(temp(None), tmp);
+        assert_eq!(temp_directory(&env(None, Some("/t"))), PathBuf::from("/t"));
     }
 
     #[test]

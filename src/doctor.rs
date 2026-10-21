@@ -280,9 +280,9 @@ fn write_files(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result
         )?,
     }
     if let Some(dir) = crate::config::directory(facts.env) {
-        let path = dir.join("theme.toml");
+        let path = dir.value.join("theme.toml");
         let status = if path.exists() { "found" } else { "not found" };
-        let from = origin_text(crate::config::directory_origin(facts.env), facts.env, home);
+        let from = origin_text(dir.origin, facts.env, home);
         row(out, &["Theme file", &home.path(&path), &from, status])?;
     }
     write_work_files(facts, home, out)?;
@@ -301,10 +301,10 @@ fn write_work_files(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::R
         Unusable::NotADirectory(path) => format!("{} is not a directory", home.path(&path)),
         Unusable::NotWritable(path) => format!("{} cannot be written to", home.path(&path)),
     };
-    match crate::config::cache_directory(env) {
+    match crate::config::cache_directory_setting(env) {
         Some(cache) => {
-            let work = cache.join("diagrams");
-            let from = origin_text(crate::config::cache_directory_origin(env), env, home);
+            let work = cache.value.join("diagrams");
+            let from = origin_text(cache.origin, env, home);
             let Some(problem) = unusable(&work) else {
                 return row(out, &[WORK_FILES, &home.path(&work), &from, "usable"]);
             };
@@ -313,8 +313,9 @@ fn write_work_files(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::R
         }
         None => row(out, &[WORK_FILES, "none: `HOME` is not set", "", ""])?,
     }
-    let temp = crate::config::temp_directory(env);
-    let from = origin_text(crate::config::temp_directory_origin(env), env, home);
+    let temp = crate::config::temp_directory_setting(env);
+    let from = origin_text(temp.origin, env, home);
+    let temp = temp.value;
     let status = match not_writable(&temp) {
         None => "usable".to_owned(),
         Some(problem) => format!("not usable: {}", why(problem)),
