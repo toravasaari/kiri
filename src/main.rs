@@ -416,7 +416,8 @@ fn show_document(
         let mut renderers = None;
         if settings.diagrams {
             let search = kiri::diagrams::find::Search::new(env);
-            let mut chosen = Renderers::chosen(&settings.diagram_commands, &search);
+            let mut chosen = Renderers::chosen(&settings.diagram_commands, &search)
+                .with_time_limit(settings.diagram_timeout);
             if chosen.runs_programs() {
                 interrupt = Interrupt::catch();
                 if let Some(interrupt) = &interrupt {

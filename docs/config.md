@@ -38,6 +38,8 @@ table_rows = "zebra"
 [diagrams]
 # false shows them as code.
 enabled = true
+# How long a program may take to draw one diagram, in seconds.
+timeout = 20
 
 # A program that draws Mermaid diagrams instead of kiri; see
 # Diagram commands below.
@@ -231,7 +233,9 @@ and they may show blank. No shell expands the arguments, so a leading `~/`
 is not your home directory: write the path in full. A program named
 without a path is looked for on `PATH`.
 
-Each diagram may take 10 seconds, and up to four are drawn at once. When
+Each diagram may take 20 seconds, or as long as `timeout` in the
+`[diagrams]` table says, such as `timeout = 60` or `timeout = 2.5`; up
+to four are drawn at once. When
 drawing takes longer than half a second, a line such as
 `kiri: rendering diagrams 2/5…` on the terminal tells how far it has
 got, and is wiped before the document is shown. Ctrl-C meanwhile stops

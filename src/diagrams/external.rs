@@ -20,8 +20,9 @@ use std::time::{Duration, Instant};
 
 use super::{Drawn, Renderer, Theme};
 
-/// How long a program may take to draw one diagram before kiri stops it.
-pub const TIME_LIMIT: Duration = Duration::from_secs(10);
+/// How long a program may take to draw one diagram before kiri stops it,
+/// unless the configuration file says otherwise.
+pub const TIME_LIMIT: Duration = Duration::from_secs(20);
 
 /// How many programs draw diagrams at once.
 pub const AT_ONCE: usize = 4;

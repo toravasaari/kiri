@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 pub mod external;
 pub mod find;
@@ -272,6 +273,13 @@ impl Renderers {
         !self.external.is_empty()
     }
 
+    /// These renderers stopping each program they run after `limit`.
+    pub fn with_time_limit(self, limit: Duration) -> Self {
+        Renderers {
+            external: self.external.with_time_limit(limit),
+        }
+    }
+
     /// These renderers stopping the programs they run, and starting no
     /// more, once `stop` is set.
     pub fn stopped_by(self, stop: Arc<AtomicBool>) -> Self {
@@ -384,7 +392,6 @@ pub fn name(language: &str, source: &str, line: usize, by_line: bool) -> String 
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicUsize;
-    use std::time::Duration;
 
     use super::*;
 

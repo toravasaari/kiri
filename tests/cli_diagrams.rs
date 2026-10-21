@@ -419,3 +419,21 @@ fn ctrl_c_stops_the_programs_removes_their_files_and_ends_kiri() {
     let left: Vec<_> = std::fs::read_dir(&temp).unwrap().collect();
     assert!(left.is_empty(), "{left:?}");
 }
+
+#[test]
+fn the_configuration_file_sets_the_time_limit() {
+    let dir = Scratch::new("mermaid-timeout");
+    let config = format!(
+        "[diagrams]\ntimeout = 0.5\n\n{}",
+        external(&dir, &format!("sleep 5\n{DRAWS}"))
+    );
+    let start = std::time::Instant::now();
+    let out = with_settings(&dir, FLOWCHART, &[], None, &config);
+    assert!(out.status.success());
+    assert_eq!(
+        text(&out.stderr),
+        "kiri: mermaid diagram on line 3: sh did not finish in 0.5 s\n"
+    );
+    assert!(sent(&text(&out.stdout)).is_empty());
+    assert!(start.elapsed() < std::time::Duration::from_secs(4));
+}

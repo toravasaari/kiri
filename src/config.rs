@@ -10,6 +10,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use serde::Deserialize;
 use serde::de::{self, Deserializer, MapAccess};
@@ -130,6 +131,8 @@ pub struct Config {
     /// `[diagrams.<language>]`: the program and its arguments, with
     /// `{input}`, `{output}`, `{theme}` and `{config}` in them.
     pub diagram_commands: BTreeMap<String, Vec<String>>,
+    /// How long an external command may take to draw one diagram.
+    pub diagram_timeout: Option<Duration>,
 }
 
 /// When the document is shown in the pager rather than printed.
@@ -264,6 +267,7 @@ pub fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String
         table_rows: file.table_rows,
         diagrams: file.diagrams.enabled,
         diagram_commands: file.diagrams.commands,
+        diagram_timeout: file.diagrams.timeout,
     })
 }
 
@@ -286,11 +290,12 @@ struct ConfigToml {
 #[derive(Debug, Default)]
 struct DiagramsToml {
     enabled: Option<bool>,
+    timeout: Option<Duration>,
     commands: BTreeMap<String, Vec<String>>,
 }
 
 /// The keys of the `[diagrams]` table other than the languages.
-const DIAGRAMS_KEYS: &[&str] = &["enabled"];
+const DIAGRAMS_KEYS: &[&str] = &["enabled", "timeout"];
 
 /// One language's table under `diagrams`.
 #[derive(Deserialize)]
@@ -323,6 +328,12 @@ impl<'de> Deserialize<'de> for DiagramsToml {
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
                         "enabled" => diagrams.enabled = Some(map.next_value()?),
+                        "timeout" => {
+                            let seconds = map.next_value().ok().and_then(seconds);
+                            let error = "timeout: give a positive number of seconds";
+                            let seconds = seconds.ok_or_else(|| de::Error::custom(error))?;
+                            diagrams.timeout = Some(seconds);
+                        }
                         language if languages.contains(&language) => {
                             let table: DiagramToml = map.next_value()?;
                             check_command(&table.command).map_err(de::Error::custom)?;
@@ -344,6 +355,14 @@ impl<'de> Deserialize<'de> for DiagramsToml {
 
         deserializer.deserialize_any(Visitor)
     }
+}
+
+/// `seconds` as a duration, when it is a positive number of them that a
+/// duration can hold.
+fn seconds(seconds: f64) -> Option<Duration> {
+    (seconds > 0.0)
+        .then(|| Duration::try_from_secs_f64(seconds).ok())
+        .flatten()
 }
 
 /// Why `command`, a diagram language's external command, cannot work.
@@ -700,6 +719,8 @@ pub struct Settings {
     pub diagrams: bool,
     /// The external command for each diagram language that has one.
     pub diagram_commands: BTreeMap<String, Vec<String>>,
+    /// How long an external command may take to draw one diagram.
+    pub diagram_timeout: Duration,
 }
 
 /// What the options, the environment and the configuration file choose,
@@ -726,6 +747,8 @@ pub struct Choices {
     /// The external command for each diagram language that has one, all
     /// from the configuration file.
     pub diagram_commands: BTreeMap<String, Vec<String>>,
+    /// How long an external command may take to draw one diagram.
+    pub diagram_timeout: Duration,
     /// What the user should know about settings that were left out.
     pub warnings: Vec<String>,
 }
@@ -748,6 +771,7 @@ impl Choices {
             table_rows: self.table_rows.value,
             diagrams: self.diagrams.value,
             diagram_commands: self.diagram_commands.clone(),
+            diagram_timeout: self.diagram_timeout,
         }
     }
 }
@@ -775,6 +799,7 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
         table_rows,
         diagrams,
         diagram_commands: config.diagram_commands.clone(),
+        diagram_timeout: (config.diagram_timeout).unwrap_or(crate::diagrams::external::TIME_LIMIT),
         warnings: [
             paging_warning,
             front_matter_warning,
@@ -1398,6 +1423,29 @@ mod tests {
     }
 
     #[test]
+    fn the_diagrams_table_gives_the_time_limit_in_seconds() {
+        let parsed = |text: &str| parse(text, Path::new("/c"), &Environment::default());
+        let timeout = |text: &str| parsed(text).map(|config| config.diagram_timeout);
+        let seconds = |seconds| Ok(Some(Duration::from_secs_f64(seconds)));
+        assert_eq!(timeout("[diagrams]\ntimeout = 5\n"), seconds(5.0));
+        assert_eq!(timeout("[diagrams]\ntimeout = 2.5\n"), seconds(2.5));
+        assert_eq!(timeout("[diagrams]\nenabled = true\n"), Ok(None));
+        for wrong in ["0", "-1", "0.0", "nan", "inf", "1e300", "\"5\""] {
+            let error = timeout(&format!("[diagrams]\ntimeout = {wrong}\n"));
+            let error = error.unwrap_err();
+            assert!(error.contains("timeout: give"), "{wrong}: {error}");
+        }
+        // 20 s unless the file says otherwise.
+        let choices =
+            |config: &Config| choose(&Options::default(), &Environment::default(), config);
+        let default = choices(&Config::default());
+        assert_eq!(default.diagram_timeout, Duration::from_secs(20));
+        let config = parsed("[diagrams]\ntimeout = 3\n").unwrap();
+        let settings = choices(&config).with_theme(Theme::default());
+        assert_eq!(settings.diagram_timeout, Duration::from_secs(3));
+    }
+
+    #[test]
     fn a_diagram_language_table_gives_its_external_command() {
         let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
         let config = parsed(
@@ -1434,7 +1482,7 @@ mod tests {
         let cases = [
             (
                 "[diagrams.dot]\ncommand = [\"dot\", \"{input}\", \"{output}\"]\n",
-                "unknown field `dot`, expected one of `enabled`, `mermaid`",
+                "unknown field `dot`, expected one of `enabled`, `timeout`, `mermaid`",
             ),
             (
                 "[diagrams.mermaid]\ncommand = []\n",

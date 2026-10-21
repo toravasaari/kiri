@@ -109,7 +109,8 @@ example, come before the rest of phase 3.
   `[diagrams.mermaid]`, with `{input}`, `{output}`, `{theme}` and
   `{config}`. It
   replaces the built-in renderer, and one that fails does not fall back
-  to it.
+  to it. Its time limit, 20 s unless `timeout` says otherwise, and
+  Ctrl-C stop it and what it started.
 - `--diagrams on|off`, `KIRI_DIAGRAMS` and `enabled` in the configuration
   file's `[diagrams]` table; `--doctor` shows the switch and each
   language's renderers.
