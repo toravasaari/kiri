@@ -426,30 +426,11 @@ fn origin_text(origin: Origin, env: &Environment, home: &Home) -> String {
     match origin {
         Origin::Default => "default".into(),
         Origin::File => "configuration file".into(),
-        Origin::Environment(name) => match variable(env, name) {
+        Origin::Environment(name) => match env.get(name) {
             Some(value) => code(&format!("{name}={}", home.hide(&value.to_string_lossy()))),
             None => code(name),
         },
         Origin::Flag(flag) => format!("`{flag}`"),
-    }
-}
-
-/// The value of the environment variable `name`, of those kiri reads for
-/// its settings.
-fn variable<'a>(env: &'a Environment, name: &str) -> Option<&'a OsStr> {
-    match name {
-        "KIRI_THEME" => env.kiri_theme.as_deref(),
-        "KIRI_NO_IMAGES" => env.kiri_no_images.as_deref(),
-        "KIRI_PAGING" => env.kiri_paging.as_deref(),
-        "KIRI_FRONT_MATTER" => env.kiri_front_matter.as_deref(),
-        "KIRI_TABLE_ROWS" => env.kiri_table_rows.as_deref(),
-        "KIRI_DIAGRAMS" => env.kiri_diagrams.as_deref(),
-        "KIRI_RENDER_ERRORS" => env.kiri_render_errors.as_deref(),
-        "KIRI_CONFIG" => env.kiri_config.as_deref(),
-        "XDG_CONFIG_HOME" => env.xdg_config_home.as_deref(),
-        "XDG_CACHE_HOME" => env.xdg_cache_home.as_deref(),
-        "TMPDIR" => env.tmpdir.as_deref(),
-        _ => None,
     }
 }
 

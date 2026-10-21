@@ -6,7 +6,7 @@
 //! tested without touching the process environment.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -18,79 +18,91 @@ use serde::de::{self, Deserializer, MapAccess};
 use crate::render::{FrontMatterStyle, RenderErrors, TableRows};
 use crate::theme::{Paper, Theme};
 
-/// The environment variables kiri reads for its settings.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Environment {
-    pub home: Option<OsString>,
-    pub xdg_config_home: Option<OsString>,
+/// `Environment`, with a field for each variable, from one table, so that
+/// a variable cannot be read without `get` knowing it.
+macro_rules! environment {
+    ($($(#[$doc:meta])* $field:ident: $name:literal,)*) => {
+        /// The environment variables kiri reads for its settings.
+        #[derive(Debug, Clone, Default, PartialEq, Eq)]
+        pub struct Environment {
+            $($(#[$doc])* pub $field: Option<OsString>,)*
+        }
+
+        impl Environment {
+            /// The environment with each variable from `var`.
+            fn read(var: impl Fn(&'static str) -> Option<OsString>) -> Self {
+                Self {
+                    $($field: var($name),)*
+                }
+            }
+
+            /// The value of the variable `name`, of those kiri reads.
+            pub fn get(&self, name: &str) -> Option<&OsStr> {
+                match name {
+                    $($name => self.$field.as_deref(),)*
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
+environment! {
+    /// `HOME`.
+    home: "HOME",
+    /// `XDG_CONFIG_HOME`: where kiri's configuration directory goes.
+    xdg_config_home: "XDG_CONFIG_HOME",
     /// `XDG_CACHE_HOME`: where kiri's cache directory goes.
-    pub xdg_cache_home: Option<OsString>,
+    xdg_cache_home: "XDG_CACHE_HOME",
     /// `TMPDIR`: the system's temporary directory, where the files of the
     /// programs that draw diagrams go when the cache directory cannot be
     /// used.
-    pub tmpdir: Option<OsString>,
+    tmpdir: "TMPDIR",
     /// `KIRI_CONFIG`: the configuration file to read instead of the default.
-    pub kiri_config: Option<OsString>,
+    kiri_config: "KIRI_CONFIG",
     /// `KIRI_THEME`: a theme file.
-    pub kiri_theme: Option<OsString>,
+    kiri_theme: "KIRI_THEME",
     /// `KIRI_NO_IMAGES`: images off unless empty or `0`.
-    pub kiri_no_images: Option<OsString>,
+    kiri_no_images: "KIRI_NO_IMAGES",
     /// `KIRI_PAGING`: `always`, `auto` or `never`, or `1` or `0`.
-    pub kiri_paging: Option<OsString>,
+    kiri_paging: "KIRI_PAGING",
     /// `KIRI_FRONT_MATTER`: `table`, `code`, `hide` or `off`.
-    pub kiri_front_matter: Option<OsString>,
+    kiri_front_matter: "KIRI_FRONT_MATTER",
     /// `KIRI_TABLE_ROWS`: `off`, `zebra`, `lines`, `indent` or `underline`.
-    pub kiri_table_rows: Option<OsString>,
+    kiri_table_rows: "KIRI_TABLE_ROWS",
     /// `KIRI_DIAGRAMS`: `on` or `off`, or `1` or `0`.
-    pub kiri_diagrams: Option<OsString>,
+    kiri_diagrams: "KIRI_DIAGRAMS",
     /// `KIRI_RENDER_ERRORS`: `inline`, `stderr` or `both`.
-    pub kiri_render_errors: Option<OsString>,
+    kiri_render_errors: "KIRI_RENDER_ERRORS",
     /// `PATH`, where kiri looks for a program that draws diagrams.
-    pub path: Option<OsString>,
+    path: "PATH",
     /// `NVM_DIR`: where nvm keeps the Node versions it installs.
-    pub nvm_dir: Option<OsString>,
-    /// `NPM_CONFIG_PREFIX`: npm's prefix for the programs it installs.
-    pub npm_config_prefix: Option<OsString>,
+    nvm_dir: "NVM_DIR",
+    /// `NPM_CONFIG_PREFIX`, or `npm_config_prefix`: npm's prefix for the
+    /// programs it installs.
+    npm_config_prefix: "NPM_CONFIG_PREFIX",
     /// `NO_COLOR`: colours off unless empty.
-    pub no_color: Option<OsString>,
+    no_color: "NO_COLOR",
     /// `COLORTERM`: 24-bit colour when `truecolor` or `24bit`.
-    pub colorterm: Option<OsString>,
+    colorterm: "COLORTERM",
     /// `TERM`: the terminal type, which only `--doctor` reports.
-    pub term: Option<OsString>,
+    term: "TERM",
     /// `TERM_PROGRAM`: names some of the terminals known to support
     /// hyperlinks.
-    pub term_program: Option<OsString>,
+    term_program: "TERM_PROGRAM",
     /// `VTE_VERSION`: terminals built on VTE, with hyperlinks from 5000 on.
-    pub vte_version: Option<OsString>,
+    vte_version: "VTE_VERSION",
 }
 
 impl Environment {
     /// The environment of this process.
     pub fn from_process() -> Self {
-        Self {
-            home: std::env::var_os("HOME"),
-            xdg_config_home: std::env::var_os("XDG_CONFIG_HOME"),
-            xdg_cache_home: std::env::var_os("XDG_CACHE_HOME"),
-            tmpdir: std::env::var_os("TMPDIR"),
-            kiri_config: std::env::var_os("KIRI_CONFIG"),
-            kiri_theme: std::env::var_os("KIRI_THEME"),
-            kiri_no_images: std::env::var_os("KIRI_NO_IMAGES"),
-            kiri_paging: std::env::var_os("KIRI_PAGING"),
-            kiri_front_matter: std::env::var_os("KIRI_FRONT_MATTER"),
-            kiri_table_rows: std::env::var_os("KIRI_TABLE_ROWS"),
-            kiri_diagrams: std::env::var_os("KIRI_DIAGRAMS"),
-            kiri_render_errors: std::env::var_os("KIRI_RENDER_ERRORS"),
-            path: std::env::var_os("PATH"),
-            nvm_dir: std::env::var_os("NVM_DIR"),
-            // npm reads its settings from the environment in either case.
-            npm_config_prefix: std::env::var_os("NPM_CONFIG_PREFIX")
-                .or_else(|| std::env::var_os("npm_config_prefix")),
-            no_color: std::env::var_os("NO_COLOR"),
-            colorterm: std::env::var_os("COLORTERM"),
-            term: std::env::var_os("TERM"),
-            term_program: std::env::var_os("TERM_PROGRAM"),
-            vte_version: std::env::var_os("VTE_VERSION"),
+        let mut env = Self::read(std::env::var_os);
+        // npm reads its settings from the environment in either case.
+        if env.npm_config_prefix.is_none() {
+            env.npm_config_prefix = std::env::var_os("npm_config_prefix");
         }
+        env
     }
 }
 
@@ -1015,6 +1027,24 @@ mod tests {
             xdg_config_home: xdg.map(OsString::from),
             ..Environment::default()
         }
+    }
+
+    #[test]
+    fn each_variable_is_read_and_got_by_its_name() {
+        let env = Environment::read(|name| Some(OsString::from(format!("<{name}>"))));
+        for (name, field) in [
+            ("HOME", &env.home),
+            ("XDG_CONFIG_HOME", &env.xdg_config_home),
+            ("TMPDIR", &env.tmpdir),
+            ("KIRI_PAGING", &env.kiri_paging),
+            ("NPM_CONFIG_PREFIX", &env.npm_config_prefix),
+            ("VTE_VERSION", &env.vte_version),
+        ] {
+            let value = OsString::from(format!("<{name}>"));
+            assert_eq!(field.as_ref(), Some(&value), "{name}");
+            assert_eq!(env.get(name), Some(value.as_os_str()), "{name}");
+        }
+        assert_eq!(env.get("SHELL"), None);
     }
 
     #[test]
