@@ -440,8 +440,7 @@ mod tests {
     impl Write for RaiseOnEnter {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
             if buf == ENTER_SCREEN {
-                // SAFETY: raise has no preconditions.
-                unsafe { libc::raise(self.0) };
+                signal_hook::low_level::raise(self.0)?;
             }
             Ok(buf.len())
         }
@@ -483,8 +482,7 @@ mod tests {
             .open(std::env::var_os(PTY).unwrap())
             .unwrap();
         let screen = Screen::catching_on(tty, Vec::new(), || {}).expect("the screen opens");
-        // SAFETY: raise has no preconditions.
-        unsafe { libc::raise(SIGTERM) };
+        signal_hook::low_level::raise(SIGTERM).unwrap();
         screen.close();
     }
 
