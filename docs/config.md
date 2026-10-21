@@ -7,7 +7,8 @@ environment, then the file.
 ## Configuration file
 
 kiri reads `$XDG_CONFIG_HOME/kiri/config.toml`, or
-`~/.config/kiri/config.toml` when `XDG_CONFIG_HOME` is unset or empty. The
+`~/.config/kiri/config.toml` when `XDG_CONFIG_HOME` is unset, empty or
+not an absolute path. The
 file is optional. `KIRI_CONFIG` names another file instead, and that file
 must exist. A mistake in the file, an unknown key among them, is an error,
 not silently ignored.
@@ -317,5 +318,5 @@ With a command configured, `enabled = false` in the `[diagrams]` table,
 | `KIRI_TABLE_ROWS` | Table row style; see [Table rows](#table-rows) |
 | `KIRI_DIAGRAMS` | Diagrams drawn or shown as code; see [Diagrams](#diagrams) |
 | `NO_COLOR` | No colours, when set and not empty; see [no-color.org](https://no-color.org) |
-| `XDG_CONFIG_HOME` | Where the configuration directory is; `~/.config` when unset |
+| `XDG_CONFIG_HOME` | Where the configuration directory is; `~/.config` when unset or not an absolute path |
 | `XDG_CACHE_HOME` | Where kiri's cache directory is, for the files of [diagram commands](#diagram-commands); `~/.cache` when unset or not an absolute path |

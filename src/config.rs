@@ -94,20 +94,22 @@ impl Environment {
 /// Where the configuration directory comes from: `XDG_CONFIG_HOME`, or
 /// the default under the home directory.
 pub fn directory_origin(env: &Environment) -> Origin {
-    match env.xdg_config_home.as_ref().filter(|dir| !dir.is_empty()) {
-        Some(_) => Origin::Environment("XDG_CONFIG_HOME"),
-        None => Origin::Default,
+    let set = (env.xdg_config_home.as_deref()).is_some_and(|dir| Path::new(dir).is_absolute());
+    match set {
+        true => Origin::Environment("XDG_CONFIG_HOME"),
+        false => Origin::Default,
     }
 }
 
 /// kiri's configuration directory: `$XDG_CONFIG_HOME/kiri`, or
-/// `~/.config/kiri` when that is unset or empty.
+/// `~/.config/kiri` when that is unset, empty or relative, which the XDG
+/// base directory specification calls invalid.
 pub fn directory(env: &Environment) -> Option<PathBuf> {
     let config = env
         .xdg_config_home
         .clone()
-        .filter(|dir| !dir.is_empty())
         .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute())
         .or_else(|| {
             env.home
                 .as_ref()
@@ -1025,6 +1027,18 @@ mod tests {
         assert_eq!(cache(Some("/home/u"), None), dot_cache);
         assert_eq!(cache(Some("/home/u"), Some("")), dot_cache);
         assert_eq!(cache(None, None), None);
+    }
+
+    #[test]
+    fn a_relative_xdg_config_home_is_ignored() {
+        // As XDG_CACHE_HOME is.
+        let relative = env(Some("/home/u"), Some("config"));
+        assert_eq!(
+            directory(&relative),
+            Some(PathBuf::from("/home/u/.config/kiri"))
+        );
+        assert_eq!(directory_origin(&relative), Origin::Default);
+        assert_eq!(directory(&env(None, Some("config"))), None);
     }
 
     #[test]
