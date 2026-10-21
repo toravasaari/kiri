@@ -727,11 +727,12 @@ mod tests {
     use crate::testing::Scratch;
 
     /// A directory of its own for the test that calls it `name`, with
-    /// `temp` in it for the files. Keep the name short: some tests make
-    /// the directory for the files in it, which must be short enough for
-    /// the sockets a browser makes there.
+    /// `temp` in it for the files. Some tests make the directory for the
+    /// files in it, whose path must be short enough for the sockets a
+    /// browser makes there: so it is in `/tmp`, whatever the length of
+    /// `TMPDIR`, and its name is short.
     fn scratch(name: &str) -> Scratch {
-        let scratch = Scratch::new(&format!("external-{name}"));
+        let scratch = Scratch::in_dir(Path::new("/tmp"), &format!("x-{name}"));
         fs::create_dir_all(scratch.join("temp")).unwrap();
         scratch
     }
