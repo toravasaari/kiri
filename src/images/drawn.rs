@@ -133,7 +133,7 @@ mod tests {
     use image::ImageFormat;
 
     use super::*;
-    use crate::diagrams::Renderer;
+    use crate::diagrams::{Renderer, Request};
     use crate::images::tests::{Stub, fixtures, rgba, with_stub};
     use crate::images::{DEFAULT_MAX_FILE_SIZE, ImageKey, decode, load_with};
 
@@ -165,7 +165,8 @@ mod tests {
             fn draws(&self, _language: &str) -> bool {
                 true
             }
-            fn render(&self, _: &str, _: &str, theme: Theme) -> Result<Drawn, String> {
+            fn render(&self, request: &Request) -> Result<Drawn, String> {
+                let theme = request.theme;
                 Ok(Drawn::svg("not svg", theme, None))
             }
         }
@@ -199,7 +200,8 @@ mod tests {
             fn draws(&self, _language: &str) -> bool {
                 true
             }
-            fn render(&self, _: &str, _: &str, theme: Theme) -> Result<Drawn, String> {
+            fn render(&self, request: &Request) -> Result<Drawn, String> {
+                let theme = request.theme;
                 use std::io::Write;
                 let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="70" height="30"/>"#;
                 let mut gzip = flate2::write::GzEncoder::new(Vec::new(), Default::default());
@@ -229,7 +231,8 @@ mod tests {
             fn draws(&self, _language: &str) -> bool {
                 true
             }
-            fn render(&self, _: &str, _: &str, theme: Theme) -> Result<Drawn, String> {
+            fn render(&self, request: &Request) -> Result<Drawn, String> {
+                let theme = request.theme;
                 Ok(Drawn::svg(SVG, theme, None))
             }
         }
@@ -274,7 +277,7 @@ mod tests {
             fn draws(&self, _language: &str) -> bool {
                 true
             }
-            fn render(&self, _: &str, _: &str, _: Theme) -> Result<Drawn, String> {
+            fn render(&self, _: &Request) -> Result<Drawn, String> {
                 let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="40"/>"#;
                 Ok(Drawn::svg(svg, self.0, self.1))
             }
@@ -348,7 +351,7 @@ mod tests {
             true
         }
 
-        fn render(&self, _: &str, _: &str, _: Theme) -> Result<Drawn, String> {
+        fn render(&self, _: &Request) -> Result<Drawn, String> {
             let image = RgbaImage::from_pixel(60, 30, image::Rgba([255, 0, 0, 128]));
             Ok(Drawn {
                 image: png(&image),

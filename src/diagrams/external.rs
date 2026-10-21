@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Once};
 use std::time::{Duration, Instant};
 
-use super::{Drawn, Renderer, Theme};
+use super::{Drawn, Renderer, Request, Theme};
 
 /// How long a program may take to draw one diagram before kiri stops it,
 /// unless the configuration file says otherwise.
@@ -391,7 +391,12 @@ impl Renderer for External {
         self.command(language).is_some()
     }
 
-    fn render(&self, language: &str, source: &str, theme: Theme) -> Result<Drawn, String> {
+    fn render(&self, request: &Request) -> Result<Drawn, String> {
+        let &Request {
+            language,
+            source,
+            theme,
+        } = request;
         let Some(command) = self.command(language) else {
             return Err(format!("{language} diagrams have no command"));
         };
@@ -713,7 +718,9 @@ mod tests {
         assert!(renderer.draws("mermaid") && renderer.draws("Mermaid"));
         assert!(!renderer.draws("dot"));
         for (theme, name) in [(Theme::Light, "default"), (Theme::Dark, "dark")] {
-            let drawn = renderer.render("Mermaid", SOURCE, theme).unwrap();
+            let drawn = renderer
+                .render(&Request::new("Mermaid", SOURCE, theme))
+                .unwrap();
             let svg = format!("<svg theme=\"{name}\">flowchart TD\n  A --> B</svg>");
             assert_eq!(drawn, Drawn::svg(svg, theme, None));
         }
@@ -725,9 +732,13 @@ mod tests {
         let scratch = scratch("own-theme");
         let renderer = script_renderer(&scratch, "echo '<svg/>' > \"$2\"\n");
         let forest = format!("%%{{init: {{\"theme\": \"forest\"}}}}%%\n{SOURCE}");
-        let drawn = renderer.render("mermaid", &forest, Theme::Dark).unwrap();
+        let drawn = renderer
+            .render(&Request::new("mermaid", &forest, Theme::Dark))
+            .unwrap();
         assert_eq!(drawn.theme, Theme::Light);
-        let drawn = renderer.render("mermaid", SOURCE, Theme::Dark).unwrap();
+        let drawn = renderer
+            .render(&Request::new("mermaid", SOURCE, Theme::Dark))
+            .unwrap();
         assert_eq!(drawn.theme, Theme::Dark);
     }
 
@@ -737,7 +748,7 @@ mod tests {
         let written = |script: &str, source: &str| {
             let renderer = script_renderer(&scratch, script);
             renderer
-                .render("mermaid", source, Theme::Light)
+                .render(&Request::new("mermaid", source, Theme::Light))
                 .map(|drawn| drawn.text())
         };
         // The source as it is, so that the program's line numbers are the
@@ -787,7 +798,7 @@ mod tests {
                 .with_work_dir(scratch.join("temp"))
         };
         let drawn = command("-s{scale}")
-            .render("mermaid", SOURCE, Theme::Light)
+            .render(&Request::new("mermaid", SOURCE, Theme::Light))
             .unwrap();
         let text = drawn.text();
         let (start, config) = text.split_at(text.find('{').unwrap());
@@ -801,7 +812,7 @@ mod tests {
         // A command without it writes SVG, or a raster image at one pixel
         // to the CSS pixel, and gets labels as SVG text.
         let drawn = command("1")
-            .render("mermaid", SOURCE, Theme::Light)
+            .render(&Request::new("mermaid", SOURCE, Theme::Light))
             .unwrap();
         let text = drawn.text();
         let (start, config) = text.split_at(text.find('{').unwrap());
@@ -820,7 +831,7 @@ mod tests {
         let command = Command::new(argv.map(String::from).to_vec());
         let renderer = External::new(BTreeMap::from([("dot".to_owned(), command)]))
             .with_work_dir(scratch.join("temp"));
-        let svg = renderer.render("dot", "digraph {}", Theme::Light);
+        let svg = renderer.render(&Request::new("dot", "digraph {}", Theme::Light));
         assert_eq!(svg.map(|drawn| drawn.text()), Ok("digraph {}".to_owned()));
     }
 
@@ -840,7 +851,7 @@ mod tests {
              exit 1\n",
         );
         assert_eq!(
-            renderer.render("mermaid", SOURCE, Theme::Light),
+            renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)),
             Err("sh exited with status 1: Error: Parse error on line 2:\n\
                  ...A[Unclosed\n\
                  -----^\n\
@@ -849,7 +860,7 @@ mod tests {
         );
         let renderer = script_renderer(&scratch, "exit 2\n");
         assert_eq!(
-            renderer.render("mermaid", SOURCE, Theme::Light),
+            renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)),
             Err("sh exited with status 2".to_owned())
         );
         assert_eq!(left(&scratch), Vec::<PathBuf>::new());
@@ -859,15 +870,16 @@ mod tests {
     fn an_image_larger_than_the_limit_is_not_read() {
         let scratch = scratch("too-large");
         let renderer = script_renderer(&scratch, "printf '%0100d' 0 > \"$2\"\n");
-        let drawn = renderer
-            .with_max_size(100)
-            .render("mermaid", SOURCE, Theme::Light);
+        let drawn =
+            renderer
+                .with_max_size(100)
+                .render(&Request::new("mermaid", SOURCE, Theme::Light));
         assert_eq!(drawn.map(|drawn| drawn.image.len()), Ok(100));
         let renderer = script_renderer(&scratch, "printf '%0101d' 0 > \"$2\"\n");
         assert_eq!(
             renderer
                 .with_max_size(100)
-                .render("mermaid", SOURCE, Theme::Light),
+                .render(&Request::new("mermaid", SOURCE, Theme::Light)),
             Err(
                 "sh wrote an image larger than the 100-byte limit; see --max-image-size".to_owned()
             )
@@ -884,7 +896,7 @@ mod tests {
             "echo 'Error: it failed' >&2\nyes 'more' | head -c 2000000 >&2\nexit 1\n",
         );
         assert_eq!(
-            renderer.render("mermaid", SOURCE, Theme::Light),
+            renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)),
             Err("sh exited with status 1: Error: it failed\nmore\nmore\nmore\nmore".to_owned())
         );
     }
@@ -894,7 +906,7 @@ mod tests {
         let scratch = scratch("writes-nothing");
         let renderer = script_renderer(&scratch, "exit 0\n");
         assert_eq!(
-            renderer.render("mermaid", SOURCE, Theme::Light),
+            renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)),
             Err("sh wrote no output file".to_owned())
         );
         assert_eq!(left(&scratch), Vec::<PathBuf>::new());
@@ -905,7 +917,9 @@ mod tests {
         // The image loader tells what it is by its content.
         let scratch = scratch("raster");
         let renderer = script_renderer(&scratch, "printf '\\211PNG\\r\\n\\032\\n\\377' > \"$2\"\n");
-        let drawn = renderer.render("mermaid", SOURCE, Theme::Light).unwrap();
+        let drawn = renderer
+            .render(&Request::new("mermaid", SOURCE, Theme::Light))
+            .unwrap();
         assert_eq!(drawn.image, b"\x89PNG\r\n\x1a\n\xff");
         assert_eq!(drawn.scale, 1);
         assert_eq!(left(&scratch), Vec::<PathBuf>::new());
@@ -922,7 +936,7 @@ mod tests {
         let renderer = External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
             .with_work_dir(scratch.join("temp"));
         let error = renderer
-            .render("mermaid", SOURCE, Theme::Light)
+            .render(&Request::new("mermaid", SOURCE, Theme::Light))
             .unwrap_err();
         assert!(error.starts_with("/no/such/mmdc: "), "{error}");
         assert_eq!(left(&scratch), Vec::<PathBuf>::new());
@@ -943,7 +957,7 @@ mod tests {
             let renderer = script_renderer(&scratch, &script).with_time_limit(limit);
             let start = Instant::now();
             assert_eq!(
-                renderer.render("mermaid", SOURCE, Theme::Light),
+                renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)),
                 Err(format!("sh did not finish in {} s", limit.as_secs_f32()))
             );
             assert!(
@@ -981,7 +995,9 @@ mod tests {
         let scratch = scratch("long-limit");
         let renderer = script_renderer(&scratch, "echo '<svg/>' > \"$2\"\n")
             .with_time_limit(Duration::from_secs_f64(1e19));
-        let drawn = renderer.render("mermaid", SOURCE, Theme::Light).unwrap();
+        let drawn = renderer
+            .render(&Request::new("mermaid", SOURCE, Theme::Light))
+            .unwrap();
         assert_eq!(drawn.theme, Theme::Light);
         assert_eq!(left(&scratch), Vec::<PathBuf>::new());
     }
@@ -1003,7 +1019,8 @@ mod tests {
         let start = Instant::now();
         // Stopped once the trap is set, however long sh takes to start.
         let drawn = std::thread::scope(|scope| {
-            let drawing = scope.spawn(|| renderer.render("mermaid", SOURCE, Theme::Light));
+            let drawing =
+                scope.spawn(|| renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)));
             while !ready.exists() && start.elapsed() < Duration::from_secs(5) {
                 std::thread::sleep(Duration::from_millis(10));
             }
@@ -1032,7 +1049,8 @@ mod tests {
         let renderer = script_renderer(&scratch, &script).stopped_by(Arc::clone(&stop));
         let start = Instant::now();
         let drawn = std::thread::scope(|scope| {
-            let drawing = scope.spawn(|| renderer.render("mermaid", SOURCE, Theme::Light));
+            let drawing =
+                scope.spawn(|| renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)));
             while !started.exists() && start.elapsed() < Duration::from_secs(5) {
                 std::thread::sleep(Duration::from_millis(10));
             }
@@ -1062,7 +1080,7 @@ mod tests {
         // Once stopped, nothing more starts.
         fs::remove_file(&started).unwrap();
         assert_eq!(
-            renderer.render("mermaid", SOURCE, Theme::Light),
+            renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)),
             Err("sh was not started: interrupted".to_owned())
         );
         assert!(!started.exists());
@@ -1090,7 +1108,7 @@ mod tests {
         let renderer = External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
             .with_work_dir(scratch.join("temp"));
         let svg = renderer
-            .render("mermaid", SOURCE, Theme::Dark)
+            .render(&Request::new("mermaid", SOURCE, Theme::Dark))
             .unwrap()
             .text();
         let dir = scratch.join("temp").join(format!("{}-0", process::id()));
@@ -1111,7 +1129,7 @@ mod tests {
         let scratch = scratch("tmpdir");
         let renderer = script_renderer(&scratch, MAKES_A_PROFILE);
         let tmpdir = renderer
-            .render("mermaid", SOURCE, Theme::Light)
+            .render(&Request::new("mermaid", SOURCE, Theme::Light))
             .unwrap()
             .text();
         let expected = scratch.join("temp").join(format!("{}-0", process::id()));
@@ -1127,7 +1145,7 @@ mod tests {
         let work = scratch.join("c/kiri/diagrams");
         let renderer = script_renderer(&scratch, MAKES_A_PROFILE).with_work_dir(work.clone());
         let tmpdir = renderer
-            .render("mermaid", SOURCE, Theme::Light)
+            .render(&Request::new("mermaid", SOURCE, Theme::Light))
             .unwrap()
             .text();
         assert_eq!(Path::new(&tmpdir).parent(), Some(work.as_path()));
@@ -1175,7 +1193,9 @@ mod tests {
         let file = format!("{ended}-1");
         fs::write(work.join(&file), "").unwrap();
         let renderer = script_renderer(&scratch, "echo '<svg/>' > \"$2\"\n");
-        renderer.render("mermaid", SOURCE, Theme::Light).unwrap();
+        renderer
+            .render(&Request::new("mermaid", SOURCE, Theme::Light))
+            .unwrap();
         let mut left: Vec<String> = (left(&scratch).iter())
             .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
@@ -1224,7 +1244,9 @@ mod tests {
     fn each_directory_names_the_machine_it_was_made_on() {
         let scratch = scratch("host-file");
         let renderer = script_renderer(&scratch, "cat \"$TMPDIR/host\" > \"$2\"\n");
-        let drawn = renderer.render("mermaid", SOURCE, Theme::Light).unwrap();
+        let drawn = renderer
+            .render(&Request::new("mermaid", SOURCE, Theme::Light))
+            .unwrap();
         assert_eq!(drawn.text(), format!("{}\n", host_name()));
         assert!(!host_name().is_empty());
     }
@@ -1239,7 +1261,7 @@ mod tests {
         for work in [scratch.join("file/diagrams"), long.clone()] {
             let renderer = script_renderer(&scratch, MAKES_A_PROFILE).with_work_dir(work.clone());
             let tmpdir = renderer
-                .render("mermaid", SOURCE, Theme::Light)
+                .render(&Request::new("mermaid", SOURCE, Theme::Light))
                 .unwrap()
                 .text();
             let tmpdir = Path::new(&tmpdir);
@@ -1292,7 +1314,7 @@ mod tests {
         let renderer = External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
             .with_work_dir(scratch.join("temp"));
         let svg = renderer
-            .render("mermaid", SOURCE, Theme::Dark)
+            .render(&Request::new("mermaid", SOURCE, Theme::Dark))
             .unwrap()
             .text();
         assert_eq!(svg, "/opt/node/bin:/usr/bin");
@@ -1331,7 +1353,7 @@ mod tests {
         let command = Command::new(argv.map(String::from).to_vec());
         let renderer = External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
             .with_work_dir(scratch.join("temp"));
-        let drawn = renderer.render("mermaid", SOURCE, Theme::Light);
+        let drawn = renderer.render(&Request::new("mermaid", SOURCE, Theme::Light));
         let calls = fs::read_to_string(&calls).unwrap_or_default();
         assert_eq!(left(&scratch), Vec::<PathBuf>::new());
         (

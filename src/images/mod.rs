@@ -17,7 +17,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::diagrams::{Diagrams, Renderer};
+use crate::diagrams::{Diagrams, Renderer, Request};
 use crate::model::{Block, Document, Inline};
 
 pub use decode::{DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image};
@@ -284,15 +284,15 @@ pub fn load_with(
     wanted.retain(|image| keys.insert(image.key()));
     // The diagrams first, all together, so a renderer can draw several
     // at once.
-    let sources: Vec<(&str, &str)> = (wanted.iter())
+    let requests: Vec<Request> = (wanted.iter())
         .filter_map(|image| match *image {
             Wanted::Diagram {
                 language, source, ..
-            } => Some((language, source)),
+            } => Some(Request::new(language, source, diagrams.theme)),
             Wanted::Url(_) => None,
         })
         .collect();
-    let total = sources.len();
+    let total = requests.len();
     let done = AtomicUsize::new(0);
     let progress = diagrams.progress;
     let tell = |done| {
@@ -305,7 +305,7 @@ pub fn load_with(
     }
     let one_more = || tell(done.fetch_add(1, Ordering::Relaxed) + 1);
     let mut drawn = (diagrams.renderer)
-        .render_all(&sources, diagrams.theme, &one_more)
+        .render_all(&requests, &one_more)
         .into_iter();
     let mut images = Images::new();
     for image in wanted {
@@ -518,7 +518,8 @@ Text ![inline](images/pattern.png) and words.
             language.eq_ignore_ascii_case("mermaid")
         }
 
-        fn render(&self, _language: &str, source: &str, theme: Theme) -> Result<Drawn, String> {
+        fn render(&self, request: &Request) -> Result<Drawn, String> {
+            let &Request { source, theme, .. } = request;
             self.calls.borrow_mut().push((source.to_owned(), theme));
             if source.contains("broken") {
                 return Err("parse error".into());

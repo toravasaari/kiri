@@ -78,38 +78,56 @@ impl Drawn {
     }
 }
 
+/// A diagram to draw.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Request<'a> {
+    /// Its language, as the info string of its code block gives it.
+    pub language: &'a str,
+    pub source: &'a str,
+    /// The page it is drawn for, unless it chooses its own colours.
+    pub theme: Theme,
+}
+
+impl<'a> Request<'a> {
+    pub fn new(language: &'a str, source: &'a str, theme: Theme) -> Self {
+        Request {
+            language,
+            source,
+            theme,
+        }
+    }
+}
+
 /// Draws the diagrams of some languages.
 pub trait Renderer {
     /// Whether code blocks in `language`, as the info string gives it, are
     /// drawn as diagrams.
     fn draws(&self, language: &str) -> bool;
 
-    /// The diagram `source`, written in `language`, as an image in `theme`
-    /// unless it chooses its own colours, or why it could not be drawn.
-    fn render(&self, language: &str, source: &str, theme: Theme) -> Result<Drawn, String>;
+    /// The diagram that `request` asks for as an image, or why it could
+    /// not be drawn.
+    fn render(&self, request: &Request) -> Result<Drawn, String>;
 
-    /// Each of `diagrams`, a language and a source, drawn as `render`
-    /// draws it, in order; `done` is called as each one is finished.
+    /// Each of `requests` drawn as `render` draws it, in order; `done` is
+    /// called as each one is finished.
     fn render_all(
         &self,
-        diagrams: &[(&str, &str)],
-        theme: Theme,
+        requests: &[Request],
         done: &(dyn Fn() + Sync),
     ) -> Vec<Result<Drawn, String>> {
-        render_one_by_one(self, diagrams, theme, done)
+        render_one_by_one(self, requests, done)
     }
 }
 
 /// `render_all` by `renderer`, one diagram after another.
 fn render_one_by_one<R: Renderer + ?Sized>(
     renderer: &R,
-    diagrams: &[(&str, &str)],
-    theme: Theme,
+    requests: &[Request],
     done: &(dyn Fn() + Sync),
 ) -> Vec<Result<Drawn, String>> {
-    (diagrams.iter())
-        .map(|&(language, source)| {
-            let drawn = renderer.render(language, source, theme);
+    (requests.iter())
+        .map(|request| {
+            let drawn = renderer.render(request);
             done();
             drawn
         })
@@ -119,26 +137,25 @@ fn render_one_by_one<R: Renderer + ?Sized>(
 /// `render_all` by `renderer`, drawing up to `at_once` diagrams at a time.
 fn render_in_parallel<R: Renderer + Sync + ?Sized>(
     renderer: &R,
-    diagrams: &[(&str, &str)],
-    theme: Theme,
+    requests: &[Request],
     at_once: usize,
     done: &(dyn Fn() + Sync),
 ) -> Vec<Result<Drawn, String>> {
     let next = AtomicUsize::new(0);
     let results: Vec<Mutex<Option<Result<Drawn, String>>>> =
-        diagrams.iter().map(|_| Mutex::new(None)).collect();
+        requests.iter().map(|_| Mutex::new(None)).collect();
     std::thread::scope(|scope| {
-        for _ in 0..at_once.max(1).min(diagrams.len()) {
+        for _ in 0..at_once.max(1).min(requests.len()) {
             // As large a stack as the main thread's, for a built-in
             // renderer among the external ones.
             let thread = std::thread::Builder::new().stack_size(8 << 20);
             let spawned = thread.spawn_scoped(scope, || {
                 loop {
                     let i = next.fetch_add(1, Ordering::Relaxed);
-                    let Some(&(language, source)) = diagrams.get(i) else {
+                    let Some(request) = requests.get(i) else {
                         break;
                     };
-                    let drawn = renderer.render(language, source, theme);
+                    let drawn = renderer.render(request);
                     *results[i].lock().unwrap_or_else(|e| e.into_inner()) = Some(drawn);
                     done();
                 }
@@ -230,10 +247,13 @@ impl Renderer for BuiltIn {
         Self::of(language).is_some()
     }
 
-    fn render(&self, language: &str, source: &str, theme: Theme) -> Result<Drawn, String> {
-        match Self::of(language) {
-            Some(built_in) => (built_in.render)(source, theme),
-            None => Err(format!("{language} diagrams are not drawn in this build")),
+    fn render(&self, request: &Request) -> Result<Drawn, String> {
+        match Self::of(request.language) {
+            Some(built_in) => (built_in.render)(request.source, request.theme),
+            None => Err(format!(
+                "{} diagrams are not drawn in this build",
+                request.language
+            )),
         }
     }
 }
@@ -317,10 +337,10 @@ impl Renderer for Renderers {
         self.external.draws(language) || BuiltIn.draws(language)
     }
 
-    fn render(&self, language: &str, source: &str, theme: Theme) -> Result<Drawn, String> {
-        match self.external.draws(language) {
-            true => self.external.render(language, source, theme),
-            false => BuiltIn.render(language, source, theme),
+    fn render(&self, request: &Request) -> Result<Drawn, String> {
+        match self.external.draws(request.language) {
+            true => self.external.render(request),
+            false => BuiltIn.render(request),
         }
     }
 
@@ -328,18 +348,14 @@ impl Renderer for Renderers {
     /// spends most of its time starting up, as `mmdc` does a browser.
     fn render_all(
         &self,
-        diagrams: &[(&str, &str)],
-        theme: Theme,
+        requests: &[Request],
         done: &(dyn Fn() + Sync),
     ) -> Vec<Result<Drawn, String>> {
-        if diagrams
-            .iter()
-            .any(|(language, _)| self.external.draws(language))
-        {
-            render_in_parallel(self, diagrams, theme, external::AT_ONCE, done)
+        if (requests.iter()).any(|request| self.external.draws(request.language)) {
+            render_in_parallel(self, requests, external::AT_ONCE, done)
         } else {
             // On this thread, whose stack is larger.
-            render_one_by_one(self, diagrams, theme, done)
+            render_one_by_one(self, requests, done)
         }
     }
 }
@@ -388,8 +404,8 @@ impl Renderer for NoRenderer {
         false
     }
 
-    fn render(&self, language: &str, _source: &str, _theme: Theme) -> Result<Drawn, String> {
-        Err(format!("{language} diagrams are not drawn"))
+    fn render(&self, request: &Request) -> Result<Drawn, String> {
+        Err(format!("{} diagrams are not drawn", request.language))
     }
 }
 
@@ -428,9 +444,14 @@ mod tests {
         let renderers = Renderers::chosen(&commands, &BTreeSet::new(), &find::Search::default());
         assert!(renderers.draws("mermaid") && renderers.draws("Mermaid"));
         // It fails, and the built-in renderer does not step in.
-        let drawn = renderers.render("mermaid", "flowchart TD\n  A --> B\n", Theme::Light);
+        let drawn = renderers.render(&Request::new(
+            "mermaid",
+            "flowchart TD\n  A --> B\n",
+            Theme::Light,
+        ));
         assert_eq!(drawn, Err("sh exited with status 4".to_owned()));
-        let drawn = renderers.render_all(&[("mermaid", "flowchart TD\n")], Theme::Dark, &|| {});
+        let request = Request::new("mermaid", "flowchart TD\n", Theme::Dark);
+        let drawn = renderers.render_all(&[request], &|| {});
         assert_eq!(drawn, [Err("sh exited with status 4".to_owned())]);
         let none = Renderers::new(BTreeMap::new());
         assert_eq!(none.draws("mermaid"), cfg!(feature = "mermaid"));
@@ -449,14 +470,14 @@ mod tests {
             true
         }
 
-        fn render(&self, language: &str, source: &str, theme: Theme) -> Result<Drawn, String> {
+        fn render(&self, request: &Request) -> Result<Drawn, String> {
             let now = self.now.fetch_add(1, Ordering::SeqCst) + 1;
             self.most.fetch_max(now, Ordering::SeqCst);
             std::thread::sleep(Duration::from_millis(50));
             self.now.fetch_sub(1, Ordering::SeqCst);
-            match source {
-                "bad" => Err(format!("{language}: bad")),
-                _ => Ok(Drawn::svg(source, theme, None)),
+            match request.source {
+                "bad" => Err(format!("{}: bad", request.language)),
+                source => Ok(Drawn::svg(source, request.theme, None)),
             }
         }
     }
@@ -464,17 +485,17 @@ mod tests {
     #[test]
     fn draws_up_to_four_diagrams_at_once_and_keeps_their_order() {
         let sources: Vec<String> = (0..10).map(|n| n.to_string()).collect();
-        let mut diagrams: Vec<(&str, &str)> = sources
+        let mut diagrams: Vec<Request> = sources
             .iter()
-            .map(|source| ("mermaid", source.as_str()))
+            .map(|source| Request::new("mermaid", source, Theme::Dark))
             .collect();
-        diagrams[3].1 = "bad";
+        diagrams[3].source = "bad";
         let slow = Slow::default();
         let done = AtomicUsize::new(0);
         let count = || {
             done.fetch_add(1, Ordering::SeqCst);
         };
-        let drawn = render_in_parallel(&slow, &diagrams, Theme::Dark, external::AT_ONCE, &count);
+        let drawn = render_in_parallel(&slow, &diagrams, external::AT_ONCE, &count);
         let svgs: Vec<Result<String, String>> = (drawn.into_iter())
             .map(|drawn| drawn.map(|drawn| drawn.text()))
             .collect();
@@ -490,7 +511,7 @@ mod tests {
         let most = slow.most.load(Ordering::SeqCst);
         assert!((2..=4).contains(&most), "{most} at once");
         assert_eq!(done.load(Ordering::SeqCst), 10);
-        assert!(render_in_parallel(&slow, &[], Theme::Dark, 4, &count).is_empty());
+        assert!(render_in_parallel(&slow, &[], 4, &count).is_empty());
     }
 
     #[test]
