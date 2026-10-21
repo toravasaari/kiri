@@ -361,12 +361,14 @@ mod tests {
         let argv = MMDC.join(" ");
         assert!(argv.contains(" -s {scale}"), "{argv}");
         assert!(argv.contains(" -b transparent"), "{argv}");
-        // The command that the configuration reference shows.
-        let docs = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/config.md");
+        // The command that the configuration and diagram references show.
         let shown = format!("command = {}", serde_json::to_string(MMDC).unwrap());
         let shown = shown.replace("\",\"", "\", \"");
-        let docs = fs::read_to_string(docs).unwrap();
-        assert_eq!(docs.matches(&shown).count(), 2, "{shown}");
+        for page in ["docs/config.md", "docs/diagrams.md"] {
+            let docs = Path::new(env!("CARGO_MANIFEST_DIR")).join(page);
+            let docs = fs::read_to_string(docs).unwrap();
+            assert_eq!(docs.matches(&shown).count(), 1, "{page}: {shown}");
+        }
     }
 
     #[test]

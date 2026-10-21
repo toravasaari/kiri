@@ -87,8 +87,8 @@ are, so they stay code with `--no-images`, in terminals without kitty's
 graphics and with `--diagrams off`. A diagram that does not draw stays
 code, and kiri tells why in red below it and in a warning, or in only
 one of them with `--render-errors`. The
-[configuration file](docs/config.md#diagrams) can name another program
-to draw them.
+[configuration file](docs/diagrams.md#diagram-commands) can name another
+program to draw them.
 
 HTML `<details>` blocks are shown open, their `<summary>` in bold after a
 `▼`, also nested and inside lists and quotes. `<kbd>` is drawn as inline
@@ -204,6 +204,7 @@ is shown. Link navigation is planned.
 - [Roadmap](docs/roadmap.md)
 - [Architecture](docs/architecture.md)
 - [Configuration](docs/config.md)
+- [Diagrams](docs/diagrams.md)
 - [Theme](docs/theme.md)
 - [Visual check](examples/visual-check.md) – a document for checking the
   output by eye, and [another for images](examples/visual-check-images.md)
