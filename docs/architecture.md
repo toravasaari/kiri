@@ -81,21 +81,22 @@ A diagram stays a code block in the document model, `Block::CodeBlock`
 with its language, so the parser knows nothing about renderers and a
 diagram that cannot be drawn is shown as the code it already is. Whether
 it is drawn is decided when images are loaded. `src/images/mod.rs` keys
-each image by an `ImageKey`, a URL or a block (its language and source),
-and collects the code blocks whose language a renderer draws besides the
-lone images. It hands all of a document's diagrams to the renderer at
-once, then `src/images/drawn.rs` decodes each image it gets back by its
-content, as it decodes an image file, so sizing, the width limit and
-redrawing after a window resize work as for any image. An SVG is decoded as an SVG file is; a
-raster image, such as the PNG of a browser's drawing, becomes
-`Source::Dense`, pixels with their size in CSS pixels, so that it is
-sized in CSS pixels as an SVG is. Its pixels are reduced there to the
-most an image can be shown at, as many cells as one image covers each
-way, so that a large diagram holds no more memory than showing it
-needs; its size in CSS pixels stays. There it also grows an SVG
-diagram whose text runs past its edges, and lays one drawn in colours
-for the other page, light or dark, on a panel of its own background,
-after the reduction, so the panel's copy is small too.
+each image by an `ImageKey`, a URL or a block (its language, in lower
+case, and its source), and collects the code blocks whose language a
+renderer draws besides the lone images. It hands all of a document's
+diagrams to the renderer at once, then `src/images/drawn.rs` decodes
+each image it gets back by its content, as it decodes an image file, so
+sizing, the width limit and redrawing after a window resize work as for
+any image. An SVG is decoded as an SVG file is; a raster image, such as
+the PNG of a browser's drawing, becomes `Source::Dense`, pixels with
+their size in CSS pixels, so that it is sized in CSS pixels as an SVG
+is. Its pixels are reduced there to the most an image can be shown at,
+as many cells as one image covers each way, so that a large diagram
+holds no more memory than showing it needs; its size in CSS pixels
+stays. There it also grows an SVG diagram whose text runs past its
+edges, and lays one drawn in colours for the other page, light or dark,
+on a panel of its own background, after the reduction, so the panel's
+copy is small too.
 
 Renderers live in `src/diagrams/`, outside `src/kitty/` and the parser.
 A renderer implements the `Renderer` trait: whether it draws a language,
@@ -104,8 +105,23 @@ into an image file, SVG or raster, and the page its colours are for. It
 knows nothing about terminals, so an HTML backend could use the same
 image.
 
-- **Built-in:** `BuiltIn` draws Mermaid through merman, in a build with
-  the `mermaid` feature. `src/diagrams/mermaid.rs` fixes merman's SVG
+What kiri knows about each language is one entry of `LANGUAGES`, a
+`Language` in `src/diagrams/language.rs`: plain data, such as its name,
+its display name, the extensions of its files, its theme names and the
+command kiri looks for, with functions where languages differ, such as
+reading the page a diagram chooses from its source, finding its first
+line for a warning, writing a configuration file for its program, and
+its built-in renderer. Mermaid's entry and what it needs, its directives,
+the settings kiri gives a diagram and mermaid-cli's command line, are in
+`src/diagrams/mermaid/mod.rs`, compiled in every build; only the part
+that runs merman is behind the `mermaid` feature. The rest of kiri asks
+the table: input detection for diagram files, the configuration file's
+`[diagrams.<language>]` tables, `--doctor`'s rows and the image loader's
+panel colour.
+
+- **Built-in:** `BuiltIn` draws a language with the renderer its entry
+  has in this build: Mermaid through merman, in a build with the
+  `mermaid` feature. `src/diagrams/mermaid/merman.rs` fixes merman's SVG
   where resvg would lose part of it, and tests the fixes through merman
   itself. A fault that kiri works around elsewhere, such as text past a
   diagram's edge, has a test that fails once merman no longer has it.
@@ -141,8 +157,10 @@ pager catches them itself, from before its terminal is raw until it
 has been restored, or until its screen fails to open, when they end
 kiri again while the document is printed. A signal that was ignored
 when kiri started, as under `nohup`, stays ignored in both. A new
-diagram language joins `LANGUAGES` in `src/diagrams/mod.rs`, with a
-default command in `src/diagrams/find.rs` or a built-in renderer.
+diagram language is a new entry in `LANGUAGES` in
+`src/diagrams/language.rs`, in a module of its own as Mermaid's is, with
+a default command, a built-in renderer or both; the rest follows from
+the entry.
 
 ## Terminal capabilities
 
@@ -240,7 +258,11 @@ src/images/url.rs          data URLs, file URLs and paths, read up to a limit
 src/images/svg.rs          SVG images and the fonts for their text
 src/diagrams/mod.rs        diagrams written in code blocks, drawn as images
                            for the image loader
-src/diagrams/mermaid.rs    Mermaid through merman (feature `mermaid`)
+src/diagrams/language.rs   the diagram languages and what kiri knows of each
+src/diagrams/mermaid/mod.rs
+                           Mermaid's settings, directives and mmdc command
+src/diagrams/mermaid/merman.rs
+                           Mermaid through merman (feature `mermaid`)
 src/diagrams/external.rs   diagrams drawn by a command outside kiri
 src/diagrams/find.rs       finding a command, such as mmdc, when none is
                            configured

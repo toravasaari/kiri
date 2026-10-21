@@ -36,7 +36,10 @@ pub(super) fn finish_diagram(
     let panel = match (diagrams.theme, drawn.theme) {
         _ if !diagrams.panel => None,
         (Theme::Dark, Theme::Light) => Some(LIGHT_PANEL),
-        (Theme::Light, Theme::Dark) => Some(drawn.background.unwrap_or(DARK_PANEL)),
+        (Theme::Light, Theme::Dark) => {
+            let language = crate::diagrams::dark_background(language);
+            Some(drawn.background.or(language).unwrap_or(DARK_PANEL))
+        }
         (Theme::Light, Theme::Light) | (Theme::Dark, Theme::Dark) => None,
     };
     Ok(match (image, panel) {
@@ -104,8 +107,9 @@ fn on_panel(image: &RgbaImage, colour: [u8; 3], padding: u32) -> RgbaImage {
 /// The colour of the panel under a light diagram on a dark page.
 const LIGHT_PANEL: [u8; 3] = [255, 255, 255];
 
-/// The colour of the panel under a dark diagram on a light page, when its
-/// renderer does not tell its background: that of Mermaid's dark theme.
+/// The colour of the panel under a dark diagram on a light page, when
+/// neither its renderer nor its language tells its background: a dark
+/// grey.
 const DARK_PANEL: [u8; 3] = [0x33, 0x33, 0x33];
 
 /// How far, in CSS pixels, the panel reaches past the diagram on each side,
@@ -298,7 +302,7 @@ mod tests {
         let navy = Some([0x12, 0x34, 0x56]);
         // Eight pixels of panel around the drawing on each side: white
         // under a light diagram, whatever its background, and its own
-        // background, or Mermaid's dark one, under a dark diagram.
+        // background, or a dark grey, under a dark diagram.
         for (page, own, background, colour) in [
             (Theme::Dark, Theme::Light, None, [255, 255, 255]),
             (Theme::Dark, Theme::Light, navy, [255, 255, 255]),

@@ -436,83 +436,16 @@ fn smaller_scale(image: &[u8], scale: u32) -> Option<u32> {
     (smaller >= 1).then_some(smaller)
 }
 
-/// The kinds of Mermaid diagram whose configuration has `useMaxWidth`,
-/// as Mermaid 12 names them. Mermaid's configuration type leaves
-/// `treemap` out, but its default configuration has it.
-const MERMAID_DIAGRAMS: &[&str] = &[
-    "flowchart",
-    "swimlane",
-    "agentflow",
-    "sequence",
-    "gantt",
-    "journey",
-    "timeline",
-    "class",
-    "state",
-    "er",
-    "pie",
-    "quadrantChart",
-    "xyChart",
-    "requirement",
-    "architecture",
-    "mindmap",
-    "ishikawa",
-    "kanban",
-    "gitGraph",
-    "c4",
-    "sankey",
-    "packet",
-    "block",
-    "eventmodeling",
-    "treeView",
-    "radar",
-    "usecase",
-    "venn",
-    "wardley-beta",
-    "cynefin",
-    "railroad",
-    "treemap",
-];
-
-/// The Mermaid configuration that a command gets as `{config}`, which a
-/// diagram's own directive or front matter overrides, for a command that
-/// writes `output`.
-///
-/// It has each diagram drawn at its own width, rather than at most as wide
-/// as the page it is drawn on, which in mmdc's browser is 800 pixels: kiri
-/// shrinks a diagram to the window itself. It has the look and layout that
-/// the built-in renderer gives too, so that both draw a diagram alike.
-///
-/// For SVG, it has the labels drawn as SVG text, which kiri can draw,
-/// rather than as HTML, which it cannot: Mermaid 11 and later read the
-/// first `htmlLabels`, Mermaid 10 the others. A raster image is a
-/// browser's drawing, which has the labels as Mermaid draws them.
-fn mermaid_config(output: Output) -> String {
-    let mut config = serde_json::json!({});
-    for diagram in MERMAID_DIAGRAMS {
-        config[diagram] = serde_json::json!({"useMaxWidth": false});
-    }
-    if output == Output::Svg {
-        config["htmlLabels"] = false.into();
-        for diagram in ["flowchart", "class", "state"] {
-            config[diagram]["htmlLabels"] = false.into();
-        }
-    }
-    for (key, value) in super::MERMAID_SITE {
-        config[key] = value.into();
-    }
-    format!("{config}\n")
-}
-
 /// The configuration a command for `language` that writes `output` gets
 /// as `{config}`, and the extension of its file.
 fn config(language: &str, output: Output) -> Option<(String, &'static str)> {
-    (language.eq_ignore_ascii_case("mermaid")).then(|| (mermaid_config(output), "json"))
+    let file = super::language(language)?.config?;
+    Some(((file.text)(output), file.extension))
 }
 
 /// What a command writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Output {
+pub enum Output {
     /// SVG, or a raster image at one pixel to the CSS pixel.
     Svg,
     /// A raster image at [`SCALE`], when the command takes `{scale}`.
@@ -724,6 +657,7 @@ fn is_stack_frame(line: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diagrams::mermaid;
     use crate::testing::Scratch;
 
     /// A directory of its own for the test that calls it `name`, with
@@ -814,8 +748,9 @@ mod tests {
             assert_eq!(source_file, Ok(source.to_owned()));
         }
         let config = written("cat \"$4\" > \"$2\"\n", SOURCE);
-        assert_eq!(config, Ok(mermaid_config(Output::Svg)));
-        let config: serde_json::Value = serde_json::from_str(&mermaid_config(Output::Svg)).unwrap();
+        assert_eq!(config, Ok(mermaid::config(Output::Svg)));
+        let config: serde_json::Value =
+            serde_json::from_str(&mermaid::config(Output::Svg)).unwrap();
         assert_eq!(config["htmlLabels"], false);
         for diagram in ["flowchart", "class", "state"] {
             assert_eq!(config[diagram]["htmlLabels"], false, "{diagram}");
@@ -859,7 +794,7 @@ mod tests {
         assert_eq!(start, "diagram.png -s3 ");
         assert_eq!(drawn.scale, SCALE);
         // Labels as a browser draws them, in HTML.
-        assert_eq!(config, mermaid_config(Output::Raster));
+        assert_eq!(config, mermaid::config(Output::Raster));
         let config: serde_json::Value = serde_json::from_str(config).unwrap();
         assert_eq!(config.get("htmlLabels"), None);
         assert_eq!(config["flowchart"].get("htmlLabels"), None);
@@ -872,29 +807,8 @@ mod tests {
         let (start, config) = text.split_at(text.find('{').unwrap());
         assert_eq!(start, "diagram.svg 1 ");
         assert_eq!(drawn.scale, 1);
-        assert_eq!(config, mermaid_config(Output::Svg));
+        assert_eq!(config, mermaid::config(Output::Svg));
         assert_eq!(left(&scratch), Vec::<PathBuf>::new());
-    }
-
-    #[test]
-    fn mermaid_draws_diagrams_at_their_own_width() {
-        // Not as wide as the page at most, which is 800 pixels in mmdc's
-        // browser.
-        for output in [Output::Svg, Output::Raster] {
-            let config: serde_json::Value = serde_json::from_str(&mermaid_config(output)).unwrap();
-            let diagrams = [
-                "flowchart",
-                "sequence",
-                "class",
-                "state",
-                "er",
-                "gitGraph",
-                "treemap",
-            ];
-            for diagram in diagrams {
-                assert_eq!(config[diagram]["useMaxWidth"], false, "{diagram}");
-            }
-        }
     }
 
     #[test]

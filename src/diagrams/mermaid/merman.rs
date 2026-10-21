@@ -1,4 +1,4 @@
-//! Mermaid diagrams, drawn by merman.
+//! Mermaid diagrams, drawn by merman inside kiri.
 
 use std::collections::HashSet;
 
@@ -8,7 +8,8 @@ use merman::{
     Engine, MermaidConfig, OperationControl, RenderOutput, RenderTarget, Renderer, SvgRequest,
 };
 
-use super::{Drawn, Theme};
+use super::{MERMAID, MERMAID_SITE};
+use crate::diagrams::{Drawn, Theme};
 
 /// merman's version. Cargo tells a crate only its own version, so a test
 /// keeps this one in step with `Cargo.lock`.
@@ -27,13 +28,8 @@ pub fn version() -> String {
 pub fn render(source: &str, theme: Theme) -> Result<Drawn, String> {
     // GitHub's themes, look and layout. The site configuration is what a
     // diagram's own directive or front matter overrides.
-    let mut site = serde_json::json!({
-        "theme": match theme {
-            Theme::Light => "default",
-            Theme::Dark => "dark",
-        },
-    });
-    for (key, value) in super::MERMAID_SITE {
+    let mut site = serde_json::json!({ "theme": MERMAID.theme_names.of(theme) });
+    for (key, value) in MERMAID_SITE {
         site[key] = value.into();
     }
     let site = MermaidConfig::from_value(site);
@@ -167,7 +163,7 @@ mod tests {
 
     #[test]
     fn the_merman_version_is_the_one_in_cargo_lock() {
-        let lock = include_str!("../../Cargo.lock");
+        let lock = include_str!("../../../Cargo.lock");
         let entry = format!("name = \"merman\"\nversion = \"{MERMAN_VERSION}\"\n");
         assert!(lock.contains(&entry), "{entry}");
         assert!(version().starts_with("merman "), "{}", version());

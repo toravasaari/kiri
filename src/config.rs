@@ -430,7 +430,6 @@ impl<'de> Deserialize<'de> for DiagramsToml {
             }
 
             fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<DiagramsToml, A::Error> {
-                let languages = crate::diagrams::LANGUAGES;
                 let mut diagrams = DiagramsToml::default();
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
@@ -443,7 +442,7 @@ impl<'de> Deserialize<'de> for DiagramsToml {
                             diagrams.timeout = Some(seconds);
                         }
                         // In any case, as code blocks name it.
-                        language if languages.iter().any(|l| l.eq_ignore_ascii_case(language)) => {
+                        language if crate::diagrams::language(language).is_some() => {
                             let language = language.to_ascii_lowercase();
                             let table: DiagramToml = map.next_value()?;
                             if table.auto_detect == Some(false) {
@@ -454,7 +453,8 @@ impl<'de> Deserialize<'de> for DiagramsToml {
                             }
                         }
                         _ => {
-                            let keys = DIAGRAMS_KEYS.iter().chain(languages);
+                            let languages = crate::diagrams::LANGUAGES.iter().map(|l| l.name);
+                            let keys = DIAGRAMS_KEYS.iter().copied().chain(languages);
                             let keys: Vec<String> = keys.map(|key| format!("`{key}`")).collect();
                             return Err(de::Error::custom(format!(
                                 "unknown field `{key}`, expected one of {}",

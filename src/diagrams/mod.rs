@@ -14,21 +14,12 @@ use std::time::Duration;
 
 pub mod external;
 pub mod find;
-#[cfg(feature = "mermaid")]
+mod language;
 mod mermaid;
 
 pub use external::{Command, External};
-
-/// The languages kiri can draw diagrams in, as the info strings of code
-/// blocks name them.
-pub const LANGUAGES: &[&str] = &["mermaid"];
-
-/// The Mermaid settings that kiri gives a diagram, whichever renderer
-/// draws it, and that the diagram's own directive or front matter
-/// overrides: GitHub's look and layout. GitHub draws with Mermaid 11,
-/// which lays diagrams out with dagre; Mermaid 12, which merman follows,
-/// with ELK.
-pub(crate) const MERMAID_SITE: [(&str, &str); 2] = [("look", "classic"), ("layout", "dagre")];
+pub use language::{LANGUAGES, Language, ThemeNames, language};
+pub use mermaid::MMDC;
 
 /// The colours a diagram is drawn in when it does not choose its own.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -168,124 +159,82 @@ fn render_in_parallel<R: Renderer + Sync + ?Sized>(
 }
 
 /// The name of `theme` that the external command for `language` gets as
-/// `{theme}`: Mermaid's own theme names for Mermaid, `light` or `dark`
-/// otherwise.
+/// `{theme}`: the language's own theme names, and otherwise `light` or
+/// `dark`.
 pub fn theme_name(language: &str, theme: Theme) -> &'static str {
-    let mermaid = language.eq_ignore_ascii_case("mermaid");
-    match (theme, mermaid) {
-        (Theme::Light, true) => "default",
-        (Theme::Light, false) => "light",
-        (Theme::Dark, _) => "dark",
-    }
+    let names = self::language(language).map_or(ThemeNames::PLAIN, |language| language.theme_names);
+    names.of(theme)
 }
 
-/// The name of `language` in a sentence: `Mermaid` for Mermaid, and
-/// otherwise the name as the info string gives it.
+/// The name of `language` in a sentence, such as `Mermaid`, and otherwise
+/// the name as the info string gives it.
 pub fn display_name(language: &str) -> &str {
-    match language.eq_ignore_ascii_case("mermaid") {
-        true => "Mermaid",
-        false => language,
-    }
+    self::language(language).map_or(language, |known| known.display_name)
 }
 
 /// The extension of a file of source in `language`, by which a program
-/// such as `mmdc` tells what the file is.
+/// such as `mmdc` tells what the file is: the language's own, and
+/// otherwise its name in lower case, without what a file name cannot
+/// safely have.
 pub fn extension(language: &str) -> String {
-    if language.eq_ignore_ascii_case("mermaid") {
-        "mmd".to_owned()
-    } else {
-        language.to_ascii_lowercase()
-    }
-}
-
-/// The page a Mermaid diagram chooses its colours for, in a directive
-/// such as `%%{init: {"theme": "forest"}}%%` or under `config:` in its
-/// front matter, read from the source for a renderer that does not tell.
-/// `None` when it chooses nothing, and for other languages.
-pub fn chosen_theme(language: &str, source: &str) -> Option<Theme> {
-    if !language.eq_ignore_ascii_case("mermaid") {
-        return None;
-    }
-    // The text of the front matter and of the directives.
-    let mut settings = String::new();
-    let mut lines = source.lines().skip_while(|line| line.trim().is_empty());
-    let mut directive = false;
-    let mut first = true;
-    while let Some(line) = lines.next() {
-        let text = line.trim();
-        if first && text == "---" {
-            for line in lines.by_ref().take_while(|line| line.trim() != "---") {
-                settings.push_str(line);
-                settings.push('\n');
+    match self::language(language) {
+        Some(known) => known.source_extension.to_owned(),
+        None => {
+            let name: String = (language.chars())
+                .filter(char::is_ascii_alphanumeric)
+                .map(|c| c.to_ascii_lowercase())
+                .collect();
+            if name.is_empty() {
+                "txt".to_owned()
+            } else {
+                name
             }
-        } else if directive || text.starts_with("%%{") {
-            settings.push_str(text);
-            settings.push('\n');
-            directive = !text.ends_with("}%%");
         }
-        first = false;
-    }
-    if value_of(&settings, "darkMode") == Some("true") {
-        return Some(Theme::Dark);
-    }
-    match value_of(&settings, "theme")? {
-        "null" => None,
-        name if name.ends_with("dark") => Some(Theme::Dark),
-        _ => Some(Theme::Light),
     }
 }
 
-/// The value of the first `key` in `text`, YAML or JSON with or without
-/// quotes, as a word.
-fn value_of<'a>(text: &'a str, key: &str) -> Option<&'a str> {
-    let word = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
-    let quote = |c: char| c == '"' || c == '\'';
-    text.match_indices(key).find_map(|(at, _)| {
-        if text[..at].ends_with(word) {
-            return None;
-        }
-        let rest = text[at + key.len()..].trim_start_matches(quote);
-        let rest = rest.trim_start_matches([' ', '\t']).strip_prefix(':')?;
-        let rest = rest.trim_start().trim_start_matches(quote);
-        let end = rest.find(|c: char| !word(c)).unwrap_or(rest.len());
-        Some(&rest[..end]).filter(|value| !value.is_empty())
-    })
+/// The page a diagram in `language` chooses its colours for, read from
+/// its `source` for a renderer that does not tell; `None` when it chooses
+/// nothing, or the language has no way to.
+pub fn chosen_theme(language: &str, source: &str) -> Option<Theme> {
+    (self::language(language)?.chosen_page?)(source)
 }
 
-/// The renderers built into kiri: merman for Mermaid, in a build with the
-/// `mermaid` feature.
+/// The colour of the panel under a diagram in `language` that is in dark
+/// colours on a light page, when its renderer does not tell its
+/// background.
+pub fn dark_background(language: &str) -> Option<[u8; 3]> {
+    self::language(language)?.dark_background
+}
+
+/// The renderers built into kiri, such as merman for Mermaid in a build
+/// with the `mermaid` feature.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BuiltIn;
 
 impl BuiltIn {
-    fn is_mermaid(language: &str) -> bool {
-        cfg!(feature = "mermaid") && language.eq_ignore_ascii_case("mermaid")
+    /// The renderer built in for `language`, in this build.
+    fn of(language: &str) -> Option<language::BuiltInRenderer> {
+        self::language(language)?.built_in
     }
 
     /// What this build has built in to draw `language`, with its version,
     /// such as `merman 0.9.1, Mermaid 12.1.0`; `None` when it has nothing.
     pub fn version(language: &str) -> Option<String> {
-        #[cfg(feature = "mermaid")]
-        if Self::is_mermaid(language) {
-            return Some(mermaid::version());
-        }
-        let _ = language;
-        None
+        Self::of(language).map(|built_in| (built_in.version)())
     }
 }
 
 impl Renderer for BuiltIn {
     fn draws(&self, language: &str) -> bool {
-        Self::is_mermaid(language)
+        Self::of(language).is_some()
     }
 
     fn render(&self, language: &str, source: &str, theme: Theme) -> Result<Drawn, String> {
-        #[cfg(feature = "mermaid")]
-        if Self::is_mermaid(language) {
-            return mermaid::render(source, theme);
+        match Self::of(language) {
+            Some(built_in) => (built_in.render)(source, theme),
+            None => Err(format!("{language} diagrams are not drawn in this build")),
         }
-        let _ = (source, theme);
-        Err(format!("{language} diagrams are not drawn in this build"))
     }
 }
 
@@ -446,29 +395,19 @@ impl Renderer for NoRenderer {
 
 /// How a warning names the diagram `source` in `language` that starts on
 /// `line` of its document: by that line, or else by the diagram's own
-/// first line, past any front matter, directives and comments.
+/// first line, past anything in it that is not the diagram, such as front
+/// matter, directives and comments.
 pub fn name(language: &str, source: &str, line: usize, by_line: bool) -> String {
     if by_line {
         return format!("{language} diagram on line {line}");
     }
-    let mut lines = source.lines().map(str::trim);
-    let mut first = None;
-    while let Some(text) = lines.next() {
-        if text.is_empty() || text.starts_with("%%") {
-            continue;
-        }
-        if text == "---" && first.is_none() {
-            // Front matter, up to the next `---`.
-            lines.by_ref().find(|text| *text == "---");
-            first = Some("");
-            continue;
-        }
-        first = Some(text);
-        break;
-    }
-    match first {
-        Some(text) if !text.is_empty() => format!("{language} diagram \"{text}\""),
-        _ => format!("{language} diagram"),
+    let first_line = match self::language(language) {
+        Some(known) => (known.first_line)(source),
+        None => language::first_line(source),
+    };
+    match first_line {
+        Some(text) => format!("{language} diagram \"{text}\""),
+        None => format!("{language} diagram"),
     }
 }
 
@@ -555,50 +494,6 @@ mod tests {
     }
 
     #[test]
-    fn reads_the_theme_a_mermaid_diagram_chooses() {
-        let flowchart = "flowchart TD\n  A --> B\n";
-        let front_matter =
-            |config: &str| format!("---\ntitle: T\nconfig:\n{config}---\n{flowchart}");
-        let cases = [
-            (flowchart.to_owned(), None),
-            (
-                format!("%%{{init: {{\"theme\": \"forest\"}}}}%%\n{flowchart}"),
-                Some(Theme::Light),
-            ),
-            (
-                format!("%%{{init: {{'theme':'dark'}}}}%%\n{flowchart}"),
-                Some(Theme::Dark),
-            ),
-            (
-                format!(
-                    "%%{{ initialize: {{ \"themeVariables\": {{}}, \"theme\" : \"neutral\" }} }}%%\n{flowchart}"
-                ),
-                Some(Theme::Light),
-            ),
-            (
-                format!(
-                    "%%{{init: {{\"themeVariables\": {{\"primaryColor\": \"#000\"}}}}}}%%\n{flowchart}"
-                ),
-                None,
-            ),
-            (front_matter("  theme: base\n"), Some(Theme::Light)),
-            (front_matter("  theme: \"redux-dark\"\n"), Some(Theme::Dark)),
-            (
-                front_matter("  theme: base\n  themeVariables:\n    darkMode: true\n"),
-                Some(Theme::Dark),
-            ),
-            // Only the directives and the front matter count.
-            (format!("{flowchart}  C[theme: dark]\n"), None),
-        ];
-        for (source, theme) in cases {
-            assert_eq!(chosen_theme("mermaid", &source), theme, "{source}");
-        }
-        let forest = format!("%%{{init: {{\"theme\": \"forest\"}}}}%%\n{flowchart}");
-        assert_eq!(chosen_theme("Mermaid", &forest), Some(Theme::Light));
-        assert_eq!(chosen_theme("dot", &forest), None);
-    }
-
-    #[test]
     fn the_theme_has_mermaid_names_for_mermaid() {
         assert_eq!(theme_name("mermaid", Theme::Light), "default");
         assert_eq!(theme_name("Mermaid", Theme::Dark), "dark");
@@ -608,6 +503,22 @@ mod tests {
         assert_eq!(display_name("mermaid"), "Mermaid");
         assert_eq!(display_name("dot"), "dot");
         assert_eq!(extension("Dot"), "dot");
+        // A name that is no safe file name.
+        assert_eq!(extension("../C++"), "c");
+        assert_eq!(extension("/"), "txt");
+    }
+
+    #[test]
+    fn mermaid_s_dark_theme_has_a_dark_grey_background() {
+        assert_eq!(dark_background("Mermaid"), Some([0x33, 0x33, 0x33]));
+        assert_eq!(dark_background("dot"), None);
+    }
+
+    #[test]
+    fn a_mermaid_diagram_chooses_its_theme_in_its_source() {
+        let forest = "%%{init: {\"theme\": \"forest\"}}%%\nflowchart TD\n";
+        assert_eq!(chosen_theme("Mermaid", forest), Some(Theme::Light));
+        assert_eq!(chosen_theme("dot", forest), None);
     }
 
     #[test]
@@ -624,7 +535,7 @@ mod tests {
             BuiltIn::version("mermaid").is_some(),
             cfg!(feature = "mermaid")
         );
-        for language in LANGUAGES {
+        for language in LANGUAGES.iter().map(|language| language.name) {
             let drawn = BuiltIn.draws(language);
             assert_eq!(BuiltIn::version(language).is_some(), drawn, "{language}");
         }
@@ -656,5 +567,10 @@ mod tests {
             "mermaid diagram \"sequenceDiagram\""
         );
         assert_eq!(name("mermaid", "\n", 1, false), "mermaid diagram");
+        // Another language's first line is its first line.
+        assert_eq!(
+            name("dot", "%% x\ndigraph {}\n", 1, false),
+            "dot diagram \"%% x\""
+        );
     }
 }
