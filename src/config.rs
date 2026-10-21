@@ -441,9 +441,10 @@ impl<'de> Deserialize<'de> for DiagramsToml {
                             let seconds = seconds.ok_or_else(|| de::Error::custom(error))?;
                             diagrams.timeout = Some(seconds);
                         }
-                        // In any case, as code blocks name it.
-                        language if crate::diagrams::language(language).is_some() => {
-                            let language = language.to_ascii_lowercase();
+                        // In any case, or by an alias, as code blocks name
+                        // it; kept under the language's own name.
+                        key if let Some(language) = crate::diagrams::language(key) => {
+                            let language = language.name.to_owned();
                             let table: DiagramToml = map.next_value()?;
                             if table.auto_detect == Some(false) {
                                 diagrams.no_search.insert(language.clone());
