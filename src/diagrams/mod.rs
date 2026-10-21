@@ -318,9 +318,9 @@ impl Renderers {
         Self::new(find::commands(configured, no_search, search))
     }
 
-    /// Whether programs outside kiri draw any language.
-    pub fn runs_programs(&self) -> bool {
-        !self.external.is_empty()
+    /// Whether programs outside kiri draw any of `languages`.
+    pub fn runs_programs_for<'a>(&self, languages: impl IntoIterator<Item = &'a str>) -> bool {
+        (languages.into_iter()).any(|language| self.external.draws(language))
     }
 
     /// These renderers stopping each program they run after `limit`.

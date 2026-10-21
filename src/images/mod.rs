@@ -20,7 +20,7 @@ use image::error::{ImageFormatHint, UnsupportedErrorKind};
 use image::{ImageFormat, RgbaImage};
 use kiri_image_utils::DecodeError;
 
-use crate::diagrams::{Diagrams, Drawn, Theme};
+use crate::diagrams::{Diagrams, Drawn, Renderer, Theme};
 use crate::model::{Block, Document, Inline};
 
 pub use svg::{Fonts, Svg};
@@ -401,6 +401,23 @@ pub fn load_with(
         images.insert(key, loaded);
     }
     images
+}
+
+/// The languages of the code blocks in `document` that `renderer` draws
+/// as diagrams, in order, once for each block.
+pub fn diagram_languages<'a>(document: &'a Document, renderer: &dyn Renderer) -> Vec<&'a str> {
+    let mut wanted = Vec::new();
+    let diagrams = Diagrams {
+        renderer,
+        ..Diagrams::none()
+    };
+    collect_blocks(&document.blocks, &diagrams, &mut wanted);
+    (wanted.into_iter())
+        .filter_map(|image| match image {
+            Wanted::Diagram { language, .. } => Some(language),
+            Wanted::Url(_) => None,
+        })
+        .collect()
 }
 
 /// An image a document shows as a block.

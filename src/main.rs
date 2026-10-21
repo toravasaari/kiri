@@ -553,9 +553,10 @@ fn on_page(mut caps: Capabilities, settings: &Settings) -> Capabilities {
 
 /// The images of `document`, from `file` or not as for `show_document`,
 /// loaded and drawn when `settings` want them and `caps` can show them;
-/// otherwise none, as they are alt text, without warnings. While programs
-/// draw diagrams, `interrupt` catches Ctrl-C, SIGTERM and SIGHUP, which
-/// stop them; such a signal is the failure.
+/// otherwise none, as they are alt text, without warnings. When programs
+/// draw any of its diagrams, `interrupt` catches Ctrl-C, SIGTERM and
+/// SIGHUP while the images load, which stop the programs; such a signal
+/// is the failure.
 fn load_images(
     cli: &Cli,
     document: &Document,
@@ -580,7 +581,9 @@ fn load_images(
         if let Some(cache) = kiri::config::cache_directory(env) {
             chosen = chosen.with_work_dir(cache.join("diagrams"));
         }
-        if chosen.runs_programs() {
+        // Only while a program draws one of the document's diagrams: they
+        // otherwise end kiri at once, as without diagrams.
+        if chosen.runs_programs_for(kiri::images::diagram_languages(document, &chosen)) {
             *interrupt = Interrupt::catch();
             if let Some(interrupt) = interrupt {
                 chosen = chosen.stopped_by(interrupt.flag());

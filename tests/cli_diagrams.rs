@@ -526,6 +526,60 @@ fn a_signal_ignored_when_kiri_starts_stays_ignored() {
 }
 
 #[test]
+fn ctrl_c_ends_kiri_at_once_when_no_diagram_runs_a_program() {
+    use std::os::unix::process::ExitStatusExt;
+    use std::time::{Duration, Instant};
+
+    use rustix::process::{Pid, Signal, kill_process};
+
+    // A command is configured, but the document has no diagram for it.
+    let dir = Scratch::new("mermaid-no-diagram");
+    common::write(&dir.join("config/kiri/config.toml"), &external(&dir, DRAWS));
+    // An SVG that takes a while to read and then does not load, many
+    // times over: loading the images takes far longer than the test
+    // waits.
+    let rects: String = (0..150_000)
+        .map(|n| {
+            format!(
+                "<rect x=\"{}\" y=\"{}\" width=\"1\" height=\"1\"/>",
+                n % 100,
+                n / 1000
+            )
+        })
+        .collect();
+    let svg = format!("<svg xmlns=\"http://www.w3.org/2000/svg\">{rects}<unclosed");
+    std::fs::write(dir.join("slow.svg"), svg).unwrap();
+    let images: String = (0..200).map(|n| format!("![](slow.svg?{n})\n\n")).collect();
+    let document = dir.join("document.md");
+    std::fs::write(&document, format!("# Images\n\n{images}")).unwrap();
+    let mut kiri = common::command(&dir)
+        .args(["--mode", "kitty"])
+        .arg(&document)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    // Loading the images.
+    std::thread::sleep(Duration::from_millis(500));
+    let pid = Pid::from_raw(kiri.id() as i32).unwrap();
+    kill_process(pid, Signal::INT).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        if let Some(status) = kiri.try_wait().unwrap() {
+            break Some(status);
+        }
+        if Instant::now() > deadline {
+            kiri.kill().unwrap();
+            kiri.wait().unwrap();
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let status = status.map(|status| status.signal());
+    assert_eq!(status, Some(Some(Signal::INT.as_raw())), "Ctrl-C ends kiri");
+}
+
+#[test]
 fn ctrl_c_ends_kiri_when_the_pager_cannot_open_and_it_prints_instead() {
     use std::io::{BufRead, BufReader};
     use std::os::unix::process::{CommandExt, ExitStatusExt};
