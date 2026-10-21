@@ -867,10 +867,9 @@ impl Choices {
 pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices {
     let mut warnings = Vec::new();
     let w = &mut warnings;
-    let paging = variable(env, "KIRI_PAGING");
     let paging = resolve(
         options.paging.clone(),
-        paging,
+        variable(env, "KIRI_PAGING"),
         config.paging,
         Paging::default(),
         w,
