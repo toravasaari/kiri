@@ -1,20 +1,21 @@
 //! Signals that would end kiri while programs outside kiri draw diagrams:
-//! Ctrl-C (SIGINT), SIGTERM and SIGHUP. The programs run in process groups
-//! of their own, which Ctrl-C does not reach, nor a signal sent to kiri
-//! alone, so kiri catches these, stops the programs and removes their
-//! files, and then ends as the signal would have ended it.
+//! Ctrl-C (SIGINT), Ctrl-\ (SIGQUIT), SIGTERM and SIGHUP. The programs run
+//! in process groups of their own, which Ctrl-C does not reach, nor a
+//! signal sent to kiri alone, so kiri catches these, stops the programs
+//! and removes their files, and then ends as the signal would have ended
+//! it.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use signal_hook::SigId;
-use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
+use signal_hook::consts::{SIGHUP, SIGINT, SIGQUIT, SIGTERM};
 
 /// The signals an [`Interrupt`] catches.
-const SIGNALS: [i32; 3] = [SIGINT, SIGTERM, SIGHUP];
+const SIGNALS: [i32; 4] = [SIGINT, SIGQUIT, SIGTERM, SIGHUP];
 
-/// Catches Ctrl-C, SIGTERM and SIGHUP while it lives, unless they are
-/// ignored: one sets a flag instead of ending kiri, until
+/// Catches Ctrl-C, Ctrl-\, SIGTERM and SIGHUP while it lives, unless they
+/// are ignored: one sets a flag instead of ending kiri, until
 /// [`release`](Self::release). Dropping it takes its handlers away, which
 /// leaves the signals ignored until another catches them, as the pager's
 /// screen does; so it lives until kiri ends or the pager's screen catches
