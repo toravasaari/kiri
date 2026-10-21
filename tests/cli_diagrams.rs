@@ -517,6 +517,7 @@ fn ctrl_c_ends_kiri_at_once_when_no_diagram_runs_a_program() {
         })
         .collect();
     let svg = format!("<svg xmlns=\"http://www.w3.org/2000/svg\">{rects}<unclosed");
+    let size = svg.len();
     std::fs::write(dir.join("slow.svg"), svg).unwrap();
     let images: String = (0..200).map(|n| format!("![](slow.svg?{n})\n\n")).collect();
     let document = dir.join("document.md");
@@ -528,8 +529,18 @@ fn ctrl_c_ends_kiri_at_once_when_no_diagram_runs_a_program() {
         .stderr(std::process::Stdio::null())
         .spawn()
         .unwrap();
-    // Loading the images.
-    std::thread::sleep(Duration::from_millis(500));
+    // Loading the images: kiri has read more bytes than one of them has.
+    let io = std::path::Path::new("/proc")
+        .join(kiri.id().to_string())
+        .join("io");
+    let read = || {
+        let io = std::fs::read_to_string(&io).unwrap_or_default();
+        (io.lines())
+            .find_map(|line| line.strip_prefix("rchar: ")?.parse::<usize>().ok())
+            .unwrap_or(0)
+    };
+    let loading = common::wait_until(Duration::from_secs(5), || read() > size);
+    assert!(loading, "kiri loads the images");
     let pid = Pid::from_raw(kiri.id() as i32).unwrap();
     kill_process(pid, Signal::INT).unwrap();
     let status = common::wait_or_kill(&mut kiri, Duration::from_secs(5));
@@ -543,6 +554,7 @@ fn ctrl_c_ends_kiri_when_the_pager_cannot_open_and_it_prints_instead() {
     use std::os::unix::process::{CommandExt, ExitStatusExt};
     use std::time::Duration;
 
+    use rustix::event::{PollFd, PollFlags, Timespec, poll};
     use rustix::process::{Pid, Signal, kill_process};
 
     let dir = Scratch::new("mermaid-printed");
@@ -552,7 +564,7 @@ fn ctrl_c_ends_kiri_when_the_pager_cannot_open_and_it_prints_instead() {
     let document = dir.join("document.md");
     std::fs::write(&document, format!("{FLOWCHART}\n{lines}")).unwrap();
     // The terminal side is not read.
-    let (_terminal, tty) = common::pty();
+    let (terminal, tty) = common::pty();
     let mut command = common::command(&dir);
     command
         .args(["--mode", "kitty", "-p"])
@@ -577,8 +589,10 @@ fn ctrl_c_ends_kiri_when_the_pager_cannot_open_and_it_prints_instead() {
         line,
         "kiri: no terminal to read keys from, so the document is printed\n"
     );
-    // Printing, and waiting for the terminal.
-    std::thread::sleep(Duration::from_millis(300));
+    // Printing, and waiting for the terminal: the document reaches it.
+    let mut fds = [PollFd::new(&terminal, PollFlags::IN)];
+    let timeout = Timespec::try_from(Duration::from_secs(5)).unwrap();
+    assert_eq!(poll(&mut fds, Some(&timeout)).unwrap(), 1, "kiri prints");
     let pid = Pid::from_raw(kiri.id() as i32).unwrap();
     kill_process(pid, Signal::INT).unwrap();
     let status = common::wait_or_kill(&mut kiri, Duration::from_secs(5));
