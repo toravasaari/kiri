@@ -1,7 +1,7 @@
 # Diagrams
 
-kiri draws diagrams in code blocks, and diagram files given on their
-own, as images.
+kiri shows a diagram written in a code block as an image in the
+block's place, and a diagram file given on its own as an image.
 
 A code block whose language kiri draws, `mermaid` for now, is shown as a
 diagram. The first of these that is given decides whether it is:
