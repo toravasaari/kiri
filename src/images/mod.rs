@@ -347,7 +347,7 @@ pub fn load_with(
     diagrams: &Diagrams<'_>,
 ) -> Images {
     let mut wanted = Vec::new();
-    collect_blocks(&document.blocks, diagrams, &mut wanted);
+    collect_blocks(&document.blocks, diagrams.renderer, &mut wanted);
     let mut keys = HashSet::new();
     wanted.retain(|image| keys.insert(image.key()));
     // The diagrams first, all together, so a renderer can draw several
@@ -406,11 +406,7 @@ pub fn load_with(
 /// as diagrams, in order, once for each block.
 pub fn diagram_languages<'a>(document: &'a Document, renderer: &dyn Renderer) -> Vec<&'a str> {
     let mut wanted = Vec::new();
-    let diagrams = Diagrams {
-        renderer,
-        ..Diagrams::none()
-    };
-    collect_blocks(&document.blocks, &diagrams, &mut wanted);
+    collect_blocks(&document.blocks, renderer, &mut wanted);
     (wanted.into_iter())
         .filter_map(|image| match image {
             Wanted::Diagram { language, .. } => Some(language),
@@ -445,9 +441,9 @@ impl Wanted<'_> {
 }
 
 /// The images `blocks` show as image blocks, and the code blocks among
-/// them that `diagrams` draws. Other images are only ever shown as alt
+/// them that `renderer` draws. Other images are only ever shown as alt
 /// text, so they are not loaded at all.
-fn collect_blocks<'a>(blocks: &'a [Block], diagrams: &Diagrams<'_>, wanted: &mut Vec<Wanted<'a>>) {
+fn collect_blocks<'a>(blocks: &'a [Block], renderer: &dyn Renderer, wanted: &mut Vec<Wanted<'a>>) {
     for block in blocks {
         match block {
             Block::Paragraph(content) => {
@@ -455,17 +451,17 @@ fn collect_blocks<'a>(blocks: &'a [Block], diagrams: &Diagrams<'_>, wanted: &mut
             }
             Block::BlockQuote(blocks)
             | Block::Alert { blocks, .. }
-            | Block::Details { blocks, .. } => collect_blocks(blocks, diagrams, wanted),
+            | Block::Details { blocks, .. } => collect_blocks(blocks, renderer, wanted),
             Block::List(list) => {
                 for item in &list.items {
-                    collect_blocks(&item.blocks, diagrams, wanted);
+                    collect_blocks(&item.blocks, renderer, wanted);
                 }
             }
             Block::CodeBlock {
                 language: Some(language),
                 code,
                 line,
-            } if diagrams.renderer.draws(language) => wanted.push(Wanted::Diagram {
+            } if renderer.draws(language) => wanted.push(Wanted::Diagram {
                 language,
                 source: code,
                 line: *line,
