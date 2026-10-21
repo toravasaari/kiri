@@ -85,7 +85,7 @@ impl Drop for Interrupt {
 
 /// Whether `signal` is ignored, as one stays that kiri's parent ignored;
 /// false when that cannot be told.
-fn ignored(signal: i32) -> bool {
+pub(super) fn ignored(signal: i32) -> bool {
     let mut action = std::mem::MaybeUninit::<libc::sigaction>::zeroed();
     // SAFETY: with no new action, sigaction only writes the current one
     // to `action`, which is valid for writes of its size.

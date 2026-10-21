@@ -15,7 +15,7 @@ use super::probe;
 use super::window::{WindowSize, window_size};
 
 /// The signals that would end kiri, caught while the pager's screen is
-/// open: one that comes sets a flag instead.
+/// open unless they are ignored: one that comes sets a flag instead.
 /// Dropping it takes the handlers away.
 struct Signals {
     /// The signal that came, 0 before one did.
@@ -32,12 +32,17 @@ impl Signals {
         }
     }
 
-    /// SIGTERM, SIGHUP, SIGINT and SIGQUIT caught from now on. Ctrl+C sends no
-    /// signal in raw mode; these come from elsewhere, such as `kill` or a
-    /// terminal that closes, or from Ctrl+C before raw mode.
+    /// SIGTERM, SIGHUP, SIGINT and SIGQUIT caught from now on, except one
+    /// that is ignored, as under `nohup`. Ctrl+C sends no signal in raw
+    /// mode; these come from elsewhere, such as `kill` or a terminal that
+    /// closes, or from Ctrl+C before raw mode.
     fn catch() -> Self {
         let mut signals = Self::none();
+        // One that is ignored stays so.
         for signal in [SIGTERM, SIGHUP, SIGINT, SIGQUIT] {
+            if super::interrupt::ignored(signal) {
+                continue;
+            }
             let flag = Arc::clone(&signals.came);
             if let Ok(id) = signal_hook::flag::register_usize(signal, flag, signal as usize) {
                 signals.handlers.push(id);
@@ -464,6 +469,25 @@ mod tests {
         screen.close();
     }
 
+    /// Run on its own by [`in_child`]: with SIGTERM ignored, as under
+    /// `nohup`, opens a screen on the terminal `KIRI_TEST_PTY` names,
+    /// gets SIGTERM while it is open, and closes it.
+    #[test]
+    #[ignore = "run by in_child"]
+    fn ignored_sigterm_on_the_screen() {
+        // SAFETY: setting a signal to be ignored needs no handler.
+        unsafe { libc::signal(SIGTERM, libc::SIG_IGN) };
+        let tty = File::options()
+            .read(true)
+            .write(true)
+            .open(std::env::var_os(PTY).unwrap())
+            .unwrap();
+        let screen = Screen::catching_on(tty, Vec::new(), || {}).expect("the screen opens");
+        // SAFETY: raise has no preconditions.
+        unsafe { libc::raise(SIGTERM) };
+        screen.close();
+    }
+
     /// Run on its own by [`in_child`]: as kiri does after external
     /// programs drew diagrams, opens a screen on the terminal
     /// `KIRI_TEST_PTY` names while the drawing's signal guard is
@@ -545,6 +569,15 @@ mod tests {
             "the terminal is left raw"
         );
         assert_eq!(status.signal(), Some(SIGTERM), "{status}");
+    }
+
+    #[test]
+    fn a_signal_ignored_at_start_stays_ignored_on_the_screen() {
+        use rustix::termios::LocalModes;
+
+        let (status, terminal) = in_child("ignored_sigterm_on_the_screen");
+        assert!(status.success(), "{status}");
+        assert!(terminal.local_modes.contains(LocalModes::ICANON));
     }
 
     #[test]

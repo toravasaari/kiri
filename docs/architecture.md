@@ -120,8 +120,10 @@ signal sent to kiri alone, so while they draw, `src/term/interrupt.rs`
 catches SIGINT, SIGTERM and SIGHUP: `External` stops them, SIGINT first
 so that `mmdc` can close its browser, removes their files, and kiri then
 ends by the signal that came. Once the diagrams are drawn, the signals
-end kiri as before, and the pager catches them itself once its screen
-is open. A new diagram language
+end kiri as before, and the pager catches them itself, from before its
+terminal is raw until it has been restored. A signal that was ignored
+when kiri started, as under `nohup`, stays ignored in both. A new
+diagram language
 joins `LANGUAGES` in `src/diagrams/mod.rs`, with a default command in
 `src/diagrams/find.rs` or a built-in renderer.
 
