@@ -345,7 +345,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     let mut bytes = head;
     reader.read_to_end(&mut bytes).map_err(failed)?;
     // Text named by `--format` or by its extension is not an image either.
-    let named = cli.format.is_some() || matches!(input, Input::Table(_));
+    let named = cli.format.is_some() || matches!(input, Input::Table(_) | Input::Diagram(_));
     let source = String::from_utf8(bytes).map_err(|_| {
         if named {
             format!("{}: not UTF-8 text", path.display())

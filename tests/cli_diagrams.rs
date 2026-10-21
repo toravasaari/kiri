@@ -809,6 +809,20 @@ fn a_mermaid_file_that_fails_to_draw_shows_its_source_and_is_an_error() {
 }
 
 #[test]
+fn a_mermaid_file_not_in_utf_8_is_an_error() {
+    let dir = Scratch::new("mermaid-file-latin1");
+    let path = dir.join("flow.mmd");
+    std::fs::write(&path, b"flowchart TD\n    A[\xe4] --> B\n").unwrap();
+    let out = common::kiri_on(&dir, &path, &["--mode", "plain"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        text(&out.stderr),
+        format!("kiri: {}: not UTF-8 text\n", path.display())
+    );
+    assert_eq!(text(&out.stdout), "");
+}
+
+#[test]
 fn a_mermaid_file_takes_the_theme_and_the_panel_of_the_page() {
     let dir = Scratch::new("mermaid-file-theme");
     let record = dir.join("theme");
