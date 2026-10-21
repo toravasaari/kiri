@@ -224,6 +224,7 @@ src/term/progress.rs       the line that tells how far drawing diagrams has
                            got
 src/term/interrupt.rs      signals while programs draw diagrams
 src/term/testing.rs        pseudo-terminals for the tests
+src/testing.rs             scratch directories for the tests
 src/config.rs              settings: options, environment, configuration file
 src/doctor.rs              the --doctor report as Markdown
 src/list.rs                the --list-emojis output: Markdown for a terminal,

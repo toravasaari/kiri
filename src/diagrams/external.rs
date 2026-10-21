@@ -697,60 +697,54 @@ fn is_stack_frame(line: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::Scratch;
 
-    /// A directory of its own for one test, removed when the test ends.
-    struct Scratch(PathBuf);
-
-    impl Scratch {
-        fn new(name: &str) -> Self {
-            let dir = std::env::temp_dir().join(format!("kiri-external-{}-{name}", process::id()));
-            let _ = fs::remove_dir_all(&dir);
-            fs::create_dir_all(dir.join("temp")).unwrap();
-            Scratch(dir)
-        }
-
-        /// A renderer that runs the shell script `script` for Mermaid,
-        /// with the input, output, theme and configuration as its
-        /// arguments.
-        fn renderer(&self, script: &str) -> External {
-            let path = self.0.join("render.sh");
-            fs::write(&path, script).unwrap();
-            // Through sh, so the test does not run a file it has just
-            // written, which can fail with "text file busy" while another
-            // test starts a program.
-            let argv = [
-                "/bin/sh",
-                &path.to_string_lossy(),
-                "{input}",
-                "{output}",
-                "{theme}",
-                "{config}",
-            ];
-            let command = Command::new(argv.map(String::from).to_vec());
-            External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
-                .with_work_dir(self.0.join("temp"))
-        }
-
-        /// What the directory for the files has in it.
-        fn left(&self) -> Vec<PathBuf> {
-            (fs::read_dir(self.0.join("temp")).unwrap())
-                .map(|entry| entry.unwrap().path())
-                .collect()
-        }
+    /// A directory of its own for the test that calls it `name`, with
+    /// `temp` in it for the files. Keep the name short: some tests make
+    /// the directory for the files in it, which must be short enough for
+    /// the sockets a browser makes there.
+    fn scratch(name: &str) -> Scratch {
+        let scratch = Scratch::new(&format!("external-{name}"));
+        fs::create_dir_all(scratch.join("temp")).unwrap();
+        scratch
     }
 
-    impl Drop for Scratch {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
+    /// A renderer that runs the shell script `script` for Mermaid, with
+    /// the input, output, theme and configuration as its arguments, and
+    /// its files in `temp` under `dir`.
+    fn script_renderer(dir: &Path, script: &str) -> External {
+        let path = dir.join("render.sh");
+        fs::write(&path, script).unwrap();
+        // Through sh, so the test does not run a file it has just
+        // written, which can fail with "text file busy" while another
+        // test starts a program.
+        let argv = [
+            "/bin/sh",
+            &path.to_string_lossy(),
+            "{input}",
+            "{output}",
+            "{theme}",
+            "{config}",
+        ];
+        let command = Command::new(argv.map(String::from).to_vec());
+        External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
+            .with_work_dir(dir.join("temp"))
+    }
+
+    /// What the directory for the files under `dir` has in it.
+    fn left(dir: &Path) -> Vec<PathBuf> {
+        (fs::read_dir(dir.join("temp")).unwrap())
+            .map(|entry| entry.unwrap().path())
+            .collect()
     }
 
     const SOURCE: &str = "flowchart TD\n  A --> B\n";
 
     #[test]
     fn draws_with_the_command_and_reads_its_svg() {
-        let scratch = Scratch::new("draws");
-        let renderer = scratch.renderer(
+        let scratch = scratch("draws");
+        let renderer = script_renderer(
+            &scratch,
             "case \"$1\" in *.mmd) ;; *) exit 3 ;; esac\n\
              printf '<svg theme=\"%s\">%s</svg>' \"$3\" \"$(cat \"$1\")\" > \"$2\"\n",
         );
@@ -761,13 +755,13 @@ mod tests {
             let svg = format!("<svg theme=\"{name}\">flowchart TD\n  A --> B</svg>");
             assert_eq!(drawn, Drawn::svg(svg, theme, None));
         }
-        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+        assert_eq!(left(&scratch), Vec::<PathBuf>::new());
     }
 
     #[test]
     fn a_diagram_that_chooses_its_theme_is_drawn_for_that_page() {
-        let scratch = Scratch::new("own-theme");
-        let renderer = scratch.renderer("echo '<svg/>' > \"$2\"\n");
+        let scratch = scratch("own-theme");
+        let renderer = script_renderer(&scratch, "echo '<svg/>' > \"$2\"\n");
         let forest = format!("%%{{init: {{\"theme\": \"forest\"}}}}%%\n{SOURCE}");
         let drawn = renderer.render("mermaid", &forest, Theme::Dark).unwrap();
         assert_eq!(drawn.theme, Theme::Light);
@@ -777,9 +771,9 @@ mod tests {
 
     #[test]
     fn mermaid_gets_its_source_unchanged_and_a_configuration_for_svg_text() {
-        let scratch = Scratch::new("labels");
+        let scratch = scratch("labels");
         let written = |script: &str, source: &str| {
-            let renderer = scratch.renderer(script);
+            let renderer = script_renderer(&scratch, script);
             renderer
                 .render("mermaid", source, Theme::Light)
                 .map(|drawn| drawn.text())
@@ -802,15 +796,15 @@ mod tests {
         // that does not choose its own, so that both draw alike.
         assert_eq!(config["look"], "classic");
         assert_eq!(config["layout"], "dagre");
-        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+        assert_eq!(left(&scratch), Vec::<PathBuf>::new());
     }
 
     #[test]
     fn a_command_that_takes_the_scale_draws_a_png_at_it() {
         // It writes the name of its output file, its scale and its
         // configuration.
-        let scratch = Scratch::new("scale");
-        let path = scratch.0.join("render.sh");
+        let scratch = scratch("scale");
+        let path = scratch.join("render.sh");
         fs::write(
             &path,
             "printf '%s %s ' \"${2##*/}\" \"$3\" > \"$2\"\ncat \"$4\" >> \"$2\"\n",
@@ -827,7 +821,7 @@ mod tests {
             ];
             let command = Command::new(argv.map(String::from).to_vec());
             External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
-                .with_work_dir(scratch.0.join("temp"))
+                .with_work_dir(scratch.join("temp"))
         };
         let drawn = command("-s{scale}")
             .render("mermaid", SOURCE, Theme::Light)
@@ -851,7 +845,7 @@ mod tests {
         assert_eq!(start, "diagram.svg 1 ");
         assert_eq!(drawn.scale, 1);
         assert_eq!(config, mermaid_config(Output::Svg));
-        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+        assert_eq!(left(&scratch), Vec::<PathBuf>::new());
     }
 
     #[test]
@@ -877,24 +871,25 @@ mod tests {
 
     #[test]
     fn a_command_may_leave_the_configuration_out() {
-        let scratch = Scratch::new("no-config");
-        let path = scratch.0.join("render.sh");
+        let scratch = scratch("no-config");
+        let path = scratch.join("render.sh");
         fs::write(&path, "cat \"$1\" > \"$2\"\n").unwrap();
         let argv = ["/bin/sh", &path.to_string_lossy(), "{input}", "{output}"];
         let command = Command::new(argv.map(String::from).to_vec());
         let renderer = External::new(BTreeMap::from([("dot".to_owned(), command)]))
-            .with_work_dir(scratch.0.join("temp"));
+            .with_work_dir(scratch.join("temp"));
         let svg = renderer.render("dot", "digraph {}", Theme::Light);
         assert_eq!(svg.map(|drawn| drawn.text()), Ok("digraph {}".to_owned()));
     }
 
     #[test]
     fn a_command_that_fails_tells_why_in_its_first_lines() {
-        let scratch = Scratch::new("fails");
+        let scratch = scratch("fails");
         // As mmdc tells a parse error: the message, the line with the
         // mistake, a pointer to it and what was expected, then the
         // JavaScript stack.
-        let renderer = scratch.renderer(
+        let renderer = script_renderer(
+            &scratch,
             "echo > \"$2\"\n\
              printf '\\n  Error: Parse error on line 2:\\n...A[Unclosed\\n\
              -----^\\n\\nExpecting SQE, got EOF\\n\
@@ -910,57 +905,57 @@ mod tests {
                  Expecting SQE, got EOF"
                 .to_owned())
         );
-        let renderer = scratch.renderer("exit 2\n");
+        let renderer = script_renderer(&scratch, "exit 2\n");
         assert_eq!(
             renderer.render("mermaid", SOURCE, Theme::Light),
             Err("sh exited with status 2".to_owned())
         );
-        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+        assert_eq!(left(&scratch), Vec::<PathBuf>::new());
     }
 
     #[test]
     fn a_command_that_writes_nothing_fails() {
-        let scratch = Scratch::new("writes-nothing");
-        let renderer = scratch.renderer("exit 0\n");
+        let scratch = scratch("writes-nothing");
+        let renderer = script_renderer(&scratch, "exit 0\n");
         assert_eq!(
             renderer.render("mermaid", SOURCE, Theme::Light),
             Err("sh wrote no output file".to_owned())
         );
-        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+        assert_eq!(left(&scratch), Vec::<PathBuf>::new());
     }
 
     #[test]
     fn a_command_may_write_a_raster_image() {
         // The image loader tells what it is by its content.
-        let scratch = Scratch::new("raster");
-        let renderer = scratch.renderer("printf '\\211PNG\\r\\n\\032\\n\\377' > \"$2\"\n");
+        let scratch = scratch("raster");
+        let renderer = script_renderer(&scratch, "printf '\\211PNG\\r\\n\\032\\n\\377' > \"$2\"\n");
         let drawn = renderer.render("mermaid", SOURCE, Theme::Light).unwrap();
         assert_eq!(drawn.image, b"\x89PNG\r\n\x1a\n\xff");
         assert_eq!(drawn.scale, 1);
-        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+        assert_eq!(left(&scratch), Vec::<PathBuf>::new());
     }
 
     #[test]
     fn a_program_that_is_not_there_fails() {
-        let scratch = Scratch::new("missing");
+        let scratch = scratch("missing");
         let command = Command::new(vec![
             "/no/such/mmdc".into(),
             "{input}".into(),
             "{output}".into(),
         ]);
         let renderer = External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
-            .with_work_dir(scratch.0.join("temp"));
+            .with_work_dir(scratch.join("temp"));
         let error = renderer
             .render("mermaid", SOURCE, Theme::Light)
             .unwrap_err();
         assert!(error.starts_with("/no/such/mmdc: "), "{error}");
-        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+        assert_eq!(left(&scratch), Vec::<PathBuf>::new());
     }
 
     #[test]
     fn a_command_that_takes_too_long_is_stopped_with_what_it_started() {
-        let scratch = Scratch::new("too-long");
-        let started = scratch.0.join("started");
+        let scratch = scratch("too-long");
+        let started = scratch.join("started");
         let script = format!(
             "sleep 30 &\necho $! > '{}'\nwait\n",
             started.to_string_lossy()
@@ -969,7 +964,7 @@ mod tests {
         // far as the sleep in time. Then it gets a longer limit.
         let mut limit = Duration::from_millis(300);
         let pid = loop {
-            let renderer = scratch.renderer(&script).with_time_limit(limit);
+            let renderer = script_renderer(&scratch, &script).with_time_limit(limit);
             let start = Instant::now();
             assert_eq!(
                 renderer.render("mermaid", SOURCE, Theme::Light),
@@ -980,7 +975,7 @@ mod tests {
                 "{:?}",
                 start.elapsed()
             );
-            assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+            assert_eq!(left(&scratch), Vec::<PathBuf>::new());
             match fs::read_to_string(&started) {
                 Ok(pid) if pid.ends_with('\n') => break pid,
                 _ if limit < Duration::from_secs(10) => limit *= 2,
@@ -1007,29 +1002,28 @@ mod tests {
     fn a_time_limit_too_long_for_the_clock_means_no_limit() {
         // The configuration file takes any number of seconds that a
         // Duration holds, more than an Instant can be moved by.
-        let scratch = Scratch::new("long-limit");
-        let renderer = scratch
-            .renderer("echo '<svg/>' > \"$2\"\n")
+        let scratch = scratch("long-limit");
+        let renderer = script_renderer(&scratch, "echo '<svg/>' > \"$2\"\n")
             .with_time_limit(Duration::from_secs_f64(1e19));
         let drawn = renderer.render("mermaid", SOURCE, Theme::Light).unwrap();
         assert_eq!(drawn.theme, Theme::Light);
-        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+        assert_eq!(left(&scratch), Vec::<PathBuf>::new());
     }
 
     #[test]
     fn a_program_that_is_stopped_may_clean_up_first() {
         // mermaid-cli closes its browser on SIGINT, which runs in a session
         // of its own that killing mmdc's process group does not reach.
-        let scratch = Scratch::new("clean-up");
-        let cleaned = scratch.0.join("cleaned");
-        let ready = scratch.0.join("ready");
+        let scratch = scratch("clean-up");
+        let cleaned = scratch.join("cleaned");
+        let ready = scratch.join("ready");
         let script = format!(
             "trap \"echo yes > '{}'; exit 130\" INT\nsleep 30 &\ntouch '{}'\nwait\n",
             cleaned.to_string_lossy(),
             ready.to_string_lossy()
         );
         let stop = Arc::new(AtomicBool::new(false));
-        let renderer = scratch.renderer(&script).stopped_by(Arc::clone(&stop));
+        let renderer = script_renderer(&scratch, &script).stopped_by(Arc::clone(&stop));
         let start = Instant::now();
         // Stopped once the trap is set, however long sh takes to start.
         let drawn = std::thread::scope(|scope| {
@@ -1047,19 +1041,19 @@ mod tests {
             start.elapsed()
         );
         assert_eq!(fs::read_to_string(&cleaned).ok().as_deref(), Some("yes\n"));
-        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+        assert_eq!(left(&scratch), Vec::<PathBuf>::new());
     }
 
     #[test]
     fn a_stop_kills_the_program_with_what_it_started_and_starts_no_more() {
-        let scratch = Scratch::new("stop");
-        let started = scratch.0.join("started");
+        let scratch = scratch("stop");
+        let started = scratch.join("started");
         let script = format!(
             "sleep 30 &\necho $! > '{}'\nwait\n",
             started.to_string_lossy()
         );
         let stop = Arc::new(AtomicBool::new(false));
-        let renderer = scratch.renderer(&script).stopped_by(Arc::clone(&stop));
+        let renderer = script_renderer(&scratch, &script).stopped_by(Arc::clone(&stop));
         let start = Instant::now();
         let drawn = std::thread::scope(|scope| {
             let drawing = scope.spawn(|| renderer.render("mermaid", SOURCE, Theme::Light));
@@ -1075,7 +1069,7 @@ mod tests {
             "{:?}",
             start.elapsed()
         );
-        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+        assert_eq!(left(&scratch), Vec::<PathBuf>::new());
         let pid = fs::read_to_string(&started).unwrap();
         let stat = Path::new("/proc").join(pid.trim()).join("stat");
         let gone = (0..100).any(|_| {
@@ -1096,13 +1090,13 @@ mod tests {
             Err("sh was not started: interrupted".to_owned())
         );
         assert!(!started.exists());
-        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+        assert_eq!(left(&scratch), Vec::<PathBuf>::new());
     }
 
     #[test]
     fn the_placeholders_may_be_inside_arguments() {
-        let scratch = Scratch::new("inside");
-        let path = scratch.0.join("render.sh");
+        let scratch = scratch("inside");
+        let path = scratch.join("render.sh");
         fs::write(
             &path,
             "for arg; do case $arg in --out=*) out=${arg#--out=} ;; esac; done\n\
@@ -1118,12 +1112,12 @@ mod tests {
         ];
         let command = Command::new(argv.map(String::from).to_vec());
         let renderer = External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
-            .with_work_dir(scratch.0.join("temp"));
+            .with_work_dir(scratch.join("temp"));
         let svg = renderer
             .render("mermaid", SOURCE, Theme::Dark)
             .unwrap()
             .text();
-        let dir = scratch.0.join("temp").join(format!("{}-0", process::id()));
+        let dir = scratch.join("temp").join(format!("{}-0", process::id()));
         let dir = dir.to_string_lossy();
         assert_eq!(
             svg,
@@ -1138,32 +1132,30 @@ mod tests {
 
     #[test]
     fn the_program_s_temporary_files_are_in_its_directory_and_go_with_it() {
-        let scratch = Scratch::new("tmpdir");
-        let renderer = scratch.renderer(MAKES_A_PROFILE);
+        let scratch = scratch("tmpdir");
+        let renderer = script_renderer(&scratch, MAKES_A_PROFILE);
         let tmpdir = renderer
             .render("mermaid", SOURCE, Theme::Light)
             .unwrap()
             .text();
-        let expected = scratch.0.join("temp").join(format!("{}-0", process::id()));
+        let expected = scratch.join("temp").join(format!("{}-0", process::id()));
         assert_eq!(Path::new(&tmpdir), expected);
-        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+        assert_eq!(left(&scratch), Vec::<PathBuf>::new());
     }
 
     #[test]
     fn the_directory_for_the_files_is_made_for_the_user_alone() {
         use std::os::unix::fs::PermissionsExt;
 
-        let scratch = Scratch::new("made");
-        let work = scratch.0.join("c/kiri/diagrams");
-        let renderer = scratch
-            .renderer(MAKES_A_PROFILE)
-            .with_work_dir(work.clone());
+        let scratch = scratch("made");
+        let work = scratch.join("c/kiri/diagrams");
+        let renderer = script_renderer(&scratch, MAKES_A_PROFILE).with_work_dir(work.clone());
         let tmpdir = renderer
             .render("mermaid", SOURCE, Theme::Light)
             .unwrap()
             .text();
         assert_eq!(Path::new(&tmpdir).parent(), Some(work.as_path()));
-        for dir in [scratch.0.join("c"), scratch.0.join("c/kiri"), work.clone()] {
+        for dir in [scratch.join("c"), scratch.join("c/kiri"), work.clone()] {
             let mode = fs::metadata(&dir).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o700, "{}", dir.display());
         }
@@ -1180,8 +1172,8 @@ mod tests {
 
     #[test]
     fn directories_left_by_a_kiri_that_has_ended_are_removed() {
-        let scratch = Scratch::new("stale");
-        let work = scratch.0.join("temp");
+        let scratch = scratch("stale");
+        let work = scratch.join("temp");
         let ended = ended_process();
         let alive = process::id();
         let stale = [format!("{ended}-0"), format!("{ended}-17")];
@@ -1206,9 +1198,9 @@ mod tests {
         // A file with such a name is not a directory of kiri's.
         let file = format!("{ended}-1");
         fs::write(work.join(&file), "").unwrap();
-        let renderer = scratch.renderer("echo '<svg/>' > \"$2\"\n");
+        let renderer = script_renderer(&scratch, "echo '<svg/>' > \"$2\"\n");
         renderer.render("mermaid", SOURCE, Theme::Light).unwrap();
-        let mut left: Vec<String> = (scratch.left().iter())
+        let mut left: Vec<String> = (left(&scratch).iter())
             .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
         left.sort();
@@ -1221,8 +1213,8 @@ mod tests {
     fn directories_of_other_machines_are_left_alone() {
         // A cache directory that machines or containers share: a process
         // id tells nothing about another machine's processes.
-        let scratch = Scratch::new("hosts");
-        let work = scratch.0.join("temp");
+        let scratch = scratch("hosts");
+        let work = scratch.join("temp");
         let ended = ended_process();
         let dir = |name: &str, host: Option<&str>| {
             fs::create_dir_all(work.join(name)).unwrap();
@@ -1242,7 +1234,7 @@ mod tests {
         // it, or that a kiri on another machine is making now: left, empty.
         dir(&format!("{ended}-6.new"), None);
         remove_stale(&work, "this");
-        let mut left: Vec<String> = (scratch.left().iter())
+        let mut left: Vec<String> = (left(&scratch).iter())
             .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
         left.sort();
@@ -1254,8 +1246,8 @@ mod tests {
 
     #[test]
     fn each_directory_names_the_machine_it_was_made_on() {
-        let scratch = Scratch::new("host-file");
-        let renderer = scratch.renderer("cat \"$TMPDIR/host\" > \"$2\"\n");
+        let scratch = scratch("host-file");
+        let renderer = script_renderer(&scratch, "cat \"$TMPDIR/host\" > \"$2\"\n");
         let drawn = renderer.render("mermaid", SOURCE, Theme::Light).unwrap();
         assert_eq!(drawn.text(), format!("{}\n", host_name()));
         assert!(!host_name().is_empty());
@@ -1263,15 +1255,13 @@ mod tests {
 
     #[test]
     fn without_a_directory_of_its_own_the_files_go_in_the_temporary_one() {
-        let scratch = Scratch::new("fallback");
-        fs::write(scratch.0.join("file"), "").unwrap();
+        let scratch = scratch("fallback");
+        fs::write(scratch.join("file"), "").unwrap();
         // One that cannot be made, and one whose path would be too long for
         // the sockets a browser makes in it.
-        let long = scratch.0.join("x".repeat(LONGEST_WORK_DIR));
-        for work in [scratch.0.join("file/diagrams"), long.clone()] {
-            let renderer = scratch
-                .renderer(MAKES_A_PROFILE)
-                .with_work_dir(work.clone());
+        let long = scratch.join("x".repeat(LONGEST_WORK_DIR));
+        for work in [scratch.join("file/diagrams"), long.clone()] {
+            let renderer = script_renderer(&scratch, MAKES_A_PROFILE).with_work_dir(work.clone());
             let tmpdir = renderer
                 .render("mermaid", SOURCE, Theme::Light)
                 .unwrap()
@@ -1289,19 +1279,19 @@ mod tests {
     fn tells_why_a_directory_cannot_hold_the_files() {
         use std::os::unix::fs::PermissionsExt;
 
-        let scratch = Scratch::new("unusable");
-        let file = scratch.0.join("file");
+        let scratch = scratch("unusable");
+        let file = scratch.join("file");
         fs::write(&file, "").unwrap();
-        let locked = scratch.0.join("locked");
+        let locked = scratch.join("locked");
         fs::create_dir(&locked).unwrap();
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o500)).unwrap();
-        let work = scratch.0.join("temp/kiri/diagrams");
+        let work = scratch.join("temp/kiri/diagrams");
         assert_eq!(not_writable(&work), None);
         assert_eq!(
             not_writable(&file.join("kiri/diagrams")),
             Some(Unusable::NotADirectory(file.clone()))
         );
-        let long = scratch.0.join("x".repeat(LONGEST_WORK_DIR));
+        let long = scratch.join("x".repeat(LONGEST_WORK_DIR));
         assert_eq!(unusable(&long), Some(Unusable::TooLong));
         // Unless the tests run as root, who may write anywhere.
         if rustix::fs::access(&locked, rustix::fs::Access::WRITE_OK).is_err() {
@@ -1315,8 +1305,8 @@ mod tests {
 
     #[test]
     fn the_command_runs_with_its_own_path() {
-        let scratch = Scratch::new("path");
-        let path = scratch.0.join("render.sh");
+        let scratch = scratch("path");
+        let path = scratch.join("render.sh");
         fs::write(&path, "printf '%s' \"$PATH\" > \"$2\"\n").unwrap();
         let argv = ["/bin/sh", &path.to_string_lossy(), "{input}", "{output}"];
         let command = Command {
@@ -1324,7 +1314,7 @@ mod tests {
             path: Some("/opt/node/bin:/usr/bin".into()),
         };
         let renderer = External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
-            .with_work_dir(scratch.0.join("temp"));
+            .with_work_dir(scratch.join("temp"));
         let svg = renderer
             .render("mermaid", SOURCE, Theme::Dark)
             .unwrap()
@@ -1345,15 +1335,15 @@ mod tests {
     /// What a command that takes `{scale}` draws of a diagram as large as
     /// `sizes` gives for each scale, and the scales it was asked for.
     fn drawn_at_scales(name: &str, sizes: &[(u32, Vec<u8>)]) -> (Result<Drawn, String>, String) {
-        let scratch = Scratch::new(name);
-        let calls = scratch.0.join("calls");
+        let scratch = scratch(name);
+        let calls = scratch.join("calls");
         let mut script = format!("echo \"$3\" >> '{}'\ncase \"$3\" in\n", calls.display());
         for (scale, image) in sizes {
             let octal: String = image.iter().map(|byte| format!("\\{byte:03o}")).collect();
             script.push_str(&format!("  {scale}) printf '{octal}' > \"$2\" ;;\n"));
         }
         script.push_str("  *) exit 9 ;;\nesac\n");
-        let path = scratch.0.join("render.sh");
+        let path = scratch.join("render.sh");
         fs::write(&path, script).unwrap();
         let argv = [
             "/bin/sh",
@@ -1364,10 +1354,10 @@ mod tests {
         ];
         let command = Command::new(argv.map(String::from).to_vec());
         let renderer = External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
-            .with_work_dir(scratch.0.join("temp"));
+            .with_work_dir(scratch.join("temp"));
         let drawn = renderer.render("mermaid", SOURCE, Theme::Light);
         let calls = fs::read_to_string(&calls).unwrap_or_default();
-        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+        assert_eq!(left(&scratch), Vec::<PathBuf>::new());
         (
             drawn,
             calls.split_whitespace().collect::<Vec<_>>().join(" "),

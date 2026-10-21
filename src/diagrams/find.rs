@@ -237,97 +237,76 @@ pub fn commands(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::Scratch;
 
-    /// A directory of its own for one test, removed when the test ends.
-    struct Scratch(PathBuf);
-
-    impl Scratch {
-        fn new(name: &str) -> Self {
-            let dir = std::env::temp_dir().join(format!("kiri-find-{}-{name}", std::process::id()));
-            let _ = fs::remove_dir_all(&dir);
-            fs::create_dir_all(&dir).unwrap();
-            Scratch(dir)
-        }
-
-        /// A program at `path` under the directory, which may be run
-        /// unless `mode` says otherwise.
-        fn program(&self, path: &str, mode: u32) -> PathBuf {
-            let path = self.0.join(path);
-            fs::create_dir_all(path.parent().unwrap()).unwrap();
-            fs::write(&path, "#!/bin/sh\n").unwrap();
-            fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
-            path
-        }
-
-        fn dir(&self, path: &str) -> PathBuf {
-            self.0.join(path)
-        }
-    }
-
-    impl Drop for Scratch {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
+    /// A program at `path` under `dir`, which may be run unless `mode`
+    /// says otherwise.
+    fn make_program(dir: &Path, path: &str, mode: u32) -> PathBuf {
+        let path = dir.join(path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "#!/bin/sh\n").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
+        path
     }
 
     #[test]
     fn looks_on_path_then_in_npm_nvm_and_homebrew() {
-        let scratch = Scratch::new("order");
-        let path = std::env::join_paths([scratch.dir("bin"), scratch.dir("usr/bin")]).unwrap();
+        let scratch = Scratch::new("find-order");
+        let path = std::env::join_paths([scratch.join("bin"), scratch.join("usr/bin")]).unwrap();
         for version in ["v9.11.2", "v24.16.0", "v18.20.8", "v24.2.0"] {
-            fs::create_dir_all(scratch.dir(&format!("home/.nvm/versions/node/{version}/bin")))
+            fs::create_dir_all(scratch.join(format!("home/.nvm/versions/node/{version}/bin")))
                 .unwrap();
         }
         let search = Search {
             path: Some(path),
-            home: Some(scratch.dir("home")),
+            home: Some(scratch.join("home")),
             nvm_dir: None,
-            npm_prefix: Some(scratch.dir("npm")),
-            others: vec![scratch.dir("brew/bin")],
+            npm_prefix: Some(scratch.join("npm")),
+            others: vec![scratch.join("brew/bin")],
         };
-        let nvm = |version| scratch.dir(&format!("home/.nvm/versions/node/{version}/bin"));
+        let nvm = |version| scratch.join(format!("home/.nvm/versions/node/{version}/bin"));
         assert_eq!(
             search.directories(),
             [
-                scratch.dir("bin"),
-                scratch.dir("usr/bin"),
-                scratch.dir("npm/bin"),
+                scratch.join("bin"),
+                scratch.join("usr/bin"),
+                scratch.join("npm/bin"),
                 nvm("v24.16.0"),
                 nvm("v24.2.0"),
                 nvm("v18.20.8"),
                 nvm("v9.11.2"),
-                scratch.dir("brew/bin"),
+                scratch.join("brew/bin"),
             ]
         );
         assert_eq!(search.find("mmdc"), None);
-        let brew = scratch.program("brew/bin/mmdc", 0o755);
+        let brew = make_program(&scratch, "brew/bin/mmdc", 0o755);
         assert_eq!(search.find("mmdc"), Some(brew));
-        let old = scratch.program("home/.nvm/versions/node/v18.20.8/bin/mmdc", 0o755);
+        let old = make_program(&scratch, "home/.nvm/versions/node/v18.20.8/bin/mmdc", 0o755);
         assert_eq!(search.find("mmdc"), Some(old));
-        let new = scratch.program("home/.nvm/versions/node/v24.2.0/bin/mmdc", 0o755);
+        let new = make_program(&scratch, "home/.nvm/versions/node/v24.2.0/bin/mmdc", 0o755);
         assert_eq!(search.find("mmdc"), Some(new));
-        let npm = scratch.program("npm/bin/mmdc", 0o755);
+        let npm = make_program(&scratch, "npm/bin/mmdc", 0o755);
         assert_eq!(search.find("mmdc"), Some(npm));
         // A file that may not be run, and a directory, do not count.
-        scratch.program("usr/bin/mmdc", 0o644);
-        fs::create_dir_all(scratch.dir("bin/mmdc")).unwrap();
-        assert_eq!(search.find("mmdc"), Some(scratch.dir("npm/bin/mmdc")));
-        let usr = scratch.program("usr/bin/mmdc", 0o755);
+        make_program(&scratch, "usr/bin/mmdc", 0o644);
+        fs::create_dir_all(scratch.join("bin/mmdc")).unwrap();
+        assert_eq!(search.find("mmdc"), Some(scratch.join("npm/bin/mmdc")));
+        let usr = make_program(&scratch, "usr/bin/mmdc", 0o755);
         assert_eq!(search.find("mmdc"), Some(usr));
     }
 
     #[test]
     fn nvm_dir_and_npmrc_tell_where_nvm_and_npm_are() {
-        let scratch = Scratch::new("nvm-npmrc");
-        let home = scratch.dir("home");
-        fs::create_dir_all(scratch.dir("nvm/versions/node/v22.0.0/bin")).unwrap();
+        let scratch = Scratch::new("find-nvm-npmrc");
+        let home = scratch.join("home");
+        fs::create_dir_all(scratch.join("nvm/versions/node/v22.0.0/bin")).unwrap();
         fs::create_dir_all(&home).unwrap();
         let search = Search {
             home: Some(home.clone()),
-            nvm_dir: Some(scratch.dir("nvm")),
+            nvm_dir: Some(scratch.join("nvm")),
             ..Search::default()
         };
-        let nvm = scratch.dir("nvm/versions/node/v22.0.0/bin");
+        let nvm = scratch.join("nvm/versions/node/v22.0.0/bin");
         assert_eq!(search.directories(), std::slice::from_ref(&nvm));
         for (npmrc, prefix) in [
             ("prefix=~/.npm-global\n", home.join(".npm-global")),
@@ -392,35 +371,35 @@ mod tests {
 
     #[test]
     fn a_program_found_off_path_runs_with_its_directory_on_path() {
-        let scratch = Scratch::new("command");
+        let scratch = Scratch::new("find-command");
         let search = Search {
             path: Some(
-                std::env::join_paths([scratch.dir("bin"), PathBuf::from("/usr/bin")]).unwrap(),
+                std::env::join_paths([scratch.join("bin"), PathBuf::from("/usr/bin")]).unwrap(),
             ),
-            others: vec![scratch.dir("brew/bin")],
+            others: vec![scratch.join("brew/bin")],
             ..Search::default()
         };
-        let program = scratch.program("brew/bin/mmdc", 0o755);
+        let program = make_program(&scratch, "brew/bin/mmdc", 0o755);
         let command = search.command_at(&program, MMDC);
         let mut argv: Vec<String> = MMDC.iter().map(|arg| (*arg).to_owned()).collect();
         argv[0] = program.to_string_lossy().into_owned();
         assert_eq!(command.argv, argv);
         let path = std::env::join_paths([
-            scratch.dir("brew/bin"),
-            scratch.dir("bin"),
+            scratch.join("brew/bin"),
+            scratch.join("bin"),
             PathBuf::from("/usr/bin"),
         ])
         .unwrap();
         assert_eq!(command.path, Some(path));
-        let program = scratch.program("bin/mmdc", 0o755);
+        let program = make_program(&scratch, "bin/mmdc", 0o755);
         assert_eq!(search.command_at(&program, MMDC).path, None);
     }
 
     #[test]
     fn looks_for_mmdc_only_without_merman_or_a_configured_command() {
-        let scratch = Scratch::new("choose");
+        let scratch = Scratch::new("find-choose");
         let search = Search {
-            path: Some(scratch.dir("bin").into()),
+            path: Some(scratch.join("bin").into()),
             ..Search::default()
         };
         let none = BTreeMap::new();
@@ -433,7 +412,7 @@ mod tests {
             choose("mermaid", &none, &all, &search),
             expected(Choice::NotFound("mmdc"))
         );
-        let program = scratch.program("bin/mmdc", 0o755);
+        let program = make_program(&scratch, "bin/mmdc", 0o755);
         let found = Choice::Found(search.command_at(&program, MMDC));
         assert_eq!(
             choose("mermaid", &none, &all, &search),

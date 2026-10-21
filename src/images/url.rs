@@ -391,10 +391,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn does_not_wait_on_a_named_pipe() {
-        let dir = std::env::temp_dir().join(format!("kiri-test-fifo-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::testing::Scratch::new("url-fifo");
         let fifo = dir.join("image.png");
-        let _ = std::fs::remove_file(&fifo);
         let made = std::process::Command::new("mkfifo")
             .arg(&fifo)
             .status()
@@ -402,7 +400,6 @@ mod tests {
         assert!(made.success());
         // Opening a pipe that nobody writes to would block.
         let loaded = open("image.png", &dir);
-        std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(loaded, Err(ImageError::NotAFile(fifo)));
     }
 

@@ -15,3 +15,6 @@ pub mod parse;
 pub mod render;
 pub mod term;
 pub mod theme;
+
+#[cfg(test)]
+mod testing;
