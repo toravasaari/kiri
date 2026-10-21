@@ -357,16 +357,23 @@ impl Layout<'_> {
         };
         // The language as written, as the warning on standard error has it.
         let text = format!("✗ {language} diagram could not be drawn: {reason}");
-        let spans = [Span::new(&text, self.style(Style::fg(self.theme.error)))];
+        let style = self.style(Style::fg(self.theme.error));
         let (indent, max) = self.below_code(width);
-        (wrap(&spans, max).into_iter())
-            .map(|mut spans| {
-                if indent > 0 {
-                    spans.insert(0, Span::new(&" ".repeat(indent), Style::default()));
+        // Each line of the reason wrapped on its own and keeping its indent,
+        // such as a pointer to the column of a mistake in the line above.
+        let mut lines = Vec::new();
+        for line in text.lines() {
+            let text = line.trim_start();
+            let own = (line.len() - text.len()).min(max.saturating_sub(1));
+            let spans = [Span::new(text, style.clone())];
+            for mut spans in wrap(&spans, max - own) {
+                if indent + own > 0 {
+                    spans.insert(0, Span::new(&" ".repeat(indent + own), Style::default()));
                 }
-                Line::new(spans)
-            })
-            .collect()
+                lines.push(Line::new(spans));
+            }
+        }
+        lines
     }
 
     /// The image `key` at the size `wanted`, at most `width` cells wide,

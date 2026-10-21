@@ -316,7 +316,7 @@ fn an_error_of_several_lines_keeps_them_apart() {
         },
         Err(ImageError::Diagram {
             name: "mermaid diagram on line 1".to_owned(),
-            reason: "Parse error on line 2:\n...A[open --> B\n-----^".to_owned(),
+            reason: "Parse error on line 2:\n...A[open --> B\n-----^\n  Expecting SQE".to_owned(),
         }),
     );
     let inputs = Inputs {
@@ -336,4 +336,9 @@ fn an_error_of_several_lines_keeps_them_apart() {
         format!("{}...A[open --> B", " ".repeat(indent))
     );
     assert_eq!(lines[error + 2], format!("{}-----^", " ".repeat(indent)));
+    // A line's own indent stays too.
+    assert_eq!(
+        lines[error + 3],
+        format!("{}  Expecting SQE", " ".repeat(indent))
+    );
 }
