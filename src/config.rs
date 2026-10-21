@@ -123,7 +123,8 @@ pub struct Config {
     pub front_matter: Option<FrontMatter>,
     /// How the rows of a table are told apart.
     pub table_rows: Option<TableRows>,
-    /// Whether diagrams in code blocks are drawn, or shown as code.
+    /// Whether diagrams in code blocks are drawn, or shown as code:
+    /// `enabled` in the `[diagrams]` table, or `diagrams` on its own.
     pub diagrams: Option<bool>,
     /// The external command for each diagram language that has one, from
     /// `[diagrams.<language>]`: the program and its arguments, with
@@ -261,7 +262,7 @@ pub fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String
         search_case: file.search_case,
         front_matter: file.front_matter,
         table_rows: file.table_rows,
-        diagrams: file.diagrams.switch,
+        diagrams: file.diagrams.enabled,
         diagram_commands: file.diagrams.commands,
     })
 }
@@ -279,14 +280,17 @@ struct ConfigToml {
     diagrams: DiagramsToml,
 }
 
-/// The `diagrams` key: `true` or `false`, or a table of the external
-/// commands for diagram languages, such as `[diagrams.mermaid]`. TOML
-/// cannot have both under one key.
+/// The `diagrams` key: a `[diagrams]` table of the settings for every
+/// diagram, beside a table for each language, such as
+/// `[diagrams.mermaid]`; or `true` or `false`, short for `enabled` in it.
 #[derive(Debug, Default)]
 struct DiagramsToml {
-    switch: Option<bool>,
+    enabled: Option<bool>,
     commands: BTreeMap<String, Vec<String>>,
 }
+
+/// The keys of the `[diagrams]` table other than the languages.
+const DIAGRAMS_KEYS: &[&str] = &["enabled"];
 
 /// One language's table under `diagrams`.
 #[derive(Deserialize)]
@@ -303,31 +307,38 @@ impl<'de> Deserialize<'de> for DiagramsToml {
             type Value = DiagramsToml;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                f.write_str("true or false, or tables such as [diagrams.mermaid]")
+                f.write_str("true or false, or a [diagrams] table")
             }
 
             fn visit_bool<E: de::Error>(self, on: bool) -> Result<DiagramsToml, E> {
                 Ok(DiagramsToml {
-                    switch: Some(on),
+                    enabled: Some(on),
                     ..DiagramsToml::default()
                 })
             }
 
             fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<DiagramsToml, A::Error> {
                 let languages = crate::diagrams::LANGUAGES;
-                let mut commands = BTreeMap::new();
-                while let Some(language) = map.next_key::<String>()? {
-                    if !languages.contains(&language.as_str()) {
-                        return Err(de::Error::unknown_field(&language, languages));
+                let mut diagrams = DiagramsToml::default();
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "enabled" => diagrams.enabled = Some(map.next_value()?),
+                        language if languages.contains(&language) => {
+                            let table: DiagramToml = map.next_value()?;
+                            check_command(&table.command).map_err(de::Error::custom)?;
+                            diagrams.commands.insert(key, table.command);
+                        }
+                        _ => {
+                            let keys = DIAGRAMS_KEYS.iter().chain(languages);
+                            let keys: Vec<String> = keys.map(|key| format!("`{key}`")).collect();
+                            return Err(de::Error::custom(format!(
+                                "unknown field `{key}`, expected one of {}",
+                                keys.join(", ")
+                            )));
+                        }
                     }
-                    let table: DiagramToml = map.next_value()?;
-                    check_command(&table.command).map_err(de::Error::custom)?;
-                    commands.insert(language, table.command);
                 }
-                Ok(DiagramsToml {
-                    switch: None,
-                    commands,
-                })
+                Ok(diagrams)
             }
         }
 
@@ -1365,6 +1376,28 @@ mod tests {
     }
 
     #[test]
+    fn the_diagrams_table_turns_diagrams_on_or_off_beside_a_language_table() {
+        let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
+        let enabled = |text| parsed(text).map(|config| config.diagrams);
+        assert_eq!(enabled("[diagrams]\nenabled = false\n"), Ok(Some(false)));
+        assert_eq!(enabled("[diagrams]\nenabled = true\n"), Ok(Some(true)));
+        assert_eq!(enabled("[diagrams]\n"), Ok(None));
+        let both = "[diagrams]\nenabled = false\n\n\
+                    [diagrams.mermaid]\ncommand = [\"mmdc\", \"{input}\", \"{output}\"]\n";
+        let config = parsed(both).map(|config| (config.diagrams, config.diagram_commands));
+        let command = ["mmdc", "{input}", "{output}"].map(String::from).to_vec();
+        assert_eq!(
+            config,
+            Ok((
+                Some(false),
+                BTreeMap::from([("mermaid".to_owned(), command)])
+            ))
+        );
+        let error = enabled("[diagrams]\nenabled = \"no\"\n").unwrap_err();
+        assert!(error.contains("invalid type"), "{error}");
+    }
+
+    #[test]
     fn a_diagram_language_table_gives_its_external_command() {
         let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
         let config = parsed(
@@ -1401,7 +1434,7 @@ mod tests {
         let cases = [
             (
                 "[diagrams.dot]\ncommand = [\"dot\", \"{input}\", \"{output}\"]\n",
-                "unknown field `dot`, expected `mermaid`",
+                "unknown field `dot`, expected one of `enabled`, `mermaid`",
             ),
             (
                 "[diagrams.mermaid]\ncommand = []\n",
@@ -1421,10 +1454,7 @@ mod tests {
             ),
             ("[diagrams.mermaid]\ncommand = \"mmdc\"\n", "invalid type"),
             ("[diagrams.mermaid]\nargs = []\n", "unknown field `args`"),
-            (
-                "diagrams = 1\n",
-                "true or false, or tables such as [diagrams.mermaid]",
-            ),
+            ("diagrams = 1\n", "true or false, or a [diagrams] table"),
         ];
         for (text, expected) in cases {
             let error = error(text);

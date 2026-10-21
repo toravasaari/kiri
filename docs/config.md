@@ -34,18 +34,21 @@ front_matter = "table"
 # Table row style: "zebra", "lines", "indent", "underline" or "off".
 table_rows = "zebra"
 
-# false shows diagrams in code blocks, such as Mermaid, as code. A file
-# that gives a diagram command below leaves this key out.
-diagrams = true
-```
+# Diagrams in code blocks, such as Mermaid; see Diagrams below.
+[diagrams]
+# false shows them as code.
+enabled = true
 
-A program that draws Mermaid diagrams instead of kiri; see
-[Diagram commands](#diagram-commands):
-
-```toml
+# A program that draws Mermaid diagrams instead of kiri; see
+# Diagram commands below.
 [diagrams.mermaid]
 command = ["mmdc", "-i", "{input}", "-o", "{output}", "-t", "{theme}", "-b", "transparent"]
 ```
+
+`diagrams = false` on its own, among the keys above the tables, is short
+for `enabled = false` in the `[diagrams]` table. A file that has it
+cannot have the `[diagrams]` table or a table under it, such as
+`[diagrams.mermaid]`.
 
 ## Theme
 
@@ -155,7 +158,8 @@ diagram. The first of these that is given decides whether it is:
 1. `--diagrams on|off`
 2. `KIRI_DIAGRAMS`: `on` or `1`, `off` or `0`; an empty value counts as
    unset, and any other value is left out with a warning
-3. `diagrams = true` or `false` in the configuration file
+3. `enabled = true` or `false` in the `[diagrams]` table of the
+   configuration file, or `diagrams = true` or `false`
 4. on
 
 Off shows diagrams as code. They are drawn as images, so with
@@ -231,9 +235,8 @@ runs out of time or writes no SVG leaves its diagram as code with a
 warning; kiri does not fall back to drawing it itself, so that a
 command that does not work shows.
 
-TOML cannot give one key both a value and tables, so a file cannot have
-both `diagrams = false` and a `[diagrams.mermaid]` table. With a command
-configured, `--diagrams off` or `KIRI_DIAGRAMS=0` turns diagrams off.
+With a command configured, `enabled = false` in the `[diagrams]` table,
+`--diagrams off` or `KIRI_DIAGRAMS=0` turns diagrams off.
 
 ## Environment variables
 

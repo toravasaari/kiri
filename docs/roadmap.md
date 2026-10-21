@@ -109,9 +109,9 @@ example, come before the rest of phase 3.
   `[diagrams.mermaid]`, with `{input}`, `{output}` and `{theme}`. It
   replaces the built-in renderer, and one that fails does not fall back
   to it.
-- `--diagrams on|off`, `KIRI_DIAGRAMS` and `diagrams` in the
-  configuration file; `--doctor` shows the switch and each language's
-  renderers.
+- `--diagrams on|off`, `KIRI_DIAGRAMS` and `enabled` in the configuration
+  file's `[diagrams]` table; `--doctor` shows the switch and each
+  language's renderers.
 - A diagram that does not draw stays code, with a warning naming its
   line. Drawing that takes longer than half a second shows how far it
   has got.
@@ -440,6 +440,8 @@ go.
 - Front matter tables: tell a list's items from a nested map, such as a
   muted `1.` line above each item's table or the number in its top
   border. Tried on `feature/front-matter`; the line survives stacking.
+- kiri creates a default configuration file, and perhaps settings edited
+  from the UI.
 
 ## Bugs
 

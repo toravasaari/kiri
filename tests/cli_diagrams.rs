@@ -93,6 +93,7 @@ fn diagrams_off_shows_them_as_code_without_rendering_them() {
         (&[][..], Some("0"), ""),
         (&[][..], Some("off"), "diagrams = true\n"),
         (&[][..], None, "diagrams = false\n"),
+        (&[][..], None, "[diagrams]\nenabled = false\n"),
     ] {
         let case = format!("{args:?} {variable:?} {config:?}");
         // A broken diagram is not rendered, so it gets no warning.
@@ -115,6 +116,7 @@ fn diagrams_on_overrides_the_environment_and_the_configuration_file() {
         (&["--diagrams", "on"][..], Some("0"), "diagrams = false\n"),
         (&[][..], Some("1"), "diagrams = false\n"),
         (&[][..], Some(""), "diagrams = true\n"),
+        (&[][..], Some("1"), "[diagrams]\nenabled = false\n"),
     ] {
         let case = format!("{args:?} {variable:?} {config:?}");
         let out = with_settings(&dir, FLOWCHART, args, variable, config);
