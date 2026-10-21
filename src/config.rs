@@ -980,12 +980,18 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
     }
 }
 
-/// The settings that `options`, `env` and `config` choose, with the theme
-/// loaded.
-pub fn settings(options: &Options, env: &Environment, config: &Config) -> Result<Settings, String> {
-    let choices = choose(options, env, config);
-    let theme = load_theme(&choices.theme.value)?;
-    Ok(choices.with_theme(theme))
+/// The warnings about settings that were left out, and the settings that
+/// `options`, `env` and `config` choose, with the theme loaded. The
+/// warnings come back even when the theme does not load.
+pub fn settings(
+    options: &Options,
+    env: &Environment,
+    config: &Config,
+) -> (Vec<String>, Result<Settings, String>) {
+    let mut choices = choose(options, env, config);
+    let warnings = std::mem::take(&mut choices.warnings);
+    let settings = load_theme(&choices.theme.value).map(|theme| choices.with_theme(theme));
+    (warnings, settings)
 }
 
 /// The theme that `source` names; the built-in theme when it is a default
@@ -2026,7 +2032,7 @@ mod tests {
     #[test]
     fn settings_take_the_built_in_theme_without_a_theme_file() {
         let env = env(None, Some("/nonexistent"));
-        let settings = settings(&no_options(), &env, &Config::default()).unwrap();
+        let settings = settings(&no_options(), &env, &Config::default()).1.unwrap();
         assert_eq!(settings.theme, Theme::default());
         assert_eq!(settings.paper, None);
         assert!(settings.images);
@@ -2038,7 +2044,9 @@ mod tests {
             paper: Some(Paper::Dark),
             ..no_options()
         };
-        let settings = settings(&options, &env(None, None), &Config::default()).unwrap();
+        let settings = settings(&options, &env(None, None), &Config::default())
+            .1
+            .unwrap();
         assert_eq!(settings.theme, Theme::paper(Paper::Dark));
         assert_eq!(settings.paper, Some(Paper::Dark));
     }
@@ -2051,7 +2059,9 @@ mod tests {
                 no_margins: true,
                 ..no_options()
             };
-            let settings = settings(&options, &env(None, None), &Config::default()).unwrap();
+            let settings = settings(&options, &env(None, None), &Config::default())
+                .1
+                .unwrap();
             let theme = paper.map_or_else(Theme::default, Theme::paper);
             assert_eq!(settings.theme, theme.without_margins());
         }
@@ -2063,7 +2073,9 @@ mod tests {
             theme: Some(PathBuf::from("/nonexistent/mine.toml")),
             ..no_options()
         };
-        let error = settings(&options, &env(None, None), &Config::default()).unwrap_err();
+        let error = settings(&options, &env(None, None), &Config::default())
+            .1
+            .unwrap_err();
         assert!(error.starts_with("/nonexistent/mine.toml: "), "{error}");
     }
 
@@ -2153,7 +2165,9 @@ mod tests {
 
     #[test]
     fn settings_turn_images_off_as_the_environment_says() {
-        let settings = settings(&no_options(), &no_images_env("1"), &Config::default()).unwrap();
+        let settings = settings(&no_options(), &no_images_env("1"), &Config::default())
+            .1
+            .unwrap();
         assert!(!settings.images);
     }
 }

@@ -386,11 +386,11 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
         }
     })?;
     let config = kiri::config::load(&env)?;
-    let choices = kiri::config::choose(&options(cli), &env, &config);
-    for warning in &choices.warnings {
+    let (warnings, settings) = kiri::config::settings(&options(cli), &env, &config);
+    for warning in &warnings {
         eprintln!("kiri: {warning}");
     }
-    let mut settings = choices.with_theme(kiri::config::load_theme(&choices.theme.value)?);
+    let mut settings = settings?;
     if file.is_none() {
         settings.paging = only_always(settings.paging);
     }
@@ -816,11 +816,11 @@ fn list_emojis(cli: &Cli) -> Result<(), Failure> {
     }
     let env = Environment::from_process();
     let config = kiri::config::load(&env)?;
-    let choices = kiri::config::choose(&options(cli), &env, &config);
-    for warning in &choices.warnings {
+    let (warnings, settings) = kiri::config::settings(&options(cli), &env, &config);
+    for warning in &warnings {
         eprintln!("kiri: {warning}");
     }
-    let settings = choices.with_theme(kiri::config::load_theme(&choices.theme.value)?);
+    let settings = settings?;
     let caps = kiri::term::capabilities(cli.mode.into(), cli.width, &env);
     let document = kiri::parse::parse(&kiri::list::emoji_document());
     show_document(

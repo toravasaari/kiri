@@ -285,6 +285,31 @@ fn an_unknown_kiri_paging_is_a_warning() {
 }
 
 #[test]
+fn the_warnings_come_before_the_error_of_a_theme_that_does_not_load() {
+    let dir = Scratch::new("warnings-before-theme");
+    let theme = broken_theme(&dir.join("broken.toml"));
+    let document = dir.join("document.md");
+    std::fs::write(&document, "Text\n").unwrap();
+    let out = command(&dir)
+        .env("KIRI_PAGING", "joo")
+        .env("KIRI_TABLE_ROWS", "stripes")
+        .args(["--theme".as_ref(), theme.as_os_str()])
+        .arg(&document)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = text(&out.stderr);
+    let warnings = "kiri: KIRI_PAGING: `joo` is not always, auto, never, 1 or 0; left out\n\
+         kiri: KIRI_TABLE_ROWS: `stripes` is not off, zebra, lines, indent or underline; \
+         left out\n";
+    let error = stderr.strip_prefix(warnings);
+    assert!(
+        error.is_some_and(|error| error.starts_with(&format!("kiri: {}: ", theme.display()))),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn the_paging_flags_exclude_each_other() {
     let dir = Scratch::new("paging-flags");
     let document = dir.join("document.md");
