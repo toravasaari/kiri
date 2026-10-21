@@ -21,6 +21,13 @@ pub use external::{Command, External};
 /// blocks name them.
 pub const LANGUAGES: &[&str] = &["mermaid"];
 
+/// The Mermaid settings that kiri gives a diagram, whichever renderer
+/// draws it, and that the diagram's own directive or front matter
+/// overrides: GitHub's look and layout. GitHub draws with Mermaid 11,
+/// which lays diagrams out with dagre; Mermaid 12, which merman follows,
+/// with ELK.
+pub(crate) const MERMAID_SITE: [(&str, &str); 2] = [("look", "classic"), ("layout", "dagre")];
+
 /// The colours a diagram is drawn in when it does not choose its own.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Theme {

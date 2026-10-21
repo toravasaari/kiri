@@ -253,7 +253,9 @@ cannot. In the arguments:
 - `{output}` is the SVG file the program writes;
 - `{theme}` is the theme kiri chose: `default` or `dark` for Mermaid;
 - `{config}` is a Mermaid configuration file, in JSON, that has labels
-  drawn as SVG text rather than as HTML, which kiri cannot draw.
+  drawn as SVG text rather than as HTML, which kiri cannot draw, and
+  the classic look and the dagre layout that kiri's built-in renderer
+  uses too; a diagram's own settings win over it.
 
 `{input}` and `{output}` must be there. The source file is the diagram
 as the document has it, so line numbers in the program's errors are the

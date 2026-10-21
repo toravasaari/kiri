@@ -333,19 +333,29 @@ impl Renderer for External {
     }
 }
 
-/// The Mermaid configuration that a command gets as `{config}`: it has a
-/// diagram's labels drawn as SVG text, which kiri can draw, rather than as
-/// HTML, which it cannot. Mermaid 11 and later read the first setting;
-/// Mermaid 10 the others.
-const MERMAID_CONFIG: &str = "{\"htmlLabels\": false, \"flowchart\": {\"htmlLabels\": false}, \
-                              \"class\": {\"htmlLabels\": false}, \"state\": {\"htmlLabels\": false}}\n";
+/// The Mermaid configuration that a command gets as `{config}`, which a
+/// diagram's own directive or front matter overrides. It has a diagram's
+/// labels drawn as SVG text, which kiri can draw, rather than as HTML,
+/// which it cannot: Mermaid 11 and later read the first `htmlLabels`;
+/// Mermaid 10 the others. It has the look and layout that the built-in
+/// renderer gives too, so that both draw a diagram alike.
+fn mermaid_config() -> String {
+    let mut config = serde_json::json!({
+        "htmlLabels": false,
+        "flowchart": {"htmlLabels": false},
+        "class": {"htmlLabels": false},
+        "state": {"htmlLabels": false},
+    });
+    for (key, value) in super::MERMAID_SITE {
+        config[key] = value.into();
+    }
+    format!("{config}\n")
+}
 
 /// The configuration a command for `language` gets as `{config}`, and
 /// the extension of its file.
-fn config(language: &str) -> Option<(&'static str, &'static str)> {
-    language
-        .eq_ignore_ascii_case("mermaid")
-        .then_some((MERMAID_CONFIG, "json"))
+fn config(language: &str) -> Option<(String, &'static str)> {
+    (language.eq_ignore_ascii_case("mermaid")).then(|| (mermaid_config(), "json"))
 }
 
 /// A directory that is removed with everything in it when dropped.
@@ -581,12 +591,16 @@ mod tests {
             assert_eq!(source_file, Ok(source.to_owned()));
         }
         let config = written("cat \"$4\" > \"$2\"\n", SOURCE);
-        assert_eq!(config, Ok(MERMAID_CONFIG.to_owned()));
-        let config: serde_json::Value = serde_json::from_str(MERMAID_CONFIG).unwrap();
+        assert_eq!(config, Ok(mermaid_config()));
+        let config: serde_json::Value = serde_json::from_str(&mermaid_config()).unwrap();
         assert_eq!(config["htmlLabels"], false);
         for diagram in ["flowchart", "class", "state"] {
             assert_eq!(config[diagram]["htmlLabels"], false, "{diagram}");
         }
+        // The look and layout that the built-in renderer gives a diagram
+        // that does not choose its own, so that both draw alike.
+        assert_eq!(config["look"], "classic");
+        assert_eq!(config["layout"], "dagre");
         assert_eq!(scratch.left(), Vec::<PathBuf>::new());
     }
 

@@ -26,17 +26,17 @@ pub fn version() -> String {
 /// chooses its own, or merman's message saying why it could not be drawn.
 pub fn render(source: &str, theme: Theme) -> Result<Drawn, String> {
     // GitHub's themes, look and layout. The site configuration is what a
-    // diagram's own directive or front matter overrides. merman follows
-    // Mermaid 12, whose default layout is ELK; GitHub's Mermaid 11 lays
-    // diagrams out with dagre.
-    let site = MermaidConfig::from_value(serde_json::json!({
+    // diagram's own directive or front matter overrides.
+    let mut site = serde_json::json!({
         "theme": match theme {
             Theme::Light => "default",
             Theme::Dark => "dark",
         },
-        "look": "classic",
-        "layout": "dagre",
-    }));
+    });
+    for (key, value) in super::MERMAID_SITE {
+        site[key] = value.into();
+    }
+    let site = MermaidConfig::from_value(site);
     let renderer = Renderer::new().with_engine(Engine::new().with_site_config(site));
     // SVG that resvg draws: text as SVG text rather than HTML labels.
     let request = SvgRequest {

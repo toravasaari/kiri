@@ -111,7 +111,8 @@ example, come before the rest of phase 3.
   off.
 - An external command for a language in the configuration file,
   `[diagrams.mermaid]`, with `{input}`, `{output}`, `{theme}` and
-  `{config}`. It
+  `{config}`; the Mermaid configuration it gets as `{config}` has the
+  built-in renderer's look and layout. It
   replaces the built-in renderer, and one that fails does not fall back
   to it. Its time limit, 20 s unless `timeout` says otherwise, and
   Ctrl-C, SIGTERM and SIGHUP stop it and what it started.
