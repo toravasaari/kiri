@@ -681,11 +681,13 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), Failure> {
     };
     let markdown = kiri::doctor::report(&Facts {
         env: &env,
-        mode: Setting::new(cli.mode, origin(matches, "mode", "--mode")),
-        width: cli.width,
-        max_image_size: Setting::new(
+        mode: or_default(matches, "mode", "--mode", cli.mode),
+        width: flag(cli.width, "--width"),
+        max_image_size: or_default(
+            matches,
+            "max_image_size",
+            "--max-image-size",
             cli.max_image_size,
-            origin(matches, "max_image_size", "--max-image-size"),
         ),
         detection: &detection,
         choices: &choices,
@@ -744,14 +746,6 @@ fn list_emojis(cli: &Cli) -> Result<(), Failure> {
     )
 }
 
-/// Where the value of the argument `id`, the flag `flag`, comes from.
-fn origin(matches: &ArgMatches, id: &str, flag: &'static str) -> Origin {
-    match matches.value_source(id) {
-        Some(ValueSource::CommandLine) => Origin::Flag(flag),
-        _ => Origin::Default,
-    }
-}
-
 /// Writes `text` on stdout as it is, as cat would, without rendering it:
 /// for `--format text` in plain output.
 fn write_as_is(text: &str) -> Result<(), String> {
@@ -768,30 +762,38 @@ fn finish(result: io::Result<()>) -> Result<(), String> {
     }
 }
 
-/// What the command line asks for.
+/// What the command line asks for, each with the flag it comes from.
 fn options(cli: &Cli) -> Options {
     Options {
-        theme: cli.theme.clone(),
-        paper: match (cli.light, cli.dark) {
-            (true, _) => Some(Paper::Light),
-            (_, true) => Some(Paper::Dark),
-            _ => None,
-        },
-        no_margins: cli.no_margins,
-        images: match (cli.images, cli.no_images) {
-            (true, _) => Some(true),
-            (_, true) => Some(false),
-            _ => None,
-        },
-        paging: match (cli.paging, cli.pager, cli.no_pager) {
-            (Some(paging), _, _) => Some(Setting::new(paging, Origin::Flag("--paging"))),
-            (_, true, _) => Some(Setting::new(Paging::Always, Origin::Flag("-p"))),
-            (_, _, true) => Some(Setting::new(Paging::Never, Origin::Flag("-P"))),
-            _ => None,
-        },
-        front_matter: cli.front_matter,
-        table_rows: cli.table_rows,
-        diagrams: cli.diagrams,
-        render_errors: cli.render_errors,
+        theme: flag(cli.theme.clone(), "--theme"),
+        paper: (flag(cli.light.then_some(Paper::Light), "--light"))
+            .or(flag(cli.dark.then_some(Paper::Dark), "--dark")),
+        margins: flag(cli.no_margins.then_some(false), "--no-margins"),
+        images: (flag(cli.images.then_some(true), "--images"))
+            .or(flag(cli.no_images.then_some(false), "--no-images")),
+        paging: (flag(cli.paging, "--paging"))
+            .or(flag(cli.pager.then_some(Paging::Always), "-p"))
+            .or(flag(cli.no_pager.then_some(Paging::Never), "-P")),
+        front_matter: flag(cli.front_matter, "--front-matter"),
+        table_rows: flag(cli.table_rows, "--table-rows"),
+        diagrams: flag(cli.diagrams, "--diagrams"),
+        render_errors: flag(cli.render_errors, "--render-errors"),
+    }
+}
+
+/// `value`, when the command line gives it, from the flag `name`: the
+/// flag's long name, or its short one where it has no long one, as clap
+/// does not tell which of them the user gave.
+fn flag<T>(value: Option<T>, name: &'static str) -> Option<Setting<T>> {
+    value.map(|value| Setting::new(value, Origin::Flag(name)))
+}
+
+/// The value of the argument `id`, `value`, from the flag `name` when the
+/// command line gives it, and otherwise clap's default.
+fn or_default<T>(matches: &ArgMatches, id: &str, name: &'static str, value: T) -> Setting<T> {
+    let given = matches.value_source(id) == Some(ValueSource::CommandLine);
+    match given {
+        true => Setting::new(value, Origin::Flag(name)),
+        false => Setting::new(value, Origin::Default),
     }
 }

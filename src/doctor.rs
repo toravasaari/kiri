@@ -22,7 +22,7 @@ pub struct Facts<'a> {
     pub env: &'a Environment,
     pub mode: Setting<Mode>,
     /// `--width`, when given.
-    pub width: Option<u16>,
+    pub width: Option<Setting<u16>>,
     /// The largest image file kiri reads, in megabytes.
     pub max_image_size: Setting<u64>,
     pub detection: &'a Detection,
@@ -238,13 +238,13 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     let size = &facts.max_image_size;
     let mb = format!("{} MB", size.value);
     row(out, &["Largest image", &mb, &from(size.origin)])?;
-    let width = match (facts.width, facts.detection.window) {
-        (Some(_), _) => "`--width`",
-        (None, Some(_)) => "terminal",
-        (None, None) => "default",
+    let width = match (&facts.width, facts.detection.window) {
+        (Some(width), _) => from(width.origin),
+        (None, Some(_)) => "terminal".to_owned(),
+        (None, None) => from(Origin::Default),
     };
     let cells = format!("{} cells", facts.detection.caps.width);
-    row(out, &["Width", &cells, width])?;
+    row(out, &["Width", &cells, &width])?;
     writeln!(out)
 }
 

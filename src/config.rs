@@ -563,6 +563,11 @@ impl<T> Setting<T> {
     pub fn new(value: T, origin: Origin) -> Self {
         Self { value, origin }
     }
+
+    /// `f` of the value, from the same place.
+    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Setting<U> {
+        Setting::new(f(self.value), self.origin)
+    }
 }
 
 /// Where the theme comes from.
@@ -581,38 +586,23 @@ pub enum ThemeSource {
 /// Chooses the theme and tells where it comes from, strongest first:
 /// `--theme`, a paper theme from `--light` or `--dark`, `KIRI_THEME` when it
 /// is not empty, the configuration file, `theme.toml` in the configuration
-/// directory, the built-in theme.
-fn theme_source(
-    cli: Option<&Path>,
-    paper: Option<Paper>,
-    env: &Environment,
-    config: &Config,
-) -> Setting<ThemeSource> {
-    if let Some(path) = cli {
-        return Setting::new(ThemeSource::File(path.to_owned()), Origin::Flag("--theme"));
-    }
-    if let Some(paper) = paper {
-        let flag = match paper {
-            Paper::Light => "--light",
-            Paper::Dark => "--dark",
-        };
-        return Setting::new(ThemeSource::Paper(paper), Origin::Flag(flag));
-    }
-    if let Some(path) = env.kiri_theme.as_ref().filter(|path| !path.is_empty()) {
-        return Setting::new(
-            ThemeSource::File(PathBuf::from(path)),
-            Origin::Environment("KIRI_THEME"),
-        );
-    }
-    if let Some(path) = &config.theme {
-        return Setting::new(ThemeSource::File(path.clone()), Origin::File);
-    }
+/// directory when it exists, the built-in theme.
+fn theme_source(options: &Options, env: &Environment, config: &Config) -> Setting<ThemeSource> {
+    let theme = (options.theme.clone()).map(|theme| theme.map(ThemeSource::File));
+    let paper = (options.paper.clone()).map(|paper| paper.map(ThemeSource::Paper));
+    let name = "KIRI_THEME";
+    let variable = |_: &mut Vec<String>| {
+        let path = env.get(name).filter(|path| !path.is_empty())?;
+        let theme = ThemeSource::File(PathBuf::from(path));
+        Some(Setting::new(theme, Origin::Environment(name)))
+    };
     let file = directory(env).map(|dir| dir.value.join("theme.toml"));
-    let source = match file.filter(|path| path.exists()) {
+    let default = match file.filter(|path| path.exists()) {
         Some(path) => ThemeSource::DefaultFile(path),
         None => ThemeSource::BuiltIn,
     };
-    Setting::new(source, Origin::Default)
+    let file = config.theme.clone().map(ThemeSource::File);
+    resolve(theme.or(paper), variable, file, default, &mut Vec::new())
 }
 
 /// Whether images are shown and where that comes from, strongest first:
@@ -752,33 +742,29 @@ fn variable<T: Named>(
     }
 }
 
-/// `value`, from the flag `name`.
-fn flag<T>(value: Option<T>, name: &'static str) -> Option<Setting<T>> {
-    value.map(|value| Setting::new(value, Origin::Flag(name)))
-}
-
-/// What the command line asks for; `None` where it leaves the choice to
-/// the environment and the configuration file.
+/// What the command line asks for, each with the flag it comes from;
+/// `None` where it leaves the choice to the environment and the
+/// configuration file.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Options {
-    /// `--theme`.
-    pub theme: Option<PathBuf>,
-    /// `--light` or `--dark`.
-    pub paper: Option<Paper>,
-    /// `--no-margins`.
-    pub no_margins: bool,
-    /// `--images` or `--no-images`.
-    pub images: Option<bool>,
-    /// `--paging`, `-p` or `-P`, with the flag it came from.
+    /// A theme file.
+    pub theme: Option<Setting<PathBuf>>,
+    /// A paper theme.
+    pub paper: Option<Setting<Paper>>,
+    /// Whether the theme keeps its margins.
+    pub margins: Option<Setting<bool>>,
+    /// Whether images are shown.
+    pub images: Option<Setting<bool>>,
+    /// When the document is paged.
     pub paging: Option<Setting<Paging>>,
-    /// `--front-matter`.
-    pub front_matter: Option<FrontMatter>,
-    /// `--table-rows`.
-    pub table_rows: Option<TableRows>,
-    /// `--diagrams`.
-    pub diagrams: Option<bool>,
-    /// `--render-errors`.
-    pub render_errors: Option<RenderErrors>,
+    /// How front matter shows.
+    pub front_matter: Option<Setting<FrontMatter>>,
+    /// How the rows of a table are told apart.
+    pub table_rows: Option<Setting<TableRows>>,
+    /// Whether diagrams in code blocks are drawn.
+    pub diagrams: Option<Setting<bool>>,
+    /// Where kiri tells why a diagram could not be drawn.
+    pub render_errors: Option<Setting<RenderErrors>>,
 }
 
 /// What the options, the environment and the configuration file choose
@@ -881,11 +867,6 @@ impl Choices {
 pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices {
     let mut warnings = Vec::new();
     let w = &mut warnings;
-    let margins = flag(options.no_margins.then_some(false), "--no-margins");
-    let images_flag = match options.images {
-        Some(true) => "--images",
-        _ => "--no-images",
-    };
     let paging = variable(env, "KIRI_PAGING");
     let paging = resolve(
         options.paging.clone(),
@@ -894,30 +875,29 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
         Paging::default(),
         w,
     );
-    let front_matter = flag(options.front_matter, "--front-matter");
     let front_matter = resolve(
-        front_matter,
+        options.front_matter.clone(),
         variable(env, "KIRI_FRONT_MATTER"),
         config.front_matter,
         FrontMatter::default(),
         w,
     );
     let table_rows = resolve(
-        flag(options.table_rows, "--table-rows"),
+        options.table_rows.clone(),
         variable(env, "KIRI_TABLE_ROWS"),
         config.table_rows,
         TableRows::default(),
         w,
     );
     let diagrams = resolve(
-        flag(options.diagrams, "--diagrams"),
+        options.diagrams.clone(),
         variable(env, "KIRI_DIAGRAMS"),
         config.diagrams,
         true,
         w,
     );
     let render_errors = resolve(
-        flag(options.render_errors, "--render-errors"),
+        options.render_errors.clone(),
         variable(env, "KIRI_RENDER_ERRORS"),
         config.render_errors,
         RenderErrors::default(),
@@ -925,10 +905,10 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
     );
     let time_limit = crate::diagrams::external::TIME_LIMIT;
     Choices {
-        theme: theme_source(options.theme.as_deref(), options.paper, env, config),
-        paper: options.paper,
-        margins: resolve(margins, unset, None, true, w),
-        images: images(flag(options.images, images_flag), env, config),
+        theme: theme_source(options, env, config),
+        paper: options.paper.as_ref().map(|paper| paper.value),
+        margins: resolve(options.margins.clone(), unset, None, true, w),
+        images: images(options.images.clone(), env, config),
         paging,
         search_case: resolve(None, unset, config.search_case, SearchCase::default(), w),
         front_matter,
@@ -1240,6 +1220,30 @@ mod tests {
         assert!(error.contains("unknown field `colour`"), "{error}");
         let error = parse("theme = 1\n", Path::new("/c"), &Environment::default()).unwrap_err();
         assert!(error.contains("invalid type"), "{error}");
+    }
+
+    /// `value` from the flag `name`, as the command line gives it.
+    fn flag<T>(value: T, name: &'static str) -> Option<Setting<T>> {
+        Some(Setting::new(value, Origin::Flag(name)))
+    }
+
+    /// The theme from `--theme` with `cli`, the paper flag for `paper`,
+    /// `env` and `config`.
+    fn theme_source(
+        cli: Option<&Path>,
+        paper: Option<Paper>,
+        env: &Environment,
+        config: &Config,
+    ) -> Setting<ThemeSource> {
+        let options = Options {
+            theme: cli.and_then(|path| flag(path.to_owned(), "--theme")),
+            paper: paper.and_then(|paper| match paper {
+                Paper::Light => flag(paper, "--light"),
+                Paper::Dark => flag(paper, "--dark"),
+            }),
+            ..Options::default()
+        };
+        super::theme_source(&options, env, config)
     }
 
     fn with_theme(theme: &str) -> Config {
@@ -1913,29 +1917,25 @@ mod tests {
             ("KIRI_RENDER_ERRORS", "stderr"),
         ]);
         let options = Options {
-            images: Some(false),
-            paging: Some(Setting::new(Paging::Never, Origin::Flag("-P"))),
-            front_matter: Some(FrontMatter::Hide),
-            table_rows: Some(TableRows::Off),
-            diagrams: Some(false),
-            render_errors: Some(RenderErrors::Inline),
+            images: flag(false, "--no-images"),
+            paging: flag(Paging::Never, "-P"),
+            front_matter: flag(FrontMatter::Hide, "--front-matter"),
+            table_rows: flag(TableRows::Off, "--table-rows"),
+            diagrams: flag(false, "--diagrams"),
+            render_errors: flag(RenderErrors::Inline, "--render-errors"),
             ..Options::default()
         };
         let choices = choose(&options, &env, &Config::default());
-        let flag = |flag| Origin::Flag(flag);
-        assert_eq!(choices.images, Setting::new(false, flag("--no-images")));
-        assert_eq!(choices.paging, Setting::new(Paging::Never, flag("-P")));
-        let front_matter = Setting::new(FrontMatter::Hide, flag("--front-matter"));
-        assert_eq!(choices.front_matter, front_matter);
-        let table_rows = Setting::new(TableRows::Off, flag("--table-rows"));
-        assert_eq!(choices.table_rows, table_rows);
-        assert_eq!(choices.diagrams, Setting::new(false, flag("--diagrams")));
-        let render_errors = Setting::new(RenderErrors::Inline, flag("--render-errors"));
-        assert_eq!(choices.render_errors, render_errors);
+        assert_eq!(Some(choices.images), options.images);
+        assert_eq!(Some(choices.paging), options.paging);
+        assert_eq!(Some(choices.front_matter), options.front_matter);
+        assert_eq!(Some(choices.table_rows), options.table_rows);
+        assert_eq!(Some(choices.diagrams), options.diagrams);
+        assert_eq!(Some(choices.render_errors), options.render_errors);
         // Without a word about the variable the flag stands in for.
         assert!(choices.warnings.is_empty(), "{:?}", choices.warnings);
         let options = Options {
-            images: Some(true),
+            images: flag(true, "--images"),
             ..Options::default()
         };
         let choices = choose(
@@ -1943,7 +1943,7 @@ mod tests {
             &vars(&[("KIRI_NO_IMAGES", "1")]),
             &Config::default(),
         );
-        assert_eq!(choices.images, Setting::new(true, flag("--images")));
+        assert_eq!(Some(choices.images), options.images);
     }
 
     #[test]
@@ -1980,7 +1980,7 @@ mod tests {
     #[test]
     fn settings_keep_the_paper_and_its_theme() {
         let options = Options {
-            paper: Some(Paper::Dark),
+            paper: flag(Paper::Dark, "--dark"),
             ..no_options()
         };
         let settings = settings(&options, &env(None, None), &Config::default())
@@ -1994,8 +1994,8 @@ mod tests {
     fn no_margins_applies_to_whichever_theme_is_chosen() {
         for paper in [None, Some(Paper::Light)] {
             let options = Options {
-                paper,
-                no_margins: true,
+                paper: paper.and_then(|paper| flag(paper, "--light")),
+                margins: flag(false, "--no-margins"),
                 ..no_options()
             };
             let settings = settings(&options, &env(None, None), &Config::default())
@@ -2009,7 +2009,7 @@ mod tests {
     #[test]
     fn a_theme_file_that_does_not_load_is_an_error_naming_it() {
         let options = Options {
-            theme: Some(PathBuf::from("/nonexistent/mine.toml")),
+            theme: flag(PathBuf::from("/nonexistent/mine.toml"), "--theme"),
             ..no_options()
         };
         let error = settings(&options, &env(None, None), &Config::default())
@@ -2056,8 +2056,8 @@ mod tests {
     #[test]
     fn the_choices_tell_where_they_come_from() {
         let options = Options {
-            no_margins: true,
-            images: Some(false),
+            margins: flag(false, "--no-margins"),
+            images: flag(false, "--no-images"),
             ..no_options()
         };
         let choices = choose(&options, &env(None, None), &Config::default());
