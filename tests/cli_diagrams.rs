@@ -439,6 +439,52 @@ fn ctrl_c_stops_the_programs_removes_their_files_and_ends_kiri() {
 }
 
 #[test]
+fn a_program_s_files_are_in_kiri_s_cache_directory_until_it_is_done() {
+    use std::os::unix::fs::PermissionsExt;
+
+    // A short name, so that the cache directory's path is short enough
+    // for the sockets a browser makes in it.
+    let dir = Scratch::new("c");
+    let record = dir.join("tmpdir");
+    let script = format!("printf '%s' \"$TMPDIR\" > '{}'\n{DRAWS}", record.display());
+    let config = external(&dir, &script);
+    common::write(&dir.join("config/kiri/config.toml"), &config);
+    let document = dir.join("document.md");
+    std::fs::write(&document, FLOWCHART).unwrap();
+    let temp = dir.join("temp");
+    std::fs::create_dir_all(&temp).unwrap();
+    for (variable, cache) in [
+        (Some(dir.join("x")), dir.join("x/kiri")),
+        (None, dir.join("home/.cache/kiri")),
+    ] {
+        let mut command = common::command(&dir);
+        command.env("TMPDIR", &temp);
+        if let Some(variable) = &variable {
+            command.env("XDG_CACHE_HOME", variable);
+        }
+        let out = command
+            .args(["--mode", "kitty"])
+            .arg(&document)
+            .output()
+            .unwrap();
+        assert_eq!(text(&out.stderr), "", "{variable:?}");
+        assert_eq!(sent(&text(&out.stdout)).len(), 1, "{variable:?}");
+        // The program's temporary directory was its own, in the cache.
+        let tmpdir = std::fs::read_to_string(&record).unwrap();
+        let diagrams = cache.join("diagrams");
+        assert_eq!(
+            std::path::Path::new(&tmpdir).parent(),
+            Some(diagrams.as_path()),
+            "{variable:?}"
+        );
+        let mode = std::fs::metadata(&cache).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700, "{variable:?}");
+        assert_eq!(std::fs::read_dir(&diagrams).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(&temp).unwrap().count(), 0);
+    }
+}
+
+#[test]
 fn the_configuration_file_sets_the_time_limit() {
     let dir = Scratch::new("mermaid-timeout");
     let config = format!(

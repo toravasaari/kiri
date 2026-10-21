@@ -23,6 +23,8 @@ use crate::theme::{Paper, Theme};
 pub struct Environment {
     pub home: Option<OsString>,
     pub xdg_config_home: Option<OsString>,
+    /// `XDG_CACHE_HOME`: where kiri's cache directory goes.
+    pub xdg_cache_home: Option<OsString>,
     /// `KIRI_CONFIG`: the configuration file to read instead of the default.
     pub kiri_config: Option<OsString>,
     /// `KIRI_THEME`: a theme file.
@@ -62,6 +64,7 @@ impl Environment {
         Self {
             home: std::env::var_os("HOME"),
             xdg_config_home: std::env::var_os("XDG_CONFIG_HOME"),
+            xdg_cache_home: std::env::var_os("XDG_CACHE_HOME"),
             kiri_config: std::env::var_os("KIRI_CONFIG"),
             kiri_theme: std::env::var_os("KIRI_THEME"),
             kiri_no_images: std::env::var_os("KIRI_NO_IMAGES"),
@@ -106,6 +109,23 @@ pub fn directory(env: &Environment) -> Option<PathBuf> {
                 .map(|home| PathBuf::from(home).join(".config"))
         })?;
     Some(config.join("kiri"))
+}
+
+/// kiri's cache directory, for files it may remove at any time, such as
+/// those of the programs that draw diagrams: `$XDG_CACHE_HOME/kiri`, or
+/// `~/.cache/kiri` when that is unset or empty.
+pub fn cache_directory(env: &Environment) -> Option<PathBuf> {
+    let cache = env
+        .xdg_cache_home
+        .clone()
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            env.home
+                .as_ref()
+                .map(|home| PathBuf::from(home).join(".cache"))
+        })?;
+    Some(cache.join("kiri"))
 }
 
 /// What the configuration file sets; `None` for what it leaves out.
@@ -947,6 +967,25 @@ mod tests {
     fn there_is_no_directory_without_home_or_xdg_config_home() {
         assert_eq!(directory(&env(None, None)), None);
         assert_eq!(directory(&env(None, Some(""))), None);
+    }
+
+    #[test]
+    fn the_cache_directory_is_under_xdg_cache_home_or_dot_cache() {
+        let env = |home: Option<&str>, cache: Option<&str>| Environment {
+            home: home.map(OsString::from),
+            xdg_cache_home: cache.map(OsString::from),
+            ..Environment::default()
+        };
+        let cache = |home, cache| cache_directory(&env(home, cache));
+        let dot_cache = Some(PathBuf::from("/home/u/.cache/kiri"));
+        assert_eq!(
+            cache(Some("/home/u"), Some("/c")),
+            Some(PathBuf::from("/c/kiri"))
+        );
+        assert_eq!(cache(None, Some("/c")), Some(PathBuf::from("/c/kiri")));
+        assert_eq!(cache(Some("/home/u"), None), dot_cache);
+        assert_eq!(cache(Some("/home/u"), Some("")), dot_cache);
+        assert_eq!(cache(None, None), None);
     }
 
     #[test]

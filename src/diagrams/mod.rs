@@ -5,6 +5,7 @@
 //! does an SVG file, and another backend could use the same SVG.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -284,6 +285,14 @@ impl Renderers {
     pub fn with_time_limit(self, limit: Duration) -> Self {
         Renderers {
             external: self.external.with_time_limit(limit),
+        }
+    }
+
+    /// These renderers with the files of the programs they run in
+    /// directories under `dir`; see `External::with_work_dir`.
+    pub fn with_work_dir(self, dir: PathBuf) -> Self {
+        Renderers {
+            external: self.external.with_work_dir(dir),
         }
     }
 

@@ -419,6 +419,9 @@ fn show_document(
             let configured = &settings.diagram_commands;
             let mut chosen = Renderers::chosen(configured, &settings.diagram_no_search, &search)
                 .with_time_limit(settings.diagram_timeout);
+            if let Some(cache) = kiri::config::cache_directory(env) {
+                chosen = chosen.with_work_dir(cache.join("diagrams"));
+            }
             if chosen.runs_programs() {
                 interrupt = Interrupt::catch();
                 if let Some(interrupt) = &interrupt {

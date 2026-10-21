@@ -3,8 +3,10 @@
 //! kiri writes the diagram's source to a file in a directory of its own,
 //! and for Mermaid the program's settings beside it. It runs the command
 //! that kiri's configuration file gives, or that kiri found, without a
-//! shell, and reads the SVG the program wrote. The directory goes when
-//! the program has finished, failed or run out of time.
+//! shell and with that directory as its temporary directory, and reads
+//! the SVG the program wrote. The directory goes, with whatever the
+//! program left in it, when the program has finished, failed, run out of
+//! time or been stopped.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -26,6 +28,13 @@ pub const TIME_LIMIT: Duration = Duration::from_secs(20);
 
 /// How many programs draw diagrams at once.
 pub const AT_ONCE: usize = 4;
+
+/// The longest path of the directory that the directories for diagrams'
+/// files go in. A program gets one of them as its temporary directory, and
+/// Chromium, which `mmdc` runs, may make a socket in that: a socket's path
+/// takes at most 107 bytes, and a longer one would fail.
+const LONGEST_WORK_DIR: usize =
+    107 - "/.org.chromium.Chromium.XXXXXX/SingletonSocket".len() - "/4194304-999".len();
 
 /// A program that draws diagrams and its arguments, in which `{input}`
 /// stands for the file of the diagram's source, `{output}` for the SVG
@@ -59,8 +68,10 @@ pub struct External {
     /// The command for each language, by its lower-case name.
     commands: BTreeMap<String, Command>,
     time_limit: Duration,
-    /// Where the directories for the files go.
-    temp: PathBuf,
+    /// Where the directories for the files go, unless it cannot be made
+    /// or its path is too long; then they go in the system's temporary
+    /// directory.
+    work: Option<PathBuf>,
     /// How many directories this renderer has made, to name the next one.
     made: AtomicUsize,
     /// Set when the programs are to stop, such as on Ctrl-C.
@@ -75,7 +86,7 @@ impl External {
                 .map(|(language, command)| (language.to_ascii_lowercase(), command))
                 .collect(),
             time_limit: TIME_LIMIT,
-            temp: std::env::temp_dir(),
+            work: None,
             made: AtomicUsize::new(0),
             stop: None,
         }
@@ -103,9 +114,15 @@ impl External {
         }
     }
 
-    /// This renderer with its files in directories under `dir`.
-    pub fn with_temp_dir(self, dir: PathBuf) -> Self {
-        External { temp: dir, ..self }
+    /// This renderer with its files in directories under `dir`, which is
+    /// made when it is needed, for the user alone, such as `diagrams` in
+    /// kiri's cache directory. Without it, or when it cannot be made or
+    /// its path is too long, they go in the system's temporary directory.
+    pub fn with_work_dir(self, dir: PathBuf) -> Self {
+        External {
+            work: Some(dir),
+            ..self
+        }
     }
 
     /// Whether no language has a command.
@@ -117,11 +134,28 @@ impl External {
         self.commands.get(&language.to_ascii_lowercase())
     }
 
-    /// A new directory of its own for one diagram's files.
+    /// A new directory of its own for one diagram's files: in the work
+    /// directory when it can be, and otherwise in the system's temporary
+    /// directory, where its name says whose it is.
     fn temp_dir(&self) -> io::Result<TempDir> {
+        let work = (self.work.as_deref())
+            .filter(|work| work.as_os_str().len() <= LONGEST_WORK_DIR)
+            .and_then(|work| {
+                let made = DirBuilder::new().recursive(true).mode(0o700).create(work);
+                made.and_then(|()| self.new_dir(work, "")).ok()
+            });
+        match work {
+            Some(dir) => Ok(dir),
+            None => self.new_dir(&std::env::temp_dir(), "kiri-diagram-"),
+        }
+    }
+
+    /// A new directory in `parent`, its name `prefix` followed by kiri's
+    /// process id and a number.
+    fn new_dir(&self, parent: &Path, prefix: &str) -> io::Result<TempDir> {
         loop {
             let n = self.made.fetch_add(1, Ordering::Relaxed);
-            let dir = (self.temp).join(format!("kiri-diagram-{}-{n}", process::id()));
+            let dir = parent.join(format!("{prefix}{}-{n}", process::id()));
             match DirBuilder::new().mode(0o700).create(&dir) {
                 Ok(()) => return Ok(TempDir(dir)),
                 // Left over from an earlier kiri with the same process id.
@@ -181,6 +215,10 @@ impl External {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(errors_file)
+            // Its temporary files, such as the profile of mermaid-cli's
+            // browser, in its directory, so that they go with it, also when
+            // it is killed.
+            .env("TMPDIR", &dir.0)
             // A group of its own, so that stopping it stops what it
             // started, such as mermaid-cli's browser.
             .process_group(0);
@@ -379,7 +417,7 @@ mod tests {
             ];
             let command = Command::new(argv.map(String::from).to_vec());
             External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
-                .with_temp_dir(self.0.join("temp"))
+                .with_work_dir(self.0.join("temp"))
         }
 
         /// What the directory for the files has in it.
@@ -468,7 +506,7 @@ mod tests {
         let argv = ["/bin/sh", &path.to_string_lossy(), "{input}", "{output}"];
         let command = Command::new(argv.map(String::from).to_vec());
         let renderer = External::new(BTreeMap::from([("dot".to_owned(), command)]))
-            .with_temp_dir(scratch.0.join("temp"));
+            .with_work_dir(scratch.0.join("temp"));
         let svg = renderer.render("dot", "digraph {}", Theme::Light);
         assert_eq!(svg.map(|drawn| drawn.svg), Ok("digraph {}".to_owned()));
     }
@@ -518,7 +556,7 @@ mod tests {
             "{output}".into(),
         ]);
         let renderer = External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
-            .with_temp_dir(scratch.0.join("temp"));
+            .with_work_dir(scratch.0.join("temp"));
         let error = renderer
             .render("mermaid", SOURCE, Theme::Light)
             .unwrap_err();
@@ -673,17 +711,77 @@ mod tests {
         ];
         let command = Command::new(argv.map(String::from).to_vec());
         let renderer = External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
-            .with_temp_dir(scratch.0.join("temp"));
+            .with_work_dir(scratch.0.join("temp"));
         let svg = renderer.render("mermaid", SOURCE, Theme::Dark).unwrap().svg;
-        let dir = scratch
-            .0
-            .join("temp")
-            .join(format!("kiri-diagram-{}-0", process::id()));
+        let dir = scratch.0.join("temp").join(format!("{}-0", process::id()));
         let dir = dir.to_string_lossy();
         assert_eq!(
             svg,
             format!("--theme=dark --out={dir}/diagram.svg {dir}/diagram.mmd ")
         );
+    }
+
+    /// A program that makes a directory in its temporary directory, as
+    /// puppeteer does for a browser's profile, and writes the path of its
+    /// temporary directory as its SVG.
+    const MAKES_A_PROFILE: &str = "mkdir \"$TMPDIR/profile\"\nprintf '%s' \"$TMPDIR\" > \"$2\"\n";
+
+    #[test]
+    fn the_program_s_temporary_files_are_in_its_directory_and_go_with_it() {
+        let scratch = Scratch::new("tmpdir");
+        let renderer = scratch.renderer(MAKES_A_PROFILE);
+        let tmpdir = renderer
+            .render("mermaid", SOURCE, Theme::Light)
+            .unwrap()
+            .svg;
+        let expected = scratch.0.join("temp").join(format!("{}-0", process::id()));
+        assert_eq!(Path::new(&tmpdir), expected);
+        assert_eq!(scratch.left(), Vec::<PathBuf>::new());
+    }
+
+    #[test]
+    fn the_directory_for_the_files_is_made_for_the_user_alone() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let scratch = Scratch::new("made");
+        let work = scratch.0.join("c/kiri/diagrams");
+        let renderer = scratch
+            .renderer(MAKES_A_PROFILE)
+            .with_work_dir(work.clone());
+        let tmpdir = renderer
+            .render("mermaid", SOURCE, Theme::Light)
+            .unwrap()
+            .svg;
+        assert_eq!(Path::new(&tmpdir).parent(), Some(work.as_path()));
+        for dir in [scratch.0.join("c"), scratch.0.join("c/kiri"), work.clone()] {
+            let mode = fs::metadata(&dir).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o700, "{}", dir.display());
+        }
+        assert_eq!(fs::read_dir(&work).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn without_a_directory_of_its_own_the_files_go_in_the_temporary_one() {
+        let scratch = Scratch::new("fallback");
+        fs::write(scratch.0.join("file"), "").unwrap();
+        // One that cannot be made, and one whose path would be too long for
+        // the sockets a browser makes in it.
+        let long = scratch.0.join("x".repeat(LONGEST_WORK_DIR));
+        for work in [scratch.0.join("file/diagrams"), long.clone()] {
+            let renderer = scratch
+                .renderer(MAKES_A_PROFILE)
+                .with_work_dir(work.clone());
+            let tmpdir = renderer
+                .render("mermaid", SOURCE, Theme::Light)
+                .unwrap()
+                .svg;
+            let tmpdir = Path::new(&tmpdir);
+            assert_eq!(tmpdir.parent(), Some(std::env::temp_dir().as_path()));
+            let name = tmpdir.file_name().unwrap().to_string_lossy();
+            assert!(name.starts_with("kiri-diagram-"), "{name}");
+            assert!(!tmpdir.exists());
+        }
+        assert!(!long.exists());
     }
 
     #[test]
@@ -697,7 +795,7 @@ mod tests {
             path: Some("/opt/node/bin:/usr/bin".into()),
         };
         let renderer = External::new(BTreeMap::from([("mermaid".to_owned(), command)]))
-            .with_temp_dir(scratch.0.join("temp"));
+            .with_work_dir(scratch.0.join("temp"));
         let svg = renderer.render("mermaid", SOURCE, Theme::Dark).unwrap().svg;
         assert_eq!(svg, "/opt/node/bin:/usr/bin");
     }
