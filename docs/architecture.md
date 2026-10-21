@@ -111,9 +111,9 @@ drawing has got when it takes long. The programs run in process groups
 of their own, which Ctrl-C from the terminal does not reach, so while
 they draw, `src/term/interrupt.rs` catches it: `External` stops them,
 SIGINT first so that `mmdc` can close its browser, removes their files,
-and kiri ends with status 130. Once the diagrams
-are drawn, Ctrl-C ends kiri as before, and the pager catches it itself. A new diagram language joins
-`LANGUAGES` in `src/diagrams/mod.rs`, with a default command in
+and kiri ends with status 130. Once the diagrams are drawn, Ctrl-C ends
+kiri as before, and the pager catches it itself. A new diagram language
+joins `LANGUAGES` in `src/diagrams/mod.rs`, with a default command in
 `src/diagrams/find.rs` or a built-in renderer.
 
 ## Terminal capabilities
