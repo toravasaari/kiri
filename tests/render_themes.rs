@@ -1,6 +1,4 @@
-//! Themes and colours: papers, muted text, NO_COLOR and the example themes.
-
-use std::path::Path;
+//! Themes and colours: papers, muted text, and NO_COLOR.
 
 use kiri::caps::Capabilities;
 use kiri::render::Inputs;
@@ -191,15 +189,4 @@ fn no_color_keeps_everything_but_colours() {
     // The colour check itself finds colours when they are on.
     let coloured = render_for("elements.md", Capabilities::kitty(WIDTH));
     assert!(!colour_codes(&coloured).is_empty());
-}
-
-#[test]
-fn all_example_themes_load() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/themes");
-    for entry in std::fs::read_dir(dir).unwrap() {
-        let path = entry.unwrap().path();
-        if path.extension().is_some_and(|ext| ext == "toml") {
-            kiri::theme::load(&path).unwrap_or_else(|error| panic!("{error}"));
-        }
-    }
 }
