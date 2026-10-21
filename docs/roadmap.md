@@ -459,6 +459,14 @@ go.
   border. Tried on `feature/front-matter`; the line survives stacking.
 - kiri creates a default configuration file, and perhaps settings edited
   from the UI.
+- Question: how should the text format be shown? Today `--format text`
+  writes a highlighted code block on a terminal and the file as it is
+  elsewhere; to be decided.
+- `--config KEY=VALUE` (named so rather than `--option`) overrides any
+  configuration key on the command line, as cargo's `--config` does,
+  such as `diagrams.timeout=60`; with it, a way to list the keys, and a
+  `[diagrams.mermaid.config]` table passed to Mermaid as it is, which
+  4.3.2's languages could have too.
 
 ## Bugs
 
