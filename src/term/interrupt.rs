@@ -68,10 +68,7 @@ impl Interrupt {
     /// with [`end_by`].
     pub fn release(&self) -> Option<i32> {
         self.ends.store(true, Ordering::SeqCst);
-        match self.came.load(Ordering::SeqCst) {
-            0 => None,
-            signal => Some(signal as i32),
-        }
+        came(&self.came)
     }
 }
 
@@ -80,6 +77,14 @@ impl Drop for Interrupt {
         for &id in &self.handlers {
             signal_hook::low_level::unregister(id);
         }
+    }
+}
+
+/// The signal a handler noted in `flag`, which holds 0 until one came.
+pub(super) fn came(flag: &AtomicUsize) -> Option<i32> {
+    match flag.load(Ordering::SeqCst) {
+        0 => None,
+        signal => Some(signal as i32),
     }
 }
 
