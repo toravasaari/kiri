@@ -140,9 +140,9 @@ once the images are loaded, the signals end kiri as before, and the
 pager catches them itself, from before its terminal is raw until it
 has been restored, or until its screen fails to open, when they end
 kiri again while the document is printed. A signal that was ignored
-when kiri started, as under `nohup`, stays ignored in both. A new diagram language joins
-`LANGUAGES` in `src/diagrams/mod.rs`, with a default command in
-`src/diagrams/find.rs` or a built-in renderer.
+when kiri started, as under `nohup`, stays ignored in both. A new
+diagram language joins `LANGUAGES` in `src/diagrams/mod.rs`, with a
+default command in `src/diagrams/find.rs` or a built-in renderer.
 
 ## Terminal capabilities
 
