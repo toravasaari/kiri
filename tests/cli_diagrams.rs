@@ -632,6 +632,37 @@ fn a_program_s_files_are_in_kiri_s_cache_directory_until_it_is_done() {
 }
 
 #[test]
+fn with_an_empty_tmpdir_a_program_s_files_go_in_tmp() {
+    let dir = Scratch::new("empty-tmpdir");
+    let record = dir.join("tmpdir");
+    let script = format!("printf '%s' \"$TMPDIR\" > '{}'\n{DRAWS}", record.display());
+    let config = external(&dir, &script);
+    common::write(&dir.join("config/kiri/config.toml"), &config);
+    let document = dir.join("document.md");
+    std::fs::write(&document, FLOWCHART).unwrap();
+    // A file where the cache directory would be, so it cannot be used.
+    std::fs::write(dir.join("file"), "").unwrap();
+    let out = common::command(&dir)
+        .current_dir(&*dir)
+        .env("TMPDIR", "")
+        .env("XDG_CACHE_HOME", dir.join("file"))
+        .args(["--mode", "kitty"])
+        .arg(&document)
+        .output()
+        .unwrap();
+    assert_eq!(text(&out.stderr), "");
+    assert_eq!(sent(&text(&out.stdout)).len(), 1);
+    // As `--doctor` says: an empty TMPDIR is /tmp, not the current
+    // directory.
+    let tmpdir = std::fs::read_to_string(&record).unwrap();
+    let tmpdir = std::path::Path::new(&tmpdir);
+    assert_eq!(tmpdir.parent(), Some(std::path::Path::new("/tmp")));
+    let name = tmpdir.file_name().unwrap().to_string_lossy();
+    assert!(name.starts_with("kiri-diagram-"), "{name}");
+    assert!(!tmpdir.exists());
+}
+
+#[test]
 fn the_configuration_file_sets_the_time_limit() {
     let dir = Scratch::new("mermaid-timeout");
     let config = format!(

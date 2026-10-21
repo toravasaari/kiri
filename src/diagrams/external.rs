@@ -116,9 +116,10 @@ pub struct External {
     commands: BTreeMap<String, Command>,
     time_limit: Duration,
     /// Where the directories for the files go, unless it cannot be made
-    /// or its path is too long; then they go in the system's temporary
-    /// directory.
+    /// or its path is too long; then they go in `temp`.
     work: Option<PathBuf>,
+    /// The system's temporary directory.
+    temp: PathBuf,
     /// How many directories this renderer has made, to name the next one.
     made: AtomicUsize,
     /// Run once the work directory is there, to remove what an earlier
@@ -137,6 +138,10 @@ impl External {
                 .collect(),
             time_limit: TIME_LIMIT,
             work: None,
+            temp: crate::config::temp_directory(&crate::config::Environment {
+                tmpdir: std::env::var_os("TMPDIR"),
+                ..Default::default()
+            }),
             made: AtomicUsize::new(0),
             swept: Once::new(),
             stop: None,
@@ -176,6 +181,13 @@ impl External {
         }
     }
 
+    /// This renderer with `dir` as the system's temporary directory,
+    /// such as `config::temp_directory` gives; by default, that of this
+    /// process's `TMPDIR`.
+    pub fn with_temp_dir(self, dir: PathBuf) -> Self {
+        External { temp: dir, ..self }
+    }
+
     /// Whether no language has a command.
     pub fn is_empty(&self) -> bool {
         self.commands.is_empty()
@@ -201,7 +213,7 @@ impl External {
             });
         match work {
             Some(dir) => Ok(dir),
-            None => self.new_dir(&std::env::temp_dir(), "kiri-diagram-"),
+            None => self.new_dir(&self.temp, "kiri-diagram-"),
         }
     }
 

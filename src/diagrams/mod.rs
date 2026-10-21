@@ -312,6 +312,14 @@ impl Renderers {
         }
     }
 
+    /// These renderers with `dir` as the system's temporary directory;
+    /// see `External::with_temp_dir`.
+    pub fn with_temp_dir(self, dir: PathBuf) -> Self {
+        Renderers {
+            external: self.external.with_temp_dir(dir),
+        }
+    }
+
     /// These renderers stopping the programs they run, and starting no
     /// more, once `stop` is set.
     pub fn stopped_by(self, stop: Arc<AtomicBool>) -> Self {
