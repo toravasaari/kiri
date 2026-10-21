@@ -64,7 +64,7 @@ impl Search {
         };
         Search {
             path: env.path.clone(),
-            home: set(&env.home),
+            home: crate::config::home_directory(env),
             nvm_dir: set(&env.nvm_dir),
             npm_prefix: set(&env.npm_config_prefix),
             others: HOMEBREW.iter().map(PathBuf::from).collect(),
@@ -340,6 +340,17 @@ mod tests {
                 [prefix.join("bin"), nvm.clone()],
                 "{npmrc}"
             );
+        }
+    }
+
+    #[test]
+    fn an_empty_or_relative_home_is_not_looked_in() {
+        for home in ["", "home"] {
+            let env = Environment {
+                home: Some(home.into()),
+                ..Environment::default()
+            };
+            assert_eq!(Search::new(&env).home, None, "{home:?}");
         }
     }
 

@@ -324,5 +324,6 @@ With a command configured, `enabled = false` in the `[diagrams]` table,
 | `KIRI_TABLE_ROWS` | Table row style; see [Table rows](#table-rows) |
 | `KIRI_DIAGRAMS` | Diagrams drawn or shown as code; see [Diagrams](#diagrams) |
 | `NO_COLOR` | No colours, when set and not empty; see [no-color.org](https://no-color.org) |
+| `HOME` | Your home directory, `~`, for the default configuration and cache directories, a theme under `~/` and programs found under it; ignored when empty or not an absolute path |
 | `XDG_CONFIG_HOME` | Where the configuration directory is; `~/.config` when unset or not an absolute path |
 | `XDG_CACHE_HOME` | Where kiri's cache directory is, for the files of [diagram commands](#diagram-commands); `~/.cache` when unset or not an absolute path |

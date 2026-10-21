@@ -91,6 +91,12 @@ impl Environment {
     }
 }
 
+/// The home directory, from `HOME`; `None` when that is unset, empty or
+/// not an absolute path.
+pub fn home_directory(env: &Environment) -> Option<PathBuf> {
+    (env.home.as_ref().map(PathBuf::from)).filter(|home| home.is_absolute())
+}
+
 /// Where the configuration directory comes from: `XDG_CONFIG_HOME`, or
 /// the default under the home directory.
 pub fn directory_origin(env: &Environment) -> Origin {
@@ -103,18 +109,15 @@ pub fn directory_origin(env: &Environment) -> Origin {
 
 /// kiri's configuration directory: `$XDG_CONFIG_HOME/kiri`, or
 /// `~/.config/kiri` when that is unset, empty or relative, which the XDG
-/// base directory specification calls invalid.
+/// base directory specification calls invalid. Without either, there is
+/// none.
 pub fn directory(env: &Environment) -> Option<PathBuf> {
     let config = env
         .xdg_config_home
         .clone()
         .map(PathBuf::from)
         .filter(|dir| dir.is_absolute())
-        .or_else(|| {
-            env.home
-                .as_ref()
-                .map(|home| PathBuf::from(home).join(".config"))
-        })?;
+        .or_else(|| home_directory(env).map(|home| home.join(".config")))?;
     Some(config.join("kiri"))
 }
 
@@ -128,11 +131,7 @@ pub fn cache_directory(env: &Environment) -> Option<PathBuf> {
         .clone()
         .map(PathBuf::from)
         .filter(|dir| dir.is_absolute())
-        .or_else(|| {
-            env.home
-                .as_ref()
-                .map(|home| PathBuf::from(home).join(".cache"))
-        })?;
+        .or_else(|| home_directory(env).map(|home| home.join(".cache")))?;
     Some(cache.join("kiri"))
 }
 
@@ -308,12 +307,10 @@ pub fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String
     let file: ConfigToml = toml::from_str(text).map_err(|error| error.to_string())?;
     let theme = match file.theme {
         Some(theme) => Some(match theme.strip_prefix("~") {
-            Ok(rest) if !rest.as_os_str().is_empty() => {
-                match env.home.as_ref().filter(|home| !home.is_empty()) {
-                    Some(home) => Path::new(home).join(rest),
-                    None => return Err(format!("theme {}: HOME is not set", theme.display())),
-                }
-            }
+            Ok(rest) if !rest.as_os_str().is_empty() => match home_directory(env) {
+                Some(home) => home.join(rest),
+                None => return Err(format!("theme {}: HOME is not set", theme.display())),
+            },
             _ => dir.join(theme),
         }),
         None => None,
@@ -1039,6 +1036,22 @@ mod tests {
         );
         assert_eq!(directory_origin(&relative), Origin::Default);
         assert_eq!(directory(&env(None, Some("config"))), None);
+    }
+
+    #[test]
+    fn an_empty_or_relative_home_is_not_set() {
+        // As a relative XDG_CONFIG_HOME and XDG_CACHE_HOME are not, so
+        // that kiri makes no files under the current directory.
+        for home in ["", "home", ".", "./u"] {
+            let env = env(Some(home), None);
+            assert_eq!(directory(&env), None, "{home:?}");
+            assert_eq!(cache_directory(&env), None, "{home:?}");
+            let error = parse("theme = \"~/t.toml\"\n", Path::new("/c"), &env).unwrap_err();
+            assert!(error.contains("HOME is not set"), "{home:?}: {error}");
+            assert_eq!(home_directory(&env), None, "{home:?}");
+        }
+        let env = env(Some("/home/u"), None);
+        assert_eq!(home_directory(&env), Some(PathBuf::from("/home/u")));
     }
 
     #[test]

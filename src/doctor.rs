@@ -66,7 +66,8 @@ pub fn report(facts: &Facts) -> String {
 }
 
 fn write_report(facts: &Facts, out: &mut String) -> std::fmt::Result {
-    let home = Home(facts.env.home.as_deref());
+    let home_dir = crate::config::home_directory(facts.env);
+    let home = Home(home_dir.as_deref().map(Path::as_os_str));
     writeln!(out, "# kiri doctor\n")?;
     writeln!(
         out,
