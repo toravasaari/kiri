@@ -578,7 +578,7 @@ fn a_signal_ignored_when_kiri_starts_stays_ignored() {
         .env_clear()
         .env("HOME", dir.join("home"))
         .env("XDG_CONFIG_HOME", dir.join("config"))
-        .args(["-c", "trap '' INT TERM HUP\nexec \"$0\" \"$@\""])
+        .args(["-c", "trap '' INT QUIT TERM HUP\nexec \"$0\" \"$@\""])
         .arg(env!("CARGO_BIN_EXE_kiri"))
         .args(["--mode", "kitty"])
         .arg(&document)
@@ -589,7 +589,7 @@ fn a_signal_ignored_when_kiri_starts_stays_ignored() {
     let start = common::wait_until(Duration::from_secs(10), || started.exists());
     assert!(start, "the program starts");
     let pid = Pid::from_raw(kiri.id() as i32).unwrap();
-    for signal in [Signal::INT, Signal::TERM, Signal::HUP] {
+    for signal in [Signal::INT, Signal::QUIT, Signal::TERM, Signal::HUP] {
         kill_process(pid, signal).unwrap();
     }
     let status =
