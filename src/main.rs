@@ -533,6 +533,7 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
             file: opened.file,
             shown,
             warnings,
+            drawn: None,
         });
     }
     let paging = kiri::pager::for_files(settings.paging, alone);
@@ -559,9 +560,8 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
         mut images,
         mut interrupt,
     } = load_given(&context, &given, &settings, &caps)?;
-    let mut drawn = Vec::new();
     for (number, file) in given.iter_mut().enumerate() {
-        drawn.push(self::drawn(number, file, &mut images, &settings, &caps));
+        file.drawn = self::drawn(number, file, &mut images, &settings, &caps);
     }
     let mut inputs = Inputs {
         images,
@@ -575,7 +575,6 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
         page_files(
             &context,
             given,
-            &drawn,
             &mut inputs,
             &settings,
             &failed,
@@ -583,7 +582,7 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
             || drop(interrupt.take()),
         )
     } else {
-        print_files(&context, given, &drawn, &mut inputs, &settings, &failed)
+        print_files(&context, given, &mut inputs, &settings, &failed)
     };
     match shown {
         // A closed pipe (kiri *.md | head) takes no more.
@@ -607,6 +606,7 @@ fn read_whole(context: &Context, caps: &Capabilities, given: Given) -> Given {
         file,
         shown,
         warnings,
+        drawn,
     } = given;
     let shown = match shown {
         Shown::Image { format, head, rest } => {
@@ -626,6 +626,7 @@ fn read_whole(context: &Context, caps: &Capabilities, given: Given) -> Given {
         file,
         shown,
         warnings,
+        drawn,
     }
 }
 
@@ -650,14 +651,12 @@ fn tell_drawn(drawn: &Drawn, failed: &Cell<bool>) {
 /// with the images `inputs` holds and those of the image files among them.
 /// A file that failed is in the pager's stream under its header, with why.
 /// Why a file failed, and a warning about a file, are told before the
-/// pager opens, and `drawn` of a diagram file after it closes; all of them
-/// are noted in `failed`. `caught` runs once the pager's screen catches
-/// the signals.
-#[allow(clippy::too_many_arguments)]
+/// pager opens, and why the diagram of a diagram file was not drawn after
+/// it closes; all of them are noted in `failed`. `caught` runs once the
+/// pager's screen catches the signals.
 fn page_files(
     context: &Context,
     given: Vec<Given>,
-    drawn: &[Option<Drawn>],
     inputs: &mut Inputs,
     settings: &Settings,
     failed: &Cell<bool>,
@@ -668,7 +667,10 @@ fn page_files(
     // What is told about each file before it is shown.
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
+    // What is told about each file after it is shown.
+    let mut drawn = Vec::new();
     for (number, given) in given.into_iter().enumerate() {
+        drawn.push(given.drawn);
         let name = given.name;
         let mut error = None;
         let mut warned: Vec<_> = (given.warnings.iter())
@@ -752,13 +754,12 @@ fn page_files(
 
 /// Prints `given`, each file under its header, as it comes: an image file
 /// is read only then, so that no more than one is held at once. A warning
-/// about a file is told before it, and `drawn` of a diagram file after it;
-/// a file that cannot be shown is told about at its place and noted in
-/// `failed`.
+/// about a file is told before it, and why the diagram of a diagram file
+/// was not drawn after it; a file that cannot be shown is told about at its
+/// place and noted in `failed`.
 fn print_files(
     context: &Context,
     given: Vec<Given>,
-    drawn: &[Option<Drawn>],
     inputs: &mut Inputs,
     settings: &Settings,
     failed: &Cell<bool>,
@@ -767,6 +768,7 @@ fn print_files(
     let mut apart = false;
     for (number, given) in given.into_iter().enumerate() {
         let name = given.name;
+        let drawn = given.drawn;
         for warning in &given.warnings {
             eprintln!("kiri: {name}: {warning}");
         }
@@ -814,7 +816,7 @@ fn print_files(
         };
         apart = true;
         shown.and_then(|()| out.flush())?;
-        if let Some(drawn) = &drawn[number] {
+        if let Some(drawn) = &drawn {
             tell_drawn(drawn, failed);
         }
     }
@@ -850,6 +852,9 @@ struct Given {
     shown: Shown,
     /// What is told about it before it is shown, besides its images.
     warnings: Vec<String>,
+    /// What is told after it is shown: why its diagram was not drawn, for
+    /// a diagram file.
+    drawn: Option<Drawn>,
 }
 
 /// What a file among several is shown as.
@@ -887,6 +892,7 @@ impl Given {
             file: None,
             shown: Shown::Failed(error),
             warnings: Vec::new(),
+            drawn: None,
         }
     }
 
