@@ -3,8 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use kiri::caps::Capabilities;
-use kiri::diagrams::Diagrams;
-use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts};
+use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, LoadOptions};
 use kiri::render::Inputs;
 use kiri::theme::{Paper, Theme};
 
@@ -48,7 +47,7 @@ fn the_visual_check_documents_fit_every_mode() {
             &examples,
             DEFAULT_MAX_FILE_SIZE,
             &Fonts::none(),
-            &Diagrams::none(),
+            &LoadOptions::default(),
         );
         assert_eq!(images.warnings().len(), warnings, "{name}: {images:?}");
         let mut without_images = Inputs::new(Capabilities::plain(16));

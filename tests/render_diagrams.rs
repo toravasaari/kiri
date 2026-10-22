@@ -98,10 +98,7 @@ fn a_raster_diagram_is_placed_at_the_size_of_its_css_pixels() {
         ..Capabilities::kitty(WIDTH)
     };
     let source = "```mermaid\nflowchart TD\n```\n";
-    let key = ImageKey::Block {
-        language: "mermaid".to_owned(),
-        source: "flowchart TD\n".to_owned(),
-    };
+    let key = ImageKey::block("mermaid", "flowchart TD\n");
     let in_document = |image: &Source| {
         let mut images = Images::new();
         images.insert(key.clone(), Ok(image.clone()));
@@ -310,10 +307,7 @@ fn an_error_of_several_lines_keeps_them_apart() {
     // line above it, so the two stay lines of their own, side by side.
     let mut images = Images::new();
     images.insert(
-        ImageKey::Block {
-            language: "mermaid".to_owned(),
-            source: "flowchart TD\n  A[open --> B\n".to_owned(),
-        },
+        ImageKey::block("mermaid", "flowchart TD\n  A[open --> B\n"),
         Err(ImageError::Diagram {
             name: "mermaid diagram on line 1".to_owned(),
             reason: "Parse error on line 2:\n...A[open --> B\n-----^\n  Expecting SQE".to_owned(),

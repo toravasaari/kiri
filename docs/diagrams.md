@@ -42,8 +42,12 @@ takes Mermaid's `default` theme on a light page and `dark` on a dark one.
 The page is light with `--light`, dark with `--dark`, and otherwise as
 the terminal's background is; an unknown background counts as dark.
 
-A diagram whose own theme is for the other page is drawn on a panel, so
-that its lines and text show: one in light colours on a dark page on a
+A diagram's own colours are for a dark page in Mermaid's dark mode,
+`darkMode: true` among its theme variables, and otherwise when its
+background is dark: the `background` it sets, or else its theme's, as
+`dark`, `neo-dark`, `redux-dark` and `redux-dark-color` have. A diagram
+whose own theme is for the other page is drawn on a panel, so that its
+lines and text show: one in light colours on a dark page on a
 white panel, and one in dark colours on a light page on a panel of its
 theme's background. When kiri cannot tell that background, as with an
 external program, the panel is Mermaid's dark grey, `#333333`.
@@ -88,7 +92,9 @@ command = ["mmdc", "-i", "{input}", "-o", "{output}", "-t", "{theme}", "-b", "tr
 ```
 
 This is mermaid-cli's command line, the same one kiri runs when it finds
-`mmdc` by itself. `mmdc` draws the diagram in its browser and writes a
+`mmdc` by itself. The table's language may be written in any case, as a
+code block's is: `[diagrams.Mermaid]` is the same table, and a file with
+both is an error. `mmdc` draws the diagram in its browser and writes a
 PNG of it, three pixels to the CSS pixel, which kiri shrinks to the size
 it shows the diagram at; the diagram then looks as it does in a browser.
 kiri writes the diagram's source to a file in a directory of its own,
@@ -111,10 +117,12 @@ cannot be used when it cannot. In the arguments:
 - `{input}` is the file of the diagram's source, which ends in `.mmd`
   for Mermaid;
 - `{output}` is the image file the program writes: SVG, or a raster
-  image such as PNG, which kiri tells apart by its content. Its name
-  ends in `.png` when the command has `{scale}`, and in `.svg`
-  otherwise, so that a program such as `mmdc`, which writes the format
-  its output file's name ends in, writes the one kiri expects;
+  image such as PNG, which kiri tells apart by its content. kiri reads
+  at most 100 MB of it, whatever `--max-image-size` says, which limits
+  image files only. Its name ends in `.png` when the command has
+  `{scale}`, and in `.svg` otherwise, so that a program such as `mmdc`,
+  which writes the format its output file's name ends in, writes the one
+  kiri expects;
 - `{theme}` is the theme kiri chose: `default` or `dark` for Mermaid;
 - `{scale}` is `3`, the number of pixels to the CSS pixel that the
   program is to draw a raster image with. kiri shows such an image at a
@@ -149,19 +157,18 @@ looked for on `PATH`.
 
 Each diagram may take 20 seconds, or as long as `timeout` in the
 `[diagrams]` table says, such as `timeout = 60` or `timeout = 2.5`; up
-to four are drawn at once. When
-drawing takes longer than half a second, a line such as
-`kiri: rendering diagrams 2/5…` on the terminal tells how far it has
-got, and is wiped before the document is shown. Ctrl-C, SIGTERM or
-SIGHUP meanwhile stops the programs and removes their files, and then
-the signal ends kiri as it would have otherwise, so that a shell shows
-status 130 after Ctrl-C. A signal that was ignored when kiri started,
-as under `nohup`, stays ignored. A program that fails,
+to four are drawn at once. When drawing takes longer than half a second,
+a line such as `kiri: rendering diagrams 2/5…` on the terminal tells how
+far it has got, and is wiped before the document is shown. Ctrl-C,
+Ctrl-\\, SIGTERM or SIGHUP meanwhile stops the programs and removes their
+files, and then the signal ends kiri as it would have otherwise, so that
+a shell shows status 130 after Ctrl-C. A signal that was ignored when
+kiri started, as under `nohup`, stays ignored. A program that fails,
 runs out of time or writes no image leaves its diagram as code with a
-warning; kiri does not fall back to drawing it itself, so that a
-command that does not work shows. The warning, and the error below the
-code, quote the first lines the program wrote on standard error, at most
-five and none of a stack trace, each keeping its indent, so that mmdc's
+warning; kiri does not fall back to drawing it itself, so that a command
+that does not work shows. The warning, and the error below the code,
+quote the first lines the program wrote on standard error, at most five
+and none of a stack trace, each keeping its indent, so that mmdc's
 pointer to a mistake shows under its line.
 
 kiri stops a program as Ctrl-C would, with SIGINT to its process group,

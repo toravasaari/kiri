@@ -30,9 +30,6 @@ pub enum Input {
 /// Extensions of Markdown files, which are Markdown whatever they hold.
 const MARKDOWN: &[&str] = &["md", "markdown", "mdown", "mkd", "mkdn", "mdwn"];
 
-/// Extensions of files of diagram source, and the language each holds.
-const DIAGRAMS: &[(&str, &str)] = &[("mmd", "mermaid"), ("mermaid", "mermaid")];
-
 /// What the file at `path`, which starts with `head`, is. A Markdown
 /// extension makes it Markdown, a CSV or TSV extension a table, a diagram
 /// extension such as `mmd` a diagram and an SVG extension an SVG.
@@ -48,7 +45,7 @@ pub fn detect(path: &Path, head: &[u8]) -> Input {
         Input::Markdown
     } else if let Some(table) = extension.and_then(table) {
         table
-    } else if let Some(language) = extension.and_then(diagram) {
+    } else if let Some(language) = extension.and_then(diagram_file) {
         Input::Diagram(language)
     } else if is(&["svg", "svgz"]) {
         Input::Image(Format::Svg)
@@ -74,7 +71,7 @@ pub fn format(name: &str) -> Option<Input> {
         Some(Input::Text)
     } else if let Some(table) = table(name) {
         Some(table)
-    } else if let Some(language) = diagram(name) {
+    } else if let Some(language) = diagram_file(name).or_else(|| diagram_language(name)) {
         Some(Input::Diagram(language))
     } else if is(&["image"]) {
         Some(Input::Image(Format::Detect))
@@ -92,7 +89,7 @@ pub fn format(name: &str) -> Option<Input> {
 /// extension.
 pub fn language(path: &Path) -> Option<String> {
     let extension = path.extension().and_then(OsStr::to_str)?;
-    Some(match diagram(extension) {
+    Some(match diagram_file(extension) {
         Some(language) => language.to_owned(),
         None => extension.to_ascii_lowercase(),
     })
@@ -100,10 +97,16 @@ pub fn language(path: &Path) -> Option<String> {
 
 /// The diagram language whose files have the extension `name`, which is
 /// also how `--format` names them.
-fn diagram(name: &str) -> Option<&'static str> {
-    (DIAGRAMS.iter())
-        .find(|(extension, _)| name.eq_ignore_ascii_case(extension))
-        .map(|&(_, language)| language)
+fn diagram_file(name: &str) -> Option<&'static str> {
+    (crate::diagrams::LANGUAGES.iter())
+        .find(|language| (language.file_extensions.iter()).any(|e| name.eq_ignore_ascii_case(e)))
+        .map(|language| language.name)
+}
+
+/// The diagram language `name` names, as a code block does, for
+/// `--format`.
+fn diagram_language(name: &str) -> Option<&'static str> {
+    crate::diagrams::language(name).map(|language| language.name)
 }
 
 /// The table `name`, an extension or a `--format` value, names: `csv` is

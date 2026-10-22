@@ -21,7 +21,7 @@ const BASE64: GeneralPurpose = GeneralPurpose::new(
 /// that is absolute or relative to `base`. Paths may use URL percent
 /// escapes and end in a `?query` or `#fragment`, as in a browser. Only
 /// regular files of at most `max_file_size` bytes are read.
-pub fn load_url(
+pub(super) fn load_url(
     url: &str,
     base: &Path,
     max_file_size: u64,
@@ -113,7 +113,7 @@ fn read_file(path: &Path, limit: u64) -> Result<Vec<u8>, ImageError> {
 
 /// Everything `reader` gives, or `None` when that is more than `limit`
 /// bytes; then it reads no further than one byte past the limit.
-pub(super) fn read_at_most(reader: impl Read, limit: u64) -> io::Result<Option<Vec<u8>>> {
+pub(crate) fn read_at_most(reader: impl Read, limit: u64) -> io::Result<Option<Vec<u8>>> {
     let mut bytes = Vec::new();
     reader
         .take(limit.saturating_add(1))

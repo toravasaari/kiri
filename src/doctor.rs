@@ -318,7 +318,7 @@ fn write_diagrams(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     let search = Search::new(facts.env);
     writeln!(out, "## Diagrams\n")?;
     writeln!(out, "| Language | Renderer | Status |\n|---|---|---|")?;
-    for language in LANGUAGES {
+    for language in LANGUAGES.iter().map(|language| language.name) {
         let choices = facts.choices;
         let configured = &choices.diagram_commands;
         let choice = find::choose(language, configured, &choices.diagram_no_search, &search);

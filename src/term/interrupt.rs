@@ -14,7 +14,7 @@ use signal_hook::consts::{SIGHUP, SIGINT, SIGQUIT, SIGTERM};
 /// The signals an [`Interrupt`] catches.
 const SIGNALS: [i32; 4] = [SIGINT, SIGQUIT, SIGTERM, SIGHUP];
 
-/// Catches Ctrl-C, Ctrl-\, SIGTERM and SIGHUP while it lives, unless they
+/// Catches Ctrl-C, SIGTERM, SIGHUP and Ctrl-\ while it lives, unless they
 /// are ignored: one sets a flag instead of ending kiri, until
 /// [`release`](Self::release). Dropping it takes its handlers away, which
 /// leaves the signals ignored until another catches them, as the pager's

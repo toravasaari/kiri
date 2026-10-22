@@ -11,8 +11,8 @@ use image::RgbaImage;
 use resvg::tiny_skia;
 use resvg::usvg::{self, fontdb};
 
+use crate::images::ImageError;
 use crate::images::url::read_at_most;
-use crate::images::{ImageError, Source};
 
 /// A parsed SVG document.
 #[derive(Clone)]
@@ -285,7 +285,7 @@ pub(super) fn looks_like_svg(bytes: &[u8]) -> bool {
         || (text.starts_with(b"<") && text.windows(4).any(|window| window == b"<svg"))
 }
 
-pub(super) fn decode_svg(bytes: &[u8], max_size: u64, fonts: &Fonts) -> Result<Source, ImageError> {
+pub(super) fn decode_svg(bytes: &[u8], max_size: u64, fonts: &Fonts) -> Result<Svg, ImageError> {
     // usvg would decompress without a limit: a few kilobytes of gzip can
     // grow to gigabytes.
     let plain;
@@ -317,7 +317,7 @@ pub(super) fn decode_svg(bytes: &[u8], max_size: u64, fonts: &Fonts) -> Result<S
     // From text, so usvg never decompresses anything itself.
     let tree = usvg::Tree::from_str(text, &options)
         .map_err(|error| ImageError::Corrupt(error.to_string()))?;
-    Ok(Source::Svg(Svg::new(tree, bytes)))
+    Ok(Svg::new(tree, bytes))
 }
 
 /// `bytes` decompressed with gzip, if that gives at most `limit` bytes.
@@ -339,9 +339,8 @@ mod tests {
     use base64::Engine;
     use base64::engine::general_purpose::STANDARD;
 
-    use crate::diagrams::Diagrams;
     use crate::images::tests::{fixture, fixtures, open, rgba};
-    use crate::images::{DEFAULT_MAX_FILE_SIZE, decode, load_url, load_with};
+    use crate::images::{DEFAULT_MAX_FILE_SIZE, LoadOptions, Source, decode, load_url, load_with};
 
     /// `bytes` decoded, which must give an SVG.
     fn svg(bytes: &[u8], fonts: &Fonts) -> Source {
@@ -529,7 +528,7 @@ mod tests {
             &fixtures(),
             DEFAULT_MAX_FILE_SIZE,
             &fonts,
-            &Diagrams::none(),
+            &LoadOptions::default(),
         );
         assert!(!fonts.loaded());
         let with = "![d](images/pattern.svg)\n";
@@ -538,7 +537,7 @@ mod tests {
             &fixtures(),
             DEFAULT_MAX_FILE_SIZE,
             &fonts,
-            &Diagrams::none(),
+            &LoadOptions::default(),
         );
         assert!(fonts.loaded());
     }

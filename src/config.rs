@@ -187,7 +187,7 @@ pub struct Config {
     pub diagrams: Option<bool>,
     /// The external command for each diagram language that has one, from
     /// `[diagrams.<language>]`: the program and its arguments, with
-    /// `{input}`, `{output}`, `{theme}` and `{config}` in them.
+    /// `{input}`, `{output}`, `{theme}`, `{config}` and `{scale}` in them.
     pub diagram_commands: BTreeMap<String, Vec<String>>,
     /// How long an external command may take to draw one diagram.
     pub diagram_timeout: Option<Duration>,
@@ -474,8 +474,9 @@ impl<'de> Deserialize<'de> for DiagramsToml {
             }
 
             fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<DiagramsToml, A::Error> {
-                let languages = crate::diagrams::LANGUAGES;
                 let mut diagrams = DiagramsToml::default();
+                // The key each language's table was given under.
+                let mut tables = BTreeMap::new();
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
                         "enabled" => diagrams.enabled = Some(map.next_value()?),
@@ -486,17 +487,27 @@ impl<'de> Deserialize<'de> for DiagramsToml {
                             let seconds = seconds.ok_or_else(|| de::Error::custom(error))?;
                             diagrams.timeout = Some(seconds);
                         }
-                        language if languages.contains(&language) => {
+                        // In any case, or by an alias, as code blocks name
+                        // it; kept under the language's own name.
+                        key if let Some(language) = crate::diagrams::language(key) => {
+                            if let Some(earlier) = tables.insert(language.name, key.to_owned()) {
+                                return Err(de::Error::custom(format!(
+                                    "`{earlier}` and `{key}` are tables for the same diagram \
+                                     language; give only one"
+                                )));
+                            }
+                            let language = language.name.to_owned();
                             let table: DiagramToml = map.next_value()?;
                             if table.auto_detect == Some(false) {
-                                diagrams.no_search.insert(key.clone());
+                                diagrams.no_search.insert(language.clone());
                             }
                             if let Some(command) = table.command {
-                                diagrams.commands.insert(key, command);
+                                diagrams.commands.insert(language, command);
                             }
                         }
                         _ => {
-                            let keys = DIAGRAMS_KEYS.iter().chain(languages);
+                            let languages = crate::diagrams::LANGUAGES.iter().map(|l| l.name);
+                            let keys = DIAGRAMS_KEYS.iter().copied().chain(languages);
                             let keys: Vec<String> = keys.map(|key| format!("`{key}`")).collect();
                             return Err(de::Error::custom(format!(
                                 "unknown field `{key}`, expected one of {}",
@@ -1550,6 +1561,38 @@ mod tests {
         assert!(
             error.contains("unknown field `args`, expected `command` or `auto_detect`"),
             "{error}"
+        );
+    }
+
+    #[test]
+    fn a_diagram_language_table_is_named_in_any_case() {
+        // As code blocks name the language.
+        let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
+        let config = parsed(
+            "[diagrams.Mermaid]\ncommand = [\"m\", \"{input}\", \"{output}\"]\n\
+             auto_detect = false\n",
+        );
+        let command = ["m", "{input}", "{output}"].map(String::from).to_vec();
+        assert_eq!(
+            config.map(|config| (config.diagram_commands, config.diagram_no_search)),
+            Ok((
+                BTreeMap::from([("mermaid".to_owned(), command)]),
+                BTreeSet::from(["mermaid".to_owned()])
+            ))
+        );
+    }
+
+    #[test]
+    fn two_tables_for_one_language_are_an_error_naming_both() {
+        // Keys that differ only in case, which TOML takes as two.
+        let text = "[diagrams.Mermaid]\ncommand = [\"m\", \"{input}\", \"{output}\"]\n\n\
+                    [diagrams.mermaid]\nauto_detect = false\n";
+        let parsed = parse(text, Path::new("/c"), &Environment::default()).map(|_| ());
+        let expected = "`Mermaid` and `mermaid` are tables for the same diagram language; \
+                        give only one";
+        assert!(
+            parsed.as_ref().is_err_and(|error| error.contains(expected)),
+            "{parsed:?}"
         );
     }
 

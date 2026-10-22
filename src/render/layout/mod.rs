@@ -332,10 +332,7 @@ impl Layout<'_> {
         if self.images.is_empty() {
             return None;
         }
-        let key = ImageKey::Block {
-            language: language?.to_owned(),
-            source: code.to_owned(),
-        };
+        let key = ImageKey::block(language?, code);
         self.placed(key, image::Wanted::default(), width)
     }
 
@@ -348,10 +345,7 @@ impl Layout<'_> {
             Some(language) if self.render_errors.inline() && !self.images.is_empty() => language,
             _ => return Vec::new(),
         };
-        let key = ImageKey::Block {
-            language: language.to_owned(),
-            source: code.to_owned(),
-        };
+        let key = ImageKey::block(language, code);
         let Some(Err(ImageError::Diagram { reason, .. })) = self.images.get(&key) else {
             return Vec::new();
         };

@@ -12,8 +12,8 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use image::{Rgba, RgbaImage};
 use kiri::caps::Capabilities;
-use kiri::diagrams::{Diagrams, Drawn, Renderer, Theme as DiagramTheme};
-use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, Images, Source};
+use kiri::diagrams::{Drawn, Renderer, Request};
+use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, Images, LoadOptions, Source};
 use kiri::kitty::graphics::{DIACRITICS, PLACEHOLDER};
 use kiri::render::Inputs;
 use kiri::theme::Theme;
@@ -162,18 +162,19 @@ pub fn one_image(url: &str, image: RgbaImage) -> Images {
 /// data compresses to a few bytes. Without fonts, as the sizes do not
 /// depend on them.
 pub fn fixture_images(name: &str) -> Images {
-    fixture_images_with(name, &Diagrams::none())
+    fixture_images_with(name, &LoadOptions::default())
 }
 
-/// `fixture_images`, with the diagrams `diagrams` draws.
-pub fn fixture_images_with(name: &str, diagrams: &Diagrams<'_>) -> Images {
+/// `fixture_images`, loaded with `options`, such as a renderer for the
+/// diagrams.
+pub fn fixture_images_with(name: &str, options: &LoadOptions<'_>) -> Images {
     let document = kiri::parse::parse(&fixture(name));
     let loaded = kiri::images::load_with(
         &document,
         &fixtures(),
         DEFAULT_MAX_FILE_SIZE,
         &Fonts::none(),
-        diagrams,
+        options,
     );
     let mut images = Images::new();
     for (key, image) in loaded.iter() {
@@ -203,7 +204,8 @@ impl Renderer for StubDiagrams {
         language.eq_ignore_ascii_case("mermaid")
     }
 
-    fn render(&self, _language: &str, source: &str, theme: DiagramTheme) -> Result<Drawn, String> {
+    fn render(&self, request: &Request) -> Result<Drawn, String> {
+        let &Request { source, theme, .. } = request;
         let unclosed = |line: &str| line.matches('[').count() > line.matches(']').count();
         if source.lines().any(unclosed) {
             return Err("unclosed label".into());
@@ -218,14 +220,10 @@ impl Renderer for StubDiagrams {
 }
 
 /// Diagrams drawn by `StubDiagrams` for a light page, named by line.
-pub fn stub_diagrams() -> Diagrams<'static> {
-    Diagrams {
+pub fn stub_diagrams() -> LoadOptions<'static> {
+    LoadOptions {
         renderer: &StubDiagrams,
-        theme: DiagramTheme::Light,
-        by_line: true,
-        progress: None,
-        panel: true,
-        largest: None,
+        ..LoadOptions::default()
     }
 }
 
@@ -355,7 +353,12 @@ pub struct Scratch(PathBuf);
 
 impl Scratch {
     pub fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("kiri-cli-{}-{name}", std::process::id()));
+        Self::in_dir(&std::env::temp_dir(), name)
+    }
+
+    /// `new`, in the directory `parent` rather than the temporary one.
+    pub fn in_dir(parent: &Path, name: &str) -> Self {
+        let dir = parent.join(format!("kiri-cli-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         Self(dir)

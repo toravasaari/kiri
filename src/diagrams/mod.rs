@@ -7,28 +7,17 @@
 //! image.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub mod external;
 pub mod find;
-#[cfg(feature = "mermaid")]
+mod language;
 mod mermaid;
 
-pub use external::{Command, External};
-
-/// The languages kiri can draw diagrams in, as the info strings of code
-/// blocks name them.
-pub const LANGUAGES: &[&str] = &["mermaid"];
-
-/// The Mermaid settings that kiri gives a diagram, whichever renderer
-/// draws it, and that the diagram's own directive or front matter
-/// overrides: GitHub's look and layout. GitHub draws with Mermaid 11,
-/// which lays diagrams out with dagre; Mermaid 12, which merman follows,
-/// with ELK.
-pub(crate) const MERMAID_SITE: [(&str, &str); 2] = [("look", "classic"), ("layout", "dagre")];
+pub use external::{Command, External, ExternalSettings};
+pub use language::{LANGUAGES, Language, ThemeNames, language};
+pub use mermaid::MMDC;
 
 /// The colours a diagram is drawn in when it does not choose its own.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -87,38 +76,56 @@ impl Drawn {
     }
 }
 
+/// A diagram to draw.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Request<'a> {
+    /// Its language, as the info string of its code block gives it.
+    pub language: &'a str,
+    pub source: &'a str,
+    /// The page it is drawn for, unless it chooses its own colours.
+    pub theme: Theme,
+}
+
+impl<'a> Request<'a> {
+    pub fn new(language: &'a str, source: &'a str, theme: Theme) -> Self {
+        Request {
+            language,
+            source,
+            theme,
+        }
+    }
+}
+
 /// Draws the diagrams of some languages.
 pub trait Renderer {
     /// Whether code blocks in `language`, as the info string gives it, are
     /// drawn as diagrams.
     fn draws(&self, language: &str) -> bool;
 
-    /// The diagram `source`, written in `language`, as an image in `theme`
-    /// unless it chooses its own colours, or why it could not be drawn.
-    fn render(&self, language: &str, source: &str, theme: Theme) -> Result<Drawn, String>;
+    /// The diagram that `request` asks for as an image, or why it could
+    /// not be drawn.
+    fn render(&self, request: &Request) -> Result<Drawn, String>;
 
-    /// Each of `diagrams`, a language and a source, drawn as `render`
-    /// draws it, in order; `done` is called as each one is finished.
+    /// Each of `requests` drawn as `render` draws it, in order; `done` is
+    /// called as each one is finished.
     fn render_all(
         &self,
-        diagrams: &[(&str, &str)],
-        theme: Theme,
+        requests: &[Request],
         done: &(dyn Fn() + Sync),
     ) -> Vec<Result<Drawn, String>> {
-        render_one_by_one(self, diagrams, theme, done)
+        render_one_by_one(self, requests, done)
     }
 }
 
 /// `render_all` by `renderer`, one diagram after another.
 fn render_one_by_one<R: Renderer + ?Sized>(
     renderer: &R,
-    diagrams: &[(&str, &str)],
-    theme: Theme,
+    requests: &[Request],
     done: &(dyn Fn() + Sync),
 ) -> Vec<Result<Drawn, String>> {
-    (diagrams.iter())
-        .map(|&(language, source)| {
-            let drawn = renderer.render(language, source, theme);
+    (requests.iter())
+        .map(|request| {
+            let drawn = renderer.render(request);
             done();
             drawn
         })
@@ -126,28 +133,27 @@ fn render_one_by_one<R: Renderer + ?Sized>(
 }
 
 /// `render_all` by `renderer`, drawing up to `at_once` diagrams at a time.
-pub fn render_in_parallel<R: Renderer + Sync + ?Sized>(
+fn render_in_parallel<R: Renderer + Sync + ?Sized>(
     renderer: &R,
-    diagrams: &[(&str, &str)],
-    theme: Theme,
+    requests: &[Request],
     at_once: usize,
     done: &(dyn Fn() + Sync),
 ) -> Vec<Result<Drawn, String>> {
     let next = AtomicUsize::new(0);
     let results: Vec<Mutex<Option<Result<Drawn, String>>>> =
-        diagrams.iter().map(|_| Mutex::new(None)).collect();
+        requests.iter().map(|_| Mutex::new(None)).collect();
     std::thread::scope(|scope| {
-        for _ in 0..at_once.max(1).min(diagrams.len()) {
+        for _ in 0..at_once.max(1).min(requests.len()) {
             // As large a stack as the main thread's, for a built-in
             // renderer among the external ones.
             let thread = std::thread::Builder::new().stack_size(8 << 20);
             let spawned = thread.spawn_scoped(scope, || {
                 loop {
                     let i = next.fetch_add(1, Ordering::Relaxed);
-                    let Some(&(language, source)) = diagrams.get(i) else {
+                    let Some(request) = requests.get(i) else {
                         break;
                     };
-                    let drawn = renderer.render(language, source, theme);
+                    let drawn = renderer.render(request);
                     *results[i].lock().unwrap_or_else(|e| e.into_inner()) = Some(drawn);
                     done();
                 }
@@ -168,124 +174,85 @@ pub fn render_in_parallel<R: Renderer + Sync + ?Sized>(
 }
 
 /// The name of `theme` that the external command for `language` gets as
-/// `{theme}`: Mermaid's own theme names for Mermaid, `light` or `dark`
-/// otherwise.
+/// `{theme}`: the language's own theme names, and otherwise `light` or
+/// `dark`.
 pub fn theme_name(language: &str, theme: Theme) -> &'static str {
-    let mermaid = language.eq_ignore_ascii_case("mermaid");
-    match (theme, mermaid) {
-        (Theme::Light, true) => "default",
-        (Theme::Light, false) => "light",
-        (Theme::Dark, _) => "dark",
-    }
+    let names = self::language(language).map_or(ThemeNames::PLAIN, |language| language.theme_names);
+    names.of(theme)
 }
 
-/// The name of `language` in a sentence: `Mermaid` for Mermaid, and
-/// otherwise the name as the info string gives it.
+/// The name of `language` in a sentence, such as `Mermaid`, and otherwise
+/// the name as the info string gives it.
 pub fn display_name(language: &str) -> &str {
-    match language.eq_ignore_ascii_case("mermaid") {
-        true => "Mermaid",
-        false => language,
-    }
+    self::language(language).map_or(language, |known| known.display_name)
 }
 
 /// The extension of a file of source in `language`, by which a program
-/// such as `mmdc` tells what the file is.
+/// such as `mmdc` tells what the file is: the language's own, and
+/// otherwise its name in lower case, without what a file name cannot
+/// safely have.
 pub fn extension(language: &str) -> String {
-    if language.eq_ignore_ascii_case("mermaid") {
-        "mmd".to_owned()
-    } else {
-        language.to_ascii_lowercase()
-    }
-}
-
-/// The page a Mermaid diagram chooses its colours for, in a directive
-/// such as `%%{init: {"theme": "forest"}}%%` or under `config:` in its
-/// front matter, read from the source for a renderer that does not tell.
-/// `None` when it chooses nothing, and for other languages.
-pub fn chosen_theme(language: &str, source: &str) -> Option<Theme> {
-    if !language.eq_ignore_ascii_case("mermaid") {
-        return None;
-    }
-    // The text of the front matter and of the directives.
-    let mut settings = String::new();
-    let mut lines = source.lines().skip_while(|line| line.trim().is_empty());
-    let mut directive = false;
-    let mut first = true;
-    while let Some(line) = lines.next() {
-        let text = line.trim();
-        if first && text == "---" {
-            for line in lines.by_ref().take_while(|line| line.trim() != "---") {
-                settings.push_str(line);
-                settings.push('\n');
+    match self::language(language) {
+        Some(known) => known.source_extension.to_owned(),
+        None => {
+            let name: String = (language.chars())
+                .filter(char::is_ascii_alphanumeric)
+                .map(|c| c.to_ascii_lowercase())
+                .collect();
+            if name.is_empty() {
+                "txt".to_owned()
+            } else {
+                name
             }
-        } else if directive || text.starts_with("%%{") {
-            settings.push_str(text);
-            settings.push('\n');
-            directive = !text.ends_with("}%%");
         }
-        first = false;
-    }
-    if value_of(&settings, "darkMode") == Some("true") {
-        return Some(Theme::Dark);
-    }
-    match value_of(&settings, "theme")? {
-        "null" => None,
-        name if name.ends_with("dark") => Some(Theme::Dark),
-        _ => Some(Theme::Light),
     }
 }
 
-/// The value of the first `key` in `text`, YAML or JSON with or without
-/// quotes, as a word.
-fn value_of<'a>(text: &'a str, key: &str) -> Option<&'a str> {
-    let word = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
-    let quote = |c: char| c == '"' || c == '\'';
-    text.match_indices(key).find_map(|(at, _)| {
-        if text[..at].ends_with(word) {
-            return None;
-        }
-        let rest = text[at + key.len()..].trim_start_matches(quote);
-        let rest = rest.trim_start_matches([' ', '\t']).strip_prefix(':')?;
-        let rest = rest.trim_start().trim_start_matches(quote);
-        let end = rest.find(|c: char| !word(c)).unwrap_or(rest.len());
-        Some(&rest[..end]).filter(|value| !value.is_empty())
-    })
+/// The page a diagram in `language` chooses its colours for, read from
+/// its `source` for a renderer that does not tell; `None` when it chooses
+/// nothing, or the language has no way to.
+pub fn chosen_theme(language: &str, source: &str) -> Option<Theme> {
+    (self::language(language)?.chosen_page?)(source)
 }
 
-/// The renderers built into kiri: merman for Mermaid, in a build with the
-/// `mermaid` feature.
+/// The colour of the panel under a diagram in `language` that is in dark
+/// colours on a light page, when its renderer does not tell its
+/// background.
+pub fn dark_background(language: &str) -> Option<[u8; 3]> {
+    self::language(language)?.dark_background
+}
+
+/// The renderers built into kiri, such as merman for Mermaid in a build
+/// with the `mermaid` feature.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BuiltIn;
 
 impl BuiltIn {
-    fn is_mermaid(language: &str) -> bool {
-        cfg!(feature = "mermaid") && language.eq_ignore_ascii_case("mermaid")
+    /// The renderer built in for `language`, in this build.
+    fn of(language: &str) -> Option<language::BuiltInRenderer> {
+        self::language(language)?.built_in
     }
 
     /// What this build has built in to draw `language`, with its version,
     /// such as `merman 0.9.1, Mermaid 12.1.0`; `None` when it has nothing.
     pub fn version(language: &str) -> Option<String> {
-        #[cfg(feature = "mermaid")]
-        if Self::is_mermaid(language) {
-            return Some(mermaid::version());
-        }
-        let _ = language;
-        None
+        Self::of(language).map(|built_in| (built_in.version)())
     }
 }
 
 impl Renderer for BuiltIn {
     fn draws(&self, language: &str) -> bool {
-        Self::is_mermaid(language)
+        Self::of(language).is_some()
     }
 
-    fn render(&self, language: &str, source: &str, theme: Theme) -> Result<Drawn, String> {
-        #[cfg(feature = "mermaid")]
-        if Self::is_mermaid(language) {
-            return mermaid::render(source, theme);
+    fn render(&self, request: &Request) -> Result<Drawn, String> {
+        match Self::of(request.language) {
+            Some(built_in) => (built_in.render)(request.source, request.theme),
+            None => Err(format!(
+                "{} diagrams are not drawn in this build",
+                request.language
+            )),
         }
-        let _ = (source, theme);
-        Err(format!("{language} diagrams are not drawn in this build"))
     }
 }
 
@@ -300,58 +267,28 @@ pub struct Renderers {
 
 impl Renderers {
     /// The built-in renderers, and `commands`, the external command for
-    /// each language that has one.
-    pub fn new(commands: BTreeMap<String, Command>) -> Self {
+    /// each language that has one, run as `settings` say.
+    pub fn new(commands: BTreeMap<String, Command>, settings: ExternalSettings) -> Self {
         Renderers {
-            external: External::new(commands),
+            external: External::new(commands, settings),
         }
     }
 
     /// The built-in renderers, and the external commands that `configured`
     /// gives or that `search` finds for the languages `no_search` does not
-    /// have; see `find::choose`.
+    /// have, run as `settings` say; see `find::choose`.
     pub fn chosen(
         configured: &BTreeMap<String, Vec<String>>,
         no_search: &BTreeSet<String>,
         search: &find::Search,
+        settings: ExternalSettings,
     ) -> Self {
-        Self::new(find::commands(configured, no_search, search))
+        Self::new(find::commands(configured, no_search, search), settings)
     }
 
     /// Whether programs outside kiri draw any of `languages`.
     pub fn runs_programs_for<'a>(&self, languages: impl IntoIterator<Item = &'a str>) -> bool {
         (languages.into_iter()).any(|language| self.external.draws(language))
-    }
-
-    /// These renderers stopping each program they run after `limit`.
-    pub fn with_time_limit(self, limit: Duration) -> Self {
-        Renderers {
-            external: self.external.with_time_limit(limit),
-        }
-    }
-
-    /// These renderers with the files of the programs they run in
-    /// directories under `dir`; see `External::with_work_dir`.
-    pub fn with_work_dir(self, dir: PathBuf) -> Self {
-        Renderers {
-            external: self.external.with_work_dir(dir),
-        }
-    }
-
-    /// These renderers with `dir` as the system's temporary directory;
-    /// see `External::with_temp_dir`.
-    pub fn with_temp_dir(self, dir: PathBuf) -> Self {
-        Renderers {
-            external: self.external.with_temp_dir(dir),
-        }
-    }
-
-    /// These renderers stopping the programs they run, and starting no
-    /// more, once `stop` is set.
-    pub fn stopped_by(self, stop: Arc<AtomicBool>) -> Self {
-        Renderers {
-            external: self.external.stopped_by(stop),
-        }
     }
 }
 
@@ -360,10 +297,10 @@ impl Renderer for Renderers {
         self.external.draws(language) || BuiltIn.draws(language)
     }
 
-    fn render(&self, language: &str, source: &str, theme: Theme) -> Result<Drawn, String> {
-        match self.external.draws(language) {
-            true => self.external.render(language, source, theme),
-            false => BuiltIn.render(language, source, theme),
+    fn render(&self, request: &Request) -> Result<Drawn, String> {
+        match self.external.draws(request.language) {
+            true => self.external.render(request),
+            false => BuiltIn.render(request),
         }
     }
 
@@ -371,53 +308,14 @@ impl Renderer for Renderers {
     /// spends most of its time starting up, as `mmdc` does a browser.
     fn render_all(
         &self,
-        diagrams: &[(&str, &str)],
-        theme: Theme,
+        requests: &[Request],
         done: &(dyn Fn() + Sync),
     ) -> Vec<Result<Drawn, String>> {
-        if diagrams
-            .iter()
-            .any(|(language, _)| self.external.draws(language))
-        {
-            render_in_parallel(self, diagrams, theme, external::AT_ONCE, done)
+        if (requests.iter()).any(|request| self.external.draws(request.language)) {
+            render_in_parallel(self, requests, external::AT_ONCE, done)
         } else {
             // On this thread, whose stack is larger.
-            render_one_by_one(self, diagrams, theme, done)
-        }
-    }
-}
-
-/// How the diagrams of a document are drawn.
-#[derive(Clone, Copy)]
-pub struct Diagrams<'a> {
-    pub renderer: &'a dyn Renderer,
-    pub theme: Theme,
-    /// Whether a warning names a diagram by its line in the document, or
-    /// by its own first line, for a document that has no lines the reader
-    /// can look up, such as one piped in.
-    pub by_line: bool,
-    /// Told how many of a document's diagrams are drawn, and of how many:
-    /// first none, and then each time one more is.
-    pub progress: Option<&'a (dyn Fn(usize, usize) + Sync)>,
-    /// Whether a diagram whose colours are for the other page, light or
-    /// dark, lies on a panel of its own background.
-    pub panel: bool,
-    /// The most pixels, wide and high, an image can be shown at: a
-    /// diagram drawn in pixels is reduced to fit them as it loads. `None`
-    /// keeps it as drawn.
-    pub largest: Option<(u32, u32)>,
-}
-
-impl Diagrams<'static> {
-    /// No diagrams: every code block stays code.
-    pub fn none() -> Self {
-        Diagrams {
-            renderer: &NoRenderer,
-            theme: Theme::Light,
-            by_line: true,
-            progress: None,
-            panel: true,
-            largest: None,
+            render_one_by_one(self, requests, done)
         }
     }
 }
@@ -431,42 +329,33 @@ impl Renderer for NoRenderer {
         false
     }
 
-    fn render(&self, language: &str, _source: &str, _theme: Theme) -> Result<Drawn, String> {
-        Err(format!("{language} diagrams are not drawn"))
+    fn render(&self, request: &Request) -> Result<Drawn, String> {
+        Err(format!("{} diagrams are not drawn", request.language))
     }
 }
 
 /// How a warning names the diagram `source` in `language` that starts on
 /// `line` of its document: by that line, or else by the diagram's own
-/// first line, past any front matter, directives and comments.
+/// first line, past anything in it that is not the diagram, such as front
+/// matter, directives and comments.
 pub fn name(language: &str, source: &str, line: usize, by_line: bool) -> String {
     if by_line {
         return format!("{language} diagram on line {line}");
     }
-    let mut lines = source.lines().map(str::trim);
-    let mut first = None;
-    while let Some(text) = lines.next() {
-        if text.is_empty() || text.starts_with("%%") {
-            continue;
-        }
-        if text == "---" && first.is_none() {
-            // Front matter, up to the next `---`.
-            lines.by_ref().find(|text| *text == "---");
-            first = Some("");
-            continue;
-        }
-        first = Some(text);
-        break;
-    }
-    match first {
-        Some(text) if !text.is_empty() => format!("{language} diagram \"{text}\""),
-        _ => format!("{language} diagram"),
+    let first_line = match self::language(language) {
+        Some(known) => (known.first_line)(source),
+        None => language::first_line(source),
+    };
+    match first_line {
+        Some(text) => format!("{language} diagram \"{text}\""),
+        None => format!("{language} diagram"),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicUsize;
+    use std::time::Duration;
 
     use super::*;
 
@@ -478,14 +367,25 @@ mod tests {
                 .map(String::from)
                 .to_vec(),
         )]);
-        let renderers = Renderers::chosen(&commands, &BTreeSet::new(), &find::Search::default());
+        let settings = || ExternalSettings::new(std::env::temp_dir());
+        let renderers = Renderers::chosen(
+            &commands,
+            &BTreeSet::new(),
+            &find::Search::default(),
+            settings(),
+        );
         assert!(renderers.draws("mermaid") && renderers.draws("Mermaid"));
         // It fails, and the built-in renderer does not step in.
-        let drawn = renderers.render("mermaid", "flowchart TD\n  A --> B\n", Theme::Light);
+        let drawn = renderers.render(&Request::new(
+            "mermaid",
+            "flowchart TD\n  A --> B\n",
+            Theme::Light,
+        ));
         assert_eq!(drawn, Err("sh exited with status 4".to_owned()));
-        let drawn = renderers.render_all(&[("mermaid", "flowchart TD\n")], Theme::Dark, &|| {});
+        let request = Request::new("mermaid", "flowchart TD\n", Theme::Dark);
+        let drawn = renderers.render_all(&[request], &|| {});
         assert_eq!(drawn, [Err("sh exited with status 4".to_owned())]);
-        let none = Renderers::new(BTreeMap::new());
+        let none = Renderers::new(BTreeMap::new(), settings());
         assert_eq!(none.draws("mermaid"), cfg!(feature = "mermaid"));
         assert!(!none.draws("dot"));
     }
@@ -502,14 +402,14 @@ mod tests {
             true
         }
 
-        fn render(&self, language: &str, source: &str, theme: Theme) -> Result<Drawn, String> {
+        fn render(&self, request: &Request) -> Result<Drawn, String> {
             let now = self.now.fetch_add(1, Ordering::SeqCst) + 1;
             self.most.fetch_max(now, Ordering::SeqCst);
             std::thread::sleep(Duration::from_millis(50));
             self.now.fetch_sub(1, Ordering::SeqCst);
-            match source {
-                "bad" => Err(format!("{language}: bad")),
-                _ => Ok(Drawn::svg(source, theme, None)),
+            match request.source {
+                "bad" => Err(format!("{}: bad", request.language)),
+                source => Ok(Drawn::svg(source, request.theme, None)),
             }
         }
     }
@@ -517,17 +417,17 @@ mod tests {
     #[test]
     fn draws_up_to_four_diagrams_at_once_and_keeps_their_order() {
         let sources: Vec<String> = (0..10).map(|n| n.to_string()).collect();
-        let mut diagrams: Vec<(&str, &str)> = sources
+        let mut diagrams: Vec<Request> = sources
             .iter()
-            .map(|source| ("mermaid", source.as_str()))
+            .map(|source| Request::new("mermaid", source, Theme::Dark))
             .collect();
-        diagrams[3].1 = "bad";
+        diagrams[3].source = "bad";
         let slow = Slow::default();
         let done = AtomicUsize::new(0);
         let count = || {
             done.fetch_add(1, Ordering::SeqCst);
         };
-        let drawn = render_in_parallel(&slow, &diagrams, Theme::Dark, external::AT_ONCE, &count);
+        let drawn = render_in_parallel(&slow, &diagrams, external::AT_ONCE, &count);
         let svgs: Vec<Result<String, String>> = (drawn.into_iter())
             .map(|drawn| drawn.map(|drawn| drawn.text()))
             .collect();
@@ -543,51 +443,7 @@ mod tests {
         let most = slow.most.load(Ordering::SeqCst);
         assert!((2..=4).contains(&most), "{most} at once");
         assert_eq!(done.load(Ordering::SeqCst), 10);
-        assert!(render_in_parallel(&slow, &[], Theme::Dark, 4, &count).is_empty());
-    }
-
-    #[test]
-    fn reads_the_theme_a_mermaid_diagram_chooses() {
-        let flowchart = "flowchart TD\n  A --> B\n";
-        let front_matter =
-            |config: &str| format!("---\ntitle: T\nconfig:\n{config}---\n{flowchart}");
-        let cases = [
-            (flowchart.to_owned(), None),
-            (
-                format!("%%{{init: {{\"theme\": \"forest\"}}}}%%\n{flowchart}"),
-                Some(Theme::Light),
-            ),
-            (
-                format!("%%{{init: {{'theme':'dark'}}}}%%\n{flowchart}"),
-                Some(Theme::Dark),
-            ),
-            (
-                format!(
-                    "%%{{ initialize: {{ \"themeVariables\": {{}}, \"theme\" : \"neutral\" }} }}%%\n{flowchart}"
-                ),
-                Some(Theme::Light),
-            ),
-            (
-                format!(
-                    "%%{{init: {{\"themeVariables\": {{\"primaryColor\": \"#000\"}}}}}}%%\n{flowchart}"
-                ),
-                None,
-            ),
-            (front_matter("  theme: base\n"), Some(Theme::Light)),
-            (front_matter("  theme: \"redux-dark\"\n"), Some(Theme::Dark)),
-            (
-                front_matter("  theme: base\n  themeVariables:\n    darkMode: true\n"),
-                Some(Theme::Dark),
-            ),
-            // Only the directives and the front matter count.
-            (format!("{flowchart}  C[theme: dark]\n"), None),
-        ];
-        for (source, theme) in cases {
-            assert_eq!(chosen_theme("mermaid", &source), theme, "{source}");
-        }
-        let forest = format!("%%{{init: {{\"theme\": \"forest\"}}}}%%\n{flowchart}");
-        assert_eq!(chosen_theme("Mermaid", &forest), Some(Theme::Light));
-        assert_eq!(chosen_theme("dot", &forest), None);
+        assert!(render_in_parallel(&slow, &[], 4, &count).is_empty());
     }
 
     #[test]
@@ -600,6 +456,22 @@ mod tests {
         assert_eq!(display_name("mermaid"), "Mermaid");
         assert_eq!(display_name("dot"), "dot");
         assert_eq!(extension("Dot"), "dot");
+        // A name that is no safe file name.
+        assert_eq!(extension("../C++"), "c");
+        assert_eq!(extension("/"), "txt");
+    }
+
+    #[test]
+    fn mermaid_s_dark_theme_has_a_dark_grey_background() {
+        assert_eq!(dark_background("Mermaid"), Some([0x33, 0x33, 0x33]));
+        assert_eq!(dark_background("dot"), None);
+    }
+
+    #[test]
+    fn a_mermaid_diagram_chooses_its_theme_in_its_source() {
+        let forest = "%%{init: {\"theme\": \"forest\"}}%%\nflowchart TD\n";
+        assert_eq!(chosen_theme("Mermaid", forest), Some(Theme::Light));
+        assert_eq!(chosen_theme("dot", forest), None);
     }
 
     #[test]
@@ -616,7 +488,7 @@ mod tests {
             BuiltIn::version("mermaid").is_some(),
             cfg!(feature = "mermaid")
         );
-        for language in LANGUAGES {
+        for language in LANGUAGES.iter().map(|language| language.name) {
             let drawn = BuiltIn.draws(language);
             assert_eq!(BuiltIn::version(language).is_some(), drawn, "{language}");
         }
@@ -648,5 +520,10 @@ mod tests {
             "mermaid diagram \"sequenceDiagram\""
         );
         assert_eq!(name("mermaid", "\n", 1, false), "mermaid diagram");
+        // Another language's first line is its first line.
+        assert_eq!(
+            name("dot", "%% x\ndigraph {}\n", 1, false),
+            "dot diagram \"%% x\""
+        );
     }
 }

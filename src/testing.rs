@@ -9,7 +9,12 @@ impl Scratch {
     /// An empty directory for the test that calls it `name`, a name no
     /// other test uses.
     pub(crate) fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("kiri-{}-{name}", std::process::id()));
+        Self::in_dir(&std::env::temp_dir(), name)
+    }
+
+    /// `new`, in the directory `parent` rather than the temporary one.
+    pub(crate) fn in_dir(parent: &Path, name: &str) -> Self {
+        let dir = parent.join(format!("kiri-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         Self(dir)

@@ -8,30 +8,13 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use super::{BuiltIn, Command, Renderer};
+use super::{BuiltIn, Command, LANGUAGES, Renderer};
 use crate::config::Environment;
-
-/// mermaid-cli's command line, which the configuration file can also give.
-pub const MMDC: &[&str] = &[
-    "mmdc",
-    "-i",
-    "{input}",
-    "-o",
-    "{output}",
-    "-t",
-    "{theme}",
-    "-b",
-    "transparent",
-    "-c",
-    "{config}",
-    "-s",
-    "{scale}",
-];
 
 /// The command line kiri looks for to draw `language` when nothing is
 /// configured; its first part is the program.
 pub fn default_command(language: &str) -> Option<&'static [&'static str]> {
-    language.eq_ignore_ascii_case("mermaid").then_some(MMDC)
+    super::language(language)?.default_command
 }
 
 /// Homebrew's directories for programs, on macOS and on Linux.
@@ -222,9 +205,9 @@ pub fn commands(
     no_search: &BTreeSet<String>,
     search: &Search,
 ) -> BTreeMap<String, Command> {
-    (super::LANGUAGES.iter())
+    (LANGUAGES.iter().map(|language| language.name))
         .filter_map(
-            |&language| match choose(language, configured, no_search, search) {
+            |language| match choose(language, configured, no_search, search) {
                 Choice::Configured(command) | Choice::Found(command) => {
                     Some((language.to_owned(), command))
                 }
@@ -237,6 +220,7 @@ pub fn commands(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diagrams::MMDC;
     use crate::testing::Scratch;
 
     /// A program at `path` under `dir`, which may be run unless `mode`
