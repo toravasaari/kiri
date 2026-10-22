@@ -39,6 +39,27 @@ pub fn pages(paging: Paging, terminal: bool, rows: usize, height: Option<u16>) -
     }
 }
 
+/// `paging` for what is paged only when paging is `always`: a document
+/// read from standard input, often the output of another command, the
+/// `--doctor` report, and images shown on their own.
+pub fn only_always(paging: Paging) -> Paging {
+    match paging {
+        Paging::Always => Paging::Always,
+        Paging::Auto | Paging::Never => Paging::Never,
+    }
+}
+
+/// `paging` for several files: when `images_only`, each of them is shown
+/// on its own as an image is, such as an image file or a diagram file, and
+/// they are paged only when paging is `always`; with a document among
+/// them, the files follow `paging` as one document does.
+pub fn for_files(paging: Paging, images_only: bool) -> Paging {
+    match images_only {
+        true => only_always(paging),
+        false => paging,
+    }
+}
+
 /// The rows `lines` take on a terminal with `caps`.
 pub fn rows(lines: &[Line], caps: &Capabilities) -> usize {
     lines
@@ -583,6 +604,27 @@ mod tests {
             assert!(!pages(paging, false, 100, Some(24)), "{paging:?}");
         }
         assert!(!pages(Paging::Never, true, 100, Some(24)));
+    }
+
+    #[test]
+    fn standard_input_is_paged_only_when_paging_is_always() {
+        assert_eq!(only_always(Paging::Always), Paging::Always);
+        assert_eq!(only_always(Paging::Auto), Paging::Never);
+        assert_eq!(only_always(Paging::Never), Paging::Never);
+    }
+
+    #[test]
+    fn files_of_images_alone_are_paged_only_when_paging_is_always() {
+        assert_eq!(for_files(Paging::Always, true), Paging::Always);
+        assert_eq!(for_files(Paging::Auto, true), Paging::Never);
+        assert_eq!(for_files(Paging::Never, true), Paging::Never);
+    }
+
+    #[test]
+    fn files_with_a_document_among_them_follow_the_setting() {
+        for paging in [Paging::Always, Paging::Auto, Paging::Never] {
+            assert_eq!(for_files(paging, false), paging);
+        }
     }
 
     /// A terminal that gives the reads in `keys`, one a call, with the

@@ -403,3 +403,75 @@ fn the_pager_shows_why_a_diagram_was_not_drawn_and_finds_it() {
     assert!(found.contains("✗ mermaid diagram could not be"), "{seen:?}");
     assert!(found.contains("/drawn 1/1"), "{seen:?}");
 }
+
+#[test]
+fn several_files_are_paged_as_one_stream_under_their_names() {
+    let keys: [&[u8]; 4] = [b"G", b"g", b"/", b"Line 10\r"];
+    let mut typed = 0;
+    let (status, seen) = in_terminal_with(
+        "pager-files",
+        &["document.md", "long.md"],
+        8,
+        None,
+        |frames, terminal, _| {
+            if typed < frames.min(keys.len()) {
+                terminal.write_all(keys[typed]).unwrap();
+                typed += 1;
+            } else if typed == keys.len() && frames > keys.len() {
+                terminal.write_all(b"q").unwrap();
+                typed += 1;
+            }
+        },
+    );
+    assert!(status.success());
+    assert!(seen.starts_with(ENTER), "{seen:?}");
+    assert!(seen.ends_with(LEAVE), "{seen:?}");
+    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
+    assert!(frames[0].contains("document.md"), "{seen:?}");
+    assert!(!frames[0].contains("long.md"), "{seen:?}");
+    // The end of the stream is the end of the last file.
+    assert!(frames[1].contains("Line 10"), "{seen:?}");
+    // Search goes on from the first file into the second.
+    assert!(frames.last().unwrap().contains("Line 10"), "{seen:?}");
+    assert!(frames.last().unwrap().contains("/Line 10 1/1"), "{seen:?}");
+}
+
+/// [`in_terminal`] in a window of 5 rows, with copies of an image beside
+/// the documents, `a.png` and `b.png`.
+fn with_images(name: &str, args: &[&str], keys: &[&[u8]]) -> (ExitStatus, String) {
+    let icon = common::fixtures().join("images/icon.png");
+    let prepare = |dir: &std::path::Path| {
+        for name in ["a.png", "b.png"] {
+            std::fs::copy(&icon, dir.join(name)).unwrap();
+        }
+    };
+    let mut typed = 0;
+    in_terminal_after(name, prepare, args, 5, None, |frames, terminal, _| {
+        if typed < frames.min(keys.len()) {
+            terminal.write_all(keys[typed]).unwrap();
+            typed += 1;
+        }
+    })
+}
+
+#[test]
+fn image_files_alone_are_paged_only_when_paging_is_always() {
+    let args = ["--mode", "kitty", "a.png", "b.png"];
+    let (status, seen) = with_images("pager-images", &args, &[]);
+    assert!(status.success());
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert_eq!(seen.matches("\x1b_Ga=T,").count(), 2, "{seen:?}");
+    let args = ["--mode", "kitty", "-p", "a.png", "b.png"];
+    let (status, seen) = with_images("pager-images-p", &args, &[b"q"]);
+    assert!(status.success());
+    assert!(seen.starts_with(ENTER), "{seen:?}");
+    assert!(seen.contains("a.png"), "{seen:?}");
+}
+
+#[test]
+fn image_files_with_a_document_are_paged_when_they_are_long() {
+    let args = ["--mode", "kitty", "a.png", "document.md", "b.png"];
+    let (status, seen) = with_images("pager-images-document", &args, &[b"q"]);
+    assert!(status.success());
+    assert!(seen.starts_with(ENTER), "{seen:?}");
+}

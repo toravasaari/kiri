@@ -63,7 +63,12 @@ document of one `Block::ImageFile`, whose pixels kiri reads itself and
 keys by the file's name. The layout gives each file its header and
 keeps where each one starts. The documents' images load together, each
 document's relative to its own directory, under keys that carry the
-document's number among the files.
+document's number among the files. Files that are each shown on their own,
+as images are, go to the pager only when paging is `always`; with a
+document among them, the files are paged as one document is. The pager
+then shows them as one stream, headers and all, so a search finds a
+term in any of them, and reads every image file before it opens; when
+they are printed, an image file is read only as it is shown.
 
 There is one terminal backend, not one per terminal. It lays the model out
 as styled lines of a fixed width, then writes those as bytes. What it may
