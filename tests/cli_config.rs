@@ -443,3 +443,35 @@ fn table_rows_come_from_the_flag_the_environment_and_the_configuration_file() {
     assert!(!out.status.success());
     assert!(text(&out.stderr).contains("invalid value 'stripes'"));
 }
+
+#[test]
+fn the_help_lists_the_values_of_each_setting() {
+    let dir = Scratch::new("help-values");
+    for flag in ["--help", "-h"] {
+        let out = command(&dir).arg(flag).output().unwrap();
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        insta::assert_snapshot!(flag.trim_start_matches('-'), text(&out.stdout));
+    }
+}
+
+#[test]
+fn a_flag_takes_only_the_names_of_its_values() {
+    let dir = Scratch::new("flag-values");
+    let error = |args: &[&str]| {
+        let out = command(&dir).args(args).output().unwrap();
+        assert!(!out.status.success(), "{args:?}");
+        text(&out.stderr)
+    };
+    let errors: Vec<String> = [
+        &["--mode", "Kitty"][..],
+        &["--paging", "1"][..],
+        &["--front-matter", "yaml"][..],
+        &["--table-rows", "zebras"][..],
+        &["--diagrams", "1"][..],
+        &["--render-errors", "never"][..],
+    ]
+    .iter()
+    .map(|args| error(args))
+    .collect();
+    insta::assert_snapshot!(errors.join("\n---\n"));
+}

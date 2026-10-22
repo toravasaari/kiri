@@ -1,0 +1,43 @@
+---
+source: tests/cli_config.rs
+assertion_line: 476
+expression: "errors.join(\"\\n---\\n\")"
+---
+error: invalid value 'Kitty' for '--mode <MODE>'
+  [possible values: auto, plain, ansi, kitty]
+
+  tip: a similar value exists: 'kitty'
+
+For more information, try '--help'.
+
+---
+error: invalid value '1' for '--paging <WHEN>'
+  [possible values: always, auto, never]
+
+For more information, try '--help'.
+
+---
+error: invalid value 'yaml' for '--front-matter <STYLE>'
+  [possible values: table, code, hide, off]
+
+For more information, try '--help'.
+
+---
+error: invalid value 'zebras' for '--table-rows <STYLE>'
+  [possible values: off, zebra, lines, indent, underline]
+
+  tip: a similar value exists: 'zebra'
+
+For more information, try '--help'.
+
+---
+error: invalid value '1' for '--diagrams <SWITCH>'
+  [possible values: on, off]
+
+For more information, try '--help'.
+
+---
+error: invalid value 'never' for '--render-errors <WHERE>'
+  [possible values: inline, stderr, both]
+
+For more information, try '--help'.
