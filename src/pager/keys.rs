@@ -17,6 +17,10 @@ pub enum Key {
     Down,
     PageUp,
     PageDown,
+    /// Page Up and Page Down with Shift, which move between files. Other
+    /// keys with a modifier are [`Key::Other`].
+    ShiftPageUp,
+    ShiftPageDown,
     Home,
     End,
     /// A character with Alt, which arrives after an escape character.
@@ -183,6 +187,9 @@ fn csi(parameters: &[u8], last: u8) -> Key {
         (b"" | b"1", b'F') | (b"4" | b"8", b'~') => Key::End,
         (b"5", b'~') => Key::PageUp,
         (b"6", b'~') => Key::PageDown,
+        // The modifier 2 is Shift.
+        (b"5;2", b'~') => Key::ShiftPageUp,
+        (b"6;2", b'~') => Key::ShiftPageDown,
         _ => Key::Other,
     }
 }
@@ -285,14 +292,14 @@ pub const BINDINGS: &[Binding] = {
             action: Action::Move(End),
         },
         Binding {
-            keys: &[Key::Command('n')],
-            names: ":n",
+            keys: &[Key::Command('n'), Key::ShiftPageDown],
+            names: ":n Shift+PgDn",
             what: "next file",
             action: Action::NextFile,
         },
         Binding {
-            keys: &[Key::Command('p')],
-            names: ":p",
+            keys: &[Key::Command('p'), Key::ShiftPageUp],
+            names: ":p Shift+PgUp",
             what: "previous file",
             action: Action::PreviousFile,
         },
@@ -387,6 +394,16 @@ mod tests {
             ]
         );
         assert_eq!(decode(b"\x1b[7~\x1b[8~"), [Key::Home, Key::End]);
+    }
+
+    #[test]
+    fn decodes_page_up_and_page_down_with_shift() {
+        assert_eq!(
+            decode(b"\x1b[5;2~\x1b[6;2~"),
+            [Key::ShiftPageUp, Key::ShiftPageDown]
+        );
+        // With Ctrl, or Alt, they are still no keys of the pager's.
+        assert_eq!(decode(b"\x1b[5;5~\x1b[6;3~"), [Key::Other, Key::Other]);
     }
 
     #[test]
@@ -564,6 +581,8 @@ mod tests {
                     "End" => Key::End,
                     ":n" => Key::Command('n'),
                     ":p" => Key::Command('p'),
+                    "Shift+PgDn" => Key::ShiftPageDown,
+                    "Shift+PgUp" => Key::ShiftPageUp,
                     name if name.chars().count() == 1 => Key::Char(name.chars().next().unwrap()),
                     name => panic!("unknown key name {name}"),
                 };
@@ -598,6 +617,12 @@ mod tests {
         assert_eq!(action(Key::Char('p')), None);
         assert_eq!(action(COMMAND), None);
         assert_eq!(action(Key::Command('x')), None);
+    }
+
+    #[test]
+    fn shift_page_down_and_shift_page_up_move_between_files() {
+        assert_eq!(action(Key::ShiftPageDown), Some(Action::NextFile));
+        assert_eq!(action(Key::ShiftPageUp), Some(Action::PreviousFile));
     }
 
     #[test]

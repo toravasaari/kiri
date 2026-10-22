@@ -139,7 +139,10 @@ mod tests {
             let panel = panel(80, 24, &Style::default(), &Style::default(), several);
             panel.iter().map(text).collect::<Vec<_>>()
         };
-        for (names, what) in [(":n", "next file"), (":p", "previous file")] {
+        for (names, what) in [
+            (":n Shift+PgDn", "next file"),
+            (":p Shift+PgUp", "previous file"),
+        ] {
             let found = |rows: &[String]| {
                 rows.iter().any(|row| {
                     let row = row.trim_start_matches("│ ");

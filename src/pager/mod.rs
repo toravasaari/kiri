@@ -1142,6 +1142,28 @@ mod tests {
     }
 
     #[test]
+    fn shift_page_down_and_shift_page_up_move_as_colon_n_and_colon_p_do() {
+        // As in the test above: past the last file, Shift+PgDn does
+        // nothing; Shift+PgUp from inside b.md goes first to its start.
+        let (down, up): (&[u8], &[u8]) = (b"\x1b[6;2~", b"\x1b[5;2~");
+        let reads = &[down, down, down, up, b"jjj", up, up];
+        let mut terminal = Fake::new(40, 6, reads);
+        show_files(
+            &files(&[("a.md", 3), ("b.md", 10), ("c.md", 10)]),
+            &mut terminal,
+        );
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 7, "{frames:#?}");
+        assert!(at_file(&frames[0], "a.md", 5), "{frames:#?}");
+        assert!(at_file(&frames[1], "b.md", 5), "{frames:#?}");
+        assert!(at_file(&frames[2], "c.md", 5), "{frames:#?}");
+        assert!(at_file(&frames[3], "b.md", 5), "{frames:#?}");
+        assert!(status_row(&frames[4], 6).contains(" b.md "), "{frames:#?}");
+        assert!(at_file(&frames[5], "b.md", 5), "{frames:#?}");
+        assert!(at_file(&frames[6], "a.md", 5), "{frames:#?}");
+    }
+
+    #[test]
     fn colon_n_names_a_file_on_the_last_page_though_the_view_stops_short() {
         // In 11 rows, the last page starts at b.md, the line 24, and also
         // shows c.md, which starts on line 30.
@@ -1189,11 +1211,14 @@ mod tests {
         assert!(help.contains("next file"), "{help:?}");
         assert!(help.contains(":p"), "{help:?}");
         assert!(help.contains("previous file"), "{help:?}");
+        assert!(help.contains("Shift+PgDn"), "{help:?}");
+        assert!(help.contains("Shift+PgUp"), "{help:?}");
         let mut terminal = Fake::new(60, 24, &[b"?"]);
         show(&numbers(30), &mut terminal);
         let help = terminal.frames()[1].clone();
         assert!(help.contains("down a line"), "{help:?}");
         assert!(!help.contains("next file"), "{help:?}");
+        assert!(!help.contains("Shift+"), "{help:?}");
     }
 
     /// The status line of `frame`, on row `row`.
