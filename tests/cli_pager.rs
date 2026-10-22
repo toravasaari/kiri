@@ -65,8 +65,23 @@ fn in_terminal_after(
     args: &[&str],
     rows: u16,
     stdin: Option<&str>,
-    mut act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
+    act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
 ) -> (ExitStatus, String) {
+    let (status, seen, stderr) = in_terminal_told(name, prepare, args, rows, stdin, act);
+    assert_eq!(stderr, "");
+    (status, seen)
+}
+
+/// [`in_terminal_after`], with what kiri wrote to standard error returned
+/// last instead of expected to be empty.
+fn in_terminal_told(
+    name: &str,
+    prepare: impl FnOnce(&std::path::Path),
+    args: &[&str],
+    rows: u16,
+    stdin: Option<&str>,
+    mut act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
+) -> (ExitStatus, String, String) {
     let dir = Scratch::new(name);
     std::fs::write(dir.join("document.md"), paragraphs(3)).unwrap();
     std::fs::write(dir.join("long.md"), long()).unwrap();
@@ -131,8 +146,7 @@ fn in_terminal_after(
         .unwrap()
         .read_to_string(&mut stderr)
         .unwrap();
-    assert_eq!(stderr, "");
-    (status, text(&seen))
+    (status, text(&seen), stderr)
 }
 
 /// A document longer than a window of 5 rows.
@@ -451,6 +465,30 @@ fn colon_n_moves_to_the_next_file_and_the_status_line_names_it() {
     assert!(!frames[0].contains("long.md"), "{seen:?}");
     assert!(frames[1].contains("long.md"), "{seen:?}");
     assert!(!frames[1].contains("document.md"), "{seen:?}");
+}
+
+#[test]
+fn when_no_file_can_be_shown_the_pager_does_not_open() {
+    let mut typed = false;
+    let args = ["-p", "nope1.md", "nope2.md"];
+    let (status, seen, stderr) = in_terminal_told(
+        "pager-none",
+        |_| {},
+        &args,
+        8,
+        None,
+        |frames, terminal, _| {
+            // An empty pager would wait for q.
+            if frames > 0 && !typed {
+                terminal.write_all(b"q").unwrap();
+                typed = true;
+            }
+        },
+    );
+    assert_eq!(status.code(), Some(1), "{seen:?}");
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert!(stderr.contains("nope1.md"), "{stderr}");
+    assert!(stderr.contains("nope2.md"), "{stderr}");
 }
 
 /// [`in_terminal`] in a window of 5 rows, with copies of an image beside

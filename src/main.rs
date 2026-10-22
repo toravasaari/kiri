@@ -535,6 +535,10 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
             .filter_map(|given| read_whole(&context, &caps, given).map_err(tell).ok())
             .collect();
     }
+    // Every file failed, as kiri has told; an empty pager would only wait.
+    if given.is_empty() && failed.get() {
+        return Err(Failure::Told);
+    }
     let Loaded {
         mut images,
         mut interrupt,
