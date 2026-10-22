@@ -58,6 +58,46 @@ goes on the lines under its header instead.
 > | Rust | multi-paradigm | statically | ownership | async/await, threads | 2015 | cargo/rustup | MIT/Apache-2.0 | A crab 🦀 |
 > | Lisp | functional | dynamically | garbage-collected | | 1958 | | | |
 
+## Row distinction
+
+By default every second row of a table is shaded: the second, the fourth
+and so on, but not the header. The shade is the page colour with a little
+of the text colour mixed in, so it is slightly lighter than a dark page
+and slightly darker than a light one. It needs 24-bit colour and the
+page colour, which kitty tells, so with `NO_COLOR` nothing is shaded, nor
+in a terminal that does not tell, unless the theme sets a page colour.
+The notes in the table below are long enough to wrap, to show how each
+style treats the lines of a value:
+
+| Step | Note |
+|------|------|
+| One | The first row, whose note is long enough to wrap onto a second line in most windows, and then some more to be sure of it |
+| Two | The second row, shaded by default, and its note is just as long, so that its wrapped lines show how each style marks them |
+| Three | The third row, short |
+| Four | The fourth row, shaded by default too, with a note long enough to wrap onto a second line in a window of average width |
+
+The same document with each of the other styles. They change every
+table in it that is drawn with borders; a stacked table keeps its
+layout:
+
+```sh
+kiri --table-rows lines examples/S03a-tables.md
+kiri --table-rows indent examples/S03a-tables.md
+kiri --table-rows underline examples/S03a-tables.md
+kiri --table-rows off examples/S03a-tables.md
+```
+
+- `lines` draws a thin rule between the rows, in the border colour.
+- `indent` starts the second and later lines of a wrapped value two cells
+  in, so that each row's first line stands out.
+- `underline` underlines the last line of each row except the last row,
+  with a dashed line in the border colour. It needs underline styles, as
+  kitty has them.
+- `off` marks nothing: the rows run together.
+
+In plain text output, from `--mode plain` or a pipe, only `lines` and
+`indent` mark the rows.
+
 ## Wide characters in tables
 
 | 名前 | Emoji | Flag |
