@@ -18,7 +18,7 @@ use crate::config::{Paging, SearchCase};
 use crate::model::Document;
 use crate::render::Inputs;
 use crate::render::output::{self, Page, Writer};
-use crate::render::style::{Line, Span, Style};
+use crate::render::style::{self, Line, Span, Style};
 use crate::term::{Screen, WindowSize};
 use fade::{FADE, Fade, Rgb};
 use help::Placed;
@@ -133,11 +133,14 @@ pub fn run(
                 bg: inputs.theme.background,
                 ..Style::default()
             },
-            muted: inputs.theme.muted_style(Style {
-                fg: inputs.theme.foreground,
-                bg: inputs.theme.background,
-                ..Style::default()
-            }),
+            muted: style::muted(
+                &inputs.theme,
+                Style {
+                    fg: inputs.theme.foreground,
+                    bg: inputs.theme.background,
+                    ..Style::default()
+                },
+            ),
         };
         let marks = Marks::new(&inputs.theme, &inputs.caps);
         let rgb = Rgb::new(&inputs.theme, &inputs.caps);

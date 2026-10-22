@@ -5,7 +5,6 @@
 
 use crate::color::{Color, Underline};
 use crate::model::AlertKind;
-use crate::render::style::Style;
 
 mod file;
 mod paper;
@@ -305,18 +304,6 @@ impl Theme {
     pub fn heading(&self, level: u8) -> &HeadingTheme {
         let index = usize::from(level.clamp(1, 6)) - 1;
         &self.headings[index]
-    }
-
-    /// Text in `style` played down: in the muted colour, or dimmed when
-    /// the theme has none.
-    pub fn muted_style(&self, style: Style) -> Style {
-        match self.muted {
-            Some(color) => Style {
-                fg: Some(color),
-                ..style
-            },
-            None => Style { dim: true, ..style },
-        }
     }
 
     /// Drops every margin, indent and code padding, so text and code start

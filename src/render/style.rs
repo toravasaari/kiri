@@ -4,6 +4,7 @@ use std::rc::Rc;
 
 use super::image::Placement;
 use crate::color::{Color, Underline};
+use crate::theme::Theme;
 
 /// How the wrapper treats spaces in a span, much like CSS `white-space`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -134,6 +135,18 @@ impl Line {
 
     pub fn prepend(&mut self, span: Span) {
         self.spans.insert(0, span);
+    }
+}
+
+/// Text in `style` played down: in `theme`'s muted colour, or dimmed when
+/// the theme has none.
+pub fn muted(theme: &Theme, style: Style) -> Style {
+    match theme.muted {
+        Some(color) => Style {
+            fg: Some(color),
+            ..style
+        },
+        None => Style { dim: true, ..style },
     }
 }
 

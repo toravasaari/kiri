@@ -621,9 +621,9 @@ impl Layout<'_> {
         }
     }
 
-    /// Text played down, as [`Theme::muted_style`] has it.
+    /// Text played down, as [`style::muted`](super::style::muted) has it.
     fn muted(&self, style: Style) -> Style {
-        self.style(self.theme.muted_style(style))
+        self.style(super::style::muted(self.theme, style))
     }
 
     /// Drops all styling when the terminal gets plain text.
