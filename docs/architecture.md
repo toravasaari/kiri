@@ -105,6 +105,13 @@ into an image file, SVG or raster, and the page its colours are for. It
 knows nothing about terminals, so an HTML backend could use the same
 image.
 
+The dependency between `src/diagrams/` and `src/images/` is not yet one
+way. `External` takes the image loader's size limits, `MAX_PIXELS` and
+`DEFAULT_MAX_FILE_SIZE`, its `png_size`, `read_at_most` and the wording
+of a size limit, `size`, and merman's tests decode its SVG with the
+loader. These move to a module of their own when a second language, in
+4.3.2, shows what the two share.
+
 What kiri knows about each language is one entry of `LANGUAGES`, a
 `Language` in `src/diagrams/language.rs`: plain data, such as its name,
 its display name, the extensions of its files, its theme names and the
