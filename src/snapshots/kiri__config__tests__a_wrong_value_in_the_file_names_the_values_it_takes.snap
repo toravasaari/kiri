@@ -1,0 +1,82 @@
+---
+source: src/config.rs
+assertion_line: 2195
+expression: "errors.join(\"---\\n\")"
+---
+TOML parse error at line 1, column 10
+  |
+1 | paging = "sometimes"
+  |          ^^^^^^^^^^^
+unknown variant `sometimes`, expected one of `always`, `auto`, `never`
+---
+TOML parse error at line 1, column 10
+  |
+1 | paging = true
+  |          ^^^^
+wanted string or table
+---
+TOML parse error at line 1, column 10
+  |
+1 | paging = "1"
+  |          ^^^
+unknown variant `1`, expected one of `always`, `auto`, `never`
+---
+TOML parse error at line 1, column 15
+  |
+1 | search_case = "ignore"
+  |               ^^^^^^^^
+unknown variant `ignore`, expected `smart` or `literal`
+---
+TOML parse error at line 1, column 15
+  |
+1 | search_case = 1
+  |               ^
+wanted string or table
+---
+TOML parse error at line 1, column 16
+  |
+1 | front_matter = "list"
+  |                ^^^^^^
+unknown variant `list`, expected one of `table`, `code`, `hide`, `off`
+---
+TOML parse error at line 1, column 16
+  |
+1 | front_matter = false
+  |                ^^^^^
+wanted string or table
+---
+TOML parse error at line 1, column 14
+  |
+1 | table_rows = "stripes"
+  |              ^^^^^^^^^
+unknown variant `stripes`, expected one of `off`, `zebra`, `lines`, `indent`, `underline`
+---
+TOML parse error at line 1, column 14
+  |
+1 | table_rows = ["off"]
+  |              ^^^^^^^
+wanted string or table
+---
+TOML parse error at line 1, column 17
+  |
+1 | render_errors = "never"
+  |                 ^^^^^^^
+unknown variant `never`, expected one of `inline`, `stderr`, `both`
+---
+TOML parse error at line 1, column 19
+  |
+1 | render_errors = { a = 1 }
+  |                   ^
+unknown variant `a`, expected one of `inline`, `stderr`, `both`
+---
+TOML parse error at line 1, column 12
+  |
+1 | diagrams = "off"
+  |            ^^^^^
+invalid type: string "off", expected true or false, or a [diagrams] table
+---
+TOML parse error at line 1, column 10
+  |
+1 | images = "no"
+  |          ^^^^
+invalid type: string "no", expected a boolean

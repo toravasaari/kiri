@@ -18,6 +18,9 @@ use kiri::kitty::graphics::{DIACRITICS, PLACEHOLDER};
 use kiri::render::Inputs;
 use kiri::theme::Theme;
 
+#[path = "../../src/term/pty.rs"]
+mod pty;
+
 pub const WIDTH: u16 = 48;
 
 /// Inputs with `caps` and `theme`, and no images.
@@ -485,25 +488,8 @@ pub fn executable(path: &Path, script: &str) {
 }
 
 /// A pseudo-terminal: the terminal side, and the program's side.
-pub fn pty() -> (std::fs::File, std::fs::File) {
-    use std::ffi::OsStr;
-    use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::fs::OpenOptionsExt;
-
-    use rustix::fs::OFlags;
-    use rustix::pty::{OpenptFlags, grantpt, openpt, ptsname, unlockpt};
-
-    let terminal = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).unwrap();
-    grantpt(&terminal).unwrap();
-    unlockpt(&terminal).unwrap();
-    let name = ptsname(&terminal, Vec::new()).unwrap();
-    let tty = File::options()
-        .read(true)
-        .write(true)
-        .custom_flags(OFlags::NOCTTY.bits() as i32)
-        .open(OsStr::from_bytes(name.as_bytes()))
-        .unwrap();
-    (File::from(terminal), tty)
+pub fn pty() -> (File, File) {
+    pty::pty()
 }
 
 /// Whether `done` holds within `limit`, asked every 20 ms.

@@ -499,3 +499,30 @@ Known bugs, fixed in whatever phase is under way.
   `<p align="center">`, blank line, `<img>`, blank line, `</p>`, is drawn,
   but the wrapper's tags show as source: CommonMark makes three HTML
   blocks of it.
+
+### resvg and the SVG that mmdc writes
+
+mmdc's SVG drawn through resvg differs from the same SVG in a browser in
+two known ways, so the external Mermaid path asks mmdc for PNG instead.
+A fix upstream would let kiri take SVG from mmdc again, which also drops
+the PNG's size limits and the retry at a smaller scale.
+
+- UML arrowheads that should be hollow are filled: aggregation looks like
+  composition, inheritance and realization like plain arrows. Mermaid
+  writes the rule as `#id [id$="-extensionStart"], #id .extension
+  { fill: transparent }`. simplecss 0.2.2, resvg's CSS parser, knows the
+  attribute operators `=`, `~=` and `|=` but not `$=`, `^=` or `*=`, and
+  on the first selector it cannot parse it skips the rest of the list, so
+  the `.extension` rule is lost too and the marker takes the root's fill.
+  Removing the `[id$=…]` selectors from the SVG draws the arrowheads
+  hollow. merman writes `[id="…"]`, which is why the built-in renderer
+  is not affected.
+- A Gantt milestone is a square, not a diamond. Mermaid turns it with the
+  CSS property `transform: rotate(45deg) scale(0.8,0.8)`; resvg reads
+  only SVG's unitless `rotate(45)`, so it drops the whole transform.
+  Writing `rotate(45)` in the SVG draws the diamond.
+
+Fix: patch simplecss for the CSS 3 attribute operators, and svgtypes or
+usvg for angle units in a CSS transform, upstream. Until they are
+released in resvg, kiri could instead rewrite mmdc's style text before
+drawing it; that is fragile, as Mermaid may change its CSS.

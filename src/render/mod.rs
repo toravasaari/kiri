@@ -9,12 +9,10 @@ pub mod table;
 pub mod wrap;
 
 use std::io::{self, Write};
-use std::rc::Rc;
 
 use crate::caps::Capabilities;
 use crate::images::{ImageKey, Images, Source};
 use crate::model::{Block, Document, FrontMatter};
-use crate::render::style::Line;
 use crate::theme::Theme;
 
 /// Everything rendering takes besides the document. A new input gets a
@@ -39,8 +37,7 @@ pub struct Inputs {
 
 /// Where kiri tells why something it draws from source, such as a
 /// diagram, could not be drawn.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RenderErrors {
     /// In the document, below the source.
     Inline,
@@ -52,15 +49,6 @@ pub enum RenderErrors {
 }
 
 impl RenderErrors {
-    /// The value as kiri writes it.
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Inline => "inline",
-            Self::Stderr => "stderr",
-            Self::Both => "both",
-        }
-    }
-
     /// Whether the document tells.
     pub fn inline(self) -> bool {
         matches!(self, Self::Inline | Self::Both)
@@ -73,8 +61,7 @@ impl RenderErrors {
 }
 
 /// How the rows of a table drawn as a box are told apart.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TableRows {
     /// Not at all.
     Off,
@@ -91,19 +78,6 @@ pub enum TableRows {
     /// the border colour; nothing where the terminal has no underline
     /// colours, as each cell's underline would take its own text colour.
     Underline,
-}
-
-impl TableRows {
-    /// The value as kiri writes it.
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Off => "off",
-            Self::Zebra => "zebra",
-            Self::Lines => "lines",
-            Self::Indent => "indent",
-            Self::Underline => "underline",
-        }
-    }
 }
 
 /// How front matter shows.
@@ -193,13 +167,10 @@ pub fn render_image_on(
         return Ok(());
     };
     let key = ImageKey::from("");
-    let placement = Rc::new(image::Placement {
+    let lines = layout::image_rows(image::Placement {
         key: key.clone(),
         size,
     });
-    let lines: Vec<Line> = (0..size.rows)
-        .map(|row| Line::image(Rc::clone(&placement), row))
-        .collect();
     let mut images = Images::new();
     images.insert(key, Ok(image));
     output::write(&lines, &images, caps, page, out)

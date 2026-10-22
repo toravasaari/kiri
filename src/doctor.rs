@@ -9,9 +9,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use image::ImageFormat;
 
-use crate::config::{
-    AUTO_DETECT, Choices, Environment, Origin, Paging, SearchCase, Setting, ThemeSource,
-};
+use crate::config::{AUTO_DETECT, Choices, Environment, Named, Origin, Setting, ThemeSource};
 use crate::diagrams::find::{self, Choice, Search};
 use crate::diagrams::{BuiltIn, Command, LANGUAGES};
 use crate::render::image::DEFAULT_CELL;
@@ -24,7 +22,7 @@ pub struct Facts<'a> {
     pub env: &'a Environment,
     pub mode: Setting<Mode>,
     /// `--width`, when given.
-    pub width: Option<u16>,
+    pub width: Option<Setting<u16>>,
     /// The largest image file kiri reads, in megabytes.
     pub max_image_size: Setting<u64>,
     pub detection: &'a Detection,
@@ -109,9 +107,9 @@ fn write_problems(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     }
     writeln!(out, "## Problems\n")?;
     for problem in problems {
-        // The errors start with the path of the file they are about. A
-        // longer error, such as one that shows the line in the file, goes
-        // in a code block of its own.
+        // A problem starts with what it is about: the path of a file, or
+        // the name of an environment variable. A longer error, such as one
+        // that shows the line in the file, goes in a code block of its own.
         match problem.split_once(": ") {
             Some((path, error)) if error.contains('\n') => {
                 writeln!(out, "- {}:\n\n  ```text", code(&home.hide(path)))?;
@@ -144,7 +142,7 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
         }
         (None, Mode::Auto) if caps.styling => "did not answer".into(),
         (None, Mode::Auto) => "none".into(),
-        (None, mode) => format!("not asked in mode {}", mode_name(mode)),
+        (None, mode) => format!("not asked in mode {}", mode.name()),
     };
     if let Some(term) = &facts.env.term {
         let term = format!("TERM={}", term.to_string_lossy());
@@ -195,16 +193,14 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
 
 fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result {
     let choices = facts.choices;
-    let on_off = |on| if on { "on" } else { "off" };
     let from = |origin| origin_text(origin, facts.env, home);
     writeln!(out, "## Settings\n")?;
     writeln!(out, "| Setting | Value | From |\n|---|---|---|")?;
     let mode = &facts.mode;
-    row(out, &["Mode", mode_name(mode.value), &from(mode.origin)])?;
+    row(out, &["Mode", mode.value.name(), &from(mode.origin)])?;
     let theme = match &choices.theme.value {
-        ThemeSource::File(path) => home.path(path),
-        ThemeSource::DefaultFile(path) if path.exists() => home.path(path),
-        ThemeSource::DefaultFile(_) | ThemeSource::BuiltIn => "built-in".into(),
+        ThemeSource::File(path) | ThemeSource::DefaultFile(path) => home.path(path),
+        ThemeSource::BuiltIn => "built-in".into(),
         ThemeSource::Paper(Paper::Light) => "light paper".into(),
         ThemeSource::Paper(Paper::Dark) => "dark paper".into(),
     };
@@ -212,22 +208,14 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     let margins = &choices.margins;
     row(
         out,
-        &["Margins", on_off(margins.value), &from(margins.origin)],
+        &["Margins", margins.value.name(), &from(margins.origin)],
     )?;
     let images = &choices.images;
-    row(out, &["Images", on_off(images.value), &from(images.origin)])?;
+    row(out, &["Images", images.value.name(), &from(images.origin)])?;
     let paging = &choices.paging;
-    let when = match paging.value {
-        Paging::Always => "always",
-        Paging::Auto => "auto",
-        Paging::Never => "never",
-    };
-    row(out, &["Paging", when, &from(paging.origin)])?;
+    row(out, &["Paging", paging.value.name(), &from(paging.origin)])?;
     let search_case = &choices.search_case;
-    let case = match search_case.value {
-        SearchCase::Smart => "smart",
-        SearchCase::Literal => "literal",
-    };
+    let case = search_case.value.name();
     row(out, &["Search case", case, &from(search_case.origin)])?;
     let front_matter = &choices.front_matter;
     let style = front_matter.value.name();
@@ -236,13 +224,13 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     let name = rows.value.name();
     row(out, &["Table rows", name, &from(rows.origin)])?;
     let diagrams = &choices.diagrams;
-    let on = on_off(diagrams.value);
+    let on = diagrams.value.name();
     row(out, &["Diagrams", on, &from(diagrams.origin)])?;
     let limit = &choices.diagram_timeout;
     let seconds = format!("{} s", limit.value.as_secs_f64());
     row(out, &["Diagram time limit", &seconds, &from(limit.origin)])?;
     let panel = &choices.diagram_panel;
-    let on = on_off(panel.value);
+    let on = panel.value.name();
     row(out, &["Diagram panels", on, &from(panel.origin)])?;
     let errors = &choices.render_errors;
     let name = errors.value.name();
@@ -250,13 +238,13 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     let size = &facts.max_image_size;
     let mb = format!("{} MB", size.value);
     row(out, &["Largest image", &mb, &from(size.origin)])?;
-    let width = match (facts.width, facts.detection.window) {
-        (Some(_), _) => "`--width`",
-        (None, Some(_)) => "terminal",
-        (None, None) => "default",
+    let width = match (&facts.width, facts.detection.window) {
+        (Some(width), _) => from(width.origin),
+        (None, Some(_)) => "terminal".to_owned(),
+        (None, None) => from(Origin::Default),
     };
     let cells = format!("{} cells", facts.detection.caps.width);
-    row(out, &["Width", &cells, width])?;
+    row(out, &["Width", &cells, &width])?;
     writeln!(out)
 }
 
@@ -280,9 +268,9 @@ fn write_files(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result
         )?,
     }
     if let Some(dir) = crate::config::directory(facts.env) {
-        let path = dir.join("theme.toml");
+        let path = dir.value.join("theme.toml");
         let status = if path.exists() { "found" } else { "not found" };
-        let from = origin_text(crate::config::directory_origin(facts.env), facts.env, home);
+        let from = origin_text(dir.origin, facts.env, home);
         row(out, &["Theme file", &home.path(&path), &from, status])?;
     }
     write_work_files(facts, home, out)?;
@@ -301,10 +289,10 @@ fn write_work_files(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::R
         Unusable::NotADirectory(path) => format!("{} is not a directory", home.path(&path)),
         Unusable::NotWritable(path) => format!("{} cannot be written to", home.path(&path)),
     };
-    match crate::config::cache_directory(env) {
+    match crate::config::cache_directory_setting(env) {
         Some(cache) => {
-            let work = cache.join("diagrams");
-            let from = origin_text(crate::config::cache_directory_origin(env), env, home);
+            let work = cache.value.join("diagrams");
+            let from = origin_text(cache.origin, env, home);
             let Some(problem) = unusable(&work) else {
                 return row(out, &[WORK_FILES, &home.path(&work), &from, "usable"]);
             };
@@ -313,8 +301,9 @@ fn write_work_files(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::R
         }
         None => row(out, &[WORK_FILES, "none: `HOME` is not set", "", ""])?,
     }
-    let temp = crate::config::temp_directory(env);
-    let from = origin_text(crate::config::temp_directory_origin(env), env, home);
+    let temp = crate::config::temp_directory_setting(env);
+    let from = origin_text(temp.origin, env, home);
+    let temp = temp.value;
     let status = match not_writable(&temp) {
         None => "usable".to_owned(),
         Some(problem) => format!("not usable: {}", why(problem)),
@@ -411,45 +400,17 @@ fn image_formats() -> String {
     format!("{}, {last} and SVG.", names.join(", "))
 }
 
-fn mode_name(mode: Mode) -> &'static str {
-    match mode {
-        Mode::Auto => "auto",
-        Mode::Plain => "plain",
-        Mode::Ansi => "ansi",
-        Mode::Kitty => "kitty",
-    }
-}
-
 /// Where a setting comes from, in words; an environment variable with its
 /// value.
 fn origin_text(origin: Origin, env: &Environment, home: &Home) -> String {
     match origin {
         Origin::Default => "default".into(),
         Origin::File => "configuration file".into(),
-        Origin::Environment(name) => match variable(env, name) {
+        Origin::Environment(name) => match env.get(name) {
             Some(value) => code(&format!("{name}={}", home.hide(&value.to_string_lossy()))),
             None => code(name),
         },
         Origin::Flag(flag) => format!("`{flag}`"),
-    }
-}
-
-/// The value of the environment variable `name`, of those kiri reads for
-/// its settings.
-fn variable<'a>(env: &'a Environment, name: &str) -> Option<&'a OsStr> {
-    match name {
-        "KIRI_THEME" => env.kiri_theme.as_deref(),
-        "KIRI_NO_IMAGES" => env.kiri_no_images.as_deref(),
-        "KIRI_PAGING" => env.kiri_paging.as_deref(),
-        "KIRI_FRONT_MATTER" => env.kiri_front_matter.as_deref(),
-        "KIRI_TABLE_ROWS" => env.kiri_table_rows.as_deref(),
-        "KIRI_DIAGRAMS" => env.kiri_diagrams.as_deref(),
-        "KIRI_RENDER_ERRORS" => env.kiri_render_errors.as_deref(),
-        "KIRI_CONFIG" => env.kiri_config.as_deref(),
-        "XDG_CONFIG_HOME" => env.xdg_config_home.as_deref(),
-        "XDG_CACHE_HOME" => env.xdg_cache_home.as_deref(),
-        "TMPDIR" => env.tmpdir.as_deref(),
-        _ => None,
     }
 }
 

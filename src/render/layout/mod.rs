@@ -388,12 +388,7 @@ impl Layout<'_> {
             max_columns,
             max_cells,
         )?;
-        let placement = Rc::new(Placement { key, size });
-        Some(
-            (0..size.rows)
-                .map(|row| Line::image(Rc::clone(&placement), row))
-                .collect(),
-        )
+        Some(image_rows(Placement { key, size }))
     }
 
     fn table(&self, table: &Table, width: usize) -> Vec<Line> {
@@ -461,18 +456,27 @@ impl Layout<'_> {
         if !(self.caps.styling && self.caps.color && self.caps.truecolor) {
             return None;
         }
-        let palette = &self.caps.palette;
-        let page = self
-            .theme
-            .background
-            .or(self.caps.background)?
-            .rgb(palette)?;
-        let text = self
-            .theme
-            .foreground
-            .or(self.caps.foreground)?
-            .rgb(palette)?;
-        Some((page.mix(text, STRIPE)?, page))
+        let text = self.theme.foreground.or(self.caps.foreground);
+        Some((self.mixed_into_page(text, STRIPE)?, self.page()?))
+    }
+
+    /// The page's colour as RGB: the theme's background, or else the
+    /// terminal's. `None` when it is not known.
+    fn page(&self) -> Option<Color> {
+        let page = self.theme.background.or(self.caps.background)?;
+        page.rgb(&self.caps.palette)
+    }
+
+    /// `amount` of `color` mixed into the page. `None` when either is not
+    /// known as RGB.
+    fn mixed_into_page(&self, color: Option<Color>, amount: f32) -> Option<Color> {
+        self.page()?.mix(color?.rgb(&self.caps.palette)?, amount)
+    }
+
+    /// Whether the page is dark, as it is taken to be when the terminal
+    /// did not tell.
+    fn dark(&self) -> bool {
+        self.caps.dark_background.unwrap_or(true)
     }
 
     fn rule(&self, width: usize) -> Line {
@@ -611,16 +615,9 @@ impl Layout<'_> {
         }
     }
 
-    /// Text played down: in the theme's muted colour, or dimmed when the
-    /// theme has none.
+    /// Text played down, as [`style::muted`](super::style::muted) has it.
     fn muted(&self, style: Style) -> Style {
-        self.style(match self.theme.muted {
-            Some(color) => Style {
-                fg: Some(color),
-                ..style
-            },
-            None => Style { dim: true, ..style },
-        })
+        self.style(super::style::muted(self.theme, style))
     }
 
     /// Drops all styling when the terminal gets plain text.
@@ -631,4 +628,13 @@ impl Layout<'_> {
             Style::default()
         }
     }
+}
+
+/// The lines of an image at `placement`, one for each row it covers.
+pub(super) fn image_rows(placement: Placement) -> Vec<Line> {
+    let rows = placement.size.rows;
+    let placement = Rc::new(placement);
+    (0..rows)
+        .map(|row| Line::image(Rc::clone(&placement), row))
+        .collect()
 }

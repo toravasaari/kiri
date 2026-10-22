@@ -499,6 +499,66 @@ fn a_signal_stops_the_programs_removes_their_files_and_ends_kiri() {
 }
 
 #[test]
+fn ctrl_backslash_stops_the_programs_removes_their_files_and_ends_kiri() {
+    use std::os::unix::process::ExitStatusExt;
+    use std::time::Duration;
+
+    use rustix::process::{Pid, Signal, kill_process};
+
+    // A short name, so that the cache directory is used.
+    let dir = Scratch::new("q");
+    let started = dir.join("started");
+    // Each diagram's program starts a program of its own and waits for it.
+    let script = format!("sleep 30 &\necho $! >> '{}'\nwait\n", started.display());
+    common::write(
+        &dir.join("config/kiri/config.toml"),
+        &external(&dir, &script),
+    );
+    let source = format!("{FLOWCHART}\n```mermaid\nsequenceDiagram\n```\n");
+    let document = dir.join("document.md");
+    std::fs::write(&document, source).unwrap();
+    let temp = dir.join("temp");
+    std::fs::create_dir_all(&temp).unwrap();
+    let mut kiri = common::command(&dir)
+        .env("TMPDIR", &temp)
+        .env("XDG_CACHE_HOME", dir.join("x"))
+        .args(["--mode", "kitty"])
+        .arg(&document)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let pids = || -> Vec<String> {
+        let started = std::fs::read_to_string(&started).unwrap_or_default();
+        started.lines().map(str::to_owned).collect()
+    };
+    common::wait_until(Duration::from_secs(10), || pids().len() >= 2);
+    assert_eq!(pids().len(), 2, "both programs start");
+    let pid = Pid::from_raw(kiri.id() as i32).unwrap();
+    // What Ctrl-\ sends.
+    kill_process(pid, Signal::QUIT).unwrap();
+    // kiri gets 10 s at most.
+    let status = common::wait_or_kill(&mut kiri, Duration::from_secs(10))
+        .unwrap_or_else(|| panic!("kiri did not end"));
+    let out = kiri.wait_with_output().unwrap();
+    let gone = all_gone(&pids());
+    if !gone {
+        for pid in pids() {
+            let _ = std::process::Command::new("kill").arg(pid).status();
+        }
+    }
+    // Ended by the signal, as without the programs.
+    assert_eq!(status.signal(), Some(Signal::QUIT.as_raw()), "{status:?}");
+    assert_eq!(text(&out.stderr), "");
+    assert_eq!(text(&out.stdout), "");
+    assert!(gone, "the programs' own programs still run");
+    for dir in [temp, dir.join("x/kiri/diagrams")] {
+        let left: Vec<_> = std::fs::read_dir(&dir).unwrap().collect();
+        assert!(left.is_empty(), "{left:?}");
+    }
+}
+
+#[test]
 fn a_signal_ignored_when_kiri_starts_stays_ignored() {
     use std::time::Duration;
 

@@ -252,7 +252,10 @@ src/term/progress.rs       the line that tells how far drawing diagrams has
 src/term/interrupt.rs      signals while programs draw diagrams
 src/term/testing.rs        pseudo-terminals for the tests
 src/testing.rs             scratch directories for the tests
-src/config.rs              settings: options, environment, configuration file
+src/config.rs              the environment variables kiri reads, the
+                           configuration file, and each setting resolved
+                           from the flags, the environment, the file and
+                           its default, with where it comes from
 src/doctor.rs              the --doctor report as Markdown
 src/list.rs                the --list-emojis output: Markdown for a terminal,
                            tab-separated lines for a pipe

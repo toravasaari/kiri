@@ -3,17 +3,19 @@ use std::io::{self, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use clap::builder::{PossibleValue, PossibleValuesParser, TypedValueParser};
 use clap::error::ErrorKind;
 use clap::parser::ValueSource;
-use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, ValueEnum};
+use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser};
 use kiri::caps::Capabilities;
-use kiri::config::{Environment, Options, Origin, Setting, Settings};
+use kiri::config::{Environment, FrontMatter, Named, Options, Origin, Paging, Setting, Settings};
 use kiri::doctor::{Facts, Output};
 use kiri::images::{Fonts, Format, ImageError, ImageKey, Interrupted, Loaded, Loading};
 use kiri::input::Input;
 use kiri::model::Document;
-use kiri::render::Inputs;
 use kiri::render::output::Page;
+use kiri::render::{Inputs, RenderErrors, TableRows};
+use kiri::term::Mode;
 use kiri::theme::{Paper, Theme};
 
 /// Render a Markdown document, or show an image, in the terminal.
@@ -60,7 +62,7 @@ struct Cli {
     width: Option<u16>,
 
     /// Which terminal features to use. Colours stay off when NO_COLOR is set.
-    #[arg(long, value_enum, default_value_t = Mode::Auto)]
+    #[arg(long, value_parser = named_with_help(mode_help), default_value = Mode::Auto.name())]
     mode: Mode,
 
     /// Theme file; overrides --light, --dark, KIRI_THEME and the
@@ -94,7 +96,7 @@ struct Cli {
 
     /// When to show the document in the pager: always, auto (when it is
     /// longer than the window and the output is a terminal) or never.
-    #[arg(long, value_enum, value_name = "WHEN", conflicts_with_all = ["pager", "no_pager"])]
+    #[arg(long, value_parser = named::<Paging>(), value_name = "WHEN", conflicts_with_all = ["pager", "no_pager"])]
     paging: Option<Paging>,
 
     /// Show the document in the pager: --paging=always.
@@ -108,25 +110,25 @@ struct Cli {
     /// Front matter render style: table, code (a code block), hide, or off
     /// (read as Markdown); table unless set. Front matter is the metadata
     /// block at the start of a Markdown file.
-    #[arg(long, value_enum, value_name = "STYLE")]
+    #[arg(long, value_parser = named::<FrontMatter>(), value_name = "STYLE")]
     front_matter: Option<FrontMatter>,
 
     /// Table row style: zebra (every second row shaded where the
     /// terminal's colours are known), lines, indent (the lines after the
     /// first of a wrapped value start two cells in), underline (each row's
     /// last line underlined), or off; zebra unless set.
-    #[arg(long, value_enum, value_name = "STYLE")]
+    #[arg(long, value_parser = named::<TableRows>(), value_name = "STYLE")]
     table_rows: Option<TableRows>,
 
     /// Diagrams in code blocks, such as Mermaid: on (drawn as images) or
     /// off (shown as code); on unless set.
-    #[arg(long, value_enum, value_name = "SWITCH")]
-    diagrams: Option<Switch>,
+    #[arg(long, value_parser = named::<bool>(), value_name = "SWITCH")]
+    diagrams: Option<bool>,
 
     /// Where to tell why a diagram could not be drawn: inline (in the
     /// document, below its code), stderr (a warning) or both; both unless
     /// set.
-    #[arg(long, value_enum, value_name = "WHERE")]
+    #[arg(long, value_parser = named::<RenderErrors>(), value_name = "WHERE")]
     render_errors: Option<RenderErrors>,
 
     /// Largest image file to read, in megabytes (at most 100); larger
@@ -152,119 +154,28 @@ fn format(value: &str) -> Result<Input, String> {
     })
 }
 
-/// `term::Mode` for clap, which takes its help from these comments.
-#[derive(Clone, Copy, ValueEnum)]
-enum Mode {
-    /// Ask the terminal; plain text in a pipe.
-    Auto,
-    /// Text only, no escape sequences.
-    Plain,
-    /// Colours and attributes, no kitty extensions.
-    Ansi,
-    /// All kitty features, without asking the terminal.
-    Kitty,
+/// A parser for the values of `T`, by their names.
+fn named<T: Named + Send + Sync>() -> impl TypedValueParser<Value = T> {
+    named_with_help(|_| None)
 }
 
-impl From<Mode> for kiri::term::Mode {
-    fn from(mode: Mode) -> Self {
-        match mode {
-            Mode::Auto => Self::Auto,
-            Mode::Plain => Self::Plain,
-            Mode::Ansi => Self::Ansi,
-            Mode::Kitty => Self::Kitty,
-        }
-    }
+/// A parser for the values of `T`, by their names, with the help on each
+/// value that `help` gives.
+fn named_with_help<T: Named + Send + Sync>(
+    help: fn(T) -> Option<&'static str>,
+) -> impl TypedValueParser<Value = T> {
+    let values = (T::ALL.iter()).map(|&value| PossibleValue::new(value.name()).help(help(value)));
+    PossibleValuesParser::new(values).map(|name| T::named(&name).expect("a value's name"))
 }
 
-/// `config::Paging` for clap.
-#[derive(Clone, Copy, ValueEnum)]
-enum Paging {
-    Always,
-    Auto,
-    Never,
-}
-
-impl From<Paging> for kiri::config::Paging {
-    fn from(paging: Paging) -> Self {
-        match paging {
-            Paging::Always => Self::Always,
-            Paging::Auto => Self::Auto,
-            Paging::Never => Self::Never,
-        }
-    }
-}
-
-/// `config::FrontMatter` for clap.
-#[derive(Clone, Copy, ValueEnum)]
-enum FrontMatter {
-    Table,
-    Code,
-    Hide,
-    Off,
-}
-
-impl From<FrontMatter> for kiri::config::FrontMatter {
-    fn from(front_matter: FrontMatter) -> Self {
-        match front_matter {
-            FrontMatter::Table => Self::Table,
-            FrontMatter::Code => Self::Code,
-            FrontMatter::Hide => Self::Hide,
-            FrontMatter::Off => Self::Off,
-        }
-    }
-}
-
-/// `render::TableRows` for clap.
-#[derive(Clone, Copy, ValueEnum)]
-enum TableRows {
-    Off,
-    Zebra,
-    Lines,
-    Indent,
-    Underline,
-}
-
-impl From<TableRows> for kiri::render::TableRows {
-    fn from(rows: TableRows) -> Self {
-        match rows {
-            TableRows::Off => Self::Off,
-            TableRows::Zebra => Self::Zebra,
-            TableRows::Lines => Self::Lines,
-            TableRows::Indent => Self::Indent,
-            TableRows::Underline => Self::Underline,
-        }
-    }
-}
-
-/// `render::RenderErrors` for clap.
-#[derive(Clone, Copy, ValueEnum)]
-enum RenderErrors {
-    Inline,
-    Stderr,
-    Both,
-}
-
-impl From<RenderErrors> for kiri::render::RenderErrors {
-    fn from(errors: RenderErrors) -> Self {
-        match errors {
-            RenderErrors::Inline => Self::Inline,
-            RenderErrors::Stderr => Self::Stderr,
-            RenderErrors::Both => Self::Both,
-        }
-    }
-}
-
-/// An on or off setting for clap.
-#[derive(Clone, Copy, ValueEnum)]
-enum Switch {
-    On,
-    Off,
-}
-
-impl From<Switch> for bool {
-    fn from(switch: Switch) -> Self {
-        matches!(switch, Switch::On)
-    }
+/// What `--help` tells of each mode.
+fn mode_help(mode: Mode) -> Option<&'static str> {
+    Some(match mode {
+        Mode::Auto => "Ask the terminal; plain text in a pipe",
+        Mode::Plain => "Text only, no escape sequences",
+        Mode::Ansi => "Colours and attributes, no kitty extensions",
+        Mode::Kitty => "All kitty features, without asking the terminal",
+    })
 }
 
 fn main() -> ExitCode {
@@ -449,7 +360,7 @@ impl<'a> Context<'a> {
     fn new(cli: &Cli, env: &'a Environment) -> Self {
         Context {
             env,
-            mode: cli.mode.into(),
+            mode: cli.mode,
             width: cli.width,
             max_file_size: cli.max_image_size * kiri::images::MB,
         }
@@ -733,7 +644,7 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), Failure> {
         Ok(theme) => (theme, None),
         Err(error) => (Theme::default(), Some(error)),
     };
-    let detection = kiri::term::examine(cli.mode.into(), cli.width, &env);
+    let detection = kiri::term::examine(cli.mode, cli.width, &env);
     let output = match (cli.raw, kiri::term::stdout_is_terminal()) {
         (true, _) => Output::Raw,
         (false, true) => Output::Rendered,
@@ -741,11 +652,13 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), Failure> {
     };
     let markdown = kiri::doctor::report(&Facts {
         env: &env,
-        mode: Setting::new(cli.mode.into(), origin(matches, "mode", "--mode")),
-        width: cli.width,
-        max_image_size: Setting::new(
+        mode: or_default(matches, "mode", "--mode", cli.mode),
+        width: flag(cli.width, "--width"),
+        max_image_size: or_default(
+            matches,
+            "max_image_size",
+            "--max-image-size",
             cli.max_image_size,
-            origin(matches, "max_image_size", "--max-image-size"),
         ),
         detection: &detection,
         choices: &choices,
@@ -790,7 +703,7 @@ fn list_emojis(cli: &Cli) -> Result<(), Failure> {
         eprintln!("kiri: {warning}");
     }
     let settings = settings?;
-    let caps = kiri::term::capabilities(cli.mode.into(), cli.width, &env);
+    let caps = kiri::term::capabilities(cli.mode, cli.width, &env);
     let document = kiri::parse::parse(&kiri::list::emoji_document());
     show_document(
         &Context::new(cli, &env),
@@ -800,14 +713,6 @@ fn list_emojis(cli: &Cli) -> Result<(), Failure> {
         settings,
         caps,
     )
-}
-
-/// Where the value of the argument `id`, the flag `flag`, comes from.
-fn origin(matches: &ArgMatches, id: &str, flag: &'static str) -> Origin {
-    match matches.value_source(id) {
-        Some(ValueSource::CommandLine) => Origin::Flag(flag),
-        _ => Origin::Default,
-    }
 }
 
 /// Writes `text` on stdout as it is, as cat would, without rendering it:
@@ -826,30 +731,38 @@ fn finish(result: io::Result<()>) -> Result<(), String> {
     }
 }
 
-/// What the command line asks for.
+/// What the command line asks for, each with the flag it comes from.
 fn options(cli: &Cli) -> Options {
     Options {
-        theme: cli.theme.clone(),
-        paper: match (cli.light, cli.dark) {
-            (true, _) => Some(Paper::Light),
-            (_, true) => Some(Paper::Dark),
-            _ => None,
-        },
-        no_margins: cli.no_margins,
-        images: match (cli.images, cli.no_images) {
-            (true, _) => Some(true),
-            (_, true) => Some(false),
-            _ => None,
-        },
-        paging: match (cli.paging, cli.pager, cli.no_pager) {
-            (Some(paging), _, _) => Some(Setting::new(paging.into(), Origin::Flag("--paging"))),
-            (_, true, _) => Some(Setting::new(Paging::Always.into(), Origin::Flag("-p"))),
-            (_, _, true) => Some(Setting::new(Paging::Never.into(), Origin::Flag("-P"))),
-            _ => None,
-        },
-        front_matter: cli.front_matter.map(Into::into),
-        table_rows: cli.table_rows.map(Into::into),
-        diagrams: cli.diagrams.map(Into::into),
-        render_errors: cli.render_errors.map(Into::into),
+        theme: flag(cli.theme.clone(), "--theme"),
+        paper: (flag(cli.light.then_some(Paper::Light), "--light"))
+            .or(flag(cli.dark.then_some(Paper::Dark), "--dark")),
+        margins: flag(cli.no_margins.then_some(false), "--no-margins"),
+        images: (flag(cli.images.then_some(true), "--images"))
+            .or(flag(cli.no_images.then_some(false), "--no-images")),
+        paging: (flag(cli.paging, "--paging"))
+            .or(flag(cli.pager.then_some(Paging::Always), "-p"))
+            .or(flag(cli.no_pager.then_some(Paging::Never), "-P")),
+        front_matter: flag(cli.front_matter, "--front-matter"),
+        table_rows: flag(cli.table_rows, "--table-rows"),
+        diagrams: flag(cli.diagrams, "--diagrams"),
+        render_errors: flag(cli.render_errors, "--render-errors"),
+    }
+}
+
+/// `value`, when the command line gives it, from the flag `name`: the
+/// flag's long name, or its short one where it has no long one, as clap
+/// does not tell which of them the user gave.
+fn flag<T>(value: Option<T>, name: &'static str) -> Option<Setting<T>> {
+    value.map(|value| Setting::new(value, Origin::Flag(name)))
+}
+
+/// The value of the argument `id`, `value`, from the flag `name` when the
+/// command line gives it, and otherwise clap's default.
+fn or_default<T>(matches: &ArgMatches, id: &str, name: &'static str, value: T) -> Setting<T> {
+    let given = matches.value_source(id) == Some(ValueSource::CommandLine);
+    match given {
+        true => Setting::new(value, Origin::Flag(name)),
+        false => Setting::new(value, Origin::Default),
     }
 }

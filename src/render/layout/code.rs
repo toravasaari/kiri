@@ -43,7 +43,7 @@ impl Layout<'_> {
             ..Style::default()
         };
         let padded = |content: Vec<Span>| {
-            let used = crate::render::wrap::width(&content);
+            let used = wrap::width(&content);
             let mut spans = vec![Span::new(" ", background.clone())];
             spans.extend(content);
             push(
@@ -75,16 +75,7 @@ impl Layout<'_> {
             lines.push(label.unwrap_or_else(|| padded(Vec::new())));
         }
         for source_line in highlighted.lines {
-            let with_background: Vec<Span> = source_line
-                .into_iter()
-                .map(|span| Span {
-                    style: Style {
-                        bg: highlighted.background,
-                        ..span.style
-                    },
-                    ..span
-                })
-                .collect();
+            let with_background = on_background(source_line, highlighted.background);
             for chunk in wrap::split(&with_background, inner.max(1)) {
                 lines.push(padded(chunk));
             }
@@ -120,7 +111,7 @@ impl Layout<'_> {
             ..background.clone()
         };
         let name = [Span::new(language, label.clone())];
-        let used = crate::render::wrap::width(&name) + 2;
+        let used = wrap::width(&name) + 2;
         if used > width {
             return None;
         }
@@ -165,7 +156,7 @@ impl Layout<'_> {
     }
 
     pub(super) fn code_theme(&self) -> &str {
-        if self.caps.dark_background.unwrap_or(true) {
+        if self.dark() {
             &self.theme.code_theme_dark
         } else {
             &self.theme.code_theme_light
@@ -178,13 +169,22 @@ impl Layout<'_> {
 /// A code theme without a text colour so leaves the label in the
 /// terminal's; every bundled theme has one.
 fn halfway(a: Option<Color>, b: Option<Color>) -> Option<Color> {
-    match (a, b) {
-        (Some(Color::Rgb(r1, g1, b1)), Some(Color::Rgb(r2, g2, b2))) => {
-            let mid = |x: u8, y: u8| ((u16::from(x) + u16::from(y)).div_ceil(2)) as u8;
-            Some(Color::Rgb(mid(r1, r2), mid(g1, g2), mid(b1, b2)))
-        }
-        _ => a,
-    }
+    let a = a?;
+    Some(b.and_then(|b| a.mix(b, 0.5)).unwrap_or(a))
+}
+
+/// The spans of a highlighted `line` on the code's `background`, which
+/// sets off the code from the page.
+pub(super) fn on_background(line: Vec<Span>, background: Option<Color>) -> Vec<Span> {
+    (line.into_iter())
+        .map(|span| Span {
+            style: Style {
+                bg: background,
+                ..span.style
+            },
+            ..span
+        })
+        .collect()
 }
 
 fn expand_tabs(line: &str) -> String {
@@ -198,4 +198,23 @@ fn expand_tabs(line: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn halfway_rounds_up_and_keeps_the_first_colour_it_cannot_mix() {
+        let text = Color::Rgb(0xc0, 0xc5, 0xce);
+        let page = Color::Rgb(0x2b, 0x30, 0x3b);
+        let mid = Some(Color::Rgb(118, 123, 133));
+        assert_eq!(halfway(Some(text), Some(page)), mid);
+        assert_eq!(halfway(Some(page), Some(text)), mid);
+        assert_eq!(halfway(Some(text), None), Some(text));
+        assert_eq!(halfway(Some(text), Some(Color::Palette(0))), Some(text));
+        let palette = Some(Color::Palette(7));
+        assert_eq!(halfway(palette, Some(page)), palette);
+        assert_eq!(halfway(None, Some(page)), None);
+    }
 }
