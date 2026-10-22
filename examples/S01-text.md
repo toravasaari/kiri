@@ -47,8 +47,9 @@ invisible: no line, and no extra blank line.
 
 #
 
-After the empty heading. Next comes an empty code block, which is invisible
-in the same way.
+After the empty heading. Next comes an empty code block: a box of the code
+background, two rows high and as wide as the text, also on paper. Without
+colours it is invisible, as the heading is.
 
 ```
 ```
