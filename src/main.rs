@@ -658,9 +658,9 @@ fn page_files(
         files.push(kiri::model::File { name, document });
     }
     let content = kiri::render::layout::Content::Files(&files);
-    let name = format!("{} files", files.len());
     let case = settings.search_case;
-    if let Some(result) = page(context, content, &name, inputs, paging, case, caught) {
+    // The pager's status line names each file after itself.
+    if let Some(result) = page(context, content, "", inputs, paging, case, caught) {
         return result;
     }
     let mut out = io::stdout().lock();

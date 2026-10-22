@@ -2,6 +2,7 @@
 //! with keys.
 
 pub mod fade;
+pub mod files;
 pub mod help;
 pub mod keys;
 pub mod prompt;
@@ -15,12 +16,14 @@ use std::time::{Duration, Instant};
 
 use crate::caps::Capabilities;
 use crate::config::{Paging, SearchCase};
+use crate::model::File;
 use crate::render::Inputs;
 use crate::render::layout::{Content, Stream};
 use crate::render::output::{self, Page, Writer};
 use crate::render::style::{self, Line, Span, Style};
 use crate::term::{Screen, WindowSize};
 use fade::{FADE, Fade, Rgb};
+use files::Files;
 use help::Placed;
 use keys::{Action, Key};
 use prompt::{Edit, Prompt};
@@ -91,9 +94,10 @@ impl<W: Write> Terminal for Screen<W> {
     }
 }
 
-/// Shows `content`, called `name`, on `terminal` until the reader quits,
-/// laid out with `inputs` for the window's size, or `width` columns when
-/// it is given. `laid_out`, when given, is `content` laid out with
+/// Shows `content` on `terminal` until the reader quits, laid out with
+/// `inputs` for the window's size, or `width` columns when it is given.
+/// The status line calls a lone document `name`, and names each of
+/// several files after itself. `laid_out`, when given, is `content` laid out with
 /// `inputs` as they are now, used unless the window calls for another.
 /// A search treats case as `case` says.
 pub fn run(
@@ -113,6 +117,10 @@ pub fn run(
     let mut size = terminal.size();
     let mut view: Option<View> = None;
     let mut state = State::new(case);
+    let shown_files: &[File] = match content {
+        Content::Document(_) => &[],
+        Content::Files(files) => files,
+    };
     loop {
         fit(&mut inputs.caps, size, width);
         let window = usize::from(inputs.caps.height.unwrap_or(DEFAULT_ROWS));
@@ -124,7 +132,7 @@ pub fn run(
             Some((caps, stream)) if caps == inputs.caps => stream,
             _ => crate::render::layout::content(content, inputs),
         };
-        let mut lines = stream.lines;
+        let Stream { mut lines, starts } = stream;
         // The text sizing protocol cannot draw part of a line, so a line
         // taller than the window is drawn at normal size.
         for line in &mut lines {
@@ -147,6 +155,7 @@ pub fn run(
         state.lay_out(&lines, shown.top(), bar);
         let status = Status {
             name,
+            files: Files::new(shown_files, &starts),
             styles: status::Styles::new(&inputs.theme, &inputs.caps),
             width: size.map_or(inputs.caps.width, |size| size.columns),
             bar,
@@ -204,7 +213,10 @@ enum Outcome {
 /// What the status line and the help panel show and how, apart from the
 /// position.
 struct Status<'a> {
+    /// What a lone document is called.
     name: &'a str,
+    /// The files shown, each named after itself.
+    files: Files<'a>,
     styles: status::Styles,
     /// The window's columns.
     width: u16,
@@ -232,8 +244,17 @@ impl Status<'_> {
                     .filter(|_| state.jumped.is_some_and(|jump| jump.around))
                     .map(|fade| self.styles.number(fade));
                 let found = state.found(flash);
-                status::spans(self.name, view.position(), found, width, &self.styles)
+                let name = self.name_at(view.top());
+                status::spans(name, view.position(), found, width, &self.styles)
             }
+        }
+    }
+
+    /// The name of what line `line` is in: the file, or the document.
+    fn name_at(&self, line: usize) -> &str {
+        match self.files.at(line) {
+            Some(file) => self.files.name(file),
+            None => self.name,
         }
     }
 
@@ -583,7 +604,7 @@ mod tests {
 
     use super::*;
     use crate::color::Color;
-    use crate::model::Document;
+    use crate::model::{Document, File};
 
     #[test]
     fn auto_pages_a_document_longer_than_the_window() {
@@ -960,6 +981,56 @@ mod tests {
         for frame in terminal.frames() {
             assert!(!frame.contains("A paragraph of"), "{frame:?}");
         }
+    }
+
+    /// The files `a.md` of 3 lines and `b.md` of 10, as [`numbers`] has
+    /// them. In a stream, `a.md` takes lines 0 to 8, its header and blank
+    /// line included, and `b.md` starts on line 10.
+    fn two_files() -> Vec<File> {
+        [("a.md", 3), ("b.md", 10)]
+            .into_iter()
+            .map(|(name, count)| File {
+                name: name.to_owned(),
+                document: numbers(count),
+            })
+            .collect()
+    }
+
+    /// Shows `files` on `terminal` as the binary does, without a name of
+    /// its own.
+    fn show_files(files: &[File], terminal: &mut Fake) {
+        let mut inputs = Inputs::new(Capabilities::ansi(80));
+        run(
+            Content::Files(files),
+            None,
+            "",
+            &mut inputs,
+            None,
+            SearchCase::Smart,
+            terminal,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn the_status_line_names_the_file_at_the_top_of_the_view() {
+        // Down to the blank line above b.md's header, onto the header, and
+        // back up.
+        let mut terminal = Fake::new(40, 6, &[b"jjjjjjjjj", b"j", b"k"]);
+        show_files(&two_files(), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        let names = |frame: &str| status_row(frame, 6).contains(" a.md ");
+        assert!(names(&frames[0]), "{frames:#?}");
+        assert!(names(&frames[1]), "{frames:#?}");
+        // b.md's header at the top: its rule, then its name.
+        assert!(
+            unstyled(&frames[2]).contains("\x1b[2;1H  b.md"),
+            "{frames:#?}"
+        );
+        assert!(status_row(&frames[2], 6).contains(" b.md "), "{frames:#?}");
+        assert!(!names(&frames[2]), "{frames:#?}");
+        assert!(names(&frames[3]), "{frames:#?}");
     }
 
     /// The status line of `frame`, on row `row`.
