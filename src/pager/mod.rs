@@ -97,8 +97,9 @@ impl<W: Write> Terminal for Screen<W> {
 /// Shows `content` on `terminal` until the reader quits, laid out with
 /// `inputs` for the window's size, or `width` columns when it is given.
 /// The status line calls a lone document `name`, and names each of
-/// several files after itself. `laid_out`, when given, is `content` laid out with
-/// `inputs` as they are now, used unless the window calls for another.
+/// several files after itself. `laid_out`, when given, is `content` laid
+/// out with `inputs` as they are now, used unless the window calls for
+/// another.
 /// A search treats case as `case` says.
 pub fn run(
     content: Content,
