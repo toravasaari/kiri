@@ -483,6 +483,9 @@ go.
   terminal, such as for a review or a web page, without finding the
   Mermaid program by hand. `--format` names the input, so this needs an
   option of its own.
+- Opening a document at a section from the command line, such as
+  `kiri spec.md#3-2`, for a review that refers to `§3.2` of a spec.
+  Needs heading anchors (4.10.1) and anchor jumps in the pager (4.6.5).
 
 ## Bugs
 
