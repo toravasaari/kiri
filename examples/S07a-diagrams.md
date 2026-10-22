@@ -32,6 +32,74 @@ flowchart TD
     Lämmin -->|kyllä| Löyly([Löylyyn])
 ```
 
+## A diagram that chooses its own theme
+
+kiri draws a diagram for the page it lies on: Mermaid's `default` theme,
+dark text on light boxes, on a light page, and its `dark` theme on a dark
+one. The page is light with `--light`, dark with `--dark`, and otherwise
+as your terminal's background is; when that is not known it counts as
+dark. A diagram can choose a theme of its own, with a directive on its
+first line, and keeps it. One whose colours are for the other page would
+have lines and text that cannot be seen, so it lies on a panel of its
+own background, a little wider than the diagram on every side. The first
+diagram below chooses `dark` and the second `default`, so one of them is
+on a panel on either page, and the other is drawn like any diagram:
+
+```mermaid
+%%{init: {"theme": "dark"}}%%
+flowchart LR
+    Chosen[Chose the dark theme] --> Page[Light page: on a panel]
+```
+
+```mermaid
+%%{init: {"theme": "default"}}%%
+flowchart LR
+    Chosen[Chose the default theme] --> Page[Dark page: on a panel]
+```
+
+On a light page the first diagram lies on a dark grey panel and the second
+needs none; on a dark page the second lies on a white panel and the first
+needs none. The diagram on a panel is a little larger than the other, by
+the width of the panel's edge. A diagram that needs no panel has the page
+behind it:
+
+```sh
+kiri --light examples/S07a-diagrams.md
+kiri --dark examples/S07a-diagrams.md
+```
+
+`background_panel = false` in the `[diagrams]` table of the configuration
+file leaves the panels out; see [Diagrams](../docs/diagrams.md).
+
+## A diagram that fails to draw
+
+A diagram that cannot be drawn stays code. The one below cannot, because
+its last arrow leads nowhere:
+
+```mermaid
+flowchart LR
+    Start --> Middle
+    Middle -->
+```
+
+Below the code, in red, kiri says why, in lines that start with a cross
+and "mermaid diagram could not be drawn". They start at the left edge of
+the code's box and are no wider than it, so a long reason wraps. A
+warning on standard error says the same, and names the diagram by its
+line in the document. By default you get both; `--render-errors` chooses
+one of them:
+
+```sh
+kiri --render-errors inline examples/S07a-diagrams.md
+kiri --render-errors stderr examples/S07a-diagrams.md
+kiri --mode kitty --render-errors stderr examples/S07a-diagrams.md >/dev/null
+```
+
+With `inline`, the red lines show and there is no warning. With `stderr`,
+the diagram is code alone and the warning is on standard error. The last
+command shows only that warning, `kiri: mermaid diagram on line …: …`,
+and nothing of the document.
+
 ## One diagram of each type
 
 One small diagram of each common Mermaid type, as kiri draws them. On
