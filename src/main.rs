@@ -1129,8 +1129,8 @@ fn page(
     if !terminal || paging == kiri::config::Paging::Never {
         return None;
     }
-    let lines = kiri::render::layout::content(content, inputs).lines;
-    let rows = kiri::pager::rows(&lines, &inputs.caps);
+    let stream = kiri::render::layout::content(content, inputs);
+    let rows = kiri::pager::rows(&stream.lines, &inputs.caps);
     let height = kiri::term::window_size(io::stdout()).map(|window| window.rows);
     if !kiri::pager::pages(paging, terminal, rows, height) {
         return None;
@@ -1149,7 +1149,7 @@ fn page(
     };
     let result = kiri::pager::run(
         content,
-        Some(lines),
+        Some(stream),
         name,
         inputs,
         context.width,

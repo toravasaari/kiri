@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use crate::caps::Capabilities;
 use crate::config::{Paging, SearchCase};
 use crate::render::Inputs;
-use crate::render::layout::Content;
+use crate::render::layout::{Content, Stream};
 use crate::render::output::{self, Page, Writer};
 use crate::render::style::{self, Line, Span, Style};
 use crate::term::{Screen, WindowSize};
@@ -98,7 +98,7 @@ impl<W: Write> Terminal for Screen<W> {
 /// A search treats case as `case` says.
 pub fn run(
     content: Content,
-    laid_out: Option<Vec<Line>>,
+    laid_out: Option<Stream>,
     name: &str,
     inputs: &mut Inputs,
     width: Option<u16>,
@@ -120,10 +120,11 @@ pub fn run(
         // have no row left.
         let bar = window > 1;
         let rows = if bar { window - 1 } else { window };
-        let mut lines = match laid_out.take() {
-            Some((caps, lines)) if caps == inputs.caps => lines,
-            _ => crate::render::layout::content(content, inputs).lines,
+        let stream = match laid_out.take() {
+            Some((caps, stream)) if caps == inputs.caps => stream,
+            _ => crate::render::layout::content(content, inputs),
         };
+        let mut lines = stream.lines;
         // The text sizing protocol cannot draw part of a line, so a line
         // taller than the window is drawn at normal size.
         for line in &mut lines {
@@ -723,10 +724,10 @@ mod tests {
     fn show_laid_out(document: &Document, before: &Document, caps: Capabilities) -> Vec<String> {
         let mut terminal = Fake::new(40, 6, &[b"q"]);
         let mut inputs = Inputs::new(caps);
-        let lines = crate::render::layout::layout(before, &inputs);
+        let stream = crate::render::layout::content(Content::Document(before), &inputs);
         run(
             Content::Document(document),
-            Some(lines),
+            Some(stream),
             "notes.md",
             &mut inputs,
             None,
