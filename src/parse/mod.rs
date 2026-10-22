@@ -68,6 +68,7 @@ fn move_lines(blocks: &mut [Block], by: usize) {
             | Block::ThematicBreak
             | Block::Html(_)
             | Block::Note(_)
+            | Block::Error(_)
             | Block::ImageFile(_) => {}
         }
     }

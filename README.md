@@ -140,7 +140,8 @@ Several files, such as `kiri docs/*.md` or `kiri photos/*.jpg`, are shown
 one after another, each under a header with its name, as `bat` shows
 them. Each is shown as it would be on its own, so an image is fitted to
 the window together with its header. A file that cannot be shown is
-reported, and the others are still shown.
+reported at its place among the others, which are still shown; in the
+pager it keeps its header, with the reason below it.
 
 Images come from `data:` URLs and local files: absolute paths, paths
 relative to the document and `file:` URLs, with any `?query` or `#fragment`

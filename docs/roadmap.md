@@ -291,8 +291,10 @@ document from the start.
   `kiri *.jpg`, shown one after another in the order given, each under a
   header that names it, as `bat` does. Each is shown as it would be on its
   own, so an image is fitted to the window together with its header;
-  4.12.3 adds a grid of them. A file that cannot be shown is reported,
-  the others are still shown, and kiri exits with an error.
+  4.12.3 adds a grid of them. A file that cannot be shown is reported
+  on standard error at its place among the others, as `bat` does, the
+  others are still shown, and kiri exits with an error. In the pager the
+  file keeps its place in the stream, under its header with the reason.
 - The header is a band of its own colour across the text, with a bar
   down its left edge and the name in bold, so that nothing in a document
   looks like it. Plain text names each file as `head` does, such as

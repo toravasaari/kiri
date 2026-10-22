@@ -73,6 +73,40 @@ fn a_file_that_cannot_be_shown_is_told_and_the_others_are_shown() {
 }
 
 #[test]
+fn a_file_that_cannot_be_shown_is_told_between_the_files_around_it() {
+    let dir = two_documents("files-missing-between");
+    // A header row too wide to show.
+    write(&dir.join("c.csv"), &",".repeat(100_001));
+    // Standard output and standard error into one file, in the order
+    // kiri writes them.
+    let both = dir.join("both.txt");
+    let file = std::fs::File::create(&both).unwrap();
+    let args = ["--mode", "plain", "a.md", "missing.md", "b.md", "c.csv"];
+    let status = command(&dir)
+        .current_dir(&*dir)
+        .args(args)
+        .stdout(file.try_clone().unwrap())
+        .stderr(file)
+        .status()
+        .unwrap();
+    assert_eq!(status.code(), Some(1));
+    let both = std::fs::read_to_string(&both).unwrap();
+    assert!(
+        in_order(
+            &both,
+            &[
+                "Alpha text.",
+                "kiri: missing.md: ",
+                "==> b.md <==",
+                "Beta text.",
+                "kiri: c.csv: "
+            ]
+        ),
+        "{both}"
+    );
+}
+
+#[test]
 fn each_document_s_images_are_relative_to_its_own_directory() {
     let dir = Scratch::new("files-images");
     for (name, width) in [("a", 30), ("b", 50)] {

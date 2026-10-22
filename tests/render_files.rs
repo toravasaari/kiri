@@ -164,6 +164,25 @@ fn the_band_is_lighter_on_a_light_page_and_gone_without_colours() {
 }
 
 #[test]
+fn a_file_that_failed_shows_why_in_the_error_colour() {
+    let failed = File {
+        name: "missing.md".to_owned(),
+        document: Document {
+            blocks: vec![Block::Error("No such file or directory".to_owned())],
+        },
+    };
+    let stream = kiri::render::layout::files(&[failed], &Inputs::new(known_colours()));
+    let line = &stream.lines[4];
+    assert_eq!(line_text(line), "  ✗ No such file or directory");
+    let message = line
+        .spans
+        .iter()
+        .find(|span| span.text.contains('✗'))
+        .unwrap();
+    assert_eq!(message.style.fg, Some(Color::Palette(1)));
+}
+
+#[test]
 fn a_long_name_wraps_in_the_header() {
     let name = "a/very/long/directory/name/with/a/document/in/it/README.md";
     let inputs = Inputs::new(Capabilities {

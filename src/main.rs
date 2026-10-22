@@ -440,15 +440,15 @@ fn document(
 
 /// Shows the files at `paths`, `-` for standard input, one after another,
 /// each under a header that names it, as `run` shows each of them. A file
-/// that cannot be shown is told about, and the others are still shown;
-/// kiri then fails.
+/// that cannot be shown is told about at its place among the others, which
+/// are still shown; kiri then fails.
 fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
     let failed = Cell::new(false);
     let tell = |error: String| told(&failed, error);
     let mut opened = Vec::new();
     for path in paths {
         let path = Some(path.as_path()).filter(|path| *path != Path::new("-"));
-        match open(cli, path) {
+        opened.push(match open(cli, path) {
             Ok(mut opened_file) => {
                 // Many image files may be given, more than kiri can keep
                 // open, so a regular file is closed until it is shown.
@@ -457,17 +457,20 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
                 {
                     *rest = None;
                 }
-                opened.push(opened_file);
+                Ok(opened_file)
             }
-            Err(error) => tell(error),
-        }
+            Err(error) => Err((
+                path.map_or_else(|| PathBuf::from(STDIN), Path::to_owned),
+                error,
+            )),
+        });
     }
     let env = Environment::from_process();
     let context = Context::new(cli, &env);
-    let images_only = (opened.iter()).all(|file| matches!(file.content, Content::Image { .. }));
+    let shown = || opened.iter().flatten();
+    let images_only = shown().all(|file| matches!(file.content, Content::Image { .. }));
     // Each of them shown on its own, as an image is.
-    let alone =
-        (opened.iter()).all(|file| matches!(file.input, Input::Image(_) | Input::Diagram(_)));
+    let alone = shown().all(|file| matches!(file.input, Input::Image(_) | Input::Diagram(_)));
     let (warnings, settings) = self::settings(cli, &env);
     for warning in &warnings {
         eprintln!("kiri: {warning}");
@@ -493,6 +496,13 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
     );
     let mut given = Vec::new();
     for opened in opened {
+        let opened = match opened {
+            Ok(opened) => opened,
+            Err((path, error)) => {
+                given.push(Given::failed(path, error));
+                continue;
+            }
+        };
         let name = opened.path.display().to_string();
         let warn = |warning| eprintln!("kiri: {name}: {warning}");
         let shown = match opened.content {
@@ -512,10 +522,7 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
                         images: input != Input::Text,
                     },
                     Ok(None) => Shown::AsIs(source),
-                    Err(error) => {
-                        tell(error);
-                        continue;
-                    }
+                    Err(error) => Shown::Failed(error),
                 },
             },
         };
@@ -532,12 +539,19 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
     let paged = terminal && paging != Paging::Never;
     if paged {
         given = (given.into_iter())
-            .filter_map(|given| read_whole(&context, &caps, given).map_err(tell).ok())
+            .map(|given| read_whole(&context, &caps, given))
             .collect();
     }
-    // Every file failed, as kiri has told; an empty pager would only wait.
-    if given.is_empty() && failed.get() {
-        return Err(Failure::Told);
+    // Every file failed; an empty pager would only wait.
+    if given.iter().all(Given::is_failed) {
+        for given in &given {
+            if let Shown::Failed(error) = &given.shown {
+                tell(error.clone());
+            }
+        }
+        if failed.get() {
+            return Err(Failure::Told);
+        }
     }
     let Loaded {
         mut images,
@@ -556,9 +570,15 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
         ..Inputs::new(caps)
     };
     let shown = if paged {
-        page_files(&context, given, &mut inputs, &settings, paging, || {
-            drop(interrupt.take())
-        })
+        page_files(
+            &context,
+            given,
+            &mut inputs,
+            &settings,
+            &failed,
+            paging,
+            || drop(interrupt.take()),
+        )
     } else {
         print_files(&context, given, &drawn, &mut inputs, &settings, &failed)
     };
@@ -583,9 +603,9 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
 }
 
 /// `given`, an image file read whole, to be shown in a stream of files
-/// that its reader cannot wait for, such as the pager's; any other file
-/// as it is. An error tells why the image cannot be read.
-fn read_whole(context: &Context, caps: &Capabilities, given: Given) -> Result<Given, String> {
+/// that its reader cannot wait for, such as the pager's, or failed with why
+/// it cannot be read; any other file as it is.
+fn read_whole(context: &Context, caps: &Capabilities, given: Given) -> Given {
     let Given {
         name,
         path,
@@ -594,18 +614,22 @@ fn read_whole(context: &Context, caps: &Capabilities, given: Given) -> Result<Gi
     } = given;
     let shown = match shown {
         Shown::Image { format, head, rest } => {
-            let reader = image_reader(file.as_deref(), head, rest)
-                .map_err(|error| format!("{}: {error}", path.display()))?;
-            Shown::Read(read_image_file(context, caps, &path, format, reader)?)
+            let image = image_reader(file.as_deref(), head, rest)
+                .map_err(|error| format!("{}: {error}", path.display()))
+                .and_then(|reader| read_image_file(context, caps, &path, format, reader));
+            match image {
+                Ok(image) => Shown::Read(image),
+                Err(error) => Shown::Failed(error),
+            }
         }
         shown => shown,
     };
-    Ok(Given {
+    Given {
         name,
         path,
         file,
         shown,
-    })
+    }
 }
 
 /// Tells `error`, with which kiri is to fail, as `failed` then holds.
@@ -627,13 +651,15 @@ fn tell_drawn(drawn: &Drawn, failed: &Cell<bool>) {
 /// Shows `given`, the files read whole, in the pager as one stream when
 /// `paging` asks for it, and otherwise prints them, with the images
 /// `inputs` holds and those of the image files among them. A warning about
-/// a file is told before it all. `caught` runs once the pager's screen
-/// catches the signals.
+/// a file, and why a file failed, are told before it all, and noted in
+/// `failed`; a file that failed is in the stream under its header, with
+/// why. `caught` runs once the pager's screen catches the signals.
 fn page_files(
     context: &Context,
     given: Vec<Given>,
     inputs: &mut Inputs,
     settings: &Settings,
+    failed: &Cell<bool>,
     paging: Paging,
     caught: impl FnOnce(),
 ) -> io::Result<()> {
@@ -641,6 +667,15 @@ fn page_files(
     for (number, given) in given.into_iter().enumerate() {
         let name = given.name;
         let document = match given.shown {
+            Shown::Failed(error) => {
+                // The header names the file already.
+                let prefix = format!("{}: ", given.path.display());
+                let reason = error.strip_prefix(&prefix).unwrap_or(&error).to_owned();
+                told(failed, error);
+                Document {
+                    blocks: vec![Block::Error(reason)],
+                }
+            }
             Shown::Read(image) => {
                 let key = ImageKey::from(name.as_str()).in_document(number);
                 inputs.images.insert(key, Ok(image));
@@ -674,7 +709,8 @@ fn page_files(
 /// Prints `given`, each file under its header, as it comes: an image file
 /// is read only then, so that no more than one is held at once. A warning
 /// about a file is told before it, and `drawn` of a diagram file after it;
-/// a file that cannot be shown is told about and noted in `failed`.
+/// a file that cannot be shown is told about at its place and noted in
+/// `failed`.
 fn print_files(
     context: &Context,
     given: Vec<Given>,
@@ -688,6 +724,10 @@ fn print_files(
     for (number, given) in given.into_iter().enumerate() {
         let name = given.name;
         let shown = match given.shown {
+            Shown::Failed(error) => {
+                told(failed, error);
+                continue;
+            }
             Shown::Image { format, head, rest } => {
                 let image = image_reader(given.file.as_deref(), head, rest)
                     .map_err(|error| format!("{name}: {error}"))
@@ -785,6 +825,25 @@ enum Shown {
     },
     /// Text written as it is.
     AsIs(String),
+    /// Nothing, as the file cannot be shown: why, told as an error.
+    Failed(String),
+}
+
+impl Given {
+    /// The file at `path`, which cannot be shown for `error`.
+    fn failed(path: PathBuf, error: String) -> Self {
+        Given {
+            name: path.display().to_string(),
+            path,
+            file: None,
+            shown: Shown::Failed(error),
+        }
+    }
+
+    /// Whether the file cannot be shown.
+    fn is_failed(&self) -> bool {
+        matches!(self.shown, Shown::Failed(_))
+    }
 }
 
 /// What is told after a diagram file is shown.

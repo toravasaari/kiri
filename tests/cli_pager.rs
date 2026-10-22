@@ -468,6 +468,32 @@ fn colon_n_moves_to_the_next_file_and_the_status_line_names_it() {
 }
 
 #[test]
+fn a_file_that_cannot_be_shown_is_in_the_stream_under_its_header() {
+    let (status, seen, stderr) = in_terminal_told(
+        "pager-missing",
+        |_| {},
+        &["document.md", "missing.md", "long.md"],
+        8,
+        None,
+        |frames, terminal, _| match frames {
+            1 => terminal.write_all(b":n").unwrap(),
+            2 => terminal.write_all(b"q").unwrap(),
+            _ => {}
+        },
+    );
+    assert_eq!(status.code(), Some(1), "{seen:?}");
+    assert!(seen.starts_with(ENTER), "{seen:?}");
+    assert!(stderr.starts_with("kiri: missing.md: "), "{stderr}");
+    assert_eq!(stderr.lines().count(), 1, "{stderr}");
+    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
+    assert_eq!(frames.len(), 2, "{seen:?}");
+    // :n goes to missing.md, its header and why it is not shown.
+    assert!(frames[1].contains("missing.md"), "{seen:?}");
+    assert!(frames[1].contains("No such file"), "{seen:?}");
+    assert!(frames[1].contains(" missing.md 2/3 "), "{seen:?}");
+}
+
+#[test]
 fn when_no_file_can_be_shown_the_pager_does_not_open() {
     let mut typed = false;
     let args = ["-p", "nope1.md", "nope2.md"];

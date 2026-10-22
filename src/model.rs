@@ -56,6 +56,10 @@ pub enum Block {
     /// A note of kiri's own about the document rather than part of it,
     /// such as how many rows of a table were left out.
     Note(String),
+    /// A message of kiri's own that something went wrong, such as why a
+    /// file among several cannot be shown. It stands out where a note is
+    /// played down.
+    Error(String),
     /// A file shown as an image on its own, as large as fits the window
     /// and no larger than its natural size: an image file, or a diagram
     /// file drawn as one. Its pixels come with the file, keyed by its

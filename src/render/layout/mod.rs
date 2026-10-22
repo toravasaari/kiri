@@ -277,6 +277,13 @@ impl Layout<'_> {
                 let content = [Inline::Text(note.clone())];
                 self.paragraph(&content, &self.muted(Style::default()), width)
             }
+            Block::Error(message) => {
+                let spans = [Span::new(
+                    &format!("✗ {message}"),
+                    self.style(Style::fg(self.theme.error)),
+                )];
+                wrap(&spans, width).into_iter().map(Line::new).collect()
+            }
             Block::ImageFile(name) => self.image_file(name, width),
         }
     }
