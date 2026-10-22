@@ -80,6 +80,34 @@ fn in_terminal_told(
     args: &[&str],
     rows: u16,
     stdin: Option<&str>,
+    act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
+) -> (ExitStatus, String, String) {
+    in_terminal_run(name, prepare, args, rows, stdin, false, act)
+}
+
+/// [`in_terminal_after`], with what kiri writes to standard error also on
+/// the terminal, among what it writes to standard output.
+fn in_terminal_both(
+    name: &str,
+    prepare: impl FnOnce(&std::path::Path),
+    args: &[&str],
+    rows: u16,
+    act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
+) -> (ExitStatus, String) {
+    let (status, seen, _) = in_terminal_run(name, prepare, args, rows, None, true, act);
+    (status, seen)
+}
+
+/// [`in_terminal_told`], with standard error on the terminal when
+/// `both`; what kiri wrote to it is then on the terminal instead of
+/// returned.
+fn in_terminal_run(
+    name: &str,
+    prepare: impl FnOnce(&std::path::Path),
+    args: &[&str],
+    rows: u16,
+    stdin: Option<&str>,
+    both: bool,
     mut act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
 ) -> (ExitStatus, String, String) {
     let dir = Scratch::new(name);
@@ -104,8 +132,11 @@ fn in_terminal_told(
             Some(_) => Stdio::piped(),
             None => Stdio::null(),
         })
-        .stdout(Stdio::from(tty))
-        .stderr(Stdio::piped());
+        .stderr(match both {
+            true => Stdio::from(tty.try_clone().unwrap()),
+            false => Stdio::piped(),
+        })
+        .stdout(Stdio::from(tty));
     // SAFETY: setsid, ioctl, getrlimit and setrlimit are async-signal-safe
     // and touch no memory.
     unsafe {
@@ -140,12 +171,9 @@ fn in_terminal_told(
     );
     let status = child.wait().unwrap();
     let mut stderr = String::new();
-    child
-        .stderr
-        .take()
-        .unwrap()
-        .read_to_string(&mut stderr)
-        .unwrap();
+    if let Some(mut told) = child.stderr.take() {
+        told.read_to_string(&mut stderr).unwrap();
+    }
     (status, text(&seen), stderr)
 }
 
@@ -491,6 +519,28 @@ fn a_file_that_cannot_be_shown_is_in_the_stream_under_its_header() {
     assert!(frames[1].contains("missing.md"), "{seen:?}");
     assert!(frames[1].contains("No such file"), "{seen:?}");
     assert!(frames[1].contains(" missing.md 2/3 "), "{seen:?}");
+}
+
+#[test]
+fn a_file_that_cannot_be_shown_is_told_at_its_place_when_the_files_fit() {
+    let prepare = |dir: &std::path::Path| {
+        std::fs::write(dir.join("a.md"), "Alpha text.\n").unwrap();
+        std::fs::write(dir.join("b.md"), "Beta text.\n").unwrap();
+    };
+    let args = ["a.md", "missing.md", "b.md"];
+    let (status, seen) = in_terminal_both("pager-missing-fits", prepare, &args, 24, |_, _, _| {});
+    assert_eq!(status.code(), Some(1), "{seen:?}");
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    // As printed: told once, between the files around it, and not shown.
+    let mut rest = seen.as_str();
+    for part in ["Alpha text.", "kiri: missing.md: ", "b.md", "Beta text."] {
+        let at = rest
+            .find(part)
+            .unwrap_or_else(|| panic!("{part}: {seen:?}"));
+        rest = &rest[at + part.len()..];
+    }
+    assert_eq!(seen.matches("missing.md").count(), 1, "{seen:?}");
+    assert!(!seen.contains('✗'), "{seen:?}");
 }
 
 #[test]

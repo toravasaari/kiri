@@ -573,6 +573,7 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
         page_files(
             &context,
             given,
+            &drawn,
             &mut inputs,
             &settings,
             &failed,
@@ -587,14 +588,6 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
         Err(error) if error.kind() == io::ErrorKind::BrokenPipe => {}
         Err(error) => return Err(Failure::Error(error.to_string())),
         Ok(()) => {}
-    }
-    // After the pager, what it would have hidden; in print, each after
-    // its file.
-    if paged {
-        drawn
-            .iter()
-            .flatten()
-            .for_each(|drawn| tell_drawn(drawn, &failed));
     }
     match failed.get() {
         true => Err(Failure::Told),
@@ -649,14 +642,18 @@ fn tell_drawn(drawn: &Drawn, failed: &Cell<bool>) {
 }
 
 /// Shows `given`, the files read whole, in the pager as one stream when
-/// `paging` asks for it, and otherwise prints them, with the images
-/// `inputs` holds and those of the image files among them. A warning about
-/// a file, and why a file failed, are told before it all, and noted in
-/// `failed`; a file that failed is in the stream under its header, with
-/// why. `caught` runs once the pager's screen catches the signals.
+/// `paging` asks for it, and otherwise prints them as `print_files` does,
+/// with the images `inputs` holds and those of the image files among them.
+/// A file that failed is in the pager's stream under its header, with why.
+/// Why a file failed, and a warning about a file, are told before the
+/// pager opens, and `drawn` of a diagram file after it closes; all of them
+/// are noted in `failed`. `caught` runs once the pager's screen catches
+/// the signals.
+#[allow(clippy::too_many_arguments)]
 fn page_files(
     context: &Context,
     given: Vec<Given>,
+    drawn: &[Option<Drawn>],
     inputs: &mut Inputs,
     settings: &Settings,
     failed: &Cell<bool>,
@@ -664,14 +661,19 @@ fn page_files(
     caught: impl FnOnce(),
 ) -> io::Result<()> {
     let mut files = Vec::new();
+    // What is told about each file before it is shown.
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
     for (number, given) in given.into_iter().enumerate() {
         let name = given.name;
+        let mut error = None;
+        let mut warned = Vec::new();
         let document = match given.shown {
-            Shown::Failed(error) => {
+            Shown::Failed(why) => {
                 // The header names the file already.
                 let prefix = format!("{}: ", given.path.display());
-                let reason = error.strip_prefix(&prefix).unwrap_or(&error).to_owned();
-                told(failed, error);
+                let reason = why.strip_prefix(&prefix).unwrap_or(&why).to_owned();
+                error = Some(why);
                 Document {
                     blocks: vec![Block::Error(reason)],
                 }
@@ -684,7 +686,7 @@ fn page_files(
             Shown::Document { document, .. } => {
                 let stderr = settings.render_errors.stderr();
                 for warning in inputs.images.warnings_in(number, stderr) {
-                    eprintln!("kiri: {name}: {warning}");
+                    warned.push(format!("{name}: {warning}"));
                 }
                 document
             }
@@ -694,16 +696,52 @@ fn page_files(
             Shown::AsIs(text) => kiri::parse::code(&text, None),
             Shown::Image { .. } => unreachable!("an image file in the pager is read whole"),
         };
+        errors.push(error);
+        warnings.push(warned);
         files.push(kiri::model::File { name, document });
     }
+    let tell_before = |number: usize| {
+        for warning in &warnings[number] {
+            eprintln!("kiri: {warning}");
+        }
+        if let Some(error) = &errors[number] {
+            told(failed, error.clone());
+        }
+    };
+    let told_before = Cell::new(false);
+    let opening = || {
+        (0..files.len()).for_each(tell_before);
+        told_before.set(true);
+        caught();
+    };
     let content = kiri::render::layout::Content::Files(&files);
     let case = settings.search_case;
     // The pager's status line names each file after itself.
-    if let Some(result) = page(context, content, "", inputs, paging, case, caught) {
+    if let Some(result) = page(context, content, "", inputs, paging, case, opening) {
+        // What the pager would have hidden.
+        (drawn.iter().flatten()).for_each(|drawn| tell_drawn(drawn, failed));
         return result;
     }
+    // Printed as `print_files` prints them: a failed file is not shown, and
+    // what is told about each file is told at its place, unless it was
+    // told before a pager that then could not open.
     let mut out = io::stdout().lock();
-    kiri::render::render_files(&files, inputs, &mut out).and_then(|()| out.flush())
+    let mut apart = false;
+    for (number, file) in files.iter().enumerate() {
+        if !told_before.get() {
+            tell_before(number);
+        }
+        if errors[number].is_some() {
+            continue;
+        }
+        kiri::render::render_file(file, number, apart, inputs, &mut out)
+            .and_then(|()| out.flush())?;
+        apart = true;
+        if let Some(drawn) = &drawn[number] {
+            tell_drawn(drawn, failed);
+        }
+    }
+    Ok(())
 }
 
 /// Prints `given`, each file under its header, as it comes: an image file
