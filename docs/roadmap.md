@@ -299,7 +299,12 @@ document from the start.
 - In the pager the files are one stream, headers and all, so a search
   finds a term in any of them. The status line names the file at the top
   of the view, and `:n` and `:p` move to the next and the previous file,
-  as in `less`.
+  as in `less`; Shift+PgDn and Shift+PgUp do the same. Some terminals
+  keep those keys for their own scrollback: Ghostty binds
+  `shift+page_up=scroll_page_up` by default. There `:n` and `:p` still
+  work, or `keybind = shift+page_up=unbind` and
+  `keybind = shift+page_down=unbind` in Ghostty's configuration hand the
+  keys to kiri.
 
 ### 4.10 More Markdown
 
