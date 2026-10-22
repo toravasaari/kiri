@@ -9,6 +9,50 @@ colours is in [README.md](README.md):
 cargo run -- examples/S04-code.md
 ```
 
+## Highlighting
+
+A code block is coloured by its language, the word after the opening
+fence: keywords, strings, comments and numbers each get a colour of their
+own, on the code background, and the language's name is in the top right
+corner of the box. On a light page the colours are for a light
+background.
+
+```sh
+if make check; then
+    echo "all green" # a comment
+fi
+```
+
+```python
+def greet(name):
+    """Say hello."""
+    return f"Hello, {name}!"  # a comment
+```
+
+```yaml
+theme:
+  name: kiri
+  sizes: [1, 2, 3]
+```
+
+```json
+{"name": "kiri", "tags": ["markdown", "kitty"], "stable": false}
+```
+
+kiri has no grammar for every language. TOML is one it lacks, so the block
+below is in the code's plain colour, still in its box with its name in the
+corner, and so is a block with no language at all:
+
+```toml
+[theme]
+name = "kiri" # a comment
+size = 3
+```
+
+```
+plain text, in the plain colour
+```
+
 ## Code blocks
 
 A line too long for the window wraps inside the block. The continuation
