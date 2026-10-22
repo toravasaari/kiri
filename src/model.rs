@@ -7,6 +7,15 @@ pub struct Document {
     pub blocks: Vec<Block>,
 }
 
+/// One of several files shown one after another, each under a header that
+/// names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct File {
+    /// The name the header gives the file, such as its path.
+    pub name: String,
+    pub document: Document,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Block {
     /// Metadata at the very start of a file, as static site generators
@@ -47,6 +56,11 @@ pub enum Block {
     /// A note of kiri's own about the document rather than part of it,
     /// such as how many rows of a table were left out.
     Note(String),
+    /// A file shown as an image on its own, as large as fits the window
+    /// and no larger than its natural size: an image file, or a diagram
+    /// file drawn as one. Its pixels come with the file, keyed by its
+    /// name, rather than from a URL in a document.
+    ImageFile(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -15,13 +15,69 @@ use super::{FrontMatterStyle, Inputs, RenderErrors, TableRows};
 use crate::caps::Capabilities;
 use crate::color::{Color, Underline};
 use crate::images::{ImageError, ImageKey, Images};
-use crate::model::{Block, Document, Image, Inline, Table};
+use crate::model::{Block, Document, File, Image, Inline, Table};
 use crate::theme::Theme;
 
 /// How much of the text colour a striped table row mixes into the page.
 const STRIPE: f32 = 0.06;
 
 pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
+    with_layout(inputs, 0, |layout, width, margin| {
+        let mut lines = Vec::new();
+        layout.top_level(&document.blocks, width, margin, &mut lines);
+        lines
+    })
+}
+
+/// Files laid out one after another: their lines, and where each starts.
+#[derive(Debug, Default)]
+pub struct Stream {
+    pub lines: Vec<Line>,
+    /// The line each file starts on, the first of its header, in order.
+    pub starts: Vec<usize>,
+}
+
+/// `files` laid out one after another, a blank line apart, each as
+/// [`file`] lays it out.
+pub fn files(files: &[File], inputs: &Inputs) -> Stream {
+    let mut stream = Stream::default();
+    for (number, shown) in files.iter().enumerate() {
+        if !stream.lines.is_empty() {
+            stream.lines.push(Line::blank());
+        }
+        stream.starts.push(stream.lines.len());
+        stream.lines.extend(file(shown, number, inputs));
+    }
+    stream
+}
+
+/// `file`, numbered `number` among the files shown together, laid out
+/// under a header that names it: a rule across the window, the name and
+/// another rule. An image file below it is fitted to the window with its
+/// header.
+pub fn file(file: &File, number: usize, inputs: &Inputs) -> Vec<Line> {
+    with_layout(inputs, number, |layout, width, margin| {
+        let mut lines = layout.file_header(&file.name, width, margin);
+        // The header and the blank line below it.
+        let above = u16::try_from(lines.len() + 1).unwrap_or(u16::MAX);
+        let layout = Layout {
+            reserved: layout.reserved.saturating_add(above),
+            ..*layout
+        };
+        let mut body = Vec::new();
+        layout.top_level(&file.document.blocks, width, margin, &mut body);
+        append_block(&mut lines, body, true);
+        lines
+    })
+}
+
+/// What `lay_out` returns for a layout with `inputs` of the document
+/// numbered `number`, given the width of the text and its margin.
+fn with_layout<T>(
+    inputs: &Inputs,
+    number: usize,
+    lay_out: impl FnOnce(&Layout, usize, usize) -> T,
+) -> T {
     let Inputs {
         images,
         caps,
@@ -51,15 +107,15 @@ pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
         front_matter: *front_matter,
         table_rows: *table_rows,
         render_errors: *render_errors,
-        document: 0,
+        document: number,
+        // The row below for the shell's prompt or the pager's status line.
+        reserved: 1,
     };
 
     // Everything but headings and thematic breaks keeps text_margin free
     // on both sides.
     let margin = usize::from(theme.text_margin).min(width / 4);
-    let mut lines = Vec::new();
-    layout.top_level(&document.blocks, width, margin, &mut lines);
-    lines
+    lay_out(&layout, width, margin)
 }
 
 /// `lines` with `margin` cells before each one that is not blank.
@@ -98,6 +154,7 @@ struct Context {
     tight: bool,
 }
 
+#[derive(Clone, Copy)]
 struct Layout<'a> {
     images: &'a Images,
     caps: &'a Capabilities,
@@ -108,6 +165,10 @@ struct Layout<'a> {
     /// The number of the document laid out among those shown together,
     /// which the keys of its images carry.
     document: usize,
+    /// The rows of the window that an image file shown on its own leaves
+    /// to others: the shell's prompt or the pager's status line below it,
+    /// and the header above it.
+    reserved: u16,
 }
 
 impl Layout<'_> {
@@ -119,7 +180,9 @@ impl Layout<'_> {
         for block in blocks {
             let block_lines = match block {
                 Block::ThematicBreak => vec![self.rule(usize::from(self.caps.width).max(width))],
-                Block::Heading { .. } => self.block(block, width, Context::default()),
+                Block::Heading { .. } | Block::ImageFile(_) => {
+                    self.block(block, width, Context::default())
+                }
                 Block::Details { summary, blocks } => {
                     let summary = self.summary(summary, width - 2 * margin);
                     append_block(lines, with_margin(summary, margin), true);
@@ -189,7 +252,46 @@ impl Layout<'_> {
                 let content = [Inline::Text(note.clone())];
                 self.paragraph(&content, &self.muted(Style::default()), width)
             }
+            Block::ImageFile(name) => self.image_file(name, width),
         }
+    }
+
+    /// The header of the file `name`: its name between two rules across
+    /// the window, the name `margin` cells in from both sides of `width`.
+    fn file_header(&self, name: &str, width: usize, margin: usize) -> Vec<Line> {
+        let rule = self.rule(usize::from(self.caps.width).max(width));
+        let style = self.style(Style {
+            bold: true,
+            ..Style::default()
+        });
+        let name = wrap(&[Span::new(name, style)], width - 2 * margin);
+        let name = with_margin(name.into_iter().map(Line::new).collect(), margin);
+        let mut lines = vec![rule.clone()];
+        lines.extend(name);
+        lines.push(rule);
+        lines
+    }
+
+    /// The image file `name` shown on its own, as large as fits the window
+    /// with the rows it leaves to others; its alt text, the name, where it
+    /// cannot be drawn, at most `width` cells wide.
+    fn image_file(&self, name: &str, width: usize) -> Vec<Line> {
+        let key = ImageKey::from(name).in_document(self.document);
+        if self.caps.draws_images()
+            && let Some(Ok(source)) = self.images.get(&key)
+            && let Some(size) = image::on_its_own(source, self.caps, self.reserved)
+        {
+            return image_rows(Placement { key, size });
+        }
+        let alt = Inline::Image(Image {
+            url: name.to_owned(),
+            alt: vec![Inline::Text(name.to_owned())],
+            width: None,
+            height: None,
+        });
+        let mut spans = Vec::new();
+        self.inline(&alt, &Style::default(), &mut spans);
+        wrap(&spans, width).into_iter().map(Line::new).collect()
     }
 
     fn heading(&self, level: u8, content: &[Inline], width: usize, context: Context) -> Vec<Line> {

@@ -13,7 +13,7 @@
 //! the text width still bounds it.
 
 use crate::caps::Capabilities;
-use crate::images::ImageKey;
+use crate::images::{ImageKey, Source};
 use crate::model::Length;
 
 /// The cell size assumed when the terminal does not report one.
@@ -152,6 +152,29 @@ fn shrink_to(shown: (f64, f64), cell: (u16, u16), max_columns: u16, max_rows: u1
         columns: width.div_ceil(u32::from(cell.0)) as u16,
         rows: height.div_ceil(u32::from(cell.1)) as u16,
     })
+}
+
+/// The size `image` is shown at on its own, as an image file is: as
+/// large as fits the window and no larger than its natural size, a raster
+/// image one pixel per terminal pixel and others in CSS pixels. `reserved`
+/// rows of the window are left to others, such as the shell's prompt
+/// below the image. `None` when there is no room at all.
+pub fn on_its_own(image: &Source, caps: &Capabilities, reserved: u16) -> Option<Size> {
+    let unit = match image {
+        Source::Raster(_) => Unit::Pixel,
+        Source::Svg(_) | Source::Dense { .. } => Unit::Css,
+    };
+    let max_cells = caps.max_image_cells;
+    let max_rows = caps.height.map_or(max_cells, |rows| {
+        rows.saturating_sub(reserved).max(1).min(max_cells)
+    });
+    size_in(
+        image.size(),
+        unit,
+        cell_size(caps),
+        caps.width.min(max_cells),
+        max_rows,
+    )
 }
 
 /// An image shown as a block: which one, and at what size.

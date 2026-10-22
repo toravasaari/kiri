@@ -531,7 +531,9 @@ fn collect_blocks<'a>(blocks: &'a [Block], renderer: &dyn Renderer, wanted: &mut
             | Block::CodeBlock { .. }
             | Block::ThematicBreak
             | Block::Html(_)
-            | Block::Note(_) => {}
+            | Block::Note(_)
+            // Its pixels are not loaded from a URL.
+            | Block::ImageFile(_) => {}
         }
     }
 }

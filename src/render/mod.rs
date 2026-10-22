@@ -12,7 +12,7 @@ use std::io::{self, Write};
 
 use crate::caps::Capabilities;
 use crate::images::{ImageKey, Images, Source};
-use crate::model::{Block, Document, FrontMatter};
+use crate::model::{Block, Document, File, FrontMatter};
 use crate::theme::Theme;
 
 /// Everything rendering takes besides the document. A new input gets a
@@ -130,6 +130,17 @@ pub fn render(document: &Document, inputs: &Inputs, out: &mut impl Write) -> io:
     output::write(&lines, &inputs.images, &inputs.caps, page, out)
 }
 
+/// Renders `files` with `inputs`, one after another, each under a header
+/// that names it.
+pub fn render_files(files: &[File], inputs: &Inputs, out: &mut impl Write) -> io::Result<()> {
+    let stream = layout::files(files, inputs);
+    let page = output::Page {
+        background: inputs.theme.background,
+        foreground: inputs.theme.foreground,
+    };
+    output::write(&stream.lines, &inputs.images, &inputs.caps, page, out)
+}
+
 /// Shows `image` on its own, as large as fits the window and no larger
 /// than its natural size: a raster image one pixel per terminal pixel, an
 /// SVG in CSS pixels. A row is left below it for the shell's prompt. Does
@@ -149,21 +160,7 @@ pub fn render_image_on(
     if !caps.draws_images() {
         return Ok(());
     }
-    let unit = match &image {
-        Source::Raster(_) => image::Unit::Pixel,
-        Source::Svg(_) | Source::Dense { .. } => image::Unit::Css,
-    };
-    let max_cells = caps.max_image_cells;
-    let max_rows = caps.height.map_or(max_cells, |rows| {
-        rows.saturating_sub(1).max(1).min(max_cells)
-    });
-    let Some(size) = image::size_in(
-        image.size(),
-        unit,
-        image::cell_size(caps),
-        caps.width.min(max_cells),
-        max_rows,
-    ) else {
+    let Some(size) = image::on_its_own(&image, caps, 1) else {
         return Ok(());
     };
     let key = ImageKey::from("");
