@@ -70,7 +70,7 @@ split: 日本語のテキスト, 🦀 and 🇫🇮.
 
 ---
 
-The line above is a thematic break, a rule across the text width.
+The line above is a thematic break, a rule across the whole window.
 
 ## Lists
 
