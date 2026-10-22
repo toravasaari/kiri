@@ -121,8 +121,9 @@ kiri --format text examples/mermaid/flowchart.mmd
 
 The file [S07b-flowchart.mmd](S07b-flowchart.mmd) is a flowchart of its own
 in this directory, so that `kiri examples/S*` shows it among the other
-files. Its boxes run from top to bottom, with a diamond whose arrow "no"
-loops back to a box above it:
+files. Its boxes run from top to bottom. From its diamond, the arrow "no"
+leads to "Wait a while" and another arrow back up, and the arrow "yes"
+leads on to a database-shaped box at the end:
 
 ```sh
 kiri examples/S07b-flowchart.mmd
