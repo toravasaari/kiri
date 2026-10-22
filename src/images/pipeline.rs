@@ -53,7 +53,8 @@ pub struct Interrupted(pub i32);
 /// The images of `document`, and its diagrams drawn when the settings
 /// want them, as `loading` says; `progress` is told how many diagrams are
 /// drawn of how many. When programs draw any of its diagrams, Ctrl-C,
-/// SIGTERM and SIGHUP stop them meanwhile, and are then the outcome.
+/// Ctrl-\, SIGTERM and SIGHUP stop them meanwhile, and are then the
+/// outcome.
 pub fn load_document(
     document: &crate::model::Document,
     loading: &Loading,

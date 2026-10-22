@@ -121,7 +121,7 @@ example, come before the rest of phase 3.
   and layout, and each diagram at its own width. It
   replaces the built-in renderer, and one that fails does not fall back
   to it. Its time limit, 20 s unless `timeout` says otherwise, and
-  Ctrl-C, SIGTERM and SIGHUP stop it and what it started.
+  Ctrl-C, Ctrl-\\, SIGTERM and SIGHUP stop it and what it started.
 - `--diagrams on|off`, `KIRI_DIAGRAMS` and `enabled` in the configuration
   file's `[diagrams]` table; `--doctor` shows the switch, the time
   limit and the panels with their origins, and each language's

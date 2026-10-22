@@ -157,13 +157,13 @@ terminal how far drawing has got when it takes long, and another caller
 may tell it elsewhere. The programs run in process groups of their own,
 which Ctrl-C from the terminal does not reach, nor a signal sent to kiri
 alone. So when the document has a diagram that a program draws,
-`src/term/interrupt.rs` catches SIGINT, SIGTERM and SIGHUP while its
-images load: `External` stops the programs, SIGINT first so that `mmdc`
-can close its browser, removes their files, and kiri then ends by the
-signal that came. Without such a diagram, and once the images are
-loaded, the signals end kiri as before, and the pager catches them
-itself, from before its terminal is raw until it has been restored, or
-until its screen fails to open, when they end kiri again while the
+`src/term/interrupt.rs` catches SIGINT, SIGQUIT, SIGTERM and SIGHUP
+while its images load: `External` stops the programs, SIGINT first so
+that `mmdc` can close its browser, removes their files, and kiri then
+ends by the signal that came. Without such a diagram, and once the
+images are loaded, the signals end kiri as before, and the pager catches
+them itself, from before its terminal is raw until it has been restored,
+or until its screen fails to open, when they end kiri again while the
 document is printed. A signal that was ignored when kiri started, as
 under `nohup`, stays ignored in both. A new diagram language is a new
 entry in `LANGUAGES` in `src/diagrams/language.rs`, in a module of its

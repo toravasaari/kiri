@@ -157,19 +157,18 @@ looked for on `PATH`.
 
 Each diagram may take 20 seconds, or as long as `timeout` in the
 `[diagrams]` table says, such as `timeout = 60` or `timeout = 2.5`; up
-to four are drawn at once. When
-drawing takes longer than half a second, a line such as
-`kiri: rendering diagrams 2/5…` on the terminal tells how far it has
-got, and is wiped before the document is shown. Ctrl-C, SIGTERM or
-SIGHUP meanwhile stops the programs and removes their files, and then
-the signal ends kiri as it would have otherwise, so that a shell shows
-status 130 after Ctrl-C. A signal that was ignored when kiri started,
-as under `nohup`, stays ignored. A program that fails,
+to four are drawn at once. When drawing takes longer than half a second,
+a line such as `kiri: rendering diagrams 2/5…` on the terminal tells how
+far it has got, and is wiped before the document is shown. Ctrl-C,
+Ctrl-\\, SIGTERM or SIGHUP meanwhile stops the programs and removes their
+files, and then the signal ends kiri as it would have otherwise, so that
+a shell shows status 130 after Ctrl-C. A signal that was ignored when
+kiri started, as under `nohup`, stays ignored. A program that fails,
 runs out of time or writes no image leaves its diagram as code with a
-warning; kiri does not fall back to drawing it itself, so that a
-command that does not work shows. The warning, and the error below the
-code, quote the first lines the program wrote on standard error, at most
-five and none of a stack trace, each keeping its indent, so that mmdc's
+warning; kiri does not fall back to drawing it itself, so that a command
+that does not work shows. The warning, and the error below the code,
+quote the first lines the program wrote on standard error, at most five
+and none of a stack trace, each keeping its indent, so that mmdc's
 pointer to a mistake shows under its line.
 
 kiri stops a program as Ctrl-C would, with SIGINT to its process group,
