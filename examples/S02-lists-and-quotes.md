@@ -1,3 +1,9 @@
+---
+title: Lists and quotes
+description: Bullet, numbered and task lists, and block quotes inside them.
+tags: [lists, quotes, tasks]
+---
+
 # Lists and quotes
 
 A document for checking kiri's lists and block quotes by eye in a real kitty

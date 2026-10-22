@@ -1,3 +1,18 @@
+---
+title: Code
+description: Highlighting, wrapping and inline code.
+tags: [code, highlighting]
+editor:
+  highlighting:
+    themes:
+      dark:
+        name: base16-ocean.dark
+        background: "#2b303b"
+      light:
+        name: InspiredGitHub
+        background: "#ffffff"
+---
+
 # Code
 
 A document for checking kiri's code blocks and inline code by eye in a real
@@ -8,6 +23,11 @@ colours is in [README.md](README.md):
 ```sh
 cargo run -- examples/S04-code.md
 ```
+
+The front matter at the top of this document is drawn as a table above the
+first heading. Its `editor` key nests three levels of tables, and the
+value of `themes`, the fourth level, is shown as highlighted YAML on a code
+background, as a fenced `yaml` block is, rather than as one more table.
 
 ## Highlighting
 

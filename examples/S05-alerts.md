@@ -1,3 +1,9 @@
+---
+title: Alerts
+description: The five GitHub alert types, with their colours and icons.
+tags: [alerts, note, tip, warning]
+---
+
 # Alerts
 
 A document for checking kiri's alerts by eye in a real kitty window. Each

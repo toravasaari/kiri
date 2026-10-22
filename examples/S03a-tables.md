@@ -1,3 +1,23 @@
+---
+title: Tables
+description: Narrow, stacked and wide tables, and how their rows are marked.
+tags: [tables, wrapping, rows]
+columns:
+  - name: Language
+    type: text
+    align: left
+  - name: Released
+    type: number
+    align: right
+layout:
+  narrow:
+    below: 40 columns
+    cells: wrap
+  stacked:
+    when: a word does not fit
+    rows: one block each
+---
+
 # Tables
 
 A document for checking kiri's tables by eye in a real kitty window. Each
@@ -8,6 +28,12 @@ is a bug. How to view it with the themes and without colours is in
 ```sh
 cargo run -- examples/S03a-tables.md
 ```
+
+The front matter at the top of this document is a table too, above the
+first heading. Its `columns` key is a list of maps, so each map is drawn as
+a small table of its own, one under the other in the same cell. Its
+`layout` key is a map of maps, so the table of its keys has a table in its
+cells, and one more inside that. The borders of all of them stay in line.
 
 ## Narrow tables
 

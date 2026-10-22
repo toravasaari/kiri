@@ -1,3 +1,9 @@
+---
+title: Text
+description: Headings, emphasis, links, wide characters, emoji and HTML tags.
+tags: [text, headings, links, emoji]
+---
+
 # Text
 
 A document for checking kiri's text by eye in a real kitty window. Each

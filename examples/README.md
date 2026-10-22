@@ -47,6 +47,10 @@ last also takes `themes/`, which it shows through its README, and
 at its place among the files, and shows the rest. That error is intended: it
 checks a file that cannot be shown.
 
+The topic documents start with front matter, which kiri draws as a table
+above the first heading. This document has none, so it shows a document
+without front matter.
+
 Try a wide window and a narrow one (about 40 columns), where the commands
 above wrap like any long code line. No line reaches past the right edge of
 the window.

@@ -1,3 +1,9 @@
+---
+title: Images
+description: Images in every format, with scaling, orientation and alt text.
+tags: [images, png, svg, webp]
+---
+
 # Images
 
 A document for checking kiri's images by eye in a real kitty window, beside

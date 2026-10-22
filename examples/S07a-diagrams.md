@@ -1,3 +1,9 @@
+---
+title: Diagrams
+description: Mermaid diagrams in code blocks, with themes and failures.
+tags: [diagrams, mermaid]
+---
+
 # Diagrams
 
 A document for checking kiri's diagrams by eye in a real kitty window. Each
