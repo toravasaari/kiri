@@ -525,6 +525,11 @@ go.
   key, as GitHub used to draw it.
 - Only the front matter of a document, without its body, as a value of
   the front matter setting or a flag of its own.
+- Presentation settings in a document's front matter, such as its theme
+  or heading sizes, read only when the configuration file turns this on.
+  Front matter would then override the configuration file, and the
+  environment and the command line would override front matter. Which
+  keys a document may set is still open.
 - Front matter tables: tell a list's items from a nested map, such as a
   muted `1.` line above each item's table or the number in its top
   border. Tried on `feature/front-matter`; the line survives stacking.
