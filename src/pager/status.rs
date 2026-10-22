@@ -111,7 +111,7 @@ fn mixed(theme: &Theme, caps: &Capabilities) -> Option<Color> {
     page.mix(Color::Palette(8).rgb(&caps.palette)?, 0.5)
 }
 
-/// What the status line tells about the last search.
+/// What the status line tells about the last search, or in its place.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Found<'a> {
     /// The reader is at match `current`, counted from 1, of the `total`
@@ -125,6 +125,9 @@ pub enum Found<'a> {
     },
     /// `term` is nowhere in the document.
     Nowhere(&'a str),
+    /// Not about a search: a message about the last key, such as that
+    /// there is no next file, told where the search would be.
+    Told(&'a str),
 }
 
 /// The status line for the document `name` at `position`, with what was
@@ -215,6 +218,7 @@ fn search(found: Found, styles: &Styles) -> Vec<Span> {
             span(&format!("/{total}")),
         ],
         Found::Nowhere(term) => vec![span(&format!("not found: {}", printable(term)))],
+        Found::Told(message) => vec![span(message)],
     }
 }
 
