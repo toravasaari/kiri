@@ -22,7 +22,7 @@ use crate::diagrams::{NoRenderer, Renderer, Request, Theme};
 use crate::model::{Block, Document, Inline};
 
 pub use decode::{DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image};
-pub use pipeline::{Interrupted, Loaded, Loading, load_document};
+pub use pipeline::{Interrupted, Loaded, Loading, load_documents};
 pub use svg::{Fonts, Svg};
 
 pub(crate) use decode::{MAX_PIXELS, png_size};
@@ -139,43 +139,74 @@ pub(crate) fn size(bytes: u64) -> String {
     }
 }
 
-/// What an image is made from, the key into `Images`.
+/// What an image is made from, the key into `Images`. Each key also
+/// names the document it belongs to, by its number among the documents
+/// shown together, counting from 0: the same URL in two documents can
+/// name two files, each relative to its own document's directory.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ImageKey {
     /// An image file or `data:` URL, as the document gives it.
-    Url(String),
+    Url { document: usize, url: String },
     /// A code block drawn as an image, such as a diagram: its language, in
     /// lower case as code blocks match it in any case, and its source.
-    Block { language: String, source: String },
+    Block {
+        document: usize,
+        language: String,
+        source: String,
+    },
 }
 
 impl ImageKey {
     /// The key of the code block `source` in `language`, drawn as an
-    /// image: the same for a language in any case.
+    /// image, in the first document: the same for a language in any case.
     pub fn block(language: &str, source: &str) -> Self {
         ImageKey::Block {
+            document: 0,
             language: language.to_ascii_lowercase(),
             source: source.to_owned(),
+        }
+    }
+
+    /// The same image in the document numbered `document`.
+    pub fn in_document(self, document: usize) -> Self {
+        match self {
+            ImageKey::Url { url, .. } => ImageKey::Url { document, url },
+            ImageKey::Block {
+                language, source, ..
+            } => ImageKey::Block {
+                document,
+                language,
+                source,
+            },
+        }
+    }
+
+    /// The number of the document the image belongs to.
+    pub fn document(&self) -> usize {
+        match *self {
+            ImageKey::Url { document, .. } | ImageKey::Block { document, .. } => document,
         }
     }
 }
 
 impl From<&str> for ImageKey {
+    /// The key of the image at `url` in the first document.
     fn from(url: &str) -> Self {
-        ImageKey::Url(url.to_owned())
+        ImageKey::from(url.to_owned())
     }
 }
 
 impl From<String> for ImageKey {
+    /// The key of the image at `url` in the first document.
     fn from(url: String) -> Self {
-        ImageKey::Url(url)
+        ImageKey::Url { document: 0, url }
     }
 }
 
 impl fmt::Display for ImageKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ImageKey::Url(url) => f.write_str(url),
+            ImageKey::Url { url, .. } => f.write_str(url),
             ImageKey::Block { language, .. } => write!(f, "{language} block"),
         }
     }
@@ -275,25 +306,40 @@ impl Images {
     /// `warnings`, with one for each diagram that could not be drawn only
     /// when `render_errors`.
     pub fn warnings_with(&self, render_errors: bool) -> Vec<String> {
-        self.iter()
-            .filter_map(|(key, image)| match (key, image) {
-                (_, Ok(_)) => None,
-                (_, Err(ImageError::Diagram { .. })) if !render_errors => None,
-                // These name the file, resolved against the document.
-                (_, Err(error)) if error.names_file() => Some(error.to_string()),
-                (ImageKey::Url(url), Err(ImageError::NoPath)) if url.is_empty() => {
-                    Some("an image URL is empty".to_owned())
-                }
-                // A data: URL is the image itself, too long for a message.
-                (ImageKey::Url(url), Err(error))
-                    if scheme(url).is_some_and(|s| s.eq_ignore_ascii_case("data")) =>
-                {
-                    Some(format!("data: URL: {error}"))
-                }
-                (key, Err(error)) => Some(format!("{key}: {error}")),
-            })
-            .collect()
+        warnings(self.iter(), render_errors)
     }
+
+    /// `warnings_with` for the images of the document numbered
+    /// `document` alone.
+    pub fn warnings_in(&self, document: usize, render_errors: bool) -> Vec<String> {
+        let images = self.iter().filter(|(key, _)| key.document() == document);
+        warnings(images, render_errors)
+    }
+}
+
+/// The warnings about `images`, as `Images::warnings_with` makes them.
+fn warnings<'a>(
+    images: impl Iterator<Item = (&'a ImageKey, &'a Result<Source, ImageError>)>,
+    render_errors: bool,
+) -> Vec<String> {
+    images
+        .filter_map(|(key, image)| match (key, image) {
+            (_, Ok(_)) => None,
+            (_, Err(ImageError::Diagram { .. })) if !render_errors => None,
+            // These name the file, resolved against the document.
+            (_, Err(error)) if error.names_file() => Some(error.to_string()),
+            (ImageKey::Url { url, .. }, Err(ImageError::NoPath)) if url.is_empty() => {
+                Some("an image URL is empty".to_owned())
+            }
+            // A data: URL is the image itself, too long for a message.
+            (ImageKey::Url { url, .. }, Err(error))
+                if scheme(url).is_some_and(|s| s.eq_ignore_ascii_case("data")) =>
+            {
+                Some(format!("data: URL: {error}"))
+            }
+            (key, Err(error)) => Some(format!("{key}: {error}")),
+        })
+        .collect()
 }
 
 /// Loads every image that `document` shows as an image block once,
@@ -318,14 +364,52 @@ pub fn load_with(
     fonts: &Fonts,
     options: &LoadOptions<'_>,
 ) -> Images {
+    let part = Part {
+        document,
+        number: 0,
+        base,
+        by_line: options.by_line,
+    };
+    load_parts(&[part], max_file_size, fonts, options)
+}
+
+/// One of several documents shown together, whose images are loaded with
+/// the others'.
+#[derive(Clone, Copy)]
+pub struct Part<'a> {
+    pub document: &'a Document,
+    /// Its number among the documents shown together, which the keys of
+    /// its images carry.
+    pub number: usize,
+    /// The directory that its relative image paths start from.
+    pub base: &'a Path,
+    /// Whether a warning names a diagram by its line in the document, or
+    /// by its own first line, as `LoadOptions::by_line` says.
+    pub by_line: bool,
+}
+
+/// `load_with` for each of `parts`, into one map, with the diagrams of
+/// all of them drawn together. `options.by_line` gives way to each part's
+/// own.
+pub fn load_parts(
+    parts: &[Part<'_>],
+    max_file_size: u64,
+    fonts: &Fonts,
+    options: &LoadOptions<'_>,
+) -> Images {
     let mut wanted = Vec::new();
-    collect_blocks(&document.blocks, options.renderer, &mut wanted);
+    for (index, part) in parts.iter().enumerate() {
+        let mut blocks = Vec::new();
+        collect_blocks(&part.document.blocks, options.renderer, &mut blocks);
+        wanted.extend(blocks.into_iter().map(|image| (index, image)));
+    }
+    let key = |&(index, ref image): &(usize, Wanted)| image.key().in_document(parts[index].number);
     let mut keys = HashSet::new();
-    wanted.retain(|image| keys.insert(image.key()));
+    wanted.retain(|image| keys.insert(key(image)));
     // The diagrams first, all together, so a renderer can draw several
     // at once.
     let requests: Vec<Request> = (wanted.iter())
-        .filter_map(|image| match *image {
+        .filter_map(|(_, image)| match *image {
             Wanted::Diagram {
                 language, source, ..
             } => Some(Request::new(language, source, options.theme)),
@@ -349,16 +433,30 @@ pub fn load_with(
         .into_iter();
     let mut images = Images::new();
     for image in wanted {
-        let key = image.key();
+        let key = key(&image);
+        let (index, image) = image;
+        let part = &parts[index];
         let loaded = match image {
-            Wanted::Url(url) => load_url(url, base, max_file_size, fonts),
+            Wanted::Url(url) => load_url(url, part.base, max_file_size, fonts),
             Wanted::Diagram {
                 language,
                 source,
                 line,
             } => {
                 let drawn = drawn.next().expect("a drawing for each diagram");
-                finish_diagram(language, source, line, drawn, max_file_size, fonts, options)
+                let options = LoadOptions {
+                    by_line: part.by_line,
+                    ..*options
+                };
+                finish_diagram(
+                    language,
+                    source,
+                    line,
+                    drawn,
+                    max_file_size,
+                    fonts,
+                    &options,
+                )
             }
         };
         images.insert(key, loaded);
@@ -692,6 +790,56 @@ fn main() {}
             &LoadOptions::default(),
         );
         assert!(images.is_empty(), "{images:?}");
+    }
+
+    #[test]
+    fn documents_loaded_together_keep_their_own_images() {
+        // Both documents show `fig.png`, each from its own directory, and
+        // the same diagram, which fails in both.
+        let scratch = crate::testing::Scratch::new("images-two-documents");
+        for (dir, width) in [("a", 3), ("b", 5)] {
+            std::fs::create_dir(scratch.join(dir)).unwrap();
+            let image = RgbaImage::new(width, 1);
+            image.save(scratch.join(dir).join("fig.png")).unwrap();
+        }
+        let first = crate::parse::parse("![a](fig.png)\n\n```mermaid\nbroken\n```\n");
+        let second = crate::parse::parse("Text.\n\n![b](fig.png)\n\n```mermaid\nbroken\n```\n");
+        let (a, b) = (scratch.join("a"), scratch.join("b"));
+        let parts = [
+            Part {
+                document: &first,
+                number: 0,
+                base: &a,
+                by_line: true,
+            },
+            Part {
+                document: &second,
+                number: 1,
+                base: &b,
+                by_line: true,
+            },
+        ];
+        let stub = Stub::default();
+        let images = load_parts(
+            &parts,
+            DEFAULT_MAX_FILE_SIZE,
+            &Fonts::none(),
+            &with_stub(&stub, Theme::Light, true),
+        );
+        let width = |document| match images.get(&ImageKey::from("fig.png").in_document(document)) {
+            Some(Ok(source)) => source.size().0,
+            other => panic!("{document}: {other:?}"),
+        };
+        assert_eq!((width(0), width(1)), (3, 5));
+        // Each document is told about its own diagram, by its own line.
+        assert_eq!(
+            images.warnings_in(0, true),
+            ["mermaid diagram on line 3: parse error"]
+        );
+        assert_eq!(
+            images.warnings_in(1, true),
+            ["mermaid diagram on line 5: parse error"]
+        );
     }
 
     #[test]

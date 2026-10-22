@@ -51,6 +51,7 @@ pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
         front_matter: *front_matter,
         table_rows: *table_rows,
         render_errors: *render_errors,
+        document: 0,
     };
 
     // Everything but headings and thematic breaks keeps text_margin free
@@ -104,6 +105,9 @@ struct Layout<'a> {
     front_matter: FrontMatterStyle,
     table_rows: TableRows,
     render_errors: RenderErrors,
+    /// The number of the document laid out among those shown together,
+    /// which the keys of its images carry.
+    document: usize,
 }
 
 impl Layout<'_> {
@@ -322,7 +326,8 @@ impl Layout<'_> {
             width: lone.width,
             height: lone.height,
         };
-        self.placed(ImageKey::from(lone.url.as_str()), wanted, width)
+        let key = ImageKey::from(lone.url.as_str()).in_document(self.document);
+        self.placed(key, wanted, width)
     }
 
     /// A code block drawn as a diagram, when it was.
@@ -332,7 +337,7 @@ impl Layout<'_> {
         if self.images.is_empty() {
             return None;
         }
-        let key = ImageKey::block(language?, code);
+        let key = ImageKey::block(language?, code).in_document(self.document);
         self.placed(key, image::Wanted::default(), width)
     }
 
@@ -345,7 +350,7 @@ impl Layout<'_> {
             Some(language) if self.render_errors.inline() && !self.images.is_empty() => language,
             _ => return Vec::new(),
         };
-        let key = ImageKey::block(language, code);
+        let key = ImageKey::block(language, code).in_document(self.document);
         let Some(Err(ImageError::Diagram { reason, .. })) = self.images.get(&key) else {
             return Vec::new();
         };

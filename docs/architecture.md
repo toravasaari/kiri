@@ -82,7 +82,8 @@ with its language, so the parser knows nothing about renderers and a
 diagram that cannot be drawn is shown as the code it already is. Whether
 it is drawn is decided when images are loaded. `src/images/mod.rs` keys
 each image by an `ImageKey`, a URL or a block (its language, in lower
-case, and its source), and collects the code blocks whose language a
+case, and its source), with the number of the document it is in, so
+that documents shown together keep their own images, and collects the code blocks whose language a
 renderer draws besides the lone images. It hands all of a document's
 diagrams to the renderer at once, then `src/images/drawn.rs` decodes
 each image it gets back by its content, as it decodes an image file, so

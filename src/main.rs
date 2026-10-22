@@ -10,7 +10,7 @@ use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser};
 use kiri::caps::Capabilities;
 use kiri::config::{Environment, FrontMatter, Named, Options, Origin, Paging, Setting, Settings};
 use kiri::doctor::{Facts, Output};
-use kiri::images::{Fonts, Format, ImageError, ImageKey, Interrupted, Loaded, Loading};
+use kiri::images::{Fonts, Format, ImageError, ImageKey, Interrupted, Loaded, Loading, Part};
 use kiri::input::Input;
 use kiri::model::Document;
 use kiri::render::output::Page;
@@ -380,7 +380,7 @@ fn show_document(
     caps: Capabilities,
 ) -> Result<(), Failure> {
     let caps = on_page(caps, &settings);
-    let loaded = load_images(context, document, file, &settings, &caps)?;
+    let loaded = load_images(context, &[part(document, file)], &settings, &caps)?;
     for warning in loaded.images.warnings_with(settings.render_errors.stderr()) {
         eprintln!("kiri: {warning}");
     }
@@ -407,7 +407,7 @@ fn show_diagram(
     let caps = on_page(caps, &settings);
     let document = kiri::parse::code(source, Some(language));
     settings.images = true;
-    let mut loaded = load_images(context, &document, file, &settings, &caps)?;
+    let mut loaded = load_images(context, &[part(&document, file)], &settings, &caps)?;
     let key = ImageKey::block(language, source);
     let error = match loaded.images.remove(&key) {
         Some(Ok(image)) => {
@@ -462,16 +462,15 @@ fn on_page(mut caps: Capabilities, settings: &Settings) -> Capabilities {
     caps
 }
 
-/// The images of `document`, from `file` or not as for `show_document`,
-/// loaded and drawn when `settings` want them and `caps` can show them;
-/// otherwise none, as they are alt text, without warnings. While
-/// programs draw any of its diagrams, Ctrl-C, SIGTERM, SIGHUP and
-/// Ctrl-\ stop them; such a signal is the failure. On a terminal, a
-/// line tells how far drawing has got when it takes long.
+/// The images of the documents in `parts`, loaded and drawn when
+/// `settings` want them and `caps` can show them; otherwise none, as they
+/// are alt text, without warnings. While programs draw any of their
+/// diagrams, Ctrl-C, SIGTERM, SIGHUP and Ctrl-\ stop them; such a
+/// signal is the failure. On a terminal, a line tells how far drawing has
+/// got when it takes long.
 fn load_images(
     context: &Context,
-    document: &Document,
-    file: Option<&Path>,
+    parts: &[Part],
     settings: &Settings,
     caps: &Capabilities,
 ) -> Result<Loaded, Failure> {
@@ -481,10 +480,8 @@ fn load_images(
     let loading = Loading {
         env: context.env,
         settings,
-        base: file.and_then(Path::parent).unwrap_or(Path::new("")),
         max_file_size: context.max_file_size,
         theme: kiri::diagrams::Theme::for_page(caps.dark_background),
-        by_line: file.is_some(),
         largest: Some(kiri::render::image::largest(caps)),
     };
     // Drawing diagrams can take seconds with an external program; a
@@ -493,12 +490,23 @@ fn load_images(
         use kiri::term::progress::{DELAY, while_working};
         while_working(io::stderr(), DELAY, |progress| {
             let tell = |done, total| progress.update(done, total);
-            kiri::images::load_document(document, &loading, Some(&tell))
+            kiri::images::load_documents(parts, &loading, Some(&tell))
         })
     } else {
-        kiri::images::load_document(document, &loading, None)
+        kiri::images::load_documents(parts, &loading, None)
     };
     loaded.map_err(|Interrupted(signal)| Failure::Signal(signal))
+}
+
+/// `document`, the first and only one shown, from `file` or not as for
+/// `show_document`, as a part whose images are loaded.
+fn part<'a>(document: &'a Document, file: Option<&'a Path>) -> Part<'a> {
+    Part {
+        document,
+        number: 0,
+        base: file.and_then(Path::parent).unwrap_or(Path::new("")),
+        by_line: file.is_some(),
+    }
 }
 
 /// Renders `document`, called `name`, with the images `loaded` on
