@@ -1,0 +1,138 @@
+# The doctor report
+
+`kiri --doctor` shows what kiri found out about the terminal, which
+settings it uses and where each came from. This page tells how to read the
+report when something looks wrong, such as images that show their alt
+text or headings at normal size.
+
+The report has these sections, in this order:
+
+- **Problems**, only when there are any: a configuration or theme file
+  that could not be read, or an environment variable with a value kiri
+  does not know, which it leaves out.
+- **Terminal**: what kiri found out about the terminal.
+- **Settings**: the value of each setting and where it came from.
+- **Files**: where kiri looks for its configuration file, its theme file
+  and the work files of programs that draw diagrams, and whether they are
+  there.
+- **Image formats**: the image formats kiri reads.
+- **Diagrams**: what draws each diagram language.
+- A sample of headings, a table and an image, in a terminal only. It shows
+  how they look in this terminal; `--raw` leaves it out.
+- **Probe answers**, only when the terminal was asked: what the terminal
+  answered, byte for byte.
+
+## Terminal
+
+Most rows come from the probe: in `--mode auto`, kiri sends the terminal
+a few questions and reads its answers. The [Probe answers](#probe-answers)
+section below tells which answer leads to which row.
+
+The **Terminal** row tells whether the probe ran:
+
+| Terminal row | Meaning |
+|---|---|
+| A name, such as `kitty(0.47.1)` | The terminal answered and named itself |
+| `unknown` | The terminal answered but did not name itself |
+| `did not answer` | No answer within half a second; kiri uses colours and text styles only |
+| `not asked: kiri runs in the background` | A program in the background must not read the terminal |
+| `not asked in mode kitty`, or another mode | A `--mode` other than `auto` decides without asking |
+| `none` | The output is not a terminal |
+
+`TERM=` after it is the `TERM` environment variable, for reference; kiri
+does not decide anything from it.
+
+What each other row means, and where it comes from:
+
+| Row | Meaning | From |
+|---|---|---|
+| Window | The window size in cells and pixels | The kernel's window size |
+| Cell size | One cell in pixels, which sets the size of images | The window size; or else the terminal's answer; or else a default |
+| Graphics | Whether images can be drawn | The probe: an answer to the graphics query, and Unicode placeholders, below |
+| Text sizing | Whether headings can be drawn large | The probe: whether the cursor moved for the text sizing tests |
+| Colours | 24-bit colour, fewer colours, or none | The probe; or else the `COLORTERM` environment variable |
+| Background | Dark or light, which picks the code colours | The probe: the background colour |
+| Hyperlinks | Whether links can be clicked | The probe; or else `TERM_PROGRAM` or `VTE_VERSION` |
+| Underline styles | Whether a curly or dotted underline can be drawn | The probe |
+
+A terminal that answers the graphics query or draws the text sizing tests
+speaks kitty's protocols. kiri then takes it to have 24-bit colour,
+clickable links and underline styles too, without asking for them.
+
+**Graphics** has three values. `yes, with Unicode placeholders` means
+images are drawn. `yes, without Unicode placeholders: images show their
+alt text` means the terminal answered the graphics query, but kiri cannot
+tell whether it also has the Unicode placeholders through which kiri
+places every image. No query tells that, so kiri trusts a terminal that
+names itself kitty 0.28 or later, or one that also passed the text sizing
+tests, which only kitty from 0.40 on does. Other terminals with
+placeholders get alt text for now.
+
+## Settings
+
+The **From** column tells where each value came from: a command-line
+option, an environment variable, the configuration file, or the default.
+When a value is not what you expect, this is the column to read: an
+environment variable set in a shell start-up file overrides the
+configuration file, for example. [Configuration](config.md) lists the
+order.
+
+## Probe answers
+
+The answers are shown as the terminal sent them, with the bytes that do
+not print written out:
+
+| Written | Byte |
+|---|---|
+| `\e` | ESC, which starts every answer |
+| `\\` | A backslash; `\e\\` ends many answers |
+| `\x60` | A backtick |
+| `\x07` and other `\x..` | Any other byte, by its hex value |
+
+The answers come in the order of the questions. A terminal leaves out the
+answers to questions it does not know; only the last one, the device
+attributes, comes from every terminal. The answers from kitty 0.47.1 on a
+dark background start like this, with the colours shortened:
+
+```text
+\e[5;1R\e[5;3R\e[5;5R\e_Gi=31;OK\e\\\e]10;rgb:dddd/dddd/dddd\e\\\e]11;rgb:0000/0000/0000\e\\\e]4;0;rgb:0000/0000/0000\e\\ … \eP>|kitty(0.47.1)\e\\\e[?62;c
+```
+
+Each answer, what it looks like and what kiri takes from it:
+
+| Answer | Looks like | What kiri takes from it |
+|---|---|---|
+| Cursor position, three times | `\e[5;1R` | The row and the column of the cursor before and after two text sizing tests, which draw a space two cells wide and a space at twice the size. When the columns grow by two each time, such as 1, 3 and 5, the terminal has text sizing: **Text sizing** is `yes`. The same column three times, such as 1, 1 and 1, means it has not |
+| Graphics | `\e_Gi=31;OK\e\\` | The terminal speaks kitty's graphics protocol: **Graphics** is at least `yes, without Unicode placeholders`. No such answer means no images |
+| Foreground colour | `\e]10;rgb:dddd/dddd/dddd\e\\` | The text colour, which kiri mixes with the background for shaded table rows and other muted colours |
+| Background colour | `\e]11;rgb:0000/0000/0000\e\\` | The page colour. A dark one makes **Background** `dark`, a light one `light` |
+| Palette, up to 16 | `\e]4;1;rgb:cccc/0000/0000\e\\` | The terminal's 16 colours, by number |
+| Name and version | `\eP>\|kitty(0.47.1)\e\\` | The **Terminal** row. A kitty from 0.28 on has Unicode placeholders, so with the graphics answer **Graphics** is `yes, with Unicode placeholders` |
+| Cell size | `\e[6;20;10t` | The height and the width of a cell in pixels. Asked only when the window size has no pixels, as over some SSH connections and in containers |
+| Device attributes | `\e[?62;c` | Nothing; every terminal answers it, so it marks the end of the answers |
+
+## When something looks wrong
+
+**Images show their alt text.** Read the **Graphics** row. With `no`,
+look for `\e_G` in the probe answers: without it, the terminal did not
+answer the graphics query. Inside tmux or screen, the questions may not
+reach the terminal at all. With `without Unicode placeholders`, look at
+the name and version answer: kiri draws images only in a terminal it
+knows has placeholders. Also check that **Images** under Settings is
+`on`.
+
+**Headings are at normal size.** Read **Text sizing**. With `no`, look at
+the three cursor columns at the start of the answers. The same column
+three times means the terminal ignored the tests, which happens in
+terminals other than kitty and in kitty before 0.40.
+
+**Code colours are hard to read.** Read **Background**. With `unknown`,
+the terminal did not answer `\e]11;`, and kiri does not know whether the
+page is light or dark; `--light` or `--dark` decides. With the wrong
+value, compare the `rgb:` value in the answer with the terminal's
+background.
+
+**Nothing is drawn, only plain text.** With `did not answer` or `none` in
+the **Terminal** row, kiri fell back to colours and text styles, or to
+plain text. `--mode kitty` forces all of kitty's features without asking,
+to tell a detection problem from a drawing problem.

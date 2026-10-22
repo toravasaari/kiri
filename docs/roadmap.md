@@ -509,6 +509,12 @@ go.
 - Opening a document at a section from the command line, such as
   `kiri spec.md#3-2`, for a review that refers to `§3.2` of a spec.
   Needs heading anchors (4.10.1) and anchor jumps in the pager (4.6.5).
+- More `:` commands in the pager, as `less` and vim have them: `:x` for
+  the first file, `:q` to quit, `:` and a number for a line or a file,
+  and a jump to a heading, such as `:§3.2`.
+- Image files shown with several files (4.9.2) are read in full before
+  the pager opens, about 48 MB for a 12-megapixel photo. Reduce each to
+  the largest size it can be shown at, as drawn diagrams are.
 
 ## Bugs
 

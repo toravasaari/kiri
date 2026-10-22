@@ -19,6 +19,6 @@ These are the options kiri takes on the command line.
 | `--table-rows zebra\|lines\|indent\|underline\|off` | Table row style; `zebra` unless set |
 | `--diagrams on\|off` | Diagrams in code blocks, such as Mermaid, drawn or shown as code; `on` unless set |
 | `--render-errors inline\|stderr\|both` | Why a diagram was not drawn: below its code, in a warning, or both; `both` unless set |
-| `--doctor` | Show what kiri finds out about the terminal and which settings it uses |
+| `--doctor` | Show what kiri finds out about the terminal and which settings it uses; see [The doctor report](doctor.md) |
 | `--raw` | With `--doctor`: the report as Markdown text, for a bug report |
 | `--list-emojis` | List the emoji shortcodes, such as `:smile:`: a table in a terminal, one line per emoji with tabs between the fields in a pipe or a file |

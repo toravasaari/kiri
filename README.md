@@ -164,7 +164,8 @@ about the terminal, which settings it uses and where each came from, and
 what draws diagrams, with a sample of headings, a table and an image drawn
 below. `kiri --doctor --raw` gives the report as Markdown without the
 sample, to paste into a bug report; piped to a file, the report is
-Markdown with the sample.
+Markdown with the sample. [The doctor report](docs/doctor.md) tells how to
+read it.
 
 A document longer than the window opens in a pager on a screen of its
 own, as `bat` does, so the shell's scrollback stays as it was; a shorter
@@ -200,6 +201,7 @@ is shown. Link navigation is planned.
 - [Architecture](docs/architecture.md)
 - [Configuration](docs/config.md)
 - [Diagrams](docs/diagrams.md)
+- [The doctor report](docs/doctor.md)
 - [Options](docs/options.md)
 - [Theme](docs/theme.md)
 - [Visual check](examples/visual-check.md) – a document for checking the
