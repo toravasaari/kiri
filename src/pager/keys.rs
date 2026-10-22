@@ -62,8 +62,8 @@ impl Action {
     }
 }
 
-/// The key that starts a command, as in `less`: the key after it is the
-/// command's, as [`Key::Command`].
+/// The key that starts a command, as in `less`, with several files: the
+/// key after it is the command's, as [`Key::Command`].
 pub const COMMAND: Key = Key::Char(':');
 
 /// The keys in `input`, all of it: a sequence cut off at the end is taken

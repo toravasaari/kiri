@@ -376,12 +376,14 @@ impl State {
             return false;
         }
         // The key after a colon is a command's, and any other closes it.
+        // The commands move between files, so a lone document has none
+        // and its colon does nothing.
         let key = match key {
             _ if std::mem::take(&mut self.colon) => match key {
                 Key::Char(c) => Key::Command(c),
                 _ => return false,
             },
-            keys::COMMAND => {
+            keys::COMMAND if layout.status.files.several() => {
                 self.colon = true;
                 return false;
             }
@@ -1243,6 +1245,21 @@ mod tests {
         assert!(at_file(&frames[6], "b.md", 5), "{frames:#?}");
         assert!(tells(&frames[7], " no next file "), "{frames:#?}");
         assert!(at_file(&frames[7], "b.md", 5), "{frames:#?}");
+    }
+
+    #[test]
+    fn a_colon_in_a_lone_document_does_nothing_and_lets_the_next_key_through() {
+        // :n there is n, which goes on to the next match.
+        let with_colon: &[&[u8]] = &[b":", b"j", b"/Line\r", b":n", b":"];
+        let without: &[&[u8]] = &[b"j", b"/Line\r", b"n"];
+        let frames = |reads| {
+            let mut terminal = Fake::new(40, 6, reads);
+            show(&numbers(30), &mut terminal);
+            terminal.frames()
+        };
+        let shown = frames(with_colon);
+        assert_eq!(shown, frames(without));
+        assert_eq!(shown.len(), 4, "{shown:#?}");
     }
 
     #[test]

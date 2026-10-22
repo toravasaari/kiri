@@ -299,14 +299,15 @@ document from the start.
 - In the pager the files are one stream, headers and all, so a search
   finds a term in any of them. The status line names the file at the top
   of the view, and `:n` and `:p` move to the next and the previous file,
-  as in `less`; Shift+PgDn and Shift+PgUp do the same. At the last file
-  the status line tells `no next file` instead, and at the start of the
-  first `no previous file`, until the next key. Some terminals
+  as in `less`; Shift+PgDn and Shift+PgUp do the same. Some terminals
   keep those keys for their own scrollback: Ghostty binds
   `shift+page_up=scroll_page_up` by default. There `:n` and `:p` still
   work, or `keybind = shift+page_up=unbind` and
   `keybind = shift+page_down=unbind` in Ghostty's configuration hand the
   keys to kiri.
+- `:n` at the last file tells `no next file` on the status line, and
+  `:p` at the start of the first `no previous file`, until the next key.
+  A single document has no other file, so there `:` does nothing.
 
 ### 4.10 More Markdown
 
