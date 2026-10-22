@@ -239,24 +239,47 @@ fn a_command_that_fails_leaves_the_code_with_a_warning() {
 }
 
 #[test]
-fn a_command_s_image_is_read_up_to_the_image_size_limit() {
+fn a_command_s_image_is_not_limited_by_the_image_size_limit() {
     let dir = Scratch::new("mermaid-external-large");
-    // An SVG of two megabytes, most of it spaces.
+    // An SVG of two megabytes, most of it spaces: --max-image-size is a
+    // limit on image files, not on what a program draws.
     let config = external(
         &dir,
         "{ printf '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"200\" height=\"40\">'\n\
          head -c 2000000 /dev/zero | tr '\\0' ' '\nprintf '</svg>'; } > \"$2\"\n",
     );
-    let out = with_settings(&dir, FLOWCHART, &["--max-image-size", "3"], None, &config);
+    let out = with_settings(&dir, FLOWCHART, &["--max-image-size", "1"], None, &config);
     assert_eq!(text(&out.stderr), "");
     assert_eq!(sent(&text(&out.stdout)).len(), 1);
-    let out = with_settings(&dir, FLOWCHART, &["--max-image-size", "1"], None, &config);
-    assert_eq!(
-        text(&out.stderr),
-        "kiri: mermaid diagram on line 3: sh wrote an image larger than the 1 MB limit; \
-         see --max-image-size\n"
+}
+
+#[test]
+fn a_large_png_from_a_command_is_drawn_again_whatever_the_image_size_limit() {
+    // At three pixels to the CSS pixel, a PNG of 9000 × 9000 pixels, more
+    // than kiri loads, in a file of two megabytes; at two, a small one.
+    let dir = Scratch::new("mermaid-external-large-png");
+    let calls = dir.join("calls");
+    let small =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/images/icon.png");
+    let script = format!(
+        "echo \"$3\" >> '{}'\ncase \"$3\" in\n\
+         3) {{ printf '\\211PNG\\r\\n\\032\\n\\000\\000\\000\\015IHDR\\000\\000\\043\\050\\000\\000\\043\\050\\010\\006\\000\\000\\000'\n\
+         head -c 2000000 /dev/zero; }} > \"$2\" ;;\n\
+         *) cp '{}' \"$2\" ;;\nesac\n",
+        calls.display(),
+        small.display()
     );
-    assert!(sent(&text(&out.stdout)).is_empty());
+    let path = dir.join("render.sh");
+    std::fs::write(&path, script).unwrap();
+    let config = format!(
+        "[diagrams.mermaid]\ncommand = [\"/bin/sh\", \"{}\", \"{{input}}\", \"{{output}}\", \"{{scale}}\"]\n",
+        path.display()
+    );
+    let out = with_settings(&dir, FLOWCHART, &["--max-image-size", "1"], None, &config);
+    assert_eq!(text(&out.stderr), "");
+    assert_eq!(sent(&text(&out.stdout)).len(), 1);
+    let calls = std::fs::read_to_string(&calls).unwrap();
+    assert_eq!(calls.split_whitespace().collect::<Vec<_>>(), ["3", "2"]);
 }
 
 #[test]

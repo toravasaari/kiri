@@ -117,11 +117,12 @@ cannot be used when it cannot. In the arguments:
 - `{input}` is the file of the diagram's source, which ends in `.mmd`
   for Mermaid;
 - `{output}` is the image file the program writes: SVG, or a raster
-  image such as PNG, which kiri tells apart by its content, and reads
-  only up to the size limit of an image file, `--max-image-size`. Its name
-  ends in `.png` when the command has `{scale}`, and in `.svg`
-  otherwise, so that a program such as `mmdc`, which writes the format
-  its output file's name ends in, writes the one kiri expects;
+  image such as PNG, which kiri tells apart by its content. kiri reads
+  at most 100 MB of it, whatever `--max-image-size` says, which limits
+  image files only. Its name ends in `.png` when the command has
+  `{scale}`, and in `.svg` otherwise, so that a program such as `mmdc`,
+  which writes the format its output file's name ends in, writes the one
+  kiri expects;
 - `{theme}` is the theme kiri chose: `default` or `dark` for Mermaid;
 - `{scale}` is `3`, the number of pixels to the CSS pixel that the
   program is to draw a raster image with. kiri shows such an image at a

@@ -27,6 +27,13 @@ use super::{Drawn, Renderer, Request};
 /// unless the configuration file says otherwise.
 pub const TIME_LIMIT: Duration = Duration::from_secs(20);
 
+/// The most bytes of an image that a program writes that kiri reads: as
+/// many as the largest image file `--max-image-size` lets it read, a guard
+/// only against a program that runs away. That option limits image files
+/// alone; the pixel limit and the drawing at a smaller scale take care of
+/// a large PNG.
+pub const MAX_IMAGE_SIZE: u64 = 100 * crate::images::MB;
+
 /// How many programs draw diagrams at once.
 pub const AT_ONCE: usize = 4;
 
@@ -133,7 +140,8 @@ pub struct ExternalSettings {
     /// How long a program may take to draw one diagram before it is
     /// stopped.
     pub time_limit: Duration,
-    /// The most bytes of an image that is read.
+    /// The most bytes of an image that is read; by default
+    /// [`MAX_IMAGE_SIZE`].
     pub max_size: u64,
     /// Where the directories for the programs' files go, made when it is
     /// needed, for the user alone, such as `diagrams` in kiri's cache
@@ -154,7 +162,7 @@ impl ExternalSettings {
     pub fn new(temp_dir: PathBuf) -> Self {
         ExternalSettings {
             time_limit: TIME_LIMIT,
-            max_size: crate::images::DEFAULT_MAX_FILE_SIZE,
+            max_size: MAX_IMAGE_SIZE,
             work_dir: None,
             temp_dir,
             stop: None,
@@ -332,7 +340,7 @@ impl External {
         match File::open(output).and_then(|file| crate::images::read_at_most(file, limit)) {
             Ok(Some(bytes)) => Ok(bytes),
             Ok(None) => Err(format!(
-                "{program} wrote an image larger than the {} limit; see --max-image-size",
+                "{program} wrote an image larger than the {} limit",
                 crate::images::size(limit)
             )),
             Err(error) if error.kind() == ErrorKind::NotFound => {
@@ -914,9 +922,7 @@ mod tests {
         let renderer = limited("printf '%0101d' 0 > \"$2\"\n");
         assert_eq!(
             renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)),
-            Err(
-                "sh wrote an image larger than the 100-byte limit; see --max-image-size".to_owned()
-            )
+            Err("sh wrote an image larger than the 100-byte limit".to_owned())
         );
         assert_eq!(left(&scratch), Vec::<PathBuf>::new());
     }

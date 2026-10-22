@@ -99,7 +99,6 @@ fn renderers(
     );
     let mut external = ExternalSettings {
         time_limit: settings.diagram_timeout,
-        max_size: loading.max_file_size,
         work_dir: config::cache_directory(env).map(|cache| cache.join("diagrams")),
         ..ExternalSettings::new(config::temp_directory(env))
     };
