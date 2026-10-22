@@ -5,8 +5,9 @@ kiri takes its colours and heading sizes from a theme: a file given with
 [paper theme](#paper-themes) chosen with `--light` or `--dark`, or else
 `~/.config/kiri/theme.toml` (or `$XDG_CONFIG_HOME/kiri/theme.toml`) when it
 exists. [Configuration](config.md#theme) gives the order. Every key is
-optional; the ones you leave out keep the defaults below. A mistake in the
-file is an error, not silently ignored.
+optional; the ones you leave out keep the defaults below. If the file has
+a mistake, kiri stops and tells which key is wrong, for example
+`unknown colour "pink" for h2.background`.
 
 ## All headings at once
 
