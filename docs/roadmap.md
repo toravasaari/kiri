@@ -285,13 +285,21 @@ document from the start.
 - `kiri some/dir` shows the directory's `README.md`, or else its
   `README`, as GitHub does.
 
-#### 4.9.2 Several files
+#### 4.9.2 Several files (done)
 
 - Several files on the command line, as the shell expands `kiri *.md` or
-  `kiri *.jpg`, shown one after another, each headed by its file name as
-  `bat` does. Images are shown at full size; 4.12.3 adds a grid of them.
-- In the pager, keys that move to the next and the previous file, as
-  `:n` and `:p` do in `less`.
+  `kiri *.jpg`, shown one after another in the order given, each under a
+  header that names it, as `bat` does. Each is shown as it would be on its
+  own, so an image is fitted to the window together with its header;
+  4.12.3 adds a grid of them. A file that cannot be shown is reported,
+  the others are still shown, and kiri exits with an error.
+- Files that are all images or diagram files go to the pager only with
+  `-p`, as a piped document does. With a document among them, the paging
+  setting applies to all of them.
+- In the pager the files are one stream, headers and all, so a search
+  finds a term in any of them. The status line names the file at the top
+  of the view, and `:n` and `:p` move to the next and the previous file,
+  as in `less`.
 
 ### 4.10 More Markdown
 
