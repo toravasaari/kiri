@@ -106,10 +106,10 @@ knows nothing about terminals, so an HTML backend could use the same
 image.
 
 The dependency between `src/diagrams/` and `src/images/` is not yet one
-way. `External` takes the image loader's size limits, `MAX_PIXELS` and
-`DEFAULT_MAX_FILE_SIZE`, its `png_size`, `read_at_most` and the wording
-of a size limit, `size`, and merman's tests decode its SVG with the
-loader. These move to a module of their own when a second language, in
+way. `External` takes the image loader's pixel limit `MAX_PIXELS`, its
+unit `MB`, its `png_size`, `read_at_most` and the wording of a size
+limit, `size`, and merman's tests decode its SVG with the loader. These
+move to a module of their own when a second language, in
 4.3.2, shows what the two share.
 
 What kiri knows about each language is one entry of `LANGUAGES`, a
