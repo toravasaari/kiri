@@ -437,8 +437,9 @@ fn the_files_tell_where_their_paths_come_from() {
 
 #[test]
 fn the_files_tell_where_diagram_programs_work() {
-    // A short name, so that a cache directory in it is short enough.
-    let dir = Scratch::new("dw");
+    // A short path, whatever TMPDIR is, so that a cache directory in it
+    // is short enough.
+    let dir = Scratch::in_dir(Path::new("/tmp"), "dw");
     write(&dir.join("home/file"), "");
     std::fs::create_dir_all(dir.join("home/tmp")).unwrap();
     let rows = |cache: Option<&Path>| {
@@ -462,7 +463,7 @@ fn the_files_tell_where_diagram_programs_work() {
     let work = cache.join("kiri/diagrams");
     assert!(
         work.as_os_str().len() <= 49,
-        "the tests need a shorter TMPDIR"
+        "the scratch directory's path is too long"
     );
     assert_eq!(
         rows(Some(&cache)),
