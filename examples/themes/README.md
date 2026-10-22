@@ -16,5 +16,5 @@ kiri --theme examples/themes/rules.toml tests/fixtures/headings.md
 
 To check a theme by eye on the cases that have broken before, render
 [`examples/visual-check.md`](../visual-check.md) with it, and
-[`examples/visual-check-images.md`](../visual-check-images.md) for images
+[`examples/S06a-images.md`](../S06a-images.md) for images
 on the theme's background.

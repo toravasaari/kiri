@@ -33,10 +33,7 @@ fn the_visual_check_documents_fit_every_mode() {
     // without the full set of image formats also warns about the six
     // images in the formats it leaves out.
     let left_out = if cfg!(feature = "full") { 0 } else { 6 };
-    for (name, warnings) in [
-        ("visual-check.md", 1),
-        ("visual-check-images.md", 5 + left_out),
-    ] {
+    for (name, warnings) in [("visual-check.md", 1), ("S06a-images.md", 5 + left_out)] {
         let source = std::fs::read_to_string(examples.join(name)).unwrap();
         let document = kiri::parse::parse(&source);
         // Layout needs only the sizes of the images, so it gets the real

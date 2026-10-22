@@ -16,11 +16,11 @@ View it with the default theme, on a document background, on the light
 and dark paper themes, and without colours:
 
 ```sh
-cargo run -- examples/visual-check-images.md
-cargo run -- --theme examples/themes/opaque.toml examples/visual-check-images.md
-cargo run -- --light examples/visual-check-images.md
-cargo run -- --dark examples/visual-check-images.md
-NO_COLOR=1 cargo run -- examples/visual-check-images.md
+cargo run -- examples/S06a-images.md
+cargo run -- --theme examples/themes/opaque.toml examples/S06a-images.md
+cargo run -- --light examples/S06a-images.md
+cargo run -- --dark examples/S06a-images.md
+NO_COLOR=1 cargo run -- examples/S06a-images.md
 ```
 
 Transparent parts of images show the page behind them: the terminal's
