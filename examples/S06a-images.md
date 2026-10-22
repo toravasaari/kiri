@@ -1,8 +1,8 @@
-# Visual check: images
+# Images
 
 A document for checking kiri's images by eye in a real kitty window, beside
-[`visual-check.md`](visual-check.md), which shows one image of each format.
-Each section says what you should see; anything else is a bug.
+[`README.md`](README.md), which shows one PNG. Each section says what you
+should see; anything else is a bug.
 
 Images show in kitty unless turned off with `-I`, `KIRI_NO_IMAGES` or the
 [configuration file](../docs/config.md). Elsewhere, and when an image cannot
@@ -116,7 +116,10 @@ with a transparent background:
 
 ![Palette with transparency](../tests/fixtures/images/pngsuite/tbbn3p08.png)
 
-A lossless WebP of a grey noise pattern:
+A lossy WebP, about 30 columns wide, and a lossless one of a grey noise
+pattern:
+
+![Lossy WebP](../tests/fixtures/images/lossy.webp)
 
 ![Lossless WebP](../tests/fixtures/images/lossless.webp)
 

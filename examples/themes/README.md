@@ -15,6 +15,7 @@ kiri --theme examples/themes/rules.toml tests/fixtures/headings.md
 | `opaque.toml` | A solid document background instead of the terminal's |
 
 To check a theme by eye on the cases that have broken before, render
-[`examples/visual-check.md`](../visual-check.md) with it, and
-[`examples/S06a-images.md`](../S06a-images.md) for images
-on the theme's background.
+[`examples/README.md`](../README.md) with it, then the topic documents
+`examples/S*.md` for the details, and
+[`examples/S06a-images.md`](../S06a-images.md) for images on the theme's
+background.

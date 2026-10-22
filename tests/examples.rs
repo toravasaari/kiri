@@ -29,11 +29,24 @@ fn the_visual_check_documents_fit_every_mode() {
         Theme::paper(Paper::Light),
         Theme::paper(Paper::Dark),
     ];
-    // Each document says which of its images kiri warns about. A build
-    // without the full set of image formats also warns about the six
-    // images in the formats it leaves out.
+    // The baseline and every topic document. Each says which of its images
+    // kiri warns about: the baseline none, the images document the five in
+    // its last section, and a build without the full set of image formats
+    // also warns about the six images in the formats it leaves out.
     let left_out = if cfg!(feature = "full") { 0 } else { 6 };
-    for (name, warnings) in [("visual-check.md", 1), ("S06a-images.md", 5 + left_out)] {
+    let mut names = vec!["README.md".to_owned()];
+    for entry in std::fs::read_dir(&examples).unwrap() {
+        let name = entry.unwrap().file_name().into_string().unwrap();
+        if name.starts_with('S') && name.ends_with(".md") {
+            names.push(name);
+        }
+    }
+    names.sort();
+    for name in &names {
+        let warnings = match name.as_str() {
+            "S06a-images.md" => 5 + left_out,
+            _ => 0,
+        };
         let source = std::fs::read_to_string(examples.join(name)).unwrap();
         let document = kiri::parse::parse(&source);
         // Layout needs only the sizes of the images, so it gets the real
