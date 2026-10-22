@@ -65,14 +65,22 @@ pub fn parse(text: &str) -> Result<Theme, String> {
     set_color(&mut theme.list_marker, file.list_marker, "list_marker")?;
     set_color(&mut theme.table_border, file.table_border, "table_border")?;
     set_color(&mut theme.error, file.error, "error")?;
-    for (target, name) in [
-        (&mut theme.code_theme_dark, file.code_theme_dark),
-        (&mut theme.code_theme_light, file.code_theme_light),
+    for (target, name, key) in [
+        (
+            &mut theme.code_theme_dark,
+            file.code_theme_dark,
+            "code_theme_dark",
+        ),
+        (
+            &mut theme.code_theme_light,
+            file.code_theme_light,
+            "code_theme_light",
+        ),
     ] {
         let Some(name) = name else { continue };
         if !CODE_THEMES.contains(&name.as_str()) {
             return Err(format!(
-                "unknown code theme \"{name}\"; available: {}",
+                "unknown code theme \"{name}\" for {key}; available: {}",
                 CODE_THEMES.join(", ")
             ));
         }
@@ -234,7 +242,7 @@ fn apply_heading(
         heading.rule = rule;
     }
     if let Some(underline) = &overrides.underline {
-        heading.underline = parse_underline(underline)?;
+        heading.underline = parse_underline(underline, &format!("{table}.underline"))?;
     }
     set_color(
         &mut heading.background,
@@ -362,7 +370,8 @@ fn set_keyword_or_color<T>(
     Ok(())
 }
 
-fn parse_underline(value: &str) -> Result<Underline, String> {
+/// The underline style `value` of `key`, or an error that names the key.
+fn parse_underline(value: &str, key: &str) -> Result<Underline, String> {
     Ok(match value {
         "none" => Underline::None,
         "single" => Underline::Single,
@@ -372,7 +381,8 @@ fn parse_underline(value: &str) -> Result<Underline, String> {
         "dashed" => Underline::Dashed,
         _ => {
             return Err(format!(
-                "unknown underline \"{value}\"; use none, single, double, curly, dotted or dashed"
+                "unknown underline \"{value}\" for {key}; use none, single, double, curly, dotted \
+                 or dashed"
             ));
         }
     })
@@ -652,7 +662,7 @@ mod tests {
         assert_eq!(
             parse("code_theme_dark = \"nope\"\n").unwrap_err(),
             format!(
-                "unknown code theme \"nope\"; available: {}",
+                "unknown code theme \"nope\" for code_theme_dark; available: {}",
                 names.join(", ")
             )
         );
@@ -686,6 +696,25 @@ mod tests {
             CodeBackground::Color(Some(Color::Palette(4)))
         );
         assert_eq!(parsed("none"), CodeBackground::Color(None));
+    }
+
+    #[test]
+    fn an_underline_or_code_theme_that_is_wrong_names_its_key() {
+        let error = |file: &str| parse(&format!("{file}\n")).unwrap_err();
+        let underline = "; use none, single, double, curly, dotted or dashed";
+        assert_eq!(
+            error("[h2]\nunderline = \"wavy\""),
+            format!("unknown underline \"wavy\" for h2.underline{underline}")
+        );
+        assert_eq!(
+            error("[headings]\nunderline = \"wavy\""),
+            format!("unknown underline \"wavy\" for headings.underline{underline}")
+        );
+        for key in ["code_theme_dark", "code_theme_light"] {
+            let error = error(&format!("{key} = \"nope\""));
+            let start = format!("unknown code theme \"nope\" for {key}; available: ");
+            assert!(error.starts_with(&start), "{error}");
+        }
     }
 
     #[test]
