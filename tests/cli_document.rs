@@ -5,7 +5,7 @@ use std::process::Stdio;
 
 mod common;
 
-use common::{Scratch, command, text, write};
+use common::{Scratch, colour_codes, command, fixture, kiri, shown, text, write};
 
 #[test]
 fn a_document_that_cannot_be_read_is_an_error() {
@@ -71,6 +71,46 @@ fn no_color_turns_colours_off_in_a_forced_mode_too() {
         // Bold stays.
         assert!(stdout.contains("\x1b[0;1"), "{no_color:?}: {stdout:?}");
     }
+}
+
+#[test]
+fn without_colours_marked_text_is_in_reverse_video() {
+    // The whole way from NO_COLOR, with a theme that colours marks.
+    let dir = Scratch::new("mark-without-colours");
+    let theme = dir.join("theme.toml");
+    std::fs::write(
+        &theme,
+        "[mark]\nforeground = \"#101010\"\nbackground = \"#fff8c5\"\n",
+    )
+    .unwrap();
+    let document = dir.join("marked.md");
+    std::fs::write(&document, "Some <mark>marked</mark> text\n").unwrap();
+    let out = command(&dir)
+        .env("NO_COLOR", "1")
+        .args(["--mode", "kitty", "--theme"])
+        .arg(&theme)
+        .arg(&document)
+        .output()
+        .unwrap();
+    let out = shown(&out);
+    assert!(out.contains("\x1b[0;7mmarked\x1b[0m"), "{out:?}");
+    assert!(colour_codes(&out).is_empty(), "{out:?}");
+}
+
+#[test]
+fn front_matter_that_does_not_parse_is_a_warning() {
+    let dir = Scratch::new("front-matter-warning");
+    let out = kiri(
+        &dir,
+        &fixture("front-matter-invalid.md"),
+        &["--mode", "plain"],
+    );
+    assert!(out.status.success());
+    assert_eq!(
+        text(&out.stderr),
+        "kiri: front matter, line 4: while parsing a flow sequence, expected ',' or ']'\n"
+    );
+    assert!(text(&out.stdout).contains("tags: [does, not, close"));
 }
 
 #[test]

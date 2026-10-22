@@ -71,41 +71,30 @@ pub struct Fade<'a> {
 }
 
 impl Fade<'_> {
-    /// `from` faded as far into `to` as the fade has come; `to` at once
-    /// where their colours are not known as RGB.
+    /// `from` faded as far into `to` as the fade has come, their colours
+    /// mixed as RGB; `to` at once where either's colours are not known as
+    /// RGB.
     pub fn step(&self, from: &Style, to: &Style) -> Style {
-        step(from, to, self.elapsed, self.rgb)
+        self.mix(from, to).unwrap_or_else(|| to.clone())
     }
 
-    /// `from` faded as far into `to` as the fade has come; `None` where
-    /// their colours are not known as RGB.
+    /// `from` faded as far into `to` as the fade has come, their colours
+    /// mixed as RGB, in `to`'s bold, underline and the rest all the way;
+    /// `None` where either's colours are not known as RGB.
     pub fn mix(&self, from: &Style, to: &Style) -> Option<Style> {
-        mix(from, to, self.elapsed, self.rgb)
+        if self.elapsed >= FADE {
+            return Some(to.clone());
+        }
+        let rgb = self.rgb?;
+        let ((fg_from, bg_from), (fg_to, bg_to)) = (rgb.colors(from)?, rgb.colors(to)?);
+        let amount = self.elapsed.as_secs_f32() / FADE.as_secs_f32();
+        Some(Style {
+            fg: fg_from.mix(fg_to, amount),
+            bg: bg_from.mix(bg_to, amount),
+            reverse: false,
+            ..to.clone()
+        })
     }
-}
-
-/// `from` faded into `to` for `elapsed` of [`FADE`], their colours mixed
-/// with `rgb`. Where either's colours are not known as RGB, `to` at once.
-pub fn step(from: &Style, to: &Style, elapsed: Duration, rgb: Option<&Rgb>) -> Style {
-    mix(from, to, elapsed, rgb).unwrap_or_else(|| to.clone())
-}
-
-/// `from` faded into `to` for `elapsed` of [`FADE`], their colours mixed
-/// with `rgb`, in `to`'s bold, underline and the rest all the way; `None`
-/// where either's colours are not known as RGB.
-fn mix(from: &Style, to: &Style, elapsed: Duration, rgb: Option<&Rgb>) -> Option<Style> {
-    if elapsed >= FADE {
-        return Some(to.clone());
-    }
-    let rgb = rgb?;
-    let ((fg_from, bg_from), (fg_to, bg_to)) = (rgb.colors(from)?, rgb.colors(to)?);
-    let amount = elapsed.as_secs_f32() / FADE.as_secs_f32();
-    Some(Style {
-        fg: fg_from.mix(fg_to, amount),
-        bg: bg_from.mix(bg_to, amount),
-        reverse: false,
-        ..to.clone()
-    })
 }
 
 #[cfg(test)]
@@ -118,6 +107,14 @@ mod tests {
         caps.background = Some(Color::Rgb(0, 0, 0));
         caps.palette[3] = Some(Color::Rgb(200, 200, 0));
         Rgb::new(&Theme::default(), &caps).unwrap()
+    }
+
+    /// A fade `millis` milliseconds in, mixing with `rgb`.
+    fn fade(millis: u64, rgb: Option<&Rgb>) -> Fade<'_> {
+        Fade {
+            elapsed: Duration::from_millis(millis),
+            rgb,
+        }
     }
 
     fn colored(fg: Option<Color>, bg: Option<Color>) -> Style {
@@ -179,7 +176,8 @@ mod tests {
             reverse: true,
             ..from.clone()
         };
-        let at = |millis| step(&from, &to, Duration::from_millis(millis), Some(&rgb()));
+        let rgb = rgb();
+        let at = |millis| fade(millis, Some(&rgb)).step(&from, &to);
         let yellow = Some(Color::Rgb(200, 200, 0));
         let black = Some(Color::Rgb(0, 0, 0));
         let start = at(0);
@@ -207,7 +205,7 @@ mod tests {
         };
         let mut rgb = rgb();
         rgb.palette[0] = Some(Color::Rgb(0, 0, 0));
-        let at = |millis| step(&from, &to, Duration::from_millis(millis), Some(&rgb));
+        let at = |millis| fade(millis, Some(&rgb)).step(&from, &to);
         let start = at(0);
         assert_eq!(
             (start.fg, start.bg),
@@ -239,8 +237,8 @@ mod tests {
             (unknown.clone(), None),
             (unknown, Some(&rgb())),
         ] {
-            assert_eq!(step(&from, &to, Duration::ZERO, rgb), to);
-            assert_eq!(step(&from, &to, Duration::from_millis(400), rgb), to);
+            assert_eq!(fade(0, rgb).step(&from, &to), to);
+            assert_eq!(fade(400, rgb).step(&from, &to), to);
         }
     }
 }
