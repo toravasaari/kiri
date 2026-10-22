@@ -25,6 +25,13 @@ kiri --dark examples
 NO_COLOR=1 kiri examples
 ```
 
+To page through it with each example theme in turn, where `q` moves on to
+the next theme:
+
+```sh
+for theme in examples/themes/*.toml; do kiri -p --theme "$theme" examples; done
+```
+
 On paper, the document lies on a white or dark grey page as wide as the
 window, and everything but the code blocks, the alerts and the images is
 in greys: no blue headings or links, no magenta inline code.
