@@ -215,6 +215,17 @@ current_background = "auto"
 [mark]
 foreground = "black"
 background = "yellow"
+
+# The header above each of several files: a band across the text, a row
+# above and below the name, with a bar down its left edge. background is
+# a colour, none, or auto: a little of the text colour mixed into the
+# page, where kiri knows the page as RGB; where it does not, the header
+# has no band. Without colours, as with NO_COLOR, the bar is in the text
+# colour and there is no band. Plain text, as in a pipe, gets the name
+# between arrows instead, such as ==> docs/spec.md <==.
+[file_header]
+background = "auto"
+bar = "blue"
 ```
 
 ## Paper themes
@@ -222,12 +233,12 @@ background = "yellow"
 `--light` and `--dark` choose a built-in theme that draws the document on a
 page of fixed colours, as a browser does, whatever your terminal's colour
 scheme. The page is in greys only: headings, links, quotes, rules, tables,
-inline code and marked text differ in shade, weight and underline, not in
-colour. Code blocks keep their colours, from a code theme that matches the
-page, and a message kiri writes into the document, such as why a diagram
-could not be drawn, is red so that it stands out. Muted text, such as
-image alt text, is a grey that keeps a contrast of at least 4.5:1 against
-the page, instead of the terminal's dim text.
+inline code, marked text and the headers of several files differ in shade,
+weight and underline, not in colour. Code blocks keep their colours, from a
+code theme that matches the page, and a message kiri writes into the document,
+such as why a diagram could not be drawn, is red so that it stands out. Muted
+text, such as image alt text, is a grey that keeps a contrast of at least
+4.5:1 against the page, instead of the terminal's dim text.
 
 The paper themes are the defaults above with these changes. To change one,
 start a theme file of your own from its keys.
@@ -270,6 +281,10 @@ current_background = "#1f1f1f"
 [mark]
 foreground = "#000000"
 background = "#dcdcdc"
+
+[file_header]
+background = "#ececec"
+bar = "#1f1f1f"
 ```
 
 ### Dark paper
@@ -310,6 +325,10 @@ current_background = "#d4d4d4"
 [mark]
 foreground = "#ffffff"
 background = "#4a4a4a"
+
+[file_header]
+background = "#2e2e2e"
+bar = "#d4d4d4"
 ```
 
 The [example themes](../examples/themes/README.md) try out variations of the

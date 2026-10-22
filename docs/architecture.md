@@ -54,6 +54,22 @@ The document can also come from standard input, which errors call
 resolved in `src/main.rs`, before `src/input.rs` looks at the bytes, so
 an image piped in is shown on its own as well.
 
+Several files on the command line are shown one after another, each
+under a header that names it. Each is read as it would be on its own,
+and a file that cannot be read or shown is told about while the others
+are still shown. In the document model they are `File`s, each a name
+and a document; an image file, or a diagram file that is drawn, is a
+document of one `Block::ImageFile`, whose pixels kiri reads itself and
+keys by the file's name. The layout gives each file its header and
+keeps where each one starts. The documents' images load together, each
+document's relative to its own directory, under keys that carry the
+document's number among the files. Files that are each shown on their own,
+as images are, go to the pager only when paging is `always`; with a
+document among them, the files are paged as one document is. The pager
+then shows them as one stream, headers and all, so a search finds a
+term in any of them, and reads every image file before it opens; when
+they are printed, an image file is read only as it is shown.
+
 There is one terminal backend, not one per terminal. It lays the model out
 as styled lines of a fixed width, then writes those as bytes. What it may
 use comes from the capabilities it is given: plain text for pipes, colours
@@ -68,12 +84,14 @@ keeps the search term as it is typed, and `src/pager/search.rs` finds it
 in the laid-out lines and splits a line where a match starts and ends, so
 the matches can be highlighted without a change to the writer;
 `src/pager/fade.rs` mixes the colours a match fades through after a jump;
-`src/pager/status.rs` and `src/pager/help.rs` make the status line and the
-help panel as styled spans; `src/pager/mod.rs` draws each frame, row by
-row through the backend's writer, and lays the document out again when the
-window changes size. The terminal itself, the alternate screen, raw mode
-and reading keys from the controlling terminal, is opened in
-`src/term/screen.rs`.
+`src/pager/files.rs` knows where each of several files starts, so the
+status line names the file at the top of the view and `:n` and `:p` move
+from one file's start to another's; `src/pager/status.rs` and
+`src/pager/help.rs` make the status line and the help panel as styled
+spans; `src/pager/mod.rs` draws each frame, row by row through the
+backend's writer, and lays the document out again when the window changes
+size. The terminal itself, the alternate screen, raw mode and reading keys
+from the controlling terminal, is opened in `src/term/screen.rs`.
 
 ## Diagrams
 
@@ -82,21 +100,22 @@ with its language, so the parser knows nothing about renderers and a
 diagram that cannot be drawn is shown as the code it already is. Whether
 it is drawn is decided when images are loaded. `src/images/mod.rs` keys
 each image by an `ImageKey`, a URL or a block (its language, in lower
-case, and its source), and collects the code blocks whose language a
-renderer draws besides the lone images. It hands all of a document's
-diagrams to the renderer at once, then `src/images/drawn.rs` decodes
-each image it gets back by its content, as it decodes an image file, so
-sizing, the width limit and redrawing after a window resize work as for
-any image. An SVG is decoded as an SVG file is; a raster image, such as
-the PNG of a browser's drawing, becomes `Source::Dense`, pixels with
-their size in CSS pixels, so that it is sized in CSS pixels as an SVG
-is. Its pixels are reduced there to the most an image can be shown at,
-as many cells as one image covers each way, so that a large diagram
-holds no more memory than showing it needs; its size in CSS pixels
-stays. There it also grows an SVG diagram whose text runs past its
-edges, and lays one drawn in colours for the other page, light or dark,
-on a panel of its own background, after the reduction, so the panel's
-copy is small too.
+case, and its source), with the number of the document it is in, so
+that documents shown together keep their own images, and collects the
+code blocks whose language a renderer draws besides the lone images. It
+hands all of a document's diagrams to the renderer at once, then
+`src/images/drawn.rs` decodes each image it gets back by its content,
+as it decodes an image file, so sizing, the width limit and redrawing
+after a window resize work as for any image. An SVG is decoded as an
+SVG file is; a raster image, such as the PNG of a browser's drawing,
+becomes `Source::Dense`, pixels with their size in CSS pixels, so that
+it is sized in CSS pixels as an SVG is. Its pixels are reduced there to
+the most an image can be shown at, as many cells as one image covers
+each way, so that a large diagram holds no more memory than showing
+it needs; its size in CSS pixels stays. There it also grows an SVG
+diagram whose text runs past its edges, and lays one drawn in colours
+for the other page, light or dark, on a panel of its own background,
+after the reduction, so the panel's copy is small too.
 
 Renderers live in `src/diagrams/`, outside `src/kitty/` and the parser.
 A renderer implements the `Renderer` trait: whether it draws a language,
@@ -281,7 +300,8 @@ src/diagrams/find.rs       finding a command, such as mmdc, when none is
                            configured
 src/color.rs               colours and underline styles for theme and render
 src/render/mod.rs          document model -> terminal output
-src/render/layout/mod.rs   document model -> styled lines of a fixed width
+src/render/layout/mod.rs   document model -> styled lines of a fixed width;
+                           files under their headers
 src/render/layout/code.rs  code blocks and their language label
 src/render/layout/list.rs  bullet, numbered and task lists
 src/render/layout/quote.rs block quotes
@@ -302,6 +322,7 @@ src/pager/keys.rs          keys from the terminal and what they do
 src/pager/prompt.rs        the search prompt on the status line
 src/pager/search.rs        search matches in the laid-out lines
 src/pager/fade.rs          a style fading into another after a jump
+src/pager/files.rs         where each of several files starts in the stream
 src/pager/status.rs        the status line
 src/pager/help.rs          the help panel that lists the keys
 src/kitty/mod.rs           kitty-specific escape sequences

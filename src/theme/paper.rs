@@ -1,7 +1,8 @@
 //! The paper themes: the document as a page of fixed greys.
 
 use super::{
-    CodeBackground, MarkTheme, SearchColor, SearchTheme, StatusColor, StatusLineTheme, Theme,
+    BandColor, CodeBackground, FileHeaderTheme, MarkTheme, SearchColor, SearchTheme, StatusColor,
+    StatusLineTheme, Theme,
 };
 use crate::color::Color;
 
@@ -39,6 +40,9 @@ struct PaperColors {
     /// the pager's matches stand out from it.
     marked: Option<Color>,
     marked_text: Option<Color>,
+    /// The band of a file's header: a little apart from the page, so that
+    /// muted text keeps a contrast near 4.5:1 on it.
+    band: Option<Color>,
     /// Messages kiri writes into the document: the one colour outside
     /// code blocks, as they should stand out.
     error: Option<Color>,
@@ -67,6 +71,7 @@ impl Theme {
                 found_text: grey(0x00),
                 marked: grey(0xdc),
                 marked_text: grey(0x00),
+                band: grey(0xec),
                 error: Some(Color::Rgb(0xb3, 0x26, 0x1e)),
             },
             Paper::Dark => PaperColors {
@@ -86,6 +91,7 @@ impl Theme {
                 found_text: grey(0xff),
                 marked: grey(0x4a),
                 marked_text: grey(0xff),
+                band: grey(0x2e),
                 error: Some(Color::Rgb(0xff, 0x78, 0x6e)),
             },
         };
@@ -121,6 +127,12 @@ impl Theme {
             mark: MarkTheme {
                 foreground: colors.marked_text,
                 background: colors.marked,
+            },
+            // The bar in the text's colour, the strongest on the page
+            // besides headings.
+            file_header: FileHeaderTheme {
+                background: BandColor::Color(colors.band),
+                bar: colors.text,
             },
             ..Self::default()
         };
@@ -203,7 +215,12 @@ mod tests {
             theme.table_border,
             theme.mark.foreground,
             theme.mark.background,
+            theme.file_header.bar,
         ];
+        match theme.file_header.background {
+            BandColor::Color(color) => colors.push(color),
+            BandColor::Auto => panic!("the file header's band is mixed from the page"),
+        }
         match theme.inline_code_background {
             CodeBackground::Color(color) => colors.push(color),
             CodeBackground::CodeBlock => panic!("inline code takes the code block's colour"),
@@ -267,6 +284,18 @@ mod tests {
             assert!(ratio >= 4.5, "{paper:?}: {ratio}");
             // Muted, but not as strong as the text.
             assert!(ratio < contrast(theme.foreground, theme.background));
+        }
+    }
+
+    #[test]
+    fn paper_themes_keep_the_directory_in_a_file_header_readable() {
+        for paper in [Paper::Light, Paper::Dark] {
+            let theme = Theme::paper(paper);
+            let BandColor::Color(band) = theme.file_header.background else {
+                panic!("{paper:?}: the band is auto");
+            };
+            let ratio = contrast(theme.muted, band);
+            assert!(ratio >= 4.0, "{paper:?}: {ratio}");
         }
     }
 

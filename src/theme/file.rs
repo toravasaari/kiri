@@ -5,8 +5,8 @@ use std::path::Path;
 use serde::Deserialize;
 
 use super::{
-    AlertColor, AlertColors, AlertTheme, CODE_THEMES, CodeBackground, HeadingTheme, LabelColor,
-    SearchColor, StatusColor, Theme,
+    AlertColor, AlertColors, AlertTheme, BandColor, CODE_THEMES, CodeBackground, HeadingTheme,
+    LabelColor, SearchColor, StatusColor, Theme,
 };
 use crate::color::{Color, Underline};
 
@@ -157,6 +157,16 @@ pub fn parse(text: &str) -> Result<Theme, String> {
             )?;
         }
     }
+    if let Some(header) = file.file_header {
+        set_keyword_or_color(
+            &mut theme.file_header.background,
+            header.background,
+            ("auto", BandColor::Auto),
+            BandColor::Color,
+            "file_header.background",
+        )?;
+        set_color(&mut theme.file_header.bar, header.bar, "file_header.bar")?;
+    }
     if let Some(mark) = file.mark {
         set_color(
             &mut theme.mark.foreground,
@@ -289,6 +299,14 @@ struct ThemeFile {
     status_line: Option<StatusLineFile>,
     search: Option<SearchFile>,
     mark: Option<MarkFile>,
+    file_header: Option<FileHeaderFile>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FileHeaderFile {
+    background: Option<String>,
+    bar: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -435,7 +453,7 @@ fn parse_color(value: &str) -> Option<Option<Color>> {
 mod tests {
     use super::*;
     use crate::model::AlertKind;
-    use crate::theme::{MarkTheme, SearchTheme, StatusLineTheme};
+    use crate::theme::{FileHeaderTheme, MarkTheme, SearchTheme, StatusLineTheme};
 
     #[test]
     fn the_documented_defaults_are_the_defaults() {
@@ -469,6 +487,23 @@ mod tests {
             }
         );
         assert!(parse("[status_line]\nbar = \"red\"\n").is_err());
+    }
+
+    #[test]
+    fn the_file_header_takes_a_band_colour_or_auto_and_a_bar_colour() {
+        let theme = parse("[file_header]\nbackground = \"#303030\"\nbar = \"none\"\n").unwrap();
+        assert_eq!(
+            theme.file_header,
+            FileHeaderTheme {
+                background: BandColor::Color(Some(Color::Rgb(0x30, 0x30, 0x30))),
+                bar: None,
+            }
+        );
+        let theme = parse("[file_header]\nbackground = \"auto\"\nbar = \"red\"\n").unwrap();
+        assert_eq!(theme.file_header.background, BandColor::Auto);
+        assert_eq!(theme.file_header.bar, Some(Color::Palette(1)));
+        assert!(parse("[file_header]\nbar = \"auto\"\n").is_err());
+        assert!(parse("[file_header]\nname = \"bold\"\n").is_err());
     }
 
     #[test]

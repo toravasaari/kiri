@@ -25,6 +25,7 @@ that is not a terminal gets plain text.
 make release
 target/release/kiri README.md
 target/release/kiri photo.jpg
+target/release/kiri docs/*.md
 some-command | target/release/kiri
 ```
 
@@ -135,6 +136,13 @@ input, so another command's output can be piped into it; images in it are
 relative to the current directory. A directory shows its `README.md`, or
 else its `README`, as GitHub does.
 
+Several files, such as `kiri docs/*.md` or `kiri photos/*.jpg`, are shown
+one after another, each under a header with its name, as `bat` shows
+them. Each is shown as it would be on its own, so an image is fitted to
+the window together with its header. A file that cannot be shown is
+reported at its place among the others, which are still shown; in the
+pager it keeps its header, with the reason below it.
+
 Images come from `data:` URLs and local files: absolute paths, paths
 relative to the document and `file:` URLs, with any `?query` or `#fragment`
 left out as in a browser. kiri reads only regular files up to the
@@ -161,13 +169,21 @@ read it.
 
 A document longer than the window opens in a pager on a screen of its
 own, as `bat` does, so the shell's scrollback stays as it was; a shorter
-one is printed, and so is a document piped in, unless `-p` asks for the
-pager. The pager takes the keys of `less` for now: `j` and `k` or
-the arrow keys for a line, space and `b` for a page, `d` and `u` for half a
-page, `g` and `G` for the start and the end, and `q` to quit; `?` or `h`
-lists them. The mouse wheel scrolls too. Large headings scroll in and out
-whole. A status line at the bottom shows the document's name and how far
-down it you are.
+one is printed, and so is a document piped in or a set of files that are
+all images or diagrams, unless `-p` asks for the pager. The pager takes
+the keys of `less` for now: `j` and `k` or the arrow keys for a line,
+space and `b` for a page, `d` and `u` for half a page, `g` and `G` for the
+start and the end, and `q` to quit; `?` or `h` lists them. The mouse
+wheel scrolls too. Large headings scroll in and out whole. A status line
+at the bottom shows the document's name and how far down it you are.
+Several files are paged as one document, headers and all: the status line
+names the file at the top of the view and its place among them, such as
+`b.md 2/3`, and `:n` and `:p`, or Shift+PgDn and Shift+PgUp, move to the
+next and the previous file. Some terminals keep Shift+PgDn and
+Shift+PgUp for their own scrollback, as Ghostty does by default. There
+`:n` and `:p` still work, or the lines
+`keybind = shift+page_up=unbind` and `keybind = shift+page_down=unbind`
+in Ghostty's configuration hand the keys to kiri.
 
 `/` searches the document for plain text, and `n` and `N` move to the next
 and the previous match; Enter at an empty `/` prompt goes on to the next

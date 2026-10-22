@@ -17,10 +17,18 @@ pub enum Key {
     Down,
     PageUp,
     PageDown,
+    /// Page Up and Page Down with Shift, which move between files. Other
+    /// keys with a modifier are [`Key::Other`].
+    ShiftPageUp,
+    ShiftPageDown,
     Home,
     End,
     /// A character with Alt, which arrives after an escape character.
     Alt(char),
+    /// A character typed after the colon that starts a command, as `n`
+    /// in `:n`, which the pager takes as one key with it. The terminal
+    /// sends no such key.
+    Command(char),
     /// A sequence the pager does not use.
     Other,
 }
@@ -37,9 +45,26 @@ pub enum Action {
     Previous,
     /// Stops showing the last search, which `n` takes up again.
     Clear,
+    /// Moves to the start of the next file.
+    NextFile,
+    /// Moves to the start of the file the view is in, or of the one
+    /// before when the view is there already.
+    PreviousFile,
     Help,
     Quit,
 }
+
+impl Action {
+    /// Whether the action moves between files, which only several files
+    /// have.
+    pub fn between_files(self) -> bool {
+        matches!(self, Action::NextFile | Action::PreviousFile)
+    }
+}
+
+/// The key that starts a command, as in `less`, with several files: the
+/// key after it is the command's, as [`Key::Command`].
+pub const COMMAND: Key = Key::Char(':');
 
 /// The keys in `input`, all of it: a sequence cut off at the end is taken
 /// as it is. A lone escape character is the Escape key, and one before a
@@ -162,6 +187,9 @@ fn csi(parameters: &[u8], last: u8) -> Key {
         (b"" | b"1", b'F') | (b"4" | b"8", b'~') => Key::End,
         (b"5", b'~') => Key::PageUp,
         (b"6", b'~') => Key::PageDown,
+        // The modifier 2 is Shift.
+        (b"5;2", b'~') => Key::ShiftPageUp,
+        (b"6;2", b'~') => Key::ShiftPageDown,
         _ => Key::Other,
     }
 }
@@ -264,6 +292,18 @@ pub const BINDINGS: &[Binding] = {
             action: Action::Move(End),
         },
         Binding {
+            keys: &[Key::Command('n'), Key::ShiftPageDown],
+            names: ":n Shift+PgDn",
+            what: "next file",
+            action: Action::NextFile,
+        },
+        Binding {
+            keys: &[Key::Command('p'), Key::ShiftPageUp],
+            names: ":p Shift+PgUp",
+            what: "previous file",
+            action: Action::PreviousFile,
+        },
+        Binding {
             keys: &[Char('/')],
             names: "/",
             what: "search",
@@ -354,6 +394,16 @@ mod tests {
             ]
         );
         assert_eq!(decode(b"\x1b[7~\x1b[8~"), [Key::Home, Key::End]);
+    }
+
+    #[test]
+    fn decodes_page_up_and_page_down_with_shift() {
+        assert_eq!(
+            decode(b"\x1b[5;2~\x1b[6;2~"),
+            [Key::ShiftPageUp, Key::ShiftPageDown]
+        );
+        // With Ctrl, or Alt, they are still no keys of the pager's.
+        assert_eq!(decode(b"\x1b[5;5~\x1b[6;3~"), [Key::Other, Key::Other]);
     }
 
     #[test]
@@ -529,6 +579,10 @@ mod tests {
                     "PgUp" => Key::PageUp,
                     "Home" => Key::Home,
                     "End" => Key::End,
+                    ":n" => Key::Command('n'),
+                    ":p" => Key::Command('p'),
+                    "Shift+PgDn" => Key::ShiftPageDown,
+                    "Shift+PgUp" => Key::ShiftPageUp,
                     name if name.chars().count() == 1 => Key::Char(name.chars().next().unwrap()),
                     name => panic!("unknown key name {name}"),
                 };
@@ -553,6 +607,22 @@ mod tests {
         assert_eq!(action(Key::Char('n')), Some(Action::Next));
         assert_eq!(action(Key::Char('N')), Some(Action::Previous));
         assert_eq!(action(Key::Escape), Some(Action::Clear));
+    }
+
+    #[test]
+    fn colon_n_and_colon_p_move_between_files() {
+        assert_eq!(action(Key::Command('n')), Some(Action::NextFile));
+        assert_eq!(action(Key::Command('p')), Some(Action::PreviousFile));
+        // On their own, n and p are no commands.
+        assert_eq!(action(Key::Char('p')), None);
+        assert_eq!(action(COMMAND), None);
+        assert_eq!(action(Key::Command('x')), None);
+    }
+
+    #[test]
+    fn shift_page_down_and_shift_page_up_move_between_files() {
+        assert_eq!(action(Key::ShiftPageDown), Some(Action::NextFile));
+        assert_eq!(action(Key::ShiftPageUp), Some(Action::PreviousFile));
     }
 
     #[test]

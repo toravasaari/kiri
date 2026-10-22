@@ -2,6 +2,7 @@
 //! with keys.
 
 pub mod fade;
+pub mod files;
 pub mod help;
 pub mod keys;
 pub mod prompt;
@@ -15,12 +16,14 @@ use std::time::{Duration, Instant};
 
 use crate::caps::Capabilities;
 use crate::config::{Paging, SearchCase};
-use crate::model::Document;
+use crate::model::File;
 use crate::render::Inputs;
+use crate::render::layout::{Content, Stream};
 use crate::render::output::{self, Page, Writer};
 use crate::render::style::{self, Line, Span, Style};
 use crate::term::{Screen, WindowSize};
 use fade::{FADE, Fade, Rgb};
+use files::Files;
 use help::Placed;
 use keys::{Action, Key};
 use prompt::{Edit, Prompt};
@@ -36,6 +39,27 @@ pub fn pages(paging: Paging, terminal: bool, rows: usize, height: Option<u16>) -
         Paging::Always => true,
         Paging::Auto => height.is_some_and(|height| rows > usize::from(height)),
         Paging::Never => false,
+    }
+}
+
+/// `paging` for what is paged only when paging is `always`: a document
+/// read from standard input, often the output of another command, the
+/// `--doctor` report, and images shown on their own.
+pub fn only_always(paging: Paging) -> Paging {
+    match paging {
+        Paging::Always => Paging::Always,
+        Paging::Auto | Paging::Never => Paging::Never,
+    }
+}
+
+/// `paging` for several files: when `images_only`, each of them is shown
+/// on its own as an image is, such as an image file or a diagram file, and
+/// they are paged only when paging is `always`; with a document among
+/// them, the files follow `paging` as one document does.
+pub fn for_files(paging: Paging, images_only: bool) -> Paging {
+    match images_only {
+        true => only_always(paging),
+        false => paging,
     }
 }
 
@@ -70,14 +94,16 @@ impl<W: Write> Terminal for Screen<W> {
     }
 }
 
-/// Shows `document`, called `name`, on `terminal` until the reader quits,
-/// laid out with `inputs` for the window's size, or `width` columns when
-/// it is given. `laid_out`, when given, is `document` laid out with
-/// `inputs` as they are now, used unless the window calls for another.
+/// Shows `content` on `terminal` until the reader quits, laid out with
+/// `inputs` for the window's size, or `width` columns when it is given.
+/// The status line calls a lone document `name`, and names each of
+/// several files after itself. `laid_out`, when given, is `content` laid
+/// out with `inputs` as they are now, used unless the window calls for
+/// another.
 /// A search treats case as `case` says.
 pub fn run(
-    document: &Document,
-    laid_out: Option<Vec<Line>>,
+    content: Content,
+    laid_out: Option<Stream>,
     name: &str,
     inputs: &mut Inputs,
     width: Option<u16>,
@@ -92,6 +118,10 @@ pub fn run(
     let mut size = terminal.size();
     let mut view: Option<View> = None;
     let mut state = State::new(case);
+    let shown_files: &[File] = match content {
+        Content::Document(_) => &[],
+        Content::Files(files) => files,
+    };
     loop {
         fit(&mut inputs.caps, size, width);
         let window = usize::from(inputs.caps.height.unwrap_or(DEFAULT_ROWS));
@@ -99,10 +129,11 @@ pub fn run(
         // have no row left.
         let bar = window > 1;
         let rows = if bar { window - 1 } else { window };
-        let mut lines = match laid_out.take() {
-            Some((caps, lines)) if caps == inputs.caps => lines,
-            _ => crate::render::layout::layout(document, inputs),
+        let stream = match laid_out.take() {
+            Some((caps, stream)) if caps == inputs.caps => stream,
+            _ => crate::render::layout::content(content, inputs),
         };
+        let Stream { mut lines, starts } = stream;
         // The text sizing protocol cannot draw part of a line, so a line
         // taller than the window is drawn at normal size.
         for line in &mut lines {
@@ -125,6 +156,7 @@ pub fn run(
         state.lay_out(&lines, shown.top(), bar);
         let status = Status {
             name,
+            files: Files::new(shown_files, &starts),
             styles: status::Styles::new(&inputs.theme, &inputs.caps),
             width: size.map_or(inputs.caps.width, |size| size.columns),
             bar,
@@ -182,7 +214,10 @@ enum Outcome {
 /// What the status line and the help panel show and how, apart from the
 /// position.
 struct Status<'a> {
+    /// What a lone document is called.
     name: &'a str,
+    /// The files shown, each named after itself.
+    files: Files<'a>,
     styles: status::Styles,
     /// The window's columns.
     width: u16,
@@ -204,13 +239,19 @@ impl Status<'_> {
         }
         let width = usize::from(self.width);
         match &state.prompt {
-            Some(prompt) => status::prompt(prompt.term(), width, &self.styles),
+            Some(prompt) => status::prompt('/', prompt.term(), width, &self.styles),
+            None if state.colon => status::prompt(':', "", width, &self.styles),
             None => {
                 let flash = fade
                     .filter(|_| state.jumped.is_some_and(|jump| jump.around))
                     .map(|fade| self.styles.number(fade));
                 let found = state.found(flash);
-                status::spans(self.name, view.position(), found, width, &self.styles)
+                let file = state.file(&self.files, view.top());
+                let name = file.map_or(self.name, |file| self.files.name(file));
+                let place = (file.filter(|_| self.files.several()))
+                    .map(|file| (file + 1, self.files.count()));
+                let position = view.position();
+                status::spans(name, place, position, found, width, &self.styles)
             }
         }
     }
@@ -223,6 +264,7 @@ impl Status<'_> {
                 view.rows(),
                 &self.panel,
                 &self.muted,
+                self.files.several(),
             )
         } else {
             Vec::new()
@@ -263,6 +305,23 @@ struct State {
     nowhere: bool,
     /// The last jump to a match, while its fade is under way.
     jumped: Option<Jump>,
+    /// Whether a colon was typed, so that the next key gives a command.
+    colon: bool,
+    /// The last move to a file, while the view stays where it took it.
+    went: Option<Went>,
+    /// What the status line tells about the last key until the next one,
+    /// such as that there is no next file.
+    told: Option<&'static str>,
+}
+
+/// A move to the start of a file with `:n` or `:p`. The view may stop
+/// short of the start, at the last page, so the file the move went to is
+/// kept until the view moves on.
+#[derive(Debug, Clone, Copy)]
+struct Went {
+    file: usize,
+    /// The top of the view after the move.
+    top: usize,
 }
 
 /// A jump to a search match.
@@ -284,6 +343,9 @@ impl State {
             shown: false,
             nowhere: false,
             jumped: None,
+            colon: false,
+            went: None,
+            told: None,
         }
     }
 
@@ -291,6 +353,7 @@ impl State {
     /// quits.
     fn press(&mut self, key: Key, now: Instant, layout: &mut Layout) -> bool {
         self.nowhere = false;
+        self.told = None;
         // Any key closes the help and does nothing else, but Ctrl+C
         // still quits.
         if self.help && key != Key::Ctrl('c') {
@@ -315,6 +378,20 @@ impl State {
             }
             return false;
         }
+        // The key after a colon is a command's, and any other closes it.
+        // The commands move between files, so a lone document has none
+        // and its colon does nothing.
+        let key = match key {
+            _ if std::mem::take(&mut self.colon) => match key {
+                Key::Char(c) => Key::Command(c),
+                _ => return false,
+            },
+            keys::COMMAND if layout.status.files.several() => {
+                self.colon = true;
+                return false;
+            }
+            key => key,
+        };
         match keys::action(key) {
             Some(Action::Quit) => return true,
             Some(Action::Move(motion)) => layout.view.scroll(motion),
@@ -326,9 +403,49 @@ impl State {
             Some(Action::Next) => self.step(Search::forward, now, layout),
             Some(Action::Previous) => self.step(Search::backward, now, layout),
             Some(Action::Clear) => self.shown = false,
+            Some(Action::NextFile) => {
+                let files = layout.status.files;
+                if let Some(file) = self.file(&files, layout.view.top()) {
+                    self.go_to(files.next(file), "no next file", layout);
+                }
+            }
+            Some(Action::PreviousFile) => {
+                let files = layout.status.files;
+                let top = layout.view.top();
+                if let Some(file) = self.file(&files, top) {
+                    self.go_to(files.previous(file, top), "no previous file", layout);
+                }
+            }
             None => {}
         }
         false
+    }
+
+    /// The file the reader is in, of `files`, with the view's top on the
+    /// line `top`: the one the last move to a file went to, or else the
+    /// one at the top.
+    fn file(&self, files: &Files, top: usize) -> Option<usize> {
+        self.went.map(|went| went.file).or_else(|| files.at(top))
+    }
+
+    /// Moves the view to the start of `file`, when there is one to go to,
+    /// and otherwise tells `none` on the status line.
+    fn go_to(&mut self, file: Option<usize>, none: &'static str, layout: &mut Layout) {
+        let Some(file) = file else {
+            self.told = Some(none);
+            return;
+        };
+        layout.view.go_to(layout.status.files.start(file));
+        self.went = Some(Went {
+            file,
+            top: layout.view.top(),
+        });
+    }
+
+    /// Forgets the last move to a file once the view's top, now on the
+    /// line `top`, has moved from where the move took it.
+    fn moved(&mut self, top: usize) {
+        self.went = self.went.filter(|went| went.top == top);
     }
 
     /// Searches for `term` from the top of the view at `now`, and shows
@@ -352,12 +469,14 @@ impl State {
     }
 
     /// Finds the last search again in `lines`, laid out anew, from the
-    /// line `top` of the view, and closes the prompt when the window has
-    /// no status line, `bar`, to show it on.
+    /// line `top` of the view, closes the prompt when the window has no
+    /// status line, `bar`, to show it on, and forgets the last move to a
+    /// file when the view has moved.
     fn lay_out(&mut self, lines: &[Line], top: usize, bar: bool) {
         if !bar {
             self.prompt = None;
         }
+        self.moved(top);
         if let Some(search) = &mut self.search {
             *search = Search::new(lines, search.term(), self.case, top);
         }
@@ -412,9 +531,12 @@ impl State {
             .collect()
     }
 
-    /// What the status line tells about the last search, with the match
-    /// number in `flash` when it is given.
+    /// What the status line tells about the last key, or else about the
+    /// last search, with the match number in `flash` when it is given.
     fn found(&self, flash: Option<Style>) -> Option<status::Found<'_>> {
+        if let Some(told) = self.told {
+            return Some(status::Found::Told(told));
+        }
         let search = self.search.as_ref()?;
         if self.nowhere {
             return Some(status::Found::Nowhere(search.term()));
@@ -507,6 +629,7 @@ fn show(
             if state.press(key, now, layout) {
                 return Ok(Outcome::Quit);
             }
+            state.moved(layout.view.top());
         }
         let window = terminal.size();
         if window != size {
@@ -561,6 +684,7 @@ mod tests {
 
     use super::*;
     use crate::color::Color;
+    use crate::model::{Document, File};
 
     #[test]
     fn auto_pages_a_document_longer_than_the_window() {
@@ -582,6 +706,27 @@ mod tests {
             assert!(!pages(paging, false, 100, Some(24)), "{paging:?}");
         }
         assert!(!pages(Paging::Never, true, 100, Some(24)));
+    }
+
+    #[test]
+    fn standard_input_is_paged_only_when_paging_is_always() {
+        assert_eq!(only_always(Paging::Always), Paging::Always);
+        assert_eq!(only_always(Paging::Auto), Paging::Never);
+        assert_eq!(only_always(Paging::Never), Paging::Never);
+    }
+
+    #[test]
+    fn files_of_images_alone_are_paged_only_when_paging_is_always() {
+        assert_eq!(for_files(Paging::Always, true), Paging::Always);
+        assert_eq!(for_files(Paging::Auto, true), Paging::Never);
+        assert_eq!(for_files(Paging::Never, true), Paging::Never);
+    }
+
+    #[test]
+    fn files_with_a_document_among_them_follow_the_setting() {
+        for paging in [Paging::Always, Paging::Auto, Paging::Never] {
+            assert_eq!(for_files(paging, false), paging);
+        }
     }
 
     /// A terminal that gives the reads in `keys`, one a call, with the
@@ -664,7 +809,7 @@ mod tests {
     fn show(document: &Document, terminal: &mut Fake) {
         let mut inputs = Inputs::new(Capabilities::ansi(80));
         run(
-            document,
+            Content::Document(document),
             None,
             "notes.md",
             &mut inputs,
@@ -680,10 +825,10 @@ mod tests {
     fn show_laid_out(document: &Document, before: &Document, caps: Capabilities) -> Vec<String> {
         let mut terminal = Fake::new(40, 6, &[b"q"]);
         let mut inputs = Inputs::new(caps);
-        let lines = crate::render::layout::layout(before, &inputs);
+        let stream = crate::render::layout::content(Content::Document(before), &inputs);
         run(
-            document,
-            Some(lines),
+            Content::Document(document),
+            Some(stream),
             "notes.md",
             &mut inputs,
             None,
@@ -794,7 +939,7 @@ mod tests {
             inputs.theme = crate::theme::parse(theme).unwrap();
             let document = numbers(30);
             run(
-                &document,
+                Content::Document(&document),
                 None,
                 "notes.md",
                 &mut inputs,
@@ -879,7 +1024,7 @@ mod tests {
         let document = crate::parse::parse("# Title\n\nText\n");
         let mut inputs = Inputs::new(Capabilities::kitty(80));
         run(
-            &document,
+            Content::Document(&document),
             None,
             "notes.md",
             &mut inputs,
@@ -902,7 +1047,7 @@ mod tests {
         let document = crate::parse::parse("A paragraph of several words\n");
         let mut inputs = Inputs::new(Capabilities::ansi(80));
         run(
-            &document,
+            Content::Document(&document),
             None,
             "notes.md",
             &mut inputs,
@@ -916,6 +1061,251 @@ mod tests {
         for frame in terminal.frames() {
             assert!(!frame.contains("A paragraph of"), "{frame:?}");
         }
+    }
+
+    /// The files `a.md` of 3 lines and `b.md` of 10, as [`numbers`] has
+    /// them. In a stream, `a.md` takes lines 0 to 8, its header and blank
+    /// line included, and `b.md` starts on line 10.
+    fn two_files() -> Vec<File> {
+        [("a.md", 3), ("b.md", 10)]
+            .into_iter()
+            .map(|(name, count)| File {
+                name: name.to_owned(),
+                document: numbers(count),
+            })
+            .collect()
+    }
+
+    /// Shows `files` on `terminal` as the binary does, without a name of
+    /// its own.
+    fn show_files(files: &[File], terminal: &mut Fake) {
+        let mut inputs = Inputs::new(Capabilities::ansi(80));
+        run(
+            Content::Files(files),
+            None,
+            "",
+            &mut inputs,
+            None,
+            SearchCase::Smart,
+            terminal,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn the_status_line_names_the_file_at_the_top_of_the_view() {
+        // Down to the blank line above b.md's header, onto the header, and
+        // back up.
+        let mut terminal = Fake::new(40, 6, &[b"jjjjjjjjj", b"j", b"k"]);
+        show_files(&two_files(), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        let names = |frame: &str| status_row(frame, 6).contains(" a.md ");
+        assert!(names(&frames[0]), "{frames:#?}");
+        assert!(names(&frames[1]), "{frames:#?}");
+        // b.md's header at the top: an empty row of its band, then its name.
+        assert!(
+            unstyled(&frames[2]).contains("\x1b[2;1H▌ b.md"),
+            "{frames:#?}"
+        );
+        assert!(status_row(&frames[2], 6).contains(" b.md "), "{frames:#?}");
+        assert!(!names(&frames[2]), "{frames:#?}");
+        assert!(names(&frames[3]), "{frames:#?}");
+    }
+
+    #[test]
+    fn the_status_line_tells_the_file_s_place_among_the_files() {
+        let mut terminal = Fake::new(40, 6, &[b":n"]);
+        show_files(&two_files(), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 2, "{frames:#?}");
+        assert!(
+            status_row(&frames[0], 6).contains(" a.md 1/2 "),
+            "{frames:#?}"
+        );
+        assert!(
+            status_row(&frames[1], 6).contains(" b.md 2/2 "),
+            "{frames:#?}"
+        );
+        // A lone document has no place among others.
+        let mut terminal = Fake::new(40, 6, &[]);
+        show(&numbers(3), &mut terminal);
+        let status = status_row(&terminal.frames()[0], 6);
+        assert!(status.contains(" notes.md  "), "{status:?}");
+        assert!(!status.contains("1/1"), "{status:?}");
+    }
+
+    /// Files called `name` with `count` lines each, as [`numbers`] has
+    /// them.
+    fn files(counts: &[(&str, usize)]) -> Vec<File> {
+        counts
+            .iter()
+            .map(|&(name, count)| File {
+                name: name.to_owned(),
+                document: numbers(count),
+            })
+            .collect()
+    }
+
+    /// Whether `frame` shows the header of `name` at the top of the view
+    /// of `rows` rows, and `name` on the status line below it.
+    fn at_file(frame: &str, name: &str, rows: u16) -> bool {
+        unstyled(frame).contains(&format!("\x1b[2;1H▌ {name}\x1b"))
+            && status_row(frame, rows + 1).contains(&format!(" {name} "))
+    }
+
+    #[test]
+    fn colon_n_and_colon_p_move_to_the_start_of_the_next_and_previous_file() {
+        // b.md starts on line 10 and c.md on line 34. The colon on its own,
+        // then n; :n at the last file, which only tells there is none; :p
+        // from the start of c.md, and from inside b.md, first to its start.
+        let reads: &[&[u8]] = &[b":", b"n", b":n", b":n", b":p", b"jjj", b":p", b":p"];
+        let mut terminal = Fake::new(40, 6, reads);
+        show_files(
+            &files(&[("a.md", 3), ("b.md", 10), ("c.md", 10)]),
+            &mut terminal,
+        );
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 9, "{frames:#?}");
+        assert!(at_file(&frames[0], "a.md", 5), "{frames:#?}");
+        assert!(
+            status_row(&frames[1], 6).contains(" :\u{258f}"),
+            "{frames:#?}"
+        );
+        assert!(at_file(&frames[2], "b.md", 5), "{frames:#?}");
+        assert!(at_file(&frames[3], "c.md", 5), "{frames:#?}");
+        assert_eq!(document_part(&frames[4], 6), document_part(&frames[3], 6));
+        assert!(at_file(&frames[5], "b.md", 5), "{frames:#?}");
+        assert!(status_row(&frames[6], 6).contains(" b.md "), "{frames:#?}");
+        assert!(at_file(&frames[7], "b.md", 5), "{frames:#?}");
+        assert!(at_file(&frames[8], "a.md", 5), "{frames:#?}");
+    }
+
+    #[test]
+    fn shift_page_down_and_shift_page_up_move_as_colon_n_and_colon_p_do() {
+        // As in the test above: past the last file, Shift+PgDn only tells
+        // there is none; Shift+PgUp from inside b.md goes first to its
+        // start.
+        let (down, up): (&[u8], &[u8]) = (b"\x1b[6;2~", b"\x1b[5;2~");
+        let reads = &[down, down, down, up, b"jjj", up, up];
+        let mut terminal = Fake::new(40, 6, reads);
+        show_files(
+            &files(&[("a.md", 3), ("b.md", 10), ("c.md", 10)]),
+            &mut terminal,
+        );
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 8, "{frames:#?}");
+        assert!(at_file(&frames[0], "a.md", 5), "{frames:#?}");
+        assert!(at_file(&frames[1], "b.md", 5), "{frames:#?}");
+        assert!(at_file(&frames[2], "c.md", 5), "{frames:#?}");
+        assert!(
+            status_row(&frames[3], 6).contains("no next file"),
+            "{frames:#?}"
+        );
+        assert!(at_file(&frames[4], "b.md", 5), "{frames:#?}");
+        assert!(status_row(&frames[5], 6).contains(" b.md "), "{frames:#?}");
+        assert!(at_file(&frames[6], "b.md", 5), "{frames:#?}");
+        assert!(at_file(&frames[7], "a.md", 5), "{frames:#?}");
+    }
+
+    #[test]
+    fn colon_n_names_a_file_on_the_last_page_though_the_view_stops_short() {
+        // In 11 rows, the last page starts at b.md, the line 24, and also
+        // shows c.md, which starts on line 30.
+        let reads: &[&[u8]] = &[b":n", b":n", b":p", b":n", b"k"];
+        let mut terminal = Fake::new(40, 12, reads);
+        show_files(
+            &files(&[("a.md", 10), ("b.md", 1), ("c.md", 1)]),
+            &mut terminal,
+        );
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 6, "{frames:#?}");
+        let named = |frame: &str, name: &str| status_row(frame, 12).contains(&format!(" {name} "));
+        assert!(at_file(&frames[1], "b.md", 11), "{frames:#?}");
+        assert!(named(&frames[2], "c.md"), "{frames:#?}");
+        // The view stays at b.md's header.
+        assert!(
+            unstyled(&frames[2]).contains("\x1b[2;1H▌ b.md\x1b"),
+            "{frames:#?}"
+        );
+        assert!(at_file(&frames[3], "b.md", 11), "{frames:#?}");
+        assert!(named(&frames[4], "c.md"), "{frames:#?}");
+        // Once the view moves, the file at its top again.
+        assert!(named(&frames[5], "a.md"), "{frames:#?}");
+    }
+
+    #[test]
+    fn a_key_after_the_colon_that_is_no_command_only_closes_it() {
+        let reads: &[&[u8]] = &[b":", b"j", b":", b"\x1b", b"", b"j"];
+        let mut terminal = Fake::new(40, 6, reads);
+        show_files(&two_files(), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 6, "{frames:#?}");
+        // j did not move, and the colon is gone.
+        assert_eq!(frames[2], frames[0]);
+        assert_eq!(frames[4], frames[0]);
+        // Down a line, onto the name in a.md's header.
+        let top = "\x1b[1;1H▌ a.md\x1b";
+        assert!(unstyled(&frames[5]).contains(top), "{frames:#?}");
+    }
+
+    #[test]
+    fn at_the_ends_of_the_files_the_status_line_tells_there_is_none_until_the_next_key() {
+        // :p at the very start, then j; :n to b.md and :n again at the
+        // last file, then k; Shift+PgDn back to b.md and once more.
+        let down: &[u8] = b"\x1b[6;2~";
+        let reads: &[&[u8]] = &[b":p", b"j", b":n", b":n", b"k", down, down];
+        let mut terminal = Fake::new(40, 6, reads);
+        show_files(&two_files(), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 8, "{frames:#?}");
+        let tells = |frame: &str, text: &str| status_row(frame, 6).contains(text);
+        assert!(tells(&frames[1], " no previous file "), "{frames:#?}");
+        // The view did not move.
+        assert_eq!(document_part(&frames[1], 6), document_part(&frames[0], 6));
+        assert!(!tells(&frames[2], "no previous file"), "{frames:#?}");
+        assert!(at_file(&frames[3], "b.md", 5), "{frames:#?}");
+        assert!(!tells(&frames[3], "no next file"), "{frames:#?}");
+        assert!(tells(&frames[4], " no next file "), "{frames:#?}");
+        assert!(at_file(&frames[4], "b.md", 5), "{frames:#?}");
+        assert!(!tells(&frames[5], "no next file"), "{frames:#?}");
+        assert!(at_file(&frames[6], "b.md", 5), "{frames:#?}");
+        assert!(tells(&frames[7], " no next file "), "{frames:#?}");
+        assert!(at_file(&frames[7], "b.md", 5), "{frames:#?}");
+    }
+
+    #[test]
+    fn a_colon_in_a_lone_document_does_nothing_and_lets_the_next_key_through() {
+        // :n there is n, which goes on to the next match.
+        let with_colon: &[&[u8]] = &[b":", b"j", b"/Line\r", b":n", b":"];
+        let without: &[&[u8]] = &[b"j", b"/Line\r", b"n"];
+        let frames = |reads| {
+            let mut terminal = Fake::new(40, 6, reads);
+            show(&numbers(30), &mut terminal);
+            terminal.frames()
+        };
+        let shown = frames(with_colon);
+        assert_eq!(shown, frames(without));
+        assert_eq!(shown.len(), 4, "{shown:#?}");
+    }
+
+    #[test]
+    fn the_help_lists_colon_n_and_colon_p_only_with_several_files() {
+        let mut terminal = Fake::new(60, 24, &[b"?"]);
+        show_files(&two_files(), &mut terminal);
+        let help = terminal.frames()[1].clone();
+        assert!(help.contains(":n"), "{help:?}");
+        assert!(help.contains("next file"), "{help:?}");
+        assert!(help.contains(":p"), "{help:?}");
+        assert!(help.contains("previous file"), "{help:?}");
+        assert!(help.contains("Shift+PgDn"), "{help:?}");
+        assert!(help.contains("Shift+PgUp"), "{help:?}");
+        let mut terminal = Fake::new(60, 24, &[b"?"]);
+        show(&numbers(30), &mut terminal);
+        let help = terminal.frames()[1].clone();
+        assert!(help.contains("down a line"), "{help:?}");
+        assert!(!help.contains("next file"), "{help:?}");
+        assert!(!help.contains("Shift+"), "{help:?}");
     }
 
     /// The status line of `frame`, on row `row`.
@@ -1258,7 +1648,7 @@ mod tests {
         let source = "# Kiri title\n\n| a | b |\n|---|---|\n| c | kiri |\n";
         let mut inputs = Inputs::new(Capabilities::kitty(80));
         run(
-            &crate::parse::parse(source),
+            Content::Document(&crate::parse::parse(source)),
             None,
             "notes.md",
             &mut inputs,
@@ -1320,7 +1710,7 @@ mod tests {
         reads.extend(std::iter::repeat_n(b"".as_slice(), empty));
         let mut terminal = Fake::new(60, 6, &reads);
         run(
-            document,
+            Content::Document(document),
             None,
             "notes.md",
             &mut inputs,

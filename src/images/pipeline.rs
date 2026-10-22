@@ -1,18 +1,17 @@
-//! Loading a document's images for a run of kiri: the renderers that the
-//! settings choose for its diagrams, a guard against the signals that
+//! Loading the images of a run's documents: the renderers that the
+//! settings choose for their diagrams, a guard against the signals that
 //! would end kiri while programs outside it draw them, and the images.
 //! The caller tells how far drawing has got where it likes, such as on a
 //! line of the terminal.
 
-use std::path::Path;
-
-use super::{Images, LoadOptions, diagram_languages, load};
+use super::{Fonts, Images, LoadOptions, Part, diagram_languages, load_parts};
 use crate::config::{self, Environment, Settings};
 use crate::diagrams::find::{self, Search};
 use crate::diagrams::{ExternalSettings, NoRenderer, Renderers, Theme};
 use crate::term::Interrupt;
 
-/// What loading a document's images needs to know, resolved for the run.
+/// What loading the documents' images needs to know, resolved for the
+/// run.
 #[derive(Clone, Copy)]
 pub struct Loading<'a> {
     /// The environment, which tells where kiri looks for the programs
@@ -20,16 +19,11 @@ pub struct Loading<'a> {
     pub env: &'a Environment,
     /// The settings, which tell whether diagrams are drawn, and how.
     pub settings: &'a Settings,
-    /// The directory that relative image paths start from.
-    pub base: &'a Path,
     /// The largest image file read, in bytes.
     pub max_file_size: u64,
     /// The page diagrams are drawn for, unless they choose their own
     /// colours.
     pub theme: Theme,
-    /// Whether a warning names a diagram by its line in the document, or
-    /// by its own first line.
-    pub by_line: bool,
     /// The most pixels, wide and high, an image can be shown at.
     pub largest: Option<(u32, u32)>,
 }
@@ -50,19 +44,19 @@ pub struct Loaded {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Interrupted(pub i32);
 
-/// The images of `document`, and its diagrams drawn when the settings
-/// want them, as `loading` says; `progress` is told how many diagrams are
-/// drawn of how many. When programs draw any of its diagrams, Ctrl-C,
-/// SIGTERM, SIGHUP and Ctrl-\ stop them meanwhile, and are then the
-/// outcome.
-pub fn load_document(
-    document: &crate::model::Document,
+/// The images of the documents in `parts`, and their diagrams drawn
+/// when the settings want them, as `loading` says, all in one map;
+/// `progress` is told how many diagrams are drawn of how many. When
+/// programs draw any of their diagrams, Ctrl-C, SIGTERM, SIGHUP and
+/// Ctrl-\ stop them meanwhile, and are then the outcome.
+pub fn load_documents(
+    parts: &[Part<'_>],
     loading: &Loading,
     progress: Option<&(dyn Fn(usize, usize) + Sync)>,
 ) -> Result<Loaded, Interrupted> {
     let (renderers, interrupt) = match loading.settings.diagrams {
         true => {
-            let (renderers, interrupt) = renderers(document, loading);
+            let (renderers, interrupt) = renderers(parts, loading);
             (Some(renderers), interrupt)
         }
         false => (None, None),
@@ -73,24 +67,22 @@ pub fn load_document(
             None => &NoRenderer,
         },
         theme: loading.theme,
-        by_line: loading.by_line,
         progress,
         panel: loading.settings.diagram_panel,
         largest: loading.largest,
+        ..LoadOptions::default()
     };
-    let images = load(document, loading.base, loading.max_file_size, &options);
+    let images = load_parts(parts, loading.max_file_size, &Fonts::system(), &options);
     if let Some(signal) = interrupt.as_ref().and_then(Interrupt::release) {
         return Err(Interrupted(signal));
     }
     Ok(Loaded { images, interrupt })
 }
 
-/// The renderers the settings choose for `document`'s diagrams, and a
-/// guard that catches the signals while programs draw any of them.
-fn renderers(
-    document: &crate::model::Document,
-    loading: &Loading,
-) -> (Renderers, Option<Interrupt>) {
+/// The renderers the settings choose for the diagrams of the documents in
+/// `parts`, and a guard that catches the signals while programs draw any
+/// of them.
+fn renderers(parts: &[Part<'_>], loading: &Loading) -> (Renderers, Option<Interrupt>) {
     let (env, settings) = (loading.env, loading.settings);
     let search = Search::new(env);
     let commands = find::commands(
@@ -104,9 +96,9 @@ fn renderers(
         ..ExternalSettings::new(config::temp_directory(env))
     };
     let renderers = Renderers::new(commands.clone(), external.clone());
-    // Only while a program draws one of the document's diagrams: they
+    // Only while a program draws one of the documents' diagrams: they
     // otherwise end kiri at once, as without diagrams.
-    let languages = diagram_languages(document, &renderers);
+    let languages = (parts.iter()).flat_map(|part| diagram_languages(part.document, &renderers));
     if !renderers.runs_programs_for(languages) {
         return (renderers, None);
     }
@@ -117,9 +109,22 @@ fn renderers(
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
     use crate::images::Source;
+    use crate::model::Document;
     use crate::testing::Scratch;
+
+    /// `document` alone, the first, with images relative to `base`.
+    fn alone<'a>(document: &'a Document, base: &'a Path) -> [Part<'a>; 1] {
+        [Part {
+            document,
+            number: 0,
+            base,
+            by_line: true,
+        }]
+    }
 
     /// A run's settings with `command` for Mermaid.
     fn settings(command: &[&str]) -> Settings {
@@ -153,13 +158,11 @@ mod tests {
         let loading = Loading {
             env: &env,
             settings: &settings,
-            base: &scratch,
             max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
             theme: Theme::Light,
-            by_line: true,
             largest: Some((15, 100)),
         };
-        let loaded = load_document(&document, &loading, None).unwrap();
+        let loaded = load_documents(&alone(&document, &scratch), &loading, None).unwrap();
         assert!(loaded.interrupt.is_some());
         let key = crate::images::ImageKey::block("mermaid", "flowchart TD\n");
         match loaded.images.get(&key) {
@@ -178,13 +181,12 @@ mod tests {
         let loading = Loading {
             env: &Environment::default(),
             settings: &settings,
-            base: Path::new(""),
             max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
             theme: Theme::Light,
-            by_line: true,
             largest: None,
         };
-        let loaded = load_document(&document, &loading, None).unwrap();
+        let parts = alone(&document, Path::new(""));
+        let loaded = load_documents(&parts, &loading, None).unwrap();
         assert!(loaded.images.is_empty());
         assert!(loaded.interrupt.is_none());
     }
