@@ -233,12 +233,12 @@ bar = "blue"
 `--light` and `--dark` choose a built-in theme that draws the document on a
 page of fixed colours, as a browser does, whatever your terminal's colour
 scheme. The page is in greys only: headings, links, quotes, rules, tables,
-inline code, marked text and the headers of several files differ in
-shade, weight and underline, not in colour. Code blocks keep their colours, from a code theme that matches the
-page, and a message kiri writes into the document, such as why a diagram
-could not be drawn, is red so that it stands out. Muted text, such as
-image alt text, is a grey that keeps a contrast of at least 4.5:1 against
-the page, instead of the terminal's dim text.
+inline code, marked text and the headers of several files differ in shade,
+weight and underline, not in colour. Code blocks keep their colours, from a
+code theme that matches the page, and a message kiri writes into the document,
+such as why a diagram could not be drawn, is red so that it stands out. Muted
+text, such as image alt text, is a grey that keeps a contrast of at least
+4.5:1 against the page, instead of the terminal's dim text.
 
 The paper themes are the defaults above with these changes. To change one,
 start a theme file of your own from its keys.
