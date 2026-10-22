@@ -32,7 +32,7 @@ pub fn panel(columns: usize, rows: usize, style: &Style, muted: &Style) -> Vec<P
     // The keys, a gap of three and what they do.
     let inner = (names + 3 + whats).max(FOOTER.width());
     let line = |spans: Vec<Span>| {
-        let used = crate::render::wrap::width(&spans);
+        let used = wrap::width(&spans);
         let mut row = vec![span("│ ", style)];
         row.extend(spans);
         row.push(span(&" ".repeat(inner - used), style));

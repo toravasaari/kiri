@@ -9,12 +9,10 @@ pub mod table;
 pub mod wrap;
 
 use std::io::{self, Write};
-use std::rc::Rc;
 
 use crate::caps::Capabilities;
 use crate::images::{ImageKey, Images, Source};
 use crate::model::{Block, Document, FrontMatter};
-use crate::render::style::Line;
 use crate::theme::Theme;
 
 /// Everything rendering takes besides the document. A new input gets a
@@ -169,13 +167,10 @@ pub fn render_image_on(
         return Ok(());
     };
     let key = ImageKey::from("");
-    let placement = Rc::new(image::Placement {
+    let lines = layout::image_rows(image::Placement {
         key: key.clone(),
         size,
     });
-    let lines: Vec<Line> = (0..size.rows)
-        .map(|row| Line::image(Rc::clone(&placement), row))
-        .collect();
     let mut images = Images::new();
     images.insert(key, Ok(image));
     output::write(&lines, &images, caps, page, out)

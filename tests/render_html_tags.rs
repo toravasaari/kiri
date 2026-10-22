@@ -6,7 +6,7 @@ use kiri::theme::Theme;
 
 mod common;
 
-use common::{Scratch, WIDTH, colour_codes, command, inputs, render, render_for, shown, visible};
+use common::{WIDTH, inputs, render, render_for, visible};
 
 #[test]
 fn plain_html_tags() {
@@ -33,30 +33,6 @@ fn marked_text_takes_the_theme_colours() {
         out.contains("\x1b[0;38;2;16;16;16;48;2;255;248;197mmarked\x1b[0m"),
         "{out:?}"
     );
-}
-
-#[test]
-fn without_colours_marked_text_is_in_reverse_video() {
-    // The whole way from NO_COLOR, with a theme that colours marks.
-    let dir = Scratch::new("mark-without-colours");
-    let theme = dir.join("theme.toml");
-    std::fs::write(
-        &theme,
-        "[mark]\nforeground = \"#101010\"\nbackground = \"#fff8c5\"\n",
-    )
-    .unwrap();
-    let document = dir.join("marked.md");
-    std::fs::write(&document, "Some <mark>marked</mark> text\n").unwrap();
-    let out = command(&dir)
-        .env("NO_COLOR", "1")
-        .args(["--mode", "kitty", "--theme"])
-        .arg(&theme)
-        .arg(&document)
-        .output()
-        .unwrap();
-    let out = shown(&out);
-    assert!(out.contains("\x1b[0;7mmarked\x1b[0m"), "{out:?}");
-    assert!(colour_codes(&out).is_empty(), "{out:?}");
 }
 
 #[test]

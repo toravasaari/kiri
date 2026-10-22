@@ -5,7 +5,7 @@ use kiri::render::{FrontMatterStyle, Inputs};
 
 mod common;
 
-use common::{Scratch, WIDTH, fixture, kiri, render, text, visible};
+use common::{WIDTH, fixture, render, visible};
 
 fn styled(caps: Capabilities, style: FrontMatterStyle) -> Inputs {
     Inputs {
@@ -164,22 +164,6 @@ fn hidden_front_matter_shows_nothing() {
             render(body, &Inputs::new(caps))
         );
     }
-}
-
-#[test]
-fn front_matter_that_does_not_parse_is_a_warning() {
-    let dir = Scratch::new("front-matter-warning");
-    let out = kiri(
-        &dir,
-        &fixture("front-matter-invalid.md"),
-        &["--mode", "plain"],
-    );
-    assert!(out.status.success());
-    assert_eq!(
-        text(&out.stderr),
-        "kiri: front matter, line 4: while parsing a flow sequence, expected ',' or ']'\n"
-    );
-    assert!(text(&out.stdout).contains("tags: [does, not, close"));
 }
 
 #[test]

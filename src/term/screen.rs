@@ -11,8 +11,8 @@ use signal_hook::consts::{SIGHUP, SIGINT, SIGQUIT, SIGTERM};
 
 use rustix::termios::{OptionalActions, Termios, tcgetattr, tcsetattr};
 
-use super::probe;
 use super::window::{WindowSize, window_size};
+use super::{interrupt, probe};
 
 /// The signals that would end kiri, caught while the pager's screen is
 /// open unless they are ignored: one that comes sets a flag instead.
@@ -43,7 +43,7 @@ impl Signals {
         let mut signals = Self::none();
         // One that is ignored stays so.
         for signal in [SIGTERM, SIGHUP, SIGINT, SIGQUIT] {
-            if super::interrupt::ignored(signal) {
+            if interrupt::ignored(signal) {
                 continue;
             }
             let flag = Arc::clone(&signals.came);
@@ -66,11 +66,8 @@ impl Signals {
         for &signal in &self.caught {
             let _ = signal_hook::flag::register_conditional_default(signal, Arc::clone(&ends));
         }
-        match self.came.load(Ordering::SeqCst) {
-            0 => {}
-            signal => {
-                let _ = signal_hook::low_level::emulate_default_handler(signal as i32);
-            }
+        if let Some(signal) = interrupt::came(&self.came) {
+            interrupt::end_by(signal);
         }
     }
 }
@@ -239,10 +236,7 @@ impl<W: Write> Screen<W> {
 
     /// The signal that asked kiri to end, if one came.
     fn signal(&self) -> Option<i32> {
-        match self.signals.came.load(Ordering::SeqCst) {
-            0 => None,
-            signal => Some(signal as i32),
-        }
+        interrupt::came(&self.signals.came)
     }
 
     /// Restores the terminal, and then ends kiri with the signal that
@@ -252,11 +246,8 @@ impl<W: Write> Screen<W> {
         // is restored still counts.
         let flag = Arc::clone(&self.signals.came);
         drop(self);
-        match flag.load(Ordering::SeqCst) {
-            0 => {}
-            signal => {
-                let _ = signal_hook::low_level::emulate_default_handler(signal as i32);
-            }
+        if let Some(signal) = interrupt::came(&flag) {
+            interrupt::end_by(signal);
         }
     }
 

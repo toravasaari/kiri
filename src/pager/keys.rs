@@ -44,7 +44,7 @@ pub enum Action {
 /// The keys in `input`, all of it: a sequence cut off at the end is taken
 /// as it is. A lone escape character is the Escape key, and one before a
 /// character is Alt with it.
-pub fn decode(input: &[u8]) -> Vec<Key> {
+fn decode(input: &[u8]) -> Vec<Key> {
     let mut keys = Vec::new();
     let mut rest = input;
     while !rest.is_empty() {
