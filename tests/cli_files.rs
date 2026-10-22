@@ -106,21 +106,19 @@ fn each_document_s_images_are_relative_to_its_own_directory() {
 #[test]
 fn image_files_are_shown_on_their_own_under_their_names() {
     let dir = Scratch::new("files-image-files");
-    let images = fixtures().join("images");
-    let icon = images.join("icon.png");
-    let drawing = images.join("pattern.png");
+    // Relative names, so that a long checkout path does not wrap the
+    // headers.
     let out = command(&dir)
-        .args(["--mode", "kitty"])
-        .args([&icon, &drawing])
+        .current_dir(fixtures().join("images"))
+        .args(["--mode", "kitty", "icon.png", "pattern.png"])
         .output()
         .unwrap();
     assert!(out.status.success(), "{}", text(&out.stderr));
     assert_eq!(text(&out.stderr), "");
     let stdout = text(&out.stdout);
     assert_eq!(stdout.matches("\x1b_Ga=T,").count(), 2, "{stdout:?}");
-    let (icon, drawing) = (icon.display().to_string(), drawing.display().to_string());
     assert!(
-        in_order(&stdout, &[&icon, "\x1b_G", &drawing, "\x1b_G"]),
+        in_order(&stdout, &["icon.png", "\x1b_G", "pattern.png", "\x1b_G"]),
         "{stdout:?}"
     );
 }
