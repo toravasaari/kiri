@@ -1103,9 +1103,9 @@ mod tests {
         let names = |frame: &str| status_row(frame, 6).contains(" a.md ");
         assert!(names(&frames[0]), "{frames:#?}");
         assert!(names(&frames[1]), "{frames:#?}");
-        // b.md's header at the top: its rule, then its name.
+        // b.md's header at the top: an empty row of its band, then its name.
         assert!(
-            unstyled(&frames[2]).contains("\x1b[2;1H  b.md"),
+            unstyled(&frames[2]).contains("\x1b[2;1H▌ b.md"),
             "{frames:#?}"
         );
         assert!(status_row(&frames[2], 6).contains(" b.md "), "{frames:#?}");
@@ -1150,7 +1150,7 @@ mod tests {
     /// Whether `frame` shows the header of `name` at the top of the view
     /// of `rows` rows, and `name` on the status line below it.
     fn at_file(frame: &str, name: &str, rows: u16) -> bool {
-        unstyled(frame).contains(&format!("\x1b[2;1H  {name}\x1b"))
+        unstyled(frame).contains(&format!("\x1b[2;1H▌ {name}\x1b"))
             && status_row(frame, rows + 1).contains(&format!(" {name} "))
     }
 
@@ -1225,7 +1225,7 @@ mod tests {
         assert!(named(&frames[2], "c.md"), "{frames:#?}");
         // The view stays at b.md's header.
         assert!(
-            unstyled(&frames[2]).contains("\x1b[2;1H  b.md\x1b"),
+            unstyled(&frames[2]).contains("\x1b[2;1H▌ b.md\x1b"),
             "{frames:#?}"
         );
         assert!(at_file(&frames[3], "b.md", 11), "{frames:#?}");
@@ -1244,7 +1244,9 @@ mod tests {
         // j did not move, and the colon is gone.
         assert_eq!(frames[2], frames[0]);
         assert_eq!(frames[4], frames[0]);
-        assert!(at_top(&frames[5], "a.md"), "{frames:#?}");
+        // Down a line, onto the name in a.md's header.
+        let top = "\x1b[1;1H▌ a.md\x1b";
+        assert!(unstyled(&frames[5]).contains(top), "{frames:#?}");
     }
 
     #[test]

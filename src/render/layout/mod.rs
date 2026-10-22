@@ -16,10 +16,16 @@ use crate::caps::Capabilities;
 use crate::color::{Color, Underline};
 use crate::images::{ImageError, ImageKey, Images};
 use crate::model::{Block, Document, File, Image, Inline, Table};
-use crate::theme::Theme;
+use crate::theme::{BandColor, Theme};
 
 /// How much of the text colour a striped table row mixes into the page.
 const STRIPE: f32 = 0.06;
+
+/// How much of the text colour the band of a file's header mixes into a
+/// dark page and a light one: as much on a light page would be a heavy
+/// grey.
+const BAND_DARK: f32 = 0.3;
+const BAND_LIGHT: f32 = 0.12;
 
 pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
     with_layout(inputs, 0, |layout, width, margin| {
@@ -71,9 +77,9 @@ pub fn files(files: &[File], inputs: &Inputs) -> Stream {
 }
 
 /// `file`, numbered `number` among the files shown together, laid out
-/// under a header that names it: a rule across the window, the name and
-/// another rule. An image file below it is fitted to the window with its
-/// header.
+/// under a header that names it, as [`Layout::file_header`] draws it, and
+/// a blank line. An image file below it is fitted to the window with its
+/// header, however many rows a long name takes.
 pub fn file(file: &File, number: usize, inputs: &Inputs) -> Vec<Line> {
     with_layout(inputs, number, |layout, width, margin| {
         let mut lines = layout.file_header(&file.name, width, margin);
@@ -275,20 +281,75 @@ impl Layout<'_> {
         }
     }
 
-    /// The header of the file `name`: its name between two rules across
-    /// the window, the name `margin` cells in from both sides of `width`.
+    /// The header of the file `name`: a band of its own colour across
+    /// `width`, an empty row, the name and another empty row, with a bar
+    /// down its left edge and the name `margin` cells in, at least two:
+    /// the directory muted and the file's own name in bold. Nothing in
+    /// Markdown draws such a band. Plain text gets the name between
+    /// arrows instead, as `head` writes it.
     fn file_header(&self, name: &str, width: usize, margin: usize) -> Vec<Line> {
-        let rule = self.rule(usize::from(self.caps.width).max(width));
-        let style = self.style(Style {
-            bold: true,
+        if !self.caps.styling {
+            let spans = [Span::new(&format!("==> {name} <=="), Style::default())];
+            return wrap(&spans, width).into_iter().map(Line::new).collect();
+        }
+        let band = self.band();
+        let base = Style {
+            bg: band,
+            // A name keeps its spaces as they are.
+            spaces: Spaces::Keep,
             ..Style::default()
-        });
-        let name = wrap(&[Span::new(name, style)], width - 2 * margin);
-        let name = with_margin(name.into_iter().map(Line::new).collect(), margin);
-        let mut lines = vec![rule.clone()];
-        lines.extend(name);
-        lines.push(rule);
+        };
+        let bar = Style {
+            fg: self.theme.file_header.bar,
+            ..base.clone()
+        };
+        let indent = margin.max(2);
+        let (directory, file) = name.split_at(name.rfind('/').map_or(0, |at| at + 1));
+        let mut spans = Vec::new();
+        push(&mut spans, directory, &self.muted(base.clone()));
+        let bold = Style {
+            bold: true,
+            ..base.clone()
+        };
+        push(&mut spans, file, &bold);
+        // A cell of the band is left after the longest row.
+        let rows = wrap(&spans, width.saturating_sub(indent + 1));
+        let row = |content: Vec<Span>| {
+            let mut spans = vec![Span::new("▌", bar.clone())];
+            // Without a band, an empty row ends at the bar.
+            if band.is_some() || !content.is_empty() {
+                push(&mut spans, &" ".repeat(indent - 1), &base);
+            }
+            spans.extend(content);
+            if band.is_some() {
+                let used = super::wrap::width(&spans);
+                push(&mut spans, &" ".repeat(width.saturating_sub(used)), &base);
+            }
+            Line::new(spans)
+        };
+        let mut lines = vec![row(Vec::new())];
+        lines.extend(rows.into_iter().map(row));
+        lines.push(row(Vec::new()));
         lines
+    }
+
+    /// The colour of the band of a file's header: the theme's, or else a
+    /// little of the text colour mixed into the page. `None` where the
+    /// page is not known as RGB.
+    fn band(&self) -> Option<Color> {
+        match self.theme.file_header.background {
+            BandColor::Color(color) => color,
+            BandColor::Auto => {
+                // Light text on a dark page, as most terminals have it.
+                let contrast = match self.dark() {
+                    true => Color::Rgb(0xff, 0xff, 0xff),
+                    false => Color::Rgb(0, 0, 0),
+                };
+                let amount = if self.dark() { BAND_DARK } else { BAND_LIGHT };
+                let text = self.theme.foreground.or(self.caps.foreground);
+                self.mixed_into_page(text.or(Some(contrast)), amount)
+            }
+        }
     }
 
     /// The image file `name` shown on its own, as large as fits the window

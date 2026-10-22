@@ -67,6 +67,32 @@ pub struct Theme {
     pub status_line: StatusLineTheme,
     pub search: SearchTheme,
     pub mark: MarkTheme,
+    pub file_header: FileHeaderTheme,
+}
+
+/// The colours of the header above each of several files: a band across
+/// the text with a bar down its left edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FileHeaderTheme {
+    pub background: BandColor,
+    pub bar: Option<Color>,
+}
+
+impl Default for FileHeaderTheme {
+    fn default() -> Self {
+        Self {
+            background: BandColor::Auto,
+            bar: BLUE,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BandColor {
+    /// A little of the text colour mixed into the page.
+    #[default]
+    Auto,
+    Color(Option<Color>),
 }
 
 /// The colours of marked text, HTML's `<mark>`. Without colours, marked
@@ -296,6 +322,7 @@ impl Default for Theme {
                 foreground: Some(Color::Palette(0)),
                 background: Some(Color::Palette(3)),
             },
+            file_header: FileHeaderTheme::default(),
         }
     }
 }
@@ -349,6 +376,10 @@ impl Theme {
         self.status_line = StatusLineTheme::default();
         self.search = SearchTheme::default();
         self.mark = MarkTheme::default();
+        self.file_header = FileHeaderTheme {
+            background: BandColor::Color(None),
+            bar: None,
+        };
         self
     }
 }
@@ -419,6 +450,7 @@ mod tests {
                 status_line,
                 search,
                 mark,
+                file_header,
             } = theme.without_colors();
             let colors = [
                 background,
@@ -486,6 +518,8 @@ mod tests {
                 background,
             } = mark;
             assert_eq!([foreground, background], [None; 2]);
+            let FileHeaderTheme { background, bar } = file_header;
+            assert_eq!((background, bar), (BandColor::Color(None), None));
         }
     }
 }

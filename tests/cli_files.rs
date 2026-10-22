@@ -40,20 +40,10 @@ fn several_files_are_shown_in_order_under_their_names() {
     assert!(out.status.success(), "{}", text(&out.stderr));
     assert_eq!(text(&out.stderr), "");
     let stdout = text(&out.stdout);
-    let rule = "─".repeat(20);
     assert!(
         in_order(
             &stdout,
-            &[
-                &rule,
-                "b.md",
-                &rule,
-                "Beta text.",
-                &rule,
-                "a.md",
-                &rule,
-                "Alpha text."
-            ]
+            &["==> b.md <==", "Beta text.", "==> a.md <==", "Alpha text."]
         ),
         "{stdout}"
     );

@@ -293,6 +293,10 @@ document from the start.
   own, so an image is fitted to the window together with its header;
   4.12.3 adds a grid of them. A file that cannot be shown is reported,
   the others are still shown, and kiri exits with an error.
+- The header is a band of its own colour across the text, with a bar
+  down its left edge and the name in bold, so that nothing in a document
+  looks like it. Plain text names each file as `head` does, such as
+  `==> docs/spec.md <==`.
 - Files that are all images or diagram files go to the pager only with
   `-p`, as a piped document does. With a document among them, the paging
   setting applies to all of them.

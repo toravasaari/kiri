@@ -2,17 +2,13 @@
 source: tests/render_files.rs
 expression: "render(&two(), &Inputs::new(Capabilities::plain(WIDTH)))"
 ---
-────────────────────────────────────────────────
-  notes.md
-────────────────────────────────────────────────
+==> notes.md <==
 
 # Notes
 
   First file.
 
-────────────────────────────────────────────────
-  docs/todo.md
-────────────────────────────────────────────────
+==> docs/todo.md <==
 
   - one
   - two
