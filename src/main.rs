@@ -1022,7 +1022,7 @@ fn page(
         return None;
     };
     let result = kiri::pager::run(
-        document,
+        kiri::render::layout::Content::Document(document),
         Some(lines),
         name,
         inputs,

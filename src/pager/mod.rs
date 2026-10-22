@@ -15,8 +15,8 @@ use std::time::{Duration, Instant};
 
 use crate::caps::Capabilities;
 use crate::config::{Paging, SearchCase};
-use crate::model::Document;
 use crate::render::Inputs;
+use crate::render::layout::Content;
 use crate::render::output::{self, Page, Writer};
 use crate::render::style::{self, Line, Span, Style};
 use crate::term::{Screen, WindowSize};
@@ -70,13 +70,13 @@ impl<W: Write> Terminal for Screen<W> {
     }
 }
 
-/// Shows `document`, called `name`, on `terminal` until the reader quits,
+/// Shows `content`, called `name`, on `terminal` until the reader quits,
 /// laid out with `inputs` for the window's size, or `width` columns when
-/// it is given. `laid_out`, when given, is `document` laid out with
+/// it is given. `laid_out`, when given, is `content` laid out with
 /// `inputs` as they are now, used unless the window calls for another.
 /// A search treats case as `case` says.
 pub fn run(
-    document: &Document,
+    content: Content,
     laid_out: Option<Vec<Line>>,
     name: &str,
     inputs: &mut Inputs,
@@ -101,7 +101,7 @@ pub fn run(
         let rows = if bar { window - 1 } else { window };
         let mut lines = match laid_out.take() {
             Some((caps, lines)) if caps == inputs.caps => lines,
-            _ => crate::render::layout::layout(document, inputs),
+            _ => crate::render::layout::content(content, inputs).lines,
         };
         // The text sizing protocol cannot draw part of a line, so a line
         // taller than the window is drawn at normal size.
@@ -561,6 +561,7 @@ mod tests {
 
     use super::*;
     use crate::color::Color;
+    use crate::model::Document;
 
     #[test]
     fn auto_pages_a_document_longer_than_the_window() {
@@ -664,7 +665,7 @@ mod tests {
     fn show(document: &Document, terminal: &mut Fake) {
         let mut inputs = Inputs::new(Capabilities::ansi(80));
         run(
-            document,
+            Content::Document(document),
             None,
             "notes.md",
             &mut inputs,
@@ -682,7 +683,7 @@ mod tests {
         let mut inputs = Inputs::new(caps);
         let lines = crate::render::layout::layout(before, &inputs);
         run(
-            document,
+            Content::Document(document),
             Some(lines),
             "notes.md",
             &mut inputs,
@@ -794,7 +795,7 @@ mod tests {
             inputs.theme = crate::theme::parse(theme).unwrap();
             let document = numbers(30);
             run(
-                &document,
+                Content::Document(&document),
                 None,
                 "notes.md",
                 &mut inputs,
@@ -879,7 +880,7 @@ mod tests {
         let document = crate::parse::parse("# Title\n\nText\n");
         let mut inputs = Inputs::new(Capabilities::kitty(80));
         run(
-            &document,
+            Content::Document(&document),
             None,
             "notes.md",
             &mut inputs,
@@ -902,7 +903,7 @@ mod tests {
         let document = crate::parse::parse("A paragraph of several words\n");
         let mut inputs = Inputs::new(Capabilities::ansi(80));
         run(
-            &document,
+            Content::Document(&document),
             None,
             "notes.md",
             &mut inputs,
@@ -1258,7 +1259,7 @@ mod tests {
         let source = "# Kiri title\n\n| a | b |\n|---|---|\n| c | kiri |\n";
         let mut inputs = Inputs::new(Capabilities::kitty(80));
         run(
-            &crate::parse::parse(source),
+            Content::Document(&crate::parse::parse(source)),
             None,
             "notes.md",
             &mut inputs,
@@ -1320,7 +1321,7 @@ mod tests {
         reads.extend(std::iter::repeat_n(b"".as_slice(), empty));
         let mut terminal = Fake::new(60, 6, &reads);
         run(
-            document,
+            Content::Document(document),
             None,
             "notes.md",
             &mut inputs,

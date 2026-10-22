@@ -29,6 +29,25 @@ pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
     })
 }
 
+/// What is laid out: one document, or several files one after another.
+#[derive(Debug, Clone, Copy)]
+pub enum Content<'a> {
+    Document(&'a Document),
+    Files(&'a [File]),
+}
+
+/// `content` laid out with `inputs`. A lone document is no file, so the
+/// stream has no starts.
+pub fn content(content: Content, inputs: &Inputs) -> Stream {
+    match content {
+        Content::Document(document) => Stream {
+            lines: layout(document, inputs),
+            starts: Vec::new(),
+        },
+        Content::Files(shown) => files(shown, inputs),
+    }
+}
+
 /// Files laid out one after another: their lines, and where each starts.
 #[derive(Debug, Default)]
 pub struct Stream {
