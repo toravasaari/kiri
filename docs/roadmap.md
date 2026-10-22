@@ -531,6 +531,10 @@ Known bugs, fixed in whatever phase is under way.
   `<p align="center">`, blank line, `<img>`, blank line, `</p>`, is drawn,
   but the wrapper's tags show as source: CommonMark makes three HTML
   blocks of it.
+- The test that the example documents fit the window at every width,
+  `the_visual_check_documents_fit_every_mode`, loads no diagram renderer,
+  so it never draws a diagram. A drawn diagram, or the red error below one
+  that fails, could reach past the window's edge without the test noticing.
 
 ### resvg and the SVG that mmdc writes
 
