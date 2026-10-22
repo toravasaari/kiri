@@ -30,6 +30,15 @@ background, the theme's `background`, or the white or dark grey page of
 Try a wide window and a narrow one (about 40 columns), where the wide images
 shrink to the narrower text and the small ones keep their size.
 
+The first image of [`README.md`](README.md) is also a file of its own,
+[S06b-pattern.png](S06b-pattern.png). Shown alone it is fitted to the
+window, and under a header with its name when shown with other files:
+
+```sh
+kiri examples/S06b-pattern.png
+kiri examples/S06*
+```
+
 ## Scaling
 
 Red, green, blue and yellow quadrants on a black grid, about 32 columns

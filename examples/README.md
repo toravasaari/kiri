@@ -140,8 +140,11 @@ flowchart LR
   blocks
 - [Lists and quotes](S02-lists-and-quotes.md): blocks inside list items and
   quotes, nested quotes
-- [Tables](S03a-tables.md): narrow, stacked and wide tables
+- [Tables](S03a-tables.md): narrow, stacked and wide tables, and a
+  [CSV file](S03b-table.csv)
 - [Code](S04-code.md): wrapping and inline code
 - [Alerts](S05-alerts.md): the alert types
-- [Images](S06a-images.md): every format and many special cases
-- [Diagrams](S07a-diagrams.md): Mermaid diagrams
+- [Images](S06a-images.md): every format and many special cases, and a
+  [PNG file](S06b-pattern.png) on its own
+- [Diagrams](S07a-diagrams.md): Mermaid diagrams, and a
+  [Mermaid file](S07b-flowchart.mmd)

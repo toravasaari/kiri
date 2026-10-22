@@ -113,6 +113,15 @@ kiri examples/mermaid/flowchart.mmd
 kiri --format text examples/mermaid/flowchart.mmd
 ```
 
+The file [S07b-flowchart.mmd](S07b-flowchart.mmd) is a flowchart of its own
+in this directory, so that `kiri examples/S*` shows it among the other
+files. Its boxes run from top to bottom, with a diamond whose arrow "no"
+loops back to a box above it:
+
+```sh
+kiri examples/S07b-flowchart.mmd
+```
+
 View the document on the light and dark paper themes too. On a light
 page the diagrams use Mermaid's `default` theme, lavender boxes with
 dark text; on a dark page its `dark` theme, dark grey boxes with light

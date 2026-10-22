@@ -107,3 +107,15 @@ In plain text output, from `--mode plain` or a pipe, only `lines` and
 | Koti | 👨‍👩‍👧    | 🇫🇮   |
 
 Every row of the table above has its borders in line.
+
+## A CSV file
+
+A CSV file is shown as a table too, with its first row as the header. The
+file [S03b-table.csv](S03b-table.csv) has four columns and three rows. You
+should see the same borders and the same alternating shades as above, the
+header in bold, and the quoted note "Lake view, open all year" in one cell
+with its comma:
+
+```sh
+kiri examples/S03b-table.csv
+```

@@ -1,0 +1,7 @@
+flowchart TD
+    Cold([Arrive cold]) --> Heat[Heat the stove]
+    Heat --> Hot{Hot enough?}
+    Hot -->|no| Wait[Wait a while]
+    Wait --> Hot
+    Hot -->|yes| Steam[Throw water on the stones]
+    Steam --> Swim[(Swim in the lake)]
