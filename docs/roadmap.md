@@ -146,6 +146,49 @@ example, come before the rest of phase 3.
 - Other diagram languages that a renderer turns into an image, in the way
   Mermaid works, such as Graphviz (`dot`), PlantUML, D2 and Pikchr.
 
+#### 4.3.3 Renderers from the configuration file
+
+- A code block in any language drawn by a program that the configuration
+  file names: a way out when kiri has no support of its own for a rare
+  format. Each renderer is a table under `[diagrams]`, and the table's
+  name is its key:
+
+  ```toml
+  [diagrams.graphviz]
+  name = "Graphviz"
+  languages = ["dot", "graphviz"]
+  command = ["dot", "-Tsvg"]
+  safe = true
+  ```
+
+  `name` is the renderer's name in messages and `languages` the info
+  strings it draws; both default to the table's name. A language in two
+  tables is an error.
+- A command without `{input}` reads the source from standard input, and
+  one without `{output}` writes the image to standard output, as filters
+  such as `dot -Tsvg` do.
+- A renderer marked `safe` draws in any document. Any other draws only
+  in a document the reader trusts, as a program such as PlantUML or
+  LaTeX can read files or run commands that the document asks for. The
+  reader chooses one of:
+  - not trusting the document,
+  - trusting this version of it, by its SHA-256, so the trust moves with
+    the file,
+  - trusting every version of the file at its path,
+  - trusting the files in its directory.
+- A block that is not drawn for want of trust stays as code, with a line
+  below it saying that drawing it was blocked.
+- `-X` (`--allow-dangerous-execution` or a similar name) lets every
+  renderer draw for that run alone. It has no environment variable and
+  stores no trust.
+- The documentation shows how to add a renderer, with base64 as the
+  example: `command = ["base64", "-d"]` draws an image embedded in a
+  block as base64.
+- Question: where trust is stored, and how the pager asks for it.
+- Question: whether the rule on trust applies to Mermaid's commands too,
+  `mmdc` and those in `[diagrams.mermaid]`, which today draw in any
+  document.
+
 ### 4.4 Animation and video
 
 - Animated GIF, WebP and APNG, played by kitty itself.
