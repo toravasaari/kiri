@@ -22,11 +22,11 @@ View it with the default theme, on a document background, on the light
 and dark paper themes, and without colours:
 
 ```sh
-cargo run -- examples/S06a-images.md
-cargo run -- --theme examples/themes/opaque.toml examples/S06a-images.md
-cargo run -- --light examples/S06a-images.md
-cargo run -- --dark examples/S06a-images.md
-NO_COLOR=1 cargo run -- examples/S06a-images.md
+kiri examples/S06a-images.md
+kiri --theme examples/themes/opaque.toml examples/S06a-images.md
+kiri --light examples/S06a-images.md
+kiri --dark examples/S06a-images.md
+NO_COLOR=1 kiri examples/S06a-images.md
 ```
 
 Transparent parts of images show the page behind them: the terminal's

@@ -12,7 +12,7 @@ is a bug. How to view it with the themes and without colours is in
 [README.md](README.md):
 
 ```sh
-cargo run -- examples/S07a-diagrams.md
+kiri examples/S07a-diagrams.md
 ```
 
 ## A diagram in a code block

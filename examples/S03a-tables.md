@@ -26,7 +26,7 @@ is a bug. How to view it with the themes and without colours is in
 [README.md](README.md):
 
 ```sh
-cargo run -- examples/S03a-tables.md
+kiri examples/S03a-tables.md
 ```
 
 The front matter at the top of this document is a table too, above the

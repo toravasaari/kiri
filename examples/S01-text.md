@@ -12,7 +12,7 @@ is a bug. How to view it with the themes and without colours is in
 [README.md](README.md):
 
 ```sh
-cargo run -- examples/S01-text.md
+kiri examples/S01-text.md
 ```
 
 ## Heading levels

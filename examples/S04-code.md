@@ -21,7 +21,7 @@ theme; anything else is a bug. How to view it with the themes and without
 colours is in [README.md](README.md):
 
 ```sh
-cargo run -- examples/S04-code.md
+kiri examples/S04-code.md
 ```
 
 The front matter at the top of this document is drawn as a table above the

@@ -12,7 +12,7 @@ anything else is a bug. How to view it with the themes and without colours
 is in [README.md](README.md):
 
 ```sh
-cargo run -- examples/S02-lists-and-quotes.md
+kiri examples/S02-lists-and-quotes.md
 ```
 
 ## Lists
