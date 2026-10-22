@@ -29,27 +29,21 @@ On paper, the document lies on a white or dark grey page as wide as the
 window, and everything but the code blocks, the alerts and the images is
 in greys: no blue headings or links, no magenta inline code.
 
-The other documents in this directory are named `S`, for showcase, and a
-number for their topic. Each shows several files, one after another under a
-header with the file's name:
+The other documents here are named `S`, for showcase, and a number for
+their topic. Given several files, kiri shows them one after another, each
+under a header with its name:
 
 ```sh
-kiri examples/S*.md
-kiri examples/S*
-kiri examples/S07*
-kiri examples/*
+kiri examples/S*.md     # the topic documents
+kiri examples/S*        # also the CSV, image and Mermaid files
+kiri examples/S07*      # one topic, here the diagrams
+kiri examples/*         # also themes/ and mermaid/
 ```
 
-The first shows all the topic documents. The second also shows the CSV,
-image and Mermaid files, and the third one topic, here the diagrams. The
-last also takes `themes/`, which it shows through its README, and
-`mermaid/`, a directory without a README. kiri reports that one as an error
-at its place among the files, and shows the rest. That error is intended: it
-checks a file that cannot be shown.
-
-The topic documents start with front matter, which kiri draws as a table
-above the first heading. This document has none, so it shows a document
-without front matter.
+`mermaid/` has no README, so kiri reports it as an error at its place among
+the files and shows the rest; that error is intended. The topic documents
+start with front matter, drawn as a table above the first heading; this
+document has none.
 
 Try a wide window and a narrow one (about 40 columns), where the commands
 above wrap like any long code line. No line reaches past the right edge of
