@@ -141,6 +141,28 @@ pub fn render_files(files: &[File], inputs: &Inputs, out: &mut impl Write) -> io
     output::write(&stream.lines, &inputs.images, &inputs.caps, page, out)
 }
 
+/// Renders `file`, numbered `number` among the files shown together, under
+/// its header, as `render_files` renders each of them, after the blank
+/// line that comes between two files when `apart`.
+pub fn render_file(
+    file: &File,
+    number: usize,
+    apart: bool,
+    inputs: &Inputs,
+    out: &mut impl Write,
+) -> io::Result<()> {
+    let mut lines = Vec::new();
+    if apart {
+        lines.push(style::Line::blank());
+    }
+    lines.extend(layout::file(file, number, inputs));
+    let page = output::Page {
+        background: inputs.theme.background,
+        foreground: inputs.theme.foreground,
+    };
+    output::write(&lines, &inputs.images, &inputs.caps, page, out)
+}
+
 /// Shows `image` on its own, as large as fits the window and no larger
 /// than its natural size: a raster image one pixel per terminal pixel, an
 /// SVG in CSS pixels. A row is left below it for the shell's prompt. Does

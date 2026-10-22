@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::fs::File;
 use std::io::{self, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
@@ -10,9 +11,11 @@ use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser};
 use kiri::caps::Capabilities;
 use kiri::config::{Environment, FrontMatter, Named, Options, Origin, Paging, Setting, Settings};
 use kiri::doctor::{Facts, Output};
-use kiri::images::{Fonts, Format, ImageError, ImageKey, Interrupted, Loaded, Loading, Part};
+use kiri::images::{
+    Fonts, Format, ImageError, ImageKey, Interrupted, Loaded, Loading, Part, Source,
+};
 use kiri::input::Input;
-use kiri::model::Document;
+use kiri::model::{Block, Document};
 use kiri::render::output::Page;
 use kiri::render::{Inputs, RenderErrors, TableRows};
 use kiri::term::Mode;
@@ -31,18 +34,22 @@ struct Cli {
     /// Markdown file to render, a CSV or TSV file to show as a table, an
     /// image or a Mermaid diagram (.mmd) to show on its own, or a directory
     /// to show its README.
+    /// Several files are shown one after another, each under a header
+    /// that names it; one that cannot be shown is reported, and the others
+    /// are still shown.
     /// Without one, or with -, kiri reads standard input unless it is a
-    /// terminal.
-    file: Option<PathBuf>,
+    /// terminal; - can be given once.
+    #[arg(value_name = "FILE")]
+    files: Vec<PathBuf>,
 
     /// Show what kiri finds out about the terminal and which settings it
     /// uses, as Markdown when written to a file, for a bug report.
-    #[arg(long, conflicts_with_all = ["file", "format"])]
+    #[arg(long, conflicts_with_all = ["files", "format"])]
     doctor: bool,
 
     /// List the emoji shortcodes, such as :smile:. A terminal shows them
     /// as a table; a pipe or a file gets one line per emoji.
-    #[arg(long, conflicts_with_all = ["file", "format", "doctor"])]
+    #[arg(long, conflicts_with_all = ["files", "format", "doctor"])]
     list_emojis: bool,
 
     /// With --doctor: the report as Markdown also in a terminal, without
@@ -193,18 +200,26 @@ fn main() -> ExitCode {
     } else if cli.list_emojis {
         list_emojis(&cli)
     } else {
-        match cli.file.as_deref() {
-            Some(path) if path != Path::new("-") => run(&cli, Some(path)),
-            Some(_) => run(&cli, None),
-            None if !kiri::term::stdin_is_terminal() => run(&cli, None),
+        let stdin = Path::new("-");
+        match cli.files.as_slice() {
+            [path] if path != stdin => run(&cli, Some(path)),
+            [_] => run(&cli, None),
+            [] if !kiri::term::stdin_is_terminal() => run(&cli, None),
             // clap cannot require the file only when stdin is a terminal,
             // so this is its own error for a missing argument.
-            None => command
+            [] => command
                 .error(
                     ErrorKind::MissingRequiredArgument,
-                    "the following required arguments were not provided:\n  <FILE>",
+                    "the following required arguments were not provided:\n  <FILE>...",
                 )
                 .exit(),
+            paths if paths.iter().filter(|path| *path == stdin).count() > 1 => command
+                .error(
+                    ErrorKind::ArgumentConflict,
+                    "- (standard input) can be given only once",
+                )
+                .exit(),
+            paths => run_files(&cli, paths),
         }
     };
     match result {
@@ -248,18 +263,83 @@ const STDIN: &str = "<stdin>";
 /// Shows the file at `path`, the README of a directory there, or standard
 /// input without one.
 fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
-    let readme;
-    let file = match file {
-        Some(dir) if dir.is_dir() => {
-            readme = self::readme(dir)?;
-            Some(readme.as_path())
+    let opened = open(cli, file)?;
+    let env = Environment::from_process();
+    let context = Context::new(cli, &env);
+    let (path, file) = (opened.path.as_path(), opened.file.as_deref());
+    let source = match opened.content {
+        Content::Image { format, head, rest } => {
+            let reader = image_reader(file, head, rest)
+                .map_err(|error| format!("{}: {error}", path.display()))?;
+            return Ok(show_image(&context, path, format, reader)?);
         }
-        file => file,
+        Content::Text(source) => source,
     };
-    let path = file.unwrap_or(Path::new(STDIN));
+    let (warnings, settings) = settings(cli, &env);
+    for warning in &warnings {
+        eprintln!("kiri: {warning}");
+    }
+    let mut settings = settings?;
+    if file.is_none() {
+        settings.paging = only_always(settings.paging);
+    }
+    let caps = kiri::term::capabilities(context.mode, context.width, &env);
+    let input = opened.input;
+    if let Input::Diagram(language) = input {
+        return show_diagram(&context, language, &source, path, file, settings, caps);
+    }
+    // The source of a diagram in text stays source.
+    settings.diagrams &= input != Input::Text;
+    let warn = |warning| eprintln!("kiri: {warning}");
+    let Some(document) = document(input, &source, path, &settings, &caps, warn)? else {
+        return Ok(write_as_is(&source)?);
+    };
+    show_document(
+        &context,
+        &document,
+        &path.to_string_lossy(),
+        file,
+        settings,
+        caps,
+    )
+}
+
+/// A file opened and read far enough to tell what it is.
+struct Opened {
+    /// What errors and warnings call it: its path, the README's for a
+    /// directory, or `<stdin>`.
+    path: PathBuf,
+    /// The file, or `None` for standard input.
+    file: Option<PathBuf>,
+    input: Input,
+    content: Content,
+}
+
+/// What a file opened holds.
+enum Content {
+    /// An image in `format`, which starts with `head` and goes on in
+    /// `rest`; `None` when the file is closed, to be opened again.
+    Image {
+        format: Format,
+        head: Vec<u8>,
+        rest: Option<Box<dyn Read>>,
+    },
+    /// Text, read whole.
+    Text(String),
+}
+
+/// Opens the file at `path`, the README of a directory there, or standard
+/// input without one, and tells what it is: an image is read only as far
+/// as that takes, and any other file whole, as text.
+fn open(cli: &Cli, path: Option<&Path>) -> Result<Opened, String> {
+    let file = match path {
+        Some(dir) if dir.is_dir() => Some(readme(dir)?),
+        path => path.map(Path::to_owned),
+    };
+    let path = file.clone().unwrap_or_else(|| PathBuf::from(STDIN));
     let failed = |error: io::Error| format!("{}: {error}", path.display());
-    let mut reader: Box<dyn Read> = match file {
-        Some(path) => Box::new(File::open(path).map_err(failed)?),
+    let mut reader: Box<dyn Read> = match &file {
+        Some(file) => Box::new(File::open(file).map_err(failed)?),
         None => Box::new(io::stdin().lock()),
     };
     let mut head = Vec::new();
@@ -267,14 +347,21 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
         .take(kiri::input::HEAD as u64)
         .read_to_end(&mut head)
         .map_err(failed)?;
-    let env = Environment::from_process();
-    let context = Context::new(cli, &env);
     let input = cli
         .format
-        .unwrap_or_else(|| kiri::input::detect(path, &head));
+        .unwrap_or_else(|| kiri::input::detect(&path, &head));
     if let Input::Image(format) = input {
-        let reader = Cursor::new(head).chain(reader);
-        return Ok(show_image(&context, path, format, reader)?);
+        let content = Content::Image {
+            format,
+            head,
+            rest: Some(reader),
+        };
+        return Ok(Opened {
+            path,
+            file,
+            input,
+            content,
+        });
     }
     let mut bytes = head;
     reader.read_to_end(&mut bytes).map_err(failed)?;
@@ -290,48 +377,374 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
             )
         }
     })?;
-    let config = kiri::config::load(&env)?;
-    let (warnings, settings) = kiri::config::settings(&options(cli), &env, &config);
-    for warning in &warnings {
-        eprintln!("kiri: {warning}");
+    Ok(Opened {
+        path,
+        file,
+        input,
+        content: Content::Text(source),
+    })
+}
+
+/// The image that starts with `head` and goes on in `rest`, or, once
+/// `rest` is closed, in `file` opened again from its start.
+fn image_reader(
+    file: Option<&Path>,
+    head: Vec<u8>,
+    rest: Option<Box<dyn Read>>,
+) -> io::Result<Box<dyn Read>> {
+    Ok(match (rest, file) {
+        (Some(rest), _) => Box::new(Cursor::new(head).chain(rest)),
+        (None, Some(file)) => Box::new(File::open(file)?),
+        (None, None) => unreachable!("standard input is never closed"),
+    })
+}
+
+/// The settings for documents, from the command line, the environment and
+/// the configuration file, and warnings about them.
+fn settings(cli: &Cli, env: &Environment) -> (Vec<String>, Result<Settings, String>) {
+    match kiri::config::load(env) {
+        Ok(config) => kiri::config::settings(&options(cli), env, &config),
+        Err(error) => (Vec::new(), Err(error)),
     }
-    let mut settings = settings?;
-    if file.is_none() {
-        settings.paging = only_always(settings.paging);
-    }
-    let caps = kiri::term::capabilities(context.mode, context.width, &env);
-    if let Input::Diagram(language) = input {
-        return show_diagram(&context, language, &source, path, file, settings, caps);
-    }
-    let document = match input {
-        Input::Table(separator) => kiri::parse::csv::parse(&source, separator)
+}
+
+/// The document that `source`, from the file at `path`, is as `input`,
+/// anything but a diagram or an image, for `settings` and `caps`; `None`
+/// for text that plain output gets as it is, as from cat. A warning
+/// about its front matter goes to `warn`.
+fn document(
+    input: Input,
+    source: &str,
+    path: &Path,
+    settings: &Settings,
+    caps: &Capabilities,
+    warn: impl FnOnce(String),
+) -> Result<Option<Document>, String> {
+    Ok(Some(match input {
+        Input::Table(separator) => kiri::parse::csv::parse(source, separator)
             .map_err(|error| format!("{}: {error}", path.display()))?,
-        // Plain output gets the text as it is, as from cat.
-        Input::Text if !caps.styling => return Ok(write_as_is(&source)?),
-        Input::Text => {
-            // The source of a diagram stays source.
-            settings.diagrams = false;
-            kiri::parse::code(&source, kiri::input::language(path).as_deref())
-        }
+        Input::Text if !caps.styling => return Ok(None),
+        Input::Text => kiri::parse::code(source, kiri::input::language(path).as_deref()),
         _ => {
             let style = settings.front_matter.style();
-            let document = kiri::parse::parse_with(&source, style.is_some());
+            let document = kiri::parse::parse_with(source, style.is_some());
             let warning =
                 style.and_then(|style| kiri::render::front_matter_warning(&document, style));
             if let Some(warning) = warning {
-                eprintln!("kiri: {warning}");
+                warn(warning);
             }
             document
         }
+    }))
+}
+
+/// Shows the files at `paths`, `-` for standard input, one after another,
+/// each under a header that names it, as `run` shows each of them. A file
+/// that cannot be shown is told about, and the others are still shown;
+/// kiri then fails.
+fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
+    let failed = Cell::new(false);
+    let tell = |error: String| {
+        eprintln!("kiri: {error}");
+        failed.set(true);
     };
-    show_document(
-        &context,
-        &document,
-        &path.to_string_lossy(),
-        file,
-        settings,
-        caps,
-    )
+    let mut opened = Vec::new();
+    for path in paths {
+        let path = Some(path.as_path()).filter(|path| *path != Path::new("-"));
+        match open(cli, path) {
+            Ok(mut opened_file) => {
+                // Many image files may be given, more than kiri can keep
+                // open, so a regular file is closed until it is shown.
+                if let Content::Image { rest, .. } = &mut opened_file.content
+                    && (opened_file.file.as_deref()).is_some_and(Path::is_file)
+                {
+                    *rest = None;
+                }
+                opened.push(opened_file);
+            }
+            Err(error) => tell(error),
+        }
+    }
+    let env = Environment::from_process();
+    let context = Context::new(cli, &env);
+    let images_only = (opened.iter()).all(|file| matches!(file.content, Content::Image { .. }));
+    let (warnings, settings) = self::settings(cli, &env);
+    for warning in &warnings {
+        eprintln!("kiri: {warning}");
+    }
+    // As for an image on its own, a broken configuration file does not
+    // stop images; the documents are not shown without it.
+    let settings = match settings {
+        Ok(settings) => Some(settings),
+        Err(_) if images_only => None,
+        Err(error) => {
+            tell(error);
+            None
+        }
+    };
+    let documents = settings.is_some();
+    let settings = settings.unwrap_or_else(|| {
+        let choices = kiri::config::choose(&options(cli), &env, &Default::default());
+        choices.with_theme(Theme::default())
+    });
+    let caps = on_page(
+        kiri::term::capabilities(context.mode, context.width, &env),
+        &settings,
+    );
+    let mut given = Vec::new();
+    for opened in opened {
+        let name = opened.path.display().to_string();
+        let warn = |warning| eprintln!("kiri: {name}: {warning}");
+        let shown = match opened.content {
+            Content::Image { format, head, rest } => Shown::Image { format, head, rest },
+            // The configuration file's error tells why.
+            Content::Text(_) if !documents => continue,
+            Content::Text(source) => match opened.input {
+                Input::Diagram(_) if !caps.styling => Shown::AsIs(source),
+                Input::Diagram(language) => Shown::Diagram {
+                    document: kiri::parse::code(&source, Some(language)),
+                    language,
+                    source,
+                },
+                input => match document(input, &source, &opened.path, &settings, &caps, warn) {
+                    Ok(Some(document)) => Shown::Document {
+                        document,
+                        images: input != Input::Text,
+                    },
+                    Ok(None) => Shown::AsIs(source),
+                    Err(error) => {
+                        tell(error);
+                        continue;
+                    }
+                },
+            },
+        };
+        given.push(Given {
+            name,
+            path: opened.path,
+            file: opened.file,
+            shown,
+        });
+    }
+    let loaded = load_given(&context, &given, &settings, &caps)?;
+    let Loaded {
+        mut images,
+        interrupt: _guard,
+    } = loaded;
+    let mut errors = Vec::new();
+    for (number, file) in given.iter_mut().enumerate() {
+        errors.push(drawn(number, file, &mut images, &settings, &caps));
+    }
+    let mut inputs = Inputs {
+        images,
+        theme: settings.theme.clone(),
+        front_matter: settings.front_matter.style().unwrap_or_default(),
+        table_rows: settings.table_rows,
+        render_errors: settings.render_errors,
+        ..Inputs::new(caps)
+    };
+    let mut out = io::stdout().lock();
+    let mut apart = false;
+    for (number, (given, error)) in given.into_iter().zip(errors).enumerate() {
+        let name = given.name;
+        let shown = match given.shown {
+            Shown::Image { format, head, rest } => {
+                let reader = match image_reader(given.file.as_deref(), head, rest) {
+                    Ok(reader) => reader,
+                    Err(error) => {
+                        tell(format!("{name}: {error}"));
+                        continue;
+                    }
+                };
+                let image = read_image_file(&context, &inputs.caps, &given.path, format, reader);
+                let image = match image {
+                    Ok(image) => image,
+                    Err(error) => {
+                        tell(error);
+                        continue;
+                    }
+                };
+                let key = ImageKey::from(name.as_str()).in_document(number);
+                inputs.images.insert(key.clone(), Ok(image));
+                let file = image_file(name);
+                let shown = kiri::render::render_file(&file, number, apart, &inputs, &mut out);
+                inputs.images.remove(&key);
+                shown
+            }
+            Shown::Document { document, .. } => {
+                let stderr = settings.render_errors.stderr();
+                for warning in inputs.images.warnings_in(number, stderr) {
+                    eprintln!("kiri: {name}: {warning}");
+                }
+                let file = kiri::model::File { name, document };
+                kiri::render::render_file(&file, number, apart, &inputs, &mut out)
+            }
+            // What could not be drawn is told after it.
+            Shown::Diagram { document, .. } => {
+                let file = kiri::model::File { name, document };
+                kiri::render::render_file(&file, number, apart, &inputs, &mut out)
+            }
+            Shown::AsIs(text) => {
+                let file = kiri::model::File {
+                    name,
+                    document: Document::default(),
+                };
+                kiri::render::render_file(&file, number, apart, &inputs, &mut out)
+                    .and_then(|()| out.write_all(text.as_bytes()))
+            }
+        };
+        apart = true;
+        match shown.and_then(|()| out.flush()) {
+            // A closed pipe (kiri *.md | head) takes no more.
+            Err(error) if error.kind() == io::ErrorKind::BrokenPipe => break,
+            Err(error) => return Err(Failure::Error(error.to_string())),
+            Ok(()) => {}
+        }
+        match error {
+            Some(Drawn::Failed(error)) => tell(error),
+            Some(Drawn::Told) => failed.set(true),
+            Some(Drawn::Hint(hint)) => eprintln!("kiri: {hint}"),
+            None => {}
+        }
+    }
+    match failed.get() {
+        true => Err(Failure::Told),
+        false => Ok(()),
+    }
+}
+
+/// A file among several, ready to show.
+struct Given {
+    /// What its header calls it.
+    name: String,
+    /// What errors and warnings call it.
+    path: PathBuf,
+    /// The file, or `None` for standard input.
+    file: Option<PathBuf>,
+    shown: Shown,
+}
+
+/// What a file among several is shown as.
+enum Shown {
+    /// An image in `format`, read when it is shown, as `image_reader`
+    /// reads it.
+    Image {
+        format: Format,
+        head: Vec<u8>,
+        rest: Option<Box<dyn Read>>,
+    },
+    /// A document, with its images unless it is text.
+    Document { document: Document, images: bool },
+    /// A diagram file in `language`: `source`, and the document of its
+    /// code, shown where it is not drawn.
+    Diagram {
+        language: &'static str,
+        source: String,
+        document: Document,
+    },
+    /// Text written as it is.
+    AsIs(String),
+}
+
+/// What is told after a diagram file is shown.
+enum Drawn {
+    /// It could not be drawn: why, told as an error.
+    Failed(String),
+    /// It could not be drawn, and the document tells why.
+    Told,
+    /// Nothing could draw it.
+    Hint(String),
+}
+
+/// The images of the documents among `given`, loaded and drawn as
+/// `load_images` loads them, keyed by the number of each among them. The
+/// diagram of a diagram file is drawn also with images off, as it is on
+/// its own, and text has none.
+fn load_given(
+    context: &Context,
+    given: &[Given],
+    settings: &Settings,
+    caps: &Capabilities,
+) -> Result<Loaded, Failure> {
+    if !caps.draws_images() {
+        return Ok(Loaded::default());
+    }
+    let parts: Vec<Part> = (given.iter().enumerate())
+        .filter_map(|(number, given)| {
+            let document = match &given.shown {
+                Shown::Document { document, images } if *images && settings.images => document,
+                Shown::Diagram { document, .. } => document,
+                _ => return None,
+            };
+            let file = given.file.as_deref();
+            Some(Part {
+                number,
+                ..part(document, file)
+            })
+        })
+        .collect();
+    load_parts(context, &parts, settings, caps)
+}
+
+/// The diagram file `given`, numbered `number` among the files shown,
+/// made an image file where its diagram in `images` was drawn: the image
+/// is then keyed by the file's name. Otherwise what is told after it is
+/// shown, as for a diagram file on its own.
+fn drawn(
+    number: usize,
+    given: &mut Given,
+    images: &mut kiri::images::Images,
+    settings: &Settings,
+    caps: &Capabilities,
+) -> Option<Drawn> {
+    let Shown::Diagram {
+        language, source, ..
+    } = &given.shown
+    else {
+        return None;
+    };
+    let language = *language;
+    let key = ImageKey::block(language, source).in_document(number);
+    let path = given.path.display();
+    match images.remove(&key) {
+        Some(Ok(image)) => {
+            let name = given.name.clone();
+            images.insert(ImageKey::from(name.as_str()).in_document(number), Ok(image));
+            given.shown = Shown::Document {
+                document: Document {
+                    blocks: vec![Block::ImageFile(name)],
+                },
+                images: true,
+            };
+            None
+        }
+        Some(Err(error)) => {
+            let reason = match &error {
+                ImageError::Diagram { reason, .. } => reason.clone(),
+                error => error.to_string(),
+            };
+            // Back in, so that the document tells it below the source.
+            images.insert(key, Err(error));
+            Some(match settings.render_errors.stderr() {
+                true => Drawn::Failed(format!("{path}: {reason}")),
+                false => Drawn::Told,
+            })
+        }
+        // Not drawn, though it could have been shown: no renderer for it.
+        None if settings.diagrams && caps.draws_images() => Some(Drawn::Hint(format!(
+            "{path}: no program to draw {} diagrams; see --doctor",
+            kiri::diagrams::display_name(language)
+        ))),
+        None => None,
+    }
+}
+
+/// The image file `name` among several, as a file to render.
+fn image_file(name: String) -> kiri::model::File {
+    let document = Document {
+        blocks: vec![Block::ImageFile(name.clone())],
+    };
+    kiri::model::File { name, document }
 }
 
 /// The README the directory `dir` shows: `README.md`, or else `README`.
@@ -477,6 +890,17 @@ fn load_images(
     if !settings.images || !caps.draws_images() {
         return Ok(Loaded::default());
     }
+    load_parts(context, parts, settings, caps)
+}
+
+/// The images of the documents in `parts`, loaded and drawn as
+/// `load_images` loads them, whatever the settings say about images.
+fn load_parts(
+    context: &Context,
+    parts: &[Part],
+    settings: &Settings,
+    caps: &Capabilities,
+) -> Result<Loaded, Failure> {
     let loading = Loading {
         env: context.env,
         settings,
@@ -621,6 +1045,20 @@ fn show_image(
     reader: impl Read,
 ) -> Result<(), String> {
     let caps = kiri::term::capabilities(context.mode, context.width, context.env);
+    let image = read_image_file(context, &caps, path, format, reader)?;
+    let mut out = io::stdout().lock();
+    finish(kiri::render::render_image(image, &caps, &mut out).and_then(|()| out.flush()))
+}
+
+/// The image file `path`, in `format`, read from `reader` up to the size
+/// limit, for a terminal with `caps`, which must draw images.
+fn read_image_file(
+    context: &Context,
+    caps: &Capabilities,
+    path: &Path,
+    format: Format,
+    reader: impl Read,
+) -> Result<Source, String> {
     if !caps.draws_images() {
         return Err(format!(
             "{}: the terminal cannot show images",
@@ -628,13 +1066,12 @@ fn show_image(
         ));
     }
     let max_file_size = context.max_file_size;
-    let image = kiri::images::read_image(reader, path, format, max_file_size, &Fonts::system())
-        .map_err(|error| match error {
+    kiri::images::read_image(reader, path, format, max_file_size, &Fonts::system()).map_err(
+        |error| match error {
             error if error.names_file() => error.to_string(),
             error => format!("{}: {error}", path.display()),
-        })?;
-    let mut out = io::stdout().lock();
-    finish(kiri::render::render_image(image, &caps, &mut out).and_then(|()| out.flush()))
+        },
+    )
 }
 
 /// Writes the `--doctor` report: rendered for a terminal, as Markdown

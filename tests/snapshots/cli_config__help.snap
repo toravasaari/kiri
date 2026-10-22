@@ -1,15 +1,14 @@
 ---
 source: tests/cli_config.rs
-assertion_line: 453
 expression: text(&out.stdout)
 ---
 Render a Markdown document, or show an image, in the terminal
 
-Usage: kiri [OPTIONS] [FILE]
+Usage: kiri [OPTIONS] [FILE]...
 
 Arguments:
-  [FILE]
-          Markdown file to render, a CSV or TSV file to show as a table, an image or a Mermaid diagram (.mmd) to show on its own, or a directory to show its README. Without one, or with -, kiri reads standard input unless it is a terminal
+  [FILE]...
+          Markdown file to render, a CSV or TSV file to show as a table, an image or a Mermaid diagram (.mmd) to show on its own, or a directory to show its README. Several files are shown one after another, each under a header that names it; one that cannot be shown is reported, and the others are still shown. Without one, or with -, kiri reads standard input unless it is a terminal; - can be given once
 
 Options:
       --doctor

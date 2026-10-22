@@ -54,6 +54,17 @@ The document can also come from standard input, which errors call
 resolved in `src/main.rs`, before `src/input.rs` looks at the bytes, so
 an image piped in is shown on its own as well.
 
+Several files on the command line are shown one after another, each
+under a header that names it. Each is read as it would be on its own,
+and a file that cannot be read or shown is told about while the others
+are still shown. In the document model they are `File`s, each a name
+and a document; an image file, or a diagram file that is drawn, is a
+document of one `Block::ImageFile`, whose pixels kiri reads itself and
+keys by the file's name. The layout gives each file its header and
+keeps where each one starts. The documents' images load together, each
+document's relative to its own directory, under keys that carry the
+document's number among the files.
+
 There is one terminal backend, not one per terminal. It lays the model out
 as styled lines of a fixed width, then writes those as bytes. What it may
 use comes from the capabilities it is given: plain text for pipes, colours
@@ -282,7 +293,8 @@ src/diagrams/find.rs       finding a command, such as mmdc, when none is
                            configured
 src/color.rs               colours and underline styles for theme and render
 src/render/mod.rs          document model -> terminal output
-src/render/layout/mod.rs   document model -> styled lines of a fixed width
+src/render/layout/mod.rs   document model -> styled lines of a fixed width;
+                           files under their headers
 src/render/layout/code.rs  code blocks and their language label
 src/render/layout/list.rs  bullet, numbered and task lists
 src/render/layout/quote.rs block quotes
