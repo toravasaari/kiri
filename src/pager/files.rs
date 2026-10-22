@@ -34,9 +34,14 @@ impl<'a> Files<'a> {
         self.starts[file]
     }
 
+    /// How many files there are.
+    pub fn count(&self) -> usize {
+        self.starts.len()
+    }
+
     /// Whether there is more than one file.
     pub fn several(&self) -> bool {
-        self.starts.len() > 1
+        self.count() > 1
     }
 
     /// The file `:n` goes to from the file `file`: the one after it, if

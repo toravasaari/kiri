@@ -175,10 +175,11 @@ start and the end, and `q` to quit; `?` or `h` lists them. The mouse
 wheel scrolls too. Large headings scroll in and out whole. A status line
 at the bottom shows the document's name and how far down it you are.
 Several files are paged as one document, headers and all: the status line
-names the file at the top of the view, and `:n` and `:p`, or Shift+PgDn
-and Shift+PgUp, move to the next and the previous file. Some terminals
-keep Shift+PgDn and Shift+PgUp for their own scrollback, as Ghostty does
-by default. There `:n` and `:p` still work, or the lines
+names the file at the top of the view and its place among them, such as
+`b.md 2/3`, and `:n` and `:p`, or Shift+PgDn and Shift+PgUp, move to the
+next and the previous file. Some terminals keep Shift+PgDn and
+Shift+PgUp for their own scrollback, as Ghostty does by default. There
+`:n` and `:p` still work, or the lines
 `keybind = shift+page_up=unbind` and `keybind = shift+page_down=unbind`
 in Ghostty's configuration hand the keys to kiri.
 

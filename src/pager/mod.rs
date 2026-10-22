@@ -248,7 +248,10 @@ impl Status<'_> {
                 let found = state.found(flash);
                 let file = state.file(&self.files, view.top());
                 let name = file.map_or(self.name, |file| self.files.name(file));
-                status::spans(name, view.position(), found, width, &self.styles)
+                let place = (file.filter(|_| self.files.several()))
+                    .map(|file| (file + 1, self.files.count()));
+                let position = view.position();
+                status::spans(name, place, position, found, width, &self.styles)
             }
         }
     }
@@ -1108,6 +1111,28 @@ mod tests {
         assert!(status_row(&frames[2], 6).contains(" b.md "), "{frames:#?}");
         assert!(!names(&frames[2]), "{frames:#?}");
         assert!(names(&frames[3]), "{frames:#?}");
+    }
+
+    #[test]
+    fn the_status_line_tells_the_file_s_place_among_the_files() {
+        let mut terminal = Fake::new(40, 6, &[b":n"]);
+        show_files(&two_files(), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 2, "{frames:#?}");
+        assert!(
+            status_row(&frames[0], 6).contains(" a.md 1/2 "),
+            "{frames:#?}"
+        );
+        assert!(
+            status_row(&frames[1], 6).contains(" b.md 2/2 "),
+            "{frames:#?}"
+        );
+        // A lone document has no place among others.
+        let mut terminal = Fake::new(40, 6, &[]);
+        show(&numbers(3), &mut terminal);
+        let status = status_row(&terminal.frames()[0], 6);
+        assert!(status.contains(" notes.md  "), "{status:?}");
+        assert!(!status.contains("1/1"), "{status:?}");
     }
 
     /// Files called `name` with `count` lines each, as [`numbers`] has
