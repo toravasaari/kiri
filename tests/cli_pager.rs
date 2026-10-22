@@ -11,7 +11,7 @@ use rustix::process::Resource;
 
 mod common;
 
-use common::{Scratch, command, read_terminal, text};
+use common::{Scratch, command, fixtures, read_terminal, text};
 
 /// The alternate screen, which the pager draws on.
 const ENTER: &str = "\x1b[?1049h";
@@ -541,6 +541,29 @@ fn a_file_that_cannot_be_shown_is_told_at_its_place_when_the_files_fit() {
     }
     assert_eq!(seen.matches("missing.md").count(), 1, "{seen:?}");
     assert!(!seen.contains('✗'), "{seen:?}");
+}
+
+#[test]
+fn a_front_matter_warning_is_told_at_its_place_when_the_files_fit() {
+    let invalid = std::fs::read_to_string(fixtures().join("front-matter-invalid.md")).unwrap();
+    let prepare = |dir: &std::path::Path| {
+        std::fs::write(dir.join("a.md"), "Alpha text.\n").unwrap();
+        std::fs::write(dir.join("c.md"), invalid).unwrap();
+        std::fs::write(dir.join("b.md"), "Beta text.\n").unwrap();
+    };
+    let args = ["a.md", "c.md", "b.md"];
+    let (status, seen) = in_terminal_both("pager-warning-fits", prepare, &args, 40, |_, _, _| {});
+    assert_eq!(status.code(), Some(0), "{seen:?}");
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    // As printed: the warning comes after the file before it and before
+    // its own file's header.
+    let mut rest = seen.as_str();
+    for part in ["Alpha text.", "kiri: c.md: front matter", "c.md", "b.md"] {
+        let at = rest
+            .find(part)
+            .unwrap_or_else(|| panic!("{part}: {seen:?}"));
+        rest = &rest[at + part.len()..];
+    }
 }
 
 #[test]
