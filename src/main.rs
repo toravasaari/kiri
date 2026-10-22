@@ -465,8 +465,8 @@ fn on_page(mut caps: Capabilities, settings: &Settings) -> Capabilities {
 /// The images of `document`, from `file` or not as for `show_document`,
 /// loaded and drawn when `settings` want them and `caps` can show them;
 /// otherwise none, as they are alt text, without warnings. While
-/// programs draw any of its diagrams, Ctrl-C, SIGTERM, SIGHUP and Ctrl-\
-/// stop them; such a signal is the failure. On a terminal, a line tells
+/// programs draw any of its diagrams, Ctrl-C, SIGTERM, SIGHUP and
+/// Ctrl-\ stop them; such a signal is the failure. On a terminal, a line tells
 /// how far drawing has got when it takes long.
 fn load_images(
     context: &Context,
