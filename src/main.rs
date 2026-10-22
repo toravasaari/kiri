@@ -38,7 +38,7 @@ struct Cli {
     /// that names it; one that cannot be shown is reported, and the others
     /// are still shown.
     /// Without one, or with -, kiri reads standard input unless it is a
-    /// terminal; - can be given once.
+    /// terminal; - can be given only once.
     #[arg(value_name = "FILE")]
     files: Vec<PathBuf>,
 
