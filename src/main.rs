@@ -504,7 +504,8 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
             }
         };
         let name = opened.path.display().to_string();
-        let warn = |warning| eprintln!("kiri: {name}: {warning}");
+        let mut warnings = Vec::new();
+        let warn = |warning| warnings.push(warning);
         let shown = match opened.content {
             Content::Image { format, head, rest } => Shown::Image { format, head, rest },
             // The configuration file's error tells why.
@@ -531,6 +532,7 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
             path: opened.path,
             file: opened.file,
             shown,
+            warnings,
         });
     }
     let paging = kiri::pager::for_files(settings.paging, alone);
@@ -604,6 +606,7 @@ fn read_whole(context: &Context, caps: &Capabilities, given: Given) -> Given {
         path,
         file,
         shown,
+        warnings,
     } = given;
     let shown = match shown {
         Shown::Image { format, head, rest } => {
@@ -622,6 +625,7 @@ fn read_whole(context: &Context, caps: &Capabilities, given: Given) -> Given {
         path,
         file,
         shown,
+        warnings,
     }
 }
 
@@ -667,7 +671,9 @@ fn page_files(
     for (number, given) in given.into_iter().enumerate() {
         let name = given.name;
         let mut error = None;
-        let mut warned = Vec::new();
+        let mut warned: Vec<_> = (given.warnings.iter())
+            .map(|warning| format!("{name}: {warning}"))
+            .collect();
         let document = match given.shown {
             Shown::Failed(why) => {
                 // The header names the file already.
@@ -761,6 +767,9 @@ fn print_files(
     let mut apart = false;
     for (number, given) in given.into_iter().enumerate() {
         let name = given.name;
+        for warning in &given.warnings {
+            eprintln!("kiri: {name}: {warning}");
+        }
         let shown = match given.shown {
             Shown::Failed(error) => {
                 told(failed, error);
@@ -839,6 +848,8 @@ struct Given {
     /// The file, or `None` for standard input.
     file: Option<PathBuf>,
     shown: Shown,
+    /// What is told about it before it is shown, besides its images.
+    warnings: Vec<String>,
 }
 
 /// What a file among several is shown as.
@@ -875,6 +886,7 @@ impl Given {
             path,
             file: None,
             shown: Shown::Failed(error),
+            warnings: Vec::new(),
         }
     }
 

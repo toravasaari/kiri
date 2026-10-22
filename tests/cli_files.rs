@@ -249,6 +249,38 @@ fn warnings_name_the_file_they_are_about() {
 }
 
 #[test]
+fn a_front_matter_warning_is_told_at_its_file_s_place() {
+    let dir = two_documents("files-front-matter");
+    let invalid = std::fs::read_to_string(fixtures().join("front-matter-invalid.md")).unwrap();
+    write(&dir.join("c.md"), &invalid);
+    // Standard output and standard error into one file, in the order
+    // kiri writes them.
+    let both = dir.join("both.txt");
+    let file = std::fs::File::create(&both).unwrap();
+    let status = command(&dir)
+        .current_dir(&*dir)
+        .args(["--mode", "plain", "a.md", "c.md", "b.md"])
+        .stdout(file.try_clone().unwrap())
+        .stderr(file)
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let both = std::fs::read_to_string(&both).unwrap();
+    assert!(
+        in_order(
+            &both,
+            &[
+                "Alpha text.",
+                "kiri: c.md: front matter, line 4: ",
+                "==> c.md <==",
+                "==> b.md <=="
+            ]
+        ),
+        "{both}"
+    );
+}
+
+#[test]
 fn help_tells_about_several_files() {
     let dir = Scratch::new("files-help");
     let out = kiri_in(&dir, &["--help"]);
