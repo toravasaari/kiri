@@ -218,11 +218,12 @@ fn search(found: Found, styles: &Styles) -> Vec<Span> {
     }
 }
 
-/// The status line while the search prompt is open with `term` typed so
-/// far: the badge, then the prompt with a cursor after the term. A term
-/// too long for the window loses its start.
-pub fn prompt(term: &str, width: usize, styles: &Styles) -> Vec<Span> {
-    // The badge, and a space, the slash and the cursor.
+/// The status line while a prompt is open with `term` typed so far after
+/// `mark`, a slash for a search or a colon for a command: the badge, then
+/// the prompt with a cursor after the term. A term too long for the
+/// window loses its start.
+pub fn prompt(mark: char, term: &str, width: usize, styles: &Styles) -> Vec<Span> {
+    // The badge, and a space, the mark and the cursor.
     let fixed = BADGE.width() + 3;
     if fixed > width {
         return badge_only(width, styles);
@@ -230,7 +231,7 @@ pub fn prompt(term: &str, width: usize, styles: &Styles) -> Vec<Span> {
     let shown = wrap::tail(&printable(term), width - fixed);
     let mut spans = vec![
         Span::new(BADGE, styles.badge.clone()),
-        Span::new(&format!(" /{shown}{CURSOR}"), styles.bar.clone()),
+        Span::new(&format!(" {mark}{shown}{CURSOR}"), styles.bar.clone()),
     ];
     let used = wrap::width(&spans);
     spans.push(Span::new(&" ".repeat(width - used), styles.bar.clone()));
@@ -480,19 +481,26 @@ mod tests {
 
     #[test]
     fn the_prompt_replaces_the_name_and_the_keys() {
-        let spans = prompt("kiri", 30, &styles());
+        let spans = prompt('/', "kiri", 30, &styles());
         assert_eq!(text(&spans), " kiri  /kiri\u{258f}                 ");
         assert_eq!(width(&spans), 30);
         assert_eq!(spans[0].style, styles().badge);
     }
 
     #[test]
+    fn a_colon_waits_for_a_command_on_the_prompt() {
+        let spans = prompt(':', "", 20, &styles());
+        assert_eq!(text(&spans), " kiri  :\u{258f}           ");
+        assert_eq!(width(&spans), 20);
+    }
+
+    #[test]
     fn a_long_term_in_the_prompt_loses_its_start() {
-        let spans = prompt("a long search term", 20, &styles());
+        let spans = prompt('/', "a long search term", 20, &styles());
         assert_eq!(text(&spans), " kiri  /…earch term\u{258f}");
         assert_eq!(width(&spans), 20);
         for width in 0..30 {
-            let spans = prompt("kiri", width, &styles());
+            let spans = prompt('/', "kiri", width, &styles());
             let expected = if width < 9 { width.min(6) } else { width };
             assert_eq!(wrap::width(&spans), expected, "{width}: {spans:?}");
         }

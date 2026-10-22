@@ -3,7 +3,7 @@
 
 use unicode_width::UnicodeWidthStr;
 
-use super::keys::BINDINGS;
+use super::keys::{BINDINGS, Binding};
 use crate::render::style::{Span, Style};
 use crate::render::wrap;
 
@@ -18,16 +18,27 @@ pub struct Placed {
 
 /// The help panel in `style`, with notes in `muted`, in the middle of the
 /// top `rows` rows of a window `columns` wide. A window too small for it
-/// shows its top left.
-pub fn panel(columns: usize, rows: usize, style: &Style, muted: &Style) -> Vec<Placed> {
+/// shows its top left. The keys that move between files are listed only
+/// when there are `several` files.
+pub fn panel(
+    columns: usize,
+    rows: usize,
+    style: &Style,
+    muted: &Style,
+    several: bool,
+) -> Vec<Placed> {
     let span = |text: &str, style: &Style| Span::new(text, style.clone());
     let bold = Style {
         bold: true,
         ..style.clone()
     };
-    let names = BINDINGS.iter().map(|binding| binding.names.width());
+    let listed: Vec<&Binding> = BINDINGS
+        .iter()
+        .filter(|binding| several || !binding.action.between_files())
+        .collect();
+    let names = listed.iter().map(|binding| binding.names.width());
     let names = names.max().unwrap_or(0);
-    let whats = BINDINGS.iter().map(|binding| binding.what.width());
+    let whats = listed.iter().map(|binding| binding.what.width());
     let whats = whats.max().unwrap_or(0);
     // The keys, a gap of three and what they do.
     let inner = (names + 3 + whats).max(FOOTER.width());
@@ -46,7 +57,7 @@ pub fn panel(columns: usize, rows: usize, style: &Style, muted: &Style) -> Vec<P
         span(&"─".repeat(inner + 1 - TITLE.width()), style),
         span("┐", style),
     ]];
-    for binding in BINDINGS {
+    for binding in listed {
         let gap = names - binding.names.width() + 3;
         lines.push(line(vec![
             span(binding.names, &bold),
@@ -87,7 +98,7 @@ mod tests {
 
     #[test]
     fn lists_every_binding_in_a_box() {
-        let panel = panel(80, 24, &Style::default(), &Style::default());
+        let panel = panel(80, 24, &Style::default(), &Style::default(), true);
         let rows: Vec<String> = panel.iter().map(text).collect();
         assert_eq!(rows.len(), BINDINGS.len() + 4, "{rows:#?}");
         assert!(rows[0].starts_with("┌─ Keys ─"), "{rows:#?}");
@@ -107,7 +118,7 @@ mod tests {
 
     #[test]
     fn lists_the_search_keys() {
-        let panel = panel(80, 23, &Style::default(), &Style::default());
+        let panel = panel(80, 23, &Style::default(), &Style::default(), true);
         let rows: Vec<String> = panel.iter().map(text).collect();
         for (names, what) in [
             ("/", "search"),
@@ -123,10 +134,29 @@ mod tests {
     }
 
     #[test]
+    fn lists_the_keys_between_files_only_for_several() {
+        let listed = |several| {
+            let panel = panel(80, 24, &Style::default(), &Style::default(), several);
+            panel.iter().map(text).collect::<Vec<_>>()
+        };
+        for (names, what) in [(":n", "next file"), (":p", "previous file")] {
+            let found = |rows: &[String]| {
+                rows.iter().any(|row| {
+                    let row = row.trim_start_matches("│ ");
+                    row.starts_with(&format!("{names} ")) && row.contains(&format!("   {what} "))
+                })
+            };
+            assert!(found(&listed(true)), "{names}");
+            assert!(!found(&listed(false)), "{names}");
+        }
+        assert_eq!(listed(false).len(), listed(true).len() - 2);
+    }
+
+    #[test]
     fn fits_a_window_of_24_rows_whole() {
         // The status line takes one of the 24 rows.
         let rows = 23;
-        let panel = panel(80, rows, &Style::default(), &Style::default());
+        let panel = panel(80, rows, &Style::default(), &Style::default(), true);
         assert_eq!(panel.len(), BINDINGS.len() + 4);
         assert!(panel.len() <= rows, "{} rows", panel.len());
         assert!(panel[0].row >= 1 && panel[panel.len() - 1].row <= rows);
@@ -134,7 +164,7 @@ mod tests {
 
     #[test]
     fn sits_in_the_middle_of_the_window() {
-        let panel = panel(80, 24, &Style::default(), &Style::default());
+        let panel = panel(80, 24, &Style::default(), &Style::default(), true);
         let box_width = width(&panel[0].spans);
         assert_eq!(panel[0].column, (80 - box_width) / 2 + 1);
         assert_eq!(panel[0].row, (24 - panel.len()) / 2 + 1);
@@ -146,7 +176,7 @@ mod tests {
 
     #[test]
     fn a_small_window_shows_what_fits() {
-        let panel = panel(20, 5, &Style::default(), &Style::default());
+        let panel = panel(20, 5, &Style::default(), &Style::default(), true);
         assert_eq!(panel.len(), 5);
         for placed in &panel {
             assert_eq!(placed.column, 1);

@@ -436,6 +436,23 @@ fn several_files_are_paged_as_one_stream_under_their_names() {
     assert!(frames.last().unwrap().contains("/Line 10 1/1"), "{seen:?}");
 }
 
+#[test]
+fn colon_n_moves_to_the_next_file_and_the_status_line_names_it() {
+    let (status, seen) = in_terminal(
+        "pager-next-file",
+        &["document.md", "long.md"],
+        8,
+        None,
+        &[b":n", b"q"],
+    );
+    assert!(status.success());
+    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
+    assert_eq!(frames.len(), 2, "{seen:?}");
+    assert!(!frames[0].contains("long.md"), "{seen:?}");
+    assert!(frames[1].contains("long.md"), "{seen:?}");
+    assert!(!frames[1].contains("document.md"), "{seen:?}");
+}
+
 /// [`in_terminal`] in a window of 5 rows, with copies of an image beside
 /// the documents, `a.png` and `b.png`.
 fn with_images(name: &str, args: &[&str], keys: &[&[u8]]) -> (ExitStatus, String) {

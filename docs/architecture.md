@@ -85,13 +85,13 @@ in the laid-out lines and splits a line where a match starts and ends, so
 the matches can be highlighted without a change to the writer;
 `src/pager/fade.rs` mixes the colours a match fades through after a jump;
 `src/pager/files.rs` knows where each of several files starts, so the
-status line names the file at the top of the view; `src/pager/status.rs`
-and `src/pager/help.rs` make the status line and the help panel as styled
+status line names the file at the top of the view and `:n` and `:p` move
+from one file's start to another's; `src/pager/status.rs` and
+`src/pager/help.rs` make the status line and the help panel as styled
 spans; `src/pager/mod.rs` draws each frame, row by row through the
 backend's writer, and lays the document out again when the window changes
-size. The terminal itself, the alternate screen, raw mode
-and reading keys from the controlling terminal, is opened in
-`src/term/screen.rs`.
+size. The terminal itself, the alternate screen, raw mode and reading keys
+from the controlling terminal, is opened in `src/term/screen.rs`.
 
 ## Diagrams
 

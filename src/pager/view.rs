@@ -144,6 +144,12 @@ impl View {
         self.top = top.min(self.last_top());
     }
 
+    /// Puts `line` at the top of the view, or as near it as the last page
+    /// lets it come.
+    pub fn go_to(&mut self, line: usize) {
+        self.top = line.min(self.last_top());
+    }
+
     /// Brings `line` into the view: when it is not shown, it becomes the
     /// top line, or the last page shows it.
     pub fn reveal(&mut self, line: usize) {
@@ -339,6 +345,18 @@ mod tests {
         let mut view = View::new(vec![1, 1, 1, 2, 1], 3);
         view.reveal(3);
         assert_eq!(view.visible(), 3..5);
+    }
+
+    #[test]
+    fn going_to_a_line_puts_it_at_the_top_even_when_it_is_shown() {
+        let mut view = plain(10, 4);
+        view.go_to(2);
+        assert_eq!(view.top(), 2);
+        view.go_to(0);
+        assert_eq!(view.top(), 0);
+        // No further than the last page.
+        view.go_to(8);
+        assert_eq!(view.top(), 6);
     }
 
     #[test]

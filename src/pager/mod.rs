@@ -238,23 +238,17 @@ impl Status<'_> {
         }
         let width = usize::from(self.width);
         match &state.prompt {
-            Some(prompt) => status::prompt(prompt.term(), width, &self.styles),
+            Some(prompt) => status::prompt('/', prompt.term(), width, &self.styles),
+            None if state.colon => status::prompt(':', "", width, &self.styles),
             None => {
                 let flash = fade
                     .filter(|_| state.jumped.is_some_and(|jump| jump.around))
                     .map(|fade| self.styles.number(fade));
                 let found = state.found(flash);
-                let name = self.name_at(view.top());
+                let file = state.file(&self.files, view.top());
+                let name = file.map_or(self.name, |file| self.files.name(file));
                 status::spans(name, view.position(), found, width, &self.styles)
             }
-        }
-    }
-
-    /// The name of what line `line` is in: the file, or the document.
-    fn name_at(&self, line: usize) -> &str {
-        match self.files.at(line) {
-            Some(file) => self.files.name(file),
-            None => self.name,
         }
     }
 
@@ -266,6 +260,7 @@ impl Status<'_> {
                 view.rows(),
                 &self.panel,
                 &self.muted,
+                self.files.several(),
             )
         } else {
             Vec::new()
@@ -306,6 +301,20 @@ struct State {
     nowhere: bool,
     /// The last jump to a match, while its fade is under way.
     jumped: Option<Jump>,
+    /// Whether a colon was typed, so that the next key gives a command.
+    colon: bool,
+    /// The last move to a file, while the view stays where it took it.
+    went: Option<Went>,
+}
+
+/// A move to the start of a file with `:n` or `:p`. The view may stop
+/// short of the start, at the last page, so the file the move went to is
+/// kept until the view moves on.
+#[derive(Debug, Clone, Copy)]
+struct Went {
+    file: usize,
+    /// The top of the view after the move.
+    top: usize,
 }
 
 /// A jump to a search match.
@@ -327,6 +336,8 @@ impl State {
             shown: false,
             nowhere: false,
             jumped: None,
+            colon: false,
+            went: None,
         }
     }
 
@@ -358,6 +369,18 @@ impl State {
             }
             return false;
         }
+        // The key after a colon is a command's, and any other closes it.
+        let key = match key {
+            _ if std::mem::take(&mut self.colon) => match key {
+                Key::Char(c) => Key::Command(c),
+                _ => return false,
+            },
+            keys::COMMAND => {
+                self.colon = true;
+                return false;
+            }
+            key => key,
+        };
         match keys::action(key) {
             Some(Action::Quit) => return true,
             Some(Action::Move(motion)) => layout.view.scroll(motion),
@@ -369,9 +392,45 @@ impl State {
             Some(Action::Next) => self.step(Search::forward, now, layout),
             Some(Action::Previous) => self.step(Search::backward, now, layout),
             Some(Action::Clear) => self.shown = false,
+            Some(Action::NextFile) => {
+                let files = layout.status.files;
+                let file = self.file(&files, layout.view.top());
+                self.go_to(file.and_then(|file| files.next(file)), layout);
+            }
+            Some(Action::PreviousFile) => {
+                let files = layout.status.files;
+                let top = layout.view.top();
+                let file = self.file(&files, top);
+                self.go_to(file.and_then(|file| files.previous(file, top)), layout);
+            }
             None => {}
         }
         false
+    }
+
+    /// The file the reader is in, of `files`, with the view's top on the
+    /// line `top`: the one the last move to a file went to, or else the
+    /// one at the top.
+    fn file(&self, files: &Files, top: usize) -> Option<usize> {
+        self.went.map(|went| went.file).or_else(|| files.at(top))
+    }
+
+    /// Moves the view to the start of `file`, when there is one to go to.
+    fn go_to(&mut self, file: Option<usize>, layout: &mut Layout) {
+        let Some(file) = file else {
+            return;
+        };
+        layout.view.go_to(layout.status.files.start(file));
+        self.went = Some(Went {
+            file,
+            top: layout.view.top(),
+        });
+    }
+
+    /// Forgets the last move to a file once the view's top, now on the
+    /// line `top`, has moved from where the move took it.
+    fn moved(&mut self, top: usize) {
+        self.went = self.went.filter(|went| went.top == top);
     }
 
     /// Searches for `term` from the top of the view at `now`, and shows
@@ -395,12 +454,14 @@ impl State {
     }
 
     /// Finds the last search again in `lines`, laid out anew, from the
-    /// line `top` of the view, and closes the prompt when the window has
-    /// no status line, `bar`, to show it on.
+    /// line `top` of the view, closes the prompt when the window has no
+    /// status line, `bar`, to show it on, and forgets the last move to a
+    /// file when the view has moved.
     fn lay_out(&mut self, lines: &[Line], top: usize, bar: bool) {
         if !bar {
             self.prompt = None;
         }
+        self.moved(top);
         if let Some(search) = &mut self.search {
             *search = Search::new(lines, search.term(), self.case, top);
         }
@@ -550,6 +611,7 @@ fn show(
             if state.press(key, now, layout) {
                 return Ok(Outcome::Quit);
             }
+            state.moved(layout.view.top());
         }
         let window = terminal.size();
         if window != size {
@@ -1031,6 +1093,106 @@ mod tests {
         assert!(status_row(&frames[2], 6).contains(" b.md "), "{frames:#?}");
         assert!(!names(&frames[2]), "{frames:#?}");
         assert!(names(&frames[3]), "{frames:#?}");
+    }
+
+    /// Files called `name` with `count` lines each, as [`numbers`] has
+    /// them.
+    fn files(counts: &[(&str, usize)]) -> Vec<File> {
+        counts
+            .iter()
+            .map(|&(name, count)| File {
+                name: name.to_owned(),
+                document: numbers(count),
+            })
+            .collect()
+    }
+
+    /// Whether `frame` shows the header of `name` at the top of the view
+    /// of `rows` rows, and `name` on the status line below it.
+    fn at_file(frame: &str, name: &str, rows: u16) -> bool {
+        unstyled(frame).contains(&format!("\x1b[2;1H  {name}\x1b"))
+            && status_row(frame, rows + 1).contains(&format!(" {name} "))
+    }
+
+    #[test]
+    fn colon_n_and_colon_p_move_to_the_start_of_the_next_and_previous_file() {
+        // b.md starts on line 10 and c.md on line 34. The colon on its own,
+        // then n; :n at the last file, which does nothing; :p from the
+        // start of c.md, and from inside b.md, first to its start.
+        let reads: &[&[u8]] = &[b":", b"n", b":n", b":n", b":p", b"jjj", b":p", b":p"];
+        let mut terminal = Fake::new(40, 6, reads);
+        show_files(
+            &files(&[("a.md", 3), ("b.md", 10), ("c.md", 10)]),
+            &mut terminal,
+        );
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 8, "{frames:#?}");
+        assert!(at_file(&frames[0], "a.md", 5), "{frames:#?}");
+        assert!(
+            status_row(&frames[1], 6).contains(" :\u{258f}"),
+            "{frames:#?}"
+        );
+        assert!(at_file(&frames[2], "b.md", 5), "{frames:#?}");
+        assert!(at_file(&frames[3], "c.md", 5), "{frames:#?}");
+        assert!(at_file(&frames[4], "b.md", 5), "{frames:#?}");
+        assert!(status_row(&frames[5], 6).contains(" b.md "), "{frames:#?}");
+        assert!(at_file(&frames[6], "b.md", 5), "{frames:#?}");
+        assert!(at_file(&frames[7], "a.md", 5), "{frames:#?}");
+    }
+
+    #[test]
+    fn colon_n_names_a_file_on_the_last_page_though_the_view_stops_short() {
+        // In 11 rows, the last page starts at b.md, the line 24, and also
+        // shows c.md, which starts on line 30.
+        let reads: &[&[u8]] = &[b":n", b":n", b":p", b":n", b"k"];
+        let mut terminal = Fake::new(40, 12, reads);
+        show_files(
+            &files(&[("a.md", 10), ("b.md", 1), ("c.md", 1)]),
+            &mut terminal,
+        );
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 6, "{frames:#?}");
+        let named = |frame: &str, name: &str| status_row(frame, 12).contains(&format!(" {name} "));
+        assert!(at_file(&frames[1], "b.md", 11), "{frames:#?}");
+        assert!(named(&frames[2], "c.md"), "{frames:#?}");
+        // The view stays at b.md's header.
+        assert!(
+            unstyled(&frames[2]).contains("\x1b[2;1H  b.md\x1b"),
+            "{frames:#?}"
+        );
+        assert!(at_file(&frames[3], "b.md", 11), "{frames:#?}");
+        assert!(named(&frames[4], "c.md"), "{frames:#?}");
+        // Once the view moves, the file at its top again.
+        assert!(named(&frames[5], "a.md"), "{frames:#?}");
+    }
+
+    #[test]
+    fn a_key_after_the_colon_that_is_no_command_only_closes_it() {
+        let reads: &[&[u8]] = &[b":", b"j", b":", b"\x1b", b"", b"j"];
+        let mut terminal = Fake::new(40, 6, reads);
+        show_files(&two_files(), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 6, "{frames:#?}");
+        // j did not move, and the colon is gone.
+        assert_eq!(frames[2], frames[0]);
+        assert_eq!(frames[4], frames[0]);
+        assert!(at_top(&frames[5], "a.md"), "{frames:#?}");
+    }
+
+    #[test]
+    fn the_help_lists_colon_n_and_colon_p_only_with_several_files() {
+        let mut terminal = Fake::new(60, 24, &[b"?"]);
+        show_files(&two_files(), &mut terminal);
+        let help = terminal.frames()[1].clone();
+        assert!(help.contains(":n"), "{help:?}");
+        assert!(help.contains("next file"), "{help:?}");
+        assert!(help.contains(":p"), "{help:?}");
+        assert!(help.contains("previous file"), "{help:?}");
+        let mut terminal = Fake::new(60, 24, &[b"?"]);
+        show(&numbers(30), &mut terminal);
+        let help = terminal.frames()[1].clone();
+        assert!(help.contains("down a line"), "{help:?}");
+        assert!(!help.contains("next file"), "{help:?}");
     }
 
     /// The status line of `frame`, on row `row`.

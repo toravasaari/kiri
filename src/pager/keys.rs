@@ -21,6 +21,10 @@ pub enum Key {
     End,
     /// A character with Alt, which arrives after an escape character.
     Alt(char),
+    /// A character typed after the colon that starts a command, as `n`
+    /// in `:n`, which the pager takes as one key with it. The terminal
+    /// sends no such key.
+    Command(char),
     /// A sequence the pager does not use.
     Other,
 }
@@ -37,9 +41,26 @@ pub enum Action {
     Previous,
     /// Stops showing the last search, which `n` takes up again.
     Clear,
+    /// Moves to the start of the next file.
+    NextFile,
+    /// Moves to the start of the file the view is in, or of the one
+    /// before when the view is there already.
+    PreviousFile,
     Help,
     Quit,
 }
+
+impl Action {
+    /// Whether the action moves between files, which only several files
+    /// have.
+    pub fn between_files(self) -> bool {
+        matches!(self, Action::NextFile | Action::PreviousFile)
+    }
+}
+
+/// The key that starts a command, as in `less`: the key after it is the
+/// command's, as [`Key::Command`].
+pub const COMMAND: Key = Key::Char(':');
 
 /// The keys in `input`, all of it: a sequence cut off at the end is taken
 /// as it is. A lone escape character is the Escape key, and one before a
@@ -262,6 +283,18 @@ pub const BINDINGS: &[Binding] = {
             names: "G End",
             what: "bottom",
             action: Action::Move(End),
+        },
+        Binding {
+            keys: &[Key::Command('n')],
+            names: ":n",
+            what: "next file",
+            action: Action::NextFile,
+        },
+        Binding {
+            keys: &[Key::Command('p')],
+            names: ":p",
+            what: "previous file",
+            action: Action::PreviousFile,
         },
         Binding {
             keys: &[Char('/')],
@@ -529,6 +562,8 @@ mod tests {
                     "PgUp" => Key::PageUp,
                     "Home" => Key::Home,
                     "End" => Key::End,
+                    ":n" => Key::Command('n'),
+                    ":p" => Key::Command('p'),
                     name if name.chars().count() == 1 => Key::Char(name.chars().next().unwrap()),
                     name => panic!("unknown key name {name}"),
                 };
@@ -553,6 +588,16 @@ mod tests {
         assert_eq!(action(Key::Char('n')), Some(Action::Next));
         assert_eq!(action(Key::Char('N')), Some(Action::Previous));
         assert_eq!(action(Key::Escape), Some(Action::Clear));
+    }
+
+    #[test]
+    fn colon_n_and_colon_p_move_between_files() {
+        assert_eq!(action(Key::Command('n')), Some(Action::NextFile));
+        assert_eq!(action(Key::Command('p')), Some(Action::PreviousFile));
+        // On their own, n and p are no commands.
+        assert_eq!(action(Key::Char('p')), None);
+        assert_eq!(action(COMMAND), None);
+        assert_eq!(action(Key::Command('x')), None);
     }
 
     #[test]
