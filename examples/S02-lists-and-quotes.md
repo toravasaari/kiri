@@ -36,6 +36,27 @@ cargo run -- examples/S02-lists-and-quotes.md
 
    - A list nested in a loose item.
 
+## Task lists
+
+In a bullet list, a task item, written with a box in square brackets,
+shows a box in place of its bullet: an empty box, ☐, for an open task
+and a checked one, ☑, for a finished task. A task nested under another
+is indented like any other item, and a task that wraps continues under
+its own text, not under its box. In a numbered list the number stays and
+the box follows it. In plain text output the boxes stay in square
+brackets, as written.
+
+- [x] A finished task, with a checked box
+- [ ] An open task, with an empty box
+  - [x] A nested task
+  - A nested item that is not a task, with a bullet
+- A plain item among the tasks
+- [ ] A task whose text is long enough to wrap onto a second line in a
+  narrow window, where it lines up under the words above, not the box
+
+1. [x] A numbered task, done
+2. [ ] A numbered task, open
+
 ## Block quotes
 
 > ### A heading in a quote
