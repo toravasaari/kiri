@@ -207,8 +207,8 @@ is shown. Link navigation is planned.
 - [Examples](examples/README.md) – a document for checking the output by
   eye, with [topic documents](examples/) such as
   [images](examples/S06a-images.md)
-- [Mermaid showcase](examples/mermaid-showcase.md) – one diagram of each
-  common Mermaid type, also as [files of their own](examples/mermaid/)
+- [Diagrams](examples/S07a-diagrams.md) – one diagram of each common
+  Mermaid type, also as [files of their own](examples/mermaid/)
 - [AGENTS.md](AGENTS.md) – conventions for coding agents and contributors
 
 ## License

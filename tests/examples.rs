@@ -109,21 +109,25 @@ fn all_example_themes_load() {
 }
 
 #[test]
-fn the_mermaid_showcase_shows_each_example_file_as_it_is() {
-    let showcase = std::fs::read_to_string(examples().join("mermaid-showcase.md")).unwrap();
+fn the_diagrams_document_shows_each_mermaid_file_as_it_is() {
+    let diagrams = std::fs::read_to_string(examples().join("S07a-diagrams.md")).unwrap();
     let mut shown = Vec::new();
-    // Each block follows the link to its source file.
-    let mut rest = showcase.as_str();
+    // The document also holds diagrams that are not from `mermaid/`. A block
+    // from a file follows a link to it, under the same heading.
+    let mut rest = diagrams.as_str();
     while let Some((before, block)) = rest.split_once("```mermaid\n") {
-        let (_, link) = before
-            .rsplit_once("](mermaid/")
-            .expect("a link to its file");
-        let (name, _) = link.split_once(')').unwrap();
         let (code, after) = block.split_once("```").unwrap();
+        rest = after;
+        let section = before
+            .rsplit_once("\n#")
+            .map_or(before, |(_, section)| section);
+        let Some((_, link)) = section.rsplit_once("](mermaid/") else {
+            continue;
+        };
+        let (name, _) = link.split_once(')').unwrap();
         let file = std::fs::read_to_string(examples().join("mermaid").join(name)).unwrap();
         assert_eq!(code, file, "{name}");
         shown.push(name.to_owned());
-        rest = after;
     }
     let mut files: Vec<String> = std::fs::read_dir(examples().join("mermaid"))
         .unwrap()
