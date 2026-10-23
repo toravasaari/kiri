@@ -5,7 +5,7 @@ mod common;
 
 use common::{
     Scratch, assert_succeeded, colour_codes, kiri_on, kiri_piped, sent, strip_own_sequences, text,
-    write,
+    words, write,
 };
 
 const MARKDOWN: &str = "---\ntitle: Notes\n---\n# Title\n\n*Text* and ![Icon](icon.png)\n";
@@ -119,6 +119,6 @@ fn format_text_needs_utf_8() {
 fn help_names_the_text_format() {
     let dir = Scratch::new("text-help");
     let out = common::command(&dir).arg("--help").output().unwrap();
-    let help = text(&out.stdout);
+    let help = words(&text(&out.stdout));
     assert!(help.contains("text (the file as it is"), "{help}");
 }
