@@ -277,11 +277,18 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 #### 4.6.4 Reload
 
 - Reload on file change, and a key that jumps to the first block that
-  changed.
+  changed. First a reload with `r` only, which keeps the place by the
+  block's number; the comparison (G1.6) keeps it better later.
+- A reload loads only the images and diagrams it does not have yet:
+  diagrams are kept by their source, and an image file is loaded again
+  when it has changed, such as by its modification time.
 - A follow mode for a document another program is writing, such as one
   Claude is working on in the next window: it reloads on every change and
-  shows the part that changed, without a key press. `-f` is `--format`'s
-  short flag today; it may move to `--follow`.
+  shows the part that changed, without a key press. `-f` becomes
+  `--follow`'s short flag, moved from `--format` with the follow mode.
+  Images that did not change are not sent to the terminal again
+  (G2.2), and images that changed or went are deleted from it, as are
+  all of kiri's images when the pager quits.
 - Changes shown as a diff, added text green and removed text red, fading
   out slowly: after a reload, and against a git revision.
 
@@ -619,6 +626,10 @@ A part that needs one names it, such as "needs G1.3".
   from `render/output.rs` behind an image encoder. Animation frames (4.4)
   need that state, and the other image protocols of phase 5 fill it
   differently.
+- The encoder lives longer than one layout, so the pager does not send
+  every image again after a resize or a reload, and it knows which ids
+  to delete. Today each layout makes a new writer, which sends again all
+  images it shows, and kiri never deletes an image.
 
 ### G3 Terminal
 
