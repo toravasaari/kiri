@@ -135,7 +135,7 @@ pub fn run(
             _ => crate::render::layout::content(content, inputs),
         };
         let Stream {
-            mut lines, starts, ..
+            mut lines, blocks, ..
         } = stream;
         // The text sizing protocol cannot draw part of a line, so a line
         // taller than the window is drawn at normal size.
@@ -159,7 +159,7 @@ pub fn run(
         state.lay_out(&lines, shown.top(), bar);
         let status = Status {
             name,
-            files: Files::new(shown_files, &starts),
+            files: Files::new(shown_files, &lines, &blocks),
             styles: status::Styles::new(&inputs.theme, &inputs.caps),
             width: size.map_or(inputs.caps.width, |size| size.columns),
             bar,

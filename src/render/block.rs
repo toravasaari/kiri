@@ -31,7 +31,7 @@ pub struct Blocks {
 
 impl Blocks {
     /// Adds a block of file `file` at `path` and returns its number.
-    pub(super) fn add(&mut self, file: usize, path: Vec<usize>) -> BlockId {
+    pub(crate) fn add(&mut self, file: usize, path: Vec<usize>) -> BlockId {
         let id = BlockId(u32::try_from(self.infos.len()).unwrap_or(u32::MAX));
         self.infos.push(BlockInfo { file, path });
         id

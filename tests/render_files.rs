@@ -69,14 +69,36 @@ fn each_file_starts_with_a_header_that_names_it() {
     // Plain text names each file between arrows, as head does.
     let inputs = Inputs::new(Capabilities::plain(WIDTH));
     let stream = kiri::render::layout::files(&two(), &inputs);
-    assert_eq!(stream.starts.len(), 2);
-    for (start, name) in stream.starts.iter().zip(["notes.md", "docs/todo.md"]) {
+    let starts = starts(&stream);
+    assert_eq!(starts.len(), 2);
+    for (start, name) in starts.iter().zip(["notes.md", "docs/todo.md"]) {
         let header = line_text(&stream.lines[*start]);
         assert_eq!(header, format!("==> {name} <=="));
         assert!(stream.lines[start + 1].is_blank(), "{name}");
     }
     // A blank line comes between the files.
-    assert!(stream.lines[stream.starts[1] - 1].is_blank());
+    assert!(stream.lines[starts[1] - 1].is_blank());
+}
+
+/// The line each file of `stream` starts on, found from the blocks of its
+/// lines.
+fn starts(stream: &kiri::render::layout::Stream) -> Vec<usize> {
+    let file_of = |line: &Line| line.block.map(|id| stream.blocks.get(id).file());
+    let count = stream
+        .lines
+        .iter()
+        .filter_map(file_of)
+        .max()
+        .map_or(0, |last| last + 1);
+    (0..count)
+        .map(|file| {
+            let found = stream
+                .lines
+                .iter()
+                .position(|line| file_of(line) == Some(file));
+            found.expect("every file has lines")
+        })
+        .collect()
 }
 
 /// The text of `line`, all its spans.
@@ -100,7 +122,7 @@ fn known_colours() -> Capabilities {
 fn the_header_is_a_band_with_a_bar_that_markdown_cannot_draw() {
     let inputs = Inputs::new(known_colours());
     let stream = kiri::render::layout::files(&two(), &inputs);
-    let start = stream.starts[1];
+    let start = starts(&stream)[1];
     let header = &stream.lines[start..start + 3];
     // An empty row, the name and another empty row, each the text's
     // width, all on the band's colour, with the bar down the left edge.

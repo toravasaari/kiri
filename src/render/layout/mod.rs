@@ -71,8 +71,6 @@ pub struct Stream {
     pub lines: Vec<Line>,
     /// The blocks that the lines' [`Line::block`] numbers.
     pub blocks: Blocks,
-    /// The line each file starts on, the first of its header, in order.
-    pub starts: Vec<usize>,
 }
 
 /// `files` laid out one after another, a blank line apart, each as
@@ -88,7 +86,6 @@ pub fn files(files: &[File], inputs: &Inputs) -> Stream {
             stream.lines.push(blank);
         }
         previous = Some(stream.lines.len());
-        stream.starts.push(stream.lines.len());
         let lines = file_into(shown, number, inputs, &mut stream.blocks);
         stream.lines.extend(lines);
     }
@@ -1018,7 +1015,11 @@ mod tests {
         let stream = files(&shown, &inputs());
         let table = &stream.blocks;
         let file_of_line = |line: &Line| line.block.map(|id| table.get(id).file());
-        let start = stream.starts[1];
+        let start = stream
+            .lines
+            .iter()
+            .position(|line| file_of_line(line) == Some(1))
+            .unwrap();
         // The header, up to the first block, has the file's entry.
         let header = &stream.lines[..stream
             .lines
