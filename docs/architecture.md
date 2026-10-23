@@ -357,7 +357,8 @@ builds take the same options and settings.
 - **Rust:** one fast binary with no runtime, and mature crates for each part:
   comrak (Markdown), syntect (syntax highlighting), image and resvg (raster
   and SVG images), csv (CSV and TSV files), rustix (terminal modes and pager
-  input), merman (Mermaid diagrams). Formulas are planned with typst.
+  input), merman (Mermaid diagrams). Formulas are planned with RaTeX, a
+  Rust port of KaTeX that merman already brings for its math.
 - **merman for Mermaid:** a Rust implementation of Mermaid that checks
   its parsing, layout and SVG against Mermaid's own, so diagrams look as
   GitHub draws them. It draws a diagram in milliseconds, needs no fonts,
