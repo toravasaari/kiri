@@ -287,6 +287,7 @@ mod tests {
     use super::*;
     use crate::color::Color;
     use crate::pager::fade::Rgb;
+    use crate::size::TextSize;
     use crate::theme::{Paper, SearchTheme};
 
     fn line(text: &str) -> Line {
@@ -549,7 +550,7 @@ mod tests {
         let source = Line {
             lead: vec![Span::new("> ", Style::default())],
             trail: vec![Span::new("  ", Style::default())],
-            scale: 2,
+            size: TextSize::new(2).unwrap(),
             ..Line::new(vec![Span::new("Ä kiri", Style::default())])
         };
         let marked = mark(&source, &[(3..7, true)], &marks(), None);

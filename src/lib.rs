@@ -13,6 +13,7 @@ pub mod model;
 pub mod pager;
 pub mod parse;
 pub mod render;
+pub mod size;
 pub mod term;
 pub mod theme;
 

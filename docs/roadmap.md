@@ -556,7 +556,7 @@ A part that needs one names it, such as "needs G1.3".
   next block type joins it, formulas or GitHub alert blocks, whichever
   comes first.
 
-#### G1.2 Text size as a type
+#### G1.2 Text size as a type (done)
 
 - A text size of its own type instead of a whole number: a scale, a
   fraction of it and a vertical alignment, as the text sizing protocol

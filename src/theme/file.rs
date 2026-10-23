@@ -9,6 +9,7 @@ use super::{
     LabelColor, SearchColor, StatusColor, Theme,
 };
 use crate::color::{Color, Underline};
+use crate::size::TextSize;
 
 /// Reads a theme file. Keys it leaves out keep their default values.
 pub fn load(path: &Path) -> Result<Theme, String> {
@@ -229,13 +230,8 @@ fn apply_heading(
     table: &str,
 ) -> Result<(), String> {
     if let Some(scale) = overrides.scale {
-        // The text sizing protocol accepts scales 1 to 7.
-        if !(1..=7).contains(&scale) {
-            return Err(format!(
-                "{table}.scale must be between 1 and 7, not {scale}"
-            ));
-        }
-        heading.scale = scale;
+        heading.size = TextSize::new(scale)
+            .ok_or_else(|| format!("{table}.scale must be between 1 and 7, not {scale}"))?;
     }
     set_color(
         &mut heading.color,
@@ -568,7 +564,7 @@ mod tests {
             parse("max_width = 0\nlink = \"#ff8000\"\n[h2]\nscale = 1\nrule = false\n").unwrap();
         assert_eq!(theme.max_width, 0);
         assert_eq!(theme.link, Some(Color::Rgb(255, 128, 0)));
-        assert_eq!(theme.heading(2).scale, 1);
+        assert_eq!(theme.heading(2).size, TextSize::NORMAL);
         assert!(!theme.heading(2).rule);
         assert_eq!(theme.heading(2).color, Theme::default().heading(2).color);
         assert_eq!(theme.heading(1), Theme::default().heading(1));

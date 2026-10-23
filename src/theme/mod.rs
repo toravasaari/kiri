@@ -5,6 +5,7 @@
 
 use crate::color::{Color, Underline};
 use crate::model::AlertKind;
+use crate::size::TextSize;
 
 mod file;
 mod paper;
@@ -228,8 +229,8 @@ fn github_alert_color(kind: AlertKind, dark: bool) -> Color {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeadingTheme {
-    /// Size as a multiple of the normal font, with kitty's text sizing.
-    pub scale: u8,
+    /// The heading's size, drawn with kitty's text sizing.
+    pub size: TextSize,
     pub color: Option<Color>,
     pub bold: bool,
     pub italic: bool,
@@ -260,7 +261,7 @@ pub enum CodeBackground {
 impl HeadingTheme {
     fn new(scale: u8, color: Option<Color>, bold: bool, underline: Underline) -> Self {
         Self {
-            scale,
+            size: TextSize::new(scale).expect("a default heading scale is 1 to 7"),
             color,
             bold,
             italic: false,
@@ -469,7 +470,7 @@ mod tests {
             assert_eq!(language_label, LabelColor::Color(None));
             for heading in headings {
                 let HeadingTheme {
-                    scale: _,
+                    size: _,
                     color,
                     bold: _,
                     italic: _,
