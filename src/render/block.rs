@@ -5,8 +5,10 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockId(u32);
 
-/// What is known of one block.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// What is known of one block. Blocks are ordered as they come in the
+/// shown documents: by file, then by path, so a block comes before the
+/// blocks inside it and after those above it.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BlockInfo {
     file: usize,
     /// The place of the block in its document: its number among the

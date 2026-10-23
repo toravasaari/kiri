@@ -149,12 +149,16 @@ pub fn run(
             .iter()
             .map(|line| usize::from(writer.rows(line)))
             .collect();
+        let places = lines
+            .iter()
+            .map(|line| line.block.map(|id| blocks.get(id).clone()))
+            .collect();
         let mut shown = match view.take() {
             Some(mut view) => {
-                view.resize(heights, rows);
+                view.resize(heights, places, rows);
                 view
             }
-            None => View::new(heights, rows),
+            None => View::new(heights, rows).with_blocks(places),
         };
         state.lay_out(&lines, shown.top(), bar);
         let status = Status {
