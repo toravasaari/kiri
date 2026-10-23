@@ -325,7 +325,9 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   in `less`.
 - With this in place, the cell limit for CSV and TSV goes or grows.
 
-### 4.8 Diagnostics (done)
+### 4.8 Diagnostics
+
+#### 4.8.1 The doctor report (done)
 
 - `kiri --doctor` shows what kiri found and what it uses: the terminal's
   answers (cell and window size, graphics, text sizing, colours), each
@@ -338,6 +340,13 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 - The report is a Markdown document that kiri renders itself, so it also
   shows how headings, tables and images look in this terminal. Piped to a
   file it stays plain Markdown, ready to paste into a bug report.
+
+#### 4.8.2 Settings
+
+- The report names each setting's key in the configuration file, so it
+  also tells how to change the setting.
+- `--print-config` writes the settings in effect as a configuration file,
+  a start for one's own.
 
 ### 4.9 Input
 
