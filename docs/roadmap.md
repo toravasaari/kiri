@@ -412,6 +412,9 @@ GitHub's Markdown first, then what is common elsewhere.
   leads to its heading; the pager jumps there (4.6).
 - Footnotes (`[^1]`), listed at the end of the document as in a browser,
   with links from each reference to its note and back.
+- Opening a document at a section from the command line, such as
+  `kiri spec.md#3-2`, for a review that refers to `§3.2` of a spec.
+  Needs heading anchors (4.10.1) and anchor jumps in the pager (4.6.5).
 
 #### 4.10.2 HTML tags
 
@@ -709,9 +712,6 @@ go.
   terminal, such as for a review or a web page, without finding the
   Mermaid program by hand. `--format` names the input, so this needs an
   option of its own.
-- Opening a document at a section from the command line, such as
-  `kiri spec.md#3-2`, for a review that refers to `§3.2` of a spec.
-  Needs heading anchors (4.10.1) and anchor jumps in the pager (4.6.5).
 - Image files shown with several files (4.9.2) are read in full before
   the pager opens, about 48 MB for a 12-megapixel photo. Reduce each to
   the largest size it can be shown at, as drawn diagrams are.
