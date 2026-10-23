@@ -600,6 +600,14 @@ A part that needs one names it, such as "needs G1.3".
   shows its name and version; the device attributes, where sixel support
   shows, are not read yet.
 
+### G4 Build
+
+#### G4.1 Binary size
+
+- How much each feature and dependency adds to a stripped binary, and
+  smaller builds from it, such as RaTeX as a feature of its own for the
+  minimal build (4.2.1).
+
 ## Uncategorized (extras)
 
 Ideas not yet placed in a part, from small polish to features; a line or
