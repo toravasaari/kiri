@@ -8,6 +8,11 @@ Larger phases are split into numbered parts, each marked done on its own.
 The numbers name the parts rather than fix their order: images (4.1), for
 example, come before the rest of phase 3.
 
+Groundwork that several parts need, such as a change inside the layout
+that a feature waits for, is listed in its own section after the phases,
+numbered G1, G2 and so on by area, so that a part can name what it needs.
+Refactoring and small fixes that are not bugs go there too.
+
 ## Phase 1 – Foundations (done)
 
 - README, this roadmap, [architecture](architecture.md), [AGENTS.md](../AGENTS.md).
@@ -87,13 +92,6 @@ example, come before the rest of phase 3.
 - `$…$` and `$$…$$` in LaTeX syntax, as GitHub Markdown writes them, and in
   Typst syntax, rendered to images through Typst's math engine.
 - A cache for rendered images.
-- Groundwork, before formulas and diagrams are worked on side by side:
-  images that come from a block rather than a URL. `Images` keys images
-  by a URL or a block, its language and source, and Mermaid diagrams
-  (4.3.1) are the first images from blocks. (done)
-- Groundwork: `render/layout.rs` split by block type (lists, quotes, code)
-  before the next block type joins it, formulas or GitHub alert blocks,
-  whichever comes first. (done)
 
 ### 4.3 Diagrams
 
@@ -386,6 +384,8 @@ GitHub's Markdown first, then what is common elsewhere.
 
 #### 4.10.3 Fractional sizes
 
+Needs G1.2 and G1.3.
+
 Text drawn smaller or larger with the text sizing protocol's fractional
 scale, built once for all of these:
 
@@ -456,7 +456,7 @@ The counterpart of several files (4.9.2) for images.
 - An image inside a link can be clicked: the image's placeholder cells are
   wrapped in the link's OSC 8 hyperlink, as text is.
 - Images inside table cells, which now show their alt text.
-- Images inside running text, which now show their alt text.
+- Images inside running text, which now show their alt text. Needs G1.4.
 
 #### 4.12.5 An image on its own
 
@@ -504,6 +504,49 @@ split once it is worked on.
   a native layout and rasterising engine later.
 - Editing support: an editor and kiri side by side in kitty with live reload,
   and a key to open the editor at the current position.
+
+## Groundwork
+
+What the parts build on, by area: changes inside the code that a feature
+needs before it can start, refactoring, and small fixes that are not bugs.
+A part that needs one names it, such as "needs G1.3".
+
+### G1 Layout
+
+#### G1.1 Layout by block type (done)
+
+- `render/layout.rs` split by block type (lists, quotes, code) before the
+  next block type joins it, formulas or GitHub alert blocks, whichever
+  comes first.
+
+#### G1.2 Text size as a type
+
+- A text size of its own type instead of a whole number: a scale, a
+  fraction of it and a vertical alignment, as the text sizing protocol
+  takes them. Text is drawn as it is today.
+
+#### G1.3 A size for each part of a line
+
+- Each span of a line has its own size, and the line is as many rows high
+  as its tallest span. Wrapping measures spans by their size. Fractional
+  sizes (4.10.3) are its first use.
+
+#### G1.4 Images in a line
+
+- A span can be the cells of an image instead of text: which image, how
+  many columns and rows it covers, and the row its baseline is on. The
+  wrapper keeps it whole, and its alt text or source is what search
+  finds. `ImageKey::Block` is renamed for its wider use. Images in running
+  text (4.12.4) are its first use, inline formulas (4.2.2) the next.
+
+### G2 Images
+
+#### G2.1 Images from blocks (done)
+
+- Images that come from a block rather than a URL, before formulas and
+  diagrams are worked on side by side. `Images` keys images by a URL or a
+  block, its language and source, and Mermaid diagrams (4.3.1) are the
+  first images from blocks.
 
 ## Uncategorized (extras)
 
