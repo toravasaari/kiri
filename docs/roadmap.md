@@ -737,7 +737,8 @@ is understood, the rows left free below the image may become a setting.
 An `<img>` set apart by blank lines inside a wrapper, such as
 `<p align="center">`, blank line, `<img>`, blank line, `</p>`, is drawn,
 but the wrapper's tags show as source: CommonMark makes three HTML
-blocks of it.
+blocks of it. Markdown inside a `<div align="center">` set apart the same
+way is drawn too, and the `<div>` tags show as source.
 
 #### B3 The examples fit test draws no diagrams
 
