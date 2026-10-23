@@ -81,9 +81,10 @@ pub fn files(files: &[File], inputs: &Inputs) -> Stream {
     let mut previous: Option<usize> = None;
     for (number, shown) in files.iter().enumerate() {
         if let Some(start) = previous {
-            let mut blank = Line::blank();
-            blank.block = stream.lines[start].block;
-            stream.lines.push(blank);
+            stream.lines.push(Line {
+                block: stream.lines[start].block,
+                ..Line::blank()
+            });
         }
         previous = Some(stream.lines.len());
         let lines = file_into(shown, number, inputs, &mut stream.blocks);
@@ -239,10 +240,12 @@ impl Layout<'_> {
     /// free on both sides. The blocks inside a details block are laid out
     /// as the blocks around it are.
     ///
-    /// Each block's lines are added to `lines` marked with the block, which
-    /// is entered in `table` under `path`, the places of the blocks around
-    /// it, with its own at the end; the summary of a details block is
-    /// marked as that block. The blank line between blocks has no block.
+    /// Each block's lines get a new entry in `table`. `path` is where the
+    /// block being laid out is: the index of each `<details>` around it,
+    /// then its own index among its siblings, so the second block inside
+    /// the first `<details>` is `[0, 1]`. The summary of a details block is
+    /// marked as that block, and the blank line between blocks has no
+    /// block.
     fn top_level(
         &self,
         blocks: &[Block],

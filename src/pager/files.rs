@@ -40,7 +40,7 @@ impl<'a> Files<'a> {
             return None;
         }
         let last = line.min(self.lines.len().checked_sub(1)?);
-        (0..=last).rev().find_map(|line| self.of_line(line))
+        (0..=last).rev().find_map(|above| self.of_line(above))
     }
 
     /// The name of the file numbered `file`, counted from 0.
