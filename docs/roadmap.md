@@ -418,6 +418,9 @@ GitHub's Markdown first, then what is common elsewhere.
   `<strong>`, in a `<p align="center">` below a README's title, as many
   GitHub READMEs and Hugging Face model cards have it. Such a block stays
   source today.
+- Centred headings and paragraphs, such as `<h1 align="center">` and
+  `<p align="center">` around text, as README titles often are. They stay
+  source today.
 
 #### 4.10.3 Fractional sizes
 
