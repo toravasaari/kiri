@@ -414,7 +414,7 @@ GitHub's Markdown first, then what is common elsewhere.
   with links from each reference to its note and back.
 - Opening a document at a section from the command line, such as
   `kiri spec.md#3-2`, for a review that refers to `§3.2` of a spec.
-  Needs heading anchors (4.10.1) and anchor jumps in the pager (4.6.5).
+  Needs the heading anchors above and anchor jumps in the pager (4.6.5).
 
 #### 4.10.2 HTML tags
 
