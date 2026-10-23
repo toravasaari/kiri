@@ -83,9 +83,6 @@ Refactoring and small fixes that are not bugs go there too.
   `kitten icat`.
 - HTML `<img>` tags with `src`, `alt`, `width` and `height`.
 - Cargo features for a minimal build and a full build with every format.
-- Groundwork: one query for the window size in cells and pixels, as
-  fitting the window needs its height. `term.rs` used to ask for the width
-  and the cell size separately.
 
 ### 4.2 Formulas
 
@@ -224,12 +221,10 @@ Needs G1.2 to G1.4.
 
 ### 4.4 Animation and video
 
+Needs G2.2.
+
 - Animated GIF, WebP and APNG, played by kitty itself.
 - Video (WebM, MP4, AVI and others) through ffmpeg when it is installed.
-- Groundwork: what has been sent to the terminal, and under which image
-  id, moves from `render/output.rs` behind an image encoder. Animation
-  frames need that state, and the other image protocols of phase 5 fill
-  it differently.
 
 ### 4.5 Links
 
@@ -265,8 +260,6 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 - Keys come from the terminal rather than standard input, as in `less`,
   so a piped document can be paged too.
 - The document is laid out again when the window changes size.
-- Groundwork: raw mode, until then inside the probe in `term.rs`, made
-  usable for reading keys.
 
 #### 4.6.2 Status line (done)
 
@@ -525,10 +518,7 @@ split once it is worked on.
 ## Phase 5 – Beyond kitty
 
 - Other terminals: sixel and iTerm2 images, plain styling for headings.
-- Groundwork: `Capabilities.graphics` names the image protocol instead of
-  a yes or no. The probe already keeps the terminal's answers, and
-  `--doctor` shows its name and version; the device attributes, where
-  sixel support shows, are not read yet.
+  Needs G3.3.
 - `--doctor` lists the image protocols probed.
 - Images as coloured Unicode block characters where no image protocol
   works.
@@ -582,6 +572,33 @@ A part that needs one names it, such as "needs G1.3".
   diagrams are worked on side by side. `Images` keys images by a URL or a
   block, its language and source, and Mermaid diagrams (4.3.1) are the
   first images from blocks.
+
+#### G2.2 An image encoder
+
+- What has been sent to the terminal, and under which image id, moves
+  from `render/output.rs` behind an image encoder. Animation frames (4.4)
+  need that state, and the other image protocols of phase 5 fill it
+  differently.
+
+### G3 Terminal
+
+#### G3.1 One query for the window size (done)
+
+- One query for the window size in cells and pixels, as fitting the
+  window needs its height. `term.rs` used to ask for the width and the
+  cell size separately.
+
+#### G3.2 Raw mode for keys (done)
+
+- Raw mode, which lived inside the probe in `term.rs` until the pager
+  (4.6.1), made usable for reading keys.
+
+#### G3.3 The image protocol as a capability
+
+- `Capabilities.graphics` names the image protocol instead of a yes or
+  no. The probe already keeps the terminal's answers, and `--doctor`
+  shows its name and version; the device attributes, where sixel support
+  shows, are not read yet.
 
 ## Uncategorized (extras)
 
