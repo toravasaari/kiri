@@ -60,8 +60,9 @@ and a file that cannot be read or shown is told about while the others
 are still shown. In the document model they are `File`s, each a name
 and a document; an image file, or a diagram file that is drawn, is a
 document of one `Block::ImageFile`, whose pixels kiri reads itself and
-keys by the file's name. The layout gives each file its header and
-keeps where each one starts. The documents' images load together, each
+keys by the file's name. The layout gives each file its header, and
+marks each line with the block it comes from; the header has a block of
+its own. The documents' images load together, each
 document's relative to its own directory, under keys that carry the
 document's number among the files. Files that are each shown on their own,
 as images are, go to the pager only when paging is `always`; with a
@@ -76,16 +77,31 @@ use comes from the capabilities it is given: plain text for pipes, colours
 and attributes for any modern terminal, and kitty's protocols on top where
 they work.
 
+Each styled line also says which block of the document it comes from.
+The layout keeps a table of the blocks, and a line holds only a small
+number that points into it. The table says which file a block is in and
+where in its document it is: its number among the top-level blocks, then
+its number among the blocks inside a `<details>` block, and so on, so the
+second block inside the first `<details>` has the place 0, 1. The summary
+of a `<details>` block belongs to that block. A file's header has a block
+of its own with no place in the document, and the blank line between two
+files belongs to the file above it; the blank lines between other blocks
+belong to none. A number
+means something only for the layout it came from, so a caller that keeps
+a place across a new layout, as the pager does when the window is
+resized, compares the blocks themselves.
+
 The pager shows the same styled lines on the terminal's alternate screen.
 `src/pager/view.rs` chooses the lines that fit in the window, a scaled
-line whole or not at all, and moves them; `src/pager/keys.rs` turns the
+line whole or not at all, and moves them, and when the window changes
+size it keeps the same block at the top; `src/pager/keys.rs` turns the
 bytes the terminal sends into keys and keys into moves; `src/pager/prompt.rs`
 keeps the search term as it is typed, and `src/pager/search.rs` finds it
 in the laid-out lines and splits a line where a match starts and ends, so
 the matches can be highlighted without a change to the writer;
 `src/pager/fade.rs` mixes the colours a match fades through after a jump;
-`src/pager/files.rs` knows where each of several files starts, so the
-status line names the file at the top of the view and `:n` and `:p` move
+`src/pager/files.rs` finds where each of several files starts from the
+blocks of the lines, so the status line names the file at the top of the view and `:n` and `:p` move
 from one file's start to another's; `src/pager/status.rs` and
 `src/pager/help.rs` make the status line and the help panel as styled
 spans; `src/pager/mod.rs` draws each frame, row by row through the
@@ -313,6 +329,7 @@ src/render/table.rs        tables with box-drawing characters, or stacked;
                            tables in cells, header columns, and how rows
                            are told apart
 src/render/image.rs        image sizes in pixels and terminal cells
+src/render/block.rs        which block of the document a line comes from
 src/render/style.rs        styled text between layout and output
 src/render/output.rs       styled lines -> bytes (SGR, OSC 8, CSI C/K, OSC 66),
                            cursor placement and synchronized output
@@ -323,7 +340,8 @@ src/pager/keys.rs          keys from the terminal and what they do
 src/pager/prompt.rs        the search prompt on the status line
 src/pager/search.rs        search matches in the laid-out lines
 src/pager/fade.rs          a style fading into another after a jump
-src/pager/files.rs         where each of several files starts in the stream
+src/pager/files.rs         where each of several files starts in the stream,
+                           found from the blocks of its lines
 src/pager/status.rs        the status line
 src/pager/help.rs          the help panel that lists the keys
 src/kitty/mod.rs           kitty-specific escape sequences
