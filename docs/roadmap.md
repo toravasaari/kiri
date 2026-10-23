@@ -89,9 +89,44 @@ Refactoring and small fixes that are not bugs go there too.
 
 ### 4.2 Formulas
 
-- `$…$` and `$$…$$` in LaTeX syntax, as GitHub Markdown writes them, and in
-  Typst syntax, rendered to images through Typst's math engine.
+Formulas in LaTeX syntax, drawn through RaTeX, a Rust port of KaTeX that
+the full build already has for Mermaid's math.
+
+#### 4.2.1 Formula blocks
+
+- ` ```math ` blocks and `$$…$$`, as GitHub Markdown writes them, drawn
+  as images. A `$$…$$` inside a paragraph breaks it, as on GitHub.
+- Formula text in the colour of the text around it, with theme keys of
+  its own for the text and the background that default to body text.
+- A formula that fails to draw stays as its source, with its error as
+  `--render-errors` chooses, as for diagrams.
+- Still open: whether the minimal build gets RaTeX as a feature of its
+  own; it adds about 5 MB.
 - A cache for rendered images.
+
+#### 4.2.2 Inline formulas
+
+Needs G1.2 to G1.4.
+
+- `$…$` and `` $`…`$ `` drawn inside running text at the size of the text
+  around them, in headings too.
+- A formula that fits in the height of a row is moved into the row. A
+  taller one makes its line two rows high, with the line's text centred
+  in it.
+- Still open: how an error shows. Numbered arrows below the line, and a
+  count of errors on the pager's status line with a key to show them,
+  looked workable in a first try.
+
+#### 4.2.3 Typst
+
+- Typst blocks drawn through a renderer from the configuration file
+  (4.3.3). Without one, a ` ```typst ` block stays highlighted code.
+
+#### 4.2.4 Formula syntax from front matter
+
+- A document's front matter chooses whether `$…$` is LaTeX or Typst, when
+  the configuration file allows it, as with presentation settings in
+  front matter (Uncategorized).
 
 ### 4.3 Diagrams
 
