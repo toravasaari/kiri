@@ -1189,6 +1189,18 @@ mod tests {
     }
 
     #[test]
+    fn a_new_window_size_moves_the_blank_line_between_files_to_the_next_file() {
+        // Line 9 is the blank line between a.md and b.md.
+        let reads: &[&[u8]] = &[b"jjjjjjjjj", b""];
+        let mut terminal = Fake::new(40, 6, reads);
+        terminal.sizes = [window(40, 6), window(50, 6)].into();
+        show_files(&two_files(), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 3, "{frames:#?}");
+        assert!(at_file(&frames[2], "b.md", 5), "{frames:#?}");
+    }
+
+    #[test]
     fn shift_page_down_and_shift_page_up_move_as_colon_n_and_colon_p_do() {
         // As in the test above: past the last file, Shift+PgDn only tells
         // there is none; Shift+PgUp from inside b.md goes first to its

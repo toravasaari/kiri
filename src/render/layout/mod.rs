@@ -74,19 +74,14 @@ pub struct Stream {
 }
 
 /// `files` laid out one after another, a blank line apart, each as
-/// [`file`] lays it out. The blank line between two files belongs to the
-/// first, as its header does.
+/// [`file`] lays it out. The blank line between two files has no block,
+/// as the blank lines between blocks have none.
 pub fn files(files: &[File], inputs: &Inputs) -> Stream {
     let mut stream = Stream::default();
-    let mut previous: Option<usize> = None;
     for (number, shown) in files.iter().enumerate() {
-        if let Some(start) = previous {
-            stream.lines.push(Line {
-                block: stream.lines[start].block,
-                ..Line::blank()
-            });
+        if number > 0 {
+            stream.lines.push(Line::blank());
         }
-        previous = Some(stream.lines.len());
         let lines = file_into(shown, number, inputs, &mut stream.blocks);
         stream.lines.extend(lines);
     }
@@ -1014,7 +1009,7 @@ mod tests {
     }
 
     #[test]
-    fn files_mark_their_headers_and_the_blank_between_them_with_the_file() {
+    fn files_mark_their_headers_with_the_file() {
         let shown = [file_of("a.md", "One\n\nTwo\n"), file_of("b.md", "Three\n")];
         let stream = files(&shown, &inputs());
         let table = &stream.blocks;
@@ -1036,13 +1031,9 @@ mod tests {
             assert_eq!(file_of_line(line), Some(0));
             assert_eq!(table.path(line.block.unwrap()), &[] as &[usize]);
         }
-        // The blank line before the second file is the first one's.
+        // The blank line before the second file has no block.
         assert!(stream.lines[start - 1].is_blank());
-        assert_eq!(file_of_line(&stream.lines[start - 1]), Some(0));
-        assert_eq!(
-            table.path(stream.lines[start - 1].block.unwrap()),
-            &[] as &[usize]
-        );
+        assert_eq!(stream.lines[start - 1].block, None);
         // The second file's header and block.
         assert_eq!(file_of_line(&stream.lines[start]), Some(1));
         let three = stream

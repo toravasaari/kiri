@@ -84,9 +84,8 @@ where in its document it is: its number among the top-level blocks, then
 its number among the blocks inside a `<details>` block, and so on, so the
 second block inside the first `<details>` has the place 0, 1. The summary
 of a `<details>` block belongs to that block. A file's header has a block
-of its own with no place in the document, and the blank line between two
-files belongs to the file above it; the blank lines between other blocks
-belong to none. A number means something only for the layout it came from,
+of its own with no place in the document. The blank lines between
+blocks, and between two files, belong to none. A number means something only for the layout it came from,
 so a caller that keeps a place across a new layout, as the pager does when
 the window is resized, compares the blocks themselves.
 
