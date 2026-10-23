@@ -134,11 +134,36 @@ mod tests {
     }
 
     #[test]
+    fn a_line_without_a_block_is_in_the_file_above_it() {
+        let shown = named(&["a.md", "b.md"]);
+        let (mut lines, blocks) = stream(&[0, 6], 12);
+        // A blank line in the middle of each file, the one between the
+        // files, and one under the second header.
+        for line in [3, 5, 7, 9] {
+            lines[line].block = None;
+        }
+        let files = Files::new(&shown, &lines, &blocks);
+        assert_eq!(files.at(3), Some(0));
+        assert_eq!(files.at(5), Some(0));
+        assert_eq!(files.at(7), Some(1));
+        assert_eq!(files.at(9), Some(1));
+        assert_eq!(files.at(11), Some(1));
+        assert_eq!(files.start(1), 6);
+    }
+
+    #[test]
     fn a_lone_document_is_in_no_file() {
         let (lines, blocks) = stream(&[], 0);
         let files = Files::new(&[], &lines, &blocks);
         assert_eq!(files.at(0), None);
         assert!(!files.several());
+    }
+
+    #[test]
+    fn lines_with_blocks_are_in_no_file_when_there_are_no_files() {
+        let (lines, blocks) = stream(&[0], 5);
+        let files = Files::new(&[], &lines, &blocks);
+        assert_eq!(files.at(2), None);
     }
 
     #[test]

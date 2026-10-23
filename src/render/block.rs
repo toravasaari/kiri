@@ -42,6 +42,12 @@ impl Blocks {
         &self.infos[id.0 as usize]
     }
 
+    /// How many blocks the table has.
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.infos.len()
+    }
+
     /// The path of the block `id`, as the tests of the layout read it.
     #[cfg(test)]
     pub(crate) fn path(&self, id: BlockId) -> &[usize] {

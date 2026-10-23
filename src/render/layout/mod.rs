@@ -943,23 +943,24 @@ mod tests {
 
     #[test]
     fn a_block_marks_all_its_lines_and_the_blank_between_blocks_none() {
-        let stream = lone("# Title\n\nOne\n\n```\na\n\nb\n```\n\nTwo\n");
+        let stream = lone("One\n\n- a\n\n  b\n\nTwo\n");
         let lines = marked(&stream);
         let blocks: Vec<_> = lines
             .iter()
             .map(|(_, path)| path.as_ref().map(|path| path[0]))
             .collect();
-        // The empty line inside the code block belongs to it.
-        let code = lines
+        // The blank line between the two paragraphs of the loose list item
+        // is inside the list, so it keeps the list's block.
+        let a = lines
             .iter()
             .position(|(text, _)| text.contains('a'))
             .unwrap();
-        assert_eq!(blocks[code + 1], Some(2), "{lines:?}");
+        assert!(stream.lines[a + 1].is_blank(), "{lines:?}");
+        assert_eq!(blocks[a + 1], Some(1), "{lines:?}");
         // Blank separators between blocks have no block.
-        assert_eq!(blocks.iter().filter(|block| block.is_none()).count(), 3);
-        assert_eq!(paths(&stream), [[0], [1], [2], [3]]);
-        // The blank line after the heading is no block, and neither is
-        // any other that no block holds.
+        assert_eq!(blocks.iter().filter(|block| block.is_none()).count(), 2);
+        assert_eq!(paths(&stream), [[0], [1], [2]]);
+        // Only blank lines go without a block.
         for (text, path) in &lines {
             if path.is_none() {
                 assert!(text.is_empty(), "{lines:?}");
@@ -1082,12 +1083,12 @@ mod tests {
             paths.windows(2).all(|pair| pair[0] < pair[1]),
             "{fixture}: {paths:?}"
         );
-        let blank = stream.lines.iter().filter(|line| line.is_blank());
-        assert!(blank.count() > 0);
+        // Every block of the table has lines.
+        assert_eq!(seen.len(), stream.blocks.len(), "{fixture}");
     }
 
     #[test]
-    fn the_table_and_the_lines_agree_for_nested_blocks() {
+    fn the_table_and_the_lines_agree_for_blocks_in_quotes_and_lists() {
         assert_agree("nested.md");
     }
 
