@@ -8,7 +8,9 @@ use comrak::nodes::{AlertType, ListType, NodeValue, TableAlignment};
 use comrak::{Arena, Node, Options, parse_document};
 
 use self::html::DetailsPart;
-use crate::model::{AlertKind, Alignment, Block, Document, Image, Inline, List, ListItem, Table};
+use crate::model::{
+    AlertKind, Alignment, Block, Document, Image, Inline, List, ListItem, SourceLines, Table,
+};
 
 /// Parses Markdown that may start with front matter.
 pub fn parse(source: &str) -> Document {
@@ -25,26 +27,75 @@ pub fn parse_with(source: &str, front_matter: bool) -> Document {
     };
     let arena = Arena::new();
     let root = parse_document(&arena, markdown, &options());
-    let mut blocks = blocks(root);
+    let (mut blocks, positions) = unzip(blocks(root));
     // comrak counts lines from the end of the front matter.
     let front_matter_lines = source[..source.len() - markdown.len()]
         .matches('\n')
         .count();
     move_lines(&mut blocks, front_matter_lines);
+    // The front matter, when there is any, is the first block.
+    let first = usize::from(front_matter.is_some());
+    let mut lines = SourceLines::default();
+    if front_matter.is_some() {
+        lines.insert(vec![0], 1);
+    }
+    for (index, position) in positions.iter().enumerate() {
+        position.record(&mut vec![first + index], front_matter_lines, &mut lines);
+    }
     Document {
         blocks: front_matter.into_iter().chain(blocks).collect(),
+        lines,
     }
+}
+
+/// Where a block starts in the source, and where the blocks inside it do.
+/// `children` follow the structure of the block: the blocks of a quote,
+/// alert or `<details>`, or the items of a list, each with the blocks of
+/// the item as its children. An item is not a block, so it has no line.
+struct Position {
+    line: Option<usize>,
+    children: Vec<Position>,
+}
+
+impl Position {
+    fn leaf(line: usize) -> Self {
+        Self {
+            line: Some(line),
+            children: Vec::new(),
+        }
+    }
+
+    /// Records the lines of this block, found at `path`, and of the blocks
+    /// inside it in `lines`, `by` lines further down than comrak counted.
+    fn record(&self, path: &mut Vec<usize>, by: usize, lines: &mut SourceLines) {
+        if let Some(line) = self.line {
+            lines.insert(path.clone(), line + by);
+        }
+        for (index, child) in self.children.iter().enumerate() {
+            path.push(index);
+            child.record(path, by, lines);
+            path.pop();
+        }
+    }
+}
+
+/// Blocks and where they start, as two lists in the same order.
+fn unzip(blocks: Vec<(Block, Position)>) -> (Vec<Block>, Vec<Position>) {
+    blocks.into_iter().unzip()
 }
 
 /// `source` as it is, without reading it as Markdown: a document of one
 /// code block in `language`, which starts on the first line.
 pub fn code(source: &str, language: Option<&str>) -> Document {
+    let mut lines = SourceLines::default();
+    lines.insert(vec![0], 1);
     Document {
         blocks: vec![Block::CodeBlock {
             language: language.map(str::to_owned),
             code: source.to_owned(),
             line: 1,
         }],
+        lines,
     }
 }
 
@@ -85,7 +136,7 @@ fn options() -> Options<'static> {
     options
 }
 
-fn blocks(parent: Node<'_>) -> Vec<Block> {
+fn blocks(parent: Node<'_>) -> Vec<(Block, Position)> {
     join_details(parent.children().filter_map(block))
 }
 
@@ -99,17 +150,23 @@ fn blocks(parent: Node<'_>) -> Vec<Block> {
 /// `</details>`. A block that starts with a `<details>`, or that holds a
 /// `</details>` while one is open, is read tag by tag; the HTML between
 /// its tags is read as the body of a `<details>` in one block is.
-fn join_details(blocks: impl Iterator<Item = Block>) -> Vec<Block> {
+///
+/// A `<details>` starts where its first tag does, and the blocks read from
+/// the HTML inside it start where the HTML block they are in does.
+fn join_details(blocks: impl Iterator<Item = (Block, Position)>) -> Vec<(Block, Position)> {
     let mut joined = Vec::new();
-    // Each `<details>` still open: its summary and its blocks so far.
-    let mut open: Vec<(Option<Vec<Inline>>, Vec<Block>)> = Vec::new();
-    fn push(joined: &mut Vec<Block>, open: &mut [(Option<Vec<Inline>>, Vec<Block>)], block: Block) {
+    // Each `<details>` still open: its summary, its blocks so far and the
+    // line it starts on.
+    type Open = (Option<Vec<Inline>>, Vec<(Block, Position)>, usize);
+    let mut open: Vec<Open> = Vec::new();
+    fn push(joined: &mut Vec<(Block, Position)>, open: &mut [Open], block: (Block, Position)) {
         match open.last_mut() {
-            Some((_, blocks)) => blocks.push(block),
+            Some((_, blocks, _)) => blocks.push(block),
             None => joined.push(block),
         }
     }
-    for block in blocks {
+    for (block, position) in blocks {
+        let line = position.line.unwrap_or(1);
         if let Block::Html(source) = &block {
             if let Some(parts) = html::details_parts(source)
                 && reads_details(&parts, !open.is_empty())
@@ -117,18 +174,22 @@ fn join_details(blocks: impl Iterator<Item = Block>) -> Vec<Block> {
                 for part in parts {
                     match part {
                         DetailsPart::Start(summary) => {
-                            open.push((summary.map(html_inlines), Vec::new()));
+                            open.push((summary.map(html_inlines), Vec::new(), line));
                         }
                         DetailsPart::End(tag) => match open.pop() {
-                            Some((summary, blocks)) => {
-                                push(&mut joined, &mut open, details(summary, blocks));
+                            Some((summary, blocks, line)) => {
+                                push(&mut joined, &mut open, details(summary, blocks, line));
                             }
                             // A `</details>` with none open stays source.
-                            None => push(&mut joined, &mut open, Block::Html(tag.to_owned())),
+                            None => push(
+                                &mut joined,
+                                &mut open,
+                                (Block::Html(tag.to_owned()), Position::leaf(line)),
+                            ),
                         },
                         DetailsPart::Html(body) => {
                             for block in details_body(body) {
-                                push(&mut joined, &mut open, block);
+                                push(&mut joined, &mut open, (block, Position::leaf(line)));
                             }
                         }
                     }
@@ -137,7 +198,7 @@ fn join_details(blocks: impl Iterator<Item = Block>) -> Vec<Block> {
             }
             // A `<summary>` after a blank line is still the summary when
             // nothing came before it.
-            if let Some((summary @ None, blocks)) = open.last_mut()
+            if let Some((summary @ None, blocks, _)) = open.last_mut()
                 && blocks.is_empty()
                 && let Some(content) = html::summary(source)
             {
@@ -145,10 +206,10 @@ fn join_details(blocks: impl Iterator<Item = Block>) -> Vec<Block> {
                 continue;
             }
         }
-        push(&mut joined, &mut open, block);
+        push(&mut joined, &mut open, (block, position));
     }
-    while let Some((summary, blocks)) = open.pop() {
-        push(&mut joined, &mut open, details(summary, blocks));
+    while let Some((summary, blocks, line)) = open.pop() {
+        push(&mut joined, &mut open, details(summary, blocks, line));
     }
     joined
 }
@@ -163,12 +224,22 @@ fn reads_details(parts: &[DetailsPart], open: bool) -> bool {
 }
 
 /// A `<details>` with `summary`, or with the one a browser gives it
-/// without.
-fn details(summary: Option<Vec<Inline>>, blocks: Vec<Block>) -> Block {
-    Block::Details {
+/// without, that starts on `line`.
+fn details(
+    summary: Option<Vec<Inline>>,
+    blocks: Vec<(Block, Position)>,
+    line: usize,
+) -> (Block, Position) {
+    let (blocks, children) = unzip(blocks);
+    let block = Block::Details {
         summary: summary.unwrap_or_else(|| vec![Inline::Text("Details".into())]),
         blocks,
-    }
+    };
+    let position = Position {
+        line: Some(line),
+        children,
+    };
+    (block, position)
 }
 
 /// The blocks of HTML inside a `<details>` that is not Markdown: an image,
@@ -184,7 +255,8 @@ fn details_body(body: &str) -> Vec<Block> {
 }
 
 // Block types without a model counterpart yet are skipped.
-fn block(node: Node<'_>) -> Option<Block> {
+fn block(node: Node<'_>) -> Option<(Block, Position)> {
+    let mut children = Vec::new();
     let block = match &node.data().value {
         NodeValue::Heading(heading) => Block::Heading {
             level: heading.level,
@@ -196,23 +268,35 @@ fn block(node: Node<'_>) -> Option<Block> {
             code: code.literal.clone(),
             line: node.data().sourcepos.start.line,
         },
-        NodeValue::BlockQuote => Block::BlockQuote(blocks(node)),
-        NodeValue::Alert(alert) => Block::Alert {
-            kind: match alert.alert_type {
-                AlertType::Note => AlertKind::Note,
-                AlertType::Tip => AlertKind::Tip,
-                AlertType::Important => AlertKind::Important,
-                AlertType::Warning => AlertKind::Warning,
-                AlertType::Caution => AlertKind::Caution,
-            },
-            title: alert.title.clone(),
-            blocks: blocks(node),
-        },
-        NodeValue::List(list) => Block::List(List {
-            start: (list.list_type == ListType::Ordered).then_some(list.start as u64),
-            tight: list.tight,
-            items: node.children().map(list_item).collect(),
-        }),
+        NodeValue::BlockQuote => {
+            let (blocks, positions) = unzip(blocks(node));
+            children = positions;
+            Block::BlockQuote(blocks)
+        }
+        NodeValue::Alert(alert) => {
+            let (blocks, positions) = unzip(blocks(node));
+            children = positions;
+            Block::Alert {
+                kind: match alert.alert_type {
+                    AlertType::Note => AlertKind::Note,
+                    AlertType::Tip => AlertKind::Tip,
+                    AlertType::Important => AlertKind::Important,
+                    AlertType::Warning => AlertKind::Warning,
+                    AlertType::Caution => AlertKind::Caution,
+                },
+                title: alert.title.clone(),
+                blocks,
+            }
+        }
+        NodeValue::List(list) => {
+            let (items, positions) = node.children().map(list_item).unzip();
+            children = positions;
+            Block::List(List {
+                start: (list.list_type == ListType::Ordered).then_some(list.start as u64),
+                tight: list.tight,
+                items,
+            })
+        }
         NodeValue::Table(table) => Block::Table(self::table(node, &table.alignments)),
         NodeValue::ThematicBreak => Block::ThematicBreak,
         NodeValue::HtmlBlock(block) => match html::block_img(&block.literal) {
@@ -221,18 +305,24 @@ fn block(node: Node<'_>) -> Option<Block> {
         },
         _ => return None,
     };
-    Some(block)
+    let position = Position {
+        line: Some(node.data().sourcepos.start.line),
+        children,
+    };
+    Some((block, position))
 }
 
-fn list_item(node: Node<'_>) -> ListItem {
+fn list_item(node: Node<'_>) -> (ListItem, Position) {
     let checked = match &node.data().value {
         NodeValue::TaskItem(task) => Some(task.symbol.is_some()),
         _ => None,
     };
-    ListItem {
-        checked,
-        blocks: blocks(node),
-    }
+    let (blocks, children) = unzip(blocks(node));
+    let position = Position {
+        line: None,
+        children,
+    };
+    (ListItem { checked, blocks }, position)
 }
 
 fn table(node: Node<'_>, alignments: &[TableAlignment]) -> Table {
@@ -1023,5 +1113,121 @@ graph TD
         let mut lines = Vec::new();
         code_lines(&parse_with(source, false).blocks, &mut lines);
         assert_eq!(lines, [6, 12, 16, 20]);
+    }
+
+    /// The lines of the blocks at `paths`.
+    fn lines_of(document: &Document, paths: &[&[usize]]) -> Vec<Option<usize>> {
+        paths.iter().map(|path| document.lines.get(path)).collect()
+    }
+
+    #[test]
+    fn top_level_blocks_know_their_lines() {
+        let document = parse("# Title\n\nOne\ntwo\n\n---\n\n```\ncode\n```\n");
+        assert_eq!(
+            lines_of(&document, &[&[0], &[1], &[2], &[3], &[4]]),
+            [Some(1), Some(3), Some(6), Some(8), None]
+        );
+    }
+
+    #[test]
+    fn nested_blocks_know_their_lines() {
+        let source = "\
+> Quote
+>
+> ```
+> code
+> ```
+
+- First
+
+  Second paragraph
+- Next
+
+> [!NOTE]
+> Alert text
+";
+        let document = parse(source);
+        assert_eq!(
+            lines_of(
+                &document,
+                &[
+                    &[0],
+                    &[0, 0],
+                    &[0, 1],
+                    &[1],
+                    &[1, 0, 0],
+                    &[1, 0, 1],
+                    &[1, 1, 0],
+                    &[2],
+                    &[2, 0],
+                ]
+            ),
+            [
+                Some(1),
+                Some(1),
+                Some(3),
+                Some(7),
+                Some(7),
+                Some(9),
+                Some(10),
+                Some(12),
+                Some(13)
+            ]
+        );
+    }
+
+    #[test]
+    fn details_and_the_blocks_in_them_know_their_lines() {
+        let source = "\
+Before
+
+<details>
+<summary>Outer</summary>
+
+In outer
+
+<details>
+<summary>Inner</summary>
+
+Deep
+
+</details>
+
+</details>
+
+After
+";
+        let document = parse(source);
+        assert_eq!(
+            lines_of(
+                &document,
+                &[&[0], &[1], &[1, 0], &[1, 1], &[1, 1, 0], &[2], &[1, 2]]
+            ),
+            [Some(1), Some(3), Some(6), Some(8), Some(11), Some(17), None]
+        );
+    }
+
+    #[test]
+    fn lines_count_from_the_start_of_the_file_after_front_matter() {
+        let document = parse("---\ntitle: x\n---\n# Heading\n\n- item\n\n  more\n");
+        // The front matter is the first block, so the others move down one.
+        assert_eq!(
+            lines_of(&document, &[&[0], &[1], &[2], &[2, 0, 0], &[2, 0, 1]]),
+            [Some(1), Some(4), Some(6), Some(6), Some(8)]
+        );
+        // Without front matter, the same text starts at the top.
+        let document = parse_with("---\ntitle: x\n---\n# Heading\n", false);
+        assert_eq!(document.lines.get(&[0]), Some(1));
+    }
+
+    #[test]
+    fn the_lines_do_not_take_part_in_comparing_documents() {
+        let document = parse("one\n\n\n\ntwo\n");
+        let by_hand = Document::new(vec![
+            Block::Paragraph(vec![text("one")]),
+            Block::Paragraph(vec![text("two")]),
+        ]);
+        assert_eq!(document, by_hand);
+        assert_eq!(by_hand.lines.get(&[1]), None);
     }
 }

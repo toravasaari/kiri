@@ -5,7 +5,56 @@
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Document {
     pub blocks: Vec<Block>,
+    /// The source line of each block, by [block path](SourceLines).
+    pub lines: SourceLines,
 }
+
+impl Document {
+    /// A document of `blocks` that does not know where they came from.
+    pub fn new(blocks: Vec<Block>) -> Self {
+        Self {
+            blocks,
+            lines: SourceLines::default(),
+        }
+    }
+}
+
+/// The lines of the source that the blocks of a document start on,
+/// counting from 1, by the path of each block.
+///
+/// A path says where a block is in its document: the number of a top-level
+/// block, then the numbers that lead from it to the block, one step into a
+/// `<details>`, quote or alert block (the number of the block inside it), or
+/// two steps into a list (the number of the item, then the number of the
+/// block inside the item). So `[2, 0, 1]` is the second block of the first
+/// item of the list that is the third block of the document. A block that
+/// is not in the source, such as a note, has no line.
+///
+/// Where a document does not come from Markdown, the table is empty. It
+/// takes no part in comparing documents: two documents with the same
+/// blocks are equal wherever the blocks were written.
+#[derive(Debug, Clone, Default)]
+pub struct SourceLines(std::collections::BTreeMap<Vec<usize>, usize>);
+
+impl SourceLines {
+    /// Records that the block at `path` starts on `line`.
+    pub fn insert(&mut self, path: Vec<usize>, line: usize) {
+        self.0.insert(path, line);
+    }
+
+    /// The line the block at `path` starts on, if it is known.
+    pub fn get(&self, path: &[usize]) -> Option<usize> {
+        self.0.get(path).copied()
+    }
+}
+
+impl PartialEq for SourceLines {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for SourceLines {}
 
 /// One of several files shown one after another, each under a header that
 /// names it.

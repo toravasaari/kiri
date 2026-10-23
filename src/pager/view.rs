@@ -458,7 +458,7 @@ mod tests {
         let mut blocks = Vec::new();
         for &(block, count) in runs {
             let block = block.map(|(file, path)| {
-                let id = table.add(file, path.to_vec());
+                let id = table.add(file, path.to_vec(), None);
                 table.get(id).clone()
             });
             blocks.extend(std::iter::repeat_n(block, count));

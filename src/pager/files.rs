@@ -95,7 +95,7 @@ mod tests {
             .iter()
             .map(|name| File {
                 name: (*name).to_owned(),
-                document: Document { blocks: Vec::new() },
+                document: Document::new(Vec::new()),
             })
             .collect()
     }
@@ -105,7 +105,7 @@ mod tests {
     fn stream(starts: &[usize], count: usize) -> (Vec<Line>, Blocks) {
         let mut blocks = Blocks::default();
         let ids: Vec<_> = (0..starts.len())
-            .map(|file| blocks.add(file, Vec::new()))
+            .map(|file| blocks.add(file, Vec::new(), None))
             .collect();
         let lines = (0..count)
             .map(|line| {

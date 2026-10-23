@@ -25,9 +25,7 @@ fn markdown(name: &str, source: &str) -> File {
 fn image_file(name: &str) -> File {
     File {
         name: name.to_owned(),
-        document: Document {
-            blocks: vec![Block::ImageFile(name.to_owned())],
-        },
+        document: Document::new(vec![Block::ImageFile(name.to_owned())]),
     }
 }
 
@@ -189,9 +187,7 @@ fn the_band_is_lighter_on_a_light_page_and_gone_without_colours() {
 fn a_file_that_failed_shows_why_in_the_error_colour() {
     let failed = File {
         name: "missing.md".to_owned(),
-        document: Document {
-            blocks: vec![Block::Error("No such file or directory".to_owned())],
-        },
+        document: Document::new(vec![Block::Error("No such file or directory".to_owned())]),
     };
     let stream = kiri::render::layout::files(&[failed], &Inputs::new(known_colours()));
     let line = &stream.lines[4];

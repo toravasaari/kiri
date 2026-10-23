@@ -102,7 +102,7 @@ fn parse_at_most(
             grouped(left_out, '\u{a0}')
         )));
     }
-    Ok(Document { blocks })
+    Ok(Document::new(blocks))
 }
 
 /// `n` with its digits in groups of three, joined by `separator`.
@@ -142,16 +142,14 @@ mod tests {
 
     /// The table `header` and `rows`, all columns left-aligned.
     fn table(header: &[&str], rows: &[&[&str]]) -> Document {
-        Document {
-            blocks: vec![Block::Table(Table {
-                alignments: vec![Alignment::Left; header.len()],
-                header: header.iter().map(|text| cell(text)).collect(),
-                rows: rows
-                    .iter()
-                    .map(|row| row.iter().map(|text| cell(text)).collect())
-                    .collect(),
-            })],
-        }
+        Document::new(vec![Block::Table(Table {
+            alignments: vec![Alignment::Left; header.len()],
+            header: header.iter().map(|text| cell(text)).collect(),
+            rows: rows
+                .iter()
+                .map(|row| row.iter().map(|text| cell(text)).collect())
+                .collect(),
+        })])
     }
 
     fn csv(source: &str) -> Document {
