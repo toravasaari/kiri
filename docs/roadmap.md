@@ -720,23 +720,31 @@ go.
 
 ## Bugs
 
-Known bugs, fixed in whatever phase is under way.
+Known bugs, fixed in whatever phase is under way. Each has a number, B1,
+B2 and so on, that is not used again once the bug is fixed.
 
-- An image shown on its own, `kiri image.png`, leaves an empty row below
-  it in the maintainer's kitty, so the image is a row shorter than it
-  could be and a two-line prompt scrolls its top row away. `kitten icat`
-  does the same there. It does not happen in kitty on a virtual display,
-  so the window and cell sizes the terminal reports are the first
-  suspect. Once it is understood, the rows left free below the image may
-  become a setting.
-- An `<img>` set apart by blank lines inside a wrapper, such as
-  `<p align="center">`, blank line, `<img>`, blank line, `</p>`, is drawn,
-  but the wrapper's tags show as source: CommonMark makes three HTML
-  blocks of it.
-- The test that the example documents fit the window at every width,
-  `the_visual_check_documents_fit_every_mode`, loads no diagram renderer,
-  so it never draws a diagram. A drawn diagram, or the red error below one
-  that fails, could reach past the window's edge without the test noticing.
+#### B1 An image on its own is a row short in kitty
+
+An image shown on its own, `kiri image.png`, leaves an empty row below it
+in the maintainer's kitty, so the image is a row shorter than it could be
+and a two-line prompt scrolls its top row away. `kitten icat` does the
+same there. It does not happen in kitty on a virtual display, so the
+window and cell sizes the terminal reports are the first suspect. Once it
+is understood, the rows left free below the image may become a setting.
+
+#### B2 Tags of an HTML wrapper show as source
+
+An `<img>` set apart by blank lines inside a wrapper, such as
+`<p align="center">`, blank line, `<img>`, blank line, `</p>`, is drawn,
+but the wrapper's tags show as source: CommonMark makes three HTML
+blocks of it.
+
+#### B3 The examples fit test draws no diagrams
+
+The test that the example documents fit the window at every width,
+`the_visual_check_documents_fit_every_mode`, loads no diagram renderer,
+so it never draws a diagram. A drawn diagram, or the red error below one
+that fails, could reach past the window's edge without the test noticing.
 
 ### resvg and the SVG that mmdc writes
 
