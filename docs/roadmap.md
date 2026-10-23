@@ -350,6 +350,11 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   also tells how to change the setting.
 - `--print-config` writes the settings in effect as a configuration file,
   a start for one's own.
+- `--config KEY=VALUE` (named so rather than `--option`) overrides any
+  configuration key on the command line, as cargo's `--config` does,
+  such as `diagrams.timeout=60`; with it, a way to list the keys, and a
+  `[diagrams.mermaid.config]` table passed to Mermaid as it is, which
+  4.3.2's languages could have too.
 
 ### 4.9 Input
 
@@ -693,11 +698,6 @@ go.
 - Question: how should the text format be shown? Today `--format text`
   writes a highlighted code block on a terminal and the file as it is
   elsewhere; to be decided.
-- `--config KEY=VALUE` (named so rather than `--option`) overrides any
-  configuration key on the command line, as cargo's `--config` does,
-  such as `diagrams.timeout=60`; with it, a way to list the keys, and a
-  `[diagrams.mermaid.config]` table passed to Mermaid as it is, which
-  4.3.2's languages could have too.
 - Zooming images and diagrams in the pager, or opening one in a view of
   its own. A diagram drawn by an external program as PNG is drawn again
   at a larger scale when it is zoomed past the one it has. A diagram
