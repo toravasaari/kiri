@@ -732,6 +732,9 @@ go.
 - Shorter help texts. `kiri --help` explains many options in several
   sentences, such as `[FILE]...` in five lines; one short line each would
   do, with the details in the documentation.
+- A side-by-side view: the Markdown source beside the rendered document,
+  each part across from the other, so the source and what it becomes can
+  be compared.
 
 ## Bugs
 
