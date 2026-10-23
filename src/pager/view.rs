@@ -533,7 +533,7 @@ mod tests {
                 (Some((0, &[][..])), 3),
                 (None, 1),
                 (Some((0, &[0][..])), a),
-                (Some((0, &[][..])), 1),
+                (None, 1),
                 (Some((1, &[][..])), 3),
                 (None, 1),
                 (Some((1, &[0][..])), b),
@@ -546,5 +546,29 @@ mod tests {
         let (new_heights, new_blocks) = runs(10, 30);
         view.resize(new_heights, new_blocks, 5);
         assert_eq!(view.top(), 15);
+    }
+
+    #[test]
+    fn resizing_counts_the_place_in_a_block_in_lines_not_rows() {
+        // A heading, a blank line and a block of `count` lines, with the
+        // heading `scale` rows high.
+        let laid = |scale, count| {
+            let (mut heights, blocks) = blocked(&[
+                (Some((0, &[0][..])), 1),
+                (None, 1),
+                (Some((0, &[1][..])), count),
+            ]);
+            heights[0] = scale;
+            (heights, blocks)
+        };
+        let (heights, blocks) = laid(2, 10);
+        let mut view = View::new(heights, 5).with_blocks(blocks);
+        // Two lines into the block of ten.
+        view.scroll(Motion::Down(4));
+        let (new_heights, new_blocks) = laid(3, 20);
+        view.resize(new_heights, new_blocks, 5);
+        // Four lines into the block of twenty; the same share of the rows
+        // would be line 7.
+        assert_eq!(view.top(), 6);
     }
 }
