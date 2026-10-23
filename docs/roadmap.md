@@ -750,7 +750,12 @@ The test that the example documents fit the window at every width,
 so it never draws a diagram. A drawn diagram, or the red error below one
 that fails, could reach past the window's edge without the test noticing.
 
-### resvg and the SVG that mmdc writes
+### Upstream bugs
+
+Bugs in projects kiri uses, which kiri works around until they are fixed
+there.
+
+#### resvg and the SVG that mmdc writes
 
 mmdc's SVG drawn through resvg differs from the same SVG in a browser in
 two known ways, so the external Mermaid path asks mmdc for PNG instead.
