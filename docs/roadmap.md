@@ -564,6 +564,12 @@ A part that needs one names it, such as "needs G1.3".
   finds. `ImageKey::Block` is renamed for its wider use. Images in running
   text (4.12.4) are its first use, inline formulas (4.2.2) the next.
 
+#### G1.5 Lines know their block
+
+- Each laid-out line records the block it belongs to, for a table of
+  contents, heading anchors, going back, keeping the place on reload or
+  resize, and opening a `<details>` block in the pager.
+
 ### G2 Images
 
 #### G2.1 Images from blocks (done)
@@ -607,6 +613,37 @@ A part that needs one names it, such as "needs G1.3".
 - How much each feature and dependency adds to a stripped binary, and
   smaller builds from it, such as RaTeX as a feature of its own for the
   minimal build (4.2.1).
+
+#### G4.2 Ready for CI
+
+- `rust-version` in `Cargo.toml`, a `deny.toml` for licences, and a pinned
+  toolchain, before CI (3.2).
+
+### G5 Settings
+
+#### G5.1 config.rs split
+
+- `config.rs` split into environment, file and resolving, with the
+  leftovers of the settings refactor: `ConfigToml` and `Config`, and
+  `Choices` and `Settings`, copy each other.
+
+#### G5.2 Names and levels of settings
+
+- Internal names match the keys, such as `diagram_panel` for
+  `background_panel`, and environment values are read the same way
+  everywhere: `KIRI_NO_IMAGES` takes a wrong value without a warning.
+- Some settings exist only as a flag (`--width`) or only in the file
+  (`search_case`); decide which belong on every level.
+
+### G6 Code
+
+#### G6.1 Smaller cleanups
+
+- The parser drops Markdown elements it does not know without a word.
+- One light or dark page type for diagrams and themes.
+- Diagram errors as a type of their own rather than strings, as images
+  have.
+- Status line key hints written once with the keys they name.
 
 ## Uncategorized (extras)
 
