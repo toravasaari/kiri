@@ -6,7 +6,7 @@ use std::process::Output;
 
 mod common;
 
-use common::{Scratch, command, fixtures, kiri_piped, sent, text, write};
+use common::{Scratch, command, fixtures, kiri_piped, sent, text, words, write};
 
 /// kiri in `dir` with `args`, as a pipe gets it.
 fn kiri_in(dir: &Path, args: &[&str]) -> Output {
@@ -284,7 +284,7 @@ fn a_front_matter_warning_is_told_at_its_file_s_place() {
 fn help_tells_about_several_files() {
     let dir = Scratch::new("files-help");
     let out = kiri_in(&dir, &["--help"]);
-    let stdout = text(&out.stdout);
+    let stdout = words(&text(&out.stdout));
     assert!(stdout.contains("[FILE]..."), "{stdout}");
     assert!(
         stdout.contains("Several files are shown one after another"),

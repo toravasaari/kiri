@@ -6,7 +6,7 @@ use std::process::Output;
 
 mod common;
 
-use common::{Scratch, command, fixtures, kiri, kiri_on, text, write};
+use common::{Scratch, command, fixtures, kiri, kiri_on, text, words, write};
 
 #[test]
 fn warns_about_an_image_that_does_not_load_and_shows_its_alt_text() {
@@ -107,7 +107,7 @@ fn max_image_size_is_at_most_a_hundred_megabytes() {
 fn help_explains_max_image_size_and_images() {
     let dir = Scratch::new("help");
     let out = command(&dir).arg("--help").output().unwrap();
-    let help = text(&out.stdout);
+    let help = words(&text(&out.stdout));
     assert!(help.contains("--max-image-size <MB>"), "{help}");
     assert!(help.contains("[default: 10]"), "{help}");
     assert!(help.contains("--images"), "{help}");

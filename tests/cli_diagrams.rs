@@ -4,7 +4,7 @@ mod common;
 
 use std::path::Path;
 
-use common::{Scratch, kiri, sent, text};
+use common::{Scratch, kiri, sent, text, words};
 
 const FLOWCHART: &str = "# Plan\n\n```mermaid\nflowchart TD\n    A --> B\n```\n";
 const BROKEN: &str = "# Plan\n\n```mermaid\nflowchart TD\n    A[Unclosed --> B\n```\n";
@@ -161,7 +161,7 @@ fn an_unknown_kiri_diagrams_is_left_out_with_a_warning() {
 fn help_explains_diagrams() {
     let dir = Scratch::new("mermaid-help");
     let out = common::command(&dir).arg("--help").output().unwrap();
-    let help = text(&out.stdout);
+    let help = words(&text(&out.stdout));
     assert!(help.contains("--diagrams <SWITCH>"), "{help}");
     assert!(help.contains("[possible values: on, off]"), "{help}");
 }
@@ -1065,7 +1065,7 @@ fn merman_draws_a_mermaid_file() {
 fn help_names_the_mermaid_format() {
     let dir = Scratch::new("mermaid-format-help");
     let out = common::command(&dir).arg("--help").output().unwrap();
-    let help = text(&out.stdout);
+    let help = words(&text(&out.stdout));
     assert!(
         help.contains("markdown, csv, tsv, mermaid (a diagram"),
         "{help}"
@@ -1181,7 +1181,7 @@ fn an_unknown_kiri_render_errors_is_left_out_with_a_warning() {
 fn help_explains_render_errors() {
     let dir = Scratch::new("render-errors-help");
     let out = common::command(&dir).arg("--help").output().unwrap();
-    let help = text(&out.stdout);
+    let help = words(&text(&out.stdout));
     assert!(help.contains("--render-errors <WHERE>"), "{help}");
     assert!(
         help.contains("[possible values: inline, stderr, both]"),

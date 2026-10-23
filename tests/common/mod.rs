@@ -460,6 +460,12 @@ pub fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
+/// `text` with every run of whitespace made one space, so that a phrase
+/// is found however the help wraps it.
+pub fn words(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// Writes `text` to `path`, creating its directory.
 pub fn write(path: &Path, text: &str) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
