@@ -641,6 +641,11 @@ go.
 - Image files shown with several files (4.9.2) are read in full before
   the pager opens, about 48 MB for a 12-megapixel photo. Reduce each to
   the largest size it can be shown at, as drawn diagrams are.
+- With several files (4.9.2), a file's header stays at the top of the
+  pager while its file scrolls, as a sticky header does on a web page,
+  and spans the width of the status line.
+- `kiri --help` wraps its lines to the terminal width. Today its widest
+  line is 412 characters, which makes the options hard to read.
 
 ## Bugs
 
