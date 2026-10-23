@@ -15,6 +15,7 @@ use crate::color::{Color, Underline};
 use crate::images::{Images, Source};
 use crate::kitty;
 use crate::kitty::graphics;
+use crate::size::TextSize;
 
 /// The colours of the page the document is drawn on. `None` leaves the
 /// terminal's own showing through.
@@ -64,7 +65,7 @@ pub fn write(
 /// The rows `line` occupies on a terminal with `caps`: a scaled line
 /// takes as many as its scale, unless the terminal gets plain text.
 pub fn rows(line: &Line, caps: &Capabilities) -> u8 {
-    if caps.styling { line.scale.max(1) } else { 1 }
+    if caps.styling { line.size.scale() } else { 1 }
 }
 
 /// Writes lines row by row, wherever the cursor is, and remembers which
@@ -153,19 +154,18 @@ impl<'a> Writer<'a> {
             dim: style.dim || dim,
             ..style.clone()
         };
-        let scale = line.scale.max(1);
-        // A scaled line occupies `scale` rows but is written only on the
-        // first; the rows below get the lead, the trail and the fill around
-        // it.
-        let block_width = width(&line.spans) * usize::from(scale);
+        // A scaled line occupies as many rows as its scale but is written
+        // only on the first; the rows below get the lead, the trail and the
+        // fill around it.
+        let block_width = width(&line.spans) * usize::from(line.size.scale());
         let mut current = Style::default();
         write_spans(&line.lead, paint, &mut current, caps, out)?;
         if row == 0 {
             for span in &line.spans {
                 let style = paint(&span.style);
                 transition(&current, &style, caps, out)?;
-                if scale > 1 {
-                    kitty::text::write_scaled(out, scale, &span.text)?;
+                if line.size != TextSize::NORMAL {
+                    kitty::text::write_sized(out, line.size, &span.text)?;
                 } else {
                     out.write_all(span.text.as_bytes())?;
                 }
@@ -399,7 +399,7 @@ mod tests {
             spans: Vec::new(),
             image: None,
             trail: Vec::new(),
-            scale: 2,
+            size: TextSize::new(2).unwrap(),
         };
         let mut out = Vec::new();
         write(

@@ -16,6 +16,7 @@ use crate::caps::Capabilities;
 use crate::color::{Color, Underline};
 use crate::images::{ImageError, ImageKey, Images};
 use crate::model::{Block, Document, File, Image, Inline, Table};
+use crate::size::TextSize;
 use crate::theme::{BandColor, Theme};
 
 /// How much of the text colour a striped table row mixes into the page.
@@ -383,11 +384,12 @@ impl Layout<'_> {
 
     fn heading(&self, level: u8, content: &[Inline], width: usize, context: Context) -> Vec<Line> {
         let heading = self.theme.heading(level);
-        let scale = if self.caps.text_sizing && !context.nested {
-            heading.scale.max(1)
+        let size = if self.caps.text_sizing && !context.nested {
+            heading.size
         } else {
-            1
+            TextSize::NORMAL
         };
+        let scale = usize::from(size.scale());
         let style = self.style(Style {
             bold: heading.bold,
             italic: heading.italic,
@@ -426,7 +428,7 @@ impl Layout<'_> {
             Vec::new()
         };
         // In characters of the heading's size.
-        let available = (width - indent) / usize::from(scale);
+        let available = (width - indent) / scale;
         // An empty heading takes no room, but keeps its rule.
         let mut lines: Vec<Line> = if empty {
             Vec::new()
@@ -442,7 +444,7 @@ impl Layout<'_> {
                         push(&mut spans, &" ".repeat(fill), &background);
                         // Scaled text covers a multiple of the scale; cells of
                         // normal size fill the rest of the width.
-                        let scaled = (used + fill) * usize::from(scale);
+                        let scaled = (used + fill) * scale;
                         let rest = (width - indent).saturating_sub(scaled);
                         push(&mut trail, &" ".repeat(rest), &background);
                     }
@@ -451,7 +453,7 @@ impl Layout<'_> {
                         spans,
                         image: None,
                         trail,
-                        scale,
+                        size,
                     }
                 })
                 .collect()

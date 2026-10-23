@@ -90,7 +90,7 @@ fn the_visual_check_documents_fit_every_mode() {
                         let image = (line.image.as_ref())
                             .map_or(0, |image| usize::from(image.placement.size.columns));
                         let cells = width(&line.lead)
-                            + width(&line.spans) * usize::from(line.scale)
+                            + width(&line.spans) * usize::from(line.size.scale())
                             + image
                             + width(&line.trail);
                         assert!(

@@ -4,6 +4,7 @@ use std::rc::Rc;
 
 use super::image::Placement;
 use crate::color::{Color, Underline};
+use crate::size::TextSize;
 use crate::theme::Theme;
 
 /// How the wrapper treats spaces in a span, much like CSS `white-space`.
@@ -88,8 +89,9 @@ pub struct ImageRow {
     pub row: u16,
 }
 
-/// One output line. A line with `scale` above 1 is drawn with kitty's text
-/// sizing protocol and occupies that many terminal rows.
+/// One output line. A line of a size other than the normal one is drawn
+/// with kitty's text sizing protocol and occupies as many terminal rows as
+/// its scale.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Line {
     /// Normal-size cells repeated at the start of every row the line
@@ -102,7 +104,7 @@ pub struct Line {
     /// Normal-size cells after the text on every row the line occupies, so
     /// a background reaches the edge when the scaled text cannot.
     pub trail: Vec<Span>,
-    pub scale: u8,
+    pub size: TextSize,
 }
 
 impl Line {
@@ -112,7 +114,7 @@ impl Line {
             spans,
             image: None,
             trail: Vec::new(),
-            scale: 1,
+            size: TextSize::NORMAL,
         }
     }
 
