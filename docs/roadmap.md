@@ -718,6 +718,9 @@ go.
 - With several files (4.9.2), a file's header stays at the top of the
   pager while its file scrolls, as a sticky header does on a web page,
   and spans the width of the status line.
+- Shorter help texts. `kiri --help` explains many options in several
+  sentences, such as `[FILE]...` in five lines; one short line each would
+  do, with the details in the documentation.
 
 ## Bugs
 
