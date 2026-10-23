@@ -593,6 +593,15 @@ A part that needs one names it, such as "needs G1.3".
   contents, heading anchors, going back, keeping the place on reload or
   resize, and opening a `<details>` block in the pager.
 
+#### G1.6 Comparing two documents
+
+- Two versions of a document compared block by block: which blocks
+  stayed, which changed, and which were added or removed. The follow
+  mode (4.6.4) uses it to keep the reader's place and to find what
+  changed, and the diff view (4.6.4) to show it. A block may also come
+  to know the line of the source it starts on, so a reader can open the
+  source there in an editor or point to it, such as `plan.md` line 42.
+
 ### G2 Images
 
 #### G2.1 Images from blocks (done)
