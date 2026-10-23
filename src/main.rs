@@ -25,6 +25,8 @@ use kiri::theme::{Paper, Theme};
 #[derive(Parser)]
 #[command(
     version,
+    // Longer lines are hard to read, also in a wide terminal.
+    max_term_width = 100,
     after_help = "Images and diagrams are drawn only in terminals that support \
                   kitty's graphics protocol with Unicode placeholders, such as \
                   kitty 0.28 or later; elsewhere images show their alt text \

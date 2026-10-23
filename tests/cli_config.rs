@@ -455,18 +455,23 @@ fn the_help_lists_the_values_of_each_setting() {
 }
 
 #[test]
-fn the_help_wraps_to_the_terminal_width() {
+fn the_help_wraps_to_the_terminal_width_up_to_100() {
     let dir = Scratch::new("help-width");
-    for flag in ["--help", "-h"] {
-        let out = command(&dir)
-            .arg(flag)
-            .env("COLUMNS", "60")
-            .output()
-            .unwrap();
-        assert!(out.status.success(), "{}", text(&out.stderr));
-        let help = text(&out.stdout);
-        let widest = help.lines().map(|line| line.chars().count()).max();
-        assert!(widest <= Some(60), "{flag}: {widest:?} in {help}");
+    for (columns, width) in [("60", 60), ("200", 100)] {
+        for flag in ["--help", "-h"] {
+            let out = command(&dir)
+                .arg(flag)
+                .env("COLUMNS", columns)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{}", text(&out.stderr));
+            let help = text(&out.stdout);
+            let widest = help.lines().map(|line| line.chars().count()).max();
+            assert!(
+                widest <= Some(width),
+                "{flag} {columns}: {widest:?} in {help}"
+            );
+        }
     }
 }
 
