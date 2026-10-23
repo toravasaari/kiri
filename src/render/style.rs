@@ -2,6 +2,7 @@
 
 use std::rc::Rc;
 
+use super::block::BlockId;
 use super::image::Placement;
 use crate::color::{Color, Underline};
 use crate::size::TextSize;
@@ -105,6 +106,9 @@ pub struct Line {
     /// a background reaches the edge when the scaled text cannot.
     pub trail: Vec<Span>,
     pub size: TextSize,
+    /// The block the line comes from, or none for the blank line between
+    /// two blocks.
+    pub block: Option<BlockId>,
 }
 
 impl Line {
@@ -115,6 +119,7 @@ impl Line {
             image: None,
             trail: Vec::new(),
             size: TextSize::NORMAL,
+            block: None,
         }
     }
 

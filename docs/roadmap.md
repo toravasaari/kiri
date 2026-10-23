@@ -587,11 +587,13 @@ A part that needs one names it, such as "needs G1.3".
   finds. `ImageKey::Block` is renamed for its wider use. Images in running
   text (4.12.4) are its first use, inline formulas (4.2.2) the next.
 
-#### G1.5 Lines know their block
+#### G1.5 Lines know their block (done)
 
 - Each laid-out line records the block it belongs to, for a table of
   contents, heading anchors, going back, keeping the place on reload or
-  resize, and opening a `<details>` block in the pager.
+  resize, and opening a `<details>` block in the pager. Finding the files
+  of a stream and keeping the top block in place when the window is
+  resized use it already; the others are still to come.
 
 #### G1.6 Comparing two documents
 

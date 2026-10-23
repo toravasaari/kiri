@@ -1,5 +1,6 @@
 //! Document model to terminal output.
 
+pub mod block;
 pub mod highlight;
 pub mod image;
 pub mod layout;

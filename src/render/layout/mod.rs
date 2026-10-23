@@ -7,6 +7,7 @@ mod quote;
 
 use std::rc::Rc;
 
+use super::block::{BlockId, Blocks};
 use super::image::{self, Placement};
 use super::style::{Line, Spaces, Span, Style, push};
 use super::table::{self, Cells};
@@ -28,11 +29,26 @@ const STRIPE: f32 = 0.06;
 const BAND_DARK: f32 = 0.3;
 const BAND_LIGHT: f32 = 0.12;
 
+/// `document` laid out, without the table of its blocks, as [`file`] has
+/// it.
 pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
+    document_stream(document, inputs).lines
+}
+
+/// `document` laid out as a lone document, with the blocks its lines come
+/// from.
+fn document_stream(document: &Document, inputs: &Inputs) -> Stream {
     with_layout(inputs, 0, |layout, width, margin| {
-        let mut lines = Vec::new();
-        layout.top_level(&document.blocks, width, margin, &mut lines);
-        lines
+        let mut stream = Stream::default();
+        layout.top_level(
+            &document.blocks,
+            width,
+            margin,
+            &mut stream.lines,
+            &mut stream.blocks,
+            &mut Vec::new(),
+        );
+        stream
     })
 }
 
@@ -43,36 +59,33 @@ pub enum Content<'a> {
     Files(&'a [File]),
 }
 
-/// `content` laid out with `inputs`. A lone document is no file, so the
-/// stream has no starts.
+/// `content` laid out with `inputs`.
 pub fn content(content: Content, inputs: &Inputs) -> Stream {
     match content {
-        Content::Document(document) => Stream {
-            lines: layout(document, inputs),
-            starts: Vec::new(),
-        },
+        Content::Document(document) => document_stream(document, inputs),
         Content::Files(shown) => files(shown, inputs),
     }
 }
 
-/// Files laid out one after another: their lines, and where each starts.
+/// Lines laid out, with the blocks they come from.
 #[derive(Debug, Default)]
 pub struct Stream {
     pub lines: Vec<Line>,
-    /// The line each file starts on, the first of its header, in order.
-    pub starts: Vec<usize>,
+    /// The blocks that the lines' [`Line::block`] numbers.
+    pub blocks: Blocks,
 }
 
 /// `files` laid out one after another, a blank line apart, each as
-/// [`file`] lays it out.
+/// [`file`] lays it out. The blank line between two files has no block,
+/// as the blank lines between blocks have none.
 pub fn files(files: &[File], inputs: &Inputs) -> Stream {
     let mut stream = Stream::default();
     for (number, shown) in files.iter().enumerate() {
-        if !stream.lines.is_empty() {
+        if number > 0 {
             stream.lines.push(Line::blank());
         }
-        stream.starts.push(stream.lines.len());
-        stream.lines.extend(file(shown, number, inputs));
+        let lines = file_into(shown, number, inputs, &mut stream.blocks);
+        stream.lines.extend(lines);
     }
     stream
 }
@@ -80,10 +93,19 @@ pub fn files(files: &[File], inputs: &Inputs) -> Stream {
 /// `file`, numbered `number` among the files shown together, laid out
 /// under a header that names it, as [`Layout::file_header`] draws it, and
 /// a blank line. An image file below it is fitted to the window with its
-/// header, however many rows a long name takes.
+/// header, however many rows a long name takes. The table of its blocks is
+/// not kept, so the block numbers of its lines point into nothing;
+/// [`files`] keeps the table.
 pub fn file(file: &File, number: usize, inputs: &Inputs) -> Vec<Line> {
+    file_into(file, number, inputs, &mut Blocks::default())
+}
+
+/// [`file`], with its blocks added to `blocks`. The header lines come from
+/// a block of their own, which has no path.
+fn file_into(file: &File, number: usize, inputs: &Inputs, blocks: &mut Blocks) -> Vec<Line> {
     with_layout(inputs, number, |layout, width, margin| {
         let mut lines = layout.file_header(&file.name, width, margin);
+        stamp(&mut lines, blocks.add(number, Vec::new()));
         // The header and the blank line below it.
         let above = u16::try_from(lines.len() + 1).unwrap_or(u16::MAX);
         let layout = Layout {
@@ -91,7 +113,14 @@ pub fn file(file: &File, number: usize, inputs: &Inputs) -> Vec<Line> {
             ..*layout
         };
         let mut body = Vec::new();
-        layout.top_level(&file.document.blocks, width, margin, &mut body);
+        layout.top_level(
+            &file.document.blocks,
+            width,
+            margin,
+            &mut body,
+            blocks,
+            &mut Vec::new(),
+        );
         append_block(&mut lines, body, true);
         lines
     })
@@ -157,6 +186,13 @@ fn with_margin(mut lines: Vec<Line>, margin: usize) -> Vec<Line> {
     lines
 }
 
+/// Marks `lines` as coming from the block `id`.
+fn stamp(lines: &mut [Line], id: BlockId) {
+    for line in lines {
+        line.block = Some(id);
+    }
+}
+
 /// Appends a block's lines, after a blank line if `blank` and something
 /// came before. A block without lines, such as an empty code block, gets
 /// no separator either.
@@ -202,17 +238,36 @@ impl Layout<'_> {
     /// thematic breaks span the terminal; everything else keeps `margin`
     /// free on both sides. The blocks inside a details block are laid out
     /// as the blocks around it are.
-    fn top_level(&self, blocks: &[Block], width: usize, margin: usize, lines: &mut Vec<Line>) {
-        for block in blocks {
-            let block_lines = match block {
+    ///
+    /// Each block's lines get a new entry in `table`. `path` is where the
+    /// block being laid out is: the index of each `<details>` around it,
+    /// then its own index among its siblings, so the second block inside
+    /// the first `<details>` is `[0, 1]`. The summary of a details block is
+    /// marked as that block, and the blank line between blocks has no
+    /// block.
+    fn top_level(
+        &self,
+        blocks: &[Block],
+        width: usize,
+        margin: usize,
+        lines: &mut Vec<Line>,
+        table: &mut Blocks,
+        path: &mut Vec<usize>,
+    ) {
+        for (index, block) in blocks.iter().enumerate() {
+            path.push(index);
+            let mut block_lines = match block {
                 Block::ThematicBreak => vec![self.rule(usize::from(self.caps.width).max(width))],
                 Block::Heading { .. } | Block::ImageFile(_) => {
                     self.block(block, width, Context::default())
                 }
                 Block::Details { summary, blocks } => {
                     let summary = self.summary(summary, width - 2 * margin);
-                    append_block(lines, with_margin(summary, margin), true);
-                    self.top_level(blocks, width, margin, lines);
+                    let mut summary = with_margin(summary, margin);
+                    stamp(&mut summary, table.add(self.document, path.clone()));
+                    append_block(lines, summary, true);
+                    self.top_level(blocks, width, margin, lines, table, path);
+                    path.pop();
                     continue;
                 }
                 _ => with_margin(
@@ -220,7 +275,11 @@ impl Layout<'_> {
                     margin,
                 ),
             };
+            if !block_lines.is_empty() {
+                stamp(&mut block_lines, table.add(self.document, path.clone()));
+            }
             append_block(lines, block_lines, true);
+            path.pop();
         }
     }
 
@@ -454,6 +513,7 @@ impl Layout<'_> {
                         image: None,
                         trail,
                         size,
+                        block: None,
                     }
                 })
                 .collect()
@@ -833,4 +893,205 @@ pub(super) fn image_rows(placement: Placement) -> Vec<Line> {
     (0..rows)
         .map(|row| Line::image(Rc::clone(&placement), row))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parse::parse;
+    use crate::render::style::text;
+
+    fn inputs() -> Inputs {
+        Inputs::new(Capabilities::kitty(60))
+    }
+
+    fn lone(source: &str) -> Stream {
+        content(Content::Document(&parse(source)), &inputs())
+    }
+
+    fn file_of(name: &str, source: &str) -> File {
+        File {
+            name: name.to_owned(),
+            document: parse(source),
+        }
+    }
+
+    /// Each line's text with the path of its block: `None` for a line of
+    /// no block, and an empty path for the header of a file.
+    fn marked(stream: &Stream) -> Vec<(String, Option<Vec<usize>>)> {
+        let table = &stream.blocks;
+        stream
+            .lines
+            .iter()
+            .map(|line| {
+                let path = line.block.map(|id| table.path(id).to_vec());
+                (text(&line.spans), path)
+            })
+            .collect()
+    }
+
+    /// The paths of the blocks of the lines that have text, one for each
+    /// run of lines of a block, skipping the blank ones.
+    fn paths(stream: &Stream) -> Vec<Vec<usize>> {
+        let mut paths: Vec<Vec<usize>> = Vec::new();
+        for (text, path) in marked(stream) {
+            let Some(path) = path else { continue };
+            if !text.trim().is_empty() && paths.last() != Some(&path) {
+                paths.push(path);
+            }
+        }
+        paths
+    }
+
+    #[test]
+    fn a_block_marks_all_its_lines_and_the_blank_between_blocks_none() {
+        let stream = lone("One\n\n- a\n\n  b\n\nTwo\n");
+        let lines = marked(&stream);
+        let blocks: Vec<_> = lines
+            .iter()
+            .map(|(_, path)| path.as_ref().map(|path| path[0]))
+            .collect();
+        // The blank line between the two paragraphs of the loose list item
+        // is inside the list, so it keeps the list's block.
+        let a = lines
+            .iter()
+            .position(|(text, _)| text.contains('a'))
+            .unwrap();
+        assert!(stream.lines[a + 1].is_blank(), "{lines:?}");
+        assert_eq!(blocks[a + 1], Some(1), "{lines:?}");
+        // Blank separators between blocks have no block.
+        assert_eq!(blocks.iter().filter(|block| block.is_none()).count(), 2);
+        assert_eq!(paths(&stream), [[0], [1], [2]]);
+        // Only blank lines go without a block.
+        for (text, path) in &lines {
+            if path.is_none() {
+                assert!(text.is_empty(), "{lines:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn two_lines_of_a_block_are_the_same_block_and_two_blocks_are_not() {
+        let stream = lone(
+            "One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen\n\nNext\n",
+        );
+        let ids: Vec<_> = stream.lines.iter().filter_map(|line| line.block).collect();
+        assert!(ids.len() >= 3, "{ids:?}");
+        assert_eq!(ids[0], ids[1]);
+        assert_ne!(ids[0], ids[ids.len() - 1]);
+    }
+
+    #[test]
+    fn a_details_summary_is_the_details_block_and_its_content_is_deeper() {
+        let stream = lone(
+            "Before\n\n<details>\n<summary>Outer</summary>\n\nIn outer\n\n\
+             <details>\n<summary>Inner</summary>\n\nDeep\n\n</details>\n\n\
+             Back in outer\n\n</details>\n\nAfter\n",
+        );
+        assert_eq!(
+            paths(&stream),
+            [
+                vec![0],
+                vec![1],
+                vec![1, 0],
+                vec![1, 1],
+                vec![1, 1, 0],
+                vec![1, 2],
+                vec![2]
+            ],
+            "{:?}",
+            marked(&stream)
+        );
+        let lines = marked(&stream);
+        let path = |find: &str| {
+            let (_, path) = lines.iter().find(|(text, _)| text.contains(find)).unwrap();
+            path.clone()
+        };
+        assert_eq!(path("Outer"), Some(vec![1]));
+        assert_eq!(path("Inner"), Some(vec![1, 1]));
+        assert_eq!(path("Deep"), Some(vec![1, 1, 0]));
+    }
+
+    #[test]
+    fn files_mark_their_headers_with_the_file() {
+        let shown = [file_of("a.md", "One\n\nTwo\n"), file_of("b.md", "Three\n")];
+        let stream = files(&shown, &inputs());
+        let table = &stream.blocks;
+        let file_of_line = |line: &Line| line.block.map(|id| table.get(id).file());
+        let start = stream
+            .lines
+            .iter()
+            .position(|line| file_of_line(line) == Some(1))
+            .unwrap();
+        // The header, up to the first block, has the file's entry.
+        let header = &stream.lines[..stream
+            .lines
+            .iter()
+            .position(|line| text(&line.spans).contains("One"))
+            .unwrap()
+            - 1];
+        assert!(header.len() >= 3);
+        for line in header {
+            assert_eq!(file_of_line(line), Some(0));
+            assert_eq!(table.path(line.block.unwrap()), &[] as &[usize]);
+        }
+        // The blank line before the second file has no block.
+        assert!(stream.lines[start - 1].is_blank());
+        assert_eq!(stream.lines[start - 1].block, None);
+        // The second file's header and block.
+        assert_eq!(file_of_line(&stream.lines[start]), Some(1));
+        let three = stream
+            .lines
+            .iter()
+            .find(|line| text(&line.spans).contains("Three"))
+            .unwrap();
+        assert_eq!(file_of_line(three), Some(1));
+        assert_eq!(table.path(three.block.unwrap()), [0]);
+        // The blank line between a header and the first block has none.
+        let first = stream
+            .lines
+            .iter()
+            .position(|line| text(&line.spans).contains("One"))
+            .unwrap();
+        assert_eq!(stream.lines[first - 1].block, None);
+    }
+
+    /// The lines of the fixture and its table agree: the blocks are in
+    /// order, each is used, and all belong to the one document.
+    fn assert_agree(fixture: &str) {
+        let source = std::fs::read_to_string(format!("tests/fixtures/{fixture}")).unwrap();
+        let stream = lone(&source);
+        let mut seen = Vec::new();
+        for line in &stream.lines {
+            if let Some(id) = line.block {
+                assert_eq!(stream.blocks.get(id).file(), 0);
+                if seen.last() != Some(&id) {
+                    seen.push(id);
+                }
+            }
+        }
+        let paths: Vec<_> = seen.iter().map(|&id| stream.blocks.path(id)).collect();
+        // Each block is one run of lines, so none is seen twice, and the
+        // blocks follow each other as the document does.
+        for (number, path) in paths.iter().enumerate() {
+            assert!(!paths[..number].contains(path), "{fixture}: {path:?}");
+            assert!(!path.is_empty());
+        }
+        assert!(
+            paths.windows(2).all(|pair| pair[0] < pair[1]),
+            "{fixture}: {paths:?}"
+        );
+        // Every block of the table has lines.
+        assert_eq!(seen.len(), stream.blocks.len(), "{fixture}");
+    }
+
+    #[test]
+    fn the_table_and_the_lines_agree_for_blocks_in_quotes_and_lists() {
+        assert_agree("nested.md");
+    }
+
+    #[test]
+    fn the_table_and_the_lines_agree_for_html_tags() {
+        assert_agree("html-tags.md");
+    }
 }

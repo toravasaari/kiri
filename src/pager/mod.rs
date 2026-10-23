@@ -134,7 +134,7 @@ pub fn run(
             Some((caps, stream)) if caps == inputs.caps => stream,
             _ => crate::render::layout::content(content, inputs),
         };
-        let Stream { mut lines, starts } = stream;
+        let Stream { mut lines, blocks } = stream;
         // The text sizing protocol cannot draw part of a line, so a line
         // taller than the window is drawn at normal size.
         for line in &mut lines {
@@ -147,17 +147,21 @@ pub fn run(
             .iter()
             .map(|line| usize::from(writer.rows(line)))
             .collect();
+        let places = lines
+            .iter()
+            .map(|line| line.block.map(|id| blocks.get(id).clone()))
+            .collect();
         let mut shown = match view.take() {
             Some(mut view) => {
-                view.resize(heights, rows);
+                view.resize(heights, places, rows);
                 view
             }
-            None => View::new(heights, rows),
+            None => View::new(heights, rows).with_blocks(places),
         };
         state.lay_out(&lines, shown.top(), bar);
         let status = Status {
             name,
-            files: Files::new(shown_files, &starts),
+            files: Files::new(shown_files, &lines, &blocks),
             styles: status::Styles::new(&inputs.theme, &inputs.caps),
             width: size.map_or(inputs.caps.width, |size| size.columns),
             bar,
@@ -1180,6 +1184,18 @@ mod tests {
         assert!(status_row(&frames[6], 6).contains(" b.md "), "{frames:#?}");
         assert!(at_file(&frames[7], "b.md", 5), "{frames:#?}");
         assert!(at_file(&frames[8], "a.md", 5), "{frames:#?}");
+    }
+
+    #[test]
+    fn a_new_window_size_moves_the_blank_line_between_files_to_the_next_file() {
+        // Line 9 is the blank line between a.md and b.md.
+        let reads: &[&[u8]] = &[b"jjjjjjjjj", b""];
+        let mut terminal = Fake::new(40, 6, reads);
+        terminal.sizes = [window(40, 6), window(50, 6)].into();
+        show_files(&two_files(), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 3, "{frames:#?}");
+        assert!(at_file(&frames[2], "b.md", 5), "{frames:#?}");
     }
 
     #[test]
