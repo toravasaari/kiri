@@ -198,6 +198,7 @@ is shown. Link navigation is planned.
 ## Documentation
 
 - [Roadmap](docs/roadmap.md)
+- [Inspiration](docs/inspiration.md)
 - [Architecture](docs/architecture.md)
 - [Configuration](docs/config.md)
 - [Diagrams](docs/diagrams.md)
