@@ -134,7 +134,9 @@ pub fn run(
             Some((caps, stream)) if caps == inputs.caps => stream,
             _ => crate::render::layout::content(content, inputs),
         };
-        let Stream { mut lines, starts } = stream;
+        let Stream {
+            mut lines, starts, ..
+        } = stream;
         // The text sizing protocol cannot draw part of a line, so a line
         // taller than the window is drawn at normal size.
         for line in &mut lines {

@@ -400,6 +400,7 @@ mod tests {
             image: None,
             trail: Vec::new(),
             size: TextSize::new(2).unwrap(),
+            block: None,
         };
         let mut out = Vec::new();
         write(
