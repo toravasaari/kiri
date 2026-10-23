@@ -299,6 +299,7 @@ src/diagrams/external.rs   diagrams drawn by a command outside kiri
 src/diagrams/find.rs       finding a command, such as mmdc, when none is
                            configured
 src/color.rs               colours and underline styles for theme and render
+src/size.rs                text sizes for theme and render
 src/render/mod.rs          document model -> terminal output
 src/render/layout/mod.rs   document model -> styled lines of a fixed width;
                            files under their headers
