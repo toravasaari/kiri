@@ -219,6 +219,13 @@ Needs G1.2 to G1.4.
   `mmdc` and those in `[diagrams.mermaid]`, which today draw in any
   document.
 
+#### 4.3.4 Diagrams to a file
+
+- Writing a drawn diagram to a file, SVG or PNG, instead of the
+  terminal, such as for a review or a web page, without finding the
+  Mermaid program by hand. `--format` names the input, so this needs an
+  option of its own.
+
 ### 4.4 Animation and video
 
 Needs G2.2.
@@ -303,6 +310,18 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 - Choosing a link with the keyboard and following it; a Markdown target
   opens in an overlay window, as in 4.5.
 
+#### 4.6.7 Copying code blocks
+
+- Code blocks can be copied to the clipboard (OSC 52): in the pager with a
+  key, and in print mode through a link beside the block that kitty's
+  `open-actions.conf` hands to kiri.
+
+#### 4.6.8 A sticky file header
+
+- With several files (4.9.2), a file's header stays at the top of the
+  pager while its file scrolls, as a sticky header does on a web page,
+  and spans the width of the status line.
+
 #### 4.6.9 Follow mode
 
 - A follow mode for a document another program is writing, such as one
@@ -382,6 +401,14 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   such as `diagrams.timeout=60`; with it, a way to list the keys, and a
   `[diagrams.mermaid.config]` table passed to Mermaid as it is, which
   4.3.2's languages could have too.
+
+#### 4.8.3 Listing the values
+
+- A `--list-` family that shows what a value can be, as `--list-emojis`
+  does: `--list-formats` for `--format`, `--list-languages` for code
+  block languages, `--list-themes` for named themes (4.11),
+  `--list-code-themes` for the `code_theme_dark` and `code_theme_light`
+  keys, which `docs/theme.md` lists by hand.
 
 ### 4.9 Input
 
@@ -492,6 +519,11 @@ scale, built once for all of these:
 
 - Emoji shortcodes such as `:rocket:`, as GitHub shows them.
 
+#### 4.10.6 Only the front matter
+
+- `--front-matter-only` shows a document's front matter (4.10.4) without
+  its body.
+
 ### 4.11 More themes
 
 - Built-in themes chosen by name, as btop offers them: `--theme nord`,
@@ -549,6 +581,16 @@ The counterpart of several files (4.9.2) for images.
   compressed formats such as JPEG cannot be passed through as they are;
   this needs thought on what to send and when.
 
+#### 4.12.7 Zooming
+
+- Zooming images and diagrams in the pager, or opening one in a view of
+  its own. A diagram drawn by an external program as PNG is drawn again
+  at a larger scale when it is zoomed past the one it has. A diagram
+  too large to load as PNG even at one pixel to the CSS pixel, or one
+  to be zoomed further than a PNG allows, may be drawn as SVG instead,
+  behind an option of its own; PNG stays the normal path, as the more
+  reliable one.
+
 ### 4.13 Obsidian
 
 Obsidian notes reach past single Markdown files, so this part may grow or
@@ -564,6 +606,21 @@ split once it is worked on.
 - Tags such as `#idea`.
 - Properties, Obsidian's name for front matter (4.10.4), which is the
   groundwork for them.
+
+### 4.14 Menu
+
+A menu in the pager, from which its keys and settings can be found.
+
+#### 4.14.1 Keys by kind
+
+- The help panel in sections, such as moving, searching and several
+  files, so it stays the same whatever is shown and the keys of one kind
+  can be looked up under their own heading. Today it lists the keys for
+  several files only when several are shown.
+
+#### 4.14.2 Themes on the fly
+
+- Changing the theme (4.11) from the menu while the document is shown.
 
 ## Phase 5 – Beyond kitty
 
@@ -711,6 +768,12 @@ A part that needs one names it, such as "needs G1.3".
   have.
 - Status line key hints written once with the keys they name.
 
+#### G6.2 Shorter help texts
+
+- `kiri --help` explains many options in several sentences, such as
+  `[FILE]...` in five lines; one short line each would do, with the
+  details in the documentation.
+
 ## Uncategorized (extras)
 
 Ideas not yet placed in a part, from small polish to features; a line or
@@ -719,18 +782,8 @@ Each time a part of the roadmap is finished, the list is
 sorted: an item moves to a part or to Bugs, or is dropped, and done items
 go.
 
-- Code blocks can be copied to the clipboard (OSC 52): in the pager with a
-  key, and in print mode through a link beside the block that kitty's
-  `open-actions.conf` hands to kiri.
-- A `--list-` family that shows what a value can be, as `--list-emojis`
-  does: `--list-formats` for `--format`, `--list-languages` for code
-  block languages, `--list-themes` for named themes (4.11),
-  `--list-code-themes` for the `code_theme_dark` and `code_theme_light`
-  keys, which `docs/theme.md` lists by hand.
 - Front matter (4.10.4) in Forgejo's style: a table with one column per
   key, as GitHub used to draw it.
-- Only the front matter of a document, without its body, as a value of
-  the front matter setting or a flag of its own.
 - Presentation settings in a document's front matter, such as its theme
   or heading sizes, read only when the configuration file turns this on.
   Front matter would then override the configuration file, and the
@@ -744,33 +797,12 @@ go.
 - Question: how should the text format be shown? Today `--format text`
   writes a highlighted code block on a terminal and the file as it is
   elsewhere; to be decided.
-- Zooming images and diagrams in the pager, or opening one in a view of
-  its own. A diagram drawn by an external program as PNG is drawn again
-  at a larger scale when it is zoomed past the one it has. A diagram
-  too large to load as PNG even at one pixel to the CSS pixel, or one
-  to be zoomed further than a PNG allows, may be drawn as SVG instead,
-  behind an option of its own; PNG stays the normal path, as the more
-  reliable one.
-- Writing a drawn diagram to a file, SVG or PNG, instead of the
-  terminal, such as for a review or a web page, without finding the
-  Mermaid program by hand. `--format` names the input, so this needs an
-  option of its own.
 - Image files shown with several files (4.9.2) are read in full before
   the pager opens, about 48 MB for a 12-megapixel photo. Reduce each to
   the largest size it can be shown at, as drawn diagrams are.
-- With several files (4.9.2), a file's header stays at the top of the
-  pager while its file scrolls, as a sticky header does on a web page,
-  and spans the width of the status line.
-- Shorter help texts. `kiri --help` explains many options in several
-  sentences, such as `[FILE]...` in five lines; one short line each would
-  do, with the details in the documentation.
 - A side-by-side view: the Markdown source beside the rendered document,
   each part across from the other, so the source and what it becomes can
   be compared.
-- The help panel in sections, such as moving, searching and several
-  files, so it stays the same whatever is shown and the keys of one kind
-  can be looked up under their own heading. Today it lists the keys for
-  several files only when several are shown.
 
 ## Bugs
 
