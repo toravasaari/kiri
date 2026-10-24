@@ -116,3 +116,41 @@ pub(super) fn ignored(signal: i32) -> bool {
 pub fn end_by(signal: i32) {
     let _ = signal_hook::low_level::emulate_default_handler(signal);
 }
+
+#[cfg(test)]
+mod tests {
+    use std::process::{Command, Stdio};
+
+    use super::*;
+
+    /// Run on its own by [`a_signal_looked_at_with_signal_stays_caught`]:
+    /// a signal is caught, looked at without `release`, and the next one is
+    /// caught too instead of ending the process.
+    #[test]
+    #[ignore = "run in a process of its own"]
+    fn sighup_looked_at_with_signal() {
+        let interrupt = Interrupt::catch().unwrap();
+        signal_hook::low_level::raise(SIGHUP).unwrap();
+        assert_eq!(interrupt.signal(), Some(SIGHUP));
+        assert!(!interrupt.ends.load(Ordering::SeqCst));
+        signal_hook::low_level::raise(SIGHUP).unwrap();
+        assert!(interrupt.stop.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_signal_looked_at_with_signal_stays_caught() {
+        // A process of its own, as the signals reach the whole test binary.
+        let status = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "term::interrupt::tests::sighup_looked_at_with_signal",
+            ])
+            .args(["--ignored", "--test-threads", "1"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success(), "{status:?}");
+    }
+}
