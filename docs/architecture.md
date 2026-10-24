@@ -106,9 +106,9 @@ help panel as styled spans; `src/pager/mod.rs` draws each frame, row by
 row through the backend's writer, and lays the document out again when the
 window changes size or when `r` reloads it. For that the pager is given a
 `Reload`, as it is given a `Terminal` for keys: it asks the `Reload` for the
-document and the images again, and keeps its place by the block at the top. The terminal itself, the alternate screen, raw mode
-and reading keys from the controlling terminal, is opened in
-`src/term/screen.rs`.
+document and the images again, and keeps its place by the block at the
+top. The terminal itself, the alternate screen, raw mode and reading keys
+from the controlling terminal, is opened in `src/term/screen.rs`.
 
 ## Diagrams
 
