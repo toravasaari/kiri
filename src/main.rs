@@ -267,63 +267,70 @@ const STDIN: &str = "<stdin>";
 /// Shows the file at `path`, the README of a directory there, or standard
 /// input without one.
 fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
-    let opened = open(cli, file)?;
+    let Opened {
+        path,
+        file,
+        input,
+        content,
+    } = open(cli, file)?;
     let env = Environment::from_process();
     let context = Context::new(cli, &env);
-    if let Content::Image { .. } = opened.content {
-        let caps = kiri::term::capabilities(context.mode, context.width, &env);
-        let (warnings, settings) = settings(cli, &env);
-        let documents = settings.is_ok();
-        // As for several image files, a broken configuration file does
-        // not stop the image.
-        let settings = settings.unwrap_or_else(|_| without_config(cli, &env));
-        if pages_alone(&settings, &caps) {
-            for warning in &warnings {
-                eprintln!("kiri: {warning}");
+    let source = match content {
+        Content::Image { format, head, rest } => {
+            let caps = kiri::term::capabilities(context.mode, context.width, &env);
+            let (warnings, settings) = settings(cli, &env);
+            let documents = settings.is_ok();
+            // As for several image files, a broken configuration file does
+            // not stop the image.
+            let settings = settings.unwrap_or_else(|_| without_config(cli, &env));
+            if pages_alone(&settings, &caps) {
+                for warning in &warnings {
+                    eprintln!("kiri: {warning}");
+                }
+                let opened = Opened {
+                    path,
+                    file,
+                    input,
+                    content: Content::Image { format, head, rest },
+                };
+                let caps = on_page(caps, &settings);
+                let failed = Cell::new(false);
+                return show_files(
+                    &context,
+                    vec![Ok(opened)],
+                    settings,
+                    documents,
+                    caps,
+                    &failed,
+                );
             }
-            let caps = on_page(caps, &settings);
-            let failed = Cell::new(false);
-            return show_files(
-                &context,
-                vec![Ok(opened)],
-                settings,
-                documents,
-                caps,
-                &failed,
-            );
+            let reader = image_reader(file.as_deref(), head, rest)
+                .map_err(|error| format!("{}: {error}", path.display()))?;
+            return Ok(show_image(&context, &caps, &path, format, reader)?);
         }
-        let Opened {
-            path,
-            file,
-            content: Content::Image { format, head, rest },
-            ..
-        } = opened
-        else {
-            unreachable!("the content is an image")
-        };
-        let reader = image_reader(file.as_deref(), head, rest)
-            .map_err(|error| format!("{}: {error}", path.display()))?;
-        return Ok(show_image(&context, &caps, &path, format, reader)?);
-    }
+        Content::Text(source) => source,
+    };
     let (warnings, settings) = settings(cli, &env);
     for warning in &warnings {
         eprintln!("kiri: {warning}");
     }
     let mut settings = settings?;
-    if opened.file.is_none() {
+    if file.is_none() {
         settings.paging = kiri::pager::only_always(settings.paging);
     }
     let caps = kiri::term::capabilities(context.mode, context.width, &env);
-    let input = opened.input;
     if matches!(input, Input::Diagram(_)) && pages_alone(&settings, &caps) {
+        let opened = Opened {
+            path,
+            file,
+            input,
+            content: Content::Text(source),
+        };
         let caps = on_page(caps, &settings);
         let failed = Cell::new(false);
         return show_files(&context, vec![Ok(opened)], settings, true, caps, &failed);
     }
-    let (path, file) = (opened.path.as_path(), opened.file.as_deref());
-    let Content::Text(source) = opened.content else {
-        unreachable!("an image is shown above")
-    };
+    let (path, file) = (path.as_path(), file.as_deref());
     if let Input::Diagram(language) = input {
         return show_diagram(&context, language, &source, path, file, settings, caps);
     }
