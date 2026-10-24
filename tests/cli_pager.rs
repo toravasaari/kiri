@@ -313,9 +313,9 @@ fn the_doctor_report_is_paged_only_when_paging_is_always() {
 
 /// Runs kiri with `args` in a scratch directory called `name`, after
 /// `prepare` is called with it, with standard output a terminal of 40 × 5
-/// cells of 10 × 20 pixels but no
-/// terminal to read keys from. Returns how kiri exited, everything it wrote
-/// to the terminal and what it wrote to standard error.
+/// cells of 10 × 20 pixels but no terminal to read keys from. Returns how
+/// kiri exited, everything it wrote to the terminal and what it wrote to
+/// standard error.
 fn without_keys(
     name: &str,
     prepare: impl FnOnce(&std::path::Path),
