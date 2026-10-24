@@ -273,6 +273,19 @@ fn a_pipe_gets_the_document_printed_even_with_p() {
 }
 
 #[test]
+fn a_pipe_gets_an_image_file_printed_even_with_p() {
+    let dir = Scratch::new("pager-pipe-image");
+    let icon = fixtures().join("images/icon.png");
+    let out = common::kiri_on(&dir, &icon, &["-p", "--mode", "kitty"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let stdout = text(&out.stdout);
+    assert!(!stdout.contains(ENTER), "{stdout:?}");
+    assert_eq!(stdout.matches("\x1b_Ga=T,").count(), 1, "{stdout:?}");
+    let without = common::kiri_on(&dir, &icon, &["--mode", "kitty"]);
+    assert_eq!(stdout, text(&without.stdout));
+}
+
+#[test]
 fn a_piped_document_is_printed_unless_paging_is_always() {
     let (status, seen) = in_terminal("pager-stdin-auto", &["-"], 5, Some(&long()), &[]);
     assert!(status.success());
