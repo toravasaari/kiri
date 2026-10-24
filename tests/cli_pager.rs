@@ -630,6 +630,108 @@ fn image_files_with_a_document_are_paged_when_they_are_long() {
     assert!(seen.starts_with(ENTER), "{seen:?}");
 }
 
+#[test]
+fn an_image_file_on_its_own_is_paged_only_when_paging_is_always() {
+    let args = ["--mode", "kitty", "a.png"];
+    let (status, seen) = with_images("pager-image", &args, &[]);
+    assert!(status.success());
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert_eq!(seen.matches("\x1b_Ga=T,").count(), 1, "{seen:?}");
+    let args = ["--mode", "kitty", "-p", "a.png"];
+    let (status, seen) = with_images("pager-image-p", &args, &[b"r", b"q"]);
+    assert!(status.success());
+    assert!(seen.starts_with(ENTER), "{seen:?}");
+    assert!(seen.ends_with(LEAVE), "{seen:?}");
+    assert_eq!(seen.matches("\x1b_Ga=T,").count(), 1, "{seen:?}");
+    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
+    // The status line of a file on its own, without its place among files.
+    assert!(text_of(frames[0]).contains(" a.png "), "{seen:?}");
+    assert!(!text_of(frames[0]).contains("1/1"), "{seen:?}");
+    assert!(text_of(&seen).contains("nothing to reload"), "{seen:?}");
+}
+
+#[test]
+fn paging_always_in_the_configuration_pages_an_image_file_on_its_own() {
+    let prepare = |dir: &std::path::Path| {
+        std::fs::copy(fixtures().join("images/icon.png"), dir.join("a.png")).unwrap();
+        common::write(
+            &dir.join("config/kiri/config.toml"),
+            "paging = \"always\"\n",
+        );
+    };
+    let (status, seen) = in_terminal_after(
+        "pager-image-config",
+        prepare,
+        &["--mode", "kitty", "a.png"],
+        5,
+        None,
+        |frames, terminal, _| {
+            if frames == 1 {
+                terminal.write_all(b"q").unwrap();
+            }
+        },
+    );
+    assert!(status.success());
+    assert!(seen.starts_with(ENTER), "{seen:?}");
+}
+
+#[test]
+fn p_pages_an_image_from_standard_input() {
+    let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\"/>\n";
+    let args = ["--mode", "kitty", "--format", "svg"];
+    let (status, seen) = in_terminal("pager-image-stdin", &args, 5, Some(svg), &[]);
+    assert!(status.success());
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    let args = ["--mode", "kitty", "--format", "svg", "-p"];
+    let (status, seen) = in_terminal("pager-image-stdin-p", &args, 5, Some(svg), &[b"q"]);
+    assert!(status.success());
+    assert!(seen.starts_with(ENTER), "{seen:?}");
+    assert!(text_of(&seen).contains(" <stdin> "), "{seen:?}");
+}
+
+/// Writes a configuration in `dir` whose program draws every Mermaid
+/// diagram as a square SVG, and `diagram.mmd`.
+fn drawn_diagram(dir: &std::path::Path) {
+    let script = dir.join("render.sh");
+    std::fs::write(
+        &script,
+        "echo '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\"/>' > \"$2\"\n",
+    )
+    .unwrap();
+    let config = format!(
+        "[diagrams.mermaid]\ncommand = [\"/bin/sh\", \"{}\", \"{{input}}\", \"{{output}}\"]\n",
+        script.display()
+    );
+    common::write(&dir.join("config/kiri/config.toml"), &config);
+    std::fs::write(dir.join("diagram.mmd"), "flowchart TD\n").unwrap();
+}
+
+#[test]
+fn a_diagram_file_on_its_own_is_paged_only_when_paging_is_always() {
+    let args = ["--mode", "kitty", "diagram.mmd"];
+    let (status, seen) = in_steps_with("pager-diagram", drawn_diagram, &args, &[]);
+    assert!(status.success());
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert_eq!(seen.matches("\x1b_Ga=T,").count(), 1, "{seen:?}");
+    let reload = Step {
+        frames: 1,
+        keys: &|_| b"r",
+    };
+    let steps = [reload, quit_after(2)];
+    let args = ["--mode", "kitty", "-p", "diagram.mmd"];
+    let (status, seen) = in_steps_with("pager-diagram-p", drawn_diagram, &args, &steps);
+    assert!(status.success());
+    assert!(seen.starts_with(ENTER), "{seen:?}");
+    assert!(seen.ends_with(LEAVE), "{seen:?}");
+    assert_eq!(seen.matches("\x1b_Ga=T,").count(), 1, "{seen:?}");
+    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
+    assert!(text_of(frames[0]).contains(" diagram.mmd "), "{seen:?}");
+    assert!(!text_of(frames[0]).contains("1/1"), "{seen:?}");
+    // Not the diagram's code: it is drawn.
+    assert!(!text_of(frames[0]).contains("flowchart"), "{seen:?}");
+    assert!(text_of(&seen).contains("nothing to reload"), "{seen:?}");
+}
+
 /// What a test types into the pager and when: the keys that `keys` returns
 /// once `frames` frames are drawn, after it may have changed the files in
 /// the scratch directory it is given.
