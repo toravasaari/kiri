@@ -347,6 +347,8 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 - Warnings about front matter after a reload, on the status line. The
   first load prints them before the pager opens; a reload drops them
   today.
+- A search keeps its place after a reload: the match it was on, rather
+  than the first match from the top of the view.
 - Images that did not change are not sent to the terminal again
   (G2.2), and images that changed or went are deleted from it, as are
   all of kiri's images when the pager quits.
