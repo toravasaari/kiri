@@ -181,6 +181,17 @@ nearest its end, and `most` the one that takes the most rows on the
 screen, so a new image counts by its height; of two that take as many,
 the first.
 
+After the jump, the lines of the change the view went to get a lighter
+background, so that the reader sees why the view moved: the page colour
+mixed 15 % toward the text colour, across the width of the text. It stays
+for 1 second and then fades out over 2 seconds. This happens whether or
+not the view had to move, for `r` as well, and only while following is
+`auto`; a removal has no lines to show, so it gets no highlight. A line
+that has a background of its own, such as a code block's, gets the same
+mix over it. Scrolling does not move the highlight away from its lines,
+and a new reload replaces it. On a terminal where the page colours are
+not known as RGB, or without 24-bit colour, there is no highlight.
+
 ## Search case
 
 A search in the pager ignores case when its term has no upper-case letter,

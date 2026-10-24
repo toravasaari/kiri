@@ -9,6 +9,7 @@ pub mod keys;
 pub mod prompt;
 pub mod search;
 pub mod status;
+pub mod tint;
 pub mod view;
 
 use std::io::{self, Write};
@@ -27,7 +28,7 @@ use crate::render::output::{self, Page, Writer};
 use crate::render::style::{self, Line, Span, Style};
 use crate::size::TextSize;
 use crate::term::{Screen, WindowSize};
-use fade::{FADE, FADE_OUT, Fade, Rgb, STAY};
+use fade::{FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY};
 use files::Files;
 use help::Placed;
 use keys::{Action, Key};
@@ -258,7 +259,18 @@ pub fn run(
                             follows(&changes, old, new)
                         });
                         if let Some(change) = change {
-                            view.show_change(change.lines);
+                            view.show_change(change.lines.clone());
+                            // A removal has no lines to tint.
+                            let tintable = Rgb::new(&inputs.theme, &inputs.caps)
+                                .is_some_and(|rgb| rgb.tinted(None, 0.0).is_some())
+                                && inputs.caps.styling
+                                && inputs.caps.truecolor;
+                            if tintable && !change.lines.is_empty() {
+                                state.changed = Some(Changed {
+                                    at: terminal.now(),
+                                    lines: change.lines,
+                                });
+                            }
                         }
                     }
                     None => view.resize(heights, places, rows),
@@ -294,6 +306,7 @@ pub fn run(
             lines: &lines,
             marks: &marks,
             rgb: rgb.as_ref(),
+            columns: usize::from(inputs.caps.width),
             status: &status,
             view: &mut shown,
         };
@@ -308,10 +321,13 @@ pub fn run(
         match outcome {
             Outcome::Quit => return Ok(()),
             Outcome::Resized(new) => {
+                // The lines laid out for the new size are others.
+                state.changed = None;
                 size = new;
                 view = Some(shown);
             }
             Outcome::Reload => {
+                state.changed = None;
                 view = Some(shown);
                 state.follow.seen = None;
                 let source = reload.as_deref_mut().expect("a source to reload from");
@@ -486,6 +502,26 @@ struct State {
     told: Option<Told>,
     /// Following the document as it changes.
     follow: Follow,
+    /// The lines of the change auto-follow went to, while they are
+    /// tinted.
+    changed: Option<Changed>,
+}
+
+/// How much to tint which lines, over how many cells, in what colours.
+struct Tint<'a> {
+    lines: Range<usize>,
+    /// The share of the text colour mixed into the background.
+    amount: f32,
+    rgb: &'a Rgb,
+    columns: usize,
+}
+
+/// The change auto-follow moved the view to.
+#[derive(Debug, Clone)]
+struct Changed {
+    at: Instant,
+    /// Its lines in the laid-out document.
+    lines: Range<usize>,
 }
 
 /// Following the document: reading it again whenever it changes.
@@ -608,6 +644,7 @@ impl State {
             went: None,
             told: None,
             follow: Follow::default(),
+            changed: None,
         }
     }
 
@@ -774,6 +811,9 @@ impl State {
         self.jumped = self
             .jumped
             .filter(|jump| now.saturating_duration_since(jump.at) < FADE);
+        self.changed = self.changed.take().filter(|changed| {
+            now.saturating_duration_since(changed.at) < HIGHLIGHT_STAY + HIGHLIGHT_FADE
+        });
         self.told = self.told.take().filter(|told| {
             told.fades
                 .is_none_or(|at| now.saturating_duration_since(at) < STAY + FADE_OUT)
@@ -788,6 +828,25 @@ impl State {
         Some(Fade { elapsed, rgb })
     }
 
+    /// The tint at `now`, in `rgb`'s colours over `columns` cells: the
+    /// lines of the change, and how much of the text colour to mix into
+    /// their background: all of [`HIGHLIGHT_SHARE`]
+    /// while the tint stays, then less as it fades out.
+    fn tint<'a>(&self, now: Instant, rgb: &'a Rgb, columns: usize) -> Option<Tint<'a>> {
+        let changed = self.changed.as_ref()?;
+        let elapsed = now.saturating_duration_since(changed.at);
+        let left = match elapsed.checked_sub(HIGHLIGHT_STAY) {
+            None => 1.0,
+            Some(faded) => 1.0 - faded.as_secs_f32() / HIGHLIGHT_FADE.as_secs_f32(),
+        };
+        Some(Tint {
+            lines: changed.lines.clone(),
+            amount: HIGHLIGHT_SHARE * left.max(0.0),
+            rgb,
+            columns,
+        })
+    }
+
     /// The fade under way at `now`, mixing colours with `rgb`.
     fn fade<'a>(&self, now: Instant, rgb: Option<&'a Rgb>) -> Option<Fade<'a>> {
         let jump = self.jumped?;
@@ -799,14 +858,31 @@ impl State {
 
     /// `lines`, from line `first` of the document on, with the matches of
     /// the last search marked with `marks` while it is shown, the current
-    /// one faded by `fade`.
-    fn marked(&self, lines: &[Line], first: usize, marks: &Marks, fade: Option<Fade>) -> Vec<Line> {
+    /// one faded by `fade`, and the lines of `tint` tinted.
+    fn marked(
+        &self,
+        lines: &[Line],
+        first: usize,
+        marks: &Marks,
+        fade: Option<Fade>,
+        tint: Option<Tint>,
+    ) -> Vec<Line> {
         let search = self.search.as_ref().filter(|_| self.shown);
         (first..)
             .zip(lines)
-            .map(|(index, line)| match search {
-                Some(search) => search::mark(line, &search.on(index), marks, fade),
-                None => line.clone(),
+            .map(|(index, line)| {
+                let tinted;
+                let line = match &tint {
+                    Some(tint) if tint.lines.contains(&index) => {
+                        tinted = tint::tint(line, tint.rgb, tint.amount, tint.columns);
+                        &tinted
+                    }
+                    _ => line,
+                };
+                match search {
+                    Some(search) => search::mark(line, &search.on(index), marks, fade),
+                    None => line.clone(),
+                }
             })
             .collect()
     }
@@ -845,6 +921,8 @@ struct Layout<'a> {
     marks: &'a Marks,
     /// The colours a fade mixes, where they are known.
     rgb: Option<&'a Rgb>,
+    /// The cells of the text area, which a tint spans.
+    columns: usize,
     status: &'a Status<'a>,
     view: &'a mut View,
 }
@@ -877,6 +955,7 @@ impl Layout<'_> {
                 visible.start,
                 self.marks,
                 fade,
+                self.rgb.and_then(|rgb| state.tint(now, rgb, self.columns)),
             ),
             status: self.status.spans(self.view, state, fade, out),
             panel: self.status.panel(self.view, state.help),
@@ -887,6 +966,7 @@ impl Layout<'_> {
     /// that the pager draws it a step at a time.
     fn fades(&self, state: &State, now: Instant) -> bool {
         state.jumped.is_some()
+            || state.changed.is_some() && self.rgb.is_some()
             || self.status.bar
                 && (state.fade_out(now, self.rgb))
                     .and_then(|out| self.status.styles.fading(out))
@@ -1282,18 +1362,36 @@ mod tests {
     /// `document` followed as `follow` says, jumping to the change `jump`
     /// chooses, with `then` to reload it, in a window of 60 × `rows`, with
     /// `reads` and then `empty` polls without keys.
+    /// `document` followed as `follow` says, jumping to the change `jump`
+    /// chooses, with `then` to reload it, in a window of 60 × `rows`, with
+    /// `reads` and then `empty` polls without keys.
     fn following_in(
+        rows: u16,
+        how: (config::Follow, FollowJump),
+        document: &Document,
+        then: &mut Then,
+        reads: &[&[u8]],
+        empty: usize,
+    ) -> Vec<String> {
+        let caps = Capabilities::ansi(80);
+        following_on(caps, rows, how, document, then, reads, empty).frames()
+    }
+
+    /// As [`following_in`], on a terminal with `caps`, which is returned
+    /// for what it was asked and what it drew.
+    fn following_on(
+        caps: Capabilities,
         rows: u16,
         (follow, jump): (config::Follow, FollowJump),
         document: &Document,
         then: &mut Then,
         reads: &[&[u8]],
         empty: usize,
-    ) -> Vec<String> {
+    ) -> Fake {
         let mut reads = reads.to_vec();
         reads.extend(std::iter::repeat_n(b"".as_slice(), empty));
         let mut terminal = Fake::new(60, rows, &reads);
-        let mut inputs = Inputs::new(Capabilities::ansi(80));
+        let mut inputs = Inputs::new(caps);
         run(
             Content::Document(document),
             None,
@@ -1308,7 +1406,7 @@ mod tests {
             &mut terminal,
         )
         .unwrap();
-        terminal.frames()
+        terminal
     }
 
     /// Following on auto, jumping to the first change.
@@ -1353,6 +1451,220 @@ mod tests {
         // Three rows of what comes before it above it.
         assert_eq!(row_of(last, 21, "Line 30 changed"), Some(4), "{frames:#?}");
         assert_eq!(row_of(last, 21, "Line 29"), Some(2), "{frames:#?}");
+    }
+
+    /// The SGR codes before `text` in the row of `frame` that shows it.
+    fn row_style(frame: &str, text: &str) -> Vec<String> {
+        style_before(document_part(frame, 21), text)
+    }
+
+    /// The background of the SGR codes `codes`, as `r;g;b`.
+    fn background(codes: &[String]) -> Option<String> {
+        let at = codes
+            .windows(2)
+            .position(|pair| pair[0] == "48" && pair[1] == "2")?;
+        Some(codes[at + 2..at + 5].join(";"))
+    }
+
+    #[test]
+    fn auto_following_tints_the_change_it_went_to_and_fades_the_tint_out() {
+        let new = numbers_changed(40, &[30]);
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let terminal = following_on(
+            known_colours(),
+            21,
+            AUTO,
+            &numbers(40),
+            &mut then,
+            &[b"r"],
+            90,
+        );
+        let frames = terminal.frames();
+        let tint = |frame: &str, text: &str| background(&row_style(frame, text));
+        // Grey text on a black page: 15 % of 200 is 30; a line on the page has
+        // no background of its own.
+        let first = &frames[2];
+        assert_eq!(
+            tint(first, "Line 30 changed"),
+            Some("30;30;30".to_owned()),
+            "{frames:#?}"
+        );
+        // Only the change: the line above is on the page.
+        assert_eq!(tint(first, "Line 29"), None, "{frames:#?}");
+        // The tint reaches the end of the row.
+        let row = unstyled(first);
+        let row = row.split("\x1b[4;1H").nth(1).unwrap();
+        let row = row.split("\x1b[5;1H").next().unwrap();
+        assert_eq!(row.chars().count(), 60, "{row:?}");
+        // A second later it begins to fade, and is gone after two more.
+        let tints: Vec<_> = frames[2..]
+            .iter()
+            .map(|frame| tint(frame, "Line 30 changed"))
+            .collect();
+        let levels: Vec<u8> = tints
+            .iter()
+            .map(|tint| {
+                tint.as_ref()
+                    .map_or(0, |tint| tint.split(';').next().unwrap().parse().unwrap())
+            })
+            .collect();
+        assert!(
+            levels.windows(2).all(|pair| pair[0] >= pair[1]),
+            "{levels:?}"
+        );
+        assert_eq!(levels[0], 30);
+        assert_eq!(*levels.last().unwrap(), 0);
+        // A step of the fade every frame for the three seconds from the
+        // reload's read, and polls again after them.
+        let waits = &terminal.waits[1..];
+        let frames = waits.iter().take_while(|&&wait| wait == FRAME).count();
+        assert_eq!(frames, 60, "{waits:?}");
+        assert_eq!(waits[frames], POLL, "{waits:?}");
+    }
+
+    /// The frames drawn while following `old` as `how` says, reloaded to
+    /// `new` by `r`, on a terminal with `caps`, with `empty` polls after it.
+    fn reloaded_to(
+        caps: Capabilities,
+        how: (config::Follow, FollowJump),
+        (old, new): (&Document, Document),
+        reads: &[&[u8]],
+        empty: usize,
+    ) -> Fake {
+        let mut then = Then::new([Reloaded::Document(new)]);
+        following_on(caps, 21, how, old, &mut then, reads, empty)
+    }
+
+    #[test]
+    fn a_change_already_in_view_is_tinted_too() {
+        let new = numbers_changed(40, &[8]);
+        let terminal = reloaded_to(known_colours(), AUTO, (&numbers(40), new), &[b"r"], 3);
+        let frames = terminal.frames();
+        assert!(at_top(&frames[2], "Line 1"), "{frames:#?}");
+        let tint = background(&row_style(&frames[2], "Line 8 changed"));
+        assert_eq!(tint, Some("30;30;30".to_owned()), "{frames:#?}");
+    }
+
+    #[test]
+    fn a_removal_is_not_tinted_and_nothing_fades() {
+        let terminal = reloaded_to(
+            known_colours(),
+            AUTO,
+            (&numbers(40), numbers(39)),
+            &[b"r"],
+            90,
+        );
+        let frames = terminal.frames();
+        for frame in &frames {
+            assert!(!document_part(frame, 21).contains("48;2"), "{frame:?}");
+        }
+        assert!(
+            !terminal.waits[1..5].contains(&FRAME),
+            "{:?}",
+            terminal.waits
+        );
+    }
+
+    #[test]
+    fn only_auto_following_tints_a_change() {
+        let on = (config::Follow::On, FollowJump::First);
+        let new = numbers_changed(40, &[8]);
+        let terminal = reloaded_to(known_colours(), on, (&numbers(40), new), &[b"r"], 3);
+        for frame in terminal.frames() {
+            assert!(!document_part(&frame, 21).contains("48;2"), "{frame:?}");
+        }
+    }
+
+    #[test]
+    fn without_colours_known_as_rgb_nothing_is_tinted() {
+        let new = numbers_changed(40, &[8]);
+        let terminal = reloaded_to(
+            Capabilities::ansi(80),
+            AUTO,
+            (&numbers(40), new),
+            &[b"r"],
+            3,
+        );
+        for frame in terminal.frames() {
+            assert!(!document_part(&frame, 21).contains("48;2"), "{frame:?}");
+        }
+        // Nor does the pager wait a frame for it.
+        assert!(
+            !terminal.waits[1..5].contains(&FRAME),
+            "{:?}",
+            terminal.waits
+        );
+    }
+
+    #[test]
+    fn the_tint_stays_on_the_same_lines_when_the_view_scrolls() {
+        let new = numbers_changed(40, &[30]);
+        let terminal = reloaded_to(
+            known_colours(),
+            AUTO,
+            (&numbers(40), new),
+            &[b"r", b"kk"],
+            3,
+        );
+        let frames = terminal.frames();
+        let last = frames.last().unwrap();
+        // Two rows up, the change is two rows lower than it was.
+        assert_eq!(row_of(last, 21, "Line 30 changed"), Some(6), "{frames:#?}");
+        assert_eq!(
+            background(&row_style(last, "Line 30 changed")),
+            Some("30;30;30".to_owned()),
+            "{frames:#?}"
+        );
+        assert_eq!(background(&row_style(last, "Line 31")), None, "{frames:#?}");
+    }
+
+    #[test]
+    fn a_new_reload_replaces_the_tint_still_fading() {
+        let first = numbers_changed(40, &[5]);
+        let second = numbers_changed(40, &[5, 7]);
+        let mut then = Then::new([Reloaded::Document(first), Reloaded::Document(second)]);
+        // The second reload comes half a second after the first.
+        let waits = [b"".as_slice(); 9];
+        let reads = [&[b"r".as_slice()][..], &waits, &[b"r"]].concat();
+        let terminal = following_on(
+            known_colours(),
+            21,
+            AUTO,
+            &numbers(40),
+            &mut then,
+            &reads,
+            3,
+        );
+        let frames = terminal.frames();
+        let last = frames.last().unwrap();
+        // Line 5 is the same as it was, and not the change of this reload.
+        assert_eq!(
+            background(&row_style(last, "Line 7 changed")),
+            Some("30;30;30".to_owned()),
+            "{frames:#?}"
+        );
+        assert_eq!(
+            background(&row_style(last, "Line 5 changed")),
+            None,
+            "{frames:#?}"
+        );
+    }
+
+    #[test]
+    fn a_tint_is_mixed_over_the_background_a_line_has() {
+        let old = crate::parse::parse("Text.\n\n```\ncode\n```\n");
+        let new = crate::parse::parse("Text.\n\n```\ncode changed\n```\n");
+        let terminal = reloaded_to(known_colours(), AUTO, (&old, new), &[b"r"], 3);
+        let frames = terminal.frames();
+        let before = background(&row_style(&frames[0], "code"));
+        let after = background(&row_style(&frames[2], "code changed"));
+        let level = |bg: &Option<String>| -> u8 {
+            bg.as_ref()
+                .map_or(0, |bg| bg.split(';').next().unwrap().parse().unwrap())
+        };
+        // The code block's own background, lighter by the tint.
+        assert!(before.is_some(), "{frames:#?}");
+        assert!(level(&after) > level(&before), "{before:?} {after:?}");
     }
 
     #[test]

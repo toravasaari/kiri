@@ -25,6 +25,17 @@ pub const STAY: Duration = Duration::from_secs(4);
 /// once.
 pub const FADE_OUT: Duration = Duration::from_secs(3);
 
+/// How long the lines of the change auto-follow went to stay tinted, as
+/// they are, before the tint begins to fade.
+pub const HIGHLIGHT_STAY: Duration = Duration::from_secs(1);
+
+/// How long the tint takes to fade out into the page's background.
+pub const HIGHLIGHT_FADE: Duration = Duration::from_secs(2);
+
+/// How much of the text colour is mixed into the background of those
+/// lines at the start.
+pub const HIGHLIGHT_SHARE: f32 = 0.15;
+
 /// The colours of the page and of the terminal's palette as RGB, where
 /// they are known: what a fade mixes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,6 +63,17 @@ impl Rgb {
     /// `color` as RGB; `None` when it is a palette colour not known.
     fn of(&self, color: Color) -> Option<Color> {
         color.rgb(&self.palette)
+    }
+
+    /// `bg`, or the page's background where there is none, as RGB with
+    /// `amount` of the text colour mixed into it; `None` when any of them
+    /// is not known as RGB.
+    pub fn tinted(&self, bg: Option<Color>, amount: f32) -> Option<Color> {
+        let base = match bg {
+            Some(color) => self.of(color)?,
+            None => self.background?,
+        };
+        base.mix(self.foreground?, amount)
     }
 
     /// The colours text in `style` shows in, its text's and its
