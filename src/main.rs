@@ -17,7 +17,7 @@ use kiri::images::{
 };
 use kiri::input::Input;
 use kiri::model::{Block, Document};
-use kiri::pager::{Reload, Reloaded};
+use kiri::pager::{Change, Reload, Reloaded};
 use kiri::render::output::Page;
 use kiri::render::{Inputs, RenderErrors, TableRows};
 use kiri::term::Mode;
@@ -1429,6 +1429,10 @@ impl Reload for FileReload<'_> {
             }
         }
         Reloaded::Document(document)
+    }
+
+    fn change(&mut self) -> Change {
+        Change::Unchanged
     }
 }
 
