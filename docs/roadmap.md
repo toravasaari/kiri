@@ -290,8 +290,7 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   does not have yet: diagrams are kept by their source unless they failed
   to draw, and an image file is loaded again when its modification time
   changed. (done)
-- Reload on file change, and a key that jumps to the first block that
-  changed.
+- A `:` command that jumps to the block a reload changed first.
 
 #### 4.6.5 Moving around
 
@@ -326,12 +325,15 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 
 - A follow mode for a document another program is writing, such as one
   Claude is working on in the next window: it reloads on every change
-  without a key press. `-f` becomes `--follow`'s short flag, moved from
-  `--format` with the follow mode.
-- Follow and auto-follow, chosen by a setting and switched with a key in
-  the pager. Follow keeps the view where the reader left it; auto-follow
+  without a key press.
+- Follow and auto-follow, chosen by a setting and switched with `F` in
+  the pager or from the menu (4.14), where the value can be set more
+  finely. Follow keeps the view where the reader left it; auto-follow
   also jumps to a change, and a setting says which: the first, the last
   or the one that changed most.
+- `--follow on|off|auto`, `follow` in the configuration file. `-f` is
+  `--follow=on`, moved from `--format`; `-F` is `--follow=off` and `--fa`
+  is `--follow=auto`.
 - Following standard input, such as `tail -f log | kiri`, as well as a
   file.
 - Ctrl-C stops a reload that draws a slow diagram; today the terminal
@@ -795,6 +797,8 @@ Each time a part of the roadmap is finished, the list is
 sorted: an item moves to a part or to Bugs, or is dropped, and done items
 go.
 
+- Find out which command shortcuts other pagers and editors offer, such
+  as the `:` commands of `less` and vim, for `docs/inspiration.md`.
 - A side-by-side view: the Markdown source beside the rendered document,
   each part across from the other, so the source and what it becomes can
   be compared.
