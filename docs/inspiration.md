@@ -7,7 +7,7 @@ planned: an idea that becomes work moves to the [roadmap](roadmap.md).
 
 Tools in which a document's front matter changes how it is presented.
 kiri would read such settings only when its configuration file allows it
-(roadmap, Uncategorized).
+(roadmap 4.8.2).
 
 - [Marp](https://github.com/marp-team/marp-core/blob/main/docs/markdown.md):
   `math: katex` or `math: mathjax` chooses the math library for the
@@ -31,6 +31,12 @@ kiri would read such settings only when its configuration file allows it
   `hide_table_of_contents` in a document's front matter.
 - [Obsidian](https://obsidian.md/help/properties): `cssclasses` styles one
   note with CSS snippets.
+
+## Front matter tables
+
+- [Forgejo](https://forgejo.org/) draws front matter as a table with one
+  column per key, as GitHub used to; kiri draws GitHub's present table,
+  keys in a header column (roadmap 4.10.4).
 
 ## Known Markdown processors
 

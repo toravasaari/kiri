@@ -360,6 +360,9 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 - `--format text`: any file shown as it is, in a code block highlighted
   by its extension, such as a Markdown or Mermaid file's source; plain
   output, such as into a pipe, gets the file as `cat` gives it. (done)
+- `--text raw` writes a file's content unchanged, on a terminal too;
+  perhaps `--raw` becomes its short form, which today works only with
+  `--doctor`.
 
 #### 4.7.2 Large files
 
@@ -373,6 +376,9 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 - The position may be unknown until the end of the file has been read, as
   in `less`.
 - With this in place, the cell limit for CSV and TSV goes or grows.
+- Image files shown with several files (4.9.2) are read in full before
+  the pager opens, about 48 MB for a 12-megapixel photo. Reduce each to
+  the largest size it can be shown at, as drawn diagrams are.
 
 ### 4.8 Diagnostics
 
@@ -401,6 +407,13 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   such as `diagrams.timeout=60`; with it, a way to list the keys, and a
   `[diagrams.mermaid.config]` table passed to Mermaid as it is, which
   4.3.2's languages could have too.
+- kiri creates a default configuration file, and perhaps settings edited
+  from the UI.
+- Presentation settings in a document's front matter, such as its theme
+  or heading sizes, read only when the configuration file turns this on.
+  Front matter would then override the configuration file, and the
+  environment and the command line would override front matter. Which
+  keys a document may set is still open. Needs G5.2.
 
 #### 4.8.3 Listing the values
 
@@ -782,24 +795,6 @@ Each time a part of the roadmap is finished, the list is
 sorted: an item moves to a part or to Bugs, or is dropped, and done items
 go.
 
-- Front matter (4.10.4) in Forgejo's style: a table with one column per
-  key, as GitHub used to draw it.
-- Presentation settings in a document's front matter, such as its theme
-  or heading sizes, read only when the configuration file turns this on.
-  Front matter would then override the configuration file, and the
-  environment and the command line would override front matter. Which
-  keys a document may set is still open.
-- Front matter tables: tell a list's items from a nested map, such as a
-  muted `1.` line above each item's table or the number in its top
-  border. Tried on `feature/front-matter`; the line survives stacking.
-- kiri creates a default configuration file, and perhaps settings edited
-  from the UI.
-- Question: how should the text format be shown? Today `--format text`
-  writes a highlighted code block on a terminal and the file as it is
-  elsewhere; to be decided.
-- Image files shown with several files (4.9.2) are read in full before
-  the pager opens, about 48 MB for a 12-megapixel photo. Reduce each to
-  the largest size it can be shown at, as drawn diagrams are.
 - A side-by-side view: the Markdown source beside the rendered document,
   each part across from the other, so the source and what it becomes can
   be compared.
