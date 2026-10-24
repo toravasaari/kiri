@@ -252,7 +252,8 @@ modification time, which `src/images/stamps.rs` keeps, is not the one it
 was loaded at. Other images are kept as they are. What is loaded loads
 in the background, `src/images/background.rs`, on threads of their own,
 with at most four programs drawing at once, also when reloads overlap,
-each load with a stop flag of its own, which `External` looks at besides the one for signals.
+each load with a stop flag of its own, which `External` looks at
+besides the one for signals.
 
 `src/images/pipeline.rs` builds the renderers from the settings and the
 environment, given as values, and loads a document's images with them;

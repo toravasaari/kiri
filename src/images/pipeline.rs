@@ -433,9 +433,9 @@ mod tests {
     }
 
     /// Draws a diagram as an SVG square, once a file named as its first
-    /// line is in `scratch`; notes that
-    /// it started, in `started` with its source, and that it was stopped,
-    /// in a file named as its first line with `.stopped` after it.
+    /// line is in `scratch`; notes that it started, in `started` with its
+    /// source, and that it was stopped, in a file named as its first line
+    /// with `.stopped` after it.
     fn waiting_script(scratch: &Scratch) -> String {
         let dir = scratch.to_string_lossy();
         format!(
