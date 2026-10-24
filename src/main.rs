@@ -828,9 +828,11 @@ fn page_files(
         // The pager's status line names each file after itself.
         false => (kiri::render::layout::Content::Files(&files), ""),
     };
-    // Nothing to reload: an image file is not read again.
+    // Nothing to reload: an image file is not read again. Nothing to
+    // follow either, which the pager says only when the command line asked
+    // to follow.
     let options = kiri::pager::Options {
-        follow: settings.follow,
+        follow: context.follow,
         ..kiri::pager::Options::new(settings.search_case)
     };
     let paging = settings.paging;
@@ -1131,6 +1133,9 @@ struct Context<'a> {
     width: Option<u16>,
     /// The largest image file to read, in bytes.
     max_file_size: u64,
+    /// Whether the command line asks to follow the file, so that the pager
+    /// says when there is nothing to follow.
+    follow: bool,
 }
 
 impl<'a> Context<'a> {
@@ -1140,6 +1145,7 @@ impl<'a> Context<'a> {
             mode: cli.mode,
             width: cli.width,
             max_file_size: cli.max_image_size * kiri::images::MB,
+            follow: cli.follow.unwrap_or(cli.follow_on),
         }
     }
 }
@@ -1359,8 +1365,13 @@ fn print_document(
         &mut inputs,
         settings.paging,
         kiri::pager::Options {
+            // Without a file to follow, the pager says so only when the
+            // command line asked to follow.
+            follow: match reload {
+                Some(_) => settings.follow,
+                None => context.follow,
+            },
             reload: reload.as_mut().map(|reload| reload as &mut dyn Reload),
-            follow: settings.follow,
             ..kiri::pager::Options::new(settings.search_case)
         },
         || drop(interrupt.take()),

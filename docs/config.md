@@ -140,7 +140,9 @@ same block, as `r` reads it again:
 modification time and length, so on a filesystem that keeps the time only
 to the second, an edit within the same second that keeps the length waits
 for the next change. A document from standard input, or several files,
-cannot be followed yet.
+cannot be followed yet: with `-f` or `--follow on` the pager says
+`nothing to follow`, and with `KIRI_FOLLOW` or `follow` in the
+configuration file it says nothing.
 
 ## Search case
 

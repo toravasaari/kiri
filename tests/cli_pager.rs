@@ -994,6 +994,29 @@ fn standard_input_and_several_files_have_nothing_to_follow() {
 }
 
 #[test]
+fn following_from_the_configuration_file_is_quiet_where_there_is_nothing_to_follow() {
+    let follow = |dir: &std::path::Path| {
+        common::write(&dir.join("config/kiri/config.toml"), "follow = \"on\"\n");
+    };
+    let steps = [quit_after(1)];
+    let (status, seen) = in_steps_after(
+        "pager-follow-config-stdin",
+        follow,
+        &["-p"],
+        Some(&long()),
+        &steps,
+    );
+    assert!(status.success());
+    assert!(text_of(&seen).contains("Line 1"), "{seen:?}");
+    assert!(!text_of(&seen).contains("nothing to follow"), "{seen:?}");
+    let args = ["long.md", "document.md"];
+    let (status, seen) = in_steps_with("pager-follow-config-files", follow, &args, &steps);
+    assert!(status.success());
+    assert!(text_of(&seen).contains("long.md 1/2"), "{seen:?}");
+    assert!(!text_of(&seen).contains("nothing to follow"), "{seen:?}");
+}
+
+#[test]
 fn follow_takes_on_or_off_and_capital_f_turns_it_off() {
     let dir = common::Scratch::new("follow-values");
     for value in ["auto", "yes"] {
