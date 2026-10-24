@@ -111,7 +111,8 @@ the terminal sends into keys and keys into moves; `src/pager/prompt.rs`
 keeps the search term as it is typed, and `src/pager/search.rs` finds it
 in the laid-out lines and splits a line where a match starts and ends, so
 the matches can be highlighted without a change to the writer;
-`src/pager/fade.rs` mixes the colours a match fades through after a jump;
+`src/pager/fade.rs` mixes the colours a match fades through after a jump,
+and those of the status line's `reloaded` as it fades out;
 `src/pager/files.rs` finds where each of several files starts from the
 blocks of the lines, so the status line names the file at the top of the
 view and `:n` and `:p` move from one file's start to another's;
@@ -369,7 +370,8 @@ src/pager/view.rs          the lines a window shows, and scrolling
 src/pager/keys.rs          keys from the terminal and what they do
 src/pager/prompt.rs        the search prompt on the status line
 src/pager/search.rs        search matches in the laid-out lines
-src/pager/fade.rs          a style fading into another after a jump
+src/pager/fade.rs          a style fading into another after a jump or
+                           a reload
 src/pager/files.rs         where each of several files starts in the stream,
                            found from the blocks of its lines
 src/pager/status.rs        the status line
