@@ -51,6 +51,10 @@ Options:
   -f                           Follow the file, in the pager: --follow=on
       --fa                     Follow the file and move to a change: --follow=auto
   -F                           Do not follow the file: --follow=off
+      --follow-jump <WHICH>    Which change auto-follow moves the view to, when a reload changed the
+                               document in more than one place: first, last or most (the one that
+                               takes the most rows); first unless set [possible values: first, last,
+                               most]
       --front-matter <STYLE>   Front matter render style: table, code (a code block), hide, or off
                                (read as Markdown); table unless set. Front matter is the metadata
                                block at the start of a Markdown file [possible values: table, code,

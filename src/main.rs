@@ -10,7 +10,7 @@ use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser};
 use kiri::caps::Capabilities;
 use kiri::config::{
-    Environment, Follow, FrontMatter, Named, Options, Origin, Paging, Setting, Settings,
+    Environment, Follow, FollowJump, FrontMatter, Named, Options, Origin, Paging, Setting, Settings,
 };
 use kiri::doctor::{Facts, Output};
 use kiri::images::{
@@ -139,6 +139,12 @@ struct Cli {
     /// Do not follow the file: --follow=off.
     #[arg(short = 'F')]
     follow_off: bool,
+
+    /// Which change auto-follow moves the view to, when a reload changed
+    /// the document in more than one place: first, last or most (the one
+    /// that takes the most rows); first unless set.
+    #[arg(long, value_parser = named::<FollowJump>(), value_name = "WHICH")]
+    follow_jump: Option<FollowJump>,
 
     /// Front matter render style: table, code (a code block), hide, or off
     /// (read as Markdown); table unless set. Front matter is the metadata
@@ -1680,6 +1686,7 @@ fn options(cli: &Cli) -> Options {
             .or(flag(cli.pager.then_some(Paging::Always), "-p"))
             .or(flag(cli.no_pager.then_some(Paging::Never), "-P")),
         follow: follow(cli),
+        follow_jump: flag(cli.follow_jump, "--follow-jump"),
         front_matter: flag(cli.front_matter, "--front-matter"),
         table_rows: flag(cli.table_rows, "--table-rows"),
         diagrams: flag(cli.diagrams, "--diagrams"),

@@ -69,6 +69,8 @@ environment! {
     kiri_paging: "KIRI_PAGING",
     /// `KIRI_FOLLOW`: `on`, `off` or `auto`, or `1` or `0`.
     kiri_follow: "KIRI_FOLLOW",
+    /// `KIRI_FOLLOW_JUMP`: `first`, `last` or `most`.
+    kiri_follow_jump: "KIRI_FOLLOW_JUMP",
     /// `KIRI_FRONT_MATTER`: `table`, `code`, `hide` or `off`.
     kiri_front_matter: "KIRI_FRONT_MATTER",
     /// `KIRI_TABLE_ROWS`: `off`, `zebra`, `lines`, `indent` or `underline`.
@@ -183,6 +185,8 @@ pub struct Config {
     /// Whether the pager follows a file, reading it again whenever it
     /// changes.
     pub follow: Option<Follow>,
+    /// Which change auto-follow moves the view to.
+    pub follow_jump: Option<FollowJump>,
     /// How front matter shows.
     pub front_matter: Option<FrontMatter>,
     /// How the rows of a table are told apart.
@@ -269,6 +273,19 @@ pub enum Follow {
     Auto,
 }
 
+/// Which change auto-follow moves the view to, after a reload that
+/// changed the document in more than one place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FollowJump {
+    /// The first change in the document.
+    #[default]
+    First,
+    /// The last change in the document.
+    Last,
+    /// The change that takes the most rows.
+    Most,
+}
+
 /// Where the configuration file is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigFile {
@@ -335,6 +352,7 @@ fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String> {
         paging: file.paging,
         search_case: file.search_case,
         follow: file.follow,
+        follow_jump: file.follow_jump,
         front_matter: file.front_matter,
         table_rows: file.table_rows,
         diagrams: file.diagrams.enabled,
@@ -357,6 +375,8 @@ struct ConfigToml {
     search_case: Option<SearchCase>,
     #[serde(default, deserialize_with = "named")]
     follow: Option<Follow>,
+    #[serde(default, deserialize_with = "named")]
+    follow_jump: Option<FollowJump>,
     #[serde(default, deserialize_with = "named")]
     front_matter: Option<FrontMatter>,
     #[serde(default, deserialize_with = "named")]
@@ -693,6 +713,11 @@ impl Named for Follow {
     const ALIASES: &'static [(&'static str, Self)] = &[("1", Self::On), ("0", Self::Off)];
 }
 
+impl Named for FollowJump {
+    const ALL: &'static [Self] = &[Self::First, Self::Last, Self::Most];
+    const NAMES: &'static [&'static str] = &["first", "last", "most"];
+}
+
 impl Named for FrontMatter {
     const ALL: &'static [Self] = &[Self::Table, Self::Code, Self::Hide, Self::Off];
     const NAMES: &'static [&'static str] = &["table", "code", "hide", "off"];
@@ -796,6 +821,8 @@ pub struct Options {
     pub paging: Option<Setting<Paging>>,
     /// Whether the pager follows a file.
     pub follow: Option<Setting<Follow>>,
+    /// Which change auto-follow moves the view to.
+    pub follow_jump: Option<Setting<FollowJump>>,
     /// How front matter shows.
     pub front_matter: Option<Setting<FrontMatter>>,
     /// How the rows of a table are told apart.
@@ -824,6 +851,8 @@ pub struct Settings {
     /// Whether the pager follows a file, reading it again whenever it
     /// changes.
     pub follow: Follow,
+    /// Which change auto-follow moves the view to.
+    pub follow_jump: FollowJump,
     /// How front matter shows.
     pub front_matter: FrontMatter,
     /// How the rows of a table are told apart.
@@ -859,6 +888,8 @@ pub struct Choices {
     pub search_case: Setting<SearchCase>,
     /// Whether the pager follows a file.
     pub follow: Setting<Follow>,
+    /// Which change auto-follow moves the view to.
+    pub follow_jump: Setting<FollowJump>,
     /// How front matter shows.
     pub front_matter: Setting<FrontMatter>,
     /// How the rows of a table are told apart.
@@ -896,6 +927,7 @@ impl Choices {
             paging: self.paging.value,
             search_case: self.search_case.value,
             follow: self.follow.value,
+            follow_jump: self.follow_jump.value,
             front_matter: self.front_matter.value,
             table_rows: self.table_rows.value,
             diagrams: self.diagrams.value,
@@ -960,6 +992,13 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
             variable(env, "KIRI_FOLLOW"),
             config.follow,
             Follow::default(),
+            w,
+        ),
+        follow_jump: resolve(
+            options.follow_jump.clone(),
+            variable(env, "KIRI_FOLLOW_JUMP"),
+            config.follow_jump,
+            FollowJump::default(),
             w,
         ),
         front_matter,
@@ -1481,6 +1520,45 @@ mod tests {
     }
 
     #[test]
+    fn the_follow_jump_key_takes_first_last_or_most() {
+        let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
+        for (text, jump) in [
+            ("follow_jump = \"first\"\n", FollowJump::First),
+            ("follow_jump = \"last\"\n", FollowJump::Last),
+            ("follow_jump = \"most\"\n", FollowJump::Most),
+        ] {
+            let chosen = parsed(text).map(|config| config.follow_jump);
+            assert_eq!(chosen, Ok(Some(jump)), "{text}");
+        }
+        assert!(parsed("follow_jump = \"middle\"\n").is_err());
+    }
+
+    #[test]
+    fn auto_follow_jumps_to_the_first_change_unless_told_otherwise() {
+        let env = Environment::default();
+        let choices = choose(&Options::default(), &env, &Config::default());
+        let first = Setting::new(FollowJump::First, Origin::Default);
+        assert_eq!(choices.follow_jump, first);
+        let config = Config {
+            follow_jump: Some(FollowJump::Most),
+            ..Config::default()
+        };
+        let choices = choose(&Options::default(), &env, &config);
+        assert_eq!(
+            choices.follow_jump,
+            Setting::new(FollowJump::Most, Origin::File)
+        );
+        let settings = choices.with_theme(Theme::default());
+        assert_eq!(settings.follow_jump, FollowJump::Most);
+        let flag = Setting::new(FollowJump::Last, Origin::Flag("--follow-jump"));
+        let options = Options {
+            follow_jump: Some(flag.clone()),
+            ..Options::default()
+        };
+        assert_eq!(choose(&options, &env, &config).follow_jump, flag);
+    }
+
+    #[test]
     fn following_is_off_unless_the_configuration_file_or_a_flag_says_otherwise() {
         let env = Environment::default();
         let choices = choose(&Options::default(), &env, &Config::default());
@@ -1846,6 +1924,7 @@ mod tests {
         check::<Paging>();
         check::<SearchCase>();
         check::<Follow>();
+        check::<FollowJump>();
         check::<FrontMatter>();
         check::<TableRows>();
         check::<RenderErrors>();
@@ -1922,6 +2001,27 @@ mod tests {
             (
                 "joo",
                 "KIRI_FOLLOW: `joo` is not on, off, auto, 1 or 0; left out",
+            ),
+        );
+    }
+
+    #[test]
+    fn kiri_follow_jump_chooses_where_auto_follow_jumps() {
+        check_variable(
+            |choices| &choices.follow_jump,
+            "KIRI_FOLLOW_JUMP",
+            &[
+                ("first", FollowJump::First),
+                ("last", FollowJump::Last),
+                ("most", FollowJump::Most),
+            ],
+            Config {
+                follow_jump: Some(FollowJump::Last),
+                ..Config::default()
+            },
+            (
+                "joo",
+                "KIRI_FOLLOW_JUMP: `joo` is not first, last or most; left out",
             ),
         );
     }

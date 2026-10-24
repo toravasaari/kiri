@@ -33,6 +33,9 @@ search_case = "smart"
 # changes: "on", "off" or "auto", which also moves the view to a change.
 follow = "off"
 
+# Which change auto-follow moves the view to: "first", "last" or "most".
+follow_jump = "first"
+
 # Front matter render style: "table", "code", "hide" or "off".
 front_matter = "table"
 
@@ -150,6 +153,23 @@ cannot be followed yet: with `-f`, `--fa`, `--follow on` or `--follow auto` the 
 `nothing to follow`, and with `KIRI_FOLLOW` or `follow` in the
 configuration file it says nothing.
 
+## Follow jump
+
+When a reload changed the document in more than one place, auto-follow
+moves the view to one of the changes, which the first of these that is
+given chooses:
+
+1. `--follow-jump first|last|most`
+2. `KIRI_FOLLOW_JUMP`: `first`, `last` or `most`; an empty value counts
+   as unset, and any other value is left out with a warning
+3. `follow_jump` in the configuration file
+4. `first`
+
+`first` is the change nearest the start of the document, `last` the one
+nearest its end, and `most` the one that takes the most rows on the
+screen, so a new image counts by its height; of two that take as many,
+the first.
+
 ## Search case
 
 A search in the pager ignores case when its term has no upper-case letter,
@@ -225,6 +245,7 @@ about images that do not load go to standard error whatever this says.
 | `KIRI_NO_IMAGES` | Images as alt text; see [Images](#images) |
 | `KIRI_PAGING` | When to page; see [Paging](#paging) |
 | `KIRI_FOLLOW` | Whether the pager follows a file; see [Follow](#follow) |
+| `KIRI_FOLLOW_JUMP` | Which change auto-follow moves the view to; see [Follow jump](#follow-jump) |
 | `KIRI_FRONT_MATTER` | Front matter render style; see [Front matter](#front-matter) |
 | `KIRI_TABLE_ROWS` | Table row style; see [Table rows](#table-rows) |
 | `KIRI_DIAGRAMS` | Diagrams drawn or shown as code; see [Diagrams](diagrams.md) |
