@@ -1386,6 +1386,32 @@ mod tests {
     }
 
     #[test]
+    fn auto_following_does_not_move_from_inside_a_change_taller_than_the_window() {
+        // Lines 10 to 25 changed: 31 lines in a view of 20 rows. The
+        // reader is at Line 15, inside them.
+        let changed: Vec<usize> = (10..=25).collect();
+        let new = numbers_changed(40, &changed);
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let down = [b"j".as_slice(); 28].concat();
+        let frames = following_in(21, AUTO, &numbers(40), &mut then, &[&down, b"r"], 1);
+        assert!(at_top(&frames[1], "Line 15"), "{frames:#?}");
+        assert!(
+            at_top(frames.last().unwrap(), "Line 15 changed"),
+            "{frames:#?}"
+        );
+    }
+
+    #[test]
+    fn auto_following_does_not_move_when_the_start_of_a_change_is_shown() {
+        // Lines 8 to 30 changed; Line 8 is on the first page.
+        let changed: Vec<usize> = (8..=30).collect();
+        let new = numbers_changed(40, &changed);
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let frames = following_in(21, AUTO, &numbers(40), &mut then, &[b"r"], 1);
+        assert!(at_top(frames.last().unwrap(), "Line 1"), "{frames:#?}");
+    }
+
+    #[test]
     fn auto_following_does_not_move_after_a_reload_that_changed_nothing() {
         let mut then = Then::new([Reloaded::Document(numbers(40))]);
         let frames = following_in(21, AUTO, &numbers(40), &mut then, &[b"jjjj", b"r"], 1);

@@ -146,10 +146,11 @@ the window, unless paging is `never`: `kiri -f -P notes.md` prints it.
 With `auto`, a reload that changed the document moves the view to a
 change, which [Follow jump](#follow-jump) chooses. A change is a run of
 blocks that changed or were added, one after another; blocks removed with
-neither beside them are a change where they were. When the view does not
-show all of the change, its start goes near the top, below three rows of
-what comes before it (fewer in a window of fewer than twelve rows), or
-the last page shows it. A change in a list, a quote or an alert moves the
+neither beside them are a change where they were. The view stays when it
+shows the start of the change, or is inside it already, as in a long
+change you scrolled into. Otherwise the start goes near the top, below
+three rows of what comes before it (fewer in a window of fewer than
+twelve rows), or the last page shows it. A change in a list, a quote or an alert moves the
 view to the start of that list, quote or alert. `r` moves to a change too
 while following is `auto`.
 

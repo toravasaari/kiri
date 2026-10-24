@@ -171,13 +171,19 @@ impl View {
     }
 
     /// Shows the change on `lines`, which is at a place between two lines
-    /// when it has none. When the view does not show all of it, its first
-    /// line goes near the top, below [`ABOVE_CHANGE`] rows of the lines
-    /// before it, at most a quarter of the window's rows; or as near the
-    /// top as the last page lets it come.
+    /// when it has none. The view stays when it shows the first line of the
+    /// change, or that place, or when its top is inside the change, as in a
+    /// change taller than the window that the reader scrolled into.
+    /// Otherwise the first line goes near the top, below [`ABOVE_CHANGE`]
+    /// rows of the lines before it, at most a quarter of the window's rows;
+    /// or as near the top as the last page lets it come.
     pub fn show_change(&mut self, lines: Range<usize>) {
         let visible = self.visible();
-        if visible.start <= lines.start && lines.end <= visible.end {
+        let shown = match lines.is_empty() {
+            true => visible.start <= lines.start && lines.start <= visible.end,
+            false => visible.contains(&lines.start) || lines.contains(&self.top),
+        };
+        if shown {
             return;
         }
         let above = ABOVE_CHANGE.min(self.rows / 4);
@@ -572,7 +578,27 @@ mod tests {
     }
 
     #[test]
-    fn a_change_not_shown_whole_goes_near_the_top() {
+    fn a_change_whose_start_is_shown_does_not_move_the_view() {
+        let mut view = plain(60, 10);
+        // Its first line on the last row, the rest below.
+        view.show_change(9..20);
+        assert_eq!(view.top(), 0);
+    }
+
+    #[test]
+    fn a_view_inside_a_change_taller_than_the_window_stays() {
+        let mut view = scrolled(plain(60, 10), &[Motion::Down(25)]);
+        view.show_change(20..45);
+        assert_eq!(view.top(), 25);
+        // Below its end, the view goes to its start.
+        let mut view = scrolled(plain(60, 10), &[Motion::Down(45)]);
+        view.show_change(20..45);
+        // Two rows above it: a quarter of the window's ten.
+        assert_eq!(view.top(), 18);
+    }
+
+    #[test]
+    fn a_change_away_from_the_view_goes_near_the_top() {
         let mut view = plain(60, 20);
         view.show_change(30..32);
         assert_eq!(view.top(), 27);
