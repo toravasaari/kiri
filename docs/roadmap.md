@@ -285,17 +285,6 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   changed. (done)
 - Reload on file change, and a key that jumps to the first block that
   changed.
-- A follow mode for a document another program is writing, such as one
-  Claude is working on in the next window: it reloads on every change and
-  shows the part that changed, without a key press. `-f` becomes
-  `--follow`'s short flag, moved from `--format` with the follow mode.
-  Images that did not change are not sent to the terminal again
-  (G2.2), and images that changed or went are deleted from it, as are
-  all of kiri's images when the pager quits.
-  Ctrl-C stops a reload that draws a slow diagram; today the terminal
-  is raw then, and only the time limit ends the wait.
-- Changes shown as a diff, added text green and removed text red, fading
-  out slowly: after a reload, and against a git revision.
 
 #### 4.6.5 Moving around
 
@@ -313,6 +302,32 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 
 - Choosing a link with the keyboard and following it; a Markdown target
   opens in an overlay window, as in 4.5.
+
+#### 4.6.9 Follow mode
+
+- A follow mode for a document another program is writing, such as one
+  Claude is working on in the next window: it reloads on every change
+  without a key press. `-f` becomes `--follow`'s short flag, moved from
+  `--format` with the follow mode.
+- Follow and auto-follow, chosen by a setting and switched with a key in
+  the pager. Follow keeps the view where the reader left it; auto-follow
+  also jumps to a change, and a setting says which: the first, the last
+  or the one that changed most.
+- Following standard input, such as `tail -f log | kiri`, as well as a
+  file.
+- Ctrl-C stops a reload that draws a slow diagram; today the terminal
+  is raw then, and only the time limit ends the wait.
+- Warnings about front matter after a reload, on the status line. The
+  first load prints them before the pager opens; a reload drops them
+  today.
+- Images that did not change are not sent to the terminal again
+  (G2.2), and images that changed or went are deleted from it, as are
+  all of kiri's images when the pager quits.
+
+#### 4.6.10 Changes as a diff
+
+- Changes shown as a diff, added text green and removed text red, fading
+  out slowly: after a reload, and against a git revision.
 
 ### 4.7 Other input formats
 
@@ -752,15 +767,10 @@ go.
 - A side-by-side view: the Markdown source beside the rendered document,
   each part across from the other, so the source and what it becomes can
   be compared.
-- Warnings about front matter after a reload in the pager, on the status
-  line. The first load prints them before the pager opens; a reload
-  drops them today.
 - The help panel in sections, such as moving, searching and several
   files, so it stays the same whatever is shown and the keys of one kind
   can be looked up under their own heading. Today it lists the keys for
   several files only when several are shown.
-- A search keeps its place after a reload: the match it was on, rather
-  than the first match from the top of the view.
 
 ## Bugs
 
