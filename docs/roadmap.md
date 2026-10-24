@@ -839,14 +839,6 @@ The test that the example documents fit the window at every width,
 so it never draws a diagram. A drawn diagram, or the red error below one
 that fails, could reach past the window's edge without the test noticing.
 
-#### B4 `-p` does not page a diagram file or an image file on its own
-
-`kiri -p file.mmd` prints the drawn diagram as an image and exits,
-instead of opening the pager. A diagram file or an image file given on
-its own never reaches the pager: `run` in `src/main.rs` shows it
-(`show_diagram`, `show_image`) before paging is looked at. Several such
-files do go to the pager with `-p`, so one alone should too.
-
 ### Upstream bugs
 
 Bugs in projects kiri uses, which kiri works around until they are fixed
