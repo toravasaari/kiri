@@ -1197,7 +1197,9 @@ mod tests {
         let old = details(&[
             "Inner 1", "Inner 2", "Inner 3", "Inner 4", "Inner 5", "Inner 6",
         ]);
-        let new = details(&["Inner 1", "Inner 2", "Inner 4", "Inner 5", "Inner 6"]);
+        // A block before Inner 1 as well, so that the block numbers alone
+        // would put Inner 2 at the top.
+        let new = details(&["New", "Inner 1", "Inner 2", "Inner 4", "Inner 5", "Inner 6"]);
         let mut then = Then::new([Reloaded::Document(new)]);
         let frames = show_reloading(&old, &mut then, &[b"jjjjjj", b"r"]);
         assert_eq!(frames.len(), 4, "{frames:#?}");
