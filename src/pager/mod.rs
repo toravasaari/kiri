@@ -769,9 +769,10 @@ impl Layout<'_> {
     /// that the pager draws it a step at a time.
     fn fades(&self, state: &State, now: Instant) -> bool {
         state.jumped.is_some()
-            || (state.fade_out(now, self.rgb))
-                .and_then(|out| self.status.styles.fading(out))
-                .is_some()
+            || self.status.bar
+                && (state.fade_out(now, self.rgb))
+                    .and_then(|out| self.status.styles.fading(out))
+                    .is_some()
     }
 }
 
@@ -930,6 +931,8 @@ mod tests {
         out: Vec<u8>,
         /// The time now, which each read moves on by a poll.
         clock: Instant,
+        /// How long each read was asked to wait.
+        waits: Vec<Duration>,
     }
 
     impl Fake {
@@ -940,6 +943,7 @@ mod tests {
                 size: window(columns, rows),
                 out: Vec::new(),
                 clock: Instant::now(),
+                waits: Vec::new(),
             }
         }
 
@@ -980,6 +984,7 @@ mod tests {
 
         fn read(&mut self, timeout: Duration) -> io::Result<Vec<u8>> {
             self.clock += timeout;
+            self.waits.push(timeout);
             if let Some(size) = self.sizes.pop_front() {
                 self.size = size;
             }
@@ -1066,9 +1071,22 @@ mod tests {
         reads: &[&[u8]],
         empty: usize,
     ) -> Vec<String> {
+        reloading_in(6, caps, document, then, reads, empty).frames()
+    }
+
+    /// As [`reloading_with`], in a window of 60 × `rows`, giving the
+    /// terminal after the reader quit.
+    fn reloading_in(
+        rows: u16,
+        caps: Capabilities,
+        document: &Document,
+        then: &mut Then,
+        reads: &[&[u8]],
+        empty: usize,
+    ) -> Fake {
         let mut reads = reads.to_vec();
         reads.extend(std::iter::repeat_n(b"".as_slice(), empty));
-        let mut terminal = Fake::new(60, 6, &reads);
+        let mut terminal = Fake::new(60, rows, &reads);
         let mut inputs = Inputs::new(caps);
         run(
             Content::Document(document),
@@ -1082,7 +1100,7 @@ mod tests {
             &mut terminal,
         )
         .unwrap();
-        terminal.frames()
+        terminal
     }
 
     fn rows(count: usize) -> Document {
@@ -1191,6 +1209,25 @@ mod tests {
             !status_row(&frames[3], 6).contains("reloaded"),
             "{frames:#?}"
         );
+    }
+
+    #[test]
+    fn the_pager_waits_a_frame_only_while_reloaded_fades_on_a_shown_status_line() {
+        let mut caps = known_colours();
+        caps.palette[8] = Some(Color::Rgb(100, 100, 100));
+        let waits = |height| {
+            let mut then = Then::new([Reloaded::Document(rows(10))]);
+            let caps = caps.clone();
+            reloading_in(height, caps, &numbers(10), &mut then, &[b"r"], 120).waits
+        };
+        // The read of r, forty polls of the stay, sixty frames of the
+        // fade, and polls again up to the read of Ctrl+C that quits.
+        let mut expected = vec![POLL; 41];
+        expected.extend([FRAME; 60]);
+        expected.extend([POLL; 21]);
+        assert_eq!(waits(6), expected);
+        // A window of one row has no status line to fade.
+        assert_eq!(waits(1), [POLL; 122]);
     }
 
     #[test]
