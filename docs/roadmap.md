@@ -791,12 +791,13 @@ The test that the example documents fit the window at every width,
 so it never draws a diagram. A drawn diagram, or the red error below one
 that fails, could reach past the window's edge without the test noticing.
 
-#### B4 The pager does not work with `.mmd` files
+#### B4 `-p` does not page a diagram file or an image file on its own
 
-The maintainer found that the pager does not work with a Mermaid file,
-`kiri file.mmd`. A diagram file that is drawn is shown as an image file
-is, as a document of one image, which goes to the pager only when paging
-is `always`. What goes wrong is still to be written down.
+`kiri -p file.mmd` prints the drawn diagram as an image and exits,
+instead of opening the pager. A diagram file or an image file given on
+its own never reaches the pager: `run` in `src/main.rs` shows it
+(`show_diagram`, `show_image`) before paging is looked at. Several such
+files do go to the pager with `-p`, so one alone should too.
 
 ### Upstream bugs
 
