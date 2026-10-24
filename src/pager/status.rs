@@ -8,7 +8,7 @@ use super::fade::{FLASH, Fade};
 use super::view::Position;
 use crate::caps::Capabilities;
 use crate::color::Color;
-use crate::render::style::{Span, Style};
+use crate::render::style::{self, Span, Style};
 use crate::render::wrap;
 use crate::theme::{StatusColor, Theme};
 
@@ -162,11 +162,11 @@ pub fn spans(
         return badge_only(width, styles);
     }
     // What a message tells the reader must not be left out for want of
-    // room, so it loses its start instead.
+    // room, so it loses its end instead.
     let told;
     let found = match found {
         Some(Found::Told(message)) => {
-            told = wrap::tail(message, (width - fixed).saturating_sub(3));
+            told = head(message, (width - fixed).saturating_sub(3));
             Some(Found::Told(&told))
         }
         found => found,
@@ -213,6 +213,19 @@ pub fn spans(
     ));
     spans.extend(right);
     spans
+}
+
+/// The start of `text` in at most `max` cells, before `…` when its end is
+/// left out.
+fn head(text: &str, max: usize) -> String {
+    if text.width() <= max {
+        return text.to_owned();
+    }
+    let kept = wrap::cut(
+        vec![Span::new(text, Style::default())],
+        max.saturating_sub(1),
+    );
+    format!("{}…", style::text(&kept))
 }
 
 /// The spans that tell what was `found`: the term and the place among
@@ -484,11 +497,11 @@ mod tests {
     }
 
     #[test]
-    fn a_message_too_long_for_the_window_loses_its_start() {
-        let message = "notes.md: No such file or directory (os error 2)";
+    fn a_message_too_long_for_the_window_loses_its_end() {
+        let message = "No such file or directory (os error 2)";
         let told = Some(Found::Told(message));
         let spans = spans("notes.md", None, at(42), told, 40, &styles());
-        assert_eq!(text(&spans), " kiri  …or directory (os error 2)   42% ");
+        assert_eq!(text(&spans), " kiri  No such file or directory…   42% ");
         assert_eq!(width(&spans), 40);
     }
 
