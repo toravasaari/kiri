@@ -360,6 +360,11 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     // Only a document read from a regular file can be read again: a pipe
     // given by its path, such as <(cmd), is read to its end already.
     let from = (file.filter(|path| path.is_file())).map(|path| FromFile { path, input, look });
+    // Following pages the file however short it is, as -p does, unless
+    // paging is never.
+    if from.is_some() && settings.follow && settings.paging == Paging::Auto {
+        settings.paging = Paging::Always;
+    }
     show_document(
         &context,
         &document,

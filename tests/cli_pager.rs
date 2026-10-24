@@ -243,6 +243,65 @@ fn p_pages_a_short_document() {
 }
 
 #[test]
+fn following_pages_a_short_file() {
+    let config = |text: &'static str| {
+        move |dir: &std::path::Path| {
+            if !text.is_empty() {
+                common::write(&dir.join("config/kiri/config.toml"), text);
+            }
+        }
+    };
+    for (args, file) in [
+        (&["-f", "document.md"][..], ""),
+        (&["--follow", "on", "document.md"][..], ""),
+        (&["document.md"][..], "follow = \"on\"\n"),
+        (&["--paging", "auto", "-f", "document.md"][..], ""),
+    ] {
+        let (status, seen) = in_terminal_after(
+            "pager-follow-short",
+            config(file),
+            args,
+            24,
+            None,
+            |frames, terminal, _| {
+                if frames == 1 {
+                    terminal.write_all(b"q").unwrap();
+                }
+            },
+        );
+        assert!(status.success(), "{args:?} {file:?}");
+        assert!(seen.starts_with(ENTER), "{args:?} {file:?}: {seen:?}");
+        assert!(
+            text_of(&seen).contains(" follow "),
+            "{args:?} {file:?}: {seen:?}"
+        );
+    }
+}
+
+#[test]
+fn following_still_prints_with_paging_never() {
+    for (args, file) in [
+        (&["-f", "-P", "document.md"][..], ""),
+        (&["-f", "document.md"][..], "paging = \"never\"\n"),
+        (
+            &["document.md"][..],
+            "paging = \"never\"\nfollow = \"on\"\n",
+        ),
+    ] {
+        let prepare = |dir: &std::path::Path| {
+            if !file.is_empty() {
+                common::write(&dir.join("config/kiri/config.toml"), file);
+            }
+        };
+        let (status, seen) =
+            in_terminal_after("pager-follow-never", prepare, args, 24, None, |_, _, _| {});
+        assert!(status.success(), "{args:?} {file:?}");
+        assert!(!seen.contains(ENTER), "{args:?} {file:?}: {seen:?}");
+        assert!(seen.contains("Line 3"), "{args:?} {file:?}: {seen:?}");
+    }
+}
+
+#[test]
 fn capital_p_prints_a_long_document() {
     for args in [
         &["-P", "long.md"][..],

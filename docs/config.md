@@ -113,7 +113,8 @@ pager:
 3. `paging` in the configuration file
 4. `auto`
 
-`auto` pages a document longer than the window; a shorter one is printed.
+`auto` pages a document longer than the window; a shorter one is printed,
+unless it is a lone file that is [followed](#follow).
 A document from standard input, often another command's output, and the
 `--doctor` report are paged only with `always`, and so is an image or a
 diagram file, on its own, as in `kiri -p plan.mmd`, or with others that
@@ -135,6 +136,8 @@ same block, as `r` reads it again:
 3. `follow` in the configuration file
 4. `off`
 
+Following pages a lone file as `-p` does, also when it is shorter than
+the window, unless paging is `never`: `kiri -f -P notes.md` prints it.
 `F` turns following on and off in the pager, and the status line says
 `follow` while it is on. Following notices a change by the file's
 modification time and length, so on a filesystem that keeps the time only
