@@ -28,6 +28,18 @@ impl BlockInfo {
         self.file
     }
 
+    /// The place of the block in its document, as described for the
+    /// field `path`.
+    pub fn path(&self) -> &[usize] {
+        &self.path
+    }
+
+    /// Whether `other` is the block at the same place, of the same file,
+    /// whatever line of the source either starts on.
+    pub fn same_place(&self, other: &BlockInfo) -> bool {
+        self.file == other.file && self.path == other.path
+    }
+
     /// The line of the source the block starts on, counting from 1, when
     /// the document knows it.
     pub fn line(&self) -> Option<usize> {

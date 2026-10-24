@@ -15,10 +15,12 @@ use std::ops::Range;
 use std::time::{Duration, Instant};
 
 use crate::caps::Capabilities;
+use crate::compare::{Comparison, Fate, compare};
 use crate::config::{Paging, SearchCase};
 use crate::images::Images;
 use crate::model::{Document, File};
 use crate::render::Inputs;
+use crate::render::block::BlockInfo;
 use crate::render::layout::{Content, Stream};
 use crate::render::output::{self, Page, Writer};
 use crate::render::style::{self, Line, Span, Style};
@@ -166,6 +168,9 @@ pub fn run(
     let mut state = State::new(case);
     // The document as reloaded, once it has been.
     let mut reloaded: Option<Document> = None;
+    // How the reloaded document differs from the one before it, until the
+    // view has found its place in the new lines.
+    let mut changes: Option<Comparison> = None;
     let shown_files: &[File] = match content {
         Content::Document(_) => &[],
         Content::Files(files) => files,
@@ -204,7 +209,12 @@ pub fn run(
             .collect();
         let mut shown = match view.take() {
             Some(mut view) => {
-                view.resize(heights, places, rows);
+                match changes.take() {
+                    Some(changes) => view.resize_by(heights, places, rows, |old, new| {
+                        follows(&changes, old, new)
+                    }),
+                    None => view.resize(heights, places, rows),
+                }
                 view
             }
             None => View::new(heights, rows).with_blocks(places),
@@ -259,6 +269,9 @@ pub fn run(
                 let source = reload.as_deref_mut().expect("a source to reload from");
                 state.told = Some(match source.reload(&mut inputs.images, &inputs.caps) {
                     Reloaded::Document(document) => {
+                        if let Content::Document(old) = content {
+                            changes = Some(compare(old, &document));
+                        }
                         reloaded = Some(document);
                         "reloaded".to_owned()
                     }
@@ -267,6 +280,17 @@ pub fn run(
             }
         }
     }
+}
+
+/// Whether the block `new` of the reloaded document is the block `old` of
+/// the one before it, as `changes` found: the block that stayed or changed
+/// from where `old` was.
+fn follows(changes: &Comparison, old: &BlockInfo, new: &BlockInfo) -> bool {
+    old.file() == new.file()
+        && matches!(
+            changes.fate(new.path()),
+            Some(Fate::Stayed { was } | Fate::Changed { was }) if was == old.path()
+        )
 }
 
 /// The rows of a window whose size the terminal does not tell.
@@ -558,13 +582,16 @@ impl State {
 
     /// Finds the last search again in `lines`, laid out anew, from the
     /// line `top` of the view, closes the prompt when the window has no
-    /// status line, `bar`, to show it on, and forgets the last move to a
-    /// file when the view has moved.
+    /// status line, `bar`, to show it on, and moves the last move to a
+    /// file along with the view: it is only the new layout that put the
+    /// view's top on another line, not a key.
     fn lay_out(&mut self, lines: &[Line], top: usize, bar: bool) {
         if !bar {
             self.prompt = None;
         }
-        self.moved(top);
+        if let Some(went) = &mut self.went {
+            went.top = top;
+        }
         if let Some(search) = &mut self.search {
             *search = Search::new(lines, search.term(), self.case, top);
         }
@@ -1080,7 +1107,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "block numbers cannot tell a block added above the view from one that is the same"]
     fn a_reload_keeps_the_place_when_a_block_is_added_above_it() {
         // Ten lines, scrolled to Line 4; then a block before all of them.
         let mut then = Then::new([Reloaded::Document(crate::parse::parse(&format!(
@@ -1092,6 +1118,100 @@ mod tests {
         let frames = show_reloading(&numbers(10), &mut then, &[b"jjjjjj", b"r"]);
         assert!(at_top(&frames[1], "Line 4"), "{frames:#?}");
         assert!(at_top(&frames[3], "Line 4"), "{frames:#?}");
+    }
+
+    /// A document of `blocks`, one after the other.
+    fn blocks(blocks: &[&str]) -> Document {
+        crate::parse::parse(&blocks.join("\n\n"))
+    }
+
+    #[test]
+    fn a_reload_goes_to_the_next_block_when_the_top_block_is_removed() {
+        // Scrolled to Line 4; then Line 4 is gone and a block comes first.
+        let old: Vec<String> = (1..=10).map(|n| format!("Line {n}")).collect();
+        let mut new: Vec<&str> = vec!["Added"];
+        new.extend(
+            old.iter()
+                .map(String::as_str)
+                .filter(|&line| line != "Line 4"),
+        );
+        let mut then = Then::new([Reloaded::Document(blocks(&new))]);
+        let frames = show_reloading(&numbers(10), &mut then, &[b"jjjjjj", b"r"]);
+        assert!(at_top(&frames[1], "Line 4"), "{frames:#?}");
+        assert!(at_top(&frames[3], "Line 5"), "{frames:#?}");
+    }
+
+    #[test]
+    fn a_reload_keeps_the_offset_in_a_block_that_changed() {
+        // A code block of eight lines, scrolled three lines into it; then
+        // two of its lines change and a block is added above it.
+        let code = |first: &str, last: &str| format!("```\n{first}\nb\nc\nd\ne\nf\ng\n{last}\n```");
+        let old = blocks(&["Intro", &code("a", "h"), "Outro"]);
+        let new = blocks(&["Added", "Intro", &code("A", "H"), "Outro"]);
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let frames = show_reloading(&old, &mut then, &[b"jjjjj", b"r"]);
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert_eq!(top_row(&frames[1]), "c", "{frames:#?}");
+        assert_eq!(top_row(&frames[3]), "c", "{frames:#?}");
+    }
+
+    #[test]
+    fn a_reload_keeps_the_place_in_a_details_block() {
+        let details = |added: &str| {
+            let inner: String = (1..=6).map(|n| format!("Inner {n}\n\n")).collect();
+            format!("{added}<details>\n<summary>More</summary>\n\n{inner}</details>\n\nEnd")
+        };
+        let old = crate::parse::parse(&details(""));
+        let new = crate::parse::parse(&details("Added\n\n"));
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let frames = show_reloading(&old, &mut then, &[b"jjjjjj", b"r"]);
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        let inner = top_row(&frames[1]);
+        assert!(inner.starts_with("Inner"), "{frames:#?}");
+        assert_eq!(top_row(&frames[3]), inner, "{frames:#?}");
+    }
+
+    #[test]
+    fn a_reload_goes_to_the_next_block_from_a_blank_top_line() {
+        // One line down, the blank line after Line 1 is at the top; then a
+        // block is added above. As on a resize, the view goes to the start
+        // of the next block. A header line only exists with several files,
+        // and those cannot be reloaded, so that case is not tested here.
+        let mut then = Then::new([Reloaded::Document(blocks(&[
+            "Added", "Line 1", "Line 2", "Line 3", "Line 4", "Line 5", "Line 6",
+        ]))]);
+        let frames = show_reloading(&numbers(6), &mut then, &[b"j", b"r"]);
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert_eq!(top_row(&frames[1]), "", "{frames:#?}");
+        assert!(at_top(&frames[3], "Line 2"), "{frames:#?}");
+    }
+
+    #[test]
+    fn a_reload_goes_to_the_next_block_when_the_top_block_in_a_details_is_removed() {
+        let details = |inner: &[&str]| {
+            let inner: String = inner.iter().map(|line| format!("{line}\n\n")).collect();
+            crate::parse::parse(&format!(
+                "<details>\n<summary>More</summary>\n\n{inner}</details>\n\nEnd"
+            ))
+        };
+        let old = details(&[
+            "Inner 1", "Inner 2", "Inner 3", "Inner 4", "Inner 5", "Inner 6",
+        ]);
+        // A block before Inner 1 as well, so that the block numbers alone
+        // would put Inner 2 at the top.
+        let new = details(&["New", "Inner 1", "Inner 2", "Inner 4", "Inner 5", "Inner 6"]);
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let frames = show_reloading(&old, &mut then, &[b"jjjjjj", b"r"]);
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert_eq!(top_row(&frames[1]), "Inner 3", "{frames:#?}");
+        assert_eq!(top_row(&frames[3]), "Inner 4", "{frames:#?}");
+    }
+
+    /// The text on the top row of the document in `frame`.
+    fn top_row(frame: &str) -> String {
+        let frame = unstyled(frame);
+        let row = frame.split("\x1b[1;1H").nth(1).unwrap();
+        row.split("\x1b[2;1H").next().unwrap().trim().to_owned()
     }
 
     fn others() -> Document {
@@ -1498,6 +1618,44 @@ mod tests {
         assert!(named(&frames[4], "c.md"), "{frames:#?}");
         // Once the view moves, the file at its top again.
         assert!(named(&frames[5], "a.md"), "{frames:#?}");
+    }
+
+    #[test]
+    fn colon_n_still_names_its_file_after_a_new_window_size() {
+        // As above, but the window then grows by two rows, so the last
+        // page starts higher up, and the view still stops short of c.md's
+        // header.
+        let reads: &[&[u8]] = &[b":n", b":n", b""];
+        let mut terminal = Fake::new(40, 12, reads);
+        terminal.sizes = [window(40, 12), window(40, 12), window(40, 14)].into();
+        show_files(
+            &files(&[("a.md", 10), ("b.md", 1), ("c.md", 1)]),
+            &mut terminal,
+        );
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        let named =
+            |frame: &str, name: &str, rows| status_row(frame, rows).contains(&format!(" {name} "));
+        assert!(named(&frames[2], "c.md", 12), "{frames:#?}");
+        assert!(named(&frames[3], "c.md", 14), "{frames:#?}");
+    }
+
+    #[test]
+    fn a_key_after_a_new_window_size_makes_colon_n_forget_its_file() {
+        // As above, then k: the view moves, so the status line names the
+        // file above again.
+        let reads: &[&[u8]] = &[b":n", b":n", b"", b"k"];
+        let mut terminal = Fake::new(40, 12, reads);
+        terminal.sizes = [window(40, 12), window(40, 12), window(40, 14)].into();
+        show_files(
+            &files(&[("a.md", 10), ("b.md", 1), ("c.md", 1)]),
+            &mut terminal,
+        );
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 5, "{frames:#?}");
+        let named = |frame: &str, name: &str| status_row(frame, 14).contains(&format!(" {name} "));
+        assert!(named(&frames[3], "c.md"), "{frames:#?}");
+        assert!(!named(&frames[4], "c.md"), "{frames:#?}");
     }
 
     #[test]

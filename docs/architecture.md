@@ -121,10 +121,13 @@ row through the backend's writer, and lays the document out again when the
 window changes size or when `r` reloads it. For that the pager is given a
 `Reload`, as it is given a `Terminal` for keys: it asks the `Reload` for the
 document and the images again, and keeps its place by the block at the
-top. A view at the end of the document goes to the new end, so a document
-that grew shows what was added. The terminal itself, the alternate screen,
-raw mode and reading keys from the controlling terminal, is opened in
-`src/term/screen.rs`.
+top: it compares the old document with the new one, and follows the block
+at the top to the block that stayed or changed from it, so a block added
+above the view does not move it. When the block at the top is gone, the
+view goes to the next block that is still there. A view at the end of the
+document goes to the new end, so a document that grew shows what was
+added. The terminal itself, the alternate screen, raw mode and reading keys
+from the controlling terminal, is opened in `src/term/screen.rs`.
 
 ## Diagrams
 

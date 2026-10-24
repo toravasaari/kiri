@@ -177,52 +177,73 @@ impl View {
     /// after it. Without blocks to go by, the top keeps the same share of
     /// the document's rows above it.
     pub fn resize(&mut self, heights: Vec<usize>, blocks: Vec<Option<BlockInfo>>, rows: usize) {
+        self.resize_by(heights, blocks, rows, BlockInfo::same_place);
+    }
+
+    /// Like [`View::resize`], for lines that may come from another version
+    /// of the document: `same` says whether a block of the new lines, the
+    /// second, is the one of the old lines that the first is. A block with
+    /// no counterpart is as good as gone: the top goes to the next block
+    /// that has one, or to the end when none is left.
+    pub fn resize_by(
+        &mut self,
+        heights: Vec<usize>,
+        blocks: Vec<Option<BlockInfo>>,
+        rows: usize,
+        same: impl Fn(&BlockInfo, &BlockInfo) -> bool,
+    ) {
         let at_end = self.top > 0 && self.top == self.last_top();
-        let wanted = self.top_block();
         let above: usize = self.heights[..self.top].iter().sum();
         let total: usize = self.heights.iter().sum();
+        let old = std::mem::replace(&mut self.blocks, blocks);
+        let old_top = self.top;
         self.heights = heights;
-        self.blocks = blocks;
         self.rows = rows;
         if at_end {
             self.top = self.last_top();
             return;
         }
-        let top = match wanted {
-            _ if self.top == 0 => 0,
-            Some((block, offset, length)) => self.line_in(&block, offset, length),
-            None => self.line_at_share(above, total),
+        let top = if old_top == 0 {
+            0
+        } else if old
+            .get(old_top..)
+            .is_some_and(|rest| rest.iter().any(Option::is_some))
+        {
+            self.line_following(&old, old_top, same)
+        } else {
+            self.line_at_share(above, total)
         };
         self.top = top.min(self.last_top());
     }
 
-    /// The block of the top line, or else of the first line below it that
-    /// has one, with the top line's place in that block's lines and how
-    /// many it has. The place is 0 when the top line has no block.
-    fn top_block(&self) -> Option<(BlockInfo, usize, usize)> {
-        let first = (self.top..self.blocks.len()).find(|&line| self.blocks[line].is_some())?;
-        let block = self.blocks[first].clone()?;
-        let start = run_start(&self.blocks, first);
-        let offset = if first == self.top { first - start } else { 0 };
-        Some((block, offset, run_length(&self.blocks, start)))
-    }
-
-    /// The line where `block` is `offset` lines in, scaled from a block of
-    /// `length` lines to the one of the new lines, or the start of the
-    /// first block after it when it is gone.
-    fn line_in(&self, block: &BlockInfo, offset: usize, length: usize) -> usize {
-        let Some(start) = self
-            .blocks
-            .iter()
-            .position(|line| line.as_ref().is_some_and(|line| line >= block))
-        else {
-            return self.heights.len();
-        };
-        if self.blocks[start].as_ref() != Some(block) {
-            return start;
+    /// The line of the new lines that carries on from the top line `top`
+    /// of the `old` ones: the same place in the top block, or the start of
+    /// the first block below it that is still there, or the end. A blank
+    /// top line counts as the start of the next block.
+    fn line_following(
+        &self,
+        old: &[Option<BlockInfo>],
+        top: usize,
+        same: impl Fn(&BlockInfo, &BlockInfo) -> bool,
+    ) -> usize {
+        let mut line = top;
+        while let Some(first) = (line..old.len()).find(|&line| old[line].is_some()) {
+            let block = old[first].as_ref().expect("a line with a block");
+            let start = run_start(old, first);
+            let length = run_length(old, start);
+            // Only the top line's own block is entered part of the way.
+            let offset = if first == top { first - start } else { 0 };
+            let found = self
+                .blocks
+                .iter()
+                .position(|new| new.as_ref().is_some_and(|new| same(block, new)));
+            if let Some(found) = found {
+                let new_length = run_length(&self.blocks, found);
+                return found + (offset * new_length / length).min(new_length - 1);
+            }
+            line = start + length;
         }
-        let new_length = run_length(&self.blocks, start);
-        start + (offset * new_length / length).min(new_length - 1)
+        self.heights.len()
     }
 
     /// The first line below `above` of `total` rows, scaled to the rows of

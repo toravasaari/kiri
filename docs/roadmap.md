@@ -276,13 +276,13 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 
 #### 4.6.4 Reload
 
-- Reload with `r`, for a lone document read from a file. It keeps the
-  place by the block's number, and the view at the end goes to the new
-  end. It loads only the images and diagrams it does not have yet:
-  diagrams are kept by their source unless they failed to draw, and an
-  image file is loaded again when its modification time changed. (done)
-- The place kept by the comparison (G1.6), so a block added above the
-  view does not move it.
+- Reload with `r`, for a lone document read from a file. The view
+  stays at the block that was at the top, found by comparing the two
+  versions (G1.6), so a block added above it does not move it; a view at
+  the end goes to the new end. It loads only the images and diagrams it
+  does not have yet: diagrams are kept by their source unless they failed
+  to draw, and an image file is loaded again when its modification time
+  changed. (done)
 - Reload on file change, and a key that jumps to the first block that
   changed.
 - A follow mode for a document another program is writing, such as one
@@ -604,19 +604,18 @@ A part that needs one names it, such as "needs G1.3".
 - Each laid-out line records the block it belongs to, for a table of
   contents, heading anchors, going back, keeping the place on reload or
   resize, and opening a `<details>` block in the pager. Finding the files
-  of a stream and keeping the top block in place when the window is
-  resized use it already; the others are still to come.
+  of a stream, and keeping the top block in place on a resize and on a
+  reload, use it already; the others are still to come.
 
 #### G1.6 Comparing two documents (done)
 
 - Two versions of a document compared block by block: which blocks
-  stayed, which changed, and which were added or removed. The follow
-  mode (4.6.4) uses it to keep the reader's place and to find what
-  changed, and the diff view (4.6.4) to show it. A block may also come
-  to know the line of the source it starts on, so a reader can open the
-  source there in an editor or point to it, such as `plan.md` line 42.
-  Both are done: `src/compare.rs` compares two documents, and each block
-  knows its line. Nothing uses them yet.
+  stayed, which changed, and which were added or removed. Each block
+  also knows the line of the source it starts on, so a reader can later
+  open the source there in an editor or point to it, such as `plan.md`
+  line 42. A reload (4.6.4) uses the comparison to keep the reader's
+  place; the follow mode will use it to find what changed, and the diff
+  view to show it. Nothing uses the source lines yet.
 
 ### G2 Images
 
@@ -791,6 +790,13 @@ The test that the example documents fit the window at every width,
 `the_visual_check_documents_fit_every_mode`, loads no diagram renderer,
 so it never draws a diagram. A drawn diagram, or the red error below one
 that fails, could reach past the window's edge without the test noticing.
+
+#### B4 The pager does not work with `.mmd` files
+
+The maintainer found that the pager does not work with a Mermaid file,
+`kiri file.mmd`. A diagram file that is drawn is shown as an image file
+is, as a document of one image, which goes to the pager only when paging
+is `always`. What goes wrong is still to be written down.
 
 ### Upstream bugs
 
