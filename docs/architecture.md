@@ -145,6 +145,13 @@ is not shown. The terminal itself, the alternate screen, raw mode and
 reading keys from the controlling terminal, is opened in
 `src/term/screen.rs`.
 
+The pager keeps one image encoder, `src/render/encoder.rs`, for as long
+as it runs. An image the terminal holds is not sent again: after a
+resize that leaves it at the same size, or a reload that leaves its
+pixels as they were. An image that the lines of a new layout no longer
+place, or that changed, is deleted from the terminal, and when the
+pager quits, every image it sent is.
+
 ## Diagrams
 
 A diagram stays a code block in the document model, `Block::CodeBlock`
@@ -300,7 +307,9 @@ sizing, graphics, Unicode placeholders and the queries that detect them;
 out itself. OSC 8 hyperlinks, SGR attributes, underline styles and cursor
 movement are general terminal features that `src/render/output.rs` writes
 itself; for scaled text it calls `src/kitty/text.rs`, and for images
-`src/kitty/graphics.rs`.
+`src/render/encoder.rs`, which sends and deletes them, and
+`src/kitty/graphics.rs`, which writes those sequences and the
+placeholders.
 Underline styles began in kitty but are now common; kiri uses them only
 when the probe finds kitty's protocols or `--mode kitty` asks for them.
 
@@ -379,6 +388,7 @@ src/render/block.rs        which block of the document a line comes from
 src/render/style.rs        styled text between layout and output
 src/render/output.rs       styled lines -> bytes (SGR, OSC 8, CSI C/K, OSC 66),
                            cursor placement and synchronized output
+src/render/encoder.rs      the images the terminal holds, and under which ids
 src/render/highlight.rs    syntax highlighting for code blocks (syntect)
 src/pager/mod.rs           the pager: frames and the loop of keys
 src/pager/view.rs          the lines a window shows, and scrolling
