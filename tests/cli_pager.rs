@@ -280,11 +280,17 @@ fn following_pages_a_short_file() {
             }
         }
     };
-    for (args, file) in [
-        (&["-f", "document.md"][..], ""),
-        (&["--follow", "on", "document.md"][..], ""),
-        (&["document.md"][..], "follow = \"on\"\n"),
-        (&["--paging", "auto", "-f", "document.md"][..], ""),
+    for (args, file, word) in [
+        (&["-f", "document.md"][..], "", " follow "),
+        (&["--follow", "on", "document.md"][..], "", " follow "),
+        (&["--fa", "document.md"][..], "", " auto "),
+        (&["--follow", "auto", "document.md"][..], "", " auto "),
+        (&["document.md"][..], "follow = \"on\"\n", " follow "),
+        (
+            &["--paging", "auto", "-f", "document.md"][..],
+            "",
+            " follow ",
+        ),
     ] {
         let (status, seen) = in_terminal_after(
             "pager-follow-short",
@@ -300,10 +306,7 @@ fn following_pages_a_short_file() {
         );
         assert!(status.success(), "{args:?} {file:?}");
         assert!(seen.starts_with(ENTER), "{args:?} {file:?}: {seen:?}");
-        assert!(
-            text_of(&seen).contains(" follow "),
-            "{args:?} {file:?}: {seen:?}"
-        );
+        assert!(text_of(&seen).contains(word), "{args:?} {file:?}: {seen:?}");
     }
 }
 
@@ -1056,7 +1059,11 @@ fn following(name: &str, args: &[&str], change: &dyn Fn(&std::path::Path)) -> Ve
     assert!(status.success());
     let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).map(text_of).collect();
     assert!(frames[0].contains("Line 1"), "{seen:?}");
-    assert!(frames[0].contains(" follow "), "{seen:?}");
+    let follows = [" follow ", " auto "];
+    assert!(
+        follows.iter().any(|word| frames[0].contains(word)),
+        "{seen:?}"
+    );
     frames
 }
 
@@ -1070,6 +1077,21 @@ fn follow_reads_the_file_again_when_it_changes_without_a_key() {
         assert!(last.contains("reloaded"), "{args:?}: {frames:?}");
         // Without a key, the pager does not say it is reloading.
         assert!(!frames.iter().any(|frame| frame.contains("reloading")));
+    }
+}
+
+#[test]
+fn auto_follow_moves_the_view_to_a_change_in_the_file() {
+    let rewrite = |dir: &std::path::Path| {
+        let text = long().replace("Line 9\n", "Line 9 changed\n");
+        std::fs::write(dir.join("long.md"), text).unwrap();
+    };
+    for args in [&["--follow", "auto", "long.md"][..], &["--fa", "long.md"]] {
+        let frames = following("pager-follow-auto", args, &rewrite);
+        let last = frames.last().unwrap();
+        assert!(last.contains("Line 9 changed"), "{args:?}: {frames:?}");
+        assert!(!last.contains("Line 1 "), "{args:?}: {frames:?}");
+        assert!(last.contains(" auto "), "{args:?}: {frames:?}");
     }
 }
 
@@ -1106,6 +1128,10 @@ fn standard_input_and_several_files_have_nothing_to_follow() {
     let (status, seen) = in_steps("pager-follow-files", &args, None, &steps);
     assert!(status.success());
     assert!(text_of(&seen).contains("nothing to follow"), "{seen:?}");
+    let args = ["-p", "--fa"];
+    let (status, seen) = in_steps("pager-follow-auto-stdin", &args, Some(&long()), &steps);
+    assert!(status.success());
+    assert!(text_of(&seen).contains("nothing to follow"), "{seen:?}");
 }
 
 #[test]
@@ -1132,9 +1158,9 @@ fn following_from_the_configuration_file_is_quiet_where_there_is_nothing_to_foll
 }
 
 #[test]
-fn follow_takes_on_or_off_and_capital_f_turns_it_off() {
+fn follow_takes_on_off_or_auto_and_one_flag_of_them() {
     let dir = common::Scratch::new("follow-values");
-    for value in ["auto", "yes"] {
+    for value in ["yes", "Auto"] {
         let out = command(&dir)
             .args(["--follow", value, "-"])
             .output()
@@ -1146,8 +1172,15 @@ fn follow_takes_on_or_off_and_capital_f_turns_it_off() {
             "{stderr}"
         );
     }
-    let out = command(&dir).args(["-f", "-F", "-"]).output().unwrap();
-    assert!(!out.status.success());
+    for flags in [
+        ["-f", "-F"],
+        ["--fa", "-F"],
+        ["-f", "--fa"],
+        ["--fa", "--follow=on"],
+    ] {
+        let out = command(&dir).args(flags).arg("-").output().unwrap();
+        assert!(!out.status.success(), "{flags:?}");
+    }
 }
 
 /// `frame` without its escape sequences.

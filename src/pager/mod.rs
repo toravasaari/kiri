@@ -1,6 +1,7 @@
 //! The interactive pager: the document on a screen of its own, scrolled
 //! with keys.
 
+pub mod changes;
 pub mod fade;
 pub mod files;
 pub mod help;
@@ -8,6 +9,7 @@ pub mod keys;
 pub mod prompt;
 pub mod search;
 pub mod status;
+pub mod tint;
 pub mod view;
 
 use std::io::{self, Write};
@@ -16,7 +18,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::caps::Capabilities;
 use crate::compare::{Comparison, Fate, compare};
-use crate::config::{Paging, SearchCase};
+use crate::config::{self, FollowJump, Paging, SearchCase};
 use crate::images::Images;
 use crate::model::{Document, File};
 use crate::render::Inputs;
@@ -26,7 +28,7 @@ use crate::render::output::{self, Page, Writer};
 use crate::render::style::{self, Line, Span, Style};
 use crate::size::TextSize;
 use crate::term::{Screen, WindowSize};
-use fade::{FADE, FADE_OUT, Fade, Rgb, STAY};
+use fade::{FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY};
 use files::Files;
 use help::Placed;
 use keys::{Action, Key};
@@ -151,7 +153,9 @@ pub struct Options<'a> {
     pub reload: Option<&'a mut dyn Reload>,
     /// Whether the pager follows the document from the start: reads it
     /// again whenever it changes.
-    pub follow: bool,
+    pub follow: config::Follow,
+    /// Which change following on auto moves the view to.
+    pub jump: FollowJump,
 }
 
 impl Options<'_> {
@@ -162,7 +166,8 @@ impl Options<'_> {
             width: None,
             case,
             reload: None,
-            follow: false,
+            follow: config::Follow::Off,
+            jump: FollowJump::First,
         }
     }
 }
@@ -188,6 +193,7 @@ pub fn run(
         case,
         mut reload,
         follow,
+        jump,
     } = options;
     let page = Page {
         background: inputs.theme.background,
@@ -197,8 +203,9 @@ pub fn run(
     let mut size = terminal.size();
     let mut view: Option<View> = None;
     let mut state = State::new(case);
-    state.follow.on = follow && reload.is_some();
-    if follow && reload.is_none() {
+    if reload.is_some() {
+        state.follow.mode = follow;
+    } else if follow != config::Follow::Off {
         state.told = Some(Told::new(NOTHING_TO_FOLLOW));
     }
     // The document as reloaded, once it has been.
@@ -234,20 +241,41 @@ pub fn run(
             }
         }
         let mut writer = Writer::new(&inputs.images, &inputs.caps, page);
-        let heights = lines
+        let heights: Vec<usize> = lines
             .iter()
             .map(|line| usize::from(writer.rows(line)))
             .collect();
-        let places = lines
+        let places: Vec<Option<BlockInfo>> = lines
             .iter()
             .map(|line| line.block.map(|id| blocks.get(id).clone()))
             .collect();
         let mut shown = match view.take() {
             Some(mut view) => {
                 match changes.take() {
-                    Some(changes) => view.resize_by(heights, places, rows, |old, new| {
-                        follows(&changes, old, new)
-                    }),
+                    Some(changes) => {
+                        // Following on auto moves on from the place kept to
+                        // a change.
+                        let change = (state.follow.mode == config::Follow::Auto)
+                            .then(|| changes::groups(&changes, &places, &heights))
+                            .and_then(|groups| changes::choose(&groups, jump).cloned());
+                        view.resize_by(heights, places, rows, |old, new| {
+                            follows(&changes, old, new)
+                        });
+                        if let Some(change) = change {
+                            view.show_change(change.lines.clone());
+                            // A removal has no lines to tint.
+                            let tintable = Rgb::new(&inputs.theme, &inputs.caps)
+                                .is_some_and(|rgb| rgb.tinted(None, 0.0).is_some())
+                                && inputs.caps.styling
+                                && inputs.caps.truecolor;
+                            if tintable && !change.lines.is_empty() {
+                                state.changed = Some(Changed {
+                                    at: terminal.now(),
+                                    lines: change.lines,
+                                });
+                            }
+                        }
+                    }
                     None => view.resize(heights, places, rows),
                 }
                 view
@@ -281,6 +309,7 @@ pub fn run(
             lines: &lines,
             marks: &marks,
             rgb: rgb.as_ref(),
+            columns: usize::from(inputs.caps.width),
             status: &status,
             view: &mut shown,
         };
@@ -295,10 +324,13 @@ pub fn run(
         match outcome {
             Outcome::Quit => return Ok(()),
             Outcome::Resized(new) => {
+                // The lines laid out for the new size are others.
+                state.changed = None;
                 size = new;
                 view = Some(shown);
             }
             Outcome::Reload => {
+                state.changed = None;
                 view = Some(shown);
                 state.follow.seen = None;
                 let source = reload.as_deref_mut().expect("a source to reload from");
@@ -366,7 +398,7 @@ enum Pressed {
     Quit,
     /// The reader asked for the document again.
     Reload,
-    /// The reader turned following the document on or off.
+    /// The reader changed how the document is followed.
     Follow,
 }
 
@@ -417,8 +449,8 @@ impl Status<'_> {
                 let place = (file.filter(|_| self.files.several()))
                     .map(|file| (file + 1, self.files.count()));
                 let position = view.position();
-                let following = state.follow.on;
-                status::spans(name, place, position, following, found, width, &self.styles)
+                let follow = state.follow.mode;
+                status::spans(name, place, position, follow, found, width, &self.styles)
             }
         }
     }
@@ -481,12 +513,32 @@ struct State {
     told: Option<Told>,
     /// Following the document as it changes.
     follow: Follow,
+    /// The lines of the change auto-follow went to, while they are
+    /// tinted.
+    changed: Option<Changed>,
+}
+
+/// How much to tint which lines, over how many cells, in what colours.
+struct Tint<'a> {
+    lines: Range<usize>,
+    /// The share of the text colour mixed into the background.
+    amount: f32,
+    rgb: &'a Rgb,
+    columns: usize,
+}
+
+/// The change auto-follow moved the view to.
+#[derive(Debug, Clone)]
+struct Changed {
+    at: Instant,
+    /// Its lines in the laid-out document.
+    lines: Range<usize>,
 }
 
 /// Following the document: reading it again whenever it changes.
 #[derive(Debug, Default)]
 struct Follow {
-    on: bool,
+    mode: config::Follow,
     /// How a change looked on the last poll, and when it was first seen
     /// looking so. It is read once a poll at least [`POLL`] later finds it
     /// looking the same, so that a file caught half written is not shown.
@@ -506,6 +558,11 @@ enum Polled {
 }
 
 impl Follow {
+    /// Whether the document is followed, on or auto.
+    fn on(&self) -> bool {
+        self.mode != config::Follow::Off
+    }
+
     /// What `change`, found on a poll at `now`, calls for.
     fn poll(&mut self, change: Change, now: Instant) -> Polled {
         let gone = std::mem::replace(&mut self.gone, false);
@@ -598,6 +655,7 @@ impl State {
             went: None,
             told: None,
             follow: Follow::default(),
+            changed: None,
         }
     }
 
@@ -764,6 +822,9 @@ impl State {
         self.jumped = self
             .jumped
             .filter(|jump| now.saturating_duration_since(jump.at) < FADE);
+        self.changed = self.changed.take().filter(|changed| {
+            now.saturating_duration_since(changed.at) < HIGHLIGHT_STAY + HIGHLIGHT_FADE
+        });
         self.told = self.told.take().filter(|told| {
             told.fades
                 .is_none_or(|at| now.saturating_duration_since(at) < STAY + FADE_OUT)
@@ -778,6 +839,25 @@ impl State {
         Some(Fade { elapsed, rgb })
     }
 
+    /// The tint at `now`, in `rgb`'s colours over `columns` cells: the
+    /// lines of the change, and how much of the text colour to mix into
+    /// their background: all of [`HIGHLIGHT_SHARE`]
+    /// while the tint stays, then less as it fades out.
+    fn tint<'a>(&self, now: Instant, rgb: &'a Rgb, columns: usize) -> Option<Tint<'a>> {
+        let changed = self.changed.as_ref()?;
+        let elapsed = now.saturating_duration_since(changed.at);
+        let left = match elapsed.checked_sub(HIGHLIGHT_STAY) {
+            None => 1.0,
+            Some(faded) => 1.0 - faded.as_secs_f32() / HIGHLIGHT_FADE.as_secs_f32(),
+        };
+        Some(Tint {
+            lines: changed.lines.clone(),
+            amount: HIGHLIGHT_SHARE * left.max(0.0),
+            rgb,
+            columns,
+        })
+    }
+
     /// The fade under way at `now`, mixing colours with `rgb`.
     fn fade<'a>(&self, now: Instant, rgb: Option<&'a Rgb>) -> Option<Fade<'a>> {
         let jump = self.jumped?;
@@ -789,14 +869,31 @@ impl State {
 
     /// `lines`, from line `first` of the document on, with the matches of
     /// the last search marked with `marks` while it is shown, the current
-    /// one faded by `fade`.
-    fn marked(&self, lines: &[Line], first: usize, marks: &Marks, fade: Option<Fade>) -> Vec<Line> {
+    /// one faded by `fade`, and the lines of `tint` tinted.
+    fn marked(
+        &self,
+        lines: &[Line],
+        first: usize,
+        marks: &Marks,
+        fade: Option<Fade>,
+        tint: Option<Tint>,
+    ) -> Vec<Line> {
         let search = self.search.as_ref().filter(|_| self.shown);
         (first..)
             .zip(lines)
-            .map(|(index, line)| match search {
-                Some(search) => search::mark(line, &search.on(index), marks, fade),
-                None => line.clone(),
+            .map(|(index, line)| {
+                let tinted;
+                let line = match &tint {
+                    Some(tint) if tint.lines.contains(&index) => {
+                        tinted = tint::tint(line, tint.rgb, tint.amount, tint.columns);
+                        &tinted
+                    }
+                    _ => line,
+                };
+                match search {
+                    Some(search) => search::mark(line, &search.on(index), marks, fade),
+                    None => line.clone(),
+                }
             })
             .collect()
     }
@@ -835,6 +932,8 @@ struct Layout<'a> {
     marks: &'a Marks,
     /// The colours a fade mixes, where they are known.
     rgb: Option<&'a Rgb>,
+    /// The cells of the text area, which a tint spans.
+    columns: usize,
     status: &'a Status<'a>,
     view: &'a mut View,
 }
@@ -867,6 +966,7 @@ impl Layout<'_> {
                 visible.start,
                 self.marks,
                 fade,
+                self.rgb.and_then(|rgb| state.tint(now, rgb, self.columns)),
             ),
             status: self.status.spans(self.view, state, fade, out),
             panel: self.status.panel(self.view, state.help),
@@ -877,6 +977,7 @@ impl Layout<'_> {
     /// that the pager draws it a step at a time.
     fn fades(&self, state: &State, now: Instant) -> bool {
         state.jumped.is_some()
+            || state.changed.is_some() && self.rgb.is_some()
             || self.status.bar
                 && (state.fade_out(now, self.rgb))
                     .and_then(|out| self.status.styles.fading(out))
@@ -936,14 +1037,18 @@ fn show(
                 }
                 Pressed::Follow => {
                     state.follow = Follow {
-                        on: !state.follow.on,
+                        mode: match state.follow.mode {
+                            config::Follow::Off => config::Follow::On,
+                            config::Follow::On => config::Follow::Auto,
+                            config::Follow::Auto => config::Follow::Off,
+                        },
                         ..Follow::default()
                     }
                 }
             }
             state.moved(layout.view.top());
         }
-        if state.follow.on
+        if state.follow.on()
             && let Some(source) = reload.as_deref_mut()
         {
             match state.follow.poll(source.change(), now) {
@@ -1240,7 +1345,7 @@ mod tests {
             &mut inputs,
             Options {
                 reload: Some(then),
-                follow: true,
+                follow: config::Follow::On,
                 ..Options::new(SearchCase::Smart)
             },
             &mut terminal,
@@ -1265,28 +1370,492 @@ mod tests {
         );
     }
 
+    /// `document` followed as `follow` says, jumping to the change `jump`
+    /// chooses, with `then` to reload it, in a window of 60 × `rows`, with
+    /// `reads` and then `empty` polls without keys.
+    /// `document` followed as `follow` says, jumping to the change `jump`
+    /// chooses, with `then` to reload it, in a window of 60 × `rows`, with
+    /// `reads` and then `empty` polls without keys.
+    fn following_in(
+        rows: u16,
+        how: (config::Follow, FollowJump),
+        document: &Document,
+        then: &mut Then,
+        reads: &[&[u8]],
+        empty: usize,
+    ) -> Vec<String> {
+        let caps = Capabilities::ansi(80);
+        following_on(caps, rows, how, document, then, reads, empty).frames()
+    }
+
+    /// As [`following_in`], on a terminal with `caps`, which is returned
+    /// for what it was asked and what it drew.
+    fn following_on(
+        caps: Capabilities,
+        rows: u16,
+        (follow, jump): (config::Follow, FollowJump),
+        document: &Document,
+        then: &mut Then,
+        reads: &[&[u8]],
+        empty: usize,
+    ) -> Fake {
+        let mut reads = reads.to_vec();
+        reads.extend(std::iter::repeat_n(b"".as_slice(), empty));
+        let mut terminal = Fake::new(60, rows, &reads);
+        let mut inputs = Inputs::new(caps);
+        run(
+            Content::Document(document),
+            None,
+            "notes.md",
+            &mut inputs,
+            Options {
+                reload: Some(then),
+                follow,
+                jump,
+                ..Options::new(SearchCase::Smart)
+            },
+            &mut terminal,
+        )
+        .unwrap();
+        terminal
+    }
+
+    /// Following on auto, jumping to the first change.
+    const AUTO: (config::Follow, FollowJump) = (config::Follow::Auto, FollowJump::First);
+
+    /// The row of `frame` that shows `text`, counted from 1, of the
+    /// window's `rows`.
+    fn row_of(frame: &str, rows: u16, text: &str) -> Option<u16> {
+        let frame = unstyled(frame);
+        (1..rows).find(|row| {
+            let start = format!("\x1b[{row};1H");
+            let end = format!("\x1b[{};1H", row + 1);
+            frame
+                .split(&start)
+                .nth(1)
+                .and_then(|rest| rest.split(&end).next())
+                .is_some_and(|shown| shown.contains(text))
+        })
+    }
+
+    /// `numbers(count)` with each line of `changed` written anew.
+    fn numbers_changed(count: usize, changed: &[usize]) -> Document {
+        let source: String = (1..=count)
+            .map(|n| match changed.contains(&n) {
+                true => format!("Line {n} changed\n\n"),
+                false => format!("Line {n}\n\n"),
+            })
+            .collect();
+        crate::parse::parse(&source)
+    }
+
+    #[test]
+    fn auto_following_moves_the_view_to_a_change_below_it() {
+        // A change seen on two polls, to Line 30, far below the view.
+        let changes = [look(1), look(1)];
+        let new = numbers_changed(40, &[30]);
+        let mut then = Then::changing([Reloaded::Document(new)], changes);
+        let frames = following_in(21, AUTO, &numbers(40), &mut then, &[], 3);
+        assert_eq!(then.asked, 1, "{frames:#?}");
+        assert!(at_top(&frames[0], "Line 1"), "{frames:#?}");
+        let last = frames.last().unwrap();
+        // Three rows of what comes before it above it.
+        assert_eq!(row_of(last, 21, "Line 30 changed"), Some(4), "{frames:#?}");
+        assert_eq!(row_of(last, 21, "Line 29"), Some(2), "{frames:#?}");
+    }
+
+    /// The SGR codes before `text` in the row of `frame` that shows it.
+    fn row_style(frame: &str, text: &str) -> Vec<String> {
+        style_before(document_part(frame, 21), text)
+    }
+
+    /// The background of the SGR codes `codes`, as `r;g;b`.
+    fn background(codes: &[String]) -> Option<String> {
+        let at = codes
+            .windows(2)
+            .position(|pair| pair[0] == "48" && pair[1] == "2")?;
+        Some(codes[at + 2..at + 5].join(";"))
+    }
+
+    #[test]
+    fn auto_following_tints_the_change_it_went_to_and_fades_the_tint_out() {
+        let new = numbers_changed(40, &[30]);
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let terminal = following_on(
+            known_colours(),
+            21,
+            AUTO,
+            &numbers(40),
+            &mut then,
+            &[b"r"],
+            90,
+        );
+        let frames = terminal.frames();
+        let tint = |frame: &str, text: &str| background(&row_style(frame, text));
+        // Grey text on a black page: 15 % of 200 is 30; a line on the page has
+        // no background of its own.
+        let first = &frames[2];
+        assert_eq!(
+            tint(first, "Line 30 changed"),
+            Some("30;30;30".to_owned()),
+            "{frames:#?}"
+        );
+        // Only the change: the line above is on the page.
+        assert_eq!(tint(first, "Line 29"), None, "{frames:#?}");
+        // The tint reaches the end of the row.
+        let row = unstyled(first);
+        let row = row.split("\x1b[4;1H").nth(1).unwrap();
+        let row = row.split("\x1b[5;1H").next().unwrap();
+        assert_eq!(row.chars().count(), 60, "{row:?}");
+        // A second later it begins to fade, and is gone after two more.
+        let tints: Vec<_> = frames[2..]
+            .iter()
+            .map(|frame| tint(frame, "Line 30 changed"))
+            .collect();
+        let levels: Vec<u8> = tints
+            .iter()
+            .map(|tint| {
+                tint.as_ref()
+                    .map_or(0, |tint| tint.split(';').next().unwrap().parse().unwrap())
+            })
+            .collect();
+        assert!(
+            levels.windows(2).all(|pair| pair[0] >= pair[1]),
+            "{levels:?}"
+        );
+        assert_eq!(levels[0], 30);
+        assert_eq!(*levels.last().unwrap(), 0);
+        // A step of the fade every frame for the three seconds from the
+        // reload's read, and polls again after them.
+        let waits = &terminal.waits[1..];
+        let frames = waits.iter().take_while(|&&wait| wait == FRAME).count();
+        assert_eq!(frames, 60, "{waits:?}");
+        assert_eq!(waits[frames], POLL, "{waits:?}");
+    }
+
+    /// The frames drawn while following `old` as `how` says, reloaded to
+    /// `new` by `r`, on a terminal with `caps`, with `empty` polls after it.
+    fn reloaded_to(
+        caps: Capabilities,
+        how: (config::Follow, FollowJump),
+        (old, new): (&Document, Document),
+        reads: &[&[u8]],
+        empty: usize,
+    ) -> Fake {
+        let mut then = Then::new([Reloaded::Document(new)]);
+        following_on(caps, 21, how, old, &mut then, reads, empty)
+    }
+
+    #[test]
+    fn a_change_already_in_view_is_tinted_too() {
+        let new = numbers_changed(40, &[8]);
+        let terminal = reloaded_to(known_colours(), AUTO, (&numbers(40), new), &[b"r"], 3);
+        let frames = terminal.frames();
+        assert!(at_top(&frames[2], "Line 1"), "{frames:#?}");
+        let tint = background(&row_style(&frames[2], "Line 8 changed"));
+        assert_eq!(tint, Some("30;30;30".to_owned()), "{frames:#?}");
+    }
+
+    #[test]
+    fn a_removal_is_not_tinted_and_nothing_fades() {
+        let terminal = reloaded_to(
+            known_colours(),
+            AUTO,
+            (&numbers(40), numbers(39)),
+            &[b"r"],
+            90,
+        );
+        let frames = terminal.frames();
+        for frame in &frames {
+            assert!(!document_part(frame, 21).contains("48;2"), "{frame:?}");
+        }
+        assert!(
+            !terminal.waits[1..5].contains(&FRAME),
+            "{:?}",
+            terminal.waits
+        );
+    }
+
+    #[test]
+    fn only_auto_following_tints_a_change() {
+        let on = (config::Follow::On, FollowJump::First);
+        let new = numbers_changed(40, &[8]);
+        let terminal = reloaded_to(known_colours(), on, (&numbers(40), new), &[b"r"], 3);
+        for frame in terminal.frames() {
+            assert!(!document_part(&frame, 21).contains("48;2"), "{frame:?}");
+        }
+    }
+
+    #[test]
+    fn without_colours_known_as_rgb_nothing_is_tinted() {
+        let new = numbers_changed(40, &[8]);
+        let terminal = reloaded_to(
+            Capabilities::ansi(80),
+            AUTO,
+            (&numbers(40), new),
+            &[b"r"],
+            3,
+        );
+        for frame in terminal.frames() {
+            assert!(!document_part(&frame, 21).contains("48;2"), "{frame:?}");
+        }
+        // Nor does the pager wait a frame for it.
+        assert!(
+            !terminal.waits[1..5].contains(&FRAME),
+            "{:?}",
+            terminal.waits
+        );
+    }
+
+    #[test]
+    fn the_tint_stays_on_the_same_lines_when_the_view_scrolls() {
+        let new = numbers_changed(40, &[30]);
+        let terminal = reloaded_to(
+            known_colours(),
+            AUTO,
+            (&numbers(40), new),
+            &[b"r", b"kk"],
+            3,
+        );
+        let frames = terminal.frames();
+        let last = frames.last().unwrap();
+        // Two rows up, the change is two rows lower than it was.
+        assert_eq!(row_of(last, 21, "Line 30 changed"), Some(6), "{frames:#?}");
+        assert_eq!(
+            background(&row_style(last, "Line 30 changed")),
+            Some("30;30;30".to_owned()),
+            "{frames:#?}"
+        );
+        assert_eq!(background(&row_style(last, "Line 31")), None, "{frames:#?}");
+    }
+
+    #[test]
+    fn a_new_reload_replaces_the_tint_still_fading() {
+        let first = numbers_changed(40, &[5]);
+        let second = numbers_changed(40, &[5, 7]);
+        let mut then = Then::new([Reloaded::Document(first), Reloaded::Document(second)]);
+        // The second reload comes half a second after the first.
+        let waits = [b"".as_slice(); 9];
+        let reads = [&[b"r".as_slice()][..], &waits, &[b"r"]].concat();
+        let terminal = following_on(
+            known_colours(),
+            21,
+            AUTO,
+            &numbers(40),
+            &mut then,
+            &reads,
+            3,
+        );
+        let frames = terminal.frames();
+        let last = frames.last().unwrap();
+        // Line 5 is the same as it was, and not the change of this reload.
+        assert_eq!(
+            background(&row_style(last, "Line 7 changed")),
+            Some("30;30;30".to_owned()),
+            "{frames:#?}"
+        );
+        assert_eq!(
+            background(&row_style(last, "Line 5 changed")),
+            None,
+            "{frames:#?}"
+        );
+    }
+
+    #[test]
+    fn a_tint_is_mixed_over_the_background_a_line_has() {
+        let old = crate::parse::parse("Text.\n\n```\ncode\n```\n");
+        let new = crate::parse::parse("Text.\n\n```\ncode changed\n```\n");
+        let terminal = reloaded_to(known_colours(), AUTO, (&old, new), &[b"r"], 3);
+        let frames = terminal.frames();
+        let before = background(&row_style(&frames[0], "code"));
+        let after = background(&row_style(&frames[2], "code changed"));
+        let level = |bg: &Option<String>| -> u8 {
+            bg.as_ref()
+                .map_or(0, |bg| bg.split(';').next().unwrap().parse().unwrap())
+        };
+        // The code block's own background, lighter by the tint.
+        assert!(before.is_some(), "{frames:#?}");
+        assert!(level(&after) > level(&before), "{before:?} {after:?}");
+    }
+
+    #[test]
+    fn r_moves_to_a_change_while_following_is_auto() {
+        let new = numbers_changed(40, &[30]);
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let frames = following_in(21, AUTO, &numbers(40), &mut then, &[b"r"], 1);
+        assert_eq!(then.asked, 1, "{frames:#?}");
+        let last = frames.last().unwrap();
+        assert_eq!(row_of(last, 21, "Line 30 changed"), Some(4), "{frames:#?}");
+    }
+
+    #[test]
+    fn r_keeps_the_place_while_following_is_on() {
+        let new = numbers_changed(40, &[30]);
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let on = (config::Follow::On, FollowJump::First);
+        let frames = following_in(21, on, &numbers(40), &mut then, &[b"r"], 1);
+        assert_eq!(then.asked, 1, "{frames:#?}");
+        assert!(at_top(frames.last().unwrap(), "Line 1"), "{frames:#?}");
+    }
+
+    #[test]
+    fn auto_following_does_not_move_to_a_change_in_view() {
+        let new = numbers_changed(40, &[8]);
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let frames = following_in(21, AUTO, &numbers(40), &mut then, &[b"jj", b"r"], 1);
+        let last = frames.last().unwrap();
+        assert!(at_top(last, "Line 2"), "{frames:#?}");
+        assert!(row_of(last, 21, "Line 8 changed").is_some(), "{frames:#?}");
+    }
+
+    #[test]
+    fn auto_following_does_not_move_from_inside_a_change_taller_than_the_window() {
+        // Lines 10 to 25 changed: 31 lines in a view of 20 rows. The
+        // reader is at Line 15, inside them.
+        let changed: Vec<usize> = (10..=25).collect();
+        let new = numbers_changed(40, &changed);
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let down = [b"j".as_slice(); 28].concat();
+        let frames = following_in(21, AUTO, &numbers(40), &mut then, &[&down, b"r"], 1);
+        assert!(at_top(&frames[1], "Line 15"), "{frames:#?}");
+        assert!(
+            at_top(frames.last().unwrap(), "Line 15 changed"),
+            "{frames:#?}"
+        );
+    }
+
+    #[test]
+    fn auto_following_does_not_move_when_the_start_of_a_change_is_shown() {
+        // Lines 8 to 30 changed; Line 8 is on the first page.
+        let changed: Vec<usize> = (8..=30).collect();
+        let new = numbers_changed(40, &changed);
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let frames = following_in(21, AUTO, &numbers(40), &mut then, &[b"r"], 1);
+        assert!(at_top(frames.last().unwrap(), "Line 1"), "{frames:#?}");
+    }
+
+    #[test]
+    fn auto_following_does_not_move_after_a_reload_that_changed_nothing() {
+        let mut then = Then::new([Reloaded::Document(numbers(40))]);
+        let frames = following_in(21, AUTO, &numbers(40), &mut then, &[b"jjjj", b"r"], 1);
+        assert_eq!(then.asked, 1, "{frames:#?}");
+        assert!(at_top(frames.last().unwrap(), "Line 3"), "{frames:#?}");
+    }
+
+    #[test]
+    fn auto_following_moves_to_the_change_the_setting_chooses() {
+        let long = "Line 30 changed into a paragraph long enough to take two \
+                    lines or more of the window";
+        let source: String = (1..=40)
+            .map(|n| match n {
+                15 => "Line 15 changed\n\n".to_owned(),
+                30 => format!("{long}\n\n"),
+                n => format!("Line {n}\n\n"),
+            })
+            .collect();
+        for (jump, shown) in [
+            (FollowJump::First, "Line 15 changed"),
+            (FollowJump::Last, "Line 30 changed"),
+            (FollowJump::Most, "Line 30 changed"),
+        ] {
+            let new = crate::parse::parse(&source);
+            let mut then = Then::new([Reloaded::Document(new)]);
+            let auto = (config::Follow::Auto, jump);
+            let frames = following_in(21, auto, &numbers(40), &mut then, &[b"r"], 1);
+            let last = frames.last().unwrap();
+            assert_eq!(row_of(last, 21, shown), Some(4), "{jump:?}: {frames:#?}");
+        }
+        // Most is the first of changes that take as many rows.
+        let new = numbers_changed(40, &[15, 30]);
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let most = (config::Follow::Auto, FollowJump::Most);
+        let frames = following_in(21, most, &numbers(40), &mut then, &[b"r"], 1);
+        let last = frames.last().unwrap();
+        assert_eq!(row_of(last, 21, "Line 15 changed"), Some(4), "{frames:#?}");
+    }
+
+    #[test]
+    fn auto_following_moves_to_a_removal_as_the_setting_chooses() {
+        // Line 15 changed and Line 30 removed.
+        let source: String = (1..=40)
+            .filter(|&n| n != 30)
+            .map(|n| match n {
+                15 => "Line 15 changed\n\n".to_owned(),
+                n => format!("Line {n}\n\n"),
+            })
+            .collect();
+        for (jump, shown) in [
+            // The removal is the last change, at Line 31 now after it.
+            (FollowJump::Last, "Line 31"),
+            // A removal counts as no rows.
+            (FollowJump::Most, "Line 15 changed"),
+        ] {
+            let new = crate::parse::parse(&source);
+            let mut then = Then::new([Reloaded::Document(new)]);
+            let auto = (config::Follow::Auto, jump);
+            let frames = following_in(21, auto, &numbers(40), &mut then, &[b"r"], 1);
+            let last = frames.last().unwrap();
+            assert_eq!(row_of(last, 21, shown), Some(4), "{jump:?}: {frames:#?}");
+        }
+        // A removal alone is the change of the most rows.
+        let source: String = (1..=40)
+            .filter(|&n| n != 30)
+            .map(|n| format!("Line {n}\n\n"))
+            .collect();
+        let mut then = Then::new([Reloaded::Document(crate::parse::parse(&source))]);
+        let most = (config::Follow::Auto, FollowJump::Most);
+        let frames = following_in(21, most, &numbers(40), &mut then, &[b"r"], 1);
+        let last = frames.last().unwrap();
+        assert_eq!(row_of(last, 21, "Line 31"), Some(4), "{frames:#?}");
+    }
+
+    #[test]
+    fn auto_following_shows_a_change_at_the_end_on_the_last_page() {
+        let new = numbers_changed(40, &[40]);
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let frames = following_in(21, AUTO, &numbers(40), &mut then, &[b"r"], 1);
+        let last = frames.last().unwrap();
+        assert_eq!(row_of(last, 21, "Line 40 changed"), Some(20), "{frames:#?}");
+        // A removal at the end, too.
+        let mut then = Then::new([Reloaded::Document(numbers(39))]);
+        let frames = following_in(21, AUTO, &numbers(40), &mut then, &[b"r"], 1);
+        let last = frames.last().unwrap();
+        assert_eq!(row_of(last, 21, "Line 39"), Some(20), "{frames:#?}");
+    }
+
     /// Whether the status line of `frame`, in a window of 6 rows, tells
     /// that the pager follows the document.
     fn follows(frame: &str) -> bool {
         status_row(frame, 6).contains(" follow   ")
     }
 
+    /// Whether the status line of `frame`, in a window of 6 rows, tells
+    /// that the pager follows the document and moves to a change.
+    fn follows_auto(frame: &str) -> bool {
+        status_row(frame, 6).contains(" auto   ")
+    }
+
     #[test]
-    fn capital_f_turns_following_on_and_off() {
-        // F, a change seen on two polls, F again, and a change that is
-        // not asked about.
-        let changes = [look(1), look(1), look(2), look(2)];
+    fn capital_f_goes_from_off_to_on_to_auto_and_back_to_off() {
+        // F, a change seen on two polls, F to auto, where the next change
+        // is seen once, and F to off, where the last one is not asked
+        // about.
+        let changes = [look(1), look(1), look(2), look(3)];
         let mut then = Then::changing([Reloaded::Document(rows(10))], changes);
-        let reads: &[&[u8]] = &[b"F", b"", b"F", b"", b""];
+        let reads: &[&[u8]] = &[b"F", b"", b"F", b"F", b""];
         let frames = reloading_with(Capabilities::ansi(80), &numbers(10), &mut then, reads, 0);
         assert_eq!(then.asked, 1, "{frames:#?}");
-        assert_eq!(then.changes.len(), 2, "{frames:#?}");
-        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert_eq!(then.changes.len(), 1, "{frames:#?}");
+        assert_eq!(frames.len(), 5, "{frames:#?}");
         assert!(!follows(&frames[0]), "{frames:#?}");
+        assert!(!follows_auto(&frames[0]), "{frames:#?}");
         assert!(follows(&frames[1]), "{frames:#?}");
         assert!(at_top(&frames[2], "Row 1"), "{frames:#?}");
         assert!(follows(&frames[2]), "{frames:#?}");
+        assert!(follows_auto(&frames[3]), "{frames:#?}");
         assert!(!follows(&frames[3]), "{frames:#?}");
+        assert!(!follows(&frames[4]), "{frames:#?}");
+        assert!(!follows_auto(&frames[4]), "{frames:#?}");
     }
 
     #[test]
@@ -1311,7 +1880,7 @@ mod tests {
         let mut terminal = Fake::new(60, 6, &[b"j"]);
         let mut inputs = Inputs::new(Capabilities::ansi(80));
         let options = Options {
-            follow: true,
+            follow: config::Follow::On,
             ..Options::new(SearchCase::Smart)
         };
         let document = numbers(10);
@@ -1342,7 +1911,7 @@ mod tests {
         let document = numbers(10);
         let options = Options {
             reload: Some(&mut then),
-            follow: true,
+            follow: config::Follow::On,
             ..Options::new(SearchCase::Smart)
         };
         run(

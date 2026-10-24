@@ -133,7 +133,7 @@ mod tests {
         let rows: Vec<String> = panel.iter().map(text).collect();
         assert!(
             rows.iter()
-                .any(|row| row.starts_with("│ F ") && row.contains("follow the file")),
+                .any(|row| row.starts_with("│ F ") && row.contains("follow: on, auto, off")),
             "{rows:#?}"
         );
     }

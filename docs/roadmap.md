@@ -333,9 +333,12 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   `-F` (`--follow=off`), `KIRI_FOLLOW` and `follow` in the configuration
   file; following pages the file however short it is. (done)
 - Auto-follow, which also jumps to a change, and a setting says which:
-  the first, the last or the one that changed most. `--follow auto` and
-  `--fa`. Following can be switched from the menu (4.14) too, where the
-  value can be set more finely.
+  the first, the last or the one that takes the most rows. `--follow
+  auto`, `--fa`, `--follow-jump` and `follow_jump`; `F` goes from off to
+  on to auto. The change it went to shows in a lighter background that
+  fades out. (done)
+- Following can be switched from the menu (4.14) too, where the value
+  can be set more finely.
 - Following standard input, such as `tail -f log | kiri`, as well as a
   file.
 - Ctrl-C stops a reload that draws a slow diagram; today the terminal
@@ -709,8 +712,16 @@ A part that needs one names it, such as "needs G1.3".
   also knows the line of the source it starts on, so a reader can later
   open the source there in an editor or point to it, such as `plan.md`
   line 42. A reload (4.6.4) uses the comparison to keep the reader's
-  place; the follow mode will use it to find what changed, and the diff
-  view to show it. Nothing uses the source lines yet.
+  place; auto-follow uses it to find what changed, and the diff view will
+  use it to show it. Nothing uses the source lines yet.
+
+#### G1.7 Lines know their nested block
+
+- The layout marks the blocks inside lists, quotes and alerts as it
+  marks those inside `<details>`, so each laid-out line knows the
+  innermost block it comes from. Today a change inside a list counts as
+  a change of the whole list: auto-follow (4.6.9) goes to the list's
+  start, and `most` counts all of its rows.
 
 ### G2 Images
 
@@ -796,6 +807,20 @@ A part that needs one names it, such as "needs G1.3".
 - `kiri --help` explains many options in several sentences, such as
   `[FILE]...` in five lines; one short line each would do, with the
   details in the documentation.
+
+### G7 Pager
+
+#### G7.1 Every warning in the pager
+
+- The warning mark on the status line and the messages above it, which
+  front matter warnings get in 4.6.9, for every warning: a diagram that
+  does not draw, an image that cannot be read, from the first load and
+  from each reload, with its line where it is known. A setting turns
+  them off.
+- Messages that go one at a time may become tiring in the long run; how
+  many show, and for how long, to be looked at again.
+- With the menu (4.14), a key such as `e` opens the warnings in a tab of
+  their own.
 
 ## Uncategorized (extras)
 
