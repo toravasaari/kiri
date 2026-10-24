@@ -46,8 +46,8 @@ Options:
       --follow <WHEN>          Follow a lone file in the pager: on (read it again whenever it
                                changes, with the view kept where it is), auto (read it again and
                                move the view to a change) or off; off unless set. Following pages
-                               the file, however short, unless paging is never. F turns it on and
-                               off in the pager [possible values: on, off, auto]
+                               the file, however short, unless paging is never. F goes from off to
+                               on to auto in the pager [possible values: on, off, auto]
   -f                           Follow the file, in the pager: --follow=on
       --fa                     Follow the file and move to a change: --follow=auto
   -F                           Do not follow the file: --follow=off

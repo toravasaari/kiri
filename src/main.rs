@@ -123,8 +123,8 @@ struct Cli {
     /// Follow a lone file in the pager: on (read it again whenever it
     /// changes, with the view kept where it is), auto (read it again and
     /// move the view to a change) or off; off unless set. Following pages
-    /// the file, however short, unless paging is never. F turns it on and
-    /// off in the pager.
+    /// the file, however short, unless paging is never. F goes from off to
+    /// on to auto in the pager.
     #[arg(long, value_parser = named::<Follow>(), value_name = "WHEN", conflicts_with_all = ["follow_on", "follow_auto", "follow_off"])]
     follow: Option<Follow>,
 

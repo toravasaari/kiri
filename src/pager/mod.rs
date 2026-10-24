@@ -356,7 +356,7 @@ enum Pressed {
     Quit,
     /// The reader asked for the document again.
     Reload,
-    /// The reader turned following the document on or off.
+    /// The reader changed how the document is followed.
     Follow,
 }
 
@@ -407,8 +407,8 @@ impl Status<'_> {
                 let place = (file.filter(|_| self.files.several()))
                     .map(|file| (file + 1, self.files.count()));
                 let position = view.position();
-                let following = state.follow.on();
-                status::spans(name, place, position, following, found, width, &self.styles)
+                let follow = state.follow.mode;
+                status::spans(name, place, position, follow, found, width, &self.styles)
             }
         }
     }
@@ -931,9 +931,10 @@ fn show(
                 }
                 Pressed::Follow => {
                     state.follow = Follow {
-                        mode: match state.follow.on() {
-                            true => config::Follow::Off,
-                            false => config::Follow::On,
+                        mode: match state.follow.mode {
+                            config::Follow::Off => config::Follow::On,
+                            config::Follow::On => config::Follow::Auto,
+                            config::Follow::Auto => config::Follow::Off,
                         },
                         ..Follow::default()
                     }
@@ -1269,22 +1270,33 @@ mod tests {
         status_row(frame, 6).contains(" follow   ")
     }
 
+    /// Whether the status line of `frame`, in a window of 6 rows, tells
+    /// that the pager follows the document and moves to a change.
+    fn follows_auto(frame: &str) -> bool {
+        status_row(frame, 6).contains(" auto   ")
+    }
+
     #[test]
-    fn capital_f_turns_following_on_and_off() {
-        // F, a change seen on two polls, F again, and a change that is
-        // not asked about.
-        let changes = [look(1), look(1), look(2), look(2)];
+    fn capital_f_goes_from_off_to_on_to_auto_and_back_to_off() {
+        // F, a change seen on two polls, F to auto, where the next change
+        // is seen once, and F to off, where the last one is not asked
+        // about.
+        let changes = [look(1), look(1), look(2), look(3)];
         let mut then = Then::changing([Reloaded::Document(rows(10))], changes);
-        let reads: &[&[u8]] = &[b"F", b"", b"F", b"", b""];
+        let reads: &[&[u8]] = &[b"F", b"", b"F", b"F", b""];
         let frames = reloading_with(Capabilities::ansi(80), &numbers(10), &mut then, reads, 0);
         assert_eq!(then.asked, 1, "{frames:#?}");
-        assert_eq!(then.changes.len(), 2, "{frames:#?}");
-        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert_eq!(then.changes.len(), 1, "{frames:#?}");
+        assert_eq!(frames.len(), 5, "{frames:#?}");
         assert!(!follows(&frames[0]), "{frames:#?}");
+        assert!(!follows_auto(&frames[0]), "{frames:#?}");
         assert!(follows(&frames[1]), "{frames:#?}");
         assert!(at_top(&frames[2], "Row 1"), "{frames:#?}");
         assert!(follows(&frames[2]), "{frames:#?}");
+        assert!(follows_auto(&frames[3]), "{frames:#?}");
         assert!(!follows(&frames[3]), "{frames:#?}");
+        assert!(!follows(&frames[4]), "{frames:#?}");
+        assert!(!follows_auto(&frames[4]), "{frames:#?}");
     }
 
     #[test]

@@ -280,13 +280,17 @@ fn following_pages_a_short_file() {
             }
         }
     };
-    for (args, file) in [
-        (&["-f", "document.md"][..], ""),
-        (&["--follow", "on", "document.md"][..], ""),
-        (&["--fa", "document.md"][..], ""),
-        (&["--follow", "auto", "document.md"][..], ""),
-        (&["document.md"][..], "follow = \"on\"\n"),
-        (&["--paging", "auto", "-f", "document.md"][..], ""),
+    for (args, file, word) in [
+        (&["-f", "document.md"][..], "", " follow "),
+        (&["--follow", "on", "document.md"][..], "", " follow "),
+        (&["--fa", "document.md"][..], "", " auto "),
+        (&["--follow", "auto", "document.md"][..], "", " auto "),
+        (&["document.md"][..], "follow = \"on\"\n", " follow "),
+        (
+            &["--paging", "auto", "-f", "document.md"][..],
+            "",
+            " follow ",
+        ),
     ] {
         let (status, seen) = in_terminal_after(
             "pager-follow-short",
@@ -302,10 +306,7 @@ fn following_pages_a_short_file() {
         );
         assert!(status.success(), "{args:?} {file:?}");
         assert!(seen.starts_with(ENTER), "{args:?} {file:?}: {seen:?}");
-        assert!(
-            text_of(&seen).contains(" follow "),
-            "{args:?} {file:?}: {seen:?}"
-        );
+        assert!(text_of(&seen).contains(word), "{args:?} {file:?}: {seen:?}");
     }
 }
 
