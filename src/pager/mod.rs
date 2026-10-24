@@ -1426,6 +1426,41 @@ mod tests {
     }
 
     #[test]
+    fn auto_following_moves_to_a_removal_as_the_setting_chooses() {
+        // Line 15 changed and Line 30 removed.
+        let source: String = (1..=40)
+            .filter(|&n| n != 30)
+            .map(|n| match n {
+                15 => "Line 15 changed\n\n".to_owned(),
+                n => format!("Line {n}\n\n"),
+            })
+            .collect();
+        for (jump, shown) in [
+            // The removal is the last change, at Line 31 now after it.
+            (FollowJump::Last, "Line 31"),
+            // A removal counts as no rows.
+            (FollowJump::Most, "Line 15 changed"),
+        ] {
+            let new = crate::parse::parse(&source);
+            let mut then = Then::new([Reloaded::Document(new)]);
+            let auto = (config::Follow::Auto, jump);
+            let frames = following_in(21, auto, &numbers(40), &mut then, &[b"r"], 1);
+            let last = frames.last().unwrap();
+            assert_eq!(row_of(last, 21, shown), Some(4), "{jump:?}: {frames:#?}");
+        }
+        // A removal alone is the change of the most rows.
+        let source: String = (1..=40)
+            .filter(|&n| n != 30)
+            .map(|n| format!("Line {n}\n\n"))
+            .collect();
+        let mut then = Then::new([Reloaded::Document(crate::parse::parse(&source))]);
+        let most = (config::Follow::Auto, FollowJump::Most);
+        let frames = following_in(21, most, &numbers(40), &mut then, &[b"r"], 1);
+        let last = frames.last().unwrap();
+        assert_eq!(row_of(last, 21, "Line 31"), Some(4), "{frames:#?}");
+    }
+
+    #[test]
     fn auto_following_shows_a_change_at_the_end_on_the_last_page() {
         let new = numbers_changed(40, &[40]);
         let mut then = Then::new([Reloaded::Document(new)]);
