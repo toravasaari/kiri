@@ -338,6 +338,10 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   file.
 - Ctrl-C stops a reload that draws a slow diagram; today the terminal
   is raw then, and only the time limit ends the wait.
+- Images and diagrams load in the background: the text of a reload shows
+  at once, with a note where an image is still being drawn, and a newer
+  change stops the load of an older one. Today a reload waits for every
+  changed diagram, which with a slow `mmdc` holds the pager for seconds.
 - Warnings about front matter after a reload, on the status line. The
   first load prints them before the pager opens; a reload drops them
   today.
