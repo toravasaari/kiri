@@ -55,7 +55,11 @@ pub fn load_documents(
     loading: &Loading,
     progress: Option<&(dyn Fn(usize, usize) + Sync)>,
 ) -> Result<Loaded, Interrupted> {
-    load_kept(parts, loading, progress, None)
+    let (images, interrupt) = load_kept(parts, loading, progress, None);
+    if let Some(signal) = interrupt.as_ref().and_then(Interrupt::release) {
+        return Err(Interrupted(signal));
+    }
+    Ok(Loaded { images, interrupt })
 }
 
 /// `load_documents` again, for documents that may have changed, into
@@ -63,8 +67,10 @@ pub fn load_documents(
 /// diagrams that it does not hold are loaded, and an image from a local
 /// file is loaded again when the file's modification time is not the one
 /// `stamps` hold. The signals are caught only while programs draw, and
-/// are free again when this returns. When a signal came, `images` holds
-/// no more than the part of what it held that was not given up.
+/// are left as they were when this returns: they are not made to end kiri
+/// meanwhile, as the caller, such as the pager, catches them too. When a
+/// signal came, `images` holds no more than the part of what it held that
+/// was not given up.
 pub fn reload_documents(
     parts: &[Part<'_>],
     loading: &Loading,
@@ -73,17 +79,27 @@ pub fn reload_documents(
     stamps: &mut Stamps,
 ) -> Result<(), Interrupted> {
     stamps.refresh(parts, images);
-    let loaded = load_kept(parts, loading, progress, Some(images))?;
-    *images = loaded.images;
+    let (loaded, interrupt) = load_kept(parts, loading, progress, Some(images));
+    // Looked at without `release`, which would make a signal that comes
+    // later end kiri at once, with the pager's terminal raw.
+    let signal = interrupt.as_ref().and_then(Interrupt::signal);
+    drop(interrupt);
+    if let Some(signal) = signal {
+        return Err(Interrupted(signal));
+    }
+    *images = loaded;
     Ok(())
 }
 
+/// The images of `parts`, loaded as `load_documents` loads them, with
+/// those `kept` holds taken from it, and the guard that caught the
+/// signals while programs drew diagrams, if any did.
 fn load_kept(
     parts: &[Part<'_>],
     loading: &Loading,
     progress: Option<&(dyn Fn(usize, usize) + Sync)>,
     kept: Option<&mut Images>,
-) -> Result<Loaded, Interrupted> {
+) -> (Images, Option<Interrupt>) {
     let (renderers, interrupt) = match loading.settings.diagrams {
         true => {
             let (renderers, interrupt) = renderers(parts, loading);
@@ -107,10 +123,7 @@ fn load_kept(
         Some(kept) => reload_parts(parts, size, fonts, &options, kept),
         None => load_parts(parts, size, fonts, &options),
     };
-    if let Some(signal) = interrupt.as_ref().and_then(Interrupt::release) {
-        return Err(Interrupted(signal));
-    }
-    Ok(Loaded { images, interrupt })
+    (images, interrupt)
 }
 
 /// The renderers the settings choose for the diagrams of the documents in

@@ -64,6 +64,13 @@ impl Interrupt {
         Arc::clone(&self.stop)
     }
 
+    /// The signal that came, if one did, while the signals stay caught:
+    /// for a caller that catches them itself too, such as the pager's
+    /// screen, which then ends kiri once it has restored the terminal.
+    pub fn signal(&self) -> Option<i32> {
+        came(&self.came)
+    }
+
     /// Makes the signals end kiri again, as they do by default; the
     /// signal that came before, if one did, which kiri is then to end by
     /// with [`end_by`].
