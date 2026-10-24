@@ -76,7 +76,6 @@ impl Encoder {
                 graphics::delete(out, old.id)?;
             }
         }
-        self.unused.retain(|&id| id != scaled.id);
         scaled.send(out)?;
         Ok(scaled.id)
     }
