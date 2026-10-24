@@ -132,6 +132,9 @@ pub struct Look {
 /// What reloading the document came to.
 pub enum Reloaded {
     Document(Document),
+    /// As `Document`, whose front matter the parser warns about: the
+    /// warning, as the status line says it.
+    Warned(Document, String),
     /// The document could not be read again: why, as the status line says
     /// it.
     Failed(String),
@@ -306,6 +309,14 @@ pub fn run(
                         }
                         reloaded = Some(document);
                         Told::fading("reloaded", terminal.now())
+                    }
+                    // The warning stays until the next key, as a failure does.
+                    Reloaded::Warned(document, warning) => {
+                        if let Content::Document(old) = content {
+                            changes = Some(compare(old, &document));
+                        }
+                        reloaded = Some(document);
+                        Told::new(warning)
                     }
                     Reloaded::Failed(why) => Told::new(why),
                 });
@@ -1504,6 +1515,22 @@ mod tests {
         assert!(!status.contains("reloaded"), "{frames:#?}");
         assert!(
             !status_row(&frames[3], 6).contains("No such file"),
+            "{frames:#?}"
+        );
+    }
+
+    #[test]
+    fn a_reload_with_a_front_matter_warning_shows_it_until_the_next_key() {
+        let warned = Reloaded::Warned(rows(10), "bad front matter".to_owned());
+        let mut then = Then::new([warned]);
+        let frames = show_reloading(&numbers(10), &mut then, &[b"r", b"j"]);
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert!(at_top(&frames[2], "Row 1"), "{frames:#?}");
+        let status = status_row(&frames[2], 6);
+        assert!(status.contains("bad front matter"), "{frames:#?}");
+        assert!(!status.contains("reloaded"), "{frames:#?}");
+        assert!(
+            !status_row(&frames[3], 6).contains("bad front matter"),
             "{frames:#?}"
         );
     }

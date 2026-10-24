@@ -1464,8 +1464,9 @@ impl Reload for FileReload<'_> {
             Ok(source) => source,
             Err(error) => return Reloaded::Failed(error),
         };
-        // A warning about the front matter has no place in the pager.
-        let document = match document(input, &source, path, self.settings, caps, drop) {
+        let mut warning = None;
+        let warn = |text| warning = Some(without_path(text, path));
+        let document = match document(input, &source, path, self.settings, caps, warn) {
             Ok(Some(document)) => document,
             Ok(None) => return Reloaded::Failed("cannot be shown".to_owned()),
             Err(error) => return Reloaded::Failed(without_path(error, path)),
@@ -1480,7 +1481,10 @@ impl Reload for FileReload<'_> {
                 return Reloaded::Failed("stopped by a signal".to_owned());
             }
         }
-        Reloaded::Document(document)
+        match warning {
+            Some(warning) => Reloaded::Warned(document, warning),
+            None => Reloaded::Document(document),
+        }
     }
 
     fn change(&mut self) -> Change {
