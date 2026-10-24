@@ -190,3 +190,47 @@ fn fit(source: &Source, size: Size, cell: (u16, u16)) -> RgbaImage {
     imageops::replace(&mut canvas, &source.render(size.width, size.height), 0, 0);
     canvas
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::images::ImageKey;
+
+    #[test]
+    fn an_image_held_for_other_cells_is_sent_again() {
+        let mut images = Images::new();
+        let red = RgbaImage::from_pixel(20, 20, image::Rgba([255, 0, 0, 255]));
+        images.insert("square.png", Ok(Source::Raster(red)));
+        let placement = Placement {
+            key: ImageKey::from("square.png"),
+            size: Size {
+                width: 20,
+                height: 20,
+                columns: 2,
+                rows: 1,
+            },
+        };
+        let caps = Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(80)
+        };
+        let taller = Capabilities {
+            cell_pixels: Some((10, 25)),
+            ..caps.clone()
+        };
+        let mut encoder = Encoder::new();
+        let mut out = Vec::new();
+        let old = encoder.id(&placement, &images, &caps, &mut out).unwrap();
+        out.clear();
+        // The same placement in taller cells, without a layout between:
+        // scaled for them, under another id.
+        let new = encoder.id(&placement, &images, &taller, &mut out).unwrap();
+        assert_ne!(old, new);
+        let mut expected = Vec::new();
+        graphics::delete(&mut expected, old).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        let expected = String::from_utf8(expected).unwrap();
+        assert!(out.starts_with(&expected), "{out:?}");
+        assert!(out.contains("\x1b_Ga=T,"), "{out:?}");
+    }
+}

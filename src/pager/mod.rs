@@ -3448,6 +3448,96 @@ mod tests {
         }
     }
 
+    /// All the pager writes for a document that shows `square.png` and
+    /// `twin.png`, both of the same red pixels and so of the same id,
+    /// when `r` reloads it as `after` with `square.png` in `rgba`.
+    fn twins_reloaded(after: &str, rgba: [u8; 4]) -> String {
+        let red = [255, 0, 0, 255];
+        let document = crate::parse::parse("![a](square.png)\n\n![b](twin.png)\n");
+        let (_, mut inputs) = pictured(red);
+        inputs.images.insert("twin.png", Ok(square(red)));
+        let mut repaint = Repaint {
+            document: crate::parse::parse(after),
+            rgba,
+        };
+        let reload: &mut dyn Reload = &mut repaint;
+        let mut terminal = Fake::new(60, 6, &[b"r"]);
+        run(
+            Content::Document(&document),
+            None,
+            "notes.md",
+            &mut inputs,
+            Options {
+                reload: Some(reload),
+                ..Options::new(SearchCase::Smart)
+            },
+            &mut terminal,
+        )
+        .unwrap();
+        String::from_utf8(terminal.out).unwrap()
+    }
+
+    /// `out` before and after the end of its last frame, where the pager
+    /// quits.
+    fn until_quit(out: &str) -> (&str, &str) {
+        let end = out.rfind("\x1b[?2026l").unwrap();
+        out.split_at(end)
+    }
+
+    fn sorted(mut ids: Vec<u32>) -> Vec<u32> {
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+
+    #[test]
+    fn a_changed_image_keeps_the_id_another_placement_still_shows() {
+        let out = twins_reloaded("![a](square.png)\n\n![b](twin.png)\n", [0, 0, 255, 255]);
+        let sent = sent_ids(&out);
+        // Both, of one id, and `square.png` anew.
+        assert_eq!(sent.len(), 3, "{out:?}");
+        assert_eq!(sent[0], sent[1], "{out:?}");
+        assert_ne!(sent[1], sent[2], "{out:?}");
+        // `twin.png` still shows the red one until the pager quits.
+        let (running, quitting) = until_quit(&out);
+        assert_eq!(deleted_ids(running), [0; 0], "{out:?}");
+        assert_eq!(sorted(deleted_ids(quitting)), sorted(sent), "{out:?}");
+    }
+
+    #[test]
+    fn a_layout_without_one_placement_keeps_the_id_the_other_shows() {
+        let out = twins_reloaded("![b](twin.png)\n", [255, 0, 0, 255]);
+        let sent = sent_ids(&out);
+        assert_eq!(sent.len(), 2, "{out:?}");
+        assert_eq!(sent[0], sent[1], "{out:?}");
+        let (running, quitting) = until_quit(&out);
+        assert_eq!(deleted_ids(running), [0; 0], "{out:?}");
+        assert_eq!(deleted_ids(quitting), [sent[0]], "{out:?}");
+    }
+
+    #[test]
+    fn new_cell_pixels_send_the_image_again_and_delete_the_old_one() {
+        let (document, inputs) = pictured([255, 0, 0, 255]);
+        let mut terminal = Fake::new(60, 6, &[b""]);
+        // Wider cells, as after another font: 12 × 20 pixels. The image
+        // is as large and covers as many cells, but they are others.
+        terminal.sizes.push_back(WindowSize {
+            width: 720,
+            height: 120,
+            ..window(60, 6)
+        });
+        let out = written(&document, inputs, &mut terminal, None);
+        let sent = sent_ids(&out);
+        assert_eq!(sent.len(), 2, "{out:?}");
+        assert_ne!(sent[0], sent[1], "{out:?}");
+        // The old one goes as the new layout's frame starts, before the
+        // screen is cleared, and the new one on quitting.
+        let frames = terminal.frames();
+        let first = format!("\x1b_Ga=d,d=I,i={},q=2\x1b\\\x1b[H", sent[0]);
+        assert!(frames[1].starts_with(&first), "{frames:#?}");
+        assert_eq!(deleted_ids(&out), sent, "{out:?}");
+    }
+
     /// The terminal colours of the fade tests: grey text on black, with
     /// black and yellow in the palette.
     fn known_colours() -> Capabilities {
