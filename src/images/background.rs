@@ -606,4 +606,37 @@ mod tests {
         assert!(came[1].1.is_ok(), "{came:?}");
         assert!(loads.is_empty());
     }
+
+    #[test]
+    fn a_panic_is_told_by_its_message_when_it_has_one() {
+        let url = What::Url {
+            url: "a.png".to_owned(),
+            base: PathBuf::new(),
+        };
+        let diagram = What::Diagram {
+            language: "mermaid".to_owned(),
+            source: "x\n".to_owned(),
+            line: 2,
+            by_line: true,
+        };
+        let told =
+            |what: &What, panic: Box<dyn Any + Send>| crashed(what, panic.as_ref()).to_string();
+        assert_eq!(
+            told(&url, Box::new("bad pixels")),
+            "broken image: the decoder crashed: bad pixels"
+        );
+        assert_eq!(
+            told(&url, Box::new(String::from("bad pixels"))),
+            "broken image: the decoder crashed: bad pixels"
+        );
+        assert_eq!(told(&url, Box::new(7)), "broken image: the decoder crashed");
+        assert_eq!(
+            told(&diagram, Box::new(String::from("no layout"))),
+            "mermaid diagram on line 2: the renderer crashed: no layout"
+        );
+        assert_eq!(
+            told(&diagram, Box::new(7)),
+            "mermaid diagram on line 2: the renderer crashed"
+        );
+    }
 }
