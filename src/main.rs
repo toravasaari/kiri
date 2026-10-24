@@ -367,7 +367,12 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     }
     // The source of a diagram in text stays source.
     settings.diagrams &= input != Input::Text;
-    let warn = |warning: &FrontMatterError| eprintln!("kiri: {warning}");
+    // On standard error before the pager opens, and in the pager too.
+    let mut warnings = Vec::new();
+    let warn = |error: &FrontMatterError| {
+        eprintln!("kiri: {error}");
+        warnings.push(Warning::from(error));
+    };
     let Some(document) = document(input, &source, path, &settings, &caps, warn)? else {
         return Ok(write_as_is(&source)?);
     };
@@ -384,6 +389,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
         &document,
         &path.to_string_lossy(),
         from,
+        warnings,
         settings,
         caps,
     )
@@ -1182,12 +1188,14 @@ struct FromFile<'a> {
 /// file, its images are relative to the file's directory, warnings name a
 /// diagram by its line and the pager reloads it with `r`; otherwise images
 /// are relative to the current directory, a diagram is named by its first
-/// line and there is nothing to reload.
+/// line and there is nothing to reload. The pager tells `warnings`, about
+/// the document as read.
 fn show_document(
     context: &Context,
     document: &Document,
     name: &str,
     from: Option<FromFile>,
+    warnings: Vec<Warning>,
     settings: Settings,
     caps: Capabilities,
 ) -> Result<(), Failure> {
@@ -1201,7 +1209,12 @@ fn show_document(
         eprintln!("kiri: {warning}");
     }
     let reading = from.map(|from| (from, stamps));
-    print_document(context, document, name, loaded, settings, caps, reading)
+    let shown = ToShow {
+        document,
+        name,
+        warnings,
+    };
+    print_document(context, shown, loaded, settings, caps, reading)
 }
 
 /// Shows the diagram `source`, in `language`, from the file at `path` or
@@ -1252,7 +1265,12 @@ fn show_diagram(
     let no_renderer = settings.diagrams && caps.draws_images() && error.is_none();
     if caps.styling {
         let name = path.to_string_lossy();
-        print_document(context, &document, &name, loaded, settings, caps, None)?;
+        let shown = ToShow {
+            document: &document,
+            name: &name,
+            warnings: Vec::new(),
+        };
+        print_document(context, shown, loaded, settings, caps, None)?;
     } else {
         write_as_is(source)?;
     }
@@ -1342,7 +1360,15 @@ fn part<'a>(document: &'a Document, file: Option<&'a Path>) -> Part<'a> {
     }
 }
 
-/// Renders `document`, called `name`, with the images `loaded` on
+/// A document to show, what the status line calls it, and the warnings
+/// about it as read, which the pager tells.
+struct ToShow<'a> {
+    document: &'a Document,
+    name: &'a str,
+    warnings: Vec<Warning>,
+}
+
+/// Renders `shown`, with the images `loaded` on
 /// stdout: in the pager when `settings` ask for it, and otherwise
 /// printed. The pager catches the signals itself, so the guard against
 /// them that came with the images goes once its screen catches them. With
@@ -1350,13 +1376,17 @@ fn part<'a>(document: &'a Document, file: Option<&'a Path>) -> Part<'a> {
 /// were last changed, the pager can read it again.
 fn print_document(
     context: &Context,
-    document: &Document,
-    name: &str,
+    shown: ToShow,
     loaded: Loaded,
     settings: Settings,
     caps: Capabilities,
     reading: Option<(FromFile, Stamps)>,
 ) -> Result<(), Failure> {
+    let ToShow {
+        document,
+        name,
+        warnings,
+    } = shown;
     let Loaded {
         images,
         mut interrupt,
@@ -1390,6 +1420,7 @@ fn print_document(
                 None => context.follow,
             },
             jump: settings.follow_jump,
+            warnings,
             reload: reload.as_mut().map(|reload| reload as &mut dyn Reload),
             ..kiri::pager::Options::new(settings.search_case)
         },
@@ -1627,6 +1658,7 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), Failure> {
         &document,
         "kiri --doctor",
         None,
+        Vec::new(),
         settings,
         detection.caps,
     )
@@ -1656,6 +1688,7 @@ fn list_emojis(cli: &Cli) -> Result<(), Failure> {
         &document,
         "kiri --list-emojis",
         None,
+        Vec::new(),
         settings,
         caps,
     )

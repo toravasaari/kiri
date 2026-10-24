@@ -218,7 +218,9 @@ table style, with a warning naming the line of the file, such as
 `kiri: front matter, line 4: …`. CSV and TSV files have no front matter.
 
 In the pager, a reload whose document has such a warning says `reloaded` as
-any reload does, and shows the warning twice:
+any reload does, and shows the warning twice, as below. A document that has
+the warning when it is first opened gets the same, after kiri has printed the
+warning on standard error as it always does.
 
 - The status line gets `⚠ 1` before the position, the number being how many
   warnings the document shown has. The mark stays until a reload brings a

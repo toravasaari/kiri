@@ -180,6 +180,9 @@ pub struct Options<'a> {
     pub follow: config::Follow,
     /// Which change following on auto moves the view to.
     pub jump: FollowJump,
+    /// The warnings about the document as first read, which the pager
+    /// tells as it does those of a reload.
+    pub warnings: Vec<Warning>,
 }
 
 impl Options<'_> {
@@ -192,6 +195,7 @@ impl Options<'_> {
             reload: None,
             follow: config::Follow::Off,
             jump: FollowJump::First,
+            warnings: Vec::new(),
         }
     }
 }
@@ -218,6 +222,7 @@ pub fn run(
         mut reload,
         follow,
         jump,
+        warnings,
     } = options;
     let page = Page {
         background: inputs.theme.background,
@@ -227,6 +232,7 @@ pub fn run(
     let mut size = terminal.size();
     let mut view: Option<View> = None;
     let mut state = State::new(case);
+    state.warn(warnings, terminal.now());
     if reload.is_some() {
         state.follow.mode = follow;
     } else if follow != config::Follow::Off {
@@ -2513,6 +2519,34 @@ mod tests {
         for frame in terminal.frames() {
             assert!(!unstyled(&frame).contains("bad"), "{frame:?}");
         }
+    }
+
+    #[test]
+    fn warnings_given_at_the_start_show_the_mark_and_the_line_at_once() {
+        let mut terminal = Fake::new(60, 6, &[b"j"]);
+        let mut inputs = Inputs::new(Capabilities::ansi(80));
+        let document = numbers(10);
+        let options = Options {
+            warnings: vec![warning(3, "front matter: bad")],
+            ..Options::new(SearchCase::Smart)
+        };
+        let content = Content::Document(&document);
+        run(
+            content,
+            None,
+            "notes.md",
+            &mut inputs,
+            options,
+            &mut terminal,
+        )
+        .unwrap();
+        let frames = terminal.frames();
+        let (_, text) = warning_line(&frames[0]).unwrap_or_default();
+        assert_eq!(text, "\u{26a0} [:3] front matter: bad", "{frames:#?}");
+        assert!(
+            unstyled(&status_row(&frames[0], 6)).contains("\u{26a0} 1"),
+            "{frames:#?}"
+        );
     }
 
     #[test]
