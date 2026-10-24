@@ -52,9 +52,9 @@ impl Styles {
         }
     }
 
-    /// The style of a message `fade` into its fade out: the bar's colours
-    /// with the text going into the bar's background. `None` where they
-    /// are not known as RGB, so the message stays as it is.
+    /// The style of a message at `fade` through its fade out: the bar's
+    /// colours, with the text going into the bar's background. `None`
+    /// where they are not known as RGB, so the message stays as it is.
     pub fn fading(&self, fade: Fade) -> Option<Style> {
         let (_, background) = fade.rgb?.colors(&self.bar)?;
         let gone = Style {
