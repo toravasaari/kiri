@@ -337,6 +337,14 @@ mod tests {
     }
 
     #[test]
+    fn a_table_and_its_note_have_no_source_lines() {
+        let document = at_most("a\n1\n2\n", 2).unwrap();
+        assert!(matches!(document.blocks[1], Block::Note(_)));
+        assert_eq!(document.lines.get(&[0]), None);
+        assert_eq!(document.lines.get(&[1]), None);
+    }
+
+    #[test]
     fn a_file_shows_at_most_max_cells() {
         let source = "x\n".repeat(MAX_CELLS + 1_000);
         let document = csv(&source);

@@ -1119,8 +1119,8 @@ graph TD
     fn top_level_blocks_know_their_lines() {
         let document = parse("# Title\n\nOne\ntwo\n\n---\n\n```\ncode\n```\n");
         assert_eq!(
-            lines_of(&document, &[&[0], &[1], &[2], &[3], &[4]]),
-            [Some(1), Some(3), Some(6), Some(8), None]
+            lines_of(&document, &[&[0], &[1], &[2], &[3]]),
+            [Some(1), Some(3), Some(6), Some(8)]
         );
     }
 
@@ -1200,6 +1200,23 @@ After
             ),
             [Some(1), Some(3), Some(6), Some(8), Some(11), Some(17), None]
         );
+    }
+
+    #[test]
+    fn details_in_one_html_block_start_on_the_line_of_that_block() {
+        let document = parse("Before\n\n<details><details>x</details></details>\n");
+        assert_eq!(
+            lines_of(&document, &[&[1], &[1, 0], &[1, 0, 0]]),
+            [Some(3), Some(3), Some(3)]
+        );
+        // An image in the body is read from the HTML block it is in too.
+        let source = "Before\n\n<details>\n<summary>S</summary>\n<img src=\"a.png\">\n</details>\n";
+        let document = parse(source);
+        assert_eq!(lines_of(&document, &[&[1], &[1, 0]]), [Some(3), Some(3)]);
+        assert!(matches!(
+            document.blocks[1],
+            Block::Details { ref blocks, .. } if matches!(blocks[0], Block::Paragraph(_))
+        ));
     }
 
     #[test]
