@@ -1,6 +1,6 @@
 //! A style that fades into another over a moment: a search match just
 //! jumped to, going over from the text's own colours into the mark of the
-//! current match.
+//! current match, or a message on the status line fading out.
 
 use std::time::Duration;
 
@@ -15,6 +15,15 @@ pub const FADE: Duration = Duration::from_millis(750);
 /// How long the match number stays in its end style, all at once, where
 /// it cannot fade.
 pub const FLASH: Duration = Duration::from_millis(500);
+
+/// How long the status line tells that a reload worked, as it is, before
+/// the message begins to fade out.
+pub const STAY: Duration = Duration::from_secs(4);
+
+/// How long that message takes to fade out into the status line's
+/// background. Where it cannot fade, it goes at the end of this all at
+/// once.
+pub const FADE_OUT: Duration = Duration::from_secs(3);
 
 /// The colours of the page and of the terminal's palette as RGB, where
 /// they are known: what a fade mixes.
@@ -82,12 +91,17 @@ impl Fade<'_> {
     /// mixed as RGB, in `to`'s bold, underline and the rest all the way;
     /// `None` where either's colours are not known as RGB.
     pub fn mix(&self, from: &Style, to: &Style) -> Option<Style> {
-        if self.elapsed >= FADE {
+        self.mix_over(FADE, from, to)
+    }
+
+    /// As [`Fade::mix`], for a fade that takes `length`.
+    pub fn mix_over(&self, length: Duration, from: &Style, to: &Style) -> Option<Style> {
+        if self.elapsed >= length {
             return Some(to.clone());
         }
         let rgb = self.rgb?;
         let ((fg_from, bg_from), (fg_to, bg_to)) = (rgb.colors(from)?, rgb.colors(to)?);
-        let amount = self.elapsed.as_secs_f32() / FADE.as_secs_f32();
+        let amount = self.elapsed.as_secs_f32() / length.as_secs_f32();
         Some(Style {
             fg: fg_from.mix(fg_to, amount),
             bg: bg_from.mix(bg_to, amount),
@@ -221,6 +235,18 @@ mod tests {
             )
         );
         assert_eq!(at(750), to);
+    }
+
+    #[test]
+    fn a_fade_can_take_longer() {
+        let from = Style::default();
+        let to = colored(Some(Color::Rgb(0, 0, 0)), None);
+        let rgb = rgb();
+        let at = |millis| fade(millis, Some(&rgb)).mix_over(FADE_OUT, &from, &to);
+        let grey = |level| Some(Color::Rgb(level, level, level));
+        assert_eq!(at(0).unwrap().fg, grey(200));
+        assert_eq!(at(1500).unwrap().fg, grey(100));
+        assert_eq!(at(3000), Some(to));
     }
 
     #[test]

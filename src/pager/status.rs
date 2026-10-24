@@ -4,7 +4,7 @@
 
 use unicode_width::UnicodeWidthStr;
 
-use super::fade::{FLASH, Fade};
+use super::fade::{FADE_OUT, FLASH, Fade};
 use super::view::Position;
 use crate::caps::Capabilities;
 use crate::color::Color;
@@ -50,6 +50,20 @@ impl Styles {
             None if fade.elapsed < FLASH => self.inverse.clone(),
             None => self.bar.clone(),
         }
+    }
+
+    /// The style of a message at `fade` through its fade out: the bar's
+    /// colours, with the text going into the bar's background. `None`
+    /// where they are not known as RGB, so the message stays as it is.
+    pub fn fading(&self, fade: Fade) -> Option<Style> {
+        let (_, background) = fade.rgb?.colors(&self.bar)?;
+        let gone = Style {
+            fg: Some(background),
+            bg: Some(background),
+            reverse: false,
+            ..self.bar.clone()
+        };
+        fade.mix_over(FADE_OUT, &self.bar, &gone)
     }
 }
 
@@ -126,8 +140,12 @@ pub enum Found<'a> {
     /// `term` is nowhere in the document.
     Nowhere(&'a str),
     /// Not about a search: a message about the last key, such as that
-    /// there is no next file, told where the search would be.
-    Told(&'a str),
+    /// there is no next file, told where the search would be; `fading`
+    /// is its style while it fades out.
+    Told {
+        message: &'a str,
+        fading: Option<Style>,
+    },
 }
 
 /// The status line for the document `name` at `position`, with what was
@@ -165,9 +183,12 @@ pub fn spans(
     // room, so it loses its end instead.
     let told;
     let found = match found {
-        Some(Found::Told(message)) => {
+        Some(Found::Told { message, fading }) => {
             told = head(message, (width - fixed).saturating_sub(3));
-            Some(Found::Told(&told))
+            Some(Found::Told {
+                message: &told,
+                fading,
+            })
         }
         found => found,
     };
@@ -247,7 +268,10 @@ fn search(found: Found, styles: &Styles) -> Vec<Span> {
             span(&format!("/{total}")),
         ],
         Found::Nowhere(term) => vec![span(&format!("not found: {}", printable(term)))],
-        Found::Told(message) => vec![span(message)],
+        Found::Told { message, fading } => vec![match fading {
+            Some(style) => Span::new(message, style),
+            None => span(message),
+        }],
     }
 }
 
@@ -499,7 +523,10 @@ mod tests {
     #[test]
     fn a_message_too_long_for_the_window_loses_its_end() {
         let message = "No such file or directory (os error 2)";
-        let told = Some(Found::Told(message));
+        let told = Some(Found::Told {
+            message,
+            fading: None,
+        });
         let spans = spans("notes.md", None, at(42), told, 40, &styles());
         assert_eq!(text(&spans), " kiri  No such file or directory…   42% ");
         assert_eq!(width(&spans), 40);
@@ -544,6 +571,35 @@ mod tests {
         let styles = Styles::new(&Theme::default(), &caps);
         assert!(styles.inverse.bold && !styles.inverse.reverse);
         assert_eq!((styles.inverse.fg, styles.inverse.bg), (None, None));
+    }
+
+    #[test]
+    fn a_message_fades_out_into_the_bar_s_background() {
+        let mut caps = Capabilities::kitty(80);
+        caps.foreground = Some(Color::Rgb(200, 200, 200));
+        caps.background = Some(Color::Rgb(0, 0, 0));
+        caps.palette[8] = Some(Color::Rgb(100, 100, 100));
+        let theme = Theme::default();
+        let styles = Styles::new(&theme, &caps);
+        let rgb = super::super::fade::Rgb::new(&theme, &caps);
+        let at = |millis| {
+            styles.fading(Fade {
+                elapsed: std::time::Duration::from_millis(millis),
+                rgb: rgb.as_ref(),
+            })
+        };
+        let colors = |style: Option<Style>| style.map(|style| (style.fg, style.bg));
+        let grey = |level| Some(Color::Rgb(level, level, level));
+        assert_eq!(colors(at(0)), Some((grey(200), grey(50))));
+        assert_eq!(colors(at(1500)), Some((grey(125), grey(50))));
+        assert_eq!(colors(at(3000)), Some((grey(50), grey(50))));
+        // Without colours known as RGB, it does not fade.
+        let rgb = None;
+        let fade = Fade {
+            elapsed: std::time::Duration::from_millis(1500),
+            rgb,
+        };
+        assert_eq!(styles.fading(fade), None);
     }
 
     #[test]
