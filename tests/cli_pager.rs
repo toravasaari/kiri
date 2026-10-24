@@ -629,3 +629,195 @@ fn image_files_with_a_document_are_paged_when_they_are_long() {
     assert!(status.success());
     assert!(seen.starts_with(ENTER), "{seen:?}");
 }
+
+/// What a test types into the pager and when: the keys that `keys` returns
+/// once `frames` frames are drawn, after it may have changed the files in
+/// the scratch directory it is given.
+struct Step<'a> {
+    frames: usize,
+    keys: &'a dyn Fn(&std::path::Path) -> &'static [u8],
+}
+
+/// kiri on `args` in a terminal of 5 rows, in a scratch directory called
+/// `name`, with `steps` done in order.
+fn in_steps(
+    name: &str,
+    args: &[&str],
+    stdin: Option<&str>,
+    steps: &[Step],
+) -> (ExitStatus, String) {
+    in_steps_after(name, |_| {}, args, stdin, steps)
+}
+
+/// [`in_steps`] on files `prepare` makes.
+fn in_steps_with(
+    name: &str,
+    prepare: impl FnOnce(&std::path::Path),
+    args: &[&str],
+    steps: &[Step],
+) -> (ExitStatus, String) {
+    in_steps_after(name, prepare, args, None, steps)
+}
+
+fn in_steps_after(
+    name: &str,
+    prepare: impl FnOnce(&std::path::Path),
+    args: &[&str],
+    stdin: Option<&str>,
+    steps: &[Step],
+) -> (ExitStatus, String) {
+    let dir = std::cell::RefCell::new(std::path::PathBuf::new());
+    let prepare = |scratch: &std::path::Path| {
+        *dir.borrow_mut() = scratch.to_owned();
+        prepare(scratch);
+    };
+    let mut done = 0;
+    in_terminal_after(name, prepare, args, 5, stdin, |frames, terminal, _| {
+        if let Some(step) = steps.get(done).filter(|step| frames >= step.frames) {
+            terminal.write_all((step.keys)(&dir.borrow())).unwrap();
+            done += 1;
+        }
+    })
+}
+
+fn quit_after(frames: usize) -> Step<'static> {
+    Step {
+        frames,
+        keys: &|_| b"q",
+    }
+}
+
+#[test]
+fn r_reads_the_file_again() {
+    let rewrite = |dir: &std::path::Path| {
+        let fresh: String = (1..=10).map(|n| format!("Fresh {n}\n\n")).collect();
+        std::fs::write(dir.join("long.md"), fresh).unwrap();
+        b"r" as &'static [u8]
+    };
+    // The first frame, then the one that says it is reloading; the one
+    // of the new document is drawn before the pager reads the next key.
+    let steps = [
+        Step {
+            frames: 1,
+            keys: &rewrite,
+        },
+        quit_after(2),
+    ];
+    let (status, seen) = in_steps("pager-reload", &["long.md"], None, &steps);
+    assert!(status.success());
+    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
+    assert!(frames[0].contains("Line 1"), "{seen:?}");
+    assert!(text_of(frames[1]).contains("reloading"), "{seen:?}");
+    let last = frames.last().unwrap();
+    assert!(last.contains("Fresh 1"), "{seen:?}");
+    assert!(text_of(last).contains("reloaded"), "{seen:?}");
+}
+
+#[test]
+fn a_file_that_is_gone_stays_as_it_was_and_the_status_line_says_why() {
+    let remove = |dir: &std::path::Path| {
+        std::fs::remove_file(dir.join("long.md")).unwrap();
+        b"r" as &'static [u8]
+    };
+    let steps = [
+        Step {
+            frames: 1,
+            keys: &remove,
+        },
+        quit_after(2),
+    ];
+    let (status, seen) = in_steps("pager-reload-gone", &["long.md"], None, &steps);
+    assert!(status.success());
+    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
+    let last = frames.last().unwrap();
+    assert!(last.contains("Line 1"), "{seen:?}");
+    assert!(text_of(last).contains("No such file"), "{seen:?}");
+    assert!(!text_of(last).contains("reloaded"), "{seen:?}");
+}
+
+#[test]
+fn standard_input_and_several_files_reload_nothing() {
+    let reload = Step {
+        frames: 1,
+        keys: &|_| b"r",
+    };
+    let steps = [reload, quit_after(2)];
+    let (status, seen) = in_steps("pager-reload-stdin", &["-p"], Some(&long()), &steps);
+    assert!(status.success());
+    assert!(text_of(&seen).contains("nothing to reload"), "{seen:?}");
+    let args = ["long.md", "document.md"];
+    let (status, seen) = in_steps("pager-reload-files", &args, None, &steps);
+    assert!(status.success());
+    assert!(text_of(&seen).contains("nothing to reload"), "{seen:?}");
+}
+
+/// `frame` without its escape sequences.
+fn text_of(frame: &str) -> String {
+    let mut plain = String::new();
+    let mut chars = frame.chars();
+    while let Some(c) = chars.next() {
+        if c != '\x1b' {
+            plain.push(c);
+            continue;
+        }
+        // A CSI sequence ends at a letter; the graphics ones at the
+        // string terminator.
+        for c in chars.by_ref() {
+            if c.is_ascii_alphabetic() || c == '\\' {
+                break;
+            }
+        }
+    }
+    plain
+}
+
+/// The width in pixels of each image sent to the terminal in `seen`, in
+/// the order they were sent.
+fn sent_widths(seen: &str) -> Vec<String> {
+    seen.split("\x1b_Ga=T,")
+        .skip(1)
+        .filter_map(|image| image.split(',').find(|key| key.starts_with("s=")))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// A red PNG of `width` × 16 pixels at `path`, last modified at `time`.
+fn png(path: &std::path::Path, width: u32, time: std::time::SystemTime) {
+    image::RgbaImage::from_pixel(width, 16, image::Rgba([255, 0, 0, 255]))
+        .save(path)
+        .unwrap();
+    let file = std::fs::File::options().write(true).open(path).unwrap();
+    file.set_modified(time).unwrap();
+}
+
+#[test]
+fn a_reload_shows_an_image_whose_file_changed_and_keeps_the_others() {
+    let long_ago = std::time::UNIX_EPOCH + Duration::from_secs(1000);
+    let prepare = |dir: &std::path::Path| {
+        png(&dir.join("a.png"), 16, long_ago);
+        png(&dir.join("b.png"), 16, long_ago);
+        let document = format!("![a](a.png)\n\n![b](b.png)\n\n{}", long());
+        std::fs::write(dir.join("images.md"), document).unwrap();
+    };
+    // `a.png` is wider, and later than it was; `b.png` is wider too, but
+    // as late as it was.
+    let change = |dir: &std::path::Path| {
+        png(&dir.join("a.png"), 32, std::time::SystemTime::now());
+        png(&dir.join("b.png"), 32, long_ago);
+        b"r" as &'static [u8]
+    };
+    let steps = [
+        Step {
+            frames: 1,
+            keys: &change,
+        },
+        quit_after(2),
+    ];
+    let args = ["--mode", "kitty", "images.md"];
+    let (status, seen) = in_steps_with("pager-reload-images", prepare, &args, &steps);
+    assert!(status.success());
+    // Both images are sent again to the new layout, in the order of the
+    // document.
+    let widths = sent_widths(&seen);
+    assert_eq!(widths, ["s=20", "s=20", "s=40", "s=20"], "{seen:?}");
+}

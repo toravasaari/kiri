@@ -186,6 +186,12 @@ panel colour.
   command when it has one and with the built-in renderer otherwise. An
   external command that fails does not fall back to the built-in one.
 
+A reload, `r` in the pager, loads only the images the document does not
+have yet: a diagram is kept by its key, which holds its source, so one
+that did not change is not drawn again, and an image from a local file is
+loaded again when its modification time, which `src/images/stamps.rs`
+keeps, is not the one it was loaded at. Other images are kept as they are.
+
 `src/images/pipeline.rs` builds the renderers from the settings and the
 environment, given as values, and loads a document's images with them;
 `src/main.rs` hands it `src/term/progress.rs`, which tells on the
@@ -303,6 +309,7 @@ src/images/decode.rs       decoding image files, raster and SVG
 src/images/drawn.rs        diagrams as their renderers drew them, made images
 src/images/pipeline.rs     a document's images for a run: renderers from the
                            settings, the signal guard, the loading
+src/images/stamps.rs       when the files behind the images were last changed
 src/images/url.rs          data URLs, file URLs and paths, read up to a limit
 src/images/svg.rs          SVG images and the fonts for their text
 src/diagrams/mod.rs        diagrams written in code blocks, drawn as images
