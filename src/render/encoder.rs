@@ -72,6 +72,8 @@ impl Encoder {
             if old.id == scaled.id {
                 return Ok(scaled.id);
             }
+            // At once, not queued as `keep` does: the old id is known to
+            // be stale only now that the image has been scaled again.
             if !self.holds(old.id) {
                 graphics::delete(out, old.id)?;
             }
