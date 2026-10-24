@@ -3,7 +3,9 @@
 //! ready. A load that a newer reload no longer wants stops, and one that
 //! it still wants carries on.
 
+use std::any::Any;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::panic::{self, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -370,8 +372,11 @@ impl Batch {
                 },
                 false => None,
             };
-            let image = self.load(&job.what, &stop, &fonts);
+            // A renderer or decoder that panics fails this load alone.
+            let loaded =
+                panic::catch_unwind(AssertUnwindSafe(|| self.load(&job.what, &stop, &fonts)));
             drop(place);
+            let image = loaded.unwrap_or_else(|panic| Err(crashed(&job.what, panic.as_ref())));
             if stop.load(Ordering::SeqCst) {
                 continue;
             }
@@ -413,6 +418,30 @@ impl Batch {
                 finish_diagram(language, source, *line, drawn, max, fonts, &options)
             }
         }
+    }
+}
+
+/// Why loading `what` failed when it panicked with `panic`: a diagram
+/// fails as one its renderer could not draw, an image as a broken one,
+/// with the panic's message when it has one.
+fn crashed(what: &What, panic: &(dyn Any + Send)) -> ImageError {
+    let message = (panic.downcast_ref::<&str>().copied())
+        .or_else(|| panic.downcast_ref::<String>().map(String::as_str));
+    let with = |crashed: &str| match message {
+        Some(message) => format!("{crashed}: {message}"),
+        None => crashed.to_owned(),
+    };
+    match what {
+        What::Diagram {
+            language,
+            source,
+            line,
+            by_line,
+        } => ImageError::Diagram {
+            name: crate::diagrams::name(language, source, *line, *by_line),
+            reason: with("the renderer crashed"),
+        },
+        What::Url { .. } => ImageError::Corrupt(with("the decoder crashed")),
     }
 }
 
@@ -516,5 +545,65 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         assert_eq!(running(), 0);
+    }
+
+    /// Panics on a diagram that says `boom`, and draws others as an empty
+    /// SVG.
+    struct Boom;
+
+    impl Renderer for Boom {
+        fn draws(&self, _: &str) -> bool {
+            true
+        }
+
+        fn render(&self, request: &Request) -> Result<crate::diagrams::Drawn, String> {
+            if request.source.starts_with("boom") {
+                panic!("boom");
+            }
+            let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"/>"#;
+            Ok(crate::diagrams::Drawn::svg(svg, request.theme, None))
+        }
+    }
+
+    #[test]
+    fn a_load_that_panics_fails_and_the_others_still_load() {
+        let mut loads = Loads::new();
+        let job = |source: &str| Job {
+            key: ImageKey::block("mermaid", source),
+            what: What::Diagram {
+                language: "mermaid".to_owned(),
+                source: source.to_owned(),
+                line: 3,
+                by_line: true,
+            },
+            program: false,
+        };
+        let context = Context {
+            renderer: Box::new(Boom),
+            theme: Theme::Light,
+            panel: true,
+            largest: None,
+            max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
+        };
+        // One thread, as no program draws: the second job waits for it.
+        loads.start(vec![job("boom\n"), job("fine\n")], context);
+        let mut came = Vec::new();
+        let start = Instant::now();
+        while came.len() < 2 && start.elapsed() < Duration::from_secs(5) {
+            came.extend(loads.poll());
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(came.len(), 2, "{came:?}");
+        assert_eq!(came[0].0, ImageKey::block("mermaid", "boom\n"));
+        match &came[0].1 {
+            Err(ImageError::Diagram { name, reason }) => {
+                assert_eq!(name, "mermaid diagram on line 3");
+                assert_eq!(reason, "the renderer crashed: boom");
+            }
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(came[1].0, ImageKey::block("mermaid", "fine\n"));
+        assert!(came[1].1.is_ok(), "{came:?}");
+        assert!(loads.is_empty());
     }
 }
