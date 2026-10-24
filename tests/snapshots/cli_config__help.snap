@@ -81,12 +81,13 @@ Options:
 
       --follow <SWITCH>
           Follow a lone file in the pager: on (read it again whenever it changes, with the view kept
-          where it is) or off; off unless set. F turns it on and off in the pager
+          where it is) or off; off unless set. Following pages the file, however short, unless
+          paging is never. F turns it on and off in the pager
           
           [possible values: on, off]
 
   -f
-          Follow the file: --follow=on
+          Follow the file, in the pager: --follow=on
 
   -F
           Do not follow the file: --follow=off
