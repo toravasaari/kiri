@@ -82,7 +82,23 @@ fn in_terminal_told(
     stdin: Option<&str>,
     act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
 ) -> (ExitStatus, String, String) {
-    in_terminal_run(name, prepare, args, rows, stdin, false, act)
+    in_terminal_run(name, prepare, args, rows, stdin, Setup::default(), act)
+}
+
+/// [`in_terminal_after`], with the environment variables `env` set for
+/// kiri.
+fn in_terminal_env(
+    name: &str,
+    env: &[(&str, &str)],
+    args: &[&str],
+    rows: u16,
+    stdin: Option<&str>,
+    act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
+) -> (ExitStatus, String) {
+    let setup = Setup { both: false, env };
+    let (status, seen, stderr) = in_terminal_run(name, |_| {}, args, rows, stdin, setup, act);
+    assert_eq!(stderr, "");
+    (status, seen)
 }
 
 /// [`in_terminal_after`], with what kiri writes to standard error also on
@@ -94,20 +110,32 @@ fn in_terminal_both(
     rows: u16,
     act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
 ) -> (ExitStatus, String) {
-    let (status, seen, _) = in_terminal_run(name, prepare, args, rows, None, true, act);
+    let setup = Setup {
+        both: true,
+        env: &[],
+    };
+    let (status, seen, _) = in_terminal_run(name, prepare, args, rows, None, setup, act);
     (status, seen)
 }
 
-/// [`in_terminal_told`], with standard error on the terminal when
-/// `both`; what kiri wrote to it is then on the terminal instead of
-/// returned.
+/// How [`in_terminal_run`] sets kiri up besides its arguments.
+#[derive(Default)]
+struct Setup<'a> {
+    /// Standard error on the terminal too; what kiri writes to it is then
+    /// on the terminal instead of returned.
+    both: bool,
+    /// Environment variables set for kiri.
+    env: &'a [(&'a str, &'a str)],
+}
+
+/// [`in_terminal_told`], set up as `setup` says.
 fn in_terminal_run(
     name: &str,
     prepare: impl FnOnce(&std::path::Path),
     args: &[&str],
     rows: u16,
     stdin: Option<&str>,
-    both: bool,
+    setup: Setup,
     mut act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
 ) -> (ExitStatus, String, String) {
     let dir = Scratch::new(name);
@@ -127,12 +155,13 @@ fn in_terminal_run(
         kiri.args(["--mode", "ansi"]);
     }
     kiri.current_dir(&*dir)
+        .envs(setup.env.iter().copied())
         .args(args)
         .stdin(match stdin {
             Some(_) => Stdio::piped(),
             None => Stdio::null(),
         })
-        .stderr(match both {
+        .stderr(match setup.both {
             true => Stdio::from(tty.try_clone().unwrap()),
             false => Stdio::piped(),
         })
@@ -299,6 +328,33 @@ fn following_still_prints_with_paging_never() {
         assert!(!seen.contains(ENTER), "{args:?} {file:?}: {seen:?}");
         assert!(seen.contains("Line 3"), "{args:?} {file:?}: {seen:?}");
     }
+}
+
+#[test]
+fn kiri_follow_pages_a_short_file_and_leaves_standard_input_quiet() {
+    let env = [("KIRI_FOLLOW", "on")];
+    let quit = |frames: usize, terminal: &mut std::fs::File, _: &std::process::Child| {
+        if frames == 1 {
+            terminal.write_all(b"q").unwrap();
+        }
+    };
+    let args = ["document.md"];
+    let (status, seen) = in_terminal_env("pager-follow-variable", &env, &args, 24, None, quit);
+    assert!(status.success());
+    assert!(seen.starts_with(ENTER), "{seen:?}");
+    assert!(text_of(&seen).contains(" follow "), "{seen:?}");
+    let stdin = Some(long());
+    let (status, seen) = in_terminal_env(
+        "pager-follow-variable-stdin",
+        &env,
+        &["-p"],
+        5,
+        stdin.as_deref(),
+        quit,
+    );
+    assert!(status.success());
+    assert!(text_of(&seen).contains("Line 1"), "{seen:?}");
+    assert!(!text_of(&seen).contains("follow"), "{seen:?}");
 }
 
 #[test]
