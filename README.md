@@ -204,11 +204,14 @@ from standard input, or several files, cannot be reloaded.
 
 `F` follows the file: kiri reads it again whenever it changes, such as
 while another program writes it, and keeps the view where it was, as `r`
-does. `kiri -f notes.md` opens the file in the pager and follows it from
-the start, also when it is shorter than the window; `follow = "on"` in
-the configuration file or `KIRI_FOLLOW=1` always does. The status line
-says `F follow` while it is on. A document from standard input, or
-several files, cannot be followed yet.
+does. Pressed again, it auto-follows: after each change the view also
+moves to what changed, which shows in a lighter background for a moment;
+a third press stops following. `kiri -f notes.md` opens the file in the
+pager and follows it from the start, also when it is shorter than the
+window, and `kiri --fa notes.md` auto-follows it; `follow = "on"` or
+`"auto"` in the configuration file, or `KIRI_FOLLOW`, always does. The
+status line says `F follow` or `F auto`. A document from standard input,
+or several files, cannot be followed yet.
 
 ## Documentation
 
