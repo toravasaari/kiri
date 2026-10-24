@@ -143,6 +143,16 @@ same block, as `r` reads it again; `auto` also moves the view to a change;
 
 Following pages a lone file as `-p` does, also when it is shorter than
 the window, unless paging is `never`: `kiri -f -P notes.md` prints it.
+With `auto`, a reload that changed the document moves the view to a
+change, which [Follow jump](#follow-jump) chooses. A change is a run of
+blocks that changed or were added, one after another; blocks removed with
+neither beside them are a change where they were. When the view does not
+show all of the change, its start goes near the top, below three rows of
+what comes before it (fewer in a window of fewer than twelve rows), or
+the last page shows it. A change in a list, a quote or an alert moves the
+view to the start of that list, quote or alert. `r` moves to a change too
+while following is `auto`.
+
 `F` in the pager goes from `off` to `on` to `auto` and back to `off`, and
 the status line says `F follow` while following is on and `F auto` while
 it is auto. Following notices a change by the file's

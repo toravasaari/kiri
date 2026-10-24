@@ -1059,7 +1059,11 @@ fn following(name: &str, args: &[&str], change: &dyn Fn(&std::path::Path)) -> Ve
     assert!(status.success());
     let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).map(text_of).collect();
     assert!(frames[0].contains("Line 1"), "{seen:?}");
-    assert!(frames[0].contains(" follow "), "{seen:?}");
+    let follows = [" follow ", " auto "];
+    assert!(
+        follows.iter().any(|word| frames[0].contains(word)),
+        "{seen:?}"
+    );
     frames
 }
 
@@ -1073,6 +1077,21 @@ fn follow_reads_the_file_again_when_it_changes_without_a_key() {
         assert!(last.contains("reloaded"), "{args:?}: {frames:?}");
         // Without a key, the pager does not say it is reloading.
         assert!(!frames.iter().any(|frame| frame.contains("reloading")));
+    }
+}
+
+#[test]
+fn auto_follow_moves_the_view_to_a_change_in_the_file() {
+    let rewrite = |dir: &std::path::Path| {
+        let text = long().replace("Line 9\n", "Line 9 changed\n");
+        std::fs::write(dir.join("long.md"), text).unwrap();
+    };
+    for args in [&["--follow", "auto", "long.md"][..], &["--fa", "long.md"]] {
+        let frames = following("pager-follow-auto", args, &rewrite);
+        let last = frames.last().unwrap();
+        assert!(last.contains("Line 9 changed"), "{args:?}: {frames:?}");
+        assert!(!last.contains("Line 1 "), "{args:?}: {frames:?}");
+        assert!(last.contains(" auto "), "{args:?}: {frames:?}");
     }
 }
 

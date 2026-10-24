@@ -170,6 +170,29 @@ impl View {
         }
     }
 
+    /// Shows the change on `lines`, which is at a place between two lines
+    /// when it has none. When the view does not show all of it, its first
+    /// line goes near the top, below [`ABOVE_CHANGE`] rows of the lines
+    /// before it, at most a quarter of the window's rows; or as near the
+    /// top as the last page lets it come.
+    pub fn show_change(&mut self, lines: Range<usize>) {
+        let visible = self.visible();
+        if visible.start <= lines.start && lines.end <= visible.end {
+            return;
+        }
+        let above = ABOVE_CHANGE.min(self.rows / 4);
+        let mut used = 0;
+        let fitting = self.heights[..lines.start]
+            .iter()
+            .rev()
+            .take_while(|&&height| {
+                used += height;
+                used <= above
+            })
+            .count();
+        self.top = (lines.start - fitting).min(self.last_top());
+    }
+
     /// The same view for lines laid out again, `heights` high, in a window
     /// of `rows` rows, and coming from `blocks`: the top stays in the same
     /// block, at the same share of its lines. A blank top line moves to the
@@ -261,6 +284,10 @@ impl View {
             .count()
     }
 }
+
+/// The rows of the lines before a change that [`View::show_change`] shows
+/// above it, in a window of at least four times as many rows.
+const ABOVE_CHANGE: usize = 3;
 
 /// The first line of the run of lines of one block that `line` is in.
 fn run_start(blocks: &[Option<BlockInfo>], line: usize) -> usize {
@@ -530,6 +557,72 @@ mod tests {
         view.scroll(Motion::Down(20));
         view.resize(new_heights, new_blocks, 5);
         assert_eq!(view.top(), 5);
+    }
+
+    #[test]
+    fn a_change_shown_whole_does_not_move_the_view() {
+        let mut view = scrolled(plain(40, 10), &[Motion::Down(5)]);
+        view.show_change(5..15);
+        assert_eq!(view.top(), 5);
+        view.show_change(9..9);
+        assert_eq!(view.top(), 5);
+        // At the bottom of the view, after its last line.
+        view.show_change(15..15);
+        assert_eq!(view.top(), 5);
+    }
+
+    #[test]
+    fn a_change_not_shown_whole_goes_near_the_top() {
+        let mut view = plain(60, 20);
+        view.show_change(30..32);
+        assert_eq!(view.top(), 27);
+        // Above the view too, and cut off at the bottom.
+        view.show_change(5..6);
+        assert_eq!(view.top(), 2);
+        view.show_change(5..30);
+        assert_eq!(view.top(), 2);
+        // A change without lines, as a removal is.
+        view.show_change(25..25);
+        assert_eq!(view.top(), 22);
+        // Near the start, as many rows as there are.
+        view.show_change(1..2);
+        assert_eq!(view.top(), 0);
+    }
+
+    #[test]
+    fn a_short_window_shows_a_quarter_of_its_rows_above_a_change() {
+        let mut view = plain(40, 8);
+        view.show_change(20..21);
+        assert_eq!(view.top(), 18);
+        let mut view = plain(40, 3);
+        view.show_change(20..21);
+        assert_eq!(view.top(), 20);
+    }
+
+    #[test]
+    fn rows_above_a_change_count_by_height() {
+        // A line of one row and a line of two above it.
+        let mut heights = vec![1; 40];
+        heights[12] = 2;
+        let mut view = View::new(heights, 12);
+        view.show_change(14..15);
+        assert_eq!(view.top(), 12);
+        // A tall line that does not fit in the rows above stays out.
+        let mut heights = vec![1; 60];
+        heights[30] = 4;
+        let mut view = View::new(heights, 12);
+        view.show_change(31..32);
+        assert_eq!(view.top(), 31);
+    }
+
+    #[test]
+    fn a_change_at_the_end_shows_the_last_page() {
+        let mut view = plain(40, 10);
+        view.show_change(38..40);
+        assert_eq!(view.visible(), 30..40);
+        view = plain(40, 10);
+        view.show_change(40..40);
+        assert_eq!(view.visible(), 30..40);
     }
 
     #[test]

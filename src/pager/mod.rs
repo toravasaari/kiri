@@ -1,6 +1,7 @@
 //! The interactive pager: the document on a screen of its own, scrolled
 //! with keys.
 
+pub mod changes;
 pub mod fade;
 pub mod files;
 pub mod help;
@@ -16,7 +17,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::caps::Capabilities;
 use crate::compare::{Comparison, Fate, compare};
-use crate::config::{self, Paging, SearchCase};
+use crate::config::{self, FollowJump, Paging, SearchCase};
 use crate::images::Images;
 use crate::model::{Document, File};
 use crate::render::Inputs;
@@ -149,6 +150,8 @@ pub struct Options<'a> {
     /// Whether the pager follows the document from the start: reads it
     /// again whenever it changes.
     pub follow: config::Follow,
+    /// Which change following on auto moves the view to.
+    pub jump: FollowJump,
 }
 
 impl Options<'_> {
@@ -160,6 +163,7 @@ impl Options<'_> {
             case,
             reload: None,
             follow: config::Follow::Off,
+            jump: FollowJump::First,
         }
     }
 }
@@ -185,6 +189,7 @@ pub fn run(
         case,
         mut reload,
         follow,
+        jump,
     } = options;
     let page = Page {
         background: inputs.theme.background,
@@ -232,20 +237,30 @@ pub fn run(
             }
         }
         let mut writer = Writer::new(&inputs.images, &inputs.caps, page);
-        let heights = lines
+        let heights: Vec<usize> = lines
             .iter()
             .map(|line| usize::from(writer.rows(line)))
             .collect();
-        let places = lines
+        let places: Vec<Option<BlockInfo>> = lines
             .iter()
             .map(|line| line.block.map(|id| blocks.get(id).clone()))
             .collect();
         let mut shown = match view.take() {
             Some(mut view) => {
                 match changes.take() {
-                    Some(changes) => view.resize_by(heights, places, rows, |old, new| {
-                        follows(&changes, old, new)
-                    }),
+                    Some(changes) => {
+                        // Following on auto moves on from the place kept to
+                        // a change.
+                        let change = (state.follow.mode == config::Follow::Auto)
+                            .then(|| changes::groups(&changes, &places, &heights))
+                            .and_then(|groups| changes::choose(&groups, jump).cloned());
+                        view.resize_by(heights, places, rows, |old, new| {
+                            follows(&changes, old, new)
+                        });
+                        if let Some(change) = change {
+                            view.show_change(change.lines);
+                        }
+                    }
                     None => view.resize(heights, places, rows),
                 }
                 view
@@ -1262,6 +1277,166 @@ mod tests {
             status_row(&frames[2], 6).contains("reloaded"),
             "{frames:#?}"
         );
+    }
+
+    /// `document` followed as `follow` says, jumping to the change `jump`
+    /// chooses, with `then` to reload it, in a window of 60 × `rows`, with
+    /// `reads` and then `empty` polls without keys.
+    fn following_in(
+        rows: u16,
+        (follow, jump): (config::Follow, FollowJump),
+        document: &Document,
+        then: &mut Then,
+        reads: &[&[u8]],
+        empty: usize,
+    ) -> Vec<String> {
+        let mut reads = reads.to_vec();
+        reads.extend(std::iter::repeat_n(b"".as_slice(), empty));
+        let mut terminal = Fake::new(60, rows, &reads);
+        let mut inputs = Inputs::new(Capabilities::ansi(80));
+        run(
+            Content::Document(document),
+            None,
+            "notes.md",
+            &mut inputs,
+            Options {
+                reload: Some(then),
+                follow,
+                jump,
+                ..Options::new(SearchCase::Smart)
+            },
+            &mut terminal,
+        )
+        .unwrap();
+        terminal.frames()
+    }
+
+    /// Following on auto, jumping to the first change.
+    const AUTO: (config::Follow, FollowJump) = (config::Follow::Auto, FollowJump::First);
+
+    /// The row of `frame` that shows `text`, counted from 1, of the
+    /// window's `rows`.
+    fn row_of(frame: &str, rows: u16, text: &str) -> Option<u16> {
+        let frame = unstyled(frame);
+        (1..rows).find(|row| {
+            let start = format!("\x1b[{row};1H");
+            let end = format!("\x1b[{};1H", row + 1);
+            frame
+                .split(&start)
+                .nth(1)
+                .and_then(|rest| rest.split(&end).next())
+                .is_some_and(|shown| shown.contains(text))
+        })
+    }
+
+    /// `numbers(count)` with each line of `changed` written anew.
+    fn numbers_changed(count: usize, changed: &[usize]) -> Document {
+        let source: String = (1..=count)
+            .map(|n| match changed.contains(&n) {
+                true => format!("Line {n} changed\n\n"),
+                false => format!("Line {n}\n\n"),
+            })
+            .collect();
+        crate::parse::parse(&source)
+    }
+
+    #[test]
+    fn auto_following_moves_the_view_to_a_change_below_it() {
+        // A change seen on two polls, to Line 30, far below the view.
+        let changes = [look(1), look(1)];
+        let new = numbers_changed(40, &[30]);
+        let mut then = Then::changing([Reloaded::Document(new)], changes);
+        let frames = following_in(21, AUTO, &numbers(40), &mut then, &[], 3);
+        assert_eq!(then.asked, 1, "{frames:#?}");
+        assert!(at_top(&frames[0], "Line 1"), "{frames:#?}");
+        let last = frames.last().unwrap();
+        // Three rows of what comes before it above it.
+        assert_eq!(row_of(last, 21, "Line 30 changed"), Some(4), "{frames:#?}");
+        assert_eq!(row_of(last, 21, "Line 29"), Some(2), "{frames:#?}");
+    }
+
+    #[test]
+    fn r_moves_to_a_change_while_following_is_auto() {
+        let new = numbers_changed(40, &[30]);
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let frames = following_in(21, AUTO, &numbers(40), &mut then, &[b"r"], 1);
+        assert_eq!(then.asked, 1, "{frames:#?}");
+        let last = frames.last().unwrap();
+        assert_eq!(row_of(last, 21, "Line 30 changed"), Some(4), "{frames:#?}");
+    }
+
+    #[test]
+    fn r_keeps_the_place_while_following_is_on() {
+        let new = numbers_changed(40, &[30]);
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let on = (config::Follow::On, FollowJump::First);
+        let frames = following_in(21, on, &numbers(40), &mut then, &[b"r"], 1);
+        assert_eq!(then.asked, 1, "{frames:#?}");
+        assert!(at_top(frames.last().unwrap(), "Line 1"), "{frames:#?}");
+    }
+
+    #[test]
+    fn auto_following_does_not_move_to_a_change_in_view() {
+        let new = numbers_changed(40, &[8]);
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let frames = following_in(21, AUTO, &numbers(40), &mut then, &[b"jj", b"r"], 1);
+        let last = frames.last().unwrap();
+        assert!(at_top(last, "Line 2"), "{frames:#?}");
+        assert!(row_of(last, 21, "Line 8 changed").is_some(), "{frames:#?}");
+    }
+
+    #[test]
+    fn auto_following_does_not_move_after_a_reload_that_changed_nothing() {
+        let mut then = Then::new([Reloaded::Document(numbers(40))]);
+        let frames = following_in(21, AUTO, &numbers(40), &mut then, &[b"jjjj", b"r"], 1);
+        assert_eq!(then.asked, 1, "{frames:#?}");
+        assert!(at_top(frames.last().unwrap(), "Line 3"), "{frames:#?}");
+    }
+
+    #[test]
+    fn auto_following_moves_to_the_change_the_setting_chooses() {
+        let long = "Line 30 changed into a paragraph long enough to take two \
+                    lines or more of the window";
+        let source: String = (1..=40)
+            .map(|n| match n {
+                15 => "Line 15 changed\n\n".to_owned(),
+                30 => format!("{long}\n\n"),
+                n => format!("Line {n}\n\n"),
+            })
+            .collect();
+        for (jump, shown) in [
+            (FollowJump::First, "Line 15 changed"),
+            (FollowJump::Last, "Line 30 changed"),
+            (FollowJump::Most, "Line 30 changed"),
+        ] {
+            let new = crate::parse::parse(&source);
+            let mut then = Then::new([Reloaded::Document(new)]);
+            let auto = (config::Follow::Auto, jump);
+            let frames = following_in(21, auto, &numbers(40), &mut then, &[b"r"], 1);
+            let last = frames.last().unwrap();
+            assert_eq!(row_of(last, 21, shown), Some(4), "{jump:?}: {frames:#?}");
+        }
+        // Most is the first of changes that take as many rows.
+        let new = numbers_changed(40, &[15, 30]);
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let most = (config::Follow::Auto, FollowJump::Most);
+        let frames = following_in(21, most, &numbers(40), &mut then, &[b"r"], 1);
+        let last = frames.last().unwrap();
+        assert_eq!(row_of(last, 21, "Line 15 changed"), Some(4), "{frames:#?}");
+    }
+
+    #[test]
+    fn auto_following_shows_a_change_at_the_end_on_the_last_page() {
+        let new = numbers_changed(40, &[40]);
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let frames = following_in(21, AUTO, &numbers(40), &mut then, &[b"r"], 1);
+        let last = frames.last().unwrap();
+        assert_eq!(row_of(last, 21, "Line 40 changed"), Some(20), "{frames:#?}");
+        // A removal at the end, too.
+        let mut then = Then::new([Reloaded::Document(numbers(39))]);
+        let frames = following_in(21, AUTO, &numbers(40), &mut then, &[b"r"], 1);
+        let last = frames.last().unwrap();
+        assert_eq!(row_of(last, 21, "Line 39"), Some(20), "{frames:#?}");
     }
 
     /// Whether the status line of `frame`, in a window of 6 rows, tells

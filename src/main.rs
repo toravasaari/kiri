@@ -1390,6 +1390,7 @@ fn print_document(
                 Some(_) => settings.follow,
                 None => context.follow,
             },
+            jump: settings.follow_jump,
             reload: reload.as_mut().map(|reload| reload as &mut dyn Reload),
             ..kiri::pager::Options::new(settings.search_case)
         },
