@@ -376,6 +376,11 @@ fn following_tells_where_it_comes_from() {
     let report = piped(&dir, &["-F"]);
     let row = "| Follow | off | `-F` |";
     assert!(report.contains(row), "{row}\n{report}");
+    let out = doctor(&dir, &[]).env("KIRI_FOLLOW", "0").output().unwrap();
+    assert_succeeded(&out);
+    let report = text(&out.stdout);
+    let row = "| Follow | off | `KIRI_FOLLOW=0` |";
+    assert!(report.contains(row), "{row}\n{report}");
 }
 
 #[test]

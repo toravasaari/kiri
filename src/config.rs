@@ -67,6 +67,8 @@ environment! {
     kiri_no_images: "KIRI_NO_IMAGES",
     /// `KIRI_PAGING`: `always`, `auto` or `never`, or `1` or `0`.
     kiri_paging: "KIRI_PAGING",
+    /// `KIRI_FOLLOW`: `on` or `off`, or `1` or `0`.
+    kiri_follow: "KIRI_FOLLOW",
     /// `KIRI_FRONT_MATTER`: `table`, `code`, `hide` or `off`.
     kiri_front_matter: "KIRI_FRONT_MATTER",
     /// `KIRI_TABLE_ROWS`: `off`, `zebra`, `lines`, `indent` or `underline`.
@@ -935,7 +937,13 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
         images: images(options.images.clone(), env, config),
         paging,
         search_case: resolve(None, unset, config.search_case, SearchCase::default(), w),
-        follow: resolve(options.follow.clone(), unset, config.follow, false, w),
+        follow: resolve(
+            options.follow.clone(),
+            variable(env, "KIRI_FOLLOW"),
+            config.follow,
+            false,
+            w,
+        ),
         front_matter,
         table_rows,
         diagrams,
@@ -1862,6 +1870,20 @@ mod tests {
                 "joo",
                 "KIRI_PAGING: `joo` is not always, auto, never, 1 or 0; left out",
             ),
+        );
+    }
+
+    #[test]
+    fn kiri_follow_chooses_following() {
+        check_variable(
+            |choices| &choices.follow,
+            "KIRI_FOLLOW",
+            &[("on", true), ("off", false), ("1", true), ("0", false)],
+            Config {
+                follow: Some(false),
+                ..Config::default()
+            },
+            ("joo", "KIRI_FOLLOW: `joo` is not on, off, 1 or 0; left out"),
         );
     }
 

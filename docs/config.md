@@ -130,15 +130,17 @@ same block, as `r` reads it again:
 
 1. `--follow on|off`, `-f` for `on` or `-F` for `off`; only one of them
    can be given
-2. `follow` in the configuration file
-3. `off`
+2. `KIRI_FOLLOW`: `on` or `off`, `1` for `on` and `0` for `off`; an empty
+   value counts as unset, and any other value is left out with a warning
+3. `follow` in the configuration file
+4. `off`
 
 `F` turns following on and off in the pager, and the status line says
 `follow` while it is on. Following notices a change by the file's
 modification time and length, so on a filesystem that keeps the time only
 to the second, an edit within the same second that keeps the length waits
 for the next change. A document from standard input, or several files,
-cannot be followed yet. There is no environment variable for this.
+cannot be followed yet.
 
 ## Search case
 
@@ -214,6 +216,7 @@ about images that do not load go to standard error whatever this says.
 | `KIRI_THEME` | A theme file; see [Theme](#theme) |
 | `KIRI_NO_IMAGES` | Images as alt text; see [Images](#images) |
 | `KIRI_PAGING` | When to page; see [Paging](#paging) |
+| `KIRI_FOLLOW` | Whether the pager follows a file; see [Follow](#follow) |
 | `KIRI_FRONT_MATTER` | Front matter render style; see [Front matter](#front-matter) |
 | `KIRI_TABLE_ROWS` | Table row style; see [Table rows](#table-rows) |
 | `KIRI_DIAGRAMS` | Diagrams drawn or shown as code; see [Diagrams](diagrams.md) |
