@@ -115,12 +115,14 @@ keeps the search term as it is typed, and `src/pager/search.rs` finds it
 in the laid-out lines and splits a line where a match starts and ends, so
 the matches can be highlighted without a change to the writer;
 `src/pager/fade.rs` mixes the colours a match fades through after a jump,
-and those of the status line's `reloaded` as it fades out;
+those of the status line's `reloaded` as it fades out, and those of the
+warning line;
 `src/pager/files.rs` finds where each of several files starts from the
 blocks of the lines, so the status line names the file at the top of the
 view and `:n` and `:p` move from one file's start to another's;
 `src/pager/status.rs` and `src/pager/help.rs` make the status line and the
-help panel as styled spans; `src/pager/mod.rs` draws each frame, row by
+help panel as styled spans, and `src/pager/warnings.rs` the line of text
+above the status line that tells the first warning; `src/pager/mod.rs` draws each frame, row by
 row through the backend's writer, and lays the document out again when the
 window changes size or when `r` reloads it. For that the pager is given a
 `Reload`, as it is given a `Terminal` for keys: it asks the `Reload` for the
@@ -392,6 +394,7 @@ src/pager/changes.rs       where a reload changed the laid-out lines, and
 src/pager/tint.rs          the lighter background over that change's lines
 src/pager/status.rs        the status line
 src/pager/help.rs          the help panel that lists the keys
+src/pager/warnings.rs      the warning line above the status line
 src/kitty/mod.rs           kitty-specific escape sequences
 src/kitty/text.rs          text sizing protocol (OSC 66)
 src/kitty/graphics.rs      graphics protocol with Unicode placeholders
