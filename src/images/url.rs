@@ -46,6 +46,19 @@ pub(super) fn load_url(
     }
 }
 
+/// The local file that `url` names, a path or a `file:` URL, as `load_url`
+/// reads it; `None` for any other URL.
+pub(super) fn local_file(url: &str, base: &Path) -> Option<PathBuf> {
+    match scheme(url) {
+        Some(scheme) if scheme.eq_ignore_ascii_case("file") => {
+            let path = file_url_path(&url[scheme.len() + 1..])?;
+            local_path(path, base).ok()
+        }
+        Some(_) => None,
+        None => local_path(url, base).ok(),
+    }
+}
+
 /// The image in the file at `path`, whose extension names its format.
 fn decode_file(path: &Path, max_file_size: u64, fonts: &Fonts) -> Result<Source, ImageError> {
     let bytes = read_file(path, max_file_size)?;

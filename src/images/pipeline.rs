@@ -4,7 +4,8 @@
 //! The caller tells how far drawing has got where it likes, such as on a
 //! line of the terminal.
 
-use super::{Fonts, Images, LoadOptions, Part, diagram_languages, load_parts};
+use super::load_parts;
+use super::{Fonts, Images, LoadOptions, Part, Stamps, diagram_languages, reload_parts};
 use crate::config::{self, Environment, Settings};
 use crate::diagrams::find::{self, Search};
 use crate::diagrams::{ExternalSettings, NoRenderer, Renderers, Theme};
@@ -54,6 +55,35 @@ pub fn load_documents(
     loading: &Loading,
     progress: Option<&(dyn Fn(usize, usize) + Sync)>,
 ) -> Result<Loaded, Interrupted> {
+    load_kept(parts, loading, progress, None)
+}
+
+/// `load_documents` again, for documents that may have changed, into
+/// `images`, which holds what was loaded before: only the images and
+/// diagrams that it does not hold are loaded, and an image from a local
+/// file is loaded again when the file's modification time is not the one
+/// `stamps` hold. The signals are caught only while programs draw, and
+/// are free again when this returns. When a signal came, `images` holds
+/// no more than the part of what it held that was not given up.
+pub fn reload_documents(
+    parts: &[Part<'_>],
+    loading: &Loading,
+    progress: Option<&(dyn Fn(usize, usize) + Sync)>,
+    images: &mut Images,
+    stamps: &mut Stamps,
+) -> Result<(), Interrupted> {
+    stamps.refresh(parts, images);
+    let loaded = load_kept(parts, loading, progress, Some(images))?;
+    *images = loaded.images;
+    Ok(())
+}
+
+fn load_kept(
+    parts: &[Part<'_>],
+    loading: &Loading,
+    progress: Option<&(dyn Fn(usize, usize) + Sync)>,
+    kept: Option<&mut Images>,
+) -> Result<Loaded, Interrupted> {
     let (renderers, interrupt) = match loading.settings.diagrams {
         true => {
             let (renderers, interrupt) = renderers(parts, loading);
@@ -72,7 +102,11 @@ pub fn load_documents(
         largest: loading.largest,
         ..LoadOptions::default()
     };
-    let images = load_parts(parts, loading.max_file_size, &Fonts::system(), &options);
+    let (size, fonts) = (loading.max_file_size, &Fonts::system());
+    let images = match kept {
+        Some(kept) => reload_parts(parts, size, fonts, &options, kept),
+        None => load_parts(parts, size, fonts, &options),
+    };
     if let Some(signal) = interrupt.as_ref().and_then(Interrupt::release) {
         return Err(Interrupted(signal));
     }
@@ -189,5 +223,99 @@ mod tests {
         let loaded = load_documents(&parts, &loading, None).unwrap();
         assert!(loaded.images.is_empty());
         assert!(loaded.interrupt.is_none());
+    }
+
+    /// A PNG of `width` × `height` pixels at `path`, last modified
+    /// `modified` seconds after the start of the epoch.
+    fn write_png(path: &Path, width: u32, height: u32, modified: u64) {
+        let mut png = std::io::Cursor::new(Vec::new());
+        let image = image::RgbaImage::from_pixel(width, height, image::Rgba([255, 0, 0, 255]));
+        image.write_to(&mut png, image::ImageFormat::Png).unwrap();
+        std::fs::write(path, png.into_inner()).unwrap();
+        let time = std::time::UNIX_EPOCH + std::time::Duration::from_secs(modified);
+        let file = std::fs::File::options().write(true).open(path).unwrap();
+        file.set_modified(time).unwrap();
+    }
+
+    fn size_of(images: &Images, url: &str) -> (u32, u32) {
+        match images.get(&url.into()) {
+            Some(Ok(image)) => image.size(),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_reload_loads_an_image_file_again_only_when_its_modification_time_changed() {
+        let scratch = Scratch::new("pipeline-stamps");
+        write_png(&scratch.join("a.png"), 4, 2, 1000);
+        let settings = settings(&["/bin/false"]);
+        let loading = Loading {
+            env: &Environment::default(),
+            settings: &settings,
+            max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
+            theme: Theme::Light,
+            largest: None,
+        };
+        let document = crate::parse::parse("![x](a.png)\n");
+        let parts = alone(&document, &scratch);
+        let mut stamps = Stamps::of(&parts);
+        let mut images = load_documents(&parts, &loading, None).unwrap().images;
+        assert_eq!(size_of(&images, "a.png"), (4, 2));
+
+        // Other content, the same time: the file is taken as it was.
+        write_png(&scratch.join("a.png"), 6, 3, 1000);
+        reload_documents(&parts, &loading, None, &mut images, &mut stamps).unwrap();
+        assert_eq!(size_of(&images, "a.png"), (4, 2));
+
+        write_png(&scratch.join("a.png"), 6, 3, 2000);
+        reload_documents(&parts, &loading, None, &mut images, &mut stamps).unwrap();
+        assert_eq!(size_of(&images, "a.png"), (6, 3));
+    }
+
+    #[test]
+    fn a_reload_loads_an_image_whose_file_was_missing_when_it_appears() {
+        let scratch = Scratch::new("pipeline-stamps-missing");
+        let settings = settings(&["/bin/false"]);
+        let loading = Loading {
+            env: &Environment::default(),
+            settings: &settings,
+            max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
+            theme: Theme::Light,
+            largest: None,
+        };
+        let document = crate::parse::parse("![x](a.png)\n");
+        let parts = alone(&document, &scratch);
+        let mut stamps = Stamps::of(&parts);
+        let mut images = load_documents(&parts, &loading, None).unwrap().images;
+        assert!(matches!(images.get(&"a.png".into()), Some(Err(_))));
+        write_png(&scratch.join("a.png"), 4, 2, 1000);
+        reload_documents(&parts, &loading, None, &mut images, &mut stamps).unwrap();
+        assert_eq!(size_of(&images, "a.png"), (4, 2));
+    }
+
+    #[test]
+    fn a_reload_keeps_an_image_that_has_no_file() {
+        let settings = settings(&["/bin/false"]);
+        let loading = Loading {
+            env: &Environment::default(),
+            settings: &settings,
+            max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
+            theme: Theme::Light,
+            largest: None,
+        };
+        let document = crate::parse::parse("![x](https://example.com/a.png)\n");
+        let parts = alone(&document, Path::new(""));
+        let mut stamps = Stamps::of(&parts);
+        let mut images = Images::new();
+        images.insert(
+            "https://example.com/a.png",
+            Err(crate::images::ImageError::Remote),
+        );
+        reload_documents(&parts, &loading, None, &mut images, &mut stamps).unwrap();
+        assert_eq!(images.len(), 1);
+        assert!(matches!(
+            images.get(&"https://example.com/a.png".into()),
+            Some(Err(crate::images::ImageError::Remote))
+        ));
     }
 }
