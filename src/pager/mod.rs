@@ -1194,6 +1194,27 @@ mod tests {
     }
 
     #[test]
+    fn a_key_clears_reloaded_at_once_while_it_fades() {
+        // Forty polls are the four seconds the message stays, and ten
+        // frames half a second of its fade.
+        let mut caps = known_colours();
+        caps.palette[8] = Some(Color::Rgb(100, 100, 100));
+        let mut then = Then::new([Reloaded::Document(rows(10))]);
+        let mut reads: Vec<&[u8]> = vec![b"r"];
+        reads.extend(std::iter::repeat_n(b"".as_slice(), 50));
+        reads.push(b"j");
+        let frames = reloading_with(caps, &numbers(10), &mut then, &reads, 0);
+        let last = frames.last().unwrap();
+        // The key moved the view and cleared the message in one frame.
+        assert!(!at_top(last, "Row 1"), "{frames:#?}");
+        assert!(!status_row(last, 6).contains("reloaded"), "{frames:#?}");
+        // The frame before the key showed the message fading.
+        let before = status_row(&frames[frames.len() - 2], 6);
+        let fading = style_before(&before, "reloaded");
+        assert_eq!(fading[..2], ["0", "38"], "{frames:#?}");
+    }
+
+    #[test]
     fn other_messages_stay_until_the_next_key() {
         let why = Reloaded::Failed("notes.md: No such file or directory".to_owned());
         let mut then = Then::new([why]);
