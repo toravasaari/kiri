@@ -150,7 +150,7 @@ pub enum Found<'a> {
 }
 
 /// The status line for the document `name` at `position`, with what was
-/// `found` by a search, `width` cells wide, and a word before the position
+/// `found` by a search, `width` cells wide, and a word after the position
 /// when the pager follows the document, as `follow` says. `place` is the
 /// file's number, from 1, and how many files there are, which the line
 /// tells after the name. A narrow window leaves out the keys first, then
@@ -197,7 +197,7 @@ pub fn spans(
         found => found,
     };
     // The word that tells the pager follows the document, and a gap of
-    // three before the position.
+    // three before it.
     let following = follow_word(follow);
     let mark = match following {
         Some((key, what)) => key.width() + what.width() + 3,
@@ -231,12 +231,12 @@ pub fn spans(
         right.extend(search);
         right.push(Span::new("   ", styles.bar.clone()));
     }
+    right.push(Span::new(&percent, styles.bar.clone()));
     if let Some((key, what)) = following.filter(|_| with_mark) {
+        right.push(Span::new("   ", styles.bar.clone()));
         right.push(Span::new(key, bold.clone()));
         right.push(Span::new(what, styles.bar.clone()));
-        right.push(Span::new("   ", styles.bar.clone()));
     }
-    right.push(Span::new(&percent, styles.bar.clone()));
     if with_keys {
         for (key, what) in keys {
             right.push(Span::new("   ", styles.bar.clone()));
@@ -399,11 +399,11 @@ mod tests {
     }
 
     #[test]
-    fn following_is_told_before_the_position_with_its_key() {
+    fn following_is_told_after_the_position_with_its_key() {
         let spans = spans("notes.md", None, at(42), Follow::On, None, 60, &styles());
         assert_eq!(
             text(&spans),
-            " kiri  notes.md            F follow   42%   ? help   q quit "
+            " kiri  notes.md            42%   F follow   ? help   q quit "
         );
         assert_eq!(width(&spans), 60);
         // The key in bold, as the keys for help and quitting are.
@@ -430,10 +430,10 @@ mod tests {
         };
         assert_eq!(
             text(&shown(60)),
-            " kiri  notes.md              F auto   42%   ? help   q quit "
+            " kiri  notes.md              42%   F auto   ? help   q quit "
         );
         assert_eq!(width(&shown(60)), 60);
-        assert_eq!(text(&shown(20)), " kiri  F auto   42% ");
+        assert_eq!(text(&shown(20)), " kiri  42%   F auto ");
     }
 
     #[test]
@@ -449,10 +449,10 @@ mod tests {
                 &styles(),
             ))
         };
-        assert_eq!(shown(30, None), " kiri  …tes.md F follow   42% ");
-        assert_eq!(shown(22, None), " kiri  F follow   42% ");
+        assert_eq!(shown(30, None), " kiri  …tes.md 42%   F follow ");
+        assert_eq!(shown(22, None), " kiri  42%   F follow ");
         assert_eq!(shown(21, None), " kiri  notes.md  42% ");
-        assert_eq!(shown(35, AT), " kiri  /kiri 3/12   F follow   42% ");
+        assert_eq!(shown(35, AT), " kiri  /kiri 3/12   42%   F follow ");
         assert_eq!(shown(34, AT), " kiri  notes.md  /kiri 3/12   42% ");
         for width in 0..80 {
             let spans = spans(
