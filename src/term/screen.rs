@@ -221,12 +221,18 @@ impl<W: Write> Screen<W> {
         })
     }
 
-    /// Makes a panic leave the screen before its message is written, so the
-    /// message stays on the main screen.
+    /// Makes a panic on this thread leave the screen before its message is
+    /// written, so the message stays on the main screen. A panic on
+    /// another thread, such as a load in the background that catches it
+    /// and fails, neither leaves the screen nor writes over it.
     fn catch_panics(&mut self) {
         let leave = Arc::clone(&self.leave);
         let previous = std::panic::take_hook();
+        let own = std::thread::current().id();
         std::panic::set_hook(Box::new(move |info| {
+            if std::thread::current().id() != own {
+                return;
+            }
             // Standard output is the screen's output: see `open`.
             leave.run(&mut std::io::stdout());
             previous(info);
@@ -676,13 +682,57 @@ mod tests {
         assert!(terminal.local_modes.contains(LocalModes::ICANON));
     }
 
+    /// Run on its own by
+    /// [`a_panic_caught_on_another_thread_leaves_the_screen_open`]: opens a
+    /// screen on standard output, and another thread panics and catches
+    /// it, as a load in the background does; then the screen writes on.
+    #[test]
+    #[ignore = "run by a_panic_caught_on_another_thread_leaves_the_screen_open"]
+    fn caught_panic_beside_a_screen() {
+        use std::io::Write;
+
+        let (_terminal, tty) = pty();
+        let mut screen =
+            Screen::on(tty, std::io::stdout(), Signals::none()).expect("the screen opens");
+        screen.catch_panics();
+        let caught =
+            std::thread::spawn(|| std::panic::catch_unwind(|| panic!("[a load fails]")).is_err());
+        assert!(caught.join().unwrap());
+        screen.write_all(b"[still on the screen]").unwrap();
+        screen.flush().unwrap();
+    }
+
+    #[test]
+    fn a_panic_caught_on_another_thread_leaves_the_screen_open() {
+        let output = child_output("term::screen::tests::caught_panic_beside_a_screen");
+        let written = output
+            .find("[still on the screen]")
+            .expect("the screen writes on");
+        let leave = output.find("\x1b[?1049l").expect("the screen is left");
+        assert!(written < leave, "{output:?}");
+        assert!(!output.contains("[a load fails]"), "{output:?}");
+    }
+
     #[test]
     fn a_panic_message_comes_after_the_screen() {
+        let output = child_output("term::screen::tests::panic_on_a_screen");
+        let leave = output.find("\x1b[?1049l").expect("the screen is left");
+        let message = output
+            .find("[the pager fails]")
+            .expect("the message is written");
+        assert!(leave < message, "{output:?}");
+        assert_eq!(output.matches("\x1b[?1049l").count(), 1, "{output:?}");
+        assert!(!output.contains("[part of a frame]"), "{output:?}");
+    }
+
+    /// All that the ignored test `test`, run on its own in a child, writes
+    /// on standard output and standard error.
+    fn child_output(test: &str) -> String {
         use std::process::{Command, Stdio};
 
         let (mut reader, writer) = std::io::pipe().unwrap();
         let mut child = Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "term::screen::tests::panic_on_a_screen"])
+            .args(["--exact", test])
             .args(["--ignored", "--nocapture", "--test-threads", "1"])
             .stdin(Stdio::null())
             .stdout(writer.try_clone().unwrap())
@@ -712,13 +762,6 @@ mod tests {
             }
         }
         let _ = child.wait();
-        let output = String::from_utf8_lossy(&output);
-        let leave = output.find("\x1b[?1049l").expect("the screen is left");
-        let message = output
-            .find("[the pager fails]")
-            .expect("the message is written");
-        assert!(leave < message, "{output:?}");
-        assert_eq!(output.matches("\x1b[?1049l").count(), 1, "{output:?}");
-        assert!(!output.contains("[part of a frame]"), "{output:?}");
+        String::from_utf8_lossy(&output).into_owned()
     }
 }
