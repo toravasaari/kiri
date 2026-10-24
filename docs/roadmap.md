@@ -289,6 +289,8 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   Images that did not change are not sent to the terminal again
   (G2.2), and images that changed or went are deleted from it, as are
   all of kiri's images when the pager quits.
+  Ctrl-C stops a reload that draws a slow diagram; today the terminal
+  is raw then, and only the time limit ends the wait.
 - Changes shown as a diff, added text green and removed text red, fading
   out slowly: after a reload, and against a git revision.
 
@@ -748,6 +750,15 @@ go.
 - A side-by-side view: the Markdown source beside the rendered document,
   each part across from the other, so the source and what it becomes can
   be compared.
+- Warnings about front matter after a reload in the pager, on the status
+  line. The first load prints them before the pager opens; a reload
+  drops them today.
+- The help panel in sections, such as moving, searching and several
+  files, so it stays the same whatever is shown and the keys of one kind
+  can be looked up under their own heading. Today it lists the keys for
+  several files only when several are shown.
+- A search keeps its place after a reload: the match it was on, rather
+  than the first match from the top of the view.
 
 ## Bugs
 
