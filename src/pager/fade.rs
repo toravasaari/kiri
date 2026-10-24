@@ -25,6 +25,10 @@ pub const STAY: Duration = Duration::from_secs(4);
 /// once.
 pub const FADE_OUT: Duration = Duration::from_secs(3);
 
+/// How long the warning line stays, as it is, before it begins to fade
+/// out over [`FADE`] into the page's background.
+pub const WARNING_STAY: Duration = Duration::from_secs(5);
+
 /// How long the lines of the change auto-follow went to stay tinted, as
 /// they are, before the tint begins to fade.
 pub const HIGHLIGHT_STAY: Duration = Duration::from_secs(1);
