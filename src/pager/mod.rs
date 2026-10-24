@@ -241,6 +241,8 @@ pub fn run(
                 line.size = TextSize::NORMAL;
             }
         }
+        // The images the new lines do not place go with their first frame.
+        encoder.keep(&lines, &inputs.caps);
         let mut writer = Writer::new(&inputs.images, &inputs.caps, page, &mut encoder);
         let heights: Vec<usize> = lines
             .iter()
@@ -1068,6 +1070,8 @@ fn show(
 /// Draws `lines` from the top of the screen, with the rows below them
 /// empty, `status` on the row below the view's `rows` and `panel` over the
 /// lines, which it dims, as one update so the screen does not flicker.
+/// The images the writer's encoder no longer keeps are deleted in the
+/// same update.
 pub fn draw(
     lines: &[Line],
     rows: usize,
@@ -1077,6 +1081,7 @@ pub fn draw(
     out: &mut impl Write,
 ) -> io::Result<()> {
     output::begin_update(out)?;
+    writer.delete_unused(out)?;
     writer.clear(out)?;
     writer.dim(!panel.is_empty());
     let mut top = 1;
@@ -3382,6 +3387,36 @@ mod tests {
         assert_eq!(deleted_ids(&out), [sent[0]], "{out:?}");
         let deleted = out.find("\x1b_Ga=d,").unwrap();
         assert!(deleted < out.rfind("\x1b_Ga=T,").unwrap(), "{out:?}");
+    }
+
+    #[test]
+    fn a_layout_without_the_image_deletes_it_as_its_frame_is_drawn() {
+        let (document, inputs) = pictured([255, 0, 0, 255]);
+        let without = crate::parse::parse("Above\n\nBelow\n");
+        let mut then = Then::new([Reloaded::Document(without)]);
+        let mut terminal = Fake::new(60, 6, &[b"r"]);
+        let out = written(&document, inputs, &mut terminal, Some(&mut then));
+        let sent = sent_ids(&out);
+        assert_eq!(sent.len(), 1, "{out:?}");
+        assert_eq!(deleted_ids(&out), sent, "{out:?}");
+        // In the frame of the new layout, before anything else in it.
+        let frames = terminal.frames();
+        let last = frames.last().unwrap();
+        assert!(last.starts_with("\x1b_Ga=d,"), "{frames:#?}");
+    }
+
+    #[test]
+    fn a_resize_that_shows_the_image_smaller_deletes_the_larger_one() {
+        let (document, mut inputs) = pictured([255, 0, 0, 255]);
+        let wide = image::RgbaImage::from_pixel(400, 20, image::Rgba([0, 255, 0, 255]));
+        let wide = crate::images::Source::Raster(wide);
+        inputs.images.insert("square.png", Ok(wide));
+        let mut terminal = Fake::new(60, 6, &[b""]);
+        terminal.sizes.push_back(window(30, 6));
+        let out = written(&document, inputs, &mut terminal, None);
+        let sent = sent_ids(&out);
+        assert_eq!(sent.len(), 2, "{out:?}");
+        assert_eq!(deleted_ids(&out), [sent[0]], "{out:?}");
     }
 
     /// The terminal colours of the fade tests: grey text on black, with

@@ -194,6 +194,11 @@ impl<'a> Writer<'a> {
 }
 
 impl Writer<'_> {
+    /// Deletes from the terminal the images the encoder no longer keeps.
+    pub fn delete_unused(&mut self, out: &mut impl Write) -> io::Result<()> {
+        self.encoder.delete_unused(out)
+    }
+
     /// Writes `spans` in their own styles, without the page's colours, and
     /// leaves the cursor at their end with the terminal's default style.
     pub fn bar(&self, spans: &[Span], out: &mut impl Write) -> io::Result<()> {

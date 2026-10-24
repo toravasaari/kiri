@@ -6,13 +6,14 @@
 //! themselves are `kitty::graphics`'s; the encoder knows placements and
 //! ids.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 
 use image::RgbaImage;
 use image::imageops;
 
 use super::image::{Placement, Size, cell_size};
+use super::style::Line;
 use crate::caps::Capabilities;
 use crate::images::{Images, Source};
 use crate::kitty::graphics::{self, ImageId};
@@ -23,6 +24,9 @@ use crate::kitty::graphics::{self, ImageId};
 #[derive(Debug, Default)]
 pub struct Encoder {
     held: HashMap<Placement, Held>,
+    /// Images the terminal holds that no placement has any more, to be
+    /// deleted before the next frame.
+    unused: Vec<ImageId>,
 }
 
 /// An image the terminal holds.
@@ -72,8 +76,42 @@ impl Encoder {
                 graphics::delete(out, old.id)?;
             }
         }
+        self.unused.retain(|&id| id != scaled.id);
         scaled.send(out)?;
         Ok(scaled.id)
+    }
+
+    /// Keeps only the images `lines` place on a terminal with `caps`, as
+    /// the lines of a new layout do: the others are deleted by the next
+    /// [`Encoder::delete_unused`]. An image is placed by a line whether
+    /// or not the line is in view.
+    pub fn keep(&mut self, lines: &[Line], caps: &Capabilities) {
+        let cell = cell_size(caps);
+        let placed: HashSet<&Placement> = (lines.iter())
+            .filter_map(|line| line.image.as_ref())
+            .map(|image| image.placement.as_ref())
+            .collect();
+        let mut gone = Vec::new();
+        self.held.retain(|placement, held| {
+            let kept = held.cell == cell && placed.contains(placement);
+            if !kept {
+                gone.push(held.id);
+            }
+            kept
+        });
+        for id in gone {
+            if !self.holds(id) && !self.unused.contains(&id) {
+                self.unused.push(id);
+            }
+        }
+    }
+
+    /// Deletes from the terminal the images [`Encoder::keep`] let go.
+    pub fn delete_unused(&mut self, out: &mut impl Write) -> io::Result<()> {
+        for id in self.unused.drain(..) {
+            graphics::delete(out, id)?;
+        }
+        Ok(())
     }
 
     /// Tells the encoder that the pixels in the images it is given may
