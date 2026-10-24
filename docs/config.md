@@ -29,6 +29,10 @@ paging = "auto"
 # How a search in the pager treats case: "smart" or "literal".
 search_case = "smart"
 
+# Whether the pager follows a lone file, reading it again whenever it
+# changes: "on" or "off".
+follow = "off"
+
 # Front matter render style: "table", "code", "hide" or "off".
 front_matter = "table"
 
@@ -117,6 +121,21 @@ are all images or diagram files; with a document among them, the setting
 applies to all the files. Whatever the setting, kiri prints the
 document when its output is not a terminal or `--mode plain` asks for
 text without escape sequences.
+
+## Follow
+
+The first of these that is given decides whether the pager follows a lone
+file, reading it again whenever it changes, with the view kept at the
+same block, as `r` reads it again:
+
+1. `--follow on|off`, `-f` for `on` or `-F` for `off`; only one of them
+   can be given
+2. `follow` in the configuration file
+3. `off`
+
+`F` turns following on and off in the pager, and the status line says
+`follow` while it is on. A document from standard input, or several files,
+cannot be followed yet. There is no environment variable for this.
 
 ## Search case
 

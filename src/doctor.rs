@@ -214,6 +214,8 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     row(out, &["Images", images.value.name(), &from(images.origin)])?;
     let paging = &choices.paging;
     row(out, &["Paging", paging.value.name(), &from(paging.origin)])?;
+    let follow = &choices.follow;
+    row(out, &["Follow", follow.value.name(), &from(follow.origin)])?;
     let search_case = &choices.search_case;
     let case = search_case.value.name();
     row(out, &["Search case", case, &from(search_case.origin)])?;

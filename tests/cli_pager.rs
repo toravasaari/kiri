@@ -214,7 +214,13 @@ fn ctrl_c_quits_and_leaves_the_screen() {
 
 #[test]
 fn a_long_file_shown_as_text_is_paged_too() {
-    let (status, seen) = in_terminal("pager-text", &["-f", "text", "long.md"], 5, None, &[b"q"]);
+    let (status, seen) = in_terminal(
+        "pager-text",
+        &["--format", "text", "long.md"],
+        5,
+        None,
+        &[b"q"],
+    );
     assert!(status.success());
     assert!(seen.starts_with(ENTER), "{seen:?}");
     assert!(seen.contains("Line 1"), "{seen:?}");
@@ -909,6 +915,101 @@ fn standard_input_and_several_files_reload_nothing() {
     let (status, seen) = in_steps("pager-reload-files", &args, None, &steps);
     assert!(status.success());
     assert!(text_of(&seen).contains("nothing to reload"), "{seen:?}");
+}
+
+/// The text of `long.md` written anew: ten paragraphs of `Fresh`.
+fn fresh() -> String {
+    (1..=10).map(|n| format!("Fresh {n}\n\n")).collect()
+}
+
+/// kiri following `long.md` with `args` in a terminal of 5 rows, with
+/// `change` done to the scratch directory after the first frame and no
+/// key until the second, after which it quits. Returns the frames.
+fn following(name: &str, args: &[&str], change: &dyn Fn(&std::path::Path)) -> Vec<String> {
+    let changed = |dir: &std::path::Path| {
+        change(dir);
+        b"" as &'static [u8]
+    };
+    let steps = [
+        Step {
+            frames: 1,
+            keys: &changed,
+        },
+        quit_after(2),
+    ];
+    let (status, seen) = in_steps(name, args, None, &steps);
+    assert!(status.success());
+    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).map(text_of).collect();
+    assert!(frames[0].contains("Line 1"), "{seen:?}");
+    assert!(frames[0].contains(" follow "), "{seen:?}");
+    frames
+}
+
+#[test]
+fn follow_reads_the_file_again_when_it_changes_without_a_key() {
+    let rewrite = |dir: &std::path::Path| std::fs::write(dir.join("long.md"), fresh()).unwrap();
+    for args in [&["--follow", "on", "long.md"][..], &["-f", "long.md"]] {
+        let frames = following("pager-follow", args, &rewrite);
+        let last = frames.last().unwrap();
+        assert!(last.contains("Fresh 1"), "{args:?}: {frames:?}");
+        assert!(last.contains("reloaded"), "{args:?}: {frames:?}");
+        // Without a key, the pager does not say it is reloading.
+        assert!(!frames.iter().any(|frame| frame.contains("reloading")));
+    }
+}
+
+#[test]
+fn follow_reads_a_file_replaced_by_a_rename() {
+    // As editors save: a new file written beside it and moved over it.
+    let replace = |dir: &std::path::Path| {
+        std::fs::write(dir.join(".long.md.swp"), fresh()).unwrap();
+        std::fs::rename(dir.join(".long.md.swp"), dir.join("long.md")).unwrap();
+    };
+    let frames = following("pager-follow-rename", &["-f", "long.md"], &replace);
+    let last = frames.last().unwrap();
+    assert!(last.contains("Fresh 1"), "{frames:?}");
+    assert!(last.contains("reloaded"), "{frames:?}");
+}
+
+#[test]
+fn follow_keeps_a_file_that_is_gone_and_the_status_line_says_why() {
+    let remove = |dir: &std::path::Path| std::fs::remove_file(dir.join("long.md")).unwrap();
+    let frames = following("pager-follow-gone", &["-f", "long.md"], &remove);
+    let last = frames.last().unwrap();
+    assert!(last.contains("Line 1"), "{frames:?}");
+    assert!(last.contains("No such file"), "{frames:?}");
+}
+
+#[test]
+fn standard_input_and_several_files_have_nothing_to_follow() {
+    let steps = [quit_after(1)];
+    let args = ["-p", "--follow", "on"];
+    let (status, seen) = in_steps("pager-follow-stdin", &args, Some(&long()), &steps);
+    assert!(status.success());
+    assert!(text_of(&seen).contains("nothing to follow"), "{seen:?}");
+    let args = ["-f", "long.md", "document.md"];
+    let (status, seen) = in_steps("pager-follow-files", &args, None, &steps);
+    assert!(status.success());
+    assert!(text_of(&seen).contains("nothing to follow"), "{seen:?}");
+}
+
+#[test]
+fn follow_takes_on_or_off_and_capital_f_turns_it_off() {
+    let dir = common::Scratch::new("follow-values");
+    for value in ["auto", "yes"] {
+        let out = command(&dir)
+            .args(["--follow", value, "-"])
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "{value}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains(&format!("invalid value '{value}'")),
+            "{stderr}"
+        );
+    }
+    let out = command(&dir).args(["-f", "-F", "-"]).output().unwrap();
+    assert!(!out.status.success());
 }
 
 /// `frame` without its escape sequences.

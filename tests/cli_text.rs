@@ -22,7 +22,7 @@ fn format_text_shows_a_markdown_file_as_its_source() {
     .unwrap();
     for format in ["text", "txt", "TEXT"] {
         for mode in ["plain", "kitty"] {
-            let out = kiri_on(&dir, &notes, &["--mode", mode, "-f", format]);
+            let out = kiri_on(&dir, &notes, &["--mode", mode, "--format", format]);
             assert_succeeded(&out);
             let stdout = text(&out.stdout);
             assert!(sent(&stdout).is_empty(), "{format} {mode}: {stdout:?}");
@@ -45,7 +45,7 @@ fn format_text_highlights_a_language_its_extension_names() {
     let colours = |name: &str| {
         let path = dir.join(name);
         write(&path, source);
-        let out = kiri_on(&dir, &path, &["--mode", "ansi", "-f", "text"]);
+        let out = kiri_on(&dir, &path, &["--mode", "ansi", "--format", "text"]);
         assert_succeeded(&out);
         let stdout = text(&out.stdout);
         let shown = strip_own_sequences(&stdout);
@@ -64,7 +64,7 @@ fn format_text_reads_standard_input() {
     let dir = Scratch::new("text-stdin");
     let out = kiri_piped(
         &dir,
-        &["--mode", "plain", "-f", "text"],
+        &["--mode", "plain", "--format", "text"],
         b"# Title\n*text*\n",
     );
     assert_succeeded(&out);
@@ -81,7 +81,10 @@ fn format_text_writes_plain_output_as_the_file_is() {
     let source = format!("line one\n    indented\n{}\nlast", "word ".repeat(30));
     let path = dir.join("notes.txt");
     write(&path, &source);
-    for args in [&["-f", "text"][..], &["--mode", "plain", "-f", "text"]] {
+    for args in [
+        &["--format", "text"][..],
+        &["--mode", "plain", "--format", "text"],
+    ] {
         let out = kiri_on(&dir, &path, args);
         assert_succeeded(&out);
         assert_eq!(text(&out.stdout), source, "{args:?}");
@@ -96,7 +99,7 @@ fn format_text_keeps_the_file_s_escapes_from_the_terminal() {
     let dir = Scratch::new("text-escapes");
     let path = dir.join("log.txt");
     write(&path, "red \x1b[31mtext\x1b[0m\n");
-    let out = kiri_on(&dir, &path, &["--mode", "kitty", "-f", "text"]);
+    let out = kiri_on(&dir, &path, &["--mode", "kitty", "--format", "text"]);
     assert_succeeded(&out);
     // Panics on any escape that is not kiri's own.
     strip_own_sequences(&text(&out.stdout));
@@ -107,7 +110,7 @@ fn format_text_needs_utf_8() {
     let dir = Scratch::new("text-not-utf-8");
     let path = dir.join("data.txt");
     std::fs::write(&path, b"\xff\xfe text").unwrap();
-    let out = kiri_on(&dir, &path, &["--mode", "plain", "-f", "text"]);
+    let out = kiri_on(&dir, &path, &["--mode", "plain", "--format", "text"]);
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(
         text(&out.stderr),

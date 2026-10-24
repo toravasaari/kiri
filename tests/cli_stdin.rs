@@ -88,7 +88,11 @@ fn an_image_on_standard_input_is_shown_on_its_own() {
 #[test]
 fn format_makes_standard_input_markdown() {
     let dir = Scratch::new("stdin-format");
-    let out = kiri_piped(&dir, &["--mode", "plain", "-f", "markdown"], b"P1 *text*\n");
+    let out = kiri_piped(
+        &dir,
+        &["--mode", "plain", "--format", "markdown"],
+        b"P1 *text*\n",
+    );
     assert_succeeded(&out);
     assert_eq!(text(&out.stdout).trim(), "P1 text");
 }
@@ -106,7 +110,7 @@ fn errors_name_standard_input() {
             "neither Markdown nor an image kiri knows",
         ),
         (
-            &["--mode", "kitty", "-f", "markdown"],
+            &["--mode", "kitty", "--format", "markdown"],
             b"\xff\xfe",
             "not UTF-8 text",
         ),

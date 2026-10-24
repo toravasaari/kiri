@@ -29,6 +29,7 @@ kiri [version]: terminal features and settings.
 | Margins | on | default |
 | Images | on | default |
 | Paging | auto | default |
+| Follow | off | default |
 | Search case | smart | default |
 | Front matter | table | default |
 | Table rows | zebra | default |

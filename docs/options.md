@@ -4,7 +4,7 @@ These are the options kiri takes on the command line.
 
 | Option | Meaning |
 |---|---|
-| `-f`, `--format FORMAT` | What the file is: `markdown`, `csv`, `tsv`, `mermaid`, `text` (shown as it is), `image`, or an image format such as `png` |
+| `--format FORMAT` | What the file is: `markdown`, `csv`, `tsv`, `mermaid`, `text` (shown as it is), `image`, or an image format such as `png` |
 | `--mode auto\|plain\|ansi\|kitty` | Override what kiri detects |
 | `--width N` | Render for `N` cells instead of the terminal width |
 | `--theme FILE` | Colours and heading sizes; see [Theme](theme.md) |
@@ -15,6 +15,8 @@ These are the options kiri takes on the command line.
 | `--max-image-size MB` | Largest image file to read: 10 MB unless set, at most 100 |
 | `--paging always\|auto\|never` | When to show the document in the pager; `auto` unless set |
 | `-p`, `-P` | The pager always (`--paging always`) or never (`--paging never`) |
+| `--follow on\|off` | Follow a lone file in the pager: read it again whenever it changes, with the view kept where it is; `off` unless set |
+| `-f`, `-F` | Follow (`--follow on`) or not (`--follow off`) |
 | `--front-matter table\|code\|hide\|off` | Front matter render style; `table` unless set |
 | `--table-rows zebra\|lines\|indent\|underline\|off` | Table row style; `zebra` unless set |
 | `--diagrams on\|off` | Diagrams in code blocks, such as Mermaid, drawn or shown as code; `on` unless set |
