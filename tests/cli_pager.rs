@@ -1248,10 +1248,10 @@ fn a_reload_shows_an_image_whose_file_changed_and_keeps_the_others() {
     let args = ["--mode", "kitty", "images.md"];
     let (status, seen) = in_steps_with("pager-reload-images", prepare, &args, &steps);
     assert!(status.success());
-    // Both images are sent again to the new layout, in the order of the
-    // document.
+    // Only `a.png` is sent again to the new layout; the terminal still
+    // holds `b.png` as it was.
     let widths = sent_widths(&seen);
-    assert_eq!(widths, ["s=20", "s=20", "s=40", "s=20"], "{seen:?}");
+    assert_eq!(widths, ["s=20", "s=20", "s=40"], "{seen:?}");
 }
 
 /// Writes `document` into the named pipe at `path` once a reader opens it,

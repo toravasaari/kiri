@@ -17,10 +17,23 @@ use crate::caps::Capabilities;
 use crate::images::{Images, Source};
 use crate::kitty::graphics::{self, ImageId};
 
-/// The images sent to the terminal, by where and how large they are shown.
+/// The images the terminal holds, by where and how large they are shown.
+/// One encoder can serve one layout after another, as the pager's does,
+/// so that an image the terminal holds is not sent again.
 #[derive(Debug, Default)]
 pub struct Encoder {
-    sent: HashMap<Placement, ImageId>,
+    held: HashMap<Placement, Held>,
+}
+
+/// An image the terminal holds.
+#[derive(Debug, Clone, Copy)]
+struct Held {
+    id: ImageId,
+    /// The pixels of the cells it was scaled to fit.
+    cell: (u16, u16),
+    /// Whether `id` is known to be that of the pixels as they are now:
+    /// not after they may have changed, until the image is scaled again.
+    checked: bool,
 }
 
 impl Encoder {
@@ -30,7 +43,9 @@ impl Encoder {
     }
 
     /// The id of the image `placement` shows, from `images`, on a terminal
-    /// with `caps`: sent to `out` first if it has not been.
+    /// with `caps`: sent to `out` first unless the terminal holds it. An
+    /// image sent for `placement` before, which the pixels no longer
+    /// give, is deleted.
     pub fn id(
         &mut self,
         placement: &Placement,
@@ -38,42 +53,80 @@ impl Encoder {
         caps: &Capabilities,
         out: &mut impl Write,
     ) -> io::Result<ImageId> {
-        if let Some(&id) = self.sent.get(placement) {
-            return Ok(id);
+        let cell = cell_size(caps);
+        let old = self.held.get(placement).filter(|held| held.cell == cell);
+        if let Some(held) = old.filter(|held| held.checked) {
+            return Ok(held.id);
         }
-        let id = send(placement, images, caps, out)?;
-        self.sent.insert(placement.clone(), id);
-        Ok(id)
+        let scaled = Scaled::new(placement, images, cell)?;
+        let held = Held {
+            id: scaled.id,
+            cell,
+            checked: true,
+        };
+        if let Some(old) = self.held.insert(placement.clone(), held) {
+            if old.id == scaled.id {
+                return Ok(scaled.id);
+            }
+            if !self.holds(old.id) {
+                graphics::delete(out, old.id)?;
+            }
+        }
+        scaled.send(out)?;
+        Ok(scaled.id)
+    }
+
+    /// Tells the encoder that the pixels in the images it is given may
+    /// have changed, as after a reload: each image is scaled again when it
+    /// is next shown, and sent again only when that gives another id.
+    pub fn changed(&mut self) {
+        for held in self.held.values_mut() {
+            held.checked = false;
+        }
+    }
+
+    /// Whether some placement still has image `id`.
+    fn holds(&self, id: ImageId) -> bool {
+        self.held.values().any(|held| held.id == id)
     }
 }
 
-/// Scales the image `placement` shows to its size and sends it.
-fn send(
-    placement: &Placement,
-    images: &Images,
-    caps: &Capabilities,
-    out: &mut impl Write,
-) -> io::Result<ImageId> {
-    let Some(Ok(source)) = images.get(&placement.key) else {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("no pixels for image {}", placement.key),
-        ));
-    };
-    let pixels = fit(source, placement.size, cell_size(caps));
-    let cells = graphics::Cells {
-        columns: placement.size.columns,
-        rows: placement.size.rows,
-    };
-    let (width, height) = pixels.dimensions();
-    let id = ImageId::new(pixels.as_raw(), width, height, cells);
-    let pixels = graphics::Pixels {
-        width,
-        height,
-        rgba: pixels.as_raw(),
-    };
-    graphics::transmit(out, id, &pixels, cells)?;
-    Ok(id)
+/// An image scaled to the cells it covers, and its id.
+struct Scaled {
+    id: ImageId,
+    pixels: RgbaImage,
+    cells: graphics::Cells,
+}
+
+impl Scaled {
+    /// The image `placement` shows, from `images`, scaled to its size in
+    /// cells of `cell` pixels.
+    fn new(placement: &Placement, images: &Images, cell: (u16, u16)) -> io::Result<Self> {
+        let Some(Ok(source)) = images.get(&placement.key) else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("no pixels for image {}", placement.key),
+            ));
+        };
+        let pixels = fit(source, placement.size, cell);
+        let cells = graphics::Cells {
+            columns: placement.size.columns,
+            rows: placement.size.rows,
+        };
+        let (width, height) = pixels.dimensions();
+        let id = ImageId::new(pixels.as_raw(), width, height, cells);
+        Ok(Self { id, pixels, cells })
+    }
+
+    fn send(&self, out: &mut impl Write) -> io::Result<()> {
+        let (width, height) = self.pixels.dimensions();
+        let pixels = graphics::Pixels {
+            width,
+            height,
+            rgba: self.pixels.as_raw(),
+        };
+        graphics::transmit(out, self.id, &pixels, self.cells)
+    }
 }
 
 /// `source` drawn at `size` and placed at the top left of the cells it

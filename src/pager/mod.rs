@@ -211,6 +211,9 @@ pub fn run(
     // How the reloaded document differs from the one before it, until the
     // view has found its place in the new lines.
     let mut changes: Option<Comparison> = None;
+    // What the terminal holds of the images, kept from one layout to the
+    // next.
+    let mut encoder = Encoder::new();
     let shown_files: &[File] = match content {
         Content::Document(_) => &[],
         Content::Files(files) => files,
@@ -238,7 +241,6 @@ pub fn run(
                 line.size = TextSize::NORMAL;
             }
         }
-        let mut encoder = Encoder::new();
         let mut writer = Writer::new(&inputs.images, &inputs.caps, page, &mut encoder);
         let heights: Vec<usize> = lines
             .iter()
@@ -332,6 +334,8 @@ pub fn run(
                 state.changed = None;
                 view = Some(shown);
                 state.follow.seen = None;
+                // The reload may change the pixels of the images.
+                encoder.changed();
                 let source = reload.as_deref_mut().expect("a source to reload from");
                 state.told = Some(match source.reload(&mut inputs.images, &inputs.caps) {
                     Reloaded::Document(document) => {
@@ -3285,6 +3289,99 @@ mod tests {
         let sent = out.find("\x1b_Ga=T,").unwrap();
         let shown = out.find(crate::kitty::graphics::PLACEHOLDER).unwrap();
         assert!(sent < shown, "{out:?}");
+    }
+
+    /// The ids of the images `out` sends, in order.
+    fn sent_ids(out: &str) -> Vec<u32> {
+        ids_after(out, "\x1b_Ga=T,U=1,q=2,f=32,o=z,i=")
+    }
+
+    /// The ids of the images `out` deletes, in order.
+    fn deleted_ids(out: &str) -> Vec<u32> {
+        ids_after(out, "\x1b_Ga=d,d=I,i=")
+    }
+
+    fn ids_after(out: &str, prefix: &str) -> Vec<u32> {
+        (out.split(prefix).skip(1))
+            .map(|rest| {
+                let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+                digits.parse().unwrap()
+            })
+            .collect()
+    }
+
+    /// Reloads `document` with the image `square.png` in `rgba`.
+    struct Repaint {
+        document: Document,
+        rgba: [u8; 4],
+    }
+
+    impl Reload for Repaint {
+        fn reload(&mut self, images: &mut Images, _: &Capabilities) -> Reloaded {
+            images.insert("square.png", Ok(square(self.rgba)));
+            Reloaded::Document(self.document.clone())
+        }
+
+        fn change(&mut self) -> Change {
+            Change::Unchanged
+        }
+    }
+
+    /// All the pager writes for `document`, whose image is `square.png`
+    /// in `before`, when `r` reloads it with the image in `after`.
+    fn repainted(document: &Document, before: [u8; 4], after: [u8; 4]) -> String {
+        let (_, mut inputs) = pictured(before);
+        let mut terminal = Fake::new(60, 6, &[b"r"]);
+        let mut repaint = Repaint {
+            document: document.clone(),
+            rgba: after,
+        };
+        let reload: &mut dyn Reload = &mut repaint;
+        run(
+            Content::Document(document),
+            None,
+            "notes.md",
+            &mut inputs,
+            Options {
+                reload: Some(reload),
+                ..Options::new(SearchCase::Smart)
+            },
+            &mut terminal,
+        )
+        .unwrap();
+        String::from_utf8(terminal.out).unwrap()
+    }
+
+    #[test]
+    fn an_image_the_terminal_holds_is_not_sent_again_after_a_resize() {
+        let (document, inputs) = pictured([255, 0, 0, 255]);
+        let mut terminal = Fake::new(60, 6, &[b""]);
+        // Wider, and the image at the same size.
+        terminal.sizes.push_back(window(70, 6));
+        let out = written(&document, inputs, &mut terminal, None);
+        assert_eq!(terminal.frames().len(), 2, "{out:?}");
+        assert_eq!(out.matches(crate::kitty::graphics::PLACEHOLDER).count(), 4);
+        assert_eq!(transmits(&out), 1, "{out:?}");
+    }
+
+    #[test]
+    fn a_reload_that_leaves_the_image_as_it_was_does_not_send_it_again() {
+        let (document, _) = pictured([255, 0, 0, 255]);
+        let out = repainted(&document, [255, 0, 0, 255], [255, 0, 0, 255]);
+        assert_eq!(transmits(&out), 1, "{out:?}");
+    }
+
+    #[test]
+    fn a_changed_image_is_sent_anew_and_the_old_one_deleted() {
+        let (document, _) = pictured([255, 0, 0, 255]);
+        let out = repainted(&document, [255, 0, 0, 255], [0, 0, 255, 255]);
+        let sent = sent_ids(&out);
+        assert_eq!(sent.len(), 2, "{out:?}");
+        assert_ne!(sent[0], sent[1]);
+        // The old image goes before the new one comes.
+        assert_eq!(deleted_ids(&out), [sent[0]], "{out:?}");
+        let deleted = out.find("\x1b_Ga=d,").unwrap();
+        assert!(deleted < out.rfind("\x1b_Ga=T,").unwrap(), "{out:?}");
     }
 
     /// The terminal colours of the fade tests: grey text on black, with
