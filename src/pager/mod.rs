@@ -1450,6 +1450,8 @@ mod tests {
         /// Called with the number of each read, counting from 0, before
         /// it gives its keys.
         hook: Option<Box<dyn FnMut(usize)>>,
+        /// Called on each flush.
+        flushed: Option<Box<dyn FnMut()>>,
     }
 
     impl Fake {
@@ -1463,6 +1465,7 @@ mod tests {
                 waits: Vec::new(),
                 typing: None,
                 hook: None,
+                flushed: None,
             }
         }
 
@@ -1492,6 +1495,9 @@ mod tests {
         }
 
         fn flush(&mut self) -> io::Result<()> {
+            if let Some(flushed) = &mut self.flushed {
+                flushed();
+            }
             Ok(())
         }
     }
@@ -4253,25 +4259,44 @@ mod tests {
     }
 
     /// Images loading in a test, each with what it comes as.
-    type Coming =
-        std::rc::Rc<std::cell::RefCell<Vec<(crate::images::Arrival, crate::images::Source)>>>;
+    type Coming = std::rc::Rc<
+        std::cell::RefCell<
+            Vec<(
+                crate::images::Arrival,
+                Result<crate::images::Source, ImageError>,
+            )>,
+        >,
+    >;
 
     /// Reloads the document as `document`, with the images under `wanted`
     /// keys loading in the background, to come as their pixels, and the
-    /// ones under `aside` set aside as no longer shown.
+    /// ones under `aside` set aside as no longer shown. Those under
+    /// `fails` come as errors. A reload after the first fails with
+    /// `afterwards`, when it is given.
     struct Background {
         document: Document,
         wanted: Vec<(ImageKey, crate::images::Source)>,
         aside: Vec<ImageKey>,
         coming: Coming,
+        fails: Vec<ImageKey>,
+        afterwards: Option<String>,
+        asked: usize,
     }
 
     impl Reload for Background {
         fn reload(&mut self, images: &mut Images, loads: &mut Loads, _: &Capabilities) -> Reloaded {
+            self.asked += 1;
+            if let Some(why) = self.afterwards.clone().filter(|_| self.asked > 1) {
+                return Reloaded::Failed(why);
+            }
             for key in &self.aside {
                 images.set_aside(key);
             }
             for (key, image) in self.wanted.drain(..) {
+                let image = match self.fails.contains(&key) {
+                    true => Err(ImageError::Missing("gone.png".into())),
+                    false => Ok(image),
+                };
                 let arrival = loads.expect(key);
                 self.coming.borrow_mut().push((arrival, image));
             }
@@ -4331,7 +4356,7 @@ mod tests {
         terminal.hook = Some(Box::new(move |read| {
             if comes.contains(&read) {
                 let (arrival, image) = coming.borrow_mut().remove(0);
-                arrival.come(Ok(image));
+                arrival.come(image);
             }
         }));
         run(
@@ -4368,6 +4393,9 @@ mod tests {
             wanted: vec![(ImageKey::from("b.png"), b)],
             aside: vec![ImageKey::from("a.png")],
             coming: Default::default(),
+            fails: Vec::new(),
+            afterwards: None,
+            asked: 0,
         }
     }
 
@@ -4445,6 +4473,9 @@ mod tests {
             wanted: vec![(ImageKey::from("b.png"), filled(20, 20, [0, 0, 255, 255]))],
             aside: Vec::new(),
             coming: Default::default(),
+            fails: Vec::new(),
+            afterwards: None,
+            asked: 0,
         };
         let terminal = loading_in(
             12,
@@ -4513,6 +4544,9 @@ mod tests {
             wanted: vec![(ImageKey::from("b.png"), filled(20, 200, [0, 0, 255, 255]))],
             aside: Vec::new(),
             coming: Default::default(),
+            fails: Vec::new(),
+            afterwards: None,
+            asked: 0,
         };
         let terminal = loading_in(
             8,
@@ -4540,6 +4574,9 @@ mod tests {
             ],
             aside: Vec::new(),
             coming: Default::default(),
+            fails: Vec::new(),
+            afterwards: None,
+            asked: 0,
         };
         let terminal = loading_in(
             12,
@@ -4589,6 +4626,9 @@ mod tests {
             wanted: vec![(ImageKey::from("a.png"), filled(20, 100, [0, 0, 255, 255]))],
             aside: vec![ImageKey::from("a.png")],
             coming: Default::default(),
+            fails: Vec::new(),
+            afterwards: None,
+            asked: 0,
         };
         let mut caps = known_colours();
         caps.graphics = true;
@@ -4615,5 +4655,127 @@ mod tests {
         assert!(status_text(&frames[3], 21).contains("notes.md"));
         let row = |frame: &str| row_of(frame, 21, "Line 25 changed");
         assert_eq!(row(&frames[3]), row(&frames[2]));
+    }
+
+    #[test]
+    fn quitting_stops_the_loads_before_it_deletes_the_images() {
+        let mut reload = red_then(filled(20, 20, [0, 0, 255, 255]));
+        let mut inputs = Inputs::new(Capabilities::kitty(80));
+        inputs
+            .images
+            .insert("a.png", Ok(filled(20, 20, [255, 0, 0, 255])));
+        let mut terminal = Fake::new(60, 12, &[b"r", b"", b"q"]);
+        // Whether the load was stopped at each flush, once there is one.
+        let stopped: std::rc::Rc<std::cell::RefCell<Vec<bool>>> = Default::default();
+        let (coming, seen) = (
+            std::rc::Rc::clone(&reload.coming),
+            std::rc::Rc::clone(&stopped),
+        );
+        terminal.flushed = Some(Box::new(move || {
+            if let Some((arrival, _)) = coming.borrow().first() {
+                seen.borrow_mut().push(arrival.stopped());
+            }
+        }));
+        let options = Options {
+            reload: Some(&mut reload),
+            ..Options::new(SearchCase::Smart)
+        };
+        run(
+            Content::Document(&around(2, "a.png")),
+            None,
+            "notes.md",
+            &mut inputs,
+            options,
+            &mut terminal,
+        )
+        .unwrap();
+        let stopped = stopped.borrow();
+        // Running while it is shown; stopped by the flush that deletes the
+        // images on quitting.
+        let (last, before) = stopped.split_last().unwrap();
+        assert!(*last, "{stopped:?}");
+        assert!(before.iter().all(|stopped| !stopped), "{stopped:?}");
+        let out = String::from_utf8(terminal.out).unwrap();
+        assert!(until_quit(&out).1.contains("\x1b_Ga=d,"), "{out:?}");
+    }
+
+    #[test]
+    fn a_reload_that_fails_while_images_load_keeps_their_placeholders() {
+        let mut reload = red_then(filled(20, 20, [0, 0, 255, 255]));
+        reload.afterwards = Some("gone".to_owned());
+        let red = filled(20, 20, [255, 0, 0, 255]);
+        let terminal = loading_in(
+            12,
+            &around(2, "a.png"),
+            vec![("a.png", red)],
+            &mut reload,
+            &[b"r", b"r", b""],
+            &[],
+            config::Follow::Off,
+        );
+        let frames = terminal.frames();
+        // The first, reloading, reloaded, reloading, failed.
+        assert_eq!(frames.len(), 5, "{frames:#?}");
+        let placeholders = |frame: &str| frame.matches(crate::kitty::graphics::PLACEHOLDER).count();
+        // The dimmed image and the band below it.
+        assert_eq!(placeholders(&frames[2]), 4, "{frames:#?}");
+        assert_eq!(placeholders(&frames[4]), 4, "{frames:#?}");
+        let status = status_text(&frames[4], 12);
+        assert!(
+            status.contains("[rendering: 0/1]") && status.contains("gone"),
+            "{status:?}"
+        );
+    }
+
+    #[test]
+    fn an_image_that_fails_to_load_shows_as_a_missing_image_does() {
+        let mut reload = red_then(filled(20, 20, [0, 0, 255, 255]));
+        reload.fails = vec![ImageKey::from("b.png")];
+        let red = filled(20, 20, [255, 0, 0, 255]);
+        let terminal = loading_in(
+            12,
+            &around(2, "a.png"),
+            vec![("a.png", red)],
+            &mut reload,
+            &[b"r", b"", b""],
+            &[2],
+            config::Follow::Off,
+        );
+        let frames = terminal.frames();
+        let last = frames.last().unwrap();
+        assert!(unstyled(last).contains("an image"), "{last:?}");
+        assert!(
+            !last.contains(crate::kitty::graphics::PLACEHOLDER),
+            "{last:?}"
+        );
+        assert!(status_text(last, 12).contains("notes.md"), "{last:?}");
+        // The same as a document whose image is missing shows at once.
+        let mut inputs = Inputs::new(Capabilities::kitty(80));
+        inputs
+            .images
+            .insert("b.png", Err(ImageError::Missing("gone.png".into())));
+        let mut fresh = Fake::new(60, 12, &[b"q"]);
+        let options = Options::new(SearchCase::Smart);
+        run(
+            Content::Document(&around(2, "b.png")),
+            None,
+            "notes.md",
+            &mut inputs,
+            options,
+            &mut fresh,
+        )
+        .unwrap();
+        // From the clearing of the screen, after the placeholder and the
+        // band were deleted, to the status line.
+        let shown = |frame: &str| {
+            let frame = unstyled(frame);
+            let start = frame.find("\x1b[H").unwrap();
+            frame[start..]
+                .split("\x1b[12;1H")
+                .next()
+                .unwrap()
+                .to_owned()
+        };
+        assert_eq!(shown(last), shown(&fresh.frames()[0]));
     }
 }

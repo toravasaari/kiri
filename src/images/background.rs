@@ -243,12 +243,17 @@ impl Loads {
         let id = self.next;
         self.next += 1;
         let stop = Arc::new(AtomicBool::new(false));
-        self.running.insert(key.clone(), Running { id, stop });
+        let running = Running {
+            id,
+            stop: Arc::clone(&stop),
+        };
+        self.running.insert(key.clone(), running);
         self.total += 1;
         Arrival {
             sender: self.sender.clone(),
             id,
             key,
+            stop,
         }
     }
 }
@@ -265,10 +270,16 @@ pub(crate) struct Arrival {
     sender: Sender<Done>,
     id: u64,
     key: ImageKey,
+    stop: Arc<AtomicBool>,
 }
 
 #[cfg(test)]
 impl Arrival {
+    /// Whether the load was stopped.
+    pub(crate) fn stopped(&self) -> bool {
+        self.stop.load(Ordering::SeqCst)
+    }
+
     /// The image comes as `image`.
     pub(crate) fn come(self, image: Result<Source, ImageError>) {
         let done = Done {
