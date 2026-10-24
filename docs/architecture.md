@@ -251,8 +251,8 @@ for a time limit; and an image from a local file is loaded again when its
 modification time, which `src/images/stamps.rs` keeps, is not the one it
 was loaded at. Other images are kept as they are. What is loaded loads
 in the background, `src/images/background.rs`, on threads of their own,
-up to four at once when a program draws, each with a stop flag of its
-own, which `External` looks at besides the one for signals.
+with at most four programs drawing at once, also when reloads overlap,
+each load with a stop flag of its own, which `External` looks at besides the one for signals.
 
 `src/images/pipeline.rs` builds the renderers from the settings and the
 environment, given as values, and loads a document's images with them;

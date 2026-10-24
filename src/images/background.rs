@@ -5,9 +5,9 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use super::drawn::finish_diagram;
@@ -25,8 +25,9 @@ pub struct Loads {
     running: HashMap<ImageKey, Running>,
     /// The number of the next load.
     next: u64,
-    /// How many programs outside kiri are drawing.
-    programs: Arc<AtomicUsize>,
+    /// The programs outside kiri drawing, across the loads of every
+    /// reload.
+    programs: Arc<Programs>,
     /// How many loads have come since the loads were last all done, and
     /// of how many.
     done: usize,
@@ -87,8 +88,58 @@ pub(super) struct Context {
 struct Batch {
     queue: Mutex<VecDeque<(Job, u64, Arc<AtomicBool>)>>,
     context: Context,
-    programs: Arc<AtomicUsize>,
+    programs: Arc<Programs>,
     sender: Sender<Done>,
+}
+
+/// The programs outside kiri that draw for the loads: at most
+/// [`AT_ONCE`](crate::diagrams::external::AT_ONCE) at a time, however many
+/// reloads started loads, as each one may be a browser.
+#[derive(Debug, Default)]
+struct Programs {
+    running: Mutex<usize>,
+    changed: Condvar,
+}
+
+impl Programs {
+    /// Waits for room for one more program and counts it; `false`, with
+    /// nothing counted, once `stop` is set.
+    fn enter(&self, stop: &AtomicBool) -> bool {
+        let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            if stop.load(Ordering::SeqCst) {
+                return false;
+            }
+            if *running < crate::diagrams::external::AT_ONCE {
+                *running += 1;
+                return true;
+            }
+            // Woken when one leaves; a stop is seen within the timeout.
+            let wait = self
+                .changed
+                .wait_timeout(running, Duration::from_millis(20));
+            running = wait.unwrap_or_else(|e| e.into_inner()).0;
+        }
+    }
+
+    /// Counts a program that has ended.
+    fn leave(&self) {
+        *self.running.lock().unwrap_or_else(|e| e.into_inner()) -= 1;
+        self.changed.notify_all();
+    }
+
+    /// Waits until no program runs, for at most `limit`.
+    fn wait_for_none(&self, limit: Duration) {
+        let start = Instant::now();
+        let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
+        while *running > 0 {
+            let Some(left) = limit.checked_sub(start.elapsed()) else {
+                return;
+            };
+            let wait = self.changed.wait_timeout(running, left);
+            running = wait.unwrap_or_else(|e| e.into_inner()).0;
+        }
+    }
 }
 
 /// How long stopping waits at most for the programs to end: they get
@@ -110,7 +161,7 @@ impl Loads {
             receiver,
             running: HashMap::new(),
             next: 0,
-            programs: Arc::new(AtomicUsize::new(0)),
+            programs: Arc::default(),
             done: 0,
             total: 0,
         }
@@ -180,10 +231,7 @@ impl Loads {
     /// is dropped.
     pub fn stop(&mut self) {
         self.keep(|_| false);
-        let start = Instant::now();
-        while self.programs.load(Ordering::SeqCst) > 0 && start.elapsed() < STOPPING {
-            std::thread::sleep(Duration::from_millis(5));
-        }
+        self.programs.wait_for_none(STOPPING);
     }
 
     /// Loads `jobs` in the background as `settings` say; a load of the
@@ -310,12 +358,12 @@ impl Batch {
             }
             // Counted before the program can start, and so before it looks
             // at `stop`: stopping sets `stop` before it counts them.
-            if job.program {
-                self.programs.fetch_add(1, Ordering::SeqCst);
+            if job.program && !self.programs.enter(&stop) {
+                continue;
             }
             let image = self.load(&job.what, &stop, &fonts);
             if job.program {
-                self.programs.fetch_sub(1, Ordering::SeqCst);
+                self.programs.leave();
             }
             if stop.load(Ordering::SeqCst) {
                 continue;

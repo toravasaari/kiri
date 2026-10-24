@@ -433,7 +433,7 @@ mod tests {
     }
 
     /// Draws a diagram as an SVG square, once a file named as its first
-    /// line is in `scratch` and its source is not `missing`; notes that
+    /// line is in `scratch`; notes that
     /// it started, in `started` with its source, and that it was stopped,
     /// in a file named as its first line with `.stopped` after it.
     fn waiting_script(scratch: &Scratch) -> String {
@@ -606,5 +606,60 @@ mod tests {
             matches!(&came[..], [(_, Ok(image))] if image.size() == (6, 3)),
             "{came:?}"
         );
+    }
+
+    #[test]
+    fn overlapping_reloads_run_no_more_programs_at_once_than_one_reload() {
+        let scratch = Scratch::new("pipeline-at-once");
+        let (settings, env) = scripted(&scratch, &waiting_script(&scratch));
+        let loading = Loading {
+            env: &env,
+            settings: &settings,
+            max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
+            theme: Theme::Light,
+            largest: None,
+        };
+        let diagrams = |names: &[&str]| {
+            let blocks: Vec<String> = (names.iter())
+                .map(|name| format!("```mermaid\n{name}\n```\n"))
+                .collect();
+            crate::parse::parse(&blocks.join("\n"))
+        };
+        let started = || {
+            let started = std::fs::read_to_string(scratch.join("started")).unwrap_or_default();
+            started.lines().count()
+        };
+        let wait_until = |count| {
+            let start = std::time::Instant::now();
+            while started() < count && start.elapsed() < std::time::Duration::from_secs(10) {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        };
+        let first = diagrams(&["a1", "a2", "a3", "a4"]);
+        let parts = alone(&first, &scratch);
+        let (mut images, mut stamps, mut loads) = (Images::new(), Stamps::of(&parts), Loads::new());
+        reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+        wait_until(4);
+        // Four more, while the first four, still wanted, are drawing.
+        let both = diagrams(&["a1", "a2", "a3", "a4", "b1", "b2", "b3", "b4"]);
+        let parts = alone(&both, &scratch);
+        reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        assert_eq!(started(), crate::diagrams::external::AT_ONCE);
+        // One ends, and one more starts.
+        std::fs::write(scratch.join("a1"), "").unwrap();
+        wait_until(5);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert_eq!(started(), 5);
+        for name in ["a2", "a3", "a4", "b1", "b2", "b3", "b4"] {
+            std::fs::write(scratch.join(name), "").unwrap();
+        }
+        let mut came = 0;
+        let start = std::time::Instant::now();
+        while came < 8 && start.elapsed() < std::time::Duration::from_secs(10) {
+            came += loads.poll().len();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(came, 8);
     }
 }
