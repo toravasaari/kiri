@@ -805,6 +805,20 @@ A part that needs one names it, such as "needs G1.3".
   `[FILE]...` in five lines; one short line each would do, with the
   details in the documentation.
 
+### G7 Pager
+
+#### G7.1 Every warning in the pager
+
+- The warning mark on the status line and the messages above it, which
+  front matter warnings get in 4.6.9, for every warning: a diagram that
+  does not draw, an image that cannot be read, from the first load and
+  from each reload, with its line where it is known. A setting turns
+  them off.
+- Messages that go one at a time may become tiring in the long run; how
+  many show, and for how long, to be looked at again.
+- With the menu (4.14), a key such as `e` opens the warnings in a tab of
+  their own.
+
 ## Uncategorized (extras)
 
 Ideas not yet placed in a part, from small polish to features; a line or
