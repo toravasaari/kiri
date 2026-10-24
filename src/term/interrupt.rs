@@ -140,17 +140,19 @@ mod tests {
     #[test]
     fn a_signal_looked_at_with_signal_stays_caught() {
         // A process of its own, as the signals reach the whole test binary.
-        let status = Command::new(std::env::current_exe().unwrap())
+        let output = Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
                 "term::interrupt::tests::sighup_looked_at_with_signal",
             ])
             .args(["--ignored", "--test-threads", "1"])
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .status()
+            .output()
             .unwrap();
-        assert!(status.success(), "{status:?}");
+        assert!(output.status.success(), "{:?}", output.status);
+        // A name that finds no test passes too, with none run.
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains(" 1 passed;"), "{stdout}");
     }
 }
