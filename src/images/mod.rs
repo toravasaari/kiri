@@ -10,6 +10,7 @@
 mod decode;
 mod drawn;
 mod pipeline;
+mod stamps;
 mod svg;
 mod url;
 
@@ -22,7 +23,8 @@ use crate::diagrams::{NoRenderer, Renderer, Request, Theme};
 use crate::model::{Block, Document, Inline};
 
 pub use decode::{DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image};
-pub use pipeline::{Interrupted, Loaded, Loading, load_documents};
+pub use pipeline::{Interrupted, Loaded, Loading, load_documents, reload_documents};
+pub use stamps::Stamps;
 pub use svg::{Fonts, Svg};
 
 pub(crate) use decode::{MAX_PIXELS, png_size};
@@ -397,6 +399,18 @@ pub fn load_parts(
     fonts: &Fonts,
     options: &LoadOptions<'_>,
 ) -> Images {
+    load_wanted(parts, max_file_size, fonts, options, None)
+}
+
+/// `load_parts`, taking the images that `kept` holds under the keys the
+/// parts want, instead of loading them.
+fn load_wanted(
+    parts: &[Part<'_>],
+    max_file_size: u64,
+    fonts: &Fonts,
+    options: &LoadOptions<'_>,
+    mut kept: Option<&mut Images>,
+) -> Images {
     let mut wanted = Vec::new();
     for (index, part) in parts.iter().enumerate() {
         let mut blocks = Vec::new();
@@ -406,14 +420,24 @@ pub fn load_parts(
     let key = |&(index, ref image): &(usize, Wanted)| image.key().in_document(parts[index].number);
     let mut keys = HashSet::new();
     wanted.retain(|image| keys.insert(key(image)));
+    // What is kept is moved to its place among the images, in the order of
+    // the documents. A diagram that failed is drawn again, as what made it
+    // fail, such as a time limit or a missing program, may have passed.
+    let mut have: Vec<Option<_>> = (wanted.iter())
+        .map(|image| {
+            let kept = kept.as_deref_mut()?.remove(&key(image))?;
+            let failed = kept.is_err() && matches!(image.1, Wanted::Diagram { .. });
+            (!failed).then_some(kept)
+        })
+        .collect();
     // The diagrams first, all together, so a renderer can draw several
     // at once.
-    let requests: Vec<Request> = (wanted.iter())
-        .filter_map(|(_, image)| match *image {
+    let requests: Vec<Request> = (wanted.iter().zip(&have))
+        .filter_map(|((_, image), have)| match *image {
             Wanted::Diagram {
                 language, source, ..
-            } => Some(Request::new(language, source, options.theme)),
-            Wanted::Url(_) => None,
+            } if have.is_none() => Some(Request::new(language, source, options.theme)),
+            Wanted::Diagram { .. } | Wanted::Url(_) => None,
         })
         .collect();
     let total = requests.len();
@@ -432,11 +456,12 @@ pub fn load_parts(
         .render_all(&requests, &one_more)
         .into_iter();
     let mut images = Images::new();
-    for image in wanted {
+    for (image, have) in wanted.into_iter().zip(have.iter_mut()) {
         let key = key(&image);
         let (index, image) = image;
         let part = &parts[index];
         let loaded = match image {
+            _ if have.is_some() => have.take().expect("an image kept"),
             Wanted::Url(url) => load_url(url, part.base, max_file_size, fonts),
             Wanted::Diagram {
                 language,
@@ -464,6 +489,20 @@ pub fn load_parts(
     images
 }
 
+/// `load_parts` again for documents that may have changed: an image whose
+/// key `kept` still holds is taken from it rather than loaded, and a
+/// diagram, keyed by its source, is not drawn again unless it failed.
+/// What `kept` holds that no part shows any more is dropped.
+pub fn reload_parts(
+    parts: &[Part<'_>],
+    max_file_size: u64,
+    fonts: &Fonts,
+    options: &LoadOptions<'_>,
+    kept: &mut Images,
+) -> Images {
+    load_wanted(parts, max_file_size, fonts, options, Some(kept))
+}
+
 /// The languages of the code blocks in `document` that `renderer` draws
 /// as diagrams, in order, once for each block.
 pub fn diagram_languages<'a>(document: &'a Document, renderer: &dyn Renderer) -> Vec<&'a str> {
@@ -473,6 +512,18 @@ pub fn diagram_languages<'a>(document: &'a Document, renderer: &dyn Renderer) ->
         .filter_map(|image| match image {
             Wanted::Diagram { language, .. } => Some(language),
             Wanted::Url(_) => None,
+        })
+        .collect()
+}
+
+/// The URLs of the images `document` shows as image blocks.
+fn lone_urls(document: &Document) -> Vec<&str> {
+    let mut wanted = Vec::new();
+    collect_blocks(&document.blocks, &NoRenderer, &mut wanted);
+    (wanted.into_iter())
+        .filter_map(|image| match image {
+            Wanted::Url(url) => Some(url),
+            Wanted::Diagram { .. } => None,
         })
         .collect()
 }
@@ -639,7 +690,8 @@ Text ![inline](images/pattern.png) and words.
     }
 
     /// Draws Mermaid as an empty SVG one line high for each line of
-    /// source, and fails on a source that says `broken`. Remembers what
+    /// source, and fails on a source that says `broken`, and on one that
+    /// says `flaky` the first time it is asked to draw it. Remembers what
     /// it was asked to draw.
     #[derive(Default)]
     pub(super) struct Stub {
@@ -657,6 +709,15 @@ Text ![inline](images/pattern.png) and words.
             if source.contains("broken") {
                 return Err("parse error".into());
             }
+            let asked = self
+                .calls
+                .borrow()
+                .iter()
+                .filter(|(drawn, _)| drawn == source)
+                .count();
+            if source.contains("flaky") && asked == 1 {
+                return Err("timed out".into());
+            }
             let height = 20 * source.lines().count();
             let svg = format!(
                 r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="{height}"/>"#
@@ -672,6 +733,77 @@ Text ![inline](images/pattern.png) and words.
             by_line,
             ..LoadOptions::default()
         }
+    }
+
+    #[test]
+    fn a_reload_draws_only_the_diagrams_it_does_not_have() {
+        let stub = Stub::default();
+        let options = with_stub(&stub, Theme::Light, true);
+        let part = |document| Part {
+            document,
+            number: 0,
+            base: Path::new(""),
+            by_line: true,
+        };
+        let before = crate::parse::parse("```mermaid\na\n```\n\n```mermaid\nb\n```\n");
+        let after = crate::parse::parse("```mermaid\na\n```\n\n```mermaid\nc\n```\n");
+        let mut images = load_parts(
+            &[part(&before)],
+            DEFAULT_MAX_FILE_SIZE,
+            &Fonts::none(),
+            &options,
+        );
+        let calls = |stub: &Stub| -> Vec<String> {
+            stub.calls
+                .borrow()
+                .iter()
+                .map(|(source, _)| source.clone())
+                .collect()
+        };
+        assert_eq!(calls(&stub), ["a\n", "b\n"]);
+        let parts = [part(&after)];
+        let reloaded = reload_parts(
+            &parts,
+            DEFAULT_MAX_FILE_SIZE,
+            &Fonts::none(),
+            &options,
+            &mut images,
+        );
+        assert_eq!(calls(&stub), ["a\n", "b\n", "c\n"]);
+        let keys: Vec<_> = reloaded.iter().map(|(key, _)| key.clone()).collect();
+        assert_eq!(
+            keys,
+            [
+                ImageKey::block("mermaid", "a\n"),
+                ImageKey::block("mermaid", "c\n")
+            ]
+        );
+        assert!(reloaded.iter().all(|(_, image)| image.is_ok()));
+    }
+
+    #[test]
+    fn a_reload_draws_again_a_diagram_that_failed() {
+        let stub = Stub::default();
+        let options = with_stub(&stub, Theme::Light, true);
+        let document = crate::parse::parse("```mermaid\nflaky\n```\n");
+        let parts = [Part {
+            document: &document,
+            number: 0,
+            base: Path::new(""),
+            by_line: true,
+        }];
+        let key = ImageKey::block("mermaid", "flaky\n");
+        let mut images = load_parts(&parts, DEFAULT_MAX_FILE_SIZE, &Fonts::none(), &options);
+        assert!(matches!(images.get(&key), Some(Err(_))), "{images:?}");
+        let reloaded = reload_parts(
+            &parts,
+            DEFAULT_MAX_FILE_SIZE,
+            &Fonts::none(),
+            &options,
+            &mut images,
+        );
+        assert_eq!(stub.calls.borrow().len(), 2);
+        assert!(matches!(reloaded.get(&key), Some(Ok(_))), "{reloaded:?}");
     }
 
     #[test]

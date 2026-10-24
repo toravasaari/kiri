@@ -12,10 +12,12 @@ use kiri::caps::Capabilities;
 use kiri::config::{Environment, FrontMatter, Named, Options, Origin, Paging, Setting, Settings};
 use kiri::doctor::{Facts, Output};
 use kiri::images::{
-    Fonts, Format, ImageError, ImageKey, Interrupted, Loaded, Loading, Part, Source,
+    Fonts, Format, ImageError, ImageKey, Images, Interrupted, Loaded, Loading, Part, Source,
+    Stamps, reload_documents,
 };
 use kiri::input::Input;
 use kiri::model::{Block, Document};
+use kiri::pager::{Reload, Reloaded};
 use kiri::render::output::Page;
 use kiri::render::{Inputs, RenderErrors, TableRows};
 use kiri::term::Mode;
@@ -296,11 +298,14 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     let Some(document) = document(input, &source, path, &settings, &caps, warn)? else {
         return Ok(write_as_is(&source)?);
     };
+    // Only a document read from a regular file can be read again: a pipe
+    // given by its path, such as <(cmd), is read to its end already.
+    let from = (file.filter(|path| path.is_file())).map(|path| FromFile { path, input });
     show_document(
         &context,
         &document,
         &path.to_string_lossy(),
-        file,
+        from,
         settings,
         caps,
     )
@@ -725,7 +730,8 @@ fn page_files(
     let content = kiri::render::layout::Content::Files(&files);
     let case = settings.search_case;
     // The pager's status line names each file after itself.
-    if let Some(result) = page(context, content, "", inputs, paging, case, opening) {
+    let options = kiri::pager::Options::new(case);
+    if let Some(result) = page(context, content, "", inputs, paging, options, opening) {
         // What the pager would have hidden.
         (drawn.iter().flatten()).for_each(|drawn| tell_drawn(drawn, failed));
         return result;
@@ -1032,24 +1038,38 @@ impl<'a> Context<'a> {
     }
 }
 
-/// Renders `document`, called `name`, on stdout. When it comes from
-/// `file`, its images are relative to the file's directory and warnings
-/// name a diagram by its line; otherwise images are relative to the
-/// current directory and a diagram is named by its first line.
+/// A document read from a regular file, as `input`, which the pager can read
+/// again.
+#[derive(Clone, Copy)]
+struct FromFile<'a> {
+    path: &'a Path,
+    input: Input,
+}
+
+/// Renders `document`, called `name`, on stdout. When it comes from a
+/// file, its images are relative to the file's directory, warnings name a
+/// diagram by its line and the pager reloads it with `r`; otherwise images
+/// are relative to the current directory, a diagram is named by its first
+/// line and there is nothing to reload.
 fn show_document(
     context: &Context,
     document: &Document,
     name: &str,
-    file: Option<&Path>,
+    from: Option<FromFile>,
     settings: Settings,
     caps: Capabilities,
 ) -> Result<(), Failure> {
     let caps = on_page(caps, &settings);
-    let loaded = load_images(context, &[part(document, file)], &settings, &caps)?;
+    let parts = [part(document, from.map(|from| from.path))];
+    // Before the images are read, so that a file changed meanwhile counts
+    // as changed.
+    let stamps = Stamps::of(&parts);
+    let loaded = load_images(context, &parts, &settings, &caps)?;
     for warning in loaded.images.warnings_with(settings.render_errors.stderr()) {
         eprintln!("kiri: {warning}");
     }
-    print_document(context, document, name, loaded, settings, caps)
+    let reading = from.map(|from| (from, stamps));
+    print_document(context, document, name, loaded, settings, caps, reading)
 }
 
 /// Shows the diagram `source`, in `language`, from the file at `path` or
@@ -1100,7 +1120,7 @@ fn show_diagram(
     let no_renderer = settings.diagrams && caps.draws_images() && error.is_none();
     if caps.styling {
         let name = path.to_string_lossy();
-        print_document(context, &document, &name, loaded, settings, caps)?;
+        print_document(context, &document, &name, loaded, settings, caps, None)?;
     } else {
         write_as_is(source)?;
     }
@@ -1153,13 +1173,7 @@ fn load_parts(
     settings: &Settings,
     caps: &Capabilities,
 ) -> Result<Loaded, Failure> {
-    let loading = Loading {
-        env: context.env,
-        settings,
-        max_file_size: context.max_file_size,
-        theme: kiri::diagrams::Theme::for_page(caps.dark_background),
-        largest: Some(kiri::render::image::largest(caps)),
-    };
+    let loading = loading(context, settings, caps);
     // Drawing diagrams can take seconds with an external program; a
     // terminal tells how far it has got.
     let loaded = if kiri::term::stderr_is_terminal() {
@@ -1172,6 +1186,17 @@ fn load_parts(
         kiri::images::load_documents(parts, &loading, None)
     };
     loaded.map_err(|Interrupted(signal)| Failure::Signal(signal))
+}
+
+/// What loading images needs to know, for a window with `caps`.
+fn loading<'a>(context: &'a Context, settings: &'a Settings, caps: &Capabilities) -> Loading<'a> {
+    Loading {
+        env: context.env,
+        settings,
+        max_file_size: context.max_file_size,
+        theme: kiri::diagrams::Theme::for_page(caps.dark_background),
+        largest: Some(kiri::render::image::largest(caps)),
+    }
 }
 
 /// `document`, the first and only one shown, from `file` or not as for
@@ -1188,7 +1213,9 @@ fn part<'a>(document: &'a Document, file: Option<&'a Path>) -> Part<'a> {
 /// Renders `document`, called `name`, with the images `loaded` on
 /// stdout: in the pager when `settings` ask for it, and otherwise
 /// printed. The pager catches the signals itself, so the guard against
-/// them that came with the images goes once its screen catches them.
+/// them that came with the images goes once its screen catches them. With
+/// `reading`, the file the document is from and when its images' files
+/// were last changed, the pager can read it again.
 fn print_document(
     context: &Context,
     document: &Document,
@@ -1196,6 +1223,7 @@ fn print_document(
     loaded: Loaded,
     settings: Settings,
     caps: Capabilities,
+    reading: Option<(FromFile, Stamps)>,
 ) -> Result<(), Failure> {
     let Loaded {
         images,
@@ -1203,19 +1231,28 @@ fn print_document(
     } = loaded;
     let mut inputs = Inputs {
         images,
-        theme: settings.theme,
+        theme: settings.theme.clone(),
         front_matter: settings.front_matter.style().unwrap_or_default(),
         table_rows: settings.table_rows,
         render_errors: settings.render_errors,
         ..Inputs::new(caps)
     };
+    let mut reload = reading.map(|(from, stamps)| FileReload {
+        context,
+        settings: &settings,
+        from,
+        stamps,
+    });
     if let Some(result) = page(
         context,
         kiri::render::layout::Content::Document(document),
         name,
         &mut inputs,
         settings.paging,
-        settings.search_case,
+        kiri::pager::Options {
+            reload: reload.as_mut().map(|reload| reload as &mut dyn Reload),
+            ..kiri::pager::Options::new(settings.search_case)
+        },
         || drop(interrupt.take()),
     ) {
         return Ok(finish(result)?);
@@ -1228,16 +1265,16 @@ fn print_document(
 
 /// Shows `content` in the pager when `paging` asks for it and the output
 /// is a terminal that takes escape sequences; `None` when it is to be
-/// printed instead. A search in the pager treats case as `case` says. The
-/// pager catches Ctrl-C itself; `caught` runs once its screen catches the
-/// signals.
+/// printed instead. `options` tell the pager how a search treats case and
+/// where `r` gets the document again from, if anywhere. The pager catches
+/// Ctrl-C itself; `caught` runs once its screen catches the signals.
 fn page(
     context: &Context,
     content: kiri::render::layout::Content,
     name: &str,
     inputs: &mut Inputs,
     paging: kiri::config::Paging,
-    case: kiri::config::SearchCase,
+    options: kiri::pager::Options,
     caught: impl FnOnce(),
 ) -> Option<io::Result<()>> {
     let terminal = kiri::term::stdout_is_terminal() && inputs.caps.styling;
@@ -1267,12 +1304,68 @@ fn page(
         Some(stream),
         name,
         inputs,
-        context.width,
-        case,
+        kiri::pager::Options {
+            width: context.width,
+            ..options
+        },
         &mut screen,
     );
     screen.close();
     Some(result)
+}
+
+/// Reads the document from its file again for the pager, and loads the
+/// images it does not have yet.
+struct FileReload<'a> {
+    context: &'a Context<'a>,
+    settings: &'a Settings,
+    from: FromFile<'a>,
+    /// When the files behind the images were last changed.
+    stamps: Stamps,
+}
+
+impl Reload for FileReload<'_> {
+    fn reload(&mut self, images: &mut Images, caps: &Capabilities) -> Reloaded {
+        let FromFile { path, input } = self.from;
+        // The status line names the file already, so the reasons do not.
+        let source = match read_text(path) {
+            Ok(source) => source,
+            Err(error) => return Reloaded::Failed(error),
+        };
+        // A warning about the front matter has no place in the pager.
+        let document = match document(input, &source, path, self.settings, caps, drop) {
+            Ok(Some(document)) => document,
+            Ok(None) => return Reloaded::Failed("cannot be shown".to_owned()),
+            Err(error) => return Reloaded::Failed(without_path(error, path)),
+        };
+        if self.settings.images && caps.draws_images() {
+            let parts = [part(&document, Some(path))];
+            let loading = loading(self.context, self.settings, caps);
+            // The pager says it is reloading, so the progress line is not
+            // for the terminal's alternate screen.
+            let stamps = &mut self.stamps;
+            if reload_documents(&parts, &loading, None, images, stamps).is_err() {
+                return Reloaded::Failed("stopped by a signal".to_owned());
+            }
+        }
+        Reloaded::Document(document)
+    }
+}
+
+/// The text of the file at `path`, read whole; why it cannot be read
+/// otherwise.
+fn read_text(path: &Path) -> Result<String, String> {
+    let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
+    String::from_utf8(bytes).map_err(|_| "not UTF-8 text".to_owned())
+}
+
+/// `error` without the `path: ` it starts with, if it does.
+fn without_path(error: String, path: &Path) -> String {
+    let prefix = format!("{}: ", path.display());
+    match error.strip_prefix(&prefix) {
+        Some(reason) => reason.to_owned(),
+        None => error,
+    }
 }
 
 /// Shows the image file `path`, in `format`, read from `reader`. It

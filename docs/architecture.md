@@ -118,8 +118,12 @@ view and `:n` and `:p` move from one file's start to another's;
 `src/pager/status.rs` and `src/pager/help.rs` make the status line and the
 help panel as styled spans; `src/pager/mod.rs` draws each frame, row by
 row through the backend's writer, and lays the document out again when the
-window changes size. The terminal itself, the alternate screen, raw mode
-and reading keys from the controlling terminal, is opened in
+window changes size or when `r` reloads it. For that the pager is given a
+`Reload`, as it is given a `Terminal` for keys: it asks the `Reload` for the
+document and the images again, and keeps its place by the block at the
+top. A view at the end of the document goes to the new end, so a document
+that grew shows what was added. The terminal itself, the alternate screen,
+raw mode and reading keys from the controlling terminal, is opened in
 `src/term/screen.rs`.
 
 ## Diagrams
@@ -197,6 +201,13 @@ panel colour.
 - **Together:** `Renderers` draws each language with its external
   command when it has one and with the built-in renderer otherwise. An
   external command that fails does not fall back to the built-in one.
+
+A reload, `r` in the pager, loads only the images the document does not
+have yet: a diagram is kept by its key, which holds its source, so one
+that did not change is not drawn again, unless it failed to draw, such as
+for a time limit; and an image from a local file is loaded again when its
+modification time, which `src/images/stamps.rs` keeps, is not the one it
+was loaded at. Other images are kept as they are.
 
 `src/images/pipeline.rs` builds the renderers from the settings and the
 environment, given as values, and loads a document's images with them;
@@ -315,6 +326,7 @@ src/images/decode.rs       decoding image files, raster and SVG
 src/images/drawn.rs        diagrams as their renderers drew them, made images
 src/images/pipeline.rs     a document's images for a run: renderers from the
                            settings, the signal guard, the loading
+src/images/stamps.rs       when the files behind the images were last changed
 src/images/url.rs          data URLs, file URLs and paths, read up to a limit
 src/images/svg.rs          SVG images and the fonts for their text
 src/compare.rs             which blocks stayed, changed, were added or

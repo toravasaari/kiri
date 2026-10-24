@@ -64,6 +64,13 @@ impl Interrupt {
         Arc::clone(&self.stop)
     }
 
+    /// The signal that came, if one did, while the signals stay caught:
+    /// for a caller that catches them itself too, such as the pager's
+    /// screen, which then ends kiri once it has restored the terminal.
+    pub fn signal(&self) -> Option<i32> {
+        came(&self.came)
+    }
+
     /// Makes the signals end kiri again, as they do by default; the
     /// signal that came before, if one did, which kiri is then to end by
     /// with [`end_by`].
@@ -108,4 +115,44 @@ pub(super) fn ignored(signal: i32) -> bool {
 /// it sees that the signal ended it.
 pub fn end_by(signal: i32) {
     let _ = signal_hook::low_level::emulate_default_handler(signal);
+}
+
+#[cfg(test)]
+mod tests {
+    use std::process::{Command, Stdio};
+
+    use super::*;
+
+    /// Run on its own by [`a_signal_looked_at_with_signal_stays_caught`]:
+    /// a signal is caught, looked at without `release`, and the next one is
+    /// caught too instead of ending the process.
+    #[test]
+    #[ignore = "run in a process of its own"]
+    fn sighup_looked_at_with_signal() {
+        let interrupt = Interrupt::catch().unwrap();
+        signal_hook::low_level::raise(SIGHUP).unwrap();
+        assert_eq!(interrupt.signal(), Some(SIGHUP));
+        assert!(!interrupt.ends.load(Ordering::SeqCst));
+        signal_hook::low_level::raise(SIGHUP).unwrap();
+        assert!(interrupt.stop.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_signal_looked_at_with_signal_stays_caught() {
+        // A process of its own, as the signals reach the whole test binary.
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "term::interrupt::tests::sighup_looked_at_with_signal",
+            ])
+            .args(["--ignored", "--test-threads", "1"])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{:?}", output.status);
+        // A name that finds no test passes too, with none run.
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains(" 1 passed;"), "{stdout}");
+    }
 }
