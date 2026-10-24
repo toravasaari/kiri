@@ -150,9 +150,9 @@ neither beside them are a change where they were. The view stays when it
 shows the start of the change, or is inside it already, as in a long
 change you scrolled into. Otherwise the start goes near the top, below
 three rows of what comes before it (fewer in a window of fewer than
-twelve rows), or the last page shows it. A change in a list, a quote or an alert moves the
-view to the start of that list, quote or alert. `r` moves to a change too
-while following is `auto`.
+twelve rows), or the last page shows it. A change in a list, a quote or
+an alert moves the view to the start of that list, quote or alert. `r`
+moves to a change too while following is `auto`.
 
 `F` in the pager goes from `off` to `on` to `auto` and back to `off`, and
 the status line says `F follow` while following is on and `F auto` while
