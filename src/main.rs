@@ -14,8 +14,8 @@ use kiri::config::{
 };
 use kiri::doctor::{Facts, Output};
 use kiri::images::{
-    Fonts, Format, ImageError, ImageKey, Images, Interrupted, Loaded, Loading, Part, Source,
-    Stamps, reload_documents,
+    Fonts, Format, ImageError, ImageKey, Images, Interrupted, Loaded, Loading, Loads, Part, Source,
+    Stamps, reload_in_background,
 };
 use kiri::input::Input;
 use kiri::model::{Block, Document, FrontMatterError};
@@ -1499,7 +1499,7 @@ struct FileReload<'a> {
 }
 
 impl Reload for FileReload<'_> {
-    fn reload(&mut self, images: &mut Images, caps: &Capabilities) -> Reloaded {
+    fn reload(&mut self, images: &mut Images, loads: &mut Loads, caps: &Capabilities) -> Reloaded {
         let FromFile { path, input, .. } = self.from;
         // Before the file is read, so that a change meanwhile counts.
         self.read = look(path).ok();
@@ -1518,12 +1518,7 @@ impl Reload for FileReload<'_> {
         if self.settings.images && caps.draws_images() {
             let parts = [part(&document, Some(path))];
             let loading = loading(self.context, self.settings, caps);
-            // The pager says it is reloading, so the progress line is not
-            // for the terminal's alternate screen.
-            let stamps = &mut self.stamps;
-            if reload_documents(&parts, &loading, None, images, stamps).is_err() {
-                return Reloaded::Failed("stopped by a signal".to_owned());
-            }
+            reload_in_background(&parts, &loading, images, &mut self.stamps, loads);
         }
         match warnings.is_empty() {
             true => Reloaded::Document(document),

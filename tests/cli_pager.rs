@@ -1268,15 +1268,21 @@ fn a_reload_shows_an_image_whose_file_changed_and_keeps_the_others() {
             frames: 1,
             keys: &change,
         },
-        quit_after(2),
+        // The frame that says it is reloading, the reload's, and the one
+        // where `a.png` came.
+        quit_after(4),
     ];
     let args = ["--mode", "kitty", "images.md"];
     let (status, seen) = in_steps_with("pager-reload-images", prepare, &args, &steps);
     assert!(status.success());
-    // Only `a.png` is sent again to the new layout; the terminal still
-    // holds `b.png` as it was.
+    // Only `a.png` is sent again, once it has loaded; the terminal still
+    // holds `b.png` as it was. Meanwhile a box of the old size stands in
+    // for `a.png`, with the band below it, as wide.
     let widths = sent_widths(&seen);
-    assert_eq!(widths, ["s=20", "s=20", "s=40"], "{seen:?}");
+    let (last, before) = widths.split_last().unwrap();
+    assert_eq!(last, "s=40", "{seen:?}");
+    assert!(before.len() >= 4, "{seen:?}");
+    assert!(before.iter().all(|width| width == "s=20"), "{seen:?}");
 }
 
 /// Writes `document` into the named pipe at `path` once a reader opens it,

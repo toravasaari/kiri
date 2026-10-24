@@ -145,6 +145,22 @@ is not shown. The terminal itself, the alternate screen, raw mode and
 reading keys from the controlling terminal, is opened in
 `src/term/screen.rs`.
 
+A reload shows the new text at once: the `Reload` keeps the images the
+document still shows and starts the others loading in the background,
+in the pager's `Loads`, which the pager polls beside the follow poll.
+Meanwhile `src/pager/loading.rs` chooses what stands in for each image
+from the comparison: a block that changed shows its old image dimmed, a
+block that stayed while its image file changed a grey box of the old
+image's size, and a new block shows as it does without its image, code
+or alt text. Below each goes a thin band whose light part keeps running
+across it, and the status line says `[rendering: 1/3]` in place of the
+name. An image that comes is laid out as after a resize, but the top
+line stays the same line, so the view does not move, and the tint of
+auto-follow's change stays on its blocks; auto-follow jumped already
+when the text came. A newer reload stops the loads whose images the new
+document no longer shows, and `q`, or a signal, stops the programs that
+draw and waits for them to end, but not for merman, which cannot stop.
+
 The pager keeps one image encoder, `src/render/encoder.rs`, for as long
 as it runs. An image the terminal holds is not sent again: after a
 resize that leaves it at the same size, or a reload that leaves its
@@ -233,7 +249,10 @@ have yet: a diagram is kept by its key, which holds its source, so one
 that did not change is not drawn again, unless it failed to draw, such as
 for a time limit; and an image from a local file is loaded again when its
 modification time, which `src/images/stamps.rs` keeps, is not the one it
-was loaded at. Other images are kept as they are.
+was loaded at. Other images are kept as they are. What is loaded loads
+in the background, `src/images/background.rs`, on threads of their own,
+up to four at once when a program draws, each with a stop flag of its
+own, which `External` looks at besides the one for signals.
 
 `src/images/pipeline.rs` builds the renderers from the settings and the
 environment, given as values, and loads a document's images with them;
@@ -406,6 +425,8 @@ src/pager/files.rs         where each of several files starts in the stream,
 src/pager/changes.rs       where a reload changed the laid-out lines, and
                            which change auto-follow moves to
 src/pager/tint.rs          the lighter background over that change's lines
+src/pager/loading.rs       what stands in for an image while it loads after
+                           a reload
 src/pager/status.rs        the status line
 src/pager/help.rs          the help panel that lists the keys
 src/pager/warnings.rs      the warning line above the status line

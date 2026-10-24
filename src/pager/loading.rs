@@ -1,0 +1,200 @@
+//! What stands in for the images of a reloaded document while they load
+//! in the background, chosen by what their blocks showed before: a block
+//! that changed shows its old image dimmed, a block that stayed while its
+//! image file changed a box of the old image's size, and a block without
+//! an old image to go by shows as it does without its image.
+
+use std::collections::HashMap;
+
+use crate::compare::{self, Comparison, Fate};
+use crate::images::{ImageKey, Images, Placeholder, Source};
+use crate::model::{Block, Document, Inline};
+
+/// The key of the image `block` shows, when it may show one: the image of
+/// a paragraph of only an image, or the diagram a code block may be drawn
+/// as. Only a lone document is reloaded, so the key is of the first.
+fn key_of(block: &Block) -> Option<ImageKey> {
+    match block {
+        Block::Paragraph(content) => {
+            Inline::lone_image(content).map(|image| ImageKey::from(image.url.as_str()))
+        }
+        Block::CodeBlock {
+            language: Some(language),
+            code,
+            ..
+        } => Some(ImageKey::block(language, code)),
+        _ => None,
+    }
+}
+
+/// The images reloading `old` as `new` left, which `changes` tells
+/// apart, by what they are now and what they were before the reload.
+pub struct Reloaded<'a> {
+    pub old: &'a Document,
+    pub new: &'a Document,
+    pub changes: &'a Comparison,
+    /// What stood in for the images that were loading before the reload.
+    pub before: &'a HashMap<ImageKey, Placeholder>,
+    /// The images the reload set aside: those the new document no longer
+    /// shows, and those that load anew.
+    pub replaced: &'a HashMap<ImageKey, Source>,
+    /// The images the new document has at once.
+    pub images: &'a Images,
+}
+
+impl Reloaded<'_> {
+    /// What stands in for the image `key` while it loads: what stood in
+    /// for it before, if it was loading then; the old image of the block
+    /// it changed from, dimmed; a box of the size of the image a block
+    /// that stayed showed, as when the image's file changed; and
+    /// otherwise nothing that tells a size.
+    pub fn placeholder(&self, key: &ImageKey) -> Placeholder {
+        if let Some(before) = self.before.get(key) {
+            return before.clone();
+        }
+        let new = compare::blocks(self.new);
+        let Some((path, _)) = (new.iter()).find(|(_, block)| key_of(block).as_ref() == Some(key))
+        else {
+            return Placeholder::Unsized;
+        };
+        match self.changes.fate(path) {
+            Some(Fate::Changed { was }) => {
+                let old = compare::blocks(self.old);
+                let old_key = (old.iter())
+                    .find(|(path, _)| path == was)
+                    .and_then(|(_, block)| key_of(block));
+                match old_key.and_then(|old| self.old_image(&old)) {
+                    Some(Placeholder::Box(size)) => Placeholder::Box(size),
+                    Some(Placeholder::Dimmed(image)) => Placeholder::Dimmed(image),
+                    _ => Placeholder::Unsized,
+                }
+            }
+            Some(Fate::Stayed { .. }) => match self.replaced.get(key) {
+                Some(image) => Placeholder::Box(image.size()),
+                None => Placeholder::Unsized,
+            },
+            Some(Fate::Added) | None => Placeholder::Unsized,
+        }
+    }
+
+    /// The image `key` before the reload, as a placeholder shows it: the
+    /// image dimmed, or what stood in for it if it was loading.
+    fn old_image(&self, key: &ImageKey) -> Option<Placeholder> {
+        if let Some(image) = self.replaced.get(key) {
+            return Some(Placeholder::Dimmed(image.clone()));
+        }
+        if let Some(Ok(image)) = self.images.get(key) {
+            return Some(Placeholder::Dimmed(image.clone()));
+        }
+        self.before.get(key).cloned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::compare::compare;
+    use crate::parse::parse;
+
+    fn square(size: u32) -> Source {
+        Source::Raster(image::RgbaImage::new(size, size))
+    }
+
+    /// What stands in for `key` when `old` is reloaded as `new`, with
+    /// `replaced` set aside and `before` standing in for what loaded.
+    fn placeholder(
+        old: &str,
+        new: &str,
+        key: impl Into<ImageKey>,
+        replaced: &[(&str, Source)],
+        before: &[(&str, Placeholder)],
+    ) -> Placeholder {
+        let (old, new) = (parse(old), parse(new));
+        let changes = compare(&old, &new);
+        let replaced = (replaced.iter())
+            .map(|(url, image)| (ImageKey::from(*url), image.clone()))
+            .collect();
+        let before = (before.iter())
+            .map(|(url, placeholder)| (ImageKey::from(*url), placeholder.clone()))
+            .collect();
+        let reloaded = Reloaded {
+            old: &old,
+            new: &new,
+            changes: &changes,
+            before: &before,
+            replaced: &replaced,
+            images: &Images::new(),
+        };
+        reloaded.placeholder(&key.into())
+    }
+
+    #[test]
+    fn a_block_that_changed_shows_its_old_image_dimmed() {
+        let shown = placeholder(
+            "Text\n\n![a](a.png)\n",
+            "Text\n\n![b](b.png)\n",
+            "b.png",
+            &[("a.png", square(4))],
+            &[],
+        );
+        assert!(matches!(shown, Placeholder::Dimmed(image) if image.size() == (4, 4)));
+    }
+
+    #[test]
+    fn a_diagram_that_changed_shows_its_old_drawing_dimmed() {
+        let old = ImageKey::block("mermaid", "flowchart TD\n");
+        let (old_doc, new_doc) = (
+            parse("```mermaid\nflowchart TD\n```\n"),
+            parse("```mermaid\nflowchart LR\n```\n"),
+        );
+        let changes = compare(&old_doc, &new_doc);
+        let replaced = HashMap::from([(old, square(6))]);
+        let reloaded = Reloaded {
+            old: &old_doc,
+            new: &new_doc,
+            changes: &changes,
+            before: &HashMap::new(),
+            replaced: &replaced,
+            images: &Images::new(),
+        };
+        let shown = reloaded.placeholder(&ImageKey::block("mermaid", "flowchart LR\n"));
+        assert!(matches!(shown, Placeholder::Dimmed(image) if image.size() == (6, 6)));
+    }
+
+    #[test]
+    fn a_block_that_stayed_while_its_file_changed_shows_a_box_of_the_old_size() {
+        let source = "![a](a.png)\n";
+        let shown = placeholder(source, source, "a.png", &[("a.png", square(5))], &[]);
+        assert!(matches!(shown, Placeholder::Box((5, 5))), "{shown:?}");
+    }
+
+    #[test]
+    fn a_new_block_or_one_without_an_old_image_has_no_size() {
+        let added = placeholder("Text\n", "Text\n\n![b](b.png)\n", "b.png", &[], &[]);
+        assert!(matches!(added, Placeholder::Unsized), "{added:?}");
+        // Its old image did not load.
+        let failed = placeholder("![a](a.png)\n", "![b](b.png)\n", "b.png", &[], &[]);
+        assert!(matches!(failed, Placeholder::Unsized), "{failed:?}");
+    }
+
+    #[test]
+    fn what_stood_in_before_stays_and_follows_a_block_that_changes_again() {
+        let boxed = Placeholder::Box((3, 2));
+        let kept = placeholder(
+            "![a](a.png)\n",
+            "![a](a.png)\n",
+            "a.png",
+            &[],
+            &[("a.png", boxed.clone())],
+        );
+        assert!(matches!(kept, Placeholder::Box((3, 2))), "{kept:?}");
+        let followed = placeholder(
+            "![a](a.png)\n",
+            "![b](b.png)\n",
+            "b.png",
+            &[],
+            &[("a.png", boxed)],
+        );
+        assert!(matches!(followed, Placeholder::Box((3, 2))), "{followed:?}");
+    }
+}

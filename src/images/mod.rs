@@ -23,11 +23,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::diagrams::{NoRenderer, Renderer, Request, Theme};
 use crate::model::{Block, Document, Inline};
 
+#[cfg(test)]
+pub(crate) use background::Arrival;
 pub use background::Loads;
 pub use decode::{DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image};
-pub use pipeline::{
-    Interrupted, Loaded, Loading, load_documents, reload_documents, reload_in_background,
-};
+pub use pipeline::{Interrupted, Loaded, Loading, load_documents, reload_in_background};
 pub use stamps::Stamps;
 pub use svg::{Fonts, Svg};
 
@@ -347,6 +347,15 @@ impl Images {
     /// longer loading as far as `self` tells.
     pub fn take_placeholders(&mut self) -> HashMap<ImageKey, Placeholder> {
         std::mem::take(&mut self.loading)
+    }
+
+    /// Sets the image `key` aside, as [`reload_in_background`] does with
+    /// one that is no longer shown or that loads anew.
+    #[cfg(test)]
+    pub(crate) fn set_aside(&mut self, key: &ImageKey) {
+        if let Some(Ok(image)) = self.remove(key) {
+            self.replaced.insert(key.clone(), image);
+        }
     }
 
     /// Takes the images [`reload_in_background`] replaced.

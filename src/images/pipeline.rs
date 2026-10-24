@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use super::background::{Context, Job, What};
 use super::{Fonts, ImageKey, Images, LoadOptions, Loads, Part, Stamps, Wanted, diagram_languages};
-use super::{load_parts, plan, reload_parts};
+use super::{load_parts, plan};
 use crate::config::{self, Environment, Settings};
 use crate::diagrams::find::{self, Search};
 use crate::diagrams::{Command, ExternalSettings, NoRenderer, Renderer, Renderers, Theme};
@@ -58,7 +58,7 @@ pub fn load_documents(
     loading: &Loading,
     progress: Option<&(dyn Fn(usize, usize) + Sync)>,
 ) -> Result<Loaded, Interrupted> {
-    let (images, interrupt) = load_kept(parts, loading, progress, None);
+    let (images, interrupt) = load_kept(parts, loading, progress);
     if let Some(signal) = interrupt.as_ref().and_then(Interrupt::release) {
         return Err(Interrupted(signal));
     }
@@ -66,35 +66,7 @@ pub fn load_documents(
 }
 
 /// `load_documents` again, for documents that may have changed, into
-/// `images`, which holds what was loaded before: only the images and
-/// diagrams that it does not hold are loaded, and an image from a local
-/// file is loaded again when the file's modification time is not the one
-/// `stamps` hold. The signals are caught only while programs draw, and
-/// are left as they were when this returns: they are not made to end kiri
-/// meanwhile, as the caller, such as the pager, catches them too. When a
-/// signal came, `images` holds no more than the part of what it held that
-/// was not given up.
-pub fn reload_documents(
-    parts: &[Part<'_>],
-    loading: &Loading,
-    progress: Option<&(dyn Fn(usize, usize) + Sync)>,
-    images: &mut Images,
-    stamps: &mut Stamps,
-) -> Result<(), Interrupted> {
-    stamps.refresh(parts, images);
-    let (loaded, interrupt) = load_kept(parts, loading, progress, Some(images));
-    // Looked at without `release`, which would make a signal that comes
-    // later end kiri at once, with the pager's terminal raw.
-    let signal = interrupt.as_ref().and_then(Interrupt::signal);
-    drop(interrupt);
-    if let Some(signal) = signal {
-        return Err(Interrupted(signal));
-    }
-    *images = loaded;
-    Ok(())
-}
-
-/// `reload_documents`, into `images`, with what it cannot
+/// `images`, which holds what was loaded before, with what it cannot
 /// take from there loading in the background in `loads`: an image it
 /// does not hold, a diagram that failed, and an image from a local file
 /// whose modification time is not the one `stamps` hold. A load of the
@@ -189,14 +161,13 @@ pub fn reload_in_background(
     *images = kept;
 }
 
-/// The images of `parts`, loaded as `load_documents` loads them, with
-/// those `kept` holds taken from it, and the guard that caught the
-/// signals while programs drew diagrams, if any did.
+/// The images of `parts`, loaded as `load_documents` loads them, and the
+/// guard that caught the signals while programs drew diagrams, if any
+/// did.
 fn load_kept(
     parts: &[Part<'_>],
     loading: &Loading,
     progress: Option<&(dyn Fn(usize, usize) + Sync)>,
-    kept: Option<&mut Images>,
 ) -> (Images, Option<Interrupt>) {
     let (renderers, interrupt) = match loading.settings.diagrams {
         true => {
@@ -217,11 +188,7 @@ fn load_kept(
         ..LoadOptions::default()
     };
     let (size, fonts) = (loading.max_file_size, &Fonts::system());
-    let images = match kept {
-        Some(kept) => reload_parts(parts, size, fonts, &options, kept),
-        None => load_parts(parts, size, fonts, &options),
-    };
-    (images, interrupt)
+    (load_parts(parts, size, fonts, &options), interrupt)
 }
 
 /// The commands the settings choose for diagrams, and how they run,
@@ -382,12 +349,19 @@ mod tests {
 
         // Other content, the same time: the file is taken as it was.
         write_png(&scratch.join("a.png"), 6, 3, 1000);
-        reload_documents(&parts, &loading, None, &mut images, &mut stamps).unwrap();
+        let mut loads = Loads::new();
+        reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
         assert_eq!(size_of(&images, "a.png"), (4, 2));
+        assert!(loads.is_empty());
 
         write_png(&scratch.join("a.png"), 6, 3, 2000);
-        reload_documents(&parts, &loading, None, &mut images, &mut stamps).unwrap();
-        assert_eq!(size_of(&images, "a.png"), (6, 3));
+        reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+        assert!(images.is_empty());
+        let came = until(&mut loads, &"a.png".into());
+        assert!(
+            matches!(&came[..], [(_, Ok(image))] if image.size() == (6, 3)),
+            "{came:?}"
+        );
     }
 
     #[test]
@@ -407,8 +381,13 @@ mod tests {
         let mut images = load_documents(&parts, &loading, None).unwrap().images;
         assert!(matches!(images.get(&"a.png".into()), Some(Err(_))));
         write_png(&scratch.join("a.png"), 4, 2, 1000);
-        reload_documents(&parts, &loading, None, &mut images, &mut stamps).unwrap();
-        assert_eq!(size_of(&images, "a.png"), (4, 2));
+        let mut loads = Loads::new();
+        reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+        let came = until(&mut loads, &"a.png".into());
+        assert!(
+            matches!(&came[..], [(_, Ok(image))] if image.size() == (4, 2)),
+            "{came:?}"
+        );
     }
 
     #[test]
@@ -429,7 +408,9 @@ mod tests {
             "https://example.com/a.png",
             Err(crate::images::ImageError::Remote),
         );
-        reload_documents(&parts, &loading, None, &mut images, &mut stamps).unwrap();
+        let mut loads = Loads::new();
+        reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+        assert!(loads.is_empty());
         assert_eq!(images.len(), 1);
         assert!(matches!(
             images.get(&"https://example.com/a.png".into()),
