@@ -326,17 +326,16 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 
 #### 4.6.9 Follow mode
 
-- A follow mode for a document another program is writing, such as one
-  Claude is working on in the next window: it reloads on every change
-  without a key press.
-- Follow and auto-follow, chosen by a setting and switched with `F` in
-  the pager or from the menu (4.14), where the value can be set more
-  finely. Follow keeps the view where the reader left it; auto-follow
-  also jumps to a change, and a setting says which: the first, the last
-  or the one that changed most.
-- `--follow on|off|auto`, `follow` in the configuration file. `-f` is
-  `--follow=on`, moved from `--format`; `-F` is `--follow=off` and `--fa`
-  is `--follow=auto`.
+- Follow, for a lone document read from a file, such as one Claude is
+  working on in the next window: it reloads on every change without a
+  key press and keeps the view where the reader left it. `F` in the
+  pager, `--follow on|off`, `-f` (`--follow=on`, moved from `--format`),
+  `-F` (`--follow=off`), `KIRI_FOLLOW` and `follow` in the configuration
+  file; following pages the file however short it is. (done)
+- Auto-follow, which also jumps to a change, and a setting says which:
+  the first, the last or the one that changed most. `--follow auto` and
+  `--fa`. Following can be switched from the menu (4.14) too, where the
+  value can be set more finely.
 - Following standard input, such as `tail -f log | kiri`, as well as a
   file.
 - Ctrl-C stops a reload that draws a slow diagram; today the terminal
