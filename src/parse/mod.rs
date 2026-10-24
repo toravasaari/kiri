@@ -27,7 +27,7 @@ pub fn parse_with(source: &str, front_matter: bool) -> Document {
     };
     let arena = Arena::new();
     let root = parse_document(&arena, markdown, &options());
-    let (mut blocks, positions) = unzip(blocks(root));
+    let (mut blocks, positions): (Vec<_>, Vec<_>) = blocks(root).into_iter().unzip();
     // comrak counts lines from the end of the front matter.
     let front_matter_lines = source[..source.len() - markdown.len()]
         .matches('\n')
@@ -77,11 +77,6 @@ impl Position {
             path.pop();
         }
     }
-}
-
-/// Blocks and where they start, as two lists in the same order.
-fn unzip(blocks: Vec<(Block, Position)>) -> (Vec<Block>, Vec<Position>) {
-    blocks.into_iter().unzip()
 }
 
 /// `source` as it is, without reading it as Markdown: a document of one
@@ -230,7 +225,7 @@ fn details(
     blocks: Vec<(Block, Position)>,
     line: usize,
 ) -> (Block, Position) {
-    let (blocks, children) = unzip(blocks);
+    let (blocks, children): (Vec<_>, Vec<_>) = blocks.into_iter().unzip();
     let block = Block::Details {
         summary: summary.unwrap_or_else(|| vec![Inline::Text("Details".into())]),
         blocks,
@@ -269,12 +264,12 @@ fn block(node: Node<'_>) -> Option<(Block, Position)> {
             line: node.data().sourcepos.start.line,
         },
         NodeValue::BlockQuote => {
-            let (blocks, positions) = unzip(blocks(node));
+            let (blocks, positions): (Vec<_>, Vec<_>) = blocks(node).into_iter().unzip();
             children = positions;
             Block::BlockQuote(blocks)
         }
         NodeValue::Alert(alert) => {
-            let (blocks, positions) = unzip(blocks(node));
+            let (blocks, positions): (Vec<_>, Vec<_>) = blocks(node).into_iter().unzip();
             children = positions;
             Block::Alert {
                 kind: match alert.alert_type {
@@ -317,7 +312,7 @@ fn list_item(node: Node<'_>) -> (ListItem, Position) {
         NodeValue::TaskItem(task) => Some(task.symbol.is_some()),
         _ => None,
     };
-    let (blocks, children) = unzip(blocks(node));
+    let (blocks, children): (Vec<_>, Vec<_>) = blocks(node).into_iter().unzip();
     let position = Position {
         line: None,
         children,
