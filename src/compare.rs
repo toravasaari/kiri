@@ -2,8 +2,8 @@
 //! in another.
 //!
 //! The comparison reads two [`Document`]s and nothing else: it knows
-//! neither the parser nor a terminal. Nothing uses it yet; reloading a file
-//! will, to find what to redraw and where.
+//! neither the parser nor a terminal. The pager uses it on a reload, to keep
+//! the place in the document.
 //!
 //! Blocks are told apart by the paths of
 //! [`SourceLines`](crate::model::SourceLines), which say how a block is

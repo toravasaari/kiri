@@ -15,10 +15,12 @@ use std::ops::Range;
 use std::time::{Duration, Instant};
 
 use crate::caps::Capabilities;
+use crate::compare::{Comparison, Fate, compare};
 use crate::config::{Paging, SearchCase};
 use crate::images::Images;
 use crate::model::{Document, File};
 use crate::render::Inputs;
+use crate::render::block::BlockInfo;
 use crate::render::layout::{Content, Stream};
 use crate::render::output::{self, Page, Writer};
 use crate::render::style::{self, Line, Span, Style};
@@ -166,6 +168,9 @@ pub fn run(
     let mut state = State::new(case);
     // The document as reloaded, once it has been.
     let mut reloaded: Option<Document> = None;
+    // How the reloaded document differs from the one before it, until the
+    // view has found its place in the new lines.
+    let mut changes: Option<Comparison> = None;
     let shown_files: &[File] = match content {
         Content::Document(_) => &[],
         Content::Files(files) => files,
@@ -204,7 +209,12 @@ pub fn run(
             .collect();
         let mut shown = match view.take() {
             Some(mut view) => {
-                view.resize(heights, places, rows);
+                match changes.take() {
+                    Some(changes) => view.resize_by(heights, places, rows, |old, new| {
+                        follows(&changes, old, new)
+                    }),
+                    None => view.resize(heights, places, rows),
+                }
                 view
             }
             None => View::new(heights, rows).with_blocks(places),
@@ -259,6 +269,9 @@ pub fn run(
                 let source = reload.as_deref_mut().expect("a source to reload from");
                 state.told = Some(match source.reload(&mut inputs.images, &inputs.caps) {
                     Reloaded::Document(document) => {
+                        if let Content::Document(old) = content {
+                            changes = Some(compare(old, &document));
+                        }
                         reloaded = Some(document);
                         "reloaded".to_owned()
                     }
@@ -267,6 +280,17 @@ pub fn run(
             }
         }
     }
+}
+
+/// Whether the block `new` of the reloaded document is the block `old` of
+/// the one before it, as `changes` found: the block that stayed or changed
+/// from where `old` was.
+fn follows(changes: &Comparison, old: &BlockInfo, new: &BlockInfo) -> bool {
+    old.file() == new.file()
+        && matches!(
+            changes.fate(new.path()),
+            Some(Fate::Stayed { was } | Fate::Changed { was }) if was == old.path()
+        )
 }
 
 /// The rows of a window whose size the terminal does not tell.
@@ -1080,7 +1104,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "block numbers cannot tell a block added above the view from one that is the same"]
     fn a_reload_keeps_the_place_when_a_block_is_added_above_it() {
         // Ten lines, scrolled to Line 4; then a block before all of them.
         let mut then = Then::new([Reloaded::Document(crate::parse::parse(&format!(
@@ -1092,6 +1115,64 @@ mod tests {
         let frames = show_reloading(&numbers(10), &mut then, &[b"jjjjjj", b"r"]);
         assert!(at_top(&frames[1], "Line 4"), "{frames:#?}");
         assert!(at_top(&frames[3], "Line 4"), "{frames:#?}");
+    }
+
+    /// A document of `blocks`, one after the other.
+    fn blocks(blocks: &[&str]) -> Document {
+        crate::parse::parse(&blocks.join("\n\n"))
+    }
+
+    #[test]
+    fn a_reload_goes_to_the_next_block_when_the_top_block_is_removed() {
+        // Scrolled to Line 4; then Line 4 is gone and a block comes first.
+        let old: Vec<String> = (1..=10).map(|n| format!("Line {n}")).collect();
+        let mut new: Vec<&str> = vec!["Added"];
+        new.extend(
+            old.iter()
+                .map(String::as_str)
+                .filter(|&line| line != "Line 4"),
+        );
+        let mut then = Then::new([Reloaded::Document(blocks(&new))]);
+        let frames = show_reloading(&numbers(10), &mut then, &[b"jjjjjj", b"r"]);
+        assert!(at_top(&frames[1], "Line 4"), "{frames:#?}");
+        assert!(at_top(&frames[3], "Line 5"), "{frames:#?}");
+    }
+
+    #[test]
+    fn a_reload_keeps_the_offset_in_a_block_that_changed() {
+        // A code block of eight lines, scrolled three lines into it; then
+        // two of its lines change and a block is added above it.
+        let code = |first: &str, last: &str| format!("```\n{first}\nb\nc\nd\ne\nf\ng\n{last}\n```");
+        let old = blocks(&["Intro", &code("a", "h"), "Outro"]);
+        let new = blocks(&["Added", "Intro", &code("A", "H"), "Outro"]);
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let frames = show_reloading(&old, &mut then, &[b"jjjjj", b"r"]);
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert_eq!(top_row(&frames[1]), "c", "{frames:#?}");
+        assert_eq!(top_row(&frames[3]), "c", "{frames:#?}");
+    }
+
+    #[test]
+    fn a_reload_keeps_the_place_in_a_details_block() {
+        let details = |added: &str| {
+            let inner: String = (1..=6).map(|n| format!("Inner {n}\n\n")).collect();
+            format!("{added}<details>\n<summary>More</summary>\n\n{inner}</details>\n\nEnd")
+        };
+        let old = crate::parse::parse(&details(""));
+        let new = crate::parse::parse(&details("Added\n\n"));
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let frames = show_reloading(&old, &mut then, &[b"jjjjjj", b"r"]);
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        let inner = top_row(&frames[1]);
+        assert!(inner.starts_with("Inner"), "{frames:#?}");
+        assert_eq!(top_row(&frames[3]), inner, "{frames:#?}");
+    }
+
+    /// The text on the top row of the document in `frame`.
+    fn top_row(frame: &str) -> String {
+        let frame = unstyled(frame);
+        let row = frame.split("\x1b[1;1H").nth(1).unwrap();
+        row.split("\x1b[2;1H").next().unwrap().trim().to_owned()
     }
 
     fn others() -> Document {

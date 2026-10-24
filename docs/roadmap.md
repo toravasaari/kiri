@@ -282,7 +282,7 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   diagrams are kept by their source unless they failed to draw, and an
   image file is loaded again when its modification time changed. (done)
 - The place kept by the comparison (G1.6), so a block added above the
-  view does not move it.
+  view does not move it. (done)
 - Reload on file change, and a key that jumps to the first block that
   changed.
 - A follow mode for a document another program is writing, such as one
