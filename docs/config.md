@@ -217,6 +217,14 @@ YAML, TOML or JSON that does not parse shows as a code block in the
 table style, with a warning naming the line of the file, such as
 `kiri: front matter, line 4: …`. CSV and TSV files have no front matter.
 
+In the pager, a reload whose document has such a warning says `reloaded` as
+any reload does, and the status line shows `⚠ 1` before the position, the
+number being how many warnings the document shown has. The mark stays until
+a reload brings a document without warnings, and its number flashes when it
+changes, as the match number does when a search goes around an end. In a
+narrow window the mark is left out right after the word that tells kiri
+follows the file.
+
 ## Table rows
 
 The first of these that is given decides the table row style of tables

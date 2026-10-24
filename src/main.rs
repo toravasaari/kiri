@@ -18,8 +18,8 @@ use kiri::images::{
     Stamps, reload_documents,
 };
 use kiri::input::Input;
-use kiri::model::{Block, Document};
-use kiri::pager::{Change, Look, Reload, Reloaded};
+use kiri::model::{Block, Document, FrontMatterError};
+use kiri::pager::{Change, Look, Reload, Reloaded, Warning};
 use kiri::render::output::Page;
 use kiri::render::{Inputs, RenderErrors, TableRows};
 use kiri::term::Mode;
@@ -367,7 +367,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     }
     // The source of a diagram in text stays source.
     settings.diagrams &= input != Input::Text;
-    let warn = |warning| eprintln!("kiri: {warning}");
+    let warn = |warning: &FrontMatterError| eprintln!("kiri: {warning}");
     let Some(document) = document(input, &source, path, &settings, &caps, warn)? else {
         return Ok(write_as_is(&source)?);
     };
@@ -509,7 +509,7 @@ fn document(
     path: &Path,
     settings: &Settings,
     caps: &Capabilities,
-    warn: impl FnOnce(String),
+    warn: impl FnOnce(&FrontMatterError),
 ) -> Result<Option<Document>, String> {
     Ok(Some(match input {
         Input::Table(separator) => kiri::parse::csv::parse(source, separator)
@@ -519,10 +519,9 @@ fn document(
         _ => {
             let style = settings.front_matter.style();
             let document = kiri::parse::parse_with(source, style.is_some());
-            let warning =
-                style.and_then(|style| kiri::render::front_matter_warning(&document, style));
-            if let Some(warning) = warning {
-                warn(warning);
+            let error = style.and_then(|style| kiri::render::front_matter_error(&document, style));
+            if let Some(error) = error {
+                warn(error);
             }
             document
         }
@@ -628,7 +627,7 @@ fn show_files(
         };
         let name = opened.path.display().to_string();
         let mut warnings = Vec::new();
-        let warn = |warning| warnings.push(warning);
+        let warn = |warning: &FrontMatterError| warnings.push(warning.to_string());
         let shown = match opened.content {
             Content::Image { format, head, rest } => Shown::Image { format, head, rest },
             // The configuration file's error tells why.
@@ -1478,8 +1477,8 @@ impl Reload for FileReload<'_> {
             Ok(source) => source,
             Err(error) => return Reloaded::Failed(error),
         };
-        let mut warning = None;
-        let warn = |text| warning = Some(without_path(text, path));
+        let mut warnings = Vec::new();
+        let warn = |error: &FrontMatterError| warnings.push(Warning::from(error));
         let document = match document(input, &source, path, self.settings, caps, warn) {
             Ok(Some(document)) => document,
             Ok(None) => return Reloaded::Failed("cannot be shown".to_owned()),
@@ -1495,9 +1494,9 @@ impl Reload for FileReload<'_> {
                 return Reloaded::Failed("stopped by a signal".to_owned());
             }
         }
-        match warning {
-            Some(warning) => Reloaded::Warned(document, warning),
-            None => Reloaded::Document(document),
+        match warnings.is_empty() {
+            true => Reloaded::Document(document),
+            false => Reloaded::Warned(document, warnings),
         }
     }
 

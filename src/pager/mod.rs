@@ -20,7 +20,7 @@ use crate::caps::Capabilities;
 use crate::compare::{Comparison, Fate, compare};
 use crate::config::{self, FollowJump, Paging, SearchCase};
 use crate::images::Images;
-use crate::model::{Document, File};
+use crate::model::{Document, File, FrontMatterError};
 use crate::render::Inputs;
 use crate::render::block::BlockInfo;
 use crate::render::layout::{Content, Stream};
@@ -131,12 +131,32 @@ pub struct Look {
     pub length: u64,
 }
 
+/// Something kiri found wrong with a document while it read it, which
+/// the pager tells about without stopping.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Warning {
+    /// The line of the file the trouble is at, counting from 1, when
+    /// known.
+    pub line: Option<usize>,
+    /// What is wrong, as one line of text.
+    pub message: String,
+}
+
+impl From<&FrontMatterError> for Warning {
+    fn from(error: &FrontMatterError) -> Self {
+        Self {
+            line: error.line,
+            message: format!("front matter: {}", error.message),
+        }
+    }
+}
+
 /// What reloading the document came to.
 pub enum Reloaded {
     Document(Document),
-    /// As `Document`, whose front matter the parser warns about: the
-    /// warning, as the status line says it.
-    Warned(Document, String),
+    /// As `Document`, with warnings about it, the first of which the
+    /// pager shows.
+    Warned(Document, Vec<Warning>),
     /// The document could not be read again: why, as the status line says
     /// it.
     Failed(String),
@@ -334,21 +354,24 @@ pub fn run(
                 view = Some(shown);
                 state.follow.seen = None;
                 let source = reload.as_deref_mut().expect("a source to reload from");
-                state.told = Some(match source.reload(&mut inputs.images, &inputs.caps) {
+                let now = terminal.now();
+                let reloaded_now = source.reload(&mut inputs.images, &inputs.caps);
+                state.told = Some(match reloaded_now {
                     Reloaded::Document(document) => {
                         if let Content::Document(old) = content {
                             changes = Some(compare(old, &document));
                         }
                         reloaded = Some(document);
-                        Told::fading("reloaded", terminal.now())
+                        state.warn(Vec::new(), now);
+                        Told::fading("reloaded", now)
                     }
-                    // The warning stays until the next key, as a failure does.
-                    Reloaded::Warned(document, warning) => {
+                    Reloaded::Warned(document, warnings) => {
                         if let Content::Document(old) = content {
                             changes = Some(compare(old, &document));
                         }
                         reloaded = Some(document);
-                        Told::new(warning)
+                        state.warn(warnings, now);
+                        Told::fading("reloaded", now)
                     }
                     Reloaded::Failed(why) => Told::new(why),
                 });
@@ -424,12 +447,16 @@ impl Status<'_> {
     /// The status line for `view` in `state`, with the match number faded
     /// by `fade` after the search went around an end and a message faded
     /// out by `out`: the prompt while it is open.
+    ///
+    /// The mark for the document's warnings has its number flashing
+    /// while `counted` is a fade.
     fn spans(
         &self,
         view: &View,
         state: &State,
         fade: Option<Fade>,
         out: Option<Fade>,
+        counted: Option<Fade>,
     ) -> Vec<Span> {
         if !self.bar {
             return Vec::new();
@@ -449,8 +476,14 @@ impl Status<'_> {
                 let place = (file.filter(|_| self.files.several()))
                     .map(|file| (file + 1, self.files.count()));
                 let position = view.position();
-                let follow = state.follow.mode;
-                status::spans(name, place, position, follow, found, width, &self.styles)
+                let tags = status::Tags {
+                    follow: state.follow.mode,
+                    warnings: (!state.warnings.is_empty()).then(|| status::Warned {
+                        count: state.warnings.len(),
+                        flash: counted.map(|fade| self.styles.number(fade)),
+                    }),
+                };
+                status::spans(name, place, position, tags, found, width, &self.styles)
             }
         }
     }
@@ -516,6 +549,11 @@ struct State {
     /// The lines of the change auto-follow went to, while they are
     /// tinted.
     changed: Option<Changed>,
+    /// The warnings about the document shown.
+    warnings: Vec<Warning>,
+    /// When the number of warnings last changed, while the number of the
+    /// mark on the status line flashes.
+    counted: Option<Instant>,
 }
 
 /// How much to tint which lines, over how many cells, in what colours.
@@ -656,7 +694,18 @@ impl State {
             told: None,
             follow: Follow::default(),
             changed: None,
+            warnings: Vec::new(),
+            counted: None,
         }
+    }
+
+    /// Takes `warnings`, about the document as read at `now`, for the
+    /// ones before; the number of them flashes when it differs.
+    fn warn(&mut self, warnings: Vec<Warning>, now: Instant) {
+        if warnings.len() != self.warnings.len() {
+            self.counted = Some(now);
+        }
+        self.warnings = warnings;
     }
 
     /// Does what `key`, pressed at `now`, asks in `layout`, and tells what
@@ -825,6 +874,9 @@ impl State {
         self.changed = self.changed.take().filter(|changed| {
             now.saturating_duration_since(changed.at) < HIGHLIGHT_STAY + HIGHLIGHT_FADE
         });
+        self.counted = self
+            .counted
+            .filter(|at| now.saturating_duration_since(*at) < FADE);
         self.told = self.told.take().filter(|told| {
             told.fades
                 .is_none_or(|at| now.saturating_duration_since(at) < STAY + FADE_OUT)
@@ -855,6 +907,16 @@ impl State {
             amount: HIGHLIGHT_SHARE * left.max(0.0),
             rgb,
             columns,
+        })
+    }
+
+    /// The flash of the warning count under way at `now`, mixing colours
+    /// with `rgb`.
+    fn count_fade<'a>(&self, now: Instant, rgb: Option<&'a Rgb>) -> Option<Fade<'a>> {
+        let at = self.counted?;
+        Some(Fade {
+            elapsed: now.saturating_duration_since(at),
+            rgb,
         })
     }
 
@@ -968,7 +1030,9 @@ impl Layout<'_> {
                 fade,
                 self.rgb.and_then(|rgb| state.tint(now, rgb, self.columns)),
             ),
-            status: self.status.spans(self.view, state, fade, out),
+            status: self
+                .status
+                .spans(self.view, state, fade, out, state.count_fade(now, self.rgb)),
             panel: self.status.panel(self.view, state.help),
         }
     }
@@ -977,6 +1041,7 @@ impl Layout<'_> {
     /// that the pager draws it a step at a time.
     fn fades(&self, state: &State, now: Instant) -> bool {
         state.jumped.is_some()
+            || state.counted.is_some() && self.status.bar
             || state.changed.is_some() && self.rgb.is_some()
             || self.status.bar
                 && (state.fade_out(now, self.rgb))
@@ -2002,6 +2067,28 @@ mod tests {
         reloading_with(Capabilities::ansi(80), document, then, keys, 0)
     }
 
+    /// As [`show_reloading`], with every read in `reads` as it is, empty
+    /// ones included.
+    fn show_reloading_with(document: &Document, then: &mut Then, reads: &[&[u8]]) -> Vec<String> {
+        let mut terminal = Fake::new(60, 6, reads);
+        let mut inputs = Inputs::new(Capabilities::ansi(80));
+        let options = Options {
+            reload: Some(then),
+            ..Options::new(SearchCase::Smart)
+        };
+        let content = Content::Document(document);
+        run(
+            content,
+            None,
+            "notes.md",
+            &mut inputs,
+            options,
+            &mut terminal,
+        )
+        .unwrap();
+        terminal.frames()
+    }
+
     /// As [`show_reloading`], on a terminal with `caps`, with `empty`
     /// polls without keys after `reads`.
     fn reloading_with(
@@ -2088,20 +2175,71 @@ mod tests {
         );
     }
 
+    /// A warning at line `line` of the file.
+    fn warning(line: usize, message: &str) -> Warning {
+        Warning {
+            line: Some(line),
+            message: message.to_owned(),
+        }
+    }
+
     #[test]
-    fn a_reload_with_a_front_matter_warning_shows_it_until_the_next_key() {
-        let warned = Reloaded::Warned(rows(10), "bad front matter".to_owned());
+    fn a_reload_with_warnings_says_reloaded_and_marks_how_many() {
+        let warned = Reloaded::Warned(rows(10), vec![warning(3, "bad"), warning(9, "worse")]);
         let mut then = Then::new([warned]);
         let frames = show_reloading(&numbers(10), &mut then, &[b"r", b"j"]);
         assert_eq!(frames.len(), 4, "{frames:#?}");
         assert!(at_top(&frames[2], "Row 1"), "{frames:#?}");
-        let status = status_row(&frames[2], 6);
-        assert!(status.contains("bad front matter"), "{frames:#?}");
+        let status = unstyled(&status_row(&frames[2], 6));
+        assert!(status.contains("reloaded"), "{frames:#?}");
+        assert!(status.contains("\u{26a0} 2"), "{frames:#?}");
+        assert!(!status.contains("bad"), "{frames:#?}");
+        // The mark stays after the next key, and `reloaded` goes.
+        let status = unstyled(&status_row(&frames[3], 6));
+        assert!(status.contains("\u{26a0} 2"), "{frames:#?}");
         assert!(!status.contains("reloaded"), "{frames:#?}");
-        assert!(
-            !status_row(&frames[3], 6).contains("bad front matter"),
-            "{frames:#?}"
-        );
+    }
+
+    #[test]
+    fn a_document_without_warnings_has_no_mark() {
+        let mut then = Then::new([Reloaded::Document(rows(10))]);
+        let frames = show_reloading(&numbers(10), &mut then, &[b"r", b"j"]);
+        assert!(!unstyled(&frames[2]).contains('\u{26a0}'), "{frames:#?}");
+    }
+
+    #[test]
+    fn a_reload_without_warnings_takes_the_mark_away() {
+        let warned = Reloaded::Warned(rows(10), vec![warning(3, "bad")]);
+        let mut then = Then::new([warned, Reloaded::Document(rows(10))]);
+        let frames = show_reloading(&numbers(10), &mut then, &[b"r", b"r"]);
+        let last = frames.len() - 1;
+        let status = unstyled(&status_row(&frames[2], 6));
+        assert!(status.contains("\u{26a0} 1"), "{frames:#?}");
+        let status = unstyled(&status_row(&frames[last], 6));
+        assert!(!status.contains('\u{26a0}'), "{frames:#?}");
+        assert!(status.contains("reloaded"), "{frames:#?}");
+    }
+
+    #[test]
+    fn the_number_of_the_mark_flashes_when_it_changes_and_not_when_it_stays() {
+        // Without known colours the flash is bold for half a second.
+        let flashing = |frame: &str| status_row(frame, 6).contains("\x1b[0;1m1");
+        let warned = || Reloaded::Warned(rows(10), vec![warning(3, "bad")]);
+        let mut then = Then::new([warned(), warned()]);
+        let reads: Vec<&[u8]> = vec![b"r", b"", b"", b"", b"", b"", b"", b"", b"", b"", b"", b"r"];
+        let frames = show_reloading_with(&numbers(10), &mut then, &reads);
+        let first = frames.iter().position(|f| f.contains("\u{26a0}"));
+        let first = first.unwrap_or(usize::MAX);
+        assert!(first < frames.len(), "no mark: {frames:#?}");
+        assert!(flashing(&frames[first]), "{frames:#?}");
+        let calm = frames
+            .iter()
+            .position(|f| f.contains("\u{26a0}") && !flashing(f));
+        let calm = calm.expect("the flash ends");
+        assert!(calm > first, "{frames:#?}");
+        // The second reload leaves the count as it was.
+        let last = frames.last().unwrap();
+        assert!(last.contains("\u{26a0}") && !flashing(last), "{frames:#?}");
     }
 
     #[test]

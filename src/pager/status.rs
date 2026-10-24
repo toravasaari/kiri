@@ -126,6 +126,34 @@ fn mixed(theme: &Theme, caps: &Capabilities) -> Option<Color> {
     page.mix(Color::Palette(8).rgb(&caps.palette)?, 0.5)
 }
 
+/// What the status line tells besides the document's name and position.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Tags {
+    /// How the pager follows the document.
+    pub follow: Follow,
+    /// The warnings about the document shown, when there are any.
+    pub warnings: Option<Warned>,
+}
+
+impl From<Follow> for Tags {
+    fn from(follow: Follow) -> Self {
+        Self {
+            follow,
+            warnings: None,
+        }
+    }
+}
+
+/// The mark that tells the document has warnings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Warned {
+    /// How many there are.
+    pub count: usize,
+    /// A style that shows the number apart for a moment, after it
+    /// changed.
+    pub flash: Option<Style>,
+}
+
 /// What the status line tells about the last search, or in its place.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Found<'a> {
@@ -153,18 +181,21 @@ pub enum Found<'a> {
 /// `found` by a search, `width` cells wide, and a word after the position
 /// when the pager follows the document, as `follow` says. `place` is the
 /// file's number, from 1, and how many files there are, which the line
-/// tells after the name. A narrow window leaves out the keys first, then
-/// the start of the name and then of its place, then the word, then the
-/// search.
+/// tells after the name. `tags` holds that word and the mark for the
+/// document's warnings, which comes before the position. A narrow window
+/// leaves out the keys first, then the start of the name and then of its
+/// place, then the word, then the warning mark, then the search.
 pub fn spans(
     name: &str,
     place: Option<(usize, usize)>,
     position: Position,
-    follow: Follow,
+    tags: impl Into<Tags>,
     found: Option<Found>,
     width: usize,
     styles: &Styles,
 ) -> Vec<Span> {
+    let Tags { follow, warnings } = tags.into();
+    let warnings = warnings.as_ref();
     // Measured as shown: a file name may hold any character but `/`.
     let mut name = printable(name);
     if let Some((number, count)) = place {
@@ -212,8 +243,15 @@ pub fn spans(
     };
     let with_search = fixed + search_width <= width;
     let search_width = if with_search { search_width } else { 0 };
-    let with_mark = fixed + search_width + mark <= width;
+    // The warning mark and a gap of three after it: it is kept longer
+    // than the word.
+    let warned = warnings.map(|warned| format!("\u{26a0} {}", warned.count));
+    let warned_width = warned.as_ref().map_or(0, |warned| warned.width() + 3);
+    let with_warned = fixed + search_width + warned_width <= width;
+    let warned_width = if with_warned { warned_width } else { 0 };
+    let with_mark = fixed + search_width + warned_width + mark <= width;
     let fixed = if with_mark { fixed + mark } else { fixed };
+    let fixed = fixed + warned_width;
     // The name needs a space between it and what comes after it.
     let with_keys = fixed + search_width + name.width() + 1 + keys_width <= width;
     let keys_width = if with_keys { keys_width } else { 0 };
@@ -229,6 +267,16 @@ pub fn spans(
     let mut right = Vec::new();
     if with_search && !search.is_empty() {
         right.extend(search);
+        right.push(Span::new("   ", styles.bar.clone()));
+    }
+    if let Some(warned) = warned.filter(|_| with_warned) {
+        let flash = warnings.and_then(|warned| warned.flash.clone());
+        right.push(Span::new("\u{26a0} ", styles.bar.clone()));
+        let number = warned.trim_start_matches("\u{26a0} ");
+        right.push(Span::new(
+            number,
+            flash.unwrap_or_else(|| styles.bar.clone()),
+        ));
         right.push(Span::new("   ", styles.bar.clone()));
     }
     right.push(Span::new(&percent, styles.bar.clone()));
@@ -413,6 +461,107 @@ mod tests {
         };
         assert_eq!(style("F"), style("?"));
         assert!(style("F").is_some_and(|style| style.bold), "{spans:?}");
+    }
+
+    /// `Tags` that follow as `follow` says, with a mark for `count`
+    /// warnings.
+    fn warned(follow: Follow, count: usize) -> Tags {
+        Tags {
+            follow,
+            warnings: Some(Warned { count, flash: None }),
+        }
+    }
+
+    #[test]
+    fn the_warning_mark_is_told_before_the_position() {
+        let spans = spans(
+            "notes.md",
+            None,
+            at(42),
+            warned(Follow::Auto, 1),
+            None,
+            60,
+            &styles(),
+        );
+        assert_eq!(
+            text(&spans),
+            " kiri  notes.md        \u{26a0} 1   42%   F auto   ? help   q quit "
+        );
+        assert_eq!(width(&spans), 60);
+        assert!(
+            spans[1..]
+                .iter()
+                .all(|span| span.style.fg == styles().bar.fg)
+        );
+    }
+
+    #[test]
+    fn the_warning_mark_comes_after_a_search() {
+        let spans = spans(
+            "notes.md",
+            None,
+            at(42),
+            warned(Follow::Off, 3),
+            AT,
+            60,
+            &styles(),
+        );
+        assert_eq!(
+            text(&spans),
+            " kiri  notes.md    /kiri 3/12   \u{26a0} 3   42%   ? help   q quit "
+        );
+    }
+
+    #[test]
+    fn the_number_of_the_warning_mark_shows_in_the_flash_style() {
+        let flash = Style::fg(Some(Color::Palette(5)));
+        let tags = Tags {
+            follow: Follow::Off,
+            warnings: Some(Warned {
+                count: 12,
+                flash: Some(flash.clone()),
+            }),
+        };
+        let spans = spans("notes.md", None, at(42), tags, None, 60, &styles());
+        let flashed: Vec<_> = spans.iter().filter(|span| span.style == flash).collect();
+        assert_eq!(flashed.len(), 1, "{spans:?}");
+        assert_eq!(flashed[0].text, "12");
+    }
+
+    #[test]
+    fn a_narrow_window_leaves_out_the_warning_mark_after_the_following_word() {
+        let shown = |width, follow| {
+            let spans = spans(
+                "notes.md",
+                None,
+                at(42),
+                warned(follow, 1),
+                None,
+                width,
+                &styles(),
+            );
+            assert_eq!(wrap::width(&spans), width, "{spans:?}");
+            text(&spans)
+        };
+        assert_eq!(
+            shown(30, Follow::On),
+            " kiri    \u{26a0} 1   42%   F follow "
+        );
+        assert_eq!(shown(21, Follow::On), " kiri  \u{2026}md \u{26a0} 1   42% ");
+        assert_eq!(shown(14, Follow::On), " kiri  \u{2026}d 42% ");
+        for width in 0..80 {
+            let spans = spans(
+                "docs/notes.md",
+                None,
+                at(42),
+                warned(Follow::On, 1),
+                AT,
+                width,
+                &styles(),
+            );
+            let expected = if width < 11 { width.min(6) } else { width };
+            assert_eq!(wrap::width(&spans), expected, "{width}: {spans:?}");
+        }
     }
 
     #[test]
