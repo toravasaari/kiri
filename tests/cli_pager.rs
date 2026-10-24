@@ -298,14 +298,29 @@ fn the_doctor_report_is_paged_only_when_paging_is_always() {
     assert!(!seen.contains(ENTER), "{seen:?}");
 }
 
-#[test]
-fn without_a_terminal_for_keys_p_prints_with_a_warning() {
-    let dir = Scratch::new("pager-no-keys");
-    std::fs::write(dir.join("long.md"), long()).unwrap();
+/// Runs kiri with `args` in a scratch directory called `name`, after
+/// `prepare` is called with it, with standard output a terminal of 40 × 5
+/// cells of 10 × 20 pixels but no
+/// terminal to read keys from. Returns how kiri exited, everything it wrote
+/// to the terminal and what it wrote to standard error.
+fn without_keys(
+    name: &str,
+    prepare: impl FnOnce(&std::path::Path),
+    args: &[&str],
+) -> (ExitStatus, String, String) {
+    let dir = Scratch::new(name);
+    prepare(&dir);
     let (mut terminal, tty) = common::pty();
+    let window = rustix::termios::Winsize {
+        ws_col: 40,
+        ws_row: 5,
+        ws_xpixel: 400,
+        ws_ypixel: 100,
+    };
+    rustix::termios::tcsetwinsize(&tty, window).unwrap();
     let mut kiri = command(&dir);
     kiri.current_dir(&*dir)
-        .args(["--mode", "ansi", "-p", "long.md"])
+        .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::from(tty))
         .stderr(Stdio::piped());
@@ -334,7 +349,14 @@ fn without_a_terminal_for_keys_p_prints_with_a_warning() {
         .unwrap()
         .read_to_string(&mut stderr)
         .unwrap();
-    let seen = text(&output);
+    (status, text(&output), stderr)
+}
+
+#[test]
+fn without_a_terminal_for_keys_p_prints_with_a_warning() {
+    let prepare = |dir: &std::path::Path| std::fs::write(dir.join("long.md"), long()).unwrap();
+    let args = ["--mode", "ansi", "-p", "long.md"];
+    let (status, seen, stderr) = without_keys("pager-no-keys", prepare, &args);
     assert!(status.success(), "{stderr}");
     assert!(!seen.contains(ENTER), "{seen:?}");
     assert!(seen.contains("Line 10"), "{seen:?}");
@@ -342,6 +364,29 @@ fn without_a_terminal_for_keys_p_prints_with_a_warning() {
         stderr,
         "kiri: no terminal to read keys from, so the document is printed\n"
     );
+}
+
+#[test]
+fn without_a_terminal_for_keys_p_prints_an_image_file_as_without_it() {
+    // Larger than the window, so that the window decides its size.
+    let prepare = |dir: &std::path::Path| {
+        image::RgbaImage::from_pixel(800, 400, image::Rgba([255, 0, 0, 255]))
+            .save(dir.join("a.png"))
+            .unwrap();
+    };
+    let args = ["--mode", "kitty", "-p", "a.png"];
+    let (status, seen, stderr) = without_keys("pager-no-keys-image", prepare, &args);
+    assert!(status.success(), "{stderr}");
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert_eq!(seen.matches("\x1b_Ga=T,").count(), 1, "{seen:?}");
+    assert_eq!(
+        stderr,
+        "kiri: no terminal to read keys from, so the document is printed\n"
+    );
+    let args = ["--mode", "kitty", "a.png"];
+    let (status, printed, stderr) = without_keys("pager-no-keys-image-auto", prepare, &args);
+    assert!(status.success(), "{stderr}");
+    assert_eq!(seen, printed);
 }
 
 #[test]
