@@ -103,7 +103,8 @@ fn clear_lines(blocks: &mut [Block]) {
 
 /// The largest table of the alignment of two lists of siblings, in cells.
 /// Past it, siblings that do not stay as they are are only paired by kind,
-/// which is cheap and still finds every block.
+/// which is cheap and still finds every block. A block added there makes
+/// the later siblings of its kind changed rather than stayed.
 const MAX_CELLS: usize = 4_000_000;
 
 #[derive(Default)]
@@ -510,5 +511,9 @@ mod tests {
         assert_eq!(fate(&comparison, &[0]), changed(&[0]));
         assert_eq!(fate(&comparison, &[2_999]), changed(&[2_999]));
         assert_eq!(removed(&comparison), Vec::<Path>::new());
+        // An equal block among them, not at an end, still stays.
+        let around = |word: &str| make(word) + "same\n\n" + &make(word);
+        let comparison = compared(&around("old"), &around("new"));
+        assert_eq!(fate(&comparison, &[3_000]), stayed(&[3_000]));
     }
 }
