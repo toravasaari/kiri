@@ -126,9 +126,8 @@ at the top to the block that stayed or changed from it, so a block added
 above the view does not move it. When the block at the top is gone, the
 view goes to the next block that is still there. A view at the end of the
 document goes to the new end, so a document that grew shows what was
-added. The terminal itself, the alternate screen,
-raw mode and reading keys from the controlling terminal, is opened in
-`src/term/screen.rs`.
+added. The terminal itself, the alternate screen, raw mode and reading keys
+from the controlling terminal, is opened in `src/term/screen.rs`.
 
 ## Diagrams
 
