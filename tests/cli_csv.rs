@@ -62,7 +62,7 @@ fn format_tells_a_table_on_standard_input() {
     assert_eq!(shown(&out), TABLE);
     let out = kiri_piped(
         &dir,
-        &["--mode", "plain", "-f", "tsv", "-"],
+        &["--mode", "plain", "--format", "tsv", "-"],
         b"name\tsize\n*a*\tb, c\n",
     );
     assert_eq!(shown(&out), TABLE);
@@ -75,7 +75,7 @@ fn format_tells_a_table_under_another_name() {
         &dir,
         "t.txt",
         b"name,size\n*a*,\"b, c\"\n",
-        &["--mode", "plain", "-f", "csv"],
+        &["--mode", "plain", "--format", "csv"],
     );
     assert_eq!(shown(&out), TABLE);
 }
@@ -97,7 +97,7 @@ fn a_table_not_in_utf_8_is_an_error() {
         format!("kiri: {}: not UTF-8 text\n", dir.join("t.csv").display())
     );
     assert_eq!(text(&out.stdout), "");
-    let out = kiri_piped(&dir, &["--mode", "plain", "-f", "csv"], b"K\xf6ln\n");
+    let out = kiri_piped(&dir, &["--mode", "plain", "--format", "csv"], b"K\xf6ln\n");
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(text(&out.stderr), "kiri: <stdin>: not UTF-8 text\n");
 }

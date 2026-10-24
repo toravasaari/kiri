@@ -67,6 +67,8 @@ environment! {
     kiri_no_images: "KIRI_NO_IMAGES",
     /// `KIRI_PAGING`: `always`, `auto` or `never`, or `1` or `0`.
     kiri_paging: "KIRI_PAGING",
+    /// `KIRI_FOLLOW`: `on` or `off`, or `1` or `0`.
+    kiri_follow: "KIRI_FOLLOW",
     /// `KIRI_FRONT_MATTER`: `table`, `code`, `hide` or `off`.
     kiri_front_matter: "KIRI_FRONT_MATTER",
     /// `KIRI_TABLE_ROWS`: `off`, `zebra`, `lines`, `indent` or `underline`.
@@ -178,6 +180,9 @@ pub struct Config {
     pub paging: Option<Paging>,
     /// How a search in the pager treats case.
     pub search_case: Option<SearchCase>,
+    /// Whether the pager follows a file, reading it again whenever it
+    /// changes.
+    pub follow: Option<bool>,
     /// How front matter shows.
     pub front_matter: Option<FrontMatter>,
     /// How the rows of a table are told apart.
@@ -317,6 +322,7 @@ fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String> {
         images: file.images,
         paging: file.paging,
         search_case: file.search_case,
+        follow: file.follow,
         front_matter: file.front_matter,
         table_rows: file.table_rows,
         diagrams: file.diagrams.enabled,
@@ -337,6 +343,8 @@ struct ConfigToml {
     paging: Option<Paging>,
     #[serde(default, deserialize_with = "named")]
     search_case: Option<SearchCase>,
+    #[serde(default, deserialize_with = "named")]
+    follow: Option<bool>,
     #[serde(default, deserialize_with = "named")]
     front_matter: Option<FrontMatter>,
     #[serde(default, deserialize_with = "named")]
@@ -768,6 +776,8 @@ pub struct Options {
     pub images: Option<Setting<bool>>,
     /// When the document is paged.
     pub paging: Option<Setting<Paging>>,
+    /// Whether the pager follows a file.
+    pub follow: Option<Setting<bool>>,
     /// How front matter shows.
     pub front_matter: Option<Setting<FrontMatter>>,
     /// How the rows of a table are told apart.
@@ -793,6 +803,9 @@ pub struct Settings {
     pub paging: Paging,
     /// How a search in the pager treats case.
     pub search_case: SearchCase,
+    /// Whether the pager follows a file, reading it again whenever it
+    /// changes.
+    pub follow: bool,
     /// How front matter shows.
     pub front_matter: FrontMatter,
     /// How the rows of a table are told apart.
@@ -826,6 +839,8 @@ pub struct Choices {
     pub paging: Setting<Paging>,
     /// How a search in the pager treats case.
     pub search_case: Setting<SearchCase>,
+    /// Whether the pager follows a file.
+    pub follow: Setting<bool>,
     /// How front matter shows.
     pub front_matter: Setting<FrontMatter>,
     /// How the rows of a table are told apart.
@@ -862,6 +877,7 @@ impl Choices {
             images: self.images.value,
             paging: self.paging.value,
             search_case: self.search_case.value,
+            follow: self.follow.value,
             front_matter: self.front_matter.value,
             table_rows: self.table_rows.value,
             diagrams: self.diagrams.value,
@@ -921,6 +937,13 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
         images: images(options.images.clone(), env, config),
         paging,
         search_case: resolve(None, unset, config.search_case, SearchCase::default(), w),
+        follow: resolve(
+            options.follow.clone(),
+            variable(env, "KIRI_FOLLOW"),
+            config.follow,
+            false,
+            w,
+        ),
         front_matter,
         table_rows,
         diagrams,
@@ -1424,6 +1447,35 @@ mod tests {
     }
 
     #[test]
+    fn the_follow_key_takes_on_or_off() {
+        let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
+        assert_eq!(parsed("follow = \"on\"\n").unwrap().follow, Some(true));
+        assert_eq!(parsed("follow = \"off\"\n").unwrap().follow, Some(false));
+        assert!(parsed("follow = \"auto\"\n").is_err());
+        assert!(parsed("follow = true\n").is_err());
+    }
+
+    #[test]
+    fn following_is_off_unless_the_configuration_file_or_a_flag_says_otherwise() {
+        let env = Environment::default();
+        let choices = choose(&Options::default(), &env, &Config::default());
+        assert_eq!(choices.follow, Setting::new(false, Origin::Default));
+        let config = Config {
+            follow: Some(true),
+            ..Config::default()
+        };
+        let choices = choose(&Options::default(), &env, &config);
+        assert_eq!(choices.follow, Setting::new(true, Origin::File));
+        assert!(choices.with_theme(Theme::default()).follow);
+        let options = Options {
+            follow: Some(Setting::new(false, Origin::Flag("-F"))),
+            ..Options::default()
+        };
+        let choices = choose(&options, &env, &config);
+        assert_eq!(choices.follow, Setting::new(false, Origin::Flag("-F")));
+    }
+
+    #[test]
     fn the_front_matter_key_takes_table_code_hide_or_off() {
         let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
         for (text, front_matter) in [
@@ -1818,6 +1870,20 @@ mod tests {
                 "joo",
                 "KIRI_PAGING: `joo` is not always, auto, never, 1 or 0; left out",
             ),
+        );
+    }
+
+    #[test]
+    fn kiri_follow_chooses_following() {
+        check_variable(
+            |choices| &choices.follow,
+            "KIRI_FOLLOW",
+            &[("on", true), ("off", false), ("1", true), ("0", false)],
+            Config {
+                follow: Some(false),
+                ..Config::default()
+            },
+            ("joo", "KIRI_FOLLOW: `joo` is not on, off, 1 or 0; left out"),
         );
     }
 

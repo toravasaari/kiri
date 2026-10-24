@@ -206,7 +206,7 @@ fn format_text_shows_a_document_s_diagrams_as_written() {
     let out = with_settings(
         &dir,
         FLOWCHART,
-        &["-f", "text"],
+        &["--format", "text"],
         None,
         &external(&dir, &script),
     );
@@ -896,7 +896,7 @@ fn format_mermaid_draws_standard_input_or_a_file_of_another_name() {
     let dir = Scratch::new("mermaid-format");
     common::write(&dir.join("config/kiri/config.toml"), &external(&dir, DRAWS));
     for format in ["mermaid", "Mermaid", "mmd"] {
-        let args = ["--mode", "kitty", "-f", format];
+        let args = ["--mode", "kitty", "--format", format];
         let out = common::kiri_piped(&dir, &args, FLOWCHART_FILE.as_bytes());
         assert_eq!(text(&out.stderr), "", "{format}");
         assert_eq!(sent(&text(&out.stdout)).len(), 1, "{format}");
@@ -932,7 +932,7 @@ fn a_mermaid_file_that_is_not_drawn_shows_its_source() {
         &["--diagrams", "off"][..],
         &["--mode", "ansi"],
         &["--mode", "plain"],
-        &["-f", "text"],
+        &["--format", "text"],
     ] {
         let out = on_file(&dir, "flow.mmd", FLOWCHART_FILE, args, &config);
         assert_shown_as_code(&out, FLOWCHART_FILE, &format!("{args:?}"));
@@ -969,7 +969,7 @@ fn a_mermaid_file_that_fails_to_draw_shows_its_source_and_is_an_error() {
     assert!(sent(&stdout).is_empty(), "{stdout:?}");
     assert!(stdout.contains("flowchart TD"), "{stdout:?}");
     // Standard input is named as in other errors.
-    let args = ["--mode", "kitty", "-f", "mermaid"];
+    let args = ["--mode", "kitty", "--format", "mermaid"];
     let out = common::kiri_piped(&dir, &args, FLOWCHART_FILE.as_bytes());
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(

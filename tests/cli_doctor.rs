@@ -361,6 +361,29 @@ fn the_search_case_tells_where_it_comes_from() {
 }
 
 #[test]
+fn following_tells_where_it_comes_from() {
+    let dir = Scratch::new("doctor-follow");
+    let report = piped(&dir, &[]);
+    let row = "| Follow | off | default |";
+    assert!(report.contains(row), "{row}\n{report}");
+    write(
+        &dir.join("home/.config/kiri/config.toml"),
+        "follow = \"on\"\n",
+    );
+    let report = piped(&dir, &[]);
+    let row = "| Follow | on | configuration file |";
+    assert!(report.contains(row), "{row}\n{report}");
+    let report = piped(&dir, &["-F"]);
+    let row = "| Follow | off | `-F` |";
+    assert!(report.contains(row), "{row}\n{report}");
+    let out = doctor(&dir, &[]).env("KIRI_FOLLOW", "0").output().unwrap();
+    assert_succeeded(&out);
+    let report = text(&out.stdout);
+    let row = "| Follow | off | `KIRI_FOLLOW=0` |";
+    assert!(report.contains(row), "{row}\n{report}");
+}
+
+#[test]
 fn an_unknown_kiri_paging_is_a_problem_in_the_report() {
     let dir = Scratch::new("doctor-paging-unknown");
     let mut command = doctor(&dir, &[]);

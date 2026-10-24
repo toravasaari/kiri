@@ -29,6 +29,10 @@ paging = "auto"
 # How a search in the pager treats case: "smart" or "literal".
 search_case = "smart"
 
+# Whether the pager follows a lone file, reading it again whenever it
+# changes: "on" or "off".
+follow = "off"
+
 # Front matter render style: "table", "code", "hide" or "off".
 front_matter = "table"
 
@@ -109,7 +113,8 @@ pager:
 3. `paging` in the configuration file
 4. `auto`
 
-`auto` pages a document longer than the window; a shorter one is printed.
+`auto` pages a document longer than the window; a shorter one is printed,
+unless it is a lone file that is [followed](#follow).
 A document from standard input, often another command's output, and the
 `--doctor` report are paged only with `always`, and so is an image or a
 diagram file, on its own, as in `kiri -p plan.mmd`, or with others that
@@ -117,6 +122,30 @@ are all images or diagram files; with a document among them, the setting
 applies to all the files. Whatever the setting, kiri prints the
 document when its output is not a terminal or `--mode plain` asks for
 text without escape sequences.
+
+## Follow
+
+The first of these that is given decides whether the pager follows a lone
+file, reading it again whenever it changes, with the view kept at the
+same block, as `r` reads it again:
+
+1. `--follow on|off`, `-f` for `on` or `-F` for `off`; only one of them
+   can be given
+2. `KIRI_FOLLOW`: `on` or `off`, `1` for `on` and `0` for `off`; an empty
+   value counts as unset, and any other value is left out with a warning
+3. `follow` in the configuration file
+4. `off`
+
+Following pages a lone file as `-p` does, also when it is shorter than
+the window, unless paging is `never`: `kiri -f -P notes.md` prints it.
+`F` turns following on and off in the pager, and the status line says
+`F follow` while it is on. Following notices a change by the file's
+modification time and length, so on a filesystem that keeps the time only
+to the second, an edit within the same second that keeps the length waits
+for the next change. A document from standard input, or several files,
+cannot be followed yet: with `-f` or `--follow on` the pager says
+`nothing to follow`, and with `KIRI_FOLLOW` or `follow` in the
+configuration file it says nothing.
 
 ## Search case
 
@@ -192,6 +221,7 @@ about images that do not load go to standard error whatever this says.
 | `KIRI_THEME` | A theme file; see [Theme](#theme) |
 | `KIRI_NO_IMAGES` | Images as alt text; see [Images](#images) |
 | `KIRI_PAGING` | When to page; see [Paging](#paging) |
+| `KIRI_FOLLOW` | Whether the pager follows a file; see [Follow](#follow) |
 | `KIRI_FRONT_MATTER` | Front matter render style; see [Front matter](#front-matter) |
 | `KIRI_TABLE_ROWS` | Table row style; see [Table rows](#table-rows) |
 | `KIRI_DIAGRAMS` | Diagrams drawn or shown as code; see [Diagrams](diagrams.md) |

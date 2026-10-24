@@ -149,14 +149,17 @@ pub enum Found<'a> {
 }
 
 /// The status line for the document `name` at `position`, with what was
-/// `found` by a search, `width` cells wide. `place` is the file's number,
-/// from 1, and how many files there are, which the line tells after the
-/// name. A narrow window leaves out the keys first, then the start of the
-/// name and then of its place, then the search.
+/// `found` by a search, `width` cells wide, and a word before the position
+/// when the pager is `following` the document. `place` is the file's
+/// number, from 1, and how many files there are, which the line tells
+/// after the name. A narrow window leaves out the keys first, then the
+/// start of the name and then of its place, then the word, then the
+/// search.
 pub fn spans(
     name: &str,
     place: Option<(usize, usize)>,
     position: Position,
+    following: bool,
     found: Option<Found>,
     width: usize,
     styles: &Styles,
@@ -192,6 +195,14 @@ pub fn spans(
         }
         found => found,
     };
+    // The word that tells the pager follows the document, and a gap of
+    // three before the position.
+    let (key, what) = FOLLOW;
+    let mark = if following {
+        key.width() + what.width() + 3
+    } else {
+        0
+    };
     // The search and a gap of three before the position.
     let search = found.map(|found| search(found, styles)).unwrap_or_default();
     let search_width = if search.is_empty() {
@@ -201,6 +212,8 @@ pub fn spans(
     };
     let with_search = fixed + search_width <= width;
     let search_width = if with_search { search_width } else { 0 };
+    let with_mark = fixed + search_width + mark <= width;
+    let fixed = if with_mark { fixed + mark } else { fixed };
     // The name needs a space between it and what comes after it.
     let with_keys = fixed + search_width + name.width() + 1 + keys_width <= width;
     let keys_width = if with_keys { keys_width } else { 0 };
@@ -216,6 +229,11 @@ pub fn spans(
     let mut right = Vec::new();
     if with_search && !search.is_empty() {
         right.extend(search);
+        right.push(Span::new("   ", styles.bar.clone()));
+    }
+    if following && with_mark {
+        right.push(Span::new(key, bold.clone()));
+        right.push(Span::new(what, styles.bar.clone()));
         right.push(Span::new("   ", styles.bar.clone()));
     }
     right.push(Span::new(&percent, styles.bar.clone()));
@@ -298,6 +316,10 @@ pub fn prompt(mark: char, term: &str, width: usize, styles: &Styles) -> Vec<Span
 /// The badge that tells the pager is on.
 const BADGE: &str = " kiri ";
 
+/// What tells that the pager follows the document: the key that turns it
+/// off, and the word after it.
+const FOLLOW: (&str, &str) = ("F", " follow");
+
 /// The cursor after the term in the prompt.
 const CURSOR: char = '\u{258f}';
 
@@ -344,7 +366,7 @@ mod tests {
 
     #[test]
     fn shows_the_badge_the_name_the_position_and_the_keys() {
-        let spans = spans("notes.md", None, at(42), None, 60, &styles());
+        let spans = spans("notes.md", None, at(42), false, None, 60, &styles());
         assert_eq!(
             text(&spans),
             " kiri  notes.md                       42%   ? help   q quit "
@@ -360,14 +382,56 @@ mod tests {
 
     #[test]
     fn the_badge_stays_at_the_end() {
-        let spans = spans("notes.md", None, at(100), None, 60, &styles());
+        let spans = spans("notes.md", None, at(100), false, None, 60, &styles());
         assert!(text(&spans).starts_with(" kiri  notes.md "), "{spans:?}");
     }
 
     #[test]
     fn the_keys_go_first_when_the_window_is_narrow() {
-        let spans = spans("notes.md", None, at(42), None, 30, &styles());
+        let spans = spans("notes.md", None, at(42), false, None, 30, &styles());
         assert_eq!(text(&spans), " kiri  notes.md           42% ");
+    }
+
+    #[test]
+    fn following_is_told_before_the_position_with_its_key() {
+        let spans = spans("notes.md", None, at(42), true, None, 60, &styles());
+        assert_eq!(
+            text(&spans),
+            " kiri  notes.md            F follow   42%   ? help   q quit "
+        );
+        assert_eq!(width(&spans), 60);
+        // The key in bold, as the keys for help and quitting are.
+        let style = |text: &str| {
+            let span = spans.iter().find(|span| span.text == text);
+            span.map(|span| span.style.clone())
+        };
+        assert_eq!(style("F"), style("?"));
+        assert!(style("F").is_some_and(|style| style.bold), "{spans:?}");
+    }
+
+    #[test]
+    fn a_narrow_window_leaves_out_following_after_the_name_but_before_the_search() {
+        let shown = |width, found| {
+            text(&spans(
+                "notes.md",
+                None,
+                at(42),
+                true,
+                found,
+                width,
+                &styles(),
+            ))
+        };
+        assert_eq!(shown(30, None), " kiri  …tes.md F follow   42% ");
+        assert_eq!(shown(22, None), " kiri  F follow   42% ");
+        assert_eq!(shown(21, None), " kiri  notes.md  42% ");
+        assert_eq!(shown(35, AT), " kiri  /kiri 3/12   F follow   42% ");
+        assert_eq!(shown(34, AT), " kiri  notes.md  /kiri 3/12   42% ");
+        for width in 0..80 {
+            let spans = spans("docs/notes.md", None, at(42), true, AT, width, &styles());
+            let expected = if width < 11 { width.min(6) } else { width };
+            assert_eq!(wrap::width(&spans), expected, "{width}: {spans:?}");
+        }
     }
 
     #[test]
@@ -376,6 +440,7 @@ mod tests {
             "docs/a/long/way/to/roadmap.md",
             None,
             at(7),
+            false,
             None,
             26,
             &styles(),
@@ -386,7 +451,7 @@ mod tests {
 
     #[test]
     fn several_files_tell_the_file_s_place_after_its_name() {
-        let spans = spans("b.md", Some((2, 3)), at(42), None, 60, &styles());
+        let spans = spans("b.md", Some((2, 3)), at(42), false, None, 60, &styles());
         assert_eq!(
             text(&spans),
             " kiri  b.md 2/3                       42%   ? help   q quit "
@@ -401,6 +466,7 @@ mod tests {
                 "docs/notes.md",
                 Some((2, 3)),
                 at(42),
+                false,
                 None,
                 width,
                 &styles(),
@@ -418,7 +484,7 @@ mod tests {
     #[test]
     fn the_line_fills_the_window_and_no_more() {
         for width in 0..80 {
-            let spans = spans("docs/notes.md", None, at(42), None, width, &styles());
+            let spans = spans("docs/notes.md", None, at(42), false, None, width, &styles());
             let expected = if width < 11 { width.min(6) } else { width };
             assert_eq!(wrap::width(&spans), expected, "{width}: {spans:?}");
         }
@@ -481,7 +547,7 @@ mod tests {
 
     #[test]
     fn control_characters_in_the_name_take_a_cell_each() {
-        let spans = spans("a\nb\x07.md", None, at(42), None, 40, &styles());
+        let spans = spans("a\nb\x07.md", None, at(42), false, None, 40, &styles());
         assert_eq!(width(&spans), 40, "{spans:?}");
         assert!(
             text(&spans).contains(" a\u{fffd}b\u{fffd}.md "),
@@ -491,7 +557,7 @@ mod tests {
 
     #[test]
     fn wide_characters_in_the_name_take_two_cells() {
-        let spans = spans("文書/説明.md", None, at(42), None, 18, &styles());
+        let spans = spans("文書/説明.md", None, at(42), false, None, 18, &styles());
         assert_eq!(width(&spans), 18, "{spans:?}");
         assert_eq!(text(&spans), " kiri  …明.md 42% ");
     }
@@ -505,14 +571,14 @@ mod tests {
 
     #[test]
     fn shows_the_search_between_the_name_and_the_position() {
-        let spans = spans("notes.md", None, at(42), AT, 60, &styles());
+        let spans = spans("notes.md", None, at(42), false, AT, 60, &styles());
         assert_eq!(
             text(&spans),
             " kiri  notes.md          /kiri 3/12   42%   ? help   q quit "
         );
         assert_eq!(width(&spans), 60);
         let nowhere = Some(Found::Nowhere("xyz"));
-        let spans = super::spans("notes.md", None, at(42), nowhere, 60, &styles());
+        let spans = super::spans("notes.md", None, at(42), false, nowhere, 60, &styles());
         assert_eq!(
             text(&spans),
             " kiri  notes.md      not found: xyz   42%   ? help   q quit "
@@ -527,7 +593,7 @@ mod tests {
             message,
             fading: None,
         });
-        let spans = spans("notes.md", None, at(42), told, 40, &styles());
+        let spans = spans("notes.md", None, at(42), false, told, 40, &styles());
         assert_eq!(text(&spans), " kiri  No such file or directory…   42% ");
         assert_eq!(width(&spans), 40);
     }
@@ -540,11 +606,19 @@ mod tests {
             total: 12,
             flash: Some(styles().inverse),
         });
-        let spans = spans("notes.md", None, at(42), flash, 60, &styles());
+        let spans = spans("notes.md", None, at(42), false, flash, 60, &styles());
         assert_eq!(
             text(&spans),
-            text(&super::spans("notes.md", None, at(42), AT, 60, &styles()))
-                .replace("3/12", "1/12")
+            text(&super::spans(
+                "notes.md",
+                None,
+                at(42),
+                false,
+                AT,
+                60,
+                &styles()
+            ))
+            .replace("3/12", "1/12")
         );
         let one = spans.iter().find(|span| span.text == "1").unwrap();
         assert_eq!(one.style, styles().inverse);
@@ -604,13 +678,23 @@ mod tests {
 
     #[test]
     fn a_narrow_window_leaves_out_the_keys_then_the_name_then_the_search() {
-        let shown = |width| text(&spans("notes.md", None, at(42), AT, width, &styles()));
+        let shown = |width| {
+            text(&spans(
+                "notes.md",
+                None,
+                at(42),
+                false,
+                AT,
+                width,
+                &styles(),
+            ))
+        };
         assert_eq!(shown(40), " kiri  notes.md        /kiri 3/12   42% ");
         assert_eq!(shown(27), " kiri  …d /kiri 3/12   42% ");
         assert_eq!(shown(24), " kiri  /kiri 3/12   42% ");
         assert_eq!(shown(23), " kiri  notes.md    42% ");
         for width in 0..80 {
-            let spans = spans("docs/notes.md", None, at(42), AT, width, &styles());
+            let spans = spans("docs/notes.md", None, at(42), false, AT, width, &styles());
             let expected = if width < 11 { width.min(6) } else { width };
             assert_eq!(wrap::width(&spans), expected, "{width}: {spans:?}");
         }
@@ -646,11 +730,11 @@ mod tests {
     #[test]
     fn a_window_too_narrow_for_more_shows_the_badge() {
         assert_eq!(
-            text(&spans("notes.md", None, at(42), None, 4, &styles())),
+            text(&spans("notes.md", None, at(42), false, None, 4, &styles())),
             " kir"
         );
         assert_eq!(
-            text(&spans("notes.md", None, at(42), None, 0, &styles())),
+            text(&spans("notes.md", None, at(42), false, None, 0, &styles())),
             ""
         );
     }

@@ -82,7 +82,23 @@ fn in_terminal_told(
     stdin: Option<&str>,
     act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
 ) -> (ExitStatus, String, String) {
-    in_terminal_run(name, prepare, args, rows, stdin, false, act)
+    in_terminal_run(name, prepare, args, rows, stdin, Setup::default(), act)
+}
+
+/// [`in_terminal_after`], with the environment variables `env` set for
+/// kiri.
+fn in_terminal_env(
+    name: &str,
+    env: &[(&str, &str)],
+    args: &[&str],
+    rows: u16,
+    stdin: Option<&str>,
+    act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
+) -> (ExitStatus, String) {
+    let setup = Setup { both: false, env };
+    let (status, seen, stderr) = in_terminal_run(name, |_| {}, args, rows, stdin, setup, act);
+    assert_eq!(stderr, "");
+    (status, seen)
 }
 
 /// [`in_terminal_after`], with what kiri writes to standard error also on
@@ -94,20 +110,32 @@ fn in_terminal_both(
     rows: u16,
     act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
 ) -> (ExitStatus, String) {
-    let (status, seen, _) = in_terminal_run(name, prepare, args, rows, None, true, act);
+    let setup = Setup {
+        both: true,
+        env: &[],
+    };
+    let (status, seen, _) = in_terminal_run(name, prepare, args, rows, None, setup, act);
     (status, seen)
 }
 
-/// [`in_terminal_told`], with standard error on the terminal when
-/// `both`; what kiri wrote to it is then on the terminal instead of
-/// returned.
+/// How [`in_terminal_run`] sets kiri up besides its arguments.
+#[derive(Default)]
+struct Setup<'a> {
+    /// Standard error on the terminal too; what kiri writes to it is then
+    /// on the terminal instead of returned.
+    both: bool,
+    /// Environment variables set for kiri.
+    env: &'a [(&'a str, &'a str)],
+}
+
+/// [`in_terminal_told`], set up as `setup` says.
 fn in_terminal_run(
     name: &str,
     prepare: impl FnOnce(&std::path::Path),
     args: &[&str],
     rows: u16,
     stdin: Option<&str>,
-    both: bool,
+    setup: Setup,
     mut act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
 ) -> (ExitStatus, String, String) {
     let dir = Scratch::new(name);
@@ -127,12 +155,13 @@ fn in_terminal_run(
         kiri.args(["--mode", "ansi"]);
     }
     kiri.current_dir(&*dir)
+        .envs(setup.env.iter().copied())
         .args(args)
         .stdin(match stdin {
             Some(_) => Stdio::piped(),
             None => Stdio::null(),
         })
-        .stderr(match both {
+        .stderr(match setup.both {
             true => Stdio::from(tty.try_clone().unwrap()),
             false => Stdio::piped(),
         })
@@ -214,7 +243,13 @@ fn ctrl_c_quits_and_leaves_the_screen() {
 
 #[test]
 fn a_long_file_shown_as_text_is_paged_too() {
-    let (status, seen) = in_terminal("pager-text", &["-f", "text", "long.md"], 5, None, &[b"q"]);
+    let (status, seen) = in_terminal(
+        "pager-text",
+        &["--format", "text", "long.md"],
+        5,
+        None,
+        &[b"q"],
+    );
     assert!(status.success());
     assert!(seen.starts_with(ENTER), "{seen:?}");
     assert!(seen.contains("Line 1"), "{seen:?}");
@@ -234,6 +269,92 @@ fn p_pages_a_short_document() {
     let (status, seen) = in_terminal("pager-p", &["-p", "document.md"], 24, None, &[b"q"]);
     assert!(status.success());
     assert!(seen.starts_with(ENTER), "{seen:?}");
+}
+
+#[test]
+fn following_pages_a_short_file() {
+    let config = |text: &'static str| {
+        move |dir: &std::path::Path| {
+            if !text.is_empty() {
+                common::write(&dir.join("config/kiri/config.toml"), text);
+            }
+        }
+    };
+    for (args, file) in [
+        (&["-f", "document.md"][..], ""),
+        (&["--follow", "on", "document.md"][..], ""),
+        (&["document.md"][..], "follow = \"on\"\n"),
+        (&["--paging", "auto", "-f", "document.md"][..], ""),
+    ] {
+        let (status, seen) = in_terminal_after(
+            "pager-follow-short",
+            config(file),
+            args,
+            24,
+            None,
+            |frames, terminal, _| {
+                if frames == 1 {
+                    terminal.write_all(b"q").unwrap();
+                }
+            },
+        );
+        assert!(status.success(), "{args:?} {file:?}");
+        assert!(seen.starts_with(ENTER), "{args:?} {file:?}: {seen:?}");
+        assert!(
+            text_of(&seen).contains(" follow "),
+            "{args:?} {file:?}: {seen:?}"
+        );
+    }
+}
+
+#[test]
+fn following_still_prints_with_paging_never() {
+    for (args, file) in [
+        (&["-f", "-P", "document.md"][..], ""),
+        (&["-f", "document.md"][..], "paging = \"never\"\n"),
+        (
+            &["document.md"][..],
+            "paging = \"never\"\nfollow = \"on\"\n",
+        ),
+    ] {
+        let prepare = |dir: &std::path::Path| {
+            if !file.is_empty() {
+                common::write(&dir.join("config/kiri/config.toml"), file);
+            }
+        };
+        let (status, seen) =
+            in_terminal_after("pager-follow-never", prepare, args, 24, None, |_, _, _| {});
+        assert!(status.success(), "{args:?} {file:?}");
+        assert!(!seen.contains(ENTER), "{args:?} {file:?}: {seen:?}");
+        assert!(seen.contains("Line 3"), "{args:?} {file:?}: {seen:?}");
+    }
+}
+
+#[test]
+fn kiri_follow_pages_a_short_file_and_leaves_standard_input_quiet() {
+    let env = [("KIRI_FOLLOW", "on")];
+    let quit = |frames: usize, terminal: &mut std::fs::File, _: &std::process::Child| {
+        if frames == 1 {
+            terminal.write_all(b"q").unwrap();
+        }
+    };
+    let args = ["document.md"];
+    let (status, seen) = in_terminal_env("pager-follow-variable", &env, &args, 24, None, quit);
+    assert!(status.success());
+    assert!(seen.starts_with(ENTER), "{seen:?}");
+    assert!(text_of(&seen).contains(" follow "), "{seen:?}");
+    let stdin = Some(long());
+    let (status, seen) = in_terminal_env(
+        "pager-follow-variable-stdin",
+        &env,
+        &["-p"],
+        5,
+        stdin.as_deref(),
+        quit,
+    );
+    assert!(status.success());
+    assert!(text_of(&seen).contains("Line 1"), "{seen:?}");
+    assert!(!text_of(&seen).contains("follow"), "{seen:?}");
 }
 
 #[test]
@@ -909,6 +1030,124 @@ fn standard_input_and_several_files_reload_nothing() {
     let (status, seen) = in_steps("pager-reload-files", &args, None, &steps);
     assert!(status.success());
     assert!(text_of(&seen).contains("nothing to reload"), "{seen:?}");
+}
+
+/// The text of `long.md` written anew: ten paragraphs of `Fresh`.
+fn fresh() -> String {
+    (1..=10).map(|n| format!("Fresh {n}\n\n")).collect()
+}
+
+/// kiri following `long.md` with `args` in a terminal of 5 rows, with
+/// `change` done to the scratch directory after the first frame and no
+/// key until the second, after which it quits. Returns the frames.
+fn following(name: &str, args: &[&str], change: &dyn Fn(&std::path::Path)) -> Vec<String> {
+    let changed = |dir: &std::path::Path| {
+        change(dir);
+        b"" as &'static [u8]
+    };
+    let steps = [
+        Step {
+            frames: 1,
+            keys: &changed,
+        },
+        quit_after(2),
+    ];
+    let (status, seen) = in_steps(name, args, None, &steps);
+    assert!(status.success());
+    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).map(text_of).collect();
+    assert!(frames[0].contains("Line 1"), "{seen:?}");
+    assert!(frames[0].contains(" follow "), "{seen:?}");
+    frames
+}
+
+#[test]
+fn follow_reads_the_file_again_when_it_changes_without_a_key() {
+    let rewrite = |dir: &std::path::Path| std::fs::write(dir.join("long.md"), fresh()).unwrap();
+    for args in [&["--follow", "on", "long.md"][..], &["-f", "long.md"]] {
+        let frames = following("pager-follow", args, &rewrite);
+        let last = frames.last().unwrap();
+        assert!(last.contains("Fresh 1"), "{args:?}: {frames:?}");
+        assert!(last.contains("reloaded"), "{args:?}: {frames:?}");
+        // Without a key, the pager does not say it is reloading.
+        assert!(!frames.iter().any(|frame| frame.contains("reloading")));
+    }
+}
+
+#[test]
+fn follow_reads_a_file_replaced_by_a_rename() {
+    // As editors save: a new file written beside it and moved over it.
+    let replace = |dir: &std::path::Path| {
+        std::fs::write(dir.join(".long.md.swp"), fresh()).unwrap();
+        std::fs::rename(dir.join(".long.md.swp"), dir.join("long.md")).unwrap();
+    };
+    let frames = following("pager-follow-rename", &["-f", "long.md"], &replace);
+    let last = frames.last().unwrap();
+    assert!(last.contains("Fresh 1"), "{frames:?}");
+    assert!(last.contains("reloaded"), "{frames:?}");
+}
+
+#[test]
+fn follow_keeps_a_file_that_is_gone_and_the_status_line_says_why() {
+    let remove = |dir: &std::path::Path| std::fs::remove_file(dir.join("long.md")).unwrap();
+    let frames = following("pager-follow-gone", &["-f", "long.md"], &remove);
+    let last = frames.last().unwrap();
+    assert!(last.contains("Line 1"), "{frames:?}");
+    assert!(last.contains("No such file"), "{frames:?}");
+}
+
+#[test]
+fn standard_input_and_several_files_have_nothing_to_follow() {
+    let steps = [quit_after(1)];
+    let args = ["-p", "--follow", "on"];
+    let (status, seen) = in_steps("pager-follow-stdin", &args, Some(&long()), &steps);
+    assert!(status.success());
+    assert!(text_of(&seen).contains("nothing to follow"), "{seen:?}");
+    let args = ["-f", "long.md", "document.md"];
+    let (status, seen) = in_steps("pager-follow-files", &args, None, &steps);
+    assert!(status.success());
+    assert!(text_of(&seen).contains("nothing to follow"), "{seen:?}");
+}
+
+#[test]
+fn following_from_the_configuration_file_is_quiet_where_there_is_nothing_to_follow() {
+    let follow = |dir: &std::path::Path| {
+        common::write(&dir.join("config/kiri/config.toml"), "follow = \"on\"\n");
+    };
+    let steps = [quit_after(1)];
+    let (status, seen) = in_steps_after(
+        "pager-follow-config-stdin",
+        follow,
+        &["-p"],
+        Some(&long()),
+        &steps,
+    );
+    assert!(status.success());
+    assert!(text_of(&seen).contains("Line 1"), "{seen:?}");
+    assert!(!text_of(&seen).contains("nothing to follow"), "{seen:?}");
+    let args = ["long.md", "document.md"];
+    let (status, seen) = in_steps_with("pager-follow-config-files", follow, &args, &steps);
+    assert!(status.success());
+    assert!(text_of(&seen).contains("long.md 1/2"), "{seen:?}");
+    assert!(!text_of(&seen).contains("nothing to follow"), "{seen:?}");
+}
+
+#[test]
+fn follow_takes_on_or_off_and_capital_f_turns_it_off() {
+    let dir = common::Scratch::new("follow-values");
+    for value in ["auto", "yes"] {
+        let out = command(&dir)
+            .args(["--follow", value, "-"])
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "{value}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains(&format!("invalid value '{value}'")),
+            "{stderr}"
+        );
+    }
+    let out = command(&dir).args(["-f", "-F", "-"]).output().unwrap();
+    assert!(!out.status.success());
 }
 
 /// `frame` without its escape sequences.

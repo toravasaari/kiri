@@ -52,6 +52,8 @@ pub enum Action {
     PreviousFile,
     /// Reads the document again.
     Reload,
+    /// Turns following the document on or off.
+    Follow,
     Help,
     Quit,
 }
@@ -334,6 +336,12 @@ pub const BINDINGS: &[Binding] = {
             names: "r",
             what: "reload the file",
             action: Action::Reload,
+        },
+        Binding {
+            keys: &[Char('F')],
+            names: "F",
+            what: "follow the file",
+            action: Action::Follow,
         },
         Binding {
             keys: &[Char('?'), Char('h')],
@@ -631,6 +639,12 @@ mod tests {
     fn shift_page_down_and_shift_page_up_move_between_files() {
         assert_eq!(action(Key::ShiftPageDown), Some(Action::NextFile));
         assert_eq!(action(Key::ShiftPageUp), Some(Action::PreviousFile));
+    }
+
+    #[test]
+    fn r_reloads_and_capital_f_follows() {
+        assert_eq!(action(Key::Char('r')), Some(Action::Reload));
+        assert_eq!(action(Key::Char('F')), Some(Action::Follow));
     }
 
     #[test]

@@ -215,7 +215,10 @@ fn standard_input_can_be_given_only_once() {
 fn format_applies_to_every_file() {
     let dir = two_documents("files-format");
     write(&dir.join("c.md"), "# Not a heading\n");
-    let out = kiri_in(&dir, &["--mode", "ansi", "-f", "text", "a.md", "c.md"]);
+    let out = kiri_in(
+        &dir,
+        &["--mode", "ansi", "--format", "text", "a.md", "c.md"],
+    );
     assert!(out.status.success(), "{}", text(&out.stderr));
     let stdout = text(&out.stdout);
     // As code, without the heading's style.
@@ -227,7 +230,10 @@ fn format_applies_to_every_file() {
 fn text_in_plain_output_is_written_as_it_is_under_its_name() {
     let dir = two_documents("files-text-plain");
     write(&dir.join("c.txt"), "  indented *text*\n");
-    let out = kiri_in(&dir, &["--mode", "plain", "-f", "text", "a.md", "c.txt"]);
+    let out = kiri_in(
+        &dir,
+        &["--mode", "plain", "--format", "text", "a.md", "c.txt"],
+    );
     assert!(out.status.success(), "{}", text(&out.stderr));
     let stdout = text(&out.stdout);
     assert!(

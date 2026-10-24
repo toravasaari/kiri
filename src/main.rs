@@ -17,7 +17,7 @@ use kiri::images::{
 };
 use kiri::input::Input;
 use kiri::model::{Block, Document};
-use kiri::pager::{Reload, Reloaded};
+use kiri::pager::{Change, Look, Reload, Reloaded};
 use kiri::render::output::Page;
 use kiri::render::{Inputs, RenderErrors, TableRows};
 use kiri::term::Mode;
@@ -65,7 +65,7 @@ struct Cli {
     /// its own), text (the file as it is, without rendering it), image, or
     /// an image format such as svg, png or jpg. By default its extension and
     /// content tell.
-    #[arg(short, long, value_parser = format)]
+    #[arg(long, value_parser = format)]
     format: Option<Input>,
 
     /// Width in cells; defaults to the terminal width.
@@ -117,6 +117,21 @@ struct Cli {
     /// Print the document without the pager: --paging=never.
     #[arg(short = 'P')]
     no_pager: bool,
+
+    /// Follow a lone file in the pager: on (read it again whenever it
+    /// changes, with the view kept where it is) or off; off unless set.
+    /// Following pages the file, however short, unless paging is never.
+    /// F turns it on and off in the pager.
+    #[arg(long, value_parser = named::<bool>(), value_name = "SWITCH", conflicts_with_all = ["follow_on", "follow_off"])]
+    follow: Option<bool>,
+
+    /// Follow the file, in the pager: --follow=on.
+    #[arg(short = 'f', conflicts_with = "follow_off")]
+    follow_on: bool,
+
+    /// Do not follow the file: --follow=off.
+    #[arg(short = 'F')]
+    follow_off: bool,
 
     /// Front matter render style: table, code (a code block), hide, or off
     /// (read as Markdown); table unless set. Front matter is the metadata
@@ -270,6 +285,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     let Opened {
         path,
         file,
+        look,
         input,
         content,
     } = open(cli, file)?;
@@ -290,6 +306,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
                 let opened = Opened {
                     path,
                     file,
+                    look,
                     input,
                     content: Content::Image { format, head, rest },
                 };
@@ -323,6 +340,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
         let opened = Opened {
             path,
             file,
+            look,
             input,
             content: Content::Text(source),
         };
@@ -342,7 +360,12 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     };
     // Only a document read from a regular file can be read again: a pipe
     // given by its path, such as <(cmd), is read to its end already.
-    let from = (file.filter(|path| path.is_file())).map(|path| FromFile { path, input });
+    let from = (file.filter(|path| path.is_file())).map(|path| FromFile { path, input, look });
+    // Following pages the file however short it is, as -p does, unless
+    // paging is never.
+    if from.is_some() && settings.follow && settings.paging == Paging::Auto {
+        settings.paging = Paging::Always;
+    }
     show_document(
         &context,
         &document,
@@ -360,6 +383,8 @@ struct Opened {
     path: PathBuf,
     /// The file, or `None` for standard input.
     file: Option<PathBuf>,
+    /// How the file looked before it was read, when it could be looked at.
+    look: Option<Look>,
     input: Input,
     content: Content,
 }
@@ -386,6 +411,8 @@ fn open(cli: &Cli, path: Option<&Path>) -> Result<Opened, String> {
         path => path.map(Path::to_owned),
     };
     let path = file.clone().unwrap_or_else(|| PathBuf::from(STDIN));
+    // Before the file is read, so that a change meanwhile counts.
+    let look = file.as_deref().and_then(|file| look(file).ok());
     let failed = |error: io::Error| format!("{}: {error}", path.display());
     let mut reader: Box<dyn Read> = match &file {
         Some(file) => Box::new(File::open(file).map_err(failed)?),
@@ -408,6 +435,7 @@ fn open(cli: &Cli, path: Option<&Path>) -> Result<Opened, String> {
         return Ok(Opened {
             path,
             file,
+            look,
             input,
             content,
         });
@@ -429,6 +457,7 @@ fn open(cli: &Cli, path: Option<&Path>) -> Result<Opened, String> {
     Ok(Opened {
         path,
         file,
+        look,
         input,
         content: Content::Text(source),
     })
@@ -805,8 +834,13 @@ fn page_files(
         // The pager's status line names each file after itself.
         false => (kiri::render::layout::Content::Files(&files), ""),
     };
-    // Nothing to reload: an image file is not read again.
-    let options = kiri::pager::Options::new(settings.search_case);
+    // Nothing to reload: an image file is not read again. Nothing to
+    // follow either, which the pager says only when the command line asked
+    // to follow.
+    let options = kiri::pager::Options {
+        follow: context.follow,
+        ..kiri::pager::Options::new(settings.search_case)
+    };
     let paging = settings.paging;
     if let Some(result) = page(context, content, name, inputs, paging, options, opening) {
         // What the pager would have hidden.
@@ -1105,6 +1139,9 @@ struct Context<'a> {
     width: Option<u16>,
     /// The largest image file to read, in bytes.
     max_file_size: u64,
+    /// Whether the command line asks to follow the file, so that the pager
+    /// says when there is nothing to follow.
+    follow: bool,
 }
 
 impl<'a> Context<'a> {
@@ -1114,6 +1151,7 @@ impl<'a> Context<'a> {
             mode: cli.mode,
             width: cli.width,
             max_file_size: cli.max_image_size * kiri::images::MB,
+            follow: cli.follow.unwrap_or(cli.follow_on),
         }
     }
 }
@@ -1124,6 +1162,8 @@ impl<'a> Context<'a> {
 struct FromFile<'a> {
     path: &'a Path,
     input: Input,
+    /// How the file looked before it was read.
+    look: Option<Look>,
 }
 
 /// Renders `document`, called `name`, on stdout. When it comes from a
@@ -1322,6 +1362,7 @@ fn print_document(
         settings: &settings,
         from,
         stamps,
+        read: from.look,
     });
     if let Some(result) = page(
         context,
@@ -1330,6 +1371,12 @@ fn print_document(
         &mut inputs,
         settings.paging,
         kiri::pager::Options {
+            // Without a file to follow, the pager says so only when the
+            // command line asked to follow.
+            follow: match reload {
+                Some(_) => settings.follow,
+                None => context.follow,
+            },
             reload: reload.as_mut().map(|reload| reload as &mut dyn Reload),
             ..kiri::pager::Options::new(settings.search_case)
         },
@@ -1402,11 +1449,16 @@ struct FileReload<'a> {
     from: FromFile<'a>,
     /// When the files behind the images were last changed.
     stamps: Stamps,
+    /// How the file looked when it was last read, when it could be
+    /// looked at.
+    read: Option<Look>,
 }
 
 impl Reload for FileReload<'_> {
     fn reload(&mut self, images: &mut Images, caps: &Capabilities) -> Reloaded {
-        let FromFile { path, input } = self.from;
+        let FromFile { path, input, .. } = self.from;
+        // Before the file is read, so that a change meanwhile counts.
+        self.read = look(path).ok();
         // The status line names the file already, so the reasons do not.
         let source = match read_text(path) {
             Ok(source) => source,
@@ -1430,6 +1482,25 @@ impl Reload for FileReload<'_> {
         }
         Reloaded::Document(document)
     }
+
+    fn change(&mut self) -> Change {
+        match look(self.from.path) {
+            Ok(look) if Some(look) == self.read => Change::Unchanged,
+            Ok(look) => Change::Changed(look),
+            Err(why) => Change::Gone(why),
+        }
+    }
+}
+
+/// How the file at `path` looks now, looked up by its path, so that a file
+/// replaced by another, as an editor saves through a rename, counts as
+/// changed; why it cannot be looked at otherwise.
+fn look(path: &Path) -> Result<Look, String> {
+    let metadata = std::fs::metadata(path).map_err(|error| error.to_string())?;
+    Ok(Look {
+        modified: metadata.modified().ok(),
+        length: metadata.len(),
+    })
 }
 
 /// The text of the file at `path`, read whole; why it cannot be read
@@ -1601,6 +1672,9 @@ fn options(cli: &Cli) -> Options {
         paging: (flag(cli.paging, "--paging"))
             .or(flag(cli.pager.then_some(Paging::Always), "-p"))
             .or(flag(cli.no_pager.then_some(Paging::Never), "-P")),
+        follow: (flag(cli.follow, "--follow"))
+            .or(flag(cli.follow_on.then_some(true), "-f"))
+            .or(flag(cli.follow_off.then_some(false), "-F")),
         front_matter: flag(cli.front_matter, "--front-matter"),
         table_rows: flag(cli.table_rows, "--table-rows"),
         diagrams: flag(cli.diagrams, "--diagrams"),

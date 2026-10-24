@@ -12,7 +12,7 @@ pub mod view;
 
 use std::io::{self, Write};
 use std::ops::Range;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::caps::Capabilities;
 use crate::compare::{Comparison, Fate, compare};
@@ -104,6 +104,29 @@ pub trait Reload {
     /// as it is shown in a window with `caps`: what it needs and does not
     /// have is loaded, and what it has no use for any more may go.
     fn reload(&mut self, images: &mut Images, caps: &Capabilities) -> Reloaded;
+
+    /// Whether the document changed since it was last read, as the pager
+    /// asks while it follows it.
+    fn change(&mut self) -> Change;
+}
+
+/// Whether the document changed since it was last read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Change {
+    Unchanged,
+    /// It changed, and looks as `Look` tells now.
+    Changed(Look),
+    /// It cannot be looked at, such as a file that is gone: why, as the
+    /// status line says it.
+    Gone(String),
+}
+
+/// What tells one version of a document from another without reading it:
+/// for a file, when it was last modified and its length.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Look {
+    pub modified: Option<SystemTime>,
+    pub length: u64,
 }
 
 /// What reloading the document came to.
@@ -123,6 +146,9 @@ pub struct Options<'a> {
     pub case: SearchCase,
     /// Where `r` gets the document again from; `None` when it cannot.
     pub reload: Option<&'a mut dyn Reload>,
+    /// Whether the pager follows the document from the start: reads it
+    /// again whenever it changes.
+    pub follow: bool,
 }
 
 impl Options<'_> {
@@ -133,6 +159,7 @@ impl Options<'_> {
             width: None,
             case,
             reload: None,
+            follow: false,
         }
     }
 }
@@ -157,6 +184,7 @@ pub fn run(
         width,
         case,
         mut reload,
+        follow,
     } = options;
     let page = Page {
         background: inputs.theme.background,
@@ -166,6 +194,10 @@ pub fn run(
     let mut size = terminal.size();
     let mut view: Option<View> = None;
     let mut state = State::new(case);
+    state.follow.on = follow && reload.is_some();
+    if follow && reload.is_none() {
+        state.told = Some(Told::new(NOTHING_TO_FOLLOW));
+    }
     // The document as reloaded, once it has been.
     let mut reloaded: Option<Document> = None;
     // How the reloaded document differs from the one before it, until the
@@ -249,14 +281,13 @@ pub fn run(
             status: &status,
             view: &mut shown,
         };
-        let can_reload = reload.is_some();
         let outcome = show(
             &mut laid_out,
             &mut state,
             &mut writer,
             terminal,
             size,
-            can_reload,
+            &mut reload,
         )?;
         match outcome {
             Outcome::Quit => return Ok(()),
@@ -266,6 +297,7 @@ pub fn run(
             }
             Outcome::Reload => {
                 view = Some(shown);
+                state.follow.seen = None;
                 let source = reload.as_deref_mut().expect("a source to reload from");
                 state.told = Some(match source.reload(&mut inputs.images, &inputs.caps) {
                     Reloaded::Document(document) => {
@@ -293,6 +325,9 @@ fn follows(changes: &Comparison, old: &BlockInfo, new: &BlockInfo) -> bool {
         )
 }
 
+/// What the status line says when there is no file to follow.
+const NOTHING_TO_FOLLOW: &str = "nothing to follow";
+
 /// The rows of a window whose size the terminal does not tell.
 const DEFAULT_ROWS: u16 = 24;
 
@@ -309,8 +344,8 @@ enum Outcome {
     Quit,
     /// The window is now of this size.
     Resized(Option<WindowSize>),
-    /// The reader asked for the document again, and the status line says
-    /// it is being read.
+    /// The document is to be read again: the reader asked for it, and the
+    /// status line says it is being read, or it changed while followed.
     Reload,
 }
 
@@ -320,6 +355,8 @@ enum Pressed {
     Quit,
     /// The reader asked for the document again.
     Reload,
+    /// The reader turned following the document on or off.
+    Follow,
 }
 
 /// What the status line and the help panel show and how, apart from the
@@ -369,7 +406,8 @@ impl Status<'_> {
                 let place = (file.filter(|_| self.files.several()))
                     .map(|file| (file + 1, self.files.count()));
                 let position = view.position();
-                status::spans(name, place, position, found, width, &self.styles)
+                let following = state.follow.on;
+                status::spans(name, place, position, following, found, width, &self.styles)
             }
         }
     }
@@ -430,6 +468,63 @@ struct State {
     /// What the status line tells about the last key until the next one,
     /// such as that there is no next file, or until it has faded out.
     told: Option<Told>,
+    /// Following the document as it changes.
+    follow: Follow,
+}
+
+/// Following the document: reading it again whenever it changes.
+#[derive(Debug, Default)]
+struct Follow {
+    on: bool,
+    /// How a change looked on the last poll, and when it was first seen
+    /// looking so. It is read once a poll at least [`POLL`] later finds it
+    /// looking the same, so that a file caught half written is not shown.
+    seen: Option<(Look, Instant)>,
+    /// Whether the document could not be looked at on the last poll, which
+    /// the status line told.
+    gone: bool,
+}
+
+/// What a poll of the document while it is followed calls for.
+#[derive(Debug, PartialEq, Eq)]
+enum Polled {
+    Nothing,
+    Reload,
+    /// The status line is to tell why the document cannot be looked at.
+    Gone(String),
+}
+
+impl Follow {
+    /// What `change`, found on a poll at `now`, calls for.
+    fn poll(&mut self, change: Change, now: Instant) -> Polled {
+        let gone = std::mem::replace(&mut self.gone, false);
+        match change {
+            Change::Unchanged => {
+                self.seen = None;
+                Polled::Nothing
+            }
+            Change::Changed(look) => match self.seen {
+                Some((seen, at)) if seen == look => {
+                    match now.saturating_duration_since(at) >= POLL {
+                        true => Polled::Reload,
+                        false => Polled::Nothing,
+                    }
+                }
+                _ => {
+                    self.seen = Some((look, now));
+                    Polled::Nothing
+                }
+            },
+            Change::Gone(why) => {
+                self.seen = None;
+                self.gone = true;
+                match gone {
+                    true => Polled::Nothing,
+                    false => Polled::Gone(why),
+                }
+            }
+        }
+    }
 }
 
 /// A message on the status line.
@@ -491,6 +586,7 @@ impl State {
             colon: false,
             went: None,
             told: None,
+            follow: Follow::default(),
         }
     }
 
@@ -562,6 +658,7 @@ impl State {
                 }
             }
             Some(Action::Reload) => return Pressed::Reload,
+            Some(Action::Follow) => return Pressed::Follow,
             None => {}
         }
         Pressed::Nothing
@@ -777,14 +874,16 @@ impl Layout<'_> {
 }
 
 /// Shows `layout` in `state` on `terminal`, whose window is of `size`, and
-/// scrolls it until the reader quits or the window changes size.
+/// scrolls it until the reader quits or the window changes size, or until
+/// the document is to be read again from `reload`, if there is one to
+/// read it from.
 fn show(
     layout: &mut Layout,
     state: &mut State,
     writer: &mut Writer,
     terminal: &mut impl Terminal,
     size: Option<WindowSize>,
-    can_reload: bool,
+    reload: &mut Option<&mut dyn Reload>,
 ) -> io::Result<Outcome> {
     let mut now = terminal.now();
     let mut shown = layout.frame(state, now);
@@ -809,7 +908,7 @@ fn show(
             match state.press(key, now, layout) {
                 Pressed::Nothing => {}
                 Pressed::Quit => return Ok(Outcome::Quit),
-                Pressed::Reload if !can_reload => {
+                Pressed::Reload if reload.is_none() => {
                     state.told = Some(Told::new("nothing to reload"));
                 }
                 // The reader sees that the pager is busy before it is.
@@ -821,8 +920,26 @@ fn show(
                     terminal.flush()?;
                     return Ok(Outcome::Reload);
                 }
+                Pressed::Follow if reload.is_none() => {
+                    state.told = Some(Told::new(NOTHING_TO_FOLLOW));
+                }
+                Pressed::Follow => {
+                    state.follow = Follow {
+                        on: !state.follow.on,
+                        ..Follow::default()
+                    }
+                }
             }
             state.moved(layout.view.top());
+        }
+        if state.follow.on
+            && let Some(source) = reload.as_deref_mut()
+        {
+            match state.follow.poll(source.change(), now) {
+                Polled::Nothing => {}
+                Polled::Reload => return Ok(Outcome::Reload),
+                Polled::Gone(why) => state.told = Some(Told::new(why)),
+            }
         }
         let window = terminal.size();
         if window != size {
@@ -933,6 +1050,9 @@ mod tests {
         clock: Instant,
         /// How long each read was asked to wait.
         waits: Vec<Duration>,
+        /// How long a read that gives keys takes, when not as long as it
+        /// was asked to wait.
+        typing: Option<Duration>,
     }
 
     impl Fake {
@@ -944,6 +1064,7 @@ mod tests {
                 out: Vec::new(),
                 clock: Instant::now(),
                 waits: Vec::new(),
+                typing: None,
             }
         }
 
@@ -983,14 +1104,18 @@ mod tests {
         }
 
         fn read(&mut self, timeout: Duration) -> io::Result<Vec<u8>> {
-            self.clock += timeout;
             self.waits.push(timeout);
             if let Some(size) = self.sizes.pop_front() {
                 self.size = size;
             }
             // Out of keys, the reader quits, with Ctrl+C, which also
             // closes a prompt left open.
-            Ok(self.keys.pop_front().unwrap_or_else(|| b"\x03".to_vec()))
+            let keys = self.keys.pop_front().unwrap_or_else(|| b"\x03".to_vec());
+            self.clock += match self.typing {
+                Some(typing) if !keys.is_empty() => typing,
+                _ => timeout,
+            };
+            Ok(keys)
         }
 
         fn now(&self) -> Instant {
@@ -1035,10 +1160,13 @@ mod tests {
     }
 
     /// What the pager gets when it asks for the document again: the
-    /// outcomes in `then`, one a call, and how many times it asked.
+    /// outcomes in `then`, one a call, and how many times it asked; and
+    /// when it asks whether the document changed, the answers in
+    /// `changes`, one a call, and unchanged after them.
     struct Then {
         then: VecDeque<Reloaded>,
         asked: usize,
+        changes: VecDeque<Change>,
     }
 
     impl Then {
@@ -1046,6 +1174,19 @@ mod tests {
             Self {
                 then: then.into_iter().collect(),
                 asked: 0,
+                changes: VecDeque::new(),
+            }
+        }
+
+        /// As [`Then::new`], answering `changes` when asked whether the
+        /// document changed.
+        fn changing(
+            then: impl IntoIterator<Item = Reloaded>,
+            changes: impl IntoIterator<Item = Change>,
+        ) -> Self {
+            Self {
+                changes: changes.into_iter().collect(),
+                ..Self::new(then)
             }
         }
     }
@@ -1055,6 +1196,225 @@ mod tests {
             self.asked += 1;
             self.then.pop_front().expect("an outcome for each reload")
         }
+
+        fn change(&mut self) -> Change {
+            self.changes.pop_front().unwrap_or(Change::Unchanged)
+        }
+    }
+
+    /// The look of a version of a document, told apart by `length`.
+    fn look(length: u64) -> Change {
+        Change::Changed(Look {
+            modified: None,
+            length,
+        })
+    }
+
+    /// `document` followed with `then` to reload it, in a window of
+    /// 60 × 6, with `reads` and then `empty` polls without keys.
+    fn following(
+        document: &Document,
+        then: &mut Then,
+        reads: &[&[u8]],
+        empty: usize,
+    ) -> Vec<String> {
+        let mut reads = reads.to_vec();
+        reads.extend(std::iter::repeat_n(b"".as_slice(), empty));
+        let mut terminal = Fake::new(60, 6, &reads);
+        let mut inputs = Inputs::new(Capabilities::ansi(80));
+        run(
+            Content::Document(document),
+            None,
+            "notes.md",
+            &mut inputs,
+            Options {
+                reload: Some(then),
+                follow: true,
+                ..Options::new(SearchCase::Smart)
+            },
+            &mut terminal,
+        )
+        .unwrap();
+        terminal.frames()
+    }
+
+    #[test]
+    fn following_reloads_a_change_without_a_key_and_keeps_the_block_at_the_top() {
+        // The read of the keys, then a change seen on two polls in a row.
+        let changes = [Change::Unchanged, look(1), look(1)];
+        let mut then = Then::changing([Reloaded::Document(rows(10))], changes);
+        let frames = following(&numbers(10), &mut then, &[b"jjjjjj"], 5);
+        assert_eq!(then.asked, 1, "{frames:#?}");
+        assert_eq!(frames.len(), 3, "{frames:#?}");
+        assert!(at_top(&frames[1], "Line 4"), "{frames:#?}");
+        assert!(at_top(&frames[2], "Row 4"), "{frames:#?}");
+        assert!(
+            status_row(&frames[2], 6).contains("reloaded"),
+            "{frames:#?}"
+        );
+    }
+
+    /// Whether the status line of `frame`, in a window of 6 rows, tells
+    /// that the pager follows the document.
+    fn follows(frame: &str) -> bool {
+        status_row(frame, 6).contains(" follow   ")
+    }
+
+    #[test]
+    fn capital_f_turns_following_on_and_off() {
+        // F, a change seen on two polls, F again, and a change that is
+        // not asked about.
+        let changes = [look(1), look(1), look(2), look(2)];
+        let mut then = Then::changing([Reloaded::Document(rows(10))], changes);
+        let reads: &[&[u8]] = &[b"F", b"", b"F", b"", b""];
+        let frames = reloading_with(Capabilities::ansi(80), &numbers(10), &mut then, reads, 0);
+        assert_eq!(then.asked, 1, "{frames:#?}");
+        assert_eq!(then.changes.len(), 2, "{frames:#?}");
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert!(!follows(&frames[0]), "{frames:#?}");
+        assert!(follows(&frames[1]), "{frames:#?}");
+        assert!(at_top(&frames[2], "Row 1"), "{frames:#?}");
+        assert!(follows(&frames[2]), "{frames:#?}");
+        assert!(!follows(&frames[3]), "{frames:#?}");
+    }
+
+    #[test]
+    fn the_status_line_tells_following_from_the_start() {
+        let mut then = Then::new([]);
+        let frames = following(&numbers(10), &mut then, &[], 0);
+        assert!(follows(&frames[0]), "{frames:#?}");
+    }
+
+    #[test]
+    fn without_a_file_to_follow_capital_f_says_so_until_the_next_key() {
+        let mut terminal = Fake::new(60, 6, &[b"F", b"j"]);
+        show(&numbers(10), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 3, "{frames:#?}");
+        assert!(status_row(&frames[1], 6).contains("nothing to follow"));
+        assert!(!status_row(&frames[2], 6).contains("follow"), "{frames:#?}");
+    }
+
+    #[test]
+    fn following_from_the_start_without_a_file_says_there_is_nothing_to_follow() {
+        let mut terminal = Fake::new(60, 6, &[b"j"]);
+        let mut inputs = Inputs::new(Capabilities::ansi(80));
+        let options = Options {
+            follow: true,
+            ..Options::new(SearchCase::Smart)
+        };
+        let document = numbers(10);
+        run(
+            Content::Document(&document),
+            None,
+            "notes.md",
+            &mut inputs,
+            options,
+            &mut terminal,
+        )
+        .unwrap();
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 2, "{frames:#?}");
+        assert!(status_row(&frames[0], 6).contains("nothing to follow"));
+        assert!(!status_row(&frames[1], 6).contains("follow"), "{frames:#?}");
+    }
+
+    #[test]
+    fn following_waits_a_poll_s_time_for_a_change_to_look_the_same_while_keys_come_fast() {
+        // A change seen on the reads of two keys 5 ms apart, and then on
+        // a poll without keys.
+        let changes = [look(1), look(1), look(1)];
+        let mut then = Then::changing([Reloaded::Document(rows(10))], changes);
+        let mut terminal = Fake::new(60, 6, &[b"j", b"j", b""]);
+        terminal.typing = Some(Duration::from_millis(5));
+        let mut inputs = Inputs::new(Capabilities::ansi(80));
+        let document = numbers(10);
+        let options = Options {
+            reload: Some(&mut then),
+            follow: true,
+            ..Options::new(SearchCase::Smart)
+        };
+        run(
+            Content::Document(&document),
+            None,
+            "notes.md",
+            &mut inputs,
+            options,
+            &mut terminal,
+        )
+        .unwrap();
+        let frames = terminal.frames();
+        assert_eq!(then.asked, 1, "{frames:#?}");
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert!(at_top(&frames[2], "Line 2"), "{frames:#?}");
+        assert!(at_top(&frames[3], "Row 2"), "{frames:#?}");
+    }
+
+    #[test]
+    fn following_waits_until_a_change_looks_the_same_on_two_polls() {
+        // Still being written on the second poll, then done.
+        let changes = [look(1), look(2), look(2)];
+        let mut then = Then::changing([Reloaded::Document(rows(10))], changes);
+        let frames = following(&numbers(10), &mut then, &[], 5);
+        assert_eq!(then.asked, 1, "{frames:#?}");
+        assert_eq!(frames.len(), 2, "{frames:#?}");
+        assert!(at_top(&frames[1], "Row 1"), "{frames:#?}");
+        // A change that is not seen again is not read.
+        let changes = [look(1), Change::Unchanged, look(2)];
+        let mut then = Then::changing([], changes);
+        let frames = following(&numbers(10), &mut then, &[], 5);
+        assert_eq!(then.asked, 0, "{frames:#?}");
+    }
+
+    #[test]
+    fn without_following_a_change_is_not_read() {
+        let changes = [look(1), look(1), look(1)];
+        let mut then = Then::changing([], changes);
+        let frames = reloading_with(Capabilities::ansi(80), &numbers(10), &mut then, &[], 5);
+        assert_eq!(then.asked, 0, "{frames:#?}");
+        assert_eq!(then.changes.len(), 3, "{frames:#?}");
+    }
+
+    #[test]
+    fn following_a_document_that_is_gone_keeps_it_and_tells_why_once() {
+        let gone = || Change::Gone("No such file or directory".to_owned());
+        let mut then = Then::changing([], [gone(), gone(), gone(), gone()]);
+        let frames = following(&numbers(10), &mut then, &[b"", b"", b"j"], 3);
+        assert_eq!(then.asked, 0, "{frames:#?}");
+        assert_eq!(frames.len(), 3, "{frames:#?}");
+        assert!(at_top(&frames[1], "Line 1"), "{frames:#?}");
+        assert!(
+            status_row(&frames[1], 6).contains("No such file"),
+            "{frames:#?}"
+        );
+        // A key clears it, and it is not told again while still gone.
+        assert!(!status_row(&frames[2], 6).contains("No such file"));
+    }
+
+    #[test]
+    fn following_reads_a_document_back_once_it_is_there_again() {
+        let gone = Change::Gone("No such file or directory".to_owned());
+        let changes = [gone, look(1), look(1)];
+        let mut then = Then::changing([Reloaded::Document(rows(10))], changes);
+        let frames = following(&numbers(10), &mut then, &[], 5);
+        assert_eq!(then.asked, 1, "{frames:#?}");
+        let last = frames.last().unwrap();
+        assert!(at_top(last, "Row 1"), "{frames:#?}");
+        assert!(status_row(last, 6).contains("reloaded"), "{frames:#?}");
+    }
+
+    #[test]
+    fn following_tells_why_a_change_could_not_be_read() {
+        let why = Reloaded::Failed("not UTF-8 text".to_owned());
+        let mut then = Then::changing([why], [look(1), look(1)]);
+        let frames = following(&numbers(10), &mut then, &[], 5);
+        assert_eq!(then.asked, 1, "{frames:#?}");
+        let last = frames.last().unwrap();
+        assert!(at_top(last, "Line 1"), "{frames:#?}");
+        assert!(
+            status_row(last, 6).contains("not UTF-8 text"),
+            "{frames:#?}"
+        );
     }
 
     /// `document` shown with `then` to reload it, in a window of 60 × 6.
