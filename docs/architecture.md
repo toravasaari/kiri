@@ -350,6 +350,8 @@ src/theme/mod.rs           colours and sizes the renderer uses
 src/theme/paper.rs         the light and dark paper themes
 src/theme/file.rs          theme files
 src/images/mod.rs          loading the images a document shows
+src/images/background.rs   loading images on threads of their own, each
+                           stoppable, as the pager does after a reload
 src/images/decode.rs       decoding image files, raster and SVG
 src/images/drawn.rs        diagrams as their renderers drew them, made images
 src/images/pipeline.rs     a document's images for a run: renderers from the

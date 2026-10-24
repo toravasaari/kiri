@@ -7,6 +7,7 @@
 //! not an error for the whole document, because the renderer still shows
 //! the alt text in place of an image it could not load.
 
+mod background;
 mod decode;
 mod drawn;
 mod pipeline;
@@ -22,8 +23,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::diagrams::{NoRenderer, Renderer, Request, Theme};
 use crate::model::{Block, Document, Inline};
 
+pub use background::Loads;
 pub use decode::{DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image};
-pub use pipeline::{Interrupted, Loaded, Loading, load_documents, reload_documents};
+pub use pipeline::{
+    Interrupted, Loaded, Loading, load_documents, reload_documents, reload_in_background,
+};
 pub use stamps::Stamps;
 pub use svg::{Fonts, Svg};
 
@@ -258,6 +262,10 @@ pub struct Images {
     by_key: HashMap<ImageKey, Result<Source, ImageError>>,
     /// The keys in the order they were first inserted, the document's order.
     order: Vec<ImageKey>,
+    /// The images of the document before a reload in the background that
+    /// the new one no longer shows, or that are loading anew, until they
+    /// are taken: what was there while the new ones load.
+    replaced: HashMap<ImageKey, Source>,
 }
 
 impl Images {
@@ -298,6 +306,11 @@ impl Images {
     /// Every key and its outcome, in the order they were first inserted.
     pub fn iter(&self) -> impl Iterator<Item = (&ImageKey, &Result<Source, ImageError>)> {
         (self.order.iter()).map(|key| (key, &self.by_key[key]))
+    }
+
+    /// Takes the images [`reload_in_background`] replaced.
+    pub fn take_replaced(&mut self) -> HashMap<ImageKey, Source> {
+        std::mem::take(&mut self.replaced)
     }
 
     /// One message for each image that did not load, in document order.
@@ -409,27 +422,10 @@ fn load_wanted(
     max_file_size: u64,
     fonts: &Fonts,
     options: &LoadOptions<'_>,
-    mut kept: Option<&mut Images>,
+    kept: Option<&mut Images>,
 ) -> Images {
-    let mut wanted = Vec::new();
-    for (index, part) in parts.iter().enumerate() {
-        let mut blocks = Vec::new();
-        collect_blocks(&part.document.blocks, options.renderer, &mut blocks);
-        wanted.extend(blocks.into_iter().map(|image| (index, image)));
-    }
+    let (wanted, mut have) = plan(parts, options.renderer, kept);
     let key = |&(index, ref image): &(usize, Wanted)| image.key().in_document(parts[index].number);
-    let mut keys = HashSet::new();
-    wanted.retain(|image| keys.insert(key(image)));
-    // What is kept is moved to its place among the images, in the order of
-    // the documents. A diagram that failed is drawn again, as what made it
-    // fail, such as a time limit or a missing program, may have passed.
-    let mut have: Vec<Option<_>> = (wanted.iter())
-        .map(|image| {
-            let kept = kept.as_deref_mut()?.remove(&key(image))?;
-            let failed = kept.is_err() && matches!(image.1, Wanted::Diagram { .. });
-            (!failed).then_some(kept)
-        })
-        .collect();
     // The diagrams first, all together, so a renderer can draw several
     // at once.
     let requests: Vec<Request> = (wanted.iter().zip(&have))
@@ -487,6 +483,38 @@ fn load_wanted(
         images.insert(key, loaded);
     }
     images
+}
+
+/// The outcome of loading an image.
+type Outcome = Result<Source, ImageError>;
+
+/// The images `parts` want, each once with the number of its part, in
+/// the order of the documents, and beside each what `kept` holds of it,
+/// taken out of `kept`; `None` for one to load. A diagram that failed is
+/// to be drawn again, as what made it fail, such as a time limit or a
+/// missing program, may have passed.
+fn plan<'p>(
+    parts: &[Part<'p>],
+    renderer: &dyn Renderer,
+    mut kept: Option<&mut Images>,
+) -> (Vec<(usize, Wanted<'p>)>, Vec<Option<Outcome>>) {
+    let mut wanted = Vec::new();
+    for (index, part) in parts.iter().enumerate() {
+        let mut blocks = Vec::new();
+        collect_blocks(&part.document.blocks, renderer, &mut blocks);
+        wanted.extend(blocks.into_iter().map(|image| (index, image)));
+    }
+    let key = |&(index, ref image): &(usize, Wanted)| image.key().in_document(parts[index].number);
+    let mut keys = HashSet::new();
+    wanted.retain(|image| keys.insert(key(image)));
+    let have = (wanted.iter())
+        .map(|image| {
+            let kept = kept.as_deref_mut()?.remove(&key(image))?;
+            let failed = kept.is_err() && matches!(image.1, Wanted::Diagram { .. });
+            (!failed).then_some(kept)
+        })
+        .collect();
+    (wanted, have)
 }
 
 /// `load_parts` again for documents that may have changed: an image whose
