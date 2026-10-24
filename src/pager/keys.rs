@@ -50,6 +50,8 @@ pub enum Action {
     /// Moves to the start of the file the view is in, or of the one
     /// before when the view is there already.
     PreviousFile,
+    /// Reads the document again.
+    Reload,
     Help,
     Quit,
 }
@@ -326,6 +328,12 @@ pub const BINDINGS: &[Binding] = {
             names: "Esc",
             what: "hide the search",
             action: Action::Clear,
+        },
+        Binding {
+            keys: &[Char('r')],
+            names: "r",
+            what: "reload the file",
+            action: Action::Reload,
         },
         Binding {
             keys: &[Char('?'), Char('h')],

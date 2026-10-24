@@ -16,7 +16,8 @@ use std::time::{Duration, Instant};
 
 use crate::caps::Capabilities;
 use crate::config::{Paging, SearchCase};
-use crate::model::File;
+use crate::images::Images;
+use crate::model::{Document, File};
 use crate::render::Inputs;
 use crate::render::layout::{Content, Stream};
 use crate::render::output::{self, Page, Writer};
@@ -95,22 +96,66 @@ impl<W: Write> Terminal for Screen<W> {
     }
 }
 
+/// What the pager asks for the document again, as `r` does.
+pub trait Reload {
+    /// The document read again, with `images` brought up to date for it
+    /// as it is shown in a window with `caps`: what it needs and does not
+    /// have is loaded, and what it has no use for any more may go.
+    fn reload(&mut self, images: &mut Images, caps: &Capabilities) -> Reloaded;
+}
+
+/// What reloading the document came to.
+pub enum Reloaded {
+    Document(Document),
+    /// The document could not be read again: why, as the status line says
+    /// it.
+    Failed(String),
+}
+
+/// What the pager is told besides the document.
+pub struct Options<'a> {
+    /// The columns the document is laid out in, when the window's are not
+    /// to decide.
+    pub width: Option<u16>,
+    /// How a search treats case.
+    pub case: SearchCase,
+    /// Where `r` gets the document again from; `None` when it cannot.
+    pub reload: Option<&'a mut dyn Reload>,
+}
+
+impl Options<'_> {
+    /// A window's width to decide the layout, searches that treat case as
+    /// `case` says, and no way to reload.
+    pub fn new(case: SearchCase) -> Self {
+        Options {
+            width: None,
+            case,
+            reload: None,
+        }
+    }
+}
+
 /// Shows `content` on `terminal` until the reader quits, laid out with
-/// `inputs` for the window's size, or `width` columns when it is given.
+/// `inputs` for the window's size, or `options.width` columns when it is
+/// given.
 /// The status line calls a lone document `name`, and names each of
 /// several files after itself. `laid_out`, when given, is `content` laid
 /// out with `inputs` as they are now, used unless the window calls for
 /// another.
-/// A search treats case as `case` says.
+/// A search treats case as `options.case` says.
 pub fn run(
     content: Content,
     laid_out: Option<Stream>,
     name: &str,
     inputs: &mut Inputs,
-    width: Option<u16>,
-    case: SearchCase,
+    options: Options,
     terminal: &mut impl Terminal,
 ) -> io::Result<()> {
+    let Options {
+        width,
+        case,
+        mut reload,
+    } = options;
     let page = Page {
         background: inputs.theme.background,
         foreground: inputs.theme.foreground,
@@ -119,6 +164,8 @@ pub fn run(
     let mut size = terminal.size();
     let mut view: Option<View> = None;
     let mut state = State::new(case);
+    // The document as reloaded, once it has been.
+    let mut reloaded: Option<Document> = None;
     let shown_files: &[File] = match content {
         Content::Document(_) => &[],
         Content::Files(files) => files,
@@ -130,6 +177,10 @@ pub fn run(
         // have no row left.
         let bar = window > 1;
         let rows = if bar { window - 1 } else { window };
+        let content = match &reloaded {
+            Some(document) => Content::Document(document),
+            None => content,
+        };
         let stream = match laid_out.take() {
             Some((caps, stream)) if caps == inputs.caps => stream,
             _ => crate::render::layout::content(content, inputs),
@@ -188,11 +239,31 @@ pub fn run(
             status: &status,
             view: &mut shown,
         };
-        match show(&mut laid_out, &mut state, &mut writer, terminal, size)? {
+        let can_reload = reload.is_some();
+        let outcome = show(
+            &mut laid_out,
+            &mut state,
+            &mut writer,
+            terminal,
+            size,
+            can_reload,
+        )?;
+        match outcome {
             Outcome::Quit => return Ok(()),
             Outcome::Resized(new) => {
                 size = new;
                 view = Some(shown);
+            }
+            Outcome::Reload => {
+                view = Some(shown);
+                let source = reload.as_deref_mut().expect("a source to reload from");
+                state.told = Some(match source.reload(&mut inputs.images, &inputs.caps) {
+                    Reloaded::Document(document) => {
+                        reloaded = Some(document);
+                        "reloaded".to_owned()
+                    }
+                    Reloaded::Failed(why) => why,
+                });
             }
         }
     }
@@ -214,6 +285,17 @@ enum Outcome {
     Quit,
     /// The window is now of this size.
     Resized(Option<WindowSize>),
+    /// The reader asked for the document again, and the status line says
+    /// it is being read.
+    Reload,
+}
+
+/// What a key did, besides what the pager does itself.
+enum Pressed {
+    Nothing,
+    Quit,
+    /// The reader asked for the document again.
+    Reload,
 }
 
 /// What the status line and the help panel show and how, apart from the
@@ -316,7 +398,7 @@ struct State {
     went: Option<Went>,
     /// What the status line tells about the last key until the next one,
     /// such as that there is no next file.
-    told: Option<&'static str>,
+    told: Option<String>,
 }
 
 /// A move to the start of a file with `:n` or `:p`. The view may stop
@@ -354,16 +436,16 @@ impl State {
         }
     }
 
-    /// Does what `key`, pressed at `now`, asks in `layout`; true when it
-    /// quits.
-    fn press(&mut self, key: Key, now: Instant, layout: &mut Layout) -> bool {
+    /// Does what `key`, pressed at `now`, asks in `layout`, and tells what
+    /// is left for the pager to do.
+    fn press(&mut self, key: Key, now: Instant, layout: &mut Layout) -> Pressed {
         self.nowhere = false;
         self.told = None;
         // Any key closes the help and does nothing else, but Ctrl+C
         // still quits.
         if self.help && key != Key::Ctrl('c') {
             self.help = false;
-            return false;
+            return Pressed::Nothing;
         }
         // While the prompt is open, keys edit it.
         if let Some(prompt) = &mut self.prompt {
@@ -381,7 +463,7 @@ impl State {
                     self.step(Search::forward, now, layout);
                 }
             }
-            return false;
+            return Pressed::Nothing;
         }
         // The key after a colon is a command's, and any other closes it.
         // The commands move between files, so a lone document has none
@@ -389,16 +471,16 @@ impl State {
         let key = match key {
             _ if std::mem::take(&mut self.colon) => match key {
                 Key::Char(c) => Key::Command(c),
-                _ => return false,
+                _ => return Pressed::Nothing,
             },
             keys::COMMAND if layout.status.files.several() => {
                 self.colon = true;
-                return false;
+                return Pressed::Nothing;
             }
             key => key,
         };
         match keys::action(key) {
-            Some(Action::Quit) => return true,
+            Some(Action::Quit) => return Pressed::Quit,
             Some(Action::Move(motion)) => layout.view.scroll(motion),
             // The help and the prompt need a row besides the status line's.
             Some(Action::Help) => self.help = layout.status.bar,
@@ -421,9 +503,10 @@ impl State {
                     self.go_to(files.previous(file, top), "no previous file", layout);
                 }
             }
+            Some(Action::Reload) => return Pressed::Reload,
             None => {}
         }
-        false
+        Pressed::Nothing
     }
 
     /// The file the reader is in, of `files`, with the view's top on the
@@ -437,7 +520,7 @@ impl State {
     /// and otherwise tells `none` on the status line.
     fn go_to(&mut self, file: Option<usize>, none: &'static str, layout: &mut Layout) {
         let Some(file) = file else {
-            self.told = Some(none);
+            self.told = Some(none.to_owned());
             return;
         };
         layout.view.go_to(layout.status.files.start(file));
@@ -539,7 +622,7 @@ impl State {
     /// What the status line tells about the last key, or else about the
     /// last search, with the match number in `flash` when it is given.
     fn found(&self, flash: Option<Style>) -> Option<status::Found<'_>> {
-        if let Some(told) = self.told {
+        if let Some(told) = &self.told {
             return Some(status::Found::Told(told));
         }
         let search = self.search.as_ref()?;
@@ -612,6 +695,7 @@ fn show(
     writer: &mut Writer,
     terminal: &mut impl Terminal,
     size: Option<WindowSize>,
+    can_reload: bool,
 ) -> io::Result<Outcome> {
     let mut shown = layout.frame(state, terminal.now());
     shown.draw(layout.view.rows(), writer, terminal)?;
@@ -631,8 +715,21 @@ fn show(
         let now = terminal.now();
         state.tick(now);
         for key in keys {
-            if state.press(key, now, layout) {
-                return Ok(Outcome::Quit);
+            match state.press(key, now, layout) {
+                Pressed::Nothing => {}
+                Pressed::Quit => return Ok(Outcome::Quit),
+                Pressed::Reload if !can_reload => {
+                    state.told = Some("nothing to reload: not a lone file".to_owned());
+                }
+                // The reader sees that the pager is busy before it is.
+                Pressed::Reload => {
+                    state.told = Some("reloading…".to_owned());
+                    layout
+                        .frame(state, now)
+                        .draw(layout.view.rows(), writer, terminal)?;
+                    terminal.flush()?;
+                    return Ok(Outcome::Reload);
+                }
             }
             state.moved(layout.view.top());
         }
@@ -818,8 +915,7 @@ mod tests {
             None,
             "notes.md",
             &mut inputs,
-            None,
-            SearchCase::Smart,
+            Options::new(SearchCase::Smart),
             terminal,
         )
         .unwrap();
@@ -836,12 +932,155 @@ mod tests {
             Some(stream),
             "notes.md",
             &mut inputs,
-            None,
-            SearchCase::Smart,
+            Options::new(SearchCase::Smart),
             &mut terminal,
         )
         .unwrap();
         terminal.frames()
+    }
+
+    /// What the pager gets when it asks for the document again: the
+    /// outcomes in `then`, one a call, and how many times it asked.
+    struct Then {
+        then: VecDeque<Reloaded>,
+        asked: usize,
+    }
+
+    impl Then {
+        fn new(then: impl IntoIterator<Item = Reloaded>) -> Self {
+            Self {
+                then: then.into_iter().collect(),
+                asked: 0,
+            }
+        }
+    }
+
+    impl Reload for Then {
+        fn reload(&mut self, _: &mut Images, _: &Capabilities) -> Reloaded {
+            self.asked += 1;
+            self.then.pop_front().expect("an outcome for each reload")
+        }
+    }
+
+    /// `document` shown with `then` to reload it, in a window of 60 × 6.
+    fn show_reloading(document: &Document, then: &mut Then, keys: &[&[u8]]) -> Vec<String> {
+        let mut terminal = Fake::new(60, 6, keys);
+        let mut inputs = Inputs::new(Capabilities::ansi(80));
+        run(
+            Content::Document(document),
+            None,
+            "notes.md",
+            &mut inputs,
+            Options {
+                reload: Some(then),
+                ..Options::new(SearchCase::Smart)
+            },
+            &mut terminal,
+        )
+        .unwrap();
+        terminal.frames()
+    }
+
+    fn rows(count: usize) -> Document {
+        let source: String = (1..=count).map(|n| format!("Row {n}\n\n")).collect();
+        crate::parse::parse(&source)
+    }
+
+    #[test]
+    fn r_shows_the_document_read_again_and_tells_so_until_the_next_key() {
+        let mut then = Then::new([Reloaded::Document(rows(10))]);
+        let frames = show_reloading(&numbers(10), &mut then, &[b"r", b"j"]);
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert_eq!(then.asked, 1);
+        assert!(at_top(&frames[0], "Line 1"), "{frames:#?}");
+        // The old document stays on the screen while it is reloaded.
+        assert!(at_top(&frames[1], "Line 1"), "{frames:#?}");
+        assert!(
+            status_row(&frames[1], 6).contains("reloading"),
+            "{frames:#?}"
+        );
+        assert!(at_top(&frames[2], "Row 1"), "{frames:#?}");
+        assert!(
+            status_row(&frames[2], 6).contains("reloaded"),
+            "{frames:#?}"
+        );
+        assert!(
+            !status_row(&frames[3], 6).contains("reloaded"),
+            "{frames:#?}"
+        );
+    }
+
+    #[test]
+    fn a_reload_that_fails_keeps_the_old_document_and_tells_why_until_the_next_key() {
+        let why = Reloaded::Failed("notes.md: No such file or directory".to_owned());
+        let mut then = Then::new([why]);
+        let frames = show_reloading(&numbers(10), &mut then, &[b"r", b"j"]);
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert!(at_top(&frames[2], "Line 1"), "{frames:#?}");
+        let status = status_row(&frames[2], 6);
+        assert!(status.contains("No such file or directory"), "{frames:#?}");
+        assert!(!status.contains("reloaded"), "{frames:#?}");
+        assert!(
+            !status_row(&frames[3], 6).contains("No such file"),
+            "{frames:#?}"
+        );
+    }
+
+    #[test]
+    fn without_a_file_to_reload_r_says_so_until_the_next_key() {
+        let mut terminal = Fake::new(60, 6, &[b"r", b"j"]);
+        show(&numbers(10), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 3, "{frames:#?}");
+        let status = status_row(&frames[1], 6);
+        assert!(status.contains("nothing to reload"), "{frames:#?}");
+        assert!(!status_row(&frames[2], 6).contains("nothing to reload"));
+    }
+
+    #[test]
+    fn a_reload_keeps_the_block_at_the_top() {
+        let mut then = Then::new([Reloaded::Document(rows(10))]);
+        let frames = show_reloading(&numbers(10), &mut then, &[b"jjjjjj", b"r"]);
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert!(at_top(&frames[1], "Line 4"), "{frames:#?}");
+        assert!(at_top(&frames[3], "Row 4"), "{frames:#?}");
+    }
+
+    #[test]
+    fn a_reload_finds_the_search_again_in_the_new_lines() {
+        // Line 3 and Line 30 match in 30 lines; Line 3 and Line 30 to
+        // Line 35 do in 35.
+        let mut then = Then::new([Reloaded::Document(numbers(35))]);
+        let keys: &[&[u8]] = &[b"/Line 3\r", b"r", b"n"];
+        let frames = show_reloading(&numbers(30), &mut then, keys);
+        assert_eq!(frames.len(), 5, "{frames:#?}");
+        assert!(
+            status_row(&frames[1], 6).contains("/Line 3 1/2"),
+            "{frames:#?}"
+        );
+        assert!(
+            status_row(&frames[3], 6).contains("reloaded"),
+            "{frames:#?}"
+        );
+        assert!(
+            status_row(&frames[4], 6).contains("/Line 3 2/7"),
+            "{frames:#?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "block numbers cannot tell a block added above the view from one that is the same"]
+    fn a_reload_keeps_the_place_when_a_block_is_added_above_it() {
+        // Ten lines, scrolled to Line 4; then a block before all of them.
+        let mut then = Then::new([Reloaded::Document(crate::parse::parse(&format!(
+            "Added\n\n{}",
+            (1..=10)
+                .map(|n| format!("Line {n}\n\n"))
+                .collect::<String>()
+        )))]);
+        let frames = show_reloading(&numbers(10), &mut then, &[b"jjjjjj", b"r"]);
+        assert!(at_top(&frames[1], "Line 4"), "{frames:#?}");
+        assert!(at_top(&frames[3], "Line 4"), "{frames:#?}");
     }
 
     fn others() -> Document {
@@ -948,8 +1187,7 @@ mod tests {
                 None,
                 "notes.md",
                 &mut inputs,
-                None,
-                SearchCase::Smart,
+                Options::new(SearchCase::Smart),
                 &mut terminal,
             )
             .unwrap();
@@ -1033,8 +1271,7 @@ mod tests {
             None,
             "notes.md",
             &mut inputs,
-            None,
-            SearchCase::Smart,
+            Options::new(SearchCase::Smart),
             &mut terminal,
         )
         .unwrap();
@@ -1056,8 +1293,10 @@ mod tests {
             None,
             "notes.md",
             &mut inputs,
-            Some(10),
-            SearchCase::Smart,
+            Options {
+                width: Some(10),
+                ..Options::new(SearchCase::Smart)
+            },
             &mut terminal,
         )
         .unwrap();
@@ -1090,8 +1329,7 @@ mod tests {
             None,
             "",
             &mut inputs,
-            None,
-            SearchCase::Smart,
+            Options::new(SearchCase::Smart),
             terminal,
         )
         .unwrap();
@@ -1669,8 +1907,7 @@ mod tests {
             None,
             "notes.md",
             &mut inputs,
-            None,
-            SearchCase::Smart,
+            Options::new(SearchCase::Smart),
             &mut terminal,
         )
         .unwrap();
@@ -1731,8 +1968,7 @@ mod tests {
             None,
             "notes.md",
             &mut inputs,
-            None,
-            SearchCase::Smart,
+            Options::new(SearchCase::Smart),
             &mut terminal,
         )
         .unwrap();

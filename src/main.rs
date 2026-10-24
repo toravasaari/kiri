@@ -1273,8 +1273,10 @@ fn page(
         Some(stream),
         name,
         inputs,
-        context.width,
-        case,
+        kiri::pager::Options {
+            width: context.width,
+            ..kiri::pager::Options::new(case)
+        },
         &mut screen,
     );
     screen.close();
