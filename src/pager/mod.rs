@@ -476,10 +476,10 @@ struct State {
 #[derive(Debug, Default)]
 struct Follow {
     on: bool,
-    /// How a change looked on the last poll. It is read once the next
-    /// poll finds it looking the same, so that a file caught half written
-    /// is not shown.
-    seen: Option<Look>,
+    /// How a change looked on the last poll, and when it was first seen
+    /// looking so. It is read once a poll at least [`POLL`] later finds it
+    /// looking the same, so that a file caught half written is not shown.
+    seen: Option<(Look, Instant)>,
     /// Whether the document could not be looked at on the last poll, which
     /// the status line told.
     gone: bool,
@@ -495,19 +495,26 @@ enum Polled {
 }
 
 impl Follow {
-    /// What `change`, found on a poll, calls for.
-    fn poll(&mut self, change: Change) -> Polled {
+    /// What `change`, found on a poll at `now`, calls for.
+    fn poll(&mut self, change: Change, now: Instant) -> Polled {
         let gone = std::mem::replace(&mut self.gone, false);
         match change {
             Change::Unchanged => {
                 self.seen = None;
                 Polled::Nothing
             }
-            Change::Changed(look) if self.seen == Some(look) => Polled::Reload,
-            Change::Changed(look) => {
-                self.seen = Some(look);
-                Polled::Nothing
-            }
+            Change::Changed(look) => match self.seen {
+                Some((seen, at)) if seen == look => {
+                    match now.saturating_duration_since(at) >= POLL {
+                        true => Polled::Reload,
+                        false => Polled::Nothing,
+                    }
+                }
+                _ => {
+                    self.seen = Some((look, now));
+                    Polled::Nothing
+                }
+            },
             Change::Gone(why) => {
                 self.seen = None;
                 self.gone = true;
@@ -928,7 +935,7 @@ fn show(
         if state.follow.on
             && let Some(source) = reload.as_deref_mut()
         {
-            match state.follow.poll(source.change()) {
+            match state.follow.poll(source.change(), now) {
                 Polled::Nothing => {}
                 Polled::Reload => return Ok(Outcome::Reload),
                 Polled::Gone(why) => state.told = Some(Told::new(why)),
@@ -1043,6 +1050,9 @@ mod tests {
         clock: Instant,
         /// How long each read was asked to wait.
         waits: Vec<Duration>,
+        /// How long a read that gives keys takes, when not as long as it
+        /// was asked to wait.
+        typing: Option<Duration>,
     }
 
     impl Fake {
@@ -1054,6 +1064,7 @@ mod tests {
                 out: Vec::new(),
                 clock: Instant::now(),
                 waits: Vec::new(),
+                typing: None,
             }
         }
 
@@ -1093,14 +1104,18 @@ mod tests {
         }
 
         fn read(&mut self, timeout: Duration) -> io::Result<Vec<u8>> {
-            self.clock += timeout;
             self.waits.push(timeout);
             if let Some(size) = self.sizes.pop_front() {
                 self.size = size;
             }
             // Out of keys, the reader quits, with Ctrl+C, which also
             // closes a prompt left open.
-            Ok(self.keys.pop_front().unwrap_or_else(|| b"\x03".to_vec()))
+            let keys = self.keys.pop_front().unwrap_or_else(|| b"\x03".to_vec());
+            self.clock += match self.typing {
+                Some(typing) if !keys.is_empty() => typing,
+                _ => timeout,
+            };
+            Ok(keys)
         }
 
         fn now(&self) -> Instant {
@@ -1302,6 +1317,37 @@ mod tests {
         assert_eq!(frames.len(), 2, "{frames:#?}");
         assert!(status_row(&frames[0], 6).contains("nothing to follow"));
         assert!(!status_row(&frames[1], 6).contains("follow"), "{frames:#?}");
+    }
+
+    #[test]
+    fn following_waits_a_poll_s_time_for_a_change_to_look_the_same_while_keys_come_fast() {
+        // A change seen on the reads of two keys 5 ms apart, and then on
+        // a poll without keys.
+        let changes = [look(1), look(1), look(1)];
+        let mut then = Then::changing([Reloaded::Document(rows(10))], changes);
+        let mut terminal = Fake::new(60, 6, &[b"j", b"j", b""]);
+        terminal.typing = Some(Duration::from_millis(5));
+        let mut inputs = Inputs::new(Capabilities::ansi(80));
+        let document = numbers(10);
+        let options = Options {
+            reload: Some(&mut then),
+            follow: true,
+            ..Options::new(SearchCase::Smart)
+        };
+        run(
+            Content::Document(&document),
+            None,
+            "notes.md",
+            &mut inputs,
+            options,
+            &mut terminal,
+        )
+        .unwrap();
+        let frames = terminal.frames();
+        assert_eq!(then.asked, 1, "{frames:#?}");
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert!(at_top(&frames[2], "Line 2"), "{frames:#?}");
+        assert!(at_top(&frames[3], "Row 2"), "{frames:#?}");
     }
 
     #[test]

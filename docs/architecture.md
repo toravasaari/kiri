@@ -132,8 +132,8 @@ view goes to the next block that is still there. A view at the end of the
 document goes to the new end, so a document that grew shows what was
 added. While the pager follows the document, it asks the `Reload` on each
 poll for keys whether the document changed, and reads it again once a
-change looks the same on two polls in a row, so that a file caught half
-written is not shown. The terminal itself, the alternate screen, raw mode and reading keys
+change still looks the same 100 ms, a poll's time, after it was first
+seen, so that a file caught half written is not shown. The terminal itself, the alternate screen, raw mode and reading keys
 from the controlling terminal, is opened in `src/term/screen.rs`.
 
 ## Diagrams
