@@ -749,6 +749,31 @@ fn a_front_matter_warning_is_told_at_its_place_when_the_files_fit() {
 }
 
 #[test]
+fn a_front_matter_warning_is_on_stderr_and_in_the_pager_from_the_start() {
+    let invalid = std::fs::read_to_string(fixtures().join("front-matter-invalid.md")).unwrap();
+    let prepare = |dir: &std::path::Path| std::fs::write(dir.join("invalid.md"), invalid).unwrap();
+    let mut typed = false;
+    let args = ["-p", "invalid.md"];
+    let act = |frames: usize, terminal: &mut std::fs::File, _: &std::process::Child| {
+        if frames >= 1 && !typed {
+            terminal.write_all(b"q").unwrap();
+            typed = true;
+        }
+    };
+    let (status, seen, stderr) =
+        in_terminal_told("pager-warning-start", prepare, &args, 8, None, act);
+    assert!(status.success(), "{seen:?}");
+    assert!(stderr.contains("kiri: front matter, line 4:"), "{stderr:?}");
+    let first: Vec<_> = seen.split("\x1b[?2026h").skip(1).map(text_of).collect();
+    // The line is cut for a window of 40 columns, but starts as it does.
+    assert!(
+        first[0].contains("\u{26a0} [:4] front matter: "),
+        "{seen:?}"
+    );
+    assert!(first[0].contains("\u{26a0} 1"), "{seen:?}");
+}
+
+#[test]
 fn when_no_file_can_be_shown_the_pager_does_not_open() {
     let mut typed = false;
     let args = ["-p", "nope1.md", "nope2.md"];

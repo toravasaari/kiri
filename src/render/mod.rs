@@ -14,7 +14,7 @@ use std::io::{self, Write};
 
 use crate::caps::Capabilities;
 use crate::images::{ImageKey, Images, Source};
-use crate::model::{Block, Document, File, FrontMatter};
+use crate::model::{Block, Document, File, FrontMatter, FrontMatterError};
 use crate::theme::Theme;
 
 /// Everything rendering takes besides the document. A new input gets a
@@ -95,17 +95,27 @@ pub enum FrontMatterStyle {
     Hide,
 }
 
-/// The warning for `document`'s front matter shown as `style`: the
-/// parser's message when its YAML, TOML or JSON does not parse and it is
-/// to be a table.
-pub fn front_matter_warning(document: &Document, style: FrontMatterStyle) -> Option<String> {
+/// Why `document`'s front matter, shown as `style`, could not be read: the
+/// parser's error when its YAML, TOML or JSON does not parse and it is to
+/// be a table.
+pub fn front_matter_error(
+    document: &Document,
+    style: FrontMatterStyle,
+) -> Option<&FrontMatterError> {
     match document.blocks.first() {
         Some(Block::FrontMatter(FrontMatter {
             value: Some(Err(error)),
             ..
-        })) if style == FrontMatterStyle::Table => Some(error.to_string()),
+        })) if style == FrontMatterStyle::Table => Some(error),
         _ => None,
     }
+}
+
+/// The warning for `document`'s front matter shown as `style`: the
+/// parser's message when its YAML, TOML or JSON does not parse and it is
+/// to be a table.
+pub fn front_matter_warning(document: &Document, style: FrontMatterStyle) -> Option<String> {
+    front_matter_error(document, style).map(ToString::to_string)
 }
 
 impl Inputs {

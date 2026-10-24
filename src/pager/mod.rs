@@ -11,6 +11,7 @@ pub mod search;
 pub mod status;
 pub mod tint;
 pub mod view;
+pub mod warnings;
 
 use std::io::{self, Write};
 use std::ops::Range;
@@ -20,16 +21,19 @@ use crate::caps::Capabilities;
 use crate::compare::{Comparison, Fate, compare};
 use crate::config::{self, FollowJump, Paging, SearchCase};
 use crate::images::Images;
-use crate::model::{Document, File};
+use crate::model::{Document, File, FrontMatterError};
 use crate::render::Inputs;
 use crate::render::block::BlockInfo;
 use crate::render::encoder::Encoder;
 use crate::render::layout::{Content, Stream};
 use crate::render::output::{self, Page, Writer};
 use crate::render::style::{self, Line, Span, Style};
+use crate::render::wrap;
 use crate::size::TextSize;
 use crate::term::{Screen, WindowSize};
-use fade::{FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY};
+use fade::{
+    FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY, WARNING_STAY,
+};
 use files::Files;
 use help::Placed;
 use keys::{Action, Key};
@@ -132,9 +136,32 @@ pub struct Look {
     pub length: u64,
 }
 
+/// Something kiri found wrong with a document while it read it, which
+/// the pager tells about without stopping.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Warning {
+    /// The line of the file the trouble is at, counting from 1, when
+    /// known.
+    pub line: Option<usize>,
+    /// What is wrong, as one line of text.
+    pub message: String,
+}
+
+impl From<&FrontMatterError> for Warning {
+    fn from(error: &FrontMatterError) -> Self {
+        Self {
+            line: error.line,
+            message: format!("front matter: {}", error.message),
+        }
+    }
+}
+
 /// What reloading the document came to.
 pub enum Reloaded {
     Document(Document),
+    /// As `Document`, with warnings about it, the first of which the
+    /// pager shows.
+    Warned(Document, Vec<Warning>),
     /// The document could not be read again: why, as the status line says
     /// it.
     Failed(String),
@@ -154,6 +181,9 @@ pub struct Options<'a> {
     pub follow: config::Follow,
     /// Which change following on auto moves the view to.
     pub jump: FollowJump,
+    /// The warnings about the document as first read, which the pager
+    /// tells as it does those of a reload.
+    pub warnings: Vec<Warning>,
 }
 
 impl Options<'_> {
@@ -166,6 +196,7 @@ impl Options<'_> {
             reload: None,
             follow: config::Follow::Off,
             jump: FollowJump::First,
+            warnings: Vec::new(),
         }
     }
 }
@@ -192,6 +223,7 @@ pub fn run(
         mut reload,
         follow,
         jump,
+        warnings,
     } = options;
     let page = Page {
         background: inputs.theme.background,
@@ -201,6 +233,7 @@ pub fn run(
     let mut size = terminal.size();
     let mut view: Option<View> = None;
     let mut state = State::new(case);
+    state.warn(warnings, terminal.now());
     if reload.is_some() {
         state.follow.mode = follow;
     } else if follow != config::Follow::Off {
@@ -305,6 +338,11 @@ pub fn run(
                     ..Style::default()
                 },
             ),
+            red: Style {
+                fg: inputs.theme.error,
+                bg: inputs.theme.background,
+                ..Style::default()
+            },
         };
         let marks = Marks::new(&inputs.theme, &inputs.caps);
         let rgb = Rgb::new(&inputs.theme, &inputs.caps);
@@ -343,13 +381,24 @@ pub fn run(
                 // The reload may change the pixels of the images.
                 encoder.changed();
                 let source = reload.as_deref_mut().expect("a source to reload from");
-                state.told = Some(match source.reload(&mut inputs.images, &inputs.caps) {
+                let now = terminal.now();
+                let reloaded_now = source.reload(&mut inputs.images, &inputs.caps);
+                state.told = Some(match reloaded_now {
                     Reloaded::Document(document) => {
                         if let Content::Document(old) = content {
                             changes = Some(compare(old, &document));
                         }
                         reloaded = Some(document);
-                        Told::fading("reloaded", terminal.now())
+                        state.warn(Vec::new(), now);
+                        Told::fading("reloaded", now)
+                    }
+                    Reloaded::Warned(document, warnings) => {
+                        if let Content::Document(old) = content {
+                            changes = Some(compare(old, &document));
+                        }
+                        reloaded = Some(document);
+                        state.warn(warnings, now);
+                        Told::fading("reloaded", now)
                     }
                     Reloaded::Failed(why) => Told::new(why),
                 });
@@ -419,18 +468,25 @@ struct Status<'a> {
     /// The help panel's style, and that of its notes.
     panel: Style,
     muted: Style,
+    /// The style of the warning line: the theme's error colour on the
+    /// page.
+    red: Style,
 }
 
 impl Status<'_> {
     /// The status line for `view` in `state`, with the match number faded
     /// by `fade` after the search went around an end and a message faded
     /// out by `out`: the prompt while it is open.
+    ///
+    /// The mark for the document's warnings has its number flashing
+    /// while `counted` is a fade.
     fn spans(
         &self,
         view: &View,
         state: &State,
         fade: Option<Fade>,
         out: Option<Fade>,
+        counted: Option<Fade>,
     ) -> Vec<Span> {
         if !self.bar {
             return Vec::new();
@@ -450,10 +506,72 @@ impl Status<'_> {
                 let place = (file.filter(|_| self.files.several()))
                     .map(|file| (file + 1, self.files.count()));
                 let position = view.position();
-                let follow = state.follow.mode;
-                status::spans(name, place, position, follow, found, width, &self.styles)
+                let tags = status::Tags {
+                    follow: state.follow.mode,
+                    warnings: (!state.warnings.is_empty()).then(|| status::Warned {
+                        count: state.warnings.len(),
+                        flash: counted.map(|fade| self.styles.number(fade)),
+                    }),
+                };
+                status::spans(name, place, position, tags, found, width, &self.styles)
             }
         }
+    }
+
+    /// The warning line over the last row of `view` at `now`, where the
+    /// document's warnings in `state` are told; it fades out into the
+    /// page with `rgb`'s colours after [`WARNING_STAY`].
+    fn notice(&self, view: &View, state: &State, now: Instant, rgb: Option<&Rgb>) -> Vec<Placed> {
+        let Some(at) = state.noticed else {
+            return Vec::new();
+        };
+        if !self.bar {
+            return Vec::new();
+        }
+        // The rest of the text, mixed towards the page; the muted style
+        // where the colours are not known.
+        let mixed = rgb.and_then(|rgb| {
+            let (text, page) = rgb.colors(&self.panel)?;
+            text.mix(page, 0.4)
+        });
+        let dim = match mixed {
+            Some(color) => Style {
+                fg: Some(color),
+                ..self.panel.clone()
+            },
+            None => self.muted.clone(),
+        };
+        let (mut red, mut dim) = (self.red.clone(), dim);
+        if let Some(faded) = now.saturating_duration_since(at).checked_sub(WARNING_STAY) {
+            let fade = Fade {
+                elapsed: faded,
+                rgb,
+            };
+            for style in [&mut red, &mut dim] {
+                let gone = rgb
+                    .and_then(|rgb| rgb.colors(style))
+                    .map(|(_, page)| Style {
+                        fg: Some(page),
+                        bg: Some(page),
+                        italic: true,
+                        ..style.clone()
+                    });
+                if let Some(faded) = gone.and_then(|gone| fade.mix(style, &gone)) {
+                    *style = faded;
+                }
+            }
+        }
+        let columns = usize::from(self.width);
+        let spans = warnings::spans(&state.warnings, columns, &red, &dim);
+        if spans.is_empty() {
+            return Vec::new();
+        }
+        let column = columns.saturating_sub(wrap::width(&spans));
+        vec![Placed {
+            row: view.rows(),
+            column: column.max(1),
+            spans,
+        }]
     }
 
     /// The help panel over `view`, when `open`.
@@ -517,6 +635,13 @@ struct State {
     /// The lines of the change auto-follow went to, while they are
     /// tinted.
     changed: Option<Changed>,
+    /// The warnings about the document shown.
+    warnings: Vec<Warning>,
+    /// When the warning line was last told, while it stays and fades.
+    noticed: Option<Instant>,
+    /// When the number of warnings last changed, while the number of the
+    /// mark on the status line flashes.
+    counted: Option<Instant>,
 }
 
 /// How much to tint which lines, over how many cells, in what colours.
@@ -657,7 +782,20 @@ impl State {
             told: None,
             follow: Follow::default(),
             changed: None,
+            warnings: Vec::new(),
+            noticed: None,
+            counted: None,
         }
+    }
+
+    /// Takes `warnings`, about the document as read at `now`, for the
+    /// ones before; the number of them flashes when it differs.
+    fn warn(&mut self, warnings: Vec<Warning>, now: Instant) {
+        if warnings.len() != self.warnings.len() {
+            self.counted = Some(now);
+        }
+        self.noticed = (!warnings.is_empty()).then_some(now);
+        self.warnings = warnings;
     }
 
     /// Does what `key`, pressed at `now`, asks in `layout`, and tells what
@@ -826,6 +964,12 @@ impl State {
         self.changed = self.changed.take().filter(|changed| {
             now.saturating_duration_since(changed.at) < HIGHLIGHT_STAY + HIGHLIGHT_FADE
         });
+        self.noticed = self
+            .noticed
+            .filter(|at| now.saturating_duration_since(*at) < WARNING_STAY + FADE);
+        self.counted = self
+            .counted
+            .filter(|at| now.saturating_duration_since(*at) < FADE);
         self.told = self.told.take().filter(|told| {
             told.fades
                 .is_none_or(|at| now.saturating_duration_since(at) < STAY + FADE_OUT)
@@ -856,6 +1000,16 @@ impl State {
             amount: HIGHLIGHT_SHARE * left.max(0.0),
             rgb,
             columns,
+        })
+    }
+
+    /// The flash of the warning count under way at `now`, mixing colours
+    /// with `rgb`.
+    fn count_fade<'a>(&self, now: Instant, rgb: Option<&'a Rgb>) -> Option<Fade<'a>> {
+        let at = self.counted?;
+        Some(Fade {
+            elapsed: now.saturating_duration_since(at),
+            rgb,
         })
     }
 
@@ -946,12 +1100,22 @@ struct Frame {
     lines: Vec<Line>,
     status: Vec<Span>,
     panel: Vec<Placed>,
+    /// The warning line, drawn over the lines and under the panel.
+    notice: Vec<Placed>,
 }
 
 impl Frame {
     /// Draws the frame above a status line on the row below `rows`.
     fn draw(&self, rows: usize, writer: &mut Writer, out: &mut impl Write) -> io::Result<()> {
-        draw(&self.lines, rows, &self.status, &self.panel, writer, out)
+        draw(
+            &self.lines,
+            rows,
+            &self.status,
+            &self.notice,
+            &self.panel,
+            writer,
+            out,
+        )
     }
 }
 
@@ -969,8 +1133,11 @@ impl Layout<'_> {
                 fade,
                 self.rgb.and_then(|rgb| state.tint(now, rgb, self.columns)),
             ),
-            status: self.status.spans(self.view, state, fade, out),
+            status: self
+                .status
+                .spans(self.view, state, fade, out, state.count_fade(now, self.rgb)),
             panel: self.status.panel(self.view, state.help),
+            notice: self.status.notice(self.view, state, now, self.rgb),
         }
     }
 
@@ -978,6 +1145,11 @@ impl Layout<'_> {
     /// that the pager draws it a step at a time.
     fn fades(&self, state: &State, now: Instant) -> bool {
         state.jumped.is_some()
+            || state.counted.is_some() && self.status.bar
+            || self.status.bar
+                && self.rgb.is_some()
+                && (state.noticed)
+                    .is_some_and(|at| now.saturating_duration_since(at) >= WARNING_STAY)
             || state.changed.is_some() && self.rgb.is_some()
             || self.status.bar
                 && (state.fade_out(now, self.rgb))
@@ -1072,14 +1244,15 @@ fn show(
 }
 
 /// Draws `lines` from the top of the screen, with the rows below them
-/// empty, `status` on the row below the view's `rows` and `panel` over the
-/// lines, which it dims, as one update so the screen does not flicker.
-/// The images the writer's encoder no longer keeps are deleted in the
-/// same update.
+/// empty, `status` on the row below the view's `rows`, `notice` over the
+/// lines and `panel` over them, which it dims, as one update so the screen
+/// does not flicker. The images the writer's encoder no longer keeps are
+/// deleted in the same update.
 pub fn draw(
     lines: &[Line],
     rows: usize,
     status: &[Span],
+    notice: &[Placed],
     panel: &[Placed],
     writer: &mut Writer,
     out: &mut impl Write,
@@ -1100,6 +1273,10 @@ pub fn draw(
     if !status.is_empty() {
         output::move_to(rows + 1, 1, out)?;
         writer.bar(status, out)?;
+    }
+    for placed in notice {
+        output::move_to(placed.row, placed.column, out)?;
+        writer.bar(&placed.spans, out)?;
     }
     for placed in panel {
         output::move_to(placed.row, placed.column, out)?;
@@ -2006,6 +2183,28 @@ mod tests {
         reloading_with(Capabilities::ansi(80), document, then, keys, 0)
     }
 
+    /// As [`show_reloading`], with every read in `reads` as it is, empty
+    /// ones included.
+    fn show_reloading_with(document: &Document, then: &mut Then, reads: &[&[u8]]) -> Vec<String> {
+        let mut terminal = Fake::new(60, 6, reads);
+        let mut inputs = Inputs::new(Capabilities::ansi(80));
+        let options = Options {
+            reload: Some(then),
+            ..Options::new(SearchCase::Smart)
+        };
+        let content = Content::Document(document);
+        run(
+            content,
+            None,
+            "notes.md",
+            &mut inputs,
+            options,
+            &mut terminal,
+        )
+        .unwrap();
+        terminal.frames()
+    }
+
     /// As [`show_reloading`], on a terminal with `caps`, with `empty`
     /// polls without keys after `reads`.
     fn reloading_with(
@@ -2088,6 +2287,278 @@ mod tests {
         assert!(!status.contains("reloaded"), "{frames:#?}");
         assert!(
             !status_row(&frames[3], 6).contains("No such file"),
+            "{frames:#?}"
+        );
+    }
+
+    /// A warning at line `line` of the file.
+    fn warning(line: usize, message: &str) -> Warning {
+        Warning {
+            line: Some(line),
+            message: message.to_owned(),
+        }
+    }
+
+    #[test]
+    fn a_reload_with_warnings_says_reloaded_and_marks_how_many() {
+        let warned = Reloaded::Warned(rows(10), vec![warning(3, "bad"), warning(9, "worse")]);
+        let mut then = Then::new([warned]);
+        let frames = show_reloading(&numbers(10), &mut then, &[b"r", b"j"]);
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert!(at_top(&frames[2], "Row 1"), "{frames:#?}");
+        let status = unstyled(&status_row(&frames[2], 6));
+        assert!(status.contains("reloaded"), "{frames:#?}");
+        assert!(status.contains("\u{26a0} 2"), "{frames:#?}");
+        // The mark stays after the next key, and `reloaded` goes.
+        let status = unstyled(&status_row(&frames[3], 6));
+        assert!(status.contains("\u{26a0} 2"), "{frames:#?}");
+        assert!(!status.contains("reloaded"), "{frames:#?}");
+    }
+
+    #[test]
+    fn a_document_without_warnings_has_no_mark() {
+        let mut then = Then::new([Reloaded::Document(rows(10))]);
+        let frames = show_reloading(&numbers(10), &mut then, &[b"r", b"j"]);
+        assert!(!unstyled(&frames[2]).contains('\u{26a0}'), "{frames:#?}");
+    }
+
+    #[test]
+    fn a_reload_without_warnings_takes_the_mark_away() {
+        let warned = Reloaded::Warned(rows(10), vec![warning(3, "bad")]);
+        let mut then = Then::new([warned, Reloaded::Document(rows(10))]);
+        let frames = show_reloading(&numbers(10), &mut then, &[b"r", b"r"]);
+        let last = frames.len() - 1;
+        let status = unstyled(&status_row(&frames[2], 6));
+        assert!(status.contains("\u{26a0} 1"), "{frames:#?}");
+        let status = unstyled(&status_row(&frames[last], 6));
+        assert!(!status.contains('\u{26a0}'), "{frames:#?}");
+        assert!(status.contains("reloaded"), "{frames:#?}");
+    }
+
+    #[test]
+    fn the_number_of_the_mark_flashes_when_it_changes_and_not_when_it_stays() {
+        // Without known colours the flash is bold for half a second.
+        let flashing = |frame: &str| status_row(frame, 6).contains("\x1b[0;1m1");
+        let warned = || Reloaded::Warned(rows(10), vec![warning(3, "bad")]);
+        let mut then = Then::new([warned(), warned()]);
+        let reads: Vec<&[u8]> = vec![b"r", b"", b"", b"", b"", b"", b"", b"", b"", b"", b"", b"r"];
+        let frames = show_reloading_with(&numbers(10), &mut then, &reads);
+        let first = frames.iter().position(|f| f.contains("\u{26a0}"));
+        let first = first.unwrap_or(usize::MAX);
+        assert!(first < frames.len(), "no mark: {frames:#?}");
+        assert!(flashing(&frames[first]), "{frames:#?}");
+        let calm = frames
+            .iter()
+            .position(|f| f.contains("\u{26a0}") && !flashing(f));
+        let calm = calm.expect("the flash ends");
+        assert!(calm > first, "{frames:#?}");
+        // The second reload leaves the count as it was.
+        let last = frames.last().unwrap();
+        assert!(last.contains("\u{26a0}") && !flashing(last), "{frames:#?}");
+    }
+
+    /// The text a frame shows in the warning line, on row 5 of a window
+    /// of 6 rows, with the column it starts at; `None` when the frame
+    /// writes nothing there but the document's own row.
+    fn warning_line(frame: &str) -> Option<(usize, String)> {
+        let plain = unstyled(frame);
+        let at = plain.rfind("\x1b[5;")?;
+        let rest = &plain[at + 4..];
+        let (column, text) = rest.split_once('H')?;
+        let text = text.split("\x1b").next()?;
+        // The document's own row 5 starts in column 1.
+        (column != "1").then(|| (column.parse().unwrap(), text.to_owned()))
+    }
+
+    /// The red of the warning line in `frame` as RGB, which is where it
+    /// has begun to fade.
+    fn fade_red(frame: &str) -> Option<u8> {
+        let line = &frame[frame.rfind("\x1b[5;")?..];
+        let rgb = line.split_once("38;2;")?.1;
+        rgb.split(';').next()?.parse().ok()
+    }
+
+    fn warned_with(warnings: Vec<Warning>) -> Reloaded {
+        Reloaded::Warned(rows(10), warnings)
+    }
+
+    #[test]
+    fn a_reload_with_warnings_shows_the_first_above_the_status_line_at_the_right_edge() {
+        let mut then = Then::new([warned_with(vec![warning(3, "front matter: bad")])]);
+        let frames = show_reloading(&numbers(10), &mut then, &[b"r"]);
+        let (column, text) = warning_line(&frames[2]).unwrap_or_default();
+        assert_eq!(text, "\u{26a0} [:3] front matter: bad", "{frames:#?}");
+        // Ends a cell before the edge, as the status line does.
+        assert_eq!(column + text.chars().count(), 60, "{frames:#?}");
+        // The document's row stays where it is, and the status line too.
+        assert!(
+            unstyled(&frames[2]).contains("\x1b[5;1H  Row 3"),
+            "{frames:#?}"
+        );
+        assert!(
+            status_row(&frames[2], 6).contains("reloaded"),
+            "{frames:#?}"
+        );
+        // Red, as errors are drawn in a document, on the page.
+        assert!(frames[2].contains("\x1b[0;31m\u{26a0}"), "{frames:#?}");
+    }
+
+    #[test]
+    fn the_warning_line_leaves_out_the_line_when_it_is_not_known() {
+        let warning = Warning {
+            line: None,
+            message: "no line".to_owned(),
+        };
+        let mut then = Then::new([warned_with(vec![warning])]);
+        let frames = show_reloading(&numbers(10), &mut then, &[b"r"]);
+        let (_, text) = warning_line(&frames[2]).unwrap_or_default();
+        assert_eq!(text, "\u{26a0} no line", "{frames:#?}");
+    }
+
+    #[test]
+    fn the_warning_line_counts_the_other_warnings_in_italics() {
+        let many = vec![
+            warning(3, "first"),
+            warning(4, "second"),
+            warning(5, "third"),
+        ];
+        let mut then = Then::new([warned_with(many)]);
+        let frames = show_reloading(&numbers(10), &mut then, &[b"r"]);
+        let (_, text) = warning_line(&frames[2]).unwrap_or_default();
+        assert_eq!(
+            text, "\u{26a0} [:3] first  and 2 more warnings\u{2026}",
+            "{frames:#?}"
+        );
+        assert!(frames[2].contains("\x1b[0;2;3m  and 2"), "{frames:#?}");
+        assert!(
+            unstyled(&status_row(&frames[2], 6)).contains("\u{26a0} 3"),
+            "{frames:#?}"
+        );
+    }
+
+    #[test]
+    fn a_key_does_not_cancel_the_warning_line() {
+        let mut then = Then::new([warned_with(vec![warning(3, "bad")])]);
+        let frames = show_reloading(&numbers(10), &mut then, &[b"r", b"j"]);
+        assert!(warning_line(&frames[2]).is_some(), "{frames:#?}");
+        assert!(
+            warning_line(frames.last().unwrap()).is_some(),
+            "{frames:#?}"
+        );
+    }
+
+    #[test]
+    fn the_warning_line_stays_five_seconds_and_then_goes() {
+        let mut then = Then::new([warned_with(vec![warning(3, "bad")])]);
+        let terminal = reloading_in(
+            6,
+            Capabilities::ansi(80),
+            &numbers(10),
+            &mut then,
+            &[b"r"],
+            80,
+        );
+        let frames = terminal.frames();
+        assert!(warning_line(&frames[2]).is_some(), "{frames:#?}");
+        // Seen until the fade out ends, where it cannot fade.
+        let last = frames.last().unwrap();
+        assert!(warning_line(last).is_none(), "{last:?}");
+        // The mark stays, as the document still has the warning.
+        assert!(
+            unstyled(&status_row(last, 6)).contains("\u{26a0} 1"),
+            "{last:?}"
+        );
+    }
+
+    #[test]
+    fn the_warning_line_fades_into_the_page_where_colours_are_known() {
+        let mut caps = Capabilities::kitty(80);
+        caps.foreground = Some(Color::Rgb(200, 200, 200));
+        caps.background = Some(Color::Rgb(0, 0, 0));
+        caps.palette[1] = Some(Color::Rgb(200, 0, 0));
+        let mut then = Then::new([warned_with(vec![warning(3, "bad")])]);
+        let terminal = reloading_in(6, caps, &numbers(10), &mut then, &[b"r"], 90);
+        let frames: Vec<String> = terminal
+            .frames()
+            .into_iter()
+            .filter(|frame| warning_line(frame).is_some())
+            .collect();
+        assert!(frames.len() > 3, "no warning line: {frames:#?}");
+        // Red while it stays; the palette's red goes as RGB once it fades.
+        assert!(frames[0].contains("\x1b[0;31m\u{26a0}"), "{:?}", frames[0]);
+        let reds: Vec<u8> = frames.iter().filter_map(|frame| fade_red(frame)).collect();
+        assert!(reds.len() > 5, "{reds:?}\n{frames:#?}");
+        assert!(reds[0] > 150 && reds.contains(&120), "{reds:?}");
+        assert!(reds.windows(2).all(|pair| pair[1] <= pair[0]), "{reds:?}");
+        assert!(*reds.last().unwrap() < 30, "{reds:?}");
+        // Fading is drawn at frame rate, and only then.
+        let fast = terminal.waits.iter().filter(|wait| **wait == FRAME).count();
+        assert!(fast >= 10, "{:?}", terminal.waits);
+    }
+
+    #[test]
+    fn a_new_reload_replaces_the_warning_line_or_takes_it_away() {
+        let mut then = Then::new([
+            warned_with(vec![warning(3, "first")]),
+            warned_with(vec![warning(4, "second")]),
+            Reloaded::Document(rows(10)),
+        ]);
+        let frames = show_reloading(&numbers(10), &mut then, &[b"r", b"r", b"r"]);
+        let lines: Vec<_> = frames
+            .iter()
+            .filter_map(|frame| warning_line(frame))
+            .collect();
+        assert!(
+            lines.iter().any(|(_, text)| text.contains("first")),
+            "{frames:#?}"
+        );
+        assert!(lines.last().unwrap().1.contains("second"), "{frames:#?}");
+        assert!(
+            warning_line(frames.last().unwrap()).is_none(),
+            "{frames:#?}"
+        );
+    }
+
+    #[test]
+    fn a_window_without_a_row_above_the_status_line_has_no_warning_line() {
+        let mut then = Then::new([warned_with(vec![warning(3, "bad")])]);
+        let terminal = reloading_in(
+            1,
+            Capabilities::ansi(80),
+            &numbers(10),
+            &mut then,
+            &[b"r"],
+            0,
+        );
+        for frame in terminal.frames() {
+            assert!(!unstyled(&frame).contains("bad"), "{frame:?}");
+        }
+    }
+
+    #[test]
+    fn warnings_given_at_the_start_show_the_mark_and_the_line_at_once() {
+        let mut terminal = Fake::new(60, 6, &[b"j"]);
+        let mut inputs = Inputs::new(Capabilities::ansi(80));
+        let document = numbers(10);
+        let options = Options {
+            warnings: vec![warning(3, "front matter: bad")],
+            ..Options::new(SearchCase::Smart)
+        };
+        let content = Content::Document(&document);
+        run(
+            content,
+            None,
+            "notes.md",
+            &mut inputs,
+            options,
+            &mut terminal,
+        )
+        .unwrap();
+        let frames = terminal.frames();
+        let (_, text) = warning_line(&frames[0]).unwrap_or_default();
+        assert_eq!(text, "\u{26a0} [:3] front matter: bad", "{frames:#?}");
+        assert!(
+            unstyled(&status_row(&frames[0], 6)).contains("\u{26a0} 1"),
             "{frames:#?}"
         );
     }

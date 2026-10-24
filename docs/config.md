@@ -217,6 +217,29 @@ YAML, TOML or JSON that does not parse shows as a code block in the
 table style, with a warning naming the line of the file, such as
 `kiri: front matter, line 4: …`. CSV and TSV files have no front matter.
 
+In the pager, a reload whose document has such a warning says `reloaded` as
+any reload does, and shows the warning twice, as below. A document that has
+the warning when it is first opened gets the same, after kiri has printed the
+warning on standard error as it always does.
+
+- The status line gets `⚠ 1` before the position, the number being how many
+  warnings the document shown has. The mark stays until a reload brings a
+  document without warnings, and its number flashes when it changes, as the
+  match number does when a search goes around an end. In a narrow window
+  the mark is left out right after the word that tells kiri follows the
+  file.
+- The row just above the status line gets a line of text at the right edge,
+  over whatever the document has there, in the theme's `error` colour on the
+  page colour: `⚠ [:3] front matter: …`, where `[:3]` is the line of the file
+  the parser stopped at, left out when it does not tell. With more than one
+  warning the first is shown, followed by `and 2 more warnings…` in
+  italics and a dimmer colour. A line too long for the window is cut with
+  `…`. It stays for 5 seconds and then fades out over 0.75 seconds into the
+  page colour, or goes at once when the colours are not known as RGB. A key
+  does not remove it; a new reload replaces it, or removes it when the new
+  document has no warnings. A window with no row for it above the status
+  line does not show it.
+
 ## Table rows
 
 The first of these that is given decides the table row style of tables

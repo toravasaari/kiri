@@ -213,6 +213,9 @@ window, and `kiri --fa notes.md` auto-follows it; `follow = "on"` or
 status line says `F follow` or `F auto`. A document from standard input,
 or several files, cannot be followed yet.
 
+Front matter that does not parse shows as `⚠ 1` on the status line,
+with the message above it for a few seconds.
+
 ## Documentation
 
 - [Roadmap](docs/roadmap.md)

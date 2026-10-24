@@ -347,9 +347,9 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   at once, with a note where an image is still being drawn, and a newer
   change stops the load of an older one. Today a reload waits for every
   changed diagram, which with a slow `mmdc` holds the pager for seconds.
-- Warnings about front matter after a reload, on the status line. The
-  first load prints them before the pager opens; a reload drops them
-  today.
+- Warnings about front matter in the pager, after a reload and on the
+  first load: a red line above the status line for five seconds, and
+  `⚠ 1` on the status line while the document has them. (done)
 - A search keeps its place after a reload: the match it was on, rather
   than the first match from the top of the view.
 - Images that did not change are not sent to the terminal again

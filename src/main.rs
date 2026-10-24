@@ -18,8 +18,8 @@ use kiri::images::{
     Stamps, reload_documents,
 };
 use kiri::input::Input;
-use kiri::model::{Block, Document};
-use kiri::pager::{Change, Look, Reload, Reloaded};
+use kiri::model::{Block, Document, FrontMatterError};
+use kiri::pager::{Change, Look, Reload, Reloaded, Warning};
 use kiri::render::output::Page;
 use kiri::render::{Inputs, RenderErrors, TableRows};
 use kiri::term::Mode;
@@ -367,7 +367,12 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     }
     // The source of a diagram in text stays source.
     settings.diagrams &= input != Input::Text;
-    let warn = |warning| eprintln!("kiri: {warning}");
+    // On standard error before the pager opens, and in the pager too.
+    let mut warnings = Vec::new();
+    let warn = |error: &FrontMatterError| {
+        eprintln!("kiri: {error}");
+        warnings.push(Warning::from(error));
+    };
     let Some(document) = document(input, &source, path, &settings, &caps, warn)? else {
         return Ok(write_as_is(&source)?);
     };
@@ -384,6 +389,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
         &document,
         &path.to_string_lossy(),
         from,
+        warnings,
         settings,
         caps,
     )
@@ -509,7 +515,7 @@ fn document(
     path: &Path,
     settings: &Settings,
     caps: &Capabilities,
-    warn: impl FnOnce(String),
+    warn: impl FnOnce(&FrontMatterError),
 ) -> Result<Option<Document>, String> {
     Ok(Some(match input {
         Input::Table(separator) => kiri::parse::csv::parse(source, separator)
@@ -519,10 +525,9 @@ fn document(
         _ => {
             let style = settings.front_matter.style();
             let document = kiri::parse::parse_with(source, style.is_some());
-            let warning =
-                style.and_then(|style| kiri::render::front_matter_warning(&document, style));
-            if let Some(warning) = warning {
-                warn(warning);
+            let error = style.and_then(|style| kiri::render::front_matter_error(&document, style));
+            if let Some(error) = error {
+                warn(error);
             }
             document
         }
@@ -628,7 +633,7 @@ fn show_files(
         };
         let name = opened.path.display().to_string();
         let mut warnings = Vec::new();
-        let warn = |warning| warnings.push(warning);
+        let warn = |warning: &FrontMatterError| warnings.push(warning.to_string());
         let shown = match opened.content {
             Content::Image { format, head, rest } => Shown::Image { format, head, rest },
             // The configuration file's error tells why.
@@ -1183,12 +1188,14 @@ struct FromFile<'a> {
 /// file, its images are relative to the file's directory, warnings name a
 /// diagram by its line and the pager reloads it with `r`; otherwise images
 /// are relative to the current directory, a diagram is named by its first
-/// line and there is nothing to reload.
+/// line and there is nothing to reload. The pager tells `warnings`, about
+/// the document as read.
 fn show_document(
     context: &Context,
     document: &Document,
     name: &str,
     from: Option<FromFile>,
+    warnings: Vec<Warning>,
     settings: Settings,
     caps: Capabilities,
 ) -> Result<(), Failure> {
@@ -1202,7 +1209,12 @@ fn show_document(
         eprintln!("kiri: {warning}");
     }
     let reading = from.map(|from| (from, stamps));
-    print_document(context, document, name, loaded, settings, caps, reading)
+    let shown = ToShow {
+        document,
+        name,
+        warnings,
+    };
+    print_document(context, shown, loaded, settings, caps, reading)
 }
 
 /// Shows the diagram `source`, in `language`, from the file at `path` or
@@ -1253,7 +1265,12 @@ fn show_diagram(
     let no_renderer = settings.diagrams && caps.draws_images() && error.is_none();
     if caps.styling {
         let name = path.to_string_lossy();
-        print_document(context, &document, &name, loaded, settings, caps, None)?;
+        let shown = ToShow {
+            document: &document,
+            name: &name,
+            warnings: Vec::new(),
+        };
+        print_document(context, shown, loaded, settings, caps, None)?;
     } else {
         write_as_is(source)?;
     }
@@ -1343,7 +1360,15 @@ fn part<'a>(document: &'a Document, file: Option<&'a Path>) -> Part<'a> {
     }
 }
 
-/// Renders `document`, called `name`, with the images `loaded` on
+/// A document to show, what the status line calls it, and the warnings
+/// about it as read, which the pager tells.
+struct ToShow<'a> {
+    document: &'a Document,
+    name: &'a str,
+    warnings: Vec<Warning>,
+}
+
+/// Renders `shown`, with the images `loaded` on
 /// stdout: in the pager when `settings` ask for it, and otherwise
 /// printed. The pager catches the signals itself, so the guard against
 /// them that came with the images goes once its screen catches them. With
@@ -1351,13 +1376,17 @@ fn part<'a>(document: &'a Document, file: Option<&'a Path>) -> Part<'a> {
 /// were last changed, the pager can read it again.
 fn print_document(
     context: &Context,
-    document: &Document,
-    name: &str,
+    shown: ToShow,
     loaded: Loaded,
     settings: Settings,
     caps: Capabilities,
     reading: Option<(FromFile, Stamps)>,
 ) -> Result<(), Failure> {
+    let ToShow {
+        document,
+        name,
+        warnings,
+    } = shown;
     let Loaded {
         images,
         mut interrupt,
@@ -1391,6 +1420,7 @@ fn print_document(
                 None => context.follow,
             },
             jump: settings.follow_jump,
+            warnings,
             reload: reload.as_mut().map(|reload| reload as &mut dyn Reload),
             ..kiri::pager::Options::new(settings.search_case)
         },
@@ -1478,8 +1508,9 @@ impl Reload for FileReload<'_> {
             Ok(source) => source,
             Err(error) => return Reloaded::Failed(error),
         };
-        // A warning about the front matter has no place in the pager.
-        let document = match document(input, &source, path, self.settings, caps, drop) {
+        let mut warnings = Vec::new();
+        let warn = |error: &FrontMatterError| warnings.push(Warning::from(error));
+        let document = match document(input, &source, path, self.settings, caps, warn) {
             Ok(Some(document)) => document,
             Ok(None) => return Reloaded::Failed("cannot be shown".to_owned()),
             Err(error) => return Reloaded::Failed(without_path(error, path)),
@@ -1494,7 +1525,10 @@ impl Reload for FileReload<'_> {
                 return Reloaded::Failed("stopped by a signal".to_owned());
             }
         }
-        Reloaded::Document(document)
+        match warnings.is_empty() {
+            true => Reloaded::Document(document),
+            false => Reloaded::Warned(document, warnings),
+        }
     }
 
     fn change(&mut self) -> Change {
@@ -1624,6 +1658,7 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), Failure> {
         &document,
         "kiri --doctor",
         None,
+        Vec::new(),
         settings,
         detection.caps,
     )
@@ -1653,6 +1688,7 @@ fn list_emojis(cli: &Cli) -> Result<(), Failure> {
         &document,
         "kiri --list-emojis",
         None,
+        Vec::new(),
         settings,
         caps,
     )
