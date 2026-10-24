@@ -3,7 +3,8 @@
 //!
 //! The comparison reads two [`Document`]s and nothing else: it knows
 //! neither the parser nor a terminal. The pager uses it on a reload, to keep
-//! the place in the document.
+//! the place in the document and to find the changes that auto-follow
+//! moves to.
 //!
 //! Blocks are told apart by the paths of
 //! [`SourceLines`](crate::model::SourceLines), which say how a block is
@@ -51,6 +52,12 @@ impl Comparison {
     /// where it has no such block.
     pub fn fate(&self, path: &[usize]) -> Option<&Fate> {
         self.new.get(path)
+    }
+
+    /// What became of each block of the new document, by its path, in
+    /// order.
+    pub fn fates(&self) -> impl Iterator<Item = (&Path, &Fate)> {
+        self.new.iter()
     }
 
     /// The paths in the old document of the blocks that are gone, in order.
@@ -339,6 +346,25 @@ mod tests {
         assert_eq!(fate(&comparison, &[2, 0]), stayed(&[2, 0]));
         assert_eq!(fate(&comparison, &[3]), stayed(&[3]));
         assert_eq!(fate(&comparison, &[4]), None);
+    }
+
+    #[test]
+    fn the_fates_of_the_new_blocks_come_in_order_of_their_paths() {
+        let comparison = compared("a\n\n- b\n", "x\n\na\n\n- b\n- c\n");
+        let fates: Vec<(Path, Fate)> = comparison
+            .fates()
+            .map(|(path, fate)| (path.clone(), fate.clone()))
+            .collect();
+        assert_eq!(
+            fates,
+            [
+                (vec![0], Fate::Added),
+                (vec![1], Fate::Stayed { was: vec![0] }),
+                (vec![2], Fate::Changed { was: vec![1] }),
+                (vec![2, 0, 0], Fate::Stayed { was: vec![1, 0, 0] }),
+                (vec![2, 1, 0], Fate::Added),
+            ]
+        );
     }
 
     #[test]

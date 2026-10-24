@@ -130,12 +130,18 @@ at the top to the block that stayed or changed from it, so a block added
 above the view does not move it. When the block at the top is gone, the
 view goes to the next block that is still there. A view at the end of the
 document goes to the new end, so a document that grew shows what was
-added. While the pager follows the document, it asks the `Reload` on each
-poll for keys whether the document changed, and reads it again once a
-change still looks the same 100 ms, a poll's time, after it was first
-seen, so that a file caught half written is not shown. The terminal
-itself, the alternate screen, raw mode and reading keys from the
-controlling terminal, is opened in `src/term/screen.rs`.
+added. Following on auto then moves the view to a change:
+`src/pager/changes.rs` finds the runs of lines whose blocks changed or
+were added, and the place of a removal with neither beside it, and chooses
+one as the follow jump setting says, and `src/pager/tint.rs` gives the
+lines of that change a lighter background for a moment, fading out
+through `src/pager/fade.rs`. While the pager follows the
+document, it asks the `Reload` on each poll for keys whether the document
+changed, and reads it again once a change still looks the same 100 ms, a
+poll's time, after it was first seen, so that a file caught half written
+is not shown. The terminal itself, the alternate screen, raw mode and
+reading keys from the controlling terminal, is opened in
+`src/term/screen.rs`.
 
 ## Diagrams
 
@@ -381,6 +387,9 @@ src/pager/fade.rs          a style fading into another after a jump or
                            a reload
 src/pager/files.rs         where each of several files starts in the stream,
                            found from the blocks of its lines
+src/pager/changes.rs       where a reload changed the laid-out lines, and
+                           which change auto-follow moves to
+src/pager/tint.rs          the lighter background over that change's lines
 src/pager/status.rs        the status line
 src/pager/help.rs          the help panel that lists the keys
 src/kitty/mod.rs           kitty-specific escape sequences

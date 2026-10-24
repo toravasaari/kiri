@@ -381,6 +381,44 @@ fn following_tells_where_it_comes_from() {
     let report = text(&out.stdout);
     let row = "| Follow | off | `KIRI_FOLLOW=0` |";
     assert!(report.contains(row), "{row}\n{report}");
+    let out = doctor(&dir, &[])
+        .env("KIRI_FOLLOW", "auto")
+        .output()
+        .unwrap();
+    assert_succeeded(&out);
+    let report = text(&out.stdout);
+    let row = "| Follow | auto | `KIRI_FOLLOW=auto` |";
+    assert!(report.contains(row), "{row}\n{report}");
+    let report = piped(&dir, &["--fa"]);
+    let row = "| Follow | auto | `--fa` |";
+    assert!(report.contains(row), "{row}\n{report}");
+    let report = piped(&dir, &["--follow", "auto"]);
+    let row = "| Follow | auto | `--follow` |";
+    assert!(report.contains(row), "{row}\n{report}");
+}
+
+#[test]
+fn the_follow_jump_tells_where_it_comes_from() {
+    let dir = Scratch::new("doctor-follow-jump");
+    let report = piped(&dir, &[]);
+    let row = "| Follow jump | first | default |";
+    assert!(report.contains(row), "{row}\n{report}");
+    write(
+        &dir.join("home/.config/kiri/config.toml"),
+        "follow_jump = \"most\"\n",
+    );
+    let report = piped(&dir, &[]);
+    let row = "| Follow jump | most | configuration file |";
+    assert!(report.contains(row), "{row}\n{report}");
+    let report = piped(&dir, &["--follow-jump", "last"]);
+    let row = "| Follow jump | last | `--follow-jump` |";
+    assert!(report.contains(row), "{row}\n{report}");
+    let mut command = doctor(&dir, &[]);
+    let out = command.env("KIRI_FOLLOW_JUMP", "last").output().unwrap();
+    assert_succeeded(&out);
+    let report = text(&out.stdout);
+    let row = "| Follow jump | last | `KIRI_FOLLOW_JUMP=last` |";
+    assert!(report.contains(row), "{row}\n{report}");
 }
 
 #[test]

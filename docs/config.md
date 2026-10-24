@@ -30,8 +30,11 @@ paging = "auto"
 search_case = "smart"
 
 # Whether the pager follows a lone file, reading it again whenever it
-# changes: "on" or "off".
+# changes: "on", "off" or "auto", which also moves the view to a change.
 follow = "off"
+
+# Which change auto-follow moves the view to: "first", "last" or "most".
+follow_jump = "first"
 
 # Front matter render style: "table", "code", "hide" or "off".
 front_matter = "table"
@@ -126,26 +129,68 @@ text without escape sequences.
 ## Follow
 
 The first of these that is given decides whether the pager follows a lone
-file, reading it again whenever it changes, with the view kept at the
-same block, as `r` reads it again:
+file: `on` reads it again whenever it changes, with the view kept at the
+same block, as `r` reads it again; `auto` also moves the view to a change;
+`off` does not follow it:
 
-1. `--follow on|off`, `-f` for `on` or `-F` for `off`; only one of them
-   can be given
-2. `KIRI_FOLLOW`: `on` or `off`, `1` for `on` and `0` for `off`; an empty
-   value counts as unset, and any other value is left out with a warning
+1. `--follow on|off|auto`, `-f` for `on`, `--fa` for `auto` or `-F` for
+   `off`; only one of them can be given
+2. `KIRI_FOLLOW`: `on`, `off` or `auto`, `1` for `on` and `0` for `off`;
+   an empty value counts as unset, and any other value is left out with a
+   warning
 3. `follow` in the configuration file
 4. `off`
 
 Following pages a lone file as `-p` does, also when it is shorter than
 the window, unless paging is `never`: `kiri -f -P notes.md` prints it.
-`F` turns following on and off in the pager, and the status line says
-`F follow` while it is on. Following notices a change by the file's
+With `auto`, a reload that changed the document moves the view to a
+change, which [Follow jump](#follow-jump) chooses. A change is a run of
+blocks that changed or were added, one after another; blocks removed with
+neither beside them are a change where they were. The view stays when it
+shows the start of the change, or is inside it already, as in a long
+change you scrolled into. Otherwise the start goes near the top, below
+three rows of what comes before it (fewer in a window of fewer than
+twelve rows), or the last page shows it. A change in a list, a quote or
+an alert moves the view to the start of that list, quote or alert. `r`
+moves to a change too while following is `auto`.
+
+`F` in the pager goes from `off` to `on` to `auto` and back to `off`, and
+the status line says `F follow` after the position while following is on
+and `F auto` while it is auto. Following notices a change by the file's
 modification time and length, so on a filesystem that keeps the time only
 to the second, an edit within the same second that keeps the length waits
 for the next change. A document from standard input, or several files,
-cannot be followed yet: with `-f` or `--follow on` the pager says
-`nothing to follow`, and with `KIRI_FOLLOW` or `follow` in the
-configuration file it says nothing.
+cannot be followed yet: with `-f`, `--fa`, `--follow on` or `--follow
+auto` the pager says `nothing to follow`, and with `KIRI_FOLLOW` or
+`follow` in the configuration file it says nothing.
+
+## Follow jump
+
+When a reload changed the document in more than one place, auto-follow
+moves the view to one of the changes, which the first of these that is
+given chooses:
+
+1. `--follow-jump first|last|most`
+2. `KIRI_FOLLOW_JUMP`: `first`, `last` or `most`; an empty value counts
+   as unset, and any other value is left out with a warning
+3. `follow_jump` in the configuration file
+4. `first`
+
+`first` is the change nearest the start of the document, `last` the one
+nearest its end, and `most` the one that takes the most rows on the
+screen, so a new image counts by its height; of two that take as many,
+the first.
+
+After the jump, the lines of the change the view went to get a lighter
+background, so that the reader sees why the view moved: the page colour
+mixed 15 % toward the text colour, across the width of the text. It stays
+for 1 second and then fades out over 2 seconds. This happens whether or
+not the view had to move, for `r` as well, and only while following is
+`auto`; a removal has no lines to show, so it gets no highlight. A line
+that has a background of its own, such as a code block's, gets the same
+mix over it. Scrolling does not move the highlight away from its lines,
+and a new reload replaces it. On a terminal where the page colours are
+not known as RGB, or without 24-bit colour, there is no highlight.
 
 ## Search case
 
@@ -222,6 +267,7 @@ about images that do not load go to standard error whatever this says.
 | `KIRI_NO_IMAGES` | Images as alt text; see [Images](#images) |
 | `KIRI_PAGING` | When to page; see [Paging](#paging) |
 | `KIRI_FOLLOW` | Whether the pager follows a file; see [Follow](#follow) |
+| `KIRI_FOLLOW_JUMP` | Which change auto-follow moves the view to; see [Follow jump](#follow-jump) |
 | `KIRI_FRONT_MATTER` | Front matter render style; see [Front matter](#front-matter) |
 | `KIRI_TABLE_ROWS` | Table row style; see [Table rows](#table-rows) |
 | `KIRI_DIAGRAMS` | Diagrams drawn or shown as code; see [Diagrams](diagrams.md) |

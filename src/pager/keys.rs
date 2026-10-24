@@ -52,7 +52,7 @@ pub enum Action {
     PreviousFile,
     /// Reads the document again.
     Reload,
-    /// Turns following the document on or off.
+    /// Follows the document, from off to on to auto and back to off.
     Follow,
     Help,
     Quit,
@@ -340,7 +340,7 @@ pub const BINDINGS: &[Binding] = {
         Binding {
             keys: &[Char('F')],
             names: "F",
-            what: "follow the file",
+            what: "follow: on, auto, off",
             action: Action::Follow,
         },
         Binding {
