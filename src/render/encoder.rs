@@ -123,6 +123,17 @@ impl Encoder {
         }
     }
 
+    /// Deletes from the terminal every image it holds, as when the pager
+    /// quits.
+    pub fn delete_all(&mut self, out: &mut impl Write) -> io::Result<()> {
+        for (_, held) in self.held.drain() {
+            if !self.unused.contains(&held.id) {
+                self.unused.push(held.id);
+            }
+        }
+        self.delete_unused(out)
+    }
+
     /// Whether some placement still has image `id`.
     fn holds(&self, id: ImageId) -> bool {
         self.held.values().any(|held| held.id == id)

@@ -325,7 +325,11 @@ pub fn run(
             &mut reload,
         )?;
         match outcome {
-            Outcome::Quit => return Ok(()),
+            Outcome::Quit => {
+                encoder.delete_all(terminal)?;
+                terminal.flush()?;
+                return Ok(());
+            }
             Outcome::Resized(new) => {
                 // The lines laid out for the new size are others.
                 state.changed = None;
@@ -3383,8 +3387,9 @@ mod tests {
         let sent = sent_ids(&out);
         assert_eq!(sent.len(), 2, "{out:?}");
         assert_ne!(sent[0], sent[1]);
-        // The old image goes before the new one comes.
-        assert_eq!(deleted_ids(&out), [sent[0]], "{out:?}");
+        // The old image goes before the new one comes, and the new one on
+        // quitting.
+        assert_eq!(deleted_ids(&out), sent, "{out:?}");
         let deleted = out.find("\x1b_Ga=d,").unwrap();
         assert!(deleted < out.rfind("\x1b_Ga=T,").unwrap(), "{out:?}");
     }
@@ -3416,7 +3421,31 @@ mod tests {
         let out = written(&document, inputs, &mut terminal, None);
         let sent = sent_ids(&out);
         assert_eq!(sent.len(), 2, "{out:?}");
-        assert_eq!(deleted_ids(&out), [sent[0]], "{out:?}");
+        // The smaller one goes on quitting.
+        assert_eq!(deleted_ids(&out), sent, "{out:?}");
+    }
+
+    #[test]
+    fn quitting_deletes_every_image_the_terminal_holds() {
+        // q, and Ctrl+C once the keys run out, each after a resize.
+        for keys in [&[b"".as_slice(), b"q"][..], &[b""]] {
+            let (document, mut inputs) = pictured([255, 0, 0, 255]);
+            let wide = image::RgbaImage::from_pixel(400, 20, image::Rgba([0, 255, 0, 255]));
+            let wide = crate::images::Source::Raster(wide);
+            inputs.images.insert("square.png", Ok(wide));
+            let mut terminal = Fake::new(60, 6, keys);
+            // The image smaller in a narrower window.
+            terminal.sizes.push_back(window(30, 6));
+            let out = written(&document, inputs, &mut terminal, None);
+            let sent = sent_ids(&out);
+            assert_eq!(sent.len(), 2, "{out:?}");
+            // The wide image as the window narrows, the narrow one on
+            // quitting, after the last frame.
+            assert_eq!(deleted_ids(&out), sent, "{out:?}");
+            let last = out.rsplit("\x1b[?2026l").next().unwrap();
+            let quit = format!("\x1b_Ga=d,d=I,i={},q=2\x1b\\", sent[1]);
+            assert_eq!(last, quit, "{out:?}");
+        }
     }
 
     /// The terminal colours of the fade tests: grey text on black, with
