@@ -161,6 +161,16 @@ pub fn spans(
     if fixed > width {
         return badge_only(width, styles);
     }
+    // What a message tells the reader must not be left out for want of
+    // room, so it loses its start instead.
+    let told;
+    let found = match found {
+        Some(Found::Told(message)) => {
+            told = wrap::tail(message, (width - fixed).saturating_sub(3));
+            Some(Found::Told(&told))
+        }
+        found => found,
+    };
     // The search and a gap of three before the position.
     let search = found.map(|found| search(found, styles)).unwrap_or_default();
     let search_width = if search.is_empty() {
@@ -471,6 +481,15 @@ mod tests {
             " kiri  notes.md      not found: xyz   42%   ? help   q quit "
         );
         assert_eq!(width(&spans), 60);
+    }
+
+    #[test]
+    fn a_message_too_long_for_the_window_loses_its_start() {
+        let message = "notes.md: No such file or directory (os error 2)";
+        let told = Some(Found::Told(message));
+        let spans = spans("notes.md", None, at(42), told, 40, &styles());
+        assert_eq!(text(&spans), " kiri  …or directory (os error 2)   42% ");
+        assert_eq!(width(&spans), 40);
     }
 
     #[test]

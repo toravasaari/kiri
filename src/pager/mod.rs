@@ -719,7 +719,7 @@ fn show(
                 Pressed::Nothing => {}
                 Pressed::Quit => return Ok(Outcome::Quit),
                 Pressed::Reload if !can_reload => {
-                    state.told = Some("nothing to reload: not a lone file".to_owned());
+                    state.told = Some("nothing to reload".to_owned());
                 }
                 // The reader sees that the pager is busy before it is.
                 Pressed::Reload => {
