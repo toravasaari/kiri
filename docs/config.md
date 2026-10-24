@@ -111,9 +111,10 @@ pager:
 
 `auto` pages a document longer than the window; a shorter one is printed.
 A document from standard input, often another command's output, and the
-`--doctor` report are paged only with `always`, and so are several files
-that are all images or diagram files; with a document among them, the
-setting applies to all the files. Whatever the setting, kiri prints the
+`--doctor` report are paged only with `always`, and so is an image or a
+diagram file, on its own, as in `kiri -p plan.mmd`, or with others that
+are all images or diagram files; with a document among them, the setting
+applies to all the files. Whatever the setting, kiri prints the
 document when its output is not a terminal or `--mode plain` asks for
 text without escape sequences.
 

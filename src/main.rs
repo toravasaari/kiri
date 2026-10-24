@@ -267,15 +267,46 @@ const STDIN: &str = "<stdin>";
 /// Shows the file at `path`, the README of a directory there, or standard
 /// input without one.
 fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
-    let opened = open(cli, file)?;
+    let Opened {
+        path,
+        file,
+        input,
+        content,
+    } = open(cli, file)?;
     let env = Environment::from_process();
     let context = Context::new(cli, &env);
-    let (path, file) = (opened.path.as_path(), opened.file.as_deref());
-    let source = match opened.content {
+    let source = match content {
         Content::Image { format, head, rest } => {
-            let reader = image_reader(file, head, rest)
+            let caps = kiri::term::capabilities(context.mode, context.width, &env);
+            let (warnings, settings) = settings(cli, &env);
+            let documents = settings.is_ok();
+            // As for several image files, a broken configuration file does
+            // not stop the image.
+            let settings = settings.unwrap_or_else(|_| without_config(cli, &env));
+            if pages_alone(&settings, &caps) {
+                for warning in &warnings {
+                    eprintln!("kiri: {warning}");
+                }
+                let opened = Opened {
+                    path,
+                    file,
+                    input,
+                    content: Content::Image { format, head, rest },
+                };
+                let caps = on_page(caps, &settings);
+                let failed = Cell::new(false);
+                return show_files(
+                    &context,
+                    vec![Ok(opened)],
+                    settings,
+                    documents,
+                    caps,
+                    &failed,
+                );
+            }
+            let reader = image_reader(file.as_deref(), head, rest)
                 .map_err(|error| format!("{}: {error}", path.display()))?;
-            return Ok(show_image(&context, path, format, reader)?);
+            return Ok(show_image(&context, &caps, &path, format, reader)?);
         }
         Content::Text(source) => source,
     };
@@ -288,7 +319,18 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
         settings.paging = kiri::pager::only_always(settings.paging);
     }
     let caps = kiri::term::capabilities(context.mode, context.width, &env);
-    let input = opened.input;
+    if matches!(input, Input::Diagram(_)) && pages_alone(&settings, &caps) {
+        let opened = Opened {
+            path,
+            file,
+            input,
+            content: Content::Text(source),
+        };
+        let caps = on_page(caps, &settings);
+        let failed = Cell::new(false);
+        return show_files(&context, vec![Ok(opened)], settings, true, caps, &failed);
+    }
+    let (path, file) = (path.as_path(), file.as_deref());
     if let Input::Diagram(language) = input {
         return show_diagram(&context, language, &source, path, file, settings, caps);
     }
@@ -493,14 +535,46 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
         }
     };
     let documents = settings.is_some();
-    let settings = settings.unwrap_or_else(|| {
-        let choices = kiri::config::choose(&options(cli), &env, &Default::default());
-        choices.with_theme(Theme::default())
-    });
+    let mut settings = settings.unwrap_or_else(|| without_config(cli, &env));
+    settings.paging = kiri::pager::for_files(settings.paging, alone);
     let caps = on_page(
         kiri::term::capabilities(context.mode, context.width, &env),
         &settings,
     );
+    show_files(&context, opened, settings, documents, caps, &failed)
+}
+
+/// The settings from the command line and the environment alone, for a
+/// configuration file that cannot be read, with the default theme.
+fn without_config(cli: &Cli, env: &Environment) -> Settings {
+    let choices = kiri::config::choose(&options(cli), env, &Default::default());
+    choices.with_theme(Theme::default())
+}
+
+/// Whether a file shown on its own as an image is, an image file or a
+/// diagram file, goes to the pager for `settings` on a terminal with
+/// `caps`: only when paging is `always`, as for several such files.
+fn pages_alone(settings: &Settings, caps: &Capabilities) -> bool {
+    kiri::pager::for_files(settings.paging, true) == Paging::Always
+        && kiri::term::stdout_is_terminal()
+        && caps.styling
+}
+
+/// Shows the files `opened`, or why each could not be opened, as
+/// `run_files` shows them, with `settings`, whose paging is that for these
+/// files, and for a terminal with `caps`; documents are shown only when
+/// `documents`, as the configuration file could be read. One file alone
+/// is shown in the pager as a document on its own is, without a header.
+/// A file that cannot be shown is noted in `failed`, and kiri then fails.
+fn show_files(
+    context: &Context,
+    opened: Vec<Result<Opened, (PathBuf, String)>>,
+    settings: Settings,
+    documents: bool,
+    caps: Capabilities,
+    failed: &Cell<bool>,
+) -> Result<(), Failure> {
+    let tell = |error: String| told(failed, error);
     let mut given = Vec::new();
     for opened in opened {
         let opened = match opened {
@@ -543,13 +617,12 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
             drawn: None,
         });
     }
-    let paging = kiri::pager::for_files(settings.paging, alone);
     let terminal = kiri::term::stdout_is_terminal() && caps.styling;
     // In the pager, the files are one stream, read whole before it opens.
-    let paged = terminal && paging != Paging::Never;
+    let paged = terminal && settings.paging != Paging::Never;
     if paged {
         given = (given.into_iter())
-            .map(|given| read_whole(&context, &caps, given))
+            .map(|given| read_whole(context, &caps, given))
             .collect();
     }
     // Every file failed; an empty pager would only wait.
@@ -566,7 +639,7 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
     let Loaded {
         mut images,
         mut interrupt,
-    } = load_given(&context, &given, &settings, &caps)?;
+    } = load_given(context, &given, &settings, &caps)?;
     for (number, file) in given.iter_mut().enumerate() {
         file.drawn = self::drawn(number, file, &mut images, &settings, &caps);
     }
@@ -579,17 +652,11 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
         ..Inputs::new(caps)
     };
     let shown = if paged {
-        page_files(
-            &context,
-            given,
-            &mut inputs,
-            &settings,
-            &failed,
-            paging,
-            || drop(interrupt.take()),
-        )
+        page_files(context, given, &mut inputs, &settings, failed, || {
+            drop(interrupt.take())
+        })
     } else {
-        print_files(&context, given, &mut inputs, &settings, &failed)
+        print_files(context, given, &mut inputs, &settings, failed)
     };
     match shown {
         // A closed pipe (kiri *.md | head) takes no more.
@@ -654,8 +721,11 @@ fn tell_drawn(drawn: &Drawn, failed: &Cell<bool>) {
 }
 
 /// Shows `given`, the files read whole, in the pager as one stream when
-/// `paging` asks for it, and otherwise prints them as `print_files` does,
-/// with the images `inputs` holds and those of the image files among them.
+/// the paging of `settings` asks for it, and otherwise prints them as
+/// `print_files` does, with the images `inputs` holds and those of the
+/// image files among them. One file alone is shown as a document on its
+/// own is, without a header, and the status line names it without its
+/// place among files.
 /// A file that failed is in the pager's stream under its header, with why.
 /// Why a file failed, and a warning about a file, are told before the
 /// pager opens, and why the diagram of a diagram file was not drawn after
@@ -667,7 +737,6 @@ fn page_files(
     inputs: &mut Inputs,
     settings: &Settings,
     failed: &Cell<bool>,
-    paging: Paging,
     caught: impl FnOnce(),
 ) -> io::Result<()> {
     let mut files = Vec::new();
@@ -727,11 +796,19 @@ fn page_files(
         told_before.set(true);
         caught();
     };
-    let content = kiri::render::layout::Content::Files(&files);
-    let case = settings.search_case;
-    // The pager's status line names each file after itself.
-    let options = kiri::pager::Options::new(case);
-    if let Some(result) = page(context, content, "", inputs, paging, options, opening) {
+    let lone = files.len() == 1;
+    let (content, name) = match lone {
+        true => (
+            kiri::render::layout::Content::Document(&files[0].document),
+            files[0].name.as_str(),
+        ),
+        // The pager's status line names each file after itself.
+        false => (kiri::render::layout::Content::Files(&files), ""),
+    };
+    // Nothing to reload: an image file is not read again.
+    let options = kiri::pager::Options::new(settings.search_case);
+    let paging = settings.paging;
+    if let Some(result) = page(context, content, name, inputs, paging, options, opening) {
         // What the pager would have hidden.
         (drawn.iter().flatten()).for_each(|drawn| tell_drawn(drawn, failed));
         return result;
@@ -748,8 +825,11 @@ fn page_files(
         if errors[number].is_some() {
             continue;
         }
-        kiri::render::render_file(file, number, apart, inputs, &mut out)
-            .and_then(|()| out.flush())?;
+        let shown = match lone {
+            true => kiri::render::render(&file.document, inputs, &mut out),
+            false => kiri::render::render_file(file, number, apart, inputs, &mut out),
+        };
+        shown.and_then(|()| out.flush())?;
         apart = true;
         if let Some(drawn) = &drawn[number] {
             tell_drawn(drawn, failed);
@@ -1368,20 +1448,19 @@ fn without_path(error: String, path: &Path) -> String {
     }
 }
 
-/// Shows the image file `path`, in `format`, read from `reader`. It
-/// is shown whatever the settings say about images in documents, but only
-/// up to the size limit. The configuration file is not read: everything in
-/// it is about documents, so a broken one does not stop an image.
+/// Prints the image file `path`, in `format`, read from `reader`, for a
+/// terminal with `caps`. It is shown whatever the settings say about
+/// images in documents, but only up to the size limit.
 fn show_image(
     context: &Context,
+    caps: &Capabilities,
     path: &Path,
     format: Format,
     reader: impl Read,
 ) -> Result<(), String> {
-    let caps = kiri::term::capabilities(context.mode, context.width, context.env);
-    let image = read_image_file(context, &caps, path, format, reader)?;
+    let image = read_image_file(context, caps, path, format, reader)?;
     let mut out = io::stdout().lock();
-    finish(kiri::render::render_image(image, &caps, &mut out).and_then(|()| out.flush()))
+    finish(kiri::render::render_image(image, caps, &mut out).and_then(|()| out.flush()))
 }
 
 /// The image file `path`, in `format`, read from `reader` up to the size
