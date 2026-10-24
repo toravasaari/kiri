@@ -3,8 +3,10 @@
 //! sends them, and the placeholders of `kitty::graphics`, which show them.
 
 use std::io::{self, Write};
+use std::time::Duration;
 
 use super::encoder::Encoder;
+use super::loading::Ink;
 use super::style::{ImageRow, Line, Span, Style};
 use super::wrap::width;
 use crate::caps::Capabilities;
@@ -75,6 +77,8 @@ pub struct Writer<'a> {
     foreground: Option<Color>,
     /// Every line dimmed, as behind a panel.
     dim: bool,
+    /// The colour of placeholders and of the bands below them.
+    ink: Ink,
     /// What the terminal holds of the images.
     encoder: &'a mut Encoder,
 }
@@ -94,6 +98,7 @@ impl<'a> Writer<'a> {
             background: page.background.filter(|_| caps.color),
             foreground: page.foreground.filter(|_| caps.color),
             dim: false,
+            ink: Ink::new(page, caps),
             encoder,
         }
     }
@@ -138,7 +143,7 @@ impl<'a> Writer<'a> {
         }
         let image = match &line.image {
             Some(ImageRow { placement, row }) => {
-                let id = self.encoder.id(placement, self.images, caps, out)?;
+                let id = (self.encoder).id(placement, self.images, caps, self.ink, out)?;
                 Some((id, *row, placement.size.columns))
             }
             None => None,
@@ -197,6 +202,17 @@ impl Writer<'_> {
     /// Deletes from the terminal the images the encoder no longer keeps.
     pub fn delete_unused(&mut self, out: &mut impl Write) -> io::Result<()> {
         self.encoder.delete_unused(out)
+    }
+
+    /// Moves the bands below the images that are loading on to how they
+    /// are `elapsed` after their start.
+    pub fn animate(&self, elapsed: Duration, out: &mut impl Write) -> io::Result<()> {
+        self.encoder.animate(elapsed, self.ink, out)
+    }
+
+    /// Whether a band below an image that is loading is shown.
+    pub fn has_bands(&self) -> bool {
+        self.encoder.has_bands()
     }
 
     /// Writes `spans` in their own styles, without the page's colours, and

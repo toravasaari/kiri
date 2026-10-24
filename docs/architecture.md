@@ -391,6 +391,8 @@ src/render/style.rs        styled text between layout and output
 src/render/output.rs       styled lines -> bytes (SGR, OSC 8, CSI C/K, OSC 66),
                            cursor placement and synchronized output
 src/render/encoder.rs      the images the terminal holds, and under which ids
+src/render/loading.rs      the pixels of what stands in for an image while
+                           it loads, and of the band below it
 src/render/highlight.rs    syntax highlighting for code blocks (syntect)
 src/pager/mod.rs           the pager: frames and the loop of keys
 src/pager/view.rs          the lines a window shows, and scrolling

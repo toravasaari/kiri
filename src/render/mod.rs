@@ -5,6 +5,7 @@ pub mod encoder;
 pub mod highlight;
 pub mod image;
 pub mod layout;
+pub mod loading;
 pub mod output;
 pub mod style;
 pub mod table;
@@ -201,6 +202,7 @@ pub fn render_image_on(
     let lines = layout::image_rows(image::Placement {
         key: key.clone(),
         size,
+        shows: image::Shows::Image,
     });
     let mut images = Images::new();
     images.insert(key, Ok(image));

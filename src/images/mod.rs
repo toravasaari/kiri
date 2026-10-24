@@ -266,6 +266,22 @@ pub struct Images {
     /// the new one no longer shows, or that are loading anew, until they
     /// are taken: what was there while the new ones load.
     replaced: HashMap<ImageKey, Source>,
+    /// The images loading in the background, each with what stands in
+    /// for it meanwhile.
+    loading: HashMap<ImageKey, Placeholder>,
+}
+
+/// What a block shows in place of its image while the image loads.
+#[derive(Debug, Clone)]
+pub enum Placeholder {
+    /// The image the block showed before, dimmed.
+    Dimmed(Source),
+    /// A grey box, of the natural size of the image the block showed
+    /// before.
+    Box((u32, u32)),
+    /// Nothing that tells a size: the block shows as it does without its
+    /// image.
+    Unsized,
 }
 
 impl Images {
@@ -273,9 +289,11 @@ impl Images {
         Self::default()
     }
 
-    /// Records the outcome of loading `key`, replacing an earlier one.
+    /// Records the outcome of loading `key`, replacing an earlier one,
+    /// and what stood in for it while it loaded.
     pub fn insert(&mut self, key: impl Into<ImageKey>, image: Result<Source, ImageError>) {
         let key = key.into();
+        self.loading.remove(&key);
         if !self.by_key.contains_key(&key) {
             self.order.push(key.clone());
         }
@@ -306,6 +324,29 @@ impl Images {
     /// Every key and its outcome, in the order they were first inserted.
     pub fn iter(&self) -> impl Iterator<Item = (&ImageKey, &Result<Source, ImageError>)> {
         (self.order.iter()).map(|key| (key, &self.by_key[key]))
+    }
+
+    /// Takes `key` as loading, with `placeholder` in its place until it
+    /// comes.
+    pub fn wait(&mut self, key: ImageKey, placeholder: Placeholder) {
+        self.loading.insert(key, placeholder);
+    }
+
+    /// What stands in for `key` while it loads; `None` when it is not
+    /// loading.
+    pub fn placeholder(&self, key: &ImageKey) -> Option<&Placeholder> {
+        self.loading.get(key)
+    }
+
+    /// Whether any image is loading.
+    pub fn loading(&self) -> bool {
+        !self.loading.is_empty()
+    }
+
+    /// Takes the placeholders of the images loading, which are then no
+    /// longer loading as far as `self` tells.
+    pub fn take_placeholders(&mut self) -> HashMap<ImageKey, Placeholder> {
+        std::mem::take(&mut self.loading)
     }
 
     /// Takes the images [`reload_in_background`] replaced.
