@@ -712,6 +712,14 @@ A part that needs one names it, such as "needs G1.3".
   place; the follow mode will use it to find what changed, and the diff
   view to show it. Nothing uses the source lines yet.
 
+#### G1.7 Lines know their nested block
+
+- The layout marks the blocks inside lists, quotes and alerts as it
+  marks those inside `<details>`, so each laid-out line knows the
+  innermost block it comes from. Today a change inside a list counts as
+  a change of the whole list: auto-follow (4.6.9) goes to the list's
+  start, and `most` counts all of its rows.
+
 ### G2 Images
 
 #### G2.1 Images from blocks (done)
