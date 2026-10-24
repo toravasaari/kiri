@@ -14,7 +14,11 @@ pub struct BlockInfo {
     /// The place of the block in its document: its number among the
     /// top-level blocks, then, for a block inside a `<details>`, its number
     /// among that block's own, and so on. The header of a file has none.
+    /// Paths are the ones [`SourceLines`](crate::model::SourceLines)
+    /// describes, though only the top level and `<details>` are laid out
+    /// as blocks of their own so far.
     path: Vec<usize>,
+    line: Option<usize>,
 }
 
 impl BlockInfo {
@@ -22,6 +26,12 @@ impl BlockInfo {
     /// document counts as file 0.
     pub fn file(&self) -> usize {
         self.file
+    }
+
+    /// The line of the source the block starts on, counting from 1, when
+    /// the document knows it.
+    pub fn line(&self) -> Option<usize> {
+        self.line
     }
 }
 
@@ -32,10 +42,11 @@ pub struct Blocks {
 }
 
 impl Blocks {
-    /// Adds a block of file `file` at `path` and returns its number.
-    pub(crate) fn add(&mut self, file: usize, path: Vec<usize>) -> BlockId {
+    /// Adds a block of file `file` at `path`, which starts on `line` of
+    /// the source, and returns its number.
+    pub(crate) fn add(&mut self, file: usize, path: Vec<usize>, line: Option<usize>) -> BlockId {
         let id = BlockId(u32::try_from(self.infos.len()).unwrap_or(u32::MAX));
-        self.infos.push(BlockInfo { file, path });
+        self.infos.push(BlockInfo { file, path, line });
         id
     }
 

@@ -89,6 +89,20 @@ layout it came from, so a caller that keeps a place across a new layout,
 as the pager does when the window is resized, compares the blocks
 themselves.
 
+A document also keeps the line of the source each of its blocks starts on,
+in a table that is looked up by the same kind of place, and the layout
+copies the line into its table of blocks. The table takes no part when two
+documents are compared for equality, because the lines say where a block
+was written and not what the document is. `src/compare.rs` compares an
+old document with a new one: it finds the blocks that stayed as they were,
+then pairs the blocks of the same kind that stand in the gaps between them
+as changed, and calls the rest removed or added. When a block that changed
+holds other blocks, such as a quote or a list, the blocks inside are
+compared the same way. The result is told by place, so that a caller can
+ask what became of a block of the new document or which blocks are gone.
+The places inside lists have two numbers, the item and then the block in
+it; the layout's table has to use them too once it marks those blocks.
+
 The pager shows the same styled lines on the terminal's alternate screen.
 `src/pager/view.rs` chooses the lines that fit in the window, a scaled
 line whole or not at all, and moves them, and when the window changes size
@@ -315,6 +329,8 @@ src/images/pipeline.rs     a document's images for a run: renderers from the
 src/images/stamps.rs       when the files behind the images were last changed
 src/images/url.rs          data URLs, file URLs and paths, read up to a limit
 src/images/svg.rs          SVG images and the fonts for their text
+src/compare.rs             which blocks stayed, changed, were added or
+                           removed between two documents
 src/diagrams/mod.rs        diagrams written in code blocks, drawn as images
                            for the image loader
 src/diagrams/language.rs   the diagram languages and what kiri knows of each

@@ -16,7 +16,7 @@ use super::{FrontMatterStyle, Inputs, RenderErrors, TableRows};
 use crate::caps::Capabilities;
 use crate::color::{Color, Underline};
 use crate::images::{ImageError, ImageKey, Images};
-use crate::model::{Block, Document, File, Image, Inline, Table};
+use crate::model::{Block, Document, File, Image, Inline, SourceLines, Table};
 use crate::size::TextSize;
 use crate::theme::{BandColor, Theme};
 
@@ -40,13 +40,13 @@ pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
 fn document_stream(document: &Document, inputs: &Inputs) -> Stream {
     with_layout(inputs, 0, |layout, width, margin| {
         let mut stream = Stream::default();
+        let mut marks = Marks::new(&mut stream.blocks, &document.lines);
         layout.top_level(
             &document.blocks,
             width,
             margin,
             &mut stream.lines,
-            &mut stream.blocks,
-            &mut Vec::new(),
+            &mut marks,
         );
         stream
     })
@@ -105,7 +105,7 @@ pub fn file(file: &File, number: usize, inputs: &Inputs) -> Vec<Line> {
 fn file_into(file: &File, number: usize, inputs: &Inputs, blocks: &mut Blocks) -> Vec<Line> {
     with_layout(inputs, number, |layout, width, margin| {
         let mut lines = layout.file_header(&file.name, width, margin);
-        stamp(&mut lines, blocks.add(number, Vec::new()));
+        stamp(&mut lines, blocks.add(number, Vec::new(), None));
         // The header and the blank line below it.
         let above = u16::try_from(lines.len() + 1).unwrap_or(u16::MAX);
         let layout = Layout {
@@ -113,14 +113,8 @@ fn file_into(file: &File, number: usize, inputs: &Inputs, blocks: &mut Blocks) -
             ..*layout
         };
         let mut body = Vec::new();
-        layout.top_level(
-            &file.document.blocks,
-            width,
-            margin,
-            &mut body,
-            blocks,
-            &mut Vec::new(),
-        );
+        let mut marks = Marks::new(blocks, &file.document.lines);
+        layout.top_level(&file.document.blocks, width, margin, &mut body, &mut marks);
         append_block(&mut lines, body, true);
         lines
     })
@@ -233,29 +227,53 @@ struct Layout<'a> {
     reserved: u16,
 }
 
+/// Where the block being laid out is, and the table that records the
+/// blocks laid out.
+struct Marks<'a> {
+    table: &'a mut Blocks,
+    /// The lines of the source the blocks of the document start on.
+    source: &'a SourceLines,
+    path: Vec<usize>,
+}
+
+impl<'a> Marks<'a> {
+    fn new(table: &'a mut Blocks, source: &'a SourceLines) -> Self {
+        Self {
+            table,
+            source,
+            path: Vec::new(),
+        }
+    }
+
+    /// Adds the block at the current path, of document `document`.
+    fn add(&mut self, document: usize) -> BlockId {
+        let line = self.source.get(&self.path);
+        self.table.add(document, self.path.clone(), line)
+    }
+}
+
 impl Layout<'_> {
     /// Lays out the document's own blocks: headings stay at the edge and
     /// thematic breaks span the terminal; everything else keeps `margin`
     /// free on both sides. The blocks inside a details block are laid out
     /// as the blocks around it are.
     ///
-    /// Each block's lines get a new entry in `table`. `path` is where the
-    /// block being laid out is: the index of each `<details>` around it,
-    /// then its own index among its siblings, so the second block inside
-    /// the first `<details>` is `[0, 1]`. The summary of a details block is
-    /// marked as that block, and the blank line between blocks has no
-    /// block.
+    /// Each block's lines get a new entry in the table of `marks`, which
+    /// also knows where the block being laid out is: the index of each
+    /// `<details>` around it, then its own index among its siblings, so the
+    /// second block inside the first `<details>` is `[0, 1]`. The summary of
+    /// a details block is marked as that block, and the blank line between
+    /// blocks has no block.
     fn top_level(
         &self,
         blocks: &[Block],
         width: usize,
         margin: usize,
         lines: &mut Vec<Line>,
-        table: &mut Blocks,
-        path: &mut Vec<usize>,
+        marks: &mut Marks,
     ) {
         for (index, block) in blocks.iter().enumerate() {
-            path.push(index);
+            marks.path.push(index);
             let mut block_lines = match block {
                 Block::ThematicBreak => vec![self.rule(usize::from(self.caps.width).max(width))],
                 Block::Heading { .. } | Block::ImageFile(_) => {
@@ -264,10 +282,10 @@ impl Layout<'_> {
                 Block::Details { summary, blocks } => {
                     let summary = self.summary(summary, width - 2 * margin);
                     let mut summary = with_margin(summary, margin);
-                    stamp(&mut summary, table.add(self.document, path.clone()));
+                    stamp(&mut summary, marks.add(self.document));
                     append_block(lines, summary, true);
-                    self.top_level(blocks, width, margin, lines, table, path);
-                    path.pop();
+                    self.top_level(blocks, width, margin, lines, marks);
+                    marks.path.pop();
                     continue;
                 }
                 _ => with_margin(
@@ -276,10 +294,10 @@ impl Layout<'_> {
                 ),
             };
             if !block_lines.is_empty() {
-                stamp(&mut block_lines, table.add(self.document, path.clone()));
+                stamp(&mut block_lines, marks.add(self.document));
             }
             append_block(lines, block_lines, true);
-            path.pop();
+            marks.path.pop();
         }
     }
 
@@ -1010,6 +1028,46 @@ mod tests {
         assert_eq!(path("Outer"), Some(vec![1]));
         assert_eq!(path("Inner"), Some(vec![1, 1]));
         assert_eq!(path("Deep"), Some(vec![1, 1, 0]));
+    }
+
+    #[test]
+    fn blocks_know_the_source_line_they_start_on() {
+        let stream = lone(
+            "Before\n\n<details>\n<summary>Outer</summary>\n\nIn outer\n\n</details>\n\n- item\n",
+        );
+        let mut seen = Vec::new();
+        for line in stream.lines.iter().filter_map(|line| line.block) {
+            if seen.last() != Some(&line) {
+                seen.push(line);
+            }
+        }
+        let lines: Vec<_> = seen
+            .iter()
+            .map(|&id| stream.blocks.get(id).line())
+            .collect();
+        assert_eq!(lines, [Some(1), Some(3), Some(6), Some(10)]);
+    }
+
+    #[test]
+    fn the_lines_of_blocks_are_those_of_their_own_file() {
+        let shown = [
+            file_of("a.md", "One\n\nTwo\n"),
+            file_of("b.md", "\n\nThree\n"),
+        ];
+        let stream = files(&shown, &inputs());
+        let line_of = |find: &str| {
+            let line = stream
+                .lines
+                .iter()
+                .find(|line| text(&line.spans).contains(find))
+                .unwrap();
+            stream.blocks.get(line.block.unwrap()).line()
+        };
+        assert_eq!(line_of("Two"), Some(3));
+        assert_eq!(line_of("Three"), Some(3));
+        // The header of a file is not in the source.
+        let header = stream.lines[0].block.unwrap();
+        assert_eq!(stream.blocks.get(header).line(), None);
     }
 
     #[test]
