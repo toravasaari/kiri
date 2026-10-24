@@ -102,17 +102,18 @@ struct Programs {
 }
 
 impl Programs {
-    /// Waits for room for one more program and counts it; `false`, with
-    /// nothing counted, once `stop` is set.
-    fn enter(&self, stop: &AtomicBool) -> bool {
+    /// Waits for room for one more program and counts it until the place
+    /// it gives is dropped, also by a panic; `None`, with nothing counted,
+    /// once `stop` is set.
+    fn enter(&self, stop: &AtomicBool) -> Option<Place<'_>> {
         let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
         loop {
             if stop.load(Ordering::SeqCst) {
-                return false;
+                return None;
             }
             if *running < crate::diagrams::external::AT_ONCE {
                 *running += 1;
-                return true;
+                return Some(Place(self));
             }
             // Woken when one leaves; a stop is seen within the timeout.
             let wait = self
@@ -120,12 +121,6 @@ impl Programs {
                 .wait_timeout(running, Duration::from_millis(20));
             running = wait.unwrap_or_else(|e| e.into_inner()).0;
         }
-    }
-
-    /// Counts a program that has ended.
-    fn leave(&self) {
-        *self.running.lock().unwrap_or_else(|e| e.into_inner()) -= 1;
-        self.changed.notify_all();
     }
 
     /// Waits until no program runs, for at most `limit`.
@@ -139,6 +134,16 @@ impl Programs {
             let wait = self.changed.wait_timeout(running, left);
             running = wait.unwrap_or_else(|e| e.into_inner()).0;
         }
+    }
+}
+
+/// A program's place among [`Programs`], given back when it is dropped.
+struct Place<'a>(&'a Programs);
+
+impl Drop for Place<'_> {
+    fn drop(&mut self) {
+        *self.0.running.lock().unwrap_or_else(|e| e.into_inner()) -= 1;
+        self.0.changed.notify_all();
     }
 }
 
@@ -358,13 +363,15 @@ impl Batch {
             }
             // Counted before the program can start, and so before it looks
             // at `stop`: stopping sets `stop` before it counts them.
-            if job.program && !self.programs.enter(&stop) {
-                continue;
-            }
+            let place = match job.program {
+                true => match self.programs.enter(&stop) {
+                    Some(place) => Some(place),
+                    None => continue,
+                },
+                false => None,
+            };
             let image = self.load(&job.what, &stop, &fonts);
-            if job.program {
-                self.programs.leave();
-            }
+            drop(place);
             if stop.load(Ordering::SeqCst) {
                 continue;
             }
@@ -453,5 +460,61 @@ mod tests {
         new.come(square());
         assert_eq!(loads.poll().len(), 1);
         assert!(loads.is_empty());
+    }
+
+    /// Draws Mermaid, as a program would, by panicking, once it has
+    /// noted that it started.
+    struct Panicking(Arc<AtomicBool>);
+
+    impl Renderer for Panicking {
+        fn draws(&self, _: &str) -> bool {
+            true
+        }
+
+        fn render(&self, _: &Request) -> Result<crate::diagrams::Drawn, String> {
+            self.0.store(true, Ordering::SeqCst);
+            panic!("a renderer that panics");
+        }
+    }
+
+    #[test]
+    fn a_load_that_panics_gives_its_program_s_place_back() {
+        let mut loads = Loads::new();
+        let started = Arc::new(AtomicBool::new(false));
+        let job = Job {
+            key: ImageKey::block("mermaid", "x\n"),
+            what: What::Diagram {
+                language: "mermaid".to_owned(),
+                source: "x\n".to_owned(),
+                line: 1,
+                by_line: true,
+            },
+            program: true,
+        };
+        let context = Context {
+            renderer: Box::new(Panicking(Arc::clone(&started))),
+            theme: Theme::Light,
+            panel: true,
+            largest: None,
+            max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
+        };
+        loads.start(vec![job], context);
+        let running = || {
+            *loads
+                .programs
+                .running
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+        };
+        let start = Instant::now();
+        while !started.load(Ordering::SeqCst) && start.elapsed() < Duration::from_secs(2) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(started.load(Ordering::SeqCst));
+        // The thread unwinds after the renderer panicked.
+        while running() > 0 && start.elapsed() < Duration::from_secs(2) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(running(), 0);
     }
 }
