@@ -354,7 +354,7 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   than the first match from the top of the view.
 - Images that did not change are not sent to the terminal again
   (G2.2), and images that changed or went are deleted from it, as are
-  all of kiri's images when the pager quits.
+  all of kiri's images when the pager quits. (done)
 
 #### 4.6.10 Changes as a diff
 
@@ -732,16 +732,31 @@ A part that needs one names it, such as "needs G1.3".
   block, its language and source, and Mermaid diagrams (4.3.1) are the
   first images from blocks.
 
-#### G2.2 An image encoder
+#### G2.2 An image encoder (done)
 
-- What has been sent to the terminal, and under which image id, moves
-  from `render/output.rs` behind an image encoder. Animation frames (4.4)
-  need that state, and the other image protocols of phase 5 fill it
-  differently.
-- The encoder lives longer than one layout, so the pager does not send
-  every image again after a resize or a reload, and it knows which ids
-  to delete. Today each layout makes a new writer, which sends again all
-  images it shows, and kiri never deletes an image.
+- What has been sent to the terminal, and under which image id, lives in
+  `render/encoder.rs`, which the pager keeps for as long as it runs. A
+  resize or a reload sends only the images the terminal does not hold at
+  that size, and images that a new layout no longer shows, or that
+  changed, are deleted from the terminal, as are all of them when the
+  pager quits. Animation frames (4.4) and the image protocols of phase 5
+  build on it.
+
+#### G2.3 Images kitty drops
+
+- kitty keeps about 320 MiB of images per screen and drops the oldest
+  past that. Since the pager does not send an image again, a dropped one
+  stays blank until its pixels or size change. It takes a document with
+  many large images, such as twenty full-size screenshots on a large
+  window. The encoder could count the bytes it holds and, past a budget,
+  delete images out of view and send them again when they come back.
+
+#### G2.4 One send for images with the same pixels
+
+- Two images with the same pixels share an id, yet each is sent, so that
+  print mode writes what it always has. Sending a shared id once saves
+  the bytes, also when a reload changes both, but it changes the print
+  snapshots where pixels repeat.
 
 ### G3 Terminal
 
