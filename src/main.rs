@@ -9,7 +9,9 @@ use clap::error::ErrorKind;
 use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser};
 use kiri::caps::Capabilities;
-use kiri::config::{Environment, FrontMatter, Named, Options, Origin, Paging, Setting, Settings};
+use kiri::config::{
+    Environment, Follow, FrontMatter, Named, Options, Origin, Paging, Setting, Settings,
+};
 use kiri::doctor::{Facts, Output};
 use kiri::images::{
     Fonts, Format, ImageError, ImageKey, Images, Interrupted, Loaded, Loading, Part, Source,
@@ -119,15 +121,20 @@ struct Cli {
     no_pager: bool,
 
     /// Follow a lone file in the pager: on (read it again whenever it
-    /// changes, with the view kept where it is) or off; off unless set.
-    /// Following pages the file, however short, unless paging is never.
-    /// F turns it on and off in the pager.
-    #[arg(long, value_parser = named::<bool>(), value_name = "SWITCH", conflicts_with_all = ["follow_on", "follow_off"])]
-    follow: Option<bool>,
+    /// changes, with the view kept where it is), auto (read it again and
+    /// move the view to a change) or off; off unless set. Following pages
+    /// the file, however short, unless paging is never. F turns it on and
+    /// off in the pager.
+    #[arg(long, value_parser = named::<Follow>(), value_name = "WHEN", conflicts_with_all = ["follow_on", "follow_auto", "follow_off"])]
+    follow: Option<Follow>,
 
     /// Follow the file, in the pager: --follow=on.
-    #[arg(short = 'f', conflicts_with = "follow_off")]
+    #[arg(short = 'f', conflicts_with_all = ["follow_auto", "follow_off"])]
     follow_on: bool,
+
+    /// Follow the file and move to a change: --follow=auto.
+    #[arg(long = "fa", conflicts_with = "follow_off")]
+    follow_auto: bool,
 
     /// Do not follow the file: --follow=off.
     #[arg(short = 'F')]
@@ -363,7 +370,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     let from = (file.filter(|path| path.is_file())).map(|path| FromFile { path, input, look });
     // Following pages the file however short it is, as -p does, unless
     // paging is never.
-    if from.is_some() && settings.follow && settings.paging == Paging::Auto {
+    if from.is_some() && settings.follow != Follow::Off && settings.paging == Paging::Auto {
         settings.paging = Paging::Always;
     }
     show_document(
@@ -1139,9 +1146,9 @@ struct Context<'a> {
     width: Option<u16>,
     /// The largest image file to read, in bytes.
     max_file_size: u64,
-    /// Whether the command line asks to follow the file, so that the pager
+    /// How the command line asks to follow the file, so that the pager
     /// says when there is nothing to follow.
-    follow: bool,
+    follow: Follow,
 }
 
 impl<'a> Context<'a> {
@@ -1151,7 +1158,7 @@ impl<'a> Context<'a> {
             mode: cli.mode,
             width: cli.width,
             max_file_size: cli.max_image_size * kiri::images::MB,
-            follow: cli.follow.unwrap_or(cli.follow_on),
+            follow: follow(cli).map_or(Follow::Off, |follow| follow.value),
         }
     }
 }
@@ -1672,14 +1679,21 @@ fn options(cli: &Cli) -> Options {
         paging: (flag(cli.paging, "--paging"))
             .or(flag(cli.pager.then_some(Paging::Always), "-p"))
             .or(flag(cli.no_pager.then_some(Paging::Never), "-P")),
-        follow: (flag(cli.follow, "--follow"))
-            .or(flag(cli.follow_on.then_some(true), "-f"))
-            .or(flag(cli.follow_off.then_some(false), "-F")),
+        follow: follow(cli),
         front_matter: flag(cli.front_matter, "--front-matter"),
         table_rows: flag(cli.table_rows, "--table-rows"),
         diagrams: flag(cli.diagrams, "--diagrams"),
         render_errors: flag(cli.render_errors, "--render-errors"),
     }
+}
+
+/// How the command line asks to follow the file, with the flag it comes
+/// from.
+fn follow(cli: &Cli) -> Option<Setting<Follow>> {
+    (flag(cli.follow, "--follow"))
+        .or(flag(cli.follow_on.then_some(Follow::On), "-f"))
+        .or(flag(cli.follow_auto.then_some(Follow::Auto), "--fa"))
+        .or(flag(cli.follow_off.then_some(Follow::Off), "-F"))
 }
 
 /// `value`, when the command line gives it, from the flag `name`: the

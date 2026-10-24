@@ -16,7 +16,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::caps::Capabilities;
 use crate::compare::{Comparison, Fate, compare};
-use crate::config::{Paging, SearchCase};
+use crate::config::{self, Paging, SearchCase};
 use crate::images::Images;
 use crate::model::{Document, File};
 use crate::render::Inputs;
@@ -148,7 +148,7 @@ pub struct Options<'a> {
     pub reload: Option<&'a mut dyn Reload>,
     /// Whether the pager follows the document from the start: reads it
     /// again whenever it changes.
-    pub follow: bool,
+    pub follow: config::Follow,
 }
 
 impl Options<'_> {
@@ -159,7 +159,7 @@ impl Options<'_> {
             width: None,
             case,
             reload: None,
-            follow: false,
+            follow: config::Follow::Off,
         }
     }
 }
@@ -194,8 +194,9 @@ pub fn run(
     let mut size = terminal.size();
     let mut view: Option<View> = None;
     let mut state = State::new(case);
-    state.follow.on = follow && reload.is_some();
-    if follow && reload.is_none() {
+    if reload.is_some() {
+        state.follow.mode = follow;
+    } else if follow != config::Follow::Off {
         state.told = Some(Told::new(NOTHING_TO_FOLLOW));
     }
     // The document as reloaded, once it has been.
@@ -406,7 +407,7 @@ impl Status<'_> {
                 let place = (file.filter(|_| self.files.several()))
                     .map(|file| (file + 1, self.files.count()));
                 let position = view.position();
-                let following = state.follow.on;
+                let following = state.follow.on();
                 status::spans(name, place, position, following, found, width, &self.styles)
             }
         }
@@ -475,7 +476,7 @@ struct State {
 /// Following the document: reading it again whenever it changes.
 #[derive(Debug, Default)]
 struct Follow {
-    on: bool,
+    mode: config::Follow,
     /// How a change looked on the last poll, and when it was first seen
     /// looking so. It is read once a poll at least [`POLL`] later finds it
     /// looking the same, so that a file caught half written is not shown.
@@ -495,6 +496,11 @@ enum Polled {
 }
 
 impl Follow {
+    /// Whether the document is followed, on or auto.
+    fn on(&self) -> bool {
+        self.mode != config::Follow::Off
+    }
+
     /// What `change`, found on a poll at `now`, calls for.
     fn poll(&mut self, change: Change, now: Instant) -> Polled {
         let gone = std::mem::replace(&mut self.gone, false);
@@ -925,14 +931,17 @@ fn show(
                 }
                 Pressed::Follow => {
                     state.follow = Follow {
-                        on: !state.follow.on,
+                        mode: match state.follow.on() {
+                            true => config::Follow::Off,
+                            false => config::Follow::On,
+                        },
                         ..Follow::default()
                     }
                 }
             }
             state.moved(layout.view.top());
         }
-        if state.follow.on
+        if state.follow.on()
             && let Some(source) = reload.as_deref_mut()
         {
             match state.follow.poll(source.change(), now) {
@@ -1229,7 +1238,7 @@ mod tests {
             &mut inputs,
             Options {
                 reload: Some(then),
-                follow: true,
+                follow: config::Follow::On,
                 ..Options::new(SearchCase::Smart)
             },
             &mut terminal,
@@ -1300,7 +1309,7 @@ mod tests {
         let mut terminal = Fake::new(60, 6, &[b"j"]);
         let mut inputs = Inputs::new(Capabilities::ansi(80));
         let options = Options {
-            follow: true,
+            follow: config::Follow::On,
             ..Options::new(SearchCase::Smart)
         };
         let document = numbers(10);
@@ -1331,7 +1340,7 @@ mod tests {
         let document = numbers(10);
         let options = Options {
             reload: Some(&mut then),
-            follow: true,
+            follow: config::Follow::On,
             ..Options::new(SearchCase::Smart)
         };
         run(

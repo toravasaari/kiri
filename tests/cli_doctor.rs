@@ -381,6 +381,20 @@ fn following_tells_where_it_comes_from() {
     let report = text(&out.stdout);
     let row = "| Follow | off | `KIRI_FOLLOW=0` |";
     assert!(report.contains(row), "{row}\n{report}");
+    let out = doctor(&dir, &[])
+        .env("KIRI_FOLLOW", "auto")
+        .output()
+        .unwrap();
+    assert_succeeded(&out);
+    let report = text(&out.stdout);
+    let row = "| Follow | auto | `KIRI_FOLLOW=auto` |";
+    assert!(report.contains(row), "{row}\n{report}");
+    let report = piped(&dir, &["--fa"]);
+    let row = "| Follow | auto | `--fa` |";
+    assert!(report.contains(row), "{row}\n{report}");
+    let report = piped(&dir, &["--follow", "auto"]);
+    let row = "| Follow | auto | `--follow` |";
+    assert!(report.contains(row), "{row}\n{report}");
 }
 
 #[test]

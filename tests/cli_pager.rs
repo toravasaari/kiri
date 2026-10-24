@@ -283,6 +283,8 @@ fn following_pages_a_short_file() {
     for (args, file) in [
         (&["-f", "document.md"][..], ""),
         (&["--follow", "on", "document.md"][..], ""),
+        (&["--fa", "document.md"][..], ""),
+        (&["--follow", "auto", "document.md"][..], ""),
         (&["document.md"][..], "follow = \"on\"\n"),
         (&["--paging", "auto", "-f", "document.md"][..], ""),
     ] {
@@ -1106,6 +1108,10 @@ fn standard_input_and_several_files_have_nothing_to_follow() {
     let (status, seen) = in_steps("pager-follow-files", &args, None, &steps);
     assert!(status.success());
     assert!(text_of(&seen).contains("nothing to follow"), "{seen:?}");
+    let args = ["-p", "--fa"];
+    let (status, seen) = in_steps("pager-follow-auto-stdin", &args, Some(&long()), &steps);
+    assert!(status.success());
+    assert!(text_of(&seen).contains("nothing to follow"), "{seen:?}");
 }
 
 #[test]
@@ -1132,9 +1138,9 @@ fn following_from_the_configuration_file_is_quiet_where_there_is_nothing_to_foll
 }
 
 #[test]
-fn follow_takes_on_or_off_and_capital_f_turns_it_off() {
+fn follow_takes_on_off_or_auto_and_one_flag_of_them() {
     let dir = common::Scratch::new("follow-values");
-    for value in ["auto", "yes"] {
+    for value in ["yes", "Auto"] {
         let out = command(&dir)
             .args(["--follow", value, "-"])
             .output()
@@ -1146,8 +1152,15 @@ fn follow_takes_on_or_off_and_capital_f_turns_it_off() {
             "{stderr}"
         );
     }
-    let out = command(&dir).args(["-f", "-F", "-"]).output().unwrap();
-    assert!(!out.status.success());
+    for flags in [
+        ["-f", "-F"],
+        ["--fa", "-F"],
+        ["-f", "--fa"],
+        ["--fa", "--follow=on"],
+    ] {
+        let out = command(&dir).args(flags).arg("-").output().unwrap();
+        assert!(!out.status.success(), "{flags:?}");
+    }
 }
 
 /// `frame` without its escape sequences.

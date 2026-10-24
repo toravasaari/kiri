@@ -67,7 +67,7 @@ environment! {
     kiri_no_images: "KIRI_NO_IMAGES",
     /// `KIRI_PAGING`: `always`, `auto` or `never`, or `1` or `0`.
     kiri_paging: "KIRI_PAGING",
-    /// `KIRI_FOLLOW`: `on` or `off`, or `1` or `0`.
+    /// `KIRI_FOLLOW`: `on`, `off` or `auto`, or `1` or `0`.
     kiri_follow: "KIRI_FOLLOW",
     /// `KIRI_FRONT_MATTER`: `table`, `code`, `hide` or `off`.
     kiri_front_matter: "KIRI_FRONT_MATTER",
@@ -182,7 +182,7 @@ pub struct Config {
     pub search_case: Option<SearchCase>,
     /// Whether the pager follows a file, reading it again whenever it
     /// changes.
-    pub follow: Option<bool>,
+    pub follow: Option<Follow>,
     /// How front matter shows.
     pub front_matter: Option<FrontMatter>,
     /// How the rows of a table are told apart.
@@ -255,6 +255,18 @@ pub enum SearchCase {
     Smart,
     /// Case matches exactly.
     Literal,
+}
+
+/// Whether the pager follows a lone file, reading it again whenever it
+/// changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Follow {
+    #[default]
+    Off,
+    /// Read again, with the view kept where it is.
+    On,
+    /// Read again, with the view moved to a change.
+    Auto,
 }
 
 /// Where the configuration file is.
@@ -344,7 +356,7 @@ struct ConfigToml {
     #[serde(default, deserialize_with = "named")]
     search_case: Option<SearchCase>,
     #[serde(default, deserialize_with = "named")]
-    follow: Option<bool>,
+    follow: Option<Follow>,
     #[serde(default, deserialize_with = "named")]
     front_matter: Option<FrontMatter>,
     #[serde(default, deserialize_with = "named")]
@@ -675,6 +687,12 @@ impl Named for SearchCase {
     const NAMES: &'static [&'static str] = &["smart", "literal"];
 }
 
+impl Named for Follow {
+    const ALL: &'static [Self] = &[Self::On, Self::Off, Self::Auto];
+    const NAMES: &'static [&'static str] = &["on", "off", "auto"];
+    const ALIASES: &'static [(&'static str, Self)] = &[("1", Self::On), ("0", Self::Off)];
+}
+
 impl Named for FrontMatter {
     const ALL: &'static [Self] = &[Self::Table, Self::Code, Self::Hide, Self::Off];
     const NAMES: &'static [&'static str] = &["table", "code", "hide", "off"];
@@ -777,7 +795,7 @@ pub struct Options {
     /// When the document is paged.
     pub paging: Option<Setting<Paging>>,
     /// Whether the pager follows a file.
-    pub follow: Option<Setting<bool>>,
+    pub follow: Option<Setting<Follow>>,
     /// How front matter shows.
     pub front_matter: Option<Setting<FrontMatter>>,
     /// How the rows of a table are told apart.
@@ -805,7 +823,7 @@ pub struct Settings {
     pub search_case: SearchCase,
     /// Whether the pager follows a file, reading it again whenever it
     /// changes.
-    pub follow: bool,
+    pub follow: Follow,
     /// How front matter shows.
     pub front_matter: FrontMatter,
     /// How the rows of a table are told apart.
@@ -840,7 +858,7 @@ pub struct Choices {
     /// How a search in the pager treats case.
     pub search_case: Setting<SearchCase>,
     /// Whether the pager follows a file.
-    pub follow: Setting<bool>,
+    pub follow: Setting<Follow>,
     /// How front matter shows.
     pub front_matter: Setting<FrontMatter>,
     /// How the rows of a table are told apart.
@@ -941,7 +959,7 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
             options.follow.clone(),
             variable(env, "KIRI_FOLLOW"),
             config.follow,
-            false,
+            Follow::default(),
             w,
         ),
         front_matter,
@@ -1447,11 +1465,18 @@ mod tests {
     }
 
     #[test]
-    fn the_follow_key_takes_on_or_off() {
+    fn the_follow_key_takes_on_off_or_auto() {
         let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
-        assert_eq!(parsed("follow = \"on\"\n").unwrap().follow, Some(true));
-        assert_eq!(parsed("follow = \"off\"\n").unwrap().follow, Some(false));
-        assert!(parsed("follow = \"auto\"\n").is_err());
+        assert_eq!(
+            parsed("follow = \"on\"\n").unwrap().follow,
+            Some(Follow::On)
+        );
+        assert_eq!(
+            parsed("follow = \"off\"\n").unwrap().follow,
+            Some(Follow::Off)
+        );
+        let auto = parsed("follow = \"auto\"\n").map(|config| config.follow);
+        assert_eq!(auto, Ok(Some(Follow::Auto)));
         assert!(parsed("follow = true\n").is_err());
     }
 
@@ -1459,20 +1484,24 @@ mod tests {
     fn following_is_off_unless_the_configuration_file_or_a_flag_says_otherwise() {
         let env = Environment::default();
         let choices = choose(&Options::default(), &env, &Config::default());
-        assert_eq!(choices.follow, Setting::new(false, Origin::Default));
+        assert_eq!(choices.follow, Setting::new(Follow::Off, Origin::Default));
         let config = Config {
-            follow: Some(true),
+            follow: Some(Follow::Auto),
             ..Config::default()
         };
         let choices = choose(&Options::default(), &env, &config);
-        assert_eq!(choices.follow, Setting::new(true, Origin::File));
-        assert!(choices.with_theme(Theme::default()).follow);
+        assert_eq!(choices.follow, Setting::new(Follow::Auto, Origin::File));
+        let settings = choices.with_theme(Theme::default());
+        assert_eq!(settings.follow, Follow::Auto);
         let options = Options {
-            follow: Some(Setting::new(false, Origin::Flag("-F"))),
+            follow: Some(Setting::new(Follow::Off, Origin::Flag("-F"))),
             ..Options::default()
         };
         let choices = choose(&options, &env, &config);
-        assert_eq!(choices.follow, Setting::new(false, Origin::Flag("-F")));
+        assert_eq!(
+            choices.follow,
+            Setting::new(Follow::Off, Origin::Flag("-F"))
+        );
     }
 
     #[test]
@@ -1816,6 +1845,7 @@ mod tests {
         }
         check::<Paging>();
         check::<SearchCase>();
+        check::<Follow>();
         check::<FrontMatter>();
         check::<TableRows>();
         check::<RenderErrors>();
@@ -1878,12 +1908,21 @@ mod tests {
         check_variable(
             |choices| &choices.follow,
             "KIRI_FOLLOW",
-            &[("on", true), ("off", false), ("1", true), ("0", false)],
+            &[
+                ("on", Follow::On),
+                ("off", Follow::Off),
+                ("auto", Follow::Auto),
+                ("1", Follow::On),
+                ("0", Follow::Off),
+            ],
             Config {
-                follow: Some(false),
+                follow: Some(Follow::Off),
                 ..Config::default()
             },
-            ("joo", "KIRI_FOLLOW: `joo` is not on, off, 1 or 0; left out"),
+            (
+                "joo",
+                "KIRI_FOLLOW: `joo` is not on, off, auto, 1 or 0; left out",
+            ),
         );
     }
 

@@ -30,7 +30,7 @@ paging = "auto"
 search_case = "smart"
 
 # Whether the pager follows a lone file, reading it again whenever it
-# changes: "on" or "off".
+# changes: "on", "off" or "auto", which also moves the view to a change.
 follow = "off"
 
 # Front matter render style: "table", "code", "hide" or "off".
@@ -126,13 +126,15 @@ text without escape sequences.
 ## Follow
 
 The first of these that is given decides whether the pager follows a lone
-file, reading it again whenever it changes, with the view kept at the
-same block, as `r` reads it again:
+file: `on` reads it again whenever it changes, with the view kept at the
+same block, as `r` reads it again; `auto` also moves the view to a change;
+`off` does not follow it:
 
-1. `--follow on|off`, `-f` for `on` or `-F` for `off`; only one of them
-   can be given
-2. `KIRI_FOLLOW`: `on` or `off`, `1` for `on` and `0` for `off`; an empty
-   value counts as unset, and any other value is left out with a warning
+1. `--follow on|off|auto`, `-f` for `on`, `--fa` for `auto` or `-F` for
+   `off`; only one of them can be given
+2. `KIRI_FOLLOW`: `on`, `off` or `auto`, `1` for `on` and `0` for `off`;
+   an empty value counts as unset, and any other value is left out with a
+   warning
 3. `follow` in the configuration file
 4. `off`
 
@@ -143,7 +145,7 @@ the window, unless paging is `never`: `kiri -f -P notes.md` prints it.
 modification time and length, so on a filesystem that keeps the time only
 to the second, an edit within the same second that keeps the length waits
 for the next change. A document from standard input, or several files,
-cannot be followed yet: with `-f` or `--follow on` the pager says
+cannot be followed yet: with `-f`, `--fa`, `--follow on` or `--follow auto` the pager says
 `nothing to follow`, and with `KIRI_FOLLOW` or `follow` in the
 configuration file it says nothing.
 
