@@ -298,8 +298,9 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     let Some(document) = document(input, &source, path, &settings, &caps, warn)? else {
         return Ok(write_as_is(&source)?);
     };
-    // Only a document read from a file can be read again.
-    let from = file.map(|path| FromFile { path, input });
+    // Only a document read from a regular file can be read again: a pipe
+    // given by its path, such as <(cmd), is read to its end already.
+    let from = (file.filter(|path| path.is_file())).map(|path| FromFile { path, input });
     show_document(
         &context,
         &document,
@@ -1043,7 +1044,7 @@ impl<'a> Context<'a> {
     }
 }
 
-/// A document read from a file, as `input`, which the pager can read
+/// A document read from a regular file, as `input`, which the pager can read
 /// again.
 #[derive(Clone, Copy)]
 struct FromFile<'a> {

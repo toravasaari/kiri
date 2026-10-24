@@ -821,3 +821,54 @@ fn a_reload_shows_an_image_whose_file_changed_and_keeps_the_others() {
     let widths = sent_widths(&seen);
     assert_eq!(widths, ["s=20", "s=20", "s=40", "s=20"], "{seen:?}");
 }
+
+/// Writes `document` into the named pipe at `path` once a reader opens it,
+/// on a thread of its own.
+fn write_pipe(path: &std::path::Path, document: String) {
+    let path = path.to_owned();
+    std::thread::spawn(move || {
+        let mut pipe = std::fs::File::options().write(true).open(path).unwrap();
+        let _ = pipe.write_all(document.as_bytes());
+    });
+}
+
+#[test]
+fn a_named_pipe_reloads_nothing() {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let prepare = |dir: &std::path::Path| {
+        let path = dir.join("pipe.md");
+        let name = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: `name` is a C string that lives through the call.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        write_pipe(&path, long());
+    };
+    // Another document waits in the pipe, should kiri open it again.
+    let again = |dir: &std::path::Path| {
+        write_pipe(&dir.join("pipe.md"), "Again\n".to_owned());
+        b"r" as &'static [u8]
+    };
+    let quit = |dir: &std::path::Path| {
+        // Lets the writer's open go through, should kiri not have opened
+        // the pipe again.
+        let _ = std::fs::File::options()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(dir.join("pipe.md"));
+        b"q" as &'static [u8]
+    };
+    let steps = [
+        Step {
+            frames: 1,
+            keys: &again,
+        },
+        Step {
+            frames: 2,
+            keys: &quit,
+        },
+    ];
+    let (status, seen) = in_steps_with("pager-reload-fifo", prepare, &["pipe.md"], &steps);
+    assert!(status.success());
+    assert!(text_of(&seen).contains("nothing to reload"), "{seen:?}");
+    assert!(!seen.contains("Again"), "{seen:?}");
+}
