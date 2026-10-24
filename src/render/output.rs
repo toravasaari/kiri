@@ -1,18 +1,15 @@
 //! Styled lines to bytes: SGR attributes, OSC 8 hyperlinks, cursor movement,
-//! scaled text through `kitty::text` and images through `kitty::graphics`.
+//! scaled text through `kitty::text`, and images through `encoder`, which
+//! sends them, and the placeholders of `kitty::graphics`, which show them.
 
-use std::collections::HashMap;
 use std::io::{self, Write};
 
-use image::RgbaImage;
-use image::imageops;
-
-use super::image::{Placement, Size, cell_size};
+use super::encoder::Encoder;
 use super::style::{ImageRow, Line, Span, Style};
 use super::wrap::width;
 use crate::caps::Capabilities;
 use crate::color::{Color, Underline};
-use crate::images::{Images, Source};
+use crate::images::Images;
 use crate::kitty;
 use crate::kitty::graphics;
 use crate::size::TextSize;
@@ -52,7 +49,8 @@ pub fn write(
     page: Page,
     out: &mut impl Write,
 ) -> io::Result<()> {
-    let mut writer = Writer::new(images, caps, page);
+    let mut encoder = Encoder::new();
+    let mut writer = Writer::new(images, caps, page, &mut encoder);
     for line in lines {
         for row in 0..writer.rows(line) {
             writer.row(line, row, out)?;
@@ -68,8 +66,8 @@ pub fn rows(line: &Line, caps: &Capabilities) -> u8 {
     if caps.styling { line.size.scale() } else { 1 }
 }
 
-/// Writes lines row by row, wherever the cursor is, and remembers which
-/// images it has sent.
+/// Writes lines row by row, wherever the cursor is, with the images sent
+/// through an encoder.
 pub struct Writer<'a> {
     images: &'a Images,
     caps: &'a Capabilities,
@@ -77,20 +75,26 @@ pub struct Writer<'a> {
     foreground: Option<Color>,
     /// Every line dimmed, as behind a panel.
     dim: bool,
-    /// The images sent so far, by where and how large they are shown.
-    sent: HashMap<Placement, graphics::ImageId>,
+    /// What the terminal holds of the images.
+    encoder: &'a mut Encoder,
 }
 
 impl<'a> Writer<'a> {
-    /// A writer for lines on `page` with the pixels in `images`.
-    pub fn new(images: &'a Images, caps: &'a Capabilities, page: Page) -> Self {
+    /// A writer for lines on `page` with the pixels in `images`, sent
+    /// through `encoder`.
+    pub fn new(
+        images: &'a Images,
+        caps: &'a Capabilities,
+        page: Page,
+        encoder: &'a mut Encoder,
+    ) -> Self {
         Self {
             images,
             caps,
             background: page.background.filter(|_| caps.color),
             foreground: page.foreground.filter(|_| caps.color),
             dim: false,
-            sent: HashMap::new(),
+            encoder,
         }
     }
 
@@ -134,14 +138,7 @@ impl<'a> Writer<'a> {
         }
         let image = match &line.image {
             Some(ImageRow { placement, row }) => {
-                let id = match self.sent.get(placement.as_ref()) {
-                    Some(&id) => id,
-                    None => {
-                        let id = send(placement, self.images, caps, out)?;
-                        self.sent.insert(placement.as_ref().clone(), id);
-                        id
-                    }
-                };
+                let id = self.encoder.id(placement, self.images, caps, out)?;
                 Some((id, *row, placement.size.columns))
             }
             None => None,
@@ -204,48 +201,6 @@ impl Writer<'_> {
         write_spans(spans, Style::clone, &mut current, self.caps, out)?;
         transition(&current, &Style::default(), self.caps, out)
     }
-}
-
-/// Scales the image `placement` shows to its size and sends it.
-fn send(
-    placement: &Placement,
-    images: &Images,
-    caps: &Capabilities,
-    out: &mut impl Write,
-) -> io::Result<graphics::ImageId> {
-    let Some(Ok(source)) = images.get(&placement.key) else {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("no pixels for image {}", placement.key),
-        ));
-    };
-    let pixels = fit(source, placement.size, cell_size(caps));
-    let cells = graphics::Cells {
-        columns: placement.size.columns,
-        rows: placement.size.rows,
-    };
-    let (width, height) = pixels.dimensions();
-    let id = graphics::ImageId::new(pixels.as_raw(), width, height, cells);
-    let pixels = graphics::Pixels {
-        width,
-        height,
-        rgba: pixels.as_raw(),
-    };
-    graphics::transmit(out, id, &pixels, cells)?;
-    Ok(id)
-}
-
-/// `source` drawn at `size` and placed at the top left of the cells it
-/// covers, the rest transparent. The terminal then shows it pixel for pixel
-/// when the cells are `cell` pixels, and scales it as a whole when they are
-/// not.
-fn fit(source: &Source, size: Size, cell: (u16, u16)) -> RgbaImage {
-    let mut canvas = RgbaImage::new(
-        u32::from(size.columns) * u32::from(cell.0),
-        u32::from(size.rows) * u32::from(cell.1),
-    );
-    imageops::replace(&mut canvas, &source.render(size.width, size.height), 0, 0);
-    canvas
 }
 
 /// Writes normal-size spans, leaving `current` at the last one's style.

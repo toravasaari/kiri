@@ -23,6 +23,7 @@ use crate::images::Images;
 use crate::model::{Document, File};
 use crate::render::Inputs;
 use crate::render::block::BlockInfo;
+use crate::render::encoder::Encoder;
 use crate::render::layout::{Content, Stream};
 use crate::render::output::{self, Page, Writer};
 use crate::render::style::{self, Line, Span, Style};
@@ -237,7 +238,8 @@ pub fn run(
                 line.size = TextSize::NORMAL;
             }
         }
-        let mut writer = Writer::new(&inputs.images, &inputs.caps, page);
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&inputs.images, &inputs.caps, page, &mut encoder);
         let heights: Vec<usize> = lines
             .iter()
             .map(|line| usize::from(writer.rows(line)))
@@ -3229,6 +3231,60 @@ mod tests {
             status_row(&frames[2], 6).contains("/line 2 2/11"),
             "{frames:#?}"
         );
+    }
+
+    /// The pixels of the image the tests of images show: a square of
+    /// 20 pixels in `rgba`.
+    fn square(rgba: [u8; 4]) -> crate::images::Source {
+        crate::images::Source::Raster(image::RgbaImage::from_pixel(20, 20, image::Rgba(rgba)))
+    }
+
+    /// A document that shows the image `square.png`, and inputs for kitty
+    /// with its pixels in `rgba`.
+    fn pictured(rgba: [u8; 4]) -> (Document, Inputs) {
+        let document = crate::parse::parse("Above\n\n![a square](square.png)\n\nBelow\n");
+        let mut inputs = Inputs::new(Capabilities::kitty(80));
+        inputs.images.insert("square.png", Ok(square(rgba)));
+        (document, inputs)
+    }
+
+    /// All the pager writes for `document` with `inputs` on `terminal`,
+    /// reloading it from `then` when there is one.
+    fn written(
+        document: &Document,
+        mut inputs: Inputs,
+        terminal: &mut Fake,
+        then: Option<&mut Then>,
+    ) -> String {
+        run(
+            Content::Document(document),
+            None,
+            "notes.md",
+            &mut inputs,
+            Options {
+                reload: then.map(|then| then as &mut dyn Reload),
+                ..Options::new(SearchCase::Smart)
+            },
+            terminal,
+        )
+        .unwrap();
+        String::from_utf8(terminal.out.clone()).unwrap()
+    }
+
+    /// How many images `out` sends.
+    fn transmits(out: &str) -> usize {
+        out.matches("\x1b_Ga=T,").count()
+    }
+
+    #[test]
+    fn an_image_is_sent_before_its_first_row() {
+        let (document, inputs) = pictured([255, 0, 0, 255]);
+        let mut terminal = Fake::new(60, 6, &[b"q"]);
+        let out = written(&document, inputs, &mut terminal, None);
+        assert_eq!(transmits(&out), 1, "{out:?}");
+        let sent = out.find("\x1b_Ga=T,").unwrap();
+        let shown = out.find(crate::kitty::graphics::PLACEHOLDER).unwrap();
+        assert!(sent < shown, "{out:?}");
     }
 
     /// The terminal colours of the fade tests: grey text on black, with

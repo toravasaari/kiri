@@ -7,6 +7,7 @@ use kiri::caps::Capabilities;
 use kiri::images::Images;
 use kiri::pager::view::{Motion, View};
 use kiri::render::Inputs;
+use kiri::render::encoder::Encoder;
 use kiri::render::output::{Page, Writer};
 
 /// The frame `kiri::pager::draw` writes for `source` in a window of `rows`
@@ -16,7 +17,8 @@ fn frame(source: &str, caps: Capabilities, page: Page, rows: usize, motions: &[M
     let inputs = Inputs::new(caps);
     let lines = kiri::render::layout::layout(&document, &inputs);
     let images = Images::new();
-    let mut writer = Writer::new(&images, &inputs.caps, page);
+    let mut encoder = Encoder::new();
+    let mut writer = Writer::new(&images, &inputs.caps, page, &mut encoder);
     let heights = lines
         .iter()
         .map(|line| usize::from(writer.rows(line)))
