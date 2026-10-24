@@ -582,13 +582,16 @@ impl State {
 
     /// Finds the last search again in `lines`, laid out anew, from the
     /// line `top` of the view, closes the prompt when the window has no
-    /// status line, `bar`, to show it on, and forgets the last move to a
-    /// file when the view has moved.
+    /// status line, `bar`, to show it on, and moves the last move to a
+    /// file along with the view: it is only the new layout that put the
+    /// view's top on another line, not a key.
     fn lay_out(&mut self, lines: &[Line], top: usize, bar: bool) {
         if !bar {
             self.prompt = None;
         }
-        self.moved(top);
+        if let Some(went) = &mut self.went {
+            went.top = top;
+        }
         if let Some(search) = &mut self.search {
             *search = Search::new(lines, search.term(), self.case, top);
         }
@@ -1579,6 +1582,26 @@ mod tests {
         assert!(named(&frames[4], "c.md"), "{frames:#?}");
         // Once the view moves, the file at its top again.
         assert!(named(&frames[5], "a.md"), "{frames:#?}");
+    }
+
+    #[test]
+    fn colon_n_still_names_its_file_after_a_new_window_size() {
+        // As above, but the window then grows by two rows, so the last
+        // page starts higher up, and the view still stops short of c.md's
+        // header.
+        let reads: &[&[u8]] = &[b":n", b":n", b""];
+        let mut terminal = Fake::new(40, 12, reads);
+        terminal.sizes = [window(40, 12), window(40, 12), window(40, 14)].into();
+        show_files(
+            &files(&[("a.md", 10), ("b.md", 1), ("c.md", 1)]),
+            &mut terminal,
+        );
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        let named =
+            |frame: &str, name: &str, rows| status_row(frame, rows).contains(&format!(" {name} "));
+        assert!(named(&frames[2], "c.md", 12), "{frames:#?}");
+        assert!(named(&frames[3], "c.md", 14), "{frames:#?}");
     }
 
     #[test]
