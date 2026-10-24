@@ -139,7 +139,7 @@ same block, as `r` reads it again:
 Following pages a lone file as `-p` does, also when it is shorter than
 the window, unless paging is `never`: `kiri -f -P notes.md` prints it.
 `F` turns following on and off in the pager, and the status line says
-`follow` while it is on. Following notices a change by the file's
+`F follow` while it is on. Following notices a change by the file's
 modification time and length, so on a filesystem that keeps the time only
 to the second, an edit within the same second that keeps the length waits
 for the next change. A document from standard input, or several files,

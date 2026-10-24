@@ -197,7 +197,12 @@ pub fn spans(
     };
     // The word that tells the pager follows the document, and a gap of
     // three before the position.
-    let mark = if following { FOLLOW.width() + 3 } else { 0 };
+    let (key, what) = FOLLOW;
+    let mark = if following {
+        key.width() + what.width() + 3
+    } else {
+        0
+    };
     // The search and a gap of three before the position.
     let search = found.map(|found| search(found, styles)).unwrap_or_default();
     let search_width = if search.is_empty() {
@@ -227,7 +232,8 @@ pub fn spans(
         right.push(Span::new("   ", styles.bar.clone()));
     }
     if following && with_mark {
-        right.push(Span::new(FOLLOW, styles.bar.clone()));
+        right.push(Span::new(key, bold.clone()));
+        right.push(Span::new(what, styles.bar.clone()));
         right.push(Span::new("   ", styles.bar.clone()));
     }
     right.push(Span::new(&percent, styles.bar.clone()));
@@ -310,8 +316,9 @@ pub fn prompt(mark: char, term: &str, width: usize, styles: &Styles) -> Vec<Span
 /// The badge that tells the pager is on.
 const BADGE: &str = " kiri ";
 
-/// What tells that the pager follows the document.
-const FOLLOW: &str = "follow";
+/// What tells that the pager follows the document: the key that turns it
+/// off, and the word after it.
+const FOLLOW: (&str, &str) = ("F", " follow");
 
 /// The cursor after the term in the prompt.
 const CURSOR: char = '\u{258f}';
@@ -386,13 +393,20 @@ mod tests {
     }
 
     #[test]
-    fn following_is_told_before_the_position() {
+    fn following_is_told_before_the_position_with_its_key() {
         let spans = spans("notes.md", None, at(42), true, None, 60, &styles());
         assert_eq!(
             text(&spans),
-            " kiri  notes.md              follow   42%   ? help   q quit "
+            " kiri  notes.md            F follow   42%   ? help   q quit "
         );
         assert_eq!(width(&spans), 60);
+        // The key in bold, as the keys for help and quitting are.
+        let style = |text: &str| {
+            let span = spans.iter().find(|span| span.text == text);
+            span.map(|span| span.style.clone())
+        };
+        assert_eq!(style("F"), style("?"));
+        assert!(style("F").is_some_and(|style| style.bold), "{spans:?}");
     }
 
     #[test]
@@ -408,11 +422,11 @@ mod tests {
                 &styles(),
             ))
         };
-        assert_eq!(shown(30, None), " kiri  notes.md  follow   42% ");
-        assert_eq!(shown(20, None), " kiri  follow   42% ");
-        assert_eq!(shown(19, None), " kiri  …tes.md 42% ");
-        assert_eq!(shown(33, AT), " kiri  /kiri 3/12   follow   42% ");
-        assert_eq!(shown(32, AT), " kiri  …tes.md /kiri 3/12   42% ");
+        assert_eq!(shown(30, None), " kiri  …tes.md F follow   42% ");
+        assert_eq!(shown(22, None), " kiri  F follow   42% ");
+        assert_eq!(shown(21, None), " kiri  notes.md  42% ");
+        assert_eq!(shown(35, AT), " kiri  /kiri 3/12   F follow   42% ");
+        assert_eq!(shown(34, AT), " kiri  notes.md  /kiri 3/12   42% ");
         for width in 0..80 {
             let spans = spans("docs/notes.md", None, at(42), true, AT, width, &styles());
             let expected = if width < 11 { width.min(6) } else { width };
