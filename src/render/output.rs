@@ -123,7 +123,8 @@ impl<'a> Writer<'a> {
 
     /// Erases the whole screen in the page's background and leaves the
     /// cursor at the top left with the terminal's default style.
-    pub fn clear(&self, out: &mut impl Write) -> io::Result<()> {
+    pub fn clear(&mut self, out: &mut impl Write) -> io::Result<()> {
+        self.encoder.cleared();
         let fill = self.fill();
         transition(&Style::default(), &fill, self.caps, out)?;
         out.write_all(b"\x1b[H\x1b[2J")?;
@@ -210,7 +211,7 @@ impl Writer<'_> {
         self.encoder.animate(elapsed, self.ink, out)
     }
 
-    /// Whether a band below an image that is loading is shown.
+    /// Whether a band below an image that is loading is on the screen.
     pub fn has_bands(&self) -> bool {
         self.encoder.has_bands()
     }

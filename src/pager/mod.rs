@@ -4778,4 +4778,33 @@ mod tests {
         };
         assert_eq!(shown(last), shown(&fresh.frames()[0]));
     }
+
+    #[test]
+    fn a_band_scrolled_out_of_view_does_not_move_on() {
+        let mut reload = red_then(filled(20, 20, [0, 0, 255, 255]));
+        let red = filled(20, 20, [255, 0, 0, 255]);
+        let terminal = loading_in(
+            4,
+            &around(2, "a.png"),
+            vec![("a.png", red)],
+            &mut reload,
+            // The band on the second row, then below the view, past it.
+            &[b"jjj", b"r", b"", b"jjjj", b"", b""],
+            &[],
+            config::Follow::Off,
+        );
+        let waits = &terminal.waits;
+        assert_eq!(waits[2], FRAME, "{waits:?}");
+        assert_eq!(waits[4..6], [POLL, POLL], "{waits:?}");
+        // Sent with the frame that showed it and after the read below;
+        // nothing once it is out of view.
+        let out = String::from_utf8(terminal.out.clone()).unwrap();
+        let (_, after) = out.rsplit_once("\x1b[?2026h").unwrap();
+        let band = sent_ids(&out)[2];
+        assert_eq!(
+            sent_ids(after).iter().filter(|&&id| id == band).count(),
+            0,
+            "{out:?}"
+        );
+    }
 }

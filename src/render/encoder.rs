@@ -33,6 +33,9 @@ pub struct Encoder {
     /// pixels of their cells: one image for all the bands of a width,
     /// which [`Encoder::animate`] sends anew for each step.
     bands: HashMap<(u16, (u16, u16)), ImageId>,
+    /// The bands drawn since the screen was last cleared, which are the
+    /// ones on it.
+    shown: HashSet<(u16, (u16, u16))>,
 }
 
 /// An image the terminal holds.
@@ -103,6 +106,7 @@ impl Encoder {
         ink: Ink,
         out: &mut impl Write,
     ) -> io::Result<ImageId> {
+        self.shown.insert((columns, cell));
         if let Some(&id) = self.bands.get(&(columns, cell)) {
             return Ok(id);
         }
@@ -114,20 +118,27 @@ impl Encoder {
         Ok(id)
     }
 
-    /// Sends each band the terminal holds anew, as it is `elapsed` after
-    /// its start, in `ink`, under the id it has, so that its light part
-    /// moves on where it is shown.
+    /// Tells the encoder that the screen was cleared: no band is on it
+    /// until one is drawn again.
+    pub fn cleared(&mut self) {
+        self.shown.clear();
+    }
+
+    /// Sends each band on the screen anew, as it is `elapsed` after its
+    /// start, in `ink`, under the id it has, so that its light part moves
+    /// on.
     pub fn animate(&self, elapsed: Duration, ink: Ink, out: &mut impl Write) -> io::Result<()> {
-        for (&(columns, cell), &id) in &self.bands {
+        let shown = (self.shown.iter()).filter_map(|band| Some((band, self.bands.get(band)?)));
+        for (&(columns, cell), &id) in shown {
             let band = loading::band(columns, cell, ink, elapsed);
             send(out, id, &band, graphics::Cells { columns, rows: 1 })?;
         }
         Ok(())
     }
 
-    /// Whether the terminal holds a band.
+    /// Whether a band is on the screen.
     pub fn has_bands(&self) -> bool {
-        !self.bands.is_empty()
+        self.shown.iter().any(|band| self.bands.contains_key(band))
     }
 
     /// Keeps only the images `lines` place on a terminal with `caps`, as
