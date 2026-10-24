@@ -102,7 +102,9 @@ fn parse_at_most(
             grouped(left_out, '\u{a0}')
         )));
     }
-    Ok(Document::new(blocks))
+    let mut document = Document::new(blocks);
+    document.lines.insert(vec![0], 1);
+    Ok(document)
 }
 
 /// `n` with its digits in groups of three, joined by `separator`.
@@ -337,10 +339,10 @@ mod tests {
     }
 
     #[test]
-    fn a_table_and_its_note_have_no_source_lines() {
+    fn the_table_starts_on_the_first_line_and_its_note_on_none() {
         let document = at_most("a\n1\n2\n", 2).unwrap();
         assert!(matches!(document.blocks[1], Block::Note(_)));
-        assert_eq!(document.lines.get(&[0]), None);
+        assert_eq!(document.lines.get(&[0]), Some(1));
         assert_eq!(document.lines.get(&[1]), None);
     }
 

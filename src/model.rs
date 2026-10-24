@@ -30,8 +30,9 @@ impl Document {
 /// item of the list that is the third block of the document. A block that
 /// is not in the source, such as a note, has no line.
 ///
-/// Where a document does not come from Markdown, the table is empty. It
-/// takes no part in comparing documents: two documents with the same
+/// A document read from another format has a line for each block that
+/// starts in its file: a CSV table and a file shown as code start on the
+/// first. It takes no part in comparing documents: two documents with the same
 /// blocks are equal wherever the blocks were written.
 #[derive(Debug, Clone, Default)]
 pub struct SourceLines(std::collections::BTreeMap<Vec<usize>, usize>);
