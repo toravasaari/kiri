@@ -684,9 +684,7 @@ fn page_files(
                 let prefix = format!("{}: ", given.path.display());
                 let reason = why.strip_prefix(&prefix).unwrap_or(&why).to_owned();
                 error = Some(why);
-                Document {
-                    blocks: vec![Block::Error(reason)],
-                }
+                Document::new(vec![Block::Error(reason)])
             }
             Shown::Read(image) => {
                 let key = ImageKey::from(name.as_str()).in_document(number);
@@ -969,9 +967,7 @@ fn drawn(
             let name = given.name.clone();
             images.insert(ImageKey::from(name.as_str()).in_document(number), Ok(image));
             given.shown = Shown::Document {
-                document: Document {
-                    blocks: vec![Block::ImageFile(name)],
-                },
+                document: Document::new(vec![Block::ImageFile(name)]),
                 images: true,
             };
             None
@@ -999,9 +995,7 @@ fn drawn(
 
 /// The image file `name` among several, as a file to render.
 fn image_file(name: String) -> kiri::model::File {
-    let document = Document {
-        blocks: vec![Block::ImageFile(name.clone())],
-    };
+    let document = Document::new(vec![Block::ImageFile(name.clone())]);
     kiri::model::File { name, document }
 }
 

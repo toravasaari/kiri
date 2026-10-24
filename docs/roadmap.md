@@ -602,7 +602,7 @@ A part that needs one names it, such as "needs G1.3".
   of a stream and keeping the top block in place when the window is
   resized use it already; the others are still to come.
 
-#### G1.6 Comparing two documents
+#### G1.6 Comparing two documents (done)
 
 - Two versions of a document compared block by block: which blocks
   stayed, which changed, and which were added or removed. The follow
@@ -610,6 +610,8 @@ A part that needs one names it, such as "needs G1.3".
   changed, and the diff view (4.6.4) to show it. A block may also come
   to know the line of the source it starts on, so a reader can open the
   source there in an editor or point to it, such as `plan.md` line 42.
+  Both are done: `src/compare.rs` compares two documents, and each block
+  knows its line. Nothing uses them yet.
 
 ### G2 Images
 

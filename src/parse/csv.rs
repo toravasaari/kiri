@@ -102,7 +102,9 @@ fn parse_at_most(
             grouped(left_out, '\u{a0}')
         )));
     }
-    Ok(Document { blocks })
+    let mut document = Document::new(blocks);
+    document.lines.insert(vec![0], 1);
+    Ok(document)
 }
 
 /// `n` with its digits in groups of three, joined by `separator`.
@@ -142,16 +144,14 @@ mod tests {
 
     /// The table `header` and `rows`, all columns left-aligned.
     fn table(header: &[&str], rows: &[&[&str]]) -> Document {
-        Document {
-            blocks: vec![Block::Table(Table {
-                alignments: vec![Alignment::Left; header.len()],
-                header: header.iter().map(|text| cell(text)).collect(),
-                rows: rows
-                    .iter()
-                    .map(|row| row.iter().map(|text| cell(text)).collect())
-                    .collect(),
-            })],
-        }
+        Document::new(vec![Block::Table(Table {
+            alignments: vec![Alignment::Left; header.len()],
+            header: header.iter().map(|text| cell(text)).collect(),
+            rows: rows
+                .iter()
+                .map(|row| row.iter().map(|text| cell(text)).collect())
+                .collect(),
+        })])
     }
 
     fn csv(source: &str) -> Document {
@@ -336,6 +336,14 @@ mod tests {
             at_most("a,b,c\n1\n", 3),
             Ok(with_note(&["a", "b", "c"], &[], "… 1 more row not shown"))
         );
+    }
+
+    #[test]
+    fn the_table_starts_on_the_first_line_and_its_note_on_none() {
+        let document = at_most("a\n1\n2\n", 2).unwrap();
+        assert!(matches!(document.blocks[1], Block::Note(_)));
+        assert_eq!(document.lines.get(&[0]), Some(1));
+        assert_eq!(document.lines.get(&[1]), None);
     }
 
     #[test]
