@@ -276,12 +276,15 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 
 #### 4.6.4 Reload
 
+- Reload with `r`, for a lone document read from a file. It keeps the
+  place by the block's number, and the view at the end goes to the new
+  end. It loads only the images and diagrams it does not have yet:
+  diagrams are kept by their source unless they failed to draw, and an
+  image file is loaded again when its modification time changed. (done)
+- The place kept by the comparison (G1.6), so a block added above the
+  view does not move it.
 - Reload on file change, and a key that jumps to the first block that
-  changed. First a reload with `r` only, which keeps the place by the
-  block's number; the comparison (G1.6) keeps it better later.
-- A reload loads only the images and diagrams it does not have yet:
-  diagrams are kept by their source, and an image file is loaded again
-  when it has changed, such as by its modification time.
+  changed.
 - A follow mode for a document another program is writing, such as one
   Claude is working on in the next window: it reloads on every change and
   shows the part that changed, without a key press. `-f` becomes

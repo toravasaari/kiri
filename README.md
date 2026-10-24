@@ -195,6 +195,11 @@ The search looks at the lines as they are laid out, so a phrase broken
 over two lines is not found, and neither is the alt text of an image that
 is shown. Link navigation is planned.
 
+`r` reads the file again, such as after an editor saved it. The view stays
+at the same block, or goes to the new end when it was at the end, and only
+the images and diagrams that changed are read or drawn again. A document
+from standard input, or several files, cannot be reloaded.
+
 ## Documentation
 
 - [Roadmap](docs/roadmap.md)
