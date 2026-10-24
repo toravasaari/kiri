@@ -1171,6 +1171,40 @@ mod tests {
         assert_eq!(top_row(&frames[3]), inner, "{frames:#?}");
     }
 
+    #[test]
+    fn a_reload_goes_to_the_next_block_from_a_blank_top_line() {
+        // One line down, the blank line after Line 1 is at the top; then a
+        // block is added above. As on a resize, the view goes to the start
+        // of the next block. A header line only exists with several files,
+        // and those cannot be reloaded, so that case is not tested here.
+        let mut then = Then::new([Reloaded::Document(blocks(&[
+            "Added", "Line 1", "Line 2", "Line 3", "Line 4", "Line 5", "Line 6",
+        ]))]);
+        let frames = show_reloading(&numbers(6), &mut then, &[b"j", b"r"]);
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert_eq!(top_row(&frames[1]), "", "{frames:#?}");
+        assert!(at_top(&frames[3], "Line 2"), "{frames:#?}");
+    }
+
+    #[test]
+    fn a_reload_goes_to_the_next_block_when_the_top_block_in_a_details_is_removed() {
+        let details = |inner: &[&str]| {
+            let inner: String = inner.iter().map(|line| format!("{line}\n\n")).collect();
+            crate::parse::parse(&format!(
+                "<details>\n<summary>More</summary>\n\n{inner}</details>\n\nEnd"
+            ))
+        };
+        let old = details(&[
+            "Inner 1", "Inner 2", "Inner 3", "Inner 4", "Inner 5", "Inner 6",
+        ]);
+        let new = details(&["Inner 1", "Inner 2", "Inner 4", "Inner 5", "Inner 6"]);
+        let mut then = Then::new([Reloaded::Document(new)]);
+        let frames = show_reloading(&old, &mut then, &[b"jjjjjj", b"r"]);
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert_eq!(top_row(&frames[1]), "Inner 3", "{frames:#?}");
+        assert_eq!(top_row(&frames[3]), "Inner 4", "{frames:#?}");
+    }
+
     /// The text on the top row of the document in `frame`.
     fn top_row(frame: &str) -> String {
         let frame = unstyled(frame);
@@ -1602,6 +1636,24 @@ mod tests {
             |frame: &str, name: &str, rows| status_row(frame, rows).contains(&format!(" {name} "));
         assert!(named(&frames[2], "c.md", 12), "{frames:#?}");
         assert!(named(&frames[3], "c.md", 14), "{frames:#?}");
+    }
+
+    #[test]
+    fn a_key_after_a_new_window_size_makes_colon_n_forget_its_file() {
+        // As above, then k: the view moves, so the status line names the
+        // file above again.
+        let reads: &[&[u8]] = &[b":n", b":n", b"", b"k"];
+        let mut terminal = Fake::new(40, 12, reads);
+        terminal.sizes = [window(40, 12), window(40, 12), window(40, 14)].into();
+        show_files(
+            &files(&[("a.md", 10), ("b.md", 1), ("c.md", 1)]),
+            &mut terminal,
+        );
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 5, "{frames:#?}");
+        let named = |frame: &str, name: &str| status_row(frame, 14).contains(&format!(" {name} "));
+        assert!(named(&frames[3], "c.md"), "{frames:#?}");
+        assert!(!named(&frames[4], "c.md"), "{frames:#?}");
     }
 
     #[test]
