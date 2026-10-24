@@ -197,7 +197,8 @@ is shown. Link navigation is planned.
 
 `r` reads the file again, such as after an editor saved it. The view stays
 at the same block, or goes to the new end when it was at the end, and only
-the images and diagrams that changed are read or drawn again. A document
+the images and diagrams that changed are read or drawn again. The status
+line says `reloaded` for a few seconds and then fades it out. A document
 from standard input, or several files, cannot be reloaded.
 
 ## Documentation

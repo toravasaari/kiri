@@ -290,6 +290,9 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   does not have yet: diagrams are kept by their source unless they failed
   to draw, and an image file is loaded again when its modification time
   changed. (done)
+- After a reload that worked, the status line's `reloaded` stays for
+  four seconds and fades out over three; other messages stay until the
+  next key. (done)
 - A `:` command that jumps to the block a reload changed first.
 
 #### 4.6.5 Moving around
