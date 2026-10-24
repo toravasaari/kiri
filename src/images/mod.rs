@@ -421,11 +421,13 @@ fn load_wanted(
     let mut keys = HashSet::new();
     wanted.retain(|image| keys.insert(key(image)));
     // What is kept is moved to its place among the images, in the order of
-    // the documents.
+    // the documents. A diagram that failed is drawn again, as what made it
+    // fail, such as a time limit or a missing program, may have passed.
     let mut have: Vec<Option<_>> = (wanted.iter())
         .map(|image| {
-            kept.as_deref_mut()
-                .and_then(|kept| kept.remove(&key(image)))
+            let kept = kept.as_deref_mut()?.remove(&key(image))?;
+            let failed = kept.is_err() && matches!(image.1, Wanted::Diagram { .. });
+            (!failed).then_some(kept)
         })
         .collect();
     // The diagrams first, all together, so a renderer can draw several
@@ -489,8 +491,8 @@ fn load_wanted(
 
 /// `load_parts` again for documents that may have changed: an image whose
 /// key `kept` still holds is taken from it rather than loaded, and a
-/// diagram, keyed by its source, is not drawn again. What `kept` holds
-/// that no part shows any more is dropped.
+/// diagram, keyed by its source, is not drawn again unless it failed.
+/// What `kept` holds that no part shows any more is dropped.
 pub fn reload_parts(
     parts: &[Part<'_>],
     max_file_size: u64,
@@ -688,7 +690,8 @@ Text ![inline](images/pattern.png) and words.
     }
 
     /// Draws Mermaid as an empty SVG one line high for each line of
-    /// source, and fails on a source that says `broken`. Remembers what
+    /// source, and fails on a source that says `broken`, and on one that
+    /// says `flaky` the first time it is asked to draw it. Remembers what
     /// it was asked to draw.
     #[derive(Default)]
     pub(super) struct Stub {
@@ -705,6 +708,15 @@ Text ![inline](images/pattern.png) and words.
             self.calls.borrow_mut().push((source.to_owned(), theme));
             if source.contains("broken") {
                 return Err("parse error".into());
+            }
+            let asked = self
+                .calls
+                .borrow()
+                .iter()
+                .filter(|(drawn, _)| drawn == source)
+                .count();
+            if source.contains("flaky") && asked == 1 {
+                return Err("timed out".into());
             }
             let height = 20 * source.lines().count();
             let svg = format!(
@@ -767,6 +779,31 @@ Text ![inline](images/pattern.png) and words.
             ]
         );
         assert!(reloaded.iter().all(|(_, image)| image.is_ok()));
+    }
+
+    #[test]
+    fn a_reload_draws_again_a_diagram_that_failed() {
+        let stub = Stub::default();
+        let options = with_stub(&stub, Theme::Light, true);
+        let document = crate::parse::parse("```mermaid\nflaky\n```\n");
+        let parts = [Part {
+            document: &document,
+            number: 0,
+            base: Path::new(""),
+            by_line: true,
+        }];
+        let key = ImageKey::block("mermaid", "flaky\n");
+        let mut images = load_parts(&parts, DEFAULT_MAX_FILE_SIZE, &Fonts::none(), &options);
+        assert!(matches!(images.get(&key), Some(Err(_))), "{images:?}");
+        let reloaded = reload_parts(
+            &parts,
+            DEFAULT_MAX_FILE_SIZE,
+            &Fonts::none(),
+            &options,
+            &mut images,
+        );
+        assert_eq!(stub.calls.borrow().len(), 2);
+        assert!(matches!(reloaded.get(&key), Some(Ok(_))), "{reloaded:?}");
     }
 
     #[test]

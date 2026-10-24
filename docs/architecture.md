@@ -190,9 +190,10 @@ panel colour.
 
 A reload, `r` in the pager, loads only the images the document does not
 have yet: a diagram is kept by its key, which holds its source, so one
-that did not change is not drawn again, and an image from a local file is
-loaded again when its modification time, which `src/images/stamps.rs`
-keeps, is not the one it was loaded at. Other images are kept as they are.
+that did not change is not drawn again, unless it failed to draw, such as
+for a time limit; and an image from a local file is loaded again when its
+modification time, which `src/images/stamps.rs` keeps, is not the one it
+was loaded at. Other images are kept as they are.
 
 `src/images/pipeline.rs` builds the renderers from the settings and the
 environment, given as values, and loads a document's images with them;
