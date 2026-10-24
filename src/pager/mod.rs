@@ -194,7 +194,10 @@ pub fn run(
     let mut size = terminal.size();
     let mut view: Option<View> = None;
     let mut state = State::new(case);
-    state.follow.on = follow;
+    state.follow.on = follow && reload.is_some();
+    if follow && reload.is_none() {
+        state.told = Some(Told::new(NOTHING_TO_FOLLOW));
+    }
     // The document as reloaded, once it has been.
     let mut reloaded: Option<Document> = None;
     // How the reloaded document differs from the one before it, until the
@@ -322,6 +325,9 @@ fn follows(changes: &Comparison, old: &BlockInfo, new: &BlockInfo) -> bool {
         )
 }
 
+/// What the status line says when there is no file to follow.
+const NOTHING_TO_FOLLOW: &str = "nothing to follow";
+
 /// The rows of a window whose size the terminal does not tell.
 const DEFAULT_ROWS: u16 = 24;
 
@@ -349,6 +355,8 @@ enum Pressed {
     Quit,
     /// The reader asked for the document again.
     Reload,
+    /// The reader turned following the document on or off.
+    Follow,
 }
 
 /// What the status line and the help panel show and how, apart from the
@@ -398,7 +406,8 @@ impl Status<'_> {
                 let place = (file.filter(|_| self.files.several()))
                     .map(|file| (file + 1, self.files.count()));
                 let position = view.position();
-                status::spans(name, place, position, found, width, &self.styles)
+                let following = state.follow.on;
+                status::spans(name, place, position, following, found, width, &self.styles)
             }
         }
     }
@@ -642,6 +651,7 @@ impl State {
                 }
             }
             Some(Action::Reload) => return Pressed::Reload,
+            Some(Action::Follow) => return Pressed::Follow,
             None => {}
         }
         Pressed::Nothing
@@ -902,6 +912,15 @@ fn show(
                         .draw(layout.view.rows(), writer, terminal)?;
                     terminal.flush()?;
                     return Ok(Outcome::Reload);
+                }
+                Pressed::Follow if reload.is_none() => {
+                    state.told = Some(Told::new(NOTHING_TO_FOLLOW));
+                }
+                Pressed::Follow => {
+                    state.follow = Follow {
+                        on: !state.follow.on,
+                        ..Follow::default()
+                    }
                 }
             }
             state.moved(layout.view.top());
@@ -1218,6 +1237,71 @@ mod tests {
             status_row(&frames[2], 6).contains("reloaded"),
             "{frames:#?}"
         );
+    }
+
+    /// Whether the status line of `frame`, in a window of 6 rows, tells
+    /// that the pager follows the document.
+    fn follows(frame: &str) -> bool {
+        status_row(frame, 6).contains(" follow   ")
+    }
+
+    #[test]
+    fn capital_f_turns_following_on_and_off() {
+        // F, a change seen on two polls, F again, and a change that is
+        // not asked about.
+        let changes = [look(1), look(1), look(2), look(2)];
+        let mut then = Then::changing([Reloaded::Document(rows(10))], changes);
+        let reads: &[&[u8]] = &[b"F", b"", b"F", b"", b""];
+        let frames = reloading_with(Capabilities::ansi(80), &numbers(10), &mut then, reads, 0);
+        assert_eq!(then.asked, 1, "{frames:#?}");
+        assert_eq!(then.changes.len(), 2, "{frames:#?}");
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert!(!follows(&frames[0]), "{frames:#?}");
+        assert!(follows(&frames[1]), "{frames:#?}");
+        assert!(at_top(&frames[2], "Row 1"), "{frames:#?}");
+        assert!(follows(&frames[2]), "{frames:#?}");
+        assert!(!follows(&frames[3]), "{frames:#?}");
+    }
+
+    #[test]
+    fn the_status_line_tells_following_from_the_start() {
+        let mut then = Then::new([]);
+        let frames = following(&numbers(10), &mut then, &[], 0);
+        assert!(follows(&frames[0]), "{frames:#?}");
+    }
+
+    #[test]
+    fn without_a_file_to_follow_capital_f_says_so_until_the_next_key() {
+        let mut terminal = Fake::new(60, 6, &[b"F", b"j"]);
+        show(&numbers(10), &mut terminal);
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 3, "{frames:#?}");
+        assert!(status_row(&frames[1], 6).contains("nothing to follow"));
+        assert!(!status_row(&frames[2], 6).contains("follow"), "{frames:#?}");
+    }
+
+    #[test]
+    fn following_from_the_start_without_a_file_says_there_is_nothing_to_follow() {
+        let mut terminal = Fake::new(60, 6, &[b"j"]);
+        let mut inputs = Inputs::new(Capabilities::ansi(80));
+        let options = Options {
+            follow: true,
+            ..Options::new(SearchCase::Smart)
+        };
+        let document = numbers(10);
+        run(
+            Content::Document(&document),
+            None,
+            "notes.md",
+            &mut inputs,
+            options,
+            &mut terminal,
+        )
+        .unwrap();
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 2, "{frames:#?}");
+        assert!(status_row(&frames[0], 6).contains("nothing to follow"));
+        assert!(!status_row(&frames[1], 6).contains("follow"), "{frames:#?}");
     }
 
     #[test]

@@ -128,6 +128,17 @@ mod tests {
     }
 
     #[test]
+    fn lists_the_follow_key() {
+        let panel = panel(80, 24, &Style::default(), &Style::default(), false);
+        let rows: Vec<String> = panel.iter().map(text).collect();
+        assert!(
+            rows.iter()
+                .any(|row| row.starts_with("│ F ") && row.contains("follow the file")),
+            "{rows:#?}"
+        );
+    }
+
+    #[test]
     fn lists_the_search_keys() {
         let panel = panel(80, 23, &Style::default(), &Style::default(), true);
         let rows: Vec<String> = panel.iter().map(text).collect();
