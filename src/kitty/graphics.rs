@@ -144,6 +144,12 @@ pub fn transmit(
     write_chunks(out, &keys, payload.as_bytes())
 }
 
+/// Deletes image `id` from the terminal: its placements, and its data, so
+/// that the terminal frees the memory it took.
+pub fn delete(out: &mut impl Write, id: ImageId) -> io::Result<()> {
+    write!(out, "\x1b_Ga=d,d=I,i={},q=2\x1b\\", id.0)
+}
+
 /// Writes `payload` in chunks of at most [`CHUNK`] bytes. The first sequence
 /// carries `keys`; `m=1` marks every chunk but the last.
 fn write_chunks(out: &mut impl Write, keys: &str, payload: &[u8]) -> io::Result<()> {
@@ -287,6 +293,17 @@ mod tests {
             "A".repeat(CHUNK)
         );
         assert_eq!(String::from_utf8(out).unwrap(), expected);
+    }
+
+    #[test]
+    fn deletes_an_image_with_its_data() {
+        let mut out = Vec::new();
+        delete(&mut out, ID).unwrap();
+        // An upper-case `I` frees the data too, not only the placements.
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "\x1b_Ga=d,d=I,i=1193046,q=2\x1b\\"
+        );
     }
 
     #[test]
