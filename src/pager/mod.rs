@@ -26,7 +26,7 @@ use crate::render::output::{self, Page, Writer};
 use crate::render::style::{self, Line, Span, Style};
 use crate::size::TextSize;
 use crate::term::{Screen, WindowSize};
-use fade::{FADE, Fade, Rgb};
+use fade::{FADE, FADE_OUT, Fade, Rgb, STAY};
 use files::Files;
 use help::Placed;
 use keys::{Action, Key};
@@ -273,9 +273,9 @@ pub fn run(
                             changes = Some(compare(old, &document));
                         }
                         reloaded = Some(document);
-                        "reloaded".to_owned()
+                        Told::fading("reloaded", terminal.now())
                     }
-                    Reloaded::Failed(why) => why,
+                    Reloaded::Failed(why) => Told::new(why),
                 });
             }
         }
@@ -342,9 +342,15 @@ struct Status<'a> {
 
 impl Status<'_> {
     /// The status line for `view` in `state`, with the match number faded
-    /// by `fade` after the search went around an end: the prompt while it
-    /// is open.
-    fn spans(&self, view: &View, state: &State, fade: Option<Fade>) -> Vec<Span> {
+    /// by `fade` after the search went around an end and a message faded
+    /// out by `out`: the prompt while it is open.
+    fn spans(
+        &self,
+        view: &View,
+        state: &State,
+        fade: Option<Fade>,
+        out: Option<Fade>,
+    ) -> Vec<Span> {
         if !self.bar {
             return Vec::new();
         }
@@ -356,7 +362,8 @@ impl Status<'_> {
                 let flash = fade
                     .filter(|_| state.jumped.is_some_and(|jump| jump.around))
                     .map(|fade| self.styles.number(fade));
-                let found = state.found(flash);
+                let fading = out.and_then(|out| self.styles.fading(out));
+                let found = state.found(flash, fading);
                 let file = state.file(&self.files, view.top());
                 let name = file.map_or(self.name, |file| self.files.name(file));
                 let place = (file.filter(|_| self.files.several()))
@@ -421,8 +428,35 @@ struct State {
     /// The last move to a file, while the view stays where it took it.
     went: Option<Went>,
     /// What the status line tells about the last key until the next one,
-    /// such as that there is no next file.
-    told: Option<String>,
+    /// such as that there is no next file, or until it has faded out.
+    told: Option<Told>,
+}
+
+/// A message on the status line.
+#[derive(Debug)]
+struct Told {
+    message: String,
+    /// When it was told, for a message that fades out.
+    fades: Option<Instant>,
+}
+
+impl Told {
+    /// `message`, which stays until the next key.
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            fades: None,
+        }
+    }
+
+    /// `message`, told at `at`, which stays for [`STAY`] and then fades
+    /// out over [`FADE_OUT`], unless a key clears it before.
+    fn fading(message: impl Into<String>, at: Instant) -> Self {
+        Self {
+            fades: Some(at),
+            ..Self::new(message)
+        }
+    }
 }
 
 /// A move to the start of a file with `:n` or `:p`. The view may stop
@@ -544,7 +578,7 @@ impl State {
     /// and otherwise tells `none` on the status line.
     fn go_to(&mut self, file: Option<usize>, none: &'static str, layout: &mut Layout) {
         let Some(file) = file else {
-            self.told = Some(none.to_owned());
+            self.told = Some(Told::new(none));
             return;
         };
         layout.view.go_to(layout.status.files.start(file));
@@ -616,11 +650,24 @@ impl State {
         self.shown = true;
     }
 
-    /// Ends a fade that is over at `now`.
+    /// Ends a fade that is over at `now`, and a message that has faded
+    /// out.
     fn tick(&mut self, now: Instant) {
         self.jumped = self
             .jumped
             .filter(|jump| now.saturating_duration_since(jump.at) < FADE);
+        self.told = self.told.take().filter(|told| {
+            told.fades
+                .is_none_or(|at| now.saturating_duration_since(at) < STAY + FADE_OUT)
+        });
+    }
+
+    /// The fade out of the message under way at `now`, mixing colours
+    /// with `rgb`.
+    fn fade_out<'a>(&self, now: Instant, rgb: Option<&'a Rgb>) -> Option<Fade<'a>> {
+        let at = self.told.as_ref()?.fades?;
+        let elapsed = now.saturating_duration_since(at).checked_sub(STAY)?;
+        Some(Fade { elapsed, rgb })
     }
 
     /// The fade under way at `now`, mixing colours with `rgb`.
@@ -646,11 +693,15 @@ impl State {
             .collect()
     }
 
-    /// What the status line tells about the last key, or else about the
-    /// last search, with the match number in `flash` when it is given.
-    fn found(&self, flash: Option<Style>) -> Option<status::Found<'_>> {
+    /// What the status line tells about the last key, in `fading` when
+    /// it is given, or else about the last search, with the match number
+    /// in `flash` when it is given.
+    fn found(&self, flash: Option<Style>, fading: Option<Style>) -> Option<status::Found<'_>> {
         if let Some(told) = &self.told {
-            return Some(status::Found::Told(told));
+            return Some(status::Found::Told {
+                message: &told.message,
+                fading,
+            });
         }
         let search = self.search.as_ref()?;
         if self.nowhere {
@@ -701,6 +752,7 @@ impl Layout<'_> {
     fn frame(&self, state: &State, now: Instant) -> Frame {
         let visible = self.view.visible();
         let fade = state.fade(now, self.rgb);
+        let out = state.fade_out(now, self.rgb);
         Frame {
             lines: state.marked(
                 &self.lines[visible.clone()],
@@ -708,9 +760,18 @@ impl Layout<'_> {
                 self.marks,
                 fade,
             ),
-            status: self.status.spans(self.view, state, fade),
+            status: self.status.spans(self.view, state, fade, out),
             panel: self.status.panel(self.view, state.help),
         }
+    }
+
+    /// Whether something on the screen fades in `state` at `now`, so
+    /// that the pager draws it a step at a time.
+    fn fades(&self, state: &State, now: Instant) -> bool {
+        state.jumped.is_some()
+            || (state.fade_out(now, self.rgb))
+                .and_then(|out| self.status.styles.fading(out))
+                .is_some()
     }
 }
 
@@ -724,14 +785,16 @@ fn show(
     size: Option<WindowSize>,
     can_reload: bool,
 ) -> io::Result<Outcome> {
-    let mut shown = layout.frame(state, terminal.now());
+    let mut now = terminal.now();
+    let mut shown = layout.frame(state, now);
     shown.draw(layout.view.rows(), writer, terminal)?;
     terminal.flush()?;
     let mut decoder = keys::Decoder::default();
     loop {
-        let input = terminal.read(match state.jumped {
-            Some(_) => FRAME,
-            None => POLL,
+        let input = terminal.read(if layout.fades(state, now) {
+            FRAME
+        } else {
+            POLL
         })?;
         // Nothing more came for a key the last read cut off.
         let keys = if input.is_empty() {
@@ -739,18 +802,18 @@ fn show(
         } else {
             decoder.keys(&input)
         };
-        let now = terminal.now();
+        now = terminal.now();
         state.tick(now);
         for key in keys {
             match state.press(key, now, layout) {
                 Pressed::Nothing => {}
                 Pressed::Quit => return Ok(Outcome::Quit),
                 Pressed::Reload if !can_reload => {
-                    state.told = Some("nothing to reload".to_owned());
+                    state.told = Some(Told::new("nothing to reload"));
                 }
                 // The reader sees that the pager is busy before it is.
                 Pressed::Reload => {
-                    state.told = Some("reloading…".to_owned());
+                    state.told = Some(Told::new("reloading…"));
                     layout
                         .frame(state, now)
                         .draw(layout.view.rows(), writer, terminal)?;
@@ -991,8 +1054,22 @@ mod tests {
 
     /// `document` shown with `then` to reload it, in a window of 60 × 6.
     fn show_reloading(document: &Document, then: &mut Then, keys: &[&[u8]]) -> Vec<String> {
-        let mut terminal = Fake::new(60, 6, keys);
-        let mut inputs = Inputs::new(Capabilities::ansi(80));
+        reloading_with(Capabilities::ansi(80), document, then, keys, 0)
+    }
+
+    /// As [`show_reloading`], on a terminal with `caps`, with `empty`
+    /// polls without keys after `reads`.
+    fn reloading_with(
+        caps: Capabilities,
+        document: &Document,
+        then: &mut Then,
+        reads: &[&[u8]],
+        empty: usize,
+    ) -> Vec<String> {
+        let mut reads = reads.to_vec();
+        reads.extend(std::iter::repeat_n(b"".as_slice(), empty));
+        let mut terminal = Fake::new(60, 6, &reads);
+        let mut inputs = Inputs::new(caps);
         run(
             Content::Document(document),
             None,
@@ -1062,6 +1139,70 @@ mod tests {
         let status = status_row(&frames[1], 6);
         assert!(status.contains("nothing to reload"), "{frames:#?}");
         assert!(!status_row(&frames[2], 6).contains("nothing to reload"));
+    }
+
+    #[test]
+    fn reloaded_stays_four_seconds_then_fades_out_into_the_bar() {
+        // A grey bar, mixed from the black page and this grey.
+        let mut caps = known_colours();
+        caps.palette[8] = Some(Color::Rgb(100, 100, 100));
+        let mut then = Then::new([Reloaded::Document(rows(10))]);
+        let frames = reloading_with(caps, &numbers(10), &mut then, &[b"r"], 200);
+        // The reload, nothing new for four seconds, a frame each
+        // twentieth of a second for the three seconds of the fade, and
+        // the status line without the message after it.
+        assert_eq!(frames.len(), 64, "{frames:#?}");
+        let message = |frame: &str| style_before(&status_row(frame, 6), "reloaded");
+        let colours = |fg: &str| {
+            let mut codes = vec!["0".to_owned()];
+            codes.extend(
+                format!("38;2;{fg};48;2;50;50;50")
+                    .split(';')
+                    .map(str::to_owned),
+            );
+            codes
+        };
+        // In the bar's colours at first, the grey of the page's text on
+        // dark grey, then into the dark grey.
+        assert_eq!(message(&frames[2]), ["0", "48", "2", "50", "50", "50"]);
+        assert_eq!(message(&frames[3]), colours("200;200;200"));
+        assert_eq!(message(&frames[33]), colours("125;125;125"));
+        assert_eq!(message(&frames[61]), colours("55;55;55"));
+        assert!(
+            !status_row(&frames[63], 6).contains("reloaded"),
+            "{frames:#?}"
+        );
+    }
+
+    #[test]
+    fn reloaded_goes_at_once_after_seven_seconds_where_colours_are_not_known() {
+        // Seven seconds are seventy polls; the reload's read is the first.
+        let reloaded = |empty| {
+            let mut then = Then::new([Reloaded::Document(rows(10))]);
+            let caps = Capabilities::ansi(80);
+            reloading_with(caps, &numbers(10), &mut then, &[b"r"], empty)
+        };
+        let frames = reloaded(69);
+        assert_eq!(frames.len(), 3, "{frames:#?}");
+        assert!(status_row(&frames[2], 6).contains("reloaded"));
+        let frames = reloaded(70);
+        assert_eq!(frames.len(), 4, "{frames:#?}");
+        assert!(
+            !status_row(&frames[3], 6).contains("reloaded"),
+            "{frames:#?}"
+        );
+    }
+
+    #[test]
+    fn other_messages_stay_until_the_next_key() {
+        let why = Reloaded::Failed("notes.md: No such file or directory".to_owned());
+        let mut then = Then::new([why]);
+        let frames = reloading_with(known_colours(), &numbers(10), &mut then, &[b"r"], 200);
+        assert_eq!(frames.len(), 3, "{frames:#?}");
+        assert!(status_row(&frames[2], 6).contains("No such file"));
+        let frames = frames_with(known_colours(), &[b"r"], 200);
+        assert_eq!(frames.len(), 2, "{frames:#?}");
+        assert!(status_row(&frames[1], 6).contains("nothing to reload"));
     }
 
     #[test]
