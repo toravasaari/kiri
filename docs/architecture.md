@@ -133,12 +133,13 @@ document goes to the new end, so a document that grew shows what was
 added. Following on auto then moves the view to a change:
 `src/pager/changes.rs` finds the runs of lines whose blocks changed or
 were added, and the place of a removal with neither beside it, and chooses
-one as the follow jump setting says. While the pager follows the document, it asks the `Reload` on each
-poll for keys whether the document changed, and reads it again once a
-change still looks the same 100 ms, a poll's time, after it was first
-seen, so that a file caught half written is not shown. The terminal
-itself, the alternate screen, raw mode and reading keys from the
-controlling terminal, is opened in `src/term/screen.rs`.
+one as the follow jump setting says. While the pager follows the
+document, it asks the `Reload` on each poll for keys whether the document
+changed, and reads it again once a change still looks the same 100 ms, a
+poll's time, after it was first seen, so that a file caught half written
+is not shown. The terminal itself, the alternate screen, raw mode and
+reading keys from the controlling terminal, is opened in
+`src/term/screen.rs`.
 
 ## Diagrams
 

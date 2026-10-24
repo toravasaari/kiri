@@ -155,12 +155,12 @@ while following is `auto`.
 
 `F` in the pager goes from `off` to `on` to `auto` and back to `off`, and
 the status line says `F follow` while following is on and `F auto` while
-it is auto. Following notices a change by the file's
-modification time and length, so on a filesystem that keeps the time only
-to the second, an edit within the same second that keeps the length waits
-for the next change. A document from standard input, or several files,
-cannot be followed yet: with `-f`, `--fa`, `--follow on` or `--follow auto` the pager says
-`nothing to follow`, and with `KIRI_FOLLOW` or `follow` in the
+it is auto. Following notices a change by the file's modification time
+and length, so on a filesystem that keeps the time only to the second, an
+edit within the same second that keeps the length waits for the next
+change. A document from standard input, or several files, cannot be
+followed yet: with `-f`, `--fa`, `--follow on` or `--follow auto` the
+pager says `nothing to follow`, and with `KIRI_FOLLOW` or `follow` in the
 configuration file it says nothing.
 
 ## Follow jump

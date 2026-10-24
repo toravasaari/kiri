@@ -151,10 +151,10 @@ pub enum Found<'a> {
 
 /// The status line for the document `name` at `position`, with what was
 /// `found` by a search, `width` cells wide, and a word before the position
-/// when the pager follows the document, as `follow` says. `place` is the file's
-/// number, from 1, and how many files there are, which the line tells
-/// after the name. A narrow window leaves out the keys first, then the
-/// start of the name and then of its place, then the word, then the
+/// when the pager follows the document, as `follow` says. `place` is the
+/// file's number, from 1, and how many files there are, which the line
+/// tells after the name. A narrow window leaves out the keys first, then
+/// the start of the name and then of its place, then the word, then the
 /// search.
 pub fn spans(
     name: &str,
