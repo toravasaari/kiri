@@ -55,6 +55,12 @@ Options:
                                document in more than one place: first, last or most (the one that
                                takes the most rows); first unless set [possible values: first, last,
                                most]
+      --initial-load <HOW>     Whether the pager shows the document once its images and diagrams
+                               have loaded (wait), or at once, with each image as it comes
+                               (background); wait unless set. Only where the pager surely opens:
+                               with -p or -f, or with paging on auto for a document longer than the
+                               window, each image counted at three rows; otherwise kiri waits
+                               [possible values: wait, background]
       --front-matter <STYLE>   Front matter render style: table, code (a code block), hide, or off
                                (read as Markdown); table unless set. Front matter is the metadata
                                block at the start of a Markdown file [possible values: table, code,

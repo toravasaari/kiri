@@ -173,7 +173,21 @@ reload stops the loads whose images the new document no longer shows,
 and `q`, or a signal, stops the programs that draw. `src/main.rs` waits
 for them to end once the pager has left its screen, with
 `kiri: closing background programs…` on standard error while that takes
-more than a second, but not for merman, which cannot stop.
+more than a second, but not for merman, which cannot stop. `Images` notes
+which outcomes came in the background; once the pager has left its
+screen, `src/main.rs` writes the warnings of those that failed and are
+still shown, as it does before the pager opens for images loaded first.
+
+With `initial_load = "background"`, the initial load goes the same way when
+the pager surely opens. With paging on `auto`, `src/main.rs` tells that
+by laying the documents out with a box of three rows,
+`Placeholder::Rows`, for each image not loaded yet; a document that fits
+loads its images first, as with `wait`. Otherwise it opens the screen and
+then starts every image of the documents loading in the pager's `Loads`,
+each shown as a new image of a reload is; the image and diagram files
+among several files load before, as they have nothing else to show.
+Should the screen not open, the images load before the documents are
+printed.
 
 The pager keeps one image encoder, `src/render/encoder.rs`, for as long
 as it runs. An image the terminal holds is not sent again: after a
@@ -273,22 +287,29 @@ besides the one for signals.
 `src/images/pipeline.rs` builds the renderers from the settings and the
 environment, given as values, and loads a document's images with them;
 `src/main.rs` hands it `src/term/progress.rs`, which tells on the
-terminal how far drawing has got when it takes long, and another caller
-may tell it elsewhere. The programs run in process groups of their own,
-which Ctrl-C from the terminal does not reach, nor a signal sent to kiri
-alone. So when the document has a diagram that a program draws,
-`src/term/interrupt.rs` catches SIGINT, SIGQUIT, SIGTERM and SIGHUP
-while its images load: `External` stops the programs, SIGINT first so
-that `mmdc` can close its browser, removes their files, and kiri then
-ends by the signal that came. Without such a diagram, and once the
-images are loaded, the signals end kiri as before, and the pager catches
-them itself, from before its terminal is raw until it has been restored,
-or until its screen fails to open, when they end kiri again while the
-document is printed. A signal that was ignored when kiri started, as
-under `nohup`, stays ignored in both. A new diagram language is a new
-entry in `LANGUAGES` in `src/diagrams/language.rs`, in a module of its
-own as Mermaid's is, with a default command, a built-in renderer or
-both; the rest follows from the entry.
+terminal how far loading has got when it takes long, and another caller
+may tell it elsewhere. Where the pager surely opens and standard error
+is a terminal, the wait loads in the background instead, while
+`src/term/keys.rs` reads keys with the terminal in a mode that keeps
+Ctrl-C a signal; Space or Enter hands the loads still under way to the
+pager, and the mode, with any key typed meanwhile, is gone before the
+pager or the shell takes the terminal.
+
+The programs run in process groups of their own, which Ctrl-C from the
+terminal does not reach, nor a signal sent to kiri alone. So when the
+document has a diagram that a program draws, `src/term/interrupt.rs`
+catches SIGINT, SIGQUIT, SIGTERM and SIGHUP while its images load:
+`External` stops the programs, SIGINT first so that `mmdc` can close its
+browser, removes their files, and kiri then ends by the signal that came.
+Without such a diagram, and once the images are loaded, the signals end
+kiri as before, and the pager catches them itself, from before its
+terminal is raw until it has been restored, or until its screen fails to
+open, when they end kiri again while the document is printed. A signal
+that was ignored when kiri started, as under `nohup`, stays ignored in
+both. A new diagram language is a new entry in `LANGUAGES` in
+`src/diagrams/language.rs`, in a module of its own as Mermaid's is, with
+a default command, a built-in renderer or both; the rest follows from the
+entry.
 
 ## Terminal capabilities
 
@@ -330,7 +351,7 @@ writes as it is into a pipe.
 | Text attributes and colours | SGR | `src/render/output.rs` | Bold, italic, colours |
 | Styled underlines | SGR 4:x, SGR 58 | `src/render/output.rs` | Heading underline styles; the dashed underline between table rows in the border colour |
 | Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J | `src/render/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows |
-| Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/kitty/query.rs` | Wiping the diagram progress line; erasing the rows the text sizing tests drew |
+| Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/kitty/query.rs` | Wiping the progress line; erasing the rows the text sizing tests drew |
 | Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term/screen.rs` | The pager's screen of its own |
 | Synchronized output | CSI ?2026h/l | `src/render/output.rs` | Pager frames without flicker |
 | Cell size query | CSI 16 t | `src/kitty/query.rs` | The cell size in pixels where the window size has none |
@@ -369,9 +390,10 @@ src/term/window.rs         the window size in cells and pixels
 src/term/probe.rs          the queries to the terminal, the only ones
 src/term/answers.rs        reading the terminal's answers
 src/term/screen.rs         the pager's screen, raw mode and keys
-src/term/progress.rs       the line that tells how far drawing diagrams has
+src/term/progress.rs       the line that tells how far loading images has
                            got
 src/term/interrupt.rs      signals while programs draw diagrams
+src/term/keys.rs           Space or Enter while kiri waits for the images
 src/term/testing.rs        pseudo-terminals for the tests
 src/testing.rs             scratch directories for the tests
 src/panics.rs              panics kiri catches on purpose, such as a load's

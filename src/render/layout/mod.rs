@@ -702,6 +702,23 @@ impl Layout<'_> {
         let (natural, shows) = match (self.images.get(&key), self.images.placeholder(&key)) {
             (Some(Ok(source)), _) => (source.size(), Shows::Image),
             (_, Some(Placeholder::Dimmed(old))) => (old.size(), Shows::Placeholder),
+            (_, Some(&Placeholder::Rows(rows))) => {
+                let (width, height) = image::cell_size(self.caps);
+                let size = image::Size {
+                    width: u32::from(width),
+                    height: u32::from(height) * u32::from(rows),
+                    columns: 1,
+                    rows,
+                };
+                let shows = Shows::Placeholder;
+                let mut lines = image_rows(Placement {
+                    key: key.clone(),
+                    size,
+                    shows,
+                });
+                self.loading_band(&key, 1, &mut lines);
+                return Some(lines);
+            }
             _ => return None,
         };
         let max_cells = self.caps.max_image_cells;
@@ -1183,6 +1200,24 @@ mod tests {
             band_of(&code),
             (code.len() - 1, key.to_string(), code.len() - 1)
         );
+    }
+
+    #[test]
+    fn a_box_of_rows_takes_those_rows_for_an_image_and_a_diagram() {
+        let inputs = loading("a.png", Placeholder::Rows(3));
+        assert_eq!(
+            shown("<img src=\"a.png\" width=\"80\">\n", &inputs),
+            [
+                "Placeholder a.png 1×3 row 0",
+                "Placeholder a.png 1×3 row 1",
+                "Placeholder a.png 1×3 row 2 [band 1 at 2 low]",
+            ]
+        );
+        let code = "flowchart TD\n  A --> B\n  B --> C\n  C --> D\n";
+        let inputs = loading(ImageKey::block("mermaid", code), Placeholder::Rows(3));
+        let lines = shown(&format!("```mermaid\n{code}```\n"), &inputs);
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert!(lines[0].starts_with("Placeholder mermaid"), "{lines:?}");
     }
 
     #[test]

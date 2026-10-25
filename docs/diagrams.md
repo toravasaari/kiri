@@ -158,7 +158,7 @@ looked for on `PATH`.
 Each diagram may take 20 seconds, or as long as `timeout` in the
 `[diagrams]` table says, such as `timeout = 60` or `timeout = 2.5`; up
 to four are drawn at once. When drawing takes longer than half a second,
-a line such as `kiri: rendering diagrams 2/5…` on the terminal tells how
+a line such as `kiri: loading images 2/5…` on the terminal tells how
 far it has got, and is wiped before the document is shown. Ctrl-C,
 Ctrl-\\, SIGTERM or SIGHUP meanwhile stops the programs and removes their
 files, and then the signal ends kiri as it would have otherwise, so that
@@ -175,7 +175,9 @@ In the pager, `r` and following draw the diagrams that changed in the
 background instead: the text shows at once, a changed diagram shows its
 old drawing dimmed until the new one comes, and the status line says
 `[rendering: 1/3]` in place of the file name. `q` stops the programs
-still drawing.
+still drawing. With `initial_load = "background"`, the pager opens without
+waiting for the diagrams, each shown as its code until it is drawn; see
+[Initial load](config.md#initial-load).
 
 kiri stops a program as Ctrl-C would, with SIGINT to its process group,
 and kills what is left of the group half a second later. `mmdc` closes

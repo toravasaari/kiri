@@ -95,7 +95,11 @@ fn in_terminal_env(
     stdin: Option<&str>,
     act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
 ) -> (ExitStatus, String) {
-    let setup = Setup { both: false, env };
+    let setup = Setup {
+        both: false,
+        env,
+        ..Setup::default()
+    };
     let (status, seen, stderr) = in_terminal_run(name, |_| {}, args, rows, stdin, setup, act);
     assert_eq!(stderr, "");
     (status, seen)
@@ -112,7 +116,7 @@ fn in_terminal_both(
 ) -> (ExitStatus, String) {
     let setup = Setup {
         both: true,
-        env: &[],
+        ..Setup::default()
     };
     let (status, seen, _) = in_terminal_run(name, prepare, args, rows, None, setup, act);
     (status, seen)
@@ -126,6 +130,10 @@ struct Setup<'a> {
     both: bool,
     /// Environment variables set for kiri.
     env: &'a [(&'a str, &'a str)],
+    /// Done on a thread of its own once kiri has started, with the
+    /// terminal side and the scratch directory, whether or not kiri
+    /// writes anything.
+    meanwhile: Option<fn(&mut std::fs::File, &std::path::Path)>,
 }
 
 /// [`in_terminal_told`], set up as `setup` says.
@@ -137,6 +145,24 @@ fn in_terminal_run(
     stdin: Option<&str>,
     setup: Setup,
     mut act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
+) -> (ExitStatus, String, String) {
+    let act = |seen: &[u8], terminal: &mut std::fs::File, child: &std::process::Child| {
+        let frames = text(seen).matches("\x1b[?2026l").count();
+        act(frames, terminal, child);
+    };
+    in_terminal_seeing(name, prepare, args, rows, stdin, setup, act)
+}
+
+/// [`in_terminal_run`], with `act` given everything kiri wrote to the
+/// terminal so far instead of the number of frames.
+fn in_terminal_seeing(
+    name: &str,
+    prepare: impl FnOnce(&std::path::Path),
+    args: &[&str],
+    rows: u16,
+    stdin: Option<&str>,
+    setup: Setup,
+    act: impl FnMut(&[u8], &mut std::fs::File, &std::process::Child),
 ) -> (ExitStatus, String, String) {
     let dir = Scratch::new(name);
     std::fs::write(dir.join("document.md"), paragraphs(3)).unwrap();
@@ -184,20 +210,17 @@ fn in_terminal_run(
     // The command holds the program's side of the terminal. Close it, so
     // that reading the terminal side ends once kiri exits.
     drop(kiri);
+    if let Some(meanwhile) = setup.meanwhile {
+        let mut terminal = terminal.try_clone().unwrap();
+        let dir = dir.to_path_buf();
+        std::thread::spawn(move || meanwhile(&mut terminal, &dir));
+    }
     if let Some(document) = stdin {
         let mut input = child.stdin.take().unwrap();
         input.write_all(document.as_bytes()).unwrap();
     }
     // kiri gets 10 s at most.
-    let seen = read_terminal(
-        &mut terminal,
-        &mut child,
-        Duration::from_secs(10),
-        |seen, terminal, child| {
-            let frames = text(seen).matches("\x1b[?2026l").count();
-            act(frames, terminal, child);
-        },
-    );
+    let seen = read_terminal(&mut terminal, &mut child, Duration::from_secs(10), act);
     let status = child.wait().unwrap();
     let mut stderr = String::new();
     if let Some(mut told) = child.stderr.take() {
@@ -937,6 +960,858 @@ fn a_diagram_file_on_its_own_is_paged_only_when_paging_is_always() {
     // Not the diagram's code: it is drawn.
     assert!(!text_of(frames[0]).contains("flowchart"), "{seen:?}");
     assert!(text_of(&seen).contains("nothing to reload"), "{seen:?}");
+}
+
+/// A configuration whose Mermaid command draws a square SVG once `go` is
+/// in the scratch directory `dir`, or after 8 s, and `diagram.md`, a
+/// diagram and a line of text.
+fn drawn_on_cue(dir: &std::path::Path) {
+    let script = dir.join("render.sh");
+    let go = dir.join("go");
+    let draw = format!(
+        "i=0\n\
+         while [ ! -f '{}' ] && [ $i -lt 160 ]; do sleep 0.05; i=$((i + 1)); done\n\
+         echo '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\"/>' > \"$2\"\n",
+        go.display()
+    );
+    std::fs::write(&script, draw).unwrap();
+    let config = format!(
+        "[diagrams.mermaid]\ncommand = [\"/bin/sh\", \"{}\", \"{{input}}\", \"{{output}}\"]\n",
+        script.display()
+    );
+    common::write(&dir.join("config/kiri/config.toml"), &config);
+    let document = "```mermaid\nflowchart TD\n```\n\nBelow\n";
+    std::fs::write(dir.join("diagram.md"), document).unwrap();
+}
+
+/// kiri with `args` and `env`, and `stdin` piped in when given, in a
+/// terminal of 12 rows, in a scratch directory that `prepare` fills: `go`
+/// is written there once the first frame is drawn, and `q` typed once
+/// `done` holds for the frames drawn whole and the directory. kiri must
+/// succeed. Returns the frames and what kiri wrote on standard error.
+fn quit_when(
+    name: &str,
+    prepare: impl FnOnce(&std::path::Path),
+    args: &[&str],
+    stdin: Option<&str>,
+    env: &[(&str, &str)],
+    done: impl Fn(&[String], &std::path::Path) -> bool,
+) -> (Vec<String>, String) {
+    let dir = std::cell::RefCell::new(std::path::PathBuf::new());
+    let prepare = |scratch: &std::path::Path| {
+        *dir.borrow_mut() = scratch.to_owned();
+        prepare(scratch);
+    };
+    let (mut go, mut quit) = (false, false);
+    let act = |seen: &[u8], terminal: &mut std::fs::File, _: &std::process::Child| {
+        let frames = whole_frames(&text(seen));
+        if !go && !frames.is_empty() {
+            std::fs::write(dir.borrow().join("go"), "").unwrap();
+            go = true;
+        }
+        if !quit && done(&frames, &dir.borrow()) {
+            terminal.write_all(b"q").unwrap();
+            quit = true;
+        }
+    };
+    let setup = Setup {
+        both: false,
+        env,
+        ..Setup::default()
+    };
+    let (status, seen, stderr) = in_terminal_seeing(name, prepare, args, 12, stdin, setup, act);
+    assert!(status.success(), "{stderr}");
+    (whole_frames(&seen), stderr)
+}
+
+/// The frames in `seen` that were drawn to their end.
+fn whole_frames(seen: &str) -> Vec<String> {
+    (seen.split("\x1b[?2026h").skip(1))
+        .filter(|frame| frame.contains("\x1b[?2026l"))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Whether one of `frames` sent an image.
+fn image_sent(frames: &[String], _: &std::path::Path) -> bool {
+    frames.iter().any(|frame| frame.contains("\x1b_Ga=T,"))
+}
+
+/// kiri on `diagram.md` of [`drawn_on_cue`] with `args` and `env` in a
+/// terminal of 12 rows: the diagram is drawn once the first frame is, and
+/// `q` typed once a frame with an image sent in it is. Returns the frames.
+fn initial_load(name: &str, args: &[&str], env: &[(&str, &str)]) -> Vec<String> {
+    let mut args = args.to_vec();
+    args.extend(["--mode", "kitty", "diagram.md"]);
+    let (frames, stderr) = quit_when(name, drawn_on_cue, &args, None, env, image_sent);
+    assert_eq!(stderr, "");
+    frames
+}
+
+#[test]
+fn an_initial_load_in_the_background_shows_the_text_before_the_diagram() {
+    let background = [("KIRI_INITIAL_LOAD", "background")];
+    for (args, env) in [
+        (&["--initial-load", "background", "-p"][..], &[][..]),
+        (&["--initial-load", "background", "-f"], &[]),
+        (&["-p"], &background),
+    ] {
+        let frames = initial_load("pager-initial-load", args, env);
+        let first = &frames[0];
+        // The diagram's code, with the band below it.
+        assert!(
+            text_of(first).contains("flowchart TD"),
+            "{args:?}: {frames:?}"
+        );
+        assert!(
+            text_of(first).contains("[rendering: 0/1]"),
+            "{args:?}: {frames:?}"
+        );
+        assert!(first.contains("\x1b_Ga=t,"), "{args:?}: {frames:?}");
+        assert!(!first.contains("\x1b_Ga=T,"), "{args:?}: {frames:?}");
+        let drawn = frames.iter().find(|frame| frame.contains("\x1b_Ga=T,"));
+        let drawn = text_of(drawn.unwrap());
+        assert!(!drawn.contains("flowchart"), "{args:?}: {frames:?}");
+        assert!(drawn.contains(" diagram.md "), "{args:?}: {frames:?}");
+        assert!(!drawn.contains("[rendering"), "{args:?}: {frames:?}");
+    }
+}
+
+#[test]
+fn quitting_while_the_initial_load_draws_stops_the_program() {
+    // The command notes its process and never draws.
+    let prepare = |dir: &std::path::Path| {
+        drawn_on_cue(dir);
+        let pid = dir.join("pid");
+        let draw = format!(
+            "echo $$ > '{}.new'\nmv '{0}.new' '{0}'\nexec sleep 60\n",
+            pid.display()
+        );
+        std::fs::write(dir.join("render.sh"), draw).unwrap();
+    };
+    // Once the program runs, with its process noted, as the scratch
+    // directory goes with kiri.
+    let pid = std::cell::Cell::new(None);
+    let running = |frames: &[String], dir: &std::path::Path| {
+        let noted = std::fs::read_to_string(dir.join("pid")).ok();
+        pid.set(noted.and_then(|noted| noted.trim().parse().ok()));
+        !frames.is_empty() && pid.get().is_some()
+    };
+    let args = [
+        "--initial-load",
+        "background",
+        "-p",
+        "--mode",
+        "kitty",
+        "diagram.md",
+    ];
+    let name = "pager-initial-load-quit";
+    let (frames, stderr) = quit_when(name, prepare, &args, None, &[], running);
+    assert_eq!(stderr, "");
+    let last = text_of(frames.last().unwrap());
+    assert!(last.contains("[rendering: 0/1]"), "{frames:?}");
+    assert!(last.contains("flowchart TD"), "{frames:?}");
+    let pid = rustix::process::Pid::from_raw(pid.get().unwrap()).unwrap();
+    // Gone, once whoever takes it in has reaped it.
+    let start = std::time::Instant::now();
+    while rustix::process::test_kill_process(pid).is_ok() {
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "{pid:?} still runs"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn an_initial_load_from_standard_input_goes_in_the_background_with_p() {
+    let document = "```mermaid\nflowchart TD\n```\n\nBelow\n";
+    let args = ["--initial-load", "background", "-p", "--mode", "kitty"];
+    let name = "pager-initial-load-stdin";
+    let (frames, stderr) = quit_when(name, drawn_on_cue, &args, Some(document), &[], image_sent);
+    assert_eq!(stderr, "");
+    let first = text_of(&frames[0]);
+    assert!(first.contains("flowchart TD"), "{frames:?}");
+    assert!(first.contains("[rendering: 0/1]"), "{frames:?}");
+    assert!(!frames[0].contains("\x1b_Ga=T,"), "{frames:?}");
+    let drawn = frames.iter().find(|frame| frame.contains("\x1b_Ga=T,"));
+    assert!(
+        !text_of(drawn.unwrap()).contains("[rendering"),
+        "{frames:?}"
+    );
+}
+
+#[test]
+fn an_initial_load_in_the_background_with_nothing_to_load_shows_as_waiting() {
+    // Images off, a terminal that shows none, and a document without any.
+    for (args, file) in [
+        (&["-I", "--mode", "kitty"][..], "diagram.md"),
+        (&["--mode", "ansi"], "diagram.md"),
+        (&["--mode", "kitty"], "long.md"),
+    ] {
+        let shown = |initial_load: &str| {
+            let mut all = vec!["--initial-load", initial_load, "-p"];
+            all.extend(args);
+            all.push(file);
+            let quit = |frames: &[String], _: &std::path::Path| !frames.is_empty();
+            let name = "pager-initial-load-nothing";
+            let (frames, stderr) = quit_when(name, drawn_on_cue, &all, None, &[], quit);
+            assert_eq!(stderr, "", "{all:?}");
+            frames[0].clone()
+        };
+        let background = shown("background");
+        assert!(!text_of(&background).contains("[rendering"), "{args:?}");
+        assert_eq!(background, shown("wait"), "{args:?}");
+    }
+}
+
+/// [`drawn_on_cue`], with a command that fails instead of drawing, and
+/// the reasons only on standard error.
+fn failing_on_cue(dir: &std::path::Path) {
+    drawn_on_cue(dir);
+    let fail = format!(
+        "i=0\n\
+         while [ ! -f '{}' ] && [ $i -lt 160 ]; do sleep 0.05; i=$((i + 1)); done\n\
+         echo 'Error: bad' >&2\nexit 1\n",
+        dir.join("go").display()
+    );
+    std::fs::write(dir.join("render.sh"), fail).unwrap();
+    let config = dir.join("config/kiri/config.toml");
+    let config_text = std::fs::read_to_string(&config).unwrap();
+    std::fs::write(
+        &config,
+        format!("render_errors = \"stderr\"\n{config_text}"),
+    )
+    .unwrap();
+}
+
+/// What a test does once `when` holds for the frames drawn whole since
+/// the stage before acted, and the scratch directory: `then` may change
+/// the files there, and returns the keys to type.
+struct Stage<'a> {
+    when: &'a dyn Fn(&[String], &std::path::Path) -> bool,
+    then: &'a dyn Fn(&std::path::Path) -> &'static [u8],
+}
+
+/// kiri with `args` in a terminal of 5 rows, in a scratch directory that
+/// `prepare` fills, with `stages` done in order, and with standard error
+/// on the terminal too when `both`. kiri must succeed. Returns what it
+/// wrote on the terminal and on standard error.
+fn in_stages(
+    name: &str,
+    prepare: impl FnOnce(&std::path::Path),
+    args: &[&str],
+    both: bool,
+    stages: &[Stage],
+) -> (String, String) {
+    let dir = std::cell::RefCell::new(std::path::PathBuf::new());
+    let prepare = |scratch: &std::path::Path| {
+        *dir.borrow_mut() = scratch.to_owned();
+        prepare(scratch);
+    };
+    let (mut done, mut since) = (0, 0);
+    let act = |seen: &[u8], terminal: &mut std::fs::File, _: &std::process::Child| {
+        let frames = whole_frames(&text(seen));
+        if let Some(stage) = stages.get(done)
+            && (stage.when)(&frames[since..], &dir.borrow())
+        {
+            terminal.write_all((stage.then)(&dir.borrow())).unwrap();
+            (done, since) = (done + 1, frames.len());
+        }
+    };
+    let setup = Setup {
+        both,
+        ..Setup::default()
+    };
+    let (status, seen, stderr) = in_terminal_seeing(name, prepare, args, 5, None, setup, act);
+    assert!(status.success(), "{stderr}");
+    (seen, stderr)
+}
+
+/// Whether one of `frames` shows nothing loading.
+fn loaded(frames: &[String], _: &std::path::Path) -> bool {
+    frames
+        .iter()
+        .any(|frame| !text_of(frame).contains("[rendering"))
+}
+
+/// Whether one of `frames` says the document was reloaded.
+fn reloaded(frames: &[String], _: &std::path::Path) -> bool {
+    frames
+        .iter()
+        .any(|frame| text_of(frame).contains("reloaded"))
+}
+
+/// What kiri on `args` with `--initial-load wait -p --mode kitty` writes
+/// on standard error, quitting at once, in a scratch directory that
+/// `prepare` fills.
+fn told_waiting(name: &str, prepare: impl FnOnce(&std::path::Path), files: &[&str]) -> String {
+    let args = [
+        &["--initial-load", "wait", "-p", "--mode", "kitty"][..],
+        files,
+    ]
+    .concat();
+    let quit = |frames: &[String], _: &std::path::Path| !frames.is_empty();
+    let (frames, stderr) = quit_when(name, prepare, &args, None, &[], quit);
+    assert!(!text_of(&frames[0]).contains("[rendering"), "{frames:?}");
+    assert_ne!(stderr, "");
+    stderr
+}
+
+const BACKGROUND: [&str; 5] = ["--initial-load", "background", "-p", "--mode", "kitty"];
+
+#[test]
+fn an_initial_load_in_the_background_tells_a_failed_diagram_after_the_pager() {
+    let quit = Stage {
+        when: &loaded,
+        then: &|_| b"q",
+    };
+    let go = Stage {
+        when: &|frames, _| !frames.is_empty(),
+        then: &|dir| {
+            std::fs::write(dir.join("go"), "").unwrap();
+            b""
+        },
+    };
+    let args = [&BACKGROUND[..], &["diagram.md"]].concat();
+    let name = "pager-initial-load-failed";
+    let (seen, stderr) = in_stages(name, failing_on_cue, &args, false, &[go, quit]);
+    let frames = whole_frames(&seen);
+    let first = text_of(&frames[0]);
+    assert!(first.contains("[rendering: 0/1]"), "{frames:?}");
+    assert!(text_of(frames.last().unwrap()).contains("flowchart TD"));
+    // The lines waiting writes before the pager opens.
+    let at_once = |dir: &std::path::Path| {
+        failing_on_cue(dir);
+        std::fs::write(dir.join("go"), "").unwrap();
+    };
+    let waiting = told_waiting("pager-initial-load-failed-wait", at_once, &["diagram.md"]);
+    assert!(waiting.contains("Error: bad"), "{waiting}");
+    assert_eq!(stderr, waiting);
+    // Once the pager has left its screen.
+    let go = Stage {
+        when: &|frames, _| !frames.is_empty(),
+        then: &|dir| {
+            std::fs::write(dir.join("go"), "").unwrap();
+            b""
+        },
+    };
+    let quit = Stage {
+        when: &loaded,
+        then: &|_| b"q",
+    };
+    let name = "pager-initial-load-failed-after";
+    let (seen, _) = in_stages(name, failing_on_cue, &args, true, &[go, quit]);
+    let (_, after) = seen.rsplit_once(LEAVE).unwrap();
+    assert!(after.contains("Error: bad"), "{seen:?}");
+}
+
+/// What the progress line says where Space or Enter opens the pager.
+const HINT: &str = "(space: open now)";
+
+/// kiri with `args` in a terminal of 12 rows, with standard error on it
+/// too, in a scratch directory that `prepare` fills, with `act` called
+/// with what kiri wrote so far, the terminal and the directory each time
+/// it writes. Returns how kiri exited and what it wrote.
+fn watching(
+    name: &str,
+    prepare: impl FnOnce(&std::path::Path),
+    args: &[&str],
+    mut act: impl FnMut(&str, &mut std::fs::File, &std::path::Path),
+) -> (ExitStatus, String) {
+    let dir = std::cell::RefCell::new(std::path::PathBuf::new());
+    let prepare = |scratch: &std::path::Path| {
+        *dir.borrow_mut() = scratch.to_owned();
+        prepare(scratch);
+    };
+    let act = |seen: &[u8], terminal: &mut std::fs::File, _: &std::process::Child| {
+        act(&text(seen), terminal, &dir.borrow());
+    };
+    let setup = Setup {
+        both: true,
+        ..Setup::default()
+    };
+    let (status, seen, _) = in_terminal_seeing(name, prepare, args, 12, None, setup, act);
+    (status, seen)
+}
+
+/// [`drawn_on_cue`] with `diagram.md` longer than a window of 12 rows.
+fn long_on_cue(dir: &std::path::Path) {
+    drawn_on_cue(dir);
+    let document = format!("```mermaid\nflowchart TD\n```\n\n{}", long());
+    std::fs::write(dir.join("diagram.md"), document).unwrap();
+}
+
+#[test]
+fn space_or_enter_opens_the_pager_before_the_slow_diagram_is_drawn() {
+    for key in [&b" "[..], b"\r"] {
+        let (mut typed, mut go, mut quit) = (false, false, false);
+        let act = |seen: &str, terminal: &mut std::fs::File, dir: &std::path::Path| {
+            if !typed && seen.contains(HINT) {
+                terminal.write_all(key).unwrap();
+                typed = true;
+            }
+            let frames = whole_frames(seen);
+            if !go && !frames.is_empty() {
+                std::fs::write(dir.join("go"), "").unwrap();
+                go = true;
+            }
+            if !quit && image_sent(&frames, dir) {
+                terminal.write_all(b"q").unwrap();
+                quit = true;
+            }
+        };
+        let args = ["--mode", "kitty", "-p", "diagram.md"];
+        let (status, seen) = watching("pager-skip", drawn_on_cue, &args, act);
+        assert!(status.success(), "{key:?}: {seen:?}");
+        let (before, pager) = seen.split_once(ENTER).unwrap();
+        assert!(before.contains(HINT), "{key:?}: {seen:?}");
+        let frames = whole_frames(pager);
+        let first = text_of(&frames[0]);
+        assert!(first.contains("flowchart TD"), "{key:?}: {frames:?}");
+        assert!(first.contains("[rendering: 0/1]"), "{key:?}: {frames:?}");
+        assert!(!frames[0].contains("\x1b_Ga=T,"), "{key:?}: {frames:?}");
+        assert!(image_sent(&frames, std::path::Path::new("")), "{frames:?}");
+    }
+}
+
+#[test]
+fn space_opens_the_pager_for_several_files_before_the_slow_diagram_is_drawn() {
+    let (mut typed, mut go, mut quit) = (false, false, false);
+    let act = |seen: &str, terminal: &mut std::fs::File, dir: &std::path::Path| {
+        if !typed && seen.contains(HINT) {
+            terminal.write_all(b" ").unwrap();
+            typed = true;
+        }
+        let frames = whole_frames(seen);
+        if !go && !frames.is_empty() {
+            std::fs::write(dir.join("go"), "").unwrap();
+            go = true;
+        }
+        if !quit && image_sent(&frames, dir) {
+            terminal.write_all(b"q").unwrap();
+            quit = true;
+        }
+    };
+    let args = ["--mode", "kitty", "-p", "diagram.md", "document.md"];
+    let (status, seen) = watching("pager-skip-files", drawn_on_cue, &args, act);
+    assert!(status.success(), "{seen:?}");
+    let (before, pager) = seen.split_once(ENTER).unwrap();
+    assert!(before.contains(HINT), "{seen:?}");
+    let frames = whole_frames(pager);
+    let first = text_of(&frames[0]);
+    assert!(first.contains("flowchart TD"), "{frames:?}");
+    assert!(first.contains("[rendering: 0/1]"), "{frames:?}");
+    assert!(image_sent(&frames, std::path::Path::new("")), "{frames:?}");
+}
+
+#[test]
+fn a_diagram_that_fails_after_a_skipped_wait_is_told_after_the_pager() {
+    for (files, told) in [
+        (&["diagram.md"][..], "kiri: mermaid diagram on line 1: "),
+        (
+            &["diagram.md", "document.md"],
+            "kiri: diagram.md: mermaid diagram on line 1: ",
+        ),
+    ] {
+        let (mut typed, mut go, mut quit) = (false, false, false);
+        let act = |seen: &str, terminal: &mut std::fs::File, dir: &std::path::Path| {
+            if !typed && seen.contains(HINT) {
+                terminal.write_all(b" ").unwrap();
+                typed = true;
+            }
+            let frames = whole_frames(seen);
+            if !go && !frames.is_empty() {
+                std::fs::write(dir.join("go"), "").unwrap();
+                go = true;
+            }
+            if !quit && loaded(&frames[frames.len().min(1)..], dir) {
+                terminal.write_all(b"q").unwrap();
+                quit = true;
+            }
+        };
+        let args = [&["--mode", "kitty", "-p"][..], files].concat();
+        let (status, seen) = watching("pager-skip-failed", failing_on_cue, &args, act);
+        assert!(status.success(), "{files:?}: {seen:?}");
+        let (before, pager) = seen.split_once(ENTER).unwrap();
+        assert!(before.contains(HINT), "{files:?}: {seen:?}");
+        let frames = whole_frames(pager);
+        assert!(
+            text_of(&frames[0]).contains("[rendering: 0/1]"),
+            "{frames:?}"
+        );
+        let (_, after) = seen.rsplit_once(LEAVE).unwrap();
+        let line = format!("{told}sh exited with status 1: Error: bad");
+        assert!(after.contains(&line), "{files:?}: {after:?}");
+        assert!(!pager.rsplit_once(LEAVE).unwrap().0.contains("Error: bad"));
+    }
+}
+
+#[test]
+fn without_standard_error_on_a_terminal_space_does_not_skip_the_wait() {
+    // Space while the diagram is drawn, which nothing then shows.
+    let meanwhile = |terminal: &mut std::fs::File, dir: &std::path::Path| {
+        std::thread::sleep(Duration::from_secs(1));
+        let _ = terminal.write_all(b" ");
+        std::thread::sleep(Duration::from_secs(1));
+        let _ = std::fs::write(dir.join("go"), "");
+    };
+    let mut quit = false;
+    let act = |seen: &[u8], terminal: &mut std::fs::File, _: &std::process::Child| {
+        if !quit && !whole_frames(&text(seen)).is_empty() {
+            terminal.write_all(b"q").unwrap();
+            quit = true;
+        }
+    };
+    let setup = Setup {
+        meanwhile: Some(meanwhile),
+        ..Setup::default()
+    };
+    let args = ["--mode", "kitty", "-p", "diagram.md"];
+    let name = "pager-skip-no-stderr";
+    let (status, seen, stderr) =
+        in_terminal_seeing(name, drawn_on_cue, &args, 12, None, setup, act);
+    assert!(status.success(), "{stderr}");
+    assert_eq!(stderr, "");
+    let frames = whole_frames(&seen);
+    // Waited for the diagram.
+    assert!(frames[0].contains("\x1b_Ga=T,"), "{frames:?}");
+    assert!(!text_of(&frames[0]).contains("[rendering"), "{frames:?}");
+}
+
+#[test]
+fn another_key_does_nothing_while_the_images_load_and_is_not_kept() {
+    let (mut typed, mut quit) = (false, false);
+    let act = |seen: &str, terminal: &mut std::fs::File, dir: &std::path::Path| {
+        if !typed && seen.contains(HINT) {
+            // To the end, were it kept for the pager.
+            terminal.write_all(b"G").unwrap();
+            std::thread::sleep(Duration::from_millis(200));
+            std::fs::write(dir.join("go"), "").unwrap();
+            typed = true;
+        }
+        if !quit && !whole_frames(seen).is_empty() {
+            terminal.write_all(b"q").unwrap();
+            quit = true;
+        }
+    };
+    let args = ["--mode", "kitty", "-p", "diagram.md"];
+    let (status, seen) = watching("pager-skip-other", long_on_cue, &args, act);
+    assert!(status.success(), "{seen:?}");
+    assert!(typed, "no hint: {seen:?}");
+    let frames = whole_frames(seen.split_once(ENTER).unwrap().1);
+    // Waited for the diagram, at the top.
+    assert!(frames[0].contains("\x1b_Ga=T,"), "{frames:?}");
+    let first = text_of(&frames[0]);
+    assert!(!first.contains("[rendering"), "{frames:?}");
+    assert!(first.contains("Line 2"), "{frames:?}");
+    assert!(!first.contains("Line 10"), "{frames:?}");
+}
+
+#[test]
+fn ctrl_c_while_the_images_load_ends_kiri_as_before() {
+    use std::os::unix::process::ExitStatusExt;
+
+    for args in [
+        &["--mode", "kitty", "-p", "diagram.md"][..],
+        &["--mode", "kitty", "-P", "diagram.md"],
+    ] {
+        let mut typed = false;
+        let act = |seen: &str, terminal: &mut std::fs::File, _: &std::path::Path| {
+            if !typed && seen.contains("loading images") {
+                terminal.write_all(b"\x03").unwrap();
+                typed = true;
+            }
+        };
+        let (status, seen) = watching("pager-skip-ctrl-c", drawn_on_cue, args, act);
+        assert_eq!(status.signal(), Some(libc::SIGINT), "{args:?}: {seen:?}");
+        assert!(!seen.contains(ENTER), "{args:?}: {seen:?}");
+    }
+}
+
+#[test]
+fn the_hint_shows_only_where_the_pager_surely_opens() {
+    // The document, whether it fits a window of 12 rows, and the options.
+    for (long, args, hint) in [
+        (false, &["-p"][..], true),
+        (true, &[][..], true),
+        (false, &[][..], false),
+        (true, &["-P"][..], false),
+    ] {
+        let (mut go, mut quit) = (false, false);
+        let act = |seen: &str, terminal: &mut std::fs::File, dir: &std::path::Path| {
+            if !go && seen.contains("loading images") {
+                std::fs::write(dir.join("go"), "").unwrap();
+                go = true;
+            }
+            if !quit && seen.contains("\x1b[?2026l") {
+                terminal.write_all(b"q").unwrap();
+                quit = true;
+            }
+        };
+        let prepare = |dir: &std::path::Path| match long {
+            true => long_on_cue(dir),
+            false => drawn_on_cue(dir),
+        };
+        let all = [&["--mode", "kitty"][..], args, &["diagram.md"]].concat();
+        let (status, seen) = watching("pager-skip-hint", prepare, &all, act);
+        assert!(status.success(), "{args:?}: {seen:?}");
+        assert!(seen.contains("loading images"), "{args:?}: {seen:?}");
+        assert_eq!(seen.contains(HINT), hint, "{args:?}: {seen:?}");
+    }
+}
+
+/// [`drawn_diagram`], with `a.md`, a diagram other than `diagram.mmd`'s,
+/// and `missing.md`, an image whose file is missing.
+fn several_files(dir: &std::path::Path) {
+    drawn_diagram(dir);
+    std::fs::write(dir.join("a.md"), "```mermaid\nflowchart LR\n```\n").unwrap();
+    std::fs::write(dir.join("missing.md"), "![gone](missing.png)\n").unwrap();
+}
+
+#[test]
+fn several_files_load_their_images_in_the_background_too() {
+    let files = ["a.md", "missing.md"];
+    let args = [&BACKGROUND[..], &files].concat();
+    let name = "pager-initial-load-files";
+    let (frames, stderr) = quit_when(name, several_files, &args, None, &[], image_sent);
+    let first = text_of(&frames[0]);
+    assert!(first.contains("flowchart LR"), "{frames:?}");
+    assert!(first.contains("[rendering: 0/2]"), "{frames:?}");
+    assert!(!frames[0].contains("\x1b_Ga=T,"), "{frames:?}");
+    let drawn = frames.iter().find(|frame| frame.contains("\x1b_Ga=T,"));
+    assert!(!text_of(drawn.unwrap()).contains("flowchart"), "{frames:?}");
+    // Under the file's name, as waiting tells it before the pager opens.
+    let waiting = told_waiting("pager-initial-load-files-wait", several_files, &files);
+    assert_eq!(waiting, "kiri: missing.md: missing.png: file not found\n");
+    assert_eq!(stderr, waiting);
+}
+
+#[test]
+fn several_files_without_a_terminal_for_keys_print_as_when_waiting() {
+    let shown = |how: &str| {
+        let args = [
+            "--mode",
+            "kitty",
+            "--initial-load",
+            how,
+            "-p",
+            "a.md",
+            "missing.md",
+        ];
+        let (status, seen, stderr) =
+            without_keys("pager-initial-load-files-no-keys", several_files, &args);
+        assert!(status.success(), "{stderr}");
+        (seen, stderr)
+    };
+    let (seen, stderr) = shown("background");
+    assert_eq!(seen.matches("\x1b_Ga=T,").count(), 1, "{seen:?}");
+    assert!(
+        stderr.contains("kiri: missing.md: missing.png: file not found\n"),
+        "{stderr}"
+    );
+    assert_eq!((seen, stderr), shown("wait"));
+}
+
+#[test]
+fn a_diagram_file_waits_for_its_drawing_also_among_several_files() {
+    let quit = |frames: &[String], _: &std::path::Path| !frames.is_empty();
+    for files in [&["diagram.mmd"][..], &["diagram.mmd", "a.md"]] {
+        let args = [&BACKGROUND[..], files].concat();
+        let name = "pager-initial-load-diagram-file";
+        let (frames, stderr) = quit_when(name, several_files, &args, None, &[], quit);
+        assert_eq!(stderr, "");
+        // Drawn at the top of the first frame.
+        assert!(frames[0].contains("\x1b_Ga=T,"), "{files:?}: {frames:?}");
+        let first = text_of(&frames[0]);
+        let loading = first.contains("[rendering: 0/1]");
+        assert_eq!(loading, files.len() > 1, "{files:?}: {frames:?}");
+    }
+}
+
+/// [`drawn_on_cue`], with a command that fails until `ok` is in the
+/// scratch directory `dir`, and the reasons only on standard error.
+fn failing_until_ok(dir: &std::path::Path) {
+    failing_on_cue(dir);
+    let draw = format!(
+        "[ -f '{}' ] || {{ echo 'Error: bad' >&2; exit 1; }}\n\
+         echo '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\"/>' > \"$2\"\n",
+        dir.join("ok").display()
+    );
+    std::fs::write(dir.join("render.sh"), draw).unwrap();
+}
+
+#[test]
+fn a_diagram_that_failed_and_then_drew_in_the_background_is_not_told() {
+    let again = Stage {
+        when: &loaded,
+        then: &|dir| {
+            std::fs::write(dir.join("ok"), "").unwrap();
+            b"r"
+        },
+    };
+    let quit = Stage {
+        when: &image_sent,
+        then: &|_| b"q",
+    };
+    let args = [&BACKGROUND[..], &["diagram.md"]].concat();
+    let name = "pager-initial-load-failed-then-drew";
+    let (seen, stderr) = in_stages(name, failing_until_ok, &args, false, &[again, quit]);
+    assert!(seen.contains("\x1b_Ga=T,"), "{seen:?}");
+    assert_eq!(stderr, "");
+}
+
+#[test]
+fn a_failed_diagram_whose_block_is_gone_is_not_told() {
+    let gone = Stage {
+        when: &loaded,
+        then: &|dir| {
+            std::fs::write(dir.join("diagram.md"), "Gone\n").unwrap();
+            b"r"
+        },
+    };
+    let quit = Stage {
+        when: &reloaded,
+        then: &|_| b"q",
+    };
+    let args = [&BACKGROUND[..], &["diagram.md"]].concat();
+    let name = "pager-initial-load-failed-gone";
+    let (seen, stderr) = in_stages(name, failing_until_ok, &args, false, &[gone, quit]);
+    assert!(text_of(&seen).contains("Gone"), "{seen:?}");
+    assert_eq!(stderr, "");
+}
+
+#[test]
+fn a_missing_image_that_came_in_the_background_is_told_once_after_reloads() {
+    let prepare = |dir: &std::path::Path| {
+        std::fs::write(dir.join("missing.md"), "![gone](missing.png)\n").unwrap();
+    };
+    let again = || Stage {
+        when: &loaded,
+        then: &|_| b"r",
+    };
+    let quit = Stage {
+        when: &reloaded,
+        then: &|_| b"q",
+    };
+    let reload = Stage {
+        when: &reloaded,
+        then: &|_| b"r",
+    };
+    let args = [&BACKGROUND[..], &["missing.md"]].concat();
+    let name = "pager-initial-load-missing";
+    let (seen, stderr) = in_stages(name, prepare, &args, false, &[again(), reload, quit]);
+    assert!(text_of(&seen).contains("[image: gone]"), "{seen:?}");
+    let waiting = told_waiting("pager-initial-load-missing-wait", prepare, &["missing.md"]);
+    assert!(waiting.contains("missing.png"), "{waiting}");
+    assert_eq!(stderr, waiting);
+}
+
+/// A document of `top` lines in one paragraph, a diagram of five lines
+/// and three paragraphs of a line each: with the diagram counted at three
+/// rows, it takes `top` + 10 rows.
+fn counted(top: usize) -> String {
+    let top: Vec<String> = (1..=top).map(|n| format!("Top {n}")).collect();
+    let diagram = "```mermaid\nflowchart TD\n  A --> B\n  B --> C\n  C --> D\n  D --> E\n```";
+    format!(
+        "{}\n\n{diagram}\n\nLine 1\n\nLine 2\n\nLine 3\n",
+        top.join("  \n")
+    )
+}
+
+#[test]
+fn paging_on_auto_loads_in_the_background_what_is_longer_than_the_window_with_three_rows_an_image()
+{
+    // 13 rows in a window of 12: the pager opens at once.
+    let longer = |dir: &std::path::Path| {
+        drawn_diagram(dir);
+        std::fs::write(dir.join("counted.md"), counted(3)).unwrap();
+    };
+    let args = [
+        "--initial-load",
+        "background",
+        "--mode",
+        "kitty",
+        "counted.md",
+    ];
+    let name = "pager-initial-load-auto-longer";
+    let (frames, stderr) = quit_when(name, longer, &args, None, &[], image_sent);
+    assert_eq!(stderr, "");
+    assert!(!frames.is_empty(), "printed, not paged");
+    let first = text_of(&frames[0]);
+    assert!(first.contains("[rendering: 0/1]"), "{frames:?}");
+    assert!(first.contains("D --> E"), "{frames:?}");
+    // 12 rows: it waits, and then, with the diagram drawn shorter, prints.
+    let fits = |dir: &std::path::Path| {
+        drawn_diagram(dir);
+        std::fs::write(dir.join("counted.md"), counted(2)).unwrap();
+    };
+    let name = "pager-initial-load-auto-fits";
+    let (status, seen, stderr) = in_terminal_told(name, fits, &args, 12, None, |_, _, _| {});
+    assert!(status.success(), "{stderr}");
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert!(!text_of(&seen).contains("D --> E"), "{seen:?}");
+    assert_eq!(seen.matches("\x1b_Ga=T,").count(), 1, "{seen:?}");
+    // Several files, longer than the window as their images come.
+    let files = |dir: &std::path::Path| {
+        several_files(dir);
+        std::fs::write(dir.join("counted.md"), counted(3)).unwrap();
+    };
+    let args = [
+        "--initial-load",
+        "background",
+        "--mode",
+        "kitty",
+        "a.md",
+        "counted.md",
+    ];
+    let name = "pager-initial-load-auto-files";
+    let (frames, stderr) = quit_when(name, files, &args, None, &[], image_sent);
+    assert_eq!(stderr, "");
+    assert!(!frames.is_empty(), "printed, not paged");
+    assert!(
+        text_of(&frames[0]).contains("[rendering: 0/2]"),
+        "{frames:?}"
+    );
+}
+
+#[test]
+fn an_initial_load_in_the_background_waits_where_the_pager_does_not_open() {
+    let prepare = |dir: &std::path::Path| {
+        drawn_diagram(dir);
+        let document = format!("```mermaid\nflowchart TD\n```\n\n{}", long());
+        std::fs::write(dir.join("diagram.md"), document).unwrap();
+    };
+    // Printed.
+    let args = [
+        "--mode",
+        "kitty",
+        "--initial-load",
+        "background",
+        "-P",
+        "diagram.md",
+    ];
+    let (status, seen) = in_steps_with("pager-initial-load-print", prepare, &args, &[]);
+    assert!(status.success());
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert_eq!(seen.matches("\x1b_Ga=T,").count(), 1, "{seen:?}");
+    // Printed, as there is no terminal to read keys from.
+    let args = [
+        "--mode",
+        "kitty",
+        "--initial-load",
+        "background",
+        "-p",
+        "diagram.md",
+    ];
+    let (status, seen, stderr) = without_keys("pager-initial-load-no-keys", prepare, &args);
+    assert!(status.success(), "{stderr}");
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert_eq!(seen.matches("\x1b_Ga=T,").count(), 1, "{seen:?}");
+    assert_eq!(
+        stderr,
+        "kiri: no terminal to read keys from, so the document is printed\n"
+    );
 }
 
 /// What a test types into the pager and when: the keys that `keys` returns

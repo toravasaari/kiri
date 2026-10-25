@@ -36,6 +36,10 @@ follow = "off"
 # Which change auto-follow moves the view to: "first", "last" or "most".
 follow_jump = "first"
 
+# Whether the pager waits for the images before it shows the document:
+# "wait", or "background" to show the text at once.
+initial_load = "wait"
+
 # Front matter render style: "table", "code", "hide" or "off".
 front_matter = "table"
 
@@ -193,6 +197,53 @@ nor does an image that comes after the reload, and a new reload replaces
 it. On a terminal where the page colours are
 not known as RGB, or without 24-bit colour, there is no highlight.
 
+## Initial load
+
+When the pager surely opens, the first of these that is given decides
+whether it waits for the document's images and diagrams before it shows
+the document, or shows the text at once and each image as it comes:
+
+1. `--initial-load wait|background`
+2. `KIRI_INITIAL_LOAD`: `wait` or `background`; an empty value counts as
+   unset, and any other value is left out with a warning
+3. `initial_load` in the configuration file
+4. `wait`
+
+With `background`, each image and diagram shows as it does without its
+image until it comes, a diagram as its code and an image as its alt
+text, with a thin moving band below it, and the status line says
+`[rendering: 1/3]` in place of the name meanwhile, as after a
+[reload](#follow). The view keeps its top line as the images come, so
+the text below an image moves down when it arrives; that is why `wait`
+is the default. The warnings about images and diagrams that failed, which
+`wait` writes on standard error before the pager opens, come once the
+pager has closed, for what still fails then.
+
+This holds where the pager surely opens: when paging is `always`, as with
+`-p`, or when it follows a lone file, as with `-f`, and with paging on
+`auto` when the document is longer than the window with each image and
+diagram that has not loaded counted at three rows. A shorter document
+waits for its images, and is then paged or printed as their real height
+says. So, with `wait`, a document that shows the hint below can still
+be printed once its images turn out smaller than three rows each. A
+printed document always waits: in a window of 40 rows,
+`kiri --initial-load background notes.md` shows a document of 50 rows of
+text at once, and waits for one of 30 rows of text and two diagrams.
+With several files, the images of the documents among them load in the
+background too, and an image or diagram file waits for its image, among
+others or on its own.
+
+With `wait`, in those same places Space or Enter cuts the wait short:
+while standard error says `kiri: loading images 1/3… (space: open
+now)`, either key opens the pager at once, with the images that have
+come, and the rest load in the background as with `background`. Other
+keys do nothing meanwhile and are not kept for the pager, and Ctrl-C
+ends kiri as it does whenever it waits. Where the pager may not open,
+such as in print mode or with paging on `auto` for a document that
+fits, there is no hint and the keys do nothing, and so it is when
+standard error is not a terminal, as in `kiri -p notes.md 2>log`, where
+the line cannot show.
+
 ## Search case
 
 A search in the pager ignores case when its term has no upper-case letter,
@@ -281,6 +332,11 @@ could not be drawn:
 theme's `error` colour, or without colour where there are none;
 `stderr` only in a warning on standard error; `both` in both. Warnings
 about images that do not load go to standard error whatever this says.
+What failed while the pager showed the document, loading in the
+background after a reload or with the [initial load](#initial-load) in
+the background, is told on standard error once the pager has closed: the
+images and diagrams that still fail in the document as it is then, each
+once.
 
 ## Environment variables
 
@@ -292,6 +348,7 @@ about images that do not load go to standard error whatever this says.
 | `KIRI_PAGING` | When to page; see [Paging](#paging) |
 | `KIRI_FOLLOW` | Whether the pager follows a file; see [Follow](#follow) |
 | `KIRI_FOLLOW_JUMP` | Which change auto-follow moves the view to; see [Follow jump](#follow-jump) |
+| `KIRI_INITIAL_LOAD` | Whether the pager waits for the images; see [Initial load](#initial-load) |
 | `KIRI_FRONT_MATTER` | Front matter render style; see [Front matter](#front-matter) |
 | `KIRI_TABLE_ROWS` | Table row style; see [Table rows](#table-rows) |
 | `KIRI_DIAGRAMS` | Diagrams drawn or shown as code; see [Diagrams](diagrams.md) |

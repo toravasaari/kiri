@@ -7,7 +7,10 @@
 use std::collections::{BTreeMap, HashSet};
 
 use super::background::{Context, Job, What};
-use super::{Fonts, ImageKey, Images, LoadOptions, Loads, Part, Stamps, Wanted, diagram_languages};
+use super::{
+    Fonts, ImageKey, Images, LoadOptions, Loads, Part, Placeholder, Stamps, Wanted,
+    diagram_languages,
+};
 use super::{load_parts, plan};
 use crate::config::{self, Environment, Settings};
 use crate::diagrams::find::{self, Search};
@@ -85,18 +88,18 @@ pub fn reload_in_background(
     loads: &mut Loads,
 ) {
     let changed = stamps.refresh(parts, images);
-    let renderers = (loading.settings.diagrams).then(|| {
-        let (commands, external) = chosen(loading);
-        Renderers::new(commands, external)
-    });
+    let renderers = background_renderers(loading);
     let renderer: &dyn Renderer = match &renderers {
         Some(renderers) => renderers,
         None => &NoRenderer,
     };
+    // Whether a failure came in the background stays with what is kept.
+    let late = std::mem::take(&mut images.late);
     let (wanted, have) = plan(parts, renderer, Some(images));
-    let keys: HashSet<ImageKey> = (wanted.iter())
+    let shown: Vec<ImageKey> = (wanted.iter())
         .map(|(index, image)| image.key().in_document(parts[*index].number))
         .collect();
+    let keys: HashSet<&ImageKey> = shown.iter().collect();
     loads.keep(|key| keys.contains(key));
     let mut kept = Images::new();
     let mut jobs = Vec::new();
@@ -104,41 +107,17 @@ pub fn reload_in_background(
         let part = &parts[index];
         let key = image.key().in_document(part.number);
         if let Some(have) = have {
-            kept.insert(key, have);
+            match late.contains(&key) {
+                true => kept.came(key, have),
+                false => kept.insert(key, have),
+            }
             continue;
         }
         let again = changed.iter().any(|(changed, _)| *changed == key);
         if loads.loading(&key) && !again {
             continue;
         }
-        let (what, program) = match image {
-            Wanted::Url(url) => {
-                let base = part.base.to_path_buf();
-                (
-                    What::Url {
-                        url: url.to_owned(),
-                        base,
-                    },
-                    false,
-                )
-            }
-            Wanted::Diagram {
-                language,
-                source,
-                line,
-            } => {
-                let program = (renderers.as_ref())
-                    .is_some_and(|renderers| renderers.runs_programs_for([language]));
-                let what = What::Diagram {
-                    language: language.to_owned(),
-                    source: source.to_owned(),
-                    line,
-                    by_line: part.by_line,
-                };
-                (what, program)
-            }
-        };
-        jobs.push(Job { key, what, program });
+        jobs.push(job(part, key, image, renderers.as_ref()));
     }
     // What the documents no longer show, and what changed under them.
     let gone = std::mem::take(images).by_key.into_iter();
@@ -146,19 +125,119 @@ pub fn reload_in_background(
     kept.replaced = (gone.chain(changed))
         .filter_map(|(key, image)| Some((key, image.ok()?)))
         .collect();
+    loads.start(jobs, context(loading, renderers));
+    kept.shown = shown;
+    *images = kept;
+}
+
+/// Starts loading every image of `parts` in the background in `loads`,
+/// as a reload loads a new one, for the documents shown first: each has
+/// nothing that tells its size standing in for it in `images` until it
+/// comes. What else `images` holds, such as the images of the files
+/// shown with `parts`, stays.
+///
+/// The signals are not caught, as for [`reload_in_background`].
+pub fn load_in_background(
+    parts: &[Part<'_>],
+    loading: &Loading,
+    images: &mut Images,
+    loads: &mut Loads,
+) {
+    let renderers = background_renderers(loading);
+    let renderer: &dyn Renderer = match &renderers {
+        Some(renderers) => renderers,
+        None => &NoRenderer,
+    };
+    let (wanted, _) = plan(parts, renderer, None);
+    let mut jobs = Vec::new();
+    for (index, image) in wanted {
+        let part = &parts[index];
+        let key = image.key().in_document(part.number);
+        images.wait(key.clone(), Placeholder::Unsized);
+        images.shown.push(key.clone());
+        jobs.push(job(part, key, image, renderers.as_ref()));
+    }
+    loads.start(jobs, context(loading, renderers));
+}
+
+/// Stands in for every image of `parts` that [`load_in_background`] would
+/// load with a box of `rows` rows in `images`, to tell how tall the
+/// documents are before their images load, such as whether they are
+/// longer than the window.
+pub fn measure_in_background(
+    parts: &[Part<'_>],
+    loading: &Loading,
+    images: &mut Images,
+    rows: u16,
+) {
+    let renderers = background_renderers(loading);
+    let renderer: &dyn Renderer = match &renderers {
+        Some(renderers) => renderers,
+        None => &NoRenderer,
+    };
+    let (wanted, _) = plan(parts, renderer, None);
+    for (index, image) in wanted {
+        let key = image.key().in_document(parts[index].number);
+        images.wait(key, Placeholder::Rows(rows));
+    }
+}
+
+/// The renderers the settings choose for drawing diagrams in the
+/// background, without a flag to stop them; `None` with diagrams off.
+fn background_renderers(loading: &Loading) -> Option<Renderers> {
+    (loading.settings.diagrams).then(|| {
+        let (commands, external) = chosen(loading);
+        Renderers::new(commands, external)
+    })
+}
+
+/// The job that loads `image` of `part`, keyed `key`, in the background,
+/// with `renderers` for a diagram.
+fn job(part: &Part<'_>, key: ImageKey, image: Wanted<'_>, renderers: Option<&Renderers>) -> Job {
+    let (what, program) = match image {
+        Wanted::Url(url) => {
+            let base = part.base.to_path_buf();
+            (
+                What::Url {
+                    url: url.to_owned(),
+                    base,
+                },
+                false,
+            )
+        }
+        Wanted::Diagram {
+            language,
+            source,
+            line,
+        } => {
+            let program =
+                renderers.is_some_and(|renderers| renderers.runs_programs_for([language]));
+            let what = What::Diagram {
+                language: language.to_owned(),
+                source: source.to_owned(),
+                line,
+                by_line: part.by_line,
+            };
+            (what, program)
+        }
+    };
+    Job { key, what, program }
+}
+
+/// What the jobs of a load in the background need, as `loading` says,
+/// with `renderers` for diagrams.
+fn context(loading: &Loading, renderers: Option<Renderers>) -> Context {
     let renderer: Box<dyn Renderer + Send + Sync> = match renderers {
         Some(renderers) => Box::new(renderers),
         None => Box::new(NoRenderer),
     };
-    let context = Context {
+    Context {
         renderer,
         theme: loading.theme,
         panel: loading.settings.diagram_panel,
         largest: loading.largest,
         max_file_size: loading.max_file_size,
-    };
-    loads.start(jobs, context);
-    *images = kept;
+    }
 }
 
 /// The images of `parts`, loaded as `load_documents` loads them, and the

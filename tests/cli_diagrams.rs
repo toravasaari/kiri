@@ -395,8 +395,8 @@ fn slow_diagrams_show_their_progress_on_a_terminal() {
     let config = external(&dir, &format!("sleep 0.8\n{DRAWS}"));
     let (stderr, stdout) = on_terminal(&dir, FLOWCHART, &config);
     // Wiped at the end; 1/1 may show for a moment before.
-    let shown = "\r\x1b[2Kkiri: rendering diagrams 0/1…";
-    let done = "\r\x1b[2Kkiri: rendering diagrams 1/1…";
+    let shown = "\r\x1b[2Kkiri: loading images 0/1…";
+    let done = "\r\x1b[2Kkiri: loading images 1/1…";
     let wiped = "\r\x1b[2K";
     assert!(
         [format!("{shown}{wiped}"), format!("{shown}{done}{wiped}")].contains(&stderr),
