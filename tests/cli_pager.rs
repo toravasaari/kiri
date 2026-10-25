@@ -971,38 +971,64 @@ fn drawn_on_cue(dir: &std::path::Path) {
     std::fs::write(dir.join("diagram.md"), document).unwrap();
 }
 
-/// kiri on `diagram.md` of [`drawn_on_cue`] with `args` and `env` in a
-/// terminal of 5 rows: the diagram is drawn once the first frame is, and
-/// `q` typed once a frame with an image sent in it is. Returns the frames.
-fn first_load(name: &str, args: &[&str], env: &[(&str, &str)]) -> Vec<String> {
+/// kiri with `args` and `env`, and `stdin` piped in when given, in a
+/// terminal of 5 rows, in a scratch directory that `prepare` fills: `go`
+/// is written there once the first frame is drawn, and `q` typed once
+/// `done` holds for the frames drawn whole and the directory. kiri must
+/// succeed. Returns the frames and what kiri wrote on standard error.
+fn quit_when(
+    name: &str,
+    prepare: impl FnOnce(&std::path::Path),
+    args: &[&str],
+    stdin: Option<&str>,
+    env: &[(&str, &str)],
+    done: impl Fn(&[String], &std::path::Path) -> bool,
+) -> (Vec<String>, String) {
     let dir = std::cell::RefCell::new(std::path::PathBuf::new());
     let prepare = |scratch: &std::path::Path| {
         *dir.borrow_mut() = scratch.to_owned();
-        drawn_on_cue(scratch);
+        prepare(scratch);
     };
     let (mut go, mut quit) = (false, false);
     let act = |seen: &[u8], terminal: &mut std::fs::File, _: &std::process::Child| {
-        let seen = text(seen);
-        if !go && seen.contains("\x1b[?2026l") {
+        let frames = whole_frames(&text(seen));
+        if !go && !frames.is_empty() {
             std::fs::write(dir.borrow().join("go"), "").unwrap();
             go = true;
         }
-        let sent = seen.split_once("\x1b_Ga=T,").map(|(_, after)| after);
-        if !quit && sent.is_some_and(|after| after.contains("\x1b[?2026l")) {
+        if !quit && done(&frames, &dir.borrow()) {
             terminal.write_all(b"q").unwrap();
             quit = true;
         }
     };
-    let mut args = args.to_vec();
-    args.extend(["--mode", "kitty", "diagram.md"]);
     let setup = Setup { both: false, env };
-    let (status, seen, stderr) = in_terminal_seeing(name, prepare, &args, 5, None, setup, act);
+    let (status, seen, stderr) = in_terminal_seeing(name, prepare, args, 5, stdin, setup, act);
     assert!(status.success(), "{stderr}");
-    assert_eq!(stderr, "");
-    seen.split("\x1b[?2026h")
-        .skip(1)
+    (whole_frames(&seen), stderr)
+}
+
+/// The frames in `seen` that were drawn to their end.
+fn whole_frames(seen: &str) -> Vec<String> {
+    (seen.split("\x1b[?2026h").skip(1))
+        .filter(|frame| frame.contains("\x1b[?2026l"))
         .map(str::to_owned)
         .collect()
+}
+
+/// Whether one of `frames` sent an image.
+fn image_sent(frames: &[String], _: &std::path::Path) -> bool {
+    frames.iter().any(|frame| frame.contains("\x1b_Ga=T,"))
+}
+
+/// kiri on `diagram.md` of [`drawn_on_cue`] with `args` and `env` in a
+/// terminal of 5 rows: the diagram is drawn once the first frame is, and
+/// `q` typed once a frame with an image sent in it is. Returns the frames.
+fn first_load(name: &str, args: &[&str], env: &[(&str, &str)]) -> Vec<String> {
+    let mut args = args.to_vec();
+    args.extend(["--mode", "kitty", "diagram.md"]);
+    let (frames, stderr) = quit_when(name, drawn_on_cue, &args, None, env, image_sent);
+    assert_eq!(stderr, "");
+    frames
 }
 
 #[test]
@@ -1031,6 +1057,52 @@ fn a_first_load_in_the_background_shows_the_text_before_the_diagram() {
         assert!(!drawn.contains("flowchart"), "{args:?}: {frames:?}");
         assert!(drawn.contains(" diagram.md "), "{args:?}: {frames:?}");
         assert!(!drawn.contains("[rendering"), "{args:?}: {frames:?}");
+    }
+}
+
+#[test]
+fn quitting_while_the_first_load_draws_stops_the_program() {
+    // The command notes its process and never draws.
+    let prepare = |dir: &std::path::Path| {
+        drawn_on_cue(dir);
+        let pid = dir.join("pid");
+        let draw = format!(
+            "echo $$ > '{}.new'\nmv '{0}.new' '{0}'\nexec sleep 60\n",
+            pid.display()
+        );
+        std::fs::write(dir.join("render.sh"), draw).unwrap();
+    };
+    // Once the program runs, with its process noted, as the scratch
+    // directory goes with kiri.
+    let pid = std::cell::Cell::new(None);
+    let running = |frames: &[String], dir: &std::path::Path| {
+        let noted = std::fs::read_to_string(dir.join("pid")).ok();
+        pid.set(noted.and_then(|noted| noted.trim().parse().ok()));
+        !frames.is_empty() && pid.get().is_some()
+    };
+    let args = [
+        "--first-load",
+        "background",
+        "-p",
+        "--mode",
+        "kitty",
+        "diagram.md",
+    ];
+    let name = "pager-first-load-quit";
+    let (frames, stderr) = quit_when(name, prepare, &args, None, &[], running);
+    assert_eq!(stderr, "");
+    let last = text_of(frames.last().unwrap());
+    assert!(last.contains("[rendering: 0/1]"), "{frames:?}");
+    assert!(last.contains("flowchart TD"), "{frames:?}");
+    let pid = rustix::process::Pid::from_raw(pid.get().unwrap()).unwrap();
+    // Gone, once whoever takes it in has reaped it.
+    let start = std::time::Instant::now();
+    while rustix::process::test_kill_process(pid).is_ok() {
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "{pid:?} still runs"
+        );
+        std::thread::sleep(Duration::from_millis(20));
     }
 }
 
