@@ -10,6 +10,7 @@ use kiri::caps::Capabilities;
 use kiri::config::{Environment, Options, Origin, Setting, choose};
 use kiri::doctor::{Facts, report};
 use kiri::term::{Detection, Mode, WindowSize};
+use kiri::theme::Theme;
 
 mod common;
 
@@ -741,6 +742,7 @@ fn the_report_on_kitty() {
         max_image_size: Setting::new(10, Origin::Default),
         detection: &detection,
         choices: &choices,
+        theme: &Theme::default(),
         config_error: None,
         theme_error: None,
         output: kiri::doctor::Output::Rendered,
@@ -766,6 +768,7 @@ fn the_terminal_name_is_shown_as_code() {
         max_image_size: Setting::new(10, Origin::Default),
         detection: &detection,
         choices: &choices,
+        theme: &Theme::default(),
         config_error: None,
         theme_error: None,
         output: kiri::doctor::Output::Markdown,
@@ -795,6 +798,7 @@ fn in_the_background_the_terminal_is_not_asked() {
         max_image_size: Setting::new(10, Origin::Default),
         detection: &detection,
         choices: &choices,
+        theme: &Theme::default(),
         config_error: None,
         theme_error: None,
         output: kiri::doctor::Output::Markdown,
@@ -802,6 +806,39 @@ fn in_the_background_the_terminal_is_not_asked() {
     let report = report(&facts);
     assert!(
         report.contains("| Terminal | not asked: kiri runs in the background |"),
+        "{report}"
+    );
+}
+
+/// A heading size that kiri rounded shows what the theme wrote beside what
+/// is drawn.
+#[test]
+fn heading_sizes_show_their_rounding() {
+    let env = Environment::default();
+    let detection = Detection {
+        caps: Capabilities::kitty(80),
+        window: None,
+        answers: None,
+        background: false,
+    };
+    let choices = choose(&Options::default(), &env, &Default::default());
+    let theme = kiri::theme::parse("[h1]\nscale = 2.5\n[h5]\nscale = 1.3\n").unwrap();
+    let facts = Facts {
+        env: &env,
+        mode: Setting::new(Mode::Auto, Origin::Default),
+        width: None,
+        max_image_size: Setting::new(10, Origin::Default),
+        detection: &detection,
+        choices: &choices,
+        theme: &theme,
+        config_error: None,
+        theme_error: None,
+        output: kiri::doctor::Output::Markdown,
+    };
+    let report = report(&facts);
+    assert!(
+        report
+            .contains("| Heading sizes | 2.5, 2, 2, 1, 1.3 (drawn 1.27 = 2 · 7/11), 1 | default |"),
         "{report}"
     );
 }

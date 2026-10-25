@@ -231,6 +231,9 @@ fn github_alert_color(kind: AlertKind, dark: bool) -> Color {
 pub struct HeadingTheme {
     /// The heading's size, drawn with kitty's text sizing.
     pub size: TextSize,
+    /// The scale as the theme file wrote it, when kiri had to round it to
+    /// a size it can draw.
+    pub written_scale: Option<String>,
     pub color: Option<Color>,
     pub bold: bool,
     pub italic: bool,
@@ -262,6 +265,7 @@ impl HeadingTheme {
     fn new(scale: u8, color: Option<Color>, bold: bool, underline: Underline) -> Self {
         Self {
             size: TextSize::new(scale).expect("a default heading scale is 1 to 7"),
+            written_scale: None,
             color,
             bold,
             italic: false,
@@ -471,6 +475,7 @@ mod tests {
             for heading in headings {
                 let HeadingTheme {
                     size: _,
+                    written_scale: _,
                     color,
                     bold: _,
                     italic: _,

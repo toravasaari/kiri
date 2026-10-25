@@ -77,6 +77,10 @@ environment variable set in a shell start-up file overrides the
 configuration file, for example. [Configuration](config.md) lists the
 order.
 
+**Heading sizes** lists h1 to h6 as times the normal size, from the
+theme. A size kiri had to round to draw it shows both:
+`1.3 (drawn 1.27 = 2 · 7/11)` is 7/11 of a font two rows high.
+
 ## Probe answers
 
 The answers are shown as the terminal sent them, with the bytes that do

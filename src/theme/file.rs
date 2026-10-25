@@ -9,7 +9,7 @@ use super::{
     LabelColor, SearchColor, StatusColor, Theme,
 };
 use crate::color::{Color, Underline};
-use crate::size::TextSize;
+use crate::size::{TextSize, VerticalAlign};
 
 /// Reads a theme file. Keys it leaves out keep their default values.
 pub fn load(path: &Path) -> Result<Theme, String> {
@@ -230,8 +230,10 @@ fn apply_heading(
     table: &str,
 ) -> Result<(), String> {
     if let Some(scale) = overrides.scale {
-        heading.size = TextSize::new(scale)
-            .ok_or_else(|| format!("{table}.scale must be between 1 and 7, not {scale}"))?;
+        heading.size = TextSize::nearest(scale, VerticalAlign::Bottom)
+            .ok_or_else(|| format!("{table}.scale must be between 0.5 and 7, not {scale}"))?;
+        heading.written_scale =
+            ((heading.size.value() - scale).abs() > 1e-9).then(|| scale.to_string());
     }
     set_color(
         &mut heading.color,
@@ -345,7 +347,8 @@ struct AlertsFile {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct HeadingFile {
-    scale: Option<u8>,
+    /// A whole number or a decimal; TOML integers read as decimals too.
+    scale: Option<f64>,
     color: Option<String>,
     bold: Option<bool>,
     italic: Option<bool>,
@@ -700,12 +703,37 @@ mod tests {
     }
 
     #[test]
+    fn a_heading_size_may_be_a_decimal() {
+        let theme = parse("[h1]\nscale = 2.5\n[h2]\nscale = 3\n[h3]\nscale = 1.3\n").unwrap();
+        let fraction = |size: TextSize| {
+            let fraction = size.fraction().unwrap();
+            (size.scale(), fraction.numerator(), fraction.denominator())
+        };
+        assert_eq!(fraction(theme.heading(1).size), (3, 5, 6));
+        assert_eq!(theme.heading(1).size.align(), VerticalAlign::Bottom);
+        assert_eq!(theme.heading(1).written_scale, None);
+        assert_eq!(theme.heading(2).size, TextSize::new(3).unwrap());
+        // 1.3 is drawn at 2 · 7/11, about 1.27, and the theme remembers
+        // what was written.
+        assert_eq!(fraction(theme.heading(3).size), (2, 7, 11));
+        assert_eq!(theme.heading(3).written_scale.as_deref(), Some("1.3"));
+        // A later table that gives an exact size forgets the rounding.
+        let theme = parse("[headings]\nscale = 1.3\n[h3]\nscale = 2\n").unwrap();
+        assert_eq!(theme.heading(1).written_scale.as_deref(), Some("1.3"));
+        assert_eq!(theme.heading(3).written_scale, None);
+    }
+
+    #[test]
     fn rejects_mistakes_with_a_reason() {
-        assert!(
-            parse("[h1]\nscale = 9\n")
-                .unwrap_err()
-                .contains("between 1 and 7")
+        assert_eq!(
+            parse("[h1]\nscale = 9\n").unwrap_err(),
+            "h1.scale must be between 0.5 and 7, not 9"
         );
+        assert_eq!(
+            parse("[h2]\nscale = 0.4\n").unwrap_err(),
+            "h2.scale must be between 0.5 and 7, not 0.4"
+        );
+        assert!(parse("[h1]\nscale = \"big\"\n").is_err());
         assert!(
             parse("code_theme_dark = \"nope\"\n")
                 .unwrap_err()

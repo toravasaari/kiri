@@ -26,6 +26,7 @@ kiri [version]: terminal features and settings.
 |---|---|---|
 | Mode | auto | default |
 | Theme | built-in | default |
+| Heading sizes | 3, 2, 2, 1, 1, 1 | default |
 | Margins | on | default |
 | Images | on | default |
 | Paging | auto | default |

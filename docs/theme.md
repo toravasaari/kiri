@@ -96,8 +96,10 @@ show_language_label = true
 # theme's text and background.
 language_label = "code-block"
 
-# scale: size as a multiple of the normal font (1-7). It needs kitty's
-# text sizing protocol; other terminals show headings at normal size.
+# scale: size as a multiple of the normal font, from 0.5 to 7, such as 3
+#   or 1.5. kiri draws the nearest size it can; kiri --doctor shows it.
+#   It needs kitty's text sizing protocol; other terminals show headings
+#   at normal size.
 # rule: draw a line under the heading, across the whole terminal width.
 # underline: none, single, double, curly, dotted or dashed. Styles other
 #   than single need a kitty-compatible terminal.
