@@ -836,7 +836,7 @@ fn without_math(source: &str) -> Vec<Block> {
 }
 
 #[test]
-fn display_math_outside_a_paragraph_s_own_inlines_stays_text() {
+fn display_math_in_headings_cells_and_links_stays_text() {
     // Only a paragraph is split at a formula.
     for source in [
         "# A $$x$$ b\n",

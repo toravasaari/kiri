@@ -160,8 +160,9 @@ const FORMULA: &str = "math";
 /// Display math with nothing in it, such as `$$ $$`, stays text.
 fn split_at_formulas(node: Node<'_>) -> Option<Vec<(Block, Position)>> {
     let formula = |node: &Node<'_>| match &node.data().value {
-        NodeValue::Math(math) if math.display_math && !math.literal.trim().is_empty() => {
-            Some(math.literal.trim().to_owned())
+        NodeValue::Math(math) if math.display_math => {
+            let source = math.literal.trim();
+            (!source.is_empty()).then(|| source.to_owned())
         }
         _ => None,
     };
