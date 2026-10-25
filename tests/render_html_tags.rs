@@ -152,3 +152,32 @@ fn a_sub_or_sup_in_a_heading_shrinks_in_the_heading_s_rows() {
     let out = kitty("> # x<sup>2</sup>\n");
     assert!(out.contains("x\x1b]66;s=1:n=2:d=3:w=1;2\x1b\\"), "{out:?}");
 }
+
+#[test]
+fn a_sup_keeps_its_place_in_a_table_cell_a_link_and_emphasis() {
+    let caps = Capabilities::kitty(WIDTH);
+    let out = render(
+        "| a | b |\n|---|---|\n| x<sup>2</sup> | y |\n\n\
+         [x<sup>2</sup>](https://example.com) and *e<sup>n</sup>*\n",
+        &inputs(&caps, &Theme::default()),
+    );
+    // The cell is measured with its sup, two cells, so the border after
+    // it lines up with the header's.
+    let sup = "x\x1b]66;s=1:n=2:d=3:w=1;2\x1b\\";
+    assert!(
+        out.contains(&format!("\x1b[0m {sup} \x1b[0;90m│")),
+        "{out:?}"
+    );
+    assert!(out.contains("\x1b[0;1ma\x1b[0m  \x1b[0;90m│"), "{out:?}");
+    // The link stays open over the sup, and the sup keeps the emphasis.
+    assert!(
+        out.contains(&format!(
+            "\x1b]8;;https://example.com\x1b\\\x1b[0;4;34m{sup}\x1b]8;;\x1b\\"
+        )),
+        "{out:?}"
+    );
+    assert!(
+        out.contains("\x1b[0;3me\x1b]66;s=1:n=2:d=3:w=1;n\x1b\\"),
+        "{out:?}"
+    );
+}
