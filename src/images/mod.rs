@@ -28,7 +28,8 @@ pub(crate) use background::Arrival;
 pub use background::{Loads, STOPPING};
 pub use decode::{DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image};
 pub use pipeline::{
-    Interrupted, Loaded, Loading, load_documents, load_in_background, reload_in_background,
+    Interrupted, Loaded, Loading, load_documents, load_in_background, measure_in_background,
+    reload_in_background,
 };
 pub use stamps::Stamps;
 pub use svg::{Fonts, Svg};
@@ -287,6 +288,9 @@ pub enum Placeholder {
     /// Nothing that tells a size: the block shows as it does without its
     /// image.
     Unsized,
+    /// A box of this many rows, only to measure how tall the documents are
+    /// before their images come; never drawn.
+    Rows(u16),
 }
 
 impl Images {

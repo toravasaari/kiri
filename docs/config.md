@@ -219,12 +219,14 @@ is the default. The warnings about images and diagrams that failed, which
 `wait` writes on standard error before the pager opens, come once the
 pager has closed, for what still fails then.
 
-The pager surely opens when paging is `always`, as with `-p`, or when it
-follows a lone file, as with `-f`. With paging on `auto`, kiri needs the
-height of the images to tell whether the document fits the window, so it
-waits for them, and a printed document always waits:
-`kiri -p --initial-load background notes.md` shows the text at once, and
-`kiri --initial-load background notes.md` waits. With several files, the
+This holds where the pager surely opens: when paging is `always`, as with
+`-p`, or when it follows a lone file, as with `-f`, and with paging on
+`auto` when the document is longer than the window with each image and
+diagram that has not loaded counted at three rows. A shorter document
+waits for its images, and is then paged or printed as their real height
+says, and a printed document always waits: in a window of 40 rows,
+`kiri --initial-load background notes.md` shows a document of 50 rows of
+text at once, and waits for one of 30 rows of text and two diagrams. With several files, the
 images of the documents among them load in the background too, and an
 image or diagram file waits for its image, among others or on its own.
 

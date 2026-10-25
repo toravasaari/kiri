@@ -149,8 +149,9 @@ struct Cli {
 
     /// Whether the pager shows the document once its images and diagrams
     /// have loaded (wait), or at once, with each image as it comes
-    /// (background); wait unless set. Only where the pager surely opens,
-    /// as with -p or -f; otherwise kiri waits.
+    /// (background); wait unless set. Only where the pager surely opens:
+    /// with -p or -f, or with paging on auto for a document longer than
+    /// the window, each image counted at three rows; otherwise kiri waits.
     #[arg(long, value_parser = named::<InitialLoad>(), value_name = "HOW")]
     initial_load: Option<InitialLoad>,
 
@@ -728,6 +729,28 @@ fn show_files(
     }
 }
 
+/// The images of `parts`, documents among `files`, loaded now as
+/// `load_parts` loads them, and the warnings about them under each
+/// file's name, by the file's number among `files`.
+fn load_files_now(
+    context: &Context,
+    parts: &[Part],
+    files: &[kiri::model::File],
+    settings: &Settings,
+    caps: &Capabilities,
+) -> Result<(Loaded, Vec<Vec<String>>), Failure> {
+    let loaded = load_parts(context, parts, settings, caps)?;
+    let stderr = settings.render_errors.stderr();
+    let mut told = vec![Vec::new(); files.len()];
+    for part in parts {
+        let name = &files[part.number].name;
+        told[part.number] = (loaded.images.warnings_in(part.number, stderr).iter())
+            .map(|warning| format!("{name}: {warning}"))
+            .collect();
+    }
+    Ok((loaded, told))
+}
+
 /// What showing files came to: a closed pipe (kiri *.md | head) takes no
 /// more, which is no failure.
 fn shown(result: io::Result<()>) -> Result<(), Failure> {
@@ -861,6 +884,34 @@ fn page_files(
         warnings.push(warned);
         files.push(kiri::model::File { name, document });
     }
+    let lone = files.len() == 1;
+    let (content, name) = match lone {
+        true => (
+            kiri::render::layout::Content::Document(&files[0].document),
+            files[0].name.as_str(),
+        ),
+        // The pager's status line names each file after itself.
+        false => (kiri::render::layout::Content::Files(&files), ""),
+    };
+    let mut parts: Vec<Part> = (documents.iter())
+        .map(|(number, file)| Part {
+            number: *number,
+            ..part(&files[*number].document, file.as_deref())
+        })
+        .collect();
+    // With paging on auto, the images load first unless the files are
+    // longer than the window without them; the guard then goes once the
+    // pager's screen catches the signals.
+    let mut guard = None;
+    if !parts.is_empty() && !surely_paged(context, content, &parts, settings, inputs) {
+        let (loaded, told) = load_files_now(context, &parts, &files, settings, &inputs.caps)?;
+        for (warned, told) in warnings.iter_mut().zip(told) {
+            warned.extend(told);
+        }
+        inputs.images.extend(loaded.images);
+        guard = loaded.interrupt;
+        parts.clear();
+    }
     let tell_before = |number: usize| {
         for warning in &warnings[number] {
             eprintln!("kiri: {warning}");
@@ -874,15 +925,7 @@ fn page_files(
         (0..files.len()).for_each(tell_before);
         told_before.set(true);
         caught();
-    };
-    let lone = files.len() == 1;
-    let (content, name) = match lone {
-        true => (
-            kiri::render::layout::Content::Document(&files[0].document),
-            files[0].name.as_str(),
-        ),
-        // The pager's status line names each file after itself.
-        false => (kiri::render::layout::Content::Files(&files), ""),
+        drop(guard.take());
     };
     // Nothing to reload: an image file is not read again. Nothing to
     // follow either, which the pager says only when the command line asked
@@ -891,12 +934,6 @@ fn page_files(
         follow: context.follow,
         ..kiri::pager::Options::new(settings.search_case)
     };
-    let parts: Vec<Part> = (documents.iter())
-        .map(|(number, file)| Part {
-            number: *number,
-            ..part(&files[*number].document, file.as_deref())
-        })
-        .collect();
     let start = |inputs: &mut Inputs, loads: &mut Loads| {
         if !parts.is_empty() {
             load_in_background(context, &parts, settings, inputs, loads);
@@ -912,26 +949,14 @@ fn page_files(
     // Printed after all, so the images load first, and what they tell is
     // told at each document's place; the guard lives on as it does when
     // they loaded before.
-    let mut images_told = vec![Vec::new(); files.len()];
-    let _interrupt = match parts.is_empty() {
-        true => None,
+    let (images_told, _interrupt) = match parts.is_empty() {
+        true => (vec![Vec::new(); files.len()], None),
         false => {
-            let loaded = load_parts(context, &parts, settings, &inputs.caps)?;
-            let stderr = settings.render_errors.stderr();
-            for (number, _) in &documents {
-                let name = &files[*number].name;
-                let told = loaded.images.warnings_in(*number, stderr);
-                images_told[*number] = (told.iter())
-                    .map(|warning| format!("{name}: {warning}"))
-                    .collect();
-            }
+            let (loaded, told) = load_files_now(context, &parts, &files, settings, &inputs.caps)?;
             inputs.images.extend(loaded.images);
-            loaded.interrupt
+            (told, loaded.interrupt)
         }
     };
-    // Printed as `print_files` prints them: a failed file is not shown, and
-    // what is told about each file is told at its place, unless it was
-    // told before a pager that then could not open.
     let mut out = io::stdout().lock();
     let mut apart = false;
     for (number, file) in files.iter().enumerate() {
@@ -1289,19 +1314,50 @@ fn show_document(
     print_document(context, shown, loaded, settings, caps, reading)
 }
 
-/// Whether the images of a document load in the background once the
+/// Whether the images of a document may load in the background once the
 /// pager has opened, rather than before: when `settings` ask for it,
-/// show images that `caps` can show, and surely page the document, as
-/// paging is `always` and the output a terminal that takes escape
-/// sequences. With paging on `auto`, the pager opens only for a
-/// document longer than the window, images included.
+/// show images that `caps` can show, and may page the document, as
+/// paging is `always` or `auto` and the output a terminal that takes
+/// escape sequences. [`surely_paged`] tells for `auto`.
 fn in_background(settings: &Settings, caps: &Capabilities) -> bool {
     settings.initial_load == InitialLoad::Background
-        && settings.paging == Paging::Always
+        && matches!(settings.paging, Paging::Always | Paging::Auto)
         && kiri::term::stdout_is_terminal()
         && caps.styling
         && settings.images
         && caps.draws_images()
+}
+
+/// The rows an image or diagram that has not loaded yet counts as, to
+/// tell whether a document is longer than the window before it loads.
+const ROWS_UNLOADED: u16 = 3;
+
+/// Whether `content`, whose `parts` are to load their images in the
+/// background, surely goes to the pager with `settings`: always with
+/// paging `always`; with paging on `auto`, when it is longer than the
+/// window laid out with `inputs` and each image of `parts` counted at
+/// [`ROWS_UNLOADED`] rows, which then stand in for them in `inputs`
+/// until they start loading.
+fn surely_paged(
+    context: &Context,
+    content: kiri::render::layout::Content,
+    parts: &[Part],
+    settings: &Settings,
+    inputs: &mut Inputs,
+) -> bool {
+    if settings.paging == Paging::Always {
+        return true;
+    }
+    let loading = loading(context, settings, &inputs.caps);
+    kiri::images::measure_in_background(parts, &loading, &mut inputs.images, ROWS_UNLOADED);
+    let stream = kiri::render::layout::content(content, inputs);
+    let rows = kiri::pager::rows(&stream.lines, &inputs.caps);
+    let height = kiri::term::window_size(io::stdout()).map(|window| window.rows);
+    let longer = kiri::pager::pages(Paging::Auto, true, rows, height);
+    if !longer {
+        inputs.images.take_placeholders();
+    }
+    longer
 }
 
 /// [`load_images`], with a warning on standard error for each image
@@ -1521,6 +1577,18 @@ fn print_document(
         table_rows: settings.table_rows,
         render_errors: settings.render_errors,
         ..Inputs::new(caps)
+    };
+    // With paging on auto, the images load first unless the document is
+    // longer than the window without them.
+    let content = kiri::render::layout::Content::Document(document);
+    let later = match later {
+        Some(parts) if !surely_paged(context, content, parts, &settings, &mut inputs) => {
+            let loaded = load_told(context, parts, &settings, &inputs.caps)?;
+            inputs.images = loaded.images;
+            interrupt = loaded.interrupt;
+            None
+        }
+        later => later,
     };
     let mut reload = reading.map(|(from, stamps)| FileReload {
         context,

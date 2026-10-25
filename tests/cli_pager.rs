@@ -1432,27 +1432,81 @@ fn a_missing_image_that_came_in_the_background_is_told_once_after_reloads() {
     assert_eq!(stderr, waiting);
 }
 
+/// A document of `top` lines in one paragraph, a diagram of five lines
+/// and three paragraphs of a line each: with the diagram counted at three
+/// rows, it takes `top` + 10 rows.
+fn counted(top: usize) -> String {
+    let top: Vec<String> = (1..=top).map(|n| format!("Top {n}")).collect();
+    let diagram = "```mermaid\nflowchart TD\n  A --> B\n  B --> C\n  C --> D\n  D --> E\n```";
+    format!(
+        "{}\n\n{diagram}\n\nLine 1\n\nLine 2\n\nLine 3\n",
+        top.join("  \n")
+    )
+}
+
 #[test]
-fn an_initial_load_in_the_background_waits_where_the_pager_may_not_open() {
-    // Paging on auto needs the height of the drawn diagram to decide.
+fn paging_on_auto_loads_in_the_background_what_is_longer_than_the_window_with_three_rows_an_image()
+{
+    // 13 rows in a window of 12: the pager opens at once.
+    let longer = |dir: &std::path::Path| {
+        drawn_diagram(dir);
+        std::fs::write(dir.join("counted.md"), counted(3)).unwrap();
+    };
+    let args = [
+        "--initial-load",
+        "background",
+        "--mode",
+        "kitty",
+        "counted.md",
+    ];
+    let name = "pager-initial-load-auto-longer";
+    let (frames, stderr) = quit_when(name, longer, &args, None, &[], image_sent);
+    assert_eq!(stderr, "");
+    assert!(!frames.is_empty(), "printed, not paged");
+    let first = text_of(&frames[0]);
+    assert!(first.contains("[rendering: 0/1]"), "{frames:?}");
+    assert!(first.contains("D --> E"), "{frames:?}");
+    // 12 rows: it waits, and then, with the diagram drawn shorter, prints.
+    let fits = |dir: &std::path::Path| {
+        drawn_diagram(dir);
+        std::fs::write(dir.join("counted.md"), counted(2)).unwrap();
+    };
+    let name = "pager-initial-load-auto-fits";
+    let (status, seen, stderr) = in_terminal_told(name, fits, &args, 12, None, |_, _, _| {});
+    assert!(status.success(), "{stderr}");
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert!(!text_of(&seen).contains("D --> E"), "{seen:?}");
+    assert_eq!(seen.matches("\x1b_Ga=T,").count(), 1, "{seen:?}");
+    // Several files, longer than the window as their images come.
+    let files = |dir: &std::path::Path| {
+        several_files(dir);
+        std::fs::write(dir.join("counted.md"), counted(3)).unwrap();
+    };
+    let args = [
+        "--initial-load",
+        "background",
+        "--mode",
+        "kitty",
+        "a.md",
+        "counted.md",
+    ];
+    let name = "pager-initial-load-auto-files";
+    let (frames, stderr) = quit_when(name, files, &args, None, &[], image_sent);
+    assert_eq!(stderr, "");
+    assert!(!frames.is_empty(), "printed, not paged");
+    assert!(
+        text_of(&frames[0]).contains("[rendering: 0/2]"),
+        "{frames:?}"
+    );
+}
+
+#[test]
+fn an_initial_load_in_the_background_waits_where_the_pager_does_not_open() {
     let prepare = |dir: &std::path::Path| {
         drawn_diagram(dir);
         let document = format!("```mermaid\nflowchart TD\n```\n\n{}", long());
         std::fs::write(dir.join("diagram.md"), document).unwrap();
     };
-    let args = [
-        "--mode",
-        "kitty",
-        "--initial-load",
-        "background",
-        "diagram.md",
-    ];
-    let steps = [quit_after(1)];
-    let (status, seen) = in_steps_with("pager-initial-load-auto", prepare, &args, &steps);
-    assert!(status.success());
-    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
-    assert!(frames[0].contains("\x1b_Ga=T,"), "{seen:?}");
-    assert!(!text_of(&seen).contains("[rendering"), "{seen:?}");
     // Printed.
     let args = [
         "--mode",

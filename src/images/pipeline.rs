@@ -160,6 +160,28 @@ pub fn load_in_background(
     loads.start(jobs, context(loading, renderers));
 }
 
+/// Stands in for every image of `parts` that [`load_in_background`] would
+/// load with a box of `rows` rows in `images`, to tell how tall the
+/// documents are before their images load, such as whether they are
+/// longer than the window.
+pub fn measure_in_background(
+    parts: &[Part<'_>],
+    loading: &Loading,
+    images: &mut Images,
+    rows: u16,
+) {
+    let renderers = background_renderers(loading);
+    let renderer: &dyn Renderer = match &renderers {
+        Some(renderers) => renderers,
+        None => &NoRenderer,
+    };
+    let (wanted, _) = plan(parts, renderer, None);
+    for (index, image) in wanted {
+        let key = image.key().in_document(parts[index].number);
+        images.wait(key, Placeholder::Rows(rows));
+    }
+}
+
 /// The renderers the settings choose for drawing diagrams in the
 /// background, without a flag to stop them; `None` with diagrams off.
 fn background_renderers(loading: &Loading) -> Option<Renderers> {
