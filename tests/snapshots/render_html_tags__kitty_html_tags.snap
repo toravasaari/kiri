@@ -30,9 +30,9 @@ expression: "visible(&render_for(\"html-tags.md\", Capabilities::kitty(WIDTH)))"
 
 
   Water is H␛]66;s=1:n=2:d=3:v=1:w=1;2␛\O, x␛]66;s=1:n=2:d=3:w=1;2␛\ + y␛]66;s=1:n=2:d=3:w=1;2␛\ = r␛]66;s=1:n=2:d=3:w=2;n+1␛\ on the 2␛]66;s=1:n=2:d=3:w=2;nd␛\ try,
-  and x␛]66;s=1:n=2:d=3:w=2;ai␛\ keeps one size. Without script
-  characters for every part, e␛]66;s=1:n=2:d=3:w=2;iπ␛\ and a␛[0;35;48;2;43;48;59m␛]66;s=1:n=2:d=3:v=1:w=2;⍽b⍽␛\␛[0m stay
-  plain.
+  and x␛]66;s=1:n=2:d=3:w=2;ai␛\ keeps one size. Unicode has no
+  script characters for π or for code, so e␛]66;s=1:n=2:d=3:w=2;iπ␛\
+  and a␛[0;35;48;2;43;48;59m␛]66;s=1:n=2:d=3:v=1:w=2;⍽b⍽␛\␛[0m have none.
 
 ␛[0;1;34m␛]66;s=2;Details␛\␛[0m
 

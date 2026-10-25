@@ -25,9 +25,9 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
 ## Scripts: x² and H₂O
 
   Water is H₂O, x² + y² = rⁿ⁺¹ on the 2ⁿᵈ try,
-  and xᵃⁱ keeps one size. Without script
-  characters for every part, eiπ and a`b` stay
-  plain.
+  and xᵃⁱ keeps one size. Unicode has no
+  script characters for π or for code, so eiπ
+  and a`b` have none.
 
 ## Details
 
