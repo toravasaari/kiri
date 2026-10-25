@@ -763,6 +763,26 @@ mod tests {
     }
 
     #[test]
+    fn jobs_held_and_stopped_before_the_order_is_told_never_start() {
+        let gated = Gated::default();
+        let mut loads = Loads::new();
+        held(&mut loads, &gated, &["a", "b"]);
+        loads.halt();
+        let start = Instant::now();
+        loads.prefer(keys(&["a"]));
+        assert!(start.elapsed() < Duration::from_millis(300));
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(gated.started().is_empty(), "{:?}", gated.started());
+        assert!(loads.is_empty());
+        assert!(loads.wait(Duration::ZERO));
+        // Nothing is left held: a later load starts at once.
+        gated.open.store(true, Ordering::SeqCst);
+        loads.gated(&["c"], &gated);
+        assert!(came(&mut loads, &keys(&["c"])[0]));
+        assert_eq!(gated.started(), ["c"]);
+    }
+
+    #[test]
     fn halting_does_not_wait_for_the_programs_and_waiting_does() {
         let mut loads = Loads::new();
         loads.program(ImageKey::block("mermaid", "slow\n"), Duration::from_secs(2));
