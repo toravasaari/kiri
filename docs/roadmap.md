@@ -961,6 +961,12 @@ and a wide character never crosses the end of a group. Wide characters
 such as CJK then end a group early and the group rounds up, so a heading
 like `### 日本語の見出し 🇫🇮` at 1 3/4 shows gaps between its groups. Minor.
 
+#### B5 Tags around a formula block show as source
+
+A formula block inside an inline HTML tag, such as `<sub>$$z$$</sub>`,
+is drawn as a formula, but the tags around it show as source: each
+becomes an HTML block of its own, as the wrapper tags in B2 do.
+
 ### Upstream bugs
 
 Bugs in projects kiri uses, which kiri works around until they are fixed
