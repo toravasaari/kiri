@@ -169,6 +169,12 @@ for them to end once the pager has left its screen, with
 `kiri: closing background programs…` on standard error while that takes
 more than a second, but not for merman, which cannot stop.
 
+With `first_load = "background"`, the first load goes the same way when
+the pager surely opens: `src/main.rs` lays out the text, opens the
+screen, and then starts every image loading in the pager's `Loads`, each
+shown as a new image of a reload is. Should the screen not open, the
+images load before the document is printed.
+
 The pager keeps one image encoder, `src/render/encoder.rs`, for as long
 as it runs. An image the terminal holds is not sent again: after a
 resize that leaves it at the same size, or a reload that leaves its

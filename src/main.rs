@@ -15,8 +15,8 @@ use kiri::config::{
 };
 use kiri::doctor::{Facts, Output};
 use kiri::images::{
-    Fonts, Format, ImageError, ImageKey, Images, Interrupted, Loaded, Loading, Loads, Part, Source,
-    Stamps, reload_in_background,
+    Fonts, Format, ImageError, ImageKey, Images, Interrupted, Loaded, Loading, Loads, Part,
+    Placeholder, Source, Stamps, reload_in_background,
 };
 use kiri::input::Input;
 use kiri::model::{Block, Document, FrontMatterError};
@@ -868,6 +868,7 @@ fn page_files(
         ..kiri::pager::Options::new(settings.search_case)
     };
     let paging = settings.paging;
+    let opening = (opening, |_: &mut Inputs, _: &mut Loads| {});
     if let Some(result) = page(context, content, name, inputs, paging, options, opening) {
         // What the pager would have hidden.
         (drawn.iter().flatten()).for_each(|drawn| tell_drawn(drawn, failed));
@@ -1212,17 +1213,69 @@ fn show_document(
     // Before the images are read, so that a file changed meanwhile counts
     // as changed.
     let stamps = Stamps::of(&parts);
-    let loaded = load_images(context, &parts, &settings, &caps)?;
-    for warning in loaded.images.warnings_with(settings.render_errors.stderr()) {
-        eprintln!("kiri: {warning}");
-    }
+    let later = in_background(&settings, &caps);
+    let loaded = match later {
+        true => Loaded::default(),
+        false => load_told(context, &parts, &settings, &caps)?,
+    };
     let reading = from.map(|from| (from, stamps));
     let shown = ToShow {
         document,
         name,
         warnings,
+        later: later.then_some(&parts),
     };
     print_document(context, shown, loaded, settings, caps, reading)
+}
+
+/// Whether the images of a document load in the background once the
+/// pager has opened, rather than before: when `settings` ask for it,
+/// show images that `caps` can show, and surely page the document, as
+/// paging is `always` and the output a terminal that takes escape
+/// sequences. With paging on `auto`, the pager opens only for a
+/// document longer than the window, images included.
+fn in_background(settings: &Settings, caps: &Capabilities) -> bool {
+    settings.first_load == FirstLoad::Background
+        && settings.paging == Paging::Always
+        && kiri::term::stdout_is_terminal()
+        && caps.styling
+        && settings.images
+        && caps.draws_images()
+}
+
+/// [`load_images`], with a warning on standard error for each image
+/// that did not load, and for each diagram that could not be drawn
+/// where `settings` want those there.
+fn load_told(
+    context: &Context,
+    parts: &[Part],
+    settings: &Settings,
+    caps: &Capabilities,
+) -> Result<Loaded, Failure> {
+    let loaded = load_images(context, parts, settings, caps)?;
+    for warning in loaded.images.warnings_with(settings.render_errors.stderr()) {
+        eprintln!("kiri: {warning}");
+    }
+    Ok(loaded)
+}
+
+/// Starts loading the images of `parts` in `loads`, as a reload loads a
+/// new image: each shows as it does without its image, its code or alt
+/// text, with nothing to tell its size, until it comes.
+fn load_in_background(
+    context: &Context,
+    parts: &[Part],
+    settings: &Settings,
+    inputs: &mut Inputs,
+    loads: &mut Loads,
+) {
+    let loading = loading(context, settings, &inputs.caps);
+    // With no stamps, every file counts as changed, and none loads yet.
+    let mut stamps = Stamps::default();
+    reload_in_background(parts, &loading, &mut inputs.images, &mut stamps, loads);
+    for key in loads.keys() {
+        inputs.images.wait(key.clone(), Placeholder::Unsized);
+    }
 }
 
 /// Shows the diagram `source`, in `language`, from the file at `path` or
@@ -1277,6 +1330,7 @@ fn show_diagram(
             document: &document,
             name: &name,
             warnings: Vec::new(),
+            later: None,
         };
         print_document(context, shown, loaded, settings, caps, None)?;
     } else {
@@ -1374,6 +1428,10 @@ struct ToShow<'a> {
     document: &'a Document,
     name: &'a str,
     warnings: Vec<Warning>,
+    /// The parts whose images load in the background once the pager has
+    /// opened; should it not open, they load before the document is
+    /// printed.
+    later: Option<&'a [Part<'a>]>,
 }
 
 /// Renders `shown`, with the images `loaded` on
@@ -1394,6 +1452,7 @@ fn print_document(
         document,
         name,
         warnings,
+        later,
     } = shown;
     let Loaded {
         images,
@@ -1432,10 +1491,27 @@ fn print_document(
             reload: reload.as_mut().map(|reload| reload as &mut dyn Reload),
             ..kiri::pager::Options::new(settings.search_case)
         },
-        || drop(interrupt.take()),
+        (
+            || drop(interrupt.take()),
+            |inputs: &mut Inputs, loads: &mut Loads| {
+                if let Some(parts) = later {
+                    load_in_background(context, parts, &settings, inputs, loads);
+                }
+            },
+        ),
     ) {
         return Ok(finish(result)?);
     }
+    // Printed after all, so the images load first; the guard lives on
+    // as it does when they loaded before.
+    let _interrupt = match later {
+        Some(parts) => {
+            let loaded = load_told(context, parts, &settings, &inputs.caps)?;
+            inputs.images = loaded.images;
+            loaded.interrupt
+        }
+        None => None,
+    };
     let mut out = io::stdout().lock();
     Ok(finish(
         kiri::render::render(document, &inputs, &mut out).and_then(|()| out.flush()),
@@ -1446,7 +1522,9 @@ fn print_document(
 /// is a terminal that takes escape sequences; `None` when it is to be
 /// printed instead. `options` tell the pager how a search treats case and
 /// where `r` gets the document again from, if anywhere. The pager catches
-/// Ctrl-C itself; `caught` runs once its screen catches the signals.
+/// Ctrl-C itself; of `opening`, `caught` runs once its screen catches the
+/// signals, and then `start`, which may start loading images in the
+/// background.
 fn page(
     context: &Context,
     content: kiri::render::layout::Content,
@@ -1454,7 +1532,7 @@ fn page(
     inputs: &mut Inputs,
     paging: kiri::config::Paging,
     options: kiri::pager::Options,
-    caught: impl FnOnce(),
+    (caught, start): (impl FnOnce(), impl FnOnce(&mut Inputs, &mut Loads)),
 ) -> Option<io::Result<()>> {
     let terminal = kiri::term::stdout_is_terminal() && inputs.caps.styling;
     if !terminal || paging == kiri::config::Paging::Never {
@@ -1478,12 +1556,15 @@ fn page(
         }
         return None;
     };
-    // The images of a reload that still load when the pager quits, which
-    // it stops; their programs may take a moment to end.
+    // The images that still load when the pager quits, which it stops;
+    // their programs may take a moment to end.
     let mut loads = Loads::new();
+    start(inputs, &mut loads);
+    // The layout before knew nothing of the images that load.
+    let laid_out = (!inputs.images.loading()).then_some(stream);
     let result = kiri::pager::run(
         content,
-        Some(stream),
+        laid_out,
         name,
         inputs,
         kiri::pager::Options {

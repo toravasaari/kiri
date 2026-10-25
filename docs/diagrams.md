@@ -175,7 +175,9 @@ In the pager, `r` and following draw the diagrams that changed in the
 background instead: the text shows at once, a changed diagram shows its
 old drawing dimmed until the new one comes, and the status line says
 `[rendering: 1/3]` in place of the file name. `q` stops the programs
-still drawing.
+still drawing. With `first_load = "background"`, the pager opens without
+waiting for the diagrams, each shown as its code until it is drawn; see
+[First load](config.md#first-load).
 
 kiri stops a program as Ctrl-C would, with SIGINT to its process group,
 and kills what is left of the group half a second later. `mmdc` closes

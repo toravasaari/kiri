@@ -18,6 +18,7 @@ These are the options kiri takes on the command line.
 | `--follow on\|off\|auto` | Follow a lone file in the pager: read it again whenever it changes, with the view kept where it is (`on`) or moved to a change (`auto`); pages the file unless paging is `never`; `off` unless set |
 | `-f`, `--fa`, `-F` | Follow (`--follow on`), follow and move to a change (`--follow auto`) or not (`--follow off`) |
 | `--follow-jump first\|last\|most` | Which change auto-follow moves the view to: the first, the last or the one that takes the most rows; `first` unless set |
+| `--first-load wait\|background` | Whether the pager waits for the images before it shows the document, or shows the text at once and each image as it comes; only where the pager surely opens, as with `-p` or `-f`; `wait` unless set |
 | `--front-matter table\|code\|hide\|off` | Front matter render style; `table` unless set |
 | `--table-rows zebra\|lines\|indent\|underline\|off` | Table row style; `zebra` unless set |
 | `--diagrams on\|off` | Diagrams in code blocks, such as Mermaid, drawn or shown as code; `on` unless set |
