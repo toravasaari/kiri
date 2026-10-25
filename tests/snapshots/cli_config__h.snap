@@ -39,7 +39,7 @@ Options:
                                off]
       --table-rows <STYLE>     Table row style [possible values: off, zebra, lines, indent,
                                underline]
-      --diagrams <SWITCH>      Draw diagrams and formulas [possible values: on, off]
+      --diagrams <SWITCH>      Whether to draw diagrams and formulas [possible values: on, off]
       --render-errors <WHERE>  Where to tell why a diagram could not be drawn [possible values:
                                inline, stderr, both]
       --max-image-size <MB>    Largest image file to read, in megabytes [default: 10]

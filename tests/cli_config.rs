@@ -452,7 +452,9 @@ fn the_short_help_gives_each_argument_one_line() {
         .unwrap();
     assert!(out.status.success(), "{}", text(&out.stderr));
     let help = text(&out.stdout);
-    // A line that goes on from the one above is indented past the names;
+    assert!(help.contains("--max-image-size"), "{help}");
+    // A line that goes on from the one above is indented past the names,
+    // which start at most six cells in;
     // only clap's list of values, in brackets, may go on.
     let mut longer = Vec::new();
     let mut in_values = false;

@@ -76,7 +76,8 @@ struct Cli {
     ///
     /// The formats are markdown, csv, tsv, mermaid (a diagram shown on its
     /// own), text (the file as it is, without rendering it), image, or an
-    /// image format such as svg, png or jpg. By default its extension and content tell.
+    /// image format such as svg, png or jpg. By default its extension and
+    /// content tell.
     #[arg(long, value_parser = format)]
     format: Option<Input>,
 
@@ -129,8 +130,8 @@ struct Cli {
 
     /// When to show the document in the pager
     ///
-    /// With auto, when it is longer than the window and the output is a
-    /// terminal.
+    /// With auto, the pager opens when the document is longer than the
+    /// window and the output is a terminal.
     #[arg(long, value_parser = named::<Paging>(), value_name = "WHEN", conflicts_with_all = ["pager", "no_pager"])]
     paging: Option<Paging>,
 
@@ -144,9 +145,9 @@ struct Cli {
 
     /// Follow a lone file in the pager
     ///
-    /// On reads it again whenever it changes, with the view kept where it
-    /// is; auto reads it again and moves the view to a change; off unless
-    /// set. Following pages the file, however short, unless paging is
+    /// With on, kiri reads the file again whenever it changes, with the view
+    /// kept where it is; with auto it also moves the view to a change; off
+    /// unless set. Following pages the file, however short, unless paging is
     /// never. F goes from off to on to auto in the pager.
     #[arg(long, value_parser = named::<Follow>(), value_name = "WHEN", conflicts_with_all = ["follow_on", "follow_auto", "follow_off"])]
     follow: Option<Follow>,
@@ -172,8 +173,9 @@ struct Cli {
 
     /// Whether the pager waits for images before it shows the document
     ///
-    /// Wait shows the document once its images and diagrams have loaded,
-    /// background at once, with each image as it comes; wait unless set.
+    /// With wait, the document is shown once its images and diagrams have
+    /// loaded; with background, at once, with each image as it comes; wait
+    /// unless set.
     /// Only where the pager surely opens: with -p or -f, or with paging on
     /// auto for a document longer than the window, each image counted at
     /// three rows; otherwise kiri waits.
@@ -197,7 +199,7 @@ struct Cli {
     #[arg(long, value_parser = named::<TableRows>(), value_name = "STYLE")]
     table_rows: Option<TableRows>,
 
-    /// Draw diagrams and formulas
+    /// Whether to draw diagrams and formulas
     ///
     /// Diagrams in code blocks, such as Mermaid, and formulas: on (drawn as
     /// images) or off (shown as code); on unless set.
