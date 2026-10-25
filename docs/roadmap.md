@@ -633,13 +633,22 @@ The counterpart of several files (4.9.2) for images.
 
 #### 4.12.8 Remote images
 
-- Images from `https:` URLs, as many other viewers show them. Fetching
-  one tells its server that the document was opened, so it is done with
-  care: HTTPS only, no addresses on the local machine or network, the
-  `--max-image-size` limit and a timeout for each fetch, a few fetches at
-  a time, no cookies or referrer, and a cache, so a document opened again
-  does not fetch its images again. Whether they are on by default, or for
-  a list of common image hosts only, is still open.
+- Images from URLs, as many other viewers show them: from `https:` URLs,
+  and also from `http:` ones on the local machine and the local network,
+  such as a home network or a Docker network, which seldom have
+  certificates. All three are on by default, and a setting and a
+  command-line option choose which sources are fetched, or none. Whether
+  that is a list such as `https,local,localhost` or levels such as
+  `off`, `https` and `all` is still open.
+- Fetching an image tells its server that the document was opened, and an
+  image on the local network lets a document send requests to devices
+  there. The fetching itself is kept safe: an address is checked after its
+  name is resolved, the `--max-image-size` limit and a timeout apply to
+  each fetch, a few fetches run at a time, no cookies or referrer are
+  sent, and a cache keeps a document opened again from fetching its
+  images again.
+- Output that is not a terminal shows no images, so nothing is fetched
+  for it.
 
 ### 4.13 Obsidian
 
