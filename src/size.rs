@@ -16,8 +16,10 @@ pub struct TextSize {
     align: VerticalAlign,
 }
 
-/// A fraction below one: `numerator` from 1 and below `denominator`, which
-/// is at most 15.
+/// A fraction below one: `numerator` from 1 to 7 and below `denominator`,
+/// which is at most 15. Text at a fraction is packed: `denominator` cells of
+/// it take `numerator` cells, and the protocol gives one escape sequence at
+/// most seven.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Fraction {
     numerator: u8,
@@ -91,10 +93,10 @@ impl Default for TextSize {
 }
 
 impl Fraction {
-    /// `numerator / denominator`; `None` unless the numerator is from 1 and
-    /// below the denominator, which is at most 15.
+    /// `numerator / denominator`; `None` unless the numerator is from 1 to 7
+    /// and below the denominator, which is at most 15.
     pub const fn new(numerator: u8, denominator: u8) -> Option<Self> {
-        if numerator < 1 || numerator >= denominator || denominator > 15 {
+        if numerator < 1 || numerator > 7 || numerator >= denominator || denominator > 15 {
             return None;
         }
         Some(Self {
@@ -130,8 +132,17 @@ mod tests {
         assert_eq!(Fraction::new(2, 2), None);
         assert_eq!(Fraction::new(3, 2), None);
         assert_eq!(Fraction::new(1, 16), None);
-        let fraction = Fraction::new(14, 15).unwrap();
-        assert_eq!((fraction.numerator(), fraction.denominator()), (14, 15));
+        let fraction = Fraction::new(7, 15).unwrap();
+        assert_eq!((fraction.numerator(), fraction.denominator()), (7, 15));
+    }
+
+    #[test]
+    fn a_numerator_is_at_most_seven() {
+        // Packed text takes the numerator's cells, and an escape sequence
+        // takes at most seven.
+        assert_eq!(Fraction::new(8, 9), None);
+        assert_eq!(Fraction::new(14, 15), None);
+        assert!(Fraction::new(7, 8).is_some());
     }
 
     #[test]
