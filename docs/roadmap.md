@@ -633,20 +633,21 @@ The counterpart of several files (4.9.2) for images.
 
 #### 4.12.8 Remote images
 
-- Images from URLs, as many other viewers show them: from `https:` URLs,
-  and also from `http:` ones on the local machine and the local network,
-  such as a home network or a Docker network, which seldom have
-  certificates. All three are on by default, and a setting and a
-  command-line option choose which sources are fetched, or none. Whether
-  that is a list such as `https,local,localhost` or levels such as
-  `off`, `https` and `all` is still open.
+- Images from URLs, as many other viewers show them. `https:` URLs and
+  the local machine, also over `http:`, are fetched by default; the local
+  network, such as a home network or a Docker network, also over `http:`,
+  only when the configuration file allows it, for all of it or for named
+  hosts. A setting and a command-line option choose the sources, or none.
+  Browsers draw the same line: a page from the web needs the reader's
+  permission to reach the local network.
 - Fetching an image tells its server that the document was opened, and an
   image on the local network lets a document send requests to devices
   there. The fetching itself is kept safe: an address is checked after its
-  name is resolved, the `--max-image-size` limit and a timeout apply to
-  each fetch, a few fetches run at a time, no cookies or referrer are
-  sent, and a cache keeps a document opened again from fetching its
-  images again.
+  name is resolved, the ports browsers block (the Fetch standard's list,
+  such as SMTP's 25) are not fetched from, the `--max-image-size` limit
+  and a timeout apply to each fetch, a few fetches run at a time, no
+  cookies or referrer are sent, and a cache keeps a document opened again
+  from fetching its images again.
 - Output that is not a terminal shows no images, so nothing is fetched
   for it.
 
@@ -680,6 +681,11 @@ A menu in the pager, from which its keys and settings can be found.
 #### 4.14.2 Themes on the fly
 
 - Changing the theme (4.11) from the menu while the document is shown.
+
+#### 4.14.3 Remote images from the menu
+
+- Allowing remote images from the local network (4.12.8) from the menu,
+  for the document shown or for good, as a browser asks for it.
 
 ## Phase 5 – Beyond kitty
 
