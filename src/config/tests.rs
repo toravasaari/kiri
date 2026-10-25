@@ -405,45 +405,36 @@ fn theme_toml_in_the_directory_comes_before_the_built_in_theme() {
 
 #[test]
 fn the_images_key_turns_images_on_or_off() {
-    let config = parse("images = false\n", Path::new("/c"), &Environment::default()).unwrap();
-    assert_eq!(config.images, Some(false));
-    let config = parse("images = true\n", Path::new("/c"), &Environment::default()).unwrap();
-    assert_eq!(config.images, Some(true));
-    assert!(
-        parse(
-            "images = \"no\"\n",
-            Path::new("/c"),
-            &Environment::default()
-        )
-        .is_err()
+    check_key(
+        |config| config.images,
+        &[("images = false\n", false), ("images = true\n", true)],
+        &["images = \"no\"\n"],
     );
 }
 
 #[test]
 fn the_paging_key_takes_always_auto_or_never() {
-    let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
-    for (text, paging) in [
-        ("paging = \"always\"\n", Paging::Always),
-        ("paging = \"auto\"\n", Paging::Auto),
-        ("paging = \"never\"\n", Paging::Never),
-    ] {
-        assert_eq!(parsed(text).unwrap().paging, Some(paging), "{text}");
-    }
-    assert!(parsed("paging = \"sometimes\"\n").is_err());
-    assert!(parsed("paging = true\n").is_err());
+    check_key(
+        |config| config.paging,
+        &[
+            ("paging = \"always\"\n", Paging::Always),
+            ("paging = \"auto\"\n", Paging::Auto),
+            ("paging = \"never\"\n", Paging::Never),
+        ],
+        &["paging = \"sometimes\"\n", "paging = true\n"],
+    );
 }
 
 #[test]
 fn the_search_case_key_takes_smart_or_literal() {
-    let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
-    for (text, case) in [
-        ("search_case = \"smart\"\n", SearchCase::Smart),
-        ("search_case = \"literal\"\n", SearchCase::Literal),
-    ] {
-        assert_eq!(parsed(text).unwrap().search_case, Some(case), "{text}");
-    }
-    assert!(parsed("search_case = \"ignore\"\n").is_err());
-    assert!(parsed("search_case = true\n").is_err());
+    check_key(
+        |config| config.search_case,
+        &[
+            ("search_case = \"smart\"\n", SearchCase::Smart),
+            ("search_case = \"literal\"\n", SearchCase::Literal),
+        ],
+        &["search_case = \"ignore\"\n", "search_case = true\n"],
+    );
 }
 
 #[test]
@@ -465,46 +456,40 @@ fn the_search_case_is_smart_unless_the_configuration_file_says_otherwise() {
 
 #[test]
 fn the_follow_key_takes_on_off_or_auto() {
-    let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
-    assert_eq!(
-        parsed("follow = \"on\"\n").unwrap().follow,
-        Some(Follow::On)
+    check_key(
+        |config| config.follow,
+        &[
+            ("follow = \"on\"\n", Follow::On),
+            ("follow = \"off\"\n", Follow::Off),
+            ("follow = \"auto\"\n", Follow::Auto),
+        ],
+        &["follow = true\n"],
     );
-    assert_eq!(
-        parsed("follow = \"off\"\n").unwrap().follow,
-        Some(Follow::Off)
-    );
-    let auto = parsed("follow = \"auto\"\n").map(|config| config.follow);
-    assert_eq!(auto, Ok(Some(Follow::Auto)));
-    assert!(parsed("follow = true\n").is_err());
 }
 
 #[test]
 fn the_follow_jump_key_takes_first_last_or_most() {
-    let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
-    for (text, jump) in [
-        ("follow_jump = \"first\"\n", FollowJump::First),
-        ("follow_jump = \"last\"\n", FollowJump::Last),
-        ("follow_jump = \"most\"\n", FollowJump::Most),
-    ] {
-        let chosen = parsed(text).map(|config| config.follow_jump);
-        assert_eq!(chosen, Ok(Some(jump)), "{text}");
-    }
-    assert!(parsed("follow_jump = \"middle\"\n").is_err());
+    check_key(
+        |config| config.follow_jump,
+        &[
+            ("follow_jump = \"first\"\n", FollowJump::First),
+            ("follow_jump = \"last\"\n", FollowJump::Last),
+            ("follow_jump = \"most\"\n", FollowJump::Most),
+        ],
+        &["follow_jump = \"middle\"\n"],
+    );
 }
 
 #[test]
 fn the_initial_load_key_takes_wait_or_background() {
-    let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
-    for (text, initial_load) in [
-        ("initial_load = \"wait\"\n", InitialLoad::Wait),
-        ("initial_load = \"background\"\n", InitialLoad::Background),
-    ] {
-        let chosen = parsed(text).map(|config| config.initial_load);
-        assert_eq!(chosen, Ok(Some(initial_load)), "{text}");
-    }
-    assert!(parsed("initial_load = \"later\"\n").is_err());
-    assert!(parsed("initial_load = true\n").is_err());
+    check_key(
+        |config| config.initial_load,
+        &[
+            ("initial_load = \"wait\"\n", InitialLoad::Wait),
+            ("initial_load = \"background\"\n", InitialLoad::Background),
+        ],
+        &["initial_load = \"later\"\n", "initial_load = true\n"],
+    );
 }
 
 #[test]
@@ -582,27 +567,29 @@ fn following_is_off_unless_the_configuration_file_or_a_flag_says_otherwise() {
 
 #[test]
 fn the_front_matter_key_takes_table_code_hide_or_off() {
-    let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
-    for (text, front_matter) in [
-        ("front_matter = \"table\"\n", FrontMatter::Table),
-        ("front_matter = \"code\"\n", FrontMatter::Code),
-        ("front_matter = \"hide\"\n", FrontMatter::Hide),
-        ("front_matter = \"off\"\n", FrontMatter::Off),
-    ] {
-        let config = parsed(text).unwrap();
-        assert_eq!(config.front_matter, Some(front_matter), "{text}");
-    }
-    assert!(parsed("front_matter = \"list\"\n").is_err());
-    assert!(parsed("front_matter = false\n").is_err());
-    assert!(parsed("front-matter = \"code\"\n").is_err());
+    check_key(
+        |config| config.front_matter,
+        &[
+            ("front_matter = \"table\"\n", FrontMatter::Table),
+            ("front_matter = \"code\"\n", FrontMatter::Code),
+            ("front_matter = \"hide\"\n", FrontMatter::Hide),
+            ("front_matter = \"off\"\n", FrontMatter::Off),
+        ],
+        &[
+            "front_matter = \"list\"\n",
+            "front_matter = false\n",
+            "front-matter = \"code\"\n",
+        ],
+    );
 }
 
 #[test]
 fn the_diagrams_key_turns_diagrams_on_or_off() {
-    let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
-    assert_eq!(parsed("diagrams = false\n").unwrap().diagrams, Some(false));
-    assert_eq!(parsed("diagrams = true\n").unwrap().diagrams, Some(true));
-    assert!(parsed("diagrams = \"off\"\n").is_err());
+    check_key(
+        |config| config.diagrams,
+        &[("diagrams = false\n", false), ("diagrams = true\n", true)],
+        &["diagrams = \"off\"\n"],
+    );
 }
 
 #[test]
@@ -818,33 +805,32 @@ fn a_diagram_command_must_be_able_to_work() {
 
 #[test]
 fn the_table_rows_key_takes_each_value() {
-    let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
-    for (text, rows) in [
-        ("table_rows = \"off\"\n", TableRows::Off),
-        ("table_rows = \"zebra\"\n", TableRows::Zebra),
-        ("table_rows = \"lines\"\n", TableRows::Lines),
-        ("table_rows = \"indent\"\n", TableRows::Indent),
-        ("table_rows = \"underline\"\n", TableRows::Underline),
-    ] {
-        assert_eq!(parsed(text).unwrap().table_rows, Some(rows), "{text}");
-    }
-    assert!(parsed("table_rows = \"stripes\"\n").is_err());
-    assert!(parsed("table_rows = true\n").is_err());
+    check_key(
+        |config| config.table_rows,
+        &[
+            ("table_rows = \"off\"\n", TableRows::Off),
+            ("table_rows = \"zebra\"\n", TableRows::Zebra),
+            ("table_rows = \"lines\"\n", TableRows::Lines),
+            ("table_rows = \"indent\"\n", TableRows::Indent),
+            ("table_rows = \"underline\"\n", TableRows::Underline),
+        ],
+        &["table_rows = \"stripes\"\n", "table_rows = true\n"],
+    );
 }
 
 #[test]
 fn the_render_errors_key_takes_each_value() {
-    let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
-    for (text, errors) in [
-        ("render_errors = \"inline\"\n", RenderErrors::Inline),
-        ("render_errors = \"stderr\"\n", RenderErrors::Stderr),
-        ("render_errors = \"both\"\n", RenderErrors::Both),
-    ] {
-        assert_eq!(parsed(text).unwrap().render_errors, Some(errors), "{text}");
-    }
-    assert_eq!(parsed("").unwrap().render_errors, None);
-    assert!(parsed("render_errors = \"never\"\n").is_err());
-    assert!(parsed("render_errors = true\n").is_err());
+    check_key(
+        |config| config.render_errors,
+        &[
+            ("render_errors = \"inline\"\n", RenderErrors::Inline),
+            ("render_errors = \"stderr\"\n", RenderErrors::Stderr),
+            ("render_errors = \"both\"\n", RenderErrors::Both),
+        ],
+        &["render_errors = \"never\"\n", "render_errors = true\n"],
+    );
+    let empty = parse("", Path::new("/c"), &Environment::default()).unwrap();
+    assert_eq!(empty.render_errors, None);
 }
 
 fn no_options() -> Options {
@@ -926,6 +912,23 @@ fn each_value_has_one_name() {
     check::<RenderErrors>();
     check::<crate::term::Mode>();
     check::<bool>();
+}
+
+/// Fails unless the configuration file text of each of `valid` sets `field`
+/// of the parsed configuration to its value, and each of `invalid` is an
+/// error.
+fn check_key<T: PartialEq + std::fmt::Debug + Copy>(
+    field: fn(&Config) -> Option<T>,
+    valid: &[(&str, T)],
+    invalid: &[&str],
+) {
+    let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
+    for &(text, expected) in valid {
+        assert_eq!(field(&parsed(text).unwrap()), Some(expected), "{text}");
+    }
+    for text in invalid {
+        assert!(parsed(text).is_err(), "{text}");
+    }
 }
 
 /// Fails unless the variable `name` chooses `field` of the choices as
