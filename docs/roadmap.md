@@ -860,6 +860,10 @@ go.
 - A side-by-side view: the Markdown source beside the rendered document,
   each part across from the other, so the source and what it becomes can
   be compared.
+- Where warnings and debug output go: today they are lines on standard
+  error, which the pager holds until it quits. A log file or the systemd
+  journal could keep them, and a debug level could tell more, such as
+  each program kiri runs and how long it takes.
 
 ## Bugs
 
