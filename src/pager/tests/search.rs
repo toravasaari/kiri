@@ -2,9 +2,7 @@ use super::*;
 
 #[test]
 fn a_slash_opens_a_prompt_on_the_status_line() {
-    let mut terminal = Fake::new(40, 6, &[b"/", "lä".as_bytes()]);
-    show(&numbers(30), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(30), 40, 6, &[b"/", "lä".as_bytes()]);
     for (frame, prompt) in [(&frames[1], "/\u{258f}"), (&frames[2], "/lä\u{258f}")] {
         let status = status_row(frame, 6);
         assert!(status.contains(" kiri "), "{status:?}");
@@ -18,9 +16,7 @@ fn a_slash_opens_a_prompt_on_the_status_line() {
 fn enter_moves_to_the_first_match_from_the_top_of_the_view() {
     // Line 3 is above the view after a page down, so Line 30 is the
     // first match.
-    let mut terminal = Fake::new(40, 6, &[b"jjjjjjjj", b"/line 3", b"\r"]);
-    show(&numbers(40), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(40), 40, 6, &[b"jjjjjjjj", b"/line 3", b"\r"]);
     assert!(at_top(frames.last().unwrap(), "Line 30"), "{frames:#?}");
     let status = status_row(frames.last().unwrap(), 6);
     assert!(status.contains("notes.md"), "{status:?}");
@@ -30,18 +26,14 @@ fn enter_moves_to_the_first_match_from_the_top_of_the_view() {
 #[test]
 fn a_match_already_in_view_does_not_move_it() {
     // Two lines down after the search shows Line 2 at the top.
-    let mut terminal = Fake::new(40, 6, &[b"/line 2\r", b"jj"]);
-    show(&numbers(30), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(30), 40, 6, &[b"/line 2\r", b"jj"]);
     assert!(at_top(frames.last().unwrap(), "Line 2"), "{frames:#?}");
 }
 
 #[test]
 fn escape_and_ctrl_c_cancel_the_prompt() {
     let reads: &[&[u8]] = &[b"/line 20", b"\x1b", b"", b"/line 20", b"\x03", b"jj"];
-    let mut terminal = Fake::new(40, 6, reads);
-    show(&numbers(30), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(30), 40, 6, reads);
     let last = frames.last().unwrap();
     // Ctrl+C did not quit, and j moved down.
     assert!(at_top(last, "Line 2"), "{frames:#?}");
@@ -51,9 +43,7 @@ fn escape_and_ctrl_c_cancel_the_prompt() {
 #[test]
 fn backspace_deletes_and_on_an_empty_prompt_cancels() {
     let reads: &[&[u8]] = &[b"/line 2x", b"\x7f0\r", b"/a", b"\x7f\x08", b"jj"];
-    let mut terminal = Fake::new(40, 6, reads);
-    show(&numbers(30), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(30), 40, 6, reads);
     assert!(
         frames.iter().any(|frame| at_top(frame, "Line 20")),
         "{frames:#?}"
@@ -64,9 +54,7 @@ fn backspace_deletes_and_on_an_empty_prompt_cancels() {
 #[test]
 fn enter_on_an_empty_prompt_goes_on_from_the_view_after_scrolling_away() {
     let reads: &[&[u8]] = &[b"/line 20\r", b"g", b"/\r"];
-    let mut terminal = Fake::new(60, 6, reads);
-    show(&numbers(30), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(30), 60, 6, reads);
     assert_eq!(frames.len(), 4, "{frames:#?}");
     assert!(at_top(&frames[2], "Line 1"), "{frames:#?}");
     let last = frames.last().unwrap();
@@ -78,18 +66,14 @@ fn enter_on_an_empty_prompt_goes_on_from_the_view_after_scrolling_away() {
 fn enter_on_an_empty_prompt_goes_on_to_the_next_match_as_n_does() {
     // Line 2 is in view after the search, so the repeat moves on.
     let reads: &[&[u8]] = &[b"/line 2\r", b"/\r"];
-    let mut terminal = Fake::new(60, 6, reads);
-    show(&numbers(30), &mut terminal);
-    let last = terminal.frames().pop().unwrap();
+    let last = shown(&numbers(30), 60, 6, reads).pop().unwrap();
     assert!(status_row(&last, 6).contains("/line 2 2/11"), "{last:?}");
     assert!(at_top(&last, "Line 20"), "{last:?}");
 }
 
 #[test]
 fn enter_on_an_empty_prompt_without_a_search_cancels() {
-    let mut terminal = Fake::new(40, 6, &[b"/\r", b"jj"]);
-    show(&numbers(30), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(30), 40, 6, &[b"/\r", b"jj"]);
     let last = frames.last().unwrap();
     assert!(at_top(last, "Line 2"), "{frames:#?}");
     assert!(status_row(last, 6).contains("notes.md"), "{frames:#?}");
@@ -97,27 +81,21 @@ fn enter_on_an_empty_prompt_without_a_search_cancels() {
 
 #[test]
 fn ctrl_u_clears_the_prompt() {
-    let mut terminal = Fake::new(40, 6, &[b"/xyz", b"\x15line 20\r"]);
-    show(&numbers(30), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(30), 40, 6, &[b"/xyz", b"\x15line 20\r"]);
     assert!(at_top(frames.last().unwrap(), "Line 20"), "{frames:#?}");
 }
 
 #[test]
 fn keys_go_to_the_prompt_while_it_is_open() {
     // q and G are typed, not bindings.
-    let mut terminal = Fake::new(40, 6, &[b"/qG"]);
-    show(&numbers(30), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(30), 40, 6, &[b"/qG"]);
     assert!(status_row(&frames[1], 6).contains("/qG"), "{frames:#?}");
     assert!(at_top(&frames[1], "Line 1"), "{frames:#?}");
 }
 
 #[test]
 fn the_status_line_counts_the_matches_after_a_search() {
-    let mut terminal = Fake::new(60, 6, &[b"/line 2\r"]);
-    show(&numbers(30), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(30), 60, 6, &[b"/line 2\r"]);
     let status = status_row(frames.last().unwrap(), 6);
     assert!(status.contains("notes.md"), "{status:?}");
     assert!(status.contains("/line 2 1/11"), "{status:?}");
@@ -125,9 +103,7 @@ fn the_status_line_counts_the_matches_after_a_search() {
 
 #[test]
 fn a_term_not_found_is_told_until_the_next_key() {
-    let mut terminal = Fake::new(60, 6, &[b"/xyz\r", b"x"]);
-    show(&numbers(30), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(30), 60, 6, &[b"/xyz\r", b"x"]);
     assert_eq!(frames.len(), 3, "{frames:#?}");
     assert!(
         status_row(&frames[1], 6).contains("not found: xyz"),
@@ -139,9 +115,7 @@ fn a_term_not_found_is_told_until_the_next_key() {
 #[test]
 fn n_and_shift_n_move_between_matches_and_around_the_ends() {
     let reads: &[&[u8]] = &[b"/line 2\r", b"n", b"N", b"N", b"n"];
-    let mut terminal = Fake::new(60, 6, reads);
-    show(&numbers(30), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(30), 60, 6, reads);
     let shows =
         |frame: &str, line, count| at_top(frame, line) && status_row(frame, 6).contains(count);
     assert_eq!(frames.len(), 6, "{frames:#?}");
@@ -163,9 +137,7 @@ fn n_after_scrolling_away_goes_on_from_the_view() {
     // At the first match, then to the end and back: n takes the first
     // match in the view, not the one after the match left behind.
     let reads: &[&[u8]] = &[b"/line 2\r", b"G", b"n"];
-    let mut terminal = Fake::new(60, 6, reads);
-    show(&numbers(30), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(30), 60, 6, reads);
     assert_eq!(frames.len(), 4, "{frames:#?}");
     let status = status_row(&frames[3], 6);
     assert!(status.contains("/line 2 10/11"), "{frames:#?}");
@@ -174,17 +146,13 @@ fn n_after_scrolling_away_goes_on_from_the_view() {
 
 #[test]
 fn n_without_a_search_does_nothing() {
-    let mut terminal = Fake::new(60, 6, &[b"nN", b"jj"]);
-    show(&numbers(30), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(30), 60, 6, &[b"nN", b"jj"]);
     assert_eq!(frames.len(), 2, "{frames:#?}");
 }
 
 #[test]
 fn n_after_a_term_not_found_tells_it_again() {
-    let mut terminal = Fake::new(60, 6, &[b"/xyz\r", b"j", b"n"]);
-    show(&numbers(30), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(30), 60, 6, &[b"/xyz\r", b"j", b"n"]);
     let last = status_row(frames.last().unwrap(), 6);
     assert!(last.contains("not found: xyz"), "{frames:#?}");
 }
@@ -192,9 +160,7 @@ fn n_after_a_term_not_found_tells_it_again() {
 #[test]
 fn escape_hides_the_search_and_n_takes_it_up_again() {
     let reads: &[&[u8]] = &[b"/line 2\r", b"\x1b", b"", b"n"];
-    let mut terminal = Fake::new(60, 6, reads);
-    show(&numbers(30), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(30), 60, 6, reads);
     assert_eq!(frames.len(), 4, "{frames:#?}");
     assert!(
         status_row(&frames[1], 6).contains("/line 2 1/11"),
@@ -259,9 +225,7 @@ fn matches_in_view_are_marked_and_the_current_one_apart() {
         &wait,
         &[b"\x1b", b""],
     ];
-    let mut terminal = Fake::new(60, 6, &reads.concat());
-    show(&numbers(30), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(30), 60, 6, &reads.concat());
     assert_eq!(frames.len(), 4, "{frames:#?}");
     // Line 2 is the current match, below Line 1.
     let found = document_part(&frames[1], 6);
@@ -311,9 +275,7 @@ fn matches_are_marked_in_large_headings_and_in_tables() {
 
 #[test]
 fn n_without_going_around_does_not_flash() {
-    let mut terminal = Fake::new(60, 6, &[b"/line 2\r", b"n"]);
-    show(&numbers(30), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(30), 60, 6, &[b"/line 2\r", b"n"]);
     assert!(
         status_row(&frames[2], 6).contains("/line 2 2/11"),
         "{frames:#?}"

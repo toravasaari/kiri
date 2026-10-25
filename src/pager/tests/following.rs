@@ -516,9 +516,7 @@ fn the_status_line_tells_following_from_the_start() {
 
 #[test]
 fn without_a_file_to_follow_capital_f_says_so_until_the_next_key() {
-    let mut terminal = Fake::new(60, 6, &[b"F", b"j"]);
-    show(&numbers(10), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(10), 60, 6, &[b"F", b"j"]);
     assert_eq!(frames.len(), 3, "{frames:#?}");
     assert!(status_row(&frames[1], 6).contains("nothing to follow"));
     assert!(!status_row(&frames[2], 6).contains("follow"), "{frames:#?}");

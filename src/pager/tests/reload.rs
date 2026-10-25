@@ -341,9 +341,7 @@ fn warnings_given_at_the_start_show_the_mark_and_the_line_at_once() {
 
 #[test]
 fn without_a_file_to_reload_r_says_so_until_the_next_key() {
-    let mut terminal = Fake::new(60, 6, &[b"r", b"j"]);
-    show(&numbers(10), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(10), 60, 6, &[b"r", b"j"]);
     assert_eq!(frames.len(), 3, "{frames:#?}");
     let status = status_row(&frames[1], 6);
     assert!(status.contains("nothing to reload"), "{frames:#?}");

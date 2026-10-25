@@ -24,9 +24,7 @@ fn lays_the_document_out_again_for_another_window() {
 
 #[test]
 fn draws_the_document_and_quits_on_q() {
-    let mut terminal = Fake::new(40, 6, &[b"q"]);
-    show(&numbers(10), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(10), 40, 6, &[b"q"]);
     assert_eq!(frames.len(), 1, "{frames:?}");
     assert!(frames[0].contains("Line 1"), "{frames:?}");
     assert!(frames[0].contains("Line 3"), "{frames:?}");
@@ -36,9 +34,7 @@ fn draws_the_document_and_quits_on_q() {
 #[test]
 fn redraws_after_keys_that_move() {
     // Two lines down, then a key that does nothing, then the end.
-    let mut terminal = Fake::new(40, 6, &[b"jj", b"x", b"", b"G"]);
-    show(&numbers(10), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(10), 40, 6, &[b"jj", b"x", b"", b"G"]);
     assert_eq!(frames.len(), 3, "{frames:?}");
     // Line 2 is at the top: the first row of the frame.
     assert!(frames[1].contains("\x1b[1;1H  Line 2"), "{frames:?}");
@@ -48,18 +44,14 @@ fn redraws_after_keys_that_move() {
 #[test]
 fn a_key_split_over_two_reads_moves() {
     // Page Down as an escape character and the rest of its sequence.
-    let mut terminal = Fake::new(40, 6, &[b"\x1b", b"[6~"]);
-    show(&numbers(10), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(10), 40, 6, &[b"\x1b", b"[6~"]);
     assert_eq!(frames.len(), 2, "{frames:?}");
     assert!(frames[1].contains("\x1b[2;1H  Line 4"), "{frames:?}");
 }
 
 #[test]
 fn the_status_line_is_on_the_bottom_row() {
-    let mut terminal = Fake::new(40, 6, &[b"G"]);
-    show(&numbers(10), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(10), 40, 6, &[b"G"]);
     assert_eq!(frames.len(), 2, "{frames:?}");
     // The document takes the rows above it.
     assert!(frames[0].contains("\x1b[5;1H  Line 3"), "{frames:?}");
@@ -76,9 +68,7 @@ fn the_status_line_is_on_the_bottom_row() {
 fn the_help_opens_over_the_dimmed_document_and_any_key_closes_it() {
     // The help, a key that closes it without moving, the help again,
     // and q, which closes it without quitting, then the end.
-    let mut terminal = Fake::new(60, 24, &[b"?", b"j", b"h", b"q", b"G"]);
-    show(&numbers(30), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(30), 60, 24, &[b"?", b"j", b"h", b"q", b"G"]);
     assert_eq!(frames.len(), 6, "{frames:#?}");
     let help = |frame: &str| frame.contains("down a line");
     assert!(!help(&frames[0]), "{frames:#?}");
@@ -125,9 +115,7 @@ fn the_help_s_footer_is_muted_text_on_the_page() {
 #[test]
 fn keys_without_a_binding_close_the_help_too() {
     // F5 closes the help, then j moves.
-    let mut terminal = Fake::new(60, 24, &[b"?", b"\x1b[15~", b"j"]);
-    show(&numbers(30), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(30), 60, 24, &[b"?", b"\x1b[15~", b"j"]);
     assert_eq!(frames.len(), 4, "{frames:#?}");
     assert!(frames[1].contains("down a line"), "{frames:#?}");
     assert_eq!(frames[2], frames[0]);
@@ -136,17 +124,14 @@ fn keys_without_a_binding_close_the_help_too() {
 
 #[test]
 fn ctrl_c_quits_even_from_the_help() {
-    let mut terminal = Fake::new(60, 24, &[b"?", b"", b"G"]);
-    show(&numbers(30), &mut terminal);
-    assert_eq!(terminal.frames().len(), 2);
+    let frames = shown(&numbers(30), 60, 24, &[b"?", b"", b"G"]);
+    assert_eq!(frames.len(), 2);
 }
 
 #[test]
 fn a_window_of_one_row_shows_the_document_without_a_status_line() {
     // The help has no room, so q quits at once.
-    let mut terminal = Fake::new(40, 1, &[b"?", b"q", b"G"]);
-    show(&numbers(10), &mut terminal);
-    let frames = terminal.frames();
+    let frames = shown(&numbers(10), 40, 1, &[b"?", b"q", b"G"]);
     assert_eq!(frames.len(), 1, "{frames:#?}");
     assert!(frames[0].contains("Line 1"), "{frames:#?}");
     assert!(!frames[0].contains(" kiri "), "{frames:#?}");

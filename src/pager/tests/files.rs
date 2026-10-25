@@ -64,9 +64,8 @@ fn the_status_line_tells_the_file_s_place_among_the_files() {
         "{frames:#?}"
     );
     // A lone document has no place among others.
-    let mut terminal = Fake::new(40, 6, &[]);
-    show(&numbers(3), &mut terminal);
-    let status = status_row(&terminal.frames()[0], 6);
+    let frames = shown(&numbers(3), 40, 6, &[]);
+    let status = status_row(&frames[0], 6);
     assert!(status.contains(" notes.md  "), "{status:?}");
     assert!(!status.contains("1/1"), "{status:?}");
 }
@@ -265,11 +264,7 @@ fn a_colon_in_a_lone_document_does_nothing_and_lets_the_next_key_through() {
     // :n there is n, which goes on to the next match.
     let with_colon: &[&[u8]] = &[b":", b"j", b"/Line\r", b":n", b":"];
     let without: &[&[u8]] = &[b"j", b"/Line\r", b"n"];
-    let frames = |reads| {
-        let mut terminal = Fake::new(40, 6, reads);
-        show(&numbers(30), &mut terminal);
-        terminal.frames()
-    };
+    let frames = |reads| shown(&numbers(30), 40, 6, reads);
     let shown = frames(with_colon);
     assert_eq!(shown, frames(without));
     assert_eq!(shown.len(), 4, "{shown:#?}");
@@ -286,9 +281,7 @@ fn the_help_lists_colon_n_and_colon_p_only_with_several_files() {
     assert!(help.contains("previous file"), "{help:?}");
     assert!(help.contains("Shift+PgDn"), "{help:?}");
     assert!(help.contains("Shift+PgUp"), "{help:?}");
-    let mut terminal = Fake::new(60, 24, &[b"?"]);
-    show(&numbers(30), &mut terminal);
-    let help = terminal.frames()[1].clone();
+    let help = shown(&numbers(30), 60, 24, &[b"?"])[1].clone();
     assert!(help.contains("down a line"), "{help:?}");
     assert!(!help.contains("next file"), "{help:?}");
     assert!(!help.contains("Shift+"), "{help:?}");

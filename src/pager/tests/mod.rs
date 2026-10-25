@@ -128,6 +128,14 @@ fn show(document: &Document, terminal: &mut Fake) {
     .unwrap();
 }
 
+/// The frames drawn for `document` in a window of `columns` × `rows`
+/// when the terminal gives `keys`.
+fn shown(document: &Document, columns: u16, rows: u16, keys: &[&[u8]]) -> Vec<String> {
+    let mut terminal = Fake::new(columns, rows, keys);
+    show(document, &mut terminal);
+    terminal.frames()
+}
+
 /// `document` shown with its lines laid out beforehand from `before`,
 /// with `caps`.
 fn show_laid_out(document: &Document, before: &Document, caps: Capabilities) -> Vec<String> {
