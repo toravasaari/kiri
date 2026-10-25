@@ -153,3 +153,5 @@ flowchart LR
   [PNG file](S06b-pattern.png) on its own
 - [Diagrams](S07a-diagrams.md): Mermaid diagrams, and a
   [Mermaid file](S07b-flowchart.mmd)
+- [Formulas](S08-formulas.md): formulas in math blocks and between `$$`,
+  in lists and quotes, and what stays text
