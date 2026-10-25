@@ -631,6 +631,26 @@ The counterpart of several files (4.9.2) for images.
   behind an option of its own; PNG stays the normal path, as the more
   reliable one.
 
+#### 4.12.8 Remote images
+
+- Images from URLs, as many other viewers show them. `https:` URLs and
+  the local machine, also over `http:`, are fetched by default; the local
+  network, such as a home network or a Docker network, also over `http:`,
+  only when the configuration file allows it, for all of it or for named
+  hosts. A setting and a command-line option choose the sources, or none.
+  Browsers draw the same line: a page from the web needs the reader's
+  permission to reach the local network.
+- Fetching an image tells its server that the document was opened, and an
+  image on the local network lets a document send requests to devices
+  there. The fetching itself is kept safe: an address is checked after its
+  name is resolved, the ports browsers block (the Fetch standard's list,
+  such as SMTP's 25) are not fetched from, the `--max-image-size` limit
+  and a timeout apply to each fetch, a few fetches run at a time, no
+  cookies or referrer are sent, and a cache keeps a document opened again
+  from fetching its images again.
+- Output that is not a terminal shows no images, so nothing is fetched
+  for it.
+
 ### 4.13 Obsidian
 
 Obsidian notes reach past single Markdown files, so this part may grow or
@@ -662,15 +682,24 @@ A menu in the pager, from which its keys and settings can be found.
 
 - Changing the theme (4.11) from the menu while the document is shown.
 
+#### 4.14.3 Remote images from the menu
+
+- Allowing remote images from the local network (4.12.8) from the menu,
+  for the document shown or for good, as a browser asks for it.
+
 ## Phase 5 – Beyond kitty
 
-- Other terminals: sixel and iTerm2 images, plain styling for headings.
-  Needs G3.3.
+- Other terminals: sixel and iTerm2 images. Needs G3.3.
+- Headings in terminals without kitty's text sizing, from the best to the
+  plainest: drawn as images in the terminal's own font, which kiri finds
+  by asking the terminal or reading its configuration file, as
+  [mdfried](inspiration.md#other-terminal-markdown-readers) does; where
+  images do not work either, block characters through chafa or large
+  letters in the manner of figlet; in a pipe and with `NO_COLOR`, plain
+  styling.
 - `--doctor` lists the image protocols probed.
 - Images as coloured Unicode block characters where no image protocol
   works.
-- Remote images, off by default because fetching one tells its server that
-  the document was opened.
 - An HTML backend and `kiri serve` for reading in a browser with live reload.
 - Pixel rendering: a headless browser screenshot (`--browser`), and possibly
   a native layout and rasterising engine later.
