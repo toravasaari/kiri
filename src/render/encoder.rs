@@ -30,8 +30,8 @@ pub struct Encoder {
     /// deleted before the next frame.
     unused: Vec<ImageId>,
     /// The bands that tell an image is loading, by their columns and the
-    /// pixels of their cells: one image for all the bands of a width,
-    /// which [`Encoder::animate`] sends anew for each step.
+    /// pixels of their cells: one image for all the bands of a width
+    /// drawn since the screen was last cleared.
     bands: HashMap<(u16, (u16, u16)), ImageId>,
     /// The bands drawn since the screen was last cleared, which are the
     /// ones on it.
