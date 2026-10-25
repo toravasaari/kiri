@@ -224,7 +224,9 @@ This holds where the pager surely opens: when paging is `always`, as with
 `auto` when the document is longer than the window with each image and
 diagram that has not loaded counted at three rows. A shorter document
 waits for its images, and is then paged or printed as their real height
-says, and a printed document always waits: in a window of 40 rows,
+says. So, with `wait`, a document that shows the hint below can still
+be printed once its images turn out smaller than three rows each. A
+printed document always waits: in a window of 40 rows,
 `kiri --initial-load background notes.md` shows a document of 50 rows of
 text at once, and waits for one of 30 rows of text and two diagrams.
 With several files, the images of the documents among them load in the
