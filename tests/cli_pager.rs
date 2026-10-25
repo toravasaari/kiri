@@ -1286,6 +1286,157 @@ fn an_initial_load_in_the_background_tells_a_failed_diagram_after_the_pager() {
     assert!(after.contains("Error: bad"), "{seen:?}");
 }
 
+/// What the progress line says where Space or Enter opens the pager.
+const HINT: &str = "(space: open now)";
+
+/// kiri with `args` in a terminal of 12 rows, with standard error on it
+/// too, in a scratch directory that `prepare` fills, with `act` called
+/// with what kiri wrote so far, the terminal and the directory each time
+/// it writes. Returns how kiri exited and what it wrote.
+fn watching(
+    name: &str,
+    prepare: impl FnOnce(&std::path::Path),
+    args: &[&str],
+    mut act: impl FnMut(&str, &mut std::fs::File, &std::path::Path),
+) -> (ExitStatus, String) {
+    let dir = std::cell::RefCell::new(std::path::PathBuf::new());
+    let prepare = |scratch: &std::path::Path| {
+        *dir.borrow_mut() = scratch.to_owned();
+        prepare(scratch);
+    };
+    let act = |seen: &[u8], terminal: &mut std::fs::File, _: &std::process::Child| {
+        act(&text(seen), terminal, &dir.borrow());
+    };
+    let setup = Setup {
+        both: true,
+        env: &[],
+    };
+    let (status, seen, _) = in_terminal_seeing(name, prepare, args, 12, None, setup, act);
+    (status, seen)
+}
+
+/// [`drawn_on_cue`] with `diagram.md` longer than a window of 12 rows.
+fn long_on_cue(dir: &std::path::Path) {
+    drawn_on_cue(dir);
+    let document = format!("```mermaid\nflowchart TD\n```\n\n{}", long());
+    std::fs::write(dir.join("diagram.md"), document).unwrap();
+}
+
+#[test]
+fn space_or_enter_opens_the_pager_before_the_slow_diagram_is_drawn() {
+    for key in [&b" "[..], b"\r"] {
+        let (mut typed, mut go, mut quit) = (false, false, false);
+        let act = |seen: &str, terminal: &mut std::fs::File, dir: &std::path::Path| {
+            if !typed && seen.contains(HINT) {
+                terminal.write_all(key).unwrap();
+                typed = true;
+            }
+            let frames = whole_frames(seen);
+            if !go && !frames.is_empty() {
+                std::fs::write(dir.join("go"), "").unwrap();
+                go = true;
+            }
+            if !quit && image_sent(&frames, dir) {
+                terminal.write_all(b"q").unwrap();
+                quit = true;
+            }
+        };
+        let args = ["--mode", "kitty", "-p", "diagram.md"];
+        let (status, seen) = watching("pager-skip", drawn_on_cue, &args, act);
+        assert!(status.success(), "{key:?}: {seen:?}");
+        let (before, pager) = seen.split_once(ENTER).unwrap();
+        assert!(before.contains(HINT), "{key:?}: {seen:?}");
+        let frames = whole_frames(pager);
+        let first = text_of(&frames[0]);
+        assert!(first.contains("flowchart TD"), "{key:?}: {frames:?}");
+        assert!(first.contains("[rendering: 0/1]"), "{key:?}: {frames:?}");
+        assert!(!frames[0].contains("\x1b_Ga=T,"), "{key:?}: {frames:?}");
+        assert!(image_sent(&frames, std::path::Path::new("")), "{frames:?}");
+    }
+}
+
+#[test]
+fn another_key_does_nothing_while_the_images_load_and_is_not_kept() {
+    let (mut typed, mut quit) = (false, false);
+    let act = |seen: &str, terminal: &mut std::fs::File, dir: &std::path::Path| {
+        if !typed && seen.contains(HINT) {
+            // To the end, were it kept for the pager.
+            terminal.write_all(b"G").unwrap();
+            std::thread::sleep(Duration::from_millis(200));
+            std::fs::write(dir.join("go"), "").unwrap();
+            typed = true;
+        }
+        if !quit && !whole_frames(seen).is_empty() {
+            terminal.write_all(b"q").unwrap();
+            quit = true;
+        }
+    };
+    let args = ["--mode", "kitty", "-p", "diagram.md"];
+    let (status, seen) = watching("pager-skip-other", long_on_cue, &args, act);
+    assert!(status.success(), "{seen:?}");
+    assert!(typed, "no hint: {seen:?}");
+    let frames = whole_frames(seen.split_once(ENTER).unwrap().1);
+    // Waited for the diagram, at the top.
+    assert!(frames[0].contains("\x1b_Ga=T,"), "{frames:?}");
+    let first = text_of(&frames[0]);
+    assert!(!first.contains("[rendering"), "{frames:?}");
+    assert!(first.contains("Line 2"), "{frames:?}");
+    assert!(!first.contains("Line 10"), "{frames:?}");
+}
+
+#[test]
+fn ctrl_c_while_the_images_load_ends_kiri_as_before() {
+    use std::os::unix::process::ExitStatusExt;
+
+    for args in [
+        &["--mode", "kitty", "-p", "diagram.md"][..],
+        &["--mode", "kitty", "-P", "diagram.md"],
+    ] {
+        let mut typed = false;
+        let act = |seen: &str, terminal: &mut std::fs::File, _: &std::path::Path| {
+            if !typed && seen.contains("rendering diagrams") {
+                terminal.write_all(b"\x03").unwrap();
+                typed = true;
+            }
+        };
+        let (status, seen) = watching("pager-skip-ctrl-c", drawn_on_cue, args, act);
+        assert_eq!(status.signal(), Some(libc::SIGINT), "{args:?}: {seen:?}");
+        assert!(!seen.contains(ENTER), "{args:?}: {seen:?}");
+    }
+}
+
+#[test]
+fn the_hint_shows_only_where_the_pager_surely_opens() {
+    // The document, whether it fits a window of 12 rows, and the options.
+    for (long, args, hint) in [
+        (false, &["-p"][..], true),
+        (true, &[][..], true),
+        (false, &[][..], false),
+        (true, &["-P"][..], false),
+    ] {
+        let (mut go, mut quit) = (false, false);
+        let act = |seen: &str, terminal: &mut std::fs::File, dir: &std::path::Path| {
+            if !go && seen.contains("rendering diagrams") {
+                std::fs::write(dir.join("go"), "").unwrap();
+                go = true;
+            }
+            if !quit && seen.contains("\x1b[?2026l") {
+                terminal.write_all(b"q").unwrap();
+                quit = true;
+            }
+        };
+        let prepare = |dir: &std::path::Path| match long {
+            true => long_on_cue(dir),
+            false => drawn_on_cue(dir),
+        };
+        let all = [&["--mode", "kitty"][..], args, &["diagram.md"]].concat();
+        let (status, seen) = watching("pager-skip-hint", prepare, &all, act);
+        assert!(status.success(), "{args:?}: {seen:?}");
+        assert!(seen.contains("rendering diagrams"), "{args:?}: {seen:?}");
+        assert_eq!(seen.contains(HINT), hint, "{args:?}: {seen:?}");
+    }
+}
+
 /// [`drawn_diagram`], with `a.md`, a diagram other than `diagram.mmd`'s,
 /// and `missing.md`, an image whose file is missing.
 fn several_files(dir: &std::path::Path) {

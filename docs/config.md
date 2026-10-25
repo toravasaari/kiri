@@ -226,9 +226,20 @@ diagram that has not loaded counted at three rows. A shorter document
 waits for its images, and is then paged or printed as their real height
 says, and a printed document always waits: in a window of 40 rows,
 `kiri --initial-load background notes.md` shows a document of 50 rows of
-text at once, and waits for one of 30 rows of text and two diagrams. With several files, the
-images of the documents among them load in the background too, and an
-image or diagram file waits for its image, among others or on its own.
+text at once, and waits for one of 30 rows of text and two diagrams.
+With several files, the images of the documents among them load in the
+background too, and an image or diagram file waits for its image, among
+others or on its own.
+
+With `wait`, in those same places Space or Enter cuts the wait short:
+while standard error says `kiri: rendering diagrams 1/3… (space: open
+now)`, either key opens the pager at once, with the images that have
+come, and the rest load in the background as with `background`. Other
+keys do nothing meanwhile and are not kept for the pager, and Ctrl-C
+ends kiri as it does whenever it waits. Where the pager may not open,
+such as in print mode or with paging on `auto` for a document that
+fits, there is no hint and the keys do nothing. Several files wait
+without a hint for now.
 
 ## Search case
 

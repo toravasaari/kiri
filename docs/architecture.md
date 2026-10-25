@@ -281,7 +281,11 @@ besides the one for signals.
 environment, given as values, and loads a document's images with them;
 `src/main.rs` hands it `src/term/progress.rs`, which tells on the
 terminal how far drawing has got when it takes long, and another caller
-may tell it elsewhere. The programs run in process groups of their own,
+may tell it elsewhere. Where the pager surely opens, the wait loads in
+the background instead, while `src/term/keys.rs` reads keys with the
+terminal in a mode that keeps Ctrl-C a signal; Space or Enter hands the
+loads still under way to the pager, and the mode, with any key typed
+meanwhile, is gone before the pager or the shell takes the terminal. The programs run in process groups of their own,
 which Ctrl-C from the terminal does not reach, nor a signal sent to kiri
 alone. So when the document has a diagram that a program draws,
 `src/term/interrupt.rs` catches SIGINT, SIGQUIT, SIGTERM and SIGHUP
@@ -379,6 +383,7 @@ src/term/screen.rs         the pager's screen, raw mode and keys
 src/term/progress.rs       the line that tells how far drawing diagrams has
                            got
 src/term/interrupt.rs      signals while programs draw diagrams
+src/term/keys.rs           Space or Enter while kiri waits for the images
 src/term/testing.rs        pseudo-terminals for the tests
 src/testing.rs             scratch directories for the tests
 src/panics.rs              panics kiri catches on purpose, such as a load's

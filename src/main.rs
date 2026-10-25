@@ -15,15 +15,15 @@ use kiri::config::{
 };
 use kiri::doctor::{Facts, Output};
 use kiri::images::{
-    Fonts, Format, ImageError, ImageKey, Images, Interrupted, Loaded, Loading, Loads, Part, Source,
-    Stamps, reload_in_background,
+    Fonts, Format, ImageError, ImageKey, Images, Interrupted, Loaded, Loading, Loads, Part,
+    Placeholder, Source, Stamps, reload_in_background,
 };
 use kiri::input::Input;
 use kiri::model::{Block, Document, FrontMatterError};
 use kiri::pager::{Change, Look, Reload, Reloaded, Warning};
 use kiri::render::output::Page;
 use kiri::render::{Inputs, RenderErrors, TableRows};
-use kiri::term::Mode;
+use kiri::term::{Interrupt, Mode};
 use kiri::theme::{Paper, Theme};
 
 /// Render a Markdown document, or show an image, in the terminal.
@@ -693,7 +693,9 @@ fn show_files(
         }
     }
     // The documents' images load once the pager has opened.
-    let later = paged && in_background(&settings, &caps);
+    let later = paged
+        && settings.initial_load == InitialLoad::Background
+        && may_load_later(&settings, &caps);
     let Loaded {
         mut images,
         mut interrupt,
@@ -1299,7 +1301,7 @@ fn show_document(
     // Before the images are read, so that a file changed meanwhile counts
     // as changed.
     let stamps = Stamps::of(&parts);
-    let later = in_background(&settings, &caps);
+    let later = may_load_later(&settings, &caps);
     let loaded = match later {
         true => Loaded::default(),
         false => load_told(context, &parts, &settings, &caps)?,
@@ -1314,14 +1316,14 @@ fn show_document(
     print_document(context, shown, loaded, settings, caps, reading)
 }
 
-/// Whether the images of a document may load in the background once the
-/// pager has opened, rather than before: when `settings` ask for it,
-/// show images that `caps` can show, and may page the document, as
-/// paging is `always` or `auto` and the output a terminal that takes
-/// escape sequences. [`surely_paged`] tells for `auto`.
-fn in_background(settings: &Settings, caps: &Capabilities) -> bool {
-    settings.initial_load == InitialLoad::Background
-        && matches!(settings.paging, Paging::Always | Paging::Auto)
+/// Whether the images of a document may still load once the pager has
+/// opened, rather than before: in the background, or when the reader
+/// skips the wait for them. That is when `settings` show images that
+/// `caps` can show and may page the document, as paging is `always` or
+/// `auto` and the output a terminal that takes escape sequences;
+/// [`surely_paged`] tells for `auto`.
+fn may_load_later(settings: &Settings, caps: &Capabilities) -> bool {
+    matches!(settings.paging, Paging::Always | Paging::Auto)
         && kiri::term::stdout_is_terminal()
         && caps.styling
         && settings.images
@@ -1358,6 +1360,107 @@ fn surely_paged(
         inputs.images.take_placeholders();
     }
     longer
+}
+
+/// What waiting for the images before the pager opens came to.
+struct Waited {
+    /// The guard that caught the signals meanwhile, to go once the
+    /// pager's screen catches them.
+    interrupt: Option<Interrupt>,
+    /// The loads still under way, when the reader opened the pager
+    /// before all had come.
+    loads: Option<Loads>,
+}
+
+/// Loads the images of `parts` into `inputs` while the reader waits for
+/// the pager, with the progress line on standard error, a terminal, and
+/// the hint that Space opens the pager now: until they have all come, or
+/// until the reader presses Space or Enter, which leaves the rest loading
+/// in the background. Other keys go unheeded. Ctrl-C, SIGTERM, SIGHUP and
+/// Ctrl-\ stop the programs meanwhile, as when the images load first,
+/// and are then the failure. `None` without a terminal to read keys
+/// from, where nothing has started.
+fn wait_or_skip(
+    context: &Context,
+    parts: &[Part],
+    settings: &Settings,
+    inputs: &mut Inputs,
+) -> Option<Result<Waited, Failure>> {
+    let mut keys = kiri::term::WaitKeys::open()?;
+    let interrupt = Interrupt::catch();
+    let signal = || interrupt.as_ref().and_then(Interrupt::signal);
+    let mut loads = Loads::new();
+    let loading = loading(context, settings, &inputs.caps);
+    kiri::images::load_in_background(parts, &loading, &mut inputs.images, &mut loads);
+    let images = &mut inputs.images;
+    let poll = || {
+        for (key, image) in loads.poll() {
+            images.insert(key, image);
+        }
+        loads.progress().filter(|_| signal().is_none())
+    };
+    let out: Box<dyn Write> = match kiri::term::stderr_is_terminal() {
+        true => Box::new(io::stderr()),
+        false => Box::new(io::sink()),
+    };
+    let skip = |timeout| keys.skip(timeout);
+    let delay = kiri::term::progress::DELAY;
+    let skipped = kiri::term::progress::until_done_or_skipped(out, delay, poll, skip);
+    // The terminal as it was, before the pager or the shell takes it.
+    drop(keys);
+    if signal().is_some() {
+        loads.halt();
+        loads.wait(kiri::images::STOPPING);
+        let signal = interrupt.as_ref().and_then(Interrupt::release);
+        return signal.map(|signal| Err(Failure::Signal(signal)));
+    }
+    let loads = skipped.then_some(loads);
+    Some(Ok(Waited { interrupt, loads }))
+}
+
+/// Hands `still`, the loads the reader did not wait for, to the pager's
+/// `loads`, each image shown in `inputs` as one that loads in the
+/// background is until it comes.
+fn carry_on(still: Loads, inputs: &mut Inputs, loads: &mut Loads) {
+    *loads = still;
+    for key in loads.keys() {
+        inputs.images.wait(key.clone(), Placeholder::Unsized);
+    }
+}
+
+/// Waits for what `loads` load to come into `images`, and gives what
+/// came. A signal that `interrupt` caught meanwhile stops them, and is
+/// the failure.
+fn finish_loading(
+    mut loads: Loads,
+    images: &mut Images,
+    interrupt: Option<&Interrupt>,
+) -> Result<Images, Failure> {
+    let mut came = Images::new();
+    loop {
+        for (key, image) in loads.poll() {
+            images.insert(key.clone(), image.clone());
+            came.insert(key, image);
+        }
+        if loads.is_empty() {
+            return Ok(came);
+        }
+        if let Some(signal) = interrupt.and_then(Interrupt::signal) {
+            loads.halt();
+            loads.wait(kiri::images::STOPPING);
+            let signal = interrupt.and_then(Interrupt::release).unwrap_or(signal);
+            return Err(Failure::Signal(signal));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+/// Tells on standard error what did not load of `images`, as
+/// [`load_told`] does.
+fn tell_loaded(images: &Images, settings: &Settings) {
+    for warning in images.warnings_with(settings.render_errors.stderr()) {
+        eprintln!("kiri: {warning}");
+    }
 }
 
 /// [`load_images`], with a warning on standard error for each image
@@ -1580,12 +1683,38 @@ fn print_document(
     };
     // With paging on auto, the images load first unless the document is
     // longer than the window without them.
+    // Waiting, the reader can open the pager before they have all come,
+    // and the rest then load in the background.
     let content = kiri::render::layout::Content::Document(document);
+    let mut still = None;
     let later = match later {
         Some(parts) if !surely_paged(context, content, parts, &settings, &mut inputs) => {
             let loaded = load_told(context, parts, &settings, &inputs.caps)?;
             inputs.images = loaded.images;
             interrupt = loaded.interrupt;
+            None
+        }
+        Some(parts) if settings.initial_load == InitialLoad::Wait => {
+            match wait_or_skip(context, parts, &settings, &mut inputs) {
+                Some(waited) => {
+                    let waited = waited?;
+                    tell_loaded(&inputs.images, &settings);
+                    interrupt = waited.interrupt;
+                    // The pager decides as it was told: with three rows
+                    // for each image that has not come.
+                    for key in waited.loads.iter().flat_map(Loads::keys) {
+                        inputs
+                            .images
+                            .wait(key.clone(), Placeholder::Rows(ROWS_UNLOADED));
+                    }
+                    still = waited.loads;
+                }
+                None => {
+                    let loaded = load_told(context, parts, &settings, &inputs.caps)?;
+                    inputs.images = loaded.images;
+                    interrupt = loaded.interrupt;
+                }
+            }
             None
         }
         later => later,
@@ -1621,10 +1750,18 @@ fn print_document(
                 if let Some(parts) = later {
                     load_in_background(context, parts, &settings, inputs, loads);
                 }
+                if let Some(still) = still.take() {
+                    carry_on(still, inputs, loads);
+                }
             },
         ),
     ) {
         return Ok(finish(result)?);
+    }
+    // Printed after all, so what the reader skipped comes first.
+    if let Some(still) = still.take() {
+        let came = finish_loading(still, &mut inputs.images, interrupt.as_ref())?;
+        tell_loaded(&came, &settings);
     }
     // Printed after all, so the images load first; the guard lives on
     // as it does when they loaded before.
