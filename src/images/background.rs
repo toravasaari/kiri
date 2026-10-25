@@ -4,7 +4,7 @@
 //! it still wants carries on.
 
 use std::any::Any;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -27,9 +27,9 @@ pub struct Loads {
     running: HashMap<ImageKey, Running>,
     /// The number of the next load.
     next: u64,
-    /// The programs outside kiri drawing, across the loads of every
-    /// reload.
-    programs: Arc<Programs>,
+    /// The jobs waiting, of every reload, and the programs outside kiri
+    /// drawing for them.
+    queue: Arc<Queue>,
     /// How many loads have come since the loads were last all done, and
     /// of how many.
     done: usize,
@@ -86,12 +86,30 @@ pub(super) struct Context {
     pub(super) max_file_size: u64,
 }
 
-/// The jobs of one reload, which its threads take one at a time.
-struct Batch {
-    queue: Mutex<VecDeque<(Job, u64, Arc<AtomicBool>)>>,
-    context: Context,
-    programs: Arc<Programs>,
-    sender: Sender<Done>,
+/// The jobs waiting to load, of every reload, which the threads take
+/// one at a time.
+#[derive(Debug, Default)]
+struct Queue {
+    waiting: Mutex<Vec<Queued>>,
+    programs: Programs,
+}
+
+/// A job waiting, with the number and the stop flag of its load and
+/// what loading the jobs of its reload needs.
+struct Queued {
+    job: Job,
+    id: u64,
+    stop: Arc<AtomicBool>,
+    context: Arc<Context>,
+}
+
+impl std::fmt::Debug for Queued {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Queued")
+            .field("job", &self.job)
+            .field("id", &self.id)
+            .finish_non_exhaustive()
+    }
 }
 
 /// The programs outside kiri that draw for the loads: at most
@@ -104,27 +122,6 @@ struct Programs {
 }
 
 impl Programs {
-    /// Waits for room for one more program and counts it until the place
-    /// it gives is dropped, also by a panic; `None`, with nothing counted,
-    /// once `stop` is set.
-    fn enter(&self, stop: &AtomicBool) -> Option<Place<'_>> {
-        let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
-        loop {
-            if stop.load(Ordering::SeqCst) {
-                return None;
-            }
-            if *running < crate::diagrams::external::AT_ONCE {
-                *running += 1;
-                return Some(Place(self));
-            }
-            // Woken when one leaves; a stop is seen within the timeout.
-            let wait = self
-                .changed
-                .wait_timeout(running, Duration::from_millis(20));
-            running = wait.unwrap_or_else(|e| e.into_inner()).0;
-        }
-    }
-
     /// Waits until no program runs, for at most `limit`; whether none
     /// does.
     fn wait_for_none(&self, limit: Duration) -> bool {
@@ -170,7 +167,7 @@ impl Loads {
             receiver,
             running: HashMap::new(),
             next: 0,
-            programs: Arc::default(),
+            queue: Arc::default(),
             done: 0,
             total: 0,
         }
@@ -253,7 +250,7 @@ impl Loads {
     /// Waits for the programs outside kiri that draw to end, for at most
     /// `limit`; whether they have.
     pub fn wait(&self, limit: Duration) -> bool {
-        self.programs.wait_for_none(limit)
+        self.queue.programs.wait_for_none(limit)
     }
 
     /// Loads `jobs` in the background as `settings` say; a load of the
@@ -264,11 +261,13 @@ impl Loads {
         }
         let keys: HashSet<&ImageKey> = jobs.iter().map(|job| &job.key).collect();
         self.keep(|key| !keys.contains(key));
-        let threads = match jobs.iter().any(|job| job.program) {
-            true => crate::diagrams::external::AT_ONCE.min(jobs.len()),
-            false => 1,
-        };
-        let mut queue = VecDeque::new();
+        // As many threads as programs may draw at once, and one more for
+        // the jobs that need none while they do.
+        let programs = jobs.iter().filter(|job| job.program).count();
+        let threads =
+            programs.min(crate::diagrams::external::AT_ONCE) + usize::from(programs < jobs.len());
+        let context = Arc::new(context);
+        let mut waiting = self.queue.waiting.lock().unwrap_or_else(|e| e.into_inner());
         for job in jobs {
             let stop = Arc::new(AtomicBool::new(false));
             let id = self.next;
@@ -279,21 +278,22 @@ impl Loads {
             };
             self.running.insert(job.key.clone(), running);
             self.total += 1;
-            queue.push_back((job, id, stop));
+            let context = Arc::clone(&context);
+            waiting.push(Queued {
+                job,
+                id,
+                stop,
+                context,
+            });
         }
-        let batch = Arc::new(Batch {
-            queue: Mutex::new(queue),
-            context,
-            programs: Arc::clone(&self.programs),
-            sender: self.sender.clone(),
-        });
+        drop(waiting);
         let mut started = 0;
         for _ in 0..threads {
             // As large a stack as the main thread's, for a renderer built
             // into kiri.
             let thread = std::thread::Builder::new().stack_size(8 << 20);
-            let batch = Arc::clone(&batch);
-            if thread.spawn(move || batch.work()).is_err() {
+            let (queue, sender) = (Arc::clone(&self.queue), self.sender.clone());
+            if thread.spawn(move || queue.work(&sender)).is_err() {
                 break;
             }
             started += 1;
@@ -301,7 +301,7 @@ impl Loads {
         // Without a thread of its own, the work is done here, as it would
         // be without loading in the background.
         if started == 0 {
-            batch.work();
+            self.queue.work(&self.sender);
         }
     }
 
@@ -328,7 +328,7 @@ impl Loads {
         };
         self.start(vec![job], context);
         let start = Instant::now();
-        while *self.programs.running.lock().unwrap() == 0 && start.elapsed() < STOPPING {
+        while *self.queue.programs.running.lock().unwrap() == 0 && start.elapsed() < STOPPING {
             std::thread::sleep(Duration::from_millis(5));
         }
     }
@@ -391,34 +391,20 @@ impl Arrival {
     }
 }
 
-impl Batch {
+impl Queue {
     /// Loads the jobs one after another until none is left, and sends
-    /// each image that is still wanted.
-    fn work(&self) {
+    /// each image that is still wanted to `sender`.
+    fn work(&self, sender: &Sender<Done>) {
         let fonts = Fonts::system();
-        loop {
-            let next = self
-                .queue
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .pop_front();
-            let Some((job, id, stop)) = next else {
-                break;
-            };
-            if stop.load(Ordering::SeqCst) {
-                continue;
-            }
-            // Counted before the program can start, and so before it looks
-            // at `stop`: stopping sets `stop` before it counts them.
-            let place = match job.program {
-                true => match self.programs.enter(&stop) {
-                    Some(place) => Some(place),
-                    None => continue,
-                },
-                false => None,
-            };
+        while let Some((queued, place)) = self.take() {
+            let Queued {
+                job,
+                id,
+                stop,
+                context,
+            } = queued;
             // A renderer or decoder that panics fails this load alone.
-            let loaded = crate::panics::catch(|| self.load(&job.what, &stop, &fonts));
+            let loaded = crate::panics::catch(|| load(&context, &job.what, &stop, &fonts));
             drop(place);
             let image = loaded.unwrap_or_else(|panic| Err(crashed(&job.what, panic.as_ref())));
             if stop.load(Ordering::SeqCst) {
@@ -430,37 +416,77 @@ impl Batch {
                 image,
             };
             // Nobody to take it once the loads are dropped.
-            if self.sender.send(done).is_err() {
+            if sender.send(done).is_err() {
                 break;
             }
         }
     }
 
-    /// The image `what` names, loaded until `stop` is set.
-    fn load(&self, what: &What, stop: &AtomicBool, fonts: &Fonts) -> Result<Source, ImageError> {
-        let settings = &self.context;
-        match what {
-            What::Url { url, base } => load_url(url, base, settings.max_file_size, fonts),
-            What::Diagram {
-                language,
-                source,
-                line,
-                by_line,
-            } => {
-                let renderer = settings.renderer.as_ref();
-                let request = Request::new(language, source, settings.theme).stopped_by(stop);
-                let drawn = renderer.render(&request);
-                let options = LoadOptions {
-                    renderer,
-                    theme: settings.theme,
-                    by_line: *by_line,
-                    progress: None,
-                    panel: settings.panel,
-                    largest: settings.largest,
-                };
-                let max = settings.max_file_size;
-                finish_diagram(language, source, *line, drawn, max, fonts, &options)
+    /// The next job to load, and the place of its program among the
+    /// [`Programs`] if a program draws it: the first that waits, or while
+    /// no program may start, the first that needs none. Waits while
+    /// every job that waits needs a program and none may start; `None`
+    /// once no job that was not stopped waits.
+    fn take(&self) -> Option<(Queued, Option<Place<'_>>)> {
+        loop {
+            let mut waiting = self.waiting.lock().unwrap_or_else(|e| e.into_inner());
+            // Counted before the program can start, and so before it looks
+            // at its stop flag: stopping sets the flag before it counts
+            // the programs, and a flag set before this lock is seen here.
+            let mut running = (self.programs.running.lock()).unwrap_or_else(|e| e.into_inner());
+            waiting.retain(|queued| !queued.stop.load(Ordering::SeqCst));
+            if waiting.is_empty() {
+                return None;
             }
+            let room = *running < crate::diagrams::external::AT_ONCE;
+            if let Some(at) = waiting
+                .iter()
+                .position(|queued| room || !queued.job.program)
+            {
+                let queued = waiting.remove(at);
+                if !queued.job.program {
+                    return Some((queued, None));
+                }
+                *running += 1;
+                return Some((queued, Some(Place(&self.programs))));
+            }
+            drop(waiting);
+            // Woken when a program ends; a stop, or a job that needs no
+            // program, is seen within the timeout.
+            let wait = (self.programs.changed).wait_timeout(running, Duration::from_millis(20));
+            drop(wait);
+        }
+    }
+}
+
+/// The image `what` names, loaded as `context` says until `stop` is set.
+fn load(
+    context: &Context,
+    what: &What,
+    stop: &AtomicBool,
+    fonts: &Fonts,
+) -> Result<Source, ImageError> {
+    match what {
+        What::Url { url, base } => load_url(url, base, context.max_file_size, fonts),
+        What::Diagram {
+            language,
+            source,
+            line,
+            by_line,
+        } => {
+            let renderer = context.renderer.as_ref();
+            let request = Request::new(language, source, context.theme).stopped_by(stop);
+            let drawn = renderer.render(&request);
+            let options = LoadOptions {
+                renderer,
+                theme: context.theme,
+                by_line: *by_line,
+                progress: None,
+                panel: context.panel,
+                largest: context.largest,
+            };
+            let max = context.max_file_size;
+            finish_diagram(language, source, *line, drawn, max, fonts, &options)
         }
     }
 }
@@ -510,6 +536,113 @@ mod tests {
             std::thread::sleep(self.0);
             Err("stopped".to_owned())
         }
+    }
+
+    /// Draws each diagram once `open` is set, or ends when its load is
+    /// stopped, and notes the source of each one it starts on.
+    #[derive(Clone, Default)]
+    pub(crate) struct Gated {
+        pub(crate) started: Arc<Mutex<Vec<String>>>,
+        pub(crate) open: Arc<AtomicBool>,
+    }
+
+    impl Gated {
+        /// The sources of the diagrams started, in the order they were.
+        pub(crate) fn started(&self) -> Vec<String> {
+            self.started.lock().unwrap().clone()
+        }
+
+        /// Waits until `count` diagrams have started, for at most two
+        /// seconds; the sources of those that have.
+        pub(crate) fn until(&self, count: usize) -> Vec<String> {
+            let start = Instant::now();
+            while self.started().len() < count && start.elapsed() < Duration::from_secs(2) {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            self.started()
+        }
+    }
+
+    impl Renderer for Gated {
+        fn draws(&self, _: &str) -> bool {
+            true
+        }
+
+        fn render(&self, request: &Request) -> Result<crate::diagrams::Drawn, String> {
+            let stop = request.stop.expect("a stop flag");
+            self.started
+                .lock()
+                .unwrap()
+                .push(request.source.trim().to_owned());
+            while !self.open.load(Ordering::SeqCst) && !stop.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err("drawn".to_owned())
+        }
+    }
+
+    /// A job for the diagram `source`, which a program draws or not.
+    fn diagram(source: &str, program: bool) -> Job {
+        let source = format!("{source}\n");
+        Job {
+            key: ImageKey::block("mermaid", &source),
+            what: What::Diagram {
+                language: "mermaid".to_owned(),
+                source,
+                line: 1,
+                by_line: true,
+            },
+            program,
+        }
+    }
+
+    /// What loading with `renderer` needs.
+    fn context(renderer: impl Renderer + Send + Sync + 'static) -> Context {
+        Context {
+            renderer: Box::new(renderer),
+            theme: Theme::Light,
+            panel: true,
+            largest: None,
+            max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
+        }
+    }
+
+    /// Polls `loads` until the image `key` comes, for at most two
+    /// seconds; whether it came.
+    fn came(loads: &mut Loads, key: &ImageKey) -> bool {
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(2) {
+            if loads.poll().iter().any(|(came, _)| came == key) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        false
+    }
+
+    #[test]
+    fn an_image_file_passes_diagrams_waiting_for_a_program() {
+        let gated = Gated::default();
+        let mut loads = Loads::new();
+        let programs = |names: &[&str]| names.iter().map(|name| diagram(name, true)).collect();
+        loads.start(programs(&["a1", "a2", "a3", "a4"]), context(gated.clone()));
+        assert_eq!(gated.until(4).len(), 4);
+        // A reload while the four draw, as many as may at once.
+        let file = Job {
+            key: "missing.png".into(),
+            what: What::Url {
+                url: "missing.png".to_owned(),
+                base: PathBuf::from("/nonexistent"),
+            },
+            program: false,
+        };
+        let mut jobs: Vec<Job> = programs(&["b1", "b2", "b3", "b4"]);
+        jobs.push(file);
+        loads.start(jobs, context(gated.clone()));
+        assert!(came(&mut loads, &"missing.png".into()));
+        assert_eq!(gated.started().len(), 4);
+        gated.open.store(true, Ordering::SeqCst);
+        assert_eq!(gated.until(8).len(), 8);
     }
 
     #[test]
@@ -618,6 +751,7 @@ mod tests {
         loads.start(vec![job], context);
         let running = || {
             *loads
+                .queue
                 .programs
                 .running
                 .lock()
