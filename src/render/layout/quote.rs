@@ -121,6 +121,9 @@ impl Layout<'_> {
                 for span in &mut line.spans {
                     span.style.bg = span.style.bg.or(fill.bg);
                 }
+                if let Some(image) = &mut line.image {
+                    image.background = image.background.or(fill.bg);
+                }
                 let image = (line.image.as_ref()).map_or(0, |row| row.placement.size.columns);
                 let used = width_of(&line.spans) + usize::from(image);
                 push(
