@@ -71,6 +71,18 @@ fn the_configuration_file_chooses_the_theme_relative_to_itself() {
 }
 
 #[test]
+fn the_configuration_file_theme_comes_before_theme_toml() {
+    let dir = Scratch::new("config-before-theme-toml");
+    broken_theme(&dir.join("config/kiri/theme.toml"));
+    let theme = broken_theme(&dir.join("mine.toml"));
+    write(
+        &dir.join("config/kiri/config.toml"),
+        &format!("theme = \"{}\"\n", theme.display()),
+    );
+    assert_fails_naming(&kiri(&dir, "Text\n", &[]), &theme);
+}
+
+#[test]
 fn the_theme_option_comes_before_the_configuration_file() {
     let dir = Scratch::new("option-before-config");
     broken_theme(&dir.join("config/kiri/mine.toml"));
