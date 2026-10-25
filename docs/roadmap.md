@@ -631,6 +631,16 @@ The counterpart of several files (4.9.2) for images.
   behind an option of its own; PNG stays the normal path, as the more
   reliable one.
 
+#### 4.12.8 Remote images
+
+- Images from `https:` URLs, as many other viewers show them. Fetching
+  one tells its server that the document was opened, so it is done with
+  care: HTTPS only, no addresses on the local machine or network, the
+  `--max-image-size` limit and a timeout for each fetch, a few fetches at
+  a time, no cookies or referrer, and a cache, so a document opened again
+  does not fetch its images again. Whether they are on by default, or for
+  a list of common image hosts only, is still open.
+
 ### 4.13 Obsidian
 
 Obsidian notes reach past single Markdown files, so this part may grow or
@@ -664,13 +674,17 @@ A menu in the pager, from which its keys and settings can be found.
 
 ## Phase 5 – Beyond kitty
 
-- Other terminals: sixel and iTerm2 images, plain styling for headings.
-  Needs G3.3.
+- Other terminals: sixel and iTerm2 images. Needs G3.3.
+- Headings in terminals without kitty's text sizing, from the best to the
+  plainest: drawn as images in the terminal's own font, which kiri finds
+  by asking the terminal or reading its configuration file, as
+  [mdfried](inspiration.md#other-terminal-markdown-readers) does; where
+  images do not work either, block characters through chafa or large
+  letters in the manner of figlet; in a pipe and with `NO_COLOR`, plain
+  styling.
 - `--doctor` lists the image protocols probed.
 - Images as coloured Unicode block characters where no image protocol
   works.
-- Remote images, off by default because fetching one tells its server that
-  the document was opened.
 - An HTML backend and `kiri serve` for reading in a browser with live reload.
 - Pixel rendering: a headless browser screenshot (`--browser`), and possibly
   a native layout and rasterising engine later.
