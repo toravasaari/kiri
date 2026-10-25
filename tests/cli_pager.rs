@@ -1356,6 +1356,36 @@ fn space_or_enter_opens_the_pager_before_the_slow_diagram_is_drawn() {
 }
 
 #[test]
+fn space_opens_the_pager_for_several_files_before_the_slow_diagram_is_drawn() {
+    let (mut typed, mut go, mut quit) = (false, false, false);
+    let act = |seen: &str, terminal: &mut std::fs::File, dir: &std::path::Path| {
+        if !typed && seen.contains(HINT) {
+            terminal.write_all(b" ").unwrap();
+            typed = true;
+        }
+        let frames = whole_frames(seen);
+        if !go && !frames.is_empty() {
+            std::fs::write(dir.join("go"), "").unwrap();
+            go = true;
+        }
+        if !quit && image_sent(&frames, dir) {
+            terminal.write_all(b"q").unwrap();
+            quit = true;
+        }
+    };
+    let args = ["--mode", "kitty", "-p", "diagram.md", "document.md"];
+    let (status, seen) = watching("pager-skip-files", drawn_on_cue, &args, act);
+    assert!(status.success(), "{seen:?}");
+    let (before, pager) = seen.split_once(ENTER).unwrap();
+    assert!(before.contains(HINT), "{seen:?}");
+    let frames = whole_frames(pager);
+    let first = text_of(&frames[0]);
+    assert!(first.contains("flowchart TD"), "{frames:?}");
+    assert!(first.contains("[rendering: 0/1]"), "{frames:?}");
+    assert!(image_sent(&frames, std::path::Path::new("")), "{frames:?}");
+}
+
+#[test]
 fn another_key_does_nothing_while_the_images_load_and_is_not_kept() {
     let (mut typed, mut quit) = (false, false);
     let act = |seen: &str, terminal: &mut std::fs::File, dir: &std::path::Path| {

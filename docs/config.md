@@ -238,8 +238,7 @@ come, and the rest load in the background as with `background`. Other
 keys do nothing meanwhile and are not kept for the pager, and Ctrl-C
 ends kiri as it does whenever it waits. Where the pager may not open,
 such as in print mode or with paging on `auto` for a document that
-fits, there is no hint and the keys do nothing. Several files wait
-without a hint for now.
+fits, there is no hint and the keys do nothing.
 
 ## Search case
 

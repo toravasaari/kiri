@@ -693,9 +693,7 @@ fn show_files(
         }
     }
     // The documents' images load once the pager has opened.
-    let later = paged
-        && settings.initial_load == InitialLoad::Background
-        && may_load_later(&settings, &caps);
+    let later = paged && may_load_later(&settings, &caps);
     let Loaded {
         mut images,
         mut interrupt,
@@ -742,15 +740,27 @@ fn load_files_now(
     caps: &Capabilities,
 ) -> Result<(Loaded, Vec<Vec<String>>), Failure> {
     let loaded = load_parts(context, parts, settings, caps)?;
+    let told = told_files(&loaded.images, parts, files, settings);
+    Ok((loaded, told))
+}
+
+/// The warnings about `images` of `parts`, documents among `files`, under
+/// each file's name, by the file's number among `files`.
+fn told_files(
+    images: &Images,
+    parts: &[Part],
+    files: &[kiri::model::File],
+    settings: &Settings,
+) -> Vec<Vec<String>> {
     let stderr = settings.render_errors.stderr();
     let mut told = vec![Vec::new(); files.len()];
     for part in parts {
         let name = &files[part.number].name;
-        told[part.number] = (loaded.images.warnings_in(part.number, stderr).iter())
+        told[part.number] = (images.warnings_in(part.number, stderr).iter())
             .map(|warning| format!("{name}: {warning}"))
             .collect();
     }
-    Ok((loaded, told))
+    told
 }
 
 /// What showing files came to: a closed pipe (kiri *.md | head) takes no
@@ -905,7 +915,33 @@ fn page_files(
     // longer than the window without them; the guard then goes once the
     // pager's screen catches the signals.
     let mut guard = None;
-    if !parts.is_empty() && !surely_paged(context, content, &parts, settings, inputs) {
+    // Waiting, the reader can open the pager before they have all come,
+    // and the rest then load in the background.
+    let mut still = None;
+    let waits = settings.initial_load == InitialLoad::Wait;
+    let surely = !parts.is_empty() && surely_paged(context, content, &parts, settings, inputs);
+    let waited = match (!parts.is_empty() && surely && waits)
+        .then(|| wait_or_skip(context, &parts, settings, inputs))
+    {
+        Some(Some(waited)) => Some(waited?),
+        _ => None,
+    };
+    if let Some(waited) = waited {
+        let told = told_files(&inputs.images, &parts, &files, settings);
+        for (warned, told) in warnings.iter_mut().zip(told) {
+            warned.extend(told);
+        }
+        guard = waited.interrupt;
+        // The pager decides as it was told: with three rows for each
+        // image that has not come.
+        for key in waited.loads.iter().flat_map(Loads::keys) {
+            inputs
+                .images
+                .wait(key.clone(), Placeholder::Rows(ROWS_UNLOADED));
+        }
+        still = waited.loads;
+        parts.clear();
+    } else if !parts.is_empty() && (!surely || waits) {
         let (loaded, told) = load_files_now(context, &parts, &files, settings, &inputs.caps)?;
         for (warned, told) in warnings.iter_mut().zip(told) {
             warned.extend(told);
@@ -940,6 +976,9 @@ fn page_files(
         if !parts.is_empty() {
             load_in_background(context, &parts, settings, inputs, loads);
         }
+        if let Some(still) = still.take() {
+            carry_on(still, inputs, loads);
+        }
     };
     let paging = settings.paging;
     let opening = (opening, start);
@@ -951,13 +990,24 @@ fn page_files(
     // Printed after all, so the images load first, and what they tell is
     // told at each document's place; the guard lives on as it does when
     // they loaded before.
-    let (images_told, _interrupt) = match parts.is_empty() {
-        true => (vec![Vec::new(); files.len()], None),
-        false => {
+    let (images_told, _interrupt) = match (parts.is_empty(), still.take()) {
+        (false, _) => {
             let (loaded, told) = load_files_now(context, &parts, &files, settings, &inputs.caps)?;
             inputs.images.extend(loaded.images);
             (told, loaded.interrupt)
         }
+        // What the reader skipped comes first.
+        (true, Some(still)) => {
+            let came = finish_loading(still, &mut inputs.images, guard.as_ref())?;
+            let documents: Vec<Part> = (documents.iter())
+                .map(|(number, file)| Part {
+                    number: *number,
+                    ..part(&files[*number].document, file.as_deref())
+                })
+                .collect();
+            (told_files(&came, &documents, &files, settings), None)
+        }
+        (true, None) => (vec![Vec::new(); files.len()], None),
     };
     let mut out = io::stdout().lock();
     let mut apart = false;
