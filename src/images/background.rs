@@ -343,8 +343,9 @@ impl Loads {
             started += 1;
         }
         // Without a thread of its own, the work is done here, as it would
-        // be without loading in the background.
-        if started == 0 {
+        // be without loading in the background; none was asked for when
+        // nothing new waits.
+        if threads > 0 && started == 0 {
             self.queue.work(&self.sender);
         }
     }
@@ -738,6 +739,27 @@ mod tests {
         loads.prefer(keys(&["d", "c"]));
         gated.open.store(true, Ordering::SeqCst);
         assert_eq!(gated.until(4), ["b", "d", "c", "a"]);
+    }
+
+    #[test]
+    fn preferring_with_nothing_held_does_no_work_on_the_caller_s_thread() {
+        let gated = Gated::default();
+        let mut loads = Loads::new();
+        // One draws, and one waits for the thread.
+        loads.gated(&["a", "b"], &gated);
+        assert_eq!(gated.until(1), ["a"]);
+        // A reload that starts nothing.
+        loads.hold();
+        let open = gated.clone();
+        let opener = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(700));
+            open.open.store(true, Ordering::SeqCst);
+        });
+        let start = Instant::now();
+        loads.prefer(Vec::new());
+        let elapsed = start.elapsed();
+        opener.join().unwrap();
+        assert!(elapsed < Duration::from_millis(300), "{elapsed:?}");
     }
 
     #[test]
