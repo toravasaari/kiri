@@ -697,11 +697,15 @@ A part that needs one names it, such as "needs G1.3".
   fraction of it and a vertical alignment, as the text sizing protocol
   takes them. Text is drawn as it is today.
 
-#### G1.3 A size for each part of a line
+#### G1.3 A size for each part of a line (done)
 
 - Each span of a line has its own size, and the line is as many rows high
   as its tallest span. Wrapping measures spans by their size. Fractional
   sizes (4.10.3) are its first use.
+- Text at a fraction is written packed: `d` cells of text in `n` cells per
+  escape sequence, so half-size `abc` takes two cells. A fraction's
+  numerator is at most 7, the widest one escape sequence can be. Shorter
+  spans in a taller line sit on its first row until G1.4.
 
 #### G1.4 Images in a line
 
