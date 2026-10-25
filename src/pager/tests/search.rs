@@ -301,6 +301,32 @@ fn a_match_in_a_fractional_heading_marks_whole_groups() {
 }
 
 #[test]
+fn a_match_in_a_sup_marks_whole_groups() {
+    let mut reads = vec![b"/e\r".as_slice()];
+    reads.extend([b"".as_slice(); 30]);
+    let mut terminal = Fake::new(60, 12, &reads);
+    // A sup is packed three cells in two: `abc` and `def`.
+    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    run_document(
+        &crate::parse::parse("x<sup>abcdef</sup>\n"),
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let frames = terminal.frames();
+    let found = document_part(frames.last().unwrap(), 12);
+    let group = "\x1b]66;s=1:n=2:d=3:w=2;def\x1b\\";
+    assert!(
+        style_before(found, group).contains(&"7".into()),
+        "{found:?}"
+    );
+    assert!(
+        found.contains("x\x1b]66;s=1:n=2:d=3:w=2;abc\x1b\\"),
+        "{found:?}"
+    );
+}
+
+#[test]
 fn n_without_going_around_does_not_flash() {
     let frames = shown(&numbers(30), 60, 6, &[b"/line 2\r", b"n"]);
     assert!(

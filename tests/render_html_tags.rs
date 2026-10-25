@@ -106,3 +106,49 @@ fn a_sub_or_sup_without_script_characters_is_plain_text() {
     let [_, kitty] = without_text_sizing("x<sup>q</sup>, y<sub>b</sub>, w<sup>*2*</sup>\n");
     assert_eq!(kitty, "  xq, yb, w\x1b[0;3m2\x1b[0m\n");
 }
+
+#[test]
+fn with_text_sizing_sub_and_sup_are_two_thirds_of_the_size_around_them() {
+    let kitty = |source: &str| {
+        render(
+            source,
+            &inputs(&Capabilities::kitty(WIDTH), &Theme::default()),
+        )
+    };
+    // Three cells of text in two, a sup at the top and a sub at the bottom
+    // of the row, whatever their characters.
+    let out = kitty("x<sup>2</sup> E<sub>max</sub> e<sup>iπ</sup>\n");
+    for sized in [
+        "x\x1b]66;s=1:n=2:d=3:w=1;2\x1b\\",
+        "E\x1b]66;s=1:n=2:d=3:v=1:w=2;max\x1b\\",
+        "e\x1b]66;s=1:n=2:d=3:w=2;iπ\x1b\\",
+    ] {
+        assert!(out.contains(sized), "{sized:?} in {out:?}");
+    }
+    // A script inside a script keeps its size.
+    let out = kitty("x<sup>a<sub>i</sub></sup>\n");
+    assert!(out.contains("x\x1b]66;s=1:n=2:d=3:w=2;ai\x1b\\"), "{out:?}");
+}
+
+#[test]
+fn a_sub_or_sup_in_a_heading_shrinks_in_the_heading_s_rows() {
+    let kitty = |source: &str| {
+        render(
+            source,
+            &inputs(&Capabilities::kitty(WIDTH), &Theme::default()),
+        )
+    };
+    // An h1 is 3 · 5/6, so its sup is 3 · 5/9.
+    let out = kitty("# x<sup>2</sup>\n");
+    assert!(out.contains("\x1b]66;s=3:n=5:d=9:w=1;2\x1b\\"), "{out:?}");
+    // An h4 is 2 · 3/4, so its sub is 2 · 1/2.
+    let out = kitty("#### H<sub>2</sub>O\n");
+    assert!(
+        out.contains("\x1b]66;s=2:n=1:d=2:v=1:w=1;2\x1b\\"),
+        "{out:?}"
+    );
+    // A heading in a quote is at normal size, and so is the text around
+    // its sup.
+    let out = kitty("> # x<sup>2</sup>\n");
+    assert!(out.contains("x\x1b]66;s=1:n=2:d=3:w=1;2\x1b\\"), "{out:?}");
+}

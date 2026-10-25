@@ -78,23 +78,40 @@ impl TextSize {
         }
         // In range, so the cast cannot truncate.
         let size = Self::new(value.ceil() as u8)?;
-        let rest = value / f64::from(size.scale);
+        Some(size.nearest_fraction(value / f64::from(size.scale), align))
+    }
+
+    /// The size nearest to `factor` times this one in the same scale, so
+    /// in the same rows, with its fraction placed by `align`.
+    pub fn times(self, factor: f64, align: VerticalAlign) -> Self {
+        let whole = Self {
+            scale: self.scale,
+            ..Self::NORMAL
+        };
+        whole.nearest_fraction(self.value() * factor / f64::from(self.scale), align)
+    }
+
+    /// This scale with the fraction nearest to `rest`, or none when the
+    /// whole scale is nearer; a tie goes to the smaller denominator.
+    fn nearest_fraction(self, rest: f64, align: VerticalAlign) -> Self {
         // The whole scale first, so that it wins a tie.
         let mut best = (1.0 - rest).abs();
-        let mut nearest = size;
+        let mut nearest = self;
         for denominator in 2..=15 {
             for numerator in 1..denominator.min(8) {
-                let fraction = Fraction::new(numerator, denominator)?;
+                let Some(fraction) = Fraction::new(numerator, denominator) else {
+                    continue;
+                };
                 let distance = (f64::from(numerator) / f64::from(denominator) - rest).abs();
                 // A distance that only rounding errors make smaller is a
                 // tie.
                 if distance < best - 1e-12 {
                     best = distance;
-                    nearest = size.with_fraction(fraction, align);
+                    nearest = self.with_fraction(fraction, align);
                 }
             }
         }
-        Some(nearest)
+        nearest
     }
 
     /// This size with the font drawn at `fraction` of it, placed by
@@ -345,6 +362,29 @@ mod tests {
                 "{value}"
             );
         }
+    }
+
+    /// `size` as scale, numerator and denominator.
+    fn parts(size: TextSize) -> (u8, u8, u8) {
+        size.fraction().map_or((size.scale(), 1, 1), |fraction| {
+            (size.scale(), fraction.numerator(), fraction.denominator())
+        })
+    }
+
+    #[test]
+    fn a_size_times_a_factor_keeps_its_scale() {
+        let two_thirds = |size: TextSize| parts(size.times(2.0 / 3.0, VerticalAlign::Top));
+        assert_eq!(two_thirds(TextSize::NORMAL), (1, 2, 3));
+        assert_eq!(two_thirds(TextSize::new(2).unwrap()), (2, 2, 3));
+        // 5/6 · 2/3 is 5/9; 7/8 · 2/3 is 7/12; 5/8 · 2/3 is 5/12.
+        assert_eq!(two_thirds(at(3, 5, 6)), (3, 5, 9));
+        assert_eq!(two_thirds(at(2, 7, 8)), (2, 7, 12));
+        assert_eq!(two_thirds(at(2, 3, 4)), (2, 1, 2));
+        assert_eq!(two_thirds(at(2, 5, 8)), (2, 5, 12));
+        // 7/11 · 2/3 is 14/33, which cannot be drawn: 3/7 is nearest.
+        assert_eq!(two_thirds(at(2, 7, 11)), (2, 3, 7));
+        let size = TextSize::NORMAL.times(2.0 / 3.0, VerticalAlign::Bottom);
+        assert_eq!(size.align(), VerticalAlign::Bottom);
     }
 
     #[test]
