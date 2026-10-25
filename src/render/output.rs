@@ -160,9 +160,13 @@ impl<'a> Writer<'a> {
             out.write_all(b"\x1b8")?;
         }
         let image = match &line.image {
-            Some(ImageRow { placement, row }) => {
+            Some(ImageRow {
+                placement,
+                row,
+                background,
+            }) => {
                 let id = (self.encoder).id(placement, self.images, caps, out)?;
-                Some((id, *row, placement.size.columns))
+                Some((id, *row, placement.size.columns, *background))
             }
             None => None,
         };
@@ -191,10 +195,14 @@ impl<'a> Writer<'a> {
                 }
                 current = style;
             }
-            if let Some((id, image_row, columns)) = image {
+            if let Some((id, image_row, columns, under)) = image {
                 // Placeholders are neither underlined nor links, and
-                // their foreground colour is the image id.
-                let plain = paint(&Style::default());
+                // their foreground colour is the image id. Their
+                // background shows where the image is transparent.
+                let plain = paint(&Style {
+                    bg: under,
+                    ..Style::default()
+                });
                 transition(&current, &plain, caps, out)?;
                 graphics::write_row(out, id, image_row, columns)?;
                 // The placeholders leave the terminal's foreground.

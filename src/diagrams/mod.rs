@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 pub mod external;
 pub mod find;
 mod language;
+mod math;
 mod mermaid;
 
 pub use external::{Command, External, ExternalSettings};
@@ -38,6 +39,16 @@ impl Theme {
             Some(false) => Theme::Light,
         }
     }
+}
+
+/// The colours a formula is drawn in, as RGB.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FormulaColors {
+    /// Its letters and lines: the colour of the text around it, unless
+    /// the theme gives formulas their own; `None` when it is not known.
+    pub text: Option<[u8; 3]>,
+    /// Behind it; `None` for no background of its own.
+    pub background: Option<[u8; 3]>,
 }
 
 /// A diagram drawn as an image.
@@ -84,6 +95,8 @@ pub struct Request<'a> {
     pub source: &'a str,
     /// The page it is drawn for, unless it chooses its own colours.
     pub theme: Theme,
+    /// The colours a formula is drawn in.
+    pub formula: FormulaColors,
     /// Set when this drawing alone is to stop, as when the diagram is no
     /// longer wanted: a program drawing it is stopped, and one that has
     /// not started does not. A renderer built into kiri cannot stop.
@@ -96,8 +109,14 @@ impl<'a> Request<'a> {
             language,
             source,
             theme,
+            formula: FormulaColors::default(),
             stop: None,
         }
+    }
+
+    /// The same request, with a formula drawn in `formula`.
+    pub fn in_colors(self, formula: FormulaColors) -> Self {
+        Request { formula, ..self }
     }
 
     /// The same request, stopped when `stop` is set.
@@ -260,7 +279,7 @@ impl Renderer for BuiltIn {
 
     fn render(&self, request: &Request) -> Result<Drawn, String> {
         match Self::of(request.language) {
-            Some(built_in) => (built_in.render)(request.source, request.theme),
+            Some(built_in) => (built_in.render)(request),
             None => Err(format!(
                 "{} diagrams are not drawn in this build",
                 request.language
@@ -347,21 +366,38 @@ impl Renderer for NoRenderer {
     }
 }
 
+/// What a message calls a diagram in `language`, as the info string
+/// gives it: `formula` for a formula, and otherwise a diagram in that
+/// language, such as `mermaid diagram`.
+pub fn noun(language: &str) -> String {
+    match self::language(language).and_then(|known| known.noun) {
+        Some(noun) => noun.to_owned(),
+        None => format!("{language} diagram"),
+    }
+}
+
+/// Whether a diagram in `language` is centred in its room, as a formula
+/// is, rather than at its left edge.
+pub fn centred(language: &str) -> bool {
+    self::language(language).is_some_and(|known| known.centred)
+}
+
 /// How a warning names the diagram `source` in `language` that starts on
 /// `line` of its document: by that line, or else by the diagram's own
 /// first line, past anything in it that is not the diagram, such as front
 /// matter, directives and comments.
 pub fn name(language: &str, source: &str, line: usize, by_line: bool) -> String {
+    let noun = noun(language);
     if by_line {
-        return format!("{language} diagram on line {line}");
+        return format!("{noun} on line {line}");
     }
     let first_line = match self::language(language) {
         Some(known) => (known.first_line)(source),
         None => language::first_line(source),
     };
     match first_line {
-        Some(text) => format!("{language} diagram \"{text}\""),
-        None => format!("{language} diagram"),
+        Some(text) => format!("{noun} \"{text}\""),
+        None => noun,
     }
 }
 
@@ -506,6 +542,30 @@ mod tests {
             assert_eq!(BuiltIn::version(language).is_some(), drawn, "{language}");
         }
         assert_eq!(BuiltIn::version("dot"), None);
+    }
+
+    #[test]
+    fn formulas_are_built_in_in_every_build() {
+        for language in ["math", "Math"] {
+            assert!(BuiltIn.draws(language), "{language}");
+        }
+        assert!(BuiltIn::version("math").unwrap().starts_with("RaTeX "));
+        let drawn = BuiltIn.render(&Request::new("math", "x^2", Theme::Dark));
+        assert!(drawn.unwrap().text().starts_with("<svg"));
+    }
+
+    #[test]
+    fn a_formula_is_called_a_formula() {
+        assert_eq!(noun("math"), "formula");
+        assert_eq!(noun("Math"), "formula");
+        assert_eq!(noun("mermaid"), "mermaid diagram");
+        assert_eq!(noun("dot"), "dot diagram");
+        assert!(centred("math") && !centred("mermaid") && !centred("dot"));
+        assert_eq!(name("math", "\\frac{a\n", 4, true), "formula on line 4");
+        assert_eq!(
+            name("math", "\n\\frac{a\n", 4, false),
+            "formula \"\\frac{a\""
+        );
     }
 
     #[test]

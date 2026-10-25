@@ -21,7 +21,7 @@ These are the options kiri takes on the command line.
 | `--initial-load wait\|background` | Whether the pager waits for the images before it shows the document, or shows the text at once and each image as it comes; only where the pager surely opens, as with `-p` or `-f`, or with paging on `auto` for a document longer than the window, each image counted at three rows; `wait` unless set |
 | `--front-matter table\|code\|hide\|off` | Front matter render style; `table` unless set |
 | `--table-rows zebra\|lines\|indent\|underline\|off` | Table row style; `zebra` unless set |
-| `--diagrams on\|off` | Diagrams in code blocks, such as Mermaid, drawn or shown as code; `on` unless set |
+| `--diagrams on\|off` | Diagrams in code blocks, such as Mermaid, and formulas, drawn or shown as code; `on` unless set |
 | `--render-errors inline\|stderr\|both` | Why a diagram was not drawn: below its code, in a warning, or both; `both` unless set |
 | `--doctor` | Show what kiri finds out about the terminal and which settings it uses; see [The doctor report](doctor.md) |
 | `--raw` | With `--doctor`: the report as Markdown text, for a bug report |

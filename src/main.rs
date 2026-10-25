@@ -168,8 +168,8 @@ struct Cli {
     #[arg(long, value_parser = named::<TableRows>(), value_name = "STYLE")]
     table_rows: Option<TableRows>,
 
-    /// Diagrams in code blocks, such as Mermaid: on (drawn as images) or
-    /// off (shown as code); on unless set.
+    /// Diagrams in code blocks, such as Mermaid, and formulas: on (drawn
+    /// as images) or off (shown as code); on unless set.
     #[arg(long, value_parser = named::<bool>(), value_name = "SWITCH")]
     diagrams: Option<bool>,
 
@@ -1672,7 +1672,23 @@ fn loading<'a>(context: &'a Context, settings: &'a Settings, caps: &Capabilities
         settings,
         max_file_size: context.max_file_size,
         theme: kiri::diagrams::Theme::for_page(caps.dark_background),
+        formula: formula_colors(&settings.theme, caps),
         largest: Some(kiri::render::image::largest(caps)),
+    }
+}
+
+/// The colours formulas are drawn in, as RGB: the theme's for formulas,
+/// and otherwise the text's, the theme's or else the terminal's; the
+/// first of them known as RGB.
+fn formula_colors(theme: &Theme, caps: &Capabilities) -> kiri::diagrams::FormulaColors {
+    let rgb = |color: Option<kiri::color::Color>| match color?.rgb(&caps.palette)? {
+        kiri::color::Color::Rgb(red, green, blue) => Some([red, green, blue]),
+        kiri::color::Color::Palette(_) => None,
+    };
+    let text = [theme.formula.text, theme.foreground, caps.foreground];
+    kiri::diagrams::FormulaColors {
+        text: text.into_iter().find_map(rgb),
+        background: rgb(theme.formula.background),
     }
 }
 

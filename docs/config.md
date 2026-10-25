@@ -50,7 +50,8 @@ table_rows = "zebra"
 # or "both"; see Render errors below.
 render_errors = "both"
 
-# Diagrams in code blocks, such as Mermaid; see Diagrams below.
+# Diagrams in code blocks, such as Mermaid, and formulas; see Diagrams
+# below.
 [diagrams]
 # false shows them as code.
 enabled = true
@@ -316,7 +317,8 @@ keeps that layout whatever this says. In plain output only `lines` and
 
 ## Diagrams
 
-Which diagrams kiri draws, and with what, is in [Diagrams](diagrams.md).
+Which diagrams kiri draws, and with what, is in [Diagrams](diagrams.md),
+and how it draws formulas in [Formulas](formulas.md).
 
 ## Render errors
 

@@ -92,6 +92,10 @@ pub struct ImageRow {
     pub placement: Rc<Placement>,
     /// Counted from 0 at the top of the image.
     pub row: u16,
+    /// The background of the block it lies in, such as an alert's tint,
+    /// which shows through where the image is transparent; `None` for the
+    /// page's.
+    pub background: Option<Color>,
 }
 
 /// The band that tells that a block's image is loading, which a line
@@ -155,7 +159,11 @@ impl Line {
     /// A line of one image row.
     pub fn image(placement: Rc<Placement>, row: u16) -> Self {
         Self {
-            image: Some(ImageRow { placement, row }),
+            image: Some(ImageRow {
+                placement,
+                row,
+                background: None,
+            }),
             ..Self::blank()
         }
     }

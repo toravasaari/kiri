@@ -230,6 +230,14 @@ background = "yellow"
 [file_header]
 background = "auto"
 bar = "blue"
+
+# Formulas drawn as images: text is their letters and lines, none for
+# the colour of the text around them; background is behind them, none
+# for the page. A palette colour needs a terminal that tells kiri its
+# palette; otherwise text is the text's colour and background is none.
+[formula]
+text = "none"
+background = "none"
 ```
 
 ## Paper themes

@@ -260,3 +260,54 @@ fn no_color_leaves_the_bar_and_the_title_without_colours() {
     assert!(lines[0].starts_with("  ▎ \u{f449}  Note"), "{lines:#?}");
     assert!(lines[1].starts_with("  ▎ Read this."), "{lines:#?}");
 }
+
+/// The background in force where the first row of an image in `out`
+/// starts, as RGB, from the SGR sequences before its first placeholder;
+/// `None` for the terminal's own.
+fn background_at_image(out: &str) -> Option<[u8; 3]> {
+    let image = out
+        .find(kiri::kitty::graphics::PLACEHOLDER)
+        .expect("an image row");
+    let mut background = None;
+    for sequence in out[..image].split("\x1b[").skip(1) {
+        let Some(end) = sequence.find('m') else {
+            continue;
+        };
+        let params: Vec<&str> = sequence[..end].split(';').collect();
+        let mut i = 0;
+        while i < params.len() {
+            match params[i] {
+                "" | "0" | "49" => background = None,
+                "48" if params.get(i + 1) == Some(&"2") => {
+                    let channel = |at: usize| params[i + at].parse().unwrap();
+                    background = Some([channel(2), channel(3), channel(4)]);
+                    i += 4;
+                }
+                "38" | "58" if params.get(i + 1) == Some(&"2") => i += 4,
+                _ => {}
+            }
+            i += 1;
+        }
+    }
+    background
+}
+
+#[test]
+fn an_image_in_an_alert_lies_on_the_alert_s_tint() {
+    // A transparent image shows what is behind its cells: the tint, as
+    // on the rest of the alert's lines, not the page.
+    let inputs = Inputs {
+        images: common::one_image("a.png", common::quadrants(40, 40)),
+        ..Inputs::new(kitty())
+    };
+    let out = render("> [!NOTE]\n> ![a](a.png)\n", &inputs);
+    assert_eq!(
+        background_at_image(&out),
+        Some([10, 22, 37]),
+        "{}",
+        visible(&out)
+    );
+    // Outside an alert, on the page.
+    let out = render("![a](a.png)\n", &inputs);
+    assert_eq!(background_at_image(&out), None, "{}", visible(&out));
+}

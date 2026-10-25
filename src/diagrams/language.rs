@@ -3,7 +3,7 @@
 //! A new language is one more entry in [`LANGUAGES`].
 
 use super::external::Output;
-use super::{Drawn, Theme, mermaid};
+use super::{Drawn, Request, Theme, math, mermaid};
 
 /// A language kiri draws diagrams in.
 #[derive(Debug)]
@@ -15,6 +15,12 @@ pub struct Language {
     pub aliases: &'static [&'static str],
     /// Its name in a sentence, such as `Mermaid`.
     pub display_name: &'static str,
+    /// What a message calls one of its diagrams, such as `formula`, when
+    /// not a diagram in the language.
+    pub noun: Option<&'static str>,
+    /// Whether its diagrams are centred in their room, as GitHub centres
+    /// formulas, rather than at its left edge.
+    pub centred: bool,
     /// The extensions of its files, which kiri shows on their own as a
     /// diagram, in lower case; `--format` takes them too.
     pub file_extensions: &'static [&'static str],
@@ -83,13 +89,14 @@ pub struct BuiltInRenderer {
     /// What draws the diagrams, with its version, such as
     /// `merman 0.9.1, Mermaid 12.1.0`.
     pub version: fn() -> String,
-    /// The diagram `source` as an image in a theme for the page `Theme`,
-    /// unless it chooses its own colours, or why it could not be drawn.
-    pub render: fn(&str, Theme) -> Result<Drawn, String>,
+    /// The diagram a request asks for as an image in a theme for its
+    /// page, unless it chooses its own colours, or why it could not be
+    /// drawn.
+    pub render: fn(&Request) -> Result<Drawn, String>,
 }
 
 /// The languages kiri draws diagrams in.
-pub static LANGUAGES: &[Language] = &[mermaid::MERMAID];
+pub static LANGUAGES: &[Language] = &[mermaid::MERMAID, math::MATH];
 
 /// The language that a code block's info string `name` names, in any
 /// case, by its name or an alias.

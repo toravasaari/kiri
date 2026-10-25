@@ -4,7 +4,9 @@ kiri shows a diagram written in a code block as an image in the
 block's place, and a diagram file given on its own as an image.
 
 A code block whose language kiri draws, `mermaid` for now, is shown as a
-diagram. The first of these that is given decides whether it is:
+diagram, and so is a [formula](formulas.md), which kiri draws through
+the same pipeline. The first of these that is given decides whether it
+is:
 
 1. `--diagrams on|off`
 2. `KIRI_DIAGRAMS`: `on` or `1`, `off` or `0`; an empty value counts as
@@ -13,7 +15,7 @@ diagram. The first of these that is given decides whether it is:
    configuration file, or `diagrams = true` or `false`
 4. on
 
-Off shows diagrams as code. They are drawn as images, so with
+Off shows diagrams and formulas as code. They are drawn as images, so with
 [images](config.md#images) off or in a terminal without kitty's graphics
 they stay code whatever this says.
 

@@ -14,7 +14,9 @@ use super::{
 use super::{load_parts, plan};
 use crate::config::{self, Environment, Settings};
 use crate::diagrams::find::{self, Search};
-use crate::diagrams::{Command, ExternalSettings, NoRenderer, Renderer, Renderers, Theme};
+use crate::diagrams::{
+    Command, ExternalSettings, FormulaColors, NoRenderer, Renderer, Renderers, Theme,
+};
 use crate::term::Interrupt;
 
 /// What loading the documents' images needs to know, resolved for the
@@ -31,6 +33,8 @@ pub struct Loading<'a> {
     /// The page diagrams are drawn for, unless they choose their own
     /// colours.
     pub theme: Theme,
+    /// The colours formulas are drawn in.
+    pub formula: FormulaColors,
     /// The most pixels, wide and high, an image can be shown at.
     pub largest: Option<(u32, u32)>,
 }
@@ -234,6 +238,7 @@ fn context(loading: &Loading, renderers: Option<Renderers>) -> Context {
     Context {
         renderer,
         theme: loading.theme,
+        formula: loading.formula,
         panel: loading.settings.diagram_panel,
         largest: loading.largest,
         max_file_size: loading.max_file_size,
@@ -261,6 +266,7 @@ fn load_kept(
             None => &NoRenderer,
         },
         theme: loading.theme,
+        formula: loading.formula,
         progress,
         panel: loading.settings.diagram_panel,
         largest: loading.largest,

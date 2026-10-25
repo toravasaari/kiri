@@ -20,7 +20,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::diagrams::{NoRenderer, Renderer, Request, Theme};
+use crate::diagrams::{FormulaColors, NoRenderer, Renderer, Request, Theme};
 use crate::model::{Block, Document, Inline};
 
 #[cfg(test)]
@@ -230,6 +230,9 @@ pub struct LoadOptions<'a> {
     /// The page the diagrams are drawn for, unless they choose their own
     /// colours; by default a light one.
     pub theme: Theme,
+    /// The colours formulas are drawn in; by default none, which leaves
+    /// them to the page.
+    pub formula: FormulaColors,
     /// Whether a warning names a diagram by its line in the document, or
     /// by its own first line, for a document that has no lines the reader
     /// can look up, such as one piped in; by default by its line.
@@ -251,6 +254,7 @@ impl Default for LoadOptions<'_> {
         LoadOptions {
             renderer: &NoRenderer,
             theme: Theme::Light,
+            formula: FormulaColors::default(),
             by_line: true,
             progress: None,
             panel: true,
@@ -515,7 +519,10 @@ pub fn load_parts(
         .filter_map(|((_, image), have)| match *image {
             Wanted::Diagram {
                 language, source, ..
-            } if have.is_none() => Some(Request::new(language, source, options.theme)),
+            } if have.is_none() => {
+                let request = Request::new(language, source, options.theme);
+                Some(request.in_colors(options.formula))
+            }
             Wanted::Diagram { .. } | Wanted::Url(_) => None,
         })
         .collect();
@@ -1010,6 +1017,25 @@ fn main() {}
         told.lock().unwrap().clear();
         load("No diagrams.\n");
         assert_eq!(*told.lock().unwrap(), []);
+    }
+
+    #[test]
+    fn draws_a_formula_block_in_the_text_colour() {
+        let options = LoadOptions {
+            renderer: &crate::diagrams::BuiltIn,
+            formula: crate::diagrams::FormulaColors {
+                text: Some([0x12, 0x34, 0x56]),
+                background: None,
+            },
+            ..LoadOptions::default()
+        };
+        let images = load_source("Square:\n\n$$\\rule{1em}{1em}$$\n", &options);
+        let key = ImageKey::block("math", "\\rule{1em}{1em}\n");
+        let Some(Ok(image)) = images.get(&key) else {
+            panic!("{images:?}");
+        };
+        let image = image.render(8, 8);
+        assert_eq!(image.get_pixel(4, 4).0, [0x12, 0x34, 0x56, 255]);
     }
 
     #[test]

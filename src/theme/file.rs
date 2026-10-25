@@ -168,6 +168,15 @@ pub fn parse(text: &str) -> Result<Theme, String> {
         )?;
         set_color(&mut theme.file_header.bar, header.bar, "file_header.bar")?;
     }
+    if let Some(formula) = file.formula {
+        set_color(&mut theme.formula.text, formula.text, "formula.text")?;
+        let background = formula.background;
+        set_color(
+            &mut theme.formula.background,
+            background,
+            "formula.background",
+        )?;
+    }
     if let Some(mark) = file.mark {
         set_color(
             &mut theme.mark.foreground,
@@ -298,6 +307,14 @@ struct ThemeFile {
     search: Option<SearchFile>,
     mark: Option<MarkFile>,
     file_header: Option<FileHeaderFile>,
+    formula: Option<FormulaFile>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FormulaFile {
+    text: Option<String>,
+    background: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -452,7 +469,7 @@ fn parse_color(value: &str) -> Option<Option<Color>> {
 mod tests {
     use super::*;
     use crate::model::AlertKind;
-    use crate::theme::{FileHeaderTheme, MarkTheme, SearchTheme, StatusLineTheme};
+    use crate::theme::{FileHeaderTheme, FormulaTheme, MarkTheme, SearchTheme, StatusLineTheme};
 
     #[test]
     fn the_documented_defaults_are_the_defaults() {
@@ -503,6 +520,24 @@ mod tests {
         assert_eq!(theme.file_header.bar, Some(Color::Palette(1)));
         assert!(parse("[file_header]\nbar = \"auto\"\n").is_err());
         assert!(parse("[file_header]\nname = \"bold\"\n").is_err());
+    }
+
+    #[test]
+    fn a_formula_takes_a_text_and_a_background_colour() {
+        assert_eq!(Theme::default().formula, FormulaTheme::default());
+        let theme = parse("[formula]\ntext = \"#102030\"\nbackground = \"blue\"\n").unwrap();
+        assert_eq!(
+            theme.formula,
+            FormulaTheme {
+                text: Some(Color::Rgb(0x10, 0x20, 0x30)),
+                background: Some(Color::Palette(4)),
+            }
+        );
+        let theme = parse("[formula]\ntext = \"none\"\n").unwrap();
+        assert_eq!(theme.formula, FormulaTheme::default());
+        let error = parse("[formula]\nbackground = \"pink\"\n").unwrap_err();
+        assert!(error.contains("formula.background"), "{error}");
+        assert!(parse("[formula]\nborder = \"red\"\n").is_err());
     }
 
     #[test]

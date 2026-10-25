@@ -26,6 +26,19 @@ fn kitty_mermaid() {
 }
 
 #[test]
+fn kitty_math() {
+    let options = kiri::images::LoadOptions {
+        renderer: &kiri::diagrams::BuiltIn,
+        ..kiri::images::LoadOptions::default()
+    };
+    let images = fixture_images_with("math.md", &options);
+    insta::assert_snapshot!(readable(&render_fixture(
+        "math.md",
+        &with_images(&Capabilities::kitty(WIDTH), images)
+    )));
+}
+
+#[test]
 fn a_diagram_is_drawn_in_place_of_its_code() {
     let images = stub_diagram_images(FLOWCHART);
     let out = render(FLOWCHART, &with_images(&Capabilities::kitty(WIDTH), images));

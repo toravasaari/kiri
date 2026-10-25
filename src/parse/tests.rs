@@ -772,3 +772,149 @@ fn the_lines_do_not_take_part_in_comparing_documents() {
     assert_eq!(document, by_hand);
     assert_eq!(by_hand.lines.get(&[1]), None);
 }
+
+/// A formula block of `code`, which starts on `line`.
+fn formula(code: &str, line: usize) -> Block {
+    Block::CodeBlock {
+        language: Some("math".into()),
+        code: code.into(),
+        line,
+    }
+}
+
+#[test]
+fn reads_dollar_display_math_as_a_formula_block() {
+    assert_eq!(parse("$$x^2$$\n").blocks, [formula("x^2\n", 1)]);
+    let document = parse("Intro\n\n$$\n\\frac{a}{b}\n$$\n");
+    assert_eq!(
+        document.blocks,
+        [paragraph("Intro"), formula("\\frac{a}{b}\n", 3)]
+    );
+    assert_eq!(lines_of(&document, &[&[0], &[1]]), [Some(1), Some(3)]);
+}
+
+#[test]
+fn a_math_code_block_is_a_formula_block() {
+    assert_eq!(parse("```math\nx^2\n```\n").blocks, [formula("x^2\n", 1)]);
+}
+
+#[test]
+fn display_math_splits_the_paragraph_it_is_in() {
+    let document = parse("Before\n$$ a + b $$\nafter *it*.\n");
+    assert_eq!(
+        document.blocks,
+        [
+            paragraph("Before"),
+            formula("a + b\n", 2),
+            Block::Paragraph(vec![
+                text("after "),
+                Inline::Emphasis(vec![text("it")]),
+                text("."),
+            ]),
+        ]
+    );
+    assert_eq!(
+        lines_of(&document, &[&[0], &[1], &[2]]),
+        [Some(1), Some(2), Some(3)]
+    );
+}
+
+#[test]
+fn display_math_in_a_list_item_or_a_quote_is_a_formula_block() {
+    let document = parse("- Item\n\n  $$\n  x\n  $$\n\n> $$y$$\n");
+    let [Block::List(list), Block::BlockQuote(quote)] = document.blocks.as_slice() else {
+        panic!("{:?}", document.blocks);
+    };
+    assert_eq!(list.items[0].blocks, [paragraph("Item"), formula("x\n", 3)]);
+    assert_eq!(quote, &[formula("y\n", 7)]);
+    let mut lines = Vec::new();
+    code_lines(&document.blocks, &mut lines);
+    assert_eq!(lines, [3, 7]);
+}
+
+#[test]
+fn unterminated_display_math_stays_text() {
+    assert_eq!(parse("$$x^2\n").blocks, [paragraph("$$x^2")]);
+}
+
+#[test]
+fn empty_display_math_stays_text() {
+    assert_eq!(parse("$$ $$\n").blocks, [paragraph("$$ $$")]);
+    assert_eq!(
+        parse("$$\n$$\n").blocks,
+        [Block::Paragraph(vec![
+            text("$$"),
+            Inline::SoftBreak,
+            text("$$")
+        ])]
+    );
+    assert_eq!(parse("a $$ $$ b\n").blocks, [paragraph("a $$ $$ b")]);
+}
+
+/// The blocks of `source` parsed as before kiri read math.
+fn without_math(source: &str) -> Vec<Block> {
+    let arena = Arena::new();
+    let root = parse_document(&arena, source, &options_without_math());
+    blocks(root).into_iter().map(|(block, _)| block).collect()
+}
+
+#[test]
+fn display_math_in_headings_cells_and_links_stays_text() {
+    // Only a paragraph is split at a formula.
+    for source in [
+        "# A $$x$$ b\n",
+        "| a |\n|---|\n| $$x$$ |\n",
+        "*a $$x$$ b*\n",
+        "[a $$x$$ b](u)\n",
+    ] {
+        assert_eq!(parse(source).blocks, without_math(source), "{source}");
+    }
+}
+
+#[test]
+fn inline_math_stays_text_as_written() {
+    // Until inline formulas are drawn, they read as they always have.
+    for source in [
+        "Cost $5 and $6 today.",
+        "Let $x$ be one.",
+        "Let $`x`$ be one.",
+        "A $*b*$ c.",
+        "A $\\{b\\}$ c.",
+        "$HOME/$USER and $a_1$.",
+    ] {
+        let without_math = {
+            let arena = Arena::new();
+            let mut options = options();
+            options.extension.math_dollars = false;
+            let root = parse_document(&arena, source, &options);
+            blocks(root)
+                .into_iter()
+                .map(|(block, _)| block)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(parse(source).blocks, without_math, "{source}");
+    }
+    assert_eq!(
+        parse("Let $x$ be one.\n").blocks,
+        [paragraph("Let $x$ be one.")]
+    );
+}
+
+#[test]
+fn inline_math_in_a_quote_or_a_link_stays_text() {
+    assert_eq!(
+        parse("> é $*x*$ y\n").blocks,
+        [Block::BlockQuote(vec![Block::Paragraph(vec![
+            text("é $"),
+            Inline::Emphasis(vec![text("x")]),
+            text("$ y"),
+        ])])]
+    );
+    assert_eq!(
+        parse("[a $x$](u)\n").blocks,
+        [Block::Paragraph(vec![Inline::Link {
+            url: "u".into(),
+            content: vec![text("a $x$")],
+        }])]
+    );
+}

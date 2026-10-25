@@ -48,6 +48,7 @@ fn a_program_s_diagram_is_reduced_to_the_largest_size_it_can_be_shown_at() {
         settings: &settings,
         max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
         theme: Theme::Light,
+        formula: FormulaColors::default(),
         largest: Some((15, 100)),
     };
     let loaded = load_documents(&alone(&document, &scratch), &loading, None).unwrap();
@@ -71,6 +72,7 @@ fn no_diagrams_are_drawn_when_they_are_off() {
         settings: &settings,
         max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
         theme: Theme::Light,
+        formula: FormulaColors::default(),
         largest: None,
     };
     let parts = alone(&document, Path::new(""));
@@ -108,6 +110,7 @@ fn a_reload_loads_an_image_file_again_only_when_its_modification_time_changed() 
         settings: &settings,
         max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
         theme: Theme::Light,
+        formula: FormulaColors::default(),
         largest: None,
     };
     let document = crate::parse::parse("![x](a.png)\n");
@@ -142,6 +145,7 @@ fn a_reload_loads_an_image_whose_file_was_missing_when_it_appears() {
         settings: &settings,
         max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
         theme: Theme::Light,
+        formula: FormulaColors::default(),
         largest: None,
     };
     let document = crate::parse::parse("![x](a.png)\n");
@@ -167,6 +171,7 @@ fn a_reload_keeps_an_image_that_has_no_file() {
         settings: &settings,
         max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
         theme: Theme::Light,
+        formula: FormulaColors::default(),
         largest: None,
     };
     let document = crate::parse::parse("![x](https://example.com/a.png)\n");
@@ -249,6 +254,7 @@ fn a_reload_in_the_background_keeps_what_it_has_and_loads_the_rest() {
         settings: &settings,
         max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
         theme: Theme::Light,
+        formula: FormulaColors::default(),
         largest: None,
     };
     let before = crate::parse::parse("![x](a.png)\n");
@@ -280,6 +286,7 @@ fn a_newer_reload_stops_the_loads_it_no_longer_wants_and_keeps_the_others() {
         settings: &settings,
         max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
         theme: Theme::Light,
+        formula: FormulaColors::default(),
         largest: None,
     };
     let both = crate::parse::parse("```mermaid\none\n```\n\n```mermaid\ntwo\n```\n");
@@ -323,6 +330,7 @@ fn stopping_the_loads_ends_their_programs_before_it_returns() {
         settings: &settings,
         max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
         theme: Theme::Light,
+        formula: FormulaColors::default(),
         largest: None,
     };
     let document = crate::parse::parse("```mermaid\none\n```\n");
@@ -349,6 +357,7 @@ fn a_reload_in_the_background_loads_a_changed_file_again_and_sets_the_old_image_
         settings: &settings,
         max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
         theme: Theme::Light,
+        formula: FormulaColors::default(),
         largest: None,
     };
     let before = crate::parse::parse("![x](a.png)\n\n![y](b.png)\n");
@@ -385,6 +394,7 @@ fn overlapping_reloads_run_no_more_programs_at_once_than_one_reload() {
         settings: &settings,
         max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
         theme: Theme::Light,
+        formula: FormulaColors::default(),
         largest: None,
     };
     let diagrams = |names: &[&str]| {

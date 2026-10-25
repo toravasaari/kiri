@@ -139,6 +139,18 @@ flowchart LR
     Render --> Look([Look at it])
 ```
 
+## Formulas
+
+A formula in a ` ```math ` block is drawn as an image in kitty, as GitHub
+draws it, and stays code elsewhere and with `--no-images`. This fraction
+stands in the middle of the text's width, in the colour of the text,
+with no box behind it: n(n + 1) above a line, 2 below it, in the letters
+of a printed formula, a little larger than the text.
+
+```math
+\frac{n(n+1)}{2}
+```
+
 ## Topics
 
 - [Text](S01-text.md): headings, emphasis, links, wide characters, emoji
@@ -153,3 +165,5 @@ flowchart LR
   [PNG file](S06b-pattern.png) on its own
 - [Diagrams](S07a-diagrams.md): Mermaid diagrams, and a
   [Mermaid file](S07b-flowchart.mmd)
+- [Formulas](S08-formulas.md): formulas in math blocks and between `$$`,
+  in lists and quotes, and what stays text

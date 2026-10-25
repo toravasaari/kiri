@@ -124,8 +124,8 @@ Options:
           [possible values: off, zebra, lines, indent, underline]
 
       --diagrams <SWITCH>
-          Diagrams in code blocks, such as Mermaid: on (drawn as images) or off (shown as code); on
-          unless set
+          Diagrams in code blocks, such as Mermaid, and formulas: on (drawn as images) or off (shown
+          as code); on unless set
           
           [possible values: on, off]
 
