@@ -60,6 +60,8 @@ kiri [version]: terminal features and settings.
 |---|---|---|
 [built-in mermaid renderer]
 [mermaid command]
+| `math` | built-in: RaTeX 0.1.15 | used |
+| `math` | command: none configured | not used |
 
 ## Sample
 

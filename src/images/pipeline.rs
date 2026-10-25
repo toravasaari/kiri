@@ -31,6 +31,9 @@ pub struct Loading<'a> {
     /// The page diagrams are drawn for, unless they choose their own
     /// colours.
     pub theme: Theme,
+    /// The colour of the text that formulas are drawn in, when it is
+    /// known.
+    pub text_color: Option<[u8; 3]>,
     /// The most pixels, wide and high, an image can be shown at.
     pub largest: Option<(u32, u32)>,
 }
@@ -234,6 +237,7 @@ fn context(loading: &Loading, renderers: Option<Renderers>) -> Context {
     Context {
         renderer,
         theme: loading.theme,
+        text_color: loading.text_color,
         panel: loading.settings.diagram_panel,
         largest: loading.largest,
         max_file_size: loading.max_file_size,
@@ -261,6 +265,7 @@ fn load_kept(
             None => &NoRenderer,
         },
         theme: loading.theme,
+        text_color: loading.text_color,
         progress,
         panel: loading.settings.diagram_panel,
         largest: loading.largest,

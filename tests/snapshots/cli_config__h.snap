@@ -70,8 +70,9 @@ Options:
                                wrapped value start two cells in), underline (each row's last line
                                underlined), or off; zebra unless set [possible values: off, zebra,
                                lines, indent, underline]
-      --diagrams <SWITCH>      Diagrams in code blocks, such as Mermaid: on (drawn as images) or off
-                               (shown as code); on unless set [possible values: on, off]
+      --diagrams <SWITCH>      Diagrams in code blocks, such as Mermaid, and formulas: on (drawn as
+                               images) or off (shown as code); on unless set [possible values: on,
+                               off]
       --render-errors <WHERE>  Where to tell why a diagram could not be drawn: inline (in the
                                document, below its code), stderr (a warning) or both; both unless
                                set [possible values: inline, stderr, both]

@@ -16,7 +16,7 @@ The report has these sections, in this order:
   and the work files of programs that draw diagrams, and whether they are
   there.
 - **Image formats**: the image formats kiri reads.
-- **Diagrams**: what draws each diagram language.
+- **Diagrams**: what draws each diagram language, and formulas (`math`).
 - A sample of headings, a table and an image, in a terminal only. It shows
   how they look in this terminal; `--raw` leaves it out.
 - **Probe answers**, only when the terminal was asked: what the terminal

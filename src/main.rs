@@ -168,8 +168,8 @@ struct Cli {
     #[arg(long, value_parser = named::<TableRows>(), value_name = "STYLE")]
     table_rows: Option<TableRows>,
 
-    /// Diagrams in code blocks, such as Mermaid: on (drawn as images) or
-    /// off (shown as code); on unless set.
+    /// Diagrams in code blocks, such as Mermaid, and formulas: on (drawn
+    /// as images) or off (shown as code); on unless set.
     #[arg(long, value_parser = named::<bool>(), value_name = "SWITCH")]
     diagrams: Option<bool>,
 
@@ -1672,7 +1672,18 @@ fn loading<'a>(context: &'a Context, settings: &'a Settings, caps: &Capabilities
         settings,
         max_file_size: context.max_file_size,
         theme: kiri::diagrams::Theme::for_page(caps.dark_background),
+        text_color: text_color(&settings.theme, caps),
         largest: Some(kiri::render::image::largest(caps)),
+    }
+}
+
+/// The colour of the page's text as RGB, which formulas are drawn in:
+/// the theme's, or else the terminal's; `None` when neither tells it.
+fn text_color(theme: &kiri::theme::Theme, caps: &Capabilities) -> Option<[u8; 3]> {
+    let color = theme.foreground.or(caps.foreground)?.rgb(&caps.palette)?;
+    match color {
+        kiri::color::Color::Rgb(red, green, blue) => Some([red, green, blue]),
+        kiri::color::Color::Palette(_) => None,
     }
 }
 

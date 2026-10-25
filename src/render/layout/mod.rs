@@ -667,7 +667,8 @@ impl Layout<'_> {
             return Vec::new();
         };
         // The language as written, as the warning on standard error has it.
-        let text = format!("✗ {language} diagram could not be drawn: {reason}");
+        let noun = crate::diagrams::noun(language);
+        let text = format!("✗ {noun} could not be drawn: {reason}");
         let style = self.style(Style::fg(self.theme.error));
         let (indent, max) = self.below_code(width);
         // Each line of the reason wrapped on its own and keeping its indent,

@@ -23,7 +23,9 @@ Markdown ──parse──▶ document model ──▶ backend ──▶ output
   `<mark>` and `<br>`. Front matter at the start of a Markdown file is
   split off in `src/parse/front_matter.rs` before comrak sees the text and
   read as YAML, TOML or JSON into the model's own value tree;
-  `--front-matter off` leaves it to comrak.
+  `--front-matter off` leaves it to comrak. A formula in `$$…$$` becomes
+  a code block in `math`, as a ` ```math ` block is, so that a backend
+  that cannot draw it shows its source.
 - **Document model:** kiri's own tree of blocks and inline spans. It holds
   what the document means (heading level 2, emphasis, image with alt text),
   not how any terminal draws it. Other input formats only need a converter
@@ -222,8 +224,8 @@ after the reduction, so the panel's copy is small too.
 
 Renderers live in `src/diagrams/`, outside `src/kitty/` and the parser.
 A renderer implements the `Renderer` trait: whether it draws a language,
-and a diagram's source and a `Theme`, for a light or a dark page, turned
-into an image file, SVG or raster, and the page its colours are for. It
+and a diagram's source and a `Theme`, for a light or a dark page, with
+the colour of the page's text for a formula, turned into an image file, SVG or raster, and the page its colours are for. It
 knows nothing about terminals, so an HTML backend could use the same
 image.
 
@@ -250,7 +252,8 @@ panel colour.
 
 - **Built-in:** `BuiltIn` draws a language with the renderer its entry
   has in this build: Mermaid through merman, in a build with the
-  `mermaid` feature. `src/diagrams/mermaid/merman.rs` fixes merman's SVG
+  `mermaid` feature, and formulas through RaTeX, in every build
+  (`src/diagrams/math.rs`). `src/diagrams/mermaid/merman.rs` fixes merman's SVG
   where resvg would lose part of it, and tests the fixes through merman
   itself. A fault that kiri works around elsewhere, such as text past a
   diagram's edge, has a test that fails once merman no longer has it.
@@ -428,6 +431,7 @@ src/diagrams/mermaid/mod.rs
                            Mermaid's settings, directives and mmdc command
 src/diagrams/mermaid/merman.rs
                            Mermaid through merman (feature `mermaid`)
+src/diagrams/math.rs       formulas through RaTeX
 src/diagrams/external.rs   diagrams drawn by a command outside kiri
 src/diagrams/find.rs       finding a command, such as mmdc, when none is
                            configured
@@ -494,8 +498,9 @@ default features (`--no-default-features`) is the minimal one. `full`
 adds the image formats the `image` crate decodes cheaply (BMP, ICO,
 TIFF, QOI, PNM and TGA) and the `mermaid` feature, which draws Mermaid
 diagrams with merman inside kiri. The minimal build shows PNG, JPEG,
-GIF, WebP and SVG, and draws Mermaid only through an external command:
-one the configuration file gives, or `mmdc` when kiri finds it. Both
+GIF, WebP and SVG, draws formulas, and draws Mermaid only through an
+external command: one the configuration file gives, or `mmdc` when kiri
+finds it. Both
 builds take the same options and settings.
 
 ## Choices
@@ -503,8 +508,12 @@ builds take the same options and settings.
 - **Rust:** one fast binary with no runtime, and mature crates for each part:
   comrak (Markdown), syntect (syntax highlighting), image and resvg (raster
   and SVG images), csv (CSV and TSV files), rustix (terminal modes and pager
-  input), merman (Mermaid diagrams). Formulas are planned with RaTeX, a
-  Rust port of KaTeX that merman already brings for its math.
+  input), merman (Mermaid diagrams), RaTeX (formulas).
+- **RaTeX for formulas:** a Rust port of KaTeX that merman already
+  brings for its math. It draws a formula in milliseconds, with KaTeX's
+  fonts built in as paths, so it needs no fonts or network. It adds
+  about 5 MB to a stripped binary, which is why the minimal build has it
+  too.
 - **merman for Mermaid:** a Rust implementation of Mermaid that checks
   its parsing, layout and SVG against Mermaid's own, so diagrams look as
   GitHub draws them. It draws a diagram in milliseconds, needs no fonts,

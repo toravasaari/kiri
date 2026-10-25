@@ -541,6 +541,19 @@ fn the_report_names_the_built_in_mermaid_renderer() {
 }
 
 #[test]
+fn the_report_names_the_built_in_formula_renderer() {
+    let dir = Scratch::new("doctor-math");
+    for (args, status) in [
+        (&[][..], "used"),
+        (&["--diagrams", "off"][..], "not used: diagrams are off"),
+    ] {
+        let report = piped(&dir, args);
+        let row = "| `math` | built-in: RaTeX 0.1.15 |";
+        assert_eq!(report_row(&report, row), format!("{row} {status} |"));
+    }
+}
+
+#[test]
 fn the_report_names_the_mermaid_command() {
     let dir = Scratch::new("doctor-mermaid-command");
     let row = |args: &[&str]| report_row(&piped(&dir, args), "| `mermaid` | command");

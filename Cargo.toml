@@ -17,10 +17,11 @@ name = "kiri"
 path = "src/main.rs"
 
 # Optional parts of kiri; `full` turns them all on. Without them, kiri
-# shows PNG, JPEG, GIF, WebP and SVG images, and draws Mermaid diagrams
-# only with an external program such as mermaid-cli's mmdc. `full` adds
-# the image formats the `image` crate decodes cheaply (BMP, ICO, TIFF,
-# QOI, PNM and TGA), and Mermaid diagrams drawn by kiri itself.
+# shows PNG, JPEG, GIF, WebP and SVG images, draws formulas, and draws
+# Mermaid diagrams only with an external program such as mermaid-cli's
+# mmdc. `full` adds the image formats the `image` crate decodes cheaply
+# (BMP, ICO, TIFF, QOI, PNM and TGA), and Mermaid diagrams drawn by kiri
+# itself.
 [features]
 default = ["full"]
 full = [
@@ -49,6 +50,12 @@ image = { version = "0.25.10", default-features = false, features = ["png", "jpe
 kiri-image-utils = { version = "0.1.0", path = "crates/kiri-image-utils" }
 libc = "0.2.190"
 merman = { version = "0.9.1", optional = true }
+# Formulas, drawn as SVG with the glyphs of KaTeX's fonts as paths, so
+# that no fonts are needed to show them. The versions merman uses.
+ratex-layout = "0.1.15"
+ratex-parser = "0.1.15"
+ratex-svg = { version = "0.1.15", features = ["embed-fonts"] }
+ratex-types = "0.1.15"
 resvg = "0.48.1"
 rustix = { version = "1.1.5", features = ["termios", "event", "process", "fs", "system"] }
 serde = { version = "1.0.229", features = ["derive"] }

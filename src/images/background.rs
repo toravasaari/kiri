@@ -84,6 +84,7 @@ pub(super) struct Job {
 pub(super) struct Context {
     pub(super) renderer: Box<dyn Renderer + Send + Sync>,
     pub(super) theme: Theme,
+    pub(super) text_color: Option<[u8; 3]>,
     pub(super) panel: bool,
     pub(super) largest: Option<(u32, u32)>,
     pub(super) max_file_size: u64,
@@ -367,6 +368,7 @@ impl Loads {
         let context = Context {
             renderer: Box::new(tests::Slow(ending)),
             theme: Theme::Light,
+            text_color: None,
             panel: true,
             largest: None,
             max_file_size: super::DEFAULT_MAX_FILE_SIZE,
@@ -516,6 +518,7 @@ fn context(renderer: impl Renderer + Send + Sync + 'static) -> Context {
     Context {
         renderer: Box::new(renderer),
         theme: Theme::Light,
+        text_color: None,
         panel: true,
         largest: None,
         max_file_size: super::DEFAULT_MAX_FILE_SIZE,
@@ -609,11 +612,14 @@ fn load(
             by_line,
         } => {
             let renderer = context.renderer.as_ref();
-            let request = Request::new(language, source, context.theme).stopped_by(stop);
+            let request = Request::new(language, source, context.theme)
+                .in_color(context.text_color)
+                .stopped_by(stop);
             let drawn = renderer.render(&request);
             let options = LoadOptions {
                 renderer,
                 theme: context.theme,
+                text_color: context.text_color,
                 by_line: *by_line,
                 progress: None,
                 panel: context.panel,
@@ -899,6 +905,7 @@ mod tests {
         let context = Context {
             renderer: Box::new(Panicking(Arc::clone(&started))),
             theme: Theme::Light,
+            text_color: None,
             panel: true,
             largest: None,
             max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
@@ -943,6 +950,21 @@ mod tests {
     }
 
     #[test]
+    fn a_formula_loaded_in_the_background_is_in_the_text_colour() {
+        let mut context = context(crate::diagrams::BuiltIn);
+        context.text_color = Some([0x12, 0x34, 0x56]);
+        let what = What::Diagram {
+            language: "math".to_owned(),
+            source: "\\rule{1em}{1em}\n".to_owned(),
+            line: 1,
+            by_line: true,
+        };
+        let loaded = load(&context, &what, &AtomicBool::new(false), &Fonts::none());
+        let image = loaded.unwrap().render(8, 8);
+        assert_eq!(image.get_pixel(4, 4).0, [0x12, 0x34, 0x56, 255]);
+    }
+
+    #[test]
     fn a_load_that_panics_fails_and_the_others_still_load() {
         let mut loads = Loads::new();
         let job = |source: &str| Job {
@@ -958,6 +980,7 @@ mod tests {
         let context = Context {
             renderer: Box::new(Boom),
             theme: Theme::Light,
+            text_color: None,
             panel: true,
             largest: None,
             max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,

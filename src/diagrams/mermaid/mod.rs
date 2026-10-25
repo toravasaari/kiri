@@ -15,6 +15,7 @@ pub(super) const MERMAID: Language = Language {
     name: "mermaid",
     aliases: &[],
     display_name: "Mermaid",
+    noun: None,
     file_extensions: &["mmd", "mermaid"],
     source_extension: "mmd",
     theme_names: ThemeNames {
@@ -37,7 +38,7 @@ pub(super) const MERMAID: Language = Language {
 #[cfg(feature = "mermaid")]
 const BUILT_IN: Option<BuiltInRenderer> = Some(BuiltInRenderer {
     version: merman::version,
-    render: merman::render,
+    render: |request| merman::render(request.source, request.theme),
 });
 
 #[cfg(not(feature = "mermaid"))]
