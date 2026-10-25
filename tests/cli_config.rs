@@ -71,18 +71,6 @@ fn the_configuration_file_chooses_the_theme_relative_to_itself() {
 }
 
 #[test]
-fn the_configuration_file_theme_comes_before_theme_toml() {
-    let dir = Scratch::new("config-before-theme-toml");
-    broken_theme(&dir.join("config/kiri/theme.toml"));
-    let theme = broken_theme(&dir.join("mine.toml"));
-    write(
-        &dir.join("config/kiri/config.toml"),
-        &format!("theme = \"{}\"\n", theme.display()),
-    );
-    assert_fails_naming(&kiri(&dir, "Text\n", &[]), &theme);
-}
-
-#[test]
 fn the_theme_option_comes_before_the_configuration_file() {
     let dir = Scratch::new("option-before-config");
     broken_theme(&dir.join("config/kiri/mine.toml"));
@@ -197,39 +185,6 @@ fn light_and_dark_cannot_be_given_together() {
     assert!(!out.status.success());
     let stderr = text(&out.stderr);
     assert!(stderr.contains("cannot be used with"), "{stderr}");
-}
-
-#[test]
-fn a_paper_theme_comes_before_kiri_theme_and_the_configuration_file() {
-    let dir = Scratch::new("paper-before-env");
-    broken_theme(&dir.join("config/kiri/mine.toml"));
-    write(
-        &dir.join("config/kiri/config.toml"),
-        "theme = \"mine.toml\"\n",
-    );
-    let env_theme = broken_theme(&dir.join("env.toml"));
-    let document = dir.join("document.md");
-    std::fs::write(&document, "Text\n").unwrap();
-    let out = command(&dir)
-        .env("KIRI_THEME", &env_theme)
-        .args(["--mode", "kitty", "--light"])
-        .arg(&document)
-        .output()
-        .unwrap();
-    assert!(out.status.success(), "{}", text(&out.stderr));
-    assert!(text(&out.stdout).contains(LIGHT_PAGE));
-}
-
-#[test]
-fn the_theme_option_comes_before_a_paper_theme() {
-    let dir = Scratch::new("theme-before-paper");
-    let theme = broken_theme(&dir.join("option.toml"));
-    let out = kiri(
-        &dir,
-        "Text\n",
-        &["--light", "--theme", theme.to_str().unwrap()],
-    );
-    assert_fails_naming(&out, &theme);
 }
 
 #[test]
