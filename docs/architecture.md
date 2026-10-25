@@ -174,9 +174,11 @@ still shown, as it does before the pager opens for images loaded first.
 
 With `initial_load = "background"`, the initial load goes the same way when
 the pager surely opens: `src/main.rs` lays out the text, opens the
-screen, and then starts every image loading in the pager's `Loads`, each
-shown as a new image of a reload is. Should the screen not open, the
-images load before the document is printed.
+screen, and then starts every image of the documents loading in the
+pager's `Loads`, each shown as a new image of a reload is; the image and
+diagram files among several files load before, as they have nothing else
+to show. Should the screen not open, the images load before the
+documents are printed.
 
 The pager keeps one image encoder, `src/render/encoder.rs`, for as long
 as it runs. An image the terminal holds is not sent again: after a

@@ -972,7 +972,7 @@ fn drawn_on_cue(dir: &std::path::Path) {
 }
 
 /// kiri with `args` and `env`, and `stdin` piped in when given, in a
-/// terminal of 5 rows, in a scratch directory that `prepare` fills: `go`
+/// terminal of 12 rows, in a scratch directory that `prepare` fills: `go`
 /// is written there once the first frame is drawn, and `q` typed once
 /// `done` holds for the frames drawn whole and the directory. kiri must
 /// succeed. Returns the frames and what kiri wrote on standard error.
@@ -1002,7 +1002,7 @@ fn quit_when(
         }
     };
     let setup = Setup { both: false, env };
-    let (status, seen, stderr) = in_terminal_seeing(name, prepare, args, 5, stdin, setup, act);
+    let (status, seen, stderr) = in_terminal_seeing(name, prepare, args, 12, stdin, setup, act);
     assert!(status.success(), "{stderr}");
     (whole_frames(&seen), stderr)
 }
@@ -1021,7 +1021,7 @@ fn image_sent(frames: &[String], _: &std::path::Path) -> bool {
 }
 
 /// kiri on `diagram.md` of [`drawn_on_cue`] with `args` and `env` in a
-/// terminal of 5 rows: the diagram is drawn once the first frame is, and
+/// terminal of 12 rows: the diagram is drawn once the first frame is, and
 /// `q` typed once a frame with an image sent in it is. Returns the frames.
 fn initial_load(name: &str, args: &[&str], env: &[(&str, &str)]) -> Vec<String> {
     let mut args = args.to_vec();
@@ -1225,8 +1225,12 @@ fn reloaded(frames: &[String], _: &std::path::Path) -> bool {
 /// What kiri on `args` with `--initial-load wait -p --mode kitty` writes
 /// on standard error, quitting at once, in a scratch directory that
 /// `prepare` fills.
-fn told_waiting(name: &str, prepare: impl FnOnce(&std::path::Path), file: &str) -> String {
-    let args = ["--initial-load", "wait", "-p", "--mode", "kitty", file];
+fn told_waiting(name: &str, prepare: impl FnOnce(&std::path::Path), files: &[&str]) -> String {
+    let args = [
+        &["--initial-load", "wait", "-p", "--mode", "kitty"][..],
+        files,
+    ]
+    .concat();
     let quit = |frames: &[String], _: &std::path::Path| !frames.is_empty();
     let (frames, stderr) = quit_when(name, prepare, &args, None, &[], quit);
     assert!(!text_of(&frames[0]).contains("[rendering"), "{frames:?}");
@@ -1261,7 +1265,7 @@ fn an_initial_load_in_the_background_tells_a_failed_diagram_after_the_pager() {
         failing_on_cue(dir);
         std::fs::write(dir.join("go"), "").unwrap();
     };
-    let waiting = told_waiting("pager-initial-load-failed-wait", at_once, "diagram.md");
+    let waiting = told_waiting("pager-initial-load-failed-wait", at_once, &["diagram.md"]);
     assert!(waiting.contains("Error: bad"), "{waiting}");
     assert_eq!(stderr, waiting);
     // Once the pager has left its screen.
@@ -1280,6 +1284,74 @@ fn an_initial_load_in_the_background_tells_a_failed_diagram_after_the_pager() {
     let (seen, _) = in_stages(name, failing_on_cue, &args, true, &[go, quit]);
     let (_, after) = seen.rsplit_once(LEAVE).unwrap();
     assert!(after.contains("Error: bad"), "{seen:?}");
+}
+
+/// [`drawn_diagram`], with `a.md`, a diagram other than `diagram.mmd`'s,
+/// and `missing.md`, an image whose file is missing.
+fn several_files(dir: &std::path::Path) {
+    drawn_diagram(dir);
+    std::fs::write(dir.join("a.md"), "```mermaid\nflowchart LR\n```\n").unwrap();
+    std::fs::write(dir.join("missing.md"), "![gone](missing.png)\n").unwrap();
+}
+
+#[test]
+fn several_files_load_their_images_in_the_background_too() {
+    let files = ["a.md", "missing.md"];
+    let args = [&BACKGROUND[..], &files].concat();
+    let name = "pager-initial-load-files";
+    let (frames, stderr) = quit_when(name, several_files, &args, None, &[], image_sent);
+    let first = text_of(&frames[0]);
+    assert!(first.contains("flowchart LR"), "{frames:?}");
+    assert!(first.contains("[rendering: 0/2]"), "{frames:?}");
+    assert!(!frames[0].contains("\x1b_Ga=T,"), "{frames:?}");
+    let drawn = frames.iter().find(|frame| frame.contains("\x1b_Ga=T,"));
+    assert!(!text_of(drawn.unwrap()).contains("flowchart"), "{frames:?}");
+    // Under the file's name, as waiting tells it before the pager opens.
+    let waiting = told_waiting("pager-initial-load-files-wait", several_files, &files);
+    assert_eq!(waiting, "kiri: missing.md: missing.png: file not found\n");
+    assert_eq!(stderr, waiting);
+}
+
+#[test]
+fn several_files_without_a_terminal_for_keys_print_as_when_waiting() {
+    let shown = |how: &str| {
+        let args = [
+            "--mode",
+            "kitty",
+            "--initial-load",
+            how,
+            "-p",
+            "a.md",
+            "missing.md",
+        ];
+        let (status, seen, stderr) =
+            without_keys("pager-initial-load-files-no-keys", several_files, &args);
+        assert!(status.success(), "{stderr}");
+        (seen, stderr)
+    };
+    let (seen, stderr) = shown("background");
+    assert_eq!(seen.matches("\x1b_Ga=T,").count(), 1, "{seen:?}");
+    assert!(
+        stderr.contains("kiri: missing.md: missing.png: file not found\n"),
+        "{stderr}"
+    );
+    assert_eq!((seen, stderr), shown("wait"));
+}
+
+#[test]
+fn a_diagram_file_waits_for_its_drawing_also_among_several_files() {
+    let quit = |frames: &[String], _: &std::path::Path| !frames.is_empty();
+    for files in [&["diagram.mmd"][..], &["diagram.mmd", "a.md"]] {
+        let args = [&BACKGROUND[..], files].concat();
+        let name = "pager-initial-load-diagram-file";
+        let (frames, stderr) = quit_when(name, several_files, &args, None, &[], quit);
+        assert_eq!(stderr, "");
+        // Drawn at the top of the first frame.
+        assert!(frames[0].contains("\x1b_Ga=T,"), "{files:?}: {frames:?}");
+        let first = text_of(&frames[0]);
+        let loading = first.contains("[rendering: 0/1]");
+        assert_eq!(loading, files.len() > 1, "{files:?}: {frames:?}");
+    }
 }
 
 /// [`drawn_on_cue`], with a command that fails until `ok` is in the
@@ -1355,7 +1427,7 @@ fn a_missing_image_that_came_in_the_background_is_told_once_after_reloads() {
     let name = "pager-initial-load-missing";
     let (seen, stderr) = in_stages(name, prepare, &args, false, &[again(), reload, quit]);
     assert!(text_of(&seen).contains("[image: gone]"), "{seen:?}");
-    let waiting = told_waiting("pager-initial-load-missing-wait", prepare, "missing.md");
+    let waiting = told_waiting("pager-initial-load-missing-wait", prepare, &["missing.md"]);
     assert!(waiting.contains("missing.png"), "{waiting}");
     assert_eq!(stderr, waiting);
 }

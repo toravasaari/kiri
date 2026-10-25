@@ -224,8 +224,9 @@ follows a lone file, as with `-f`. With paging on `auto`, kiri needs the
 height of the images to tell whether the document fits the window, so it
 waits for them, and a printed document always waits:
 `kiri -p --initial-load background notes.md` shows the text at once, and
-`kiri --initial-load background notes.md` waits. A lone image or diagram
-file, and several files, wait too.
+`kiri --initial-load background notes.md` waits. With several files, the
+images of the documents among them load in the background too, and an
+image or diagram file waits for its image, among others or on its own.
 
 ## Search case
 

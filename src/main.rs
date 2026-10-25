@@ -15,8 +15,8 @@ use kiri::config::{
 };
 use kiri::doctor::{Facts, Output};
 use kiri::images::{
-    Fonts, Format, ImageError, ImageKey, Images, Interrupted, Loaded, Loading, Loads, Part,
-    Placeholder, Source, Stamps, reload_in_background,
+    Fonts, Format, ImageError, ImageKey, Images, Interrupted, Loaded, Loading, Loads, Part, Source,
+    Stamps, reload_in_background,
 };
 use kiri::input::Input;
 use kiri::model::{Block, Document, FrontMatterError};
@@ -691,10 +691,12 @@ fn show_files(
             return Err(Failure::Told);
         }
     }
+    // The documents' images load once the pager has opened.
+    let later = paged && in_background(&settings, &caps);
     let Loaded {
         mut images,
         mut interrupt,
-    } = load_given(context, &given, &settings, &caps)?;
+    } = load_given(context, &given, &settings, &caps, !later)?;
     for (number, file) in given.iter_mut().enumerate() {
         file.drawn = self::drawn(number, file, &mut images, &settings, &caps);
     }
@@ -706,22 +708,33 @@ fn show_files(
         render_errors: settings.render_errors,
         ..Inputs::new(caps)
     };
-    let shown = if paged {
-        page_files(context, given, &mut inputs, &settings, failed, || {
-            drop(interrupt.take())
-        })
+    if paged {
+        let caught = || drop(interrupt.take());
+        page_files(
+            context,
+            given,
+            &mut inputs,
+            &settings,
+            later,
+            failed,
+            caught,
+        )?;
     } else {
-        print_files(context, given, &mut inputs, &settings, failed)
-    };
-    match shown {
-        // A closed pipe (kiri *.md | head) takes no more.
-        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => {}
-        Err(error) => return Err(Failure::Error(error.to_string())),
-        Ok(()) => {}
+        shown(print_files(context, given, &mut inputs, &settings, failed))?;
     }
     match failed.get() {
         true => Err(Failure::Told),
         false => Ok(()),
+    }
+}
+
+/// What showing files came to: a closed pipe (kiri *.md | head) takes no
+/// more, which is no failure.
+fn shown(result: io::Result<()>) -> Result<(), Failure> {
+    match result {
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+        Err(error) => Err(Failure::Error(error.to_string())),
+        Ok(()) => Ok(()),
     }
 }
 
@@ -785,23 +798,34 @@ fn tell_drawn(drawn: &Drawn, failed: &Cell<bool>) {
 /// Why a file failed, and a warning about a file, are told before the
 /// pager opens, and why the diagram of a diagram file was not drawn after
 /// it closes; all of them are noted in `failed`. `caught` runs once the
-/// pager's screen catches the signals.
+/// pager's screen catches the signals. With `later`, the images of the
+/// documents load in the background once the pager has opened; should it
+/// not open, they load before the files are printed.
 fn page_files(
     context: &Context,
     given: Vec<Given>,
     inputs: &mut Inputs,
     settings: &Settings,
+    later: bool,
     failed: &Cell<bool>,
     caught: impl FnOnce(),
-) -> io::Result<()> {
+) -> Result<(), Failure> {
     let mut files = Vec::new();
     // What is told about each file before it is shown.
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
     // What is told about each file after it is shown.
     let mut drawn = Vec::new();
+    // The documents whose images load later, by number, and their files.
+    let mut documents = Vec::new();
     for (number, given) in given.into_iter().enumerate() {
         drawn.push(given.drawn);
+        if let Shown::Document { images: true, .. } = given.shown
+            && later
+            && settings.images
+        {
+            documents.push((number, given.file.clone()));
+        }
         let name = given.name;
         let mut error = None;
         let mut warned: Vec<_> = (given.warnings.iter())
@@ -867,13 +891,44 @@ fn page_files(
         follow: context.follow,
         ..kiri::pager::Options::new(settings.search_case)
     };
+    let parts: Vec<Part> = (documents.iter())
+        .map(|(number, file)| Part {
+            number: *number,
+            ..part(&files[*number].document, file.as_deref())
+        })
+        .collect();
+    let start = |inputs: &mut Inputs, loads: &mut Loads| {
+        if !parts.is_empty() {
+            load_in_background(context, &parts, settings, inputs, loads);
+        }
+    };
     let paging = settings.paging;
-    let opening = (opening, |_: &mut Inputs, _: &mut Loads| {});
+    let opening = (opening, start);
     if let Some(result) = page(context, content, name, inputs, paging, options, opening) {
         // What the pager would have hidden.
         (drawn.iter().flatten()).for_each(|drawn| tell_drawn(drawn, failed));
-        return result;
+        return shown(result);
     }
+    // Printed after all, so the images load first, and what they tell is
+    // told at each document's place; the guard lives on as it does when
+    // they loaded before.
+    let mut images_told = vec![Vec::new(); files.len()];
+    let _interrupt = match parts.is_empty() {
+        true => None,
+        false => {
+            let loaded = load_parts(context, &parts, settings, &inputs.caps)?;
+            let stderr = settings.render_errors.stderr();
+            for (number, _) in &documents {
+                let name = &files[*number].name;
+                let told = loaded.images.warnings_in(*number, stderr);
+                images_told[*number] = (told.iter())
+                    .map(|warning| format!("{name}: {warning}"))
+                    .collect();
+            }
+            inputs.images.extend(loaded.images);
+            loaded.interrupt
+        }
+    };
     // Printed as `print_files` prints them: a failed file is not shown, and
     // what is told about each file is told at its place, unless it was
     // told before a pager that then could not open.
@@ -883,14 +938,17 @@ fn page_files(
         if !told_before.get() {
             tell_before(number);
         }
+        for warning in &images_told[number] {
+            eprintln!("kiri: {warning}");
+        }
         if errors[number].is_some() {
             continue;
         }
-        let shown = match lone {
+        let rendered = match lone {
             true => kiri::render::render(&file.document, inputs, &mut out),
             false => kiri::render::render_file(file, number, apart, inputs, &mut out),
         };
-        shown.and_then(|()| out.flush())?;
+        shown(rendered.and_then(|()| out.flush()))?;
         apart = true;
         if let Some(drawn) = &drawn[number] {
             tell_drawn(drawn, failed);
@@ -1068,6 +1126,7 @@ fn load_given(
     given: &[Given],
     settings: &Settings,
     caps: &Capabilities,
+    documents: bool,
 ) -> Result<Loaded, Failure> {
     if !caps.draws_images() {
         return Ok(Loaded::default());
@@ -1075,7 +1134,9 @@ fn load_given(
     let parts: Vec<Part> = (given.iter().enumerate())
         .filter_map(|(number, given)| {
             let document = match &given.shown {
-                Shown::Document { document, images } if *images && settings.images => document,
+                Shown::Document { document, images } if *images && settings.images && documents => {
+                    document
+                }
                 Shown::Diagram { document, .. } => document,
                 _ => return None,
             };
@@ -1270,12 +1331,7 @@ fn load_in_background(
     loads: &mut Loads,
 ) {
     let loading = loading(context, settings, &inputs.caps);
-    // With no stamps, every file counts as changed, and none loads yet.
-    let mut stamps = Stamps::default();
-    reload_in_background(parts, &loading, &mut inputs.images, &mut stamps, loads);
-    for key in loads.keys() {
-        inputs.images.wait(key.clone(), Placeholder::Unsized);
-    }
+    kiri::images::load_in_background(parts, &loading, &mut inputs.images, loads);
 }
 
 /// Shows the diagram `source`, in `language`, from the file at `path` or

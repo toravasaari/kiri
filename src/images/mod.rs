@@ -27,7 +27,9 @@ use crate::model::{Block, Document, Inline};
 pub(crate) use background::Arrival;
 pub use background::{Loads, STOPPING};
 pub use decode::{DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image};
-pub use pipeline::{Interrupted, Loaded, Loading, load_documents, reload_in_background};
+pub use pipeline::{
+    Interrupted, Loaded, Loading, load_documents, load_in_background, reload_in_background,
+};
 pub use stamps::Stamps;
 pub use svg::{Fonts, Svg};
 
@@ -310,6 +312,15 @@ impl Images {
         self.order.retain(|loaded| loaded != key);
         self.late.remove(key);
         self.by_key.remove(key)
+    }
+
+    /// Takes in every outcome of `other`, after those it holds.
+    pub fn extend(&mut self, mut other: Images) {
+        for key in std::mem::take(&mut other.order) {
+            if let Some(image) = other.by_key.remove(&key) {
+                self.insert(key, image);
+            }
+        }
     }
 
     /// Records the outcome of loading `key` in the background, as
