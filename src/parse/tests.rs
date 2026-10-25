@@ -104,7 +104,7 @@ fn parses_tables_with_alignment() {
 }
 
 #[test]
-fn reads_an_html_img_as_an_expected() {
+fn reads_an_html_img_as_an_image() {
     let expected = || image("a.png", vec![text("An image")]);
     assert_eq!(
         parse("<img src=\"a.png\" alt=\"An image\">\n").blocks,
