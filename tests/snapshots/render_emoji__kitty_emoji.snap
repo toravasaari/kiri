@@ -2,7 +2,7 @@
 source: tests/render_emoji.rs
 expression: "visible(&render_for(\"emoji.md\", Capabilities::kitty(WIDTH)))"
 ---
-␛[0;1;4;34m␛]66;s=3;Launch day 🚀␛\␛[0m
+␛[0;1;34m␛]66;s=3:n=5:d=6:v=1:w=5;Launch␛\␛]66;s=3:n=5:d=6:v=1:w=5; day ␛\␛]66;s=3:n=5:d=6:v=1:w=2;🚀␛\␛[0m
 
 
 

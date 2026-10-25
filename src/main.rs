@@ -2080,6 +2080,7 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), Failure> {
         ),
         detection: &detection,
         choices: &choices,
+        theme: &theme,
         config_error,
         theme_error,
         output,

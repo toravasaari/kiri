@@ -283,6 +283,29 @@ fn reads_an_html_mark_as_marked_text() {
     );
 }
 
+#[test]
+fn reads_an_html_sub_and_sup_as_scripts() {
+    assert_eq!(
+        parse("H<sub>2</sub>O and x<SUP>*n* + 1</SUP>\n").blocks,
+        vec![Block::Paragraph(vec![
+            text("H"),
+            Inline::Subscript(vec![text("2")]),
+            text("O and x"),
+            Inline::Superscript(vec![Inline::Emphasis(vec![text("n")]), text(" + 1"),]),
+        ])]
+    );
+    assert_eq!(
+        parse("e<sup>x<sub>i</sub></sup>, a <sub>b\n").blocks,
+        vec![Block::Paragraph(vec![
+            text("e"),
+            Inline::Superscript(vec![text("x"), Inline::Subscript(vec![text("i")])]),
+            text(", a "),
+            Inline::Html("<sub>".into()),
+            text("b"),
+        ])]
+    );
+}
+
 fn details(summary: Vec<Inline>, blocks: Vec<Block>) -> Block {
     Block::Details { summary, blocks }
 }

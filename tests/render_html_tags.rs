@@ -1,5 +1,5 @@
 //! The HTML tags kiri reads besides `<img>`: `<details>` with its
-//! `<summary>`, `<kbd>`, `<mark>` and `<br>`.
+//! `<summary>`, `<kbd>`, `<mark>`, `<sub>`, `<sup>` and `<br>`.
 
 use kiri::caps::Capabilities;
 use kiri::theme::Theme;
@@ -71,7 +71,113 @@ fn a_heading_in_details_is_drawn_as_at_the_top_level() {
     let out = render(source, &inputs(&caps, &Theme::default()));
     let inside = out.replace("Outside", "Inside");
     assert!(
-        inside.matches("\x1b[0;1;4;34m\x1b]66;s=2;Inside").count() == 2,
+        inside.matches("\x1b[0;1;34m\x1b]66;s=2;Inside").count() == 2,
+        "{out:?}"
+    );
+}
+
+/// `source` rendered as plain text, and in kitty without text sizing.
+fn without_text_sizing(source: &str) -> [String; 2] {
+    let kitty = Capabilities {
+        text_sizing: false,
+        ..Capabilities::kitty(WIDTH)
+    };
+    [Capabilities::plain(WIDTH), kitty]
+        .map(|caps| render(source, &inputs(&caps, &Theme::default())))
+}
+
+#[test]
+fn without_text_sizing_sub_and_sup_take_script_characters() {
+    let source = "H<sub>2</sub>O, x<sup>2</sup>, 2<sup>nd</sup>, E<sub>max</sub>, \
+        10<sup>-(n+1)</sup>, a<sub>i+j</sub>, x<sup>i<sub>2</sub></sup>\n";
+    for out in without_text_sizing(source) {
+        assert_eq!(out, "  H₂O, x², 2ⁿᵈ, Eₘₐₓ, 10⁻⁽ⁿ⁺¹⁾, aᵢ₊ⱼ, xⁱ²\n");
+    }
+}
+
+#[test]
+fn a_sub_or_sup_without_script_characters_is_plain_text() {
+    // No superscript q, no subscript b, and code or a link is not plain
+    // text.
+    let source = "x<sup>q</sup>, y<sub>b</sub>, z<sup>`2`</sup>, w<sup>*2*</sup>, \
+        v<sup>[1](#a)</sup>\n";
+    let [plain, _] = without_text_sizing(source);
+    assert_eq!(plain, "  xq, yb, z`2`, w2, v1 <#a>\n");
+    let [_, kitty] = without_text_sizing("x<sup>q</sup>, y<sub>b</sub>, w<sup>*2*</sup>\n");
+    assert_eq!(kitty, "  xq, yb, w\x1b[0;3m2\x1b[0m\n");
+}
+
+#[test]
+fn with_text_sizing_sub_and_sup_are_two_thirds_of_the_size_around_them() {
+    let kitty = |source: &str| {
+        render(
+            source,
+            &inputs(&Capabilities::kitty(WIDTH), &Theme::default()),
+        )
+    };
+    // Three cells of text in two, a sup at the top and a sub at the bottom
+    // of the row, whatever their characters.
+    let out = kitty("x<sup>2</sup> E<sub>max</sub> e<sup>iπ</sup>\n");
+    for sized in [
+        "x\x1b]66;s=1:n=2:d=3:w=1;2\x1b\\",
+        "E\x1b]66;s=1:n=2:d=3:v=1:w=2;max\x1b\\",
+        "e\x1b]66;s=1:n=2:d=3:w=2;iπ\x1b\\",
+    ] {
+        assert!(out.contains(sized), "{sized:?} in {out:?}");
+    }
+    // A script inside a script keeps its size.
+    let out = kitty("x<sup>a<sub>i</sub></sup>\n");
+    assert!(out.contains("x\x1b]66;s=1:n=2:d=3:w=2;ai\x1b\\"), "{out:?}");
+}
+
+#[test]
+fn a_sub_or_sup_in_a_heading_shrinks_in_the_heading_s_rows() {
+    let kitty = |source: &str| {
+        render(
+            source,
+            &inputs(&Capabilities::kitty(WIDTH), &Theme::default()),
+        )
+    };
+    // An h1 is 3 · 5/6, so its sup is 3 · 5/9.
+    let out = kitty("# x<sup>2</sup>\n");
+    assert!(out.contains("\x1b]66;s=3:n=5:d=9:w=1;2\x1b\\"), "{out:?}");
+    // An h4 is 2 · 3/4, so its sub is 2 · 1/2.
+    let out = kitty("#### H<sub>2</sub>O\n");
+    assert!(
+        out.contains("\x1b]66;s=2:n=1:d=2:v=1:w=1;2\x1b\\"),
+        "{out:?}"
+    );
+    // A heading in a quote is at normal size, and so is the text around
+    // its sup.
+    let out = kitty("> # x<sup>2</sup>\n");
+    assert!(out.contains("x\x1b]66;s=1:n=2:d=3:w=1;2\x1b\\"), "{out:?}");
+}
+
+#[test]
+fn a_sup_keeps_its_place_in_a_table_cell_a_link_and_emphasis() {
+    let caps = Capabilities::kitty(WIDTH);
+    let out = render(
+        "| a | b |\n|---|---|\n| x<sup>2</sup> | y |\n\n\
+         [x<sup>2</sup>](https://example.com) and *e<sup>n</sup>*\n",
+        &inputs(&caps, &Theme::default()),
+    );
+    // The cell is measured with its sup, two cells, so the border after
+    // it lines up with the header's.
+    let sup = "x\x1b]66;s=1:n=2:d=3:w=1;2\x1b\\";
+    assert!(
+        out.contains(&format!("\x1b[0m {sup} \x1b[0;90m│")),
+        "{out:?}"
+    );
+    assert!(out.contains("\x1b[0;1ma\x1b[0m  \x1b[0;90m│"), "{out:?}");
+    // The link stays open over the sup, and the sup keeps the emphasis.
+    assert!(
+        out.contains(&format!(
+            "\x1b]8;;https://example.com\x1b\\\x1b[0;4;34m{sup}\x1b]8;;\x1b\\"
+        )),
+        "{out:?}"
+    );
+    assert!(
+        out.contains("\x1b[0;3me\x1b]66;s=1:n=2:d=3:w=1;n\x1b\\"),
         "{out:?}"
     );
 }

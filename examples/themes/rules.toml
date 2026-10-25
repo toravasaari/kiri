@@ -15,6 +15,12 @@ rule = true
 scale = 1
 color = "cyan"
 
+[h4]
+scale = 1
+
+[h5]
+scale = 1
+
 [h6]
 italic = false
 color = "bright-black"

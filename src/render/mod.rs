@@ -7,6 +7,7 @@ pub mod image;
 pub mod layout;
 pub mod loading;
 pub mod output;
+pub mod script;
 pub mod style;
 pub mod table;
 pub mod wrap;

@@ -513,6 +513,8 @@ fn push_inline(inlines: &mut Vec<Inline>, inline: Inline) {
         inlines.push(match phrase {
             html::Phrase::Kbd => Inline::Kbd(content),
             html::Phrase::Mark => Inline::Mark(content),
+            html::Phrase::Sub => Inline::Subscript(content),
+            html::Phrase::Sup => Inline::Superscript(content),
         });
     }
 }

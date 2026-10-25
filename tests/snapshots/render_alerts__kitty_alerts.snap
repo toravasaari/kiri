@@ -2,7 +2,7 @@
 source: tests/render_alerts.rs
 expression: "visible(&render_fixture(\"alerts.md\", &Inputs::new(kitty())))"
 ---
-␛[0;1;4;34m␛]66;s=3;Alerts␛\␛[0m
+␛[0;1;34m␛]66;s=3:n=5:d=6:v=1:w=5;Alerts␛\␛[0m
 
 
 

@@ -58,9 +58,9 @@ the window.
 
 ## Headings
 
-Level one is three times the normal size, levels two and three twice, and
-levels four to six normal size. Underlines, weight, colour and italic tell
-the levels of the same size apart.
+Level one is two and a half times the normal size, and each level after it
+a quarter smaller, down to the normal size at level six. Every level is bold
+and blue, without an underline: size alone tells them apart.
 
 ### Level three
 

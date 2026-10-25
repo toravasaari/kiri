@@ -13,8 +13,9 @@ use crate::config::{AUTO_DETECT, Choices, Environment, Named, Origin, Setting, T
 use crate::diagrams::find::{self, Choice, Search};
 use crate::diagrams::{BuiltIn, Command, LANGUAGES};
 use crate::render::image::DEFAULT_CELL;
+use crate::size::TextSize;
 use crate::term::{CellSize, Detection, Mode};
-use crate::theme::Paper;
+use crate::theme::{Paper, Theme};
 
 /// What the report tells.
 #[derive(Debug)]
@@ -27,6 +28,8 @@ pub struct Facts<'a> {
     pub max_image_size: Setting<u64>,
     pub detection: &'a Detection,
     pub choices: &'a Choices,
+    /// The theme kiri uses: the default one when it could not be loaded.
+    pub theme: &'a Theme,
     /// Why the configuration file could not be read.
     pub config_error: Option<String>,
     /// Why the theme could not be loaded.
@@ -205,6 +208,13 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
         ThemeSource::Paper(Paper::Dark) => "dark paper".into(),
     };
     row(out, &["Theme", &theme, &from(choices.theme.origin)])?;
+    let sizes = heading_sizes(facts.theme);
+    // A theme that does not load leaves the default sizes.
+    let origin = match facts.theme_error {
+        Some(_) => Origin::Default,
+        None => choices.theme.origin,
+    };
+    row(out, &["Heading sizes", &sizes, &from(origin)])?;
     let margins = &choices.margins;
     row(
         out,
@@ -255,6 +265,35 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     let cells = format!("{} cells", facts.detection.caps.width);
     row(out, &["Width", &cells, &width])?;
     writeln!(out)
+}
+
+/// The sizes of h1 to h6 as times the normal size. A size the theme gave
+/// that kiri rounded to draw it shows what was written and what is drawn,
+/// such as `1.3 (drawn 1.27 = 2 · 7/11)`.
+fn heading_sizes(theme: &Theme) -> String {
+    let sizes: Vec<String> = (1..=6)
+        .map(|level| {
+            let heading = theme.heading(level);
+            let drawn = decimal(heading.size);
+            match (&heading.written_scale, heading.size.fraction()) {
+                (Some(written), Some(fraction)) => format!(
+                    "{written} (drawn {drawn} = {} · {}/{})",
+                    heading.size.scale(),
+                    fraction.numerator(),
+                    fraction.denominator()
+                ),
+                (Some(written), None) => format!("{written} (drawn {drawn})"),
+                (None, _) => drawn,
+            }
+        })
+        .collect();
+    sizes.join(", ")
+}
+
+/// `size` as a decimal with at most two places, such as `1.75` or `2`.
+fn decimal(size: TextSize) -> String {
+    let text = format!("{:.2}", size.value());
+    text.trim_end_matches('0').trim_end_matches('.').to_owned()
 }
 
 fn write_files(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result {

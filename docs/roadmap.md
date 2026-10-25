@@ -534,11 +534,15 @@ Needs G1.2 and G1.3.
 Text drawn smaller or larger with the text sizing protocol's fractional
 scale, built once for all of these:
 
-- `<sub>` and `<sup>`, drawn smaller and lowered or raised.
-- Footnote references, drawn smaller and raised.
-- Heading scales with fractions, such as 1.5 for `h4`. Scales are whole
-  numbers today, so `h4` to `h6` are either the size of body text or at
-  least twice it.
+- `<sub>` and `<sup>` at two thirds of the size around them, a sup at the
+  top of the rows and a sub at the bottom; Unicode's script characters
+  (x², H₂O) without text sizing when every character has one, else plain
+  text. (done)
+- Heading sizes with fractions. A theme writes `scale = 1.5`; kiri draws
+  the nearest size it can and `--doctor` shows it. The defaults go from
+  2 1/2 for `h1` down by quarters to 1 for `h6`, all bold, without
+  underlines. (done)
+- Footnote references, drawn smaller and raised: with footnotes, 4.10.1.
 
 #### 4.10.4 Front matter (done)
 
@@ -631,6 +635,26 @@ The counterpart of several files (4.9.2) for images.
   behind an option of its own; PNG stays the normal path, as the more
   reliable one.
 
+#### 4.12.8 Remote images
+
+- Images from URLs, as many other viewers show them. `https:` URLs and
+  the local machine, also over `http:`, are fetched by default; the local
+  network, such as a home network or a Docker network, also over `http:`,
+  only when the configuration file allows it, for all of it or for named
+  hosts. A setting and a command-line option choose the sources, or none.
+  Browsers draw the same line: a page from the web needs the reader's
+  permission to reach the local network.
+- Fetching an image tells its server that the document was opened, and an
+  image on the local network lets a document send requests to devices
+  there. The fetching itself is kept safe: an address is checked after its
+  name is resolved, the ports browsers block (the Fetch standard's list,
+  such as SMTP's 25) are not fetched from, the `--max-image-size` limit
+  and a timeout apply to each fetch, a few fetches run at a time, no
+  cookies or referrer are sent, and a cache keeps a document opened again
+  from fetching its images again.
+- Output that is not a terminal shows no images, so nothing is fetched
+  for it.
+
 ### 4.13 Obsidian
 
 Obsidian notes reach past single Markdown files, so this part may grow or
@@ -662,15 +686,24 @@ A menu in the pager, from which its keys and settings can be found.
 
 - Changing the theme (4.11) from the menu while the document is shown.
 
+#### 4.14.3 Remote images from the menu
+
+- Allowing remote images from the local network (4.12.8) from the menu,
+  for the document shown or for good, as a browser asks for it.
+
 ## Phase 5 – Beyond kitty
 
-- Other terminals: sixel and iTerm2 images, plain styling for headings.
-  Needs G3.3.
+- Other terminals: sixel and iTerm2 images. Needs G3.3.
+- Headings in terminals without kitty's text sizing, from the best to the
+  plainest: drawn as images in the terminal's own font, which kiri finds
+  by asking the terminal or reading its configuration file, as
+  [mdfried](inspiration.md#other-terminal-markdown-readers) does; where
+  images do not work either, block characters through chafa or large
+  letters in the manner of figlet; in a pipe and with `NO_COLOR`, plain
+  styling.
 - `--doctor` lists the image protocols probed.
 - Images as coloured Unicode block characters where no image protocol
   works.
-- Remote images, off by default because fetching one tells its server that
-  the document was opened.
 - An HTML backend and `kiri serve` for reading in a browser with live reload.
 - Pixel rendering: a headless browser screenshot (`--browser`), and possibly
   a native layout and rasterising engine later.
@@ -907,6 +940,13 @@ The test that the example documents fit the window at every width,
 `the_visual_check_documents_fit_every_mode`, loads no diagram renderer,
 so it never draws a diagram. A drawn diagram, or the red error below one
 that fails, could reach past the window's edge without the test noticing.
+
+#### B4 Gaps in a heading of wide characters
+
+A heading at a fractional size packs its text in groups of whole cells,
+and a wide character never crosses the end of a group. Wide characters
+such as CJK then end a group early and the group rounds up, so a heading
+like `### 日本語の見出し 🇫🇮` at 1 3/4 shows gaps between its groups. Minor.
 
 ### Upstream bugs
 
