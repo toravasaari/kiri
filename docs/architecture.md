@@ -159,7 +159,13 @@ its placeholder moves nothing when it comes. The band is an image of its
 own placed over the text; clearing the screen frees it, so each frame
 sends it anew, as it is then, and the pager draws a frame each 50 ms
 while a band shows, so that it moves. The status line says
-`[rendering: 1/3]` in place of the name meanwhile. An image that comes
+`[rendering: 1/3]` in place of the name meanwhile. The images in view
+load first, then the nearest: each band knows its image and the lines
+that show it, and whenever the view moves `src/pager/loading.rs` orders
+the images by how far those lines are from the view, a line below
+before a line above, and tells `Loads`, which hands the waiting jobs out
+in that order. Say the reader is at the end when a reload adds three
+diagrams: the last one starts first. An image that comes
 is laid out as after a resize, but the top line stays the same line, so
 the view does not move, and the tint of auto-follow's change stays on
 its blocks; auto-follow jumped already when the text came. A newer
@@ -439,7 +445,7 @@ src/pager/changes.rs       where a reload changed the laid-out lines, and
                            which change auto-follow moves to
 src/pager/tint.rs          the lighter background over that change's lines
 src/pager/loading.rs       what stands in for an image while it loads after
-                           a reload
+                           a reload, and which images load first
 src/pager/status.rs        the status line
 src/pager/help.rs          the help panel that lists the keys
 src/pager/warnings.rs      the warning line above the status line

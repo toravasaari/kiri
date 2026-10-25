@@ -464,6 +464,8 @@ fn page_through(
                     .expect("a source to reload from");
                 let now = terminal.now();
                 let before = inputs.images.take_placeholders();
+                // The images in view start first, once the view is known.
+                source.loads.hold();
                 let reloaded_now = reload.reload(&mut inputs.images, source.loads, &inputs.caps);
                 let replaced = inputs.images.take_replaced();
                 let (document, warnings) = match reloaded_now {
@@ -1290,6 +1292,11 @@ fn show(
     source: &mut Origin,
 ) -> io::Result<Outcome> {
     let reload = &mut source.reload;
+    // The images loading start nearest to the lines in view.
+    let mut told = layout.view.visible();
+    source
+        .loads
+        .prefer(loading::nearest(layout.lines, told.clone()));
     let mut now = terminal.now();
     let mut shown = layout.frame(state, now);
     writer.at(now.saturating_duration_since(source.started));
@@ -1350,6 +1357,12 @@ fn show(
                 Polled::Reload => return Ok(Outcome::Reload),
                 Polled::Gone(why) => state.told = Some(Told::new(why)),
             }
+        }
+        if layout.view.visible() != told {
+            told = layout.view.visible();
+            source
+                .loads
+                .prefer(loading::nearest(layout.lines, told.clone()));
         }
         let came = source.loads.poll();
         if !came.is_empty() {
@@ -4983,5 +4996,86 @@ mod tests {
         // Nothing moves on under the panel, so the pager waits a poll.
         let waits = &terminal.waits;
         assert_eq!(waits[waits.len() - 2..], [POLL, POLL], "{waits:?}");
+    }
+
+    /// Reloads the document as the first, with the Mermaid diagrams of
+    /// the second loading with the third, one at a time.
+    struct Gating(Document, Vec<&'static str>, crate::images::Gated);
+
+    impl Reload for Gating {
+        fn reload(&mut self, _: &mut Images, loads: &mut Loads, _: &Capabilities) -> Reloaded {
+            loads.gated(&self.1, &self.2);
+            Reloaded::Document(self.0.clone())
+        }
+
+        fn change(&mut self) -> Change {
+            Change::Unchanged
+        }
+    }
+
+    /// `numbers(40)` with the diagram `x` after line 1, `up` after line
+    /// 20 and `down` after line 37.
+    fn diagrammed() -> Document {
+        let source: String = (1..=40)
+            .map(|n| match n {
+                1 => "x",
+                20 => "up",
+                37 => "down",
+                _ => "",
+            })
+            .enumerate()
+            .map(|(at, diagram)| match diagram {
+                "" => format!("Line {}\n\n", at + 1),
+                _ => format!("Line {}\n\n```mermaid\n{diagram}\n```\n\n", at + 1),
+            })
+            .collect();
+        crate::parse::parse(&source)
+    }
+
+    /// The diagrams of [`diagrammed`] in the order they start when the
+    /// pager shows `numbers(40)` in a window of 10 rows, with `reads`,
+    /// and reloads it as `diagrammed()`. The read numbered `first` waits
+    /// for the first diagram to start, and the one numbered `open` lets
+    /// them all draw and waits for them.
+    fn started_in(reads: &[&[u8]], first: usize, open: usize) -> Vec<String> {
+        let gated = crate::images::Gated::default();
+        let mut gating = Gating(diagrammed(), vec!["x", "up", "down"], gated.clone());
+        let mut terminal = Fake::new(60, 10, reads);
+        let hooked = gated.clone();
+        terminal.hook = Some(Box::new(move |read| {
+            if read == first {
+                hooked.until(1);
+            } else if read == open {
+                hooked.open.store(true, std::sync::atomic::Ordering::SeqCst);
+                hooked.until(3);
+            }
+        }));
+        let mut inputs = Inputs::new(Capabilities::kitty(80));
+        run(
+            Content::Document(&numbers(40)),
+            None,
+            "notes.md",
+            &mut inputs,
+            Options {
+                reload: Some(&mut gating),
+                ..Options::new(SearchCase::Smart)
+            },
+            &mut terminal,
+        )
+        .unwrap();
+        gated.started()
+    }
+
+    #[test]
+    fn a_reload_loads_the_diagram_in_view_first() {
+        // At the end, where `down` is after the reload.
+        assert_eq!(started_in(&[b"G", b"r", b""], 2, 3), ["down", "up", "x"]);
+    }
+
+    #[test]
+    fn scrolling_loads_a_diagram_further_down_before_one_above_it() {
+        // `x` starts first, in view at the top, and `down` comes into view.
+        let started = started_in(&[b"r", b"", b"G", b""], 1, 3);
+        assert_eq!(started, ["x", "down", "up"]);
     }
 }

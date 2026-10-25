@@ -377,6 +377,14 @@ impl Loads {
         }
     }
 
+    /// Loads the diagrams `names`, each a Mermaid diagram of one line,
+    /// with `gated`, one at a time, as no program draws them.
+    #[cfg(test)]
+    pub(crate) fn gated(&mut self, names: &[&str], gated: &Gated) {
+        let jobs = names.iter().map(|name| diagram(name, false)).collect();
+        self.start(jobs, context(gated.clone()));
+    }
+
     /// Takes the image `key` as loading, to come when the test says.
     #[cfg(test)]
     pub(crate) fn expect(&mut self, key: impl Into<ImageKey>) -> Arrival {
@@ -432,6 +440,80 @@ impl Arrival {
             image,
         };
         self.sender.send(done).expect("the loads to take it");
+    }
+}
+
+/// Draws each diagram once `open` is set, or ends when its load is
+/// stopped, and notes the source of each one it starts on.
+#[cfg(test)]
+#[derive(Clone, Default)]
+pub(crate) struct Gated {
+    pub(crate) started: Arc<Mutex<Vec<String>>>,
+    pub(crate) open: Arc<AtomicBool>,
+}
+
+#[cfg(test)]
+impl Gated {
+    /// The sources of the diagrams started, in the order they were.
+    pub(crate) fn started(&self) -> Vec<String> {
+        self.started.lock().unwrap().clone()
+    }
+
+    /// Waits until `count` diagrams have started, for at most two
+    /// seconds; the sources of those that have.
+    pub(crate) fn until(&self, count: usize) -> Vec<String> {
+        let start = Instant::now();
+        while self.started().len() < count && start.elapsed() < Duration::from_secs(2) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        self.started()
+    }
+}
+
+#[cfg(test)]
+impl Renderer for Gated {
+    fn draws(&self, _: &str) -> bool {
+        true
+    }
+
+    fn render(&self, request: &Request) -> Result<crate::diagrams::Drawn, String> {
+        let stop = request.stop.expect("a stop flag");
+        self.started
+            .lock()
+            .unwrap()
+            .push(request.source.trim().to_owned());
+        while !self.open.load(Ordering::SeqCst) && !stop.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        Err("drawn".to_owned())
+    }
+}
+
+/// A job for the diagram `source`, which a program draws or not.
+#[cfg(test)]
+fn diagram(source: &str, program: bool) -> Job {
+    let source = format!("{source}\n");
+    Job {
+        key: ImageKey::block("mermaid", &source),
+        what: What::Diagram {
+            language: "mermaid".to_owned(),
+            source,
+            line: 1,
+            by_line: true,
+        },
+        program,
+    }
+}
+
+/// What loading with `renderer` needs.
+#[cfg(test)]
+fn context(renderer: impl Renderer + Send + Sync + 'static) -> Context {
+    Context {
+        renderer: Box::new(renderer),
+        theme: Theme::Light,
+        panel: true,
+        largest: None,
+        max_file_size: super::DEFAULT_MAX_FILE_SIZE,
     }
 }
 
@@ -585,75 +667,6 @@ mod tests {
         }
     }
 
-    /// Draws each diagram once `open` is set, or ends when its load is
-    /// stopped, and notes the source of each one it starts on.
-    #[derive(Clone, Default)]
-    pub(crate) struct Gated {
-        pub(crate) started: Arc<Mutex<Vec<String>>>,
-        pub(crate) open: Arc<AtomicBool>,
-    }
-
-    impl Gated {
-        /// The sources of the diagrams started, in the order they were.
-        pub(crate) fn started(&self) -> Vec<String> {
-            self.started.lock().unwrap().clone()
-        }
-
-        /// Waits until `count` diagrams have started, for at most two
-        /// seconds; the sources of those that have.
-        pub(crate) fn until(&self, count: usize) -> Vec<String> {
-            let start = Instant::now();
-            while self.started().len() < count && start.elapsed() < Duration::from_secs(2) {
-                std::thread::sleep(Duration::from_millis(5));
-            }
-            self.started()
-        }
-    }
-
-    impl Renderer for Gated {
-        fn draws(&self, _: &str) -> bool {
-            true
-        }
-
-        fn render(&self, request: &Request) -> Result<crate::diagrams::Drawn, String> {
-            let stop = request.stop.expect("a stop flag");
-            self.started
-                .lock()
-                .unwrap()
-                .push(request.source.trim().to_owned());
-            while !self.open.load(Ordering::SeqCst) && !stop.load(Ordering::SeqCst) {
-                std::thread::sleep(Duration::from_millis(5));
-            }
-            Err("drawn".to_owned())
-        }
-    }
-
-    /// A job for the diagram `source`, which a program draws or not.
-    fn diagram(source: &str, program: bool) -> Job {
-        let source = format!("{source}\n");
-        Job {
-            key: ImageKey::block("mermaid", &source),
-            what: What::Diagram {
-                language: "mermaid".to_owned(),
-                source,
-                line: 1,
-                by_line: true,
-            },
-            program,
-        }
-    }
-
-    /// What loading with `renderer` needs.
-    fn context(renderer: impl Renderer + Send + Sync + 'static) -> Context {
-        Context {
-            renderer: Box::new(renderer),
-            theme: Theme::Light,
-            panel: true,
-            largest: None,
-            max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
-        }
-    }
-
     /// Polls `loads` until the image `key` comes, for at most two
     /// seconds; whether it came.
     fn came(loads: &mut Loads, key: &ImageKey) -> bool {
@@ -696,8 +709,7 @@ mod tests {
     /// holds them, one at a time as no program draws them.
     fn held(loads: &mut Loads, gated: &Gated, names: &[&str]) {
         loads.hold();
-        let jobs = names.iter().map(|name| diagram(name, false)).collect();
-        loads.start(jobs, context(gated.clone()));
+        loads.gated(names, gated);
     }
 
     fn keys(names: &[&str]) -> Vec<ImageKey> {
