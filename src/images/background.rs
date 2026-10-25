@@ -5,7 +5,6 @@
 
 use std::any::Any;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::panic::{self, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -416,8 +415,7 @@ impl Batch {
                 false => None,
             };
             // A renderer or decoder that panics fails this load alone.
-            let loaded =
-                panic::catch_unwind(AssertUnwindSafe(|| self.load(&job.what, &stop, &fonts)));
+            let loaded = crate::panics::catch(|| self.load(&job.what, &stop, &fonts));
             drop(place);
             let image = loaded.unwrap_or_else(|panic| Err(crashed(&job.what, panic.as_ref())));
             if stop.load(Ordering::SeqCst) {

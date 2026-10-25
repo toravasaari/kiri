@@ -361,6 +361,9 @@ src/term/progress.rs       the line that tells how far drawing diagrams has
 src/term/interrupt.rs      signals while programs draw diagrams
 src/term/testing.rs        pseudo-terminals for the tests
 src/testing.rs             scratch directories for the tests
+src/panics.rs              panics kiri catches on purpose, such as a load's
+                           in the background, which the pager's screen
+                           stays open for
 src/config.rs              the environment variables kiri reads, the
                            configuration file, and each setting resolved
                            from the flags, the environment, the file and
