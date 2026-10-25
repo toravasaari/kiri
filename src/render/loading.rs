@@ -14,7 +14,7 @@ use crate::color::Color;
 
 /// How much of an old image shows through while its block's new one
 /// loads.
-pub const DIMMED: f32 = 0.3;
+pub const DIMMED: f32 = 0.6;
 
 /// How long the light part of the band takes to run across it once.
 pub const PERIOD: Duration = Duration::from_millis(2400);
@@ -137,7 +137,7 @@ mod tests {
     fn a_dimmed_image_keeps_its_colours_at_less_opacity() {
         let image = RgbaImage::from_pixel(2, 1, Rgba([10, 20, 30, 200]));
         let dimmed = dimmed(image);
-        assert_eq!(dimmed.get_pixel(1, 0).0, [10, 20, 30, 60]);
+        assert_eq!(dimmed.get_pixel(1, 0).0, [10, 20, 30, 120]);
     }
 
     /// The opacity of each pixel along the band's line.

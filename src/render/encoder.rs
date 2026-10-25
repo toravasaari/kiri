@@ -324,7 +324,7 @@ mod tests {
             &images,
             (10, 20),
         );
-        assert_eq!(dimmed.unwrap().pixels.get_pixel(5, 5).0, [255, 0, 0, 60]);
+        assert_eq!(dimmed.unwrap().pixels.get_pixel(5, 5).0, [255, 0, 0, 120]);
         // Nothing to show as the image itself.
         assert!(Scaled::new(&placed("a.png", 2, 1, Shows::Image), &images, (10, 20)).is_err());
     }
