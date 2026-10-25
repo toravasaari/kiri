@@ -19,17 +19,18 @@ pub fn width(spans: &[Span]) -> usize {
         .sum()
 }
 
-/// The cells `more` adds when appended to `line`. Text at a fraction is
-/// packed together with the text before it in the same style, so it may
-/// add fewer cells than it takes on its own.
-fn added_width(line: &[Span], more: &[Span]) -> usize {
-    if (more.iter()).all(|span| span.style.size.fraction().is_none()) {
-        return width(more);
+/// The cells `gap` and then `word` add when appended to `line`. Text at a
+/// fraction is packed together with the text before it in the same style,
+/// so it may add fewer or more cells than it takes on its own.
+fn added_width(line: &[Span], gap: &[Span], word: &[Span]) -> usize {
+    if (gap.iter().chain(word)).all(|span| span.style.size.fraction().is_none()) {
+        return width(gap) + width(word);
     }
     // Text is only ever merged into the last span.
     let mut tail: Vec<Span> = line.last().cloned().into_iter().collect();
     let before = width(&tail);
-    append(&mut tail, more);
+    append(&mut tail, gap);
+    append(&mut tail, word);
     width(&tail) - before
 }
 
@@ -49,7 +50,7 @@ pub fn fill(spans: &mut Vec<Span>, max: usize, style: &Style) {
     let spaces = (0..=most)
         .rev()
         .find(|&spaces| {
-            added_width(spans, &[Span::new(&" ".repeat(spaces), style.clone())]) <= room
+            added_width(spans, &[], &[Span::new(&" ".repeat(spaces), style.clone())]) <= room
         })
         .unwrap_or(0);
     push(spans, &" ".repeat(spaces), style);
@@ -79,12 +80,15 @@ fn split_onto(
 ) -> usize {
     for span in spans {
         for grapheme in span.text.graphemes(true) {
-            let piece = [Span::new(grapheme, span.style.clone())];
-            let mut grapheme_width = added_width(line, &piece);
+            let size = span.style.size;
+            let mut grapheme_width = match size.fraction() {
+                None => size.width(grapheme),
+                Some(_) => added_width(line, &[], &[Span::new(grapheme, span.style.clone())]),
+            };
             if used + grapheme_width > max && used > 0 {
                 lines.push(std::mem::take(line));
                 used = 0;
-                grapheme_width = width(&piece);
+                grapheme_width = size.width(grapheme);
             }
             push(line, grapheme, &span.style);
             used += grapheme_width;
@@ -206,16 +210,16 @@ impl Wrapper {
     }
 
     fn word(&mut self, word: &[Span]) {
-        let word_width = width(word);
-        let gap_and_word = [self.gap.as_slice(), word].concat();
-        if self.used + added_width(&self.line, &gap_and_word) <= self.max {
-            self.place_gap();
-            self.used += added_width(&self.line, word);
+        let added = added_width(&self.line, &self.gap, word);
+        let word_width = || width(word);
+        if self.used + added <= self.max {
+            append(&mut self.line, &std::mem::take(&mut self.gap));
             append(&mut self.line, word);
-        } else if word_width <= self.max {
+            self.used += added;
+        } else if word_width() <= self.max {
             self.break_line();
             append(&mut self.line, word);
-            self.used = word_width;
+            self.used = word_width();
         } else if keeps_together(word) {
             // Too long for one line: it breaks at its spaces after all.
             for token in tokenize(word, true) {
@@ -224,8 +228,7 @@ impl Wrapper {
         } else {
             // The gap needs room for the word's first character after it,
             // or the word starts on a new line.
-            let gap_and_first = [self.gap.as_slice(), &first(word)].concat();
-            if self.used + added_width(&self.line, &gap_and_first) <= self.max {
+            if self.used + added_width(&self.line, &self.gap, &first(word)) <= self.max {
                 self.place_gap();
             } else {
                 self.break_line();
@@ -236,7 +239,7 @@ impl Wrapper {
 
     fn place_gap(&mut self) {
         let gap = std::mem::take(&mut self.gap);
-        self.used += added_width(&self.line, &gap);
+        self.used += added_width(&self.line, &gap, &[]);
         append(&mut self.line, &gap);
     }
 
