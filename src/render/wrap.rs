@@ -12,9 +12,48 @@ enum Token {
     Break,
 }
 
-/// Display width in terminal cells.
+/// Display width in terminal cells, each span measured at its size.
 pub fn width(spans: &[Span]) -> usize {
-    spans.iter().map(|span| span.text.width()).sum()
+    (spans.iter())
+        .map(|span| span.style.size.width(&span.text))
+        .sum()
+}
+
+/// The cells `gap` and then `word` add when appended to `line`. Text at a
+/// fraction is packed together with the text before it in the same style,
+/// so it may add fewer or more cells than it takes on its own.
+fn added_width(line: &[Span], gap: &[Span], word: &[Span]) -> usize {
+    if (gap.iter().chain(word)).all(|span| span.style.size.fraction().is_none()) {
+        return width(gap) + width(word);
+    }
+    // Text is only ever merged into the last span.
+    let mut tail: Vec<Span> = line.last().cloned().into_iter().collect();
+    let before = width(&tail);
+    append(&mut tail, gap);
+    append(&mut tail, word);
+    width(&tail) - before
+}
+
+/// Appends as many spaces in `style` as fit before `spans` take `max`
+/// cells.
+pub fn fill(spans: &mut Vec<Span>, max: usize, style: &Style) {
+    let room = max.saturating_sub(width(spans));
+    let size = style.size;
+    let (numerator, denominator) = (size.fraction()).map_or((1, 1), |fraction| {
+        (fraction.numerator(), fraction.denominator())
+    });
+    // Packed spaces may fill the last group of the text before them, so
+    // count from one group more than the room holds and drop the spaces
+    // that overflow.
+    let most =
+        (room / usize::from(size.scale()) + 1) * usize::from(denominator) / usize::from(numerator);
+    let spaces = (0..=most)
+        .rev()
+        .find(|&spaces| {
+            added_width(spans, &[], &[Span::new(&" ".repeat(spaces), style.clone())]) <= room
+        })
+        .unwrap_or(0);
+    push(spans, &" ".repeat(spaces), style);
 }
 
 /// Splits styled code into lines of at most `max` cells, keeping every
@@ -41,10 +80,15 @@ fn split_onto(
 ) -> usize {
     for span in spans {
         for grapheme in span.text.graphemes(true) {
-            let grapheme_width = grapheme.width();
+            let size = span.style.size;
+            let mut grapheme_width = match size.fraction() {
+                None => size.width(grapheme),
+                Some(_) => added_width(line, &[], &[Span::new(grapheme, span.style.clone())]),
+            };
             if used + grapheme_width > max && used > 0 {
                 lines.push(std::mem::take(line));
                 used = 0;
+                grapheme_width = size.width(grapheme);
             }
             push(line, grapheme, &span.style);
             used += grapheme_width;
@@ -59,11 +103,12 @@ pub fn cut(spans: Vec<Span>, max: usize) -> Vec<Span> {
     let mut left = max;
     let mut kept = Vec::new();
     for mut span in spans {
-        if span.text.width() > left {
+        let size = span.style.size;
+        if size.width(&span.text) > left {
             let mut end = 0;
             let mut used = 0;
             for (start, grapheme) in span.text.grapheme_indices(true) {
-                used += grapheme.width();
+                used += size.width(grapheme);
                 if used > left {
                     break;
                 }
@@ -71,7 +116,7 @@ pub fn cut(spans: Vec<Span>, max: usize) -> Vec<Span> {
             }
             span.text.truncate(end);
         }
-        left = left.saturating_sub(span.text.width());
+        left = left.saturating_sub(size.width(&span.text));
         if !span.text.is_empty() {
             kept.push(span);
         }
@@ -165,16 +210,16 @@ impl Wrapper {
     }
 
     fn word(&mut self, word: &[Span]) {
-        let word_width = width(word);
-        let gap = width(&self.gap);
-        if self.used + gap + word_width <= self.max {
-            self.place_gap();
+        let added = added_width(&self.line, &self.gap, word);
+        let word_width = || width(word);
+        if self.used + added <= self.max {
+            append(&mut self.line, &std::mem::take(&mut self.gap));
             append(&mut self.line, word);
-            self.used += word_width;
-        } else if word_width <= self.max {
+            self.used += added;
+        } else if word_width() <= self.max {
             self.break_line();
             append(&mut self.line, word);
-            self.used = word_width;
+            self.used = word_width();
         } else if keeps_together(word) {
             // Too long for one line: it breaks at its spaces after all.
             for token in tokenize(word, true) {
@@ -183,7 +228,7 @@ impl Wrapper {
         } else {
             // The gap needs room for the word's first character after it,
             // or the word starts on a new line.
-            if self.used + gap + first_width(word) <= self.max {
+            if self.used + added_width(&self.line, &self.gap, &first(word)) <= self.max {
                 self.place_gap();
             } else {
                 self.break_line();
@@ -193,8 +238,9 @@ impl Wrapper {
     }
 
     fn place_gap(&mut self) {
-        self.used += width(&self.gap);
-        append(&mut self.line, &std::mem::take(&mut self.gap));
+        let gap = std::mem::take(&mut self.gap);
+        self.used += added_width(&self.line, &gap, &[]);
+        append(&mut self.line, &gap);
     }
 
     /// Starts a new line unless the current one is empty. The gap goes: a
@@ -219,11 +265,15 @@ fn append(line: &mut Vec<Span>, word: &[Span]) {
     }
 }
 
-fn first_width(word: &[Span]) -> usize {
+/// The first grapheme of `word`, in its style.
+fn first(word: &[Span]) -> Vec<Span> {
     (word.iter())
-        .flat_map(|span| span.text.graphemes(true))
-        .next()
-        .map_or(0, UnicodeWidthStr::width)
+        .find_map(|span| {
+            (span.text.graphemes(true).next())
+                .map(|grapheme| Span::new(grapheme, span.style.clone()))
+        })
+        .into_iter()
+        .collect()
 }
 
 /// The words the wrapper keeps on one line when they fit: text whose spaces
@@ -306,6 +356,7 @@ fn pieces(span: &Span, split_together: bool) -> Vec<(&str, Style)> {
 mod tests {
     use super::*;
     use crate::render::style;
+    use crate::size::{Fraction, TextSize, VerticalAlign};
 
     fn plain(text: &str) -> Vec<Span> {
         vec![Span::new(text, Style::default())]
@@ -641,6 +692,91 @@ mod tests {
     #[test]
     fn a_leading_zero_width_grapheme_stays_with_what_follows() {
         assert_eq!(split_texts("\u{200b}ab", 1), vec!["\u{200b}a", "b"]);
+    }
+
+    fn sized(text: &str, size: TextSize) -> Span {
+        Span::new(
+            text,
+            Style {
+                size,
+                ..Style::default()
+            },
+        )
+    }
+
+    fn fraction(scale: u8, numerator: u8, denominator: u8) -> TextSize {
+        let fraction = Fraction::new(numerator, denominator).unwrap();
+        TextSize::new(scale)
+            .unwrap()
+            .with_fraction(fraction, VerticalAlign::Top)
+    }
+
+    #[test]
+    fn measures_text_at_a_fraction_packed() {
+        let half = fraction(1, 1, 2);
+        // Seven cells of text at half size take four.
+        let lines = wrap(&[sized("aaa bbb", half)], 4);
+        assert_eq!(texts(&lines), vec!["aaa bbb"]);
+        let lines = wrap(&[sized("aaa bbb c", half)], 4);
+        assert_eq!(texts(&lines), vec!["aaa bbb", "c"]);
+        assert_eq!(
+            texts(&split(&[sized("abcdefg", half)], 2)),
+            vec!["abcd", "efg"]
+        );
+    }
+
+    #[test]
+    fn wrapping_text_at_a_fraction_never_overflows() {
+        let sizes = [
+            fraction(1, 1, 2),
+            fraction(1, 2, 3),
+            fraction(2, 7, 8),
+            fraction(3, 1, 4),
+            TextSize::new(2).unwrap(),
+        ];
+        // Words that pack in fewer cells apart than together, wide
+        // characters that end a group early, and a mix of sizes.
+        let texts = [
+            "a a日 a a日 aa日日 a日a",
+            "日本語 の テキスト 日本 語",
+            "abc defgh ij klmnopqrstuvwxyz a b c",
+        ];
+        for size in sizes {
+            for text in texts {
+                let spans = [
+                    sized(text, size),
+                    Span::new(" normal ", Style::default()),
+                    sized(text, size),
+                ];
+                for max in 1..=24 {
+                    for line in wrap(&spans, max).iter().chain(&split(&spans, max)) {
+                        // A grapheme wider than the line gets one of its own.
+                        let alone =
+                            line.len() == 1 && style::text(line).graphemes(true).count() == 1;
+                        assert!(alone || width(line) <= max, "{max}: {line:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fills_text_at_a_fraction_to_exactly_the_width() {
+        let half = fraction(1, 1, 2);
+        let mut spans = vec![sized("ab", half)];
+        let style = spans[0].style.clone();
+        fill(&mut spans, 4, &style);
+        assert_eq!(spans, vec![sized("ab      ", half)]);
+        assert_eq!(width(&spans), 4);
+        // A space in a style of its own starts its own groups.
+        let mut spans = vec![sized("abc", half)];
+        let other = Style {
+            bold: true,
+            ..spans[0].style.clone()
+        };
+        fill(&mut spans, 5, &other);
+        assert_eq!(width(&spans), 5);
+        assert_eq!(spans[1].text, "      ");
     }
 
     #[test]

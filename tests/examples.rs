@@ -89,10 +89,8 @@ fn the_visual_check_documents_fit_every_mode() {
                     for line in kiri::render::layout::layout(&document, &with_images) {
                         let image = (line.image.as_ref())
                             .map_or(0, |image| usize::from(image.placement.size.columns));
-                        let cells = width(&line.lead)
-                            + width(&line.spans) * usize::from(line.size.scale())
-                            + image
-                            + width(&line.trail);
+                        let cells =
+                            width(&line.lead) + width(&line.spans) + image + width(&line.trail);
                         assert!(
                             cells <= usize::from(terminal_width),
                             "{name}, {caps:?}: {cells} cells in {line:?}"

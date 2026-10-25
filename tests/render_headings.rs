@@ -45,10 +45,8 @@ fn heading_background_reaches_the_right_edge() {
                 ..Inputs::new(Capabilities::kitty(terminal_width))
             };
             let lines = kiri::render::layout::layout(&document, &inputs);
-            for line in lines.iter().filter(|line| line.size.scale() > 1) {
-                let cells = width(&line.lead)
-                    + width(&line.spans) * usize::from(line.size.scale())
-                    + width(&line.trail);
+            for line in lines.iter().filter(|line| line.rows() > 1) {
+                let cells = width(&line.lead) + width(&line.spans) + width(&line.trail);
                 assert_eq!(cells, usize::from(terminal_width), "{line:?}");
             }
         }

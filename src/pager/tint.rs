@@ -32,10 +32,8 @@ pub fn tint(line: &Line, rgb: &Rgb, amount: f32, width: usize) -> Line {
         .image
         .as_ref()
         .map_or(0, |row| usize::from(row.placement.size.columns));
-    let used = wrap::width(&line.lead)
-        + wrap::width(&line.spans) * usize::from(line.size.scale())
-        + image
-        + wrap::width(&line.trail);
+    let used =
+        wrap::width(&line.lead) + wrap::width(&line.spans) + image + wrap::width(&line.trail);
     if used < width {
         let rest = Style {
             bg: Some(page),
@@ -78,8 +76,11 @@ mod tests {
 
     #[test]
     fn a_line_is_tinted_across_the_text_area_with_its_scaled_text_counted() {
-        let mut line = Line::new(vec![Span::new("Title", Style::default())]);
-        line.size = TextSize::new(2).unwrap();
+        let scaled = Style {
+            size: TextSize::new(2).unwrap(),
+            ..Style::default()
+        };
+        let line = Line::new(vec![Span::new("Title", scaled)]);
         let tinted = tint(&line, &rgb(), 0.15, 40);
         let grey = Some(Color::Rgb(30, 30, 30));
         assert_eq!(tinted.spans[0].style.bg, grey);

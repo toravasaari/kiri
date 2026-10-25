@@ -63,10 +63,10 @@ pub fn write(
     Ok(())
 }
 
-/// The rows `line` occupies on a terminal with `caps`: a scaled line
-/// takes as many as its scale, unless the terminal gets plain text.
+/// The rows `line` occupies on a terminal with `caps`: as many as the
+/// largest scale of its text, unless the terminal gets plain text.
 pub fn rows(line: &Line, caps: &Capabilities) -> u8 {
-    if caps.styling { line.size.scale() } else { 1 }
+    if caps.styling { line.rows() } else { 1 }
 }
 
 /// Writes lines row by row, wherever the cursor is, with the images sent
@@ -174,18 +174,18 @@ impl<'a> Writer<'a> {
             dim: style.dim || dim,
             ..style.clone()
         };
-        // A scaled line occupies as many rows as its scale but is written
-        // only on the first; the rows below get the lead, the trail and the
-        // fill around it.
-        let block_width = width(&line.spans) * usize::from(line.size.scale());
+        // A line with scaled text occupies as many rows as its largest
+        // scale but is written only on the first; the rows below get the
+        // lead, the trail and the fill around it.
+        let block_width = width(&line.spans);
         let mut current = Style::default();
         write_spans(&line.lead, paint, &mut current, caps, out)?;
         if row == 0 {
             for span in &line.spans {
                 let style = paint(&span.style);
                 transition(&current, &style, caps, out)?;
-                if line.size != TextSize::NORMAL {
-                    kitty::text::write_sized(out, line.size, &span.text)?;
+                if span.style.size != TextSize::NORMAL {
+                    kitty::text::write_sized(out, span.style.size, &span.text)?;
                 } else {
                     out.write_all(span.text.as_bytes())?;
                 }
@@ -385,18 +385,15 @@ fn rgb_to_256(r: u8, g: u8, b: u8) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::size::{Fraction, VerticalAlign};
 
     #[test]
     fn empty_scaled_line_does_not_step_over_anything() {
-        let line = Line {
-            lead: Vec::new(),
-            spans: Vec::new(),
-            image: None,
-            trail: Vec::new(),
+        let scaled = Style {
             size: TextSize::new(2).unwrap(),
-            block: None,
-            band: None,
+            ..Style::default()
         };
+        let line = Line::new(vec![Span::new("", scaled)]);
         let mut out = Vec::new();
         write(
             &[line],
@@ -411,6 +408,62 @@ mod tests {
         .unwrap();
         let out = String::from_utf8(out).unwrap();
         assert!(!out.contains("\x1b[0C"), "{out:?}");
+    }
+
+    #[test]
+    fn a_line_is_as_tall_as_its_tallest_span() {
+        let scaled = Style {
+            size: TextSize::new(2).unwrap(),
+            ..Style::default()
+        };
+        let line = Line {
+            trail: vec![Span::new("|", Style::default())],
+            ..Line::new(vec![
+                Span::new("Big", scaled),
+                Span::new(" small", Style::default()),
+            ])
+        };
+        let caps = Capabilities::kitty(40);
+        assert_eq!(rows(&line, &caps), 2);
+        assert_eq!(rows(&line, &Capabilities::plain(40)), 1);
+        let mut out = Vec::new();
+        write(&[line], &Images::new(), &caps, Page::default(), &mut out).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        let rows: Vec<&str> = out.split_terminator('\n').collect();
+        assert_eq!(
+            rows,
+            ["\x1b]66;s=2;Big\x1b\\ small|", "\x1b[12C|"],
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn steps_over_text_at_a_fraction_as_it_is_packed() {
+        let fraction = Fraction::new(7, 8).unwrap();
+        let size = TextSize::new(2)
+            .unwrap()
+            .with_fraction(fraction, VerticalAlign::Top);
+        let line = Line {
+            trail: vec![Span::new("|", Style::default())],
+            ..Line::new(vec![Span::new(
+                "abcdefgh",
+                Style {
+                    size,
+                    ..Style::default()
+                },
+            )])
+        };
+        let mut out = Vec::new();
+        let caps = Capabilities::kitty(40);
+        write(&[line], &Images::new(), &caps, Page::default(), &mut out).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        let rows: Vec<&str> = out.split_terminator('\n').collect();
+        // Eight characters at 7/8 of scale 2 take 14 cells.
+        assert_eq!(
+            rows,
+            ["\x1b]66;s=2:n=7:d=8:w=7;abcdefgh\x1b\\|", "\x1b[14C|"],
+            "{out:?}"
+        );
     }
 
     #[test]
