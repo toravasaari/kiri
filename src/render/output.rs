@@ -385,6 +385,7 @@ fn rgb_to_256(r: u8, g: u8, b: u8) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::size::{Fraction, VerticalAlign};
 
     #[test]
     fn empty_scaled_line_does_not_step_over_anything() {
@@ -432,6 +433,35 @@ mod tests {
         assert_eq!(
             rows,
             ["\x1b]66;s=2;Big\x1b\\ small|", "\x1b[12C|"],
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn steps_over_text_at_a_fraction_as_it_is_packed() {
+        let fraction = Fraction::new(7, 8).unwrap();
+        let size = TextSize::new(2)
+            .unwrap()
+            .with_fraction(fraction, VerticalAlign::Top);
+        let line = Line {
+            trail: vec![Span::new("|", Style::default())],
+            ..Line::new(vec![Span::new(
+                "abcdefgh",
+                Style {
+                    size,
+                    ..Style::default()
+                },
+            )])
+        };
+        let mut out = Vec::new();
+        let caps = Capabilities::kitty(40);
+        write(&[line], &Images::new(), &caps, Page::default(), &mut out).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        let rows: Vec<&str> = out.split_terminator('\n').collect();
+        // Eight characters at 7/8 of scale 2 take 14 cells.
+        assert_eq!(
+            rows,
+            ["\x1b]66;s=2:n=7:d=8:w=7;abcdefgh\x1b\\|", "\x1b[14C|"],
             "{out:?}"
         );
     }
