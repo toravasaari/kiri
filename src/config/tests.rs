@@ -1,4 +1,3 @@
-
 use super::*;
 
 fn env(home: Option<&str>, xdg: Option<&str>) -> Environment {

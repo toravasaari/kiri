@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::render::style::text;
 use crate::render::wrap::width;
