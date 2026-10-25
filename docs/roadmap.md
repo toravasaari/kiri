@@ -534,11 +534,15 @@ Needs G1.2 and G1.3.
 Text drawn smaller or larger with the text sizing protocol's fractional
 scale, built once for all of these:
 
-- `<sub>` and `<sup>`, drawn smaller and lowered or raised.
-- Footnote references, drawn smaller and raised.
-- Heading scales with fractions, such as 1.5 for `h4`. Scales are whole
-  numbers today, so `h4` to `h6` are either the size of body text or at
-  least twice it.
+- `<sub>` and `<sup>` at two thirds of the size around them, a sup at the
+  top of the rows and a sub at the bottom; Unicode's script characters
+  (x², H₂O) without text sizing when every character has one, else plain
+  text. (done)
+- Heading sizes with fractions. A theme writes `scale = 1.5`; kiri draws
+  the nearest size it can and `--doctor` shows it. The defaults go from
+  2 1/2 for `h1` down by quarters to 1 for `h6`, all bold, without
+  underlines. (done)
+- Footnote references, drawn smaller and raised: with footnotes, 4.10.1.
 
 #### 4.10.4 Front matter (done)
 
@@ -936,6 +940,13 @@ The test that the example documents fit the window at every width,
 `the_visual_check_documents_fit_every_mode`, loads no diagram renderer,
 so it never draws a diagram. A drawn diagram, or the red error below one
 that fails, could reach past the window's edge without the test noticing.
+
+#### B4 Gaps in a heading of wide characters
+
+A heading at a fractional size packs its text in groups of whole cells,
+and a wide character never crosses the end of a group. Wide characters
+such as CJK then end a group early and the group rounds up, so a heading
+like `### 日本語の見出し 🇫🇮` at 1 3/4 shows gaps between its groups. Minor.
 
 ### Upstream bugs
 
