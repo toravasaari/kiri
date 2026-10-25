@@ -10,7 +10,8 @@ use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser};
 use kiri::caps::Capabilities;
 use kiri::config::{
-    Environment, Follow, FollowJump, FrontMatter, Named, Options, Origin, Paging, Setting, Settings,
+    Environment, FirstLoad, Follow, FollowJump, FrontMatter, Named, Options, Origin, Paging,
+    Setting, Settings,
 };
 use kiri::doctor::{Facts, Output};
 use kiri::images::{
@@ -145,6 +146,13 @@ struct Cli {
     /// that takes the most rows); first unless set.
     #[arg(long, value_parser = named::<FollowJump>(), value_name = "WHICH")]
     follow_jump: Option<FollowJump>,
+
+    /// Whether the pager shows the document once its images and diagrams
+    /// have loaded (wait), or at once, with each image as it comes
+    /// (background); wait unless set. Only where the pager surely opens,
+    /// as with -p or -f; otherwise kiri waits.
+    #[arg(long, value_parser = named::<FirstLoad>(), value_name = "HOW")]
+    first_load: Option<FirstLoad>,
 
     /// Front matter render style: table, code (a code block), hide, or off
     /// (read as Markdown); table unless set. Front matter is the metadata
@@ -1738,6 +1746,7 @@ fn options(cli: &Cli) -> Options {
             .or(flag(cli.no_pager.then_some(Paging::Never), "-P")),
         follow: follow(cli),
         follow_jump: flag(cli.follow_jump, "--follow-jump"),
+        first_load: flag(cli.first_load, "--first-load"),
         front_matter: flag(cli.front_matter, "--front-matter"),
         table_rows: flag(cli.table_rows, "--table-rows"),
         diagrams: flag(cli.diagrams, "--diagrams"),

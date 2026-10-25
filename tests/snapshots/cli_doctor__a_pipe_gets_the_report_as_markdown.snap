@@ -31,6 +31,7 @@ kiri [version]: terminal features and settings.
 | Paging | auto | default |
 | Follow | off | default |
 | Follow jump | first | default |
+| First load | wait | default |
 | Search case | smart | default |
 | Front matter | table | default |
 | Table rows | zebra | default |

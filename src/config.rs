@@ -71,6 +71,8 @@ environment! {
     kiri_follow: "KIRI_FOLLOW",
     /// `KIRI_FOLLOW_JUMP`: `first`, `last` or `most`.
     kiri_follow_jump: "KIRI_FOLLOW_JUMP",
+    /// `KIRI_FIRST_LOAD`: `wait` or `background`.
+    kiri_first_load: "KIRI_FIRST_LOAD",
     /// `KIRI_FRONT_MATTER`: `table`, `code`, `hide` or `off`.
     kiri_front_matter: "KIRI_FRONT_MATTER",
     /// `KIRI_TABLE_ROWS`: `off`, `zebra`, `lines`, `indent` or `underline`.
@@ -187,6 +189,8 @@ pub struct Config {
     pub follow: Option<Follow>,
     /// Which change auto-follow moves the view to.
     pub follow_jump: Option<FollowJump>,
+    /// Whether the pager waits for the images before it opens.
+    pub first_load: Option<FirstLoad>,
     /// How front matter shows.
     pub front_matter: Option<FrontMatter>,
     /// How the rows of a table are told apart.
@@ -286,6 +290,18 @@ pub enum FollowJump {
     Most,
 }
 
+/// Whether the pager, when it surely opens, waits for the images and
+/// diagrams of the document before it shows it, or shows the text at
+/// once while they load in the background, as after a reload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FirstLoad {
+    /// Every image is loaded before the document shows.
+    #[default]
+    Wait,
+    /// The text shows at once, and the images as they come.
+    Background,
+}
+
 /// Where the configuration file is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigFile {
@@ -353,6 +369,7 @@ fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String> {
         search_case: file.search_case,
         follow: file.follow,
         follow_jump: file.follow_jump,
+        first_load: file.first_load,
         front_matter: file.front_matter,
         table_rows: file.table_rows,
         diagrams: file.diagrams.enabled,
@@ -377,6 +394,8 @@ struct ConfigToml {
     follow: Option<Follow>,
     #[serde(default, deserialize_with = "named")]
     follow_jump: Option<FollowJump>,
+    #[serde(default, deserialize_with = "named")]
+    first_load: Option<FirstLoad>,
     #[serde(default, deserialize_with = "named")]
     front_matter: Option<FrontMatter>,
     #[serde(default, deserialize_with = "named")]
@@ -718,6 +737,11 @@ impl Named for FollowJump {
     const NAMES: &'static [&'static str] = &["first", "last", "most"];
 }
 
+impl Named for FirstLoad {
+    const ALL: &'static [Self] = &[Self::Wait, Self::Background];
+    const NAMES: &'static [&'static str] = &["wait", "background"];
+}
+
 impl Named for FrontMatter {
     const ALL: &'static [Self] = &[Self::Table, Self::Code, Self::Hide, Self::Off];
     const NAMES: &'static [&'static str] = &["table", "code", "hide", "off"];
@@ -823,6 +847,8 @@ pub struct Options {
     pub follow: Option<Setting<Follow>>,
     /// Which change auto-follow moves the view to.
     pub follow_jump: Option<Setting<FollowJump>>,
+    /// Whether the pager waits for the images before it opens.
+    pub first_load: Option<Setting<FirstLoad>>,
     /// How front matter shows.
     pub front_matter: Option<Setting<FrontMatter>>,
     /// How the rows of a table are told apart.
@@ -853,6 +879,8 @@ pub struct Settings {
     pub follow: Follow,
     /// Which change auto-follow moves the view to.
     pub follow_jump: FollowJump,
+    /// Whether the pager waits for the images before it opens.
+    pub first_load: FirstLoad,
     /// How front matter shows.
     pub front_matter: FrontMatter,
     /// How the rows of a table are told apart.
@@ -890,6 +918,8 @@ pub struct Choices {
     pub follow: Setting<Follow>,
     /// Which change auto-follow moves the view to.
     pub follow_jump: Setting<FollowJump>,
+    /// Whether the pager waits for the images before it opens.
+    pub first_load: Setting<FirstLoad>,
     /// How front matter shows.
     pub front_matter: Setting<FrontMatter>,
     /// How the rows of a table are told apart.
@@ -928,6 +958,7 @@ impl Choices {
             search_case: self.search_case.value,
             follow: self.follow.value,
             follow_jump: self.follow_jump.value,
+            first_load: self.first_load.value,
             front_matter: self.front_matter.value,
             table_rows: self.table_rows.value,
             diagrams: self.diagrams.value,
@@ -999,6 +1030,13 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
             variable(env, "KIRI_FOLLOW_JUMP"),
             config.follow_jump,
             FollowJump::default(),
+            w,
+        ),
+        first_load: resolve(
+            options.first_load.clone(),
+            variable(env, "KIRI_FIRST_LOAD"),
+            config.first_load,
+            FirstLoad::default(),
             w,
         ),
         front_matter,
@@ -1534,6 +1572,44 @@ mod tests {
     }
 
     #[test]
+    fn the_first_load_key_takes_wait_or_background() {
+        let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
+        for (text, first_load) in [
+            ("first_load = \"wait\"\n", FirstLoad::Wait),
+            ("first_load = \"background\"\n", FirstLoad::Background),
+        ] {
+            let chosen = parsed(text).map(|config| config.first_load);
+            assert_eq!(chosen, Ok(Some(first_load)), "{text}");
+        }
+        assert!(parsed("first_load = \"later\"\n").is_err());
+        assert!(parsed("first_load = true\n").is_err());
+    }
+
+    #[test]
+    fn the_first_load_waits_unless_told_otherwise() {
+        let env = Environment::default();
+        let choices = choose(&Options::default(), &env, &Config::default());
+        let wait = Setting::new(FirstLoad::Wait, Origin::Default);
+        assert_eq!(choices.first_load, wait);
+        let config = Config {
+            first_load: Some(FirstLoad::Background),
+            ..Config::default()
+        };
+        let choices = choose(&Options::default(), &env, &config);
+        let file = Setting::new(FirstLoad::Background, Origin::File);
+        assert_eq!(choices.first_load, file);
+        let settings = choices.with_theme(Theme::default());
+        assert_eq!(settings.first_load, FirstLoad::Background);
+        let flag = Setting::new(FirstLoad::Wait, Origin::Flag("--first-load"));
+        let options = Options {
+            first_load: Some(flag.clone()),
+            ..Options::default()
+        };
+        let variable = vars(&[("KIRI_FIRST_LOAD", "background")]);
+        assert_eq!(choose(&options, &variable, &config).first_load, flag);
+    }
+
+    #[test]
     fn auto_follow_jumps_to_the_first_change_unless_told_otherwise() {
         let env = Environment::default();
         let choices = choose(&Options::default(), &env, &Config::default());
@@ -2022,6 +2098,26 @@ mod tests {
             (
                 "joo",
                 "KIRI_FOLLOW_JUMP: `joo` is not first, last or most; left out",
+            ),
+        );
+    }
+
+    #[test]
+    fn kiri_first_load_chooses_how_the_pager_first_loads_the_images() {
+        check_variable(
+            |choices| &choices.first_load,
+            "KIRI_FIRST_LOAD",
+            &[
+                ("wait", FirstLoad::Wait),
+                ("background", FirstLoad::Background),
+            ],
+            Config {
+                first_load: Some(FirstLoad::Wait),
+                ..Config::default()
+            },
+            (
+                "later",
+                "KIRI_FIRST_LOAD: `later` is not wait or background; left out",
             ),
         );
     }
