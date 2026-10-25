@@ -146,22 +146,22 @@ reading keys from the controlling terminal, is opened in
 `src/term/screen.rs`.
 
 A reload shows the new text at once: the `Reload` keeps the images the
-document still shows and starts the others loading in the background,
-in the pager's `Loads`, which the pager polls beside the follow poll.
+document still shows and starts the others loading in the background, in
+the pager's `Loads`, which the pager polls beside the follow poll.
 Meanwhile `src/pager/loading.rs` chooses what stands in for each image
 from the comparison: a block that changed shows its old image dimmed,
 and any other block, a new one or one that stayed while its image file
-changed, shows as it does without its image, code or alt text. Below each goes a thin band whose light part keeps running
-across it, and the status line says `[rendering: 1/3]` in place of the
-name. An image that comes is laid out as after a resize, but the top
-line stays the same line, so the view does not move, and the tint of
-auto-follow's change stays on its blocks; auto-follow jumped already
-when the text came. A newer reload stops the loads whose images the new
-document no longer shows, and `q`, or a signal, stops the programs that
-draw. `src/main.rs` waits for them to end once the pager has left its
-screen, with `kiri: closing background programs…` on standard error
-while that takes more than a second, but not for merman, which cannot
-stop.
+changed, shows as it does without its image, code or alt text. Below
+each goes a thin band whose light part keeps running across it, and the
+status line says `[rendering: 1/3]` in place of the name. An image that
+comes is laid out as after a resize, but the top line stays the same
+line, so the view does not move, and the tint of auto-follow's change
+stays on its blocks; auto-follow jumped already when the text came. A
+newer reload stops the loads whose images the new document no longer
+shows, and `q`, or a signal, stops the programs that draw. `src/main.rs`
+waits for them to end once the pager has left its screen, with
+`kiri: closing background programs…` on standard error while that takes
+more than a second, but not for merman, which cannot stop.
 
 The pager keeps one image encoder, `src/render/encoder.rs`, for as long
 as it runs. An image the terminal holds is not sent again: after a
