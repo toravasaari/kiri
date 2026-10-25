@@ -25,7 +25,10 @@ pub fn write_sized(out: &mut impl Write, size: TextSize, text: &str) -> io::Resu
         }
     }
     if let Some(fraction) = size.fraction() {
-        for group in fraction.groups(text) {
+        // Zero-width text joins the group after it, so a group of no
+        // cells is a span of nothing else. It shows nothing, and `w=0`
+        // would ask the terminal to measure it.
+        for group in fraction.groups(text).iter().filter(|group| group.cells > 0) {
             write!(out, "\x1b]66;{keys}:w={};{}\x1b\\", group.cells, group.text)?;
         }
         return Ok(());
@@ -104,6 +107,19 @@ mod tests {
                 "\x1b]66;s=2:n=7:d=8:v=1:w=7;abcdefgh",
                 "\x1b]66;s=2:n=7:d=8:v=1:w=2;ij"
             ]
+        );
+    }
+
+    #[test]
+    fn writes_no_group_of_no_cells() {
+        let half = Fraction::new(1, 2).unwrap();
+        let size = TextSize::NORMAL.with_fraction(half, VerticalAlign::Top);
+        // `w=0` would ask the terminal to measure the text itself.
+        assert_eq!(written(size, "\u{200b}"), Vec::<String>::new());
+        // A zero-width character before text joins its group.
+        assert_eq!(
+            written(size, "\u{200b}ab"),
+            ["\x1b]66;s=1:n=1:d=2:w=1;\u{200b}ab"]
         );
     }
 
