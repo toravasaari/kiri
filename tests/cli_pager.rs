@@ -1386,6 +1386,48 @@ fn space_opens_the_pager_for_several_files_before_the_slow_diagram_is_drawn() {
 }
 
 #[test]
+fn a_diagram_that_fails_after_a_skipped_wait_is_told_after_the_pager() {
+    for (files, told) in [
+        (&["diagram.md"][..], "kiri: mermaid diagram on line 1: "),
+        (
+            &["diagram.md", "document.md"],
+            "kiri: diagram.md: mermaid diagram on line 1: ",
+        ),
+    ] {
+        let (mut typed, mut go, mut quit) = (false, false, false);
+        let act = |seen: &str, terminal: &mut std::fs::File, dir: &std::path::Path| {
+            if !typed && seen.contains(HINT) {
+                terminal.write_all(b" ").unwrap();
+                typed = true;
+            }
+            let frames = whole_frames(seen);
+            if !go && !frames.is_empty() {
+                std::fs::write(dir.join("go"), "").unwrap();
+                go = true;
+            }
+            if !quit && loaded(&frames[frames.len().min(1)..], dir) {
+                terminal.write_all(b"q").unwrap();
+                quit = true;
+            }
+        };
+        let args = [&["--mode", "kitty", "-p"][..], files].concat();
+        let (status, seen) = watching("pager-skip-failed", failing_on_cue, &args, act);
+        assert!(status.success(), "{files:?}: {seen:?}");
+        let (before, pager) = seen.split_once(ENTER).unwrap();
+        assert!(before.contains(HINT), "{files:?}: {seen:?}");
+        let frames = whole_frames(pager);
+        assert!(
+            text_of(&frames[0]).contains("[rendering: 0/1]"),
+            "{frames:?}"
+        );
+        let (_, after) = seen.rsplit_once(LEAVE).unwrap();
+        let line = format!("{told}sh exited with status 1: Error: bad");
+        assert!(after.contains(&line), "{files:?}: {after:?}");
+        assert!(!pager.rsplit_once(LEAVE).unwrap().0.contains("Error: bad"));
+    }
+}
+
+#[test]
 fn another_key_does_nothing_while_the_images_load_and_is_not_kept() {
     let (mut typed, mut quit) = (false, false);
     let act = |seen: &str, terminal: &mut std::fs::File, dir: &std::path::Path| {
