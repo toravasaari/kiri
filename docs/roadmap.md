@@ -324,11 +324,13 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 - Choosing a link with the keyboard and following it; a Markdown target
   opens in an overlay window, as in 4.5.
 
-#### 4.6.7 Copying code blocks
+#### 4.6.7 Copying
 
 - Code blocks can be copied to the clipboard (OSC 52): in the pager with a
   key, and in print mode through a link beside the block that kitty's
   `open-actions.conf` hands to kiri.
+- Copying can give the Markdown source of a part or its text as shown;
+  a setting chooses which.
 
 #### 4.6.8 A sticky file header
 
@@ -922,8 +924,6 @@ go.
   error, which the pager holds until it quits. A log file or the systemd
   journal could keep them, and a debug level could tell more, such as
   each program kiri runs and how long it takes.
-- Copying can give the Markdown source of a part or its text as shown;
-  a setting chooses which.
 
 ## Bugs
 
