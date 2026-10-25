@@ -157,169 +157,102 @@ fn theme_toml_is_the_theme_only_when_it_exists() {
     assert!(report.contains(row), "{row}\n{report}");
 }
 
-#[test]
-fn an_environment_variable_shows_its_value() {
-    let dir = Scratch::new("doctor-env");
-    let mut command = doctor(&dir, &[]);
-    command.env("KIRI_NO_IMAGES", "1");
+/// Asserts that the report of `kiri --doctor` with `args` and the
+/// environment variables `env` has the row `row`.
+fn check_row(dir: &Path, args: &[&str], env: &[(&str, &str)], row: &str) {
+    let mut command = doctor(dir, args);
+    command.envs(env.iter().copied());
     let out = command.output().unwrap();
     assert_succeeded(&out);
     let report = text(&out.stdout);
+    assert!(report.contains(row), "{args:?} {env:?}: {row}\n{report}");
+}
+
+/// Writes `content` as the configuration file of `dir`'s home directory.
+fn write_config(dir: &Path, content: &str) {
+    write(&dir.join("home/.config/kiri/config.toml"), content);
+}
+
+#[test]
+fn an_environment_variable_shows_its_value() {
+    let dir = Scratch::new("doctor-env");
     let row = "| Images | off | `KIRI_NO_IMAGES=1` |";
-    assert!(report.contains(row), "{report}");
+    check_row(&dir, &[], &[("KIRI_NO_IMAGES", "1")], row);
 }
 
 #[test]
 fn paging_tells_where_it_comes_from() {
     let dir = Scratch::new("doctor-paging");
-    for (args, variable, row) in [
-        (&[][..], None, "| Paging | auto | default |"),
-        (&["-p"][..], None, "| Paging | always | `-p` |"),
-        (
-            &["--paging", "never"][..],
-            None,
-            "| Paging | never | `--paging` |",
-        ),
-        (&[][..], Some("1"), "| Paging | always | `KIRI_PAGING=1` |"),
-    ] {
-        let mut command = doctor(&dir, args);
-        if let Some(value) = variable {
-            command.env("KIRI_PAGING", value);
-        }
-        let out = command.output().unwrap();
-        assert_succeeded(&out);
-        let report = text(&out.stdout);
-        assert!(report.contains(row), "{row}\n{report}");
-    }
+    check_row(&dir, &[], &[], "| Paging | auto | default |");
+    check_row(&dir, &["-p"], &[], "| Paging | always | `-p` |");
+    let row = "| Paging | never | `--paging` |";
+    check_row(&dir, &["--paging", "never"], &[], row);
+    let row = "| Paging | always | `KIRI_PAGING=1` |";
+    check_row(&dir, &[], &[("KIRI_PAGING", "1")], row);
 }
 
 #[test]
 fn front_matter_tells_where_it_comes_from() {
     let dir = Scratch::new("doctor-front-matter");
-    for (args, variable, row) in [
-        (&[][..], None, "| Front matter | table | default |"),
-        (
-            &["--front-matter", "off"][..],
-            Some("code"),
-            "| Front matter | off | `--front-matter` |",
-        ),
-        (
-            &[][..],
-            Some("hide"),
-            "| Front matter | hide | `KIRI_FRONT_MATTER=hide` |",
-        ),
-    ] {
-        let mut command = doctor(&dir, args);
-        if let Some(value) = variable {
-            command.env("KIRI_FRONT_MATTER", value);
-        }
-        let out = command.output().unwrap();
-        assert_succeeded(&out);
-        let report = text(&out.stdout);
-        assert!(report.contains(row), "{row}\n{report}");
-    }
-    write(
-        &dir.join("home/.config/kiri/config.toml"),
-        "front_matter = \"code\"\n",
+    check_row(&dir, &[], &[], "| Front matter | table | default |");
+    let row = "| Front matter | off | `--front-matter` |";
+    check_row(
+        &dir,
+        &["--front-matter", "off"],
+        &[("KIRI_FRONT_MATTER", "code")],
+        row,
     );
-    let report = piped(&dir, &[]);
+    let row = "| Front matter | hide | `KIRI_FRONT_MATTER=hide` |";
+    check_row(&dir, &[], &[("KIRI_FRONT_MATTER", "hide")], row);
+    write_config(&dir, "front_matter = \"code\"\n");
     let row = "| Front matter | code | configuration file |";
-    assert!(report.contains(row), "{row}\n{report}");
+    check_row(&dir, &[], &[], row);
 }
 
 #[test]
 fn table_rows_tell_where_they_come_from() {
     let dir = Scratch::new("doctor-table-rows");
-    for (args, variable, row) in [
-        (&[][..], None, "| Table rows | zebra | default |"),
-        (
-            &["--table-rows", "off"][..],
-            Some("lines"),
-            "| Table rows | off | `--table-rows` |",
-        ),
-        (
-            &[][..],
-            Some("lines"),
-            "| Table rows | lines | `KIRI_TABLE_ROWS=lines` |",
-        ),
-    ] {
-        let mut command = doctor(&dir, args);
-        if let Some(value) = variable {
-            command.env("KIRI_TABLE_ROWS", value);
-        }
-        let out = command.output().unwrap();
-        assert_succeeded(&out);
-        let report = text(&out.stdout);
-        assert!(report.contains(row), "{row}\n{report}");
-    }
+    check_row(&dir, &[], &[], "| Table rows | zebra | default |");
+    let row = "| Table rows | off | `--table-rows` |";
+    check_row(
+        &dir,
+        &["--table-rows", "off"],
+        &[("KIRI_TABLE_ROWS", "lines")],
+        row,
+    );
+    let row = "| Table rows | lines | `KIRI_TABLE_ROWS=lines` |";
+    check_row(&dir, &[], &[("KIRI_TABLE_ROWS", "lines")], row);
 }
 
 #[test]
 fn diagrams_tell_where_they_come_from() {
     let dir = Scratch::new("doctor-diagrams");
-    for (args, variable, row) in [
-        (&[][..], None, "| Diagrams | on | default |"),
-        (
-            &["--diagrams", "on"][..],
-            Some("0"),
-            "| Diagrams | on | `--diagrams` |",
-        ),
-        (
-            &[][..],
-            Some("off"),
-            "| Diagrams | off | `KIRI_DIAGRAMS=off` |",
-        ),
-    ] {
-        let mut command = doctor(&dir, args);
-        if let Some(value) = variable {
-            command.env("KIRI_DIAGRAMS", value);
-        }
-        let out = command.output().unwrap();
-        assert_succeeded(&out);
-        let report = text(&out.stdout);
-        assert!(report.contains(row), "{row}\n{report}");
-    }
-    write(
-        &dir.join("home/.config/kiri/config.toml"),
-        "diagrams = false\n",
-    );
-    let report = piped(&dir, &[]);
+    check_row(&dir, &[], &[], "| Diagrams | on | default |");
+    let row = "| Diagrams | on | `--diagrams` |";
+    check_row(&dir, &["--diagrams", "on"], &[("KIRI_DIAGRAMS", "0")], row);
+    let row = "| Diagrams | off | `KIRI_DIAGRAMS=off` |";
+    check_row(&dir, &[], &[("KIRI_DIAGRAMS", "off")], row);
+    write_config(&dir, "diagrams = false\n");
     let row = "| Diagrams | off | configuration file |";
-    assert!(report.contains(row), "{row}\n{report}");
+    check_row(&dir, &[], &[], row);
 }
 
 #[test]
 fn render_errors_tell_where_they_come_from() {
     let dir = Scratch::new("doctor-render-errors");
-    for (args, variable, row) in [
-        (&[][..], None, "| Render errors | both | default |"),
-        (
-            &["--render-errors", "stderr"][..],
-            Some("inline"),
-            "| Render errors | stderr | `--render-errors` |",
-        ),
-        (
-            &[][..],
-            Some("inline"),
-            "| Render errors | inline | `KIRI_RENDER_ERRORS=inline` |",
-        ),
-    ] {
-        let mut command = doctor(&dir, args);
-        if let Some(value) = variable {
-            command.env("KIRI_RENDER_ERRORS", value);
-        }
-        let out = command.output().unwrap();
-        assert_succeeded(&out);
-        let report = text(&out.stdout);
-        assert!(report.contains(row), "{row}\n{report}");
-    }
-    write(
-        &dir.join("home/.config/kiri/config.toml"),
-        "render_errors = \"inline\"\n",
+    check_row(&dir, &[], &[], "| Render errors | both | default |");
+    let row = "| Render errors | stderr | `--render-errors` |";
+    check_row(
+        &dir,
+        &["--render-errors", "stderr"],
+        &[("KIRI_RENDER_ERRORS", "inline")],
+        row,
     );
-    let report = piped(&dir, &[]);
+    let row = "| Render errors | inline | `KIRI_RENDER_ERRORS=inline` |";
+    check_row(&dir, &[], &[("KIRI_RENDER_ERRORS", "inline")], row);
+    write_config(&dir, "render_errors = \"inline\"\n");
     let row = "| Render errors | inline | configuration file |";
-    assert!(report.contains(row), "{row}\n{report}");
+    check_row(&dir, &[], &[], row);
 }
 
 #[test]
@@ -332,8 +265,8 @@ fn the_diagrams_time_limit_and_panels_tell_where_they_come_from() {
     ] {
         assert!(report.contains(row), "{row}\n{report}");
     }
-    write(
-        &dir.join("home/.config/kiri/config.toml"),
+    write_config(
+        &dir,
         "[diagrams]\ntimeout = 2.5\nbackground_panel = false\n",
     );
     let report = piped(&dir, &[]);
@@ -348,104 +281,58 @@ fn the_diagrams_time_limit_and_panels_tell_where_they_come_from() {
 #[test]
 fn the_search_case_tells_where_it_comes_from() {
     let dir = Scratch::new("doctor-search-case");
-    let report = piped(&dir, &[]);
-    let row = "| Search case | smart | default |";
-    assert!(report.contains(row), "{row}\n{report}");
-    write(
-        &dir.join("home/.config/kiri/config.toml"),
-        "search_case = \"literal\"\n",
-    );
-    let report = piped(&dir, &[]);
+    check_row(&dir, &[], &[], "| Search case | smart | default |");
+    write_config(&dir, "search_case = \"literal\"\n");
     let row = "| Search case | literal | configuration file |";
-    assert!(report.contains(row), "{row}\n{report}");
+    check_row(&dir, &[], &[], row);
 }
 
 #[test]
 fn following_tells_where_it_comes_from() {
     let dir = Scratch::new("doctor-follow");
-    let report = piped(&dir, &[]);
-    let row = "| Follow | off | default |";
-    assert!(report.contains(row), "{row}\n{report}");
-    write(
-        &dir.join("home/.config/kiri/config.toml"),
-        "follow = \"on\"\n",
-    );
-    let report = piped(&dir, &[]);
+    check_row(&dir, &[], &[], "| Follow | off | default |");
+    write_config(&dir, "follow = \"on\"\n");
     let row = "| Follow | on | configuration file |";
-    assert!(report.contains(row), "{row}\n{report}");
-    let report = piped(&dir, &["-F"]);
-    let row = "| Follow | off | `-F` |";
-    assert!(report.contains(row), "{row}\n{report}");
-    let out = doctor(&dir, &[]).env("KIRI_FOLLOW", "0").output().unwrap();
-    assert_succeeded(&out);
-    let report = text(&out.stdout);
+    check_row(&dir, &[], &[], row);
+    check_row(&dir, &["-F"], &[], "| Follow | off | `-F` |");
     let row = "| Follow | off | `KIRI_FOLLOW=0` |";
-    assert!(report.contains(row), "{row}\n{report}");
-    let out = doctor(&dir, &[])
-        .env("KIRI_FOLLOW", "auto")
-        .output()
-        .unwrap();
-    assert_succeeded(&out);
-    let report = text(&out.stdout);
+    check_row(&dir, &[], &[("KIRI_FOLLOW", "0")], row);
     let row = "| Follow | auto | `KIRI_FOLLOW=auto` |";
-    assert!(report.contains(row), "{row}\n{report}");
-    let report = piped(&dir, &["--fa"]);
-    let row = "| Follow | auto | `--fa` |";
-    assert!(report.contains(row), "{row}\n{report}");
-    let report = piped(&dir, &["--follow", "auto"]);
+    check_row(&dir, &[], &[("KIRI_FOLLOW", "auto")], row);
+    check_row(&dir, &["--fa"], &[], "| Follow | auto | `--fa` |");
     let row = "| Follow | auto | `--follow` |";
-    assert!(report.contains(row), "{row}\n{report}");
+    check_row(&dir, &["--follow", "auto"], &[], row);
 }
 
 #[test]
 fn the_follow_jump_tells_where_it_comes_from() {
     let dir = Scratch::new("doctor-follow-jump");
-    let report = piped(&dir, &[]);
-    let row = "| Follow jump | first | default |";
-    assert!(report.contains(row), "{row}\n{report}");
-    write(
-        &dir.join("home/.config/kiri/config.toml"),
-        "follow_jump = \"most\"\n",
-    );
-    let report = piped(&dir, &[]);
+    check_row(&dir, &[], &[], "| Follow jump | first | default |");
+    write_config(&dir, "follow_jump = \"most\"\n");
     let row = "| Follow jump | most | configuration file |";
-    assert!(report.contains(row), "{row}\n{report}");
-    let report = piped(&dir, &["--follow-jump", "last"]);
+    check_row(&dir, &[], &[], row);
     let row = "| Follow jump | last | `--follow-jump` |";
-    assert!(report.contains(row), "{row}\n{report}");
-    let mut command = doctor(&dir, &[]);
-    let out = command.env("KIRI_FOLLOW_JUMP", "last").output().unwrap();
-    assert_succeeded(&out);
-    let report = text(&out.stdout);
+    check_row(&dir, &["--follow-jump", "last"], &[], row);
     let row = "| Follow jump | last | `KIRI_FOLLOW_JUMP=last` |";
-    assert!(report.contains(row), "{row}\n{report}");
+    check_row(&dir, &[], &[("KIRI_FOLLOW_JUMP", "last")], row);
 }
 
 #[test]
 fn the_initial_load_tells_where_it_comes_from() {
     let dir = Scratch::new("doctor-initial-load");
-    let report = piped(&dir, &[]);
-    let row = "| Initial load | wait | default |";
-    assert!(report.contains(row), "{row}\n{report}");
-    write(
-        &dir.join("home/.config/kiri/config.toml"),
-        "initial_load = \"background\"\n",
-    );
-    let report = piped(&dir, &[]);
+    check_row(&dir, &[], &[], "| Initial load | wait | default |");
+    write_config(&dir, "initial_load = \"background\"\n");
     let row = "| Initial load | background | configuration file |";
-    assert!(report.contains(row), "{row}\n{report}");
-    let mut command = doctor(&dir, &[]);
-    let out = command.env("KIRI_INITIAL_LOAD", "wait").output().unwrap();
-    assert_succeeded(&out);
-    let report = text(&out.stdout);
+    check_row(&dir, &[], &[], row);
     let row = "| Initial load | wait | `KIRI_INITIAL_LOAD=wait` |";
-    assert!(report.contains(row), "{row}\n{report}");
-    let mut command = doctor(&dir, &["--initial-load", "background"]);
-    let out = command.env("KIRI_INITIAL_LOAD", "wait").output().unwrap();
-    assert_succeeded(&out);
-    let report = text(&out.stdout);
+    check_row(&dir, &[], &[("KIRI_INITIAL_LOAD", "wait")], row);
     let row = "| Initial load | background | `--initial-load` |";
-    assert!(report.contains(row), "{row}\n{report}");
+    check_row(
+        &dir,
+        &["--initial-load", "background"],
+        &[("KIRI_INITIAL_LOAD", "wait")],
+        row,
+    );
 }
 
 #[test]
