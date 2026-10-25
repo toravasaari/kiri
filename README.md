@@ -218,6 +218,14 @@ window, and `kiri --fa notes.md` auto-follows it; `follow = "on"` or
 status line says `F follow` or `F auto`. A document from standard input,
 or several files, cannot be followed yet.
 
+While kiri waits for a document's images and diagrams before the pager
+opens, Space or Enter opens it at once, and the rest come in the
+background as after `r`. With `initial_load = "background"` in the
+configuration file, `KIRI_INITIAL_LOAD=background` or `--initial-load
+background`, the pager never waits for them. Text below an image moves
+down when the image comes, which is why this is not the default. A
+document that is printed rather than paged always waits.
+
 Front matter that does not parse shows as `⚠ 1` on the status line,
 with the message above it for a few seconds.
 

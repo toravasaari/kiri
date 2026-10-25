@@ -341,8 +341,9 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   can be set more finely.
 - Following standard input, such as `tail -f log | kiri`, as well as a
   file.
-- Ctrl-C stops a reload that draws a slow diagram; today the terminal
-  is raw then, and only the time limit ends the wait.
+- Ctrl-C stops a reload that draws a slow diagram: replaced by loading
+  in the background, where the pager stays responsive and `q` stops the
+  programs. (replaced)
 - Images and diagrams of a reload load in the background: the text shows
   at once; a changed image shows its old one dimmed, a new or reread one
   its code or alt text, each with a thin moving band in the blank line
@@ -352,8 +353,11 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 - The images in view load first, then the ones nearest to it, chosen
   again as the reader scrolls. Image files no longer wait behind slow
   diagrams for a program. (done)
-- The first load in the background too, behind a setting, as moving
-  content may annoy some readers. Print mode waits as today.
+- The initial load in the background too, behind a setting, as moving
+  content may annoy some readers: `initial_load = "background"`,
+  `--initial-load`, `KIRI_INITIAL_LOAD`, where the pager surely opens.
+  Waiting, Space or Enter opens the pager at once. Failures are told on
+  standard error once the pager closes. Print mode waits as today. (done)
 - A grey box at the old image's size was tried as the placeholder and
   dropped for the block's own content. It may come back where it earns
   its place, such as a page-long code block whose diagram is short.
