@@ -49,8 +49,8 @@ fn version() -> String {
 
 /// The formula that `request` asks for as an SVG document, its glyphs as
 /// paths, in the colours of the request, on a transparent background
-/// unless they have one; or
-/// RaTeX's message saying why it could not be drawn.
+/// unless they have one; or RaTeX's message saying why it could not be
+/// drawn.
 fn render(request: &Request) -> Result<Drawn, String> {
     let nodes = ratex_parser::parse(request.source).map_err(|error| error.to_string())?;
     let [red, green, blue] = request.formula.text.unwrap_or(match request.theme {
