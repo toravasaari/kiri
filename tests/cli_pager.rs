@@ -1106,6 +1106,71 @@ fn quitting_while_the_first_load_draws_stops_the_program() {
     }
 }
 
+/// [`drawn_on_cue`], with a command that fails instead of drawing, and
+/// the reasons only on standard error.
+fn failing_on_cue(dir: &std::path::Path) {
+    drawn_on_cue(dir);
+    let fail = format!(
+        "i=0\n\
+         while [ ! -f '{}' ] && [ $i -lt 160 ]; do sleep 0.05; i=$((i + 1)); done\n\
+         echo 'Error: bad' >&2\nexit 1\n",
+        dir.join("go").display()
+    );
+    std::fs::write(dir.join("render.sh"), fail).unwrap();
+    let config = dir.join("config/kiri/config.toml");
+    let config_text = std::fs::read_to_string(&config).unwrap();
+    std::fs::write(
+        &config,
+        format!("render_errors = \"stderr\"\n{config_text}"),
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_first_load_in_the_background_tells_a_failed_diagram_nowhere_yet() {
+    // Pinned as it is; whether the pager should tell it on standard error
+    // once it has left its screen is open.
+    let failed = |frames: &[String], _: &std::path::Path| {
+        (frames.iter().skip(1)).any(|frame| !text_of(frame).contains("[rendering"))
+    };
+    let args = [
+        "--first-load",
+        "background",
+        "-p",
+        "--mode",
+        "kitty",
+        "diagram.md",
+    ];
+    let name = "pager-first-load-failed";
+    let (frames, stderr) = quit_when(name, failing_on_cue, &args, None, &[], failed);
+    assert!(
+        text_of(&frames[0]).contains("[rendering: 0/1]"),
+        "{frames:?}"
+    );
+    let last = text_of(frames.last().unwrap());
+    assert!(last.contains("flowchart TD"), "{frames:?}");
+    assert!(!last.contains("bad"), "{frames:?}");
+    assert_eq!(stderr, "");
+    // Waiting, it is told on standard error.
+    let at_once = |dir: &std::path::Path| {
+        failing_on_cue(dir);
+        std::fs::write(dir.join("go"), "").unwrap();
+    };
+    let args = [
+        "--first-load",
+        "wait",
+        "-p",
+        "--mode",
+        "kitty",
+        "diagram.md",
+    ];
+    let name = "pager-first-load-failed-wait";
+    let quit = |frames: &[String], _: &std::path::Path| !frames.is_empty();
+    let (frames, stderr) = quit_when(name, at_once, &args, None, &[], quit);
+    assert!(!text_of(&frames[0]).contains("[rendering"), "{frames:?}");
+    assert!(stderr.contains("Error: bad"), "{stderr}");
+}
+
 #[test]
 fn a_first_load_in_the_background_waits_where_the_pager_may_not_open() {
     // Paging on auto needs the height of the drawn diagram to decide.
