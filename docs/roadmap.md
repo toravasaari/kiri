@@ -343,10 +343,20 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   file.
 - Ctrl-C stops a reload that draws a slow diagram; today the terminal
   is raw then, and only the time limit ends the wait.
-- Images and diagrams load in the background: the text of a reload shows
-  at once, with a note where an image is still being drawn, and a newer
-  change stops the load of an older one. Today a reload waits for every
-  changed diagram, which with a slow `mmdc` holds the pager for seconds.
+- Images and diagrams of a reload load in the background: the text shows
+  at once; a changed image shows its old one dimmed, a new or reread one
+  its code or alt text, each with a thin moving band in the blank line
+  below; `[rendering: 2/5]` on the status line; no jump when an image
+  comes; a newer change stops the loads it no longer wants, and `q`
+  stops the programs. (done)
+- The images in view load first, chosen again as the reader scrolls.
+  Image files then no longer wait behind the slow diagrams of an earlier
+  reload.
+- The first load in the background too, behind a setting, as moving
+  content may annoy some readers. Print mode waits as today.
+- A grey box at the old image's size was tried as the placeholder and
+  dropped for the block's own content. It may come back where it earns
+  its place, such as a page-long code block whose diagram is short.
 - Warnings about front matter in the pager, after a reload and on the
   first load: a red line above the status line for five seconds, and
   `⚠ 1` on the status line while the document has them. (done)
