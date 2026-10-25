@@ -4,7 +4,7 @@ use image::ImageFormat;
 
 use super::*;
 use crate::diagrams::{Renderer, Request};
-use crate::images::tests::{Stub, fixtures, rgba, with_stub};
+use crate::images::tests::{Stub, fixtures, load_source, rgba, with_stub};
 use crate::images::{DEFAULT_MAX_FILE_SIZE, ImageKey, decode, load_with};
 
 #[test]
@@ -12,13 +12,7 @@ fn a_diagram_that_fails_is_a_warning_naming_it() {
     let source = "# Plan\n\n```mermaid\nflowchart TD\n  broken\n```\n";
     let warnings = |by_line| {
         let stub = Stub::default();
-        let images = load_with(
-            &crate::parse::parse(source),
-            &fixtures(),
-            DEFAULT_MAX_FILE_SIZE,
-            &Fonts::none(),
-            &with_stub(&stub, Theme::Light, by_line),
-        );
+        let images = load_source(source, &with_stub(&stub, Theme::Light, by_line));
         images.warnings()
     };
     assert_eq!(warnings(true), ["mermaid diagram on line 3: parse error"]);
@@ -40,11 +34,8 @@ fn a_diagram_that_is_no_svg_is_a_warning_naming_it() {
             Ok(Drawn::svg("not svg", theme, None))
         }
     }
-    let images = load_with(
-        &crate::parse::parse("```dot\ndigraph {}\n```\n"),
-        &fixtures(),
-        DEFAULT_MAX_FILE_SIZE,
-        &Fonts::none(),
+    let images = load_source(
+        "```dot\ndigraph {}\n```\n",
         &LoadOptions {
             renderer: &Text,
             ..LoadOptions::default()
@@ -145,11 +136,8 @@ fn a_diagram_for_the_other_page_lies_on_a_panel_of_its_background() {
         }
     }
     let drawn = |page, own, background, panel| {
-        let images = load_with(
-            &crate::parse::parse("```dot\ndigraph {}\n```\n"),
-            &fixtures(),
-            DEFAULT_MAX_FILE_SIZE,
-            &Fonts::none(),
+        let images = load_source(
+            "```dot\ndigraph {}\n```\n",
             &LoadOptions {
                 renderer: &Themed(own, background),
                 theme: page,
@@ -234,11 +222,8 @@ fn drawn_within(
     page: Theme,
     largest: Option<(u32, u32)>,
 ) -> Result<Source, ImageError> {
-    let images = load_with(
-        &crate::parse::parse("```dot\ndigraph {}\n```\n"),
-        &fixtures(),
-        DEFAULT_MAX_FILE_SIZE,
-        &Fonts::none(),
+    let images = load_source(
+        "```dot\ndigraph {}\n```\n",
         &LoadOptions {
             renderer,
             theme: page,

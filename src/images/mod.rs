@@ -698,6 +698,18 @@ mod tests {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
     }
 
+    /// The images of the Markdown `source` with the default size limit, no
+    /// fonts and the fixtures directory as the base.
+    pub(super) fn load_source(source: &str, options: &LoadOptions<'_>) -> Images {
+        load_with(
+            &crate::parse::parse(source),
+            &fixtures(),
+            DEFAULT_MAX_FILE_SIZE,
+            &Fonts::none(),
+            options,
+        )
+    }
+
     /// The image at `url` with the default size limit and no fonts.
     pub(super) fn open(url: &str, base: &Path) -> Result<Source, ImageError> {
         load_url(url, base, DEFAULT_MAX_FILE_SIZE, &Fonts::none())
@@ -769,13 +781,7 @@ mod tests {
 
 > [![c](images/transparent.png)](https://example.com)
 ";
-        let images = load_with(
-            &crate::parse::parse(source),
-            &fixtures(),
-            DEFAULT_MAX_FILE_SIZE,
-            &Fonts::none(),
-            &LoadOptions::default(),
-        );
+        let images = load_source(source, &LoadOptions::default());
         assert_eq!(images.len(), 3);
         assert!(images.get(&"images/pattern.png".into()).unwrap().is_ok());
         assert!(
@@ -806,13 +812,7 @@ Text ![inline](images/pattern.png) and words.
 |---|
 | ![d](images/missing.png) |
 ";
-        let images = load_with(
-            &crate::parse::parse(source),
-            &fixtures(),
-            DEFAULT_MAX_FILE_SIZE,
-            &Fonts::none(),
-            &LoadOptions::default(),
-        );
+        let images = load_source(source, &LoadOptions::default());
         assert!(images.is_empty(), "{images:?}");
     }
 
@@ -963,13 +963,7 @@ fn main() {}
 |---|
 ";
         let stub = Stub::default();
-        let images = load_with(
-            &crate::parse::parse(source),
-            &fixtures(),
-            DEFAULT_MAX_FILE_SIZE,
-            &Fonts::none(),
-            &with_stub(&stub, Theme::Dark, true),
-        );
+        let images = load_source(source, &with_stub(&stub, Theme::Dark, true));
         let calls = stub.calls.into_inner();
         let sources: Vec<&str> = calls.iter().map(|(source, _)| source.as_str()).collect();
         assert_eq!(sources, ["a\n", "b\n", "c\n", "d\n", "e\n"]);
@@ -990,13 +984,7 @@ fn main() {}
     fn a_diagram_is_drawn_once_whatever_the_case_of_its_language() {
         let source = "```Mermaid\na\n```\n\n```mermaid\na\n```\n\n```MERMAID\na\n```\n";
         let stub = Stub::default();
-        let images = load_with(
-            &crate::parse::parse(source),
-            &fixtures(),
-            DEFAULT_MAX_FILE_SIZE,
-            &Fonts::none(),
-            &with_stub(&stub, Theme::Light, true),
-        );
+        let images = load_source(source, &with_stub(&stub, Theme::Light, true));
         assert_eq!(stub.calls.into_inner().len(), 1);
         assert_eq!(images.len(), 1);
         for language in ["Mermaid", "mermaid", "MERMAID"] {
@@ -1015,15 +1003,7 @@ fn main() {}
             progress: Some(&tell),
             ..with_stub(&stub, Theme::Light, true)
         };
-        let load = |source: &str| {
-            load_with(
-                &crate::parse::parse(source),
-                &fixtures(),
-                DEFAULT_MAX_FILE_SIZE,
-                &Fonts::none(),
-                &options,
-            )
-        };
+        let load = |source: &str| load_source(source, &options);
         load(source);
         // The same diagram twice is drawn once.
         assert_eq!(*told.lock().unwrap(), [(0, 2), (1, 2), (2, 2)]);
@@ -1034,13 +1014,7 @@ fn main() {}
 
     #[test]
     fn draws_no_diagrams_without_a_renderer() {
-        let images = load_with(
-            &crate::parse::parse("```mermaid\na\n```\n"),
-            &fixtures(),
-            DEFAULT_MAX_FILE_SIZE,
-            &Fonts::none(),
-            &LoadOptions::default(),
-        );
+        let images = load_source("```mermaid\na\n```\n", &LoadOptions::default());
         assert!(images.is_empty(), "{images:?}");
     }
 
