@@ -158,7 +158,10 @@ line stays the same line, so the view does not move, and the tint of
 auto-follow's change stays on its blocks; auto-follow jumped already
 when the text came. A newer reload stops the loads whose images the new
 document no longer shows, and `q`, or a signal, stops the programs that
-draw and waits for them to end, but not for merman, which cannot stop.
+draw. `src/main.rs` waits for them to end once the pager has left its
+screen, with `kiri: closing background programs…` on standard error
+while that takes more than a second, but not for merman, which cannot
+stop.
 
 The pager keeps one image encoder, `src/render/encoder.rs`, for as long
 as it runs. An image the terminal holds is not sent again: after a

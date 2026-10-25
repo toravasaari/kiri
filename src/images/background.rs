@@ -125,17 +125,19 @@ impl Programs {
         }
     }
 
-    /// Waits until no program runs, for at most `limit`.
-    fn wait_for_none(&self, limit: Duration) {
+    /// Waits until no program runs, for at most `limit`; whether none
+    /// does.
+    fn wait_for_none(&self, limit: Duration) -> bool {
         let start = Instant::now();
         let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
         while *running > 0 {
             let Some(left) = limit.checked_sub(start.elapsed()) else {
-                return;
+                return false;
             };
             let wait = self.changed.wait_timeout(running, left);
             running = wait.unwrap_or_else(|e| e.into_inner()).0;
         }
+        true
     }
 }
 
@@ -151,7 +153,7 @@ impl Drop for Place<'_> {
 
 /// How long stopping waits at most for the programs to end: they get
 /// SIGINT and half a second before they are killed.
-const STOPPING: Duration = Duration::from_secs(5);
+pub const STOPPING: Duration = Duration::from_secs(5);
 
 impl Default for Loads {
     fn default() -> Self {
@@ -237,8 +239,21 @@ impl Loads {
     /// renderer built into kiri, which cannot be stopped: what it draws
     /// is dropped.
     pub fn stop(&mut self) {
+        self.halt();
+        self.wait(STOPPING);
+    }
+
+    /// Stops every load, as [`Loads::stop`] does, without waiting for the
+    /// programs to end: [`Loads::wait`] does, such as once the pager has
+    /// left its screen.
+    pub fn halt(&mut self) {
         self.keep(|_| false);
-        self.programs.wait_for_none(STOPPING);
+    }
+
+    /// Waits for the programs outside kiri that draw to end, for at most
+    /// `limit`; whether they have.
+    pub fn wait(&self, limit: Duration) -> bool {
+        self.programs.wait_for_none(limit)
     }
 
     /// Loads `jobs` in the background as `settings` say; a load of the
@@ -287,6 +302,34 @@ impl Loads {
         // be without loading in the background.
         if started == 0 {
             batch.work();
+        }
+    }
+
+    /// Has a program draw the diagram `key`, which ends `ending` after it
+    /// is told to stop, and draws nothing.
+    #[cfg(test)]
+    pub(crate) fn program(&mut self, key: ImageKey, ending: Duration) {
+        let job = Job {
+            key,
+            what: What::Diagram {
+                language: "mermaid".to_owned(),
+                source: "slow\n".to_owned(),
+                line: 1,
+                by_line: true,
+            },
+            program: true,
+        };
+        let context = Context {
+            renderer: Box::new(tests::Slow(ending)),
+            theme: Theme::Light,
+            panel: true,
+            largest: None,
+            max_file_size: super::DEFAULT_MAX_FILE_SIZE,
+        };
+        self.start(vec![job], context);
+        let start = Instant::now();
+        while *self.programs.running.lock().unwrap() == 0 && start.elapsed() < STOPPING {
+            std::thread::sleep(Duration::from_millis(5));
         }
     }
 
@@ -448,6 +491,40 @@ fn crashed(what: &What, panic: &(dyn Any + Send)) -> ImageError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Draws until it is told to stop, and ends that long after, as a
+    /// program given time to close does.
+    pub(super) struct Slow(pub(super) Duration);
+
+    impl Renderer for Slow {
+        fn draws(&self, _: &str) -> bool {
+            true
+        }
+
+        fn render(&self, request: &Request) -> Result<crate::diagrams::Drawn, String> {
+            let stop = request.stop.expect("a stop flag");
+            while !stop.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            std::thread::sleep(self.0);
+            Err("stopped".to_owned())
+        }
+    }
+
+    #[test]
+    fn halting_does_not_wait_for_the_programs_and_waiting_does() {
+        let mut loads = Loads::new();
+        loads.program(
+            ImageKey::block("mermaid", "slow\n"),
+            Duration::from_millis(300),
+        );
+        let start = Instant::now();
+        loads.halt();
+        assert!(loads.is_empty());
+        assert!(start.elapsed() < Duration::from_millis(200));
+        assert!(!loads.wait(Duration::ZERO));
+        assert!(loads.wait(Duration::from_secs(5)));
+    }
 
     fn square() -> Result<Source, ImageError> {
         Ok(Source::Raster(image::RgbaImage::new(2, 2)))

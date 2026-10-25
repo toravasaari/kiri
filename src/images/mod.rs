@@ -25,7 +25,7 @@ use crate::model::{Block, Document, Inline};
 
 #[cfg(test)]
 pub(crate) use background::Arrival;
-pub use background::Loads;
+pub use background::{Loads, STOPPING};
 pub use decode::{DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image};
 pub use pipeline::{Interrupted, Loaded, Loading, load_documents, reload_in_background};
 pub use stamps::Stamps;

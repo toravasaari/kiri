@@ -1470,6 +1470,9 @@ fn page(
         }
         return None;
     };
+    // The images of a reload that still load when the pager quits, which
+    // it stops; their programs may take a moment to end.
+    let mut loads = Loads::new();
     let result = kiri::pager::run(
         content,
         Some(stream),
@@ -1477,12 +1480,28 @@ fn page(
         inputs,
         kiri::pager::Options {
             width: context.width,
+            loads: Some(&mut loads),
             ..options
         },
         &mut screen,
     );
-    screen.close();
+    loads.halt();
+    screen.close_then(|| close_programs(&loads));
     Some(result)
+}
+
+/// Waits for the programs that drew `loads`, stopped, to end, with a line
+/// on standard error, a terminal, while that takes more than a second.
+fn close_programs(loads: &Loads) {
+    let limit = kiri::images::STOPPING;
+    let wait = |most| loads.wait(most);
+    if !kiri::term::stderr_is_terminal() {
+        wait(limit);
+        return;
+    }
+    let text = "kiri: closing background programs…";
+    let second = std::time::Duration::from_secs(1);
+    kiri::term::progress::while_waiting(io::stderr(), second, limit, text, wait);
 }
 
 /// Reads the document from its file again for the pager, and loads the

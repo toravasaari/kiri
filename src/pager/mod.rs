@@ -173,7 +173,7 @@ pub enum Reloaded {
 }
 
 /// What the pager is told besides the document.
-pub struct Options<'a> {
+pub struct Options<'a, 'l> {
     /// The columns the document is laid out in, when the window's are not
     /// to decide.
     pub width: Option<u16>,
@@ -189,9 +189,13 @@ pub struct Options<'a> {
     /// The warnings about the document as first read, which the pager
     /// tells as it does those of a reload.
     pub warnings: Vec<Warning>,
+    /// Where the images of a reload load in the background, when the
+    /// caller keeps them, so that it can wait for their programs once
+    /// the pager has left its screen; otherwise the pager keeps its own.
+    pub loads: Option<&'l mut Loads>,
 }
 
-impl Options<'_> {
+impl Options<'_, '_> {
     /// A window's width to decide the layout, searches that treat case as
     /// `case` says, and no way to reload.
     pub fn new(case: SearchCase) -> Self {
@@ -202,6 +206,7 @@ impl Options<'_> {
             follow: config::Follow::Off,
             jump: FollowJump::First,
             warnings: Vec::new(),
+            loads: None,
         }
     }
 }
@@ -229,10 +234,12 @@ pub fn run(
         follow,
         jump,
         warnings,
+        loads,
     } = options;
+    let mut own = Loads::new();
     let mut source = Origin {
         reload,
-        loads: Loads::new(),
+        loads: loads.unwrap_or(&mut own),
         started: terminal.now(),
     };
     let page = Page {
@@ -395,7 +402,9 @@ pub fn run(
         )?;
         match outcome {
             Outcome::Quit => {
-                source.loads.stop();
+                // The caller waits for the programs, once the screen is
+                // left.
+                source.loads.halt();
                 encoder.delete_all(terminal)?;
                 terminal.flush()?;
                 return Ok(());
@@ -516,11 +525,11 @@ enum Outcome {
 }
 
 /// Where the pager gets the document and its images again.
-struct Origin<'a> {
+struct Origin<'r, 'l> {
     /// Where `r` gets the document again from; `None` when it cannot.
-    reload: Option<&'a mut dyn Reload>,
+    reload: Option<&'r mut dyn Reload>,
     /// The images loading in the background after a reload.
-    loads: Loads,
+    loads: &'l mut Loads,
     /// When the pager started, from when the bands below the images that
     /// load move.
     started: Instant,
@@ -4806,5 +4815,39 @@ mod tests {
             0,
             "{out:?}"
         );
+    }
+
+    #[test]
+    fn quitting_leaves_the_programs_ending_to_the_caller() {
+        let mut loads = Loads::new();
+        loads.program(
+            ImageKey::block("mermaid", "slow\n"),
+            Duration::from_millis(500),
+        );
+        let mut inputs = Inputs::new(Capabilities::kitty(80));
+        let mut terminal = Fake::new(60, 6, &[b"q"]);
+        let options = Options {
+            loads: Some(&mut loads),
+            ..Options::new(SearchCase::Smart)
+        };
+        let start = Instant::now();
+        run(
+            Content::Document(&numbers(3)),
+            None,
+            "notes.md",
+            &mut inputs,
+            options,
+            &mut terminal,
+        )
+        .unwrap();
+        // Back before the program ends, with the loads stopped.
+        assert!(
+            start.elapsed() < Duration::from_millis(300),
+            "{:?}",
+            start.elapsed()
+        );
+        assert!(loads.is_empty());
+        assert!(!loads.wait(Duration::ZERO));
+        assert!(loads.wait(Duration::from_secs(5)));
     }
 }

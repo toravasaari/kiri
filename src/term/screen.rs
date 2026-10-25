@@ -248,10 +248,18 @@ impl<W: Write> Screen<W> {
     /// Restores the terminal, and then ends kiri with the signal that
     /// asked it to end, if one came.
     pub fn close(self) {
+        self.close_then(|| {});
+    }
+
+    /// Restores the terminal, runs `after`, such as waiting for programs
+    /// that are to end, and then ends kiri with the signal that asked it
+    /// to end, if one came.
+    pub fn close_then(self, after: impl FnOnce()) {
         // Read after the drop, so a signal that comes while the terminal
         // is restored still counts.
         let flag = Arc::clone(&self.signals.came);
         drop(self);
+        after();
         if let Some(signal) = interrupt::came(&flag) {
             interrupt::end_by(signal);
         }
@@ -321,6 +329,8 @@ const LEAVE_SCREEN: &[u8] = b"\x1b[?25h\x1b[?1049l";
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
     use crate::term::testing::{pty, size};
 
@@ -505,6 +515,10 @@ mod tests {
     /// The terminal that [`in_child`] gives a child test.
     const PTY: &str = "KIRI_TEST_PTY";
 
+    /// A file that [`in_child`] names for a child test to leave a mark
+    /// in.
+    const MARK: &str = "KIRI_TEST_MARK";
+
     /// Run on its own by [`in_child`]: opens a screen on the terminal
     /// `KIRI_TEST_PTY` names, gets SIGTERM while it opens, and closes it.
     #[test]
@@ -593,6 +607,12 @@ mod tests {
     /// Runs the ignored test `name` in a process of its own with a
     /// pseudo-terminal, and gives how it exited and the terminal after.
     fn in_child(name: &str) -> (std::process::ExitStatus, Termios) {
+        in_child_marking(name, Path::new("/nonexistent/mark"))
+    }
+
+    /// [`in_child`], with the file `mark` for the child to leave a mark
+    /// in.
+    fn in_child_marking(name: &str, mark: &Path) -> (std::process::ExitStatus, Termios) {
         use std::process::{Command, Stdio};
 
         let (_terminal, tty) = pty();
@@ -605,6 +625,7 @@ mod tests {
             .args(["--exact", &format!("term::screen::tests::{name}")])
             .args(["--ignored", "--test-threads", "1"])
             .env(PTY, path)
+            .env(MARK, mark)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -624,6 +645,36 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         };
         (status, tcgetattr(&tty).unwrap())
+    }
+
+    /// Run on its own by [`in_child`]: opens a screen on the terminal
+    /// `KIRI_TEST_PTY` names, gets SIGTERM while it is open, and closes
+    /// it with work after, which leaves a mark in `KIRI_TEST_MARK`.
+    #[test]
+    #[ignore = "run by in_child"]
+    fn sigterm_on_a_screen_closed_with_work_after() {
+        let tty = File::options()
+            .read(true)
+            .write(true)
+            .open(std::env::var_os(PTY).unwrap())
+            .unwrap();
+        let screen = Screen::catching_on(tty, Vec::new(), || {}).expect("the screen opens");
+        signal_hook::low_level::raise(SIGTERM).unwrap();
+        screen.close_then(|| std::fs::write(std::env::var_os(MARK).unwrap(), "after").unwrap());
+    }
+
+    #[test]
+    fn work_after_closing_runs_before_a_signal_ends_kiri() {
+        use std::os::unix::process::ExitStatusExt;
+
+        let scratch = crate::testing::Scratch::new("screen-close-then");
+        let mark = scratch.join("mark");
+        let (status, _) = in_child_marking("sigterm_on_a_screen_closed_with_work_after", &mark);
+        assert_eq!(status.signal(), Some(SIGTERM), "{status}");
+        assert_eq!(
+            std::fs::read_to_string(&mark).ok().as_deref(),
+            Some("after")
+        );
     }
 
     #[test]
