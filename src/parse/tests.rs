@@ -828,6 +828,26 @@ fn empty_display_math_stays_text() {
     assert_eq!(parse("a $$ $$ b\n").blocks, [paragraph("a $$ $$ b")]);
 }
 
+/// The blocks of `source` parsed as before kiri read math.
+fn without_math(source: &str) -> Vec<Block> {
+    let arena = Arena::new();
+    let root = parse_document(&arena, source, &options_without_math());
+    blocks(root).into_iter().map(|(block, _)| block).collect()
+}
+
+#[test]
+fn display_math_outside_a_paragraph_s_own_inlines_stays_text() {
+    // Only a paragraph is split at a formula.
+    for source in [
+        "# A $$x$$ b\n",
+        "| a |\n|---|\n| $$x$$ |\n",
+        "*a $$x$$ b*\n",
+        "[a $$x$$ b](u)\n",
+    ] {
+        assert_eq!(parse(source).blocks, without_math(source), "{source}");
+    }
+}
+
 #[test]
 fn inline_math_stays_text_as_written() {
     // Until inline formulas are drawn, they read as they always have.
