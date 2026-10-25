@@ -2,13 +2,15 @@
 //! in the background, chosen by what their blocks showed before: a block
 //! that changed shows its old image dimmed, and any other block, such as
 //! one that stayed while its image file changed, shows as it does without
-//! its image.
+//! its image. The images nearest to the view load first.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 
 use crate::compare::{self, Comparison, Fate};
 use crate::images::{ImageKey, Images, Placeholder, Source};
 use crate::model::{Block, Document, Inline};
+use crate::render::style::Line;
 
 /// The key of the image `block` shows, when it may show one: the image of
 /// a paragraph of only an image, or the diagram a code block may be drawn
@@ -25,6 +27,33 @@ fn key_of(block: &Block) -> Option<ImageKey> {
         } => Some(ImageKey::block(language, code)),
         _ => None,
     }
+}
+
+/// The images loading that `lines` show, nearest to the lines `visible`
+/// first: those in view in the order they come, then the others by how
+/// many lines away they are, one below the view before one above it at
+/// the same distance.
+pub fn nearest(lines: &[Line], visible: Range<usize>) -> Vec<ImageKey> {
+    let mut found: Vec<_> = (lines.iter().enumerate())
+        .filter_map(|(at, line)| {
+            let band = line.band.as_ref()?;
+            let shown = at.saturating_sub(band.above)..at + 1;
+            let away = if shown.end <= visible.start {
+                (visible.start - shown.end + 1, true)
+            } else if shown.start >= visible.end {
+                (shown.start - visible.end + 1, false)
+            } else {
+                (0, false)
+            };
+            Some((away, at, &band.key))
+        })
+        .collect();
+    found.sort_by_key(|&(away, at, _)| (away, at));
+    let mut seen = HashSet::new();
+    (found.into_iter())
+        .filter(|&(_, _, key)| seen.insert(key))
+        .map(|(_, _, key)| key.clone())
+        .collect()
 }
 
 /// The images reloading `old` as `new` left, which `changes` tells
@@ -118,6 +147,37 @@ mod tests {
             images: &Images::new(),
         };
         reloaded.placeholder(&key.into())
+    }
+
+    /// A blank line with the band of the image `url`, shown by `above`
+    /// lines above it too.
+    fn band(url: &str, above: usize) -> Line {
+        Line {
+            band: Some(crate::render::style::Band {
+                columns: 4,
+                indent: 0,
+                low: false,
+                key: url.into(),
+                above,
+            }),
+            ..Line::blank()
+        }
+    }
+
+    #[test]
+    fn the_images_in_view_come_first_and_then_the_nearest_below_before_above() {
+        let mut lines = vec![Line::blank(); 10];
+        lines[0] = band("far.png", 0);
+        lines[2] = band("above.png", 0);
+        // Shown from above the view into it.
+        lines[5] = band("in.png", 2);
+        // Two lines away, as is the one above.
+        lines[8] = band("below.png", 1);
+        // Shown again further down.
+        lines[9] = band("in.png", 0);
+        let keys = nearest(&lines, 4..6);
+        let urls: Vec<String> = keys.iter().map(ImageKey::to_string).collect();
+        assert_eq!(urls, ["in.png", "below.png", "above.png", "far.png"]);
     }
 
     #[test]

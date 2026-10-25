@@ -149,7 +149,7 @@ impl<'a> Writer<'a> {
         }
         // Over the row, from where it starts; not behind a panel, which
         // it would be drawn over.
-        if let Some(band) = line.band.filter(|_| row == 0 && !self.dim) {
+        if let Some(band) = line.band.as_ref().filter(|_| row == 0 && !self.dim) {
             let cell = cell_size(caps);
             let id = (self.encoder).band(band.columns, cell, self.ink, self.elapsed, out)?;
             out.write_all(b"\x1b7")?;
@@ -423,6 +423,8 @@ mod tests {
                 columns: 4,
                 indent: 6,
                 low: false,
+                key: "a.png".into(),
+                above: 1,
             }),
             ..Line::blank()
         };
@@ -431,6 +433,8 @@ mod tests {
                 columns: 4,
                 indent: 0,
                 low: true,
+                key: "b.png".into(),
+                above: 0,
             }),
             ..Line::new(vec![Span::new("code", Style::default())])
         };
