@@ -93,8 +93,9 @@ program to draw them.
 
 HTML `<details>` blocks are shown open, their `<summary>` in bold after a
 `▼`, also nested and inside lists and quotes. `<kbd>` is drawn as inline
-code, `<br>` breaks the line, and `<mark>` takes the theme's `mark`
-colours, black on yellow by default. Other HTML is shown as muted source.
+code, `<br>` breaks the line, `<mark>` takes the theme's `mark` colours,
+black on yellow by default, and `<sub>` and `<sup>` are drawn smaller,
+lowered or raised. Other HTML is shown as muted source.
 
 Front matter, the metadata block at the start of a file that Jekyll,
 Hugo, Obsidian and agent skills write, is shown as a table of its keys
