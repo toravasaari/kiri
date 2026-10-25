@@ -12,6 +12,7 @@ pub mod kitty;
 pub mod list;
 pub mod model;
 pub mod pager;
+pub mod panics;
 pub mod parse;
 pub mod render;
 pub mod size;

@@ -189,7 +189,8 @@ not the view had to move, for `r` as well, and only while following is
 `auto`; a removal has no lines to show, so it gets no highlight. A line
 that has a background of its own, such as a code block's, gets the same
 mix over it. Scrolling does not move the highlight away from its lines,
-and a new reload replaces it. On a terminal where the page colours are
+nor does an image that comes after the reload, and a new reload replaces
+it. On a terminal where the page colours are
 not known as RGB, or without 24-bit colour, there is no highlight.
 
 ## Search case

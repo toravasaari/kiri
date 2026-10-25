@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 
 use super::url::local_file;
-use super::{ImageKey, Images, Part, lone_urls};
+use super::{ImageError, ImageKey, Images, Part, Source, lone_urls};
 
 /// The modification time of the file behind each image of the documents
 /// shown, when the image was last loaded: `None` for a file that could not
@@ -26,15 +26,23 @@ impl Stamps {
 
     /// Takes out of `images` the ones whose files have changed since their
     /// stamps, so that loading them again is a matter of loading what is
-    /// missing, and stamps what `parts` show as the files are now.
-    pub fn refresh(&mut self, parts: &[Part<'_>], images: &mut Images) {
+    /// missing, and stamps what `parts` show as the files are now. Gives
+    /// the keys of the files that changed, with what `images` held of
+    /// them.
+    pub fn refresh(
+        &mut self,
+        parts: &[Part<'_>],
+        images: &mut Images,
+    ) -> Vec<(ImageKey, Option<Result<Source, ImageError>>)> {
         let now = modified_times(parts);
+        let mut changed = Vec::new();
         for (key, stamp) in &now {
             if self.by_key.get(key) != Some(stamp) {
-                images.remove(key);
+                changed.push((key.clone(), images.remove(key)));
             }
         }
         self.by_key = now;
+        changed
     }
 }
 

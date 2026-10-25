@@ -145,6 +145,30 @@ is not shown. The terminal itself, the alternate screen, raw mode and
 reading keys from the controlling terminal, is opened in
 `src/term/screen.rs`.
 
+A reload shows the new text at once: the `Reload` keeps the images the
+document still shows and starts the others loading in the background, in
+the pager's `Loads`, which the pager polls beside the follow poll.
+Meanwhile `src/pager/loading.rs` chooses what stands in for each image
+from the comparison: a block that changed shows its old image dimmed,
+and any other block, a new one or one that stayed while its image file
+changed, shows as it does without its image, code or alt text. Below
+each goes a thin band whose light part keeps running across it: in the
+blank line after the block, or over the bottom of the block's last line
+where none follows, so that it takes no row, and an image as large as
+its placeholder moves nothing when it comes. The band is an image of its
+own placed over the text; clearing the screen frees it, so each frame
+sends it anew, as it is then, and the pager draws a frame each 50 ms
+while a band shows, so that it moves. The status line says
+`[rendering: 1/3]` in place of the name meanwhile. An image that comes
+is laid out as after a resize, but the top line stays the same line, so
+the view does not move, and the tint of auto-follow's change stays on
+its blocks; auto-follow jumped already when the text came. A newer
+reload stops the loads whose images the new document no longer shows,
+and `q`, or a signal, stops the programs that draw. `src/main.rs` waits
+for them to end once the pager has left its screen, with
+`kiri: closing background programs…` on standard error while that takes
+more than a second, but not for merman, which cannot stop.
+
 The pager keeps one image encoder, `src/render/encoder.rs`, for as long
 as it runs. An image the terminal holds is not sent again: after a
 resize that leaves it at the same size, or a reload that leaves its
@@ -233,7 +257,11 @@ have yet: a diagram is kept by its key, which holds its source, so one
 that did not change is not drawn again, unless it failed to draw, such as
 for a time limit; and an image from a local file is loaded again when its
 modification time, which `src/images/stamps.rs` keeps, is not the one it
-was loaded at. Other images are kept as they are.
+was loaded at. Other images are kept as they are. What is loaded loads
+in the background, `src/images/background.rs`, on threads of their own,
+with at most four programs drawing at once, also when reloads overlap,
+each load with a stop flag of its own, which `External` looks at
+besides the one for signals.
 
 `src/images/pipeline.rs` builds the renderers from the settings and the
 environment, given as values, and loads a document's images with them;
@@ -339,6 +367,9 @@ src/term/progress.rs       the line that tells how far drawing diagrams has
 src/term/interrupt.rs      signals while programs draw diagrams
 src/term/testing.rs        pseudo-terminals for the tests
 src/testing.rs             scratch directories for the tests
+src/panics.rs              panics kiri catches on purpose, such as a load's
+                           in the background, which the pager's screen
+                           stays open for
 src/config.rs              the environment variables kiri reads, the
                            configuration file, and each setting resolved
                            from the flags, the environment, the file and
@@ -350,6 +381,8 @@ src/theme/mod.rs           colours and sizes the renderer uses
 src/theme/paper.rs         the light and dark paper themes
 src/theme/file.rs          theme files
 src/images/mod.rs          loading the images a document shows
+src/images/background.rs   loading images on threads of their own, each
+                           stoppable, as the pager does after a reload
 src/images/decode.rs       decoding image files, raster and SVG
 src/images/drawn.rs        diagrams as their renderers drew them, made images
 src/images/pipeline.rs     a document's images for a run: renderers from the
@@ -389,6 +422,8 @@ src/render/style.rs        styled text between layout and output
 src/render/output.rs       styled lines -> bytes (SGR, OSC 8, CSI C/K, OSC 66),
                            cursor placement and synchronized output
 src/render/encoder.rs      the images the terminal holds, and under which ids
+src/render/loading.rs      the pixels of what stands in for an image while
+                           it loads, and of the band below it
 src/render/highlight.rs    syntax highlighting for code blocks (syntect)
 src/pager/mod.rs           the pager: frames and the loop of keys
 src/pager/view.rs          the lines a window shows, and scrolling
@@ -402,6 +437,8 @@ src/pager/files.rs         where each of several files starts in the stream,
 src/pager/changes.rs       where a reload changed the laid-out lines, and
                            which change auto-follow moves to
 src/pager/tint.rs          the lighter background over that change's lines
+src/pager/loading.rs       what stands in for an image while it loads after
+                           a reload
 src/pager/status.rs        the status line
 src/pager/help.rs          the help panel that lists the keys
 src/pager/warnings.rs      the warning line above the status line

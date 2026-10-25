@@ -183,6 +183,18 @@ pub struct Placement {
     /// Which image, the key into `Images`.
     pub key: ImageKey,
     pub size: Size,
+    /// The image itself, or what stands in for it while it loads.
+    pub shows: Shows,
+}
+
+/// What a placement shows of its image.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum Shows {
+    /// The image.
+    #[default]
+    Image,
+    /// Its placeholder while it loads: the old image dimmed.
+    Placeholder,
 }
 
 #[cfg(test)]

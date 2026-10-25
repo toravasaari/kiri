@@ -90,6 +90,20 @@ pub struct ImageRow {
     pub row: u16,
 }
 
+/// The band that tells that a block's image is loading, which a line
+/// draws over itself, so that it takes no row of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Band {
+    /// How many cells wide it is.
+    pub columns: u16,
+    /// How many cells from the start of the line it starts.
+    pub indent: usize,
+    /// Over the bottom of the line, as on the last row of a block with no
+    /// blank line after it; otherwise a little below the line's top, as on
+    /// the blank line after a block.
+    pub low: bool,
+}
+
 /// One output line. A line of a size other than the normal one is drawn
 /// with kitty's text sizing protocol and occupies as many terminal rows as
 /// its scale.
@@ -109,6 +123,9 @@ pub struct Line {
     /// The block the line comes from, or none for the blank line between
     /// two blocks.
     pub block: Option<BlockId>,
+    /// The band of a block above whose image is loading, drawn over the
+    /// line.
+    pub band: Option<Band>,
 }
 
 impl Line {
@@ -120,6 +137,7 @@ impl Line {
             trail: Vec::new(),
             size: TextSize::NORMAL,
             block: None,
+            band: None,
         }
     }
 

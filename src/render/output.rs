@@ -3,8 +3,11 @@
 //! sends them, and the placeholders of `kitty::graphics`, which show them.
 
 use std::io::{self, Write};
+use std::time::Duration;
 
 use super::encoder::Encoder;
+use super::image::cell_size;
+use super::loading::{self, Ink};
 use super::style::{ImageRow, Line, Span, Style};
 use super::wrap::width;
 use crate::caps::Capabilities;
@@ -75,6 +78,11 @@ pub struct Writer<'a> {
     foreground: Option<Color>,
     /// Every line dimmed, as behind a panel.
     dim: bool,
+    /// The colour of placeholders and of the bands below them.
+    ink: Ink,
+    /// How long the bands have moved, which tells where their light part
+    /// is.
+    elapsed: Duration,
     /// What the terminal holds of the images.
     encoder: &'a mut Encoder,
 }
@@ -94,6 +102,8 @@ impl<'a> Writer<'a> {
             background: page.background.filter(|_| caps.color),
             foreground: page.foreground.filter(|_| caps.color),
             dim: false,
+            ink: Ink::new(page, caps),
+            elapsed: Duration::ZERO,
             encoder,
         }
     }
@@ -118,7 +128,8 @@ impl<'a> Writer<'a> {
 
     /// Erases the whole screen in the page's background and leaves the
     /// cursor at the top left with the terminal's default style.
-    pub fn clear(&self, out: &mut impl Write) -> io::Result<()> {
+    pub fn clear(&mut self, out: &mut impl Write) -> io::Result<()> {
+        self.encoder.cleared();
         let fill = self.fill();
         transition(&Style::default(), &fill, self.caps, out)?;
         out.write_all(b"\x1b[H\x1b[2J")?;
@@ -136,9 +147,21 @@ impl<'a> Writer<'a> {
                 .collect();
             return out.write_all(text.trim_end().as_bytes());
         }
+        // Over the row, from where it starts; not behind a panel, which
+        // it would be drawn over.
+        if let Some(band) = line.band.filter(|_| row == 0 && !self.dim) {
+            let cell = cell_size(caps);
+            let id = (self.encoder).band(band.columns, cell, self.ink, self.elapsed, out)?;
+            out.write_all(b"\x1b7")?;
+            if band.indent > 0 {
+                write!(out, "\x1b[{}C", band.indent)?;
+            }
+            graphics::place(out, id, loading::band_offset(cell.1, band.low))?;
+            out.write_all(b"\x1b8")?;
+        }
         let image = match &line.image {
             Some(ImageRow { placement, row }) => {
-                let id = self.encoder.id(placement, self.images, caps, out)?;
+                let id = (self.encoder).id(placement, self.images, caps, out)?;
                 Some((id, *row, placement.size.columns))
             }
             None => None,
@@ -197,6 +220,17 @@ impl Writer<'_> {
     /// Deletes from the terminal the images the encoder no longer keeps.
     pub fn delete_unused(&mut self, out: &mut impl Write) -> io::Result<()> {
         self.encoder.delete_unused(out)
+    }
+
+    /// Draws the bands of the images that are loading from now on as they
+    /// are `elapsed` after their start.
+    pub fn at(&mut self, elapsed: Duration) {
+        self.elapsed = elapsed;
+    }
+
+    /// Whether a band below an image that is loading is on the screen.
+    pub fn has_bands(&self) -> bool {
+        self.encoder.has_bands()
     }
 
     /// Writes `spans` in their own styles, without the page's colours, and
@@ -361,6 +395,7 @@ mod tests {
             trail: Vec::new(),
             size: TextSize::new(2).unwrap(),
             block: None,
+            band: None,
         };
         let mut out = Vec::new();
         write(
@@ -376,6 +411,50 @@ mod tests {
         .unwrap();
         let out = String::from_utf8(out).unwrap();
         assert!(!out.contains("\x1b[0C"), "{out:?}");
+    }
+
+    #[test]
+    fn a_band_is_placed_where_its_line_says_without_moving_the_cursor() {
+        use crate::render::style::Band;
+
+        // High on a blank line, six cells in, and low over a line of text.
+        let high = Line {
+            band: Some(Band {
+                columns: 4,
+                indent: 6,
+                low: false,
+            }),
+            ..Line::blank()
+        };
+        let low = Line {
+            band: Some(Band {
+                columns: 4,
+                indent: 0,
+                low: true,
+            }),
+            ..Line::new(vec![Span::new("code", Style::default())])
+        };
+        let caps = Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(40)
+        };
+        let images = Images::new();
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
+        let mut out = Vec::new();
+        writer.row(&high, 0, &mut out).unwrap();
+        writer.row(&low, 0, &mut out).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        let id = (out.split("\x1b_Ga=t,q=2,f=32,o=z,i=").nth(1))
+            .and_then(|rest| rest.split(',').next())
+            .unwrap();
+        // A sixth of the 20-pixel cell down, and three pixels ending two
+        // above its bottom.
+        let place = |down: u16| format!("\x1b_Ga=p,q=2,i={id},C=1,Y={down},z=1\x1b\\");
+        let high = format!("\x1b7\x1b[6C{}\x1b8", place(3));
+        let low = format!("\x1b7{}\x1b8code", place(15));
+        assert!(out.contains(&high), "{out:?}");
+        assert!(out.contains(&low), "{out:?}");
     }
 
     #[test]

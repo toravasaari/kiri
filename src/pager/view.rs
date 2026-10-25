@@ -209,6 +209,37 @@ impl View {
         self.resize_by(heights, blocks, rows, BlockInfo::same_place);
     }
 
+    /// Like [`View::resize`], for the same document laid out again with an
+    /// image of another height, as when an image that loaded takes the
+    /// place of its placeholder: the top line stays the same line, the
+    /// one as far into the same block, or the blank line as far above
+    /// the same block below it, also at the end of the document.
+    pub fn keep(&mut self, heights: Vec<usize>, blocks: Vec<Option<BlockInfo>>, rows: usize) {
+        let old = std::mem::replace(&mut self.blocks, blocks);
+        let (old_lines, top) = (old.len(), self.top);
+        self.heights = heights;
+        self.rows = rows;
+        // The new start of the run of lines of the block `block`.
+        let start_of = |block: &BlockInfo| {
+            (self.blocks.iter())
+                .position(|new| new.as_ref().is_some_and(|new| new.same_place(block)))
+        };
+        let kept = match old.get(top) {
+            Some(Some(block)) => start_of(block).map(|found| {
+                let offset = top - run_start(&old, top);
+                found + offset.min(run_length(&self.blocks, found) - 1)
+            }),
+            _ => match (top..old_lines).find(|&line| old[line].is_some()) {
+                Some(below) => {
+                    let block = old[below].as_ref().expect("a line with a block");
+                    start_of(block).map(|found| found.saturating_sub(below - top))
+                }
+                None => Some(self.heights.len().saturating_sub(old_lines - top)),
+            },
+        };
+        self.top = kept.unwrap_or(top).min(self.last_top());
+    }
+
     /// Like [`View::resize`], for lines that may come from another version
     /// of the document: `same` says whether a block of the new lines, the
     /// second, is the one of the old lines that the first is. A block with
@@ -563,6 +594,61 @@ mod tests {
         view.scroll(Motion::Down(20));
         view.resize(new_heights, new_blocks, 5);
         assert_eq!(view.top(), 5);
+    }
+
+    /// Three blocks of 20 lines with a blank line between them, and the
+    /// same when the first is 30 lines.
+    fn taller_first() -> (Laid, Laid) {
+        let runs = |a| {
+            blocked(&[
+                (Some((0, &[0][..])), a),
+                (None, 1),
+                (Some((0, &[1][..])), 20),
+                (None, 1),
+                (Some((0, &[2][..])), 20),
+            ])
+        };
+        (runs(20), runs(30))
+    }
+
+    #[test]
+    fn keeping_the_top_line_follows_it_down_when_a_block_above_grows() {
+        for (top, kept) in [
+            // In the second block, and on the blank line above it.
+            (31, 41),
+            (20, 30),
+            // In the first block, which grew, as far into it.
+            (5, 5),
+            // At the end, which moved down.
+            (57, 67),
+        ] {
+            let ((heights, blocks), (new_heights, new_blocks)) = taller_first();
+            let mut view = View::new(heights, 5).with_blocks(blocks);
+            view.scroll(Motion::Down(top));
+            assert_eq!(view.top(), top);
+            view.keep(new_heights, new_blocks, 5);
+            assert_eq!(view.top(), kept, "from {top}");
+        }
+    }
+
+    #[test]
+    fn keeping_the_top_line_follows_it_up_when_a_block_above_shrinks() {
+        for (top, kept) in [(41, 31), (67, 57)] {
+            let ((new_heights, new_blocks), (heights, blocks)) = taller_first();
+            let mut view = View::new(heights, 5).with_blocks(blocks);
+            view.scroll(Motion::Down(top));
+            view.keep(new_heights, new_blocks, 5);
+            assert_eq!(view.top(), kept, "from {top}");
+        }
+    }
+
+    #[test]
+    fn keeping_the_top_line_inside_a_block_that_shrinks_stays_in_it() {
+        let ((new_heights, new_blocks), (heights, blocks)) = taller_first();
+        let mut view = View::new(heights, 5).with_blocks(blocks);
+        view.scroll(Motion::Down(25));
+        view.keep(new_heights, new_blocks, 5);
+        assert_eq!(view.top(), 19);
     }
 
     #[test]

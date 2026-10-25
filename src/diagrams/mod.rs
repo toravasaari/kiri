@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 pub mod external;
 pub mod find;
@@ -77,13 +77,17 @@ impl Drawn {
 }
 
 /// A diagram to draw.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 pub struct Request<'a> {
     /// Its language, as the info string of its code block gives it.
     pub language: &'a str,
     pub source: &'a str,
     /// The page it is drawn for, unless it chooses its own colours.
     pub theme: Theme,
+    /// Set when this drawing alone is to stop, as when the diagram is no
+    /// longer wanted: a program drawing it is stopped, and one that has
+    /// not started does not. A renderer built into kiri cannot stop.
+    pub stop: Option<&'a AtomicBool>,
 }
 
 impl<'a> Request<'a> {
@@ -92,6 +96,15 @@ impl<'a> Request<'a> {
             language,
             source,
             theme,
+            stop: None,
+        }
+    }
+
+    /// The same request, stopped when `stop` is set.
+    pub fn stopped_by(self, stop: &'a AtomicBool) -> Self {
+        Request {
+            stop: Some(stop),
+            ..self
         }
     }
 }

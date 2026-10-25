@@ -14,8 +14,8 @@ use kiri::config::{
 };
 use kiri::doctor::{Facts, Output};
 use kiri::images::{
-    Fonts, Format, ImageError, ImageKey, Images, Interrupted, Loaded, Loading, Part, Source,
-    Stamps, reload_documents,
+    Fonts, Format, ImageError, ImageKey, Images, Interrupted, Loaded, Loading, Loads, Part, Source,
+    Stamps, reload_in_background,
 };
 use kiri::input::Input;
 use kiri::model::{Block, Document, FrontMatterError};
@@ -1470,6 +1470,9 @@ fn page(
         }
         return None;
     };
+    // The images of a reload that still load when the pager quits, which
+    // it stops; their programs may take a moment to end.
+    let mut loads = Loads::new();
     let result = kiri::pager::run(
         content,
         Some(stream),
@@ -1477,12 +1480,28 @@ fn page(
         inputs,
         kiri::pager::Options {
             width: context.width,
+            loads: Some(&mut loads),
             ..options
         },
         &mut screen,
     );
-    screen.close();
+    loads.halt();
+    screen.close_then(|| close_programs(&loads));
     Some(result)
+}
+
+/// Waits for the programs that drew `loads`, stopped, to end, with a line
+/// on standard error, a terminal, while that takes more than a second.
+fn close_programs(loads: &Loads) {
+    let limit = kiri::images::STOPPING;
+    let wait = |most| loads.wait(most);
+    if !kiri::term::stderr_is_terminal() {
+        wait(limit);
+        return;
+    }
+    let text = "kiri: closing background programs…";
+    let second = std::time::Duration::from_secs(1);
+    kiri::term::progress::while_waiting(io::stderr(), second, limit, text, wait);
 }
 
 /// Reads the document from its file again for the pager, and loads the
@@ -1499,7 +1518,7 @@ struct FileReload<'a> {
 }
 
 impl Reload for FileReload<'_> {
-    fn reload(&mut self, images: &mut Images, caps: &Capabilities) -> Reloaded {
+    fn reload(&mut self, images: &mut Images, loads: &mut Loads, caps: &Capabilities) -> Reloaded {
         let FromFile { path, input, .. } = self.from;
         // Before the file is read, so that a change meanwhile counts.
         self.read = look(path).ok();
@@ -1518,12 +1537,7 @@ impl Reload for FileReload<'_> {
         if self.settings.images && caps.draws_images() {
             let parts = [part(&document, Some(path))];
             let loading = loading(self.context, self.settings, caps);
-            // The pager says it is reloading, so the progress line is not
-            // for the terminal's alternate screen.
-            let stamps = &mut self.stamps;
-            if reload_documents(&parts, &loading, None, images, stamps).is_err() {
-                return Reloaded::Failed("stopped by a signal".to_owned());
-            }
+            reload_in_background(&parts, &loading, images, &mut self.stamps, loads);
         }
         match warnings.is_empty() {
             true => Reloaded::Document(document),

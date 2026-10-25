@@ -197,9 +197,11 @@ impl External {
         }
     }
 
-    /// Whether the programs are to stop.
-    fn stopped(&self) -> bool {
-        (self.settings.stop.as_ref()).is_some_and(|stop| stop.load(Ordering::SeqCst))
+    /// Whether the program drawing `request` is to stop: all of them
+    /// are, or this one alone.
+    fn stopped(&self, request: &Request) -> bool {
+        let stop = |stop: &AtomicBool| stop.load(Ordering::SeqCst);
+        self.settings.stop.as_deref().is_some_and(stop) || request.stop.is_some_and(stop)
     }
 
     fn command(&self, language: &str) -> Option<&Command> {
@@ -275,7 +277,7 @@ impl External {
         scale: u32,
     ) -> Result<Vec<u8>, String> {
         let program = command.program();
-        if self.stopped() {
+        if self.stopped(request) {
             return Err(format!("{program} was not started: interrupted"));
         }
         let dir = self
@@ -304,16 +306,23 @@ impl External {
         let child = child
             .spawn()
             .map_err(|error| format!("{}: {error}", argv[0]))?;
-        self.finish(child, &program, &files)?;
+        self.finish(child, &program, &files, request)?;
         self.read_output(&program, &files.output)
     }
 
-    /// Waits for `child`, the program `program` that draws into `files`,
-    /// to end, until the time limit or a stop; why it failed, as the first
-    /// lines it wrote on standard error tell, when it did.
-    fn finish(&self, child: process::Child, program: &str, files: &Files) -> Result<(), String> {
+    /// Waits for `child`, the program `program` that draws into `files`
+    /// what `request` asks for, to end, until the time limit or a stop;
+    /// why it failed, as the first lines it wrote on standard error tell,
+    /// when it did.
+    fn finish(
+        &self,
+        child: process::Child,
+        program: &str,
+        files: &Files,
+        request: &Request,
+    ) -> Result<(), String> {
         let limit = self.settings.time_limit;
-        let stop = || self.stopped();
+        let stop = || self.stopped(request);
         let status = wait(child, limit, &stop).map_err(|error| match error {
             Waited::TimedOut => format!("{program} did not finish in {} s", limit.as_secs_f32()),
             Waited::Stopped => format!("{program} was stopped: interrupted"),
@@ -1138,6 +1147,46 @@ mod tests {
         fs::remove_file(&started).unwrap();
         assert_eq!(
             renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)),
+            Err("sh was not started: interrupted".to_owned())
+        );
+        assert!(!started.exists());
+        assert_eq!(left(&scratch), Vec::<PathBuf>::new());
+    }
+
+    #[test]
+    fn a_request_s_own_stop_ends_its_program_and_leaves_the_others() {
+        let scratch = scratch("own-stop");
+        let started = scratch.join("started");
+        // The diagram that says `slow` waits; the others are drawn at once.
+        let script = format!(
+            "case \"$(cat \"$1\")\" in slow*) touch '{}'; sleep 30 ;; esac\n\
+             printf '<svg/>' > \"$2\"\n",
+            started.to_string_lossy()
+        );
+        let renderer = script_renderer(&scratch, &script);
+        let stop = AtomicBool::new(false);
+        let start = Instant::now();
+        let request = Request::new("mermaid", "slow\n", Theme::Light).stopped_by(&stop);
+        let (slow, other) = std::thread::scope(|scope| {
+            let drawing = scope.spawn(|| renderer.render(&request));
+            while !started.exists() && start.elapsed() < Duration::from_secs(5) {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            stop.store(true, Ordering::SeqCst);
+            let other = renderer.render(&Request::new("mermaid", SOURCE, Theme::Light));
+            (drawing.join().unwrap(), other)
+        });
+        assert_eq!(slow, Err("sh was stopped: interrupted".to_owned()));
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            start.elapsed()
+        );
+        assert_eq!(other.map(|drawn| drawn.text()).as_deref(), Ok("<svg/>"));
+        // A request stopped before its program starts does not start it.
+        fs::remove_file(&started).unwrap();
+        assert_eq!(
+            renderer.render(&request),
             Err("sh was not started: interrupted".to_owned())
         );
         assert!(!started.exists());

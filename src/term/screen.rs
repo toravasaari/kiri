@@ -222,11 +222,17 @@ impl<W: Write> Screen<W> {
     }
 
     /// Makes a panic leave the screen before its message is written, so the
-    /// message stays on the main screen.
+    /// message stays on the main screen. A panic that
+    /// [`crate::panics::catch`] catches, such as a load's in the
+    /// background, which then fails, neither leaves the screen nor writes
+    /// over it.
     fn catch_panics(&mut self) {
         let leave = Arc::clone(&self.leave);
         let previous = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
+            if crate::panics::catching() {
+                return;
+            }
             // Standard output is the screen's output: see `open`.
             leave.run(&mut std::io::stdout());
             previous(info);
@@ -242,10 +248,18 @@ impl<W: Write> Screen<W> {
     /// Restores the terminal, and then ends kiri with the signal that
     /// asked it to end, if one came.
     pub fn close(self) {
+        self.close_then(|| {});
+    }
+
+    /// Restores the terminal, runs `after`, such as waiting for programs
+    /// that are to end, and then ends kiri with the signal that asked it
+    /// to end, if one came.
+    pub fn close_then(self, after: impl FnOnce()) {
         // Read after the drop, so a signal that comes while the terminal
         // is restored still counts.
         let flag = Arc::clone(&self.signals.came);
         drop(self);
+        after();
         if let Some(signal) = interrupt::came(&flag) {
             interrupt::end_by(signal);
         }
@@ -315,6 +329,8 @@ const LEAVE_SCREEN: &[u8] = b"\x1b[?25h\x1b[?1049l";
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
     use crate::term::testing::{pty, size};
 
@@ -499,6 +515,10 @@ mod tests {
     /// The terminal that [`in_child`] gives a child test.
     const PTY: &str = "KIRI_TEST_PTY";
 
+    /// A file that [`in_child`] names for a child test to leave a mark
+    /// in.
+    const MARK: &str = "KIRI_TEST_MARK";
+
     /// Run on its own by [`in_child`]: opens a screen on the terminal
     /// `KIRI_TEST_PTY` names, gets SIGTERM while it opens, and closes it.
     #[test]
@@ -587,6 +607,12 @@ mod tests {
     /// Runs the ignored test `name` in a process of its own with a
     /// pseudo-terminal, and gives how it exited and the terminal after.
     fn in_child(name: &str) -> (std::process::ExitStatus, Termios) {
+        in_child_marking(name, Path::new("/nonexistent/mark"))
+    }
+
+    /// [`in_child`], with the file `mark` for the child to leave a mark
+    /// in.
+    fn in_child_marking(name: &str, mark: &Path) -> (std::process::ExitStatus, Termios) {
         use std::process::{Command, Stdio};
 
         let (_terminal, tty) = pty();
@@ -599,6 +625,7 @@ mod tests {
             .args(["--exact", &format!("term::screen::tests::{name}")])
             .args(["--ignored", "--test-threads", "1"])
             .env(PTY, path)
+            .env(MARK, mark)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -618,6 +645,36 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         };
         (status, tcgetattr(&tty).unwrap())
+    }
+
+    /// Run on its own by [`in_child`]: opens a screen on the terminal
+    /// `KIRI_TEST_PTY` names, gets SIGTERM while it is open, and closes
+    /// it with work after, which leaves a mark in `KIRI_TEST_MARK`.
+    #[test]
+    #[ignore = "run by in_child"]
+    fn sigterm_on_a_screen_closed_with_work_after() {
+        let tty = File::options()
+            .read(true)
+            .write(true)
+            .open(std::env::var_os(PTY).unwrap())
+            .unwrap();
+        let screen = Screen::catching_on(tty, Vec::new(), || {}).expect("the screen opens");
+        signal_hook::low_level::raise(SIGTERM).unwrap();
+        screen.close_then(|| std::fs::write(std::env::var_os(MARK).unwrap(), "after").unwrap());
+    }
+
+    #[test]
+    fn work_after_closing_runs_before_a_signal_ends_kiri() {
+        use std::os::unix::process::ExitStatusExt;
+
+        let scratch = crate::testing::Scratch::new("screen-close-then");
+        let mark = scratch.join("mark");
+        let (status, _) = in_child_marking("sigterm_on_a_screen_closed_with_work_after", &mark);
+        assert_eq!(status.signal(), Some(SIGTERM), "{status}");
+        assert_eq!(
+            std::fs::read_to_string(&mark).ok().as_deref(),
+            Some("after")
+        );
     }
 
     #[test]
@@ -676,13 +733,85 @@ mod tests {
         assert!(terminal.local_modes.contains(LocalModes::ICANON));
     }
 
+    /// Run on its own by
+    /// [`a_panic_caught_on_another_thread_leaves_the_screen_open`]: opens a
+    /// screen on standard output, and another thread panics and catches
+    /// it, as a load in the background does; then the screen writes on.
+    #[test]
+    #[ignore = "run by a_panic_caught_on_another_thread_leaves_the_screen_open"]
+    fn caught_panic_beside_a_screen() {
+        use std::io::Write;
+
+        let (_terminal, tty) = pty();
+        let mut screen =
+            Screen::on(tty, std::io::stdout(), Signals::none()).expect("the screen opens");
+        screen.catch_panics();
+        let caught =
+            std::thread::spawn(|| crate::panics::catch(|| panic!("[a load fails]")).is_err());
+        assert!(caught.join().unwrap());
+        screen.write_all(b"[still on the screen]").unwrap();
+        screen.flush().unwrap();
+    }
+
+    /// Run on its own by
+    /// [`a_panic_nobody_catches_on_another_thread_leaves_the_screen`]:
+    /// opens a screen on standard output, and another thread panics.
+    #[test]
+    #[ignore = "run by a_panic_nobody_catches_on_another_thread_leaves_the_screen"]
+    fn uncaught_panic_beside_a_screen() {
+        use std::io::Write;
+
+        let (_terminal, tty) = pty();
+        let mut screen =
+            Screen::on(tty, std::io::stdout(), Signals::none()).expect("the screen opens");
+        screen.catch_panics();
+        let thread = std::thread::spawn(|| panic!("[a thread fails]"));
+        assert!(thread.join().is_err());
+        screen.write_all(b"[after the thread]").unwrap();
+        screen.flush().unwrap();
+    }
+
+    #[test]
+    fn a_panic_nobody_catches_on_another_thread_leaves_the_screen() {
+        let output = child_output("term::screen::tests::uncaught_panic_beside_a_screen");
+        let leave = output.find("\x1b[?1049l").expect("the screen is left");
+        let message = output
+            .find("[a thread fails]")
+            .expect("the message is written");
+        assert!(leave < message, "{output:?}");
+    }
+
+    #[test]
+    fn a_panic_caught_on_another_thread_leaves_the_screen_open() {
+        let output = child_output("term::screen::tests::caught_panic_beside_a_screen");
+        let written = output
+            .find("[still on the screen]")
+            .expect("the screen writes on");
+        let leave = output.find("\x1b[?1049l").expect("the screen is left");
+        assert!(written < leave, "{output:?}");
+        assert!(!output.contains("[a load fails]"), "{output:?}");
+    }
+
     #[test]
     fn a_panic_message_comes_after_the_screen() {
+        let output = child_output("term::screen::tests::panic_on_a_screen");
+        let leave = output.find("\x1b[?1049l").expect("the screen is left");
+        let message = output
+            .find("[the pager fails]")
+            .expect("the message is written");
+        assert!(leave < message, "{output:?}");
+        assert_eq!(output.matches("\x1b[?1049l").count(), 1, "{output:?}");
+        assert!(!output.contains("[part of a frame]"), "{output:?}");
+    }
+
+    /// All that the ignored test `test`, run on its own in a child, writes
+    /// on standard output and standard error.
+    fn child_output(test: &str) -> String {
         use std::process::{Command, Stdio};
 
         let (mut reader, writer) = std::io::pipe().unwrap();
         let mut child = Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "term::screen::tests::panic_on_a_screen"])
+            .args(["--exact", test])
             .args(["--ignored", "--nocapture", "--test-threads", "1"])
             .stdin(Stdio::null())
             .stdout(writer.try_clone().unwrap())
@@ -712,13 +841,6 @@ mod tests {
             }
         }
         let _ = child.wait();
-        let output = String::from_utf8_lossy(&output);
-        let leave = output.find("\x1b[?1049l").expect("the screen is left");
-        let message = output
-            .find("[the pager fails]")
-            .expect("the message is written");
-        assert!(leave < message, "{output:?}");
-        assert_eq!(output.matches("\x1b[?1049l").count(), 1, "{output:?}");
-        assert!(!output.contains("[part of a frame]"), "{output:?}");
+        String::from_utf8_lossy(&output).into_owned()
     }
 }

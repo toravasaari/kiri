@@ -102,6 +102,27 @@ pub fn while_working<T>(
     })
 }
 
+/// Waits with `wait`, which waits at most the time it is given and tells
+/// whether what it waits for is over, for `limit` at most. When that
+/// takes longer than `delay`, `text` shows on `out`, a terminal, until it
+/// is over, and is then wiped.
+pub fn while_waiting(
+    mut out: impl Write,
+    delay: Duration,
+    limit: Duration,
+    text: &str,
+    mut wait: impl FnMut(Duration) -> bool,
+) {
+    if wait(delay.min(limit)) || limit <= delay {
+        return;
+    }
+    let _ = write!(out, "\r\x1b[2K{text}");
+    let _ = out.flush();
+    wait(limit - delay);
+    let _ = write!(out, "\r\x1b[2K");
+    let _ = out.flush();
+}
+
 /// Tells the line that the work is over when dropped.
 struct Finish<'a>(&'a Progress);
 
@@ -220,5 +241,39 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
         });
         assert_eq!(out.text(), "");
+    }
+
+    /// A wait that is over after `takes`, on a clock it keeps itself, and
+    /// the times it was given.
+    fn waiting(takes: Duration) -> (impl FnMut(Duration) -> bool, Arc<Mutex<Vec<Duration>>>) {
+        let given = Arc::new(Mutex::new(Vec::new()));
+        let mut passed = Duration::ZERO;
+        let noted = Arc::clone(&given);
+        let wait = move |most: Duration| {
+            noted.lock().unwrap().push(most);
+            passed += most.min(takes.saturating_sub(passed));
+            passed >= takes
+        };
+        (wait, given)
+    }
+
+    #[test]
+    fn a_wait_over_in_time_shows_nothing() {
+        let out = Shared::default();
+        let (wait, given) = waiting(Duration::from_millis(300));
+        let (second, five) = (Duration::from_secs(1), Duration::from_secs(5));
+        while_waiting(out.clone(), second, five, "closing", wait);
+        assert_eq!(out.text(), "");
+        assert_eq!(*given.lock().unwrap(), [second]);
+    }
+
+    #[test]
+    fn a_longer_wait_shows_its_line_until_it_is_over_and_wipes_it() {
+        let out = Shared::default();
+        let (wait, given) = waiting(Duration::from_millis(1500));
+        let (second, five) = (Duration::from_secs(1), Duration::from_secs(5));
+        while_waiting(out.clone(), second, five, "closing", wait);
+        assert_eq!(out.text(), format!("{WIPE}closing{WIPE}"));
+        assert_eq!(*given.lock().unwrap(), [second, Duration::from_secs(4)]);
     }
 }

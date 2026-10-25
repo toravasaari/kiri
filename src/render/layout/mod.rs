@@ -8,14 +8,14 @@ mod quote;
 use std::rc::Rc;
 
 use super::block::{BlockId, Blocks};
-use super::image::{self, Placement};
-use super::style::{Line, Spaces, Span, Style, push};
+use super::image::{self, Placement, Shows};
+use super::style::{Band, Line, Spaces, Span, Style, push};
 use super::table::{self, Cells};
-use super::wrap::wrap;
+use super::wrap::{width, wrap};
 use super::{FrontMatterStyle, Inputs, RenderErrors, TableRows};
 use crate::caps::Capabilities;
 use crate::color::{Color, Underline};
-use crate::images::{ImageError, ImageKey, Images};
+use crate::images::{ImageError, ImageKey, Images, Placeholder};
 use crate::model::{Block, Document, File, Image, Inline, SourceLines, Table};
 use crate::size::TextSize;
 use crate::theme::{BandColor, Theme};
@@ -48,8 +48,39 @@ fn document_stream(document: &Document, inputs: &Inputs) -> Stream {
             &mut stream.lines,
             &mut marks,
         );
+        settle_bands(&mut stream.lines);
         stream
     })
+}
+
+/// Puts each band in `lines` where it is drawn: on the blank line after
+/// its block when there is one, a little below its top, so that the band
+/// takes no row and nothing moves when the image comes; otherwise over the
+/// bottom of the block's last line. It starts where the block's text or
+/// image does.
+fn settle_bands(lines: &mut [Line]) {
+    let marked: Vec<usize> = (0..lines.len())
+        .filter(|&i| lines[i].band.is_some())
+        .collect();
+    for index in marked {
+        let Some(band) = lines[index].band.take() else {
+            continue;
+        };
+        let line = &lines[index];
+        let mut indent = width(&line.lead);
+        if line.image.is_some() {
+            indent += width(&line.spans);
+        }
+        let blank = (lines.get(index + 1)).is_some_and(|below| {
+            below.is_blank() && below.lead.is_empty() && below.block.is_none()
+        });
+        let at = if blank { index + 1 } else { index };
+        lines[at].band = Some(Band {
+            indent,
+            low: !blank,
+            ..band
+        });
+    }
 }
 
 /// What is laid out: one document, or several files one after another.
@@ -116,6 +147,7 @@ fn file_into(file: &File, number: usize, inputs: &Inputs, blocks: &mut Blocks) -
         let mut marks = Marks::new(blocks, &file.document.lines);
         layout.top_level(&file.document.blocks, width, margin, &mut body, &mut marks);
         append_block(&mut lines, body, true);
+        settle_bands(&mut lines);
         lines
     })
 }
@@ -325,6 +357,10 @@ impl Layout<'_> {
                 }
                 let mut lines = self.code_block(language, code, width);
                 lines.extend(self.render_error(language, code, width));
+                if let Some(language) = language {
+                    let key = ImageKey::block(language, code).in_document(self.document);
+                    self.loading_band(&key, width, &mut lines);
+                }
                 lines
             }
             Block::BlockQuote(blocks) => self.quote(blocks, width, context),
@@ -446,7 +482,11 @@ impl Layout<'_> {
             && let Some(Ok(source)) = self.images.get(&key)
             && let Some(size) = image::on_its_own(source, self.caps, self.reserved)
         {
-            return image_rows(Placement { key, size });
+            return image_rows(Placement {
+                key,
+                size,
+                shows: Shows::Image,
+            });
         }
         let alt = Inline::Image(Image {
             url: name.to_owned(),
@@ -532,6 +572,7 @@ impl Layout<'_> {
                         trail,
                         size,
                         block: None,
+                        band: None,
                     }
                 })
                 .collect()
@@ -582,7 +623,12 @@ impl Layout<'_> {
         }
         let mut spans = Vec::new();
         self.inlines(content, style, &mut spans);
-        wrap(&spans, width).into_iter().map(Line::new).collect()
+        let mut lines: Vec<Line> = wrap(&spans, width).into_iter().map(Line::new).collect();
+        if let Some(lone) = Inline::lone_image(content) {
+            let key = ImageKey::from(lone.url.as_str()).in_document(self.document);
+            self.loading_band(&key, width, &mut lines);
+        }
+        lines
     }
 
     /// A paragraph of only an image, or of only a link around an image,
@@ -603,7 +649,7 @@ impl Layout<'_> {
     fn diagram(&self, language: Option<&str>, code: &str, width: usize) -> Option<Vec<Line>> {
         // Spares building a key for every code block of a document
         // without images.
-        if self.images.is_empty() {
+        if self.images.is_empty() && !self.images.loading() {
             return None;
         }
         let key = ImageKey::block(language?, code).in_document(self.document);
@@ -645,24 +691,55 @@ impl Layout<'_> {
     }
 
     /// The image `key` at the size `wanted`, at most `width` cells wide,
-    /// when the terminal can draw it and it loaded.
+    /// when the terminal can draw it and it loaded; while it loads, its
+    /// placeholder at the size the old image would have, when it has
+    /// one, and the band below that tells it is loading.
     fn placed(&self, key: ImageKey, wanted: image::Wanted, width: usize) -> Option<Vec<Line>> {
         if !self.caps.draws_images() {
             return None;
         }
-        let Some(Ok(source)) = self.images.get(&key) else {
-            return None;
+        let (natural, shows) = match (self.images.get(&key), self.images.placeholder(&key)) {
+            (Some(Ok(source)), _) => (source.size(), Shows::Image),
+            (_, Some(Placeholder::Dimmed(old))) => (old.size(), Shows::Placeholder),
+            _ => return None,
         };
         let max_cells = self.caps.max_image_cells;
         let max_columns = u16::try_from(width).unwrap_or(u16::MAX).min(max_cells);
         let size = image::size(
-            source.size(),
+            natural,
             wanted,
             image::cell_size(self.caps),
             max_columns,
             max_cells,
         )?;
-        Some(image_rows(Placement { key, size }))
+        let columns = usize::from(size.columns);
+        let mut lines = image_rows(Placement {
+            key: key.clone(),
+            size,
+            shows,
+        });
+        self.loading_band(&key, columns, &mut lines);
+        Some(lines)
+    }
+
+    /// Marks the last of `lines` with the band that tells that the image
+    /// `key` is loading, `columns` cells wide, when it is; [`settle_bands`]
+    /// moves it to the blank line after the block, when there is one.
+    fn loading_band(&self, key: &ImageKey, columns: usize, lines: &mut [Line]) {
+        if self.images.placeholder(key).is_none() || !self.caps.draws_images() {
+            return;
+        }
+        let Some(last) = lines.last_mut() else {
+            return;
+        };
+        let columns = u16::try_from(columns)
+            .unwrap_or(u16::MAX)
+            .clamp(1, self.caps.max_image_cells);
+        last.band = Some(Band {
+            columns,
+            indent: 0,
+            low: true,
+        });
     }
 
     fn table(&self, table: &Table, width: usize) -> Vec<Line> {
@@ -959,6 +1036,131 @@ mod tests {
             }
         }
         paths
+    }
+
+    /// What each line of `source` laid out with `inputs` shows of an
+    /// image: its text when it shows none, and then the band drawn over
+    /// it, if any: how wide, how far in, and whether low or high in the
+    /// row.
+    fn shown(source: &str, inputs: &Inputs) -> Vec<String> {
+        let lines = layout(&parse(source), inputs);
+        (lines.iter())
+            .map(|line| {
+                let shown = match &line.image {
+                    Some(row) => {
+                        let placement = &row.placement;
+                        let size = placement.size;
+                        let what = format!("{:?} {}", placement.shows, placement.key);
+                        format!("{what} {}×{} row {}", size.columns, size.rows, row.row)
+                    }
+                    None => text(&line.spans).trim_end().to_owned(),
+                };
+                match line.band {
+                    Some(band) => {
+                        let at = if band.low { "low" } else { "high" };
+                        format!("{shown} [band {} at {} {at}]", band.columns, band.indent)
+                    }
+                    None => shown,
+                }
+            })
+            .collect()
+    }
+
+    /// Inputs for kitty with cells of 10 × 20 pixels, a CSS pixel to a
+    /// pixel, and `key` loading with `placeholder` in its place.
+    fn loading(key: impl Into<ImageKey>, placeholder: Placeholder) -> Inputs {
+        let mut inputs = Inputs::new(Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(60)
+        });
+        inputs.images.wait(key.into(), placeholder);
+        inputs
+    }
+
+    /// The pixels of an image of `width` × `height`.
+    fn pixels(width: u32, height: u32) -> crate::images::Source {
+        crate::images::Source::Raster(::image::RgbaImage::new(width, height))
+    }
+
+    #[test]
+    fn an_image_that_loads_shows_its_old_image_at_its_size_and_the_band_in_the_blank_line_below() {
+        let inputs = loading("a.png", Placeholder::Dimmed(pixels(40, 30)));
+        assert_eq!(
+            shown("Above\n\n![a](a.png)\n\nBelow\n", &inputs),
+            [
+                "Above",
+                "",
+                "Placeholder a.png 4×2 row 0",
+                "Placeholder a.png 4×2 row 1",
+                " [band 4 at 2 high]",
+                "Below",
+            ]
+        );
+    }
+
+    #[test]
+    fn without_a_blank_line_below_the_band_goes_over_the_bottom_of_the_last_row() {
+        let inputs = loading("a.png", Placeholder::Dimmed(pixels(40, 30)));
+        // At the end, and in a tight list, after the bullet.
+        assert_eq!(
+            shown("Above\n\n![a](a.png)\n", &inputs),
+            [
+                "Above",
+                "",
+                "Placeholder a.png 4×2 row 0",
+                "Placeholder a.png 4×2 row 1 [band 4 at 2 low]",
+            ]
+        );
+        let lines = shown("- ![a](a.png)\n- b\n", &inputs);
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert!(lines[1].ends_with("row 1 [band 4 at 4 low]"), "{lines:?}");
+    }
+
+    #[test]
+    fn a_placeholder_takes_the_size_the_old_image_had_and_the_new_block_asks_for() {
+        let inputs = loading("a.png", Placeholder::Dimmed(pixels(40, 30)));
+        assert_eq!(
+            shown("<img src=\"a.png\" width=\"80\">\n", &inputs),
+            [
+                "Placeholder a.png 8×3 row 0",
+                "Placeholder a.png 8×3 row 1",
+                "Placeholder a.png 8×3 row 2 [band 8 at 2 low]",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_diagram_that_loads_without_a_size_stays_code_with_the_band_over_its_last_row() {
+        let key = ImageKey::block("mermaid", "flowchart TD\n");
+        let inputs = loading(key, Placeholder::Unsized);
+        let lines = shown("```mermaid\nflowchart TD\n```\n", &inputs);
+        assert!(
+            lines.iter().any(|line| line.contains("flowchart TD")),
+            "{lines:?}"
+        );
+        assert!(
+            lines.last().unwrap().ends_with("[band 56 at 2 low]"),
+            "{lines:?}"
+        );
+    }
+
+    #[test]
+    fn an_image_that_loads_without_a_size_shows_its_alt_text_with_the_band_over_it() {
+        let inputs = loading("a.png", Placeholder::Unsized);
+        let lines = shown("![a picture](a.png)\n", &inputs);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(lines[0].contains("a picture"), "{lines:?}");
+        assert!(lines[0].ends_with("[band 56 at 2 low]"), "{lines:?}");
+    }
+
+    #[test]
+    fn nothing_tells_of_a_load_where_the_terminal_draws_no_images() {
+        let mut inputs = Inputs::new(Capabilities::ansi(60));
+        inputs
+            .images
+            .wait("a.png".into(), Placeholder::Dimmed(pixels(40, 30)));
+        let lines = shown("![a picture](a.png)\n", &inputs);
+        assert_eq!(lines.len(), 1, "{lines:?}");
     }
 
     #[test]
