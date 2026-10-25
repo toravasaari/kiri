@@ -191,7 +191,10 @@ pub struct Options<'a, 'l> {
     pub warnings: Vec<Warning>,
     /// Where the images of a reload load in the background, when the
     /// caller keeps them, so that it can wait for their programs once
-    /// the pager has left its screen; otherwise the pager keeps its own.
+    /// the pager has left its screen; the pager only stops them.
+    /// Otherwise the pager keeps its own, and waits for their programs
+    /// itself before it returns, after it deleted the images but with
+    /// the screen still open.
     pub loads: Option<&'l mut Loads>,
 }
 
@@ -224,7 +227,28 @@ pub fn run(
     laid_out: Option<Stream>,
     name: &str,
     inputs: &mut Inputs,
+    mut options: Options,
+    terminal: &mut impl Terminal,
+) -> io::Result<()> {
+    if let Some(loads) = options.loads.take() {
+        return page_through(content, laid_out, name, inputs, options, loads, terminal);
+    }
+    let mut own = Loads::new();
+    let result = page_through(content, laid_out, name, inputs, options, &mut own, terminal);
+    own.halt();
+    own.wait(crate::images::STOPPING);
+    result
+}
+
+/// [`run`], with the images of reloads loading in `loads`, which `q`
+/// stops without waiting for their programs.
+fn page_through(
+    content: Content,
+    laid_out: Option<Stream>,
+    name: &str,
+    inputs: &mut Inputs,
     options: Options,
+    loads: &mut Loads,
     terminal: &mut impl Terminal,
 ) -> io::Result<()> {
     let Options {
@@ -234,12 +258,11 @@ pub fn run(
         follow,
         jump,
         warnings,
-        loads,
+        loads: _,
     } = options;
-    let mut own = Loads::new();
     let mut source = Origin {
         reload,
-        loads: loads.unwrap_or(&mut own),
+        loads,
         started: terminal.now(),
     };
     let page = Page {
@@ -4819,10 +4842,7 @@ mod tests {
     #[test]
     fn quitting_leaves_the_programs_ending_to_the_caller() {
         let mut loads = Loads::new();
-        loads.program(
-            ImageKey::block("mermaid", "slow\n"),
-            Duration::from_millis(500),
-        );
+        loads.program(ImageKey::block("mermaid", "slow\n"), Duration::from_secs(2));
         let mut inputs = Inputs::new(Capabilities::kitty(80));
         let mut terminal = Fake::new(60, 6, &[b"q"]);
         let options = Options {
@@ -4848,5 +4868,55 @@ mod tests {
         assert!(loads.is_empty());
         assert!(!loads.wait(Duration::ZERO));
         assert!(loads.wait(Duration::from_secs(5)));
+    }
+
+    /// Reloads the document as the first, with a program drawing a
+    /// diagram that ends the second after it is told to stop.
+    struct Drawing(Document, Duration);
+
+    impl Reload for Drawing {
+        fn reload(&mut self, _: &mut Images, loads: &mut Loads, _: &Capabilities) -> Reloaded {
+            loads.program(ImageKey::block("mermaid", "slow\n"), self.1);
+            Reloaded::Document(self.0.clone())
+        }
+
+        fn change(&mut self) -> Change {
+            Change::Unchanged
+        }
+    }
+
+    #[test]
+    fn quitting_with_loads_of_its_own_waits_for_them_after_deleting_the_images() {
+        let ending = Duration::from_secs(1);
+        let (document, image) = pictured([255, 0, 0, 255]);
+        let mut drawing = Drawing(document.clone(), ending);
+        let mut terminal = Fake::new(60, 6, &[b"r", b"q"]);
+        // When each flush came.
+        let flushes: std::rc::Rc<std::cell::RefCell<Vec<Instant>>> = Default::default();
+        let noted = std::rc::Rc::clone(&flushes);
+        terminal.flushed = Some(Box::new(move || noted.borrow_mut().push(Instant::now())));
+        let options = Options {
+            reload: Some(&mut drawing),
+            ..Options::new(SearchCase::Smart)
+        };
+        let mut inputs = image;
+        let start = Instant::now();
+        run(
+            Content::Document(&document),
+            None,
+            "notes.md",
+            &mut inputs,
+            options,
+            &mut terminal,
+        )
+        .unwrap();
+        let end = Instant::now();
+        // The program ended before `run` returned, and the images were
+        // deleted before it did.
+        assert!(end - start >= ending, "{:?}", end - start);
+        let deleted = *flushes.borrow().last().unwrap();
+        assert!(end - deleted >= ending / 2, "{:?}", end - deleted);
+        let out = String::from_utf8(terminal.out).unwrap();
+        assert!(until_quit(&out).1.contains("\x1b_Ga=d,"), "{out:?}");
     }
 }

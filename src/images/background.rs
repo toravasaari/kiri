@@ -17,7 +17,8 @@ use super::{Fonts, ImageError, ImageKey, LoadOptions, Source};
 use crate::diagrams::{Renderer, Request, Theme};
 
 /// The images loading in the background, and what has come of them.
-/// Dropping it stops the loads, as [`Loads::stop`] does.
+/// Dropping it stops the loads, as [`Loads::halt`] does, without waiting
+/// for their programs.
 #[derive(Debug)]
 pub struct Loads {
     sender: Sender<Done>,
@@ -356,8 +357,10 @@ impl Loads {
 }
 
 impl Drop for Loads {
+    /// Stops the loads without waiting for their programs: a caller that
+    /// is to wait for them calls [`Loads::wait`] first.
     fn drop(&mut self) {
-        self.stop();
+        self.halt();
     }
 }
 
@@ -512,16 +515,26 @@ mod tests {
     #[test]
     fn halting_does_not_wait_for_the_programs_and_waiting_does() {
         let mut loads = Loads::new();
-        loads.program(
-            ImageKey::block("mermaid", "slow\n"),
-            Duration::from_millis(300),
-        );
+        loads.program(ImageKey::block("mermaid", "slow\n"), Duration::from_secs(2));
         let start = Instant::now();
         loads.halt();
         assert!(loads.is_empty());
         assert!(start.elapsed() < Duration::from_millis(200));
         assert!(!loads.wait(Duration::ZERO));
         assert!(loads.wait(Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn dropping_the_loads_stops_them_without_waiting() {
+        let mut loads = Loads::new();
+        loads.program(ImageKey::block("mermaid", "slow\n"), Duration::from_secs(2));
+        let start = Instant::now();
+        drop(loads);
+        assert!(
+            start.elapsed() < Duration::from_millis(500),
+            "{:?}",
+            start.elapsed()
+        );
     }
 
     fn square() -> Result<Source, ImageError> {
