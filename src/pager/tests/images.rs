@@ -8,18 +8,15 @@ fn written(
     terminal: &mut Fake,
     then: Option<&mut Then>,
 ) -> String {
-    run(
-        Content::Document(document),
-        None,
-        "notes.md",
+    run_document(
+        document,
         &mut inputs,
         Options {
             reload: then.map(|then| then as &mut dyn Reload),
             ..Options::new(SearchCase::Smart)
         },
         terminal,
-    )
-    .unwrap();
+    );
     String::from_utf8(terminal.out.clone()).unwrap()
 }
 
@@ -66,18 +63,15 @@ fn repainted(document: &Document, before: [u8; 4], after: [u8; 4]) -> String {
         rgba: after,
     };
     let reload: &mut dyn Reload = &mut repaint;
-    run(
-        Content::Document(document),
-        None,
-        "notes.md",
+    run_document(
+        document,
         &mut inputs,
         Options {
             reload: Some(reload),
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
-    )
-    .unwrap();
+    );
     String::from_utf8(terminal.out).unwrap()
 }
 
@@ -182,18 +176,15 @@ fn twins_reloaded(after: &str, rgba: [u8; 4]) -> String {
     };
     let reload: &mut dyn Reload = &mut repaint;
     let mut terminal = Fake::new(60, 6, &[b"r"]);
-    run(
-        Content::Document(&document),
-        None,
-        "notes.md",
+    run_document(
+        &document,
         &mut inputs,
         Options {
             reload: Some(reload),
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
-    )
-    .unwrap();
+    );
     String::from_utf8(terminal.out).unwrap()
 }
 

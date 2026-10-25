@@ -11,24 +11,8 @@ fn look(length: u64) -> Change {
 /// `document` followed with `then` to reload it, in a window of
 /// 60 × 6, with `reads` and then `empty` polls without keys.
 fn following(document: &Document, then: &mut Then, reads: &[&[u8]], empty: usize) -> Vec<String> {
-    let mut reads = reads.to_vec();
-    reads.extend(std::iter::repeat_n(b"".as_slice(), empty));
-    let mut terminal = Fake::new(60, 6, &reads);
-    let mut inputs = Inputs::new(Capabilities::ansi(80));
-    run(
-        Content::Document(document),
-        None,
-        "notes.md",
-        &mut inputs,
-        Options {
-            reload: Some(then),
-            follow: config::Follow::On,
-            ..Options::new(SearchCase::Smart)
-        },
-        &mut terminal,
-    )
-    .unwrap();
-    terminal.frames()
+    let how = (config::Follow::On, FollowJump::First);
+    following_in(6, how, document, then, reads, empty)
 }
 
 #[test]
@@ -47,9 +31,6 @@ fn following_reloads_a_change_without_a_key_and_keeps_the_block_at_the_top() {
     );
 }
 
-/// `document` followed as `follow` says, jumping to the change `jump`
-/// chooses, with `then` to reload it, in a window of 60 × `rows`, with
-/// `reads` and then `empty` polls without keys.
 /// `document` followed as `follow` says, jumping to the change `jump`
 /// chooses, with `then` to reload it, in a window of 60 × `rows`, with
 /// `reads` and then `empty` polls without keys.
@@ -80,10 +61,8 @@ fn following_on(
     reads.extend(std::iter::repeat_n(b"".as_slice(), empty));
     let mut terminal = Fake::new(60, rows, &reads);
     let mut inputs = Inputs::new(caps);
-    run(
-        Content::Document(document),
-        None,
-        "notes.md",
+    run_document(
+        document,
         &mut inputs,
         Options {
             reload: Some(then),
@@ -92,8 +71,7 @@ fn following_on(
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
-    )
-    .unwrap();
+    );
     terminal
 }
 
@@ -531,15 +509,7 @@ fn following_from_the_start_without_a_file_says_there_is_nothing_to_follow() {
         ..Options::new(SearchCase::Smart)
     };
     let document = numbers(10);
-    run(
-        Content::Document(&document),
-        None,
-        "notes.md",
-        &mut inputs,
-        options,
-        &mut terminal,
-    )
-    .unwrap();
+    run_document(&document, &mut inputs, options, &mut terminal);
     let frames = terminal.frames();
     assert_eq!(frames.len(), 2, "{frames:#?}");
     assert!(status_row(&frames[0], 6).contains("nothing to follow"));
@@ -561,15 +531,7 @@ fn following_waits_a_poll_s_time_for_a_change_to_look_the_same_while_keys_come_f
         follow: config::Follow::On,
         ..Options::new(SearchCase::Smart)
     };
-    run(
-        Content::Document(&document),
-        None,
-        "notes.md",
-        &mut inputs,
-        options,
-        &mut terminal,
-    )
-    .unwrap();
+    run_document(&document, &mut inputs, options, &mut terminal);
     let frames = terminal.frames();
     assert_eq!(then.asked, 1, "{frames:#?}");
     assert_eq!(frames.len(), 4, "{frames:#?}");

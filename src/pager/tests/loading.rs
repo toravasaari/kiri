@@ -101,10 +101,8 @@ fn loading_with(
             arrival.come(image);
         }
     }));
-    run(
-        Content::Document(before),
-        None,
-        "notes.md",
+    run_document(
+        before,
         &mut inputs,
         Options {
             reload: Some(reload),
@@ -112,8 +110,7 @@ fn loading_with(
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
-    )
-    .unwrap();
+    );
     terminal
 }
 
@@ -430,15 +427,7 @@ fn quitting_stops_the_loads_before_it_deletes_the_images() {
         reload: Some(&mut reload),
         ..Options::new(SearchCase::Smart)
     };
-    run(
-        Content::Document(&around(2, "a.png")),
-        None,
-        "notes.md",
-        &mut inputs,
-        options,
-        &mut terminal,
-    )
-    .unwrap();
+    run_document(&around(2, "a.png"), &mut inputs, options, &mut terminal);
     let stopped = stopped.borrow();
     // Running while it is shown; stopped by the flush that deletes the
     // images on quitting.
@@ -509,15 +498,7 @@ fn an_image_that_fails_to_load_shows_as_a_missing_image_does() {
         .insert("b.png", Err(ImageError::Missing("gone.png".into())));
     let mut fresh = Fake::new(60, 12, &[b"q"]);
     let options = Options::new(SearchCase::Smart);
-    run(
-        Content::Document(&around(2, "b.png")),
-        None,
-        "notes.md",
-        &mut inputs,
-        options,
-        &mut fresh,
-    )
-    .unwrap();
+    run_document(&around(2, "b.png"), &mut inputs, options, &mut fresh);
     // From the clearing of the screen, after the placeholder and the
     // band were deleted, to the status line.
     let shown = |frame: &str| {
@@ -569,15 +550,7 @@ fn quitting_leaves_the_programs_ending_to_the_caller() {
         ..Options::new(SearchCase::Smart)
     };
     let start = Instant::now();
-    run(
-        Content::Document(&numbers(3)),
-        None,
-        "notes.md",
-        &mut inputs,
-        options,
-        &mut terminal,
-    )
-    .unwrap();
+    run_document(&numbers(3), &mut inputs, options, &mut terminal);
     // Back before the program ends, with the loads stopped.
     assert!(
         start.elapsed() < Duration::from_millis(300),
@@ -620,15 +593,7 @@ fn quitting_with_loads_of_its_own_waits_for_them_after_deleting_the_images() {
     };
     let mut inputs = image;
     let start = Instant::now();
-    run(
-        Content::Document(&document),
-        None,
-        "notes.md",
-        &mut inputs,
-        options,
-        &mut terminal,
-    )
-    .unwrap();
+    run_document(&document, &mut inputs, options, &mut terminal);
     let end = Instant::now();
     // The program ended before `run` returned, and the images were
     // deleted before it did.
@@ -745,18 +710,15 @@ fn started_in(reads: &[&[u8]], first: usize, open: usize) -> Vec<String> {
         }
     }));
     let mut inputs = Inputs::new(Capabilities::kitty(80));
-    run(
-        Content::Document(&numbers(40)),
-        None,
-        "notes.md",
+    run_document(
+        &numbers(40),
         &mut inputs,
         Options {
             reload: Some(&mut gating),
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
-    )
-    .unwrap();
+    );
     gated.started()
 }
 

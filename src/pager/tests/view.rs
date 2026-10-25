@@ -89,15 +89,12 @@ fn the_help_s_footer_is_muted_text_on_the_page() {
         let mut inputs = Inputs::new(Capabilities::ansi(80));
         inputs.theme = crate::theme::parse(theme).unwrap();
         let document = numbers(30);
-        run(
-            Content::Document(&document),
-            None,
-            "notes.md",
+        run_document(
+            &document,
             &mut inputs,
             Options::new(SearchCase::Smart),
             &mut terminal,
-        )
-        .unwrap();
+        );
         let help = terminal.frames()[1].clone();
         let end = help.find("Any key closes this.").unwrap();
         help[help[..end].rfind('\x1b').unwrap()..end].to_owned()
@@ -168,15 +165,12 @@ fn a_heading_taller_than_the_window_is_drawn_at_normal_size() {
     let mut terminal = Fake::new(40, 3, &[b"G"]);
     let document = crate::parse::parse("# Title\n\nText\n");
     let mut inputs = Inputs::new(Capabilities::kitty(80));
-    run(
-        Content::Document(&document),
-        None,
-        "notes.md",
+    run_document(
+        &document,
         &mut inputs,
         Options::new(SearchCase::Smart),
         &mut terminal,
-    )
-    .unwrap();
+    );
     let frames = terminal.frames();
     assert!(frames[0].contains("Title"), "{frames:?}");
     assert!(!frames[0].contains("\x1b]66;"), "{frames:?}");
@@ -190,18 +184,15 @@ fn a_given_width_stays_when_the_window_changes() {
     terminal.sizes = [window(80, 5)].into();
     let document = crate::parse::parse("A paragraph of several words\n");
     let mut inputs = Inputs::new(Capabilities::ansi(80));
-    run(
-        Content::Document(&document),
-        None,
-        "notes.md",
+    run_document(
+        &document,
         &mut inputs,
         Options {
             width: Some(10),
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
-    )
-    .unwrap();
+    );
     // One frame before the window changed, and one after.
     assert_eq!(terminal.frames().len(), 2);
     for frame in terminal.frames() {

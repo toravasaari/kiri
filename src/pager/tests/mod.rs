@@ -115,17 +115,33 @@ fn numbers(count: usize) -> Document {
     crate::parse::parse(&source)
 }
 
-fn show(document: &Document, terminal: &mut Fake) {
-    let mut inputs = Inputs::new(Capabilities::ansi(80));
+/// Runs the pager on `document`, named `notes.md`, with `inputs` and
+/// `options`, on `terminal`.
+fn run_document(
+    document: &Document,
+    inputs: &mut Inputs,
+    options: Options<'_, '_>,
+    terminal: &mut Fake,
+) {
     run(
         Content::Document(document),
         None,
         "notes.md",
-        &mut inputs,
-        Options::new(SearchCase::Smart),
+        inputs,
+        options,
         terminal,
     )
     .unwrap();
+}
+
+fn show(document: &Document, terminal: &mut Fake) {
+    let mut inputs = Inputs::new(Capabilities::ansi(80));
+    run_document(
+        document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        terminal,
+    );
 }
 
 /// The frames drawn for `document` in a window of `columns` × `rows`
@@ -251,18 +267,15 @@ fn reloading_in(
     reads.extend(std::iter::repeat_n(b"".as_slice(), empty));
     let mut terminal = Fake::new(60, rows, &reads);
     let mut inputs = Inputs::new(caps);
-    run(
-        Content::Document(document),
-        None,
-        "notes.md",
+    run_document(
+        document,
         &mut inputs,
         Options {
             reload: Some(then),
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
-    )
-    .unwrap();
+    );
     terminal
 }
 
@@ -410,14 +423,11 @@ fn frames_of(
     let mut reads = reads.to_vec();
     reads.extend(std::iter::repeat_n(b"".as_slice(), empty));
     let mut terminal = Fake::new(60, 6, &reads);
-    run(
-        Content::Document(document),
-        None,
-        "notes.md",
+    run_document(
+        document,
         &mut inputs,
         Options::new(SearchCase::Smart),
         &mut terminal,
-    )
-    .unwrap();
+    );
     terminal.frames()
 }

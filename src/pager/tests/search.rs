@@ -252,15 +252,12 @@ fn matches_are_marked_in_large_headings_and_in_tables() {
     let mut terminal = Fake::new(60, 12, &reads);
     let source = "# Kiri title\n\n| a | b |\n|---|---|\n| c | kiri |\n";
     let mut inputs = Inputs::new(Capabilities::kitty(80));
-    run(
-        Content::Document(&crate::parse::parse(source)),
-        None,
-        "notes.md",
+    run_document(
+        &crate::parse::parse(source),
         &mut inputs,
         Options::new(SearchCase::Smart),
         &mut terminal,
-    )
-    .unwrap();
+    );
     let frames = terminal.frames();
     let found = document_part(frames.last().unwrap(), 12);
     // The heading is split where the match ends, both parts scaled.
