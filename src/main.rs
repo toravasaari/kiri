@@ -1576,6 +1576,17 @@ fn page(
     );
     loads.halt();
     screen.close_then(|| close_programs(&loads));
+    // What the pager showed failed, as told before it opens when the
+    // images load first: under each file's name among several.
+    let stderr = inputs.render_errors.stderr();
+    for (number, warning) in inputs.images.late_warnings(stderr) {
+        match content {
+            kiri::render::layout::Content::Files(files) => {
+                eprintln!("kiri: {}: {warning}", files[number].name)
+            }
+            kiri::render::layout::Content::Document(_) => eprintln!("kiri: {warning}"),
+        }
+    }
     Some(result)
 }
 

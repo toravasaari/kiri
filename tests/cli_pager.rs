@@ -1168,49 +1168,196 @@ fn failing_on_cue(dir: &std::path::Path) {
     .unwrap();
 }
 
-#[test]
-fn an_initial_load_in_the_background_tells_a_failed_diagram_nowhere_yet() {
-    // Pinned as it is; whether the pager should tell it on standard error
-    // once it has left its screen is open.
-    let failed = |frames: &[String], _: &std::path::Path| {
-        (frames.iter().skip(1)).any(|frame| !text_of(frame).contains("[rendering"))
+/// What a test does once `when` holds for the frames drawn whole since
+/// the stage before acted, and the scratch directory: `then` may change
+/// the files there, and returns the keys to type.
+struct Stage<'a> {
+    when: &'a dyn Fn(&[String], &std::path::Path) -> bool,
+    then: &'a dyn Fn(&std::path::Path) -> &'static [u8],
+}
+
+/// kiri with `args` in a terminal of 5 rows, in a scratch directory that
+/// `prepare` fills, with `stages` done in order, and with standard error
+/// on the terminal too when `both`. kiri must succeed. Returns what it
+/// wrote on the terminal and on standard error.
+fn in_stages(
+    name: &str,
+    prepare: impl FnOnce(&std::path::Path),
+    args: &[&str],
+    both: bool,
+    stages: &[Stage],
+) -> (String, String) {
+    let dir = std::cell::RefCell::new(std::path::PathBuf::new());
+    let prepare = |scratch: &std::path::Path| {
+        *dir.borrow_mut() = scratch.to_owned();
+        prepare(scratch);
     };
-    let args = [
-        "--initial-load",
-        "background",
-        "-p",
-        "--mode",
-        "kitty",
-        "diagram.md",
-    ];
+    let (mut done, mut since) = (0, 0);
+    let act = |seen: &[u8], terminal: &mut std::fs::File, _: &std::process::Child| {
+        let frames = whole_frames(&text(seen));
+        if let Some(stage) = stages.get(done)
+            && (stage.when)(&frames[since..], &dir.borrow())
+        {
+            terminal.write_all((stage.then)(&dir.borrow())).unwrap();
+            (done, since) = (done + 1, frames.len());
+        }
+    };
+    let setup = Setup { both, env: &[] };
+    let (status, seen, stderr) = in_terminal_seeing(name, prepare, args, 5, None, setup, act);
+    assert!(status.success(), "{stderr}");
+    (seen, stderr)
+}
+
+/// Whether one of `frames` shows nothing loading.
+fn loaded(frames: &[String], _: &std::path::Path) -> bool {
+    frames
+        .iter()
+        .any(|frame| !text_of(frame).contains("[rendering"))
+}
+
+/// Whether one of `frames` says the document was reloaded.
+fn reloaded(frames: &[String], _: &std::path::Path) -> bool {
+    frames
+        .iter()
+        .any(|frame| text_of(frame).contains("reloaded"))
+}
+
+/// What kiri on `args` with `--initial-load wait -p --mode kitty` writes
+/// on standard error, quitting at once, in a scratch directory that
+/// `prepare` fills.
+fn told_waiting(name: &str, prepare: impl FnOnce(&std::path::Path), file: &str) -> String {
+    let args = ["--initial-load", "wait", "-p", "--mode", "kitty", file];
+    let quit = |frames: &[String], _: &std::path::Path| !frames.is_empty();
+    let (frames, stderr) = quit_when(name, prepare, &args, None, &[], quit);
+    assert!(!text_of(&frames[0]).contains("[rendering"), "{frames:?}");
+    assert_ne!(stderr, "");
+    stderr
+}
+
+const BACKGROUND: [&str; 5] = ["--initial-load", "background", "-p", "--mode", "kitty"];
+
+#[test]
+fn an_initial_load_in_the_background_tells_a_failed_diagram_after_the_pager() {
+    let quit = Stage {
+        when: &loaded,
+        then: &|_| b"q",
+    };
+    let go = Stage {
+        when: &|frames, _| !frames.is_empty(),
+        then: &|dir| {
+            std::fs::write(dir.join("go"), "").unwrap();
+            b""
+        },
+    };
+    let args = [&BACKGROUND[..], &["diagram.md"]].concat();
     let name = "pager-initial-load-failed";
-    let (frames, stderr) = quit_when(name, failing_on_cue, &args, None, &[], failed);
-    assert!(
-        text_of(&frames[0]).contains("[rendering: 0/1]"),
-        "{frames:?}"
-    );
-    let last = text_of(frames.last().unwrap());
-    assert!(last.contains("flowchart TD"), "{frames:?}");
-    assert!(!last.contains("bad"), "{frames:?}");
-    assert_eq!(stderr, "");
-    // Waiting, it is told on standard error.
+    let (seen, stderr) = in_stages(name, failing_on_cue, &args, false, &[go, quit]);
+    let frames = whole_frames(&seen);
+    let first = text_of(&frames[0]);
+    assert!(first.contains("[rendering: 0/1]"), "{frames:?}");
+    assert!(text_of(frames.last().unwrap()).contains("flowchart TD"));
+    // The lines waiting writes before the pager opens.
     let at_once = |dir: &std::path::Path| {
         failing_on_cue(dir);
         std::fs::write(dir.join("go"), "").unwrap();
     };
-    let args = [
-        "--initial-load",
-        "wait",
-        "-p",
-        "--mode",
-        "kitty",
-        "diagram.md",
-    ];
-    let name = "pager-initial-load-failed-wait";
-    let quit = |frames: &[String], _: &std::path::Path| !frames.is_empty();
-    let (frames, stderr) = quit_when(name, at_once, &args, None, &[], quit);
-    assert!(!text_of(&frames[0]).contains("[rendering"), "{frames:?}");
-    assert!(stderr.contains("Error: bad"), "{stderr}");
+    let waiting = told_waiting("pager-initial-load-failed-wait", at_once, "diagram.md");
+    assert!(waiting.contains("Error: bad"), "{waiting}");
+    assert_eq!(stderr, waiting);
+    // Once the pager has left its screen.
+    let go = Stage {
+        when: &|frames, _| !frames.is_empty(),
+        then: &|dir| {
+            std::fs::write(dir.join("go"), "").unwrap();
+            b""
+        },
+    };
+    let quit = Stage {
+        when: &loaded,
+        then: &|_| b"q",
+    };
+    let name = "pager-initial-load-failed-after";
+    let (seen, _) = in_stages(name, failing_on_cue, &args, true, &[go, quit]);
+    let (_, after) = seen.rsplit_once(LEAVE).unwrap();
+    assert!(after.contains("Error: bad"), "{seen:?}");
+}
+
+/// [`drawn_on_cue`], with a command that fails until `ok` is in the
+/// scratch directory `dir`, and the reasons only on standard error.
+fn failing_until_ok(dir: &std::path::Path) {
+    failing_on_cue(dir);
+    let draw = format!(
+        "[ -f '{}' ] || {{ echo 'Error: bad' >&2; exit 1; }}\n\
+         echo '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\"/>' > \"$2\"\n",
+        dir.join("ok").display()
+    );
+    std::fs::write(dir.join("render.sh"), draw).unwrap();
+}
+
+#[test]
+fn a_diagram_that_failed_and_then_drew_in_the_background_is_not_told() {
+    let again = Stage {
+        when: &loaded,
+        then: &|dir| {
+            std::fs::write(dir.join("ok"), "").unwrap();
+            b"r"
+        },
+    };
+    let quit = Stage {
+        when: &image_sent,
+        then: &|_| b"q",
+    };
+    let args = [&BACKGROUND[..], &["diagram.md"]].concat();
+    let name = "pager-initial-load-failed-then-drew";
+    let (seen, stderr) = in_stages(name, failing_until_ok, &args, false, &[again, quit]);
+    assert!(seen.contains("\x1b_Ga=T,"), "{seen:?}");
+    assert_eq!(stderr, "");
+}
+
+#[test]
+fn a_failed_diagram_whose_block_is_gone_is_not_told() {
+    let gone = Stage {
+        when: &loaded,
+        then: &|dir| {
+            std::fs::write(dir.join("diagram.md"), "Gone\n").unwrap();
+            b"r"
+        },
+    };
+    let quit = Stage {
+        when: &reloaded,
+        then: &|_| b"q",
+    };
+    let args = [&BACKGROUND[..], &["diagram.md"]].concat();
+    let name = "pager-initial-load-failed-gone";
+    let (seen, stderr) = in_stages(name, failing_until_ok, &args, false, &[gone, quit]);
+    assert!(text_of(&seen).contains("Gone"), "{seen:?}");
+    assert_eq!(stderr, "");
+}
+
+#[test]
+fn a_missing_image_that_came_in_the_background_is_told_once_after_reloads() {
+    let prepare = |dir: &std::path::Path| {
+        std::fs::write(dir.join("missing.md"), "![gone](missing.png)\n").unwrap();
+    };
+    let again = || Stage {
+        when: &loaded,
+        then: &|_| b"r",
+    };
+    let quit = Stage {
+        when: &reloaded,
+        then: &|_| b"q",
+    };
+    let reload = Stage {
+        when: &reloaded,
+        then: &|_| b"r",
+    };
+    let args = [&BACKGROUND[..], &["missing.md"]].concat();
+    let name = "pager-initial-load-missing";
+    let (seen, stderr) = in_stages(name, prepare, &args, false, &[again(), reload, quit]);
+    assert!(text_of(&seen).contains("[image: gone]"), "{seen:?}");
+    let waiting = told_waiting("pager-initial-load-missing-wait", prepare, "missing.md");
+    assert!(waiting.contains("missing.png"), "{waiting}");
+    assert_eq!(stderr, waiting);
 }
 
 #[test]

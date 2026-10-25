@@ -441,7 +441,7 @@ fn page_through(
                     tinted = Some((changed.at, blocks));
                 }
                 for (key, image) in came {
-                    inputs.images.insert(key, image);
+                    inputs.images.came(key, image);
                 }
                 keep_top = true;
                 view = Some(shown);

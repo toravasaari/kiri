@@ -215,7 +215,9 @@ text, with a thin moving band below it, and the status line says
 `[rendering: 1/3]` in place of the name meanwhile, as after a
 [reload](#follow). The view keeps its top line as the images come, so
 the text below an image moves down when it arrives; that is why `wait`
-is the default.
+is the default. The warnings about images and diagrams that failed, which
+`wait` writes on standard error before the pager opens, come once the
+pager has closed, for what still fails then.
 
 The pager surely opens when paging is `always`, as with `-p`, or when it
 follows a lone file, as with `-f`. With paging on `auto`, kiri needs the
@@ -313,6 +315,11 @@ could not be drawn:
 theme's `error` colour, or without colour where there are none;
 `stderr` only in a warning on standard error; `both` in both. Warnings
 about images that do not load go to standard error whatever this says.
+What failed while the pager showed the document, loading in the
+background after a reload or with the [initial load](#initial-load) in
+the background, is told on standard error once the pager has closed: the
+images and diagrams that still fail in the document as it is then, each
+once.
 
 ## Environment variables
 

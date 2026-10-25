@@ -93,10 +93,13 @@ pub fn reload_in_background(
         Some(renderers) => renderers,
         None => &NoRenderer,
     };
+    // Whether a failure came in the background stays with what is kept.
+    let late = std::mem::take(&mut images.late);
     let (wanted, have) = plan(parts, renderer, Some(images));
-    let keys: HashSet<ImageKey> = (wanted.iter())
+    let shown: Vec<ImageKey> = (wanted.iter())
         .map(|(index, image)| image.key().in_document(parts[*index].number))
         .collect();
+    let keys: HashSet<&ImageKey> = shown.iter().collect();
     loads.keep(|key| keys.contains(key));
     let mut kept = Images::new();
     let mut jobs = Vec::new();
@@ -104,7 +107,10 @@ pub fn reload_in_background(
         let part = &parts[index];
         let key = image.key().in_document(part.number);
         if let Some(have) = have {
-            kept.insert(key, have);
+            match late.contains(&key) {
+                true => kept.came(key, have),
+                false => kept.insert(key, have),
+            }
             continue;
         }
         let again = changed.iter().any(|(changed, _)| *changed == key);
@@ -158,6 +164,7 @@ pub fn reload_in_background(
         max_file_size: loading.max_file_size,
     };
     loads.start(jobs, context);
+    kept.shown = shown;
     *images = kept;
 }
 

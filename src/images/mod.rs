@@ -269,6 +269,12 @@ pub struct Images {
     /// The images loading in the background, each with what stands in
     /// for it meanwhile.
     loading: HashMap<ImageKey, Placeholder>,
+    /// The images whose outcome came from loading in the background, which
+    /// nothing has told about yet.
+    late: HashSet<ImageKey>,
+    /// The keys of the images the documents show, in their order, as a
+    /// load in the background last found them.
+    shown: Vec<ImageKey>,
 }
 
 /// What a block shows in place of its image while the image loads.
@@ -291,6 +297,7 @@ impl Images {
     pub fn insert(&mut self, key: impl Into<ImageKey>, image: Result<Source, ImageError>) {
         let key = key.into();
         self.loading.remove(&key);
+        self.late.remove(&key);
         if !self.by_key.contains_key(&key) {
             self.order.push(key.clone());
         }
@@ -301,7 +308,16 @@ impl Images {
     /// `None` when it was never loaded.
     pub fn remove(&mut self, key: &ImageKey) -> Option<Result<Source, ImageError>> {
         self.order.retain(|loaded| loaded != key);
+        self.late.remove(key);
         self.by_key.remove(key)
+    }
+
+    /// Records the outcome of loading `key` in the background, as
+    /// [`Images::insert`] does; [`Images::late_warnings`] tells it if it
+    /// failed.
+    pub fn came(&mut self, key: ImageKey, image: Result<Source, ImageError>) {
+        self.insert(key.clone(), image);
+        self.late.insert(key);
     }
 
     /// The outcome for `key`, or `None` when it was never loaded.
@@ -369,6 +385,23 @@ impl Images {
     /// when `render_errors`.
     pub fn warnings_with(&self, render_errors: bool) -> Vec<String> {
         warnings(self.iter(), render_errors)
+    }
+
+    /// `warnings_with` for the images that came from loading in the
+    /// background and are still shown, in the documents' order, each with
+    /// the number of its document.
+    pub fn late_warnings(&self, render_errors: bool) -> Vec<(usize, String)> {
+        let mut told = HashSet::new();
+        (self.shown.iter())
+            .filter(|key| self.late.contains(*key) && told.insert(*key))
+            .filter_map(|key| Some((key, self.by_key.get(key)?)))
+            .flat_map(|(key, image)| {
+                let warnings = warnings(std::iter::once((key, image)), render_errors);
+                warnings
+                    .into_iter()
+                    .map(|warning| (key.document(), warning))
+            })
+            .collect()
     }
 
     /// `warnings_with` for the images of the document numbered
@@ -661,6 +694,36 @@ mod tests {
 
     pub(super) fn rgba(image: &RgbaImage, x: u32, y: u32) -> [u8; 4] {
         image.get_pixel(x, y).0
+    }
+
+    #[test]
+    fn late_warnings_tell_what_came_failed_once_in_the_documents_order() {
+        let missing = |url: &str| Err(ImageError::Missing(PathBuf::from(url)));
+        let mut images = Images::new();
+        let (a, b, c) = (
+            ImageKey::from("a.png"),
+            ImageKey::from("b.png"),
+            ImageKey::from("c.png"),
+        );
+        images.shown = vec![a.clone(), b.clone(), c.clone(), b.clone()];
+        images.came(b.clone(), missing("b.png"));
+        images.came(a.clone(), missing("a.png"));
+        // Told before the pager opened, as when it loaded first.
+        images.insert(c.clone(), missing("c.png"));
+        let told: Vec<_> = images
+            .late_warnings(true)
+            .into_iter()
+            .map(|(_, w)| w)
+            .collect();
+        assert_eq!(told, [missing_text("a.png"), missing_text("b.png")]);
+        // Loaded at last.
+        images.came(a, Ok(Source::Raster(RgbaImage::new(1, 1))));
+        assert_eq!(images.late_warnings(true).len(), 1);
+    }
+
+    /// The warning about the missing file `url`.
+    fn missing_text(url: &str) -> String {
+        ImageError::Missing(PathBuf::from(url)).to_string()
     }
 
     #[test]

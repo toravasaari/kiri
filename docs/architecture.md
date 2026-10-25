@@ -167,7 +167,10 @@ reload stops the loads whose images the new document no longer shows,
 and `q`, or a signal, stops the programs that draw. `src/main.rs` waits
 for them to end once the pager has left its screen, with
 `kiri: closing background programs…` on standard error while that takes
-more than a second, but not for merman, which cannot stop.
+more than a second, but not for merman, which cannot stop. `Images` notes
+which outcomes came in the background; once the pager has left its
+screen, `src/main.rs` writes the warnings of those that failed and are
+still shown, as it does before the pager opens for images loaded first.
 
 With `initial_load = "background"`, the initial load goes the same way when
 the pager surely opens: `src/main.rs` lays out the text, opens the
