@@ -351,7 +351,7 @@ impl Loads {
     }
 
     /// Has a program draw the diagram `key`, which ends `ending` after it
-    /// is told to stop, and draws nothing.
+    /// is told to stop, and draws nothing; it draws when this returns.
     #[cfg(test)]
     pub(crate) fn program(&mut self, key: ImageKey, ending: Duration) {
         let job = Job {
@@ -372,6 +372,10 @@ impl Loads {
             max_file_size: super::DEFAULT_MAX_FILE_SIZE,
         };
         self.start(vec![job], context);
+        // At once, also while the loads are held.
+        if let Some(threads) = self.held.take() {
+            self.spawn(threads);
+        }
         let start = Instant::now();
         while *self.queue.programs.running.lock().unwrap() == 0 && start.elapsed() < STOPPING {
             std::thread::sleep(Duration::from_millis(5));
@@ -780,6 +784,20 @@ mod tests {
         loads.gated(&["c"], &gated);
         assert!(came(&mut loads, &keys(&["c"])[0]));
         assert_eq!(gated.started(), ["c"]);
+    }
+
+    #[test]
+    fn a_test_s_program_draws_when_it_returns_also_while_held() {
+        let mut loads = Loads::new();
+        loads.hold();
+        let start = Instant::now();
+        loads.program(ImageKey::block("mermaid", "slow\n"), Duration::ZERO);
+        assert!(
+            start.elapsed() < Duration::from_secs(1),
+            "{:?}",
+            start.elapsed()
+        );
+        assert_eq!(*loads.queue.programs.running.lock().unwrap(), 1);
     }
 
     #[test]
