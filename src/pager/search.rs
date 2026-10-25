@@ -153,7 +153,10 @@ impl Marks {
 /// `line` with the bytes of each of `matches` in its text, from left to
 /// right, styled with `marks`: as the current match where its flag is
 /// true, faded from the text's own style while a `fade` is under way. A span a
-/// match starts or ends in is split there.
+/// match starts or ends in is split there. In text at a fraction the split
+/// moves out to the ends of the packed groups, so that the groups and the
+/// cells they take stay as they are; a group in two matches takes the
+/// first one's style.
 pub fn mark(
     line: &Line,
     matches: &[(Range<usize>, bool)],
@@ -165,14 +168,28 @@ pub fn mark(
     let mut start = 0;
     for span in &line.spans {
         let end = start + span.text.len();
+        // Where the span may be cut, from its start.
+        let edges = edges(span);
         // The bytes of the span cut so far.
         let mut cut = start;
         let inside = matches
             .iter()
             .filter(|(bytes, _)| bytes.start < end && start < bytes.end);
         for (bytes, current) in inside {
-            let from = bytes.start.max(start);
-            let to = bytes.end.min(end);
+            let (mut from, mut to) = (bytes.start.max(start) - start, bytes.end.min(end) - start);
+            if !edges.is_empty() {
+                from = edges
+                    .iter()
+                    .rev()
+                    .copied()
+                    .find(|&edge| edge <= from)
+                    .unwrap_or(0);
+                to = (edges.iter().copied().find(|&edge| edge >= to)).unwrap_or(span.text.len());
+            }
+            let (from, to) = ((start + from).max(cut), start + to);
+            if to <= from {
+                continue;
+            }
             let style = match (current, fade) {
                 (false, _) => laid_over(&span.style, &marks.found),
                 (true, None) => laid_over(&span.style, &marks.current),
@@ -192,6 +209,20 @@ pub fn mark(
         spans,
         ..line.clone()
     }
+}
+
+/// Where `span` can be cut without changing how it is drawn, as bytes of
+/// its text: anywhere at a whole size, which has no edges, and only between
+/// packed groups at a fraction.
+fn edges(span: &Span) -> Vec<usize> {
+    let Some(fraction) = span.style.size.fraction() else {
+        return Vec::new();
+    };
+    let at = |group: &str| group.as_ptr() as usize - span.text.as_ptr() as usize;
+    (fraction.groups(&span.text).iter())
+        .map(|group| at(group.text))
+        .chain([span.text.len()])
+        .collect()
 }
 
 /// The bytes `bytes` of `span`'s text in `style`.
@@ -287,7 +318,7 @@ mod tests {
     use super::*;
     use crate::color::Color;
     use crate::pager::fade::Rgb;
-    use crate::size::TextSize;
+    use crate::size::{Fraction, TextSize, VerticalAlign};
     use crate::theme::{Paper, SearchTheme};
 
     fn line(text: &str) -> Line {
@@ -543,6 +574,42 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn a_mark_in_text_at_a_fraction_covers_whole_groups() {
+        // Half-size text is packed two cells to a group: `ab`, `cd`, `ef`.
+        // Cutting a group would pack its pieces apart, each rounded up, and
+        // move the cells after them.
+        let half = TextSize::NORMAL.with_fraction(Fraction::new(1, 2).unwrap(), VerticalAlign::Top);
+        let style = Style {
+            size: half,
+            ..Style::default()
+        };
+        let source = Line::new(vec![Span::new("abcdef", style.clone())]);
+        let found = Style {
+            reverse: true,
+            ..style.clone()
+        };
+        let marked = mark(&source, &[(3..4, false)], &marks(), None);
+        assert_eq!(
+            marked.spans,
+            [
+                Span::new("ab", style.clone()),
+                Span::new("cd", found.clone()),
+                Span::new("ef", style.clone()),
+            ]
+        );
+        assert_eq!(
+            crate::render::wrap::width(&marked.spans),
+            crate::render::wrap::width(&source.spans)
+        );
+        // Two matches in one group mark it once; one across groups marks
+        // both.
+        let marked = mark(&source, &[(0..1, true), (1..3, false)], &marks(), None);
+        let texts: Vec<&str> = marked.spans.iter().map(|span| span.text.as_str()).collect();
+        assert_eq!(texts, ["ab", "cd", "ef"]);
+        assert!(marked.spans[0].style.bold && marked.spans[1].style.reverse);
     }
 
     #[test]
