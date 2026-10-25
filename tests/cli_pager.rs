@@ -950,14 +950,14 @@ fn a_diagram_file_on_its_own_is_paged_only_when_paging_is_always() {
 }
 
 /// A configuration whose Mermaid command draws a square SVG once `go` is
-/// in the scratch directory `dir`, or after 3 s, and `diagram.md`, a
+/// in the scratch directory `dir`, or after 8 s, and `diagram.md`, a
 /// diagram and a line of text.
 fn drawn_on_cue(dir: &std::path::Path) {
     let script = dir.join("render.sh");
     let go = dir.join("go");
     let draw = format!(
         "i=0\n\
-         while [ ! -f '{}' ] && [ $i -lt 60 ]; do sleep 0.05; i=$((i + 1)); done\n\
+         while [ ! -f '{}' ] && [ $i -lt 160 ]; do sleep 0.05; i=$((i + 1)); done\n\
          echo '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\"/>' > \"$2\"\n",
         go.display()
     );
