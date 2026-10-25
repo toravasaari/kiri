@@ -20,6 +20,11 @@ use kiri::theme::Theme;
 
 #[path = "../../src/term/pty.rs"]
 mod pty;
+#[path = "../../src/testing.rs"]
+mod testing;
+
+#[allow(unused_imports)]
+pub(crate) use testing::Scratch;
 
 pub const WIDTH: u16 = 48;
 
@@ -347,37 +352,6 @@ pub fn sent(output: &str) -> Vec<Sent> {
 }
 
 // The kiri binary
-
-/// A directory of its own for one test, removed when the test ends.
-pub struct Scratch(PathBuf);
-
-impl Scratch {
-    pub fn new(name: &str) -> Self {
-        Self::in_dir(&std::env::temp_dir(), name)
-    }
-
-    /// `new`, in the directory `parent` rather than the temporary one.
-    pub fn in_dir(parent: &Path, name: &str) -> Self {
-        let dir = parent.join(format!("kiri-cli-{}-{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        Self(dir)
-    }
-}
-
-impl std::ops::Deref for Scratch {
-    type Target = Path;
-
-    fn deref(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
 
 /// The kiri binary with nothing from the environment of the tests: no
 /// colour settings, and the home and configuration directories in `dir`,
