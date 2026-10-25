@@ -195,8 +195,6 @@ pub enum Shows {
     Image,
     /// Its placeholder while it loads: the old image dimmed.
     Placeholder,
-    /// The band that tells it is loading, one row high.
-    Band,
 }
 
 #[cfg(test)]

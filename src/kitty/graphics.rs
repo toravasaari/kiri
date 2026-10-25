@@ -125,23 +125,56 @@ pub fn transmit(
     pixels: &Pixels,
     cells: Cells,
 ) -> io::Result<()> {
-    let expected = u64::from(pixels.width) * u64::from(pixels.height) * 4;
-    if pixels.rgba.len() as u64 != expected {
-        return Err(invalid("pixel data does not match the image size"));
-    }
     if !(1..=MAX_CELLS).contains(&cells.columns) || !(1..=MAX_CELLS).contains(&cells.rows) {
         return Err(invalid(&format!(
             "an image covers 1 to {MAX_CELLS} rows and columns"
         )));
     }
-    let mut compressor = ZlibEncoder::new(Vec::new(), Compression::default());
-    compressor.write_all(pixels.rgba)?;
-    let payload = STANDARD.encode(compressor.finish()?);
+    let payload = compressed(pixels)?;
     let keys = format!(
         "a=T,U=1,q=2,f=32,o=z,i={},s={},v={},c={},r={}",
         id.0, pixels.width, pixels.height, cells.columns, cells.rows
     );
-    write_chunks(out, &keys, payload.as_bytes())
+    write_chunks(out, &keys, &payload)
+}
+
+/// Sends `pixels` as image `id`, compressed, without placing it: a
+/// [`place`] puts it on the screen.
+pub fn transmit_only(out: &mut impl Write, id: ImageId, pixels: &Pixels) -> io::Result<()> {
+    let keys = format!(
+        "a=t,q=2,f=32,o=z,i={},s={},v={}",
+        id.0, pixels.width, pixels.height
+    );
+    write_chunks(out, &keys, &compressed(pixels)?)
+}
+
+/// Replaces the pixels of image `id`, sent with [`transmit_only`], with
+/// `pixels` of the same size, where it is placed too: the placements stay,
+/// as they do not when an image is sent again.
+pub fn edit(out: &mut impl Write, id: ImageId, pixels: &Pixels) -> io::Result<()> {
+    let keys = format!(
+        "a=f,r=1,q=2,f=32,o=z,i={},s={},v={}",
+        id.0, pixels.width, pixels.height
+    );
+    write_chunks(out, &keys, &compressed(pixels)?)
+}
+
+/// Places image `id` at the cursor, `down` pixels below the top of its
+/// cell, over the text there, without moving the cursor. Clearing the
+/// screen takes the placement away.
+pub fn place(out: &mut impl Write, id: ImageId, down: u16) -> io::Result<()> {
+    write!(out, "\x1b_Ga=p,q=2,i={},C=1,Y={down},z=1\x1b\\", id.0)
+}
+
+/// `pixels`, checked against their size, compressed and in base64.
+fn compressed(pixels: &Pixels) -> io::Result<Vec<u8>> {
+    let expected = u64::from(pixels.width) * u64::from(pixels.height) * 4;
+    if pixels.rgba.len() as u64 != expected {
+        return Err(invalid("pixel data does not match the image size"));
+    }
+    let mut compressor = ZlibEncoder::new(Vec::new(), Compression::default());
+    compressor.write_all(pixels.rgba)?;
+    Ok(STANDARD.encode(compressor.finish()?).into_bytes())
 }
 
 /// Deletes image `id` from the terminal: its placements, and its data, so
@@ -390,5 +423,36 @@ mod tests {
             let id = fold(hash);
             assert!(id != 0 && id <= 0xFF_FFFF, "{hash:#x} -> {id:#x}");
         }
+    }
+
+    #[test]
+    fn an_image_sent_apart_is_placed_at_the_cursor_and_edited_in_place() {
+        let rgba = [1, 2, 3, 4];
+        let pixels = Pixels {
+            width: 1,
+            height: 1,
+            rgba: &rgba,
+        };
+        let mut out = Vec::new();
+        transmit_only(&mut out, ID, &pixels).unwrap();
+        let sent = String::from_utf8(std::mem::take(&mut out)).unwrap();
+        assert!(
+            sent.starts_with("\x1b_Ga=t,q=2,f=32,o=z,i=1193046,s=1,v=1,m=0;"),
+            "{sent:?}"
+        );
+        edit(&mut out, ID, &pixels).unwrap();
+        let edited = String::from_utf8(std::mem::take(&mut out)).unwrap();
+        assert!(
+            edited.starts_with("\x1b_Ga=f,r=1,q=2,f=32,o=z,i=1193046,s=1,v=1,m=0;"),
+            "{edited:?}"
+        );
+        place(&mut out, ID, 4).unwrap();
+        assert_eq!(out, b"\x1b_Ga=p,q=2,i=1193046,C=1,Y=4,z=1\x1b\\");
+        let short = Pixels {
+            width: 2,
+            height: 1,
+            rgba: &rgba,
+        };
+        assert!(edit(&mut out, ID, &short).is_err());
     }
 }

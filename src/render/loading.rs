@@ -20,7 +20,7 @@ pub const DIMMED: f32 = 0.3;
 pub const PERIOD: Duration = Duration::from_millis(2400);
 
 /// How many pixels high the band is.
-const BAND_HEIGHT: u32 = 3;
+pub const BAND_HEIGHT: u32 = 3;
 
 /// How much of the band's width its light part takes.
 const LIGHT_SHARE: f32 = 0.5;
@@ -60,15 +60,11 @@ pub fn dimmed(mut image: RgbaImage) -> RgbaImage {
 }
 
 /// The band at `elapsed` since it started, `columns` cells of `cell`
-/// pixels wide and one cell high: a line `BAND_HEIGHT` pixels high a
-/// sixth of the cell down, in `ink` at a low opacity, with a light part
-/// half its width that runs in from beyond its left end and out at its
-/// right end once every [`PERIOD`].
+/// pixels wide and [`BAND_HEIGHT`] pixels high, in `ink` at a low
+/// opacity, with a light part half its width that runs in from beyond its
+/// left end and out at its right end once every [`PERIOD`].
 pub fn band(columns: u16, cell: (u16, u16), ink: Ink, elapsed: Duration) -> RgbaImage {
     let width = u32::from(columns) * u32::from(cell.0);
-    let height = u32::from(cell.1);
-    let top = height / 6;
-    let bottom = (top + BAND_HEIGHT).min(height);
     let (base, peak) = if ink.dark { (0.14, 0.75) } else { (0.12, 0.6) };
     let light = LIGHT_SHARE * width as f32;
     let share = (elapsed.as_secs_f32() % PERIOD.as_secs_f32()) / PERIOD.as_secs_f32();
@@ -84,10 +80,20 @@ pub fn band(columns: u16, cell: (u16, u16), ink: Ink, elapsed: Duration) -> Rgba
             ((base + (peak - base) * lit) * 255.0) as u8
         })
         .collect();
-    RgbaImage::from_fn(width, height, |x, y| match (top..bottom).contains(&y) {
-        true => Rgba([r, g, b, alpha[x as usize]]),
-        false => Rgba([0, 0, 0, 0]),
+    RgbaImage::from_fn(width, BAND_HEIGHT, |x, _| {
+        Rgba([r, g, b, alpha[x as usize]])
     })
+}
+
+/// How many pixels below the top of its cell the band goes: a little
+/// below the top of a blank line, or over the bottom of a line with text
+/// or an image on it, when `low`.
+pub fn band_offset(cell_height: u16, low: bool) -> u16 {
+    let band = BAND_HEIGHT as u16;
+    match low {
+        true => cell_height.saturating_sub(band + (cell_height / 10).max(1)),
+        false => (cell_height / 6).min(cell_height.saturating_sub(band)),
+    }
 }
 
 #[cfg(test)]
@@ -136,19 +142,26 @@ mod tests {
 
     /// The opacity of each pixel along the band's line.
     fn line(band: &RgbaImage) -> Vec<u8> {
-        let y = band.height() / 6;
+        let y = 0;
         (0..band.width())
             .map(|x| band.get_pixel(x, y).0[3])
             .collect()
     }
 
     #[test]
-    fn the_band_is_three_pixels_high_a_sixth_of_the_cell_down() {
+    fn the_band_is_three_pixels_high_and_as_wide_as_its_cells() {
         let band = band(2, (10, 24), INK, Duration::ZERO);
-        assert_eq!(band.dimensions(), (20, 24));
-        let lit: Vec<u32> = (0..24).filter(|&y| band.get_pixel(0, y).0[3] > 0).collect();
-        assert_eq!(lit, [4, 5, 6]);
-        assert_eq!(band.get_pixel(0, 4).0[..3], [200, 200, 200]);
+        assert_eq!(band.dimensions(), (20, 3));
+        assert_eq!(band.get_pixel(0, 2).0[..3], [200, 200, 200]);
+    }
+
+    #[test]
+    fn the_band_goes_a_sixth_down_a_blank_line_or_over_the_bottom_of_a_full_one() {
+        assert_eq!(band_offset(24, false), 4);
+        // Its three pixels end two above the bottom of a 24-pixel cell.
+        assert_eq!(band_offset(24, true), 19);
+        assert_eq!(band_offset(2, true), 0);
+        assert_eq!(band_offset(2, false), 0);
     }
 
     #[test]

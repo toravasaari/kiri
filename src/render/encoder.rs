@@ -58,20 +58,15 @@ impl Encoder {
     /// The id of the image `placement` shows, from `images`, on a terminal
     /// with `caps`: sent to `out` first unless the terminal holds it. An
     /// image sent for `placement` before, which the pixels no longer
-    /// give, is deleted. A band is drawn in `ink`, sent as it is at its
-    /// start.
+    /// give, is deleted.
     pub fn id(
         &mut self,
         placement: &Placement,
         images: &Images,
         caps: &Capabilities,
-        ink: Ink,
         out: &mut impl Write,
     ) -> io::Result<ImageId> {
         let cell = cell_size(caps);
-        if placement.shows == Shows::Band {
-            return self.band(placement.size.columns, cell, ink, out);
-        }
         let old = self.held.get(placement).filter(|held| held.cell == cell);
         if let Some(held) = old.filter(|held| held.checked) {
             return Ok(held.id);
@@ -97,9 +92,9 @@ impl Encoder {
     }
 
     /// The id of the band `columns` cells of `cell` pixels wide, in
-    /// `ink`: sent to `out` first, as it is at its start, unless the
-    /// terminal holds it.
-    fn band(
+    /// `ink`, which is on the screen until it is next cleared: sent to
+    /// `out` first, as it is at its start, unless the terminal holds it.
+    pub fn band(
         &mut self,
         columns: u16,
         cell: (u16, u16),
@@ -113,7 +108,7 @@ impl Encoder {
         let band = loading::band(columns, cell, ink, Duration::ZERO);
         let cells = graphics::Cells { columns, rows: 1 };
         let id = ImageId::new(BAND, band.width(), band.height(), cells);
-        send(out, id, &band, cells)?;
+        graphics::transmit_only(out, id, &pixels(&band))?;
         self.bands.insert((columns, cell), id);
         Ok(id)
     }
@@ -124,14 +119,14 @@ impl Encoder {
         self.shown.clear();
     }
 
-    /// Sends each band on the screen anew, as it is `elapsed` after its
-    /// start, in `ink`, under the id it has, so that its light part moves
-    /// on.
+    /// Gives each band on the screen the pixels it has `elapsed` after
+    /// its start, in `ink`, where it is placed, so that its light part
+    /// moves on.
     pub fn animate(&self, elapsed: Duration, ink: Ink, out: &mut impl Write) -> io::Result<()> {
         let shown = (self.shown.iter()).filter_map(|band| Some((band, self.bands.get(band)?)));
         for (&(columns, cell), &id) in shown {
             let band = loading::band(columns, cell, ink, elapsed);
-            send(out, id, &band, graphics::Cells { columns, rows: 1 })?;
+            graphics::edit(out, id, &pixels(&band))?;
         }
         Ok(())
     }
@@ -151,9 +146,9 @@ impl Encoder {
             .filter_map(|line| line.image.as_ref())
             .map(|image| image.placement.as_ref())
             .collect();
-        let bands: HashSet<u16> = (placed.iter())
-            .filter(|placement| placement.shows == Shows::Band)
-            .map(|placement| placement.size.columns)
+        let bands: HashSet<u16> = (lines.iter())
+            .filter_map(|line| line.band)
+            .map(|band| band.columns)
             .collect();
         self.bands.retain(|&(columns, band_cell), &mut id| {
             let kept = band_cell == cell && bands.contains(&columns);
@@ -262,13 +257,17 @@ fn send(
     pixels: &RgbaImage,
     cells: graphics::Cells,
 ) -> io::Result<()> {
-    let (width, height) = pixels.dimensions();
-    let pixels = graphics::Pixels {
+    graphics::transmit(out, id, &self::pixels(pixels), cells)
+}
+
+/// `image` as the pixels `graphics` sends.
+fn pixels(image: &RgbaImage) -> graphics::Pixels<'_> {
+    let (width, height) = image.dimensions();
+    graphics::Pixels {
         width,
         height,
-        rgba: pixels.as_raw(),
-    };
-    graphics::transmit(out, id, &pixels, cells)
+        rgba: image.as_raw(),
+    }
 }
 
 /// A transparent canvas of the cells of `size`, each of `cell` pixels.
@@ -337,28 +336,26 @@ mod tests {
     }
 
     #[test]
-    fn a_band_is_sent_once_for_its_width_and_anew_as_it_moves_on() {
-        let images = Images::new();
+    fn a_band_is_sent_once_for_its_width_and_its_pixels_change_as_it_moves_on() {
         let mut encoder = Encoder::new();
         let mut out = Vec::new();
-        let band = |key| placed(key, 4, 1, Shows::Band);
-        let first = encoder
-            .id(&band("a.png"), &images, &caps(), INK, &mut out)
-            .unwrap();
-        let second = encoder
-            .id(&band("b.png"), &images, &caps(), INK, &mut out)
-            .unwrap();
+        let cell = (10, 20);
+        let first = encoder.band(4, cell, INK, &mut out).unwrap();
+        let second = encoder.band(4, cell, INK, &mut out).unwrap();
         assert_eq!(first, second);
         let sent = String::from_utf8(std::mem::take(&mut out)).unwrap();
-        assert_eq!(sent.matches("\x1b_Ga=T,").count(), 1, "{sent:?}");
+        // Sent without a placement, which the writer makes.
+        assert_eq!(sent.matches("\x1b_Ga=t,").count(), 1, "{sent:?}");
         assert!(encoder.has_bands());
         encoder
             .animate(Duration::from_millis(600), INK, &mut out)
             .unwrap();
+        // The pixels edited where they are placed, not sent again, which
+        // would take the placement away.
         let moved = String::from_utf8(std::mem::take(&mut out)).unwrap();
-        assert_eq!(moved.matches("\x1b_Ga=T,").count(), 1, "{moved:?}");
-        assert_ne!(moved, sent);
-        // Gone with the last line that places it.
+        assert_eq!(moved.matches("\x1b_Ga=f,r=1,").count(), 1, "{moved:?}");
+        assert!(!moved.contains("a=t,"), "{moved:?}");
+        // Gone with the last line that has it.
         encoder.keep(&[], &caps());
         assert!(!encoder.has_bands());
         encoder.delete_unused(&mut out).unwrap();
@@ -392,15 +389,11 @@ mod tests {
         };
         let mut encoder = Encoder::new();
         let mut out = Vec::new();
-        let old = encoder
-            .id(&placement, &images, &caps, INK, &mut out)
-            .unwrap();
+        let old = encoder.id(&placement, &images, &caps, &mut out).unwrap();
         out.clear();
         // The same placement in taller cells, without a layout between:
         // scaled for them, under another id.
-        let new = encoder
-            .id(&placement, &images, &taller, INK, &mut out)
-            .unwrap();
+        let new = encoder.id(&placement, &images, &taller, &mut out).unwrap();
         assert_ne!(old, new);
         let mut expected = Vec::new();
         graphics::delete(&mut expected, old).unwrap();

@@ -1277,15 +1277,12 @@ fn a_reload_shows_an_image_whose_file_changed_and_keeps_the_others() {
     assert!(status.success());
     // Only `a.png` is sent again, once it has loaded; the terminal still
     // holds `b.png` as it was. Meanwhile `a.png` shows its alt text, with
-    // the band below it as wide as the text, sent anew as it moves.
+    // the band, sent apart and placed over the screen, below it.
     let widths = sent_widths(&seen);
-    assert_eq!(widths[..2], ["s=20", "s=20"], "{seen:?}");
-    let (last, bands) = widths[2..].split_last().unwrap();
-    assert_eq!(last, "s=40", "{seen:?}");
-    assert!(!bands.is_empty(), "{seen:?}");
-    assert!(bands.iter().all(|width| *width == bands[0]), "{seen:?}");
-    assert!(!["s=20", "s=40"].contains(&bands[0].as_str()), "{seen:?}");
+    assert_eq!(widths, ["s=20", "s=20", "s=40"], "{seen:?}");
     assert!(seen.contains("[image: a]"), "{seen:?}");
+    assert_eq!(seen.matches("\x1b_Ga=t,").count(), 1, "{seen:?}");
+    assert!(seen.contains("\x1b_Ga=p,"), "{seen:?}");
 }
 
 /// Writes `document` into the named pipe at `path` once a reader opens it,

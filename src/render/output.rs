@@ -6,7 +6,8 @@ use std::io::{self, Write};
 use std::time::Duration;
 
 use super::encoder::Encoder;
-use super::loading::Ink;
+use super::image::cell_size;
+use super::loading::{self, Ink};
 use super::style::{ImageRow, Line, Span, Style};
 use super::wrap::width;
 use crate::caps::Capabilities;
@@ -142,9 +143,21 @@ impl<'a> Writer<'a> {
                 .collect();
             return out.write_all(text.trim_end().as_bytes());
         }
+        // Over the row, from where it starts; not behind a panel, which
+        // it would be drawn over.
+        if let Some(band) = line.band.filter(|_| row == 0 && !self.dim) {
+            let cell = cell_size(caps);
+            let id = self.encoder.band(band.columns, cell, self.ink, out)?;
+            out.write_all(b"\x1b7")?;
+            if band.indent > 0 {
+                write!(out, "\x1b[{}C", band.indent)?;
+            }
+            graphics::place(out, id, loading::band_offset(cell.1, band.low))?;
+            out.write_all(b"\x1b8")?;
+        }
         let image = match &line.image {
             Some(ImageRow { placement, row }) => {
-                let id = (self.encoder).id(placement, self.images, caps, self.ink, out)?;
+                let id = (self.encoder).id(placement, self.images, caps, out)?;
                 Some((id, *row, placement.size.columns))
             }
             None => None,
@@ -378,6 +391,7 @@ mod tests {
             trail: Vec::new(),
             size: TextSize::new(2).unwrap(),
             block: None,
+            band: None,
         };
         let mut out = Vec::new();
         write(

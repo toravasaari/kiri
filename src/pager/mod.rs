@@ -3917,6 +3917,17 @@ mod tests {
         ids_after(out, "\x1b_Ga=T,U=1,q=2,f=32,o=z,i=")
     }
 
+    /// The ids of the bands `out` sends, in order.
+    fn band_ids(out: &str) -> Vec<u32> {
+        ids_after(out, "\x1b_Ga=t,q=2,f=32,o=z,i=")
+    }
+
+    /// The ids of the images whose pixels `out` changes in place, in
+    /// order.
+    fn edited_ids(out: &str) -> Vec<u32> {
+        ids_after(out, "\x1b_Ga=f,r=1,q=2,f=32,o=z,i=")
+    }
+
     /// The ids of the images `out` deletes, in order.
     fn deleted_ids(out: &str) -> Vec<u32> {
         ids_after(out, "\x1b_Ga=d,d=I,i=")
@@ -4464,13 +4475,18 @@ mod tests {
         let came = &frames[3];
         assert!(status_text(came, 12).contains("notes.md"), "{came:?}");
         assert!(!status_text(came, 12).contains("rendering"), "{came:?}");
-        // Red, red dimmed and the band, then blue.
+        // Red, red dimmed, then blue; and the band, placed in the reload's
+        // frame.
         let out = String::from_utf8(terminal.out.clone()).unwrap();
         let sent = sent_ids(&out);
-        let unique = sorted(sent.clone());
-        assert_eq!(unique.len(), 4, "{sent:?}");
+        assert_eq!(sorted(sent.clone()).len(), 3, "{sent:?}");
+        let bands = band_ids(&out);
+        assert_eq!(sorted(bands.clone()).len(), 1, "{bands:?}");
+        assert_eq!(reloaded.matches("\x1b_Ga=p,").count(), 1, "{reloaded:?}");
+        assert!(!came.contains("\x1b_Ga=p,"), "{came:?}");
         // The band went with the last placeholder, and the rest on quitting.
-        assert_eq!(sorted(deleted_ids(&out)), unique, "{out:?}");
+        let all = sorted(sent.into_iter().chain(bands).collect());
+        assert_eq!(sorted(deleted_ids(&out)), all, "{out:?}");
     }
 
     #[test]
@@ -4490,15 +4506,15 @@ mod tests {
         assert_eq!(terminal.waits[1..6], [FRAME; 5], "{:?}", terminal.waits);
         assert_eq!(terminal.waits[6], POLL, "{:?}", terminal.waits);
         let out = String::from_utf8(terminal.out.clone()).unwrap();
-        let sent = sent_ids(&out);
-        let band = sent[2];
-        // Sent with the frame that shows it, then once after each of the
-        // four reads before the image came.
-        assert_eq!(sent.iter().filter(|&&id| id == band).count(), 5, "{sent:?}");
+        // Sent with the frame that shows it, then its pixels changed after
+        // each of the four reads before the image came.
+        assert_eq!(band_ids(&out).len(), 1, "{out:?}");
+        assert_eq!(edited_ids(&out).len(), 4, "{out:?}");
+        assert_eq!(edited_ids(&out)[0], band_ids(&out)[0]);
     }
 
     #[test]
-    fn a_new_image_without_an_old_one_shows_its_alt_text_with_the_band_below() {
+    fn a_new_image_without_an_old_one_shows_its_alt_text_with_the_band_below_it() {
         let mut reload = Background {
             document: around(2, "b.png"),
             wanted: vec![(ImageKey::from("b.png"), filled(20, 20, [0, 0, 255, 255]))],
@@ -4520,13 +4536,12 @@ mod tests {
         let frames = terminal.frames();
         let reloaded = unstyled(&frames[2]);
         assert!(reloaded.contains("an image"), "{reloaded:?}");
-        // The band's row of placeholders.
-        assert_eq!(
-            reloaded
-                .matches(crate::kitty::graphics::PLACEHOLDER)
-                .count(),
-            56
-        );
+        // Placed on the blank line below the alt text, two cells in.
+        let (_, below) = reloaded.split_once("an image").unwrap();
+        let (_, blank) = below.split_once("\x1b[6;1H").unwrap();
+        let (blank, _) = blank.split_once("\x1b[7;1H").unwrap();
+        assert!(blank.contains("\x1b7\x1b[2C\x1b_Ga=p,"), "{reloaded:?}");
+        assert!(!reloaded.contains(crate::kitty::graphics::PLACEHOLDER));
     }
 
     #[test]
@@ -4535,7 +4550,7 @@ mod tests {
         let short = crate::parse::parse("Line 1\n\nLine 2\n\n![an image](b.png)\n\nAfter\n");
         for (document, rows, keys, top) in [
             // At the end, which the view would follow down otherwise.
-            (short, 6, b"G".as_slice(), ""),
+            (short, 6, b"G".as_slice(), "Line 2"),
             (around(2, "b.png"), 4, b"jjjjjj", "After 1"),
         ] {
             let mut reload = red_then(filled(20, 200, [0, 0, 255, 255]));
@@ -4748,9 +4763,11 @@ mod tests {
         // The first, reloading, reloaded, reloading, failed.
         assert_eq!(frames.len(), 5, "{frames:#?}");
         let placeholders = |frame: &str| frame.matches(crate::kitty::graphics::PLACEHOLDER).count();
-        // The dimmed image and the band below it.
-        assert_eq!(placeholders(&frames[2]), 4, "{frames:#?}");
-        assert_eq!(placeholders(&frames[4]), 4, "{frames:#?}");
+        // The dimmed image, and the band below it.
+        for frame in [&frames[2], &frames[4]] {
+            assert_eq!(placeholders(frame), 2, "{frames:#?}");
+            assert_eq!(frame.matches("\x1b_Ga=p,").count(), 1, "{frames:#?}");
+        }
         let status = status_text(&frames[4], 12);
         assert!(
             status.contains("[rendering: 0/1]") && status.contains("gone"),
@@ -4827,16 +4844,13 @@ mod tests {
         let waits = &terminal.waits;
         assert_eq!(waits[2], FRAME, "{waits:?}");
         assert_eq!(waits[4..6], [POLL, POLL], "{waits:?}");
-        // Sent with the frame that showed it and after the read below;
-        // nothing once it is out of view.
+        // Placed in the frame that showed it and moved on after the read
+        // below; neither once it is out of view.
         let out = String::from_utf8(terminal.out.clone()).unwrap();
         let (_, after) = out.rsplit_once("\x1b[?2026h").unwrap();
-        let band = sent_ids(&out)[2];
-        assert_eq!(
-            sent_ids(after).iter().filter(|&&id| id == band).count(),
-            0,
-            "{out:?}"
-        );
+        assert_eq!(edited_ids(&out).len(), 1, "{out:?}");
+        assert!(edited_ids(after).is_empty(), "{out:?}");
+        assert!(!after.contains("\x1b_Ga=p,"), "{out:?}");
     }
 
     #[test]
@@ -4918,5 +4932,33 @@ mod tests {
         assert!(end - deleted >= ending / 2, "{:?}", end - deleted);
         let out = String::from_utf8(terminal.out).unwrap();
         assert!(until_quit(&out).1.contains("\x1b_Ga=d,"), "{out:?}");
+    }
+
+    #[test]
+    fn an_image_that_comes_at_its_placeholder_s_size_moves_nothing() {
+        // As large as the red one that stands in for it.
+        let mut reload = red_then(filled(20, 20, [0, 0, 255, 255]));
+        let red = filled(20, 20, [255, 0, 0, 255]);
+        let terminal = loading_in(
+            12,
+            &around(2, "a.png"),
+            vec![("a.png", red)],
+            &mut reload,
+            &[b"r", b"", b""],
+            &[2],
+            config::Follow::Off,
+        );
+        let frames = terminal.frames();
+        let (before, after) = (&frames[frames.len() - 2], frames.last().unwrap());
+        assert!(status_text(before, 12).contains("rendering"), "{frames:#?}");
+        assert!(!status_text(after, 12).contains("rendering"), "{frames:#?}");
+        for text in ["After 1", "After 2", "After 3"] {
+            assert_eq!(
+                row_of(after, 12, text),
+                row_of(before, 12, text),
+                "{text}: {frames:#?}"
+            );
+            assert!(row_of(after, 12, text).is_some(), "{text}");
+        }
     }
 }
