@@ -1429,13 +1429,17 @@ struct Waited {
 /// in the background. Other keys go unheeded. Ctrl-C, SIGTERM, SIGHUP and
 /// Ctrl-\ stop the programs meanwhile, as when the images load first,
 /// and are then the failure. `None` without a terminal to read keys
-/// from, where nothing has started.
+/// from, or without the line to tell of them, standard error not being
+/// a terminal, where nothing has started.
 fn wait_or_skip(
     context: &Context,
     parts: &[Part],
     settings: &Settings,
     inputs: &mut Inputs,
 ) -> Option<Result<Waited, Failure>> {
+    if !kiri::term::stderr_is_terminal() {
+        return None;
+    }
     let mut keys = kiri::term::WaitKeys::open()?;
     let interrupt = Interrupt::catch();
     let signal = || interrupt.as_ref().and_then(Interrupt::signal);
@@ -1449,13 +1453,9 @@ fn wait_or_skip(
         }
         loads.progress().filter(|_| signal().is_none())
     };
-    let out: Box<dyn Write> = match kiri::term::stderr_is_terminal() {
-        true => Box::new(io::stderr()),
-        false => Box::new(io::sink()),
-    };
     let skip = |timeout| keys.skip(timeout);
     let delay = kiri::term::progress::DELAY;
-    let skipped = kiri::term::progress::until_done_or_skipped(out, delay, poll, skip);
+    let skipped = kiri::term::progress::until_done_or_skipped(io::stderr(), delay, poll, skip);
     // The terminal as it was, before the pager or the shell takes it.
     drop(keys);
     if signal().is_some() {

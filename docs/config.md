@@ -238,7 +238,9 @@ come, and the rest load in the background as with `background`. Other
 keys do nothing meanwhile and are not kept for the pager, and Ctrl-C
 ends kiri as it does whenever it waits. Where the pager may not open,
 such as in print mode or with paging on `auto` for a document that
-fits, there is no hint and the keys do nothing.
+fits, there is no hint and the keys do nothing, and so it is when
+standard error is not a terminal, as in `kiri -p notes.md 2>log`, where
+the line cannot show.
 
 ## Search case
 

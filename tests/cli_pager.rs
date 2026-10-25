@@ -95,7 +95,11 @@ fn in_terminal_env(
     stdin: Option<&str>,
     act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
 ) -> (ExitStatus, String) {
-    let setup = Setup { both: false, env };
+    let setup = Setup {
+        both: false,
+        env,
+        ..Setup::default()
+    };
     let (status, seen, stderr) = in_terminal_run(name, |_| {}, args, rows, stdin, setup, act);
     assert_eq!(stderr, "");
     (status, seen)
@@ -112,7 +116,7 @@ fn in_terminal_both(
 ) -> (ExitStatus, String) {
     let setup = Setup {
         both: true,
-        env: &[],
+        ..Setup::default()
     };
     let (status, seen, _) = in_terminal_run(name, prepare, args, rows, None, setup, act);
     (status, seen)
@@ -126,6 +130,10 @@ struct Setup<'a> {
     both: bool,
     /// Environment variables set for kiri.
     env: &'a [(&'a str, &'a str)],
+    /// Done on a thread of its own once kiri has started, with the
+    /// terminal side and the scratch directory, whether or not kiri
+    /// writes anything.
+    meanwhile: Option<fn(&mut std::fs::File, &std::path::Path)>,
 }
 
 /// [`in_terminal_told`], set up as `setup` says.
@@ -202,6 +210,11 @@ fn in_terminal_seeing(
     // The command holds the program's side of the terminal. Close it, so
     // that reading the terminal side ends once kiri exits.
     drop(kiri);
+    if let Some(meanwhile) = setup.meanwhile {
+        let mut terminal = terminal.try_clone().unwrap();
+        let dir = dir.to_path_buf();
+        std::thread::spawn(move || meanwhile(&mut terminal, &dir));
+    }
     if let Some(document) = stdin {
         let mut input = child.stdin.take().unwrap();
         input.write_all(document.as_bytes()).unwrap();
@@ -1001,7 +1014,11 @@ fn quit_when(
             quit = true;
         }
     };
-    let setup = Setup { both: false, env };
+    let setup = Setup {
+        both: false,
+        env,
+        ..Setup::default()
+    };
     let (status, seen, stderr) = in_terminal_seeing(name, prepare, args, 12, stdin, setup, act);
     assert!(status.success(), "{stderr}");
     (whole_frames(&seen), stderr)
@@ -1202,7 +1219,10 @@ fn in_stages(
             (done, since) = (done + 1, frames.len());
         }
     };
-    let setup = Setup { both, env: &[] };
+    let setup = Setup {
+        both,
+        ..Setup::default()
+    };
     let (status, seen, stderr) = in_terminal_seeing(name, prepare, args, 5, None, setup, act);
     assert!(status.success(), "{stderr}");
     (seen, stderr)
@@ -1309,7 +1329,7 @@ fn watching(
     };
     let setup = Setup {
         both: true,
-        env: &[],
+        ..Setup::default()
     };
     let (status, seen, _) = in_terminal_seeing(name, prepare, args, 12, None, setup, act);
     (status, seen)
@@ -1425,6 +1445,38 @@ fn a_diagram_that_fails_after_a_skipped_wait_is_told_after_the_pager() {
         assert!(after.contains(&line), "{files:?}: {after:?}");
         assert!(!pager.rsplit_once(LEAVE).unwrap().0.contains("Error: bad"));
     }
+}
+
+#[test]
+fn without_standard_error_on_a_terminal_space_does_not_skip_the_wait() {
+    // Space while the diagram is drawn, which nothing then shows.
+    let meanwhile = |terminal: &mut std::fs::File, dir: &std::path::Path| {
+        std::thread::sleep(Duration::from_secs(1));
+        let _ = terminal.write_all(b" ");
+        std::thread::sleep(Duration::from_secs(1));
+        let _ = std::fs::write(dir.join("go"), "");
+    };
+    let mut quit = false;
+    let act = |seen: &[u8], terminal: &mut std::fs::File, _: &std::process::Child| {
+        if !quit && !whole_frames(&text(seen)).is_empty() {
+            terminal.write_all(b"q").unwrap();
+            quit = true;
+        }
+    };
+    let setup = Setup {
+        meanwhile: Some(meanwhile),
+        ..Setup::default()
+    };
+    let args = ["--mode", "kitty", "-p", "diagram.md"];
+    let name = "pager-skip-no-stderr";
+    let (status, seen, stderr) =
+        in_terminal_seeing(name, drawn_on_cue, &args, 12, None, setup, act);
+    assert!(status.success(), "{stderr}");
+    assert_eq!(stderr, "");
+    let frames = whole_frames(&seen);
+    // Waited for the diagram.
+    assert!(frames[0].contains("\x1b_Ga=T,"), "{frames:?}");
+    assert!(!text_of(&frames[0]).contains("[rendering"), "{frames:?}");
 }
 
 #[test]
