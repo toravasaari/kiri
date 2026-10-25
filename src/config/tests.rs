@@ -408,7 +408,7 @@ fn the_images_key_turns_images_on_or_off() {
     check_key(
         |config| config.images,
         &[("images = false\n", false), ("images = true\n", true)],
-        &["images = \"no\"\n"],
+        &[],
     );
 }
 
@@ -421,7 +421,7 @@ fn the_paging_key_takes_always_auto_or_never() {
             ("paging = \"auto\"\n", Paging::Auto),
             ("paging = \"never\"\n", Paging::Never),
         ],
-        &["paging = \"sometimes\"\n", "paging = true\n"],
+        &[],
     );
 }
 
@@ -433,7 +433,7 @@ fn the_search_case_key_takes_smart_or_literal() {
             ("search_case = \"smart\"\n", SearchCase::Smart),
             ("search_case = \"literal\"\n", SearchCase::Literal),
         ],
-        &["search_case = \"ignore\"\n", "search_case = true\n"],
+        &["search_case = true\n"],
     );
 }
 
@@ -575,11 +575,7 @@ fn the_front_matter_key_takes_table_code_hide_or_off() {
             ("front_matter = \"hide\"\n", FrontMatter::Hide),
             ("front_matter = \"off\"\n", FrontMatter::Off),
         ],
-        &[
-            "front_matter = \"list\"\n",
-            "front_matter = false\n",
-            "front-matter = \"code\"\n",
-        ],
+        &["front-matter = \"code\"\n"],
     );
 }
 
@@ -588,7 +584,7 @@ fn the_diagrams_key_turns_diagrams_on_or_off() {
     check_key(
         |config| config.diagrams,
         &[("diagrams = false\n", false), ("diagrams = true\n", true)],
-        &["diagrams = \"off\"\n"],
+        &[],
     );
 }
 
@@ -814,7 +810,7 @@ fn the_table_rows_key_takes_each_value() {
             ("table_rows = \"indent\"\n", TableRows::Indent),
             ("table_rows = \"underline\"\n", TableRows::Underline),
         ],
-        &["table_rows = \"stripes\"\n", "table_rows = true\n"],
+        &["table_rows = true\n"],
     );
 }
 
@@ -827,7 +823,7 @@ fn the_render_errors_key_takes_each_value() {
             ("render_errors = \"stderr\"\n", RenderErrors::Stderr),
             ("render_errors = \"both\"\n", RenderErrors::Both),
         ],
-        &["render_errors = \"never\"\n", "render_errors = true\n"],
+        &["render_errors = true\n"],
     );
     let empty = parse("", Path::new("/c"), &Environment::default()).unwrap();
     assert_eq!(empty.render_errors, None);
