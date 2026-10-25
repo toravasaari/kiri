@@ -168,8 +168,9 @@ pub fn mark(
     let mut start = 0;
     for span in &line.spans {
         let end = start + span.text.len();
-        // Where the span may be cut, from its start.
-        let edges = edges(span);
+        // Where the span may be cut, from its start: found once a match
+        // is in it.
+        let mut edges = None;
         // The bytes of the span cut so far.
         let mut cut = start;
         let inside = matches
@@ -177,6 +178,7 @@ pub fn mark(
             .filter(|(bytes, _)| bytes.start < end && start < bytes.end);
         for (bytes, current) in inside {
             let (mut from, mut to) = (bytes.start.max(start) - start, bytes.end.min(end) - start);
+            let edges = edges.get_or_insert_with(|| self::edges(span));
             if !edges.is_empty() {
                 from = edges
                     .iter()
