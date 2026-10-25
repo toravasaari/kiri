@@ -4959,4 +4959,29 @@ mod tests {
             assert!(row_of(after, 12, text).is_some(), "{text}");
         }
     }
+
+    #[test]
+    fn no_band_is_placed_under_the_help_panel() {
+        let mut reload = red_then(filled(20, 20, [0, 0, 255, 255]));
+        let red = filled(20, 20, [255, 0, 0, 255]);
+        let terminal = loading_in(
+            12,
+            &around(2, "a.png"),
+            vec![("a.png", red)],
+            &mut reload,
+            &[b"r", b"", b"?", b"", b""],
+            &[],
+            config::Follow::Off,
+        );
+        let frames = terminal.frames();
+        let help = |frame: &str| frame.contains("down a line");
+        // The band is placed before the help opens, and not under it.
+        assert!(frames[2].contains("\x1b_Ga=p,"), "{frames:#?}");
+        let last = frames.last().unwrap();
+        assert!(help(last), "{frames:#?}");
+        assert!(!last.contains("\x1b_Ga=p,"), "{last:?}");
+        // Nothing moves on under the panel, so the pager waits a poll.
+        let waits = &terminal.waits;
+        assert_eq!(waits[waits.len() - 2..], [POLL, POLL], "{waits:?}");
+    }
 }
