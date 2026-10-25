@@ -78,6 +78,7 @@ fn settle_bands(lines: &mut [Line]) {
         lines[at].band = Some(Band {
             indent,
             low: !blank,
+            above: band.above + usize::from(blank),
             ..band
         });
     }
@@ -746,6 +747,7 @@ impl Layout<'_> {
         if self.images.placeholder(key).is_none() || !self.caps.draws_images() {
             return;
         }
+        let above = lines.len().saturating_sub(1);
         let Some(last) = lines.last_mut() else {
             return;
         };
@@ -756,6 +758,8 @@ impl Layout<'_> {
             columns,
             indent: 0,
             low: true,
+            key: key.clone(),
+            above,
         });
     }
 
@@ -1072,7 +1076,7 @@ mod tests {
                     }
                     None => text(&line.spans).trim_end().to_owned(),
                 };
-                match line.band {
+                match &line.band {
                     Some(band) => {
                         let at = if band.low { "low" } else { "high" };
                         format!("{shown} [band {} at {} {at}]", band.columns, band.indent)
@@ -1168,6 +1172,34 @@ mod tests {
         assert_eq!(lines.len(), 1, "{lines:?}");
         assert!(lines[0].contains("a picture"), "{lines:?}");
         assert!(lines[0].ends_with("[band 56 at 2 low]"), "{lines:?}");
+    }
+
+    /// The band in `lines`, where it is, which image it tells of and how
+    /// many lines above it show that.
+    fn band_of(lines: &[Line]) -> (usize, String, usize) {
+        let (at, band) = (lines.iter().enumerate())
+            .find_map(|(at, line)| Some((at, line.band.as_ref()?)))
+            .expect("a band");
+        (at, band.key.to_string(), band.above)
+    }
+
+    #[test]
+    fn a_band_tells_which_image_loads_and_the_lines_above_it_that_show_it() {
+        let inputs = loading("a.png", Placeholder::Dimmed(pixels(40, 30)));
+        // On the blank line below the two rows of the image.
+        let below = layout(&parse("Above\n\n![a](a.png)\n\nBelow\n"), &inputs);
+        assert_eq!(band_of(&below), (4, "a.png".to_owned(), 2));
+        // Over the last of them.
+        let over = layout(&parse("Above\n\n![a](a.png)\n"), &inputs);
+        assert_eq!(band_of(&over), (3, "a.png".to_owned(), 1));
+        // A diagram's code, from its first line.
+        let key = ImageKey::block("mermaid", "a\nb\n");
+        let inputs = loading(key.clone(), Placeholder::Unsized);
+        let code = layout(&parse("```mermaid\na\nb\n```\n"), &inputs);
+        assert_eq!(
+            band_of(&code),
+            (code.len() - 1, key.to_string(), code.len() - 1)
+        );
     }
 
     #[test]

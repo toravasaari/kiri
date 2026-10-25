@@ -349,9 +349,9 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   below; `[rendering: 2/5]` on the status line; no jump when an image
   comes; a newer change stops the loads it no longer wants, and `q`
   stops the programs. (done)
-- The images in view load first, chosen again as the reader scrolls.
-  Image files then no longer wait behind the slow diagrams of an earlier
-  reload.
+- The images in view load first, then the ones nearest to it, chosen
+  again as the reader scrolls. Image files no longer wait behind slow
+  diagrams for a program. (done)
 - The first load in the background too, behind a setting, as moving
   content may annoy some readers. Print mode waits as today.
 - A grey box at the old image's size was tried as the placeholder and
@@ -860,6 +860,10 @@ go.
 - A side-by-side view: the Markdown source beside the rendered document,
   each part across from the other, so the source and what it becomes can
   be compared.
+- Where warnings and debug output go: today they are lines on standard
+  error, which the pager holds until it quits. A log file or the systemd
+  journal could keep them, and a debug level could tell more, such as
+  each program kiri runs and how long it takes.
 
 ## Bugs
 

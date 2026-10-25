@@ -5,6 +5,7 @@ use std::rc::Rc;
 use super::block::BlockId;
 use super::image::Placement;
 use crate::color::{Color, Underline};
+use crate::images::ImageKey;
 use crate::size::TextSize;
 use crate::theme::Theme;
 
@@ -92,7 +93,7 @@ pub struct ImageRow {
 
 /// The band that tells that a block's image is loading, which a line
 /// draws over itself, so that it takes no row of its own.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Band {
     /// How many cells wide it is.
     pub columns: u16,
@@ -102,6 +103,11 @@ pub struct Band {
     /// blank line after it; otherwise a little below the line's top, as on
     /// the blank line after a block.
     pub low: bool,
+    /// The image loading.
+    pub key: ImageKey,
+    /// How many lines above this one show the image, or what stands in
+    /// for it: 0 when this line is the only one.
+    pub above: usize,
 }
 
 /// One output line. A line of a size other than the normal one is drawn

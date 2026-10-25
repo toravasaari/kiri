@@ -24,7 +24,7 @@ use crate::diagrams::{NoRenderer, Renderer, Request, Theme};
 use crate::model::{Block, Document, Inline};
 
 #[cfg(test)]
-pub(crate) use background::Arrival;
+pub(crate) use background::{Arrival, Gated};
 pub use background::{Loads, STOPPING};
 pub use decode::{DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image};
 pub use pipeline::{

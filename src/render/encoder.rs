@@ -141,7 +141,7 @@ impl Encoder {
             .map(|image| image.placement.as_ref())
             .collect();
         let bands: HashSet<u16> = (lines.iter())
-            .filter_map(|line| line.band)
+            .filter_map(|line| line.band.as_ref())
             .map(|band| band.columns)
             .collect();
         self.bands.retain(|&(columns, band_cell), &mut id| {

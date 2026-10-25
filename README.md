@@ -201,8 +201,9 @@ at the same block, or goes to the new end when it was at the end, and only
 the images and diagrams that changed are read or drawn again, in the
 background: the new text shows at once, a changed diagram shows its old
 drawing dimmed with a thin moving line below it until the new one is
-ready, and the status line says `[rendering: 1/3]` meanwhile. The view
-does not move when an image comes. The status line says `reloaded` for a
+ready, and the status line says `[rendering: 1/3]` meanwhile. The images
+in view load first, then the ones nearest to it. The view does not move
+when an image comes. The status line says `reloaded` for a
 few seconds and then fades it out. A document
 from standard input, or several files, cannot be reloaded.
 
