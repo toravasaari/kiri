@@ -12,9 +12,19 @@ enum Token {
     Break,
 }
 
-/// Display width in terminal cells.
+/// Display width in terminal cells, each span measured at its size.
 pub fn width(spans: &[Span]) -> usize {
-    spans.iter().map(|span| span.text.width()).sum()
+    (spans.iter())
+        .map(|span| span.style.size.width(&span.text))
+        .sum()
+}
+
+/// Appends as many spaces in `style` as fit before `spans` take `max`
+/// cells.
+pub fn fill(spans: &mut Vec<Span>, max: usize, style: &Style) {
+    let space = style.size.width(" ");
+    let spaces = max.saturating_sub(width(spans)) / space;
+    push(spans, &" ".repeat(spaces), style);
 }
 
 /// Splits styled code into lines of at most `max` cells, keeping every
@@ -41,7 +51,7 @@ fn split_onto(
 ) -> usize {
     for span in spans {
         for grapheme in span.text.graphemes(true) {
-            let grapheme_width = grapheme.width();
+            let grapheme_width = span.style.size.width(grapheme);
             if used + grapheme_width > max && used > 0 {
                 lines.push(std::mem::take(line));
                 used = 0;
@@ -59,11 +69,12 @@ pub fn cut(spans: Vec<Span>, max: usize) -> Vec<Span> {
     let mut left = max;
     let mut kept = Vec::new();
     for mut span in spans {
-        if span.text.width() > left {
+        let size = span.style.size;
+        if size.width(&span.text) > left {
             let mut end = 0;
             let mut used = 0;
             for (start, grapheme) in span.text.grapheme_indices(true) {
-                used += grapheme.width();
+                used += size.width(grapheme);
                 if used > left {
                     break;
                 }
@@ -71,7 +82,7 @@ pub fn cut(spans: Vec<Span>, max: usize) -> Vec<Span> {
             }
             span.text.truncate(end);
         }
-        left = left.saturating_sub(span.text.width());
+        left = left.saturating_sub(size.width(&span.text));
         if !span.text.is_empty() {
             kept.push(span);
         }
@@ -221,9 +232,11 @@ fn append(line: &mut Vec<Span>, word: &[Span]) {
 
 fn first_width(word: &[Span]) -> usize {
     (word.iter())
-        .flat_map(|span| span.text.graphemes(true))
+        .flat_map(|span| {
+            (span.text.graphemes(true)).map(|grapheme| span.style.size.width(grapheme))
+        })
         .next()
-        .map_or(0, UnicodeWidthStr::width)
+        .unwrap_or(0)
 }
 
 /// The words the wrapper keeps on one line when they fit: text whose spaces

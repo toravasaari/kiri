@@ -38,6 +38,8 @@ pub struct Style {
     /// Target of an OSC 8 hyperlink.
     pub link: Option<Rc<str>>,
     pub spaces: Spaces,
+    /// The size the text is drawn at.
+    pub size: TextSize,
 }
 
 impl Style {
@@ -48,12 +50,13 @@ impl Style {
         }
     }
 
-    /// The same style without the hyperlink and the wrapping, for comparing
-    /// attributes only.
+    /// The same style without the hyperlink, the wrapping and the size, for
+    /// comparing attributes only.
     pub fn attributes(&self) -> Self {
         Self {
             link: None,
             spaces: Spaces::Collapse,
+            size: TextSize::NORMAL,
             ..self.clone()
         }
     }
@@ -110,9 +113,9 @@ pub struct Band {
     pub above: usize,
 }
 
-/// One output line. A line of a size other than the normal one is drawn
-/// with kitty's text sizing protocol and occupies as many terminal rows as
-/// its scale.
+/// One output line. Text of a size other than the normal one is drawn with
+/// kitty's text sizing protocol, and the line occupies as many terminal rows
+/// as the largest scale of its spans.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Line {
     /// Normal-size cells repeated at the start of every row the line
@@ -125,7 +128,6 @@ pub struct Line {
     /// Normal-size cells after the text on every row the line occupies, so
     /// a background reaches the edge when the scaled text cannot.
     pub trail: Vec<Span>,
-    pub size: TextSize,
     /// The block the line comes from, or none for the blank line between
     /// two blocks.
     pub block: Option<BlockId>,
@@ -141,7 +143,6 @@ impl Line {
             spans,
             image: None,
             trail: Vec::new(),
-            size: TextSize::NORMAL,
             block: None,
             band: None,
         }
@@ -166,6 +167,21 @@ impl Line {
 
     pub fn prepend(&mut self, span: Span) {
         self.spans.insert(0, span);
+    }
+
+    /// The rows the line occupies: as many as the largest scale of its
+    /// spans, and at least one.
+    pub fn rows(&self) -> u8 {
+        (self.spans.iter())
+            .map(|span| span.style.size.scale())
+            .fold(1, u8::max)
+    }
+
+    /// Draws the whole line at the normal size.
+    pub fn to_normal_size(&mut self) {
+        for span in &mut self.spans {
+            span.style.size = TextSize::NORMAL;
+        }
     }
 }
 

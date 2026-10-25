@@ -507,13 +507,13 @@ impl Layout<'_> {
         } else {
             TextSize::NORMAL
         };
-        let scale = usize::from(size.scale());
         let style = self.style(Style {
             bold: heading.bold,
             italic: heading.italic,
             fg: heading.color,
             bg: heading.background,
             underline: heading.underline,
+            size,
             ..Style::default()
         });
         // Indent and fill carry the background but not the underline.
@@ -521,6 +521,10 @@ impl Layout<'_> {
             bg: heading.background,
             ..Style::default()
         });
+        let fill_style = Style {
+            size,
+            ..background.clone()
+        };
         let mut text = Vec::new();
         self.inlines(content, &style, &mut text);
         let empty = text.is_empty();
@@ -545,8 +549,7 @@ impl Layout<'_> {
         } else {
             Vec::new()
         };
-        // In characters of the heading's size.
-        let available = (width - indent) / scale;
+        let available = width - indent;
         // An empty heading takes no room, but keeps its rule.
         let mut lines: Vec<Line> = if empty {
             Vec::new()
@@ -556,24 +559,17 @@ impl Layout<'_> {
                 .map(|mut spans| {
                     let mut trail = Vec::new();
                     if background.bg.is_some() {
-                        let used = super::wrap::width(&spans);
-                        // A wide character can overflow a very narrow heading.
-                        let fill = available.saturating_sub(used);
-                        push(&mut spans, &" ".repeat(fill), &background);
+                        super::wrap::fill(&mut spans, available, &fill_style);
                         // Scaled text covers a multiple of the scale; cells of
                         // normal size fill the rest of the width.
-                        let scaled = (used + fill) * scale;
-                        let rest = (width - indent).saturating_sub(scaled);
+                        let used = super::wrap::width(&spans);
+                        let rest = available.saturating_sub(used);
                         push(&mut trail, &" ".repeat(rest), &background);
                     }
                     Line {
                         lead: lead.clone(),
-                        spans,
-                        image: None,
                         trail,
-                        size,
-                        block: None,
-                        band: None,
+                        ..Line::new(spans)
                     }
                 })
                 .collect()

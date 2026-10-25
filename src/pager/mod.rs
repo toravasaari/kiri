@@ -30,7 +30,6 @@ use crate::render::layout::{Content, Stream};
 use crate::render::output::{self, Page, Writer};
 use crate::render::style::{self, Line, Span, Style};
 use crate::render::wrap;
-use crate::size::TextSize;
 use crate::term::{Screen, WindowSize};
 use fade::{
     FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY, WARNING_STAY,
@@ -317,7 +316,7 @@ fn page_through(
         // taller than the window is drawn at normal size.
         for line in &mut lines {
             if usize::from(crate::render::output::rows(line, &inputs.caps)) > rows {
-                line.size = TextSize::NORMAL;
+                line.to_normal_size();
             }
         }
         // The images the new lines do not place go with their first frame.

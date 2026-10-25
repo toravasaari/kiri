@@ -550,8 +550,13 @@ mod tests {
         let source = Line {
             lead: vec![Span::new("> ", Style::default())],
             trail: vec![Span::new("  ", Style::default())],
-            size: TextSize::new(2).unwrap(),
-            ..Line::new(vec![Span::new("Ä kiri", Style::default())])
+            ..Line::new(vec![Span::new(
+                "Ä kiri",
+                Style {
+                    size: TextSize::new(2).unwrap(),
+                    ..Style::default()
+                },
+            )])
         };
         let marked = mark(&source, &[(3..7, true)], &marks(), None);
         assert_eq!(

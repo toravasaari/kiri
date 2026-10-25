@@ -1,6 +1,8 @@
 //! Text sizes: the values the theme and the renderers share, as kitty's
 //! text sizing protocol takes them.
 
+use unicode_width::UnicodeWidthStr;
+
 /// The size text is drawn at. The text occupies `scale` rows and `scale`
 /// cells for each normal cell of its width. A fraction draws the font
 /// smaller inside those same cells, at `scale * numerator / denominator`
@@ -74,6 +76,17 @@ impl TextSize {
 
     pub const fn align(self) -> VerticalAlign {
         self.align
+    }
+
+    /// The normal cells `text` takes at this size.
+    pub fn width(self, text: &str) -> usize {
+        usize::from(self.scale) * text.width()
+    }
+}
+
+impl Default for TextSize {
+    fn default() -> Self {
+        Self::NORMAL
     }
 }
 
