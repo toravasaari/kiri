@@ -84,6 +84,15 @@ fn settle_bands(lines: &mut [Line]) {
     }
 }
 
+/// Where an image block stands in the room it has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Align {
+    /// At the left edge, as images and diagrams are.
+    Left,
+    /// In the middle, as a formula is.
+    Centre,
+}
+
 /// What is laid out: one document, or several files one after another.
 #[derive(Debug, Clone, Copy)]
 pub enum Content<'a> {
@@ -639,7 +648,7 @@ impl Layout<'_> {
             height: lone.height,
         };
         let key = ImageKey::from(lone.url.as_str()).in_document(self.document);
-        self.placed(key, wanted, width)
+        self.placed(key, wanted, width, Align::Left)
     }
 
     /// A code block drawn as a diagram, when it was.
@@ -649,8 +658,13 @@ impl Layout<'_> {
         if self.images.is_empty() && !self.images.loading() {
             return None;
         }
-        let key = ImageKey::block(language?, code).in_document(self.document);
-        self.placed(key, image::Wanted::default(), width)
+        let language = language?;
+        let key = ImageKey::block(language, code).in_document(self.document);
+        let align = match crate::diagrams::centred(language) {
+            true => Align::Centre,
+            false => Align::Left,
+        };
+        self.placed(key, image::Wanted::default(), width, align)
     }
 
     /// Why the code block `code` in `language` could not be drawn as a
@@ -689,10 +703,17 @@ impl Layout<'_> {
     }
 
     /// The image `key` at the size `wanted`, at most `width` cells wide,
-    /// when the terminal can draw it and it loaded; while it loads, its
-    /// placeholder at the size the old image would have, when it has
-    /// one, and the band below that tells it is loading.
-    fn placed(&self, key: ImageKey, wanted: image::Wanted, width: usize) -> Option<Vec<Line>> {
+    /// placed in that width as `align` says, when the terminal can draw it
+    /// and it loaded; while it loads, its placeholder at the size the old
+    /// image would have, when it has one, and the band below that tells
+    /// it is loading.
+    fn placed(
+        &self,
+        key: ImageKey,
+        wanted: image::Wanted,
+        width: usize,
+        align: Align,
+    ) -> Option<Vec<Line>> {
         if !self.caps.draws_images() {
             return None;
         }
@@ -733,6 +754,15 @@ impl Layout<'_> {
             size,
             shows,
         });
+        let padding = match align {
+            Align::Left => 0,
+            Align::Centre => width.saturating_sub(columns) / 2,
+        };
+        if padding > 0 {
+            for line in &mut lines {
+                line.prepend(Span::new(&" ".repeat(padding), Style::default()));
+            }
+        }
         self.loading_band(&key, columns, &mut lines);
         Some(lines)
     }
@@ -1417,5 +1447,89 @@ mod tests {
     #[test]
     fn the_table_and_the_lines_agree_for_html_tags() {
         assert_agree("html-tags.md");
+    }
+
+    /// Inputs for kitty with cells of 10 × 20 pixels, a CSS pixel to a
+    /// pixel, and `key` loaded as `image`.
+    fn loaded(key: impl Into<ImageKey>, image: crate::images::Source) -> Inputs {
+        let mut inputs = Inputs::new(Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(60)
+        });
+        inputs.images.insert(key, Ok(image));
+        inputs
+    }
+
+    /// Each line of `source` laid out with `inputs`, as its lead and
+    /// spans show, with a row of an image as how many cells it covers.
+    fn rows(source: &str, inputs: &Inputs) -> Vec<String> {
+        let lines = layout(&parse(source), inputs);
+        (lines.iter())
+            .map(|line| {
+                let before = format!("{}{}", text(&line.lead), text(&line.spans));
+                match &line.image {
+                    Some(row) => format!("{before}⟦{} cells⟧", row.placement.size.columns),
+                    None => before.trim_end().to_owned(),
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_formula_is_centred_and_a_diagram_is_not() {
+        // 4 cells in the 56 between the margins of 2.
+        let formula = loaded(ImageKey::block("math", "x\n"), pixels(40, 20));
+        assert_eq!(
+            rows("$$x$$\n", &formula),
+            [format!("{}⟦4 cells⟧", " ".repeat(2 + 26))]
+        );
+        let diagram = loaded(ImageKey::block("mermaid", "x\n"), pixels(40, 20));
+        assert_eq!(rows("```mermaid\nx\n```\n", &diagram), ["  ⟦4 cells⟧"]);
+        let image = loaded("a.png", pixels(40, 20));
+        assert_eq!(rows("![a](a.png)\n", &image), ["  ⟦4 cells⟧"]);
+    }
+
+    #[test]
+    fn a_formula_is_centred_in_the_room_of_its_list_item_quote_or_alert() {
+        let formula = || loaded(ImageKey::block("math", "x\n"), pixels(40, 20));
+        // 4 cells in the 54 after the bullet.
+        assert_eq!(
+            rows("- $$x$$\n", &formula()),
+            [format!("  • {}⟦4 cells⟧", " ".repeat(25))]
+        );
+        let quoted = rows("> $$x$$\n", &formula());
+        assert_eq!(quoted.len(), 1, "{quoted:?}");
+        assert!(
+            quoted[0].ends_with(&format!("{}⟦4 cells⟧", " ".repeat(25))),
+            "{quoted:?}"
+        );
+        let alert = rows("> [!NOTE]\n> $$x$$\n", &formula());
+        assert!(
+            alert
+                .last()
+                .unwrap()
+                .ends_with(&format!("{}⟦4 cells⟧", " ".repeat(25))),
+            "{alert:?}"
+        );
+    }
+
+    #[test]
+    fn a_formula_wider_than_the_room_fills_it() {
+        let formula = loaded(ImageKey::block("math", "x\n"), pixels(1000, 20));
+        assert_eq!(rows("$$x$$\n", &formula), ["  ⟦56 cells⟧"]);
+    }
+
+    #[test]
+    fn a_formula_that_loads_is_centred_with_its_band() {
+        let key = ImageKey::block("math", "x\n");
+        let inputs = loading(key, Placeholder::Dimmed(pixels(40, 20)));
+        assert_eq!(
+            shown("$$x$$\n\nBelow\n", &inputs),
+            [
+                "Placeholder math block 4×1 row 0",
+                " [band 4 at 28 high]",
+                "Below",
+            ]
+        );
     }
 }

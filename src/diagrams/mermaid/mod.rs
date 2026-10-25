@@ -16,6 +16,7 @@ pub(super) const MERMAID: Language = Language {
     aliases: &[],
     display_name: "Mermaid",
     noun: None,
+    centred: false,
     file_extensions: &["mmd", "mermaid"],
     source_extension: "mmd",
     theme_names: ThemeNames {

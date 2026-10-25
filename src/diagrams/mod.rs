@@ -367,6 +367,12 @@ pub fn noun(language: &str) -> String {
     }
 }
 
+/// Whether a diagram in `language` is centred in its room, as a formula
+/// is, rather than at its left edge.
+pub fn centred(language: &str) -> bool {
+    self::language(language).is_some_and(|known| known.centred)
+}
+
 /// How a warning names the diagram `source` in `language` that starts on
 /// `line` of its document: by that line, or else by the diagram's own
 /// first line, past anything in it that is not the diagram, such as front
@@ -545,6 +551,7 @@ mod tests {
         assert_eq!(noun("Math"), "formula");
         assert_eq!(noun("mermaid"), "mermaid diagram");
         assert_eq!(noun("dot"), "dot diagram");
+        assert!(centred("math") && !centred("mermaid") && !centred("dot"));
         assert_eq!(name("math", "\\frac{a\n", 4, true), "formula on line 4");
         assert_eq!(
             name("math", "\n\\frac{a\n", 4, false),

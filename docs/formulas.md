@@ -24,6 +24,10 @@ and no network. RaTeX reads what KaTeX reads: fractions, sums and
 integrals with their limits, matrices, `aligned` lines, `\text{…}` and
 the rest of KaTeX's commands.
 
+A formula stands in the middle of the room it has, as on GitHub: of the
+text's width, or of a list item's or a quote's. One wider than that is
+shrunk to fit it. Images and diagrams stay at the left edge.
+
 A formula is in the colour of the text around it: the theme's
 `foreground`, or the terminal's own text colour when kiri knows it, and
 otherwise white on a dark page and black on a light one. It has no

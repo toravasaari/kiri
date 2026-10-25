@@ -18,6 +18,9 @@ pub struct Language {
     /// What a message calls one of its diagrams, such as `formula`, when
     /// not a diagram in the language.
     pub noun: Option<&'static str>,
+    /// Whether its diagrams are centred in their room, as GitHub centres
+    /// formulas, rather than at its left edge.
+    pub centred: bool,
     /// The extensions of its files, which kiri shows on their own as a
     /// diagram, in lower case; `--format` takes them too.
     pub file_extensions: &'static [&'static str],

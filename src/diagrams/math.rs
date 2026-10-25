@@ -14,6 +14,7 @@ pub(super) const MATH: Language = Language {
     aliases: &[],
     display_name: "math",
     noun: Some("formula"),
+    centred: true,
     file_extensions: &[],
     source_extension: "tex",
     theme_names: ThemeNames::PLAIN,
