@@ -87,19 +87,29 @@ Refactoring and small fixes that are not bugs go there too.
 ### 4.2 Formulas
 
 Formulas in LaTeX syntax, drawn through RaTeX, a Rust port of KaTeX that
-the full build already has for Mermaid's math.
+every build has: the full build for Mermaid's math as well, the minimal
+build for formulas alone.
 
-#### 4.2.1 Formula blocks
+#### 4.2.1 Formula blocks (done)
 
 - ` ```math ` blocks and `$$…$$`, as GitHub Markdown writes them, drawn
-  as images. A `$$…$$` inside a paragraph breaks it, as on GitHub.
-- Formula text in the colour of the text around it, with theme keys of
-  its own for the text and the background that default to body text.
+  as images, centred, at KaTeX's size of 1.21 em. A `$$…$$` inside a
+  paragraph breaks it, as on GitHub. Empty `$$ $$` stays text.
+- Formula text in the colour of the text around it, with a `[formula]`
+  table in the theme for the text and the background, which default to
+  the body text and the page.
 - A formula that fails to draw stays as its source, with its error as
-  `--render-errors` chooses, as for diagrams.
-- Still open: whether the minimal build gets RaTeX as a feature of its
-  own; it adds about 5 MB.
-- A cache for rendered images.
+  `--render-errors` chooses, as for diagrams. `--no-images` and
+  `--diagrams off` show formulas as code.
+- RaTeX is in the minimal build too: it adds about 3 MB to its stripped
+  binary (14.3 to 17.2 MB) and next to nothing to the full build.
+- Images in alerts show the alert's tint behind them, not the page's; a
+  formula, always transparent, made that plain.
+- Still open: a cache for rendered images, which would pay for slow
+  renderers such as `mmdc` across runs rather than for formulas. A
+  formula inside `<sub>` or `<sup>` on a line of its own, such as
+  `<sub>$$z$$</sub>`, shows the tags as text, because the paragraph is
+  split at the formula.
 
 #### 4.2.2 Inline formulas
 

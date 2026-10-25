@@ -512,9 +512,10 @@ builds take the same options and settings.
   input), merman (Mermaid diagrams), RaTeX (formulas).
 - **RaTeX for formulas:** a Rust port of KaTeX that merman already
   brings for its math. It draws a formula in milliseconds, with KaTeX's
-  fonts built in as paths, so it needs no fonts or network. It adds
-  about 5 MB to a stripped binary, which is why the minimal build has it
-  too.
+  fonts built in as paths, so it needs no fonts or network. The minimal
+  build has it too, for formulas: it adds about 3 MB to its stripped
+  binary (14.3 to 17.2 MB), and next to nothing to the full build, which
+  had it for merman's math already.
 - **merman for Mermaid:** a Rust implementation of Mermaid that checks
   its parsing, layout and SVG against Mermaid's own, so diagrams look as
   GitHub draws them. It draws a diagram in milliseconds, needs no fonts,

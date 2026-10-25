@@ -6,9 +6,9 @@ images, formulas and diagrams drawn inline, and links you can click. It works
 like `kitten icat`, but for documents. CSV and TSV files are shown as
 tables, and other document formats may follow.
 
-> **Status:** early development. Print mode, images, Mermaid diagrams
-> and the interactive pager work; formulas and other diagram languages
-> are still to come. See the [roadmap](docs/roadmap.md).
+> **Status:** early development. Print mode, images, Mermaid diagrams,
+> formula blocks and the interactive pager work; inline formulas and other
+> diagram languages are still to come. See the [roadmap](docs/roadmap.md).
 
 ## Why
 
@@ -90,6 +90,22 @@ code, and kiri tells why in red below it and in a warning, or in only
 one of them with `--render-errors`. The
 [configuration file](docs/diagrams.md#diagram-commands) can name another
 program to draw them.
+
+A formula in LaTeX syntax, in a `math` block or between `$$`, is drawn
+as an image, centred, in the colour of the text:
+
+````markdown
+```math
+\sum_{i=1}^{n} i = \frac{n(n+1)}{2}
+```
+````
+
+kiri draws it itself, through [RaTeX](https://crates.io/crates/ratex-parser),
+in every build. Like diagrams, formulas stay code with `--no-images`, in
+terminals without kitty's graphics and with `--diagrams off`, and a
+formula that does not draw says why in red below it. Formulas inside a
+line of text, `$x$`, show as written for now. See
+[Formulas](docs/formulas.md).
 
 HTML `<details>` blocks are shown open, their `<summary>` in bold after a
 `▼`, also nested and inside lists and quotes. `<kbd>` is drawn as inline
@@ -238,6 +254,7 @@ with the message above it for a few seconds.
 - [Configuration](docs/config.md)
 - [Diagrams](docs/diagrams.md)
 - [The doctor report](docs/doctor.md)
+- [Formulas](docs/formulas.md)
 - [Options](docs/options.md)
 - [Theme](docs/theme.md)
 - [Examples](examples/README.md) – a document for checking the output by
@@ -245,6 +262,7 @@ with the message above it for a few seconds.
   [images](examples/S06a-images.md)
 - [Diagrams](examples/S07a-diagrams.md) – one diagram of each common
   Mermaid type, also as [files of their own](examples/mermaid/)
+- [Formulas](examples/S08-formulas.md) – formulas of the common kinds
 - [AGENTS.md](AGENTS.md) – conventions for coding agents and contributors
 
 ## License
