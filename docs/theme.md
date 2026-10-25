@@ -98,6 +98,8 @@ language_label = "code-block"
 
 # scale: size as a multiple of the normal font, from 0.5 to 7, such as 3
 #   or 1.5. kiri draws the nearest size it can; kiri --doctor shows it.
+#   A size above a whole number takes the rows of the next one: 1.01
+#   takes two rows, as 2 does.
 #   It needs kitty's text sizing protocol; other terminals show headings
 #   at normal size.
 # rule: draw a line under the heading, across the whole terminal width.
