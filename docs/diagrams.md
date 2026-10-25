@@ -158,7 +158,7 @@ looked for on `PATH`.
 Each diagram may take 20 seconds, or as long as `timeout` in the
 `[diagrams]` table says, such as `timeout = 60` or `timeout = 2.5`; up
 to four are drawn at once. When drawing takes longer than half a second,
-a line such as `kiri: rendering diagrams 2/5…` on the terminal tells how
+a line such as `kiri: loading images 2/5…` on the terminal tells how
 far it has got, and is wiped before the document is shown. Ctrl-C,
 Ctrl-\\, SIGTERM or SIGHUP meanwhile stops the programs and removes their
 files, and then the signal ends kiri as it would have otherwise, so that

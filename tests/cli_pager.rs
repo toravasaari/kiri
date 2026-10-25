@@ -1518,7 +1518,7 @@ fn ctrl_c_while_the_images_load_ends_kiri_as_before() {
     ] {
         let mut typed = false;
         let act = |seen: &str, terminal: &mut std::fs::File, _: &std::path::Path| {
-            if !typed && seen.contains("rendering diagrams") {
+            if !typed && seen.contains("loading images") {
                 terminal.write_all(b"\x03").unwrap();
                 typed = true;
             }
@@ -1540,7 +1540,7 @@ fn the_hint_shows_only_where_the_pager_surely_opens() {
     ] {
         let (mut go, mut quit) = (false, false);
         let act = |seen: &str, terminal: &mut std::fs::File, dir: &std::path::Path| {
-            if !go && seen.contains("rendering diagrams") {
+            if !go && seen.contains("loading images") {
                 std::fs::write(dir.join("go"), "").unwrap();
                 go = true;
             }
@@ -1556,7 +1556,7 @@ fn the_hint_shows_only_where_the_pager_surely_opens() {
         let all = [&["--mode", "kitty"][..], args, &["diagram.md"]].concat();
         let (status, seen) = watching("pager-skip-hint", prepare, &all, act);
         assert!(status.success(), "{args:?}: {seen:?}");
-        assert!(seen.contains("rendering diagrams"), "{args:?}: {seen:?}");
+        assert!(seen.contains("loading images"), "{args:?}: {seen:?}");
         assert_eq!(seen.contains(HINT), hint, "{args:?}: {seen:?}");
     }
 }

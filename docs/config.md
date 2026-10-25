@@ -232,7 +232,7 @@ background too, and an image or diagram file waits for its image, among
 others or on its own.
 
 With `wait`, in those same places Space or Enter cuts the wait short:
-while standard error says `kiri: rendering diagrams 1/3… (space: open
+while standard error says `kiri: loading images 1/3… (space: open
 now)`, either key opens the pager at once, with the images that have
 come, and the rest load in the background as with `background`. Other
 keys do nothing meanwhile and are not kept for the pager, and Ctrl-C

@@ -1,5 +1,5 @@
-//! The line that tells how far drawing a document's diagrams has got,
-//! `kiri: rendering diagrams 2/5…`, while it takes long enough for the
+//! The line that tells how far loading a document's images has got,
+//! `kiri: loading images 2/5…`, while it takes long enough for the
 //! reader to wonder: with mermaid-cli, a second or more per diagram.
 
 use std::io::Write;
@@ -78,7 +78,7 @@ impl Progress {
 
 /// The line for `done` of `total` diagrams.
 pub fn line(done: usize, total: usize) -> String {
-    format!("kiri: rendering diagrams {done}/{total}…")
+    format!("kiri: loading images {done}/{total}…")
 }
 
 /// Runs `work`, which tells a `Progress` how far it has got. Once it has
@@ -220,8 +220,8 @@ mod tests {
     const WIPE: &str = "\r\x1b[2K";
 
     #[test]
-    fn the_line_counts_the_diagrams() {
-        assert_eq!(line(2, 5), "kiri: rendering diagrams 2/5…");
+    fn the_line_counts_the_images() {
+        assert_eq!(line(2, 5), "kiri: loading images 2/5…");
     }
 
     #[test]
