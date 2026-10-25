@@ -115,6 +115,14 @@ Press <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy, or <kbd>Page Down</kbd> to
 move on. A `<kbd>` is drawn as inline code is, in the same colours, and
 between backticks without colours.
 
+### Sub and sup
+
+Water is H<sub>2</sub>O, and x<sup>2</sup> + y<sup>2</sup> = r<sup>2</sup>
+on the 2<sup>nd</sup> try. With kitty's text sizing a `<sub>` or `<sup>`
+is drawn at two thirds of the size around it, lowered or raised; other
+terminals get Unicode's script characters, such as ² and ₂, when every
+character has one, and else the text as it is: e<sup>iπ</sup>.
+
 ### Marked text
 
 Some text is <mark>marked as found</mark>, as a highlighter would, even

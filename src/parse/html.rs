@@ -204,6 +204,8 @@ fn skip_blank<'t, 'a>(tokens: &'t [(Token<'a>, Range<usize>)]) -> &'t [(Token<'a
 pub enum Phrase {
     Kbd,
     Mark,
+    Sub,
+    Sup,
 }
 
 impl Phrase {
@@ -211,6 +213,8 @@ impl Phrase {
         match name {
             "kbd" => Some(Self::Kbd),
             "mark" => Some(Self::Mark),
+            "sub" => Some(Self::Sub),
+            "sup" => Some(Self::Sup),
             _ => None,
         }
     }
@@ -725,6 +729,16 @@ mod tests {
         for other in ["<kbd>", "</kbdx>", "</b>", "</kbd></kbd>"] {
             assert_eq!(phrase_end(other), None, "{other:?}");
         }
+    }
+
+    #[test]
+    fn reads_the_tags_of_a_sub_and_a_sup() {
+        assert_eq!(phrase_start("<sub>"), Some(Phrase::Sub));
+        assert_eq!(phrase_end("</SUB>"), Some(Phrase::Sub));
+        assert_eq!(phrase_start("<sup class=x>"), Some(Phrase::Sup));
+        assert_eq!(phrase_end("</sup >"), Some(Phrase::Sup));
+        assert_eq!(phrase_start("<summary>"), None);
+        assert_eq!(phrase_start("<supx>"), None);
     }
 
     #[test]

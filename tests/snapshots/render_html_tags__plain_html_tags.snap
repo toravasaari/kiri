@@ -22,6 +22,13 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
   A <kbd>key that never closes stays as
   source.
 
+## Scripts: x² and H₂O
+
+  Water is H₂O, x² + y² = rⁿ⁺¹ on the 2ⁿᵈ try,
+  and xᵃⁱ keeps one size. Without script
+  characters for every part, eiπ and a`b` stay
+  plain.
+
 ## Details
 
   ▼ A summary with `Esc`

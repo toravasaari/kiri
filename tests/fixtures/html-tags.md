@@ -13,6 +13,13 @@ Some text is <mark>marked as found</mark>, even **<mark>in bold</mark>**.
 
 A <kbd>key that never closes stays as source.
 
+## Scripts: x<sup>2</sup> and H<sub>2</sub>O
+
+Water is H<sub>2</sub>O, x<sup>2</sup> + y<sup>2</sup> = r<sup>n+1</sup> on
+the 2<sup>nd</sup> try, and x<sup>a<sub>i</sub></sup> keeps one size. Without
+script characters for every part, e<sup>iπ</sup> and a<sub>`b`</sub> stay
+plain.
+
 ## Details
 
 <details>

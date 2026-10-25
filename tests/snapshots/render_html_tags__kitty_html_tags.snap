@@ -26,6 +26,14 @@ expression: "visible(&render_for(\"html-tags.md\", Capabilities::kitty(WIDTH)))"
   A ␛[0;2m<kbd>␛[0mkey that never closes stays as
   source.
 
+␛[0;1;34m␛]66;s=2;Scripts: x² and H₂O␛\␛[0m
+
+
+  Water is H₂O, x² + y² = rⁿ⁺¹ on the 2ⁿᵈ try,
+  and xᵃⁱ keeps one size. Without script
+  characters for every part, eiπ and a␛[0;35;48;2;43;48;59m⍽b⍽␛[0m stay
+  plain.
+
 ␛[0;1;34m␛]66;s=2;Details␛\␛[0m
 
 
