@@ -251,7 +251,11 @@ fn matches_are_marked_in_large_headings_and_in_tables() {
     reads.extend([b"".as_slice(); 30]);
     let mut terminal = Fake::new(60, 12, &reads);
     let source = "# Kiri title\n\n| a | b |\n|---|---|\n| c | kiri |\n";
-    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    let mut inputs = Inputs {
+        // A whole scale; fractions have a test of their own.
+        theme: crate::theme::parse("[h1]\nscale = 3\n").unwrap(),
+        ..Inputs::new(Capabilities::kitty(80))
+    };
     run_document(
         &crate::parse::parse(source),
         &mut inputs,

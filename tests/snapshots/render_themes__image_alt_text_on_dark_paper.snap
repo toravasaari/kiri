@@ -2,9 +2,9 @@
 source: tests/render_themes.rs
 expression: "visible(&render_fixture(\"images.md\",\n&inputs(&Capabilities::kitty(WIDTH), &Theme::paper(Paper::Dark))))"
 ---
-␛[0;1;4;38;2;255;255;255;48;2;30;30;30m␛]66;s=3;Images␛\␛[0;48;2;30;30;30m␛[K␛[0m
-␛[18C␛[0;48;2;30;30;30m␛[K␛[0m
-␛[18C␛[0;48;2;30;30;30m␛[K␛[0m
+␛[0;1;38;2;255;255;255;48;2;30;30;30m␛]66;s=3:n=5:d=6:v=1:w=5;Images␛\␛[0;48;2;30;30;30m␛[K␛[0m
+␛[15C␛[0;48;2;30;30;30m␛[K␛[0m
+␛[15C␛[0;48;2;30;30;30m␛[K␛[0m
 ␛[0;48;2;30;30;30m␛[K␛[0m
 ␛[0;38;2;212;212;212;48;2;30;30;30m  An image alone in a paragraph is shown at␛[0;48;2;30;30;30m␛[K␛[0m
 ␛[0;38;2;212;212;212;48;2;30;30;30m  its natural size:␛[0;48;2;30;30;30m␛[K␛[0m

@@ -625,7 +625,7 @@ fn a_terminal_gets_the_report_rendered_with_its_test_image() {
     let dir = Scratch::new("doctor-terminal");
     let output = in_terminal(&dir, &["--mode", "kitty"], None);
     assert!(!output.contains("## Terminal"), "{output:?}");
-    assert!(output.contains("kiri doctor"), "{output:?}");
+    assert!(output.contains("terminal features"), "{output:?}");
     assert!(output.contains("kiri --doctor --raw"), "{output:?}");
     assert_eq!(common::graphics_commands(&output).len(), 1, "{output:?}");
 }
@@ -822,7 +822,7 @@ fn heading_sizes_show_their_rounding() {
         background: false,
     };
     let choices = choose(&Options::default(), &env, &Default::default());
-    let theme = kiri::theme::parse("[h1]\nscale = 2.5\n[h5]\nscale = 1.3\n").unwrap();
+    let theme = kiri::theme::parse("[h1]\nscale = 3\n[h5]\nscale = 1.3\n").unwrap();
     let facts = Facts {
         env: &env,
         mode: Setting::new(Mode::Auto, Origin::Default),
@@ -837,8 +837,9 @@ fn heading_sizes_show_their_rounding() {
     };
     let report = report(&facts);
     assert!(
-        report
-            .contains("| Heading sizes | 2.5, 2, 2, 1, 1.3 (drawn 1.27 = 2 · 7/11), 1 | default |"),
+        report.contains(
+            "| Heading sizes | 3, 2, 1.75, 1.5, 1.3 (drawn 1.27 = 2 · 7/11), 1 | default |"
+        ),
         "{report}"
     );
 }

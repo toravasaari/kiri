@@ -106,12 +106,12 @@ language_label = "code-block"
 # background: a colour filled across the whole width, or none.
 # indent: in normal-size cells, whatever the heading's scale.
 [h1]
-scale = 3
+scale = 2.5
 color = "blue"
 bold = true
 italic = false
 rule = false
-underline = "single"
+underline = "none"
 background = "none"
 indent = 0
 
@@ -121,47 +121,47 @@ color = "blue"
 bold = true
 italic = false
 rule = false
-underline = "single"
+underline = "none"
 background = "none"
 indent = 0
 
 [h3]
-scale = 2
-color = "blue"
-bold = false
-italic = false
-rule = false
-underline = "dotted"
-background = "none"
-indent = 0
-
-[h4]
-scale = 1
+scale = 1.75
 color = "blue"
 bold = true
 italic = false
 rule = false
-underline = "single"
+underline = "none"
+background = "none"
+indent = 0
+
+[h4]
+scale = 1.5
+color = "blue"
+bold = true
+italic = false
+rule = false
+underline = "none"
 background = "none"
 indent = 0
 
 [h5]
-scale = 1
+scale = 1.25
 color = "blue"
-bold = false
+bold = true
 italic = false
 rule = false
-underline = "dotted"
+underline = "none"
 background = "none"
 indent = 0
 
 [h6]
 scale = 1
-color = "cyan"
-bold = false
-italic = true
+color = "blue"
+bold = true
+italic = false
 rule = false
-underline = "dotted"
+underline = "none"
 background = "none"
 indent = 0
 

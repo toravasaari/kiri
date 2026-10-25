@@ -2,7 +2,7 @@
 source: tests/render_themes.rs
 expression: "visible(&render_for(\"elements.md\", caps))"
 ---
-␛[0;1;4m␛]66;s=3;Every element␛\␛[0m
+␛[0;1m␛]66;s=3:n=5:d=6:v=1:w=5;Every ␛\␛]66;s=3:n=5:d=6:v=1:w=5;elemen␛\␛]66;s=3:n=5:d=6:v=1:w=1;t␛\␛[0m
 
 
 
@@ -11,7 +11,7 @@ expression: "visible(&render_for(\"elements.md\", caps))"
   narrow test width. A ␛]8;;https://example.com␛\␛[0;4mlink␛]8;;␛\␛[0m and an autolink:
   ␛]8;;https://example.com/path␛\␛[0;4mhttps://example.com/path␛]8;;␛\␛[0m.
 
-␛[0;1;4m␛]66;s=2;Lists␛\␛[0m
+␛[0;1m␛]66;s=2;Lists␛\␛[0m
 
 
   • First bullet
@@ -27,7 +27,7 @@ expression: "visible(&render_for(\"elements.md\", caps))"
   ☑ Done task
   ☐ Open task
 
-␛[0;4:4m␛]66;s=2;Quotes and breaks␛\␛[0m
+␛[0;1m␛]66;s=2:n=7:d=8:v=1:w=7;Quotes a␛\␛]66;s=2:n=7:d=8:v=1:w=7;nd break␛\␛]66;s=2:n=7:d=8:v=1:w=1;s␛\␛[0m
 
 
   │ A quote with ␛[0;1mbold␛[0m text.
@@ -39,13 +39,15 @@ expression: "visible(&render_for(\"elements.md\", caps))"
 
 ────────────────────────────────────────────────
 
-␛[0;1;4mCode␛[0m
+␛[0;1m␛]66;s=2:n=3:d=4:v=1:w=3;Code␛\␛[0m
+
 
     fn main() {
         println!("tab-indented");
     }
 
-␛[0;1;4mTables␛[0m
+␛[0;1m␛]66;s=2:n=3:d=4:v=1:w=3;Tabl␛\␛]66;s=2:n=3:d=4:v=1:w=2;es␛\␛[0m
+
 
   ╭──────────┬────────┬──────────────────────╮
   │ ␛[0;1mElement␛[0m  │ ␛[0;1mStatus␛[0m │                ␛[0;1mNotes␛[0m │
@@ -56,10 +58,11 @@ expression: "visible(&render_for(\"elements.md\", caps))"
   │ Tables   │ `new`  │                right │
   ╰──────────┴────────┴──────────────────────╯
 
-␛[0;4:4mImages and HTML␛[0m
+␛[0;1m␛]66;s=2:n=5:d=8:v=1:w=5;Images a␛\␛]66;s=2:n=5:d=8:v=1:w=5;nd HTML␛\␛[0m
+
 
   ␛[0;2;3m[image: A diagram]␛[0m
 
   ␛[0;2m<div>raw html</div>␛[0m
 
-␛[0;3;4:4mSmallest heading␛[0m
+␛[0;1mSmallest heading␛[0m

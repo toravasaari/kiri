@@ -2,7 +2,7 @@
 source: tests/render_images_html.rs
 expression: "visible(&render_fixture(\"images-html.md\",\n&with_images(&Capabilities::ansi(WIDTH), fixture_images(\"images-html.md\"))))"
 ---
-␛[0;1;4;34mHTML images␛[0m
+␛[0;1;34mHTML images␛[0m
 
   An ␛[0;35;48;5;236m⍽<img>⍽␛[0m tag on a line of its own is shown
   like a Markdown image:

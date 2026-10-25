@@ -2,7 +2,7 @@
 source: tests/render_images.rs
 expression: "visible(&render_fixture(\"images.md\",\n&with_images(&Capabilities::ansi(WIDTH), fixture_images(\"images.md\"))))"
 ---
-␛[0;1;4;34mImages␛[0m
+␛[0;1;34mImages␛[0m
 
   An image alone in a paragraph is shown at
   its natural size:

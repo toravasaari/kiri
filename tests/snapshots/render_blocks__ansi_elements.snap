@@ -2,7 +2,7 @@
 source: tests/render_blocks.rs
 expression: "visible(&render_for(\"elements.md\", Capabilities::ansi(WIDTH)))"
 ---
-␛[0;1;4;34mEvery element␛[0m
+␛[0;1;34mEvery element␛[0m
 
   Body text with ␛[0;3memphasis␛[0m, ␛[0;1mstrong␛[0m, ␛[0;9mstruck␛[0m and
   ␛[0;35;48;5;236m⍽inline code⍽␛[0m, long enough to wrap at the
@@ -10,7 +10,7 @@ expression: "visible(&render_for(\"elements.md\", Capabilities::ansi(WIDTH)))"
   ␛[0;2m<https://example.com>␛[0m and an autolink:
   ␛[0;4;34mhttps://example.com/path␛[0m.
 
-␛[0;1;4;34mLists␛[0m
+␛[0;1;34mLists␛[0m
 
   ␛[0;90m• ␛[0mFirst bullet
   ␛[0;90m• ␛[0mSecond bullet with text that is long
@@ -25,7 +25,7 @@ expression: "visible(&render_for(\"elements.md\", Capabilities::ansi(WIDTH)))"
   ␛[0;90m☑ ␛[0mDone task
   ␛[0;90m☐ ␛[0mOpen task
 
-␛[0;4;34mQuotes and breaks␛[0m
+␛[0;1;34mQuotes and breaks␛[0m
 
   ␛[0;90m│ ␛[0mA quote with ␛[0;1mbold␛[0m text.
   ␛[0;90m│␛[0m
@@ -36,7 +36,7 @@ expression: "visible(&render_for(\"elements.md\", Capabilities::ansi(WIDTH)))"
 
 ␛[0;90m────────────────────────────────────────────────␛[0m
 
-␛[0;1;4;34mCode␛[0m
+␛[0;1;34mCode␛[0m
 
   ␛[0;48;5;236m                                       ␛[0;38;5;243;48;5;236mrust␛[0;48;5;236m ␛[0m
   ␛[0;48;5;236m ␛[0;38;5;139;48;5;236mfn␛[0;38;5;251;48;5;236m ␛[0;38;5;109;48;5;236mmain␛[0;38;5;251;48;5;236m() {␛[0;48;5;236m                                ␛[0m
@@ -44,7 +44,7 @@ expression: "visible(&render_for(\"elements.md\", Capabilities::ansi(WIDTH)))"
   ␛[0;48;5;236m ␛[0;38;5;251;48;5;236m}␛[0;48;5;236m                                          ␛[0m
   ␛[0;48;5;236m                                            ␛[0m
 
-␛[0;1;4;34mTables␛[0m
+␛[0;1;34mTables␛[0m
 
   ␛[0;90m╭──────────┬────────┬──────────────────────╮␛[0m
   ␛[0;90m│␛[0m ␛[0;1mElement␛[0m  ␛[0;90m│␛[0m ␛[0;1mStatus␛[0m ␛[0;90m│␛[0m                ␛[0;1mNotes␛[0m ␛[0;90m│␛[0m
@@ -55,10 +55,10 @@ expression: "visible(&render_for(\"elements.md\", Capabilities::ansi(WIDTH)))"
   ␛[0;90m│␛[0m Tables   ␛[0;90m│␛[0m ␛[0;35;48;5;236m⍽new⍽␛[0m  ␛[0;90m│␛[0m                right ␛[0;90m│␛[0m
   ␛[0;90m╰──────────┴────────┴──────────────────────╯␛[0m
 
-␛[0;4;34mImages and HTML␛[0m
+␛[0;1;34mImages and HTML␛[0m
 
   ␛[0;2;3m[image: A diagram]␛[0m
 
   ␛[0;2m<div>raw html</div>␛[0m
 
-␛[0;3;4;36mSmallest heading␛[0m
+␛[0;1;34mSmallest heading␛[0m

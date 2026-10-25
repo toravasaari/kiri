@@ -71,7 +71,7 @@ fn a_heading_in_details_is_drawn_as_at_the_top_level() {
     let out = render(source, &inputs(&caps, &Theme::default()));
     let inside = out.replace("Outside", "Inside");
     assert!(
-        inside.matches("\x1b[0;1;4;34m\x1b]66;s=2;Inside").count() == 2,
+        inside.matches("\x1b[0;1;34m\x1b]66;s=2;Inside").count() == 2,
         "{out:?}"
     );
 }
