@@ -668,7 +668,6 @@ impl Layout<'_> {
         let (natural, shows) = match (self.images.get(&key), self.images.placeholder(&key)) {
             (Some(Ok(source)), _) => (source.size(), Shows::Image),
             (_, Some(Placeholder::Dimmed(old))) => (old.size(), Shows::Placeholder),
-            (_, Some(Placeholder::Box(natural))) => (*natural, Shows::Placeholder),
             _ => return None,
         };
         let max_cells = self.caps.max_image_cells;
@@ -1062,8 +1061,8 @@ mod tests {
     }
 
     #[test]
-    fn a_box_takes_the_size_the_old_image_had_and_the_new_block_asks_for() {
-        let inputs = loading("a.png", Placeholder::Box((40, 30)));
+    fn a_placeholder_takes_the_size_the_old_image_had_and_the_new_block_asks_for() {
+        let inputs = loading("a.png", Placeholder::Dimmed(pixels(40, 30)));
         assert_eq!(
             shown("<img src=\"a.png\" width=\"80\">\n", &inputs),
             [
@@ -1101,7 +1100,7 @@ mod tests {
         let mut inputs = Inputs::new(Capabilities::ansi(60));
         inputs
             .images
-            .wait("a.png".into(), Placeholder::Box((40, 30)));
+            .wait("a.png".into(), Placeholder::Dimmed(pixels(40, 30)));
         let lines = shown("![a picture](a.png)\n", &inputs);
         assert_eq!(lines.len(), 1, "{lines:?}");
     }

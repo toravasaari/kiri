@@ -1,7 +1,7 @@
 //! The pixels of what stands in for an image while it loads: the image
-//! the block showed before, dimmed, or a grey box of its size, and the
-//! band below either that tells that something is loading, a thin line
-//! whose light part runs from left to right, again and again.
+//! the block showed before, dimmed, and the band below it, or below the
+//! block's code or alt text, that tells that something is loading, a thin
+//! line whose light part runs from left to right, again and again.
 
 use std::f32::consts::PI;
 use std::time::Duration;
@@ -57,17 +57,6 @@ pub fn dimmed(mut image: RgbaImage) -> RgbaImage {
         pixel.0[3] = (f32::from(pixel.0[3]) * DIMMED).round() as u8;
     }
     image
-}
-
-/// A box of `width` × `height` pixels in `ink` at a low opacity, at the
-/// top left of a transparent canvas of `canvas` pixels.
-pub fn boxed(width: u32, height: u32, canvas: (u32, u32), ink: Ink) -> RgbaImage {
-    let alpha = if ink.dark { 22 } else { 18 };
-    let [r, g, b] = ink.rgb;
-    RgbaImage::from_fn(canvas.0, canvas.1, |x, y| match x < width && y < height {
-        true => Rgba([r, g, b, alpha]),
-        false => Rgba([0, 0, 0, 0]),
-    })
 }
 
 /// The band at `elapsed` since it started, `columns` cells of `cell`
@@ -143,15 +132,6 @@ mod tests {
         let image = RgbaImage::from_pixel(2, 1, Rgba([10, 20, 30, 200]));
         let dimmed = dimmed(image);
         assert_eq!(dimmed.get_pixel(1, 0).0, [10, 20, 30, 60]);
-    }
-
-    #[test]
-    fn a_box_fills_its_size_and_leaves_the_rest_of_its_cells_clear() {
-        let image = boxed(3, 2, (4, 4), INK);
-        assert_eq!(image.dimensions(), (4, 4));
-        assert_eq!(image.get_pixel(2, 1).0, [200, 200, 200, 22]);
-        assert_eq!(image.get_pixel(3, 1).0[3], 0);
-        assert_eq!(image.get_pixel(2, 2).0[3], 0);
     }
 
     /// The opacity of each pixel along the band's line.

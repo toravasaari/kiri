@@ -193,7 +193,7 @@ pub enum Shows {
     /// The image.
     #[default]
     Image,
-    /// Its placeholder while it loads: the old image dimmed, or a box.
+    /// Its placeholder while it loads: the old image dimmed.
     Placeholder,
     /// The band that tells it is loading, one row high.
     Band,

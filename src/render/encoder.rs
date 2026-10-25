@@ -58,8 +58,8 @@ impl Encoder {
     /// The id of the image `placement` shows, from `images`, on a terminal
     /// with `caps`: sent to `out` first unless the terminal holds it. An
     /// image sent for `placement` before, which the pixels no longer
-    /// give, is deleted. A placeholder or a band is drawn in `ink`; a
-    /// band is sent as it is at its start.
+    /// give, is deleted. A band is drawn in `ink`, sent as it is at its
+    /// start.
     pub fn id(
         &mut self,
         placement: &Placement,
@@ -76,7 +76,7 @@ impl Encoder {
         if let Some(held) = old.filter(|held| held.checked) {
             return Ok(held.id);
         }
-        let scaled = Scaled::new(placement, images, cell, ink)?;
+        let scaled = Scaled::new(placement, images, cell)?;
         let held = Held {
             id: scaled.id,
             cell,
@@ -221,18 +221,14 @@ struct Scaled {
 
 impl Scaled {
     /// The image `placement` shows, from `images`, scaled to its size in
-    /// cells of `cell` pixels; a box placeholder in `ink`.
-    fn new(placement: &Placement, images: &Images, cell: (u16, u16), ink: Ink) -> io::Result<Self> {
+    /// cells of `cell` pixels.
+    fn new(placement: &Placement, images: &Images, cell: (u16, u16)) -> io::Result<Self> {
         let key = &placement.key;
         let size = placement.size;
         let pixels = match (placement.shows, images.get(key), images.placeholder(key)) {
             (Shows::Image, Some(Ok(source)), _) => fit(source, size, cell),
             (Shows::Placeholder, _, Some(Placeholder::Dimmed(old))) => {
                 loading::dimmed(fit(old, size, cell))
-            }
-            (Shows::Placeholder, _, Some(Placeholder::Box(_))) => {
-                let canvas = canvas(size, cell);
-                loading::boxed(size.width, size.height, canvas.dimensions(), ink)
             }
             _ => {
                 return Err(io::Error::new(
@@ -326,27 +322,18 @@ mod tests {
     }
 
     #[test]
-    fn a_placeholder_is_the_old_image_dimmed_or_a_box() {
+    fn a_placeholder_is_the_old_image_dimmed() {
         let mut images = Images::new();
         let red = RgbaImage::from_pixel(20, 20, image::Rgba([255, 0, 0, 200]));
         images.wait("a.png".into(), Placeholder::Dimmed(Source::Raster(red)));
-        images.wait("b.png".into(), Placeholder::Box((20, 20)));
         let dimmed = Scaled::new(
             &placed("a.png", 2, 1, Shows::Placeholder),
             &images,
             (10, 20),
-            INK,
         );
         assert_eq!(dimmed.unwrap().pixels.get_pixel(5, 5).0, [255, 0, 0, 60]);
-        let boxed = Scaled::new(
-            &placed("b.png", 2, 1, Shows::Placeholder),
-            &images,
-            (10, 20),
-            INK,
-        );
-        assert_eq!(boxed.unwrap().pixels.get_pixel(5, 5).0, [200, 200, 200, 22]);
         // Nothing to show as the image itself.
-        assert!(Scaled::new(&placed("a.png", 2, 1, Shows::Image), &images, (10, 20), INK).is_err());
+        assert!(Scaled::new(&placed("a.png", 2, 1, Shows::Image), &images, (10, 20)).is_err());
     }
 
     #[test]

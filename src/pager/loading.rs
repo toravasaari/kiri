@@ -1,8 +1,8 @@
 //! What stands in for the images of a reloaded document while they load
 //! in the background, chosen by what their blocks showed before: a block
-//! that changed shows its old image dimmed, a block that stayed while its
-//! image file changed a box of the old image's size, and a block without
-//! an old image to go by shows as it does without its image.
+//! that changed shows its old image dimmed, and any other block, such as
+//! one that stayed while its image file changed, shows as it does without
+//! its image.
 
 use std::collections::HashMap;
 
@@ -45,9 +45,9 @@ pub struct Reloaded<'a> {
 impl Reloaded<'_> {
     /// What stands in for the image `key` while it loads: what stood in
     /// for it before, if it was loading then; the old image of the block
-    /// it changed from, dimmed; a box of the size of the image a block
-    /// that stayed showed, as when the image's file changed; and
-    /// otherwise nothing that tells a size.
+    /// it changed from, dimmed; and otherwise nothing that tells a size,
+    /// also for a block that stayed while its image's file changed, so
+    /// that it shows its code or alt text as it would without the image.
     pub fn placeholder(&self, key: &ImageKey) -> Placeholder {
         if let Some(before) = self.before.get(key) {
             return before.clone();
@@ -63,17 +63,9 @@ impl Reloaded<'_> {
                 let old_key = (old.iter())
                     .find(|(path, _)| path == was)
                     .and_then(|(_, block)| key_of(block));
-                match old_key.and_then(|old| self.old_image(&old)) {
-                    Some(Placeholder::Box(size)) => Placeholder::Box(size),
-                    Some(Placeholder::Dimmed(image)) => Placeholder::Dimmed(image),
-                    _ => Placeholder::Unsized,
-                }
+                (old_key.and_then(|old| self.old_image(&old))).unwrap_or(Placeholder::Unsized)
             }
-            Some(Fate::Stayed { .. }) => match self.replaced.get(key) {
-                Some(image) => Placeholder::Box(image.size()),
-                None => Placeholder::Unsized,
-            },
-            Some(Fate::Added) | None => Placeholder::Unsized,
+            Some(Fate::Stayed { .. } | Fate::Added) | None => Placeholder::Unsized,
         }
     }
 
@@ -162,10 +154,10 @@ mod tests {
     }
 
     #[test]
-    fn a_block_that_stayed_while_its_file_changed_shows_a_box_of_the_old_size() {
+    fn a_block_that_stayed_while_its_file_changed_shows_as_without_its_image() {
         let source = "![a](a.png)\n";
         let shown = placeholder(source, source, "a.png", &[("a.png", square(5))], &[]);
-        assert!(matches!(shown, Placeholder::Box((5, 5))), "{shown:?}");
+        assert!(matches!(shown, Placeholder::Unsized), "{shown:?}");
     }
 
     #[test]
@@ -179,22 +171,28 @@ mod tests {
 
     #[test]
     fn what_stood_in_before_stays_and_follows_a_block_that_changes_again() {
-        let boxed = Placeholder::Box((3, 2));
+        let dimmed = Placeholder::Dimmed(square(3));
         let kept = placeholder(
             "![a](a.png)\n",
             "![a](a.png)\n",
             "a.png",
             &[],
-            &[("a.png", boxed.clone())],
+            &[("a.png", dimmed.clone())],
         );
-        assert!(matches!(kept, Placeholder::Box((3, 2))), "{kept:?}");
+        assert!(
+            matches!(&kept, Placeholder::Dimmed(image) if image.size() == (3, 3)),
+            "{kept:?}"
+        );
         let followed = placeholder(
             "![a](a.png)\n",
             "![b](b.png)\n",
             "b.png",
             &[],
-            &[("a.png", boxed)],
+            &[("a.png", dimmed)],
         );
-        assert!(matches!(followed, Placeholder::Box((3, 2))), "{followed:?}");
+        assert!(
+            matches!(&followed, Placeholder::Dimmed(image) if image.size() == (3, 3)),
+            "{followed:?}"
+        );
     }
 }

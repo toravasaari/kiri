@@ -276,9 +276,6 @@ pub struct Images {
 pub enum Placeholder {
     /// The image the block showed before, dimmed.
     Dimmed(Source),
-    /// A grey box, of the natural size of the image the block showed
-    /// before.
-    Box((u32, u32)),
     /// Nothing that tells a size: the block shows as it does without its
     /// image.
     Unsized,

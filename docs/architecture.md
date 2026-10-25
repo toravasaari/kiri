@@ -149,10 +149,9 @@ A reload shows the new text at once: the `Reload` keeps the images the
 document still shows and starts the others loading in the background,
 in the pager's `Loads`, which the pager polls beside the follow poll.
 Meanwhile `src/pager/loading.rs` chooses what stands in for each image
-from the comparison: a block that changed shows its old image dimmed, a
-block that stayed while its image file changed a grey box of the old
-image's size, and a new block shows as it does without its image, code
-or alt text. Below each goes a thin band whose light part keeps running
+from the comparison: a block that changed shows its old image dimmed,
+and any other block, a new one or one that stayed while its image file
+changed, shows as it does without its image, code or alt text. Below each goes a thin band whose light part keeps running
 across it, and the status line says `[rendering: 1/3]` in place of the
 name. An image that comes is laid out as after a resize, but the top
 line stays the same line, so the view does not move, and the tint of

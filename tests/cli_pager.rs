@@ -1276,13 +1276,16 @@ fn a_reload_shows_an_image_whose_file_changed_and_keeps_the_others() {
     let (status, seen) = in_steps_with("pager-reload-images", prepare, &args, &steps);
     assert!(status.success());
     // Only `a.png` is sent again, once it has loaded; the terminal still
-    // holds `b.png` as it was. Meanwhile a box of the old size stands in
-    // for `a.png`, with the band below it, as wide.
+    // holds `b.png` as it was. Meanwhile `a.png` shows its alt text, with
+    // the band below it as wide as the text, sent anew as it moves.
     let widths = sent_widths(&seen);
-    let (last, before) = widths.split_last().unwrap();
+    assert_eq!(widths[..2], ["s=20", "s=20"], "{seen:?}");
+    let (last, bands) = widths[2..].split_last().unwrap();
     assert_eq!(last, "s=40", "{seen:?}");
-    assert!(before.len() >= 4, "{seen:?}");
-    assert!(before.iter().all(|width| width == "s=20"), "{seen:?}");
+    assert!(!bands.is_empty(), "{seen:?}");
+    assert!(bands.iter().all(|width| *width == bands[0]), "{seen:?}");
+    assert!(!["s=20", "s=40"].contains(&bands[0].as_str()), "{seen:?}");
+    assert!(seen.contains("[image: a]"), "{seen:?}");
 }
 
 /// Writes `document` into the named pipe at `path` once a reader opens it,
