@@ -79,6 +79,13 @@ something well, kiri need not do it differently.
   the text follows the reading position, links show their target when
   the mouse is over them, and a selection made with the mouse is copied
   as its Markdown source.
+- [mdfried](https://github.com/benjajaja/mdfried) is a full-screen
+  viewer for many terminals: images through kitty's, sixel or iTerm2's
+  protocol, or chafa where none works. Where the text sizing protocol is
+  missing, it draws headings as images in the terminal's own font, which
+  it finds by asking the terminal or reading its configuration file;
+  where images do not work either, headings become ASCII art. It can open
+  a URL or a GitHub repository.
 
 ## Other formats through pandoc
 
