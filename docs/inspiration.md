@@ -58,3 +58,32 @@ kiri would read such settings only when its configuration file allows it
   its language; reading it as `python` would highlight it. Running the
   code is another matter, one for trust as in renderers from the
   configuration file (roadmap 4.3.3).
+
+## Other terminal Markdown readers
+
+kiri stands on its own, but where another familiar tool already does
+something well, kiri need not do it differently.
+
+- [mdcat](https://github.com/swsnr/mdcat) printed Markdown to the
+  terminal with images in kitty and iTerm2, much as kiri's print mode
+  does. It is archived and no longer maintained, so its users look for
+  something else; kiri could accept its options where they mean the same
+  thing.
+- [glow](https://github.com/charmbracelet/glow) is the best known
+  terminal Markdown reader. Started without a file, it lists the Markdown
+  files of the directory or git repository to choose from, and it can read
+  a document from a URL or a GitHub repository. Its pager keys are those
+  of `less`.
+- [kitty-markdown-viewer](https://github.com/calii23/kitty-markdown-viewer)
+  (`mdv`) is a full-screen viewer for kitty. A table of contents beside
+  the text follows the reading position, links show their target when
+  the mouse is over them, and a selection made with the mouse is copied
+  as its Markdown source.
+
+## Other formats through pandoc
+
+[Pandoc](https://pandoc.org/) reads dozens of formats, among them
+reStructuredText, AsciiDoc, Org, LaTeX, HTML, docx and EPUB, and
+`pandoc -t json` writes any of them as one syntax tree. A converter from
+that tree into kiri's document model would show them all, with pandoc as
+an optional external program, as mermaid-cli is for diagrams.
