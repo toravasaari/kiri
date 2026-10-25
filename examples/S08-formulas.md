@@ -21,8 +21,8 @@ A code block in `math` is drawn as a formula in kitty, as GitHub draws
 it, and stays code elsewhere, with `--no-images` and with
 `--diagrams off`. The formula below stands in the middle of the text's
 width, in the colour of the text, with no box or panel behind it. Its
-letters are about as large as the text around it, and the fraction is
-about two lines high:
+letters are a little larger than the text around it, as on GitHub, and
+the sum's limits and the fraction make it four rows high:
 
 ```math
 \sum_{k=1}^{n} k = \frac{n(n+1)}{2}

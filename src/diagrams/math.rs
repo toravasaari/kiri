@@ -30,9 +30,10 @@ pub(super) const MATH: Language = Language {
 /// keeps this one in step with `Cargo.lock`.
 const RATEX_VERSION: &str = "0.1.15";
 
-/// How large a formula's letters are, in CSS pixels to the em: the size of
-/// body text in a browser.
-const FONT_SIZE: f64 = 16.0;
+/// How large a formula block's letters are, in CSS pixels to the em:
+/// KaTeX's 1.21 em of a browser's body text, 16 CSS pixels, as GitHub
+/// draws a formula block. An inline formula will have a size of its own.
+const BLOCK_FONT_SIZE: f64 = 16.0 * 1.21;
 
 /// The room around a formula, in CSS pixels, so that the edges of its
 /// letters are not cut off.
@@ -65,7 +66,7 @@ fn render(request: &Request) -> Result<Drawn, String> {
     let svg = render_to_svg(
         &to_display_list(&tree),
         &SvgOptions {
-            font_size: FONT_SIZE * POINTS_PER_CSS_PIXEL,
+            font_size: BLOCK_FONT_SIZE * POINTS_PER_CSS_PIXEL,
             padding: PADDING * POINTS_PER_CSS_PIXEL,
             embed_glyphs: true,
             ..SvgOptions::default()
@@ -154,12 +155,13 @@ mod tests {
     }
 
     #[test]
-    fn an_em_is_sixteen_css_pixels() {
-        // A rule as wide as 10 em, with the padding on each side.
-        let svg = drawn("\\rule{10em}{1em}", Theme::Light, None).unwrap();
+    fn a_formula_block_is_as_large_as_katex_draws_one() {
+        // KaTeX's 1.21 em of 16 CSS pixels, the browser's body text: a
+        // rule 100 em wide is 1936 pixels, with 2 of padding on each side.
+        let svg = drawn("\\rule{100em}{1em}", Theme::Light, None).unwrap();
         let image = decode(svg.as_bytes(), DEFAULT_MAX_FILE_SIZE, &Fonts::none()).unwrap();
         let (width, _) = image.size();
-        assert_eq!(f64::from(width), 10.0 * FONT_SIZE + 2.0 * PADDING);
+        assert_eq!(width, 1936 + 2 * 2);
     }
 
     #[test]

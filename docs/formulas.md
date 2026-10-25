@@ -38,9 +38,12 @@ the [theme](theme.md) changes both:
 [formula]
 text = "#1a4f8b"
 background = "#f4f1e8"
-``` Its letters are as
-large as a browser draws body text, 16 CSS pixels to the em, in
-display style, as a block formula is in a browser.
+```
+
+Its letters are a little larger than the text around it, as on GitHub:
+KaTeX's 1.21 em of a browser's body text, about 19 CSS pixels to the
+em, in display style. So a formula of one line, such as `e^{i\pi} + 1 = 0`,
+takes two rows, and a fraction three.
 
 ## What stays source
 
