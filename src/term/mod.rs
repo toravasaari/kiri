@@ -9,6 +9,7 @@ use rustix::event::{PollFd, PollFlags, Timespec, poll};
 mod answers;
 mod detect;
 mod interrupt;
+mod keys;
 mod probe;
 pub mod progress;
 #[cfg(test)]
@@ -20,6 +21,7 @@ mod window;
 
 pub use detect::{CellSize, Detection, Mode, capabilities, examine, no_color};
 pub use interrupt::{Interrupt, end_by};
+pub use keys::WaitKeys;
 pub use screen::Screen;
 pub use window::{WindowSize, window_size};
 

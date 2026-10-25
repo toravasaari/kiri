@@ -123,6 +123,52 @@ pub fn while_waiting(
     let _ = out.flush();
 }
 
+/// What the line says after the count where Space or Enter opens the
+/// pager before the work is over.
+pub const HINT: &str = " (space: open now)";
+
+/// How long [`until_done_or_skipped`] waits for a key before it asks
+/// again how far the work has got.
+const STEP: Duration = Duration::from_millis(50);
+
+/// Waits until `poll` tells that the work is over, `None`, or `skip`,
+/// which waits for a key at most the time it is given, tells that the
+/// reader pressed Space or Enter. Meanwhile `poll` tells how far the work
+/// has got, done of total, which the line shows on `out`, a terminal, with
+/// [`HINT`], once `delay` has passed; it is wiped before this returns.
+/// Whether the reader skipped the rest of the wait.
+pub fn until_done_or_skipped(
+    mut out: impl Write,
+    delay: Duration,
+    mut poll: impl FnMut() -> Option<(usize, usize)>,
+    mut skip: impl FnMut(Duration) -> bool,
+) -> bool {
+    let start = Instant::now();
+    let mut shown = None;
+    let skipped = loop {
+        let Some((done, total)) = poll() else {
+            break false;
+        };
+        if start.elapsed() >= delay && total > 0 {
+            let text = format!("{}{HINT}", line(done, total));
+            if shown.as_ref() != Some(&text) {
+                // At the start of the line, over what was there.
+                let _ = write!(out, "\r\x1b[2K{text}");
+                let _ = out.flush();
+                shown = Some(text);
+            }
+        }
+        if skip(STEP) {
+            break true;
+        }
+    };
+    if shown.is_some() {
+        let _ = write!(out, "\r\x1b[2K");
+        let _ = out.flush();
+    }
+    skipped
+}
+
 /// Tells the line that the work is over when dropped.
 struct Finish<'a>(&'a Progress);
 
@@ -255,6 +301,51 @@ mod tests {
             passed >= takes
         };
         (wait, given)
+    }
+
+    /// `polls` for [`until_done_or_skipped`], in turn, and then `None`.
+    fn polled(polls: &[(usize, usize)]) -> impl FnMut() -> Option<(usize, usize)> + '_ {
+        let mut polls = polls.iter().copied();
+        move || polls.next()
+    }
+
+    #[test]
+    fn a_skippable_wait_over_in_time_shows_nothing() {
+        let out = Shared::default();
+        let hour = Duration::from_secs(3600);
+        let skipped =
+            until_done_or_skipped(out.clone(), hour, polled(&[(0, 2), (1, 2)]), |_| false);
+        assert!(!skipped);
+        assert_eq!(out.text(), "");
+    }
+
+    #[test]
+    fn a_skippable_wait_shows_its_count_and_the_hint_and_wipes_it() {
+        let out = Shared::default();
+        let polls = polled(&[(0, 2), (0, 2), (1, 2)]);
+        let skipped = until_done_or_skipped(out.clone(), Duration::ZERO, polls, |_| false);
+        assert!(!skipped);
+        assert_eq!(
+            out.text(),
+            format!("{WIPE}{}{HINT}{WIPE}{}{HINT}{WIPE}", line(0, 2), line(1, 2))
+        );
+    }
+
+    #[test]
+    fn space_or_enter_ends_a_skippable_wait_before_the_work_is_over() {
+        let out = Shared::default();
+        let mut keys = [false, true].into_iter();
+        let skip = move |_| keys.next().unwrap_or(false);
+        let polls = polled(&[(0, 3), (1, 3), (2, 3)]);
+        assert!(until_done_or_skipped(
+            out.clone(),
+            Duration::ZERO,
+            polls,
+            skip
+        ));
+        assert!(out.text().contains(&line(1, 3)), "{:?}", out.text());
+        assert!(!out.text().contains(&line(2, 3)), "{:?}", out.text());
+        assert!(out.text().ends_with(WIPE), "{:?}", out.text());
     }
 
     #[test]
