@@ -414,6 +414,50 @@ mod tests {
     }
 
     #[test]
+    fn a_band_is_placed_where_its_line_says_without_moving_the_cursor() {
+        use crate::render::style::Band;
+
+        // High on a blank line, six cells in, and low over a line of text.
+        let high = Line {
+            band: Some(Band {
+                columns: 4,
+                indent: 6,
+                low: false,
+            }),
+            ..Line::blank()
+        };
+        let low = Line {
+            band: Some(Band {
+                columns: 4,
+                indent: 0,
+                low: true,
+            }),
+            ..Line::new(vec![Span::new("code", Style::default())])
+        };
+        let caps = Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(40)
+        };
+        let images = Images::new();
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
+        let mut out = Vec::new();
+        writer.row(&high, 0, &mut out).unwrap();
+        writer.row(&low, 0, &mut out).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        let id = (out.split("\x1b_Ga=t,q=2,f=32,o=z,i=").nth(1))
+            .and_then(|rest| rest.split(',').next())
+            .unwrap();
+        // A sixth of the 20-pixel cell down, and three pixels ending two
+        // above its bottom.
+        let place = |down: u16| format!("\x1b_Ga=p,q=2,i={id},C=1,Y={down},z=1\x1b\\");
+        let high = format!("\x1b7\x1b[6C{}\x1b8", place(3));
+        let low = format!("\x1b7{}\x1b8code", place(15));
+        assert!(out.contains(&high), "{out:?}");
+        assert!(out.contains(&low), "{out:?}");
+    }
+
+    #[test]
     fn an_underline_colour_needs_styled_underlines_and_colours() {
         let style = Style {
             underline: Underline::Dashed,
