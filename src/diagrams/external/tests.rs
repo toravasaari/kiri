@@ -49,6 +49,42 @@ fn script_renderer_with(dir: &Path, script: &str, settings: ExternalSettings) ->
     External::new(BTreeMap::from([("mermaid".to_owned(), command)]), settings)
 }
 
+/// Whether the process `pid` (as text, from a file the script wrote) has
+/// ended, or is a zombie being reaped, within 2 s.
+fn ended(pid: &str) -> bool {
+    let stat = Path::new("/proc").join(pid.trim()).join("stat");
+    (0..100).any(|_| {
+        let alive = fs::read_to_string(&stat).is_ok_and(|stat| {
+            stat.rsplit_once(") ")
+                .is_some_and(|(_, s)| !s.starts_with('Z'))
+        });
+        if alive {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        !alive
+    })
+}
+
+/// Renders with `renderer` and, once the script has made the file
+/// `marker` (waiting 5 s from `start` at most), sets `stop`. What the
+/// render returns.
+fn render_stopped_after(
+    renderer: &External,
+    stop: &AtomicBool,
+    marker: &Path,
+    start: Instant,
+) -> Result<Drawn, String> {
+    std::thread::scope(|scope| {
+        let drawing =
+            scope.spawn(|| renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)));
+        while !marker.exists() && start.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        stop.store(true, Ordering::SeqCst);
+        drawing.join().unwrap()
+    })
+}
+
 /// What the directory for the files under `dir` has in it.
 fn left(dir: &Path) -> Vec<PathBuf> {
     (fs::read_dir(dir.join("temp")).unwrap())
@@ -334,18 +370,7 @@ fn a_command_that_takes_too_long_is_stopped_with_what_it_started() {
     };
     // The sleep the script started is gone too, or a zombie that is
     // being reaped.
-    let stat = Path::new("/proc").join(pid.trim()).join("stat");
-    let gone = (0..100).any(|_| {
-        let alive = fs::read_to_string(&stat).is_ok_and(|stat| {
-            stat.rsplit_once(") ")
-                .is_some_and(|(_, s)| !s.starts_with('Z'))
-        });
-        if alive {
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        !alive
-    });
-    assert!(gone, "sleep {pid} still runs");
+    assert!(ended(&pid), "sleep {pid} still runs");
 }
 
 #[test]
@@ -385,15 +410,7 @@ fn a_program_that_is_stopped_may_clean_up_first() {
     let renderer = script_renderer_with(&scratch, &script, settings);
     let start = Instant::now();
     // Stopped once the trap is set, however long sh takes to start.
-    let drawn = std::thread::scope(|scope| {
-        let drawing =
-            scope.spawn(|| renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)));
-        while !ready.exists() && start.elapsed() < Duration::from_secs(5) {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        stop.store(true, Ordering::SeqCst);
-        drawing.join().unwrap()
-    });
+    let drawn = render_stopped_after(&renderer, &stop, &ready, start);
     assert_eq!(drawn, Err("sh was stopped: interrupted".to_owned()));
     assert!(
         start.elapsed() < Duration::from_secs(5),
@@ -419,15 +436,7 @@ fn a_stop_kills_the_program_with_what_it_started_and_starts_no_more() {
     };
     let renderer = script_renderer_with(&scratch, &script, settings);
     let start = Instant::now();
-    let drawn = std::thread::scope(|scope| {
-        let drawing =
-            scope.spawn(|| renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)));
-        while !started.exists() && start.elapsed() < Duration::from_secs(5) {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        stop.store(true, Ordering::SeqCst);
-        drawing.join().unwrap()
-    });
+    let drawn = render_stopped_after(&renderer, &stop, &started, start);
     assert_eq!(drawn, Err("sh was stopped: interrupted".to_owned()));
     assert!(
         start.elapsed() < Duration::from_secs(5),
@@ -436,18 +445,7 @@ fn a_stop_kills_the_program_with_what_it_started_and_starts_no_more() {
     );
     assert_eq!(left(&scratch), Vec::<PathBuf>::new());
     let pid = fs::read_to_string(&started).unwrap();
-    let stat = Path::new("/proc").join(pid.trim()).join("stat");
-    let gone = (0..100).any(|_| {
-        let alive = fs::read_to_string(&stat).is_ok_and(|stat| {
-            stat.rsplit_once(") ")
-                .is_some_and(|(_, s)| !s.starts_with('Z'))
-        });
-        if alive {
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        !alive
-    });
-    assert!(gone, "sleep {pid} still runs");
+    assert!(ended(&pid), "sleep {pid} still runs");
     // Once stopped, nothing more starts.
     fs::remove_file(&started).unwrap();
     assert_eq!(
