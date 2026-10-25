@@ -30,6 +30,9 @@ pub struct Loads {
     /// The jobs waiting, of every reload, and the programs outside kiri
     /// drawing for them.
     queue: Arc<Queue>,
+    /// The threads to start for the jobs held until the order is told,
+    /// while it is not.
+    held: Option<usize>,
     /// How many loads have come since the loads were last all done, and
     /// of how many.
     done: usize,
@@ -90,8 +93,17 @@ pub(super) struct Context {
 /// one at a time.
 #[derive(Debug, Default)]
 struct Queue {
-    waiting: Mutex<Vec<Queued>>,
+    waiting: Mutex<Waiting>,
     programs: Programs,
+}
+
+/// The jobs waiting, in the order they were started, and which images go
+/// first.
+#[derive(Debug, Default)]
+struct Waiting {
+    jobs: Vec<Queued>,
+    /// The images to load first, by their place in the order.
+    first: HashMap<ImageKey, usize>,
 }
 
 /// A job waiting, with the number and the stop flag of its load and
@@ -168,6 +180,7 @@ impl Loads {
             running: HashMap::new(),
             next: 0,
             queue: Arc::default(),
+            held: None,
             done: 0,
             total: 0,
         }
@@ -253,6 +266,29 @@ impl Loads {
         self.queue.programs.wait_for_none(limit)
     }
 
+    /// Holds the jobs started from now on until [`Loads::prefer`] tells
+    /// which go first, so that the first ones do not start before.
+    pub fn hold(&mut self) {
+        self.held.get_or_insert(0);
+    }
+
+    /// Loads the images `keys`, of those still waiting, before the
+    /// others, in that order, and the others in the order they were
+    /// started; starts the jobs held.
+    pub fn prefer(&mut self, keys: impl IntoIterator<Item = ImageKey>) {
+        let first = (keys.into_iter().enumerate())
+            .map(|(at, key)| (key, at))
+            .collect();
+        self.queue
+            .waiting
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .first = first;
+        if let Some(threads) = self.held.take() {
+            self.spawn(threads);
+        }
+    }
+
     /// Loads `jobs` in the background as `settings` say; a load of the
     /// same image under way gives way to its job.
     pub(super) fn start(&mut self, jobs: Vec<Job>, context: Context) {
@@ -279,7 +315,7 @@ impl Loads {
             self.running.insert(job.key.clone(), running);
             self.total += 1;
             let context = Arc::clone(&context);
-            waiting.push(Queued {
+            waiting.jobs.push(Queued {
                 job,
                 id,
                 stop,
@@ -287,6 +323,14 @@ impl Loads {
             });
         }
         drop(waiting);
+        match &mut self.held {
+            Some(held) => *held += threads,
+            None => self.spawn(threads),
+        }
+    }
+
+    /// Starts `threads` threads to load the jobs waiting.
+    fn spawn(&mut self, threads: usize) {
         let mut started = 0;
         for _ in 0..threads {
             // As large a stack as the main thread's, for a renderer built
@@ -423,8 +467,9 @@ impl Queue {
     }
 
     /// The next job to load, and the place of its program among the
-    /// [`Programs`] if a program draws it: the first that waits, or while
-    /// no program may start, the first that needs none. Waits while
+    /// [`Programs`] if a program draws it: the first that waits, in the
+    /// order [`Loads::prefer`] told, or while no program may start, the
+    /// first that needs none. Waits while
     /// every job that waits needs a program and none may start; `None`
     /// once no job that was not stopped waits.
     fn take(&self) -> Option<(Queued, Option<Place<'_>>)> {
@@ -434,16 +479,18 @@ impl Queue {
             // at its stop flag: stopping sets the flag before it counts
             // the programs, and a flag set before this lock is seen here.
             let mut running = (self.programs.running.lock()).unwrap_or_else(|e| e.into_inner());
-            waiting.retain(|queued| !queued.stop.load(Ordering::SeqCst));
-            if waiting.is_empty() {
+            let Waiting { jobs, first } = &mut *waiting;
+            jobs.retain(|queued| !queued.stop.load(Ordering::SeqCst));
+            if jobs.is_empty() {
                 return None;
             }
             let room = *running < crate::diagrams::external::AT_ONCE;
-            if let Some(at) = waiting
-                .iter()
-                .position(|queued| room || !queued.job.program)
-            {
-                let queued = waiting.remove(at);
+            let next = (jobs.iter().enumerate())
+                .filter(|(_, queued)| room || !queued.job.program)
+                .min_by_key(|(at, queued)| (first.get(&queued.job.key).unwrap_or(&usize::MAX), *at))
+                .map(|(at, _)| at);
+            if let Some(at) = next {
+                let queued = jobs.remove(at);
                 if !queued.job.program {
                     return Some((queued, None));
                 }
@@ -643,6 +690,42 @@ mod tests {
         assert_eq!(gated.started().len(), 4);
         gated.open.store(true, Ordering::SeqCst);
         assert_eq!(gated.until(8).len(), 8);
+    }
+
+    /// Starts loading the diagrams `names` with `gated` in `loads`, which
+    /// holds them, one at a time as no program draws them.
+    fn held(loads: &mut Loads, gated: &Gated, names: &[&str]) {
+        loads.hold();
+        let jobs = names.iter().map(|name| diagram(name, false)).collect();
+        loads.start(jobs, context(gated.clone()));
+    }
+
+    fn keys(names: &[&str]) -> Vec<ImageKey> {
+        let key = |name: &&str| ImageKey::block("mermaid", &format!("{name}\n"));
+        names.iter().map(key).collect()
+    }
+
+    #[test]
+    fn the_images_preferred_load_first_and_then_the_rest_in_order() {
+        let gated = Gated::default();
+        gated.open.store(true, Ordering::SeqCst);
+        let mut loads = Loads::new();
+        held(&mut loads, &gated, &["a", "b", "c", "d"]);
+        loads.prefer(keys(&["c", "a"]));
+        assert_eq!(gated.until(4), ["c", "a", "b", "d"]);
+    }
+
+    #[test]
+    fn preferring_others_reorders_what_waits_and_not_what_runs() {
+        let gated = Gated::default();
+        let mut loads = Loads::new();
+        held(&mut loads, &gated, &["a", "b", "c", "d"]);
+        loads.prefer(keys(&["b"]));
+        assert_eq!(gated.until(1), ["b"]);
+        // As the view moves on.
+        loads.prefer(keys(&["d", "c"]));
+        gated.open.store(true, Ordering::SeqCst);
+        assert_eq!(gated.until(4), ["b", "d", "c", "a"]);
     }
 
     #[test]
