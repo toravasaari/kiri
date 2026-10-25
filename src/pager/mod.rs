@@ -441,8 +441,7 @@ pub fn run(
                     .expect("a source to reload from");
                 let now = terminal.now();
                 let before = inputs.images.take_placeholders();
-                let reloaded_now =
-                    reload.reload(&mut inputs.images, &mut source.loads, &inputs.caps);
+                let reloaded_now = reload.reload(&mut inputs.images, source.loads, &inputs.caps);
                 let replaced = inputs.images.take_replaced();
                 let (document, warnings) = match reloaded_now {
                     Reloaded::Document(document) => (document, Vec::new()),
