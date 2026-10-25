@@ -31,7 +31,14 @@ shrunk to fit it. Images and diagrams stay at the left edge.
 A formula is in the colour of the text around it: the theme's
 `foreground`, or the terminal's own text colour when kiri knows it, and
 otherwise white on a dark page and black on a light one. It has no
-background of its own, so the page shows through. Its letters are as
+background of its own, so the page shows through. A `[formula]` table in
+the [theme](theme.md) changes both:
+
+```toml
+[formula]
+text = "#1a4f8b"
+background = "#f4f1e8"
+``` Its letters are as
 large as a browser draws body text, 16 CSS pixels to the em, in
 display style, as a block formula is in a browser.
 

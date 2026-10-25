@@ -47,11 +47,12 @@ fn version() -> String {
 }
 
 /// The formula that `request` asks for as an SVG document, its glyphs as
-/// paths, in the colour of the request on a transparent background; or
+/// paths, in the colours of the request, on a transparent background
+/// unless they have one; or
 /// RaTeX's message saying why it could not be drawn.
 fn render(request: &Request) -> Result<Drawn, String> {
     let nodes = ratex_parser::parse(request.source).map_err(|error| error.to_string())?;
-    let [red, green, blue] = request.color.unwrap_or(match request.theme {
+    let [red, green, blue] = request.formula.text.unwrap_or(match request.theme {
         Theme::Dark => [0xff, 0xff, 0xff],
         Theme::Light => [0x00, 0x00, 0x00],
     });
@@ -70,16 +71,35 @@ fn render(request: &Request) -> Result<Drawn, String> {
             ..SvgOptions::default()
         },
     );
+    let svg = match request.formula.background {
+        Some(background) => on_background(&svg, background),
+        None => svg,
+    };
     Ok(Drawn::svg(svg, request.theme, None))
+}
+
+/// `svg` drawn over a rectangle of `colour` as large as itself.
+fn on_background(svg: &str, [red, green, blue]: [u8; 3]) -> String {
+    let rect =
+        format!("<rect width=\"100%\" height=\"100%\" fill=\"#{red:02x}{green:02x}{blue:02x}\"/>");
+    match svg.find('>') {
+        Some(end) => format!("{}{rect}{}", &svg[..=end], &svg[end + 1..]),
+        None => svg.to_owned(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diagrams::FormulaColors;
     use crate::images::{DEFAULT_MAX_FILE_SIZE, Fonts, decode};
 
     fn drawn(source: &str, theme: Theme, color: Option<[u8; 3]>) -> Result<String, String> {
-        let request = Request::new("math", source, theme).in_color(color);
+        let colors = FormulaColors {
+            text: color,
+            background: None,
+        };
+        let request = Request::new("math", source, theme).in_colors(colors);
         render(&request).map(|drawn| drawn.text())
     }
 
@@ -115,6 +135,22 @@ mod tests {
         assert!(dark.contains("rgba(255,255,255,1)"), "{dark}");
         let light = drawn("x", Theme::Light, None).unwrap();
         assert!(light.contains("rgba(0,0,0,1)"), "{light}");
+    }
+
+    #[test]
+    fn draws_on_the_background_asked_for() {
+        let colors = FormulaColors {
+            text: Some([0, 0, 0]),
+            background: Some([0x10, 0x20, 0x30]),
+        };
+        let request = Request::new("math", "x", Theme::Light).in_colors(colors);
+        let svg = render(&request).unwrap().text();
+        let image = decode(svg.as_bytes(), DEFAULT_MAX_FILE_SIZE, &Fonts::none()).unwrap();
+        let (width, height) = image.size();
+        let drawn = image.render(width, height);
+        for (x, y) in [(0, 0), (width - 1, height - 1)] {
+            assert_eq!(drawn.get_pixel(x, y).0, [0x10, 0x20, 0x30, 255]);
+        }
     }
 
     #[test]

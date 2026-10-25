@@ -69,6 +69,16 @@ pub struct Theme {
     pub search: SearchTheme,
     pub mark: MarkTheme,
     pub file_header: FileHeaderTheme,
+    pub formula: FormulaTheme,
+}
+
+/// The colours of a formula drawn as an image.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FormulaTheme {
+    /// Its letters and lines; `None` for the colour of the text.
+    pub text: Option<Color>,
+    /// Behind it; `None` for no background of its own.
+    pub background: Option<Color>,
 }
 
 /// The colours of the header above each of several files: a band across
@@ -324,6 +334,7 @@ impl Default for Theme {
                 background: Some(Color::Palette(3)),
             },
             file_header: FileHeaderTheme::default(),
+            formula: FormulaTheme::default(),
         }
     }
 }
@@ -381,6 +392,7 @@ impl Theme {
             background: BandColor::Color(None),
             bar: None,
         };
+        self.formula = FormulaTheme::default();
         self
     }
 }
@@ -452,6 +464,7 @@ mod tests {
                 search,
                 mark,
                 file_header,
+                formula,
             } = theme.without_colors();
             let colors = [
                 background,
@@ -521,6 +534,8 @@ mod tests {
             assert_eq!([foreground, background], [None; 2]);
             let FileHeaderTheme { background, bar } = file_header;
             assert_eq!((background, bar), (BandColor::Color(None), None));
+            let FormulaTheme { text, background } = formula;
+            assert_eq!([text, background], [None; 2]);
         }
     }
 }

@@ -1672,18 +1672,23 @@ fn loading<'a>(context: &'a Context, settings: &'a Settings, caps: &Capabilities
         settings,
         max_file_size: context.max_file_size,
         theme: kiri::diagrams::Theme::for_page(caps.dark_background),
-        text_color: text_color(&settings.theme, caps),
+        formula: formula_colors(&settings.theme, caps),
         largest: Some(kiri::render::image::largest(caps)),
     }
 }
 
-/// The colour of the page's text as RGB, which formulas are drawn in:
-/// the theme's, or else the terminal's; `None` when neither tells it.
-fn text_color(theme: &kiri::theme::Theme, caps: &Capabilities) -> Option<[u8; 3]> {
-    let color = theme.foreground.or(caps.foreground)?.rgb(&caps.palette)?;
-    match color {
+/// The colours formulas are drawn in, as RGB: the theme's for formulas,
+/// and otherwise the text's, the theme's or else the terminal's; the
+/// first of them known as RGB.
+fn formula_colors(theme: &Theme, caps: &Capabilities) -> kiri::diagrams::FormulaColors {
+    let rgb = |color: Option<kiri::color::Color>| match color?.rgb(&caps.palette)? {
         kiri::color::Color::Rgb(red, green, blue) => Some([red, green, blue]),
         kiri::color::Color::Palette(_) => None,
+    };
+    let text = [theme.formula.text, theme.foreground, caps.foreground];
+    kiri::diagrams::FormulaColors {
+        text: text.into_iter().find_map(rgb),
+        background: rgb(theme.formula.background),
     }
 }
 

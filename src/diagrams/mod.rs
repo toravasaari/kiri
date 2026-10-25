@@ -41,6 +41,16 @@ impl Theme {
     }
 }
 
+/// The colours a formula is drawn in, as RGB.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FormulaColors {
+    /// Its letters and lines: the colour of the text around it, unless
+    /// the theme gives formulas their own; `None` when it is not known.
+    pub text: Option<[u8; 3]>,
+    /// Behind it; `None` for no background of its own.
+    pub background: Option<[u8; 3]>,
+}
+
 /// A diagram drawn as an image.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Drawn {
@@ -85,9 +95,8 @@ pub struct Request<'a> {
     pub source: &'a str,
     /// The page it is drawn for, unless it chooses its own colours.
     pub theme: Theme,
-    /// The colour of the text around it, which a formula is drawn in;
-    /// `None` when it is not known.
-    pub color: Option<[u8; 3]>,
+    /// The colours a formula is drawn in.
+    pub formula: FormulaColors,
     /// Set when this drawing alone is to stop, as when the diagram is no
     /// longer wanted: a program drawing it is stopped, and one that has
     /// not started does not. A renderer built into kiri cannot stop.
@@ -100,14 +109,14 @@ impl<'a> Request<'a> {
             language,
             source,
             theme,
-            color: None,
+            formula: FormulaColors::default(),
             stop: None,
         }
     }
 
-    /// The same request, for a page whose text is in `color`.
-    pub fn in_color(self, color: Option<[u8; 3]>) -> Self {
-        Request { color, ..self }
+    /// The same request, with a formula drawn in `formula`.
+    pub fn in_colors(self, formula: FormulaColors) -> Self {
+        Request { formula, ..self }
     }
 
     /// The same request, stopped when `stop` is set.

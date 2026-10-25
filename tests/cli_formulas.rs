@@ -108,3 +108,25 @@ fn a_formula_is_in_the_colour_of_the_text() {
         assert_eq!(opaque_colours(&images[0].rgba), [colour], "{args:?}");
     }
 }
+
+#[test]
+fn the_theme_gives_formulas_their_own_colours() {
+    let dir = Scratch::new("formula-theme");
+    let theme = dir.join("theme.toml");
+    let args = ["--mode", "kitty", "--theme", theme.to_str().unwrap()];
+    let colours = |formula: &str| {
+        let file = format!("foreground = \"#123456\"\n\n[formula]\n{formula}");
+        std::fs::write(&theme, file).unwrap();
+        let out = kiri(&dir, "$$\\rule{2em}{1em}$$\n", &args);
+        assert_eq!(text(&out.stderr), "", "{formula}");
+        let images = sent(&text(&out.stdout));
+        assert_eq!(images.len(), 1, "{formula}");
+        opaque_colours(&images[0].rgba)
+    };
+    // The rule in the formula's colour, on its background.
+    let both = colours("text = \"#654321\"\nbackground = \"#102030\"\n");
+    assert_eq!(both, [[0x10, 0x20, 0x30], [0x65, 0x43, 0x21]]);
+    // A palette colour that the terminal does not tell gives way to the
+    // text's colour.
+    assert_eq!(colours("text = \"blue\"\n"), [[0x12, 0x34, 0x56]]);
+}

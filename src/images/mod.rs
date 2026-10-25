@@ -20,7 +20,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::diagrams::{NoRenderer, Renderer, Request, Theme};
+use crate::diagrams::{FormulaColors, NoRenderer, Renderer, Request, Theme};
 use crate::model::{Block, Document, Inline};
 
 #[cfg(test)]
@@ -230,9 +230,9 @@ pub struct LoadOptions<'a> {
     /// The page the diagrams are drawn for, unless they choose their own
     /// colours; by default a light one.
     pub theme: Theme,
-    /// The colour of the text that formulas are drawn in; by default
-    /// none, which leaves it to the page.
-    pub text_color: Option<[u8; 3]>,
+    /// The colours formulas are drawn in; by default none, which leaves
+    /// them to the page.
+    pub formula: FormulaColors,
     /// Whether a warning names a diagram by its line in the document, or
     /// by its own first line, for a document that has no lines the reader
     /// can look up, such as one piped in; by default by its line.
@@ -254,7 +254,7 @@ impl Default for LoadOptions<'_> {
         LoadOptions {
             renderer: &NoRenderer,
             theme: Theme::Light,
-            text_color: None,
+            formula: FormulaColors::default(),
             by_line: true,
             progress: None,
             panel: true,
@@ -521,7 +521,7 @@ pub fn load_parts(
                 language, source, ..
             } if have.is_none() => {
                 let request = Request::new(language, source, options.theme);
-                Some(request.in_color(options.text_color))
+                Some(request.in_colors(options.formula))
             }
             Wanted::Diagram { .. } | Wanted::Url(_) => None,
         })
@@ -1023,7 +1023,10 @@ fn main() {}
     fn draws_a_formula_block_in_the_text_colour() {
         let options = LoadOptions {
             renderer: &crate::diagrams::BuiltIn,
-            text_color: Some([0x12, 0x34, 0x56]),
+            formula: crate::diagrams::FormulaColors {
+                text: Some([0x12, 0x34, 0x56]),
+                background: None,
+            },
             ..LoadOptions::default()
         };
         let images = load_source("Square:\n\n$$\\rule{1em}{1em}$$\n", &options);
