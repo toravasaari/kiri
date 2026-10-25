@@ -422,29 +422,29 @@ fn the_follow_jump_tells_where_it_comes_from() {
 }
 
 #[test]
-fn the_first_load_tells_where_it_comes_from() {
-    let dir = Scratch::new("doctor-first-load");
+fn the_initial_load_tells_where_it_comes_from() {
+    let dir = Scratch::new("doctor-initial-load");
     let report = piped(&dir, &[]);
-    let row = "| First load | wait | default |";
+    let row = "| Initial load | wait | default |";
     assert!(report.contains(row), "{row}\n{report}");
     write(
         &dir.join("home/.config/kiri/config.toml"),
-        "first_load = \"background\"\n",
+        "initial_load = \"background\"\n",
     );
     let report = piped(&dir, &[]);
-    let row = "| First load | background | configuration file |";
+    let row = "| Initial load | background | configuration file |";
     assert!(report.contains(row), "{row}\n{report}");
     let mut command = doctor(&dir, &[]);
-    let out = command.env("KIRI_FIRST_LOAD", "wait").output().unwrap();
+    let out = command.env("KIRI_INITIAL_LOAD", "wait").output().unwrap();
     assert_succeeded(&out);
     let report = text(&out.stdout);
-    let row = "| First load | wait | `KIRI_FIRST_LOAD=wait` |";
+    let row = "| Initial load | wait | `KIRI_INITIAL_LOAD=wait` |";
     assert!(report.contains(row), "{row}\n{report}");
-    let mut command = doctor(&dir, &["--first-load", "background"]);
-    let out = command.env("KIRI_FIRST_LOAD", "wait").output().unwrap();
+    let mut command = doctor(&dir, &["--initial-load", "background"]);
+    let out = command.env("KIRI_INITIAL_LOAD", "wait").output().unwrap();
     assert_succeeded(&out);
     let report = text(&out.stdout);
-    let row = "| First load | background | `--first-load` |";
+    let row = "| Initial load | background | `--initial-load` |";
     assert!(report.contains(row), "{row}\n{report}");
 }
 

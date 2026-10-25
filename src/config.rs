@@ -71,8 +71,8 @@ environment! {
     kiri_follow: "KIRI_FOLLOW",
     /// `KIRI_FOLLOW_JUMP`: `first`, `last` or `most`.
     kiri_follow_jump: "KIRI_FOLLOW_JUMP",
-    /// `KIRI_FIRST_LOAD`: `wait` or `background`.
-    kiri_first_load: "KIRI_FIRST_LOAD",
+    /// `KIRI_INITIAL_LOAD`: `wait` or `background`.
+    kiri_initial_load: "KIRI_INITIAL_LOAD",
     /// `KIRI_FRONT_MATTER`: `table`, `code`, `hide` or `off`.
     kiri_front_matter: "KIRI_FRONT_MATTER",
     /// `KIRI_TABLE_ROWS`: `off`, `zebra`, `lines`, `indent` or `underline`.
@@ -190,7 +190,7 @@ pub struct Config {
     /// Which change auto-follow moves the view to.
     pub follow_jump: Option<FollowJump>,
     /// Whether the pager waits for the images before it opens.
-    pub first_load: Option<FirstLoad>,
+    pub initial_load: Option<InitialLoad>,
     /// How front matter shows.
     pub front_matter: Option<FrontMatter>,
     /// How the rows of a table are told apart.
@@ -294,7 +294,7 @@ pub enum FollowJump {
 /// diagrams of the document before it shows it, or shows the text at
 /// once while they load in the background, as after a reload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum FirstLoad {
+pub enum InitialLoad {
     /// Every image is loaded before the document shows.
     #[default]
     Wait,
@@ -369,7 +369,7 @@ fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String> {
         search_case: file.search_case,
         follow: file.follow,
         follow_jump: file.follow_jump,
-        first_load: file.first_load,
+        initial_load: file.initial_load,
         front_matter: file.front_matter,
         table_rows: file.table_rows,
         diagrams: file.diagrams.enabled,
@@ -395,7 +395,7 @@ struct ConfigToml {
     #[serde(default, deserialize_with = "named")]
     follow_jump: Option<FollowJump>,
     #[serde(default, deserialize_with = "named")]
-    first_load: Option<FirstLoad>,
+    initial_load: Option<InitialLoad>,
     #[serde(default, deserialize_with = "named")]
     front_matter: Option<FrontMatter>,
     #[serde(default, deserialize_with = "named")]
@@ -737,7 +737,7 @@ impl Named for FollowJump {
     const NAMES: &'static [&'static str] = &["first", "last", "most"];
 }
 
-impl Named for FirstLoad {
+impl Named for InitialLoad {
     const ALL: &'static [Self] = &[Self::Wait, Self::Background];
     const NAMES: &'static [&'static str] = &["wait", "background"];
 }
@@ -848,7 +848,7 @@ pub struct Options {
     /// Which change auto-follow moves the view to.
     pub follow_jump: Option<Setting<FollowJump>>,
     /// Whether the pager waits for the images before it opens.
-    pub first_load: Option<Setting<FirstLoad>>,
+    pub initial_load: Option<Setting<InitialLoad>>,
     /// How front matter shows.
     pub front_matter: Option<Setting<FrontMatter>>,
     /// How the rows of a table are told apart.
@@ -880,7 +880,7 @@ pub struct Settings {
     /// Which change auto-follow moves the view to.
     pub follow_jump: FollowJump,
     /// Whether the pager waits for the images before it opens.
-    pub first_load: FirstLoad,
+    pub initial_load: InitialLoad,
     /// How front matter shows.
     pub front_matter: FrontMatter,
     /// How the rows of a table are told apart.
@@ -919,7 +919,7 @@ pub struct Choices {
     /// Which change auto-follow moves the view to.
     pub follow_jump: Setting<FollowJump>,
     /// Whether the pager waits for the images before it opens.
-    pub first_load: Setting<FirstLoad>,
+    pub initial_load: Setting<InitialLoad>,
     /// How front matter shows.
     pub front_matter: Setting<FrontMatter>,
     /// How the rows of a table are told apart.
@@ -958,7 +958,7 @@ impl Choices {
             search_case: self.search_case.value,
             follow: self.follow.value,
             follow_jump: self.follow_jump.value,
-            first_load: self.first_load.value,
+            initial_load: self.initial_load.value,
             front_matter: self.front_matter.value,
             table_rows: self.table_rows.value,
             diagrams: self.diagrams.value,
@@ -1032,11 +1032,11 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
             FollowJump::default(),
             w,
         ),
-        first_load: resolve(
-            options.first_load.clone(),
-            variable(env, "KIRI_FIRST_LOAD"),
-            config.first_load,
-            FirstLoad::default(),
+        initial_load: resolve(
+            options.initial_load.clone(),
+            variable(env, "KIRI_INITIAL_LOAD"),
+            config.initial_load,
+            InitialLoad::default(),
             w,
         ),
         front_matter,
@@ -1572,41 +1572,41 @@ mod tests {
     }
 
     #[test]
-    fn the_first_load_key_takes_wait_or_background() {
+    fn the_initial_load_key_takes_wait_or_background() {
         let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
-        for (text, first_load) in [
-            ("first_load = \"wait\"\n", FirstLoad::Wait),
-            ("first_load = \"background\"\n", FirstLoad::Background),
+        for (text, initial_load) in [
+            ("initial_load = \"wait\"\n", InitialLoad::Wait),
+            ("initial_load = \"background\"\n", InitialLoad::Background),
         ] {
-            let chosen = parsed(text).map(|config| config.first_load);
-            assert_eq!(chosen, Ok(Some(first_load)), "{text}");
+            let chosen = parsed(text).map(|config| config.initial_load);
+            assert_eq!(chosen, Ok(Some(initial_load)), "{text}");
         }
-        assert!(parsed("first_load = \"later\"\n").is_err());
-        assert!(parsed("first_load = true\n").is_err());
+        assert!(parsed("initial_load = \"later\"\n").is_err());
+        assert!(parsed("initial_load = true\n").is_err());
     }
 
     #[test]
-    fn the_first_load_waits_unless_told_otherwise() {
+    fn the_initial_load_waits_unless_told_otherwise() {
         let env = Environment::default();
         let choices = choose(&Options::default(), &env, &Config::default());
-        let wait = Setting::new(FirstLoad::Wait, Origin::Default);
-        assert_eq!(choices.first_load, wait);
+        let wait = Setting::new(InitialLoad::Wait, Origin::Default);
+        assert_eq!(choices.initial_load, wait);
         let config = Config {
-            first_load: Some(FirstLoad::Background),
+            initial_load: Some(InitialLoad::Background),
             ..Config::default()
         };
         let choices = choose(&Options::default(), &env, &config);
-        let file = Setting::new(FirstLoad::Background, Origin::File);
-        assert_eq!(choices.first_load, file);
+        let file = Setting::new(InitialLoad::Background, Origin::File);
+        assert_eq!(choices.initial_load, file);
         let settings = choices.with_theme(Theme::default());
-        assert_eq!(settings.first_load, FirstLoad::Background);
-        let flag = Setting::new(FirstLoad::Wait, Origin::Flag("--first-load"));
+        assert_eq!(settings.initial_load, InitialLoad::Background);
+        let flag = Setting::new(InitialLoad::Wait, Origin::Flag("--initial-load"));
         let options = Options {
-            first_load: Some(flag.clone()),
+            initial_load: Some(flag.clone()),
             ..Options::default()
         };
-        let variable = vars(&[("KIRI_FIRST_LOAD", "background")]);
-        assert_eq!(choose(&options, &variable, &config).first_load, flag);
+        let variable = vars(&[("KIRI_INITIAL_LOAD", "background")]);
+        assert_eq!(choose(&options, &variable, &config).initial_load, flag);
     }
 
     #[test]
@@ -2103,21 +2103,21 @@ mod tests {
     }
 
     #[test]
-    fn kiri_first_load_chooses_how_the_pager_first_loads_the_images() {
+    fn kiri_initial_load_chooses_how_the_pager_initially_loads_the_images() {
         check_variable(
-            |choices| &choices.first_load,
-            "KIRI_FIRST_LOAD",
+            |choices| &choices.initial_load,
+            "KIRI_INITIAL_LOAD",
             &[
-                ("wait", FirstLoad::Wait),
-                ("background", FirstLoad::Background),
+                ("wait", InitialLoad::Wait),
+                ("background", InitialLoad::Background),
             ],
             Config {
-                first_load: Some(FirstLoad::Wait),
+                initial_load: Some(InitialLoad::Wait),
                 ..Config::default()
             },
             (
                 "later",
-                "KIRI_FIRST_LOAD: `later` is not wait or background; left out",
+                "KIRI_INITIAL_LOAD: `later` is not wait or background; left out",
             ),
         );
     }

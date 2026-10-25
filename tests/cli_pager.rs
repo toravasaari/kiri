@@ -1023,7 +1023,7 @@ fn image_sent(frames: &[String], _: &std::path::Path) -> bool {
 /// kiri on `diagram.md` of [`drawn_on_cue`] with `args` and `env` in a
 /// terminal of 5 rows: the diagram is drawn once the first frame is, and
 /// `q` typed once a frame with an image sent in it is. Returns the frames.
-fn first_load(name: &str, args: &[&str], env: &[(&str, &str)]) -> Vec<String> {
+fn initial_load(name: &str, args: &[&str], env: &[(&str, &str)]) -> Vec<String> {
     let mut args = args.to_vec();
     args.extend(["--mode", "kitty", "diagram.md"]);
     let (frames, stderr) = quit_when(name, drawn_on_cue, &args, None, env, image_sent);
@@ -1032,14 +1032,14 @@ fn first_load(name: &str, args: &[&str], env: &[(&str, &str)]) -> Vec<String> {
 }
 
 #[test]
-fn a_first_load_in_the_background_shows_the_text_before_the_diagram() {
-    let background = [("KIRI_FIRST_LOAD", "background")];
+fn an_initial_load_in_the_background_shows_the_text_before_the_diagram() {
+    let background = [("KIRI_INITIAL_LOAD", "background")];
     for (args, env) in [
-        (&["--first-load", "background", "-p"][..], &[][..]),
-        (&["--first-load", "background", "-f"], &[]),
+        (&["--initial-load", "background", "-p"][..], &[][..]),
+        (&["--initial-load", "background", "-f"], &[]),
         (&["-p"], &background),
     ] {
-        let frames = first_load("pager-first-load", args, env);
+        let frames = initial_load("pager-initial-load", args, env);
         let first = &frames[0];
         // The diagram's code, with the band below it.
         assert!(
@@ -1061,7 +1061,7 @@ fn a_first_load_in_the_background_shows_the_text_before_the_diagram() {
 }
 
 #[test]
-fn quitting_while_the_first_load_draws_stops_the_program() {
+fn quitting_while_the_initial_load_draws_stops_the_program() {
     // The command notes its process and never draws.
     let prepare = |dir: &std::path::Path| {
         drawn_on_cue(dir);
@@ -1081,14 +1081,14 @@ fn quitting_while_the_first_load_draws_stops_the_program() {
         !frames.is_empty() && pid.get().is_some()
     };
     let args = [
-        "--first-load",
+        "--initial-load",
         "background",
         "-p",
         "--mode",
         "kitty",
         "diagram.md",
     ];
-    let name = "pager-first-load-quit";
+    let name = "pager-initial-load-quit";
     let (frames, stderr) = quit_when(name, prepare, &args, None, &[], running);
     assert_eq!(stderr, "");
     let last = text_of(frames.last().unwrap());
@@ -1107,10 +1107,10 @@ fn quitting_while_the_first_load_draws_stops_the_program() {
 }
 
 #[test]
-fn a_first_load_from_standard_input_goes_in_the_background_with_p() {
+fn an_initial_load_from_standard_input_goes_in_the_background_with_p() {
     let document = "```mermaid\nflowchart TD\n```\n\nBelow\n";
-    let args = ["--first-load", "background", "-p", "--mode", "kitty"];
-    let name = "pager-first-load-stdin";
+    let args = ["--initial-load", "background", "-p", "--mode", "kitty"];
+    let name = "pager-initial-load-stdin";
     let (frames, stderr) = quit_when(name, drawn_on_cue, &args, Some(document), &[], image_sent);
     assert_eq!(stderr, "");
     let first = text_of(&frames[0]);
@@ -1125,19 +1125,19 @@ fn a_first_load_from_standard_input_goes_in_the_background_with_p() {
 }
 
 #[test]
-fn a_first_load_in_the_background_with_nothing_to_load_shows_as_waiting() {
+fn an_initial_load_in_the_background_with_nothing_to_load_shows_as_waiting() {
     // Images off, a terminal that shows none, and a document without any.
     for (args, file) in [
         (&["-I", "--mode", "kitty"][..], "diagram.md"),
         (&["--mode", "ansi"], "diagram.md"),
         (&["--mode", "kitty"], "long.md"),
     ] {
-        let shown = |first_load: &str| {
-            let mut all = vec!["--first-load", first_load, "-p"];
+        let shown = |initial_load: &str| {
+            let mut all = vec!["--initial-load", initial_load, "-p"];
             all.extend(args);
             all.push(file);
             let quit = |frames: &[String], _: &std::path::Path| !frames.is_empty();
-            let name = "pager-first-load-nothing";
+            let name = "pager-initial-load-nothing";
             let (frames, stderr) = quit_when(name, drawn_on_cue, &all, None, &[], quit);
             assert_eq!(stderr, "", "{all:?}");
             frames[0].clone()
@@ -1169,21 +1169,21 @@ fn failing_on_cue(dir: &std::path::Path) {
 }
 
 #[test]
-fn a_first_load_in_the_background_tells_a_failed_diagram_nowhere_yet() {
+fn an_initial_load_in_the_background_tells_a_failed_diagram_nowhere_yet() {
     // Pinned as it is; whether the pager should tell it on standard error
     // once it has left its screen is open.
     let failed = |frames: &[String], _: &std::path::Path| {
         (frames.iter().skip(1)).any(|frame| !text_of(frame).contains("[rendering"))
     };
     let args = [
-        "--first-load",
+        "--initial-load",
         "background",
         "-p",
         "--mode",
         "kitty",
         "diagram.md",
     ];
-    let name = "pager-first-load-failed";
+    let name = "pager-initial-load-failed";
     let (frames, stderr) = quit_when(name, failing_on_cue, &args, None, &[], failed);
     assert!(
         text_of(&frames[0]).contains("[rendering: 0/1]"),
@@ -1199,14 +1199,14 @@ fn a_first_load_in_the_background_tells_a_failed_diagram_nowhere_yet() {
         std::fs::write(dir.join("go"), "").unwrap();
     };
     let args = [
-        "--first-load",
+        "--initial-load",
         "wait",
         "-p",
         "--mode",
         "kitty",
         "diagram.md",
     ];
-    let name = "pager-first-load-failed-wait";
+    let name = "pager-initial-load-failed-wait";
     let quit = |frames: &[String], _: &std::path::Path| !frames.is_empty();
     let (frames, stderr) = quit_when(name, at_once, &args, None, &[], quit);
     assert!(!text_of(&frames[0]).contains("[rendering"), "{frames:?}");
@@ -1214,7 +1214,7 @@ fn a_first_load_in_the_background_tells_a_failed_diagram_nowhere_yet() {
 }
 
 #[test]
-fn a_first_load_in_the_background_waits_where_the_pager_may_not_open() {
+fn an_initial_load_in_the_background_waits_where_the_pager_may_not_open() {
     // Paging on auto needs the height of the drawn diagram to decide.
     let prepare = |dir: &std::path::Path| {
         drawn_diagram(dir);
@@ -1224,12 +1224,12 @@ fn a_first_load_in_the_background_waits_where_the_pager_may_not_open() {
     let args = [
         "--mode",
         "kitty",
-        "--first-load",
+        "--initial-load",
         "background",
         "diagram.md",
     ];
     let steps = [quit_after(1)];
-    let (status, seen) = in_steps_with("pager-first-load-auto", prepare, &args, &steps);
+    let (status, seen) = in_steps_with("pager-initial-load-auto", prepare, &args, &steps);
     assert!(status.success());
     let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
     assert!(frames[0].contains("\x1b_Ga=T,"), "{seen:?}");
@@ -1238,12 +1238,12 @@ fn a_first_load_in_the_background_waits_where_the_pager_may_not_open() {
     let args = [
         "--mode",
         "kitty",
-        "--first-load",
+        "--initial-load",
         "background",
         "-P",
         "diagram.md",
     ];
-    let (status, seen) = in_steps_with("pager-first-load-print", prepare, &args, &[]);
+    let (status, seen) = in_steps_with("pager-initial-load-print", prepare, &args, &[]);
     assert!(status.success());
     assert!(!seen.contains(ENTER), "{seen:?}");
     assert_eq!(seen.matches("\x1b_Ga=T,").count(), 1, "{seen:?}");
@@ -1251,12 +1251,12 @@ fn a_first_load_in_the_background_waits_where_the_pager_may_not_open() {
     let args = [
         "--mode",
         "kitty",
-        "--first-load",
+        "--initial-load",
         "background",
         "-p",
         "diagram.md",
     ];
-    let (status, seen, stderr) = without_keys("pager-first-load-no-keys", prepare, &args);
+    let (status, seen, stderr) = without_keys("pager-initial-load-no-keys", prepare, &args);
     assert!(status.success(), "{stderr}");
     assert!(!seen.contains(ENTER), "{seen:?}");
     assert_eq!(seen.matches("\x1b_Ga=T,").count(), 1, "{seen:?}");

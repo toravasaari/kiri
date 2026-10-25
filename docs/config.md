@@ -38,7 +38,7 @@ follow_jump = "first"
 
 # Whether the pager waits for the images before it shows the document:
 # "wait", or "background" to show the text at once.
-first_load = "wait"
+initial_load = "wait"
 
 # Front matter render style: "table", "code", "hide" or "off".
 front_matter = "table"
@@ -197,16 +197,16 @@ nor does an image that comes after the reload, and a new reload replaces
 it. On a terminal where the page colours are
 not known as RGB, or without 24-bit colour, there is no highlight.
 
-## First load
+## Initial load
 
 When the pager surely opens, the first of these that is given decides
 whether it waits for the document's images and diagrams before it shows
 the document, or shows the text at once and each image as it comes:
 
-1. `--first-load wait|background`
-2. `KIRI_FIRST_LOAD`: `wait` or `background`; an empty value counts as
+1. `--initial-load wait|background`
+2. `KIRI_INITIAL_LOAD`: `wait` or `background`; an empty value counts as
    unset, and any other value is left out with a warning
-3. `first_load` in the configuration file
+3. `initial_load` in the configuration file
 4. `wait`
 
 With `background`, each image and diagram shows as it does without its
@@ -221,8 +221,8 @@ The pager surely opens when paging is `always`, as with `-p`, or when it
 follows a lone file, as with `-f`. With paging on `auto`, kiri needs the
 height of the images to tell whether the document fits the window, so it
 waits for them, and a printed document always waits:
-`kiri -p --first-load background notes.md` shows the text at once, and
-`kiri --first-load background notes.md` waits. A lone image or diagram
+`kiri -p --initial-load background notes.md` shows the text at once, and
+`kiri --initial-load background notes.md` waits. A lone image or diagram
 file, and several files, wait too.
 
 ## Search case
@@ -324,7 +324,7 @@ about images that do not load go to standard error whatever this says.
 | `KIRI_PAGING` | When to page; see [Paging](#paging) |
 | `KIRI_FOLLOW` | Whether the pager follows a file; see [Follow](#follow) |
 | `KIRI_FOLLOW_JUMP` | Which change auto-follow moves the view to; see [Follow jump](#follow-jump) |
-| `KIRI_FIRST_LOAD` | Whether the pager waits for the images; see [First load](#first-load) |
+| `KIRI_INITIAL_LOAD` | Whether the pager waits for the images; see [Initial load](#initial-load) |
 | `KIRI_FRONT_MATTER` | Front matter render style; see [Front matter](#front-matter) |
 | `KIRI_TABLE_ROWS` | Table row style; see [Table rows](#table-rows) |
 | `KIRI_DIAGRAMS` | Diagrams drawn or shown as code; see [Diagrams](diagrams.md) |

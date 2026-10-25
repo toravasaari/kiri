@@ -218,10 +218,10 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     row(out, &["Follow", follow.value.name(), &from(follow.origin)])?;
     let jump = &choices.follow_jump;
     row(out, &["Follow jump", jump.value.name(), &from(jump.origin)])?;
-    let first = &choices.first_load;
+    let first = &choices.initial_load;
     row(
         out,
-        &["First load", first.value.name(), &from(first.origin)],
+        &["Initial load", first.value.name(), &from(first.origin)],
     )?;
     let search_case = &choices.search_case;
     let case = search_case.value.name();

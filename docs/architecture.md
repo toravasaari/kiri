@@ -169,7 +169,7 @@ for them to end once the pager has left its screen, with
 `kiri: closing background programs…` on standard error while that takes
 more than a second, but not for merman, which cannot stop.
 
-With `first_load = "background"`, the first load goes the same way when
+With `initial_load = "background"`, the initial load goes the same way when
 the pager surely opens: `src/main.rs` lays out the text, opens the
 screen, and then starts every image loading in the pager's `Loads`, each
 shown as a new image of a reload is. Should the screen not open, the

@@ -55,7 +55,7 @@ Options:
                                document in more than one place: first, last or most (the one that
                                takes the most rows); first unless set [possible values: first, last,
                                most]
-      --first-load <HOW>       Whether the pager shows the document once its images and diagrams
+      --initial-load <HOW>     Whether the pager shows the document once its images and diagrams
                                have loaded (wait), or at once, with each image as it comes
                                (background); wait unless set. Only where the pager surely opens, as
                                with -p or -f; otherwise kiri waits [possible values: wait,

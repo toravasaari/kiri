@@ -10,7 +10,7 @@ use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser};
 use kiri::caps::Capabilities;
 use kiri::config::{
-    Environment, FirstLoad, Follow, FollowJump, FrontMatter, Named, Options, Origin, Paging,
+    Environment, Follow, FollowJump, FrontMatter, InitialLoad, Named, Options, Origin, Paging,
     Setting, Settings,
 };
 use kiri::doctor::{Facts, Output};
@@ -151,8 +151,8 @@ struct Cli {
     /// have loaded (wait), or at once, with each image as it comes
     /// (background); wait unless set. Only where the pager surely opens,
     /// as with -p or -f; otherwise kiri waits.
-    #[arg(long, value_parser = named::<FirstLoad>(), value_name = "HOW")]
-    first_load: Option<FirstLoad>,
+    #[arg(long, value_parser = named::<InitialLoad>(), value_name = "HOW")]
+    initial_load: Option<InitialLoad>,
 
     /// Front matter render style: table, code (a code block), hide, or off
     /// (read as Markdown); table unless set. Front matter is the metadata
@@ -1235,7 +1235,7 @@ fn show_document(
 /// sequences. With paging on `auto`, the pager opens only for a
 /// document longer than the window, images included.
 fn in_background(settings: &Settings, caps: &Capabilities) -> bool {
-    settings.first_load == FirstLoad::Background
+    settings.initial_load == InitialLoad::Background
         && settings.paging == Paging::Always
         && kiri::term::stdout_is_terminal()
         && caps.styling
@@ -1827,7 +1827,7 @@ fn options(cli: &Cli) -> Options {
             .or(flag(cli.no_pager.then_some(Paging::Never), "-P")),
         follow: follow(cli),
         follow_jump: flag(cli.follow_jump, "--follow-jump"),
-        first_load: flag(cli.first_load, "--first-load"),
+        initial_load: flag(cli.initial_load, "--initial-load"),
         front_matter: flag(cli.front_matter, "--front-matter"),
         table_rows: flag(cli.table_rows, "--table-rows"),
         diagrams: flag(cli.diagrams, "--diagrams"),
