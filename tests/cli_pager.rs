@@ -1106,6 +1106,48 @@ fn quitting_while_the_first_load_draws_stops_the_program() {
     }
 }
 
+#[test]
+fn a_first_load_from_standard_input_goes_in_the_background_with_p() {
+    let document = "```mermaid\nflowchart TD\n```\n\nBelow\n";
+    let args = ["--first-load", "background", "-p", "--mode", "kitty"];
+    let name = "pager-first-load-stdin";
+    let (frames, stderr) = quit_when(name, drawn_on_cue, &args, Some(document), &[], image_sent);
+    assert_eq!(stderr, "");
+    let first = text_of(&frames[0]);
+    assert!(first.contains("flowchart TD"), "{frames:?}");
+    assert!(first.contains("[rendering: 0/1]"), "{frames:?}");
+    assert!(!frames[0].contains("\x1b_Ga=T,"), "{frames:?}");
+    let drawn = frames.iter().find(|frame| frame.contains("\x1b_Ga=T,"));
+    assert!(
+        !text_of(drawn.unwrap()).contains("[rendering"),
+        "{frames:?}"
+    );
+}
+
+#[test]
+fn a_first_load_in_the_background_with_nothing_to_load_shows_as_waiting() {
+    // Images off, a terminal that shows none, and a document without any.
+    for (args, file) in [
+        (&["-I", "--mode", "kitty"][..], "diagram.md"),
+        (&["--mode", "ansi"], "diagram.md"),
+        (&["--mode", "kitty"], "long.md"),
+    ] {
+        let shown = |first_load: &str| {
+            let mut all = vec!["--first-load", first_load, "-p"];
+            all.extend(args);
+            all.push(file);
+            let quit = |frames: &[String], _: &std::path::Path| !frames.is_empty();
+            let name = "pager-first-load-nothing";
+            let (frames, stderr) = quit_when(name, drawn_on_cue, &all, None, &[], quit);
+            assert_eq!(stderr, "", "{all:?}");
+            frames[0].clone()
+        };
+        let background = shown("background");
+        assert!(!text_of(&background).contains("[rendering"), "{args:?}");
+        assert_eq!(background, shown("wait"), "{args:?}");
+    }
+}
+
 /// [`drawn_on_cue`], with a command that fails instead of drawing, and
 /// the reasons only on standard error.
 fn failing_on_cue(dir: &std::path::Path) {
