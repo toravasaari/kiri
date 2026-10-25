@@ -387,6 +387,11 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 - Changes shown as a diff, added text green and removed text red, fading
   out slowly: after a reload, and against a git revision.
 
+#### 4.6.11 The target of a link
+
+- The target of the link under the mouse or the one chosen with Tab is
+  shown, for example on the status line.
+
 ### 4.7 Other input formats
 
 #### 4.7.1 Formats
@@ -917,8 +922,6 @@ go.
   error, which the pager holds until it quits. A log file or the systemd
   journal could keep them, and a debug level could tell more, such as
   each program kiri runs and how long it takes.
-- The target of the link under the mouse or the one chosen with Tab is
-  shown, for example on the status line.
 - Copying can give the Markdown source of a part or its text as shown;
   a setting chooses which.
 
