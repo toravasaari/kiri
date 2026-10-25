@@ -25,7 +25,7 @@ pub struct Progress {
 }
 
 impl Progress {
-    /// `done` of `total` diagrams are drawn.
+    /// `done` of `total` images have loaded.
     pub fn update(&self, done: usize, total: usize) {
         let mut state = self.lock();
         state.done = done;
@@ -76,7 +76,7 @@ impl Progress {
     }
 }
 
-/// The line for `done` of `total` diagrams.
+/// The line for `done` of `total` images.
 pub fn line(done: usize, total: usize) -> String {
     format!("kiri: loading images {done}/{total}…")
 }
