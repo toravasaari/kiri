@@ -443,6 +443,34 @@ fn the_help_wraps_to_the_terminal_width_up_to_100() {
 }
 
 #[test]
+fn the_short_help_gives_each_argument_one_line() {
+    let dir = Scratch::new("help-short");
+    let out = command(&dir)
+        .arg("-h")
+        .env("COLUMNS", "100")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let help = text(&out.stdout);
+    // A line that goes on from the one above is indented past the names;
+    // only clap's list of values, in brackets, may go on.
+    let mut longer = Vec::new();
+    let mut in_values = false;
+    for line in help.lines() {
+        let goes_on = line.starts_with(&" ".repeat(12)) && !line.trim().is_empty();
+        if goes_on && !in_values && !line.trim_start().starts_with('[') {
+            longer.push(line);
+        }
+        if let Some(open) = line.rfind('[') {
+            in_values = !line[open..].contains(']');
+        } else if line.contains(']') {
+            in_values = false;
+        }
+    }
+    assert!(longer.is_empty(), "{longer:#?}");
+}
+
+#[test]
 fn a_flag_takes_only_the_names_of_its_values() {
     let dir = Scratch::new("flag-values");
     let error = |args: &[&str]| {

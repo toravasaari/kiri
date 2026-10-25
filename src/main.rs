@@ -38,9 +38,11 @@ use kiri::theme::{Paper, Theme};
                   and diagrams their code."
 )]
 struct Cli {
-    /// Markdown file to render, a CSV or TSV file to show as a table, an
-    /// image or a Mermaid diagram (.mmd) to show on its own, or a directory
-    /// to show its README.
+    /// Markdown, CSV or TSV, an image, a Mermaid diagram, or a directory
+    ///
+    /// A Markdown file is rendered, a CSV or TSV file shown as a table, an
+    /// image or a Mermaid diagram (.mmd) shown on its own, and a directory
+    /// shows its README.
     /// Several files are shown one after another, each under a header
     /// that names it; one that cannot be shown is reported, and the others
     /// are still shown.
@@ -49,25 +51,32 @@ struct Cli {
     #[arg(value_name = "FILE")]
     files: Vec<PathBuf>,
 
-    /// Show what kiri finds out about the terminal and which settings it
-    /// uses, as Markdown when written to a file, for a bug report.
+    /// Show what kiri finds out about the terminal, for a bug report
+    ///
+    /// The report also tells which settings kiri uses. It is Markdown when
+    /// written to a file.
     #[arg(long, conflicts_with_all = ["files", "format"])]
     doctor: bool,
 
-    /// List the emoji shortcodes, such as :smile:. A terminal shows them
-    /// as a table; a pipe or a file gets one line per emoji.
+    /// List the emoji shortcodes, such as :smile:
+    ///
+    /// A terminal shows them as a table; a pipe or a file gets one line per
+    /// emoji.
     #[arg(long, conflicts_with_all = ["files", "format", "doctor"])]
     list_emojis: bool,
 
-    /// With --doctor: the report as Markdown also in a terminal, without
-    /// its sample, to copy into a bug report.
+    /// With --doctor: the report as Markdown, also in a terminal
+    ///
+    /// The report then leaves out its sample, so it can be copied into a
+    /// bug report.
     #[arg(long)]
     raw: bool,
 
-    /// What the file is: markdown, csv, tsv, mermaid (a diagram shown on
-    /// its own), text (the file as it is, without rendering it), image, or
-    /// an image format such as svg, png or jpg. By default its extension and
-    /// content tell.
+    /// What the file is, such as markdown, csv or png
+    ///
+    /// The formats are markdown, csv, tsv, mermaid (a diagram shown on its
+    /// own), text (the file as it is, without rendering it), image, or an
+    /// image format such as svg, png or jpg. By default its extension and content tell.
     #[arg(long, value_parser = format)]
     format: Option<Input>,
 
@@ -75,41 +84,53 @@ struct Cli {
     #[arg(long)]
     width: Option<u16>,
 
-    /// Which terminal features to use. Colours stay off when NO_COLOR is set.
+    /// Which terminal features to use
+    ///
+    /// Colours stay off when NO_COLOR is set.
     #[arg(long, value_parser = named_with_help(mode_help), default_value = Mode::Auto.name())]
     mode: Mode,
 
-    /// Theme file; overrides --light, --dark, KIRI_THEME and the
-    /// configuration file.
+    /// Theme file
+    ///
+    /// It overrides --light, --dark, KIRI_THEME and the configuration file.
     #[arg(long)]
     theme: Option<PathBuf>,
 
-    /// A light page in greys, whatever the terminal's colours; code colours
-    /// for a light background.
+    /// A light page in greys, whatever the terminal's colours
+    ///
+    /// Code gets colours for a light background.
     #[arg(long, conflicts_with = "dark")]
     light: bool,
 
-    /// A dark page in greys, whatever the terminal's colours; code colours
-    /// for a dark background.
+    /// A dark page in greys, whatever the terminal's colours
+    ///
+    /// Code gets colours for a dark background.
     #[arg(long)]
     dark: bool,
 
-    /// No margins, heading indents or code block padding, for copying text.
+    /// No margins, indents or padding, for copying text
+    ///
+    /// Leaves out the margins, heading indents and code block padding.
     #[arg(short = 'M', long)]
     no_margins: bool,
 
-    /// Show images as their alt text, without reading them, and diagrams
-    /// as code. An image or diagram file given on its own is still shown.
+    /// Show images as their alt text and diagrams as code
+    ///
+    /// Images are not read. An image or diagram file given on its own is
+    /// still shown.
     #[arg(short = 'I', long)]
     no_images: bool,
 
-    /// Show images, and diagrams unless they are off, whatever
-    /// KIRI_NO_IMAGES and the configuration file say.
+    /// Show images, whatever KIRI_NO_IMAGES and the configuration say
+    ///
+    /// Diagrams are shown too, unless they are off.
     #[arg(long, conflicts_with = "no_images")]
     images: bool,
 
-    /// When to show the document in the pager: always, auto (when it is
-    /// longer than the window and the output is a terminal) or never.
+    /// When to show the document in the pager
+    ///
+    /// With auto, when it is longer than the window and the output is a
+    /// terminal.
     #[arg(long, value_parser = named::<Paging>(), value_name = "WHEN", conflicts_with_all = ["pager", "no_pager"])]
     paging: Option<Paging>,
 
@@ -121,11 +142,12 @@ struct Cli {
     #[arg(short = 'P')]
     no_pager: bool,
 
-    /// Follow a lone file in the pager: on (read it again whenever it
-    /// changes, with the view kept where it is), auto (read it again and
-    /// move the view to a change) or off; off unless set. Following pages
-    /// the file, however short, unless paging is never. F goes from off to
-    /// on to auto in the pager.
+    /// Follow a lone file in the pager
+    ///
+    /// On reads it again whenever it changes, with the view kept where it
+    /// is; auto reads it again and moves the view to a change; off unless
+    /// set. Following pages the file, however short, unless paging is
+    /// never. F goes from off to on to auto in the pager.
     #[arg(long, value_parser = named::<Follow>(), value_name = "WHEN", conflicts_with_all = ["follow_on", "follow_auto", "follow_off"])]
     follow: Option<Follow>,
 
@@ -141,46 +163,57 @@ struct Cli {
     #[arg(short = 'F')]
     follow_off: bool,
 
-    /// Which change auto-follow moves the view to, when a reload changed
-    /// the document in more than one place: first, last or most (the one
-    /// that takes the most rows); first unless set.
+    /// Which change auto-follow moves the view to
+    ///
+    /// When a reload changed the document in more than one place: first,
+    /// last or most (the one that takes the most rows); first unless set.
     #[arg(long, value_parser = named::<FollowJump>(), value_name = "WHICH")]
     follow_jump: Option<FollowJump>,
 
-    /// Whether the pager shows the document once its images and diagrams
-    /// have loaded (wait), or at once, with each image as it comes
-    /// (background); wait unless set. Only where the pager surely opens:
-    /// with -p or -f, or with paging on auto for a document longer than
-    /// the window, each image counted at three rows; otherwise kiri waits.
+    /// Whether the pager waits for images before it shows the document
+    ///
+    /// Wait shows the document once its images and diagrams have loaded,
+    /// background at once, with each image as it comes; wait unless set.
+    /// Only where the pager surely opens: with -p or -f, or with paging on
+    /// auto for a document longer than the window, each image counted at
+    /// three rows; otherwise kiri waits.
     #[arg(long, value_parser = named::<InitialLoad>(), value_name = "HOW")]
     initial_load: Option<InitialLoad>,
 
-    /// Front matter render style: table, code (a code block), hide, or off
-    /// (read as Markdown); table unless set. Front matter is the metadata
-    /// block at the start of a Markdown file.
+    /// How to show the front matter
+    ///
+    /// Front matter is the metadata block at the start of a Markdown file.
+    /// The styles are table, code (a code block), hide, or off (read as
+    /// Markdown); table unless set.
     #[arg(long, value_parser = named::<FrontMatter>(), value_name = "STYLE")]
     front_matter: Option<FrontMatter>,
 
-    /// Table row style: zebra (every second row shaded where the
-    /// terminal's colours are known), lines, indent (the lines after the
-    /// first of a wrapped value start two cells in), underline (each row's
-    /// last line underlined), or off; zebra unless set.
+    /// Table row style
+    ///
+    /// The styles are zebra (every second row shaded where the terminal's
+    /// colours are known), lines, indent (the lines after the first of a
+    /// wrapped value start two cells in), underline (each row's last line
+    /// underlined), or off; zebra unless set.
     #[arg(long, value_parser = named::<TableRows>(), value_name = "STYLE")]
     table_rows: Option<TableRows>,
 
-    /// Diagrams in code blocks, such as Mermaid, and formulas: on (drawn
-    /// as images) or off (shown as code); on unless set.
+    /// Draw diagrams and formulas
+    ///
+    /// Diagrams in code blocks, such as Mermaid, and formulas: on (drawn as
+    /// images) or off (shown as code); on unless set.
     #[arg(long, value_parser = named::<bool>(), value_name = "SWITCH")]
     diagrams: Option<bool>,
 
-    /// Where to tell why a diagram could not be drawn: inline (in the
-    /// document, below its code), stderr (a warning) or both; both unless
-    /// set.
+    /// Where to tell why a diagram could not be drawn
+    ///
+    /// The places are inline (in the document, below its code), stderr (a
+    /// warning) or both; both unless set.
     #[arg(long, value_parser = named::<RenderErrors>(), value_name = "WHERE")]
     render_errors: Option<RenderErrors>,
 
-    /// Largest image file to read, in megabytes (at most 100); larger
-    /// images show their alt text.
+    /// Largest image file to read, in megabytes
+    ///
+    /// At most 100; larger images show their alt text.
     #[arg(long, value_name = "MB", default_value_t = 10, value_parser = max_image_size)]
     max_image_size: u64,
 }
