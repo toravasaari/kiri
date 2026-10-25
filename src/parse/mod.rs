@@ -157,26 +157,29 @@ const FORMULA: &str = "math";
 /// A paragraph with display math, `$$…$$`, in it as the paragraphs
 /// before, between and after its formulas and each formula as a code
 /// block in `math`, as GitHub shows them; `None` for any other block.
+/// Display math with nothing in it, such as `$$ $$`, stays text.
 fn split_at_formulas(node: Node<'_>) -> Option<Vec<(Block, Position)>> {
-    let is_formula =
-        |node: &Node<'_>| matches!(&node.data().value, NodeValue::Math(math) if math.display_math);
+    let formula = |node: &Node<'_>| match &node.data().value {
+        NodeValue::Math(math) if math.display_math && !math.literal.trim().is_empty() => {
+            Some(math.literal.trim().to_owned())
+        }
+        _ => None,
+    };
     if !matches!(node.data().value, NodeValue::Paragraph)
-        || !node.children().any(|n| is_formula(&n))
+        || !node.children().any(|n| formula(&n).is_some())
     {
         return None;
     }
     let mut blocks = Vec::new();
     let mut run = Vec::new();
     for child in node.children() {
-        if let NodeValue::Math(math) = &child.data().value
-            && math.display_math
-        {
+        if let Some(source) = formula(&child) {
             blocks.extend(paragraph_of(&run));
             run.clear();
             let line = child.data().sourcepos.start.line;
             let code = Block::CodeBlock {
                 language: Some(FORMULA.to_owned()),
-                code: format!("{}\n", math.literal.trim()),
+                code: format!("{source}\n"),
                 line,
             };
             blocks.push((code, Position::leaf(line)));

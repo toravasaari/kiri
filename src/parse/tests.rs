@@ -815,6 +815,20 @@ fn unterminated_display_math_stays_text() {
 }
 
 #[test]
+fn empty_display_math_stays_text() {
+    assert_eq!(parse("$$ $$\n").blocks, [paragraph("$$ $$")]);
+    assert_eq!(
+        parse("$$\n$$\n").blocks,
+        [Block::Paragraph(vec![
+            text("$$"),
+            Inline::SoftBreak,
+            text("$$")
+        ])]
+    );
+    assert_eq!(parse("a $$ $$ b\n").blocks, [paragraph("a $$ $$ b")]);
+}
+
+#[test]
 fn inline_math_stays_text_as_written() {
     // Until inline formulas are drawn, they read as they always have.
     for source in [
