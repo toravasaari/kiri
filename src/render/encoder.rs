@@ -93,19 +93,23 @@ impl Encoder {
 
     /// The id of the band `columns` cells of `cell` pixels wide, in
     /// `ink`, which is on the screen until it is next cleared: sent to
-    /// `out` first, as it is at its start, unless the terminal holds it.
+    /// `out` first, as it is `elapsed` after its start, unless the
+    /// terminal holds it since the screen was last cleared. A band moves
+    /// on as each frame sends it anew: its pixels cannot be changed where
+    /// it is placed, as the terminal blends new pixels over the old ones.
     pub fn band(
         &mut self,
         columns: u16,
         cell: (u16, u16),
         ink: Ink,
+        elapsed: Duration,
         out: &mut impl Write,
     ) -> io::Result<ImageId> {
         self.shown.insert((columns, cell));
         if let Some(&id) = self.bands.get(&(columns, cell)) {
             return Ok(id);
         }
-        let band = loading::band(columns, cell, ink, Duration::ZERO);
+        let band = loading::band(columns, cell, ink, elapsed);
         let cells = graphics::Cells { columns, rows: 1 };
         let id = ImageId::new(BAND, band.width(), band.height(), cells);
         graphics::transmit_only(out, id, &pixels(&band))?;
@@ -114,26 +118,16 @@ impl Encoder {
     }
 
     /// Tells the encoder that the screen was cleared: no band is on it
-    /// until one is drawn again.
+    /// until one is drawn again, and the terminal no longer holds the
+    /// bands, which nothing places any more.
     pub fn cleared(&mut self) {
         self.shown.clear();
-    }
-
-    /// Gives each band on the screen the pixels it has `elapsed` after
-    /// its start, in `ink`, where it is placed, so that its light part
-    /// moves on.
-    pub fn animate(&self, elapsed: Duration, ink: Ink, out: &mut impl Write) -> io::Result<()> {
-        let shown = (self.shown.iter()).filter_map(|band| Some((band, self.bands.get(band)?)));
-        for (&(columns, cell), &id) in shown {
-            let band = loading::band(columns, cell, ink, elapsed);
-            graphics::edit(out, id, &pixels(&band))?;
-        }
-        Ok(())
+        self.bands.clear();
     }
 
     /// Whether a band is on the screen.
     pub fn has_bands(&self) -> bool {
-        self.shown.iter().any(|band| self.bands.contains_key(band))
+        !self.shown.is_empty()
     }
 
     /// Keeps only the images `lines` place on a terminal with `caps`, as
@@ -336,28 +330,29 @@ mod tests {
     }
 
     #[test]
-    fn a_band_is_sent_once_for_its_width_and_its_pixels_change_as_it_moves_on() {
+    fn a_band_is_sent_once_a_frame_as_it_is_at_the_frame_s_time() {
         let mut encoder = Encoder::new();
         let mut out = Vec::new();
         let cell = (10, 20);
-        let first = encoder.band(4, cell, INK, &mut out).unwrap();
-        let second = encoder.band(4, cell, INK, &mut out).unwrap();
+        let start = Duration::ZERO;
+        let first = encoder.band(4, cell, INK, start, &mut out).unwrap();
+        let second = encoder.band(4, cell, INK, start, &mut out).unwrap();
         assert_eq!(first, second);
         let sent = String::from_utf8(std::mem::take(&mut out)).unwrap();
         // Sent without a placement, which the writer makes.
         assert_eq!(sent.matches("\x1b_Ga=t,").count(), 1, "{sent:?}");
         assert!(encoder.has_bands());
-        encoder
-            .animate(Duration::from_millis(600), INK, &mut out)
-            .unwrap();
-        // The pixels edited where they are placed, not sent again, which
-        // would take the placement away.
-        let moved = String::from_utf8(std::mem::take(&mut out)).unwrap();
-        assert_eq!(moved.matches("\x1b_Ga=f,r=1,").count(), 1, "{moved:?}");
-        assert!(!moved.contains("a=t,"), "{moved:?}");
+        // Clearing the screen frees it, as nothing places it then: sent
+        // again for the next frame, as it is then, under the same id.
+        encoder.cleared();
+        assert!(!encoder.has_bands());
+        let later = Duration::from_millis(600);
+        assert_eq!(encoder.band(4, cell, INK, later, &mut out).unwrap(), first);
+        let again = String::from_utf8(std::mem::take(&mut out)).unwrap();
+        assert_eq!(again.matches("\x1b_Ga=t,").count(), 1, "{again:?}");
+        assert_ne!(again, sent);
         // Gone with the last line that has it.
         encoder.keep(&[], &caps());
-        assert!(!encoder.has_bands());
         encoder.delete_unused(&mut out).unwrap();
         let mut deleted = Vec::new();
         graphics::delete(&mut deleted, first).unwrap();

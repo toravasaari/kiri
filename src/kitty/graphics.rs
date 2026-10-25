@@ -148,20 +148,10 @@ pub fn transmit_only(out: &mut impl Write, id: ImageId, pixels: &Pixels) -> io::
     write_chunks(out, &keys, &compressed(pixels)?)
 }
 
-/// Replaces the pixels of image `id`, sent with [`transmit_only`], with
-/// `pixels` of the same size, where it is placed too: the placements stay,
-/// as they do not when an image is sent again.
-pub fn edit(out: &mut impl Write, id: ImageId, pixels: &Pixels) -> io::Result<()> {
-    let keys = format!(
-        "a=f,r=1,q=2,f=32,o=z,i={},s={},v={}",
-        id.0, pixels.width, pixels.height
-    );
-    write_chunks(out, &keys, &compressed(pixels)?)
-}
-
 /// Places image `id` at the cursor, `down` pixels below the top of its
 /// cell, over the text there, without moving the cursor. Clearing the
-/// screen takes the placement away.
+/// screen takes the placement away, and with it the image, when nothing
+/// else places it.
 pub fn place(out: &mut impl Write, id: ImageId, down: u16) -> io::Result<()> {
     write!(out, "\x1b_Ga=p,q=2,i={},C=1,Y={down},z=1\x1b\\", id.0)
 }
@@ -426,7 +416,7 @@ mod tests {
     }
 
     #[test]
-    fn an_image_sent_apart_is_placed_at_the_cursor_and_edited_in_place() {
+    fn an_image_sent_apart_is_placed_at_the_cursor() {
         let rgba = [1, 2, 3, 4];
         let pixels = Pixels {
             width: 1,
@@ -440,12 +430,6 @@ mod tests {
             sent.starts_with("\x1b_Ga=t,q=2,f=32,o=z,i=1193046,s=1,v=1,m=0;"),
             "{sent:?}"
         );
-        edit(&mut out, ID, &pixels).unwrap();
-        let edited = String::from_utf8(std::mem::take(&mut out)).unwrap();
-        assert!(
-            edited.starts_with("\x1b_Ga=f,r=1,q=2,f=32,o=z,i=1193046,s=1,v=1,m=0;"),
-            "{edited:?}"
-        );
         place(&mut out, ID, 4).unwrap();
         assert_eq!(out, b"\x1b_Ga=p,q=2,i=1193046,C=1,Y=4,z=1\x1b\\");
         let short = Pixels {
@@ -453,6 +437,6 @@ mod tests {
             height: 1,
             rgba: &rgba,
         };
-        assert!(edit(&mut out, ID, &short).is_err());
+        assert!(transmit_only(&mut out, ID, &short).is_err());
     }
 }

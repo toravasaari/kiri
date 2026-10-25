@@ -1292,6 +1292,7 @@ fn show(
     let reload = &mut source.reload;
     let mut now = terminal.now();
     let mut shown = layout.frame(state, now);
+    writer.at(now.saturating_duration_since(source.started));
     shown.draw(layout.view.rows(), writer, terminal)?;
     terminal.flush()?;
     let mut decoder = keys::Decoder::default();
@@ -1359,13 +1360,11 @@ fn show(
             return Ok(Outcome::Resized(window));
         }
         let frame = layout.frame(state, now);
-        if frame != shown {
+        // A band on the screen moves on with each frame drawn.
+        if frame != shown || writer.has_bands() {
             shown = frame;
+            writer.at(now.saturating_duration_since(source.started));
             shown.draw(layout.view.rows(), writer, terminal)?;
-            terminal.flush()?;
-        }
-        if writer.has_bands() {
-            writer.animate(now.saturating_duration_since(source.started), terminal)?;
             terminal.flush()?;
         }
     }
@@ -3922,12 +3921,6 @@ mod tests {
         ids_after(out, "\x1b_Ga=t,q=2,f=32,o=z,i=")
     }
 
-    /// The ids of the images whose pixels `out` changes in place, in
-    /// order.
-    fn edited_ids(out: &str) -> Vec<u32> {
-        ids_after(out, "\x1b_Ga=f,r=1,q=2,f=32,o=z,i=")
-    }
-
     /// The ids of the images `out` deletes, in order.
     fn deleted_ids(out: &str) -> Vec<u32> {
         ids_after(out, "\x1b_Ga=d,d=I,i=")
@@ -4460,8 +4453,9 @@ mod tests {
             config::Follow::Off,
         );
         let frames = terminal.frames();
-        // The first frame, then the reload's, then the image's.
-        assert_eq!(frames.len(), 4, "{frames:#?}");
+        // The first frame, the one that says it reloads, the reload's,
+        // drawn anew while the band moves, then the image's.
+        assert_eq!(frames.len(), 6, "{frames:#?}");
         let reloaded = &frames[2];
         assert!(unstyled(reloaded).contains("After 2"), "{reloaded:?}");
         assert!(
@@ -4472,7 +4466,7 @@ mod tests {
             !status_text(reloaded, 12).contains("notes.md"),
             "{reloaded:?}"
         );
-        let came = &frames[3];
+        let came = frames.last().unwrap();
         assert!(status_text(came, 12).contains("notes.md"), "{came:?}");
         assert!(!status_text(came, 12).contains("rendering"), "{came:?}");
         // Red, red dimmed, then blue; and the band, placed in the reload's
@@ -4506,11 +4500,14 @@ mod tests {
         assert_eq!(terminal.waits[1..6], [FRAME; 5], "{:?}", terminal.waits);
         assert_eq!(terminal.waits[6], POLL, "{:?}", terminal.waits);
         let out = String::from_utf8(terminal.out.clone()).unwrap();
-        // Sent with the frame that shows it, then its pixels changed after
-        // each of the four reads before the image came.
-        assert_eq!(band_ids(&out).len(), 1, "{out:?}");
-        assert_eq!(edited_ids(&out).len(), 4, "{out:?}");
-        assert_eq!(edited_ids(&out)[0], band_ids(&out)[0]);
+        // Sent with the frame that shows it, then with a frame drawn anew
+        // after each of the four reads before the image came, as it is
+        // then.
+        let bands = band_ids(&out);
+        assert_eq!(bands.len(), 5, "{out:?}");
+        assert_eq!(sorted(bands).len(), 1, "{out:?}");
+        let frames = terminal.frames();
+        assert_eq!(frames.len(), 8, "{frames:#?}");
     }
 
     #[test]
@@ -4638,20 +4635,20 @@ mod tests {
             .collect();
         // After the row's cursor move and kiri's name.
         let named = |status: &String| status.split_whitespace().nth(2).unwrap_or("").to_owned();
-        let names: Vec<String> = statuses.iter().map(named).collect();
+        let mut names: Vec<String> = statuses.iter().map(named).collect();
+        // Frames drawn anew as the band moves say the same.
+        names.dedup();
         assert_eq!(
             names,
-            [
-                "notes.md",
-                "notes.md",
-                "[rendering:",
-                "[rendering:",
-                "notes.md"
-            ],
+            ["notes.md", "[rendering:", "notes.md"],
             "{statuses:#?}"
         );
-        assert!(statuses[2].contains("[rendering: 0/2]"), "{statuses:#?}");
-        assert!(statuses[3].contains("[rendering: 1/2]"), "{statuses:#?}");
+        let at = |count: &str| statuses.iter().position(|status| status.contains(count));
+        let (none, one) = (at("[rendering: 0/2]"), at("[rendering: 1/2]"));
+        assert!(
+            none.is_some() && one.is_some() && none < one,
+            "{statuses:#?}"
+        );
     }
 
     #[test]
@@ -4760,8 +4757,9 @@ mod tests {
             config::Follow::Off,
         );
         let frames = terminal.frames();
-        // The first, reloading, reloaded, reloading, failed.
-        assert_eq!(frames.len(), 5, "{frames:#?}");
+        // The first, reloading, reloaded, reloading, failed, and it drawn
+        // anew as the band moves.
+        assert_eq!(frames.len(), 6, "{frames:#?}");
         let placeholders = |frame: &str| frame.matches(crate::kitty::graphics::PLACEHOLDER).count();
         // The dimmed image, and the band below it.
         for frame in [&frames[2], &frames[4]] {
@@ -4844,12 +4842,12 @@ mod tests {
         let waits = &terminal.waits;
         assert_eq!(waits[2], FRAME, "{waits:?}");
         assert_eq!(waits[4..6], [POLL, POLL], "{waits:?}");
-        // Placed in the frame that showed it and moved on after the read
-        // below; neither once it is out of view.
+        // Placed in the frame that showed it and the one after the read
+        // below; not once it is out of view.
         let out = String::from_utf8(terminal.out.clone()).unwrap();
         let (_, after) = out.rsplit_once("\x1b[?2026h").unwrap();
-        assert_eq!(edited_ids(&out).len(), 1, "{out:?}");
-        assert!(edited_ids(after).is_empty(), "{out:?}");
+        assert_eq!(band_ids(&out).len(), 2, "{out:?}");
+        assert!(band_ids(after).is_empty(), "{out:?}");
         assert!(!after.contains("\x1b_Ga=p,"), "{out:?}");
     }
 

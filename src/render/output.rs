@@ -80,6 +80,9 @@ pub struct Writer<'a> {
     dim: bool,
     /// The colour of placeholders and of the bands below them.
     ink: Ink,
+    /// How long the bands have moved, which tells where their light part
+    /// is.
+    elapsed: Duration,
     /// What the terminal holds of the images.
     encoder: &'a mut Encoder,
 }
@@ -100,6 +103,7 @@ impl<'a> Writer<'a> {
             foreground: page.foreground.filter(|_| caps.color),
             dim: false,
             ink: Ink::new(page, caps),
+            elapsed: Duration::ZERO,
             encoder,
         }
     }
@@ -147,7 +151,7 @@ impl<'a> Writer<'a> {
         // it would be drawn over.
         if let Some(band) = line.band.filter(|_| row == 0 && !self.dim) {
             let cell = cell_size(caps);
-            let id = self.encoder.band(band.columns, cell, self.ink, out)?;
+            let id = (self.encoder).band(band.columns, cell, self.ink, self.elapsed, out)?;
             out.write_all(b"\x1b7")?;
             if band.indent > 0 {
                 write!(out, "\x1b[{}C", band.indent)?;
@@ -218,10 +222,10 @@ impl Writer<'_> {
         self.encoder.delete_unused(out)
     }
 
-    /// Moves the bands below the images that are loading on to how they
+    /// Draws the bands of the images that are loading from now on as they
     /// are `elapsed` after their start.
-    pub fn animate(&self, elapsed: Duration, out: &mut impl Write) -> io::Result<()> {
-        self.encoder.animate(elapsed, self.ink, out)
+    pub fn at(&mut self, elapsed: Duration) {
+        self.elapsed = elapsed;
     }
 
     /// Whether a band below an image that is loading is on the screen.
