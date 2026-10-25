@@ -459,19 +459,7 @@ pub fn load_parts(
     fonts: &Fonts,
     options: &LoadOptions<'_>,
 ) -> Images {
-    load_wanted(parts, max_file_size, fonts, options, None)
-}
-
-/// `load_parts`, taking the images that `kept` holds under the keys the
-/// parts want, instead of loading them.
-fn load_wanted(
-    parts: &[Part<'_>],
-    max_file_size: u64,
-    fonts: &Fonts,
-    options: &LoadOptions<'_>,
-    kept: Option<&mut Images>,
-) -> Images {
-    let (wanted, mut have) = plan(parts, options.renderer, kept);
+    let (wanted, mut have) = plan(parts, options.renderer, None);
     let key = |&(index, ref image): &(usize, Wanted)| image.key().in_document(parts[index].number);
     // The diagrams first, all together, so a renderer can draw several
     // at once.
@@ -562,20 +550,6 @@ fn plan<'p>(
         })
         .collect();
     (wanted, have)
-}
-
-/// `load_parts` again for documents that may have changed: an image whose
-/// key `kept` still holds is taken from it rather than loaded, and a
-/// diagram, keyed by its source, is not drawn again unless it failed.
-/// What `kept` holds that no part shows any more is dropped.
-pub fn reload_parts(
-    parts: &[Part<'_>],
-    max_file_size: u64,
-    fonts: &Fonts,
-    options: &LoadOptions<'_>,
-    kept: &mut Images,
-) -> Images {
-    load_wanted(parts, max_file_size, fonts, options, Some(kept))
 }
 
 /// The languages of the code blocks in `document` that `renderer` draws
@@ -837,15 +811,8 @@ Text ![inline](images/pattern.png) and words.
         };
         assert_eq!(calls(&stub), ["a\n", "b\n"]);
         let parts = [part(&after)];
-        let reloaded = reload_parts(
-            &parts,
-            DEFAULT_MAX_FILE_SIZE,
-            &Fonts::none(),
-            &options,
-            &mut images,
-        );
-        assert_eq!(calls(&stub), ["a\n", "b\n", "c\n"]);
-        let keys: Vec<_> = reloaded.iter().map(|(key, _)| key.clone()).collect();
+        let (wanted, have) = plan(&parts, &stub, Some(&mut images));
+        let keys: Vec<_> = (wanted.iter()).map(|(_, image)| image.key()).collect();
         assert_eq!(
             keys,
             [
@@ -853,7 +820,10 @@ Text ![inline](images/pattern.png) and words.
                 ImageKey::block("mermaid", "c\n")
             ]
         );
-        assert!(reloaded.iter().all(|(_, image)| image.is_ok()));
+        // `a` is taken as it was, `c` is to be drawn, and `b` is left.
+        assert!(matches!(have[..], [Some(Ok(_)), None]), "{have:?}");
+        let left: Vec<_> = images.iter().map(|(key, _)| key.clone()).collect();
+        assert_eq!(left, [ImageKey::block("mermaid", "b\n")]);
     }
 
     #[test]
@@ -870,15 +840,9 @@ Text ![inline](images/pattern.png) and words.
         let key = ImageKey::block("mermaid", "flaky\n");
         let mut images = load_parts(&parts, DEFAULT_MAX_FILE_SIZE, &Fonts::none(), &options);
         assert!(matches!(images.get(&key), Some(Err(_))), "{images:?}");
-        let reloaded = reload_parts(
-            &parts,
-            DEFAULT_MAX_FILE_SIZE,
-            &Fonts::none(),
-            &options,
-            &mut images,
-        );
-        assert_eq!(stub.calls.borrow().len(), 2);
-        assert!(matches!(reloaded.get(&key), Some(Ok(_))), "{reloaded:?}");
+        let (wanted, have) = plan(&parts, &stub, Some(&mut images));
+        assert_eq!(wanted.len(), 1);
+        assert!(matches!(have[..], [None]), "{have:?}");
     }
 
     #[test]
