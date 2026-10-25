@@ -1294,9 +1294,7 @@ fn show(
     let reload = &mut source.reload;
     // The images loading start nearest to the lines in view.
     let mut told = layout.view.visible();
-    source
-        .loads
-        .prefer(loading::nearest(layout.lines, told.clone()));
+    prefer(source.loads, layout.lines, told.clone());
     let mut now = terminal.now();
     let mut shown = layout.frame(state, now);
     writer.at(now.saturating_duration_since(source.started));
@@ -1360,9 +1358,7 @@ fn show(
         }
         if layout.view.visible() != told {
             told = layout.view.visible();
-            source
-                .loads
-                .prefer(loading::nearest(layout.lines, told.clone()));
+            prefer(source.loads, layout.lines, told.clone());
         }
         let came = source.loads.poll();
         if !came.is_empty() {
@@ -1381,6 +1377,17 @@ fn show(
             terminal.flush()?;
         }
     }
+}
+
+/// Tells `loads` to load the images of `lines` nearest to the lines
+/// `visible` first, and starts what it holds; with nothing loading,
+/// there is nothing to order.
+fn prefer(loads: &mut Loads, lines: &[Line], visible: Range<usize>) {
+    let keys = match loads.is_empty() {
+        true => Vec::new(),
+        false => loading::nearest(lines, visible),
+    };
+    loads.prefer(keys);
 }
 
 /// Draws `lines` from the top of the screen, with the rows below them

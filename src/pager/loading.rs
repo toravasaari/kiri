@@ -4,7 +4,7 @@
 //! one that stayed while its image file changed, shows as it does without
 //! its image. The images nearest to the view load first.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use crate::compare::{self, Comparison, Fate};
@@ -49,13 +49,11 @@ pub fn nearest(lines: &[Line], visible: Range<usize>) -> Vec<ImageKey> {
         })
         .collect();
     found.sort_by_key(|&(away, at, _)| (away, at));
-    let mut keys: Vec<ImageKey> = Vec::new();
-    for (_, _, key) in found {
-        if !keys.contains(key) {
-            keys.push(key.clone());
-        }
-    }
-    keys
+    let mut seen = HashSet::new();
+    (found.into_iter())
+        .filter(|&(_, _, key)| seen.insert(key))
+        .map(|(_, _, key)| key.clone())
+        .collect()
 }
 
 /// The images reloading `old` as `new` left, which `changes` tells
