@@ -65,7 +65,7 @@ fn images_in_running_text_tables_and_headings_stay_alt_text() {
     let source = "Text ![inline](p.png) here.\n\n\
         [![with words](p.png) and words](https://example.com)\n\n\
         | ![cell](p.png) |\n|---|\n| x |\n\n\
-        # ![heading](p.png)\n";
+        ## ![heading](p.png)\n";
     let out = render(source, &with_images(&Capabilities::kitty(WIDTH), images));
     assert!(sent(&out).is_empty(), "{out:?}");
     assert!(drawn(&out).is_empty(), "{out:?}");

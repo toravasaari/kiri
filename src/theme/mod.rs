@@ -5,7 +5,7 @@
 
 use crate::color::{Color, Underline};
 use crate::model::AlertKind;
-use crate::size::TextSize;
+use crate::size::{TextSize, VerticalAlign};
 
 mod file;
 mod paper;
@@ -231,6 +231,9 @@ fn github_alert_color(kind: AlertKind, dark: bool) -> Color {
 pub struct HeadingTheme {
     /// The heading's size, drawn with kitty's text sizing.
     pub size: TextSize,
+    /// The scale as the theme file wrote it, when kiri had to round it to
+    /// a size it can draw.
+    pub written_scale: Option<String>,
     pub color: Option<Color>,
     pub bold: bool,
     pub italic: bool,
@@ -259,14 +262,17 @@ pub enum CodeBackground {
 }
 
 impl HeadingTheme {
-    fn new(scale: u8, color: Option<Color>, bold: bool, underline: Underline) -> Self {
+    /// A bold heading in `color`, `size` times the normal size.
+    fn new(size: f64, color: Option<Color>) -> Self {
         Self {
-            size: TextSize::new(scale).expect("a default heading scale is 1 to 7"),
+            size: TextSize::nearest(size, VerticalAlign::Bottom)
+                .expect("a default heading size is from 0.5 to 7"),
+            written_scale: None,
             color,
-            bold,
+            bold: true,
             italic: false,
             rule: false,
-            underline,
+            underline: Underline::None,
             background: None,
             indent: 0,
         }
@@ -276,7 +282,6 @@ impl HeadingTheme {
 const RED: Option<Color> = Some(Color::Palette(1));
 const BLUE: Option<Color> = Some(Color::Palette(4));
 const MAGENTA: Option<Color> = Some(Color::Palette(5));
-const CYAN: Option<Color> = Some(Color::Palette(6));
 const GREY: Option<Color> = Some(Color::Palette(8));
 
 impl Default for Theme {
@@ -287,18 +292,15 @@ impl Default for Theme {
             foreground: None,
             muted: None,
             text_margin: 2,
-            // Size carries the hierarchy; bold and the underline style tell
-            // apart levels of the same size.
+            // Size alone carries the hierarchy, a quarter of the normal
+            // size from one level to the next.
             headings: [
-                HeadingTheme::new(3, BLUE, true, Underline::Single),
-                HeadingTheme::new(2, BLUE, true, Underline::Single),
-                HeadingTheme::new(2, BLUE, false, Underline::Dotted),
-                HeadingTheme::new(1, BLUE, true, Underline::Single),
-                HeadingTheme::new(1, BLUE, false, Underline::Dotted),
-                HeadingTheme {
-                    italic: true,
-                    ..HeadingTheme::new(1, CYAN, false, Underline::Dotted)
-                },
+                HeadingTheme::new(2.5, BLUE),
+                HeadingTheme::new(2.0, BLUE),
+                HeadingTheme::new(1.75, BLUE),
+                HeadingTheme::new(1.5, BLUE),
+                HeadingTheme::new(1.25, BLUE),
+                HeadingTheme::new(1.0, BLUE),
             ],
             link: BLUE,
             inline_code: MAGENTA,
@@ -390,6 +392,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn default_headings_shrink_by_quarters_in_bold_blue() {
+        let theme = Theme::default();
+        let sizes: Vec<f64> = (theme.headings.iter())
+            .map(|heading| heading.size.value())
+            .collect();
+        assert_eq!(sizes, [2.5, 2.0, 1.75, 1.5, 1.25, 1.0]);
+        for (level, heading) in (1..).zip(&theme.headings) {
+            // The spare room of the rows goes above the text.
+            if heading.size.fraction().is_some() {
+                assert_eq!(heading.size.align(), VerticalAlign::Bottom, "h{level}");
+            }
+            assert!(heading.bold, "h{level}");
+            assert!(!heading.italic, "h{level}");
+            assert_eq!(heading.underline, Underline::None, "h{level}");
+            assert_eq!(heading.color, BLUE, "h{level}");
+        }
+    }
+
+    #[test]
     fn muted_text_is_dimmed_unless_the_theme_gives_it_a_colour() {
         assert_eq!(Theme::default().muted, None);
         assert_eq!(
@@ -471,6 +492,7 @@ mod tests {
             for heading in headings {
                 let HeadingTheme {
                     size: _,
+                    written_scale: _,
                     color,
                     bold: _,
                     italic: _,

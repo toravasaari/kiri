@@ -9,6 +9,7 @@ use std::rc::Rc;
 
 use super::block::{BlockId, Blocks};
 use super::image::{self, Placement, Shows};
+use super::script::{self, Script};
 use super::style::{Band, Line, Spaces, Span, Style, push};
 use super::table::{self, Cells};
 use super::wrap::{width, wrap};
@@ -17,7 +18,7 @@ use crate::caps::Capabilities;
 use crate::color::{Color, Underline};
 use crate::images::{ImageError, ImageKey, Images, Placeholder};
 use crate::model::{Block, Document, File, Image, Inline, SourceLines, Table};
-use crate::size::TextSize;
+use crate::size::{TextSize, VerticalAlign};
 use crate::theme::{BandColor, Theme};
 
 /// How much of the text colour a striped table row mixes into the page.
@@ -908,6 +909,8 @@ impl Layout<'_> {
                 };
                 self.inlines(content, &self.style(style), out)
             }
+            Inline::Subscript(content) => self.script(Script::Sub, content, style, out),
+            Inline::Superscript(content) => self.script(Script::Sup, content, style, out),
             Inline::Link { url, content } => self.link(url, content, style, out),
             Inline::Image(Image { alt, .. }) => {
                 let image_style = self.muted(Style {
@@ -923,6 +926,36 @@ impl Layout<'_> {
             Inline::SoftBreak => push(out, " ", style),
             Inline::LineBreak => push(out, "\n", style),
             Inline::Html(html) => push(out, html, &self.muted(style.clone())),
+        }
+    }
+
+    /// A sub- or superscript: with text sizing, `content` at two thirds of
+    /// the size around it, in the same rows, a sup at their top and a sub at
+    /// their bottom. Without, in Unicode's `script` characters when it is
+    /// plain text and every character has one, or else as it is. A script
+    /// inside it is drawn as part of it.
+    fn script(&self, script: Script, content: &[Inline], style: &Style, out: &mut Vec<Span>) {
+        let content = without_scripts(content);
+        if self.caps.text_sizing {
+            let align = match script {
+                Script::Sup => VerticalAlign::Top,
+                Script::Sub => VerticalAlign::Bottom,
+            };
+            let style = Style {
+                size: style.size.times(2.0 / 3.0, align),
+                ..style.clone()
+            };
+            return self.inlines(&content, &style, out);
+        }
+        let text: Option<String> = (content.iter())
+            .map(|inline| match inline {
+                Inline::Text(text) => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        match text.and_then(|text| script::characters(script, &text)) {
+            Some(characters) => push(out, &characters, style),
+            None => self.inlines(&content, style, out),
         }
     }
 
@@ -1005,6 +1038,31 @@ pub(super) fn image_rows(placement: Placement) -> Vec<Line> {
     (0..rows)
         .map(|row| Line::image(Rc::clone(&placement), row))
         .collect()
+}
+
+/// `content` with every sub- and superscript in it replaced by its own
+/// content.
+fn without_scripts(content: &[Inline]) -> Vec<Inline> {
+    let mut out = Vec::new();
+    for inline in content {
+        out.push(match inline {
+            Inline::Subscript(inner) | Inline::Superscript(inner) => {
+                out.extend(without_scripts(inner));
+                continue;
+            }
+            Inline::Emphasis(inner) => Inline::Emphasis(without_scripts(inner)),
+            Inline::Strong(inner) => Inline::Strong(without_scripts(inner)),
+            Inline::Strikethrough(inner) => Inline::Strikethrough(without_scripts(inner)),
+            Inline::Kbd(inner) => Inline::Kbd(without_scripts(inner)),
+            Inline::Mark(inner) => Inline::Mark(without_scripts(inner)),
+            Inline::Link { url, content } => Inline::Link {
+                url: url.clone(),
+                content: without_scripts(content),
+            },
+            inline => inline.clone(),
+        });
+    }
+    out
 }
 
 #[cfg(test)]

@@ -225,6 +225,10 @@ pub enum Inline {
     Kbd(Vec<Inline>),
     /// Text marked as relevant, as a highlighter would: HTML's `<mark>`.
     Mark(Vec<Inline>),
+    /// Text set low and small, as in H₂O: HTML's `<sub>`.
+    Subscript(Vec<Inline>),
+    /// Text set high and small, as in x²: HTML's `<sup>`.
+    Superscript(Vec<Inline>),
     Link {
         url: String,
         content: Vec<Inline>,
@@ -283,6 +287,8 @@ impl Inline {
                 | Inline::Strikethrough(content)
                 | Inline::Kbd(content)
                 | Inline::Mark(content)
+                | Inline::Subscript(content)
+                | Inline::Superscript(content)
                 | Inline::Link { content, .. }
                 | Inline::Image(Image { alt: content, .. }) => {
                     out.push_str(&Self::plain_text(content))

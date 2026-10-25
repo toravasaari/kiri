@@ -10,6 +10,7 @@ use kiri::caps::Capabilities;
 use kiri::config::{Environment, Options, Origin, Setting, choose};
 use kiri::doctor::{Facts, report};
 use kiri::term::{Detection, Mode, WindowSize};
+use kiri::theme::Theme;
 
 mod common;
 
@@ -391,6 +392,24 @@ fn a_theme_that_does_not_load_is_a_problem_in_the_report() {
     );
 }
 
+/// The heading sizes of a theme that does not load are the default ones,
+/// and the row says so instead of naming the theme.
+#[test]
+fn heading_sizes_of_a_theme_that_does_not_load_are_the_defaults() {
+    let dir = Scratch::new("doctor-broken-theme-sizes");
+    let theme = dir.join("mine.toml");
+    write(&theme, "[h1]\nscale = 9\n");
+    let report = piped(&dir, &["--theme", theme.to_str().unwrap()]);
+    assert!(
+        report.contains("h1.scale must be between 0.5 and 7"),
+        "{report}"
+    );
+    assert!(
+        report.contains("| Heading sizes | 2.5, 2, 1.75, 1.5, 1.25, 1 | default |"),
+        "{report}"
+    );
+}
+
 #[test]
 fn the_files_tell_where_their_paths_come_from() {
     let dir = Scratch::new("doctor-file-origins");
@@ -624,7 +643,7 @@ fn a_terminal_gets_the_report_rendered_with_its_test_image() {
     let dir = Scratch::new("doctor-terminal");
     let output = in_terminal(&dir, &["--mode", "kitty"], None);
     assert!(!output.contains("## Terminal"), "{output:?}");
-    assert!(output.contains("kiri doctor"), "{output:?}");
+    assert!(output.contains("terminal features"), "{output:?}");
     assert!(output.contains("kiri --doctor --raw"), "{output:?}");
     assert_eq!(common::graphics_commands(&output).len(), 1, "{output:?}");
 }
@@ -741,6 +760,7 @@ fn the_report_on_kitty() {
         max_image_size: Setting::new(10, Origin::Default),
         detection: &detection,
         choices: &choices,
+        theme: &Theme::default(),
         config_error: None,
         theme_error: None,
         output: kiri::doctor::Output::Rendered,
@@ -766,6 +786,7 @@ fn the_terminal_name_is_shown_as_code() {
         max_image_size: Setting::new(10, Origin::Default),
         detection: &detection,
         choices: &choices,
+        theme: &Theme::default(),
         config_error: None,
         theme_error: None,
         output: kiri::doctor::Output::Markdown,
@@ -795,6 +816,7 @@ fn in_the_background_the_terminal_is_not_asked() {
         max_image_size: Setting::new(10, Origin::Default),
         detection: &detection,
         choices: &choices,
+        theme: &Theme::default(),
         config_error: None,
         theme_error: None,
         output: kiri::doctor::Output::Markdown,
@@ -802,6 +824,40 @@ fn in_the_background_the_terminal_is_not_asked() {
     let report = report(&facts);
     assert!(
         report.contains("| Terminal | not asked: kiri runs in the background |"),
+        "{report}"
+    );
+}
+
+/// A heading size that kiri rounded shows what the theme wrote beside what
+/// is drawn.
+#[test]
+fn heading_sizes_show_their_rounding() {
+    let env = Environment::default();
+    let detection = Detection {
+        caps: Capabilities::kitty(80),
+        window: None,
+        answers: None,
+        background: false,
+    };
+    let choices = choose(&Options::default(), &env, &Default::default());
+    let theme = kiri::theme::parse("[h1]\nscale = 3\n[h5]\nscale = 1.3\n").unwrap();
+    let facts = Facts {
+        env: &env,
+        mode: Setting::new(Mode::Auto, Origin::Default),
+        width: None,
+        max_image_size: Setting::new(10, Origin::Default),
+        detection: &detection,
+        choices: &choices,
+        theme: &theme,
+        config_error: None,
+        theme_error: None,
+        output: kiri::doctor::Output::Markdown,
+    };
+    let report = report(&facts);
+    assert!(
+        report.contains(
+            "| Heading sizes | 3, 2, 1.75, 1.5, 1.3 (drawn 1.27 = 2 · 7/11), 1 | default |"
+        ),
         "{report}"
     );
 }

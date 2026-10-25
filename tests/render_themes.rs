@@ -162,7 +162,8 @@ fn no_color_keeps_everything_but_colours() {
         assert!(out.contains("\x1b]66;s="), "{fixture}: heading sizes stay");
         assert!(out.contains("\x1b[0;1"), "{fixture}: bold stays");
     }
-    let out = render_for("elements.md", caps.clone());
+    let dotted = kiri::theme::parse("[headings]\nunderline = \"dotted\"\n").unwrap();
+    let out = render_fixture("elements.md", &inputs(&caps, &dotted));
     assert!(out.contains("\x1b]8;;https://example.com"), "links stay");
     assert!(out.contains(";4:4"), "underline styles stay");
     assert!(out.contains("\x1b[0;9m"), "strikethrough stays");

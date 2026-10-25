@@ -251,7 +251,11 @@ fn matches_are_marked_in_large_headings_and_in_tables() {
     reads.extend([b"".as_slice(); 30]);
     let mut terminal = Fake::new(60, 12, &reads);
     let source = "# Kiri title\n\n| a | b |\n|---|---|\n| c | kiri |\n";
-    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    let mut inputs = Inputs {
+        // A whole scale; fractions have a test of their own.
+        theme: crate::theme::parse("[h1]\nscale = 3\n").unwrap(),
+        ..Inputs::new(Capabilities::kitty(80))
+    };
     run_document(
         &crate::parse::parse(source),
         &mut inputs,
@@ -268,6 +272,58 @@ fn matches_are_marked_in_large_headings_and_in_tables() {
     assert!(cell.contains(&"7".into()) && !cell.contains(&"1".into()));
     // Without the search, neither is marked.
     assert!(!document_part(&frames[0], 12).contains(";7"), "{frames:#?}");
+}
+
+#[test]
+fn a_match_in_a_fractional_heading_marks_whole_groups() {
+    let mut reads = vec![b"/iri\r".as_slice()];
+    reads.extend([b"".as_slice(); 30]);
+    let mut terminal = Fake::new(60, 12, &reads);
+    // The default h1 is 2 1/2: groups of six cells, `Kiri t` and `itle`.
+    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    run_document(
+        &crate::parse::parse("# Kiri title\n"),
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let frames = terminal.frames();
+    let found = document_part(frames.last().unwrap(), 12);
+    let group = "\x1b]66;s=3:n=5:d=6:v=1:w=5;Kiri t\x1b\\";
+    assert!(
+        style_before(found, group).contains(&"7".into()),
+        "{found:?}"
+    );
+    assert!(
+        found.contains("\x1b[0;1;34m\x1b]66;s=3:n=5:d=6:v=1:w=4;itle"),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_match_in_a_sup_marks_whole_groups() {
+    let mut reads = vec![b"/e\r".as_slice()];
+    reads.extend([b"".as_slice(); 30]);
+    let mut terminal = Fake::new(60, 12, &reads);
+    // A sup is packed three cells in two: `abc` and `def`.
+    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    run_document(
+        &crate::parse::parse("x<sup>abcdef</sup>\n"),
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let frames = terminal.frames();
+    let found = document_part(frames.last().unwrap(), 12);
+    let group = "\x1b]66;s=1:n=2:d=3:w=2;def\x1b\\";
+    assert!(
+        style_before(found, group).contains(&"7".into()),
+        "{found:?}"
+    );
+    assert!(
+        found.contains("x\x1b]66;s=1:n=2:d=3:w=2;abc\x1b\\"),
+        "{found:?}"
+    );
 }
 
 #[test]

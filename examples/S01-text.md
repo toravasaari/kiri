@@ -17,9 +17,9 @@ kiri examples/S01-text.md
 
 ## Heading levels
 
-Level one is three times the normal size, levels two and three twice,
-and levels four to six normal size. Underlines, weight, colour and italic
-tell the levels of the same size apart.
+Level one is two and a half times the normal size, and each level after
+it a quarter smaller, down to the normal size at level six. Every level is
+bold and blue, without an underline: size alone tells them apart.
 
 # Level one
 
@@ -114,6 +114,14 @@ line<br/>third line.
 Press <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy, or <kbd>Page Down</kbd> to
 move on. A `<kbd>` is drawn as inline code is, in the same colours, and
 between backticks without colours.
+
+### Sub and sup
+
+Water is H<sub>2</sub>O, and x<sup>2</sup> + y<sup>2</sup> = r<sup>2</sup>
+on the 2<sup>nd</sup> try. With kitty's text sizing a `<sub>` or `<sup>`
+is drawn at two thirds of the size around it, lowered or raised; other
+terminals get Unicode's script characters, such as ² and ₂, when every
+character has one, and else the text as it is: e<sup>iπ</sup>.
 
 ### Marked text
 
