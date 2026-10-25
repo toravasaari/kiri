@@ -209,7 +209,12 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     };
     row(out, &["Theme", &theme, &from(choices.theme.origin)])?;
     let sizes = heading_sizes(facts.theme);
-    row(out, &["Heading sizes", &sizes, &from(choices.theme.origin)])?;
+    // A theme that does not load leaves the default sizes.
+    let origin = match facts.theme_error {
+        Some(_) => Origin::Default,
+        None => choices.theme.origin,
+    };
+    row(out, &["Heading sizes", &sizes, &from(origin)])?;
     let margins = &choices.margins;
     row(
         out,

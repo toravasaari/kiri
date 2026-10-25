@@ -392,6 +392,24 @@ fn a_theme_that_does_not_load_is_a_problem_in_the_report() {
     );
 }
 
+/// The heading sizes of a theme that does not load are the default ones,
+/// and the row says so instead of naming the theme.
+#[test]
+fn heading_sizes_of_a_theme_that_does_not_load_are_the_defaults() {
+    let dir = Scratch::new("doctor-broken-theme-sizes");
+    let theme = dir.join("mine.toml");
+    write(&theme, "[h1]\nscale = 9\n");
+    let report = piped(&dir, &["--theme", theme.to_str().unwrap()]);
+    assert!(
+        report.contains("h1.scale must be between 0.5 and 7"),
+        "{report}"
+    );
+    assert!(
+        report.contains("| Heading sizes | 2.5, 2, 1.75, 1.5, 1.25, 1 | default |"),
+        "{report}"
+    );
+}
+
 #[test]
 fn the_files_tell_where_their_paths_come_from() {
     let dir = Scratch::new("doctor-file-origins");
