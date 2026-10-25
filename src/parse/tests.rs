@@ -1,6 +1,16 @@
 use super::*;
 use crate::model::Length;
 
+/// An image of `url` with `alt` text and no size.
+fn image(url: &str, alt: Vec<Inline>) -> Inline {
+    Inline::Image(Image {
+        url: url.into(),
+        alt,
+        width: None,
+        height: None,
+    })
+}
+
 fn text(text: &str) -> Inline {
     Inline::Text(text.into())
 }
@@ -94,28 +104,21 @@ fn parses_tables_with_alignment() {
 }
 
 #[test]
-fn reads_an_html_img_as_an_image() {
-    let image = || {
-        Inline::Image(Image {
-            url: "a.png".into(),
-            alt: vec![text("An image")],
-            width: None,
-            height: None,
-        })
-    };
+fn reads_an_html_img_as_an_expected() {
+    let expected = || image("a.png", vec![text("An image")]);
     assert_eq!(
         parse("<img src=\"a.png\" alt=\"An image\">\n").blocks,
-        vec![Block::Paragraph(vec![image()])]
+        vec![Block::Paragraph(vec![expected()])]
     );
     assert_eq!(
         parse("<p align=\"center\">\n  <img src=\"a.png\" alt=\"An image\">\n</p>\n").blocks,
-        vec![Block::Paragraph(vec![image()])]
+        vec![Block::Paragraph(vec![expected()])]
     );
     assert_eq!(
         parse("Text <img src=\"a.png\" alt=\"An image\"> here.\n").blocks,
         vec![Block::Paragraph(vec![
             text("Text "),
-            image(),
+            expected(),
             text(" here.")
         ])]
     );
@@ -125,12 +128,7 @@ fn reads_an_html_img_as_an_image() {
 fn an_img_without_alt_has_no_alt_text() {
     assert_eq!(
         parse("<img src=a.png>\n").blocks,
-        vec![Block::Paragraph(vec![Inline::Image(Image {
-            url: "a.png".into(),
-            alt: Vec::new(),
-            width: None,
-            height: None,
-        })])]
+        vec![Block::Paragraph(vec![image("a.png", Vec::new())])]
     );
 }
 
@@ -138,12 +136,7 @@ fn an_img_without_alt_has_no_alt_text() {
 fn reads_an_html_link_around_an_img_as_a_link() {
     let linked = || Inline::Link {
         url: "https://x".into(),
-        content: vec![Inline::Image(Image {
-            url: "a.png".into(),
-            alt: vec![text("x")],
-            width: None,
-            height: None,
-        })],
+        content: vec![image("a.png", vec![text("x")])],
     };
     assert_eq!(
         parse("<a href=\"https://x\"><img src=\"a.png\" alt=\"x\"></a>\n").blocks,
@@ -166,12 +159,7 @@ fn keeps_an_html_link_around_more_than_an_img_as_source() {
         vec![Block::Paragraph(vec![
             Inline::Html("<a href=x>".into()),
             text("text "),
-            Inline::Image(Image {
-                url: "a.png".into(),
-                alt: Vec::new(),
-                width: None,
-                height: None,
-            }),
+            image("a.png", Vec::new()),
             Inline::Html("</a>".into()),
         ])]
     );
@@ -480,12 +468,7 @@ fn a_details_in_one_block_holds_its_text_as_a_paragraph() {
         parse("<details><summary>Logo</summary><img src=a.png alt=x></details>\n").blocks,
         vec![details(
             vec![text("Logo")],
-            vec![Block::Paragraph(vec![Inline::Image(Image {
-                url: "a.png".into(),
-                alt: vec![text("x")],
-                width: None,
-                height: None,
-            })])]
+            vec![Block::Paragraph(vec![image("a.png", vec![text("x")])])]
         )]
     );
 }
@@ -548,12 +531,7 @@ fn turns_shortcodes_inside_inlines_into_emoji() {
             text(" "),
             Inline::Strikethrough(vec![text("\u{1F525}")]),
             text(" "),
-            Inline::Image(Image {
-                url: "a.png".into(),
-                alt: vec![text("\u{1F680}")],
-                width: None,
-                height: None,
-            }),
+            image("a.png", vec![text("\u{1F680}")]),
         ])]
     );
 }
