@@ -887,11 +887,10 @@ A part that needs one names it, such as "needs G1.3".
   have.
 - Status line key hints written once with the keys they name.
 
-#### G6.2 Shorter help texts
+#### G6.2 Shorter help texts (done)
 
-- `kiri --help` explains many options in several sentences, such as
-  `[FILE]...` in five lines; one short line each would do, with the
-  details in the documentation.
+- `kiri -h` gives each option one short line; `kiri --help` shows the
+  details below it.
 
 ### G7 Pager
 
