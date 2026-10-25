@@ -4,7 +4,7 @@ pub mod csv;
 mod front_matter;
 mod html;
 
-use comrak::nodes::{AlertType, ListType, NodeValue, TableAlignment};
+use comrak::nodes::{AlertType, ListType, NodeMath, NodeValue, TableAlignment};
 use comrak::{Arena, Node, Options, parse_document};
 
 use self::html::DetailsPart;
@@ -121,6 +121,14 @@ fn move_lines(blocks: &mut [Block], by: usize) {
 }
 
 fn options() -> Options<'static> {
+    let mut options = options_without_math();
+    options.extension.math_dollars = true;
+    options
+}
+
+/// The options without `$` math, with which an inline formula reads as
+/// it did before kiri drew formulas.
+fn options_without_math() -> Options<'static> {
     let mut options = Options::default();
     options.extension.table = true;
     options.extension.strikethrough = true;
@@ -132,7 +140,73 @@ fn options() -> Options<'static> {
 }
 
 fn blocks(parent: Node<'_>) -> Vec<(Block, Position)> {
-    join_details(parent.children().filter_map(block))
+    join_details(
+        parent
+            .children()
+            .flat_map(|node| match split_at_formulas(node) {
+                Some(blocks) => blocks,
+                None => block(node).into_iter().collect(),
+            }),
+    )
+}
+
+/// The language of a code block that holds a formula, as ` ```math `
+/// names it.
+const FORMULA: &str = "math";
+
+/// A paragraph with display math, `$$…$$`, in it as the paragraphs
+/// before, between and after its formulas and each formula as a code
+/// block in `math`, as GitHub shows them; `None` for any other block.
+fn split_at_formulas(node: Node<'_>) -> Option<Vec<(Block, Position)>> {
+    let is_formula =
+        |node: &Node<'_>| matches!(&node.data().value, NodeValue::Math(math) if math.display_math);
+    if !matches!(node.data().value, NodeValue::Paragraph)
+        || !node.children().any(|n| is_formula(&n))
+    {
+        return None;
+    }
+    let mut blocks = Vec::new();
+    let mut run = Vec::new();
+    for child in node.children() {
+        if let NodeValue::Math(math) = &child.data().value
+            && math.display_math
+        {
+            blocks.extend(paragraph_of(&run));
+            run.clear();
+            let line = child.data().sourcepos.start.line;
+            let code = Block::CodeBlock {
+                language: Some(FORMULA.to_owned()),
+                code: format!("{}\n", math.literal.trim()),
+                line,
+            };
+            blocks.push((code, Position::leaf(line)));
+        } else {
+            run.push(child);
+        }
+    }
+    blocks.extend(paragraph_of(&run));
+    Some(blocks)
+}
+
+/// The paragraph of the inline `nodes` between formulas, without the
+/// breaks and spaces at its ends; `None` when nothing else is left.
+fn paragraph_of(nodes: &[Node<'_>]) -> Option<(Block, Position)> {
+    let blank = |node: &&Node<'_>| match &node.data().value {
+        NodeValue::SoftBreak | NodeValue::LineBreak => true,
+        NodeValue::Text(text) => text.trim().is_empty(),
+        _ => false,
+    };
+    let start = nodes.iter().position(|node| !blank(&node))?;
+    let end = nodes.iter().rposition(|node| !blank(&node))? + 1;
+    let mut content = inlines_of(nodes[start..end].iter().copied());
+    if let Some(Inline::Text(text)) = content.first_mut() {
+        *text = text.trim_start().to_owned();
+    }
+    if let Some(Inline::Text(text)) = content.last_mut() {
+        *text = text.trim_end().to_owned();
+    }
+    let line = nodes[start].data().sourcepos.start.line;
+    Some((Block::Paragraph(content), Position::leaf(line)))
 }
 
 /// `blocks` with each `<details>` in them as one block. comrak gives a
@@ -347,11 +421,47 @@ fn alignment(alignment: TableAlignment) -> Alignment {
 }
 
 fn inlines(parent: Node<'_>) -> Vec<Inline> {
+    inlines_of(parent.children())
+}
+
+fn inlines_of<'a>(nodes: impl Iterator<Item = Node<'a>>) -> Vec<Inline> {
     let mut inlines = Vec::new();
-    for inline in parent.children().filter_map(inline) {
-        push_inline(&mut inlines, inline);
+    // Whether the last node was math read as text, which the text around
+    // it joins.
+    let mut after_math = false;
+    for node in nodes {
+        if let NodeValue::Math(math) = &node.data().value {
+            for inline in math_as_written(math) {
+                push_joined(&mut inlines, inline);
+            }
+            after_math = true;
+        } else if let Some(inline) = inline(node) {
+            match after_math {
+                true => push_joined(&mut inlines, inline),
+                false => push_inline(&mut inlines, inline),
+            }
+            after_math = false;
+        }
     }
     inlines
+}
+
+/// Math that kiri does not draw, such as `$x$`, read as it was before
+/// kiri read math: as the Markdown it was written in.
+fn math_as_written(math: &NodeMath) -> Vec<Inline> {
+    let dollars = if math.display_math { "$$" } else { "$" };
+    let source = format!("{dollars}{}{dollars}", math.literal);
+    let arena = Arena::new();
+    let root = parse_document(&arena, &source, &options_without_math());
+    root.first_child().map(inlines).unwrap_or_default()
+}
+
+/// Pushes `inline`, joining it to the text before it when both are text.
+fn push_joined(inlines: &mut Vec<Inline>, inline: Inline) {
+    match (inlines.last_mut(), inline) {
+        (Some(Inline::Text(before)), Inline::Text(text)) => before.push_str(&text),
+        (_, inline) => push_inline(inlines, inline),
+    }
 }
 
 /// Text and inline HTML, as `html` gives the content of a `<summary>`,
