@@ -8,35 +8,44 @@ Usage: kiri [OPTIONS] [FILE]...
 
 Arguments:
   [FILE]...
-          Markdown file to render, a CSV or TSV file to show as a table, an image or a Mermaid
-          diagram (.mmd) to show on its own, or a directory to show its README. Several files are
-          shown one after another, each under a header that names it; one that cannot be shown is
+          Markdown, CSV or TSV, an image, a Mermaid diagram, or a directory
+          
+          A Markdown file is rendered, a CSV or TSV file shown as a table, an image or a Mermaid
+          diagram (.mmd) shown on its own, and a directory shows its README. Several files are shown
+          one after another, each under a header that names it; one that cannot be shown is
           reported, and the others are still shown. Without one, or with -, kiri reads standard
-          input unless it is a terminal; - can be given only once
+          input unless it is a terminal; - can be given only once.
 
 Options:
       --doctor
-          Show what kiri finds out about the terminal and which settings it uses, as Markdown when
-          written to a file, for a bug report
+          Show what kiri finds out about the terminal, for a bug report
+          
+          The report also tells which settings kiri uses. It is Markdown when written to a file.
 
       --list-emojis
-          List the emoji shortcodes, such as :smile:. A terminal shows them as a table; a pipe or a
-          file gets one line per emoji
+          List the emoji shortcodes, such as :smile:
+          
+          A terminal shows them as a table; a pipe or a file gets one line per emoji.
 
       --raw
-          With --doctor: the report as Markdown also in a terminal, without its sample, to copy into
-          a bug report
+          With --doctor: the report as Markdown, also in a terminal
+          
+          The report then leaves out its sample, so it can be copied into a bug report.
 
       --format <FORMAT>
-          What the file is: markdown, csv, tsv, mermaid (a diagram shown on its own), text (the file
+          What the file is, such as markdown, csv or png
+          
+          The formats are markdown, csv, tsv, mermaid (a diagram shown on its own), text (the file
           as it is, without rendering it), image, or an image format such as svg, png or jpg. By
-          default its extension and content tell
+          default its extension and content tell.
 
       --width <WIDTH>
           Width in cells; defaults to the terminal width
 
       --mode <MODE>
-          Which terminal features to use. Colours stay off when NO_COLOR is set
+          Which terminal features to use
+          
+          Colours stay off when NO_COLOR is set.
 
           Possible values:
           - auto:  Ask the terminal; plain text in a pipe
@@ -47,29 +56,40 @@ Options:
           [default: auto]
 
       --theme <THEME>
-          Theme file; overrides --light, --dark, KIRI_THEME and the configuration file
+          Theme file
+          
+          It overrides --light, --dark, KIRI_THEME and the configuration file.
 
       --light
-          A light page in greys, whatever the terminal's colours; code colours for a light
-          background
+          A light page in greys, whatever the terminal's colours
+          
+          Code gets colours for a light background.
 
       --dark
-          A dark page in greys, whatever the terminal's colours; code colours for a dark background
+          A dark page in greys, whatever the terminal's colours
+          
+          Code gets colours for a dark background.
 
   -M, --no-margins
-          No margins, heading indents or code block padding, for copying text
+          No margins, indents or padding, for copying text
+          
+          Leaves out the margins, heading indents and code block padding.
 
   -I, --no-images
-          Show images as their alt text, without reading them, and diagrams as code. An image or
-          diagram file given on its own is still shown
+          Show images as their alt text and diagrams as code
+          
+          Images are not read. An image or diagram file given on its own is still shown.
 
       --images
-          Show images, and diagrams unless they are off, whatever KIRI_NO_IMAGES and the
-          configuration file say
+          Show images, whatever KIRI_NO_IMAGES and the configuration say
+          
+          Diagrams are shown too, unless they are off.
 
       --paging <WHEN>
-          When to show the document in the pager: always, auto (when it is longer than the window
-          and the output is a terminal) or never
+          When to show the document in the pager
+          
+          With auto, the pager opens when the document is longer than the window and the output is a
+          terminal.
           
           [possible values: always, auto, never]
 
@@ -80,10 +100,11 @@ Options:
           Print the document without the pager: --paging=never
 
       --follow <WHEN>
-          Follow a lone file in the pager: on (read it again whenever it changes, with the view kept
-          where it is), auto (read it again and move the view to a change) or off; off unless set.
-          Following pages the file, however short, unless paging is never. F goes from off to on to
-          auto in the pager
+          Follow a lone file in the pager
+          
+          With on, kiri reads the file again whenever it changes, with the view kept where it is;
+          with auto it also moves the view to a change; off unless set. Following pages the file,
+          however short, unless paging is never. F goes from off to on to auto in the pager.
           
           [possible values: on, off, auto]
 
@@ -97,46 +118,60 @@ Options:
           Do not follow the file: --follow=off
 
       --follow-jump <WHICH>
-          Which change auto-follow moves the view to, when a reload changed the document in more
-          than one place: first, last or most (the one that takes the most rows); first unless set
+          Which change auto-follow moves the view to
+          
+          When a reload changed the document in more than one place: first, last or most (the one
+          that takes the most rows); first unless set.
           
           [possible values: first, last, most]
 
       --initial-load <HOW>
-          Whether the pager shows the document once its images and diagrams have loaded (wait), or
-          at once, with each image as it comes (background); wait unless set. Only where the pager
+          Whether the pager waits for images before it shows the document
+          
+          With wait, the document is shown once its images and diagrams have loaded; with
+          background, at once, with each image as it comes; wait unless set. Only where the pager
           surely opens: with -p or -f, or with paging on auto for a document longer than the window,
-          each image counted at three rows; otherwise kiri waits
+          each image counted at three rows; otherwise kiri waits.
           
           [possible values: wait, background]
 
       --front-matter <STYLE>
-          Front matter render style: table, code (a code block), hide, or off (read as Markdown);
-          table unless set. Front matter is the metadata block at the start of a Markdown file
+          How to show the front matter
+          
+          Front matter is the metadata block at the start of a Markdown file. The styles are table,
+          code (a code block), hide, or off (read as Markdown); table unless set.
           
           [possible values: table, code, hide, off]
 
       --table-rows <STYLE>
-          Table row style: zebra (every second row shaded where the terminal's colours are known),
+          Table row style
+          
+          The styles are zebra (every second row shaded where the terminal's colours are known),
           lines, indent (the lines after the first of a wrapped value start two cells in), underline
-          (each row's last line underlined), or off; zebra unless set
+          (each row's last line underlined), or off; zebra unless set.
           
           [possible values: off, zebra, lines, indent, underline]
 
       --diagrams <SWITCH>
+          Whether to draw diagrams and formulas
+          
           Diagrams in code blocks, such as Mermaid, and formulas: on (drawn as images) or off (shown
-          as code); on unless set
+          as code); on unless set.
           
           [possible values: on, off]
 
       --render-errors <WHERE>
-          Where to tell why a diagram could not be drawn: inline (in the document, below its code),
-          stderr (a warning) or both; both unless set
+          Where to tell why a diagram could not be drawn
+          
+          The places are inline (in the document, below its code), stderr (a warning) or both; both
+          unless set.
           
           [possible values: inline, stderr, both]
 
       --max-image-size <MB>
-          Largest image file to read, in megabytes (at most 100); larger images show their alt text
+          Largest image file to read, in megabytes
+          
+          At most 100; larger images show their alt text.
           
           [default: 10]
 

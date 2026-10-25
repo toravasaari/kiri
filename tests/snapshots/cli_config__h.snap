@@ -7,77 +7,42 @@ Render a Markdown document, or show an image, in the terminal
 Usage: kiri [OPTIONS] [FILE]...
 
 Arguments:
-  [FILE]...  Markdown file to render, a CSV or TSV file to show as a table, an image or a Mermaid
-             diagram (.mmd) to show on its own, or a directory to show its README. Several files are
-             shown one after another, each under a header that names it; one that cannot be shown is
-             reported, and the others are still shown. Without one, or with -, kiri reads standard
-             input unless it is a terminal; - can be given only once
+  [FILE]...  Markdown, CSV or TSV, an image, a Mermaid diagram, or a directory
 
 Options:
-      --doctor                 Show what kiri finds out about the terminal and which settings it
-                               uses, as Markdown when written to a file, for a bug report
-      --list-emojis            List the emoji shortcodes, such as :smile:. A terminal shows them as
-                               a table; a pipe or a file gets one line per emoji
-      --raw                    With --doctor: the report as Markdown also in a terminal, without its
-                               sample, to copy into a bug report
-      --format <FORMAT>        What the file is: markdown, csv, tsv, mermaid (a diagram shown on its
-                               own), text (the file as it is, without rendering it), image, or an
-                               image format such as svg, png or jpg. By default its extension and
-                               content tell
+      --doctor                 Show what kiri finds out about the terminal, for a bug report
+      --list-emojis            List the emoji shortcodes, such as :smile:
+      --raw                    With --doctor: the report as Markdown, also in a terminal
+      --format <FORMAT>        What the file is, such as markdown, csv or png
       --width <WIDTH>          Width in cells; defaults to the terminal width
-      --mode <MODE>            Which terminal features to use. Colours stay off when NO_COLOR is set
-                               [default: auto] [possible values: auto, plain, ansi, kitty]
-      --theme <THEME>          Theme file; overrides --light, --dark, KIRI_THEME and the
-                               configuration file
-      --light                  A light page in greys, whatever the terminal's colours; code colours
-                               for a light background
-      --dark                   A dark page in greys, whatever the terminal's colours; code colours
-                               for a dark background
-  -M, --no-margins             No margins, heading indents or code block padding, for copying text
-  -I, --no-images              Show images as their alt text, without reading them, and diagrams as
-                               code. An image or diagram file given on its own is still shown
-      --images                 Show images, and diagrams unless they are off, whatever
-                               KIRI_NO_IMAGES and the configuration file say
-      --paging <WHEN>          When to show the document in the pager: always, auto (when it is
-                               longer than the window and the output is a terminal) or never
-                               [possible values: always, auto, never]
+      --mode <MODE>            Which terminal features to use [default: auto] [possible values:
+                               auto, plain, ansi, kitty]
+      --theme <THEME>          Theme file
+      --light                  A light page in greys, whatever the terminal's colours
+      --dark                   A dark page in greys, whatever the terminal's colours
+  -M, --no-margins             No margins, indents or padding, for copying text
+  -I, --no-images              Show images as their alt text and diagrams as code
+      --images                 Show images, whatever KIRI_NO_IMAGES and the configuration say
+      --paging <WHEN>          When to show the document in the pager [possible values: always,
+                               auto, never]
   -p                           Show the document in the pager: --paging=always
   -P                           Print the document without the pager: --paging=never
-      --follow <WHEN>          Follow a lone file in the pager: on (read it again whenever it
-                               changes, with the view kept where it is), auto (read it again and
-                               move the view to a change) or off; off unless set. Following pages
-                               the file, however short, unless paging is never. F goes from off to
-                               on to auto in the pager [possible values: on, off, auto]
+      --follow <WHEN>          Follow a lone file in the pager [possible values: on, off, auto]
   -f                           Follow the file, in the pager: --follow=on
       --fa                     Follow the file and move to a change: --follow=auto
   -F                           Do not follow the file: --follow=off
-      --follow-jump <WHICH>    Which change auto-follow moves the view to, when a reload changed the
-                               document in more than one place: first, last or most (the one that
-                               takes the most rows); first unless set [possible values: first, last,
-                               most]
-      --initial-load <HOW>     Whether the pager shows the document once its images and diagrams
-                               have loaded (wait), or at once, with each image as it comes
-                               (background); wait unless set. Only where the pager surely opens:
-                               with -p or -f, or with paging on auto for a document longer than the
-                               window, each image counted at three rows; otherwise kiri waits
+      --follow-jump <WHICH>    Which change auto-follow moves the view to [possible values: first,
+                               last, most]
+      --initial-load <HOW>     Whether the pager waits for images before it shows the document
                                [possible values: wait, background]
-      --front-matter <STYLE>   Front matter render style: table, code (a code block), hide, or off
-                               (read as Markdown); table unless set. Front matter is the metadata
-                               block at the start of a Markdown file [possible values: table, code,
-                               hide, off]
-      --table-rows <STYLE>     Table row style: zebra (every second row shaded where the terminal's
-                               colours are known), lines, indent (the lines after the first of a
-                               wrapped value start two cells in), underline (each row's last line
-                               underlined), or off; zebra unless set [possible values: off, zebra,
-                               lines, indent, underline]
-      --diagrams <SWITCH>      Diagrams in code blocks, such as Mermaid, and formulas: on (drawn as
-                               images) or off (shown as code); on unless set [possible values: on,
+      --front-matter <STYLE>   How to show the front matter [possible values: table, code, hide,
                                off]
-      --render-errors <WHERE>  Where to tell why a diagram could not be drawn: inline (in the
-                               document, below its code), stderr (a warning) or both; both unless
-                               set [possible values: inline, stderr, both]
-      --max-image-size <MB>    Largest image file to read, in megabytes (at most 100); larger images
-                               show their alt text [default: 10]
+      --table-rows <STYLE>     Table row style [possible values: off, zebra, lines, indent,
+                               underline]
+      --diagrams <SWITCH>      Whether to draw diagrams and formulas [possible values: on, off]
+      --render-errors <WHERE>  Where to tell why a diagram could not be drawn [possible values:
+                               inline, stderr, both]
+      --max-image-size <MB>    Largest image file to read, in megabytes [default: 10]
   -h, --help                   Print help (see more with '--help')
   -V, --version                Print version
 
