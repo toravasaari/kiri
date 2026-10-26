@@ -179,17 +179,19 @@ impl Fonts {
         }
     }
 
-    /// DejaVu Sans from the test fixtures and nothing else, so text in SVGs
-    /// looks the same on every machine.
+    /// DejaVu Sans and its oblique face from the test fixtures and nothing
+    /// else, so text in SVGs looks the same on every machine.
     #[cfg(test)]
     pub(crate) fn fixture() -> Self {
         Self::new(|| {
             let mut database = fontdb::Database::new();
-            let font = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tests/fixtures/fonts/DejaVuSans.ttf");
-            database
-                .load_font_file(font)
-                .expect("the fixture font loads");
+            let fonts =
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fonts");
+            for name in ["DejaVuSans.ttf", "DejaVuSans-Oblique.ttf"] {
+                database
+                    .load_font_file(fonts.join(name))
+                    .expect("the fixture font loads");
+            }
             choose_generic_families(&mut database);
             database
         })

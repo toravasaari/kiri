@@ -745,6 +745,24 @@ mod tests {
     }
 
     #[test]
+    fn an_italic_word_keeps_its_ink_inside_its_cells() {
+        // Letters that lean out past their advance on both sides.
+        let upright = plain_words("a fjy b");
+        let mut words = upright.clone();
+        words[1].italic = true;
+        let (image, starts, ends) = drawn_words(&words);
+        // In italics indeed: the fixture fonts have an oblique face.
+        assert_ne!(drawn_words(&upright).0, image);
+        let inked = |x: u32| (0..40).any(|y| image.get_pixel(x, y).0[3] > 0);
+        // Nothing in the gaps between the words, where a line of the
+        // image would cut it off.
+        for word in 0..2 {
+            let gap = u32::from(ends[word]) * 10..u32::from(starts[word + 1]) * 10;
+            assert!(!gap.clone().any(inked), "{gap:?}: {starts:?} {ends:?}");
+        }
+    }
+
+    #[test]
     fn an_italic_word_is_drawn_in_italics() {
         let mut words = plain_words("Kiri code");
         words[1].italic = true;
