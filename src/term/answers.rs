@@ -11,7 +11,7 @@ pub(super) const PALETTE_ANSWER: &str = "\x1b]4;";
 /// `ESC P > | name(version) ST`.
 const VERSION_ANSWER: &str = "\x1bP>|";
 
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Probe {
     pub text_sizing: bool,
     pub graphics: bool,
@@ -24,12 +24,21 @@ pub struct Probe {
     pub cell_pixels: Option<(u16, u16)>,
 }
 
-/// The primary device attributes answer: `ESC [ ? … c`.
-pub(super) fn has_device_attributes(answers: &[u8]) -> bool {
-    answers
-        .windows(3)
-        .position(|w| w == b"\x1b[?")
-        .is_some_and(|start| answers[start..].contains(&b'c'))
+/// How many primary device attributes answers, `ESC [ ? digits and
+/// semicolons c`, there are in `answers`: behind tmux, both tmux and the
+/// terminal outside it answer.
+pub(super) fn device_attributes(answers: &[u8]) -> usize {
+    (0..answers.len())
+        .filter(|&start| {
+            let Some(rest) = answers[start..].strip_prefix(b"\x1b[?") else {
+                return false;
+            };
+            let end = rest
+                .iter()
+                .position(|&b| !(b.is_ascii_digit() || b == b';'));
+            end.is_some_and(|end| rest[end] == b'c')
+        })
+        .count()
 }
 
 pub fn interpret(answers: &[u8]) -> Probe {
@@ -208,7 +217,7 @@ mod tests {
                 cell_pixels: None,
             }
         );
-        assert!(has_device_attributes(KITTY.as_bytes()));
+        assert_eq!(device_attributes(KITTY.as_bytes()), 1);
     }
 
     #[test]
@@ -275,7 +284,7 @@ mod tests {
         let probe = interpret(answers.as_bytes());
         assert!(probe.text_sizing);
         assert!(probe.image_placeholders);
-        assert!(has_device_attributes(answers.as_bytes()));
+        assert_eq!(device_attributes(answers.as_bytes()), 1);
     }
 
     #[test]
@@ -307,7 +316,16 @@ mod tests {
 
     #[test]
     fn waits_for_device_attributes() {
-        assert!(!has_device_attributes(b"\x1b[5;1R\x1b[5;3R"));
-        assert!(!has_device_attributes(b"\x1b[?62;"));
+        assert_eq!(device_attributes(b"\x1b[5;1R\x1b[5;3R"), 0);
+        assert_eq!(device_attributes(b"\x1b[?62;"), 0);
+    }
+
+    #[test]
+    fn counts_the_device_attributes_of_tmux_and_kitty() {
+        let tmux = "\x1bP>|tmux 3.8\x1b\\\x1b[?1;2;4c";
+        assert_eq!(device_attributes(tmux.as_bytes()), 1);
+        let both = format!("{tmux}\x1b_Gi=31;OK\x1b\\\x1b[?62;52;c");
+        assert_eq!(device_attributes(both.as_bytes()), 2);
+        assert_eq!(device_attributes(b"\x1b[?62;"), 0);
     }
 }

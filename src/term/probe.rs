@@ -7,8 +7,9 @@ use std::time::{Duration, Instant};
 use rustix::process::{Pid, getpgrp};
 use rustix::termios::tcgetpgrp;
 
-use super::answers::{PALETTE_ANSWER, has_device_attributes};
+use super::answers::{PALETTE_ANSWER, device_attributes};
 use super::screen::RawMode;
+use super::tmux;
 use crate::kitty::query;
 
 /// Long enough for a terminal over SSH, short enough not to notice when
@@ -34,14 +35,37 @@ fn palette() -> String {
         .collect()
 }
 
+/// How the probe sends the graphics protocol query.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GraphicsQuery {
+    /// As it is.
+    Plain,
+    /// Wrapped in tmux's passthrough, so that it reaches the terminal
+    /// outside tmux.
+    Wrapped,
+    /// Not at all: tmux would take it for a pane title.
+    Skip,
+}
+
 /// Cursor position reports around kitty's two text sizing tests, then a
 /// graphics protocol query, the foreground, background and palette
 /// colours, the terminal's version, the cell size if `ask_cell_size`,
 /// and primary device attributes. Every terminal answers the last one,
 /// so its answer marks the end, also when a terminal ignores the
-/// others.
-fn queries(ask_cell_size: bool) -> String {
+/// others. Behind tmux, tmux answers it at once, before kitty's answer to
+/// the wrapped graphics query comes; the device attributes are then also
+/// asked wrapped, from kitty, whose answer comes after its graphics
+/// answer and marks the end.
+fn queries(ask_cell_size: bool, graphics: GraphicsQuery) -> String {
     let [width, scale] = query::text_sizing();
+    let (graphics, end) = match graphics {
+        GraphicsQuery::Plain => (query::GRAPHICS.to_owned(), String::new()),
+        GraphicsQuery::Wrapped => (
+            tmux::passthrough(query::GRAPHICS),
+            tmux::passthrough(DEVICE_ATTRIBUTES),
+        ),
+        GraphicsQuery::Skip => (String::new(), String::new()),
+    };
     [
         "\r",
         CURSOR_POSITION,
@@ -49,13 +73,14 @@ fn queries(ask_cell_size: bool) -> String {
         CURSOR_POSITION,
         &scale,
         CURSOR_POSITION,
-        query::GRAPHICS,
+        &graphics,
         FOREGROUND,
         BACKGROUND,
         &palette(),
         VERSION,
         if ask_cell_size { query::CELL_SIZE } else { "" },
         DEVICE_ATTRIBUTES,
+        &end,
     ]
     .concat()
 }
@@ -63,8 +88,8 @@ fn queries(ask_cell_size: bool) -> String {
 /// Sends the queries on the controlling terminal and collects the
 /// answers, asking for the cell size if `ask_cell_size`. `None` if the
 /// terminal cannot be used or does not answer.
-pub fn run(ask_cell_size: bool) -> Option<Vec<u8>> {
-    ask(&controlling_terminal()?, ask_cell_size)
+pub fn run(ask_cell_size: bool, graphics: GraphicsQuery) -> Option<Vec<u8>> {
+    ask(&controlling_terminal()?, ask_cell_size, graphics)
 }
 
 /// The controlling terminal, open for reading and writing.
@@ -87,28 +112,38 @@ pub fn runs_in_background(tty: &File) -> bool {
 }
 
 /// [`run`] on `tty`.
-pub fn ask(tty: &File, ask_cell_size: bool) -> Option<Vec<u8>> {
+pub fn ask(tty: &File, ask_cell_size: bool, graphics: GraphicsQuery) -> Option<Vec<u8>> {
     if runs_in_background(tty) {
         return None;
     }
     let raw = RawMode::enter(tty)?;
-    let answers = exchange(tty, ask_cell_size);
+    let answers = exchange(tty, ask_cell_size, graphics);
     // Erase whatever the OSC 66 tests drew before restoring the mode.
     let _ = (&*tty).write_all(query::erase_text_sizing_tests().as_bytes());
     drop(raw);
     answers
 }
 
-fn exchange(mut tty: &File, ask_cell_size: bool) -> Option<Vec<u8>> {
-    tty.write_all(queries(ask_cell_size).as_bytes()).ok()?;
+fn exchange(mut tty: &File, ask_cell_size: bool, graphics: GraphicsQuery) -> Option<Vec<u8>> {
+    tty.write_all(queries(ask_cell_size, graphics).as_bytes())
+        .ok()?;
     tty.flush().ok()?;
     let deadline = Instant::now() + TIMEOUT;
     let mut answers = Vec::new();
     let mut buffer = [0; 1024];
-    while !has_device_attributes(&answers) {
-        let left = deadline.checked_duration_since(Instant::now())?;
+    // Behind tmux, kitty's answers count only when they come, as
+    // passthrough may be off; tmux's own answers are there anyway.
+    let (wanted, enough) = match graphics {
+        GraphicsQuery::Wrapped => (2, 1),
+        GraphicsQuery::Plain | GraphicsQuery::Skip => (1, 1),
+    };
+    let ended = |answers: Vec<u8>| (device_attributes(&answers) >= enough).then_some(answers);
+    while device_attributes(&answers) < wanted {
+        let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+            return ended(answers);
+        };
         if !super::readable(tty, left).ok()? {
-            return None;
+            return ended(answers);
         }
         let read = tty.read(&mut buffer).ok()?;
         answers.extend_from_slice(&buffer[..read]);
@@ -134,7 +169,7 @@ mod tests {
     #[test]
     fn sends_the_queries_in_order() {
         assert_eq!(
-            queries(false),
+            queries(false, GraphicsQuery::Plain),
             [
                 "\r\x1b[6n\x1b]66;w=2; \x1b\\\x1b[6n\x1b]66;s=2; \x1b\\\x1b[6n\
                  \x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b]10;?\x1b\\\x1b]11;?\x1b\\",
@@ -148,11 +183,28 @@ mod tests {
     }
 
     #[test]
+    fn sends_the_graphics_query_wrapped_for_tmux() {
+        let plain = queries(false, GraphicsQuery::Plain);
+        let wrapped = "\x1bPtmux;\x1b\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\x1b\\\x1b\\";
+        // tmux answers the device attributes itself, at once; kitty's
+        // answer to the wrapped ones comes after its graphics answer.
+        let expected = plain.replace(query::GRAPHICS, wrapped) + "\x1bPtmux;\x1b\x1b[c\x1b\\";
+        assert_eq!(queries(false, GraphicsQuery::Wrapped), expected);
+    }
+
+    #[test]
+    fn skips_the_graphics_query_when_told() {
+        let plain = queries(true, GraphicsQuery::Plain);
+        let expected = plain.replace(query::GRAPHICS, "");
+        assert_eq!(queries(true, GraphicsQuery::Skip), expected);
+    }
+
+    #[test]
     fn asks_for_the_cell_size_only_when_told() {
-        let without = queries(false);
+        let without = queries(false, GraphicsQuery::Plain);
         let end = without.len() - DEVICE_ATTRIBUTES.len();
         assert_eq!(
-            queries(true),
+            queries(true, GraphicsQuery::Plain),
             [&without[..end], "\x1b[16t", DEVICE_ATTRIBUTES].concat()
         );
     }
@@ -162,7 +214,27 @@ mod tests {
     /// terminal saw and what the probe read.
     fn ask_kitty(ask_cell_size: bool) -> (String, Option<Vec<u8>>) {
         use crate::term::testing::{size, with_kitty};
-        with_kitty(size(80, 24, 0, 0), |tty| ask(tty, ask_cell_size))
+        with_kitty(size(80, 24, 0, 0), |tty| {
+            ask(tty, ask_cell_size, GraphicsQuery::Plain)
+        })
+    }
+
+    #[test]
+    fn behind_tmux_the_probe_waits_for_kittys_answers() {
+        use crate::term::testing::with_tmux;
+        let (seen, answers) = with_tmux(true, |tty| ask(tty, false, GraphicsQuery::Wrapped));
+        assert!(seen.contains("\x1bPtmux;\x1b\x1b_G"), "{seen:?}");
+        let probe = interpret(&answers.unwrap());
+        assert!(probe.graphics);
+    }
+
+    #[test]
+    fn behind_tmux_tmuxs_own_answers_count_when_kitty_does_not_answer() {
+        use crate::term::testing::with_tmux;
+        let (_, answers) = with_tmux(false, |tty| ask(tty, false, GraphicsQuery::Wrapped));
+        let answers = String::from_utf8(answers.unwrap()).unwrap();
+        assert!(answers.contains("\x1bP>|tmux 3.8"), "{answers:?}");
+        assert!(!interpret(answers.as_bytes()).graphics);
     }
 
     #[test]

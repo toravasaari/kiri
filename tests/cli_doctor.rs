@@ -782,6 +782,7 @@ fn the_report_on_kitty() {
                 .to_vec(),
         ),
         background: false,
+        tmux: None,
     };
     let choices = choose(&Options::default(), &env, &Default::default());
     let facts = Facts {
@@ -808,6 +809,7 @@ fn the_terminal_name_is_shown_as_code() {
         window: None,
         answers: Some(b"\x1bP>|evil *x* ![i](p.png)\x1b\\\x1b[?62;c".to_vec()),
         background: false,
+        tmux: None,
     };
     let choices = choose(&Options::default(), &env, &Default::default());
     let facts = Facts {
@@ -838,6 +840,7 @@ fn in_the_background_the_terminal_is_not_asked() {
         window: None,
         answers: None,
         background: true,
+        tmux: None,
     };
     let choices = choose(&Options::default(), &env, &Default::default());
     let facts = Facts {
@@ -869,6 +872,7 @@ fn heading_sizes_show_their_rounding() {
         window: None,
         answers: None,
         background: false,
+        tmux: None,
     };
     let choices = choose(&Options::default(), &env, &Default::default());
     let theme = kiri::theme::parse("[h1]\nscale = 3\n[h5]\nscale = 1.3\n").unwrap();

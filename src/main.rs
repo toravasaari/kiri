@@ -358,7 +358,8 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     let context = Context::new(cli, &env);
     let source = match content {
         Content::Image { format, head, rest } => {
-            let caps = kiri::term::capabilities(context.mode, context.width, &env);
+            let caps =
+                kiri::term::capabilities(context.mode, context.width, &env, Passthrough::None);
             let (warnings, settings) = settings(cli, &env);
             let documents = settings.is_ok();
             // As for several image files, a broken configuration file does
@@ -400,7 +401,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     if file.is_none() {
         settings.paging = kiri::pager::only_always(settings.paging);
     }
-    let caps = kiri::term::capabilities(context.mode, context.width, &env);
+    let caps = kiri::term::capabilities(context.mode, context.width, &env, Passthrough::None);
     if matches!(input, Input::Diagram(_)) && pages_alone(&settings, &caps) {
         let opened = Opened {
             path,
@@ -637,7 +638,7 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
     let mut settings = settings.unwrap_or_else(|| without_config(cli, &env));
     settings.paging = kiri::pager::for_files(settings.paging, alone);
     let caps = on_page(
-        kiri::term::capabilities(context.mode, context.width, &env),
+        kiri::term::capabilities(context.mode, context.width, &env, Passthrough::None),
         &settings,
     );
     show_files(&context, opened, settings, documents, caps, &failed)
@@ -2105,7 +2106,7 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), Failure> {
         Ok(theme) => (theme, None),
         Err(error) => (Theme::default(), Some(error)),
     };
-    let detection = kiri::term::examine(cli.mode, cli.width, &env);
+    let detection = kiri::term::examine(cli.mode, cli.width, &env, Passthrough::None);
     let output = match (cli.raw, kiri::term::stdout_is_terminal()) {
         (true, _) => Output::Raw,
         (false, true) => Output::Rendered,
@@ -2166,7 +2167,7 @@ fn list_emojis(cli: &Cli) -> Result<(), Failure> {
         eprintln!("kiri: {warning}");
     }
     let settings = settings?;
-    let caps = kiri::term::capabilities(cli.mode, cli.width, &env);
+    let caps = kiri::term::capabilities(cli.mode, cli.width, &env, Passthrough::None);
     let document = kiri::parse::parse(&kiri::list::emoji_document());
     show_document(
         &Context::new(cli, &env),

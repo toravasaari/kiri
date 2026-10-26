@@ -7,6 +7,11 @@ use std::process::{Command, Stdio};
 
 use crate::config::Environment;
 
+/// `sequence` wrapped in tmux's passthrough, whatever it is.
+pub fn passthrough(sequence: &str) -> String {
+    format!("\x1bPtmux;{}\x1b\\", sequence.replace('\x1b', "\x1b\x1b"))
+}
+
 /// Runs `tmux` with the arguments: its output, trimmed, when it succeeds,
 /// and `None` when it fails or cannot run.
 pub type Run<'a> = &'a dyn Fn(&[&str]) -> Option<String>;

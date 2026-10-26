@@ -46,6 +46,9 @@ pub struct Capabilities {
     pub foreground: Option<Color>,
     pub background: Option<Color>,
     pub palette: [Option<Color>; 16],
+    /// Whether graphics sequences are to be wrapped in tmux's passthrough
+    /// on their way out, as kiri runs inside tmux.
+    pub tmux_passthrough: bool,
 }
 
 impl Capabilities {
@@ -67,6 +70,7 @@ impl Capabilities {
             foreground: None,
             background: None,
             palette: [None; 16],
+            tmux_passthrough: false,
         }
     }
 
