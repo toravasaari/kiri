@@ -1076,8 +1076,9 @@ has them, would fix it.
 A heading drawn as an image (5.3.1) starts each word on a whole cell, so
 that its lines can be cut between words. A gap is then a space plus up to
 one cell, and at the smaller levels the difference shows, as in
-"Level  three with code  and". Spreading the extra pixels over all the
-gaps of a line would even it out.
+"Level  three with code  and". The image is drawn before layout knows
+where the lines break, so the fix has to work for every place a line
+may end.
 
 ### Upstream bugs
 
