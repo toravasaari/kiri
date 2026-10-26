@@ -83,9 +83,11 @@ pub fn draw_heading(
         };
         end = f32::from(start) * cell_width + reach.unwrap_or(0.0);
         starts.push(start);
-        ends.push(((end / cell_width).ceil() as u16).max(start));
+        // A word without ink still covers a cell, so that a line it ends
+        // shows something.
+        ends.push(((end / cell_width).ceil() as u16).max(start + 1));
     }
-    let columns = ((end / cell_width).ceil() as u32).max(1);
+    let columns = u32::from(*ends.last().unwrap_or(&1));
     let width = columns * u32::from(cell.0);
     let texts: Vec<(f32, &str)> = (starts.iter())
         .zip(&words)
@@ -258,6 +260,24 @@ mod tests {
         }
         assert!(ends[0] <= breaks[0] && ends[1] <= breaks[1], "{ends:?}");
         assert_eq!(ends[2], columns);
+    }
+
+    #[test]
+    fn a_word_without_ink_still_covers_a_cell() {
+        // A zero-width space is a word of its own, and draws nothing.
+        let drawn = draw_heading("Kiri \u{200B}", &look(2), CELL, &Fonts::fixture());
+        let Ok(Source::Text {
+            image,
+            breaks,
+            ends,
+        }) = drawn
+        else {
+            panic!("{drawn:?}");
+        };
+        assert_eq!(ends.len(), 2, "{ends:?}");
+        assert!(ends[1] > breaks[0], "{breaks:?} {ends:?}");
+        // The image reaches as far as that cell.
+        assert_eq!(image.width(), u32::from(ends[1]) * u32::from(CELL.0));
     }
 
     #[test]
