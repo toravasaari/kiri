@@ -77,13 +77,12 @@ pub fn prepare(env: &Environment, run: Run) -> Pane {
 }
 
 /// A writer that wraps each kitty graphics sequence, [`graphics::START`]
-/// (`ESC _ G`) to `ESC \`,
-/// in tmux's passthrough on its way to `inner`, when told to, and passes
-/// everything else untouched. A sequence may come over several writes, so
-/// the start of one at the end of a write, such as an ESC or `ESC _`,
-/// waits for the next write. A flush does not release it: the bytes that
-/// follow decide whether it is wrapped, and kiri writes every other
-/// sequence whole.
+/// (`ESC _ G`) to `ESC \`, in tmux's passthrough on its way to `inner`,
+/// when told to, and passes everything else untouched. A sequence may come
+/// over several writes, so the start of one at the end of a write, such as
+/// an ESC or `ESC _`, waits for the next write. A flush does not release
+/// it: the bytes that follow decide whether it is wrapped, and kiri writes
+/// every other sequence whole.
 pub struct Wrapping<W: Write> {
     inner: W,
     wrap: bool,
