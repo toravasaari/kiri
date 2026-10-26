@@ -517,6 +517,43 @@ fn the_initial_load_waits_unless_told_otherwise() {
 }
 
 #[test]
+fn the_passthrough_key_takes_detect_none_or_tmux() {
+    check_key(
+        |config| config.passthrough,
+        &[
+            ("passthrough = \"detect\"\n", Passthrough::Detect),
+            ("passthrough = \"none\"\n", Passthrough::None),
+            ("passthrough = \"tmux\"\n", Passthrough::Tmux),
+        ],
+        &["passthrough = \"always\"\n", "passthrough = true\n"],
+    );
+}
+
+#[test]
+fn passthrough_detects_unless_told_otherwise() {
+    let env = Environment::default();
+    let choices = choose(&Options::default(), &env, &Config::default());
+    let detect = Setting::new(Passthrough::Detect, Origin::Default);
+    assert_eq!(choices.passthrough, detect);
+    let config = Config {
+        passthrough: Some(Passthrough::None),
+        ..Config::default()
+    };
+    let choices = choose(&Options::default(), &env, &config);
+    let file = Setting::new(Passthrough::None, Origin::File);
+    assert_eq!(choices.passthrough, file);
+    let settings = choices.with_theme(Theme::default());
+    assert_eq!(settings.passthrough, Passthrough::None);
+    let flag = Setting::new(Passthrough::Tmux, Origin::Flag("--passthrough"));
+    let options = Options {
+        passthrough: Some(flag.clone()),
+        ..Options::default()
+    };
+    let variable = vars(&[("KIRI_PASSTHROUGH", "detect")]);
+    assert_eq!(choose(&options, &variable, &config).passthrough, flag);
+}
+
+#[test]
 fn auto_follow_jumps_to_the_first_change_unless_told_otherwise() {
     let env = Environment::default();
     let choices = choose(&Options::default(), &env, &Config::default());
@@ -1051,6 +1088,27 @@ fn kiri_initial_load_chooses_how_the_pager_initially_loads_the_images() {
         (
             "later",
             "KIRI_INITIAL_LOAD: `later` is not wait or background; left out",
+        ),
+    );
+}
+
+#[test]
+fn kiri_passthrough_chooses_the_tmux_passthrough() {
+    check_variable(
+        |choices| &choices.passthrough,
+        "KIRI_PASSTHROUGH",
+        &[
+            ("detect", Passthrough::Detect),
+            ("none", Passthrough::None),
+            ("tmux", Passthrough::Tmux),
+        ],
+        Config {
+            passthrough: Some(Passthrough::None),
+            ..Config::default()
+        },
+        (
+            "always",
+            "KIRI_PASSTHROUGH: `always` is not detect, none or tmux; left out",
         ),
     );
 }

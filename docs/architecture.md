@@ -348,6 +348,16 @@ so tests can render for any terminal without having one. kiri asks
 nothing when it runs in the background of its terminal, where raw mode
 would get it stopped.
 
+Inside tmux, the probe's graphics query goes wrapped in tmux's
+passthrough, and only kitty's answer to it comes from kitty; tmux answers
+the rest itself. Detection first asks tmux, with `tmux display-message`,
+for the terminal outside and the pane's `allow-passthrough`, and turns
+that on when it is `off`, as `kitten icat` does. The capabilities then say
+`tmux_passthrough`, and the writer the output goes through
+(`term::output`, and the pager's screen) wraps each graphics sequence on
+its way out, so the renderers write the same bytes inside tmux as outside
+it.
+
 `kiri --doctor` reports what detection found and where each setting came
 from. `src/term/` and `src/config.rs` hand it the detection, the
 settings and the file paths; `src/doctor.rs` checks which files exist and
@@ -371,6 +381,7 @@ writes as it is into a pipe.
 | Synchronized output | CSI ?2026h/l | `src/render/output.rs` | Pager frames without flicker |
 | Cell size query | CSI 16 t | `src/kitty/query.rs` | The cell size in pixels where the window size has none |
 | Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI c | `src/term/probe.rs` | Cursor position, foreground, background and palette colours, terminal version, end of the answers |
+| tmux passthrough | DCS `tmux;` … ST, with each ESC doubled | `src/term/tmux.rs` | kitty's graphics, and the probe's graphics query, through tmux to the terminal outside |
 
 Sequences that only kitty's protocols define live under `src/kitty/`: text
 sizing, graphics, Unicode placeholders and the queries that detect them;
@@ -404,6 +415,8 @@ src/term/detect.rs         capability detection from the mode, the environment,
 src/term/window.rs         the window size in cells and pixels
 src/term/probe.rs          the queries to the terminal, the only ones
 src/term/answers.rs        reading the terminal's answers
+src/term/tmux.rs           inside tmux: asking tmux, and wrapping kitty's
+                           graphics in tmux's passthrough
 src/term/screen.rs         the pager's screen, raw mode and keys
 src/term/progress.rs       the line that tells how far loading images has
                            got

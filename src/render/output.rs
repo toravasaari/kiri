@@ -148,8 +148,11 @@ impl<'a> Writer<'a> {
             return out.write_all(text.trim_end().as_bytes());
         }
         // Over the row, from where it starts; not behind a panel, which
-        // it would be drawn over.
-        if let Some(band) = line.band.as_ref().filter(|_| row == 0 && !self.dim) {
+        // it would be drawn over, nor under tmux, where a placement lands
+        // at kitty's cursor rather than tmux's. The status line still
+        // tells the progress.
+        let drawn = row == 0 && !self.dim && !caps.tmux_passthrough;
+        if let Some(band) = line.band.as_ref().filter(|_| drawn) {
             let cell = cell_size(caps);
             let id = (self.encoder).band(band.columns, cell, self.ink, self.elapsed, out)?;
             out.write_all(b"\x1b7")?;
@@ -522,6 +525,37 @@ mod tests {
         let low = format!("\x1b7{}\x1b8code", place(15));
         assert!(out.contains(&high), "{out:?}");
         assert!(out.contains(&low), "{out:?}");
+    }
+
+    #[test]
+    fn no_band_is_drawn_under_tmux() {
+        use crate::render::style::Band;
+
+        // A direct placement lands at kitty's cursor, not tmux's.
+        let line = Line {
+            band: Some(Band {
+                columns: 4,
+                indent: 0,
+                low: false,
+                key: "a.png".into(),
+                above: 1,
+            }),
+            ..Line::blank()
+        };
+        let caps = Capabilities {
+            cell_pixels: Some((10, 20)),
+            tmux_passthrough: true,
+            ..Capabilities::kitty(40)
+        };
+        let images = Images::new();
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
+        let mut out = Vec::new();
+        writer.row(&line, 0, &mut out).unwrap();
+        assert!(!writer.has_bands());
+        let out = String::from_utf8(out).unwrap();
+        assert!(!out.contains("a=p"), "{out:?}");
+        assert!(!out.contains("\x1b_G"), "{out:?}");
     }
 
     #[test]

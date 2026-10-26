@@ -11,6 +11,7 @@ use signal_hook::consts::{SIGHUP, SIGINT, SIGQUIT, SIGTERM};
 
 use rustix::termios::{OptionalActions, Termios, tcgetattr, tcsetattr};
 
+use super::tmux::Wrapping;
 use super::window::{WindowSize, window_size};
 use super::{interrupt, probe};
 
@@ -158,20 +159,22 @@ pub struct Screen<W: Write> {
     signals: Signals,
 }
 
-impl Screen<Stdout> {
+impl Screen<Wrapping<Stdout>> {
     /// The pager's screen on standard output, with keys from the
-    /// controlling terminal, so a piped document can be paged too. `None`
+    /// controlling terminal, so a piped document can be paged too, with
+    /// kitty's graphics wrapped for tmux if `wrap`. `None`
     /// without a controlling terminal or in the background, where raw mode
     /// would stop kiri until it is brought to the foreground. `caught` runs
     /// once the screen catches the signals, before the terminal is raw,
     /// such as to drop a guard that would otherwise end kiri by a signal
     /// with the terminal raw.
-    pub fn open(caught: impl FnOnce()) -> Option<Self> {
+    pub fn open(caught: impl FnOnce(), wrap: bool) -> Option<Self> {
         let tty = probe::controlling_terminal()?;
         if probe::runs_in_background(&tty) {
             return None;
         }
-        let mut screen = Self::catching_on(tty, std::io::stdout(), caught)?;
+        let out = Wrapping::new(std::io::stdout(), wrap);
+        let mut screen = Self::catching_on(tty, out, caught)?;
         screen.catch_panics();
         Some(screen)
     }

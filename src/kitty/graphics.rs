@@ -18,6 +18,10 @@ use base64::engine::general_purpose::STANDARD;
 use flate2::Compression;
 use flate2::write::ZlibEncoder;
 
+/// The start of every sequence of the protocol, an APC with `G`: `ESC _ G`.
+/// It ends with ST, `ESC \`.
+pub const START: &str = "\x1b_G";
+
 /// The protocol's limit for the base64 data in one escape sequence.
 const CHUNK: usize = 4096;
 
@@ -153,7 +157,7 @@ pub fn transmit_only(out: &mut impl Write, id: ImageId, pixels: &Pixels) -> io::
 /// screen takes the placement away, and with it the image, when nothing
 /// else places it.
 pub fn place(out: &mut impl Write, id: ImageId, down: u16) -> io::Result<()> {
-    write!(out, "\x1b_Ga=p,q=2,i={},C=1,Y={down},z=1\x1b\\", id.0)
+    write!(out, "{START}a=p,q=2,i={},C=1,Y={down},z=1\x1b\\", id.0)
 }
 
 /// `pixels`, checked against their size, compressed and in base64.
@@ -170,7 +174,7 @@ fn compressed(pixels: &Pixels) -> io::Result<Vec<u8>> {
 /// Deletes image `id` from the terminal: its placements, and its data, so
 /// that the terminal frees the memory it took.
 pub fn delete(out: &mut impl Write, id: ImageId) -> io::Result<()> {
-    write!(out, "\x1b_Ga=d,d=I,i={},q=2\x1b\\", id.0)
+    write!(out, "{START}a=d,d=I,i={},q=2\x1b\\", id.0)
 }
 
 /// Writes `payload` in chunks of at most [`CHUNK`] bytes. The first sequence
@@ -181,10 +185,10 @@ fn write_chunks(out: &mut impl Write, keys: &str, payload: &[u8]) -> io::Result<
     while let Some(chunk) = chunks.next() {
         let more = u8::from(chunks.peek().is_some());
         if first {
-            write!(out, "\x1b_G{keys},m={more};")?;
+            write!(out, "{START}{keys},m={more};")?;
             first = false;
         } else {
-            write!(out, "\x1b_Gq=2,m={more};")?;
+            write!(out, "{START}q=2,m={more};")?;
         }
         out.write_all(chunk)?;
         out.write_all(b"\x1b\\")?;

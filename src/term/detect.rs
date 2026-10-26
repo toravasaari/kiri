@@ -4,11 +4,13 @@
 use std::ffi::OsStr;
 use std::fs::File;
 
+use super::probe::GraphicsQuery;
+use super::tmux::{self, Pane, Run};
 use super::window::{WindowSize, window_size};
 use super::{answers, probe};
 use crate::caps::Capabilities;
-use crate::config::Environment;
-use crate::kitty::graphics;
+use crate::config::{Environment, Passthrough};
+use crate::kitty::{graphics, query};
 
 /// Which terminal features to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,6 +38,8 @@ pub struct Detection {
     /// Whether kiri runs in the background of its terminal, where the probe
     /// does not ask it.
     pub background: bool,
+    /// What kiri learnt from tmux, when it wraps graphics for tmux.
+    pub tmux: Option<Pane>,
 }
 
 /// How kiri learnt the size of a cell in pixels.
@@ -70,21 +74,53 @@ impl Detection {
 
 /// The capabilities to render with in `mode`. `width` overrides the
 /// terminal's own width. `NO_COLOR` turns colours off in every mode,
-/// including the forced ones.
-pub fn capabilities(mode: Mode, width: Option<u16>, env: &Environment) -> Capabilities {
+/// including the forced ones. `passthrough` says whether kitty's graphics
+/// go through tmux.
+pub fn capabilities(
+    mode: Mode,
+    width: Option<u16>,
+    env: &Environment,
+    passthrough: Passthrough,
+) -> Capabilities {
     let (window, terminal) = stdout_window();
-    detect(mode, width, env, window, terminal, probe::run).caps
+    let ask = probe::run;
+    detect(
+        mode,
+        width,
+        env,
+        passthrough,
+        window,
+        terminal,
+        ask,
+        &tmux::run,
+    )
+    .caps
 }
 
 /// What kiri finds out in `mode` about the controlling terminal, whatever
 /// stdout is, so a report written to a file still tells of the terminal.
 /// Without a controlling terminal, it tells what [`capabilities`] sees.
-pub fn examine(mode: Mode, width: Option<u16>, env: &Environment) -> Detection {
+pub fn examine(
+    mode: Mode,
+    width: Option<u16>,
+    env: &Environment,
+    passthrough: Passthrough,
+) -> Detection {
     match probe::controlling_terminal() {
-        Some(tty) => examine_on(&tty, mode, width, env),
+        Some(tty) => examine_on(&tty, mode, width, env, passthrough, &tmux::run),
         None => {
             let (window, terminal) = stdout_window();
-            detect(mode, width, env, window, terminal, |_| None)
+            let ask = |_, _| None;
+            detect(
+                mode,
+                width,
+                env,
+                passthrough,
+                window,
+                terminal,
+                ask,
+                &tmux::run,
+            )
         }
     }
 }
@@ -96,10 +132,17 @@ fn stdout_window() -> (Option<WindowSize>, bool) {
 }
 
 /// [`examine`] on the terminal `tty`.
-fn examine_on(tty: &File, mode: Mode, width: Option<u16>, env: &Environment) -> Detection {
-    let detection = detect(mode, width, env, window_size(tty), true, |ask_cell_size| {
-        probe::ask(tty, ask_cell_size)
-    });
+fn examine_on(
+    tty: &File,
+    mode: Mode,
+    width: Option<u16>,
+    env: &Environment,
+    passthrough: Passthrough,
+    tmux: Run,
+) -> Detection {
+    let ask = |ask_cell_size, graphics| probe::ask(tty, ask_cell_size, graphics);
+    let window = window_size(tty);
+    let detection = detect(mode, width, env, passthrough, window, true, ask, tmux);
     Detection {
         background: probe::runs_in_background(tty),
         ..detection
@@ -108,35 +151,76 @@ fn examine_on(tty: &File, mode: Mode, width: Option<u16>, env: &Environment) -> 
 
 /// The capabilities in `mode` for a window of `window`, which is a
 /// terminal if `terminal`. In auto mode, `ask` sends the probe, with the
-/// cell size question when its argument is true, and returns the answers.
-/// Falls back to plain text when the output is not a terminal, and to ANSI
-/// styling when the terminal does not answer.
+/// cell size question when its first argument is true and the graphics
+/// query as its second says, and returns the answers. `tmux` runs tmux
+/// commands. Falls back to plain text when the output is not a terminal,
+/// and to ANSI styling when the terminal does not answer.
+#[allow(clippy::too_many_arguments)]
 fn detect(
     mode: Mode,
     width: Option<u16>,
     env: &Environment,
+    passthrough: Passthrough,
     window: Option<WindowSize>,
     terminal: bool,
-    ask: impl FnOnce(bool) -> Option<Vec<u8>>,
+    ask: impl FnOnce(bool, GraphicsQuery) -> Option<Vec<u8>>,
+    tmux: Run,
 ) -> Detection {
     let width = width.or(window.map(|w| w.columns)).unwrap_or(80);
+    let in_tmux = tmux::in_tmux(env);
+    let kitty_features = terminal && matches!(mode, Mode::Auto | Mode::Kitty);
+    // tmux is asked before the probe, which needs passthrough on.
+    let pane = match passthrough {
+        Passthrough::Detect if kitty_features && in_tmux => Some(tmux::prepare(env, tmux)),
+        Passthrough::Tmux if kitty_features => Some(Pane {
+            client: None,
+            passthrough: None,
+            turned_on: false,
+        }),
+        _ => None,
+    };
+    let graphics = match &pane {
+        Some(_) => GraphicsQuery::Wrapped,
+        None if in_tmux => GraphicsQuery::Skip,
+        None => GraphicsQuery::Plain,
+    };
     let mut answers = None;
     let mut caps = match mode {
         Mode::Auto if !terminal => Capabilities::plain(width),
         Mode::Auto => {
             let caps = with_environment(Capabilities::ansi(width), env);
             let caps = with_window(caps, window);
-            answers = ask(caps.cell_pixels.is_none());
-            match &answers {
-                Some(answers) => with_probe(caps, &answers::interpret(answers)),
-                None => caps,
+            answers = ask(caps.cell_pixels.is_none(), graphics);
+            match (&answers, &pane) {
+                (Some(answers), None) => with_probe(caps, &answers::interpret(answers)),
+                (Some(answers), Some(pane)) => {
+                    through_tmux(caps, &answers::interpret(answers), pane)
+                }
+                (None, _) => caps,
             }
         }
         Mode::Plain => Capabilities::plain(width),
         Mode::Ansi => Capabilities::ansi(width),
         // The window size is not a probe: it does not ask the terminal.
-        Mode::Kitty => with_window(Capabilities::kitty(width), window),
+        Mode::Kitty => {
+            let caps = with_window(Capabilities::kitty(width), window);
+            // tmux needs features of its own for links and underline
+            // styles.
+            match pane {
+                Some(_) => Capabilities {
+                    hyperlinks: false,
+                    styled_underlines: false,
+                    ..caps
+                },
+                None => caps,
+            }
+        }
     };
+    if pane.is_some() {
+        // tmux cannot pass text sizing.
+        caps.text_sizing = false;
+        caps.tmux_passthrough = true;
+    }
     if no_color(env) {
         caps.color = false;
     }
@@ -145,6 +229,7 @@ fn detect(
         window,
         answers,
         background: false,
+        tmux: pane,
     }
 }
 
@@ -182,6 +267,27 @@ fn with_probe(mut caps: Capabilities, probe: &answers::Probe) -> Capabilities {
     caps
 }
 
+/// `caps` with what the answers to a probe sent through tmux tell: the
+/// graphics answer comes from the terminal outside tmux, the rest from
+/// tmux itself, which `pane` tells about.
+fn through_tmux(caps: Capabilities, probe: &answers::Probe, pane: &Pane) -> Capabilities {
+    let hyperlinks = caps.hyperlinks;
+    // Only tmux's name says which terminal is outside; without it, the
+    // terminal's answer to the graphics query decides.
+    let client = pane.client.as_deref();
+    let placeholders = probe.graphics && client.is_none_or(query::placeholders_by_version);
+    let probe = answers::Probe {
+        text_sizing: false,
+        image_placeholders: placeholders,
+        ..probe.clone()
+    };
+    Capabilities {
+        hyperlinks,
+        styled_underlines: false,
+        ..with_probe(caps, &probe)
+    }
+}
+
 /// Whether the user asked for output without colour: `NO_COLOR` set and not
 /// empty, as <https://no-color.org> defines it.
 pub fn no_color(env: &Environment) -> bool {
@@ -214,6 +320,211 @@ mod tests {
     use super::*;
     use crate::color::Color;
     use crate::term::testing::{size, with_kitty};
+
+    /// A tmux runner for tests where tmux must not run.
+    const NO_TMUX: Run = &|args| panic!("tmux was run: {args:?}");
+
+    /// The answers of a kitty 0.47.1 behind tmux 3.8, to a probe that
+    /// sends the graphics query wrapped: cursor reports and the version
+    /// come from tmux, the graphics answer from kitty.
+    const BEHIND_TMUX: &str = "\x1b[1;1R\x1b[1;1R\x1b[1;1R\x1b_Gi=31;OK\x1b\\\
+                               \x1bP>|tmux 3.8\x1b\\\x1b[?1;2;4c";
+
+    /// The answers of a kitty 0.47.1 on its own.
+    const KITTY: &str = "\x1b[5;1R\x1b[5;3R\x1b[5;5R\x1b_Gi=31;OK\x1b\\\
+                         \x1bP>|kitty(0.47.1)\x1b\\\x1b[?62;c";
+
+    /// An environment inside tmux, in the pane `%3`.
+    fn in_tmux() -> Environment {
+        Environment {
+            tmux: Some("/tmp/tmux-1000/default,1,0".into()),
+            tmux_pane: Some("%3".into()),
+            ..Environment::default()
+        }
+    }
+
+    /// What tmux was asked, which graphics query the probe was told to
+    /// send, if it was sent, and what detection found, in `mode` on a
+    /// terminal if `terminal`, where the probe gets `answers` and tmux
+    /// answers `client|allow-passthrough` with `pane`, and succeeds with
+    /// every other command.
+    fn through_tmux(
+        mode: Mode,
+        env: &Environment,
+        passthrough: Passthrough,
+        terminal: bool,
+        (answers, pane): (&str, &str),
+    ) -> (Vec<String>, Option<GraphicsQuery>, Detection) {
+        let calls = std::cell::RefCell::new(Vec::new());
+        let run = |args: &[&str]| {
+            calls.borrow_mut().push(args.join(" "));
+            let display = args[0] == "display-message";
+            Some(if display { pane } else { "" }.to_owned())
+        };
+        let mut sent = None;
+        let ask = |_, graphics| {
+            sent = Some(graphics);
+            Some(answers.as_bytes().to_vec())
+        };
+        let found = detect(mode, None, env, passthrough, None, terminal, ask, &run);
+        (calls.into_inner(), sent, found)
+    }
+
+    #[test]
+    fn inside_tmux_the_graphics_query_is_wrapped() {
+        let answers = (BEHIND_TMUX, "kitty(0.47.1)|on");
+        let (calls, sent, found) =
+            through_tmux(Mode::Auto, &in_tmux(), Passthrough::Detect, true, answers);
+        assert_eq!(sent, Some(GraphicsQuery::Wrapped));
+        assert_eq!(calls.len(), 1, "{calls:?}");
+        let caps = &found.caps;
+        assert!(caps.draws_images());
+        assert_eq!(caps.max_image_cells, graphics::MAX_CELLS);
+        assert!(caps.tmux_passthrough);
+        assert!(caps.truecolor);
+        // tmux cannot pass text sizing, and links and underline styles
+        // need tmux features of their own.
+        assert!(!caps.text_sizing);
+        assert!(!caps.hyperlinks);
+        assert!(!caps.styled_underlines);
+        let pane = Pane {
+            client: Some("kitty(0.47.1)".into()),
+            passthrough: Some("on".into()),
+            turned_on: false,
+        };
+        assert_eq!(found.tmux, Some(pane));
+    }
+
+    #[test]
+    fn inside_tmux_passthrough_off_is_turned_on() {
+        let answers = (BEHIND_TMUX, "kitty(0.47.1)|off");
+        let (calls, _, found) =
+            through_tmux(Mode::Auto, &in_tmux(), Passthrough::Detect, true, answers);
+        let set = "set-option -p -t %3 allow-passthrough on";
+        assert_eq!(calls.last().map(String::as_str), Some(set));
+        assert!(found.tmux.unwrap().turned_on);
+    }
+
+    #[test]
+    fn an_old_kitty_behind_tmux_gets_no_placeholders() {
+        let answers = (BEHIND_TMUX, "kitty(0.27.0)|on");
+        let (_, _, found) =
+            through_tmux(Mode::Auto, &in_tmux(), Passthrough::Detect, true, answers);
+        assert!(found.caps.graphics);
+        assert_eq!(found.caps.max_image_cells, 0);
+        assert!(!found.caps.draws_images());
+    }
+
+    #[test]
+    fn behind_tmux_without_an_answer_from_kitty_no_images_are_drawn() {
+        // Passthrough stayed off: kitty never saw the graphics query.
+        let answers = (
+            "\x1b[1;1R\x1bP>|tmux 3.8\x1b\\\x1b[?1;2;4c",
+            "kitty(0.47.1)|off",
+        );
+        let (_, _, found) =
+            through_tmux(Mode::Auto, &in_tmux(), Passthrough::Detect, true, answers);
+        assert!(!found.caps.graphics);
+        assert!(!found.caps.draws_images());
+        assert!(found.caps.tmux_passthrough);
+    }
+
+    #[test]
+    fn tmux_with_passthrough_none_sends_no_graphics_query() {
+        let answers = (BEHIND_TMUX, "kitty(0.47.1)|on");
+        let (calls, sent, found) =
+            through_tmux(Mode::Auto, &in_tmux(), Passthrough::None, true, answers);
+        assert_eq!(sent, Some(GraphicsQuery::Skip));
+        assert_eq!(calls, Vec::<String>::new());
+        assert!(!found.caps.tmux_passthrough);
+        assert_eq!(found.tmux, None);
+    }
+
+    #[test]
+    fn outside_tmux_detect_changes_nothing() {
+        let env = Environment::default();
+        let answers = (KITTY, "");
+        let (calls, sent, found) =
+            through_tmux(Mode::Auto, &env, Passthrough::Detect, true, answers);
+        assert_eq!(sent, Some(GraphicsQuery::Plain));
+        assert_eq!(calls, Vec::<String>::new());
+        assert_eq!(found.caps, Capabilities::kitty(80));
+        assert_eq!(found.tmux, None);
+        // An empty TMUX is no tmux either.
+        let empty = Environment {
+            tmux: Some("".into()),
+            ..in_tmux()
+        };
+        let (calls, sent, _) = through_tmux(Mode::Auto, &empty, Passthrough::Detect, true, answers);
+        assert_eq!(sent, Some(GraphicsQuery::Plain));
+        assert_eq!(calls, Vec::<String>::new());
+    }
+
+    #[test]
+    fn passthrough_tmux_wraps_without_asking_tmux() {
+        let env = Environment::default();
+        let answers = (BEHIND_TMUX, "kitty(0.47.1)|off");
+        let (calls, sent, found) = through_tmux(Mode::Auto, &env, Passthrough::Tmux, true, answers);
+        assert_eq!(sent, Some(GraphicsQuery::Wrapped));
+        assert_eq!(calls, Vec::<String>::new());
+        assert!(found.caps.tmux_passthrough);
+        // Without tmux's word on the terminal, kitty's answer decides.
+        assert!(found.caps.draws_images());
+        let pane = Pane {
+            client: None,
+            passthrough: None,
+            turned_on: false,
+        };
+        assert_eq!(found.tmux, Some(pane));
+    }
+
+    #[test]
+    fn a_pipe_inside_tmux_runs_no_tmux_command() {
+        for passthrough in [Passthrough::Detect, Passthrough::Tmux] {
+            let answers = (BEHIND_TMUX, "kitty(0.47.1)|off");
+            let (calls, sent, found) =
+                through_tmux(Mode::Auto, &in_tmux(), passthrough, false, answers);
+            assert_eq!(sent, None);
+            assert_eq!(calls, Vec::<String>::new());
+            assert_eq!(found.caps, Capabilities::plain(80));
+            assert_eq!(found.tmux, None);
+        }
+    }
+
+    #[test]
+    fn plain_and_ansi_modes_inside_tmux_run_no_tmux_command() {
+        for mode in [Mode::Plain, Mode::Ansi] {
+            let answers = (BEHIND_TMUX, "kitty(0.47.1)|off");
+            let (calls, sent, found) =
+                through_tmux(mode, &in_tmux(), Passthrough::Detect, true, answers);
+            assert_eq!(sent, None);
+            assert_eq!(calls, Vec::<String>::new());
+            assert!(!found.caps.tmux_passthrough);
+        }
+    }
+
+    #[test]
+    fn kitty_mode_inside_tmux_wraps_without_text_sizing() {
+        let answers = (BEHIND_TMUX, "kitty(0.47.1)|off");
+        let (calls, sent, found) =
+            through_tmux(Mode::Kitty, &in_tmux(), Passthrough::Detect, true, answers);
+        assert_eq!(sent, None);
+        assert_eq!(calls.len(), 2, "{calls:?}");
+        let expected = Capabilities {
+            text_sizing: false,
+            hyperlinks: false,
+            styled_underlines: false,
+            tmux_passthrough: true,
+            ..Capabilities::kitty(80)
+        };
+        assert_eq!(found.caps, expected);
+        assert!(found.tmux.unwrap().turned_on);
+        // With none, kitty mode stays as it is.
+        let (calls, _, found) =
+            through_tmux(Mode::Kitty, &in_tmux(), Passthrough::None, true, answers);
+        assert_eq!(calls, Vec::<String>::new());
+        assert_eq!(found.caps, Capabilities::kitty(80));
+    }
 
     #[test]
     fn a_probed_kitty_draws_images_up_to_the_placeholder_limit() {
@@ -272,7 +583,8 @@ mod tests {
     #[test]
     fn examining_a_window_without_pixels_asks_the_terminal_for_the_cell_size() {
         let (seen, found) = with_kitty(size(80, 24, 0, 0), |tty| {
-            examine_on(tty, Mode::Auto, None, &Environment::default())
+            let env = Environment::default();
+            examine_on(tty, Mode::Auto, None, &env, Passthrough::Detect, NO_TMUX)
         });
         assert!(seen.contains("\x1b[16t"), "{seen:?}");
         assert_eq!(found.cell_size(), CellSize::Terminal(9, 19));
@@ -296,7 +608,15 @@ mod tests {
     #[test]
     fn examining_a_window_with_pixels_takes_the_cell_size_from_it() {
         let (seen, found) = with_kitty(size(80, 24, 800, 480), |tty| {
-            examine_on(tty, Mode::Auto, Some(60), &Environment::default())
+            let env = Environment::default();
+            examine_on(
+                tty,
+                Mode::Auto,
+                Some(60),
+                &env,
+                Passthrough::Detect,
+                NO_TMUX,
+            )
         });
         assert!(!seen.contains("\x1b[16t"), "{seen:?}");
         assert_eq!(found.cell_size(), CellSize::Window(10, 20));
@@ -319,9 +639,11 @@ mod tests {
             Mode::Auto,
             None,
             &Environment::default(),
+            Passthrough::Detect,
             Some(window),
             true,
-            |_| None,
+            |_, _| None,
+            NO_TMUX,
         );
         assert_eq!(found.cell_size(), CellSize::Unknown);
         assert_eq!(found.terminal(), None);
@@ -335,11 +657,23 @@ mod tests {
     #[test]
     fn only_the_auto_mode_asks_a_terminal() {
         let env = Environment::default();
-        let never = |_| -> Option<Vec<u8>> { panic!("the terminal was asked") };
-        let found = detect(Mode::Kitty, None, &env, None, true, never);
+        let never = |_, _| -> Option<Vec<u8>> { panic!("the terminal was asked") };
+        let detect = |mode, width, terminal| {
+            detect(
+                mode,
+                width,
+                &env,
+                Passthrough::Detect,
+                None,
+                terminal,
+                never,
+                NO_TMUX,
+            )
+        };
+        let found = detect(Mode::Kitty, None, true);
         assert_eq!(found.caps, Capabilities::kitty(80));
         assert_eq!(found.cell_size(), CellSize::Unknown);
-        let found = detect(Mode::Auto, Some(70), &env, None, false, never);
+        let found = detect(Mode::Auto, Some(70), false);
         assert_eq!(found.caps, Capabilities::plain(70));
     }
 
@@ -391,27 +725,30 @@ mod tests {
         let without_colours = env_with(|env| env.no_color = Some("1".into()));
         for mode in [Mode::Plain, Mode::Ansi, Mode::Kitty] {
             assert!(
-                !capabilities(mode, Some(40), &without_colours).color,
+                !capabilities(mode, Some(40), &without_colours, Passthrough::None).color,
                 "{mode:?}"
             );
         }
         let env = Environment::default();
-        assert!(capabilities(Mode::Ansi, Some(40), &env).color);
-        assert!(capabilities(Mode::Kitty, Some(40), &env).color);
+        assert!(capabilities(Mode::Ansi, Some(40), &env, Passthrough::None).color);
+        assert!(capabilities(Mode::Kitty, Some(40), &env, Passthrough::None).color);
     }
 
     #[test]
     fn a_forced_mode_takes_the_width_it_is_given() {
         let env = Environment::default();
         assert_eq!(
-            capabilities(Mode::Plain, Some(40), &env),
+            capabilities(Mode::Plain, Some(40), &env, Passthrough::None),
             Capabilities::plain(40)
         );
         assert_eq!(
-            capabilities(Mode::Ansi, Some(40), &env),
+            capabilities(Mode::Ansi, Some(40), &env, Passthrough::None),
             Capabilities::ansi(40)
         );
-        assert_eq!(capabilities(Mode::Kitty, Some(40), &env).width, 40);
+        assert_eq!(
+            capabilities(Mode::Kitty, Some(40), &env, Passthrough::None).width,
+            40
+        );
     }
 
     #[test]

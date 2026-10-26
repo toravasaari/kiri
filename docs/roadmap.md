@@ -744,7 +744,7 @@ kitty inside tmux, as in a jailbee container where Claude runs in tmux and
 a spec is read in another tmux window. tmux keeps kitty's text sizing out,
 so large headings come with 5.3.
 
-#### 5.2.1 Passthrough
+#### 5.2.1 Passthrough (done)
 
 - kiri finds out that it runs inside tmux, and wraps kitty's graphics
   sequences so that tmux passes them on: `--passthrough detect|none|tmux`,
@@ -997,6 +997,17 @@ go.
   (5.3.1) too. 5.3.1 makes it do so, but the flag is about a document's
   images and formulas, which one may want hidden while headings stay
   large.
+- Emoji in headings drawn as images (5.3.1) come out in one colour, the
+  heading's, and flags as boxed letters, as resvg draws no colour emoji
+  fonts.
+- Headings drawn as images (5.3.1) in a right-to-left script, such as
+  Arabic or Hebrew, have their words in the wrong order: each word is
+  drawn right, but they are placed from left to right.
+- Drawing headings as images (5.3.1) parses an SVG for each word to
+  measure it, and measures the space again for every heading: a document
+  with a hundred headings parses hundreds of SVGs before it shows.
+  Measuring a heading's words in one SVG, and the space once per level,
+  would be faster.
 
 ## Bugs
 
@@ -1039,6 +1050,14 @@ like `### 日本語の見出し 🇫🇮` at 1 3/4 shows gaps between its groups
 A formula block inside an inline HTML tag, such as `<sub>$$z$$</sub>`,
 is drawn as a formula, but the tags around it show as source: each
 becomes an HTML block of its own, as the wrapper tags in B2 do.
+
+#### B6 A gap inside a word of a heading at a fractional size
+
+A level-three heading at 1 3/4, "Level three with `code` and
+*emphasis*", showed as "Level th ree with" in a render-check at 50
+columns: a gap inside "three", where one group of packed cells ends and
+the next begins. B4 has gaps like this around wide characters; here the
+word is plain ASCII. Not yet seen in a real kitty window.
 
 ### Upstream bugs
 
