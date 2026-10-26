@@ -165,11 +165,14 @@ pub enum ImageKey {
         language: String,
         source: String,
     },
-    /// A heading drawn as an image: its level and its text.
+    /// A heading drawn as an image: its level, its text, and the size in
+    /// pixels of the cells it is drawn for, as its words start on whole
+    /// cells.
     Heading {
         document: usize,
         level: u8,
         text: String,
+        cell: (u16, u16),
     },
 }
 
@@ -184,13 +187,14 @@ impl ImageKey {
         }
     }
 
-    /// The key of the heading of `level` with `text`, drawn as an image,
-    /// in the first document.
-    pub fn heading(level: u8, text: &str) -> Self {
+    /// The key of the heading of `level` with `text`, drawn as an image
+    /// for cells of `cell` pixels, in the first document.
+    pub fn heading(level: u8, text: &str, cell: (u16, u16)) -> Self {
         ImageKey::Heading {
             document: 0,
             level,
             text: text.to_owned(),
+            cell,
         }
     }
 
@@ -205,10 +209,13 @@ impl ImageKey {
                 language,
                 source,
             },
-            ImageKey::Heading { level, text, .. } => ImageKey::Heading {
+            ImageKey::Heading {
+                level, text, cell, ..
+            } => ImageKey::Heading {
                 document,
                 level,
                 text,
+                cell,
             },
         }
     }
@@ -542,7 +549,8 @@ pub fn load_parts(
     fonts: &Fonts,
     options: &LoadOptions<'_>,
 ) -> Images {
-    let (wanted, mut have) = plan(parts, options.renderer, options.headings.is_some(), None);
+    let cell = options.headings.map(|look| look.cell);
+    let (wanted, mut have) = plan(parts, options.renderer, cell, None);
     let key = |&(index, ref image): &(usize, Wanted)| image.key().in_document(parts[index].number);
     // The diagrams first, all together, so a renderer can draw several
     // at once.
@@ -580,7 +588,9 @@ pub fn load_parts(
         let loaded = match image {
             _ if have.is_some() => have.take().expect("an image kept"),
             Wanted::Url(url) => load_url(url, part.base, max_file_size, fonts),
-            Wanted::Heading { level, ref text } => match &options.headings {
+            Wanted::Heading {
+                level, ref text, ..
+            } => match &options.headings {
                 Some(look) => draw_heading(text, look.level(level), look.cell, fonts),
                 None => unreachable!("headings are wanted only with a look"),
             },
@@ -617,12 +627,12 @@ type Outcome = Result<Source, ImageError>;
 /// the order of the documents, and beside each what `kept` holds of it,
 /// taken out of `kept`; `None` for one to load. A diagram that failed is
 /// to be drawn again, as what made it fail, such as a time limit or a
-/// missing program, may have passed. The headings are wanted as images
-/// only when `headings` says so.
+/// missing program, may have passed. The headings are wanted as images,
+/// drawn for cells of `headings` pixels, only when it is given.
 fn plan<'p>(
     parts: &[Part<'p>],
     renderer: &dyn Renderer,
-    headings: bool,
+    headings: Option<(u16, u16)>,
     mut kept: Option<&mut Images>,
 ) -> (Vec<(usize, Wanted<'p>)>, Vec<Option<Outcome>>) {
     let mut wanted = Vec::new();
@@ -648,7 +658,7 @@ fn plan<'p>(
 /// as diagrams, in order, once for each block.
 pub fn diagram_languages<'a>(document: &'a Document, renderer: &dyn Renderer) -> Vec<&'a str> {
     let mut wanted = Vec::new();
-    collect_blocks(&document.blocks, renderer, false, &mut wanted);
+    collect_blocks(&document.blocks, renderer, None, &mut wanted);
     (wanted.into_iter())
         .filter_map(|image| match image {
             Wanted::Diagram { language, .. } => Some(language),
@@ -660,7 +670,7 @@ pub fn diagram_languages<'a>(document: &'a Document, renderer: &dyn Renderer) ->
 /// The URLs of the images `document` shows as image blocks.
 fn lone_urls(document: &Document) -> Vec<&str> {
     let mut wanted = Vec::new();
-    collect_blocks(&document.blocks, &NoRenderer, false, &mut wanted);
+    collect_blocks(&document.blocks, &NoRenderer, None, &mut wanted);
     (wanted.into_iter())
         .filter_map(|image| match image {
             Wanted::Url(url) => Some(url),
@@ -678,10 +688,12 @@ enum Wanted<'a> {
         source: &'a str,
         line: usize,
     },
-    /// A heading drawn as an image: its level and its text.
+    /// A heading drawn as an image: its level, its text and the size of
+    /// the cells it is drawn for.
     Heading {
         level: u8,
         text: String,
+        cell: (u16, u16),
     },
 }
 
@@ -689,7 +701,11 @@ impl Wanted<'_> {
     fn key(&self) -> ImageKey {
         match *self {
             Wanted::Url(url) => ImageKey::from(url),
-            Wanted::Heading { level, ref text } => ImageKey::heading(level, text),
+            Wanted::Heading {
+                level,
+                ref text,
+                cell,
+            } => ImageKey::heading(level, text, cell),
             Wanted::Diagram {
                 language, source, ..
             } => ImageKey::block(language, source),
@@ -701,11 +717,12 @@ impl Wanted<'_> {
 /// them that `renderer` draws. Other images are only ever shown as alt
 /// text, so they are not loaded at all. With `headings`, the headings
 /// among `blocks` and in the details blocks among them, which layout
-/// takes as top level, are wanted as images too.
+/// takes as top level, are wanted as images too, drawn for cells of that
+/// many pixels.
 fn collect_blocks<'a>(
     blocks: &'a [Block],
     renderer: &dyn Renderer,
-    headings: bool,
+    headings: Option<(u16, u16)>,
     wanted: &mut Vec<Wanted<'a>>,
 ) {
     for block in blocks {
@@ -715,11 +732,11 @@ fn collect_blocks<'a>(
             }
             Block::Details { blocks, .. } => collect_blocks(blocks, renderer, headings, wanted),
             Block::BlockQuote(blocks) | Block::Alert { blocks, .. } => {
-                collect_blocks(blocks, renderer, false, wanted)
+                collect_blocks(blocks, renderer, None, wanted)
             }
             Block::List(list) => {
                 for item in &list.items {
-                    collect_blocks(&item.blocks, renderer, false, wanted);
+                    collect_blocks(&item.blocks, renderer, None, wanted);
                 }
             }
             Block::CodeBlock {
@@ -731,10 +748,13 @@ fn collect_blocks<'a>(
                 source: code,
                 line: *line,
             }),
-            Block::Heading { level, content } if headings => wanted.push(Wanted::Heading {
-                level: *level,
-                text: Inline::plain_text(content),
-            }),
+            Block::Heading { level, content } if let Some(cell) = headings => {
+                wanted.push(Wanted::Heading {
+                    level: *level,
+                    text: Inline::plain_text(content),
+                    cell,
+                })
+            }
             Block::FrontMatter(_)
             | Block::Heading { .. }
             | Block::Table(_)
@@ -845,10 +865,10 @@ mod tests {
     #[test]
     fn heading_images_load_when_asked() {
         let images = with_headings("# Kiri\n\n## Kiri *is* `here`\n", &Fonts::fixture());
-        let one = images.get(&ImageKey::heading(1, "Kiri"));
+        let one = images.get(&ImageKey::heading(1, "Kiri", (10, 20)));
         assert!(matches!(one, Some(Ok(Source::Text { .. }))), "{images:?}");
         // As plain text, and apart from the same text at another level.
-        let two = images.get(&ImageKey::heading(2, "Kiri is here"));
+        let two = images.get(&ImageKey::heading(2, "Kiri is here", (10, 20)));
         assert!(matches!(two, Some(Ok(Source::Text { .. }))), "{images:?}");
         assert_eq!(images.len(), 2);
     }
@@ -857,7 +877,7 @@ mod tests {
     fn heading_images_inside_details_load() {
         let source = "<details>\n<summary>S</summary>\n\n# Inside\n\n</details>\n";
         let images = with_headings(source, &Fonts::fixture());
-        let inside = images.get(&ImageKey::heading(1, "Inside"));
+        let inside = images.get(&ImageKey::heading(1, "Inside", (10, 20)));
         assert!(matches!(inside, Some(Ok(_))), "{images:?}");
     }
 
@@ -878,7 +898,7 @@ mod tests {
     #[test]
     fn a_failed_heading_image_warns_of_nothing() {
         let images = with_headings("# Kiri\n", &Fonts::none());
-        let image = images.get(&ImageKey::heading(1, "Kiri"));
+        let image = images.get(&ImageKey::heading(1, "Kiri", (10, 20)));
         assert!(matches!(image, Some(Err(_))), "{images:?}");
         assert_eq!(images.warnings(), Vec::<String>::new());
         assert_eq!(images.warnings_in(0, true), Vec::<String>::new());
@@ -903,8 +923,12 @@ mod tests {
             &Fonts::fixture(),
             &options,
         );
-        assert!(images.get(&ImageKey::heading(1, "Kiri")).is_some());
-        let second = ImageKey::heading(1, "Kiri").in_document(1);
+        assert!(
+            images
+                .get(&ImageKey::heading(1, "Kiri", (10, 20)))
+                .is_some()
+        );
+        let second = ImageKey::heading(1, "Kiri", (10, 20)).in_document(1);
         assert!(images.get(&second).is_some(), "{images:?}");
     }
 
@@ -1049,7 +1073,7 @@ Text ![inline](images/pattern.png) and words.
         };
         assert_eq!(calls(&stub), ["a\n", "b\n"]);
         let parts = [part(&after)];
-        let (wanted, have) = plan(&parts, &stub, false, Some(&mut images));
+        let (wanted, have) = plan(&parts, &stub, None, Some(&mut images));
         let keys: Vec<_> = (wanted.iter()).map(|(_, image)| image.key()).collect();
         assert_eq!(
             keys,
@@ -1078,7 +1102,7 @@ Text ![inline](images/pattern.png) and words.
         let key = ImageKey::block("mermaid", "flaky\n");
         let mut images = load_parts(&parts, DEFAULT_MAX_FILE_SIZE, &Fonts::none(), &options);
         assert!(matches!(images.get(&key), Some(Err(_))), "{images:?}");
-        let (wanted, have) = plan(&parts, &stub, false, Some(&mut images));
+        let (wanted, have) = plan(&parts, &stub, None, Some(&mut images));
         assert_eq!(wanted.len(), 1);
         assert!(matches!(have[..], [None]), "{have:?}");
     }

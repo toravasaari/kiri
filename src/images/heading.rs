@@ -206,11 +206,16 @@ mod tests {
 
     #[test]
     fn the_same_text_at_two_levels_has_two_keys() {
-        let (one, two) = (ImageKey::heading(1, "Kiri"), ImageKey::heading(2, "Kiri"));
+        let (one, two) = (
+            ImageKey::heading(1, "Kiri", CELL),
+            ImageKey::heading(2, "Kiri", CELL),
+        );
         assert_ne!(one, two);
         assert_ne!(one, one.clone().in_document(1));
         assert_eq!(one.clone().in_document(1).document(), 1);
         assert_eq!(one.to_string(), "heading \"Kiri\"");
+        // Drawn for other cells, its words start elsewhere.
+        assert_ne!(one, ImageKey::heading(1, "Kiri", (8, 16)));
     }
 
     #[test]

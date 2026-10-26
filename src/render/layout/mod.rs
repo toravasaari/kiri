@@ -652,11 +652,11 @@ impl Layout<'_> {
             return None;
         }
         let text = Inline::plain_text(content);
-        let key = ImageKey::heading(level, &text).in_document(self.document);
+        let cell = image::cell_size(self.caps);
+        let key = ImageKey::heading(level, &text, cell).in_document(self.document);
         let Some(Ok(Source::Text { image, breaks })) = self.images.get(&key) else {
             return None;
         };
-        let cell = image::cell_size(self.caps);
         let (width, height) = image.dimensions();
         let most = self.caps.max_image_cells;
         let columns = u16::try_from(width.div_ceil(u32::from(cell.0))).ok()?;

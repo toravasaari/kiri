@@ -443,7 +443,7 @@ fn search_moves_to_a_heading_shown_as_an_image() {
     };
     let mut inputs = Inputs::new(caps);
     let image = image::RgbaImage::from_pixel(100, 40, image::Rgba([200, 30, 30, 255]));
-    let key = crate::images::ImageKey::heading(1, "Findme");
+    let key = crate::images::ImageKey::heading(1, "Findme", (10, 20));
     let text = crate::images::Source::Text {
         image,
         breaks: Vec::new(),

@@ -101,7 +101,7 @@ pub fn reload_in_background(
     };
     // Whether a failure came in the background stays with what is kept.
     let late = std::mem::take(&mut images.late);
-    let headings = loading.headings.is_some();
+    let headings = loading.headings.map(|look| look.cell);
     let (wanted, have) = plan(parts, renderer, headings, Some(images));
     let shown: Vec<ImageKey> = (wanted.iter())
         .map(|(index, image)| image.key().in_document(parts[*index].number))
@@ -155,7 +155,12 @@ pub fn load_in_background(
         Some(renderers) => renderers,
         None => &NoRenderer,
     };
-    let (wanted, _) = plan(parts, renderer, loading.headings.is_some(), None);
+    let (wanted, _) = plan(
+        parts,
+        renderer,
+        loading.headings.map(|look| look.cell),
+        None,
+    );
     let mut jobs = Vec::new();
     for (index, image) in wanted {
         let part = &parts[index];
@@ -182,7 +187,12 @@ pub fn measure_in_background(
         Some(renderers) => renderers,
         None => &NoRenderer,
     };
-    let (wanted, _) = plan(parts, renderer, loading.headings.is_some(), None);
+    let (wanted, _) = plan(
+        parts,
+        renderer,
+        loading.headings.map(|look| look.cell),
+        None,
+    );
     for (index, image) in wanted {
         let key = image.key().in_document(parts[index].number);
         images.wait(key, Placeholder::Rows(rows));
@@ -208,7 +218,7 @@ fn job(
     loading: &Loading,
 ) -> Job {
     let (what, program) = match image {
-        Wanted::Heading { level, text } => {
+        Wanted::Heading { level, text, .. } => {
             let look = loading
                 .headings
                 .expect("headings are wanted only with a look");

@@ -159,7 +159,7 @@ fn text_image(columns: u32, rows: u32, breaks: &[u16]) -> Source {
 /// headings shown as `headings` says.
 fn heading_inputs(caps: Capabilities, text: &str, image: Source, headings: Headings) -> Inputs {
     let mut images = Images::new();
-    images.insert(ImageKey::heading(1, text), Ok(image));
+    images.insert(ImageKey::heading(1, text, (10, 20)), Ok(image));
     Inputs {
         images,
         headings,
@@ -261,7 +261,10 @@ fn a_heading_without_its_image_is_text() {
         name: "heading".into(),
         reason: "no font draws it".into(),
     };
-    images.insert(ImageKey::heading(1, "Heading level one"), Err(failed));
+    images.insert(
+        ImageKey::heading(1, "Heading level one", (10, 20)),
+        Err(failed),
+    );
     let inputs = Inputs {
         images,
         ..Inputs::new(caps)
@@ -351,4 +354,17 @@ fn a_nested_heading_stays_text_with_its_image_loaded() {
         assert!(drawn(&out).is_empty(), "{source:?}: {out:?}");
         assert!(visible(&out).contains("Kiri"), "{source:?}: {out:?}");
     }
+}
+
+#[test]
+fn a_heading_image_drawn_for_other_cells_is_not_used() {
+    // Drawn for cells of 10 × 20 pixels, shown with cells of 8 × 16.
+    let caps = Capabilities {
+        cell_pixels: Some((8, 16)),
+        ..no_text_sizing(80)
+    };
+    let inputs = heading_inputs(caps, "Kiri", text_image(20, 2, &[]), Headings::Auto);
+    let out = render("# Kiri\n", &inputs);
+    assert_eq!(drawn(&out), Vec::<String>::new());
+    assert!(visible(&out).contains("Kiri"), "{out:?}");
 }

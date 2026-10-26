@@ -755,7 +755,10 @@ fn a_heading_image_comes_after_its_text_and_keeps_the_top_line() {
     for (keys, top) in [(b"".as_slice(), "Kiri"), (b"jjjj", "Line 2")] {
         let mut reload = Background {
             document: document("Kiri"),
-            wanted: vec![(crate::images::ImageKey::heading(1, "Kiri"), text.clone())],
+            wanted: vec![(
+                crate::images::ImageKey::heading(1, "Kiri", (10, 20)),
+                text.clone(),
+            )],
             aside: Vec::new(),
             coming: Default::default(),
             fails: Vec::new(),
