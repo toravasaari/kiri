@@ -35,6 +35,8 @@ Options:
                                last, most]
       --initial-load <HOW>     Whether the pager waits for images before it shows the document
                                [possible values: wait, background]
+      --passthrough <HOW>      Whether kitty's images pass through tmux [possible values: detect,
+                               none, tmux]
       --front-matter <STYLE>   How to show the front matter [possible values: table, code, hide,
                                off]
       --table-rows <STYLE>     Table row style [possible values: off, zebra, lines, indent,

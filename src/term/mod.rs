@@ -1,10 +1,13 @@
 //! The terminal itself: finding out what it can do, its window and the
 //! pager's screen. All of kiri's terminal I/O happens here.
 
+use std::io::{StdoutLock, Write};
 use std::os::fd::AsFd;
 use std::time::Duration;
 
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
+
+use crate::caps::Capabilities;
 
 mod answers;
 mod detect;
@@ -17,6 +20,7 @@ mod pty;
 mod screen;
 #[cfg(test)]
 mod testing;
+pub mod tmux;
 mod window;
 
 pub use detect::{CellSize, Detection, Mode, capabilities, examine, no_color};
@@ -24,6 +28,17 @@ pub use interrupt::{Interrupt, end_by};
 pub use keys::WaitKeys;
 pub use screen::Screen;
 pub use window::{WindowSize, window_size};
+
+/// Standard output for rendering with `caps`, which wraps kitty's
+/// graphics for tmux when they say so.
+pub fn output(caps: &Capabilities) -> tmux::Wrapping<StdoutLock<'static>> {
+    wrapped(std::io::stdout().lock(), caps)
+}
+
+/// `out` for rendering with `caps`, as [`output`] is for standard output.
+pub fn wrapped<W: Write>(out: W, caps: &Capabilities) -> tmux::Wrapping<W> {
+    tmux::Wrapping::new(out, caps.tmux_passthrough)
+}
 
 /// Whether stdout is a terminal.
 pub fn stdout_is_terminal() -> bool {

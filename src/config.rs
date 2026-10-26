@@ -73,6 +73,8 @@ environment! {
     kiri_follow_jump: "KIRI_FOLLOW_JUMP",
     /// `KIRI_INITIAL_LOAD`: `wait` or `background`.
     kiri_initial_load: "KIRI_INITIAL_LOAD",
+    /// `KIRI_PASSTHROUGH`: `detect`, `none` or `tmux`.
+    kiri_passthrough: "KIRI_PASSTHROUGH",
     /// `KIRI_FRONT_MATTER`: `table`, `code`, `hide` or `off`.
     kiri_front_matter: "KIRI_FRONT_MATTER",
     /// `KIRI_TABLE_ROWS`: `off`, `zebra`, `lines`, `indent` or `underline`.
@@ -99,6 +101,10 @@ environment! {
     term_program: "TERM_PROGRAM",
     /// `VTE_VERSION`: terminals built on VTE, with hyperlinks from 5000 on.
     vte_version: "VTE_VERSION",
+    /// `TMUX`: set and not empty inside tmux.
+    tmux: "TMUX",
+    /// `TMUX_PANE`: the tmux pane kiri runs in, such as `%3`.
+    tmux_pane: "TMUX_PANE",
 }
 
 impl Environment {
@@ -191,6 +197,8 @@ pub struct Config {
     pub follow_jump: Option<FollowJump>,
     /// Whether the pager waits for the images before it opens.
     pub initial_load: Option<InitialLoad>,
+    /// Whether kitty's graphics are wrapped for tmux.
+    pub passthrough: Option<Passthrough>,
     /// How front matter shows.
     pub front_matter: Option<FrontMatter>,
     /// How the rows of a table are told apart.
@@ -302,6 +310,21 @@ pub enum InitialLoad {
     Background,
 }
 
+/// Whether kitty's graphics sequences are wrapped in tmux's passthrough,
+/// so that they reach the terminal outside tmux, as `kitten icat
+/// --passthrough` does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Passthrough {
+    /// Wrapped inside tmux, which also gets the pane's `allow-passthrough`
+    /// turned on when it is off.
+    #[default]
+    Detect,
+    /// Never wrapped, and tmux is left alone.
+    None,
+    /// Always wrapped, and tmux is left alone.
+    Tmux,
+}
+
 /// Where the configuration file is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigFile {
@@ -370,6 +393,7 @@ fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String> {
         follow: file.follow,
         follow_jump: file.follow_jump,
         initial_load: file.initial_load,
+        passthrough: file.passthrough,
         front_matter: file.front_matter,
         table_rows: file.table_rows,
         diagrams: file.diagrams.enabled,
@@ -396,6 +420,8 @@ struct ConfigToml {
     follow_jump: Option<FollowJump>,
     #[serde(default, deserialize_with = "named")]
     initial_load: Option<InitialLoad>,
+    #[serde(default, deserialize_with = "named")]
+    passthrough: Option<Passthrough>,
     #[serde(default, deserialize_with = "named")]
     front_matter: Option<FrontMatter>,
     #[serde(default, deserialize_with = "named")]
@@ -742,6 +768,11 @@ impl Named for InitialLoad {
     const NAMES: &'static [&'static str] = &["wait", "background"];
 }
 
+impl Named for Passthrough {
+    const ALL: &'static [Self] = &[Self::Detect, Self::None, Self::Tmux];
+    const NAMES: &'static [&'static str] = &["detect", "none", "tmux"];
+}
+
 impl Named for FrontMatter {
     const ALL: &'static [Self] = &[Self::Table, Self::Code, Self::Hide, Self::Off];
     const NAMES: &'static [&'static str] = &["table", "code", "hide", "off"];
@@ -849,6 +880,8 @@ pub struct Options {
     pub follow_jump: Option<Setting<FollowJump>>,
     /// Whether the pager waits for the images before it opens.
     pub initial_load: Option<Setting<InitialLoad>>,
+    /// Whether kitty's graphics are wrapped for tmux.
+    pub passthrough: Option<Setting<Passthrough>>,
     /// How front matter shows.
     pub front_matter: Option<Setting<FrontMatter>>,
     /// How the rows of a table are told apart.
@@ -881,6 +914,8 @@ pub struct Settings {
     pub follow_jump: FollowJump,
     /// Whether the pager waits for the images before it opens.
     pub initial_load: InitialLoad,
+    /// Whether kitty's graphics are wrapped for tmux.
+    pub passthrough: Passthrough,
     /// How front matter shows.
     pub front_matter: FrontMatter,
     /// How the rows of a table are told apart.
@@ -920,6 +955,8 @@ pub struct Choices {
     pub follow_jump: Setting<FollowJump>,
     /// Whether the pager waits for the images before it opens.
     pub initial_load: Setting<InitialLoad>,
+    /// Whether kitty's graphics are wrapped for tmux.
+    pub passthrough: Setting<Passthrough>,
     /// How front matter shows.
     pub front_matter: Setting<FrontMatter>,
     /// How the rows of a table are told apart.
@@ -959,6 +996,7 @@ impl Choices {
             follow: self.follow.value,
             follow_jump: self.follow_jump.value,
             initial_load: self.initial_load.value,
+            passthrough: self.passthrough.value,
             front_matter: self.front_matter.value,
             table_rows: self.table_rows.value,
             diagrams: self.diagrams.value,
@@ -1037,6 +1075,13 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
             variable(env, "KIRI_INITIAL_LOAD"),
             config.initial_load,
             InitialLoad::default(),
+            w,
+        ),
+        passthrough: resolve(
+            options.passthrough.clone(),
+            variable(env, "KIRI_PASSTHROUGH"),
+            config.passthrough,
+            Passthrough::default(),
             w,
         ),
         front_matter,

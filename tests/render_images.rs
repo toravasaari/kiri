@@ -39,6 +39,45 @@ fn plain_images() {
 }
 
 #[test]
+fn images_for_tmux_are_wrapped_on_the_way_out() {
+    let caps = Capabilities {
+        tmux_passthrough: true,
+        ..Capabilities::kitty(WIDTH)
+    };
+    let inputs = with_images(&caps, one_image("p.png", quadrants(40, 30)));
+    let document = kiri::parse::parse("![alone](p.png)\n");
+    let mut out = kiri::term::wrapped(Vec::new(), &caps);
+    kiri::render::render(&document, &inputs, &mut out).unwrap();
+    let out = String::from_utf8(out.into_inner()).unwrap();
+    let graphics = out.matches("_G").count();
+    assert!(graphics > 0, "{out:?}");
+    // Each graphics sequence, inside the passthrough, has its ESC doubled.
+    assert_eq!(
+        out.matches("\x1bPtmux;\x1b\x1b_G").count(),
+        graphics,
+        "{out:?}"
+    );
+    assert_eq!(out.matches("\x1b\x1b\\\x1b\\").count(), graphics, "{out:?}");
+    // Unwrapped, it is what kitty gets.
+    let unwrapped = render(
+        "![alone](p.png)\n",
+        &with_images(&caps, one_image("p.png", quadrants(40, 30))),
+    );
+    assert_eq!(sent(&unwrapped).len(), 1);
+}
+
+#[test]
+fn without_tmux_images_go_out_as_they_are() {
+    let caps = Capabilities::kitty(WIDTH);
+    let inputs = with_images(&caps, one_image("p.png", quadrants(40, 30)));
+    let document = kiri::parse::parse("![alone](p.png)\n");
+    let mut out = kiri::term::wrapped(Vec::new(), &caps);
+    kiri::render::render(&document, &inputs, &mut out).unwrap();
+    let out = String::from_utf8(out.into_inner()).unwrap();
+    assert_eq!(out, render("![alone](p.png)\n", &inputs));
+}
+
+#[test]
 fn an_image_alone_in_a_paragraph_is_drawn() {
     let images = one_image("p.png", quadrants(40, 30));
     let out = render(

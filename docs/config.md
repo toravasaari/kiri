@@ -40,6 +40,10 @@ follow_jump = "first"
 # "wait", or "background" to show the text at once.
 initial_load = "wait"
 
+# Whether kitty's images pass through tmux: "detect", "none" or "tmux";
+# see Passthrough below.
+passthrough = "detect"
+
 # Front matter render style: "table", "code", "hide" or "off".
 front_matter = "table"
 
@@ -245,6 +249,27 @@ fits, there is no hint and the keys do nothing, and so it is when
 standard error is not a terminal, as in `kiri -p notes.md 2>log`, where
 the line cannot show.
 
+## Passthrough
+
+Inside tmux, kitty's images reach kitty only when kiri wraps them in
+tmux's passthrough. The first of these that is given decides whether it
+does:
+
+1. `--passthrough detect|none|tmux`
+2. `KIRI_PASSTHROUGH`: `detect`, `none` or `tmux`; an empty value counts
+   as unset, and any other value is left out with a warning
+3. `passthrough` in the configuration file
+4. `detect`
+
+With `detect`, kiri wraps the images when it runs inside tmux, that is
+when `TMUX` is set and not empty, and turns on the pane's
+`allow-passthrough` when it is `off`, as `kitten icat` does; a pane
+with `on` or `all` is left as it is. With `tmux`, kiri wraps them
+always and runs no tmux command, and with `none` it never wraps them.
+Headings stay one row high inside tmux, as tmux cannot pass kitty's
+text sizing, and an image that loads in the background has no moving
+band below it; the status line still says `[rendering: 1/3]`.
+
 ## Search case
 
 A search in the pager ignores case when its term has no upper-case letter,
@@ -351,6 +376,7 @@ once.
 | `KIRI_FOLLOW` | Whether the pager follows a file; see [Follow](#follow) |
 | `KIRI_FOLLOW_JUMP` | Which change auto-follow moves the view to; see [Follow jump](#follow-jump) |
 | `KIRI_INITIAL_LOAD` | Whether the pager waits for the images; see [Initial load](#initial-load) |
+| `KIRI_PASSTHROUGH` | Whether kitty's images pass through tmux; see [Passthrough](#passthrough) |
 | `KIRI_FRONT_MATTER` | Front matter render style; see [Front matter](#front-matter) |
 | `KIRI_TABLE_ROWS` | Table row style; see [Table rows](#table-rows) |
 | `KIRI_DIAGRAMS` | Diagrams drawn or shown as code; see [Diagrams](diagrams.md) |
@@ -359,4 +385,6 @@ once.
 | `HOME` | Your home directory, `~`, for the default configuration and cache directories, a theme under `~/` and programs found under it; ignored when empty or not an absolute path |
 | `XDG_CONFIG_HOME` | Where the configuration directory is; `~/.config` when unset or not an absolute path |
 | `XDG_CACHE_HOME` | Where kiri's cache directory is, for the files of [diagram commands](diagrams.md#diagram-commands); `~/.cache` when unset or not an absolute path |
+| `TMUX` | Set and not empty inside tmux; see [Passthrough](#passthrough) |
+| `TMUX_PANE` | The tmux pane whose `allow-passthrough` kiri turns on; see [Passthrough](#passthrough) |
 | `TMPDIR` | The temporary directory, for the files of [diagram commands](diagrams.md#diagram-commands) when the cache directory cannot be used; `/tmp` when unset or empty |

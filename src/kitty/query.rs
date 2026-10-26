@@ -39,6 +39,8 @@ pub fn text_sizing_answered(columns: &[u32]) -> bool {
 pub const GRAPHICS: &str = "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\";
 
 /// The start of a successful answer to [`GRAPHICS`], for the same image id.
+/// Both start as every graphics sequence does, with
+/// [`graphics::START`](super::graphics::START), which a test checks.
 pub const GRAPHICS_ANSWER: &str = "\x1b_Gi=31;OK";
 
 /// Asks for the size of one cell in pixels (XTWINOPS 16), which kitty
@@ -138,6 +140,13 @@ mod tests {
         assert_eq!(cell_size("\x1b[6;a;9t"), None);
         // The window size in pixels (XTWINOPS 14) is not the cell size.
         assert_eq!(cell_size("\x1b[4;760;1080t"), None);
+    }
+
+    #[test]
+    fn the_graphics_query_and_its_answer_are_graphics_sequences() {
+        use super::super::graphics::START;
+        assert!(GRAPHICS.starts_with(START));
+        assert!(GRAPHICS_ANSWER.starts_with(START));
     }
 
     #[test]

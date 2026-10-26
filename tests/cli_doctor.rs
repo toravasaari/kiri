@@ -7,8 +7,9 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use kiri::caps::Capabilities;
-use kiri::config::{Environment, Options, Origin, Setting, choose};
+use kiri::config::{Environment, Options, Origin, Passthrough, Setting, choose};
 use kiri::doctor::{Facts, report};
+use kiri::term::tmux::Pane;
 use kiri::term::{Detection, Mode, WindowSize};
 use kiri::theme::Theme;
 
@@ -332,6 +333,24 @@ fn the_initial_load_tells_where_it_comes_from() {
         &dir,
         &["--initial-load", "background"],
         &[("KIRI_INITIAL_LOAD", "wait")],
+        row,
+    );
+}
+
+#[test]
+fn the_passthrough_tells_where_it_comes_from() {
+    let dir = Scratch::new("doctor-passthrough");
+    check_row(&dir, &[], &[], "| Passthrough | detect | default |");
+    write_config(&dir, "passthrough = \"none\"\n");
+    let row = "| Passthrough | none | configuration file |";
+    check_row(&dir, &[], &[], row);
+    let row = "| Passthrough | tmux | `KIRI_PASSTHROUGH=tmux` |";
+    check_row(&dir, &[], &[("KIRI_PASSTHROUGH", "tmux")], row);
+    let row = "| Passthrough | none | `--passthrough` |";
+    check_row(
+        &dir,
+        &["--passthrough", "none"],
+        &[("KIRI_PASSTHROUGH", "tmux")],
         row,
     );
 }
@@ -764,6 +783,7 @@ fn the_report_on_kitty() {
                 .to_vec(),
         ),
         background: false,
+        tmux: None,
     };
     let choices = choose(&Options::default(), &env, &Default::default());
     let facts = Facts {
@@ -781,6 +801,140 @@ fn the_report_on_kitty() {
     insta::assert_snapshot!(stable(&report(&facts)));
 }
 
+/// The terminal section of the report on a kitty behind tmux, where
+/// kiri found `pane` with the passthrough setting `passthrough`.
+fn tmux_report(pane: Option<Pane>, passthrough: Passthrough) -> String {
+    let env = Environment::default();
+    let detection = Detection {
+        caps: Capabilities {
+            text_sizing: false,
+            hyperlinks: false,
+            styled_underlines: false,
+            tmux_passthrough: true,
+            ..Capabilities::kitty(80)
+        },
+        window: None,
+        answers: Some(b"\x1b_Gi=31;OK\x1b\\\x1bP>|tmux 3.8\x1b\\\x1b[?1;2;4c".to_vec()),
+        background: false,
+        tmux: pane,
+    };
+    let options = Options {
+        passthrough: Some(Setting::new(passthrough, Origin::Flag("--passthrough"))),
+        ..Options::default()
+    };
+    let choices = choose(&options, &env, &Default::default());
+    let facts = Facts {
+        env: &env,
+        mode: Setting::new(Mode::Auto, Origin::Default),
+        width: None,
+        max_image_size: Setting::new(10, Origin::Default),
+        detection: &detection,
+        choices: &choices,
+        theme: &Theme::default(),
+        config_error: None,
+        theme_error: None,
+        output: kiri::doctor::Output::Markdown,
+    };
+    let report = report(&facts);
+    let start = report.find("## Terminal").unwrap();
+    let end = report[start..].find("| Window").unwrap();
+    report[start..start + end].to_owned()
+}
+
+#[test]
+fn the_doctor_tells_the_tmux_pane() {
+    let pane = |passthrough: &str, turned_on| Pane {
+        client: Some("kitty(0.47.1)".into()),
+        passthrough: Some(passthrough.into()),
+        turned_on,
+    };
+    let report = tmux_report(Some(pane("off", true)), Passthrough::Detect);
+    let row = "| tmux | passthrough for `kitty(0.47.1)`, allow-passthrough `on`, \
+               turned on by kiri |";
+    assert!(report.contains(row), "{report}");
+    assert!(report.contains("| Terminal | `tmux 3.8` |"), "{report}");
+    let report = tmux_report(Some(pane("all", false)), Passthrough::Detect);
+    let row = "| tmux | passthrough for `kitty(0.47.1)`, allow-passthrough `all` |";
+    assert!(report.contains(row), "{report}");
+}
+
+#[test]
+fn the_doctor_says_when_passthrough_stays_off() {
+    let pane = Pane {
+        client: Some("kitty(0.47.1)".into()),
+        passthrough: Some("off".into()),
+        turned_on: false,
+    };
+    let report = tmux_report(Some(pane), Passthrough::Detect);
+    let row = "| tmux | passthrough for `kitty(0.47.1)`, allow-passthrough `off`: \
+               images cannot pass |";
+    assert!(report.contains(row), "{report}");
+}
+
+#[test]
+fn the_doctor_tells_when_tmux_was_not_asked() {
+    let nothing = Pane {
+        client: None,
+        passthrough: None,
+        turned_on: false,
+    };
+    let report = tmux_report(Some(nothing.clone()), Passthrough::Tmux);
+    let row = "| tmux | passthrough; tmux not asked, as passthrough is `tmux` |";
+    assert!(report.contains(row), "{report}");
+    let report = tmux_report(Some(nothing), Passthrough::Detect);
+    let row = "| tmux | passthrough; tmux did not answer |";
+    assert!(report.contains(row), "{report}");
+}
+
+#[test]
+fn without_passthrough_the_doctor_has_no_tmux_row() {
+    let report = tmux_report(None, Passthrough::None);
+    assert!(!report.contains("\n| tmux |"), "{report}");
+}
+
+#[test]
+fn inside_tmux_with_passthrough_none_tmux_is_left_alone() {
+    // With none, kiri runs no tmux command, so this is safe inside a
+    // real tmux too.
+    let dir = Scratch::new("doctor-tmux-none");
+    let mut command = doctor(&dir, &["--passthrough", "none"]);
+    command
+        .env("TMUX", "/tmp/kiri-no-such-tmux,1,0")
+        .env("TMUX_PANE", "%1");
+    let out = command.output().unwrap();
+    assert_succeeded(&out);
+    let report = text(&out.stdout);
+    assert!(!report.contains("\n| tmux |"), "{report}");
+    assert!(
+        report.contains("| Passthrough | none | `--passthrough` |"),
+        "{report}"
+    );
+}
+
+#[test]
+fn passthrough_tmux_on_a_pipe_outside_tmux_runs_no_tmux_command() {
+    let dir = Scratch::new("doctor-tmux-pipe");
+    // A tmux that leaves a mark when it runs.
+    let mark = dir.join("tmux-ran");
+    let script = format!("#!/bin/sh\necho \"$@\" >> '{}'\n", mark.display());
+    common::executable(&dir.join("bin/tmux"), &script);
+    let mut command = doctor(&dir, &["--passthrough", "tmux"]);
+    command.env("PATH", dir.join("bin"));
+    let out = command.output().unwrap();
+    assert_succeeded(&out);
+    let report = text(&out.stdout);
+    assert!(!report.contains("\n| tmux |"), "{report}");
+    assert!(
+        report.contains("| Passthrough | tmux | `--passthrough` |"),
+        "{report}"
+    );
+    assert!(
+        !mark.exists(),
+        "tmux ran: {:?}",
+        std::fs::read_to_string(&mark)
+    );
+}
+
 /// The terminal's name is its own answer, so Markdown in it stays text.
 #[test]
 fn the_terminal_name_is_shown_as_code() {
@@ -790,6 +944,7 @@ fn the_terminal_name_is_shown_as_code() {
         window: None,
         answers: Some(b"\x1bP>|evil *x* ![i](p.png)\x1b\\\x1b[?62;c".to_vec()),
         background: false,
+        tmux: None,
     };
     let choices = choose(&Options::default(), &env, &Default::default());
     let facts = Facts {
@@ -820,6 +975,7 @@ fn in_the_background_the_terminal_is_not_asked() {
         window: None,
         answers: None,
         background: true,
+        tmux: None,
     };
     let choices = choose(&Options::default(), &env, &Default::default());
     let facts = Facts {
@@ -851,6 +1007,7 @@ fn heading_sizes_show_their_rounding() {
         window: None,
         answers: None,
         background: false,
+        tmux: None,
     };
     let choices = choose(&Options::default(), &env, &Default::default());
     let theme = kiri::theme::parse("[h1]\nscale = 3\n[h5]\nscale = 1.3\n").unwrap();
