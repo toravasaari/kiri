@@ -294,7 +294,7 @@ While the pager has the mouse, a click does nothing, and kitty selects
 text when you hold Shift as you drag. With the mouse off, kitty turns
 the wheel into arrow keys in the pager, and inside tmux with `mouse on`
 the wheel does not scroll the pager: tmux 3.6 drops it, and older tmux
-goes into its copy mode. A printed document leaves the mouse alone
+may go into its copy mode. A printed document leaves the mouse alone
 either way.
 
 ## Search case
