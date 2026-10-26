@@ -343,7 +343,8 @@ row as with `plain`; `--no-images` also turns heading images off.
 
 A heading too long for the window wraps at its spaces into several lines,
 drawn as an image or with text sizing alike. Only a single word wider than
-the window makes a heading image smaller, to fit on one line.
+the window, with any text right against it such as a comma after inline
+code, makes a heading image smaller, to fit on one line.
 
 In a heading drawn as an image, inline code and keys (`<kbd>`) look as
 they do in a sized heading: in a monospace font, in the colour of inline
