@@ -447,6 +447,7 @@ fn search_moves_to_a_heading_shown_as_an_image() {
     let text = crate::images::Source::Text {
         image,
         breaks: Vec::new(),
+        ends: vec![10],
     };
     inputs.images.insert(key, Ok(text));
     let mut source: String = (1..=30).map(|n| format!("Line {n}\n\n")).collect();

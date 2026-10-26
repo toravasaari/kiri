@@ -226,14 +226,15 @@ A heading is drawn as an image the same way, where the terminal draws
 images but not large text, as kitty inside tmux: `ImageKey::Heading`
 holds its level, its plain text and the cell size it is drawn for, and
 `src/images/heading.rs` draws the text through the SVG renderer in the
-system's sans-serif font, at
-the size and in the colour that `render::heading_look` resolves from the
-theme and the terminal, so `src/images/` knows nothing of themes. Each
-word starts on a whole cell, and `Source::Text` tells the columns they
-start on, so layout can show the left part of the one image, up to the
-last word that fits, by writing fewer placeholder cells; the rest of the
-heading follows as bold text. A heading whose image did not come is laid
-out as text, without a warning.
+system's sans-serif font, at the size and in the colour that
+`render::heading_look` resolves from the theme and the terminal, so
+`src/images/` knows nothing of themes. Each word starts on a whole cell,
+and `Source::Text` tells the columns each word covers, so layout wraps a
+heading too long for the window as the sized one wraps: each line writes
+the placeholders of the image's columns its words cover, which kitty's
+placeholders allow from any column, and the image stays one whatever the
+width. A heading whose image did not come is laid out as text, without a
+warning.
 
 Renderers live in `src/diagrams/`, outside `src/kitty/` and the parser.
 A renderer implements the `Renderer` trait: whether it draws a language,

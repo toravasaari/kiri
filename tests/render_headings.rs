@@ -9,8 +9,8 @@ use kiri::theme::Theme;
 mod common;
 
 use common::{
-    WIDTH, drawn, example_theme, fixture, inputs, readable, render, render_fixture,
-    strip_own_sequences, visible,
+    WIDTH, drawn, example_theme, fixture, graphics_commands, inputs, readable, render,
+    render_fixture, strip_own_sequences, visible,
 };
 
 #[test]
@@ -146,12 +146,14 @@ fn no_text_sizing(width: u16) -> Capabilities {
 }
 
 /// A heading drawn as text in `columns` × `rows` cells of 10 × 20 pixels,
-/// with its words after the first starting on the columns `breaks`.
-fn text_image(columns: u32, rows: u32, breaks: &[u16]) -> Source {
+/// each of its words covering the columns from the first to the second of
+/// its pair in `words`.
+fn text_image(columns: u32, rows: u32, words: &[(u16, u16)]) -> Source {
     let pixels = RgbaImage::from_pixel(columns * 10, rows * 20, Rgba([200, 30, 30, 255]));
     Source::Text {
         image: pixels,
-        breaks: breaks.to_vec(),
+        breaks: words.iter().skip(1).map(|&(start, _)| start).collect(),
+        ends: words.iter().map(|&(_, end)| end).collect(),
     }
 }
 
@@ -172,7 +174,7 @@ fn a_heading_without_text_sizing_is_an_image() {
     let inputs = heading_inputs(
         no_text_sizing(80),
         "Kiri",
-        text_image(20, 2, &[]),
+        text_image(20, 2, &[(0, 20)]),
         Headings::Auto,
     );
     let out = render("# Kiri\n\nText\n", &inputs);
@@ -190,7 +192,7 @@ fn a_heading_image_keeps_its_indent_background_and_rule() {
         ..heading_inputs(
             no_text_sizing(40),
             "Kiri",
-            text_image(20, 2, &[]),
+            text_image(20, 2, &[(0, 20)]),
             Headings::Auto,
         )
     };
@@ -200,17 +202,82 @@ fn a_heading_image_keeps_its_indent_background_and_rule() {
 }
 
 #[test]
-fn a_long_heading_goes_on_in_bold_text() {
+fn a_long_heading_wraps_as_lines_of_its_image() {
+    let words = [(0, 28), (30, 58), (60, 90)];
     let inputs = heading_inputs(
-        no_text_sizing(80),
-        "One two three four",
-        text_image(120, 2, &[30, 60, 90]),
+        no_text_sizing(30),
+        "One two three",
+        text_image(90, 2, &words),
         Headings::Auto,
     );
-    let out = render("# One two three four\n\nText\n", &inputs);
-    assert_eq!(drawn(&out), ["⟦row 0: 60 cells⟧", "⟦row 1: 60 cells⟧"]);
-    assert!(visible(&out).contains("three four"), "{out:?}");
-    assert!(!visible(&out).contains("two"), "{out:?}");
+    let out = render("# One two three\n\nText\n", &inputs);
+    let lines = [
+        "⟦row 0: 28 cells⟧",
+        "⟦row 1: 28 cells⟧",
+        "⟦row 0: columns 30..58⟧",
+        "⟦row 1: columns 30..58⟧",
+        "⟦row 0: columns 60..90⟧",
+        "⟦row 1: columns 60..90⟧",
+    ];
+    assert_eq!(drawn(&out), lines);
+    // One image for all three lines, and no text of the heading.
+    assert_eq!(graphics_commands(&out).len(), 1, "{out:?}");
+    assert!(!visible(&out).contains("three"), "{out:?}");
+    insta::assert_snapshot!(readable(&out));
+}
+
+#[test]
+fn a_word_that_fits_without_its_gap_stays_on_the_line() {
+    // The first word fills the room, and the gap after it does not fit.
+    let inputs = heading_inputs(
+        no_text_sizing(19),
+        "Nineteen two",
+        text_image(35, 2, &[(0, 19), (20, 35)]),
+        Headings::Auto,
+    );
+    let out = render("# Nineteen two\n", &inputs);
+    let lines = [
+        "⟦row 0: 19 cells⟧",
+        "⟦row 1: 19 cells⟧",
+        "⟦row 0: columns 20..35⟧",
+        "⟦row 1: columns 20..35⟧",
+    ];
+    assert_eq!(drawn(&out), lines);
+}
+
+#[test]
+fn a_line_ends_where_the_room_does() {
+    // The third word starts on the last column of the room.
+    let inputs = heading_inputs(
+        no_text_sizing(20),
+        "One two three",
+        text_image(30, 2, &[(0, 9), (10, 19), (20, 30)]),
+        Headings::Auto,
+    );
+    let out = render("# One two three\n", &inputs);
+    let lines = [
+        "⟦row 0: 19 cells⟧",
+        "⟦row 1: 19 cells⟧",
+        "⟦row 0: columns 20..30⟧",
+        "⟦row 1: columns 20..30⟧",
+    ];
+    assert_eq!(drawn(&out), lines);
+}
+
+#[test]
+fn a_wrapped_heading_keeps_its_indent_background_and_rule() {
+    let mut theme = example_theme("background.toml");
+    theme.headings[0].rule = true;
+    let inputs = Inputs {
+        theme,
+        ..heading_inputs(
+            no_text_sizing(32),
+            "One two three",
+            text_image(90, 2, &[(0, 28), (30, 58), (60, 90)]),
+            Headings::Auto,
+        )
+    };
+    let out = render("# One two three\n\nText\n", &inputs);
     insta::assert_snapshot!(readable(&out));
 }
 
@@ -219,13 +286,22 @@ fn a_first_word_wider_than_the_room_shrinks_the_image() {
     let inputs = heading_inputs(
         no_text_sizing(80),
         "Onetwothree four",
-        text_image(120, 2, &[90]),
+        text_image(120, 2, &[(0, 89), (90, 120)]),
         Headings::Auto,
     );
     let out = render("# Onetwothree four\n\nText\n", &inputs);
     // 1200 × 40 pixels shrunk to 800 × 27, in two rows of 80 cells.
     assert_eq!(drawn(&out), ["⟦row 0: 80 cells⟧", "⟦row 1: 80 cells⟧"]);
     assert!(!visible(&out).contains("four"), "{out:?}");
+    // So also when the word too wide is not the first.
+    let inputs = heading_inputs(
+        no_text_sizing(80),
+        "One twothreefour",
+        text_image(120, 2, &[(0, 10), (12, 120)]),
+        Headings::Auto,
+    );
+    let out = render("# One twothreefour\n", &inputs);
+    assert_eq!(drawn(&out), ["⟦row 0: 80 cells⟧", "⟦row 1: 80 cells⟧"]);
 }
 
 #[test]
@@ -233,7 +309,7 @@ fn a_heading_that_fits_writes_every_cell() {
     let inputs = heading_inputs(
         no_text_sizing(80),
         "One two",
-        text_image(30, 2, &[15]),
+        text_image(30, 2, &[(0, 14), (15, 30)]),
         Headings::Auto,
     );
     let lines = kiri::render::layout::layout(&kiri::parse::parse("# One two\n"), &inputs);
@@ -243,9 +319,9 @@ fn a_heading_that_fits_writes_every_cell() {
         .collect();
     assert_eq!(rows.len(), 2, "{lines:?}");
     for row in rows {
-        assert_eq!(row.columns, None);
+        assert_eq!(row.columns, 0..30);
         assert_eq!(row.placement.size.columns, 30);
-        assert_eq!(row.placement.text.as_deref(), Some("One two"));
+        assert_eq!(row.text.as_deref(), Some("One two"));
     }
 }
 
@@ -278,7 +354,7 @@ fn headings_images_value_wins_over_text_sizing() {
         cell_pixels: Some((10, 20)),
         ..Capabilities::kitty(80)
     };
-    let image = || text_image(20, 2, &[]);
+    let image = || text_image(20, 2, &[(0, 20)]);
     let auto = heading_inputs(caps.clone(), "Kiri", image(), Headings::Auto);
     let out = render("# Kiri\n", &auto);
     assert!(out.contains("\x1b]66;"), "{out:?}");
@@ -292,7 +368,12 @@ fn headings_images_value_wins_over_text_sizing() {
 #[test]
 fn sized_and_plain_headings_are_never_images() {
     for headings in [Headings::Sized, Headings::Plain] {
-        let inputs = heading_inputs(no_text_sizing(80), "Kiri", text_image(20, 2, &[]), headings);
+        let inputs = heading_inputs(
+            no_text_sizing(80),
+            "Kiri",
+            text_image(20, 2, &[(0, 20)]),
+            headings,
+        );
         let out = render("# Kiri\n", &inputs);
         assert!(drawn(&out).is_empty(), "{headings:?}: {out:?}");
     }
@@ -304,7 +385,7 @@ fn a_heading_in_a_pipe_stays_text() {
         let inputs = heading_inputs(
             caps.clone(),
             "Kiri",
-            text_image(20, 2, &[]),
+            text_image(20, 2, &[(0, 20)]),
             Headings::Images,
         );
         let out = render("# Kiri\n", &inputs);
@@ -322,7 +403,7 @@ fn a_heading_image_wider_than_kitty_places_is_text() {
         max_image_cells: 10,
         ..no_text_sizing(80)
     };
-    let inputs = heading_inputs(caps, "Kiri", text_image(20, 2, &[]), Headings::Auto);
+    let inputs = heading_inputs(caps, "Kiri", text_image(20, 2, &[(0, 20)]), Headings::Auto);
     let out = render("# Kiri\n", &inputs);
     assert!(drawn(&out).is_empty(), "{out:?}");
     assert!(visible(&out).contains("Kiri"), "{out:?}");
@@ -333,7 +414,7 @@ fn a_heading_inside_details_is_an_image() {
     let inputs = heading_inputs(
         no_text_sizing(80),
         "Kiri",
-        text_image(20, 2, &[]),
+        text_image(20, 2, &[(0, 20)]),
         Headings::Auto,
     );
     let source = "<details>\n<summary>S</summary>\n\n# Kiri\n\n</details>\n";
@@ -346,7 +427,7 @@ fn a_nested_heading_stays_text_with_its_image_loaded() {
     let inputs = heading_inputs(
         no_text_sizing(80),
         "Kiri",
-        text_image(20, 2, &[]),
+        text_image(20, 2, &[(0, 20)]),
         Headings::Auto,
     );
     for source in ["> # Kiri\n", "- # Kiri\n", "> [!NOTE]\n> # Kiri\n"] {
@@ -363,7 +444,7 @@ fn a_heading_image_drawn_for_other_cells_is_not_used() {
         cell_pixels: Some((8, 16)),
         ..no_text_sizing(80)
     };
-    let inputs = heading_inputs(caps, "Kiri", text_image(20, 2, &[]), Headings::Auto);
+    let inputs = heading_inputs(caps, "Kiri", text_image(20, 2, &[(0, 20)]), Headings::Auto);
     let out = render("# Kiri\n", &inputs);
     assert_eq!(drawn(&out), Vec::<String>::new());
     assert!(visible(&out).contains("Kiri"), "{out:?}");

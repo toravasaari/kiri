@@ -500,7 +500,6 @@ impl Layout<'_> {
                 key,
                 size,
                 shows: Shows::Image,
-                text: None,
             });
         }
         let alt = Inline::Image(Image {
@@ -588,35 +587,22 @@ impl Layout<'_> {
         // An empty heading takes no room, but keeps its rule.
         let mut lines: Vec<Line> = if empty {
             Vec::new()
-        } else if let Some((rows, rest)) = image {
-            // The rest of a heading too long for the room goes on below
-            // its image at the normal size, bold, in its colour.
-            let style = self.style(Style {
-                bold: true,
-                fg: heading.color,
-                bg: heading.background,
-                ..Style::default()
-            });
-            let rest = (!rest.is_empty()).then(|| wrap(&[Span::new(&rest, style)], available));
-            let lines = rows.into_iter().map(|mut row| {
-                let written = row.image.as_ref().map_or(0, |image| {
-                    usize::from(image.columns.unwrap_or(image.placement.size.columns))
-                });
-                if let Some(image) = &mut row.image {
-                    image.background = background.bg;
-                }
-                if background.bg.is_some() {
-                    let rest = available.saturating_sub(written);
-                    push(&mut row.trail, &" ".repeat(rest), &background);
-                }
-                Line {
-                    lead: lead.clone(),
-                    ..row
-                }
-            });
-            let text = rest.into_iter().flatten();
-            lines
-                .chain(text.map(|spans| line(spans, &background)))
+        } else if let Some(rows) = image {
+            (rows.into_iter())
+                .map(|mut row| {
+                    let written = row.image.as_ref().map_or(0, |image| image.columns.len());
+                    if let Some(image) = &mut row.image {
+                        image.background = background.bg;
+                    }
+                    if background.bg.is_some() {
+                        let rest = available.saturating_sub(written);
+                        push(&mut row.trail, &" ".repeat(rest), &background);
+                    }
+                    Line {
+                        lead: lead.clone(),
+                        ..row
+                    }
+                })
                 .collect()
         } else {
             (wrap(&spans, available).into_iter())
@@ -638,25 +624,29 @@ impl Layout<'_> {
 
     /// The rows of the image of the top-level heading of `level` with
     /// `content`, at most `room` cells wide, when headings show as images
-    /// and its image loaded, and the words of the heading that it does not
-    /// show. A heading too wide for the room shows the left part of its
-    /// image, up to the last whole word that fits; only when even the
-    /// first word does not fit is the whole image shrunk to the room.
-    fn heading_image(
-        &self,
-        level: u8,
-        content: &[Inline],
-        room: usize,
-    ) -> Option<(Vec<Line>, String)> {
+    /// and its image loaded. A heading too wide for the room wraps as the
+    /// sized one does: each line shows the columns of the image that its
+    /// words cover. Only when a word alone is wider than the room is the
+    /// whole image shrunk to the room, on one line.
+    fn heading_image(&self, level: u8, content: &[Inline], room: usize) -> Option<Vec<Line>> {
         if !super::heading_images(self.headings, self.caps) {
             return None;
         }
         let text = Inline::plain_text(content);
         let cell = image::cell_size(self.caps);
         let key = ImageKey::heading(level, &text, cell).in_document(self.document);
-        let Some(Ok(Source::Text { image, breaks })) = self.images.get(&key) else {
+        let Some(Ok(Source::Text {
+            image,
+            breaks,
+            ends,
+        })) = self.images.get(&key)
+        else {
             return None;
         };
+        let words = heading_words(&text);
+        if words.is_empty() || ends.len() != words.len() || breaks.len() + 1 != words.len() {
+            return None;
+        }
         let (width, height) = image.dimensions();
         let most = self.caps.max_image_cells;
         let columns = u16::try_from(width.div_ceil(u32::from(cell.0))).ok()?;
@@ -666,34 +656,50 @@ impl Layout<'_> {
             return None;
         }
         let room = u16::try_from(room).unwrap_or(u16::MAX);
-        let words = heading_words(&text);
-        let full = image::Size {
-            width,
-            height,
-            columns,
-            rows,
-        };
-        let cut = breaks.iter().rposition(|&at| at <= room);
-        let (size, shown, cut) = match cut {
-            _ if columns <= room => (full, words.len(), None),
-            Some(at) => (full, (at + 1).min(words.len()), Some(breaks[at])),
-            None => {
-                let size = image::size_in((width, height), image::Unit::Pixel, cell, room, rows)?;
-                (size, words.len(), None)
+        let starts: Vec<u16> = std::iter::once(0).chain(breaks.iter().copied()).collect();
+        let wide = (starts.iter().zip(ends)).any(|(&start, &end)| end.saturating_sub(start) > room);
+        let (size, lines) = if wide {
+            let shrunk = image::size_in((width, height), image::Unit::Pixel, cell, room, rows)?;
+            (shrunk, vec![(0..shrunk.columns, 0..words.len())])
+        } else {
+            let full = image::Size {
+                width,
+                height,
+                columns,
+                rows,
+            };
+            // As many words on each line as its room holds, the gap after
+            // the last one aside.
+            let mut lines = Vec::new();
+            let mut first = 0;
+            for word in 1..=words.len() {
+                let full_line =
+                    word == words.len() || ends[word].saturating_sub(starts[first]) > room;
+                if full_line {
+                    lines.push((starts[first]..ends[word - 1], first..word));
+                    first = word;
+                }
             }
+            (full, lines)
         };
-        let mut lines = image_rows(Placement {
+        let placement = Rc::new(Placement {
             key,
             size,
             shows: Shows::Image,
-            text: Some(words[..shown].join(" ")),
         });
-        for line in &mut lines {
-            if let Some(image) = &mut line.image {
-                image.columns = cut;
+        let mut rows = Vec::new();
+        for (columns, shown) in lines {
+            let text = words[shown].join(" ");
+            for row in 0..size.rows {
+                let mut line = Line::image(Rc::clone(&placement), row);
+                if let Some(image) = &mut line.image {
+                    image.columns = columns.clone();
+                    image.text = Some(text.clone());
+                }
+                rows.push(line);
             }
         }
-        Some((lines, words[shown..].join(" ")))
+        Some(rows)
     }
 
     /// The summary of a details block, in bold after an open triangle, as
@@ -833,7 +839,6 @@ impl Layout<'_> {
                     key: key.clone(),
                     size,
                     shows,
-                    text: None,
                 });
                 self.loading_band(&key, 1, &mut lines);
                 return Some(lines);
@@ -854,7 +859,6 @@ impl Layout<'_> {
             key: key.clone(),
             size,
             shows,
-            text: None,
         });
         let padding = match align {
             Align::Left => 0,

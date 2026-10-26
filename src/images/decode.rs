@@ -47,8 +47,14 @@ pub enum Source {
     Dense { image: RgbaImage, css: (u32, u32) },
     /// Text drawn to whole cells, such as a heading, shown one pixel per
     /// terminal pixel as `Raster` is. `breaks[i]` is the column the word
-    /// `i + 1` starts on, where the image can be cut.
-    Text { image: RgbaImage, breaks: Vec<u16> },
+    /// `i + 1` starts on, and `ends[i]` the column after the last that
+    /// the ink of word `i` reaches: a line of the image can show the words
+    /// from one to another.
+    Text {
+        image: RgbaImage,
+        breaks: Vec<u16>,
+        ends: Vec<u16>,
+    },
 }
 
 impl Source {

@@ -289,7 +289,6 @@ pub fn render_image_on(
         key: key.clone(),
         size,
         shows: image::Shows::Image,
-        text: None,
     });
     let mut images = Images::new();
     images.insert(key, Ok(image));

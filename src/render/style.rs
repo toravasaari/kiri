@@ -1,5 +1,6 @@
 //! Styled text: the unit between layout and output.
 
+use std::ops::Range;
 use std::rc::Rc;
 
 use super::block::BlockId;
@@ -96,9 +97,13 @@ pub struct ImageRow {
     /// which shows through where the image is transparent; `None` for the
     /// page's.
     pub background: Option<Color>,
-    /// The placeholder cells the row writes, from the left, when it shows
-    /// only the left part of the image; `None` for all of them.
-    pub columns: Option<u16>,
+    /// The columns of the image the row shows: all of them, or a part,
+    /// as a line of a heading too long for one line shows its words.
+    pub columns: Range<u16>,
+    /// The text the line of the image shows, such as a heading's words,
+    /// which a search finds on its first row; `None` for every other
+    /// image.
+    pub text: Option<String>,
 }
 
 /// The band that tells that a block's image is loading, which a line
@@ -161,12 +166,14 @@ impl Line {
 
     /// A line of one image row.
     pub fn image(placement: Rc<Placement>, row: u16) -> Self {
+        let columns = 0..placement.size.columns;
         Self {
             image: Some(ImageRow {
                 placement,
                 row,
                 background: None,
-                columns: None,
+                columns,
+                text: None,
             }),
             ..Self::blank()
         }

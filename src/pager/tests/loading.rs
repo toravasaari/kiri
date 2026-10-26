@@ -746,6 +746,7 @@ fn a_heading_image_comes_after_its_text_and_keeps_the_top_line() {
     let text = crate::images::Source::Text {
         image,
         breaks: Vec::new(),
+        ends: vec![10],
     };
     let document = |heading: &str| {
         let mut source = format!("# {heading}\n\n");

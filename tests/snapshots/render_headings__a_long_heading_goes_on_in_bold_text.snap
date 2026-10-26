@@ -1,9 +1,0 @@
----
-source: tests/render_headings.rs
-expression: readable(&out)
----
-␛_Ga=T,U=1,q=2,f=32,o=z,i=2732344,s=1200,v=40,c=120,r=2,m=0;<288 bytes>␛\␛[38;2;41;177;56m⟦row 0: 60 cells⟧␛[39m
-␛[38;2;41;177;56m⟦row 1: 60 cells⟧␛[39m
-␛[0;1;34mthree four␛[0m
-
-  Text

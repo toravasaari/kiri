@@ -341,6 +341,10 @@ sizing, and otherwise as `auto` does. `plain` keeps every heading in one
 row, bold and in its colour. Where a heading is not drawn large, it is one
 row as with `plain`; `--no-images` also turns heading images off.
 
+A heading too long for the window wraps at its spaces into several lines,
+drawn as an image or with text sizing alike. Only a single word wider than
+the window makes a heading image smaller, to fit on one line.
+
 ## Table rows
 
 The first of these that is given decides the table row style of tables

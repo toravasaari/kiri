@@ -1,0 +1,12 @@
+---
+source: tests/render_headings.rs
+expression: readable(&out)
+---
+␛_Ga=T,U=1,q=2,f=32,o=z,i=5807720,s=900,v=40,c=90,r=2,m=0;<224 bytes>␛\␛[38;2;88;158;104m⟦row 0: 28 cells⟧␛[39m
+␛[38;2;88;158;104m⟦row 1: 28 cells⟧␛[39m
+␛[38;2;88;158;104m⟦row 0: columns 30..58⟧␛[39m
+␛[38;2;88;158;104m⟦row 1: columns 30..58⟧␛[39m
+␛[38;2;88;158;104m⟦row 0: columns 60..90⟧␛[39m
+␛[38;2;88;158;104m⟦row 1: columns 60..90⟧␛[39m
+
+  Text

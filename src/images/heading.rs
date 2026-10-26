@@ -45,7 +45,8 @@ pub fn heading_words(text: &str) -> Vec<&str> {
 /// `text` drawn as `look` says with `fonts`, in cells of `cell` pixels:
 /// one image `look.rows` cells high and a whole number of cells wide,
 /// each word starting on a whole cell, with the columns the words after
-/// the first start on. An error when no font draws the text.
+/// the first start on and those each word's ink ends before. An error
+/// when no font draws the text.
 pub fn draw_heading(
     text: &str,
     look: &LevelLook,
@@ -73,6 +74,7 @@ pub fn draw_heading(
     }
     let space = space_width(&svg).unwrap_or(look.font_px * SPACE);
     let mut starts: Vec<u16> = Vec::with_capacity(words.len());
+    let mut ends: Vec<u16> = Vec::with_capacity(words.len());
     let mut end = 0.0_f32;
     for reach in &reaches {
         let start = match starts.last() {
@@ -81,6 +83,7 @@ pub fn draw_heading(
         };
         end = f32::from(start) * cell_width + reach.unwrap_or(0.0);
         starts.push(start);
+        ends.push(((end / cell_width).ceil() as u16).max(start));
     }
     let columns = ((end / cell_width).ceil() as u32).max(1);
     let width = columns * u32::from(cell.0);
@@ -92,6 +95,7 @@ pub fn draw_heading(
     Ok(Source::Text {
         image,
         breaks: starts.into_iter().skip(1).collect(),
+        ends,
     })
 }
 
@@ -175,7 +179,7 @@ mod tests {
 
     fn drawn(text: &str, look: &LevelLook) -> (image::RgbaImage, Vec<u16>) {
         match draw_heading(text, look, CELL, &Fonts::fixture()) {
-            Ok(Source::Text { image, breaks }) => (image, breaks),
+            Ok(Source::Text { image, breaks, .. }) => (image, breaks),
             other => panic!("{other:?}"),
         }
     }
@@ -233,6 +237,27 @@ mod tests {
         assert_eq!(image.width() % u32::from(CELL.0), 0);
         let columns = image.width() / u32::from(CELL.0);
         assert!(u32::from(breaks[1]) < columns, "{breaks:?} of {columns}");
+    }
+
+    #[test]
+    fn each_word_ends_before_the_next_starts() {
+        let drawn = draw_heading("One two three", &look(2), CELL, &Fonts::fixture());
+        let Ok(Source::Text {
+            image,
+            breaks,
+            ends,
+        }) = drawn
+        else {
+            panic!("{drawn:?}");
+        };
+        let columns = (image.width() / u32::from(CELL.0)) as u16;
+        assert_eq!(ends.len(), 3, "{ends:?}");
+        let starts = [0, breaks[0], breaks[1]];
+        for (word, (&start, &end)) in starts.iter().zip(&ends).enumerate() {
+            assert!(start < end, "word {word}: {starts:?} {ends:?}");
+        }
+        assert!(ends[0] <= breaks[0] && ends[1] <= breaks[1], "{ends:?}");
+        assert_eq!(ends[2], columns);
     }
 
     #[test]

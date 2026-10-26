@@ -285,7 +285,7 @@ fn find(lines: &[Line], term: &str, case: SearchCase) -> Vec<Match> {
 fn searched(line: &Line) -> String {
     let mut text = style::text(&line.spans);
     if let Some(image) = line.image.as_ref().filter(|image| image.row == 0) {
-        text.push_str(image.placement.text.as_deref().unwrap_or_default());
+        text.push_str(image.text.as_deref().unwrap_or_default());
     }
     text
 }
@@ -353,9 +353,12 @@ mod tests {
                 rows: 2,
             },
             shows: crate::render::image::Shows::Image,
-            text: Some(text.to_owned()),
         };
-        Line::image(std::rc::Rc::new(placement), row)
+        let mut line = Line::image(std::rc::Rc::new(placement), row);
+        if let Some(image) = &mut line.image {
+            image.text = Some(text.to_owned());
+        }
+        line
     }
 
     #[test]
@@ -372,6 +375,33 @@ mod tests {
             [at(1, 0..4), at(3, 0..4)]
         );
         assert_eq!(find(&lines, "heading", SearchCase::Smart), [at(1, 5..12)]);
+    }
+
+    #[test]
+    fn search_finds_the_words_of_each_line_of_a_wrapped_heading() {
+        let mut inputs = crate::render::Inputs::new(Capabilities {
+            text_sizing: false,
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(30)
+        });
+        let image = image::RgbaImage::from_pixel(900, 40, image::Rgba([200, 30, 30, 255]));
+        let text = crate::images::Source::Text {
+            image,
+            breaks: vec![30, 60],
+            ends: vec![28, 58, 90],
+        };
+        let key = crate::images::ImageKey::heading(1, "One two three", (10, 20));
+        inputs.images.insert(key, Ok(text));
+        let document = crate::parse::parse("# One two three\n");
+        let lines = crate::render::layout::layout(&document, &inputs);
+        // Two rows for each of three lines of the image.
+        assert_eq!(lines.len(), 6, "{lines:?}");
+        let found = |term| find(&lines, term, SearchCase::Smart);
+        assert_eq!(found("one"), [at(0, 0..3)]);
+        assert_eq!(found("two"), [at(2, 0..3)]);
+        assert_eq!(found("three"), [at(4, 0..5)]);
+        // A term across the end of a line is not found, as in text.
+        assert_eq!(found("two three"), []);
     }
 
     #[test]
