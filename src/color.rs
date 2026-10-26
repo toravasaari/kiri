@@ -96,6 +96,56 @@ impl Color {
             Self::Palette(index) => *palette.get(usize::from(index))?,
         }
     }
+
+    /// This colour as RGB, a palette colour as `palette` tells it, or
+    /// else as xterm's default palette has it, where the terminal did not
+    /// tell it.
+    pub fn rgb_or_xterm(self, palette: &[Option<Color>; 16]) -> Color {
+        match self {
+            Self::Rgb(..) => self,
+            Self::Palette(index) => self.rgb(palette).unwrap_or_else(|| xterm(index)),
+        }
+    }
+}
+
+/// xterm's default 16 colours.
+const XTERM: [(u8, u8, u8); 16] = [
+    (0x00, 0x00, 0x00),
+    (0xcd, 0x00, 0x00),
+    (0x00, 0xcd, 0x00),
+    (0xcd, 0xcd, 0x00),
+    (0x00, 0x00, 0xee),
+    (0xcd, 0x00, 0xcd),
+    (0x00, 0xcd, 0xcd),
+    (0xe5, 0xe5, 0xe5),
+    (0x7f, 0x7f, 0x7f),
+    (0xff, 0x00, 0x00),
+    (0x00, 0xff, 0x00),
+    (0xff, 0xff, 0x00),
+    (0x5c, 0x5c, 0xff),
+    (0xff, 0x00, 0xff),
+    (0x00, 0xff, 0xff),
+    (0xff, 0xff, 0xff),
+];
+
+/// The colour `index` of xterm's default 256-colour palette: its 16
+/// colours, then a cube of 6 × 6 × 6 colours and 24 greys.
+fn xterm(index: u8) -> Color {
+    let level = |step: u8| if step == 0 { 0 } else { 55 + 40 * step };
+    match index {
+        0..=15 => {
+            let (red, green, blue) = XTERM[usize::from(index)];
+            Color::Rgb(red, green, blue)
+        }
+        16..=231 => {
+            let cube = index - 16;
+            Color::Rgb(level(cube / 36), level(cube / 6 % 6), level(cube % 6))
+        }
+        232..=255 => {
+            let grey = 8 + 10 * (index - 232);
+            Color::Rgb(grey, grey, grey)
+        }
+    }
 }
 
 /// Hue in turns, saturation and lightness of an RGB colour.
@@ -202,6 +252,27 @@ mod tests {
     fn hue(color: Color) -> i32 {
         let Color::Rgb(r, g, b) = color else { panic!() };
         (hsl(r, g, b).0 * 360.0).round() as i32
+    }
+
+    #[test]
+    fn rgb_or_xterm_takes_xterm_s_colours_where_the_terminal_tells_none() {
+        let mut palette = [None; 16];
+        palette[1] = Some(Color::Rgb(1, 2, 3));
+        let rgb = |index| Color::Palette(index).rgb_or_xterm(&palette);
+        assert_eq!(rgb(1), Color::Rgb(1, 2, 3));
+        assert_eq!(rgb(4), Color::Rgb(0, 0, 0xee));
+        assert_eq!(rgb(5), Color::Rgb(0xcd, 0, 0xcd));
+        assert_eq!(rgb(12), Color::Rgb(0x5c, 0x5c, 0xff));
+        // The colour cube and the greys.
+        assert_eq!(rgb(16), Color::Rgb(0, 0, 0));
+        assert_eq!(rgb(196), Color::Rgb(0xff, 0, 0));
+        assert_eq!(rgb(110), Color::Rgb(0x87, 0xaf, 0xd7));
+        assert_eq!(rgb(232), Color::Rgb(8, 8, 8));
+        assert_eq!(rgb(255), Color::Rgb(0xee, 0xee, 0xee));
+        assert_eq!(
+            Color::Rgb(9, 9, 9).rgb_or_xterm(&palette),
+            Color::Rgb(9, 9, 9)
+        );
     }
 
     #[test]

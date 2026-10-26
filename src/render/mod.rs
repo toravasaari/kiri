@@ -157,9 +157,9 @@ pub fn heading_look(
 }
 
 /// `color` as RGB on a terminal with `caps`, a palette colour as the
-/// terminal tells it; `None` when it is not known.
+/// terminal tells it, or else as xterm's default palette has it.
 fn rgb(color: Option<Color>, caps: &Capabilities) -> Option<[u8; 3]> {
-    match color?.rgb(&caps.palette)? {
+    match color?.rgb_or_xterm(&caps.palette) {
         Color::Rgb(red, green, blue) => Some([red, green, blue]),
         Color::Palette(_) => None,
     }
@@ -400,6 +400,19 @@ mod tests {
         theme.headings[0].background = None;
         let look = heading_look(Headings::Auto, false, &theme, &no_text_sizing()).unwrap();
         assert!(!look.levels[0].code.padding);
+    }
+
+    #[test]
+    fn heading_images_take_xterm_s_colours_where_the_terminal_tells_none() {
+        let caps = Capabilities {
+            palette: [None; 16],
+            ..no_text_sizing()
+        };
+        let look = heading_look(Headings::Auto, false, &Theme::default(), &caps).unwrap();
+        // The default theme's blue headings and magenta code.
+        let level = look.levels[0];
+        assert_eq!(level.color, [0, 0, 0xee]);
+        assert_eq!(level.code.color, [0xcd, 0, 0xcd]);
     }
 
     #[test]
