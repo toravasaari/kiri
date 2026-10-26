@@ -192,12 +192,13 @@ pub fn draw_heading(
         let svg = heading_svg(texts, backgrounds, look, (width, height), baseline);
         decode_svg(svg.as_bytes(), u64::MAX, fonts)
     };
-    // How far the ink of each word reaches from where the word starts.
+    // How far the ink of each word reaches from where the word starts:
+    // how far before it, as an italic letter can lean, and how far after.
     let mut reaches = Vec::with_capacity(words.len());
     for word in words {
         let text = Drawn::new(0.0, word);
         let edges = svg(1, &[text], &[])?.text_edges();
-        reaches.push(edges.map(|(_, right)| right.max(0.0)));
+        reaches.push(edges.map(|(left, right)| ((-left).max(0.0), right.max(0.0))));
     }
     if reaches.iter().all(Option::is_none) {
         return Err(no_font());
@@ -233,8 +234,11 @@ pub fn draw_heading(
             _ if word.glued => (end / cell_width).ceil() as u16,
             _ => ((end + space) / cell_width).ceil() as u16,
         };
-        let x = f32::from(start + before) * cell_width;
-        end = x + reach.unwrap_or(0.0);
+        // Ink leaning before the word moves it on, so that it stays in
+        // the word's own cells.
+        let (lean, reach) = reach.unwrap_or((0.0, 0.0));
+        let x = f32::from(start + before) * cell_width + lean;
+        end = x + reach;
         // A word without ink still covers a cell, so that a line it ends
         // shows something.
         let last = (((end / cell_width).ceil() as u16) + after).max(start + 1);
@@ -760,6 +764,30 @@ mod tests {
             let gap = u32::from(ends[word]) * 10..u32::from(starts[word + 1]) * 10;
             assert!(!gap.clone().any(inked), "{gap:?}: {starts:?} {ends:?}");
         }
+        // Glued right after an upright word, as in `*this*?` or `d*e*`,
+        // with no gap: the italic word leaves the cells before it as the
+        // upright word alone draws them, and its ink stays in its own.
+        let mut glued = plain_words("ad jfy b");
+        glued[1].italic = true;
+        glued[1].glued = true;
+        let (image, starts, ends) = drawn_words(&glued);
+        let mut without = glued.clone();
+        without[1].text = "\u{200B}".into();
+        let (alone, alone_starts, _) = drawn_words(&without);
+        assert_eq!(alone_starts[1], starts[1], "{starts:?} {alone_starts:?}");
+        let column = |image: &image::RgbaImage, x: u32| -> Vec<[u8; 4]> {
+            (0..40).map(|y| image.get_pixel(x, y).0).collect()
+        };
+        for x in 0..u32::from(starts[1]) * 10 {
+            assert_eq!(
+                column(&image, x),
+                column(&alone, x),
+                "column {x}: {starts:?}"
+            );
+        }
+        let inked = |x: u32| (0..40).any(|y| image.get_pixel(x, y).0[3] > 0);
+        let gap = u32::from(ends[1]) * 10..u32::from(starts[2]) * 10;
+        assert!(!gap.clone().any(inked), "{gap:?}: {starts:?} {ends:?}");
     }
 
     #[test]
