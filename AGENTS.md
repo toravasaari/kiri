@@ -46,6 +46,10 @@ Run everything through `make` so local runs match CI:
 - `make build` compiles everything `make check` needs without running
   it. A new jailbee container runs it in the background, so the first
   `make check` there finds most of the build done.
+- `make sweep` deletes compiled crates and test binaries in `target/` that
+  cargo has not built or checked for 7 days, and then the oldest ones until
+  `target/` is under 100 GB. `make check` runs it after a passing run; it
+  skips itself in a container or without `cargo-sweep`.
 - `make fmt` formats the code.
 - `make release` builds the optimised binary, `target/release/kiri`.
 - `cargo run -- <file.md>` renders a document in the current terminal.
