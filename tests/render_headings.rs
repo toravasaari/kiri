@@ -247,7 +247,7 @@ fn a_word_that_fits_without_its_gap_stays_on_the_line() {
 
 #[test]
 fn a_line_ends_where_the_room_does() {
-    // The third word starts on the last column of the room.
+    // The third word starts on the first column past the room.
     let inputs = heading_inputs(
         no_text_sizing(20),
         "One two three",
