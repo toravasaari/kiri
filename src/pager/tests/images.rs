@@ -240,14 +240,21 @@ fn new_cell_pixels_send_the_image_again_and_delete_the_old_one() {
 fn a_new_cell_size_loads_the_heading_images_for_it() {
     let key = |cell| crate::images::ImageKey::heading(1, "Kiri", cell);
     // Cells of 10 × 20 pixels, then of 8 × 16 when the font gets smaller,
-    // or of the same size in a wider window.
+    // or of the same size in a wider window. Without images, as
+    // `--no-images` makes `auto` `sized`, nothing loads.
     let pixels = |columns: u16, cell: (u16, u16)| WindowSize {
         columns,
         rows: 6,
         width: columns * cell.0,
         height: 6 * cell.1,
     };
-    for (after, loads) in [((8, 16), true), ((10, 20), false)] {
+    let auto = crate::render::Headings::Auto;
+    let sized = crate::render::Headings::Sized;
+    for (after, headings, loads) in [
+        ((8, 16), auto, true),
+        ((10, 20), auto, false),
+        ((8, 16), sized, false),
+    ] {
         let mut terminal = Fake::new(60, 6, &[b"", b"", b"q"]);
         terminal.size = pixels(60, (10, 20));
         terminal.sizes = [pixels(60, (10, 20)), pixels(70, after)].into();
@@ -263,6 +270,7 @@ fn a_new_cell_size_loads_the_heading_images_for_it() {
             ends: vec![10],
         };
         inputs.images.insert(key((10, 20)), Ok(text));
+        inputs.headings = headings;
         let mut background = Loads::new();
         run_document(
             &crate::parse::parse("# Kiri\n\nText\n"),
@@ -279,7 +287,7 @@ fn a_new_cell_size_loads_the_heading_images_for_it() {
             || inputs.images.placeholder(&wanted).is_some()
             || (wanted != key((10, 20)) && inputs.images.get(&wanted).is_some());
         let keys: Vec<_> = inputs.images.iter().map(|(key, _)| key.clone()).collect();
-        assert_eq!(asked, loads, "{after:?}: {keys:?}");
+        assert_eq!(asked, loads, "{after:?} {headings:?}: {keys:?}");
         background.halt();
     }
 }
