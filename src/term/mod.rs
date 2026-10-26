@@ -10,6 +10,7 @@ use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use crate::caps::Capabilities;
 
 mod answers;
+mod check;
 mod detect;
 mod interrupt;
 mod keys;
@@ -23,6 +24,7 @@ mod testing;
 pub mod tmux;
 mod window;
 
+pub use check::lost_images;
 pub use detect::{CellSize, Detection, Mode, capabilities, examine, no_color};
 pub use interrupt::{Interrupt, end_by};
 pub use keys::WaitKeys;

@@ -278,6 +278,10 @@ tmux passes images only while kiri's pane is shown, so the pager sends
 them again when the pane is shown again. tmux tells it so only with
 `set -g focus-events on` in tmux.conf, which kiri does not change, as
 it is an option for every pane; without it, Ctrl+L sends them again.
+tmux also drops output when kitty cannot keep up with it, so after
+printing a document kiri asks kitty whether it holds its images and sends
+again those it does not. When kitty does not answer, as when the pane is
+not shown, kiri waits half a second and goes on.
 
 ## Search case
 

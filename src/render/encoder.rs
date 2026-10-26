@@ -36,6 +36,11 @@ pub struct Encoder {
     /// The bands drawn since the screen was last cleared, which are the
     /// ones on it.
     shown: HashSet<(u16, (u16, u16))>,
+    /// The images sent through tmux and the cells they were sent for,
+    /// until [`Encoder::take_sent`] takes them to check that they came.
+    sent: Vec<(ImageId, graphics::Cells)>,
+    /// How many times each image has been sent again for being lost.
+    again: HashMap<ImageId, u8>,
 }
 
 /// An image the terminal holds.
@@ -95,6 +100,7 @@ impl Encoder {
         for held in self.held.values_mut().filter(|held| held.id == scaled.id) {
             held.sent = true;
         }
+        self.sending(&scaled, caps);
         scaled.send(out)?;
         Ok(scaled.id)
     }
@@ -192,6 +198,53 @@ impl Encoder {
         }
     }
 
+    /// The images sent through tmux since this was last asked, with the
+    /// cells they were sent for, so that a check can tell whether they
+    /// came: tmux drops output for a client that cannot keep up. Empty
+    /// without tmux.
+    pub fn take_sent(&mut self) -> Vec<(ImageId, graphics::Cells)> {
+        std::mem::take(&mut self.sent)
+    }
+
+    /// Sends image `id` again, from `images`, on a terminal with `caps`,
+    /// as the terminal answered it does not hold it: a transmission only,
+    /// as its placeholders are on the screen. Nothing when no placement
+    /// shows the image any more, or after [`AGAIN`] tries.
+    pub fn send_again(
+        &mut self,
+        id: ImageId,
+        images: &Images,
+        caps: &Capabilities,
+        out: &mut impl Write,
+    ) -> io::Result<()> {
+        let cell = cell_size(caps);
+        if self.again.get(&id).is_some_and(|&tries| tries >= AGAIN) {
+            return Ok(());
+        }
+        let placement = (self.held.iter())
+            .find(|(_, held)| held.id == id && held.cell == cell)
+            .map(|(placement, _)| placement.clone());
+        // Pixels that are gone, or that changed since, are no longer the
+        // image's: the next frame sends what it shows.
+        let scaled = placement
+            .and_then(|placement| Scaled::new(&placement, images, cell, caps.image_run).ok());
+        let Some(scaled) = scaled.filter(|scaled| scaled.id == id) else {
+            return Ok(());
+        };
+        *self.again.entry(id).or_default() += 1;
+        self.sending(&scaled, caps);
+        scaled.send(out)
+    }
+
+    /// Notes that `scaled` is sent to a terminal with `caps`, to check
+    /// that it came when it goes through tmux.
+    fn sending(&mut self, scaled: &Scaled, caps: &Capabilities) {
+        let sent = (scaled.id, scaled.cells);
+        if caps.tmux_passthrough && !self.sent.contains(&sent) {
+            self.sent.push(sent);
+        }
+    }
+
     /// Tells the encoder that the terminal may have lost the images it was
     /// sent, as tmux drops what goes to a pane that is not shown: each is
     /// sent again when it is next shown.
@@ -199,6 +252,7 @@ impl Encoder {
         for held in self.held.values_mut() {
             held.sent = false;
         }
+        self.again.clear();
     }
 
     /// Deletes from the terminal every image it holds, as when the pager
@@ -262,6 +316,9 @@ impl Scaled {
         send(out, self.id, &self.pixels, self.cells)
     }
 }
+
+/// How many times an image is sent again at most for being lost.
+pub const AGAIN: u8 = 3;
 
 /// What a band's id is made from besides its size: it is the same image
 /// whatever step of its light part it shows.
@@ -446,6 +503,75 @@ mod tests {
         let out = String::from_utf8(out).unwrap();
         assert_eq!(out.matches("\x1b_Ga=T,").count(), 1, "{out:?}");
         assert!(!out.contains("a=d"), "{out:?}");
+    }
+
+    /// `caps()` with graphics wrapped for tmux.
+    fn through_tmux() -> Capabilities {
+        Capabilities {
+            tmux_passthrough: true,
+            ..caps()
+        }
+    }
+
+    /// Images with a red `a.png`, and its placement over 2 × 1 cells.
+    fn red() -> (Images, Placement) {
+        let mut images = Images::new();
+        let red = RgbaImage::from_pixel(20, 20, image::Rgba([255, 0, 0, 255]));
+        images.insert("a.png", Ok(Source::Raster(red)));
+        (images, placed("a.png", 2, 1, Shows::Image))
+    }
+
+    #[test]
+    fn the_images_sent_through_tmux_are_told_once_to_be_checked() {
+        let (images, placement) = red();
+        let mut encoder = Encoder::new();
+        let mut out = Vec::new();
+        let id = encoder
+            .id(&placement, &images, &through_tmux(), &mut out)
+            .unwrap();
+        // Not sent again, so not told again.
+        encoder
+            .id(&placement, &images, &through_tmux(), &mut out)
+            .unwrap();
+        let cells = graphics::Cells {
+            columns: 2,
+            rows: 1,
+        };
+        assert_eq!(encoder.take_sent(), [(id, cells)]);
+        assert_eq!(encoder.take_sent(), []);
+        // Without tmux, nothing is checked.
+        let mut encoder = Encoder::new();
+        encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        assert_eq!(encoder.take_sent(), []);
+    }
+
+    #[test]
+    fn a_lost_image_is_sent_again_a_few_times_at_most() {
+        let (images, placement) = red();
+        let caps = through_tmux();
+        let mut encoder = Encoder::new();
+        let mut out = Vec::new();
+        let id = encoder.id(&placement, &images, &caps, &mut out).unwrap();
+        let first = std::mem::take(&mut out);
+        encoder.take_sent();
+        encoder.send_again(id, &images, &caps, &mut out).unwrap();
+        // The same transmission, which also places it again.
+        assert_eq!(std::mem::take(&mut out), first);
+        assert_eq!(encoder.take_sent().len(), 1);
+        for _ in 1..AGAIN {
+            encoder.send_again(id, &images, &caps, &mut out).unwrap();
+        }
+        let sent = String::from_utf8(std::mem::take(&mut out)).unwrap();
+        assert_eq!(sent.matches("\x1b_Ga=T,").count(), usize::from(AGAIN) - 1);
+        encoder.send_again(id, &images, &caps, &mut out).unwrap();
+        assert!(out.is_empty());
+        // An image no placement shows any more is not sent.
+        let mut other = Encoder::new();
+        other.send_again(id, &images, &caps, &mut out).unwrap();
+        encoder.keep(&[], &caps);
+        encoder.lost();
+        encoder.send_again(id, &images, &caps, &mut out).unwrap();
+        assert!(out.is_empty());
     }
 
     #[test]

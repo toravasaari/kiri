@@ -19,6 +19,7 @@ use crate::color::Color;
 use crate::images::{CodeLook, HeadingLook, ImageKey, Images, LevelLook, Source};
 use crate::model::{Block, Document, File, FrontMatter, FrontMatterError};
 use crate::theme::Theme;
+use encoder::Encoder;
 
 /// Everything rendering takes besides the document. A new input gets a
 /// default in `new`, so callers that do not need it stay as they are.
@@ -252,8 +253,9 @@ impl Inputs {
     }
 }
 
-/// Renders `document` with `inputs`.
-pub fn render(document: &Document, inputs: &Inputs, out: &mut impl Write) -> io::Result<()> {
+/// Renders `document` with `inputs`. Returns what the terminal holds of
+/// its images, to check that they came.
+pub fn render(document: &Document, inputs: &Inputs, out: &mut impl Write) -> io::Result<Encoder> {
     let lines = layout::layout(document, inputs);
     let page = output::Page {
         background: inputs.theme.background,
@@ -263,8 +265,8 @@ pub fn render(document: &Document, inputs: &Inputs, out: &mut impl Write) -> io:
 }
 
 /// Renders `files` with `inputs`, one after another, each under a header
-/// that names it.
-pub fn render_files(files: &[File], inputs: &Inputs, out: &mut impl Write) -> io::Result<()> {
+/// that names it, as [`render`] renders a document.
+pub fn render_files(files: &[File], inputs: &Inputs, out: &mut impl Write) -> io::Result<Encoder> {
     let stream = layout::files(files, inputs);
     let page = output::Page {
         background: inputs.theme.background,
@@ -275,14 +277,15 @@ pub fn render_files(files: &[File], inputs: &Inputs, out: &mut impl Write) -> io
 
 /// Renders `file`, numbered `number` among the files shown together, under
 /// its header, as `render_files` renders each of them, after the blank
-/// line that comes between two files when `apart`.
+/// line that comes between two files when `apart`, as [`render`] renders
+/// a document.
 pub fn render_file(
     file: &File,
     number: usize,
     apart: bool,
     inputs: &Inputs,
     out: &mut impl Write,
-) -> io::Result<()> {
+) -> io::Result<Encoder> {
     let mut lines = Vec::new();
     if apart {
         lines.push(style::Line::blank());
@@ -298,8 +301,13 @@ pub fn render_file(
 /// Shows `image` on its own, as large as fits the window and no larger
 /// than its natural size: a raster image one pixel per terminal pixel, an
 /// SVG in CSS pixels. A row is left below it for the shell's prompt. Does
-/// nothing when `caps` cannot draw images.
-pub fn render_image(image: Source, caps: &Capabilities, out: &mut impl Write) -> io::Result<()> {
+/// nothing when `caps` cannot draw images. Returns what the terminal holds
+/// of the image, and the image, to check that it came.
+pub fn render_image(
+    image: Source,
+    caps: &Capabilities,
+    out: &mut impl Write,
+) -> io::Result<(Encoder, Images)> {
     render_image_on(image, caps, output::Page::default(), out)
 }
 
@@ -310,12 +318,13 @@ pub fn render_image_on(
     caps: &Capabilities,
     page: output::Page,
     out: &mut impl Write,
-) -> io::Result<()> {
+) -> io::Result<(Encoder, Images)> {
+    let mut images = Images::new();
     if !caps.draws_images() {
-        return Ok(());
+        return Ok((Encoder::new(), images));
     }
     let Some(size) = image::on_its_own(&image, caps, 1) else {
-        return Ok(());
+        return Ok((Encoder::new(), images));
     };
     let key = ImageKey::from("");
     let lines = layout::image_rows(image::Placement {
@@ -323,9 +332,9 @@ pub fn render_image_on(
         size,
         shows: image::Shows::Image,
     });
-    let mut images = Images::new();
     images.insert(key, Ok(image));
-    output::write(&lines, &images, caps, page, out)
+    let encoder = output::write(&lines, &images, caps, page, out)?;
+    Ok((encoder, images))
 }
 
 #[cfg(test)]

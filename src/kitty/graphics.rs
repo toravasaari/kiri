@@ -181,6 +181,44 @@ pub fn delete(out: &mut impl Write, id: ImageId) -> io::Result<()> {
     write!(out, "{START}a=d,d=I,i={},q=2\x1b\\", id.0)
 }
 
+/// The placement id of the virtual placements [`check`] makes.
+const CHECK: u32 = 0x4B49_5249;
+
+/// Asks the terminal whether it holds image `id`, sent for `cells`: a
+/// virtual placement over the same cells, which the terminal answers as
+/// [`checked`] reads, and which goes again at once. It looks as the
+/// image's own placement does, should the terminal draw it meanwhile.
+pub fn check(out: &mut impl Write, id: ImageId, cells: Cells) -> io::Result<()> {
+    let (columns, rows) = (cells.columns, cells.rows);
+    write!(
+        out,
+        "{START}a=p,U=1,i={},p={CHECK},c={columns},r={rows}\x1b\\",
+        id.0
+    )?;
+    write!(out, "{START}a=d,d=i,i={},p={CHECK},q=2\x1b\\", id.0)
+}
+
+/// What `answer`, one APC sequence from the terminal, says about an
+/// image [`check`] asked about: its id, and whether the terminal holds
+/// it. `None` for any other answer, and for an error other than the
+/// image not being there.
+pub fn checked(answer: &[u8]) -> Option<(ImageId, bool)> {
+    let answer = std::str::from_utf8(answer).ok()?;
+    let body = answer.strip_prefix(START)?.strip_suffix("\x1b\\")?;
+    let (keys, message) = body.split_once(';')?;
+    let (id, placement) = keys.strip_prefix("i=")?.split_once(",p=")?;
+    let id: u32 = id.parse().ok()?;
+    if placement.parse() != Ok(CHECK) || id == 0 {
+        return None;
+    }
+    let held = match message {
+        "OK" => true,
+        _ if message.starts_with("ENOENT:") => false,
+        _ => return None,
+    };
+    Some((ImageId(id), held))
+}
+
 /// Writes `payload` in chunks of at most [`CHUNK`] bytes. The first sequence
 /// carries `keys`; `m=1` marks every chunk but the last.
 fn write_chunks(out: &mut impl Write, keys: &str, payload: &[u8]) -> io::Result<()> {
@@ -449,6 +487,41 @@ mod tests {
         for hash in [1, 0xFF_FFFF, 0x1_0000_0001, u64::MAX, 0xF09A_0A2E_B649_8FD9] {
             let id = fold(hash);
             assert!(id != 0 && id <= 0xFF_FFFF, "{hash:#x} -> {id:#x}");
+        }
+    }
+
+    #[test]
+    fn a_check_places_the_image_over_its_cells_and_takes_it_away() {
+        let mut out = Vec::new();
+        check(&mut out, ID, cells(4, 2)).unwrap();
+        // Without q, so that the terminal answers; the delete keeps
+        // the image's data and its own placement.
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "\x1b_Ga=p,U=1,i=1193046,p=1263096393,c=4,r=2\x1b\\\
+             \x1b_Ga=d,d=i,i=1193046,p=1263096393,q=2\x1b\\"
+        );
+    }
+
+    #[test]
+    fn reads_what_the_terminal_answers_to_a_check() {
+        // As kitty 0.47.1 answers.
+        let held = b"\x1b_Gi=1193046,p=1263096393;OK\x1b\\";
+        assert_eq!(checked(held), Some((ID, true)));
+        let missing = b"\x1b_Gi=1193046,p=1263096393;ENOENT:Put command refers to \
+                        non-existent image with id: 1193046 and number: 0\x1b\\";
+        assert_eq!(checked(missing), Some((ID, false)));
+        // Other placements, other answers and other errors tell nothing.
+        for other in [
+            &b"\x1b_Gi=1193046,p=7;ENOENT:gone\x1b\\"[..],
+            b"\x1b_Gi=1193046;ENOENT:gone\x1b\\",
+            b"\x1b_Gi=31;OK\x1b\\",
+            b"\x1b_Gi=1193046,p=1263096393;EINVAL:bad\x1b\\",
+            b"\x1b_Gi=x,p=1263096393;OK\x1b\\",
+            b"\x1b_Gi=0,p=1263096393;OK\x1b\\",
+            b"\x1b]11;rgb:0000/0000/0000\x1b\\",
+        ] {
+            assert_eq!(checked(other), None, "{other:?}");
         }
     }
 

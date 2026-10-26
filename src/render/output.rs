@@ -44,14 +44,15 @@ pub fn end_update(out: &mut impl Write) -> io::Result<()> {
 }
 
 /// Writes `lines` on `page`. `images` holds the pixels of the images the
-/// lines show; each is sent before its first row.
+/// lines show; each is sent before its first row. Returns what the
+/// terminal holds of them, to check that they came.
 pub fn write(
     lines: &[Line],
     images: &Images,
     caps: &Capabilities,
     page: Page,
     out: &mut impl Write,
-) -> io::Result<()> {
+) -> io::Result<Encoder> {
     let mut encoder = Encoder::new();
     let mut writer = Writer::new(images, caps, page, &mut encoder);
     for line in lines {
@@ -60,7 +61,7 @@ pub fn write(
             out.write_all(b"\n")?;
         }
     }
-    Ok(())
+    Ok(encoder)
 }
 
 /// The rows `line` occupies on a terminal with `caps`: as many as the

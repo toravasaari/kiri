@@ -21,6 +21,7 @@ use kiri::images::{
 use kiri::input::Input;
 use kiri::model::{Block, Document, FrontMatterError};
 use kiri::pager::{Change, Look, Reload, Reloaded, Warning};
+use kiri::render::encoder::Encoder;
 use kiri::render::output::Page;
 use kiri::render::{Headings, Inputs, RenderErrors, TableRows};
 use kiri::term::{Interrupt, Mode};
@@ -1081,7 +1082,7 @@ fn page_files(
             true => kiri::render::render(&file.document, inputs, &mut out),
             false => kiri::render::render_file(file, number, apart, inputs, &mut out),
         };
-        shown(rendered.and_then(|()| out.flush()))?;
+        shown(rendered.and_then(|sent| held(sent, &inputs.images, &inputs.caps, &mut out)))?;
         apart = true;
         if let Some(drawn) = &drawn[number] {
             tell_drawn(drawn, failed);
@@ -1137,11 +1138,13 @@ fn print_files(
                 }
                 let file = kiri::model::File { name, document };
                 kiri::render::render_file(&file, number, apart, inputs, &mut out)
+                    .and_then(|sent| held(sent, &inputs.images, &inputs.caps, &mut out))
             }
             // What could not be drawn is told after it.
             Shown::Diagram { document, .. } => {
                 let file = kiri::model::File { name, document };
                 kiri::render::render_file(&file, number, apart, inputs, &mut out)
+                    .and_then(|sent| held(sent, &inputs.images, &inputs.caps, &mut out))
             }
             Shown::AsIs(text) => {
                 let file = kiri::model::File {
@@ -1149,7 +1152,7 @@ fn print_files(
                     document: Document::default(),
                 };
                 kiri::render::render_file(&file, number, apart, inputs, &mut out)
-                    .and_then(|()| out.write_all(text.as_bytes()))
+                    .and_then(|_| out.write_all(text.as_bytes()))
             }
         };
         apart = true;
@@ -1174,9 +1177,35 @@ fn print_image(
 ) -> io::Result<()> {
     let key = ImageKey::from(name.as_str()).in_document(number);
     inputs.images.insert(key.clone(), Ok(image));
-    let shown = kiri::render::render_file(&image_file(name), number, apart, inputs, out);
+    let shown = kiri::render::render_file(&image_file(name), number, apart, inputs, out)
+        .and_then(|sent| held(sent, &inputs.images, &inputs.caps, out));
     inputs.images.remove(&key);
     shown
+}
+
+/// Flushes `out` and makes sure kitty holds the images `encoder` sent
+/// there, from `images`, to a terminal with `caps`. tmux drops output for
+/// a client that cannot keep up, and the images in it with it, so through
+/// tmux kiri asks kitty for them and sends again what it lost, a few
+/// times at most. Without tmux, nothing is asked.
+fn held(
+    mut encoder: Encoder,
+    images: &kiri::images::Images,
+    caps: &Capabilities,
+    out: &mut impl Write,
+) -> io::Result<()> {
+    out.flush()?;
+    for _ in 0..kiri::render::encoder::AGAIN {
+        let sent = encoder.take_sent();
+        if sent.is_empty() {
+            break;
+        }
+        for id in kiri::term::lost_images(&sent) {
+            encoder.send_again(id, images, caps, out)?;
+        }
+        out.flush()?;
+    }
+    Ok(())
 }
 
 /// A file among several, ready to show.
@@ -1629,7 +1658,8 @@ fn show_diagram(
             };
             let mut out = kiri::term::output(&caps);
             let shown = kiri::render::render_image_on(image, &caps, page, &mut out);
-            return Ok(finish(shown.and_then(|()| out.flush()))?);
+            let held = shown.and_then(|(sent, images)| held(sent, &images, &caps, &mut out));
+            return Ok(finish(held)?);
         }
         Some(Err(error)) => {
             let reason = match &error {
@@ -1904,7 +1934,8 @@ fn print_document(
     };
     let mut out = kiri::term::output(&inputs.caps);
     Ok(finish(
-        kiri::render::render(document, &inputs, &mut out).and_then(|()| out.flush()),
+        kiri::render::render(document, &inputs, &mut out)
+            .and_then(|sent| held(sent, &inputs.images, &inputs.caps, &mut out)),
     )?)
 }
 
@@ -2083,7 +2114,10 @@ fn show_image(
 ) -> Result<(), String> {
     let image = read_image_file(context, caps, path, format, reader)?;
     let mut out = kiri::term::output(caps);
-    finish(kiri::render::render_image(image, caps, &mut out).and_then(|()| out.flush()))
+    finish(
+        kiri::render::render_image(image, caps, &mut out)
+            .and_then(|(sent, images)| held(sent, &images, caps, &mut out)),
+    )
 }
 
 /// The image file `path`, in `format`, read from `reader` up to the size
