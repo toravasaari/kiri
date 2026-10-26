@@ -534,6 +534,30 @@ mod tests {
     }
 
     #[test]
+    fn code_without_padding_has_its_background_from_its_first_cell() {
+        let mut look = look(2);
+        let words = words(&[("a", None), ("code", Some(0))]);
+        let drawn = |look: &LevelLook| match draw_heading(&words, look, CELL, &Fonts::fixture()) {
+            Ok(Source::Text { image, breaks, .. }) => (image, breaks),
+            other => panic!("{other:?}"),
+        };
+        let (padded, _) = drawn(&look);
+        look.code.padding = false;
+        let (image, breaks) = drawn(&look);
+        let start = u32::from(breaks[0]) * 10;
+        let background = opaque(look.code.background.unwrap());
+        assert_eq!(image.get_pixel(start, 0).0, background);
+        assert_eq!(image.get_pixel(image.width() - 1, 0).0, background);
+        // Narrower by the padding on both sides.
+        assert!(
+            image.width() < padded.width(),
+            "{} {}",
+            image.width(),
+            padded.width()
+        );
+    }
+
+    #[test]
     fn a_code_span_over_two_words_has_no_gap_in_its_background() {
         let background = opaque(look(2).code.background.unwrap());
         let row = |image: &image::RgbaImage, x: std::ops::Range<u32>| {

@@ -475,3 +475,32 @@ fn a_heading_with_code_shows_the_image_with_its_code() {
     let out = render("# Kiri code\n", &inputs);
     assert!(drawn(&out).is_empty(), "{out:?}");
 }
+
+#[test]
+fn a_heading_wraps_inside_a_code_span() {
+    let word = |text: &str, code| HeadingWord {
+        text: text.into(),
+        code,
+    };
+    let words = vec![
+        word("Kiri", None),
+        word("one", Some(0)),
+        word("two", Some(0)),
+    ];
+    let mut images = Images::new();
+    let key = ImageKey::heading_of(1, words, (10, 20));
+    // The span's background runs from column 10 to 40, across the gap.
+    images.insert(key, Ok(text_image(40, 2, &[(0, 8), (10, 25), (27, 40)])));
+    let inputs = Inputs {
+        images,
+        ..Inputs::new(no_text_sizing(25))
+    };
+    let out = render("# Kiri `one two`\n", &inputs);
+    let lines = [
+        "⟦row 0: 25 cells⟧",
+        "⟦row 1: 25 cells⟧",
+        "⟦row 0: columns 27..40⟧",
+        "⟦row 1: columns 27..40⟧",
+    ];
+    assert_eq!(drawn(&out), lines);
+}

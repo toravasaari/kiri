@@ -387,6 +387,22 @@ mod tests {
     }
 
     #[test]
+    fn heading_code_without_a_background_of_its_own_is_padded_on_the_heading_s() {
+        let mut theme = Theme::default();
+        theme.inline_code_background = crate::theme::CodeBackground::Color(None);
+        theme.headings[0].background = Some(Color::Rgb(0x20, 0x20, 0x30));
+        let look = heading_look(Headings::Auto, false, &theme, &no_text_sizing()).unwrap();
+        let code = look.levels[0].code;
+        // The heading's background shows through; the padding still
+        // stands, as the text layout pads it on the heading's.
+        assert_eq!(code.background, None);
+        assert!(code.padding);
+        theme.headings[0].background = None;
+        let look = heading_look(Headings::Auto, false, &theme, &no_text_sizing()).unwrap();
+        assert!(!look.levels[0].code.padding);
+    }
+
+    #[test]
     fn without_colours_heading_code_has_no_background() {
         let caps = Capabilities {
             color: false,
