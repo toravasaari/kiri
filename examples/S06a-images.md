@@ -45,6 +45,25 @@ kiri examples/S06b-pattern.png
 kiri examples/S06*
 ```
 
+## Inside tmux
+
+Inside tmux in kitty, the images show as they do outside it. Try these
+there, with `set -g focus-events on` in tmux.conf:
+
+- `kiri -P examples/S06a-images.md` prints the document, and every image
+  draws, also the five under "PNG variants" below, which tmux can lose
+  on a slow connection: kiri asks kitty for them after printing and sends
+  again what did not come.
+- `kiri -f examples/S06a-images.md` follows the file in the pager, where
+  inside tmux each heading is an image. Switch to another tmux window,
+  change the text of the heading at the top of the view there, and come
+  back: the heading shows its new text, where without `focus-events` its
+  row stays empty until Ctrl+L. Undo the change afterwards.
+- Ctrl+L in the pager draws the screen again: nothing on it changes, and
+  the images stay.
+- The pager on this document in two panes side by side: quitting one
+  leaves the images in the other.
+
 ## Scaling
 
 Red, green, blue and yellow quadrants on a black grid, about 32 columns
