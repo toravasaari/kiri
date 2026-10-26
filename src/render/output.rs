@@ -170,7 +170,7 @@ impl<'a> Writer<'a> {
                 columns,
             }) => {
                 let id = (self.encoder).id(placement, self.images, caps, out)?;
-                let columns = columns.unwrap_or(placement.size.columns);
+                let columns = 0..columns.unwrap_or(placement.size.columns);
                 Some((id, *row, columns, *background))
             }
             None => None,
