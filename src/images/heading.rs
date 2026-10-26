@@ -61,6 +61,9 @@ pub struct HeadingWord {
     pub code: Option<u16>,
     /// Whether all of the word is emphasised, and so in italics.
     pub italic: bool,
+    /// Whether the word follows the one before it without a space, as
+    /// text right after inline code does: the two stay on one line.
+    pub glued: bool,
 }
 
 /// The words of the heading text `text`, split on whitespace, none of them
@@ -71,19 +74,21 @@ pub fn plain_words(text: &str) -> Vec<HeadingWord> {
             text: word.to_owned(),
             code: None,
             italic: false,
+            glued: false,
         })
         .collect()
 }
 
 /// The words of a heading with `content`, split on whitespace as its
-/// plain text is, each marked with the inline code or the key it is in,
-/// which are drawn alike, and with whether it is emphasised. Other inline
-/// styles are drawn as heading text.
+/// plain text is and where it goes into or out of inline code, each
+/// marked with the inline code or the key it is in, which are drawn alike,
+/// and with whether it is emphasised. Other inline styles are drawn as
+/// heading text.
 pub fn heading_words(content: &[Inline]) -> Vec<HeadingWord> {
     let mut marked = Vec::new();
     mark(content, Marks::default(), &mut 0, &mut marked);
     let mut words: Vec<HeadingWord> = Vec::new();
-    // Whether the next character starts a word.
+    // Whether the next character starts a word after a space.
     let mut new = true;
     for (c, marks) in marked {
         if c.is_whitespace() {
@@ -91,19 +96,22 @@ pub fn heading_words(content: &[Inline]) -> Vec<HeadingWord> {
             continue;
         }
         match words.last_mut() {
-            // A word is code or emphasised only when all of it is.
-            Some(word) if !new => {
+            Some(word) if !new && word.code == marks.code => {
                 word.text.push(c);
-                if word.code != marks.code {
-                    word.code = None;
-                }
+                // A word is emphasised only when all of it is.
                 word.italic &= marks.italic;
             }
-            _ => words.push(HeadingWord {
-                text: c.to_string(),
-                code: marks.code,
-                italic: marks.italic,
-            }),
+            // Text going into or out of code is a word of its own, glued
+            // to the one before it.
+            last => {
+                let glued = !new && last.is_some();
+                words.push(HeadingWord {
+                    text: c.to_string(),
+                    code: marks.code,
+                    italic: marks.italic,
+                    glued,
+                });
+            }
         }
         new = false;
     }
@@ -223,6 +231,8 @@ pub fn draw_heading(
         };
         let start = match index {
             0 => 0,
+            // Right after the word it is glued to.
+            _ if word.glued => (end / cell_width).ceil() as u16,
             _ => ((end + space) / cell_width).ceil() as u16,
         };
         let x = f32::from(start + before) * cell_width;
@@ -521,6 +531,7 @@ mod tests {
                 text: text.to_owned(),
                 code,
                 italic: false,
+                glued: false,
             })
             .collect()
     }
@@ -641,26 +652,37 @@ mod tests {
 
     #[test]
     fn the_words_of_inline_code_are_marked_with_their_span() {
-        let content = crate::parse::parse("# a `b c` *d* `e`f `g`\n");
+        let content = crate::parse::parse("# a `b c` *d* `e`f, `g`\n");
         let crate::model::Block::Heading { content, .. } = &content.blocks[0] else {
             panic!("a heading");
         };
-        let marked: Vec<(String, Option<u16>)> = (heading_words(content).into_iter())
-            .map(|word| (word.text, word.code))
+        let marked: Vec<(String, Option<u16>, bool)> = (heading_words(content).into_iter())
+            .map(|word| (word.text, word.code, word.glued))
             .collect();
         let expected = [
-            ("a", None),
-            ("b", Some(0)),
-            ("c", Some(0)),
-            ("d", None),
-            // Partly code: drawn as heading text.
-            ("ef", None),
-            ("g", Some(2)),
+            ("a", None, false),
+            ("b", Some(0), false),
+            ("c", Some(0), false),
+            ("d", None, false),
+            // Text against code is a word of its own, glued to it.
+            ("e", Some(1), false),
+            ("f,", None, true),
+            ("g", Some(2), false),
         ];
-        let expected: Vec<(String, Option<u16>)> = (expected.iter())
-            .map(|&(text, code)| (text.to_owned(), code))
+        let expected: Vec<(String, Option<u16>, bool)> = (expected.iter())
+            .map(|&(text, code, glued)| (text.to_owned(), code, glued))
             .collect();
         assert_eq!(marked, expected);
+    }
+
+    #[test]
+    fn a_glued_word_starts_where_the_one_before_it_ends() {
+        let mut words = plain_words("a code ,");
+        words[1].code = Some(0);
+        words[2].glued = true;
+        let (_, starts, ends) = drawn_words(&words);
+        // No space between the code's background and the comma.
+        assert_eq!(starts[2], ends[1], "{starts:?} {ends:?}");
     }
 
     #[test]

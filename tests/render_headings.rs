@@ -457,11 +457,13 @@ fn a_heading_with_code_shows_the_image_with_its_code() {
             text: "Kiri".into(),
             code: None,
             italic: false,
+            glued: false,
         },
         HeadingWord {
             text: "code".into(),
             code: Some(0),
             italic: false,
+            glued: false,
         },
     ];
     let mut images = Images::new();
@@ -484,6 +486,7 @@ fn a_heading_wraps_inside_a_code_span() {
         text: text.into(),
         code,
         italic: false,
+        glued: false,
     };
     let words = vec![
         word("Kiri", None),
@@ -504,6 +507,37 @@ fn a_heading_wraps_inside_a_code_span() {
         "⟦row 1: 25 cells⟧",
         "⟦row 0: columns 27..40⟧",
         "⟦row 1: columns 27..40⟧",
+    ];
+    assert_eq!(drawn(&out), lines);
+}
+
+#[test]
+fn text_glued_to_code_stays_on_its_line() {
+    let word = |text: &str, code, glued| HeadingWord {
+        text: text.into(),
+        code,
+        italic: false,
+        glued,
+    };
+    let words = vec![
+        word("Kiri", None, false),
+        word("code", Some(0), false),
+        word(",", None, true),
+    ];
+    let mut images = Images::new();
+    let key = ImageKey::heading_of(1, words, (10, 20));
+    // The code fits on the first line, but not with the comma after it.
+    images.insert(key, Ok(text_image(21, 2, &[(0, 8), (9, 20), (20, 21)])));
+    let inputs = Inputs {
+        images,
+        ..Inputs::new(no_text_sizing(20))
+    };
+    let out = render("# Kiri `code`,\n", &inputs);
+    let lines = [
+        "⟦row 0: 8 cells⟧",
+        "⟦row 1: 8 cells⟧",
+        "⟦row 0: columns 9..21⟧",
+        "⟦row 1: columns 9..21⟧",
     ];
     assert_eq!(drawn(&out), lines);
 }

@@ -7,6 +7,7 @@ mod quote;
 
 pub(crate) use code::inline_code_background;
 
+use std::ops::Range;
 use std::rc::Rc;
 
 use super::block::{BlockId, Blocks};
@@ -658,7 +659,18 @@ impl Layout<'_> {
         }
         let room = u16::try_from(room).unwrap_or(u16::MAX);
         let starts: Vec<u16> = std::iter::once(0).chain(breaks.iter().copied()).collect();
-        let wide = (starts.iter().zip(ends)).any(|(&start, &end)| end.saturating_sub(start) > room);
+        // The words that stay on one line together: each with those glued
+        // to it, such as a comma after inline code.
+        let mut groups: Vec<Range<usize>> = Vec::new();
+        for (index, word) in words.iter().enumerate() {
+            match groups.last_mut() {
+                Some(group) if word.glued => group.end = index + 1,
+                _ => groups.push(index..index + 1),
+            }
+        }
+        let width_of =
+            |words: &Range<usize>| ends[words.end - 1].saturating_sub(starts[words.start]);
+        let wide = groups.iter().any(|group| width_of(group) > room);
         let (size, lines) = if wide {
             let shrunk = image::size_in((width, height), image::Unit::Pixel, cell, room, rows)?;
             (shrunk, vec![(0..shrunk.columns, 0..words.len())])
@@ -673,14 +685,13 @@ impl Layout<'_> {
             // the last one aside.
             let mut lines = Vec::new();
             let mut first = 0;
-            for word in 1..=words.len() {
-                let full_line =
-                    word == words.len() || ends[word].saturating_sub(starts[first]) > room;
-                if full_line {
-                    lines.push((starts[first]..ends[word - 1], first..word));
-                    first = word;
+            for group in &groups {
+                if group.start > first && width_of(&(first..group.end)) > room {
+                    lines.push((starts[first]..ends[group.start - 1], first..group.start));
+                    first = group.start;
                 }
             }
+            lines.push((starts[first]..ends[words.len() - 1], first..words.len()));
             (full, lines)
         };
         let placement = Rc::new(Placement {
@@ -690,8 +701,13 @@ impl Layout<'_> {
         });
         let mut rows = Vec::new();
         for (columns, shown) in lines {
-            let text: Vec<&str> = words[shown].iter().map(|word| word.text.as_str()).collect();
-            let text = text.join(" ");
+            let mut text = String::new();
+            for word in &words[shown] {
+                if !text.is_empty() && !word.glued {
+                    text.push(' ');
+                }
+                text.push_str(&word.text);
+            }
             for row in 0..size.rows {
                 let mut line = Line::image(Rc::clone(&placement), row);
                 if let Some(image) = &mut line.image {
