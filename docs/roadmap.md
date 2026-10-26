@@ -744,7 +744,7 @@ kitty inside tmux, as in a jailbee container where Claude runs in tmux and
 a spec is read in another tmux window. tmux keeps kitty's text sizing out,
 so large headings come with 5.3.
 
-#### 5.2.1 Passthrough
+#### 5.2.1 Passthrough (done)
 
 - kiri finds out that it runs inside tmux, and wraps kitty's graphics
   sequences so that tmux passes them on: `--passthrough detect|none|tmux`,
