@@ -57,6 +57,8 @@ pub enum Action {
     PreviousFile,
     /// Reads the document again.
     Reload,
+    /// Draws the screen again, with every image on it sent again.
+    Redraw,
     /// Follows the document, from off to on to auto and back to off.
     Follow,
     Help,
@@ -345,6 +347,12 @@ pub const BINDINGS: &[Binding] = {
             action: Action::Reload,
         },
         Binding {
+            keys: &[Ctrl('l')],
+            names: "Ctrl+L",
+            what: "redraw the screen",
+            action: Action::Redraw,
+        },
+        Binding {
             keys: &[Char('F')],
             names: "F",
             what: "follow: on, auto, off",
@@ -427,6 +435,13 @@ mod tests {
         );
         // With Ctrl, or Alt, they are still no keys of the pager's.
         assert_eq!(decode(b"\x1b[5;5~\x1b[6;3~"), [Key::Other, Key::Other]);
+    }
+
+    #[test]
+    fn ctrl_l_redraws_and_r_still_reloads() {
+        assert_eq!(decode(b"\x0c"), [Key::Ctrl('l')]);
+        assert_eq!(action(Key::Ctrl('l')), Some(Action::Redraw));
+        assert_eq!(action(Key::Char('r')), Some(Action::Reload));
     }
 
     #[test]
@@ -613,6 +628,7 @@ mod tests {
                     ":p" => Key::Command('p'),
                     "Shift+PgDn" => Key::ShiftPageDown,
                     "Shift+PgUp" => Key::ShiftPageUp,
+                    "Ctrl+L" => Key::Ctrl('l'),
                     name if name.chars().count() == 1 => Key::Char(name.chars().next().unwrap()),
                     name => panic!("unknown key name {name}"),
                 };

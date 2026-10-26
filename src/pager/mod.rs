@@ -575,6 +575,8 @@ enum Pressed {
     Reload,
     /// The reader changed how the document is followed.
     Follow,
+    /// The reader asked for the screen and its images again.
+    Redraw,
 }
 
 /// What the status line and the help panel show and how, apart from the
@@ -1025,6 +1027,7 @@ impl State {
                 }
             }
             Some(Action::Reload) => return Pressed::Reload,
+            Some(Action::Redraw) => return Pressed::Redraw,
             Some(Action::Follow) => return Pressed::Follow,
             None => {}
         }
@@ -1380,6 +1383,12 @@ fn show(
                         .draw(layout.view.rows(), writer, terminal)?;
                     terminal.flush()?;
                     return Ok(Outcome::Reload);
+                }
+                // As `less` repaints, also the images, which the
+                // terminal may have lost.
+                Pressed::Redraw => {
+                    writer.lost();
+                    again = true;
                 }
                 Pressed::Follow if reload.is_none() => {
                     state.told = Some(Told::new(NOTHING_TO_FOLLOW));

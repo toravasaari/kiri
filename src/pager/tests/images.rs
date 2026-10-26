@@ -368,3 +368,20 @@ fn the_focus_going_and_coming_back_leaves_the_help_open() {
         assert!(last.contains(" Keys "), "{out:?}");
     }
 }
+
+#[test]
+fn ctrl_l_draws_the_screen_and_sends_its_images_again() {
+    for tmux in [false, true] {
+        let (out, frames) = pictured_with(tmux, &[b"\x0c"]);
+        assert_eq!(frames.len(), 2, "{out:?}");
+        let sent = sent_ids(&out);
+        assert_eq!(sent.len(), 2, "{out:?}");
+        assert_eq!(sent[0], sent[1]);
+        assert_eq!(
+            frames[1]
+                .matches(crate::kitty::graphics::PLACEHOLDER)
+                .count(),
+            2
+        );
+    }
+}
