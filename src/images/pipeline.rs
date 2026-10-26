@@ -172,6 +172,53 @@ pub fn load_in_background(
     loads.start(jobs, context(loading, renderers));
 }
 
+/// Starts loading the heading images of `parts`, drawn as `look` says,
+/// that `images` neither holds nor is loading, in the background in
+/// `loads`, as after a change of the cell size: each heading shows as
+/// text until its image comes. What else `images` holds stays.
+pub fn load_headings_in_background(
+    parts: &[Part<'_>],
+    look: &HeadingLook,
+    images: &mut Images,
+    loads: &mut Loads,
+) {
+    let (wanted, _) = plan(parts, &NoRenderer, Some(look.cell), None);
+    let mut jobs = Vec::new();
+    for (index, image) in wanted {
+        let key = image.key().in_document(parts[index].number);
+        let Wanted::Heading { level, text, cell } = image else {
+            continue;
+        };
+        if images.get(&key).is_some() || loads.loading(&key) {
+            continue;
+        }
+        images.wait(key.clone(), Placeholder::Unsized);
+        let what = What::Heading {
+            text,
+            look: *look.level(level),
+            cell,
+        };
+        jobs.push(Job {
+            key,
+            what,
+            program: false,
+        });
+    }
+    if jobs.is_empty() {
+        return;
+    }
+    // A heading needs nothing of what draws diagrams.
+    let context = Context {
+        renderer: Box::new(NoRenderer),
+        theme: Theme::Light,
+        formula: FormulaColors::default(),
+        panel: false,
+        largest: None,
+        max_file_size: 0,
+    };
+    loads.start(jobs, context);
+}
+
 /// Stands in for every image of `parts` that [`load_in_background`] would
 /// load with a box of `rows` rows in `images`, to tell how tall the
 /// documents are before their images load, such as whether they are

@@ -158,6 +158,18 @@ pub fn heading_look(
     })
 }
 
+impl Headings {
+    /// How headings show with images off when `images` is false: as
+    /// `auto`, `sized` or `images` say without images, which is as
+    /// `sized` says; `plain` stays.
+    pub fn with_images(self, images: bool) -> Self {
+        match self {
+            Self::Auto | Self::Images if !images => Self::Sized,
+            headings => headings,
+        }
+    }
+}
+
 /// Whether the top-level headings show as images, where theirs loaded,
 /// for `headings` on a terminal with `caps`.
 fn heading_images(headings: Headings, caps: &Capabilities) -> bool {
@@ -331,6 +343,14 @@ mod tests {
             let look = heading_look(headings, true, &theme, &no_text_sizing());
             assert_eq!(look, None, "{headings:?}");
         }
+    }
+
+    #[test]
+    fn without_images_headings_show_as_sized_says() {
+        assert_eq!(Headings::Auto.with_images(false), Headings::Sized);
+        assert_eq!(Headings::Images.with_images(false), Headings::Sized);
+        assert_eq!(Headings::Plain.with_images(false), Headings::Plain);
+        assert_eq!(Headings::Images.with_images(true), Headings::Images);
     }
 
     #[test]

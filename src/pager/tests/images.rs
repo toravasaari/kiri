@@ -235,3 +235,50 @@ fn new_cell_pixels_send_the_image_again_and_delete_the_old_one() {
     assert!(frames[1].starts_with(&first), "{frames:#?}");
     assert_eq!(deleted_ids(&out), sent, "{out:?}");
 }
+
+#[test]
+fn a_new_cell_size_loads_the_heading_images_for_it() {
+    let key = |cell| crate::images::ImageKey::heading(1, "Kiri", cell);
+    // Cells of 10 × 20 pixels, then of 8 × 16 when the font gets smaller,
+    // or of the same size in a wider window.
+    let pixels = |columns: u16, cell: (u16, u16)| WindowSize {
+        columns,
+        rows: 6,
+        width: columns * cell.0,
+        height: 6 * cell.1,
+    };
+    for (after, loads) in [((8, 16), true), ((10, 20), false)] {
+        let mut terminal = Fake::new(60, 6, &[b"", b"", b"q"]);
+        terminal.size = pixels(60, (10, 20));
+        terminal.sizes = [pixels(60, (10, 20)), pixels(70, after)].into();
+        let mut inputs = Inputs::new(Capabilities {
+            text_sizing: false,
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(60)
+        });
+        let image = image::RgbaImage::from_pixel(100, 40, image::Rgba([200, 30, 30, 255]));
+        let text = crate::images::Source::Text {
+            image,
+            breaks: Vec::new(),
+        };
+        inputs.images.insert(key((10, 20)), Ok(text));
+        let mut background = Loads::new();
+        run_document(
+            &crate::parse::parse("# Kiri\n\nText\n"),
+            &mut inputs,
+            Options {
+                loads: Some(&mut background),
+                ..Options::new(SearchCase::Smart)
+            },
+            &mut terminal,
+        );
+        let wanted = key(after);
+        // Asked for once the window told the new cells: loading, or come.
+        let asked = background.loading(&wanted)
+            || inputs.images.placeholder(&wanted).is_some()
+            || (wanted != key((10, 20)) && inputs.images.get(&wanted).is_some());
+        let keys: Vec<_> = inputs.images.iter().map(|(key, _)| key.clone()).collect();
+        assert_eq!(asked, loads, "{after:?}: {keys:?}");
+        background.halt();
+    }
+}

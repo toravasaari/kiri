@@ -760,7 +760,7 @@ fn show_files(
         images,
         theme: settings.theme.clone(),
         front_matter: settings.front_matter.style().unwrap_or_default(),
-        headings: settings.headings,
+        headings: settings.headings.with_images(settings.images),
         table_rows: settings.table_rows,
         render_errors: settings.render_errors,
         ..Inputs::new(caps)
@@ -1805,7 +1805,7 @@ fn print_document(
         images,
         theme: settings.theme.clone(),
         front_matter: settings.front_matter.style().unwrap_or_default(),
-        headings: settings.headings,
+        headings: settings.headings.with_images(settings.images),
         table_rows: settings.table_rows,
         render_errors: settings.render_errors,
         ..Inputs::new(caps)

@@ -30,8 +30,8 @@ pub use background::{Loads, STOPPING};
 pub use decode::{DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image};
 pub use heading::{HeadingLook, LevelLook, draw_heading, heading_words};
 pub use pipeline::{
-    Interrupted, Loaded, Loading, load_documents, load_in_background, measure_in_background,
-    reload_in_background,
+    Interrupted, Loaded, Loading, load_documents, load_headings_in_background, load_in_background,
+    measure_in_background, reload_in_background,
 };
 pub use stamps::Stamps;
 pub use svg::{Fonts, Svg};
