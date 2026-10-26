@@ -17,6 +17,7 @@ mod pty;
 mod screen;
 #[cfg(test)]
 mod testing;
+pub mod tmux;
 mod window;
 
 pub use detect::{CellSize, Detection, Mode, capabilities, examine, no_color};
