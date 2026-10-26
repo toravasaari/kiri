@@ -993,6 +993,10 @@ go.
   error, which the pager holds until it quits. A log file or the systemd
   journal could keep them, and a debug level could tell more, such as
   each program kiri runs and how long it takes.
+- Whether `--no-images` should turn off headings drawn as images
+  (5.3.1) too. 5.3.1 makes it do so, but the flag is about a document's
+  images and formulas, which one may want hidden while headings stay
+  large.
 
 ## Bugs
 
