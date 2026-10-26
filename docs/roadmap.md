@@ -1059,6 +1059,18 @@ columns: a gap inside "three", where one group of packed cells ends and
 the next begins. B4 has gaps like this around wide characters; here the
 word is plain ASCII. Not yet seen in a real kitty window.
 
+#### B7 Images lost inside tmux in a long document
+
+`kiri examples/S06a-images.md` in tmux, in the maintainer's kitty
+attached to a jailbee container, left three of the five images under
+"PNG variants" as empty space of the right height. kitty answered
+`ENOENT` for their ids, so their data never reached it, and
+`tmux refresh-client` did not bring them back. The same section on its
+own drew whole. tmux drops output for a client that cannot keep up, and
+passthrough data in the dropped part is lost; that is the likely cause.
+Resending images, as 5.2.2 plans, or checking after printing that kitty
+has them, would fix it.
+
 ### Upstream bugs
 
 Bugs in projects kiri uses, which kiri works around until they are fixed
