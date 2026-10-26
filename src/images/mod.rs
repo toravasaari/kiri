@@ -10,6 +10,7 @@
 mod background;
 mod decode;
 mod drawn;
+mod heading;
 mod pipeline;
 mod stamps;
 mod svg;
@@ -27,6 +28,7 @@ use crate::model::{Block, Document, Inline};
 pub(crate) use background::{Arrival, Gated};
 pub use background::{Loads, STOPPING};
 pub use decode::{DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image};
+pub use heading::{HeadingLook, LevelLook, draw_heading, heading_words};
 pub use pipeline::{
     Interrupted, Loaded, Loading, load_documents, load_in_background, measure_in_background,
     reload_in_background,
@@ -163,6 +165,12 @@ pub enum ImageKey {
         language: String,
         source: String,
     },
+    /// A heading drawn as an image: its level and its text.
+    Heading {
+        document: usize,
+        level: u8,
+        text: String,
+    },
 }
 
 impl ImageKey {
@@ -173,6 +181,16 @@ impl ImageKey {
             document: 0,
             language: language.to_ascii_lowercase(),
             source: source.to_owned(),
+        }
+    }
+
+    /// The key of the heading of `level` with `text`, drawn as an image,
+    /// in the first document.
+    pub fn heading(level: u8, text: &str) -> Self {
+        ImageKey::Heading {
+            document: 0,
+            level,
+            text: text.to_owned(),
         }
     }
 
@@ -187,13 +205,20 @@ impl ImageKey {
                 language,
                 source,
             },
+            ImageKey::Heading { level, text, .. } => ImageKey::Heading {
+                document,
+                level,
+                text,
+            },
         }
     }
 
     /// The number of the document the image belongs to.
     pub fn document(&self) -> usize {
         match *self {
-            ImageKey::Url { document, .. } | ImageKey::Block { document, .. } => document,
+            ImageKey::Url { document, .. }
+            | ImageKey::Block { document, .. }
+            | ImageKey::Heading { document, .. } => document,
         }
     }
 }
@@ -217,6 +242,7 @@ impl fmt::Display for ImageKey {
         match self {
             ImageKey::Url { url, .. } => f.write_str(url),
             ImageKey::Block { language, .. } => write!(f, "{language} block"),
+            ImageKey::Heading { text, .. } => write!(f, "heading {text:?}"),
         }
     }
 }

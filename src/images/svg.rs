@@ -71,6 +71,17 @@ impl Svg {
         self.showing(view)
     }
 
+    /// The left and right edges of all of its text on the canvas, in CSS
+    /// pixels; `None` when it draws no text, as when no font has it.
+    pub(super) fn text_edges(&self) -> Option<(f32, f32)> {
+        let mut edges: Option<(f32, f32)> = None;
+        each_text_bounds(self.tree.root(), &mut |bounds| {
+            let (left, right) = edges.unwrap_or((bounds.left(), bounds.right()));
+            edges = Some((left.min(bounds.left()), right.max(bounds.right())));
+        });
+        edges
+    }
+
     /// This SVG on a panel of `colour`, `padding` CSS pixels wider than
     /// what it shows on each side.
     pub(super) fn on_panel(self, colour: [u8; 3], padding: f32) -> Self {

@@ -45,6 +45,10 @@ pub enum Source {
     /// to the CSS pixel, as a browser draws a diagram, and shown at `css`,
     /// its width and height in CSS pixels.
     Dense { image: RgbaImage, css: (u32, u32) },
+    /// Text drawn to whole cells, such as a heading, shown one pixel per
+    /// terminal pixel as `Raster` is. `breaks[i]` is the column the word
+    /// `i + 1` starts on, where the image can be cut.
+    Text { image: RgbaImage, breaks: Vec<u16> },
 }
 
 impl Source {
@@ -52,7 +56,7 @@ impl Source {
     /// pixels.
     pub fn size(&self) -> (u32, u32) {
         match self {
-            Source::Raster(image) => image.dimensions(),
+            Source::Raster(image) | Source::Text { image, .. } => image.dimensions(),
             Source::Svg(svg) => svg.size,
             Source::Dense { css, .. } => *css,
         }
@@ -62,12 +66,14 @@ impl Source {
     /// scaled, an SVG drawn at that size.
     pub fn render(&self, width: u32, height: u32) -> RgbaImage {
         match self {
-            Source::Raster(image) | Source::Dense { image, .. }
+            Source::Raster(image) | Source::Dense { image, .. } | Source::Text { image, .. }
                 if image.dimensions() == (width, height) =>
             {
                 image.clone()
             }
-            Source::Raster(image) | Source::Dense { image, .. } => scale(image, width, height),
+            Source::Raster(image) | Source::Dense { image, .. } | Source::Text { image, .. } => {
+                scale(image, width, height)
+            }
             Source::Svg(svg) => svg.render(width, height),
         }
     }
