@@ -6,10 +6,14 @@ use std::io::{self, Write};
 use std::process::{Command, Stdio};
 
 use crate::config::Environment;
+use crate::kitty::graphics;
+
+/// The start of tmux's passthrough: a DCS for tmux.
+const OPEN: &str = "\x1bPtmux;";
 
 /// `sequence` wrapped in tmux's passthrough, whatever it is.
 pub fn passthrough(sequence: &str) -> String {
-    format!("\x1bPtmux;{}\x1b\\", sequence.replace('\x1b', "\x1b\x1b"))
+    format!("{OPEN}{}\x1b\\", sequence.replace('\x1b', "\x1b\x1b"))
 }
 
 /// Runs `tmux` with the arguments: its output, trimmed, when it succeeds,
@@ -72,7 +76,8 @@ pub fn prepare(env: &Environment, run: Run) -> Pane {
     }
 }
 
-/// A writer that wraps each kitty graphics sequence, `ESC _ G … ESC \`,
+/// A writer that wraps each kitty graphics sequence, [`graphics::START`]
+/// (`ESC _ G`) to `ESC \`,
 /// in tmux's passthrough on its way to `inner`, when told to, and passes
 /// everything else untouched. A sequence may come over several writes, so
 /// an ESC, or `ESC _`, at the end of a write waits for the next one.
@@ -87,11 +92,9 @@ pub struct Wrapping<W: Write> {
 enum State {
     /// Outside any graphics sequence.
     Outside,
-    /// After an ESC outside, held back until the next byte tells whether
-    /// a graphics sequence starts.
-    Esc,
-    /// After `ESC _`, held back likewise.
-    Apc,
+    /// After this many bytes of [`graphics::START`] outside, held back
+    /// until the next byte tells whether a graphics sequence starts.
+    Start(usize),
     /// Inside a graphics sequence, already wrapped.
     Inside,
     /// After an ESC inside, which may end the sequence.
@@ -136,23 +139,21 @@ impl<W: Write> Write for Wrapping<W> {
 
 /// The state after `byte` in `state`, with what it writes in `out`.
 fn step(state: State, byte: u8, out: &mut Vec<u8>) -> State {
+    let start = graphics::START.as_bytes();
     match (state, byte) {
-        (State::Outside, ESC) => State::Esc,
+        (State::Outside, _) if byte == start[0] => State::Start(1),
         (State::Outside, _) => {
             out.push(byte);
             State::Outside
         }
-        (State::Esc, b'_') => State::Apc,
-        (State::Esc, _) => {
-            out.push(ESC);
-            step(State::Outside, byte, out)
-        }
-        (State::Apc, b'G') => {
-            out.extend_from_slice(b"\x1bPtmux;\x1b\x1b_G");
+        (State::Start(held), _) if byte == start[held] && held + 1 == start.len() => {
+            out.extend_from_slice(OPEN.as_bytes());
+            out.extend_from_slice(graphics::START.replace('\x1b', "\x1b\x1b").as_bytes());
             State::Inside
         }
-        (State::Apc, _) => {
-            out.extend_from_slice(b"\x1b_");
+        (State::Start(held), _) if byte == start[held] => State::Start(held + 1),
+        (State::Start(held), _) => {
+            out.extend_from_slice(&start[..held]);
             step(State::Outside, byte, out)
         }
         (State::Inside, ESC) => {
