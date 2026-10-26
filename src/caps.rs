@@ -49,6 +49,11 @@ pub struct Capabilities {
     /// Whether graphics sequences are to be wrapped in tmux's passthrough
     /// on their way out, as kiri runs inside tmux.
     pub tmux_passthrough: bool,
+    /// Something unique to this run, mixed into every image id, where
+    /// other programs share the terminal's images and may show the same
+    /// image under kiri's id: under tmux, every pane of a kitty window
+    /// shares them. `None` gives an image the same id on every run.
+    pub image_run: Option<u64>,
 }
 
 impl Capabilities {
@@ -71,6 +76,7 @@ impl Capabilities {
             background: None,
             palette: [None; 16],
             tmux_passthrough: false,
+            image_run: None,
         }
     }
 

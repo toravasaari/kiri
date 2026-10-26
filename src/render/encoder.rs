@@ -71,7 +71,7 @@ impl Encoder {
         if let Some(held) = old.filter(|held| held.checked) {
             return Ok(held.id);
         }
-        let scaled = Scaled::new(placement, images, cell)?;
+        let scaled = Scaled::new(placement, images, cell, caps.image_run)?;
         let held = Held {
             id: scaled.id,
             cell,
@@ -111,7 +111,8 @@ impl Encoder {
         }
         let band = loading::band(columns, cell, ink, elapsed);
         let cells = graphics::Cells { columns, rows: 1 };
-        let id = ImageId::new(BAND, band.width(), band.height(), cells);
+        // Under tmux, where ids are a run's own, no band is drawn.
+        let id = ImageId::new(BAND, band.width(), band.height(), cells, None);
         graphics::transmit_only(out, id, &pixels(&band))?;
         self.bands.insert((columns, cell), id);
         Ok(id)
@@ -210,8 +211,13 @@ struct Scaled {
 
 impl Scaled {
     /// The image `placement` shows, from `images`, scaled to its size in
-    /// cells of `cell` pixels.
-    fn new(placement: &Placement, images: &Images, cell: (u16, u16)) -> io::Result<Self> {
+    /// cells of `cell` pixels, with an id of `run`'s own when given.
+    fn new(
+        placement: &Placement,
+        images: &Images,
+        cell: (u16, u16),
+        run: Option<u64>,
+    ) -> io::Result<Self> {
         let key = &placement.key;
         let size = placement.size;
         let pixels = match (placement.shows, images.get(key), images.placeholder(key)) {
@@ -231,7 +237,7 @@ impl Scaled {
             rows: placement.size.rows,
         };
         let (width, height) = pixels.dimensions();
-        let id = ImageId::new(pixels.as_raw(), width, height, cells);
+        let id = ImageId::new(pixels.as_raw(), width, height, cells, run);
         Ok(Self { id, pixels, cells })
     }
 
@@ -323,10 +329,12 @@ mod tests {
             &placed("a.png", 2, 1, Shows::Placeholder),
             &images,
             (10, 20),
+            None,
         );
         assert_eq!(dimmed.unwrap().pixels.get_pixel(5, 5).0, [255, 0, 0, 120]);
         // Nothing to show as the image itself.
-        assert!(Scaled::new(&placed("a.png", 2, 1, Shows::Image), &images, (10, 20)).is_err());
+        let image = placed("a.png", 2, 1, Shows::Image);
+        assert!(Scaled::new(&image, &images, (10, 20), None).is_err());
     }
 
     #[test]
@@ -396,5 +404,27 @@ mod tests {
         let expected = String::from_utf8(expected).unwrap();
         assert!(out.starts_with(&expected), "{out:?}");
         assert!(out.contains("\x1b_Ga=T,"), "{out:?}");
+    }
+
+    #[test]
+    fn a_run_of_its_own_sends_the_image_under_an_id_of_its_own() {
+        let mut images = Images::new();
+        let red = RgbaImage::from_pixel(20, 20, image::Rgba([255, 0, 0, 255]));
+        images.insert("a.png", Ok(Source::Raster(red)));
+        let placement = placed("a.png", 2, 1, Shows::Image);
+        let id = |run| {
+            let caps = Capabilities {
+                image_run: run,
+                ..caps()
+            };
+            (Encoder::new().id(&placement, &images, &caps, &mut Vec::new())).unwrap()
+        };
+        // As on every run without one.
+        let scaled = Scaled::new(&placement, &images, (10, 20), None).unwrap();
+        let (width, height) = scaled.pixels.dimensions();
+        let stable = ImageId::new(scaled.pixels.as_raw(), width, height, scaled.cells, None);
+        assert_eq!(id(None), stable);
+        assert_ne!(id(Some(1)), stable);
+        assert_ne!(id(Some(1)), id(Some(2)));
     }
 }

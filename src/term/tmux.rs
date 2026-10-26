@@ -32,6 +32,19 @@ pub fn run(args: &[&str]) -> Option<String> {
     out.status.success().then(|| text.trim().to_owned())
 }
 
+/// Something unique to this run of kiri, to mix into its image ids: every
+/// pane of a kitty window shares kitty's images, and kiri runs in other
+/// panes, also in other containers, whose process ids may be the same.
+pub fn run_id() -> u64 {
+    use std::hash::{BuildHasher, Hasher};
+    // Each `RandomState` has keys of its own, random for each process.
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u32(std::process::id());
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+    hasher.write_u128(now.map_or(0, |now| now.as_nanos()));
+    hasher.finish()
+}
+
 /// Whether kiri runs inside tmux: `TMUX` set and not empty.
 pub fn in_tmux(env: &Environment) -> bool {
     env.tmux.as_ref().is_some_and(|value| !value.is_empty())

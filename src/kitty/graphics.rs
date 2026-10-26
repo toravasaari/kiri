@@ -97,10 +97,12 @@ pub struct ImageId(u32);
 
 impl ImageId {
     /// An id derived from the image's `content` and the size it is shown at,
-    /// `width` × `height` pixels in `cells`. The same image at the same size
-    /// gets the same id on every run, so rendering a document again does not
-    /// replace the images earlier runs left in the scrollback.
-    pub fn new(content: &[u8], width: u32, height: u32, cells: Cells) -> Self {
+    /// `width` × `height` pixels in `cells`, and from `run` when given. The
+    /// same image at the same size gets the same id on every run without
+    /// `run`, so rendering a document again does not replace the images
+    /// earlier runs left in the scrollback; a `run` of its own gives each
+    /// run ids of its own.
+    pub fn new(content: &[u8], width: u32, height: u32, cells: Cells, run: Option<u64>) -> Self {
         // FNV-1a: simple, and unlike std's hasher stable across releases.
         let mut hash: u64 = 0xCBF2_9CE4_8422_2325;
         let [w0, w1, w2, w3] = width.to_le_bytes();
@@ -108,7 +110,8 @@ impl ImageId {
         let [c0, c1] = cells.columns.to_le_bytes();
         let [r0, r1] = cells.rows.to_le_bytes();
         let size = [w0, w1, w2, w3, h0, h1, h2, h3, c0, c1, r0, r1];
-        for &byte in content.iter().chain(&size) {
+        let run = run.map(u64::to_le_bytes);
+        for &byte in content.iter().chain(&size).chain(run.iter().flatten()) {
             hash ^= u64::from(byte);
             hash = hash.wrapping_mul(0x0100_0000_01B3);
         }
@@ -419,17 +422,25 @@ mod tests {
 
     #[test]
     fn id_is_stable_across_runs() {
-        assert_eq!(ImageId::new(b"kiri", 40, 20, cells(4, 1)).0, 0x4351F5);
+        assert_eq!(ImageId::new(b"kiri", 40, 20, cells(4, 1), None).0, 0x4351F5);
     }
 
     #[test]
     fn id_depends_on_content_and_size() {
-        let id = ImageId::new(b"kiri", 40, 20, cells(4, 1));
-        assert_ne!(id, ImageId::new(b"kirI", 40, 20, cells(4, 1)));
-        assert_ne!(id, ImageId::new(b"kiri", 41, 20, cells(4, 1)));
-        assert_ne!(id, ImageId::new(b"kiri", 40, 21, cells(4, 1)));
-        assert_ne!(id, ImageId::new(b"kiri", 40, 20, cells(5, 1)));
-        assert_ne!(id, ImageId::new(b"kiri", 40, 20, cells(4, 2)));
+        let id = ImageId::new(b"kiri", 40, 20, cells(4, 1), None);
+        assert_ne!(id, ImageId::new(b"kirI", 40, 20, cells(4, 1), None));
+        assert_ne!(id, ImageId::new(b"kiri", 41, 20, cells(4, 1), None));
+        assert_ne!(id, ImageId::new(b"kiri", 40, 21, cells(4, 1), None));
+        assert_ne!(id, ImageId::new(b"kiri", 40, 20, cells(5, 1), None));
+        assert_ne!(id, ImageId::new(b"kiri", 40, 20, cells(4, 2), None));
+    }
+
+    #[test]
+    fn a_run_of_its_own_gives_ids_of_its_own() {
+        let id = |run| ImageId::new(b"kiri", 40, 20, cells(4, 1), run);
+        assert_ne!(id(Some(1)), id(None));
+        assert_ne!(id(Some(1)), id(Some(2)));
+        assert_eq!(id(Some(1)), id(Some(1)));
     }
 
     #[test]
