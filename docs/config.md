@@ -44,6 +44,9 @@ initial_load = "wait"
 # see Passthrough below.
 passthrough = "detect"
 
+# false leaves the mouse to the terminal in the pager; see Mouse below.
+mouse = true
+
 # Front matter render style: "table", "code", "hide" or "off".
 front_matter = "table"
 
@@ -274,6 +277,25 @@ Headings stay one row high inside tmux, as tmux cannot pass kitty's
 text sizing, and an image that loads in the background has no moving
 band below it; the status line still says `[rendering: 1/3]`.
 
+## Mouse
+
+The pager takes the mouse, so that the wheel scrolls it three lines a
+notch, inside tmux too. The first of these that is given decides
+instead:
+
+1. `--mouse` turns it on, `--no-mouse` off; the two cannot be given
+   together
+2. `KIRI_MOUSE`: `on` or `off`, `1` or `0`; an empty value counts as
+   unset, and any other value is left out with a warning
+3. `mouse` in the configuration file, `true` or `false`
+4. on
+
+While the pager has the mouse, a click does nothing, and kitty selects
+text when you hold Shift as you drag. With the mouse off, kitty turns
+the wheel into arrow keys in the pager, and tmux with `mouse on` keeps
+the wheel for itself. A printed
+document leaves the mouse alone either way.
+
 ## Search case
 
 A search in the pager ignores case when its term has no upper-case letter,
@@ -417,6 +439,7 @@ once.
 | `KIRI_FOLLOW_JUMP` | Which change auto-follow moves the view to; see [Follow jump](#follow-jump) |
 | `KIRI_INITIAL_LOAD` | Whether the pager waits for the images; see [Initial load](#initial-load) |
 | `KIRI_PASSTHROUGH` | Whether kitty's images pass through tmux; see [Passthrough](#passthrough) |
+| `KIRI_MOUSE` | Whether the pager takes the mouse; see [Mouse](#mouse) |
 | `KIRI_FRONT_MATTER` | Front matter render style; see [Front matter](#front-matter) |
 | `KIRI_HEADINGS` | How headings show; see [Headings](#headings) |
 | `KIRI_TABLE_ROWS` | Table row style; see [Table rows](#table-rows) |

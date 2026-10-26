@@ -631,6 +631,15 @@ fn the_headings_key_takes_auto_sized_images_or_plain() {
 }
 
 #[test]
+fn the_mouse_key_turns_the_mouse_on_or_off() {
+    check_key(
+        |config| config.mouse,
+        &[("mouse = false\n", false), ("mouse = true\n", true)],
+        &["mouse = \"off\"\n"],
+    );
+}
+
+#[test]
 fn the_diagrams_key_turns_diagrams_on_or_off() {
     check_key(
         |config| config.diagrams,
@@ -1069,6 +1078,20 @@ fn kiri_follow_jump_chooses_where_auto_follow_jumps() {
             "joo",
             "KIRI_FOLLOW_JUMP: `joo` is not first, last or most; left out",
         ),
+    );
+}
+
+#[test]
+fn kiri_mouse_chooses_whether_the_pager_takes_the_mouse() {
+    check_variable(
+        |choices| &choices.mouse,
+        "KIRI_MOUSE",
+        &[("on", true), ("off", false), ("1", true), ("0", false)],
+        Config {
+            mouse: Some(false),
+            ..Config::default()
+        },
+        ("no", "KIRI_MOUSE: `no` is not on, off, 1 or 0; left out"),
     );
 }
 

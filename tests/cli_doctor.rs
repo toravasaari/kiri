@@ -258,6 +258,21 @@ fn diagrams_tell_where_they_come_from() {
 }
 
 #[test]
+fn the_mouse_tells_where_it_comes_from() {
+    let dir = Scratch::new("doctor-mouse");
+    check_row(&dir, &[], &[], "| Mouse | on | default |");
+    let row = "| Mouse | off | `--no-mouse` |";
+    check_row(&dir, &["--no-mouse"], &[("KIRI_MOUSE", "1")], row);
+    let row = "| Mouse | off | `KIRI_MOUSE=off` |";
+    check_row(&dir, &[], &[("KIRI_MOUSE", "off")], row);
+    write_config(&dir, "mouse = false\n");
+    let row = "| Mouse | off | configuration file |";
+    check_row(&dir, &[], &[], row);
+    let row = "| Mouse | on | `--mouse` |";
+    check_row(&dir, &["--mouse"], &[], row);
+}
+
+#[test]
 fn render_errors_tell_where_they_come_from() {
     let dir = Scratch::new("doctor-render-errors");
     check_row(&dir, &[], &[], "| Render errors | both | default |");
