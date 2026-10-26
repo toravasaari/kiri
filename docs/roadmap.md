@@ -763,6 +763,16 @@ so large headings come with 5.3.
   kiri run uses image ids of its own there; one quitting then leaves the
   others' images alone.
 
+#### 5.2.3 The mouse
+
+- The pager handles the mouse itself, so the wheel scrolls it inside tmux
+  too. Today it asks for no mouse events: kitty turns the wheel into arrow
+  keys in the pager's screen, but tmux with `mouse on` keeps the wheel for
+  itself and goes into its copy mode.
+- Capturing the mouse stops plain text selection in kitty, so it is a
+  lasting choice, in the configuration file or on the command line, never
+  one that changes by itself.
+
 ### 5.3 Headings without text sizing
 
 Large headings where kitty's text sizing does not work, such as in tmux
@@ -774,6 +784,11 @@ or in other terminals, from the best to the plainest.
   the terminal's own font, which kiri asks the terminal for, as
   [mdfried](inspiration.md#other-terminal-markdown-readers) does, or else
   a sans font found on the system.
+- Done: headings are images where images are drawn but text sizing is
+  not, in the system's sans-serif font; `--headings auto|sized|images|plain`
+  chooses, and `--no-images` turns them off. A long heading wraps at its
+  words into lines of the one image. Inline code and keys look as in the
+  text, and emphasis is in italics. Still to do: the terminal's own font.
 
 #### 5.3.2 chafa
 
