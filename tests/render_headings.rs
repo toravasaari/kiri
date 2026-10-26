@@ -312,3 +312,43 @@ fn a_heading_in_a_pipe_stays_text() {
         }
     }
 }
+
+#[test]
+fn a_heading_image_wider_than_kitty_places_is_text() {
+    let caps = Capabilities {
+        max_image_cells: 10,
+        ..no_text_sizing(80)
+    };
+    let inputs = heading_inputs(caps, "Kiri", text_image(20, 2, &[]), Headings::Auto);
+    let out = render("# Kiri\n", &inputs);
+    assert!(drawn(&out).is_empty(), "{out:?}");
+    assert!(visible(&out).contains("Kiri"), "{out:?}");
+}
+
+#[test]
+fn a_heading_inside_details_is_an_image() {
+    let inputs = heading_inputs(
+        no_text_sizing(80),
+        "Kiri",
+        text_image(20, 2, &[]),
+        Headings::Auto,
+    );
+    let source = "<details>\n<summary>S</summary>\n\n# Kiri\n\n</details>\n";
+    let out = render(source, &inputs);
+    assert_eq!(drawn(&out), ["⟦row 0: 20 cells⟧", "⟦row 1: 20 cells⟧"]);
+}
+
+#[test]
+fn a_nested_heading_stays_text_with_its_image_loaded() {
+    let inputs = heading_inputs(
+        no_text_sizing(80),
+        "Kiri",
+        text_image(20, 2, &[]),
+        Headings::Auto,
+    );
+    for source in ["> # Kiri\n", "- # Kiri\n", "> [!NOTE]\n> # Kiri\n"] {
+        let out = render(source, &inputs);
+        assert!(drawn(&out).is_empty(), "{source:?}: {out:?}");
+        assert!(visible(&out).contains("Kiri"), "{source:?}: {out:?}");
+    }
+}
