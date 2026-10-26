@@ -101,6 +101,10 @@ environment! {
     term_program: "TERM_PROGRAM",
     /// `VTE_VERSION`: terminals built on VTE, with hyperlinks from 5000 on.
     vte_version: "VTE_VERSION",
+    /// `TMUX`: set and not empty inside tmux.
+    tmux: "TMUX",
+    /// `TMUX_PANE`: the tmux pane kiri runs in, such as `%3`.
+    tmux_pane: "TMUX_PANE",
 }
 
 impl Environment {
