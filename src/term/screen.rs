@@ -170,10 +170,9 @@ impl Screen<Wrapping<Stdout>> {
     /// kitty's graphics wrapped for tmux if `wrap`, and mouse reporting on
     /// if `mouse`. `None` without a controlling terminal or in the
     /// background, where raw mode would stop kiri until it is brought to
-    /// the foreground. `caught` runs
-    /// once the screen catches the signals, before the terminal is raw,
-    /// such as to drop a guard that would otherwise end kiri by a signal
-    /// with the terminal raw.
+    /// the foreground. `caught` runs once the screen catches the signals,
+    /// before the terminal is raw, such as to drop a guard that would
+    /// otherwise end kiri by a signal with the terminal raw.
     pub fn open(caught: impl FnOnce(), wrap: bool, mouse: bool) -> Option<Self> {
         let tty = probe::controlling_terminal()?;
         if probe::runs_in_background(&tty) {
