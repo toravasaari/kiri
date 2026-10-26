@@ -66,7 +66,8 @@ inline_code_background = "code-block"
 inline_code_padding = true
 # Inline code may wrap at its spaces; false moves it to the next line
 # instead, unless it is longer than a line. In a table, false keeps it
-# whole while the other columns keep room for their text.
+# whole while the other columns keep room for their text. A heading drawn
+# as an image wraps it at its spaces either way.
 inline_code_wrap = true
 quote_bar = "bright-black"
 rule = "bright-black"
