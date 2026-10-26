@@ -59,7 +59,7 @@ pub struct HeadingWord {
     /// heading, so that the words of one code span share a background;
     /// `None` for heading text.
     pub code: Option<u16>,
-    /// Whether all of the word is emphasised, and so in italics.
+    /// Whether the word is emphasised, and so in italics.
     pub italic: bool,
     /// Whether the word follows the one before it without a space, as
     /// text right after inline code does: the two stay on one line.
@@ -80,10 +80,10 @@ pub fn plain_words(text: &str) -> Vec<HeadingWord> {
 }
 
 /// The words of a heading with `content`, split on whitespace as its
-/// plain text is and where it goes into or out of inline code, each
-/// marked with the inline code or the key it is in, which are drawn alike,
-/// and with whether it is emphasised. Other inline styles are drawn as
-/// heading text.
+/// plain text is and where it goes into or out of inline code or
+/// emphasis, each marked with the inline code or the key it is in, which
+/// are drawn alike, and with whether it is emphasised. Other inline
+/// styles are drawn as heading text.
 pub fn heading_words(content: &[Inline]) -> Vec<HeadingWord> {
     let mut marked = Vec::new();
     mark(content, Marks::default(), &mut 0, &mut marked);
@@ -96,13 +96,11 @@ pub fn heading_words(content: &[Inline]) -> Vec<HeadingWord> {
             continue;
         }
         match words.last_mut() {
-            Some(word) if !new && word.code == marks.code => {
+            Some(word) if !new && word.code == marks.code && word.italic == marks.italic => {
                 word.text.push(c);
-                // A word is emphasised only when all of it is.
-                word.italic &= marks.italic;
             }
-            // Text going into or out of code is a word of its own, glued
-            // to the one before it.
+            // Text going into or out of code or emphasis is a word of its
+            // own, glued to the one before it.
             last => {
                 let glued = !new && last.is_some();
                 words.push(HeadingWord {
@@ -709,25 +707,41 @@ mod tests {
 
     #[test]
     fn emphasised_words_are_marked_as_italic() {
-        let content = crate::parse::parse("# a *b `c`* d*e* **f**\n");
-        let crate::model::Block::Heading { content, .. } = &content.blocks[0] else {
-            panic!("a heading");
+        let marked = |source: &str| {
+            let document = crate::parse::parse(source);
+            let crate::model::Block::Heading { content, .. } = &document.blocks[0] else {
+                panic!("a heading");
+            };
+            (heading_words(content).into_iter())
+                .map(|word| (word.text, word.italic, word.glued))
+                .collect::<Vec<_>>()
         };
-        let italic: Vec<(String, bool)> = (heading_words(content).into_iter())
-            .map(|word| (word.text, word.italic))
-            .collect();
-        // Partly emphasised, and strong, are upright.
-        let expected = [
-            ("a", false),
-            ("b", true),
-            ("c", true),
-            ("de", false),
-            ("f", false),
-        ];
-        let expected: Vec<(String, bool)> = (expected.iter())
-            .map(|&(text, italic)| (text.to_owned(), italic))
-            .collect();
-        assert_eq!(italic, expected);
+        let expected = |words: &[(&str, bool, bool)]| {
+            (words.iter())
+                .map(|&(text, italic, glued)| (text.to_owned(), italic, glued))
+                .collect::<Vec<_>>()
+        };
+        // Text going into or out of emphasis is a word of its own, glued
+        // to the one before it; strong is upright.
+        assert_eq!(
+            marked("# a *b `c`* d*e* **f**\n"),
+            expected(&[
+                ("a", false, false),
+                ("b", true, false),
+                ("c", true, false),
+                ("d", false, false),
+                ("e", true, true),
+                ("f", false, false),
+            ])
+        );
+        assert_eq!(
+            marked("# Why *this*?\n"),
+            expected(&[
+                ("Why", false, false),
+                ("this", true, false),
+                ("?", false, true),
+            ])
+        );
     }
 
     #[test]
