@@ -5,16 +5,18 @@
 check: fmt-check clippy test
 	@$(MAKE) --no-print-directory sweep
 
-# Deletes build artifacts in target/ that nothing has used for 7 days; cargo
-# never removes the old copies itself. Skipped in a container, which is
-# destroyed anyway, and where cargo-sweep is not installed. A failing sweep
-# only warns, so it cannot turn a passing `check` red.
+# Deletes build artifacts in target/ that nothing has used for 7 days, then
+# the oldest ones until target/ is under 100 GB; cargo never removes the old
+# copies itself. Skipped in a container, which is destroyed anyway, and where
+# cargo-sweep is not installed. A failing sweep only warns, so it cannot turn
+# a passing `check` red.
 sweep:
 	@if command -v systemd-detect-virt >/dev/null \
 			&& systemd-detect-virt --container --quiet; then \
 		echo "sweep: skipped in a container"; \
 	elif command -v cargo-sweep >/dev/null; then \
-		cargo sweep --time 7 || echo "sweep: cargo sweep failed, ignored"; \
+		cargo sweep --time 7 && cargo sweep --maxsize 100GB \
+			|| echo "sweep: cargo sweep failed, ignored"; \
 	else \
 		echo "sweep: cargo-sweep not installed, skipped (cargo install cargo-sweep)"; \
 	fi
