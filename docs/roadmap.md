@@ -1071,6 +1071,14 @@ passthrough data in the dropped part is lost; that is the likely cause.
 Resending images, as 5.2.2 plans, or checking after printing that kitty
 has them, would fix it.
 
+#### B8 Uneven word spacing in headings drawn as images
+
+A heading drawn as an image (5.3.1) starts each word on a whole cell, so
+that its lines can be cut between words. A gap is then a space plus up to
+one cell, and at the smaller levels the difference shows, as in
+"Level  three with code  and". Spreading the extra pixels over all the
+gaps of a line would even it out.
+
 ### Upstream bugs
 
 Bugs in projects kiri uses, which kiri works around until they are fixed
