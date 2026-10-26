@@ -222,6 +222,18 @@ diagram whose text runs past its edges, and lays one drawn in colours
 for the other page, light or dark, on a panel of its own background,
 after the reduction, so the panel's copy is small too.
 
+A heading is drawn as an image the same way, where the terminal draws
+images but not large text, as kitty inside tmux: `ImageKey::Heading`
+holds its level and its plain text, and `src/images/heading.rs` draws
+the text through the SVG renderer in the system's sans-serif font, at
+the size and in the colour that `render::heading_look` resolves from the
+theme and the terminal, so `src/images/` knows nothing of themes. Each
+word starts on a whole cell, and `Source::Text` tells the columns they
+start on, so layout can show the left part of the one image, up to the
+last word that fits, by writing fewer placeholder cells; the rest of the
+heading follows as bold text. A heading whose image did not come is laid
+out as text, without a warning.
+
 Renderers live in `src/diagrams/`, outside `src/kitty/` and the parser.
 A renderer implements the `Renderer` trait: whether it draws a language,
 and a diagram's source and a `Theme`, for a light or a dark page, with
@@ -346,7 +358,7 @@ writes as it is into a pipe.
 
 | Feature | Escape sequence | Written by | Used for |
 |---|---|---|---|
-| Text sizing | OSC 66 (kitty 0.40+) | `src/kitty/text.rs` | Headings in a larger font |
+| Text sizing | OSC 66 (kitty 0.40+) | `src/kitty/text.rs` | Headings in a larger font; without it, headings as images |
 | Graphics | APC `_G` | `src/kitty/graphics.rs` | Images and diagrams, later formulas |
 | Unicode placeholders | U+10EEEE with graphics | `src/kitty/graphics.rs` | Images that scroll with text, work in pagers and tmux |
 | Protocol queries | OSC 66 tests, APC `_G` query | `src/kitty/query.rs` | Telling whether kitty's protocols work |
@@ -417,6 +429,8 @@ src/images/background.rs   loading images on threads of their own, each
                            stoppable, as the pager does after a reload
 src/images/decode.rs       decoding image files, raster and SVG
 src/images/drawn.rs        diagrams as their renderers drew them, made images
+src/images/heading.rs      headings drawn as images of their text, each word
+                           from a whole cell
 src/images/pipeline.rs     a document's images for a run: renderers from the
                            settings, the signal guard, the loading
 src/images/stamps.rs       when the files behind the images were last changed

@@ -432,3 +432,35 @@ fn going_around_an_end_flashes_the_match_number_where_colours_are_not_known() {
     assert_eq!(number(&frames[2]), ["0", "1"]);
     assert!(status_row(&frames[3], 6).contains(" 11/11"), "{frames:#?}");
 }
+
+#[test]
+fn search_moves_to_a_heading_shown_as_an_image() {
+    let mut terminal = Fake::new(60, 8, &[b"/findme\r", b"q"]);
+    let caps = Capabilities {
+        text_sizing: false,
+        cell_pixels: Some((10, 20)),
+        ..Capabilities::kitty(60)
+    };
+    let mut inputs = Inputs::new(caps);
+    let image = image::RgbaImage::from_pixel(100, 40, image::Rgba([200, 30, 30, 255]));
+    let key = crate::images::ImageKey::heading(1, "Findme");
+    let text = crate::images::Source::Text {
+        image,
+        breaks: Vec::new(),
+    };
+    inputs.images.insert(key, Ok(text));
+    let mut source: String = (1..=30).map(|n| format!("Line {n}\n\n")).collect();
+    source.push_str("# Findme\n\nAfter\n");
+    run_document(
+        &crate::parse::parse(&source),
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let frames = terminal.frames();
+    let found = frames.iter().rev().find(|frame| frame.contains("1/1"));
+    let found = found.unwrap_or_else(|| panic!("{frames:#?}"));
+    // The view moved to the image, whose placeholders it writes.
+    assert!(document_part(found, 8).contains('\u{10EEEE}'), "{found:?}");
+    assert!(!document_part(&frames[0], 8).contains('\u{10EEEE}'));
+}

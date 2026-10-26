@@ -185,6 +185,9 @@ pub struct Placement {
     pub size: Size,
     /// The image itself, or what stands in for it while it loads.
     pub shows: Shows,
+    /// The text the image shows, such as a heading's, which a search
+    /// finds; `None` for every other image.
+    pub text: Option<String>,
 }
 
 /// What a placement shows of its image.

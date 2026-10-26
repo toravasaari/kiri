@@ -16,7 +16,7 @@ use super::wrap::{width, wrap};
 use super::{FrontMatterStyle, Headings, Inputs, RenderErrors, TableRows};
 use crate::caps::Capabilities;
 use crate::color::{Color, Underline};
-use crate::images::{ImageError, ImageKey, Images, Placeholder};
+use crate::images::{ImageError, ImageKey, Images, Placeholder, Source, heading_words};
 use crate::model::{Block, Document, File, Image, Inline, SourceLines, Table};
 use crate::size::{TextSize, VerticalAlign};
 use crate::theme::{BandColor, Theme};
@@ -500,6 +500,7 @@ impl Layout<'_> {
                 key,
                 size,
                 shows: Shows::Image,
+                text: None,
             });
         }
         let alt = Inline::Image(Image {
@@ -564,28 +565,62 @@ impl Layout<'_> {
             Vec::new()
         };
         let available = width - indent;
+        let line = |mut spans: Vec<Span>, fill_style: &Style| {
+            let mut trail = Vec::new();
+            if background.bg.is_some() {
+                super::wrap::fill(&mut spans, available, fill_style);
+                // Scaled text covers a multiple of the scale; cells of
+                // normal size fill the rest of the width.
+                let used = super::wrap::width(&spans);
+                let rest = available.saturating_sub(used);
+                push(&mut trail, &" ".repeat(rest), &background);
+            }
+            Line {
+                lead: lead.clone(),
+                trail,
+                ..Line::new(spans)
+            }
+        };
+        let image = match context.nested || empty {
+            true => None,
+            false => self.heading_image(level, content, available),
+        };
         // An empty heading takes no room, but keeps its rule.
         let mut lines: Vec<Line> = if empty {
             Vec::new()
+        } else if let Some((rows, rest)) = image {
+            // The rest of a heading too long for the room goes on below
+            // its image at the normal size, bold, in its colour.
+            let style = self.style(Style {
+                bold: true,
+                fg: heading.color,
+                bg: heading.background,
+                ..Style::default()
+            });
+            let rest = (!rest.is_empty()).then(|| wrap(&[Span::new(&rest, style)], available));
+            let lines = rows.into_iter().map(|mut row| {
+                let written = row.image.as_ref().map_or(0, |image| {
+                    usize::from(image.columns.unwrap_or(image.placement.size.columns))
+                });
+                if let Some(image) = &mut row.image {
+                    image.background = background.bg;
+                }
+                if background.bg.is_some() {
+                    let rest = available.saturating_sub(written);
+                    push(&mut row.trail, &" ".repeat(rest), &background);
+                }
+                Line {
+                    lead: lead.clone(),
+                    ..row
+                }
+            });
+            let text = rest.into_iter().flatten();
+            lines
+                .chain(text.map(|spans| line(spans, &background)))
+                .collect()
         } else {
-            wrap(&spans, available)
-                .into_iter()
-                .map(|mut spans| {
-                    let mut trail = Vec::new();
-                    if background.bg.is_some() {
-                        super::wrap::fill(&mut spans, available, &fill_style);
-                        // Scaled text covers a multiple of the scale; cells of
-                        // normal size fill the rest of the width.
-                        let used = super::wrap::width(&spans);
-                        let rest = available.saturating_sub(used);
-                        push(&mut trail, &" ".repeat(rest), &background);
-                    }
-                    Line {
-                        lead: lead.clone(),
-                        trail,
-                        ..Line::new(spans)
-                    }
-                })
+            (wrap(&spans, available).into_iter())
+                .map(|spans| line(spans, &fill_style))
                 .collect()
         };
         if heading.rule && self.caps.styling {
@@ -599,6 +634,66 @@ impl Layout<'_> {
             lines.push(self.rule(rule_width));
         }
         lines
+    }
+
+    /// The rows of the image of the top-level heading of `level` with
+    /// `content`, at most `room` cells wide, when headings show as images
+    /// and its image loaded, and the words of the heading that it does not
+    /// show. A heading too wide for the room shows the left part of its
+    /// image, up to the last whole word that fits; only when even the
+    /// first word does not fit is the whole image shrunk to the room.
+    fn heading_image(
+        &self,
+        level: u8,
+        content: &[Inline],
+        room: usize,
+    ) -> Option<(Vec<Line>, String)> {
+        if !super::heading_images(self.headings, self.caps) {
+            return None;
+        }
+        let text = Inline::plain_text(content);
+        let key = ImageKey::heading(level, &text).in_document(self.document);
+        let Some(Ok(Source::Text { image, breaks })) = self.images.get(&key) else {
+            return None;
+        };
+        let cell = image::cell_size(self.caps);
+        let (width, height) = image.dimensions();
+        let most = self.caps.max_image_cells;
+        let columns = u16::try_from(width.div_ceil(u32::from(cell.0))).ok()?;
+        let rows = u16::try_from(height.div_ceil(u32::from(cell.1))).ok()?;
+        // Kitty places an image at most this many cells wide.
+        if columns > most || rows > most {
+            return None;
+        }
+        let room = u16::try_from(room).unwrap_or(u16::MAX);
+        let words = heading_words(&text);
+        let full = image::Size {
+            width,
+            height,
+            columns,
+            rows,
+        };
+        let cut = breaks.iter().rposition(|&at| at <= room);
+        let (size, shown, cut) = match cut {
+            _ if columns <= room => (full, words.len(), None),
+            Some(at) => (full, (at + 1).min(words.len()), Some(breaks[at])),
+            None => {
+                let size = image::size_in((width, height), image::Unit::Pixel, cell, room, rows)?;
+                (size, words.len(), None)
+            }
+        };
+        let mut lines = image_rows(Placement {
+            key,
+            size,
+            shows: Shows::Image,
+            text: Some(words[..shown].join(" ")),
+        });
+        for line in &mut lines {
+            if let Some(image) = &mut line.image {
+                image.columns = cut;
+            }
+        }
+        Some((lines, words[shown..].join(" ")))
     }
 
     /// The summary of a details block, in bold after an open triangle, as
@@ -738,6 +833,7 @@ impl Layout<'_> {
                     key: key.clone(),
                     size,
                     shows,
+                    text: None,
                 });
                 self.loading_band(&key, 1, &mut lines);
                 return Some(lines);
@@ -758,6 +854,7 @@ impl Layout<'_> {
             key: key.clone(),
             size,
             shows,
+            text: None,
         });
         let padding = match align {
             Align::Left => 0,

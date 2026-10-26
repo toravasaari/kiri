@@ -304,6 +304,7 @@ mod tests {
                 rows,
             },
             shows,
+            text: None,
         }
     }
 
@@ -373,6 +374,7 @@ mod tests {
                 rows: 1,
             },
             shows: Shows::Image,
+            text: None,
         };
         let caps = Capabilities {
             cell_pixels: Some((10, 20)),

@@ -272,11 +272,22 @@ fn find(lines: &[Line], term: &str, case: SearchCase) -> Vec<Match> {
         .iter()
         .enumerate()
         .flat_map(|(index, line)| {
-            places(&style::text(&line.spans), &term, ignore_case)
+            places(&searched(line), &term, ignore_case)
                 .into_iter()
                 .map(move |bytes| Match { line: index, bytes })
         })
         .collect()
+}
+
+/// The text a search looks in on `line`: its spans', and after them the
+/// text that the image on its first row shows, such as a heading's. A
+/// match there has bytes past the spans, so it is not marked.
+fn searched(line: &Line) -> String {
+    let mut text = style::text(&line.spans);
+    if let Some(image) = line.image.as_ref().filter(|image| image.row == 0) {
+        text.push_str(image.placement.text.as_deref().unwrap_or_default());
+    }
+    text
 }
 
 /// The bytes of each place of `term` in `text`, from left to right and
@@ -329,6 +340,49 @@ mod tests {
 
     fn at(line: usize, bytes: Range<usize>) -> Match {
         Match { line, bytes }
+    }
+
+    /// Row `row` of a heading `text` shown as an image of two rows.
+    fn heading_row(text: &str, row: u16) -> Line {
+        let placement = crate::render::image::Placement {
+            key: crate::images::ImageKey::heading(1, text),
+            size: crate::render::image::Size {
+                width: 100,
+                height: 40,
+                columns: 10,
+                rows: 2,
+            },
+            shows: crate::render::image::Shows::Image,
+            text: Some(text.to_owned()),
+        };
+        Line::image(std::rc::Rc::new(placement), row)
+    }
+
+    #[test]
+    fn search_finds_a_heading_shown_as_an_image() {
+        let lines = [
+            line("a"),
+            heading_row("Kiri heading", 0),
+            heading_row("Kiri heading", 1),
+            line("kiri"),
+        ];
+        // Once, on the image's first row.
+        assert_eq!(
+            find(&lines, "kiri", SearchCase::Smart),
+            [at(1, 0..4), at(3, 0..4)]
+        );
+        assert_eq!(find(&lines, "heading", SearchCase::Smart), [at(1, 5..12)]);
+    }
+
+    #[test]
+    fn search_highlight_skips_an_image_match() {
+        let marks = Marks::new(&Theme::default(), &Capabilities::kitty(80));
+        let row = heading_row("Kiri heading", 0);
+        assert_eq!(mark(&row, &[(0..4, true)], &marks, None), row);
+        // Beside text before the image, such as a quote's bar.
+        let mut row = heading_row("Kiri", 0);
+        row.spans = vec![Span::new("> ", Style::default())];
+        assert_eq!(mark(&row, &[(2..6, false)], &marks, None), row);
     }
 
     #[test]

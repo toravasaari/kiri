@@ -125,12 +125,7 @@ pub fn heading_look(
     theme: &Theme,
     caps: &Capabilities,
 ) -> Option<HeadingLook> {
-    let wanted = match headings {
-        Headings::Auto => !caps.text_sizing,
-        Headings::Images => true,
-        Headings::Sized | Headings::Plain => false,
-    };
-    if !wanted || no_images || !caps.draws_images() {
+    if no_images || !heading_images(headings, caps) {
         return None;
     }
     let cell = image::cell_size(caps);
@@ -161,6 +156,17 @@ pub fn heading_look(
         cell,
         levels: [1, 2, 3, 4, 5, 6].map(level),
     })
+}
+
+/// Whether the top-level headings show as images, where theirs loaded,
+/// for `headings` on a terminal with `caps`.
+fn heading_images(headings: Headings, caps: &Capabilities) -> bool {
+    let wanted = match headings {
+        Headings::Auto => !caps.text_sizing,
+        Headings::Images => true,
+        Headings::Sized | Headings::Plain => false,
+    };
+    wanted && caps.draws_images()
 }
 
 /// Why `document`'s front matter, shown as `style`, could not be read: the
@@ -271,6 +277,7 @@ pub fn render_image_on(
         key: key.clone(),
         size,
         shows: image::Shows::Image,
+        text: None,
     });
     let mut images = Images::new();
     images.insert(key, Ok(image));

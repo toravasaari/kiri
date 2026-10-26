@@ -96,6 +96,9 @@ pub struct ImageRow {
     /// which shows through where the image is transparent; `None` for the
     /// page's.
     pub background: Option<Color>,
+    /// The placeholder cells the row writes, from the left, when it shows
+    /// only the left part of the image; `None` for all of them.
+    pub columns: Option<u16>,
 }
 
 /// The band that tells that a block's image is loading, which a line
@@ -163,6 +166,7 @@ impl Line {
                 placement,
                 row,
                 background: None,
+                columns: None,
             }),
             ..Self::blank()
         }

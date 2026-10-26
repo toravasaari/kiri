@@ -493,3 +493,21 @@ fn a_flag_takes_only_the_names_of_its_values() {
     .collect();
     insta::assert_snapshot!(errors.join("\n---\n"));
 }
+
+#[test]
+fn headings_as_images_stay_text_in_a_pipe_and_without_kitty() {
+    let dir = Scratch::new("headings-images-text");
+    for mode in [None, Some("plain"), Some("ansi")] {
+        let mut args = vec!["--headings", "images"];
+        args.extend(mode.map(|mode| ["--mode", mode]).into_iter().flatten());
+        let out = kiri(&dir, "# Heading\n\nText\n", &args);
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        let stdout = text(&out.stdout);
+        assert!(!stdout.contains("\x1b_G"), "{mode:?}: {stdout:?}");
+        assert!(!stdout.contains('\u{10EEEE}'), "{mode:?}: {stdout:?}");
+        match mode {
+            Some("ansi") => assert!(stdout.contains("Heading"), "{stdout:?}"),
+            _ => assert!(stdout.starts_with("# Heading\n"), "{stdout:?}"),
+        }
+    }
+}
