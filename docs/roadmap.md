@@ -997,6 +997,12 @@ go.
   (5.3.1) too. 5.3.1 makes it do so, but the flag is about a document's
   images and formulas, which one may want hidden while headings stay
   large.
+- Emoji in headings drawn as images (5.3.1) come out in one colour, the
+  heading's, and flags as boxed letters, as resvg draws no colour emoji
+  fonts.
+- Headings drawn as images (5.3.1) in a right-to-left script, such as
+  Arabic or Hebrew, have their words in the wrong order: each word is
+  drawn right, but they are placed from left to right.
 
 ## Bugs
 
