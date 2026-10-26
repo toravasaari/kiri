@@ -267,7 +267,8 @@ when `TMUX` is set and not empty, and turns on the pane's
 with `on` or `all` is left as it is. With `tmux`, kiri wraps them
 always and runs no tmux command, and with `none` it never wraps them.
 Headings stay one row high inside tmux, as tmux cannot pass kitty's
-text sizing.
+text sizing, and an image that loads in the background has no moving
+band below it; the status line still says `[rendering: 1/3]`.
 
 ## Search case
 
