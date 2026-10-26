@@ -2,6 +2,7 @@
 //! bindings follow `less` for now.
 
 use super::view::Motion;
+use crate::kitty::graphics::{self, ImageId};
 
 /// A key as the terminal sends it without kitty's keyboard protocol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +35,9 @@ pub enum Key {
     /// on. Not keys, so they leave the help and the prompt open.
     FocusIn,
     FocusOut,
+    /// kitty's answer to a check of image `.0`: whether it holds it.
+    /// Not a key either.
+    Checked(ImageId, bool),
     /// A sequence the pager does not use.
     Other,
 }
@@ -177,7 +181,11 @@ fn escape(input: &[u8]) -> Option<(Key, usize)> {
                 [0x1b, _, ..] => Some(i),
                 _ => None,
             })?;
-            (Key::Other, end + 2)
+            let key = match graphics::checked(&input[..end + 2]) {
+                Some((id, held)) => Key::Checked(id, held),
+                None => Key::Other,
+            };
+            (key, end + 2)
         }
         0x20..=0x7e | 0x80.. => match character(&input[1..])? {
             (Key::Char(c), length) => (Key::Alt(c), length + 1),
@@ -442,6 +450,29 @@ mod tests {
         assert_eq!(decode(b"\x0c"), [Key::Ctrl('l')]);
         assert_eq!(action(Key::Ctrl('l')), Some(Action::Redraw));
         assert_eq!(action(Key::Char('r')), Some(Action::Reload));
+    }
+
+    #[test]
+    fn decodes_kittys_answers_to_checks() {
+        use crate::kitty::graphics::checked;
+
+        let held = b"\x1b_Gi=7,p=1263096393;OK\x1b\\";
+        let lost = b"\x1b_Gi=8,p=1263096393;ENOENT:Put command refers to non-existent image\x1b\\";
+        let (seven, eight) = (checked(held).unwrap().0, checked(lost).unwrap().0);
+        let input = [&held[..], b"j", lost, b"\x1b_Gi=31;OK\x1b\\"].concat();
+        assert_eq!(
+            decode(&input),
+            [
+                Key::Checked(seven, true),
+                Key::Char('j'),
+                Key::Checked(eight, false),
+                Key::Other,
+            ]
+        );
+        // Cut in two by the reads.
+        let mut decoder = Decoder::default();
+        assert_eq!(decoder.keys(&lost[..20]), []);
+        assert_eq!(decoder.keys(&lost[20..]), [Key::Checked(eight, false)]);
     }
 
     #[test]

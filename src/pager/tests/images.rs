@@ -385,3 +385,59 @@ fn ctrl_l_draws_the_screen_and_sends_its_images_again() {
         );
     }
 }
+
+/// kitty's answer to a check of the picture's image, `ENOENT` unless
+/// `held`.
+fn checked(held: bool) -> Vec<u8> {
+    let id = 3043215;
+    let message = match held {
+        true => "OK".to_owned(),
+        false => format!("ENOENT:Put command refers to non-existent image with id: {id}"),
+    };
+    format!("\x1b_Gi={id},p=1263096393;{message}\x1b\\").into_bytes()
+}
+
+/// The start of a check of an image, up to its id.
+const CHECK: &str = "\x1b_Ga=p,U=1,i=";
+
+#[test]
+fn under_tmux_an_image_kitty_lost_is_sent_again_without_a_frame() {
+    let lost = checked(false);
+    let (out, frames) = pictured_with(true, &[&lost]);
+    // Checked after the frame that sent it, and again after it was sent
+    // again.
+    assert_eq!(frames.len(), 1, "{out:?}");
+    let sent = sent_ids(&out);
+    assert_eq!(sent, [3043215, 3043215], "{out:?}");
+    assert_eq!(ids_after(&out, CHECK), [3043215, 3043215], "{out:?}");
+    let (frame, after) = until_quit(&out);
+    assert_eq!(transmits(frame), 1, "{out:?}");
+    let again = after.find("\x1b_Ga=T,").unwrap();
+    assert!(after[again..].contains(CHECK), "{out:?}");
+    assert!(
+        !after.contains(crate::kitty::graphics::PLACEHOLDER),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn an_image_kitty_holds_is_not_sent_again() {
+    let held = checked(true);
+    let (out, _) = pictured_with(true, &[&held]);
+    assert_eq!(transmits(&out), 1, "{out:?}");
+    assert_eq!(ids_after(&out, CHECK), [3043215], "{out:?}");
+}
+
+#[test]
+fn without_tmux_the_pager_checks_nothing() {
+    let (out, _) = pictured_with(false, &[b""]);
+    assert!(!out.contains(CHECK), "{out:?}");
+}
+
+#[test]
+fn kittys_answers_leave_the_help_open() {
+    let (held, lost) = (checked(true), checked(false));
+    let (out, frames) = pictured_with(true, &[b"?", &held, &lost]);
+    assert!(frames.last().unwrap().contains(" Keys "), "{out:?}");
+    assert_eq!(transmits(&out), 2, "{out:?}");
+}

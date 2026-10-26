@@ -243,6 +243,22 @@ impl Writer<'_> {
         self.encoder.lost();
     }
 
+    /// Asks kitty whether it holds the images sent through tmux since the
+    /// last check, as tmux drops output for a client that cannot keep
+    /// up; it answers each with [`graphics::checked`]'s answer. Nothing
+    /// without tmux.
+    pub fn check(&mut self, out: &mut impl Write) -> io::Result<()> {
+        for (id, cells) in self.encoder.take_sent() {
+            graphics::check(out, id, cells)?;
+        }
+        Ok(())
+    }
+
+    /// Sends image `id` again, as kitty answered it does not hold it.
+    pub fn send_again(&mut self, id: graphics::ImageId, out: &mut impl Write) -> io::Result<()> {
+        (self.encoder).send_again(id, self.images, self.caps, out)
+    }
+
     /// Deletes from the terminal the images the encoder no longer keeps.
     pub fn delete_unused(&mut self, out: &mut impl Write) -> io::Result<()> {
         self.encoder.delete_unused(out)

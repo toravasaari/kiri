@@ -368,7 +368,9 @@ tmux drops output for a client that cannot keep up, and the images in it
 with it. Through tmux the encoder therefore notes the images it sends,
 and after printing, `src/term/check.rs` asks kitty about them with a
 virtual placement each, which kitty answers with `ENOENT` for an image it
-does not hold; the encoder sends those again, a few times at most.
+does not hold; the encoder sends those again, a few times at most. The
+pager writes the same checks after each frame that sent images, and
+kitty's answers come among the keys.
 
 `kiri --doctor` reports what detection found and where each setting came
 from. `src/term/` and `src/config.rs` hand it the detection, the

@@ -1340,6 +1340,7 @@ fn show(
     let mut shown = layout.frame(state, now);
     writer.at(now.saturating_duration_since(source.started));
     shown.draw(layout.view.rows(), writer, terminal)?;
+    writer.check(terminal)?;
     terminal.flush()?;
     let mut decoder = keys::Decoder::default();
     loop {
@@ -1358,6 +1359,9 @@ fn show(
         state.tick(now);
         // Whether the frame is drawn again even if it has not changed.
         let mut again = false;
+        // Whether a frame was drawn or images sent again, which goes out
+        // with a check of the images it sent.
+        let mut written = false;
         for key in keys {
             match key {
                 // tmux passed no images while the pane was not shown.
@@ -1366,7 +1370,13 @@ fn show(
                     again = true;
                     continue;
                 }
-                Key::FocusIn | Key::FocusOut => continue,
+                Key::FocusIn | Key::FocusOut | Key::Checked(_, true) => continue,
+                // tmux dropped it: its placeholders are on the screen.
+                Key::Checked(id, false) => {
+                    writer.send_again(id, terminal)?;
+                    written = true;
+                    continue;
+                }
                 _ => {}
             }
             match state.press(key, now, layout) {
@@ -1381,6 +1391,7 @@ fn show(
                     layout
                         .frame(state, now)
                         .draw(layout.view.rows(), writer, terminal)?;
+                    writer.check(terminal)?;
                     terminal.flush()?;
                     return Ok(Outcome::Reload);
                 }
@@ -1433,6 +1444,10 @@ fn show(
             shown = frame;
             writer.at(now.saturating_duration_since(source.started));
             shown.draw(layout.view.rows(), writer, terminal)?;
+            written = true;
+        }
+        if written {
+            writer.check(terminal)?;
             terminal.flush()?;
         }
     }
