@@ -712,22 +712,92 @@ A menu in the pager, from which its keys and settings can be found.
 
 ## Phase 5 – Beyond kitty
 
-- Other terminals: sixel and iTerm2 images. Needs G3.3.
-- Headings in terminals without kitty's text sizing, from the best to the
-  plainest: drawn as images in the terminal's own font, which kiri finds
-  by asking the terminal or reading its configuration file, as
-  [mdfried](inspiration.md#other-terminal-markdown-readers) does; where
-  images do not work either, block characters through chafa or large
-  letters in the manner of figlet; in a pipe and with `NO_COLOR`, plain
-  styling.
+kiri outside a plain kitty window: other terminals, kitty inside tmux, and
+headings where kitty's text sizing is missing. Each terminal part names
+the terminals it is tested in.
+
+### 5.1 Terminal support
+
+#### 5.1.1 Ghostty and WezTerm
+
+- kitty's graphics protocol in other terminals that speak it: which of
+  them have Unicode placeholders, and what the probe finds there.
+
+#### 5.1.2 Sixel
+
+- Sixel images, as foot, Konsole, xterm and others draw them. Needs G3.3.
 - `--doctor` lists the image protocols probed.
+
+#### 5.1.3 iTerm2's protocol
+
+- Images through iTerm2's protocol, in iTerm2 and the terminals that
+  follow it.
+
+#### 5.1.4 Block characters
+
 - Images as coloured Unicode block characters where no image protocol
   works.
-- An HTML backend and `kiri serve` for reading in a browser with live reload.
-- Pixel rendering: a headless browser screenshot (`--browser`), and possibly
-  a native layout and rasterising engine later.
-- Editing support: an editor and kiri side by side in kitty with live reload,
-  and a key to open the editor at the current position.
+
+### 5.2 tmux
+
+kitty inside tmux, as in a jailbee container where Claude runs in tmux and
+a spec is read in another tmux window. tmux keeps kitty's text sizing out,
+so large headings come with 5.3.
+
+#### 5.2.1 Passthrough
+
+- kiri finds out that it runs inside tmux, and wraps kitty's graphics
+  sequences so that tmux passes them on: `--passthrough detect|none|tmux`,
+  `KIRI_PASSTHROUGH` and `passthrough` in the configuration file, as
+  `kitten icat` has it. With `detect`, the default, kiri turns on tmux's
+  `allow-passthrough` for its pane, as `kitten icat` does.
+- The probe asks kitty through tmux, so `--doctor` shows what kitty can
+  do. Today tmux shows the probe's graphics query as the pane's title.
+
+#### 5.2.2 Images in tmux
+
+- Images, diagrams and formulas in tmux, in print mode and in the pager.
+- tmux passes images on only while kiri's pane is visible, so the pager
+  sends them again when the pane comes back, as a browser tab does.
+- Every tmux pane in a kitty window shares kitty's image store, so each
+  kiri run uses image ids of its own there; one quitting then leaves the
+  others' images alone.
+
+### 5.3 Headings without text sizing
+
+Large headings where kitty's text sizing does not work, such as in tmux
+or in other terminals, from the best to the plainest.
+
+#### 5.3.1 Headings as images
+
+- Headings drawn as images at the sizes text sizing would give them, in
+  the terminal's own font, which kiri asks the terminal for, as
+  [mdfried](inspiration.md#other-terminal-markdown-readers) does, or else
+  a sans font found on the system.
+
+#### 5.3.2 chafa
+
+- Where images do not work either, headings in block characters through
+  chafa.
+
+#### 5.3.3 figlet
+
+- Headings in large letters in the manner of figlet.
+
+### 5.4 HTML backend
+
+- An HTML backend and `kiri serve` for reading in a browser with live
+  reload.
+
+### 5.5 Pixel rendering
+
+- A headless browser screenshot (`--browser`), and possibly a native
+  layout and rasterising engine later.
+
+### 5.6 Editing support
+
+- An editor and kiri side by side in kitty with live reload, and a key to
+  open the editor at the current position.
 
 ## Groundwork
 
@@ -809,7 +879,7 @@ A part that needs one names it, such as "needs G1.3".
   resize or a reload sends only the images the terminal does not hold at
   that size, and images that a new layout no longer shows, or that
   changed, are deleted from the terminal, as are all of them when the
-  pager quits. Animation frames (4.4) and the image protocols of phase 5
+  pager quits. Animation frames (4.4) and the image protocols of 5.1
   build on it.
 
 #### G2.3 Images kitty drops
