@@ -1003,6 +1003,9 @@ go.
 - Headings drawn as images (5.3.1) in a right-to-left script, such as
   Arabic or Hebrew, have their words in the wrong order: each word is
   drawn right, but they are placed from left to right.
+- Headings drawn as images (5.3.1) show inline code, keys and emphasis
+  as the text does, but strikethrough, `<mark>` and the colour of links
+  are plain heading text in them.
 - Drawing headings as images (5.3.1) parses an SVG for each word to
   measure it, and measures the space again for every heading: a document
   with a hundred headings parses hundreds of SVGs before it shows.
