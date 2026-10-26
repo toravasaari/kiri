@@ -1003,6 +1003,9 @@ go.
 - Headings drawn as images (5.3.1) in a right-to-left script, such as
   Arabic or Hebrew, have their words in the wrong order: each word is
   drawn right, but they are placed from left to right.
+- Headings drawn as images (5.3.1) show inline code, keys and emphasis
+  as the text does, but strikethrough, `<mark>` and the colour of links
+  are plain heading text in them.
 - Drawing headings as images (5.3.1) parses an SVG for each word to
   measure it, and measures the space again for every heading: a document
   with a hundred headings parses hundreds of SVGs before it shows.
@@ -1058,6 +1061,27 @@ A level-three heading at 1 3/4, "Level three with `code` and
 columns: a gap inside "three", where one group of packed cells ends and
 the next begins. B4 has gaps like this around wide characters; here the
 word is plain ASCII. Not yet seen in a real kitty window.
+
+#### B7 Images lost inside tmux in a long document
+
+`kiri examples/S06a-images.md` in tmux, in the maintainer's kitty
+attached to a jailbee container, left three of the five images under
+"PNG variants" as empty space of the right height. kitty answered
+`ENOENT` for their ids, so their data never reached it, and
+`tmux refresh-client` did not bring them back. The same section on its
+own drew whole. tmux drops output for a client that cannot keep up, and
+passthrough data in the dropped part is lost; that is the likely cause.
+Resending images, as 5.2.2 plans, or checking after printing that kitty
+has them, would fix it.
+
+#### B8 Uneven word spacing in headings drawn as images
+
+A heading drawn as an image (5.3.1) starts each word on a whole cell, so
+that its lines can be cut between words. A gap is then a space plus up to
+one cell, and at the smaller levels the difference shows, as in
+"Level  three with code  and". The image is drawn before layout knows
+where the lines break, so the fix has to work for every place a line
+may end.
 
 ### Upstream bugs
 

@@ -84,6 +84,11 @@ The network is strict there: crates.io and rustup work, GitHub does not.
   the old code, then keep them passing.
 - Fixture documents live in `tests/fixtures/`. Add one when you add support
   for a Markdown element.
+- A feature or change that shows on screen gets an example in the example
+  documents in `examples/`, in the topic document it belongs to, with a
+  sentence on what one should see there. Do it as part of the feature,
+  without being asked: the maintainer checks new work by looking at the
+  examples.
 - Visual output still needs a look in a real kitty window. Say so when you
   could not do that check. For a first look, the render-check skill
   (`.claude/skills/render-check/`) screenshots documents rendered in kitty
