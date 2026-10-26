@@ -168,9 +168,9 @@ impl Screen<Wrapping<Stdout>> {
     /// The pager's screen on standard output, with keys from the
     /// controlling terminal, so a piped document can be paged too, with
     /// kitty's graphics wrapped for tmux if `wrap`, and mouse reporting on
-    /// if `mouse`. `None`
-    /// without a controlling terminal or in the background, where raw mode
-    /// would stop kiri until it is brought to the foreground. `caught` runs
+    /// if `mouse`. `None` without a controlling terminal or in the
+    /// background, where raw mode would stop kiri until it is brought to
+    /// the foreground. `caught` runs
     /// once the screen catches the signals, before the terminal is raw,
     /// such as to drop a guard that would otherwise end kiri by a signal
     /// with the terminal raw.

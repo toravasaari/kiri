@@ -1925,10 +1925,9 @@ fn print_document(
 /// and the output is a terminal that takes escape sequences, with the
 /// mouse taken if they say so; `None` when it is to be printed instead.
 /// `options` tell the pager how a search treats case and where `r` gets
-/// the document again from, if anywhere. The pager catches
-/// Ctrl-C itself; of `opening`, `caught` runs once its screen catches the
-/// signals, and then `start`, which may start loading images in the
-/// background.
+/// the document again from, if anywhere. The pager catches Ctrl-C itself;
+/// of `opening`, `caught` runs once its screen catches the signals, and
+/// then `start`, which may start loading images in the background.
 fn page(
     context: &Context,
     content: kiri::render::layout::Content,
