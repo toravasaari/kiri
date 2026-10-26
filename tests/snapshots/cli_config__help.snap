@@ -152,6 +152,15 @@ Options:
           
           [possible values: table, code, hide, off]
 
+      --headings <HOW>
+          How headings show
+          
+          auto draws them large with text sizing, or as images where the terminal has no text
+          sizing; sized only with text sizing; images always where images can be drawn; plain in one
+          row; auto unless set.
+          
+          [possible values: auto, sized, images, plain]
+
       --table-rows <STYLE>
           Table row style
           

@@ -5,6 +5,9 @@ mod front_matter;
 mod list;
 mod quote;
 
+pub(crate) use code::inline_code_background;
+
+use std::ops::Range;
 use std::rc::Rc;
 
 use super::block::{BlockId, Blocks};
@@ -13,10 +16,10 @@ use super::script::{self, Script};
 use super::style::{Band, Line, Spaces, Span, Style, push};
 use super::table::{self, Cells};
 use super::wrap::{width, wrap};
-use super::{FrontMatterStyle, Inputs, RenderErrors, TableRows};
+use super::{FrontMatterStyle, Headings, Inputs, RenderErrors, TableRows};
 use crate::caps::Capabilities;
 use crate::color::{Color, Underline};
-use crate::images::{ImageError, ImageKey, Images, Placeholder};
+use crate::images::{ImageError, ImageKey, Images, Placeholder, Source, heading_words};
 use crate::model::{Block, Document, File, Image, Inline, SourceLines, Table};
 use crate::size::{TextSize, VerticalAlign};
 use crate::theme::{BandColor, Theme};
@@ -175,6 +178,7 @@ fn with_layout<T>(
         caps,
         theme,
         front_matter,
+        headings,
         table_rows,
         render_errors,
     } = inputs;
@@ -197,6 +201,7 @@ fn with_layout<T>(
         caps,
         theme,
         front_matter: *front_matter,
+        headings: *headings,
         table_rows: *table_rows,
         render_errors: *render_errors,
         document: number,
@@ -259,6 +264,7 @@ struct Layout<'a> {
     caps: &'a Capabilities,
     theme: &'a Theme,
     front_matter: FrontMatterStyle,
+    headings: Headings,
     table_rows: TableRows,
     render_errors: RenderErrors,
     /// The number of the document laid out among those shown together,
@@ -512,7 +518,8 @@ impl Layout<'_> {
 
     fn heading(&self, level: u8, content: &[Inline], width: usize, context: Context) -> Vec<Line> {
         let heading = self.theme.heading(level);
-        let size = if self.caps.text_sizing && !context.nested {
+        let sized = self.caps.text_sizing && self.headings != Headings::Plain;
+        let size = if sized && !context.nested {
             heading.size
         } else {
             TextSize::NORMAL
@@ -560,28 +567,49 @@ impl Layout<'_> {
             Vec::new()
         };
         let available = width - indent;
+        let line = |mut spans: Vec<Span>, fill_style: &Style| {
+            let mut trail = Vec::new();
+            if background.bg.is_some() {
+                super::wrap::fill(&mut spans, available, fill_style);
+                // Scaled text covers a multiple of the scale; cells of
+                // normal size fill the rest of the width.
+                let used = super::wrap::width(&spans);
+                let rest = available.saturating_sub(used);
+                push(&mut trail, &" ".repeat(rest), &background);
+            }
+            Line {
+                lead: lead.clone(),
+                trail,
+                ..Line::new(spans)
+            }
+        };
+        let image = match context.nested || empty {
+            true => None,
+            false => self.heading_image(level, content, available),
+        };
         // An empty heading takes no room, but keeps its rule.
         let mut lines: Vec<Line> = if empty {
             Vec::new()
-        } else {
-            wrap(&spans, available)
-                .into_iter()
-                .map(|mut spans| {
-                    let mut trail = Vec::new();
+        } else if let Some(rows) = image {
+            (rows.into_iter())
+                .map(|mut row| {
+                    let written = row.image.as_ref().map_or(0, |image| image.columns.len());
+                    if let Some(image) = &mut row.image {
+                        image.background = background.bg;
+                    }
                     if background.bg.is_some() {
-                        super::wrap::fill(&mut spans, available, &fill_style);
-                        // Scaled text covers a multiple of the scale; cells of
-                        // normal size fill the rest of the width.
-                        let used = super::wrap::width(&spans);
-                        let rest = available.saturating_sub(used);
-                        push(&mut trail, &" ".repeat(rest), &background);
+                        let rest = available.saturating_sub(written);
+                        push(&mut row.trail, &" ".repeat(rest), &background);
                     }
                     Line {
                         lead: lead.clone(),
-                        trail,
-                        ..Line::new(spans)
+                        ..row
                     }
                 })
+                .collect()
+        } else {
+            (wrap(&spans, available).into_iter())
+                .map(|spans| line(spans, &fill_style))
                 .collect()
         };
         if heading.rule && self.caps.styling {
@@ -595,6 +623,101 @@ impl Layout<'_> {
             lines.push(self.rule(rule_width));
         }
         lines
+    }
+
+    /// The rows of the image of the top-level heading of `level` with
+    /// `content`, at most `room` cells wide, when headings show as images
+    /// and its image loaded. A heading too wide for the room wraps as the
+    /// sized one does: each line shows the columns of the image that its
+    /// words cover. Only when a word alone is wider than the room is the
+    /// whole image shrunk to the room, on one line.
+    fn heading_image(&self, level: u8, content: &[Inline], room: usize) -> Option<Vec<Line>> {
+        if !super::heading_images(self.headings, self.caps) {
+            return None;
+        }
+        let cell = image::cell_size(self.caps);
+        let words = heading_words(content);
+        let key = ImageKey::heading_of(level, words.clone(), cell).in_document(self.document);
+        let Some(Ok(Source::Text {
+            image,
+            breaks,
+            ends,
+        })) = self.images.get(&key)
+        else {
+            return None;
+        };
+        if words.is_empty() || ends.len() != words.len() || breaks.len() + 1 != words.len() {
+            return None;
+        }
+        let (width, height) = image.dimensions();
+        let most = self.caps.max_image_cells;
+        let columns = u16::try_from(width.div_ceil(u32::from(cell.0))).ok()?;
+        let rows = u16::try_from(height.div_ceil(u32::from(cell.1))).ok()?;
+        // Kitty places an image at most this many cells wide.
+        if columns > most || rows > most {
+            return None;
+        }
+        let room = u16::try_from(room).unwrap_or(u16::MAX);
+        let starts: Vec<u16> = std::iter::once(0).chain(breaks.iter().copied()).collect();
+        // The words that stay on one line together: each with those glued
+        // to it, such as a comma after inline code.
+        let mut groups: Vec<Range<usize>> = Vec::new();
+        for (index, word) in words.iter().enumerate() {
+            match groups.last_mut() {
+                Some(group) if word.glued => group.end = index + 1,
+                _ => groups.push(index..index + 1),
+            }
+        }
+        let width_of =
+            |words: &Range<usize>| ends[words.end - 1].saturating_sub(starts[words.start]);
+        let wide = groups.iter().any(|group| width_of(group) > room);
+        let (size, lines) = if wide {
+            let shrunk = image::size_in((width, height), image::Unit::Pixel, cell, room, rows)?;
+            (shrunk, vec![(0..shrunk.columns, 0..words.len())])
+        } else {
+            let full = image::Size {
+                width,
+                height,
+                columns,
+                rows,
+            };
+            // As many words on each line as its room holds, the gap after
+            // the last one aside.
+            let mut lines = Vec::new();
+            let mut first = 0;
+            for group in &groups {
+                if group.start > first && width_of(&(first..group.end)) > room {
+                    lines.push((starts[first]..ends[group.start - 1], first..group.start));
+                    first = group.start;
+                }
+            }
+            lines.push((starts[first]..ends[words.len() - 1], first..words.len()));
+            (full, lines)
+        };
+        let placement = Rc::new(Placement {
+            key,
+            size,
+            shows: Shows::Image,
+        });
+        let mut rows = Vec::new();
+        for (columns, shown) in lines {
+            let mut text = String::new();
+            for word in &words[shown] {
+                if !text.is_empty() && !word.glued {
+                    text.push(' ');
+                }
+                text.push_str(&word.text);
+            }
+            for row in 0..size.rows {
+                let mut line = Line::image(Rc::clone(&placement), row);
+                if let Some(image) = &mut line.image {
+                    image.columns = columns.clone();
+                    image.text = Some(text.clone());
+                }
+                rows.push(line);
+            }
+        }
+        Some(rows)
     }
 
     /// The summary of a details block, in bold after an open triangle, as
@@ -1101,6 +1224,21 @@ mod tests {
     use super::*;
     use crate::parse::parse;
     use crate::render::style::text;
+
+    #[test]
+    fn plain_headings_have_no_text_sizing() {
+        let document = parse("# Kiri\n");
+        let mut inputs = inputs();
+        let sized = layout(&document, &inputs);
+        assert!(sized.iter().any(|line| line.rows() > 1), "{sized:?}");
+        inputs.headings = Headings::Plain;
+        let lines = layout(&document, &inputs);
+        assert!(lines.iter().all(|line| line.rows() == 1), "{lines:?}");
+        let mut out = Vec::new();
+        crate::render::render(&document, &inputs, &mut out).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        assert!(!out.contains("\x1b]66;"), "{out:?}");
+    }
 
     fn inputs() -> Inputs {
         Inputs::new(Capabilities::kitty(60))

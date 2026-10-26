@@ -39,6 +39,7 @@ Options:
                                none, tmux]
       --front-matter <STYLE>   How to show the front matter [possible values: table, code, hide,
                                off]
+      --headings <HOW>         How headings show [possible values: auto, sized, images, plain]
       --table-rows <STYLE>     Table row style [possible values: off, zebra, lines, indent,
                                underline]
       --diagrams <SWITCH>      Whether to draw diagrams and formulas [possible values: on, off]

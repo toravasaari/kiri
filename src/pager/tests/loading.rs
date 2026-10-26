@@ -734,3 +734,57 @@ fn scrolling_loads_a_diagram_further_down_before_one_above_it() {
     let started = started_in(&[b"r", b"", b"G", b""], 1, 3);
     assert_eq!(started, ["x", "down", "up"]);
 }
+
+#[test]
+fn a_heading_image_comes_after_its_text_and_keeps_the_top_line() {
+    let caps = Capabilities {
+        text_sizing: false,
+        cell_pixels: Some((10, 20)),
+        ..Capabilities::kitty(80)
+    };
+    let image = image::RgbaImage::from_pixel(100, 40, image::Rgba([200, 30, 30, 255]));
+    let text = crate::images::Source::Text {
+        image,
+        breaks: Vec::new(),
+        ends: vec![10],
+    };
+    let document = |heading: &str| {
+        let mut source = format!("# {heading}\n\n");
+        source.extend((1..=12).map(|n| format!("Line {n}\n\n")));
+        crate::parse::parse(&source)
+    };
+    for (keys, top) in [(b"".as_slice(), "Kiri"), (b"jjjj", "Line 2")] {
+        let mut reload = Background {
+            document: document("Kiri"),
+            wanted: vec![(
+                crate::images::ImageKey::heading(1, "Kiri", (10, 20)),
+                text.clone(),
+            )],
+            aside: Vec::new(),
+            coming: Default::default(),
+            fails: Vec::new(),
+            afterwards: None,
+            asked: 0,
+        };
+        let terminal = loading_with(
+            caps.clone(),
+            6,
+            &document("Old"),
+            Vec::new(),
+            &mut reload,
+            &[keys, b"r", b"", b""],
+            &[3],
+            config::Follow::Off,
+        );
+        let frames = terminal.frames();
+        let (before, after) = (&frames[frames.len() - 2], frames.last().unwrap());
+        // First as text, then as the image.
+        assert!(!before.contains('\u{10EEEE}'), "{frames:#?}");
+        assert_eq!(top_row(before), top, "{frames:#?}");
+        if top == "Kiri" {
+            assert!(after.contains('\u{10EEEE}'), "{frames:#?}");
+        } else {
+            assert_eq!(top_row(after), top, "{frames:#?}");
+        }
+    }
+}

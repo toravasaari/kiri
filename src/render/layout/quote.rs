@@ -124,8 +124,8 @@ impl Layout<'_> {
                 if let Some(image) = &mut line.image {
                     image.background = image.background.or(fill.bg);
                 }
-                let image = (line.image.as_ref()).map_or(0, |row| row.placement.size.columns);
-                let used = width_of(&line.spans) + usize::from(image);
+                let image = (line.image.as_ref()).map_or(0, |row| row.columns.len());
+                let used = width_of(&line.spans) + image;
                 push(
                     &mut line.trail,
                     &" ".repeat(body_width.saturating_sub(used)),

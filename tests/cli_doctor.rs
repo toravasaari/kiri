@@ -212,6 +212,24 @@ fn front_matter_tells_where_it_comes_from() {
 }
 
 #[test]
+fn headings_tell_where_they_come_from() {
+    let dir = Scratch::new("doctor-headings");
+    check_row(&dir, &[], &[], "| Headings | auto | default |");
+    let row = "| Headings | plain | `--headings` |";
+    check_row(
+        &dir,
+        &["--headings", "plain"],
+        &[("KIRI_HEADINGS", "sized")],
+        row,
+    );
+    let row = "| Headings | images | `KIRI_HEADINGS=images` |";
+    check_row(&dir, &[], &[("KIRI_HEADINGS", "images")], row);
+    write_config(&dir, "headings = \"sized\"\n");
+    let row = "| Headings | sized | configuration file |";
+    check_row(&dir, &[], &[], row);
+}
+
+#[test]
 fn table_rows_tell_where_they_come_from() {
     let dir = Scratch::new("doctor-table-rows");
     check_row(&dir, &[], &[], "| Table rows | zebra | default |");

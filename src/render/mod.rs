@@ -15,7 +15,8 @@ pub mod wrap;
 use std::io::{self, Write};
 
 use crate::caps::Capabilities;
-use crate::images::{ImageKey, Images, Source};
+use crate::color::Color;
+use crate::images::{CodeLook, HeadingLook, ImageKey, Images, LevelLook, Source};
 use crate::model::{Block, Document, File, FrontMatter, FrontMatterError};
 use crate::theme::Theme;
 
@@ -32,6 +33,8 @@ pub struct Inputs {
     pub theme: Theme,
     /// How front matter shows.
     pub front_matter: FrontMatterStyle,
+    /// How top-level headings show.
+    pub headings: Headings,
     /// How the rows of a table are told apart.
     pub table_rows: TableRows,
     /// Whether a diagram that could not be drawn tells why in the
@@ -97,6 +100,120 @@ pub enum FrontMatterStyle {
     Hide,
 }
 
+/// How top-level headings show; headings inside quotes, lists and
+/// alerts are always one row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Headings {
+    /// Large with text sizing where the terminal has it, else as images
+    /// where images are drawn, else one row.
+    #[default]
+    Auto,
+    /// Large with text sizing where the terminal has it, else one row.
+    Sized,
+    /// As images where images are drawn, else as `Auto`.
+    Images,
+    /// One row, bold and coloured, even with text sizing.
+    Plain,
+}
+
+/// How the top-level headings are drawn as images, for `headings` and a
+/// terminal with `caps`, in `theme`'s sizes and colours; `None` when they
+/// are not, as with `no_images`.
+pub fn heading_look(
+    headings: Headings,
+    no_images: bool,
+    theme: &Theme,
+    caps: &Capabilities,
+) -> Option<HeadingLook> {
+    if no_images || !heading_images(headings, caps) {
+        return None;
+    }
+    let cell = image::cell_size(caps);
+    // Light text on a dark page, as most terminals have it.
+    let contrast = match caps.dark_background {
+        Some(true) | None => [0xff; 3],
+        Some(false) => [0; 3],
+    };
+    let text = rgb(theme.foreground, caps)
+        .or_else(|| rgb(caps.foreground, caps))
+        .unwrap_or(contrast);
+    let level = |level: u8| {
+        let heading = theme.heading(level);
+        let color = if caps.color { heading.color } else { None };
+        let color = rgb(color, caps).unwrap_or(text);
+        LevelLook {
+            rows: heading.size.scale(),
+            font_px: (heading.size.value() * f64::from(cell.1) / 1.2) as f32,
+            bold: heading.bold,
+            italic: heading.italic,
+            color,
+            code: code_look(theme, caps, heading.background, color),
+        }
+    };
+    Some(HeadingLook {
+        cell,
+        levels: [1, 2, 3, 4, 5, 6].map(level),
+    })
+}
+
+/// `color` as RGB on a terminal with `caps`, a palette colour as the
+/// terminal tells it, or else as xterm's default palette has it.
+fn rgb(color: Option<Color>, caps: &Capabilities) -> Option<[u8; 3]> {
+    match color?.rgb_or_xterm(&caps.palette) {
+        Color::Rgb(red, green, blue) => Some([red, green, blue]),
+        Color::Palette(_) => None,
+    }
+}
+
+/// How inline code in a heading in `background` and in `color` is drawn
+/// in its image, as the text layout draws it: in the theme's colour for
+/// inline code on its background, padded by a space on each side where it
+/// has one; in the heading's colour on the heading's background without
+/// colours.
+fn code_look(
+    theme: &Theme,
+    caps: &Capabilities,
+    background: Option<Color>,
+    color: [u8; 3],
+) -> CodeLook {
+    if !(caps.styling && caps.color) {
+        return CodeLook {
+            color,
+            background: None,
+            padding: false,
+        };
+    }
+    let code_background = layout::inline_code_background(theme, caps);
+    CodeLook {
+        color: rgb(theme.inline_code, caps).unwrap_or(color),
+        background: rgb(code_background, caps),
+        padding: theme.inline_code_padding && code_background.or(background).is_some(),
+    }
+}
+
+impl Headings {
+    /// How headings show with images off when `images` is false: as
+    /// `auto`, `sized` or `images` say without images, which is as
+    /// `sized` says; `plain` stays.
+    pub fn with_images(self, images: bool) -> Self {
+        match self {
+            Self::Auto | Self::Images if !images => Self::Sized,
+            headings => headings,
+        }
+    }
+}
+
+/// Whether the top-level headings show as images, where theirs loaded,
+/// for `headings` on a terminal with `caps`.
+fn heading_images(headings: Headings, caps: &Capabilities) -> bool {
+    let wanted = match headings {
+        Headings::Auto => !caps.text_sizing,
+        Headings::Images => true,
+        Headings::Sized | Headings::Plain => false,
+    };
+    wanted && caps.draws_images()
+}
+
 /// Why `document`'s front matter, shown as `style`, could not be read: the
 /// parser's error when its YAML, TOML or JSON does not parse and it is to
 /// be a table.
@@ -128,6 +245,7 @@ impl Inputs {
             caps,
             theme: Theme::default(),
             front_matter: FrontMatterStyle::default(),
+            headings: Headings::default(),
             table_rows: TableRows::default(),
             render_errors: RenderErrors::default(),
         }
@@ -208,4 +326,172 @@ pub fn render_image_on(
     let mut images = Images::new();
     images.insert(key, Ok(image));
     output::write(&lines, &images, caps, page, out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Kitty without text sizing, as inside tmux, with cells of 8 × 16
+    /// pixels.
+    fn no_text_sizing() -> Capabilities {
+        Capabilities {
+            text_sizing: false,
+            cell_pixels: Some((8, 16)),
+            ..Capabilities::kitty(80)
+        }
+    }
+
+    #[test]
+    fn auto_uses_images_only_without_text_sizing() {
+        let theme = Theme::default();
+        let look = heading_look(Headings::Auto, false, &theme, &no_text_sizing());
+        let look = look.expect("images without text sizing");
+        assert_eq!(look.cell, (8, 16));
+        let h1 = theme.heading(1);
+        assert_eq!(look.levels[0].rows, h1.size.scale());
+        let px = h1.size.value() as f32 * 16.0 / 1.2;
+        assert!((look.levels[0].font_px - px).abs() < 0.01, "{look:?}");
+        assert_eq!(look.levels[0].bold, h1.bold);
+        let kitty = Capabilities::kitty(80);
+        assert_eq!(heading_look(Headings::Auto, false, &theme, &kitty), None);
+        let images = heading_look(Headings::Images, false, &theme, &kitty);
+        assert!(images.is_some());
+    }
+
+    /// The colours, as RGB, that the text layout gives the inline code in
+    /// a level-1 heading on a terminal with `caps`: its text's and its
+    /// background's.
+    fn laid_out_code(caps: &Capabilities) -> (Option<[u8; 3]>, Option<[u8; 3]>) {
+        let inputs = Inputs::new(caps.clone());
+        let document = crate::parse::parse("# a `b`\n");
+        let lines = layout::layout(&document, &inputs);
+        let span = (lines[0].spans.iter()).find(|span| span.text.contains('b'));
+        let style = &span.expect("the code").style;
+        (rgb(style.fg, caps), rgb(style.bg, caps))
+    }
+
+    #[test]
+    fn heading_images_draw_code_in_the_colours_the_text_layout_gives_it() {
+        let mut caps = no_text_sizing();
+        // The terminal's magenta, the default theme's inline code.
+        caps.palette[5] = Some(Color::Rgb(0xc0, 0x30, 0xc0));
+        let theme = Theme::default();
+        let look = heading_look(Headings::Auto, false, &theme, &caps).unwrap();
+        let code = look.levels[0].code;
+        let (color, background) = laid_out_code(&caps);
+        assert_eq!(Some(code.color), color);
+        assert!(background.is_some());
+        assert_eq!(code.background, background);
+        assert!(code.padding);
+    }
+
+    #[test]
+    fn heading_code_without_a_background_of_its_own_is_padded_on_the_heading_s() {
+        let mut theme = Theme::default();
+        theme.inline_code_background = crate::theme::CodeBackground::Color(None);
+        theme.headings[0].background = Some(Color::Rgb(0x20, 0x20, 0x30));
+        let look = heading_look(Headings::Auto, false, &theme, &no_text_sizing()).unwrap();
+        let code = look.levels[0].code;
+        // The heading's background shows through; the padding still
+        // stands, as the text layout pads it on the heading's.
+        assert_eq!(code.background, None);
+        assert!(code.padding);
+        theme.headings[0].background = None;
+        let look = heading_look(Headings::Auto, false, &theme, &no_text_sizing()).unwrap();
+        assert!(!look.levels[0].code.padding);
+    }
+
+    #[test]
+    fn heading_images_take_xterm_s_colours_where_the_terminal_tells_none() {
+        let caps = Capabilities {
+            palette: [None; 16],
+            ..no_text_sizing()
+        };
+        let look = heading_look(Headings::Auto, false, &Theme::default(), &caps).unwrap();
+        // The default theme's blue headings and magenta code.
+        let level = look.levels[0];
+        assert_eq!(level.color, [0, 0, 0xee]);
+        assert_eq!(level.code.color, [0xcd, 0, 0xcd]);
+    }
+
+    #[test]
+    fn without_colours_heading_code_has_no_background() {
+        let caps = Capabilities {
+            color: false,
+            ..no_text_sizing()
+        };
+        let look = heading_look(Headings::Auto, false, &Theme::default(), &caps).unwrap();
+        let level = look.levels[0];
+        assert_eq!(level.code.color, level.color);
+        assert_eq!(level.code.background, None);
+        assert!(!level.code.padding);
+    }
+
+    #[test]
+    fn plain_and_sized_never_use_images() {
+        let theme = Theme::default();
+        for headings in [Headings::Plain, Headings::Sized] {
+            let look = heading_look(headings, false, &theme, &no_text_sizing());
+            assert_eq!(look, None, "{headings:?}");
+        }
+    }
+
+    #[test]
+    fn no_images_means_no_heading_images() {
+        let theme = Theme::default();
+        for headings in [Headings::Auto, Headings::Images] {
+            let look = heading_look(headings, true, &theme, &no_text_sizing());
+            assert_eq!(look, None, "{headings:?}");
+        }
+    }
+
+    #[test]
+    fn without_images_headings_show_as_sized_says() {
+        assert_eq!(Headings::Auto.with_images(false), Headings::Sized);
+        assert_eq!(Headings::Images.with_images(false), Headings::Sized);
+        assert_eq!(Headings::Plain.with_images(false), Headings::Plain);
+        assert_eq!(Headings::Images.with_images(true), Headings::Images);
+    }
+
+    #[test]
+    fn images_need_a_terminal_that_draws_them() {
+        let theme = Theme::default();
+        let ansi = Capabilities::ansi(80);
+        assert_eq!(heading_look(Headings::Images, false, &theme, &ansi), None);
+        assert_eq!(heading_look(Headings::Auto, false, &theme, &ansi), None);
+    }
+
+    #[test]
+    fn heading_images_take_the_heading_colour_or_else_the_text_colour() {
+        let mut theme = Theme::default();
+        let caps = no_text_sizing();
+        theme.headings[0].color = Some(Color::Rgb(9, 8, 7));
+        let look = heading_look(Headings::Auto, false, &theme, &caps).unwrap();
+        assert_eq!(look.levels[0].color, [9, 8, 7]);
+        // A colour of the palette, as the terminal tells it.
+        theme.headings[0].color = Some(Color::Palette(4));
+        let mut palette = caps.palette;
+        palette[4] = Some(Color::Rgb(0, 0, 0xee));
+        let caps = Capabilities { palette, ..caps };
+        let look = heading_look(Headings::Auto, false, &theme, &caps).unwrap();
+        assert_eq!(look.levels[0].color, [0, 0, 0xee]);
+        // Without a colour of its own, in the text's: the theme's, or else
+        // the terminal's, or else white on a dark page.
+        theme
+            .headings
+            .iter_mut()
+            .for_each(|heading| heading.color = None);
+        theme.foreground = Some(Color::Rgb(1, 2, 3));
+        let look = heading_look(Headings::Auto, false, &theme, &caps).unwrap();
+        assert_eq!(look.levels[0].color, [1, 2, 3]);
+        theme.foreground = None;
+        let caps = Capabilities {
+            foreground: None,
+            dark_background: Some(true),
+            ..caps
+        };
+        let look = heading_look(Headings::Auto, false, &theme, &caps).unwrap();
+        assert_eq!(look.levels[0].color, [0xff, 0xff, 0xff]);
+    }
 }

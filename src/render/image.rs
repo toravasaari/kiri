@@ -161,7 +161,7 @@ fn shrink_to(shown: (f64, f64), cell: (u16, u16), max_columns: u16, max_rows: u1
 /// below the image. `None` when there is no room at all.
 pub fn on_its_own(image: &Source, caps: &Capabilities, reserved: u16) -> Option<Size> {
     let unit = match image {
-        Source::Raster(_) => Unit::Pixel,
+        Source::Raster(_) | Source::Text { .. } => Unit::Pixel,
         Source::Svg(_) | Source::Dense { .. } => Unit::Css,
     };
     let max_cells = caps.max_image_cells;

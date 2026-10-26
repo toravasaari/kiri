@@ -235,3 +235,96 @@ fn new_cell_pixels_send_the_image_again_and_delete_the_old_one() {
     assert!(frames[1].starts_with(&first), "{frames:#?}");
     assert_eq!(deleted_ids(&out), sent, "{out:?}");
 }
+
+#[test]
+fn a_new_cell_size_loads_the_heading_images_for_it() {
+    let key = |cell| crate::images::ImageKey::heading(1, "Kiri", cell);
+    // Cells of 10 × 20 pixels, then of 8 × 16 when the font gets smaller,
+    // or of the same size in a wider window. Without images, as
+    // `--no-images` makes `auto` `sized`, nothing loads.
+    let pixels = |columns: u16, cell: (u16, u16)| WindowSize {
+        columns,
+        rows: 6,
+        width: columns * cell.0,
+        height: 6 * cell.1,
+    };
+    let auto = crate::render::Headings::Auto;
+    let sized = crate::render::Headings::Sized;
+    for (after, headings, loads) in [
+        ((8, 16), auto, true),
+        ((10, 20), auto, false),
+        ((8, 16), sized, false),
+    ] {
+        let mut terminal = Fake::new(60, 6, &[b"", b"", b"q"]);
+        terminal.size = pixels(60, (10, 20));
+        terminal.sizes = [pixels(60, (10, 20)), pixels(70, after)].into();
+        let mut inputs = Inputs::new(Capabilities {
+            text_sizing: false,
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(60)
+        });
+        let image = image::RgbaImage::from_pixel(100, 40, image::Rgba([200, 30, 30, 255]));
+        let text = crate::images::Source::Text {
+            image,
+            breaks: Vec::new(),
+            ends: vec![10],
+        };
+        inputs.images.insert(key((10, 20)), Ok(text));
+        inputs.headings = headings;
+        let mut background = Loads::new();
+        run_document(
+            &crate::parse::parse("# Kiri\n\nText\n"),
+            &mut inputs,
+            Options {
+                loads: Some(&mut background),
+                ..Options::new(SearchCase::Smart)
+            },
+            &mut terminal,
+        );
+        let wanted = key(after);
+        // Asked for once the window told the new cells: loading, or come.
+        let asked = background.loading(&wanted)
+            || inputs.images.placeholder(&wanted).is_some()
+            || (wanted != key((10, 20)) && inputs.images.get(&wanted).is_some());
+        let keys: Vec<_> = inputs.images.iter().map(|(key, _)| key.clone()).collect();
+        assert_eq!(asked, loads, "{after:?} {headings:?}: {keys:?}");
+        background.halt();
+    }
+}
+
+#[test]
+fn a_narrower_window_rewraps_a_heading_image_without_a_new_image() {
+    let mut terminal = Fake::new(100, 12, &[b"", b"", b"q"]);
+    terminal.sizes = [window(100, 12), window(30, 12)].into();
+    let mut inputs = Inputs::new(Capabilities {
+        text_sizing: false,
+        cell_pixels: Some((10, 20)),
+        ..Capabilities::kitty(100)
+    });
+    let image = image::RgbaImage::from_pixel(900, 40, image::Rgba([200, 30, 30, 255]));
+    let text = crate::images::Source::Text {
+        image,
+        breaks: vec![30, 60],
+        ends: vec![28, 58, 90],
+    };
+    let key = crate::images::ImageKey::heading(1, "One two three", (10, 20));
+    inputs.images.insert(key, Ok(text));
+    run_document(
+        &crate::parse::parse("# One two three\n\nText\n"),
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let frames = terminal.frames();
+    let out: String = frames.concat();
+    // Sent once, and shown whole, then with a line that starts at its
+    // column 60: the colour of the id, then that column's placeholder.
+    assert_eq!(out.matches("a=T").count(), 1, "{frames:#?}");
+    let column = |at: usize| {
+        let diacritic = crate::kitty::graphics::DIACRITICS[at];
+        format!("m\u{10EEEE}\u{0305}{diacritic}")
+    };
+    assert!(frames[0].contains(&column(0)), "{frames:#?}");
+    assert!(!frames[0].contains(&column(60)), "{frames:#?}");
+    assert!(frames.last().unwrap().contains(&column(60)), "{frames:#?}");
+}

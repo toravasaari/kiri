@@ -617,6 +617,20 @@ fn the_front_matter_key_takes_table_code_hide_or_off() {
 }
 
 #[test]
+fn the_headings_key_takes_auto_sized_images_or_plain() {
+    check_key(
+        |config| config.headings,
+        &[
+            ("headings = \"auto\"\n", Headings::Auto),
+            ("headings = \"sized\"\n", Headings::Sized),
+            ("headings = \"images\"\n", Headings::Images),
+            ("headings = \"plain\"\n", Headings::Plain),
+        ],
+        &["headings = \"big\"\n"],
+    );
+}
+
+#[test]
 fn the_diagrams_key_turns_diagrams_on_or_off() {
     check_key(
         |config| config.diagrams,
@@ -941,6 +955,7 @@ fn each_value_has_one_name() {
     check::<Follow>();
     check::<FollowJump>();
     check::<FrontMatter>();
+    check::<Headings>();
     check::<TableRows>();
     check::<RenderErrors>();
     check::<crate::term::Mode>();
@@ -1118,6 +1133,52 @@ fn kiri_front_matter_chooses_the_front_matter() {
             "KIRI_FRONT_MATTER: `Code` is not table, code, hide or off; left out",
         ),
     );
+}
+
+#[test]
+fn kiri_headings_chooses_how_headings_show() {
+    check_variable(
+        |choices| &choices.headings,
+        "KIRI_HEADINGS",
+        &[
+            ("auto", Headings::Auto),
+            ("sized", Headings::Sized),
+            ("images", Headings::Images),
+            ("plain", Headings::Plain),
+        ],
+        Config {
+            headings: Some(Headings::Sized),
+            ..Config::default()
+        },
+        (
+            "big",
+            "KIRI_HEADINGS: `big` is not auto, sized, images or plain; left out",
+        ),
+    );
+}
+
+#[test]
+fn headings_are_auto_unless_told_otherwise() {
+    let choices = choose(
+        &Options::default(),
+        &Environment::default(),
+        &Config::default(),
+    );
+    let auto = Setting::new(Headings::Auto, Origin::Default);
+    assert_eq!(choices.headings, auto);
+    let options = Options {
+        headings: flag(Headings::Plain, "--headings"),
+        ..Options::default()
+    };
+    let env = vars(&[("KIRI_HEADINGS", "images")]);
+    let config = Config {
+        headings: Some(Headings::Sized),
+        ..Config::default()
+    };
+    let choices = choose(&options, &env, &config);
+    assert_eq!(Some(choices.headings.clone()), options.headings);
+    let settings = choices.with_theme(Theme::default());
+    assert_eq!(settings.headings, Headings::Plain);
 }
 
 #[test]
@@ -1419,6 +1480,7 @@ fn a_wrong_value_in_the_file_names_the_values_it_takes() {
         "search_case = 1\n",
         "front_matter = \"list\"\n",
         "front_matter = false\n",
+        "headings = \"big\"\n",
         "table_rows = \"stripes\"\n",
         "table_rows = [\"off\"]\n",
         "render_errors = \"never\"\n",

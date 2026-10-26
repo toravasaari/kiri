@@ -21,11 +21,12 @@ use std::time::{Duration, Instant, SystemTime};
 use crate::caps::Capabilities;
 use crate::compare::{Comparison, Fate, compare};
 use crate::config::{self, FollowJump, Paging, SearchCase};
-use crate::images::{ImageError, ImageKey, Images, Loads, Source};
+use crate::images::{ImageError, ImageKey, Images, Loads, Part, Source};
 use crate::model::{Document, File, FrontMatterError};
 use crate::render::Inputs;
 use crate::render::block::BlockInfo;
 use crate::render::encoder::Encoder;
+use crate::render::image::cell_size;
 use crate::render::layout::{Content, Stream};
 use crate::render::output::{self, Page, Writer};
 use crate::render::style::{self, Line, Span, Style};
@@ -297,7 +298,15 @@ fn page_through(
         Content::Files(files) => files,
     };
     loop {
+        let cell = cell_size(&inputs.caps);
         fit(&mut inputs.caps, size, width);
+        if cell_size(&inputs.caps) != cell {
+            let content = match &reloaded {
+                Some(document) => Content::Document(document),
+                None => content,
+            };
+            load_headings(content, inputs, source.loads);
+        }
         let window = usize::from(inputs.caps.height.unwrap_or(DEFAULT_ROWS));
         // The bottom row is the status line's, unless the document would
         // have no row left.
@@ -708,6 +717,36 @@ impl Status<'_> {
             Vec::new()
         }
     }
+}
+
+/// Starts loading the heading images of `content` for the cells `inputs`
+/// now have, in `loads`, when headings show as images: those drawn for
+/// other cells have their words on other columns.
+fn load_headings(content: Content, inputs: &mut Inputs, loads: &mut Loads) {
+    let Inputs {
+        caps,
+        theme,
+        headings,
+        ..
+    } = &*inputs;
+    let Some(look) = crate::render::heading_look(*headings, false, theme, caps) else {
+        return;
+    };
+    let base = std::path::Path::new("");
+    let part = |(number, document)| Part {
+        document,
+        number,
+        base,
+        by_line: true,
+    };
+    let parts: Vec<Part> = match content {
+        Content::Document(document) => vec![part((0, document))],
+        Content::Files(files) => (files.iter().map(|file| &file.document))
+            .enumerate()
+            .map(part)
+            .collect(),
+    };
+    crate::images::load_headings_in_background(&parts, &look, &mut inputs.images, loads);
 }
 
 /// `caps` for a window of `size`, `width` columns wide when it is given.

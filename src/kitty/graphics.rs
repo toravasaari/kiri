@@ -12,6 +12,7 @@
 //! <https://sw.kovidgoyal.net/kitty/graphics-protocol/>
 
 use std::io::{self, Write};
+use std::ops::Range;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
@@ -196,16 +197,22 @@ fn write_chunks(out: &mut impl Write, keys: &str, payload: &[u8]) -> io::Result<
     Ok(())
 }
 
-/// Writes row `row` of image `id` as `columns` placeholders, from the first
-/// column. The foreground colour carries the id and is reset at the end.
-pub fn write_row(out: &mut impl Write, id: ImageId, row: u16, columns: u16) -> io::Result<()> {
-    if row >= MAX_CELLS || columns > MAX_CELLS {
+/// Writes the cells `columns` of row `row` of image `id` as placeholders,
+/// one for each column, so that a row can show any part of the image. The
+/// foreground colour carries the id and is reset at the end.
+pub fn write_row(
+    out: &mut impl Write,
+    id: ImageId,
+    row: u16,
+    columns: Range<u16>,
+) -> io::Result<()> {
+    if row >= MAX_CELLS || columns.end > MAX_CELLS || columns.start > columns.end {
         return Err(invalid("placeholder position has no diacritic"));
     }
     let [_, red, green, blue] = id.0.to_be_bytes();
     write!(out, "\x1b[38;2;{red};{green};{blue}m")?;
     let row = DIACRITICS[usize::from(row)];
-    for column in &DIACRITICS[..usize::from(columns)] {
+    for column in &DIACRITICS[usize::from(columns.start)..usize::from(columns.end)] {
         write!(out, "{PLACEHOLDER}{row}{column}")?;
     }
     out.write_all(b"\x1b[39m")
@@ -361,16 +368,19 @@ mod tests {
             let message = "an image covers 1 to 297 rows and columns";
             assert_eq!(error.to_string(), message, "{cells:?}");
         }
-        let error = write_row(&mut Vec::new(), ID, MAX_CELLS, 1).unwrap_err();
+        let error = write_row(&mut Vec::new(), ID, MAX_CELLS, 0..1).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-        let error = write_row(&mut Vec::new(), ID, 0, MAX_CELLS + 1).unwrap_err();
+        let error = write_row(&mut Vec::new(), ID, 0, 0..MAX_CELLS + 1).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        #[allow(clippy::reversed_empty_ranges)]
+        let error = write_row(&mut Vec::new(), ID, 0, 3..2).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
     }
 
     #[test]
     fn row_of_placeholders_carries_the_id_and_positions() {
         let mut out = Vec::new();
-        write_row(&mut out, ID, 2, 3).unwrap();
+        write_row(&mut out, ID, 2, 0..3).unwrap();
         let expected = "\x1b[38;2;18;52;86m\
             \u{10EEEE}\u{030E}\u{0305}\
             \u{10EEEE}\u{030E}\u{030D}\
@@ -380,9 +390,21 @@ mod tests {
     }
 
     #[test]
+    fn a_row_can_start_in_the_middle_of_the_image() {
+        let mut out = Vec::new();
+        write_row(&mut out, ID, 2, 1..3).unwrap();
+        // The first cell names its column, the second after it.
+        let expected = "\x1b[38;2;18;52;86m\
+            \u{10EEEE}\u{030E}\u{030D}\
+            \u{10EEEE}\u{030E}\u{030E}\
+            \x1b[39m";
+        assert_eq!(String::from_utf8(out).unwrap(), expected);
+    }
+
+    #[test]
     fn last_row_and_column_use_the_last_diacritic() {
         let mut out = Vec::new();
-        write_row(&mut out, ID, MAX_CELLS - 1, MAX_CELLS).unwrap();
+        write_row(&mut out, ID, MAX_CELLS - 1, 0..MAX_CELLS).unwrap();
         let out = String::from_utf8(out).unwrap();
         assert!(out.ends_with("\u{10EEEE}\u{1D244}\u{1D244}\x1b[39m"));
         assert_eq!(out.matches(PLACEHOLDER).count(), usize::from(MAX_CELLS));

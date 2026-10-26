@@ -33,6 +33,13 @@ bold and blue, without an underline: size alone tells them apart.
 
 ###### Level six
 
+### Headings with `code`, <kbd>Ctrl</kbd> and *emphasis*
+
+Inline code and a key in a heading look as they do in the text, at the
+heading's size, in the inline code colour on its background, and the
+emphasis is in italics: with kitty's text sizing, and with
+`--headings images` alike.
+
 ## Emphasis and strikethrough
 
 A paragraph with *emphasis* in italics, **strong text** in bold,

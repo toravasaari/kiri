@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use super::background::{Context, Job, What};
 use super::{
-    Fonts, ImageKey, Images, LoadOptions, Loads, Part, Placeholder, Stamps, Wanted,
+    Fonts, HeadingLook, ImageKey, Images, LoadOptions, Loads, Part, Placeholder, Stamps, Wanted,
     diagram_languages,
 };
 use super::{load_parts, plan};
@@ -37,6 +37,8 @@ pub struct Loading<'a> {
     pub formula: FormulaColors,
     /// The most pixels, wide and high, an image can be shown at.
     pub largest: Option<(u32, u32)>,
+    /// How headings are drawn as images; `None` draws none.
+    pub headings: Option<HeadingLook>,
 }
 
 /// A document's images, and the guard that caught the signals while
@@ -99,7 +101,8 @@ pub fn reload_in_background(
     };
     // Whether a failure came in the background stays with what is kept.
     let late = std::mem::take(&mut images.late);
-    let (wanted, have) = plan(parts, renderer, Some(images));
+    let headings = loading.headings.map(|look| look.cell);
+    let (wanted, have) = plan(parts, renderer, headings, Some(images));
     let shown: Vec<ImageKey> = (wanted.iter())
         .map(|(index, image)| image.key().in_document(parts[*index].number))
         .collect();
@@ -121,7 +124,7 @@ pub fn reload_in_background(
         if loads.loading(&key) && !again {
             continue;
         }
-        jobs.push(job(part, key, image, renderers.as_ref()));
+        jobs.push(job(part, key, image, renderers.as_ref(), loading));
     }
     // What the documents no longer show, and what changed under them.
     let gone = std::mem::take(images).by_key.into_iter();
@@ -152,16 +155,68 @@ pub fn load_in_background(
         Some(renderers) => renderers,
         None => &NoRenderer,
     };
-    let (wanted, _) = plan(parts, renderer, None);
+    let (wanted, _) = plan(
+        parts,
+        renderer,
+        loading.headings.map(|look| look.cell),
+        None,
+    );
     let mut jobs = Vec::new();
     for (index, image) in wanted {
         let part = &parts[index];
         let key = image.key().in_document(part.number);
         images.wait(key.clone(), Placeholder::Unsized);
         images.shown.push(key.clone());
-        jobs.push(job(part, key, image, renderers.as_ref()));
+        jobs.push(job(part, key, image, renderers.as_ref(), loading));
     }
     loads.start(jobs, context(loading, renderers));
+}
+
+/// Starts loading the heading images of `parts`, drawn as `look` says,
+/// that `images` neither holds nor is loading, in the background in
+/// `loads`, as after a change of the cell size: each heading shows as
+/// text until its image comes. What else `images` holds stays.
+pub fn load_headings_in_background(
+    parts: &[Part<'_>],
+    look: &HeadingLook,
+    images: &mut Images,
+    loads: &mut Loads,
+) {
+    let (wanted, _) = plan(parts, &NoRenderer, Some(look.cell), None);
+    let mut jobs = Vec::new();
+    for (index, image) in wanted {
+        let key = image.key().in_document(parts[index].number);
+        let Wanted::Heading { level, words, cell } = image else {
+            continue;
+        };
+        if images.get(&key).is_some() || loads.loading(&key) {
+            continue;
+        }
+        images.wait(key.clone(), Placeholder::Unsized);
+        let what = What::Heading {
+            words,
+            look: *look.level(level),
+            cell,
+        };
+        jobs.push(Job {
+            key,
+            what,
+            program: false,
+        });
+    }
+    if jobs.is_empty() {
+        return;
+    }
+    // A heading needs nothing of what draws diagrams.
+    let context = Context {
+        renderer: Box::new(NoRenderer),
+        theme: Theme::Light,
+        formula: FormulaColors::default(),
+        panel: false,
+        largest: None,
+        max_file_size: 0,
+    };
+    loads.start(jobs, context);
 }
 
 /// Stands in for every image of `parts` that [`load_in_background`] would
@@ -179,7 +234,12 @@ pub fn measure_in_background(
         Some(renderers) => renderers,
         None => &NoRenderer,
     };
-    let (wanted, _) = plan(parts, renderer, None);
+    let (wanted, _) = plan(
+        parts,
+        renderer,
+        loading.headings.map(|look| look.cell),
+        None,
+    );
     for (index, image) in wanted {
         let key = image.key().in_document(parts[index].number);
         images.wait(key, Placeholder::Rows(rows));
@@ -196,9 +256,26 @@ fn background_renderers(loading: &Loading) -> Option<Renderers> {
 }
 
 /// The job that loads `image` of `part`, keyed `key`, in the background,
-/// with `renderers` for a diagram.
-fn job(part: &Part<'_>, key: ImageKey, image: Wanted<'_>, renderers: Option<&Renderers>) -> Job {
+/// with `renderers` for a diagram, and a heading drawn as `loading` says.
+fn job(
+    part: &Part<'_>,
+    key: ImageKey,
+    image: Wanted<'_>,
+    renderers: Option<&Renderers>,
+    loading: &Loading,
+) -> Job {
     let (what, program) = match image {
+        Wanted::Heading { level, words, .. } => {
+            let look = loading
+                .headings
+                .expect("headings are wanted only with a look");
+            let what = What::Heading {
+                words,
+                look: *look.level(level),
+                cell: look.cell,
+            };
+            (what, false)
+        }
         Wanted::Url(url) => {
             let base = part.base.to_path_buf();
             (
@@ -270,6 +347,7 @@ fn load_kept(
         progress,
         panel: loading.settings.diagram_panel,
         largest: loading.largest,
+        headings: loading.headings,
         ..LoadOptions::default()
     };
     let (size, fonts) = (loading.max_file_size, &Fonts::system());

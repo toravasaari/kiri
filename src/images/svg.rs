@@ -71,6 +71,17 @@ impl Svg {
         self.showing(view)
     }
 
+    /// The left and right edges of all of its text on the canvas, in CSS
+    /// pixels; `None` when it draws no text, as when no font has it.
+    pub(super) fn text_edges(&self) -> Option<(f32, f32)> {
+        let mut edges: Option<(f32, f32)> = None;
+        each_text_bounds(self.tree.root(), &mut |bounds| {
+            let (left, right) = edges.unwrap_or((bounds.left(), bounds.right()));
+            edges = Some((left.min(bounds.left()), right.max(bounds.right())));
+        });
+        edges
+    }
+
     /// This SVG on a panel of `colour`, `padding` CSS pixels wider than
     /// what it shows on each side.
     pub(super) fn on_panel(self, colour: [u8; 3], padding: f32) -> Self {
@@ -168,17 +179,19 @@ impl Fonts {
         }
     }
 
-    /// DejaVu Sans from the test fixtures and nothing else, so text in SVGs
-    /// looks the same on every machine.
+    /// DejaVu Sans and its oblique face from the test fixtures and nothing
+    /// else, so text in SVGs looks the same on every machine.
     #[cfg(test)]
     pub(crate) fn fixture() -> Self {
         Self::new(|| {
             let mut database = fontdb::Database::new();
-            let font = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tests/fixtures/fonts/DejaVuSans.ttf");
-            database
-                .load_font_file(font)
-                .expect("the fixture font loads");
+            let fonts =
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fonts");
+            for name in ["DejaVuSans.ttf", "DejaVuSans-Oblique.ttf"] {
+                database
+                    .load_font_file(fonts.join(name))
+                    .expect("the fixture font loads");
+            }
             choose_generic_families(&mut database);
             database
         })

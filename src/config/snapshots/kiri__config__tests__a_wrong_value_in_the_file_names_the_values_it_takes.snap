@@ -45,6 +45,12 @@ TOML parse error at line 1, column 16
   |                ^^^^^
 wanted string or table
 ---
+TOML parse error at line 1, column 12
+  |
+1 | headings = "big"
+  |            ^^^^^
+unknown variant `big`, expected one of `auto`, `sized`, `images`, `plain`
+---
 TOML parse error at line 1, column 14
   |
 1 | table_rows = "stripes"
