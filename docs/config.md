@@ -43,6 +43,10 @@ initial_load = "wait"
 # Front matter render style: "table", "code", "hide" or "off".
 front_matter = "table"
 
+# How headings show: "auto", "sized", "images" or "plain"; see Headings
+# below.
+headings = "auto"
+
 # Table row style: "zebra", "lines", "indent", "underline" or "off".
 table_rows = "zebra"
 
@@ -293,6 +297,25 @@ warning on standard error as it always does.
   document has no warnings. A window with no row for it above the status
   line does not show it.
 
+## Headings
+
+The first of these that is given decides how the headings of the document
+show, those not inside a quote, a list or an alert, which are always one
+row:
+
+1. `--headings auto|sized|images|plain`
+2. `KIRI_HEADINGS` with the same values, as for `KIRI_FRONT_MATTER`
+3. `headings` in the configuration file
+4. `auto`
+
+`auto` draws headings large with kitty's text sizing, or, in a terminal
+without it that draws images, such as kitty inside tmux, as images of their
+text at the same sizes. `sized` draws them large only with text sizing.
+`images` draws them as images wherever images are drawn, even with text
+sizing, and otherwise as `auto` does. `plain` keeps every heading in one
+row, bold and in its colour. Where a heading is not drawn large, it is one
+row as with `plain`; `--no-images` also turns heading images off.
+
 ## Table rows
 
 The first of these that is given decides the table row style of tables
@@ -352,6 +375,7 @@ once.
 | `KIRI_FOLLOW_JUMP` | Which change auto-follow moves the view to; see [Follow jump](#follow-jump) |
 | `KIRI_INITIAL_LOAD` | Whether the pager waits for the images; see [Initial load](#initial-load) |
 | `KIRI_FRONT_MATTER` | Front matter render style; see [Front matter](#front-matter) |
+| `KIRI_HEADINGS` | How headings show; see [Headings](#headings) |
 | `KIRI_TABLE_ROWS` | Table row style; see [Table rows](#table-rows) |
 | `KIRI_DIAGRAMS` | Diagrams drawn or shown as code; see [Diagrams](diagrams.md) |
 | `KIRI_RENDER_ERRORS` | Where kiri tells why a diagram was not drawn; see [Render errors](#render-errors) |

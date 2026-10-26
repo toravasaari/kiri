@@ -32,6 +32,8 @@ pub struct Inputs {
     pub theme: Theme,
     /// How front matter shows.
     pub front_matter: FrontMatterStyle,
+    /// How top-level headings show.
+    pub headings: Headings,
     /// How the rows of a table are told apart.
     pub table_rows: TableRows,
     /// Whether a diagram that could not be drawn tells why in the
@@ -97,6 +99,22 @@ pub enum FrontMatterStyle {
     Hide,
 }
 
+/// How top-level headings show; headings inside quotes, lists and
+/// alerts are always one row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Headings {
+    /// Large with text sizing where the terminal has it, else as images
+    /// where images are drawn, else one row.
+    #[default]
+    Auto,
+    /// Large with text sizing where the terminal has it, else one row.
+    Sized,
+    /// As images where images are drawn, else as `Auto`.
+    Images,
+    /// One row, bold and coloured, even with text sizing.
+    Plain,
+}
+
 /// Why `document`'s front matter, shown as `style`, could not be read: the
 /// parser's error when its YAML, TOML or JSON does not parse and it is to
 /// be a table.
@@ -128,6 +146,7 @@ impl Inputs {
             caps,
             theme: Theme::default(),
             front_matter: FrontMatterStyle::default(),
+            headings: Headings::default(),
             table_rows: TableRows::default(),
             render_errors: RenderErrors::default(),
         }

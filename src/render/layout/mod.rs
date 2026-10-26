@@ -13,7 +13,7 @@ use super::script::{self, Script};
 use super::style::{Band, Line, Spaces, Span, Style, push};
 use super::table::{self, Cells};
 use super::wrap::{width, wrap};
-use super::{FrontMatterStyle, Inputs, RenderErrors, TableRows};
+use super::{FrontMatterStyle, Headings, Inputs, RenderErrors, TableRows};
 use crate::caps::Capabilities;
 use crate::color::{Color, Underline};
 use crate::images::{ImageError, ImageKey, Images, Placeholder};
@@ -175,6 +175,7 @@ fn with_layout<T>(
         caps,
         theme,
         front_matter,
+        headings,
         table_rows,
         render_errors,
     } = inputs;
@@ -197,6 +198,7 @@ fn with_layout<T>(
         caps,
         theme,
         front_matter: *front_matter,
+        headings: *headings,
         table_rows: *table_rows,
         render_errors: *render_errors,
         document: number,
@@ -259,6 +261,7 @@ struct Layout<'a> {
     caps: &'a Capabilities,
     theme: &'a Theme,
     front_matter: FrontMatterStyle,
+    headings: Headings,
     table_rows: TableRows,
     render_errors: RenderErrors,
     /// The number of the document laid out among those shown together,
@@ -512,7 +515,8 @@ impl Layout<'_> {
 
     fn heading(&self, level: u8, content: &[Inline], width: usize, context: Context) -> Vec<Line> {
         let heading = self.theme.heading(level);
-        let size = if self.caps.text_sizing && !context.nested {
+        let sized = self.caps.text_sizing && self.headings != Headings::Plain;
+        let size = if sized && !context.nested {
             heading.size
         } else {
             TextSize::NORMAL
@@ -1101,6 +1105,21 @@ mod tests {
     use super::*;
     use crate::parse::parse;
     use crate::render::style::text;
+
+    #[test]
+    fn plain_headings_have_no_text_sizing() {
+        let document = parse("# Kiri\n");
+        let mut inputs = inputs();
+        let sized = layout(&document, &inputs);
+        assert!(sized.iter().any(|line| line.rows() > 1), "{sized:?}");
+        inputs.headings = Headings::Plain;
+        let lines = layout(&document, &inputs);
+        assert!(lines.iter().all(|line| line.rows() == 1), "{lines:?}");
+        let mut out = Vec::new();
+        crate::render::render(&document, &inputs, &mut out).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        assert!(!out.contains("\x1b]66;"), "{out:?}");
+    }
 
     fn inputs() -> Inputs {
         Inputs::new(Capabilities::kitty(60))

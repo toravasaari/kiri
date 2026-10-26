@@ -22,7 +22,7 @@ use kiri::input::Input;
 use kiri::model::{Block, Document, FrontMatterError};
 use kiri::pager::{Change, Look, Reload, Reloaded, Warning};
 use kiri::render::output::Page;
-use kiri::render::{Inputs, RenderErrors, TableRows};
+use kiri::render::{Headings, Inputs, RenderErrors, TableRows};
 use kiri::term::{Interrupt, Mode};
 use kiri::theme::{Paper, Theme};
 
@@ -189,6 +189,15 @@ struct Cli {
     /// Markdown); table unless set.
     #[arg(long, value_parser = named::<FrontMatter>(), value_name = "STYLE")]
     front_matter: Option<FrontMatter>,
+
+    /// How headings show
+    ///
+    /// auto draws them large with text sizing, or as images where the
+    /// terminal has no text sizing; sized only with text sizing; images
+    /// always where images can be drawn; plain in one row; auto unless
+    /// set.
+    #[arg(long, value_parser = named::<Headings>(), value_name = "HOW")]
+    headings: Option<Headings>,
 
     /// Table row style
     ///
@@ -740,6 +749,7 @@ fn show_files(
         images,
         theme: settings.theme.clone(),
         front_matter: settings.front_matter.style().unwrap_or_default(),
+        headings: settings.headings,
         table_rows: settings.table_rows,
         render_errors: settings.render_errors,
         ..Inputs::new(caps)
@@ -1778,6 +1788,7 @@ fn print_document(
         images,
         theme: settings.theme.clone(),
         front_matter: settings.front_matter.style().unwrap_or_default(),
+        headings: settings.headings,
         table_rows: settings.table_rows,
         render_errors: settings.render_errors,
         ..Inputs::new(caps)
@@ -2203,6 +2214,7 @@ fn options(cli: &Cli) -> Options {
         follow_jump: flag(cli.follow_jump, "--follow-jump"),
         initial_load: flag(cli.initial_load, "--initial-load"),
         front_matter: flag(cli.front_matter, "--front-matter"),
+        headings: flag(cli.headings, "--headings"),
         table_rows: flag(cli.table_rows, "--table-rows"),
         diagrams: flag(cli.diagrams, "--diagrams"),
         render_errors: flag(cli.render_errors, "--render-errors"),

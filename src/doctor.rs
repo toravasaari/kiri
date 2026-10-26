@@ -239,6 +239,9 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     let front_matter = &choices.front_matter;
     let style = front_matter.value.name();
     row(out, &["Front matter", style, &from(front_matter.origin)])?;
+    let headings = &choices.headings;
+    let how = headings.value.name();
+    row(out, &["Headings", how, &from(headings.origin)])?;
     let rows = &choices.table_rows;
     let name = rows.value.name();
     row(out, &["Table rows", name, &from(rows.origin)])?;

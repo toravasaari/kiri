@@ -16,7 +16,7 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde::de::{self, Deserializer, EnumAccess, MapAccess, VariantAccess};
 
-use crate::render::{FrontMatterStyle, RenderErrors, TableRows};
+use crate::render::{FrontMatterStyle, Headings, RenderErrors, TableRows};
 use crate::theme::{Paper, Theme};
 
 /// `Environment`, with a field for each variable, from one table, so that
@@ -75,6 +75,8 @@ environment! {
     kiri_initial_load: "KIRI_INITIAL_LOAD",
     /// `KIRI_FRONT_MATTER`: `table`, `code`, `hide` or `off`.
     kiri_front_matter: "KIRI_FRONT_MATTER",
+    /// `KIRI_HEADINGS`: `auto`, `sized`, `images` or `plain`.
+    kiri_headings: "KIRI_HEADINGS",
     /// `KIRI_TABLE_ROWS`: `off`, `zebra`, `lines`, `indent` or `underline`.
     kiri_table_rows: "KIRI_TABLE_ROWS",
     /// `KIRI_DIAGRAMS`: `on` or `off`, or `1` or `0`.
@@ -193,6 +195,8 @@ pub struct Config {
     pub initial_load: Option<InitialLoad>,
     /// How front matter shows.
     pub front_matter: Option<FrontMatter>,
+    /// How top-level headings show.
+    pub headings: Option<Headings>,
     /// How the rows of a table are told apart.
     pub table_rows: Option<TableRows>,
     /// Whether diagrams in code blocks are drawn, or shown as code:
@@ -371,6 +375,7 @@ fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String> {
         follow_jump: file.follow_jump,
         initial_load: file.initial_load,
         front_matter: file.front_matter,
+        headings: file.headings,
         table_rows: file.table_rows,
         diagrams: file.diagrams.enabled,
         diagram_commands: file.diagrams.commands,
@@ -398,6 +403,8 @@ struct ConfigToml {
     initial_load: Option<InitialLoad>,
     #[serde(default, deserialize_with = "named")]
     front_matter: Option<FrontMatter>,
+    #[serde(default, deserialize_with = "named")]
+    headings: Option<Headings>,
     #[serde(default, deserialize_with = "named")]
     table_rows: Option<TableRows>,
     #[serde(default, deserialize_with = "named")]
@@ -747,6 +754,11 @@ impl Named for FrontMatter {
     const NAMES: &'static [&'static str] = &["table", "code", "hide", "off"];
 }
 
+impl Named for Headings {
+    const ALL: &'static [Self] = &[Self::Auto, Self::Sized, Self::Images, Self::Plain];
+    const NAMES: &'static [&'static str] = &["auto", "sized", "images", "plain"];
+}
+
 impl Named for TableRows {
     const ALL: &'static [Self] = &[
         Self::Off,
@@ -851,6 +863,8 @@ pub struct Options {
     pub initial_load: Option<Setting<InitialLoad>>,
     /// How front matter shows.
     pub front_matter: Option<Setting<FrontMatter>>,
+    /// How top-level headings show.
+    pub headings: Option<Setting<Headings>>,
     /// How the rows of a table are told apart.
     pub table_rows: Option<Setting<TableRows>>,
     /// Whether diagrams in code blocks are drawn.
@@ -883,6 +897,8 @@ pub struct Settings {
     pub initial_load: InitialLoad,
     /// How front matter shows.
     pub front_matter: FrontMatter,
+    /// How top-level headings show.
+    pub headings: Headings,
     /// How the rows of a table are told apart.
     pub table_rows: TableRows,
     /// Whether diagrams in code blocks are drawn, or shown as code.
@@ -922,6 +938,8 @@ pub struct Choices {
     pub initial_load: Setting<InitialLoad>,
     /// How front matter shows.
     pub front_matter: Setting<FrontMatter>,
+    /// How top-level headings show.
+    pub headings: Setting<Headings>,
     /// How the rows of a table are told apart.
     pub table_rows: Setting<TableRows>,
     /// Whether diagrams in code blocks are drawn, or shown as code.
@@ -960,6 +978,7 @@ impl Choices {
             follow_jump: self.follow_jump.value,
             initial_load: self.initial_load.value,
             front_matter: self.front_matter.value,
+            headings: self.headings.value,
             table_rows: self.table_rows.value,
             diagrams: self.diagrams.value,
             diagram_commands: self.diagram_commands.clone(),
@@ -987,6 +1006,13 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
         variable(env, "KIRI_FRONT_MATTER"),
         config.front_matter,
         FrontMatter::default(),
+        w,
+    );
+    let headings = resolve(
+        options.headings.clone(),
+        variable(env, "KIRI_HEADINGS"),
+        config.headings,
+        Headings::default(),
         w,
     );
     let table_rows = resolve(
@@ -1040,6 +1066,7 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
             w,
         ),
         front_matter,
+        headings,
         table_rows,
         diagrams,
         diagram_commands: config.diagram_commands.clone(),

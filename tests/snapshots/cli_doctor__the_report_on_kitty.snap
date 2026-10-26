@@ -35,6 +35,7 @@ kiri [version]: terminal features and settings.
 | Initial load | wait | default |
 | Search case | smart | default |
 | Front matter | table | default |
+| Headings | auto | default |
 | Table rows | zebra | default |
 | Diagrams | on | default |
 | Diagram time limit | 20 s | default |
