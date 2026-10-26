@@ -551,6 +551,22 @@ fn tmux(pane: &Pane, how: Passthrough) -> String {
         }
         (Some(value), _) => found += &format!(", allow-passthrough {}", code(value)),
     }
+    // Whether images come back matters only where they can pass.
+    let passes = pane.turned_on
+        || pane
+            .passthrough
+            .as_ref()
+            .is_some_and(|value| value != "off");
+    if passes {
+        found += match pane.focus_events {
+            Some(true) => ", focus-events `on`",
+            Some(false) => {
+                ", focus-events `off`: images come back after a window switch only \
+                 with `set -g focus-events on` in tmux.conf, or with Ctrl+L"
+            }
+            None => ", focus-events unknown",
+        };
+    }
     found
 }
 

@@ -176,6 +176,7 @@ fn detect(
             client: None,
             passthrough: None,
             turned_on: false,
+            focus_events: None,
         }),
         _ => None,
     };
@@ -392,6 +393,7 @@ mod tests {
             client: Some("kitty(0.47.1)".into()),
             passthrough: Some("on".into()),
             turned_on: false,
+            focus_events: None,
         };
         assert_eq!(found.tmux, Some(pane));
     }
@@ -499,6 +501,7 @@ mod tests {
             client: None,
             passthrough: None,
             turned_on: false,
+            focus_events: None,
         };
         assert_eq!(found.tmux, Some(pane));
     }

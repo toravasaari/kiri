@@ -274,6 +274,11 @@ Headings stay one row high inside tmux, as tmux cannot pass kitty's
 text sizing, and an image that loads in the background has no moving
 band below it; the status line still says `[rendering: 1/3]`.
 
+tmux passes images only while kiri's pane is shown, so the pager sends
+them again when the pane is shown again. tmux tells it so only with
+`set -g focus-events on` in tmux.conf, which kiri does not change, as
+it is an option for every pane; without it, Ctrl+L sends them again.
+
 ## Search case
 
 A search in the pager ignores case when its term has no upper-case letter,

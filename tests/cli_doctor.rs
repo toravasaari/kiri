@@ -865,14 +865,35 @@ fn the_doctor_tells_the_tmux_pane() {
         client: Some("kitty(0.47.1)".into()),
         passthrough: Some(passthrough.into()),
         turned_on,
+        focus_events: Some(true),
     };
     let report = tmux_report(Some(pane("off", true)), Passthrough::Detect);
     let row = "| tmux | passthrough for `kitty(0.47.1)`, allow-passthrough `on`, \
-               turned on by kiri |";
+               turned on by kiri, focus-events `on` |";
     assert!(report.contains(row), "{report}");
     assert!(report.contains("| Terminal | `tmux 3.8` |"), "{report}");
     let report = tmux_report(Some(pane("all", false)), Passthrough::Detect);
-    let row = "| tmux | passthrough for `kitty(0.47.1)`, allow-passthrough `all` |";
+    let row = "| tmux | passthrough for `kitty(0.47.1)`, allow-passthrough `all`, \
+               focus-events `on` |";
+    assert!(report.contains(row), "{report}");
+}
+
+#[test]
+fn the_doctor_says_what_focus_events_off_means() {
+    let pane = |focus_events| Pane {
+        client: Some("kitty(0.47.1)".into()),
+        passthrough: Some("on".into()),
+        turned_on: false,
+        focus_events,
+    };
+    let report = tmux_report(Some(pane(Some(false))), Passthrough::Detect);
+    let row = "| tmux | passthrough for `kitty(0.47.1)`, allow-passthrough `on`, \
+               focus-events `off`: images come back after a window switch only \
+               with `set -g focus-events on` in tmux.conf, or with Ctrl+L |";
+    assert!(report.contains(row), "{report}");
+    let report = tmux_report(Some(pane(None)), Passthrough::Detect);
+    let row = "| tmux | passthrough for `kitty(0.47.1)`, allow-passthrough `on`, \
+               focus-events unknown |";
     assert!(report.contains(row), "{report}");
 }
 
@@ -882,6 +903,7 @@ fn the_doctor_says_when_passthrough_stays_off() {
         client: Some("kitty(0.47.1)".into()),
         passthrough: Some("off".into()),
         turned_on: false,
+        focus_events: Some(true),
     };
     let report = tmux_report(Some(pane), Passthrough::Detect);
     let row = "| tmux | passthrough for `kitty(0.47.1)`, allow-passthrough `off`: \
@@ -895,6 +917,7 @@ fn the_doctor_tells_when_tmux_was_not_asked() {
         client: None,
         passthrough: None,
         turned_on: false,
+        focus_events: None,
     };
     let report = tmux_report(Some(nothing.clone()), Passthrough::Tmux);
     let row = "| tmux | passthrough; tmux not asked, as passthrough is `tmux` |";
