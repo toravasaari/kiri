@@ -11,7 +11,7 @@ use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser};
 use kiri::caps::Capabilities;
 use kiri::config::{
     Environment, Follow, FollowJump, FrontMatter, InitialLoad, Named, Options, Origin, Paging,
-    Setting, Settings,
+    Passthrough, Setting, Settings,
 };
 use kiri::doctor::{Facts, Output};
 use kiri::images::{
@@ -181,6 +181,14 @@ struct Cli {
     /// three rows; otherwise kiri waits.
     #[arg(long, value_parser = named::<InitialLoad>(), value_name = "HOW")]
     initial_load: Option<InitialLoad>,
+
+    /// Whether kitty's images pass through tmux
+    ///
+    /// With detect, kiri wraps them for tmux when it runs inside tmux and
+    /// turns on the pane's allow-passthrough, as `kitten icat` does; with
+    /// tmux, it wraps them always; with none, never; detect unless set.
+    #[arg(long, value_parser = named::<Passthrough>(), value_name = "HOW")]
+    passthrough: Option<Passthrough>,
 
     /// How to show the front matter
     ///
@@ -2202,6 +2210,7 @@ fn options(cli: &Cli) -> Options {
         follow: follow(cli),
         follow_jump: flag(cli.follow_jump, "--follow-jump"),
         initial_load: flag(cli.initial_load, "--initial-load"),
+        passthrough: flag(cli.passthrough, "--passthrough"),
         front_matter: flag(cli.front_matter, "--front-matter"),
         table_rows: flag(cli.table_rows, "--table-rows"),
         diagrams: flag(cli.diagrams, "--diagrams"),

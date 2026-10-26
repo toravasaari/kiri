@@ -233,6 +233,9 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
         out,
         &["Initial load", first.value.name(), &from(first.origin)],
     )?;
+    let passthrough = &choices.passthrough;
+    let how = passthrough.value.name();
+    row(out, &["Passthrough", how, &from(passthrough.origin)])?;
     let search_case = &choices.search_case;
     let case = search_case.value.name();
     row(out, &["Search case", case, &from(search_case.origin)])?;

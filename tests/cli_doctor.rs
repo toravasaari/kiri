@@ -337,6 +337,24 @@ fn the_initial_load_tells_where_it_comes_from() {
 }
 
 #[test]
+fn the_passthrough_tells_where_it_comes_from() {
+    let dir = Scratch::new("doctor-passthrough");
+    check_row(&dir, &[], &[], "| Passthrough | detect | default |");
+    write_config(&dir, "passthrough = \"none\"\n");
+    let row = "| Passthrough | none | configuration file |";
+    check_row(&dir, &[], &[], row);
+    let row = "| Passthrough | tmux | `KIRI_PASSTHROUGH=tmux` |";
+    check_row(&dir, &[], &[("KIRI_PASSTHROUGH", "tmux")], row);
+    let row = "| Passthrough | none | `--passthrough` |";
+    check_row(
+        &dir,
+        &["--passthrough", "none"],
+        &[("KIRI_PASSTHROUGH", "tmux")],
+        row,
+    );
+}
+
+#[test]
 fn an_unknown_kiri_paging_is_a_problem_in_the_report() {
     let dir = Scratch::new("doctor-paging-unknown");
     let mut command = doctor(&dir, &[]);

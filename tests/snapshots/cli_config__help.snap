@@ -135,6 +135,15 @@ Options:
           
           [possible values: wait, background]
 
+      --passthrough <HOW>
+          Whether kitty's images pass through tmux
+          
+          With detect, kiri wraps them for tmux when it runs inside tmux and turns on the pane's
+          allow-passthrough, as `kitten icat` does; with tmux, it wraps them always; with none,
+          never; detect unless set.
+          
+          [possible values: detect, none, tmux]
+
       --front-matter <STYLE>
           How to show the front matter
           
