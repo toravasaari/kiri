@@ -347,14 +347,13 @@ the window makes a heading image smaller, to fit on one line.
 
 In a heading drawn as an image, inline code and keys (`<kbd>`) look as
 they do in a sized heading: in a monospace font, in the colour of inline
-code, on its background. Emphasis, links and other inline styles are drawn
-as the heading's own text, and a
+code, on its background, and emphasis is in italics. Links, strikethrough,
+`<mark>` and other inline styles are drawn as the heading's own text, and a
 link in a heading image cannot be clicked. The image's font is the
 system's sans-serif one, not the terminal's, and a colour of the
 terminal's palette that the terminal does not tell is drawn as xterm's
-default for it. The theme's `inline_code_wrap`
-does not apply there: a heading image wraps at every space, also inside
-inline code.
+default for it. The theme's `inline_code_wrap` does not apply there: a
+heading image wraps at every space, also inside inline code.
 
 ## Table rows
 

@@ -59,83 +59,109 @@ pub struct HeadingWord {
     /// heading, so that the words of one code span share a background;
     /// `None` for heading text.
     pub code: Option<u16>,
+    /// Whether all of the word is emphasised, and so in italics.
+    pub italic: bool,
 }
 
 /// The words of the heading text `text`, split on whitespace, none of them
-/// code.
+/// code or emphasised.
 pub fn plain_words(text: &str) -> Vec<HeadingWord> {
     (text.split_whitespace())
         .map(|word| HeadingWord {
             text: word.to_owned(),
             code: None,
+            italic: false,
         })
         .collect()
 }
 
 /// The words of a heading with `content`, split on whitespace as its
 /// plain text is, each marked with the inline code or the key it is in,
-/// which are drawn alike. Other inline styles are drawn as heading text.
+/// which are drawn alike, and with whether it is emphasised. Other inline
+/// styles are drawn as heading text.
 pub fn heading_words(content: &[Inline]) -> Vec<HeadingWord> {
     let mut marked = Vec::new();
-    mark(content, None, &mut 0, &mut marked);
-    let mut words = Vec::new();
-    // The word so far, and the code span all of it is in, if one is.
-    let mut word: Option<(String, Option<u16>)> = None;
-    for (c, code) in marked {
+    mark(content, Marks::default(), &mut 0, &mut marked);
+    let mut words: Vec<HeadingWord> = Vec::new();
+    // Whether the next character starts a word.
+    let mut new = true;
+    for (c, marks) in marked {
         if c.is_whitespace() {
-            words.extend(word.take().map(|(text, code)| HeadingWord { text, code }));
+            new = true;
             continue;
         }
-        match &mut word {
-            Some((text, all)) => {
-                text.push(c);
-                if *all != code {
-                    *all = None;
+        match words.last_mut() {
+            // A word is code or emphasised only when all of it is.
+            Some(word) if !new => {
+                word.text.push(c);
+                if word.code != marks.code {
+                    word.code = None;
                 }
+                word.italic &= marks.italic;
             }
-            None => word = Some((c.to_string(), code)),
+            _ => words.push(HeadingWord {
+                text: c.to_string(),
+                code: marks.code,
+                italic: marks.italic,
+            }),
         }
+        new = false;
     }
-    words.extend(word.map(|(text, code)| HeadingWord { text, code }));
     words
 }
 
-/// Appends the characters of the plain text of `content`, as
-/// [`Inline::plain_text`] has it, to `out`, each with the inline code it
-/// is in: `code` around it, or the next of `spans` for an inline code or
-/// a key of its own.
-fn mark(
-    content: &[Inline],
+/// What a character of a heading is in: the inline code or key, and
+/// emphasis.
+#[derive(Debug, Clone, Copy, Default)]
+struct Marks {
     code: Option<u16>,
-    spans: &mut u16,
-    out: &mut Vec<(char, Option<u16>)>,
-) {
-    let text = |out: &mut Vec<_>, text: &str, code| out.extend(text.chars().map(|c| (c, code)));
+    italic: bool,
+}
+
+/// Appends the characters of the plain text of `content`, as
+/// [`Inline::plain_text`] has it, to `out`, each with what it is in: the
+/// marks around it, or the next of `spans` for an inline code or a key of
+/// its own.
+fn mark(content: &[Inline], marks: Marks, spans: &mut u16, out: &mut Vec<(char, Marks)>) {
+    let text = |out: &mut Vec<_>, text: &str, marks| out.extend(text.chars().map(|c| (c, marks)));
     for inline in content {
         match inline {
             // Code inside a key is part of the key.
-            Inline::Code(code_text) if code.is_some() => text(out, code_text, code),
-            Inline::Code(code_text) => {
-                text(out, code_text, Some(*spans));
+            Inline::Code(code) if marks.code.is_some() => text(out, code, marks),
+            Inline::Code(code) => {
+                let code_marks = Marks {
+                    code: Some(*spans),
+                    ..marks
+                };
+                text(out, code, code_marks);
                 *spans += 1;
             }
             // A key is drawn as inline code is.
-            Inline::Kbd(inner) if code.is_none() => {
-                let key = Some(*spans);
+            Inline::Kbd(inner) if marks.code.is_none() => {
+                let key = Marks {
+                    code: Some(*spans),
+                    ..marks
+                };
                 *spans += 1;
                 mark(inner, key, spans, out);
             }
-            Inline::Text(plain) | Inline::Html(plain) => text(out, plain, code),
-            Inline::SoftBreak | Inline::LineBreak => text(out, " ", code),
-            Inline::Emphasis(inner)
-            | Inline::Strong(inner)
+            Inline::Text(plain) | Inline::Html(plain) => text(out, plain, marks),
+            Inline::SoftBreak | Inline::LineBreak => text(out, " ", marks),
+            Inline::Emphasis(inner) => {
+                let italic = Marks {
+                    italic: true,
+                    ..marks
+                };
+                mark(inner, italic, spans, out);
+            }
+            Inline::Strong(inner)
             | Inline::Strikethrough(inner)
             | Inline::Kbd(inner)
             | Inline::Mark(inner)
             | Inline::Subscript(inner)
             | Inline::Superscript(inner)
             | Inline::Link { content: inner, .. }
-            | Inline::Image(Image { alt: inner, .. }) => mark(inner, code, spans, out),
+            | Inline::Image(Image { alt: inner, .. }) => mark(inner, marks, spans, out),
         }
     }
 }
@@ -236,11 +262,13 @@ pub fn draw_heading(
     })
 }
 
-/// A word drawn at `x`: heading text, or inline code.
+/// A word drawn at `x`: heading text, or inline code, and in italics or
+/// not besides as the heading is.
 struct Drawn<'a> {
     x: f32,
     text: &'a str,
     code: bool,
+    italic: bool,
 }
 
 impl<'a> Drawn<'a> {
@@ -249,6 +277,7 @@ impl<'a> Drawn<'a> {
             x,
             text: &word.text,
             code: word.code.is_some(),
+            italic: word.italic,
         }
     }
 }
@@ -267,7 +296,12 @@ fn space_width(
     code: bool,
 ) -> Option<f32> {
     let reach = |text| {
-        let text = Drawn { x: 0.0, text, code };
+        let text = Drawn {
+            x: 0.0,
+            text,
+            code,
+            italic: false,
+        };
         Some(svg(1, &[text], &[]).ok()?.text_edges()?.1)
     };
     Some(reach("x x")? - reach("xx")?).filter(|&width| width > 0.0)
@@ -285,7 +319,6 @@ fn heading_svg(
 ) -> String {
     let hex = |[red, green, blue]: [u8; 3]| format!("#{red:02x}{green:02x}{blue:02x}");
     let weight = if look.bold { "bold" } else { "normal" };
-    let style = if look.italic { "italic" } else { "normal" };
     let mut svg = format!(
         "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{}\" height=\"{}\">",
         size.0, size.1
@@ -304,6 +337,11 @@ fn heading_svg(
         let (family, color) = match text.code {
             true => ("monospace", look.code.color),
             false => ("sans-serif", look.color),
+        };
+        let style = if look.italic || text.italic {
+            "italic"
+        } else {
+            "normal"
         };
         svg.push_str(&format!(
             "<text x=\"{}\" y=\"{baseline}\" font-family=\"{family}\" \
@@ -482,6 +520,7 @@ mod tests {
             .map(|&(text, code)| HeadingWord {
                 text: text.to_owned(),
                 code,
+                italic: false,
             })
             .collect()
     }
@@ -644,6 +683,42 @@ mod tests {
             .map(|&(text, code)| (text.to_owned(), code))
             .collect();
         assert_eq!(marked, expected);
+    }
+
+    #[test]
+    fn emphasised_words_are_marked_as_italic() {
+        let content = crate::parse::parse("# a *b `c`* d*e* **f**\n");
+        let crate::model::Block::Heading { content, .. } = &content.blocks[0] else {
+            panic!("a heading");
+        };
+        let italic: Vec<(String, bool)> = (heading_words(content).into_iter())
+            .map(|word| (word.text, word.italic))
+            .collect();
+        // Partly emphasised, and strong, are upright.
+        let expected = [
+            ("a", false),
+            ("b", true),
+            ("c", true),
+            ("de", false),
+            ("f", false),
+        ];
+        let expected: Vec<(String, bool)> = (expected.iter())
+            .map(|&(text, italic)| (text.to_owned(), italic))
+            .collect();
+        assert_eq!(italic, expected);
+    }
+
+    #[test]
+    fn an_italic_word_is_drawn_in_italics() {
+        let mut words = plain_words("Kiri code");
+        words[1].italic = true;
+        words[1].code = Some(0);
+        let texts: Vec<Drawn> = words.iter().map(|word| Drawn::new(0.0, word)).collect();
+        let svg = heading_svg(&texts, &[], &look(2), (100, 40), 30.0);
+        let styles: Vec<&str> = (svg.split("font-style=\"").skip(1))
+            .map(|rest| &rest[..rest.find('"').unwrap()])
+            .collect();
+        assert_eq!(styles, ["normal", "italic"], "{svg}");
     }
 
     #[test]

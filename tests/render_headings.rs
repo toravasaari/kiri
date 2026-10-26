@@ -456,10 +456,12 @@ fn a_heading_with_code_shows_the_image_with_its_code() {
         HeadingWord {
             text: "Kiri".into(),
             code: None,
+            italic: false,
         },
         HeadingWord {
             text: "code".into(),
             code: Some(0),
+            italic: false,
         },
     ];
     let mut images = Images::new();
@@ -481,6 +483,7 @@ fn a_heading_wraps_inside_a_code_span() {
     let word = |text: &str, code| HeadingWord {
         text: text.into(),
         code,
+        italic: false,
     };
     let words = vec![
         word("Kiri", None),

@@ -884,9 +884,10 @@ mod tests {
         let images = with_headings("# Kiri\n\n## Kiri *is* `here`\n", &Fonts::fixture());
         let one = images.get(&ImageKey::heading(1, "Kiri", (10, 20)));
         assert!(matches!(one, Some(Ok(Source::Text { .. }))), "{images:?}");
-        // Emphasis as plain text, inline code as code, and apart from the
+        // Emphasis in italics, inline code as code, and apart from the
         // same text at another level.
         let mut words = plain_words("Kiri is here");
+        words[1].italic = true;
         words[2].code = Some(0);
         let two = images.get(&ImageKey::heading_of(2, words, (10, 20)));
         assert!(matches!(two, Some(Ok(Source::Text { .. }))), "{images:?}");
@@ -896,6 +897,9 @@ mod tests {
     #[test]
     fn the_same_words_with_and_without_code_are_two_images() {
         let images = with_headings("# a `b`\n\n# a b\n", &Fonts::fixture());
+        assert_eq!(images.len(), 2, "{images:?}");
+        // So with and without emphasis.
+        let images = with_headings("# a *b*\n\n# a b\n", &Fonts::fixture());
         assert_eq!(images.len(), 2, "{images:?}");
     }
 
