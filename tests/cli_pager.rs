@@ -608,6 +608,10 @@ fn a_signal_to_end_kiri_leaves_the_screen_first() {
                 }
             });
         assert!(seen.ends_with(LEAVE), "{signal:?}: {seen:?}");
+        // The mouse goes off before the screen is left.
+        let closed = &seen[seen.rfind("\x1b[?2026l").expect("a frame")..];
+        let off = closed.find(MOUSE_OFF).expect("mouse reporting off");
+        assert!(off < closed.find(LEAVE).unwrap(), "{signal:?}: {seen:?}");
         assert_eq!(status.signal(), Some(signal.as_raw()), "{signal:?}");
     }
 }

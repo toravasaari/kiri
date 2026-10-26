@@ -80,6 +80,25 @@ fn the_screen_captures_the_mouse_only_when_asked() {
 
 #[test]
 fn the_screen_ends_when_a_panic_unwinds() {
+    let (written, restored, original) = panic_on_the_screen(false);
+    assert!(written.ends_with(b"\x1b[?25h\x1b[?1049l"), "{written:?}");
+    assert_eq!(restored.local_modes, original.local_modes);
+}
+
+#[test]
+fn a_panic_turns_the_mouse_off_before_leaving_the_screen() {
+    let (written, restored, original) = panic_on_the_screen(true);
+    assert!(
+        written.ends_with(&[MOUSE_OFF, LEAVE_SCREEN].concat()),
+        "{written:?}"
+    );
+    assert_eq!(restored.local_modes, original.local_modes);
+}
+
+/// What a screen on a pseudo-terminal, with the mouse on if `mouse`,
+/// writes when a panic unwinds through it, and the terminal's modes after
+/// and before.
+fn panic_on_the_screen(mouse: bool) -> (Vec<u8>, Termios, Termios) {
     use std::sync::{Arc, Mutex};
 
     /// Output that outlives the screen.
@@ -102,15 +121,13 @@ fn the_screen_ends_when_a_panic_unwinds() {
         let tty = tty.try_clone().unwrap();
         let out = out.clone();
         move || {
-            let _screen = Screen::on(tty, out, Signals::none(), false).expect("the screen opens");
+            let _screen = Screen::on(tty, out, Signals::none(), mouse).expect("the screen opens");
             panic!("the pager fails");
         }
     });
     assert!(result.is_err());
     let written = out.0.lock().unwrap().clone();
-    assert!(written.ends_with(b"\x1b[?25h\x1b[?1049l"), "{written:?}");
-    let restored = tcgetattr(&tty).unwrap();
-    assert_eq!(restored.local_modes, original.local_modes);
+    (written, tcgetattr(&tty).unwrap(), original)
 }
 
 #[test]
