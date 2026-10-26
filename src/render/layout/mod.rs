@@ -2,10 +2,10 @@
 
 mod code;
 mod front_matter;
-
-pub(crate) use code::inline_code_background;
 mod list;
 mod quote;
+
+pub(crate) use code::inline_code_background;
 
 use std::rc::Rc;
 

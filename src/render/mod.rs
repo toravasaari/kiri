@@ -129,22 +129,18 @@ pub fn heading_look(
         return None;
     }
     let cell = image::cell_size(caps);
-    let rgb = |color: Option<Color>| match color?.rgb(&caps.palette)? {
-        Color::Rgb(red, green, blue) => Some([red, green, blue]),
-        Color::Palette(_) => None,
-    };
     // Light text on a dark page, as most terminals have it.
     let contrast = match caps.dark_background {
         Some(true) | None => [0xff; 3],
         Some(false) => [0; 3],
     };
-    let text = rgb(theme.foreground)
-        .or_else(|| rgb(caps.foreground))
+    let text = rgb(theme.foreground, caps)
+        .or_else(|| rgb(caps.foreground, caps))
         .unwrap_or(contrast);
     let level = |level: u8| {
         let heading = theme.heading(level);
         let color = if caps.color { heading.color } else { None };
-        let color = rgb(color).unwrap_or(text);
+        let color = rgb(color, caps).unwrap_or(text);
         LevelLook {
             rows: heading.size.scale(),
             font_px: (heading.size.value() * f64::from(cell.1) / 1.2) as f32,
@@ -160,6 +156,15 @@ pub fn heading_look(
     })
 }
 
+/// `color` as RGB on a terminal with `caps`, a palette colour as the
+/// terminal tells it; `None` when it is not known.
+fn rgb(color: Option<Color>, caps: &Capabilities) -> Option<[u8; 3]> {
+    match color?.rgb(&caps.palette)? {
+        Color::Rgb(red, green, blue) => Some([red, green, blue]),
+        Color::Palette(_) => None,
+    }
+}
+
 /// How inline code in a heading in `background` and in `color` is drawn
 /// in its image, as the text layout draws it: in the theme's colour for
 /// inline code on its background, padded by a space on each side where it
@@ -171,10 +176,6 @@ fn code_look(
     background: Option<Color>,
     color: [u8; 3],
 ) -> CodeLook {
-    let rgb = |color: Option<Color>| match color?.rgb(&caps.palette)? {
-        Color::Rgb(red, green, blue) => Some([red, green, blue]),
-        Color::Palette(_) => None,
-    };
     if !(caps.styling && caps.color) {
         return CodeLook {
             color,
@@ -184,8 +185,8 @@ fn code_look(
     }
     let code_background = layout::inline_code_background(theme, caps);
     CodeLook {
-        color: rgb(theme.inline_code).unwrap_or(color),
-        background: rgb(code_background),
+        color: rgb(theme.inline_code, caps).unwrap_or(color),
+        background: rgb(code_background, caps),
         padding: theme.inline_code_padding && code_background.or(background).is_some(),
     }
 }
@@ -367,11 +368,7 @@ mod tests {
         let lines = layout::layout(&document, &inputs);
         let span = (lines[0].spans.iter()).find(|span| span.text.contains('b'));
         let style = &span.expect("the code").style;
-        let rgb = |color: Option<Color>| match color?.rgb(&caps.palette)? {
-            Color::Rgb(red, green, blue) => Some([red, green, blue]),
-            Color::Palette(_) => None,
-        };
-        (rgb(style.fg), rgb(style.bg))
+        (rgb(style.fg, caps), rgb(style.bg, caps))
     }
 
     #[test]
