@@ -384,4 +384,6 @@ once.
 | `HOME` | Your home directory, `~`, for the default configuration and cache directories, a theme under `~/` and programs found under it; ignored when empty or not an absolute path |
 | `XDG_CONFIG_HOME` | Where the configuration directory is; `~/.config` when unset or not an absolute path |
 | `XDG_CACHE_HOME` | Where kiri's cache directory is, for the files of [diagram commands](diagrams.md#diagram-commands); `~/.cache` when unset or not an absolute path |
+| `TMUX` | Set and not empty inside tmux; see [Passthrough](#passthrough) |
+| `TMUX_PANE` | The tmux pane whose `allow-passthrough` kiri turns on; see [Passthrough](#passthrough) |
 | `TMPDIR` | The temporary directory, for the files of [diagram commands](diagrams.md#diagram-commands) when the cache directory cannot be used; `/tmp` when unset or empty |

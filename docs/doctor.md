@@ -42,6 +42,16 @@ The **Terminal** row tells whether the probe ran:
 `TERM=` after it is the `TERM` environment variable, for reference; kiri
 does not decide anything from it.
 
+Inside tmux, tmux answers most questions itself, so the Terminal row says
+`tmux 3.8` or so. When kiri wraps kitty's images for tmux, as
+[Passthrough](config.md#passthrough) says, a **tmux** row follows: the
+terminal outside tmux, as tmux names it, and the pane's
+`allow-passthrough`, such as
+``passthrough for `kitty(0.47.1)`, allow-passthrough `on`, turned on by kiri``.
+With `allow-passthrough off: images cannot pass`, kiri could not turn the
+option on; `tmux set -p allow-passthrough on` in the pane does it. With
+`passthrough = "tmux"` kiri does not ask tmux at all.
+
 What each other row means, and where it comes from:
 
 | Row | Meaning | From |
@@ -113,14 +123,15 @@ Each answer, what it looks like and what kiri takes from it:
 | Palette, up to 16 | `\e]4;1;rgb:cccc/0000/0000\e\\` | The terminal's 16 colours, by number |
 | Name and version | `\eP>\|kitty(0.47.1)\e\\` | The **Terminal** row. A kitty from 0.28 on has Unicode placeholders, so with the graphics answer **Graphics** is `yes, with Unicode placeholders` |
 | Cell size | `\e[6;20;10t` | The height and the width of a cell in pixels. Asked only when the window size has no pixels, as over some SSH connections and in containers |
-| Device attributes | `\e[?62;c` | Nothing; every terminal answers it, so it marks the end of the answers |
+| Device attributes | `\e[?62;c` | Nothing; every terminal answers it, so it marks the end of the answers. Inside tmux, tmux answers it at once, and kitty's answer to the same question sent through tmux comes after kitty's graphics answer and ends the answers there |
 
 ## When something looks wrong
 
 **Images show their alt text.** Read the **Graphics** row. With `no`,
 look for `\e_G` in the probe answers: without it, the terminal did not
-answer the graphics query. Inside tmux or screen, the questions may not
-reach the terminal at all. With `without Unicode placeholders`, look at
+answer the graphics query. Inside screen, the questions may not reach the
+terminal at all; inside tmux, they reach it only when kiri wraps them and
+the pane's `allow-passthrough` is on: read the **tmux** row. With `without Unicode placeholders`, look at
 the name and version answer: kiri draws images only in a terminal it
 knows has placeholders. Also check that **Images** under Settings is
 `on`.

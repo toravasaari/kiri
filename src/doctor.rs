@@ -9,11 +9,14 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use image::ImageFormat;
 
-use crate::config::{AUTO_DETECT, Choices, Environment, Named, Origin, Setting, ThemeSource};
+use crate::config::{
+    AUTO_DETECT, Choices, Environment, Named, Origin, Passthrough, Setting, ThemeSource,
+};
 use crate::diagrams::find::{self, Choice, Search};
 use crate::diagrams::{BuiltIn, Command, LANGUAGES};
 use crate::render::image::DEFAULT_CELL;
 use crate::size::TextSize;
+use crate::term::tmux::Pane;
 use crate::term::{CellSize, Detection, Mode};
 use crate::theme::{Paper, Theme};
 
@@ -152,6 +155,10 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
         write!(terminal, ", {}", code(&term))?;
     }
     row(out, &["Terminal", &terminal])?;
+    if let Some(pane) = &detection.tmux {
+        let how = facts.choices.passthrough.value;
+        row(out, &["tmux", &tmux(pane, how)])?;
+    }
     let window = match detection.window {
         Some(w) => format!(
             "{} × {} cells, {} × {} pixels",
@@ -524,6 +531,26 @@ impl Home<'_> {
 
 /// A table row of `cells`. A `|` in a cell, also in code, is escaped so
 /// that it does not end the cell.
+/// What kiri learnt about the tmux pane it wraps graphics for, with the
+/// passthrough setting `how`.
+fn tmux(pane: &Pane, how: Passthrough) -> String {
+    let mut found = match &pane.client {
+        Some(client) => format!("passthrough for {}", code(client)),
+        None => "passthrough".into(),
+    };
+    match (&pane.passthrough, how) {
+        (None, Passthrough::Tmux) => found += "; tmux not asked, as passthrough is `tmux`",
+        (None, _) if pane.client.is_none() => found += "; tmux did not answer",
+        (None, _) => found += ", allow-passthrough unknown",
+        _ if pane.turned_on => found += ", allow-passthrough `on`, turned on by kiri",
+        (Some(value), _) if value == "off" => {
+            found += ", allow-passthrough `off`: images cannot pass";
+        }
+        (Some(value), _) => found += &format!(", allow-passthrough {}", code(value)),
+    }
+    found
+}
+
 fn row(out: &mut String, cells: &[&str]) -> std::fmt::Result {
     for cell in cells {
         write!(out, "| {} ", cell.replace('|', "\\|"))?;

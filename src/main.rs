@@ -358,13 +358,13 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     let context = Context::new(cli, &env);
     let source = match content {
         Content::Image { format, head, rest } => {
-            let caps =
-                kiri::term::capabilities(context.mode, context.width, &env, Passthrough::None);
             let (warnings, settings) = settings(cli, &env);
             let documents = settings.is_ok();
             // As for several image files, a broken configuration file does
             // not stop the image.
             let settings = settings.unwrap_or_else(|_| without_config(cli, &env));
+            let passthrough = settings.passthrough;
+            let caps = kiri::term::capabilities(context.mode, context.width, &env, passthrough);
             if pages_alone(&settings, &caps) {
                 for warning in &warnings {
                     eprintln!("kiri: {warning}");
@@ -401,7 +401,8 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     if file.is_none() {
         settings.paging = kiri::pager::only_always(settings.paging);
     }
-    let caps = kiri::term::capabilities(context.mode, context.width, &env, Passthrough::None);
+    let passthrough = settings.passthrough;
+    let caps = kiri::term::capabilities(context.mode, context.width, &env, passthrough);
     if matches!(input, Input::Diagram(_)) && pages_alone(&settings, &caps) {
         let opened = Opened {
             path,
@@ -637,8 +638,9 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
     let documents = settings.is_some();
     let mut settings = settings.unwrap_or_else(|| without_config(cli, &env));
     settings.paging = kiri::pager::for_files(settings.paging, alone);
+    let passthrough = settings.passthrough;
     let caps = on_page(
-        kiri::term::capabilities(context.mode, context.width, &env, Passthrough::None),
+        kiri::term::capabilities(context.mode, context.width, &env, passthrough),
         &settings,
     );
     show_files(&context, opened, settings, documents, caps, &failed)
@@ -1053,7 +1055,7 @@ fn page_files(
         }
         (true, None) => (vec![Vec::new(); files.len()], None),
     };
-    let mut out = io::stdout().lock();
+    let mut out = kiri::term::output(&inputs.caps);
     let mut apart = false;
     for (number, file) in files.iter().enumerate() {
         if !told_before.get() {
@@ -1090,7 +1092,7 @@ fn print_files(
     settings: &Settings,
     failed: &Cell<bool>,
 ) -> io::Result<()> {
-    let mut out = io::stdout().lock();
+    let mut out = kiri::term::output(&inputs.caps);
     let mut apart = false;
     for (number, given) in given.into_iter().enumerate() {
         let name = given.name;
@@ -1615,7 +1617,7 @@ fn show_diagram(
                 background: settings.theme.background,
                 foreground: settings.theme.foreground,
             };
-            let mut out = io::stdout().lock();
+            let mut out = kiri::term::output(&caps);
             let shown = kiri::render::render_image_on(image, &caps, page, &mut out);
             return Ok(finish(shown.and_then(|()| out.flush()))?);
         }
@@ -1883,7 +1885,7 @@ fn print_document(
         }
         None => None,
     };
-    let mut out = io::stdout().lock();
+    let mut out = kiri::term::output(&inputs.caps);
     Ok(finish(
         kiri::render::render(document, &inputs, &mut out).and_then(|()| out.flush()),
     )?)
@@ -1918,7 +1920,7 @@ fn page(
     // The screen catches the signals before the terminal is raw; the
     // guard, which would otherwise end kiri with the terminal raw, goes
     // then.
-    let Some(mut screen) = kiri::term::Screen::open(caught) else {
+    let Some(mut screen) = kiri::term::Screen::open(caught, inputs.caps.tmux_passthrough) else {
         // Without a terminal to read keys from, as in the background, the
         // document is printed, and the signals still end kiri; only a
         // reader who asked for the pager is told.
@@ -2063,7 +2065,7 @@ fn show_image(
     reader: impl Read,
 ) -> Result<(), String> {
     let image = read_image_file(context, caps, path, format, reader)?;
-    let mut out = io::stdout().lock();
+    let mut out = kiri::term::output(caps);
     finish(kiri::render::render_image(image, caps, &mut out).and_then(|()| out.flush()))
 }
 
@@ -2106,7 +2108,8 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), Failure> {
         Ok(theme) => (theme, None),
         Err(error) => (Theme::default(), Some(error)),
     };
-    let detection = kiri::term::examine(cli.mode, cli.width, &env, Passthrough::None);
+    let passthrough = choices.passthrough.value;
+    let detection = kiri::term::examine(cli.mode, cli.width, &env, passthrough);
     let output = match (cli.raw, kiri::term::stdout_is_terminal()) {
         (true, _) => Output::Raw,
         (false, true) => Output::Rendered,
@@ -2167,7 +2170,7 @@ fn list_emojis(cli: &Cli) -> Result<(), Failure> {
         eprintln!("kiri: {warning}");
     }
     let settings = settings?;
-    let caps = kiri::term::capabilities(cli.mode, cli.width, &env, Passthrough::None);
+    let caps = kiri::term::capabilities(cli.mode, cli.width, &env, settings.passthrough);
     let document = kiri::parse::parse(&kiri::list::emoji_document());
     show_document(
         &Context::new(cli, &env),
