@@ -162,7 +162,7 @@ pub fn heading_look(
 
 /// How inline code in a heading in `background` and in `color` is drawn
 /// in its image, as the text layout draws it: in the theme's colour for
-/// inline code on its background, padded by a cell on each side where it
+/// inline code on its background, padded by a space on each side where it
 /// has one; in the heading's colour on the heading's background without
 /// colours.
 fn code_look(

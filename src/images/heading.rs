@@ -47,7 +47,7 @@ pub struct CodeLook {
     pub color: [u8; 3],
     /// The colour behind it, as RGB; `None` for the heading's own.
     pub background: Option<[u8; 3]>,
-    /// Whether a cell of the background pads it on each side.
+    /// Whether a space of its background pads it on each side.
     pub padding: bool,
 }
 
@@ -162,9 +162,16 @@ pub fn draw_heading(
     if reaches.iter().all(Option::is_none) {
         return Err(no_font());
     }
-    let space = space_width(&svg).unwrap_or(look.font_px * SPACE);
-    // Inline code has a cell of its background before and after it.
-    let padding = u16::from(look.code.padding);
+    let space = space_width(&svg, false).unwrap_or(look.font_px * SPACE);
+    // Inline code has a space of its own font before and after it, on its
+    // background, as the text layout pads it, in whole cells.
+    let padding = match look.code.padding {
+        true => {
+            let code_space = space_width(&svg, true).unwrap_or(look.font_px * SPACE);
+            (code_space / cell_width).ceil() as u16
+        }
+        false => 0,
+    };
     let joined = |a: usize, b: usize| words[a].code.is_some() && words[a].code == words[b].code;
     let mut starts: Vec<u16> = Vec::with_capacity(words.len());
     let mut ends: Vec<u16> = Vec::with_capacity(words.len());
@@ -245,17 +252,14 @@ const DESCENT: f32 = 0.24;
 /// The width of a space in ems, when no font tells.
 const SPACE: f32 = 0.3;
 
-/// The width of a space in the font `svg` draws heading text with: how
-/// much farther `x x` reaches than `xx`.
+/// The width of a space in the font `svg` draws heading text with, or
+/// inline code with `code`: how much farther `x x` reaches than `xx`.
 fn space_width(
     svg: &impl Fn(u32, &[Drawn], &[(f32, f32)]) -> Result<Svg, ImageError>,
+    code: bool,
 ) -> Option<f32> {
     let reach = |text| {
-        let text = Drawn {
-            x: 0.0,
-            text,
-            code: false,
-        };
+        let text = Drawn { x: 0.0, text, code };
         Some(svg(1, &[text], &[]).ok()?.text_edges()?.1)
     };
     Some(reach("x x")? - reach("xx")?).filter(|&width| width > 0.0)
@@ -509,6 +513,24 @@ mod tests {
         // The heading text on none.
         assert!(!cells(0).any(|pixel| pixel == background));
         assert!(!cells(0).any(|pixel| pixel == opaque(code.color)));
+    }
+
+    #[test]
+    fn code_is_padded_by_a_space_at_the_heading_size() {
+        // Narrow cells, so that a space of the 30-pixel font takes more
+        // than one.
+        let cell = (4, 20);
+        let words = words(&[("a", None), ("code", Some(0))]);
+        let drawn = draw_heading(&words, &look(2), cell, &Fonts::fixture());
+        let Ok(Source::Text { image, breaks, .. }) = drawn else {
+            panic!("{drawn:?}");
+        };
+        let start = u32::from(breaks[0]) * 4;
+        let ink = (start..image.width())
+            .find(|&x| (0..40).any(|y| image.get_pixel(x, y).0 == opaque(look(2).code.color)));
+        // DejaVu Sans, the fixture's only font, has a space of 0.32 em:
+        // 9.5 pixels, three cells.
+        assert!(ink.unwrap() >= start + 3 * 4, "{ink:?} from {start}");
     }
 
     #[test]
