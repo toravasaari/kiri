@@ -328,3 +328,43 @@ fn a_narrower_window_rewraps_a_heading_image_without_a_new_image() {
     assert!(!frames[0].contains(&column(60)), "{frames:#?}");
     assert!(frames.last().unwrap().contains(&column(60)), "{frames:#?}");
 }
+
+/// All the pager writes for the picture on a terminal with kitty's
+/// graphics wrapped for tmux if `tmux`, and the frames it draws, when the
+/// terminal gives `keys`.
+fn pictured_with(tmux: bool, keys: &[&[u8]]) -> (String, Vec<String>) {
+    let (document, mut inputs) = pictured([255, 0, 0, 255]);
+    inputs.caps.tmux_passthrough = tmux;
+    let mut terminal = Fake::new(60, 6, keys);
+    let out = written(&document, inputs, &mut terminal, None);
+    (out, terminal.frames())
+}
+
+#[test]
+fn under_tmux_the_images_are_sent_again_when_the_pane_comes_back() {
+    // tmux dropped what was sent while the pane was not shown.
+    let (out, frames) = pictured_with(true, &[b"\x1b[I"]);
+    assert_eq!(frames.len(), 2, "{out:?}");
+    let sent = sent_ids(&out);
+    assert_eq!(sent.len(), 2, "{out:?}");
+    assert_eq!(sent[0], sent[1]);
+    let again = frames[1].find("\x1b_Ga=T,").unwrap();
+    let shown = frames[1].find(crate::kitty::graphics::PLACEHOLDER).unwrap();
+    assert!(again < shown, "{out:?}");
+}
+
+#[test]
+fn the_focus_coming_back_outside_tmux_changes_nothing() {
+    let (out, frames) = pictured_with(false, &[b"\x1b[I"]);
+    assert_eq!(frames.len(), 1, "{out:?}");
+    assert_eq!(transmits(&out), 1, "{out:?}");
+}
+
+#[test]
+fn the_focus_going_and_coming_back_leaves_the_help_open() {
+    for tmux in [false, true] {
+        let (out, frames) = pictured_with(tmux, &[b"?", b"\x1b[O", b"\x1b[I"]);
+        let last = frames.last().unwrap();
+        assert!(last.contains(" Keys "), "{out:?}");
+    }
+}

@@ -325,10 +325,11 @@ impl<W: Write> Drop for Screen<W> {
     }
 }
 
-/// The alternate screen, with the cursor hidden.
-const ENTER_SCREEN: &[u8] = b"\x1b[?1049h\x1b[?25l";
+/// The alternate screen, with the cursor hidden, and focus reporting,
+/// which tells the pager when its tmux pane is shown again.
+const ENTER_SCREEN: &[u8] = b"\x1b[?1049h\x1b[?25l\x1b[?1004h";
 /// Back to the main screen as it was, with the cursor shown.
-const LEAVE_SCREEN: &[u8] = b"\x1b[?25h\x1b[?1049l";
+const LEAVE_SCREEN: &[u8] = b"\x1b[?1004l\x1b[?25h\x1b[?1049l";
 
 #[cfg(test)]
 mod tests;

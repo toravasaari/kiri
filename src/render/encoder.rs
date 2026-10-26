@@ -47,6 +47,9 @@ struct Held {
     /// Whether `id` is known to be that of the pixels as they are now:
     /// not after they may have changed, until the image is scaled again.
     checked: bool,
+    /// Whether the terminal is known to have been sent the image: not
+    /// after it may have lost it, until it is sent again.
+    sent: bool,
 }
 
 impl Encoder {
@@ -68,7 +71,7 @@ impl Encoder {
     ) -> io::Result<ImageId> {
         let cell = cell_size(caps);
         let old = self.held.get(placement).filter(|held| held.cell == cell);
-        if let Some(held) = old.filter(|held| held.checked) {
+        if let Some(held) = old.filter(|held| held.checked && held.sent) {
             return Ok(held.id);
         }
         let scaled = Scaled::new(placement, images, cell, caps.image_run)?;
@@ -76,16 +79,21 @@ impl Encoder {
             id: scaled.id,
             cell,
             checked: true,
+            sent: true,
         };
         if let Some(old) = self.held.insert(placement.clone(), held) {
-            if old.id == scaled.id {
+            if old.id == scaled.id && old.sent {
                 return Ok(scaled.id);
             }
             // At once, not queued as `keep` does: the old id is known to
             // be stale only now that the image has been scaled again.
-            if !self.holds(old.id) {
+            if old.id != scaled.id && !self.holds(old.id) {
                 graphics::delete(out, old.id)?;
             }
+        }
+        // Another placement of the same image has it sent too.
+        for held in self.held.values_mut().filter(|held| held.id == scaled.id) {
+            held.sent = true;
         }
         scaled.send(out)?;
         Ok(scaled.id)
@@ -181,6 +189,15 @@ impl Encoder {
     pub fn changed(&mut self) {
         for held in self.held.values_mut() {
             held.checked = false;
+        }
+    }
+
+    /// Tells the encoder that the terminal may have lost the images it was
+    /// sent, as tmux drops what goes to a pane that is not shown: each is
+    /// sent again when it is next shown.
+    pub fn lost(&mut self) {
+        for held in self.held.values_mut() {
+            held.sent = false;
         }
     }
 
@@ -404,6 +421,31 @@ mod tests {
         let expected = String::from_utf8(expected).unwrap();
         assert!(out.starts_with(&expected), "{out:?}");
         assert!(out.contains("\x1b_Ga=T,"), "{out:?}");
+    }
+
+    #[test]
+    fn a_lost_image_is_sent_again_once_for_all_its_placements() {
+        let mut images = Images::new();
+        let red = RgbaImage::from_pixel(20, 20, image::Rgba([255, 0, 0, 255]));
+        images.insert("a.png", Ok(Source::Raster(red.clone())));
+        images.insert("b.png", Ok(Source::Raster(red)));
+        let (a, b) = (
+            placed("a.png", 2, 1, Shows::Image),
+            placed("b.png", 2, 1, Shows::Image),
+        );
+        let mut encoder = Encoder::new();
+        let mut out = Vec::new();
+        let id = encoder.id(&a, &images, &caps(), &mut out).unwrap();
+        assert_eq!(encoder.id(&b, &images, &caps(), &mut out).unwrap(), id);
+        out.clear();
+        assert_eq!(encoder.id(&a, &images, &caps(), &mut out).unwrap(), id);
+        assert!(out.is_empty());
+        encoder.lost();
+        assert_eq!(encoder.id(&a, &images, &caps(), &mut out).unwrap(), id);
+        assert_eq!(encoder.id(&b, &images, &caps(), &mut out).unwrap(), id);
+        let out = String::from_utf8(out).unwrap();
+        assert_eq!(out.matches("\x1b_Ga=T,").count(), 1, "{out:?}");
+        assert!(!out.contains("a=d"), "{out:?}");
     }
 
     #[test]

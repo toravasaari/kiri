@@ -29,6 +29,11 @@ pub enum Key {
     /// in `:n`, which the pager takes as one key with it. The terminal
     /// sends no such key.
     Command(char),
+    /// The terminal tells that the window, or the tmux pane, has the
+    /// focus again, `CSI I`, or lost it, `CSI O`, with focus reporting
+    /// on. Not keys, so they leave the help and the prompt open.
+    FocusIn,
+    FocusOut,
     /// A sequence the pager does not use.
     Other,
 }
@@ -194,6 +199,8 @@ fn csi(parameters: &[u8], last: u8) -> Key {
         // The modifier 2 is Shift.
         (b"5;2", b'~') => Key::ShiftPageUp,
         (b"6;2", b'~') => Key::ShiftPageDown,
+        (b"", b'I') => Key::FocusIn,
+        (b"", b'O') => Key::FocusOut,
         _ => Key::Other,
     }
 }
@@ -423,10 +430,17 @@ mod tests {
     }
 
     #[test]
+    fn decodes_the_focus_coming_back() {
+        assert_eq!(decode(b"\x1b[I\x1b[O"), [Key::FocusIn, Key::FocusOut]);
+        assert_eq!(action(Key::FocusIn), None);
+        assert_eq!(action(Key::FocusOut), None);
+    }
+
+    #[test]
     fn unknown_sequences_are_one_key_each() {
-        // F5, Shift+Up and a focus event, each followed by a letter.
+        // F5, Shift+Up and Shift+Tab, each followed by a letter.
         assert_eq!(
-            decode(b"\x1b[15~q\x1b[1;2Aq\x1b[Iq"),
+            decode(b"\x1b[15~q\x1b[1;2Aq\x1b[Zq"),
             [
                 Key::Other,
                 Key::Char('q'),

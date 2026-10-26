@@ -384,6 +384,7 @@ writes as it is into a pipe.
 | Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J | `src/render/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows |
 | Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/kitty/query.rs` | Wiping the progress line; erasing the rows the text sizing tests drew |
 | Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term/screen.rs` | The pager's screen of its own |
+| Focus reporting | CSI ?1004h/l; CSI I, CSI O | `src/term/screen.rs`, `src/pager/keys.rs` | Telling the pager that its tmux pane is shown again |
 | Synchronized output | CSI ?2026h/l | `src/render/output.rs` | Pager frames without flicker |
 | Cell size query | CSI 16 t | `src/kitty/query.rs` | The cell size in pixels where the window size has none |
 | Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI c | `src/term/probe.rs` | Cursor position, foreground, background and palette colours, terminal version, end of the answers |

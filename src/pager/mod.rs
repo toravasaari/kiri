@@ -1353,7 +1353,19 @@ fn show(
         };
         now = terminal.now();
         state.tick(now);
+        // Whether the frame is drawn again even if it has not changed.
+        let mut again = false;
         for key in keys {
+            match key {
+                // tmux passed no images while the pane was not shown.
+                Key::FocusIn if writer.through_tmux() => {
+                    writer.lost();
+                    again = true;
+                    continue;
+                }
+                Key::FocusIn | Key::FocusOut => continue,
+                _ => {}
+            }
             match state.press(key, now, layout) {
                 Pressed::Nothing => {}
                 Pressed::Quit => return Ok(Outcome::Quit),
@@ -1408,7 +1420,7 @@ fn show(
         }
         let frame = layout.frame(state, now);
         // A band on the screen moves on with each frame drawn.
-        if frame != shown || writer.has_bands() {
+        if frame != shown || writer.has_bands() || again {
             shown = frame;
             writer.at(now.saturating_duration_since(source.started));
             shown.draw(layout.view.rows(), writer, terminal)?;

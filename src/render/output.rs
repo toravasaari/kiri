@@ -230,6 +230,18 @@ impl<'a> Writer<'a> {
 }
 
 impl Writer<'_> {
+    /// Whether kitty's graphics go through tmux, which drops them while
+    /// kiri's pane is not shown.
+    pub fn through_tmux(&self) -> bool {
+        self.caps.tmux_passthrough
+    }
+
+    /// Sends every image again as its rows are next written, as the
+    /// terminal may have lost them.
+    pub fn lost(&mut self) {
+        self.encoder.lost();
+    }
+
     /// Deletes from the terminal the images the encoder no longer keeps.
     pub fn delete_unused(&mut self, out: &mut impl Write) -> io::Result<()> {
         self.encoder.delete_unused(out)
