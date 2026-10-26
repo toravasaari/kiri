@@ -5,6 +5,7 @@
 
 use super::svg::{Fonts, Svg, decode_svg};
 use super::{ImageError, Source};
+use crate::model::{Image, Inline};
 
 /// How the headings of each level are drawn, resolved from the theme and
 /// the terminal by the renderer.
@@ -34,12 +35,101 @@ pub struct LevelLook {
     pub italic: bool,
     /// The colour of the text, as RGB.
     pub color: [u8; 3],
+    /// How inline code in the heading is drawn.
+    pub code: CodeLook,
 }
 
-/// The words of a heading's text, split on whitespace: the parts its image
-/// draws, each from a whole cell.
-pub fn heading_words(text: &str) -> Vec<&str> {
-    text.split_whitespace().collect()
+/// How inline code in a heading image is drawn, as the text layout draws
+/// it in a heading.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CodeLook {
+    /// The colour of its text, as RGB.
+    pub color: [u8; 3],
+    /// The colour behind it, as RGB; `None` for the heading's own.
+    pub background: Option<[u8; 3]>,
+    /// Whether a cell of the background pads it on each side.
+    pub padding: bool,
+}
+
+/// A word of a heading, as its image draws it from a whole cell.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct HeadingWord {
+    pub text: String,
+    /// The inline code the whole word is in, numbered from 0 in the
+    /// heading, so that the words of one code span share a background;
+    /// `None` for heading text.
+    pub code: Option<u16>,
+}
+
+/// The words of the heading text `text`, split on whitespace, none of them
+/// code.
+pub fn plain_words(text: &str) -> Vec<HeadingWord> {
+    (text.split_whitespace())
+        .map(|word| HeadingWord {
+            text: word.to_owned(),
+            code: None,
+        })
+        .collect()
+}
+
+/// The words of a heading with `content`, split on whitespace as its
+/// plain text is, each marked with the inline code it is in. Other inline
+/// styles are drawn as heading text.
+pub fn heading_words(content: &[Inline]) -> Vec<HeadingWord> {
+    let mut marked = Vec::new();
+    mark(content, None, &mut 0, &mut marked);
+    let mut words = Vec::new();
+    // The word so far, and the code span all of it is in, if one is.
+    let mut word: Option<(String, Option<u16>)> = None;
+    for (c, code) in marked {
+        if c.is_whitespace() {
+            words.extend(word.take().map(|(text, code)| HeadingWord { text, code }));
+            continue;
+        }
+        match &mut word {
+            Some((text, all)) => {
+                text.push(c);
+                if *all != code {
+                    *all = None;
+                }
+            }
+            None => word = Some((c.to_string(), code)),
+        }
+    }
+    words.extend(word.map(|(text, code)| HeadingWord { text, code }));
+    words
+}
+
+/// Appends the characters of the plain text of `content`, as
+/// [`Inline::plain_text`] has it, to `out`, each with the inline code it
+/// is in: `code` around it, or the next of `spans` for an inline code
+/// of its own.
+fn mark(
+    content: &[Inline],
+    code: Option<u16>,
+    spans: &mut u16,
+    out: &mut Vec<(char, Option<u16>)>,
+) {
+    let text = |out: &mut Vec<_>, text: &str, code| out.extend(text.chars().map(|c| (c, code)));
+    for inline in content {
+        match inline {
+            Inline::Code(code_text) => {
+                text(out, code_text, Some(*spans));
+                *spans += 1;
+            }
+            Inline::Text(plain) | Inline::Html(plain) => text(out, plain, code),
+            Inline::SoftBreak | Inline::LineBreak => text(out, " ", code),
+            Inline::Emphasis(inner)
+            | Inline::Strong(inner)
+            | Inline::Strikethrough(inner)
+            | Inline::Kbd(inner)
+            | Inline::Mark(inner)
+            | Inline::Subscript(inner)
+            | Inline::Superscript(inner)
+            | Inline::Link { content: inner, .. }
+            | Inline::Image(Image { alt: inner, .. }) => mark(inner, code, spans, out),
+        }
+    }
 }
 
 /// `text` drawn as `look` says with `fonts`, in cells of `cell` pixels:
@@ -48,57 +138,104 @@ pub fn heading_words(text: &str) -> Vec<&str> {
 /// the first start on and those each word's ink ends before. An error
 /// when no font draws the text.
 pub fn draw_heading(
-    text: &str,
+    words: &[HeadingWord],
     look: &LevelLook,
     cell: (u16, u16),
     fonts: &Fonts,
 ) -> Result<Source, ImageError> {
-    let words = heading_words(text);
     let cell_width = f32::from(cell.0);
     let height = u32::from(look.rows) * u32::from(cell.1);
     // The text sits on the bottom row as a sized heading's does, with
     // room below the baseline for the descenders.
     let baseline = height as f32 - DESCENT * look.font_px;
-    let svg = |width: u32, texts: &[(f32, &str)]| {
-        let svg = heading_svg(texts, look, (width, height), baseline);
+    let svg = |width: u32, texts: &[Drawn], backgrounds: &[(f32, f32)]| {
+        let svg = heading_svg(texts, backgrounds, look, (width, height), baseline);
         decode_svg(svg.as_bytes(), u64::MAX, fonts)
     };
     // How far the ink of each word reaches from where the word starts.
     let mut reaches = Vec::with_capacity(words.len());
-    for word in &words {
-        let edges = svg(1, &[(0.0, word)])?.text_edges();
+    for word in words {
+        let text = Drawn::new(0.0, word);
+        let edges = svg(1, &[text], &[])?.text_edges();
         reaches.push(edges.map(|(_, right)| right.max(0.0)));
     }
     if reaches.iter().all(Option::is_none) {
         return Err(no_font());
     }
     let space = space_width(&svg).unwrap_or(look.font_px * SPACE);
+    // Inline code has a cell of its background before and after it.
+    let padding = u16::from(look.code.padding);
+    let joined = |a: usize, b: usize| words[a].code.is_some() && words[a].code == words[b].code;
     let mut starts: Vec<u16> = Vec::with_capacity(words.len());
     let mut ends: Vec<u16> = Vec::with_capacity(words.len());
+    let mut texts = Vec::with_capacity(words.len());
     let mut end = 0.0_f32;
-    for reach in &reaches {
-        let start = match starts.last() {
-            None => 0,
-            Some(_) => ((end + space) / cell_width).ceil() as u16,
+    for (index, (word, reach)) in words.iter().zip(&reaches).enumerate() {
+        let code = word.code.is_some();
+        let before = match code && (index == 0 || !joined(index - 1, index)) {
+            true => padding,
+            false => 0,
         };
-        end = f32::from(start) * cell_width + reach.unwrap_or(0.0);
-        starts.push(start);
+        let after = match code && (index + 1 == words.len() || !joined(index, index + 1)) {
+            true => padding,
+            false => 0,
+        };
+        let start = match index {
+            0 => 0,
+            _ => ((end + space) / cell_width).ceil() as u16,
+        };
+        let x = f32::from(start + before) * cell_width;
+        end = x + reach.unwrap_or(0.0);
         // A word without ink still covers a cell, so that a line it ends
         // shows something.
-        ends.push(((end / cell_width).ceil() as u16).max(start + 1));
+        let last = (((end / cell_width).ceil() as u16) + after).max(start + 1);
+        if after > 0 {
+            end = f32::from(last) * cell_width;
+        }
+        starts.push(start);
+        ends.push(last);
+        texts.push(Drawn::new(x, word));
+    }
+    // The background of each run of words in one inline code.
+    let mut backgrounds = Vec::new();
+    if look.code.background.is_some() {
+        for index in 0..words.len() {
+            let first = index == 0 || !joined(index - 1, index);
+            if words[index].code.is_none() {
+                continue;
+            }
+            let right = f32::from(ends[index]) * cell_width;
+            match backgrounds.last_mut() {
+                Some((_, end)) if !first => *end = right,
+                _ => backgrounds.push((f32::from(starts[index]) * cell_width, right)),
+            }
+        }
     }
     let columns = u32::from(*ends.last().unwrap_or(&1));
     let width = columns * u32::from(cell.0);
-    let texts: Vec<(f32, &str)> = (starts.iter())
-        .zip(&words)
-        .map(|(&start, &word)| (f32::from(start) * cell_width, word))
-        .collect();
-    let image = svg(width, &texts)?.render(width, height);
+    let image = svg(width, &texts, &backgrounds)?.render(width, height);
     Ok(Source::Text {
         image,
         breaks: starts.into_iter().skip(1).collect(),
         ends,
     })
+}
+
+/// A word drawn at `x`: heading text, or inline code.
+struct Drawn<'a> {
+    x: f32,
+    text: &'a str,
+    code: bool,
+}
+
+impl<'a> Drawn<'a> {
+    fn new(x: f32, word: &'a HeadingWord) -> Self {
+        Drawn {
+            x,
+            text: &word.text,
+            code: word.code.is_some(),
+        }
+    }
 }
 
 /// How far below the baseline the text reaches, in ems: the descent of
@@ -108,30 +245,62 @@ const DESCENT: f32 = 0.24;
 /// The width of a space in ems, when no font tells.
 const SPACE: f32 = 0.3;
 
-/// The width of a space in the font `svg` draws with: how much farther
-/// `x x` reaches than `xx`.
-fn space_width(svg: &impl Fn(u32, &[(f32, &str)]) -> Result<Svg, ImageError>) -> Option<f32> {
-    let reach = |text| Some(svg(1, &[(0.0, text)]).ok()?.text_edges()?.1);
+/// The width of a space in the font `svg` draws heading text with: how
+/// much farther `x x` reaches than `xx`.
+fn space_width(
+    svg: &impl Fn(u32, &[Drawn], &[(f32, f32)]) -> Result<Svg, ImageError>,
+) -> Option<f32> {
+    let reach = |text| {
+        let text = Drawn {
+            x: 0.0,
+            text,
+            code: false,
+        };
+        Some(svg(1, &[text], &[]).ok()?.text_edges()?.1)
+    };
     Some(reach("x x")? - reach("xx")?).filter(|&width| width > 0.0)
 }
 
 /// An SVG `size` pixels large with each of `texts` at its x and on
-/// `baseline`, drawn as `look` says.
-fn heading_svg(texts: &[(f32, &str)], look: &LevelLook, size: (u32, u32), baseline: f32) -> String {
-    let [red, green, blue] = look.color;
+/// `baseline`, drawn as `look` says, over the background of inline code
+/// from the left to the right of each of `backgrounds`, all the way down.
+fn heading_svg(
+    texts: &[Drawn],
+    backgrounds: &[(f32, f32)],
+    look: &LevelLook,
+    size: (u32, u32),
+    baseline: f32,
+) -> String {
+    let hex = |[red, green, blue]: [u8; 3]| format!("#{red:02x}{green:02x}{blue:02x}");
     let weight = if look.bold { "bold" } else { "normal" };
     let style = if look.italic { "italic" } else { "normal" };
     let mut svg = format!(
         "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{}\" height=\"{}\">",
         size.0, size.1
     );
-    for (x, text) in texts {
+    if let Some(background) = look.code.background {
+        for (left, right) in backgrounds {
+            svg.push_str(&format!(
+                "<rect x=\"{left}\" y=\"0\" width=\"{}\" height=\"{}\" fill=\"{}\"/>",
+                right - left,
+                size.1,
+                hex(background),
+            ));
+        }
+    }
+    for text in texts {
+        let (family, color) = match text.code {
+            true => ("monospace", look.code.color),
+            false => ("sans-serif", look.color),
+        };
         svg.push_str(&format!(
-            "<text x=\"{x}\" y=\"{baseline}\" font-family=\"sans-serif\" \
+            "<text x=\"{}\" y=\"{baseline}\" font-family=\"{family}\" \
              font-size=\"{}\" font-weight=\"{weight}\" font-style=\"{style}\" \
-             fill=\"#{red:02x}{green:02x}{blue:02x}\" xml:space=\"preserve\">{}</text>",
+             fill=\"{}\" xml:space=\"preserve\">{}</text>",
+            text.x,
             look.font_px,
-            escaped(text),
+            hex(color),
+            escaped(text.text),
         ));
     }
     svg.push_str("</svg>");
@@ -176,11 +345,16 @@ mod tests {
             bold: true,
             italic: false,
             color: [0x12, 0x80, 0xf0],
+            code: CodeLook {
+                color: [0xe0, 0x20, 0xe0],
+                background: Some([0x30, 0x30, 0x30]),
+                padding: true,
+            },
         }
     }
 
     fn drawn(text: &str, look: &LevelLook) -> (image::RgbaImage, Vec<u16>) {
-        match draw_heading(text, look, CELL, &Fonts::fixture()) {
+        match draw_heading(&plain_words(text), look, CELL, &Fonts::fixture()) {
             Ok(Source::Text { image, breaks, .. }) => (image, breaks),
             other => panic!("{other:?}"),
         }
@@ -206,7 +380,7 @@ mod tests {
 
     #[test]
     fn without_fonts_a_heading_has_no_image() {
-        let drawn = draw_heading("Kiri", &look(2), CELL, &Fonts::none());
+        let drawn = draw_heading(&plain_words("Kiri"), &look(2), CELL, &Fonts::none());
         assert_eq!(drawn, Err(no_font()));
     }
 
@@ -243,7 +417,12 @@ mod tests {
 
     #[test]
     fn each_word_ends_before_the_next_starts() {
-        let drawn = draw_heading("One two three", &look(2), CELL, &Fonts::fixture());
+        let drawn = draw_heading(
+            &plain_words("One two three"),
+            &look(2),
+            CELL,
+            &Fonts::fixture(),
+        );
         let Ok(Source::Text {
             image,
             breaks,
@@ -265,7 +444,12 @@ mod tests {
     #[test]
     fn a_word_without_ink_still_covers_a_cell() {
         // A zero-width space is a word of its own, and draws nothing.
-        let drawn = draw_heading("Kiri \u{200B}", &look(2), CELL, &Fonts::fixture());
+        let drawn = draw_heading(
+            &plain_words("Kiri \u{200B}"),
+            &look(2),
+            CELL,
+            &Fonts::fixture(),
+        );
         let Ok(Source::Text {
             image,
             breaks,
@@ -280,8 +464,116 @@ mod tests {
         assert_eq!(image.width(), u32::from(ends[1]) * u32::from(CELL.0));
     }
 
+    /// `words` as heading words, each with the code span it is in.
+    fn words(words: &[(&str, Option<u16>)]) -> Vec<HeadingWord> {
+        (words.iter())
+            .map(|&(text, code)| HeadingWord {
+                text: text.to_owned(),
+                code,
+            })
+            .collect()
+    }
+
+    /// `words` drawn as `look(2)` says, with its starts and ends.
+    fn drawn_words(words: &[HeadingWord]) -> (image::RgbaImage, Vec<u16>, Vec<u16>) {
+        let drawn = draw_heading(words, &look(2), CELL, &Fonts::fixture());
+        match drawn {
+            Ok(Source::Text {
+                image,
+                breaks,
+                ends,
+            }) => (image, std::iter::once(0).chain(breaks).collect(), ends),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// The opaque colour `rgb`.
+    fn opaque([red, green, blue]: [u8; 3]) -> [u8; 4] {
+        [red, green, blue, 255]
+    }
+
+    #[test]
+    fn a_code_word_is_drawn_on_its_background_in_its_colour() {
+        let code = look(2).code;
+        let (image, starts, ends) = drawn_words(&words(&[("Kiri", None), ("code", Some(0))]));
+        let cells = |word: usize| {
+            let x = u32::from(starts[word]) * 10..u32::from(ends[word]) * 10;
+            let image = &image;
+            x.flat_map(move |x| (0..40).map(move |y| image.get_pixel(x, y).0))
+        };
+        let background = opaque(code.background.unwrap());
+        // On its background all over its cells, padding and all.
+        let top = image.get_pixel(u32::from(starts[1]) * 10, 0).0;
+        assert_eq!(top, background);
+        assert!(cells(1).any(|pixel| pixel == opaque(code.color)));
+        // The heading text on none.
+        assert!(!cells(0).any(|pixel| pixel == background));
+        assert!(!cells(0).any(|pixel| pixel == opaque(code.color)));
+    }
+
+    #[test]
+    fn a_code_span_over_two_words_has_no_gap_in_its_background() {
+        let background = opaque(look(2).code.background.unwrap());
+        let row = |image: &image::RgbaImage, x: std::ops::Range<u32>| {
+            x.map(|x| image.get_pixel(x, 0).0).collect::<Vec<_>>()
+        };
+        let (image, starts, ends) = drawn_words(&words(&[("a", Some(0)), ("b", Some(0))]));
+        let span = u32::from(starts[0]) * 10..u32::from(ends[1]) * 10;
+        assert!(row(&image, span).iter().all(|&pixel| pixel == background));
+        // Two spans of code have the page between them.
+        let (image, _, ends) = drawn_words(&words(&[("a", Some(0)), ("b", Some(1))]));
+        let gap = u32::from(ends[0]) * 10..u32::from(ends[0]) * 10 + 1;
+        assert!(
+            row(&image, gap).iter().all(|pixel| pixel[3] == 0),
+            "{ends:?}"
+        );
+    }
+
+    #[test]
+    fn without_a_code_background_none_is_drawn() {
+        let mut look = look(2);
+        look.code.background = None;
+        let words = words(&[("code", Some(0))]);
+        let drawn = draw_heading(&words, &look, CELL, &Fonts::fixture());
+        let Ok(Source::Text { image, .. }) = drawn else {
+            panic!("{drawn:?}");
+        };
+        assert_eq!(image.get_pixel(0, 0).0[3], 0);
+        assert!(
+            image
+                .pixels()
+                .any(|pixel| pixel.0 == opaque(look.code.color))
+        );
+    }
+
+    #[test]
+    fn the_words_of_inline_code_are_marked_with_their_span() {
+        let content = crate::parse::parse("# a `b c` *d* `e`f `g`\n");
+        let crate::model::Block::Heading { content, .. } = &content.blocks[0] else {
+            panic!("a heading");
+        };
+        let marked: Vec<(String, Option<u16>)> = (heading_words(content).into_iter())
+            .map(|word| (word.text, word.code))
+            .collect();
+        let expected = [
+            ("a", None),
+            ("b", Some(0)),
+            ("c", Some(0)),
+            ("d", None),
+            // Partly code: drawn as heading text.
+            ("ef", None),
+            ("g", Some(2)),
+        ];
+        let expected: Vec<(String, Option<u16>)> = (expected.iter())
+            .map(|&(text, code)| (text.to_owned(), code))
+            .collect();
+        assert_eq!(marked, expected);
+    }
+
     #[test]
     fn heading_words_split_on_whitespace() {
-        assert_eq!(heading_words(" One\ttwo  three\n"), ["One", "two", "three"]);
+        let words = plain_words(" One\ttwo  three\n");
+        let texts: Vec<&str> = words.iter().map(|word| word.text.as_str()).collect();
+        assert_eq!(texts, ["One", "two", "three"]);
     }
 }

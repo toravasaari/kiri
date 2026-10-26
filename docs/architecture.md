@@ -224,11 +224,14 @@ after the reduction, so the panel's copy is small too.
 
 A heading is drawn as an image the same way, where the terminal draws
 images but not large text, as kitty inside tmux: `ImageKey::Heading`
-holds its level, its plain text and the cell size it is drawn for, and
-`src/images/heading.rs` draws the text through the SVG renderer in the
-system's sans-serif font, at the size and in the colour that
-`render::heading_look` resolves from the theme and the terminal, so
-`src/images/` knows nothing of themes. Each word starts on a whole cell,
+holds its level, its words, each marked with the inline code it is in,
+and the cell size it is drawn for, and `src/images/heading.rs` draws the
+text through the SVG renderer in the system's sans-serif font, and inline
+code in its monospace font on the background of inline code, at the size
+and in the colours that `render::heading_look` resolves from the theme
+and the terminal, as the text layout's inline code takes them, so
+`src/images/` knows nothing of themes. Other inline styles are drawn as
+the heading's text. Each word starts on a whole cell,
 and `Source::Text` tells the columns each word covers, so layout wraps a
 heading too long for the window as the sized one wraps: each line writes
 the placeholders of the image's columns its words cover, which kitty's

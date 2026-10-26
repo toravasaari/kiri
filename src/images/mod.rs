@@ -28,7 +28,9 @@ use crate::model::{Block, Document, Inline};
 pub(crate) use background::{Arrival, Gated};
 pub use background::{Loads, STOPPING};
 pub use decode::{DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image};
-pub use heading::{HeadingLook, LevelLook, draw_heading, heading_words};
+pub use heading::{
+    CodeLook, HeadingLook, HeadingWord, LevelLook, draw_heading, heading_words, plain_words,
+};
 pub use pipeline::{
     Interrupted, Loaded, Loading, load_documents, load_headings_in_background, load_in_background,
     measure_in_background, reload_in_background,
@@ -165,13 +167,13 @@ pub enum ImageKey {
         language: String,
         source: String,
     },
-    /// A heading drawn as an image: its level, its text, and the size in
-    /// pixels of the cells it is drawn for, as its words start on whole
-    /// cells.
+    /// A heading drawn as an image: its level, its words with the inline
+    /// code they are in, and the size in pixels of the cells it is drawn
+    /// for, as its words start on whole cells.
     Heading {
         document: usize,
         level: u8,
-        text: String,
+        words: Vec<HeadingWord>,
         cell: (u16, u16),
     },
 }
@@ -187,13 +189,20 @@ impl ImageKey {
         }
     }
 
-    /// The key of the heading of `level` with `text`, drawn as an image
-    /// for cells of `cell` pixels, in the first document.
+    /// The key of the heading of `level` with the text `text`, without
+    /// inline code, drawn as an image for cells of `cell` pixels, in the
+    /// first document.
     pub fn heading(level: u8, text: &str, cell: (u16, u16)) -> Self {
+        ImageKey::heading_of(level, plain_words(text), cell)
+    }
+
+    /// The key of the heading of `level` with `words`, drawn as an image
+    /// for cells of `cell` pixels, in the first document.
+    pub fn heading_of(level: u8, words: Vec<HeadingWord>, cell: (u16, u16)) -> Self {
         ImageKey::Heading {
             document: 0,
             level,
-            text: text.to_owned(),
+            words,
             cell,
         }
     }
@@ -210,11 +219,11 @@ impl ImageKey {
                 source,
             },
             ImageKey::Heading {
-                level, text, cell, ..
+                level, words, cell, ..
             } => ImageKey::Heading {
                 document,
                 level,
-                text,
+                words,
                 cell,
             },
         }
@@ -249,7 +258,10 @@ impl fmt::Display for ImageKey {
         match self {
             ImageKey::Url { url, .. } => f.write_str(url),
             ImageKey::Block { language, .. } => write!(f, "{language} block"),
-            ImageKey::Heading { text, .. } => write!(f, "heading {text:?}"),
+            ImageKey::Heading { words, .. } => {
+                let text: Vec<&str> = words.iter().map(|word| word.text.as_str()).collect();
+                write!(f, "heading {:?}", text.join(" "))
+            }
         }
     }
 }
@@ -589,9 +601,9 @@ pub fn load_parts(
             _ if have.is_some() => have.take().expect("an image kept"),
             Wanted::Url(url) => load_url(url, part.base, max_file_size, fonts),
             Wanted::Heading {
-                level, ref text, ..
+                level, ref words, ..
             } => match &options.headings {
-                Some(look) => draw_heading(text, look.level(level), look.cell, fonts),
+                Some(look) => draw_heading(words, look.level(level), look.cell, fonts),
                 None => unreachable!("headings are wanted only with a look"),
             },
             Wanted::Diagram {
@@ -688,11 +700,11 @@ enum Wanted<'a> {
         source: &'a str,
         line: usize,
     },
-    /// A heading drawn as an image: its level, its text and the size of
+    /// A heading drawn as an image: its level, its words and the size of
     /// the cells it is drawn for.
     Heading {
         level: u8,
-        text: String,
+        words: Vec<HeadingWord>,
         cell: (u16, u16),
     },
 }
@@ -703,9 +715,9 @@ impl Wanted<'_> {
             Wanted::Url(url) => ImageKey::from(url),
             Wanted::Heading {
                 level,
-                ref text,
+                ref words,
                 cell,
-            } => ImageKey::heading(level, text, cell),
+            } => ImageKey::heading_of(level, words.clone(), cell),
             Wanted::Diagram {
                 language, source, ..
             } => ImageKey::block(language, source),
@@ -751,7 +763,7 @@ fn collect_blocks<'a>(
             Block::Heading { level, content } if let Some(cell) = headings => {
                 wanted.push(Wanted::Heading {
                     level: *level,
-                    text: Inline::plain_text(content),
+                    words: heading_words(content),
                     cell,
                 })
             }
@@ -838,6 +850,11 @@ mod tests {
             bold: true,
             italic: false,
             color: [0x20, 0x60, 0xd0],
+            code: CodeLook {
+                color: [0xe0, 0x20, 0xe0],
+                background: Some([0x30, 0x30, 0x30]),
+                padding: true,
+            },
         };
         HeadingLook {
             cell: (10, 20),
@@ -867,10 +884,19 @@ mod tests {
         let images = with_headings("# Kiri\n\n## Kiri *is* `here`\n", &Fonts::fixture());
         let one = images.get(&ImageKey::heading(1, "Kiri", (10, 20)));
         assert!(matches!(one, Some(Ok(Source::Text { .. }))), "{images:?}");
-        // As plain text, and apart from the same text at another level.
-        let two = images.get(&ImageKey::heading(2, "Kiri is here", (10, 20)));
+        // Emphasis as plain text, inline code as code, and apart from the
+        // same text at another level.
+        let mut words = plain_words("Kiri is here");
+        words[2].code = Some(0);
+        let two = images.get(&ImageKey::heading_of(2, words, (10, 20)));
         assert!(matches!(two, Some(Ok(Source::Text { .. }))), "{images:?}");
         assert_eq!(images.len(), 2);
+    }
+
+    #[test]
+    fn the_same_words_with_and_without_code_are_two_images() {
+        let images = with_headings("# a `b`\n\n# a b\n", &Fonts::fixture());
+        assert_eq!(images.len(), 2, "{images:?}");
     }
 
     #[test]

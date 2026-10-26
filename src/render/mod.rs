@@ -16,7 +16,7 @@ use std::io::{self, Write};
 
 use crate::caps::Capabilities;
 use crate::color::Color;
-use crate::images::{HeadingLook, ImageKey, Images, LevelLook, Source};
+use crate::images::{CodeLook, HeadingLook, ImageKey, Images, LevelLook, Source};
 use crate::model::{Block, Document, File, FrontMatter, FrontMatterError};
 use crate::theme::Theme;
 
@@ -144,18 +144,50 @@ pub fn heading_look(
     let level = |level: u8| {
         let heading = theme.heading(level);
         let color = if caps.color { heading.color } else { None };
+        let color = rgb(color).unwrap_or(text);
         LevelLook {
             rows: heading.size.scale(),
             font_px: (heading.size.value() * f64::from(cell.1) / 1.2) as f32,
             bold: heading.bold,
             italic: heading.italic,
-            color: rgb(color).unwrap_or(text),
+            color,
+            code: code_look(theme, caps, heading.background, color),
         }
     };
     Some(HeadingLook {
         cell,
         levels: [1, 2, 3, 4, 5, 6].map(level),
     })
+}
+
+/// How inline code in a heading in `background` and in `color` is drawn
+/// in its image, as the text layout draws it: in the theme's colour for
+/// inline code on its background, padded by a cell on each side where it
+/// has one; in the heading's colour on the heading's background without
+/// colours.
+fn code_look(
+    theme: &Theme,
+    caps: &Capabilities,
+    background: Option<Color>,
+    color: [u8; 3],
+) -> CodeLook {
+    let rgb = |color: Option<Color>| match color?.rgb(&caps.palette)? {
+        Color::Rgb(red, green, blue) => Some([red, green, blue]),
+        Color::Palette(_) => None,
+    };
+    if !(caps.styling && caps.color) {
+        return CodeLook {
+            color,
+            background: None,
+            padding: false,
+        };
+    }
+    let code_background = layout::inline_code_background(theme, caps);
+    CodeLook {
+        color: rgb(theme.inline_code).unwrap_or(color),
+        background: rgb(code_background),
+        padding: theme.inline_code_padding && code_background.or(background).is_some(),
+    }
 }
 
 impl Headings {
@@ -324,6 +356,50 @@ mod tests {
         assert_eq!(heading_look(Headings::Auto, false, &theme, &kitty), None);
         let images = heading_look(Headings::Images, false, &theme, &kitty);
         assert!(images.is_some());
+    }
+
+    /// The colours, as RGB, that the text layout gives the inline code in
+    /// a level-1 heading on a terminal with `caps`: its text's and its
+    /// background's.
+    fn laid_out_code(caps: &Capabilities) -> (Option<[u8; 3]>, Option<[u8; 3]>) {
+        let inputs = Inputs::new(caps.clone());
+        let document = crate::parse::parse("# a `b`\n");
+        let lines = layout::layout(&document, &inputs);
+        let span = (lines[0].spans.iter()).find(|span| span.text.contains('b'));
+        let style = &span.expect("the code").style;
+        let rgb = |color: Option<Color>| match color?.rgb(&caps.palette)? {
+            Color::Rgb(red, green, blue) => Some([red, green, blue]),
+            Color::Palette(_) => None,
+        };
+        (rgb(style.fg), rgb(style.bg))
+    }
+
+    #[test]
+    fn heading_images_draw_code_in_the_colours_the_text_layout_gives_it() {
+        let mut caps = no_text_sizing();
+        // The terminal's magenta, the default theme's inline code.
+        caps.palette[5] = Some(Color::Rgb(0xc0, 0x30, 0xc0));
+        let theme = Theme::default();
+        let look = heading_look(Headings::Auto, false, &theme, &caps).unwrap();
+        let code = look.levels[0].code;
+        let (color, background) = laid_out_code(&caps);
+        assert_eq!(Some(code.color), color);
+        assert!(background.is_some());
+        assert_eq!(code.background, background);
+        assert!(code.padding);
+    }
+
+    #[test]
+    fn without_colours_heading_code_has_no_background() {
+        let caps = Capabilities {
+            color: false,
+            ..no_text_sizing()
+        };
+        let look = heading_look(Headings::Auto, false, &Theme::default(), &caps).unwrap();
+        let level = look.levels[0];
+        assert_eq!(level.code.color, level.color);
+        assert_eq!(level.code.background, None);
+        assert!(!level.code.padding);
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 use image::{Rgba, RgbaImage};
 use kiri::caps::Capabilities;
-use kiri::images::{ImageError, ImageKey, Images, Source};
+use kiri::images::{HeadingWord, ImageError, ImageKey, Images, Source};
 use kiri::render::{Headings, Inputs};
 use kiri::theme::Theme;
 
@@ -448,4 +448,30 @@ fn a_heading_image_drawn_for_other_cells_is_not_used() {
     let out = render("# Kiri\n", &inputs);
     assert_eq!(drawn(&out), Vec::<String>::new());
     assert!(visible(&out).contains("Kiri"), "{out:?}");
+}
+
+#[test]
+fn a_heading_with_code_shows_the_image_with_its_code() {
+    let words = vec![
+        HeadingWord {
+            text: "Kiri".into(),
+            code: None,
+        },
+        HeadingWord {
+            text: "code".into(),
+            code: Some(0),
+        },
+    ];
+    let mut images = Images::new();
+    let key = ImageKey::heading_of(1, words, (10, 20));
+    images.insert(key, Ok(text_image(20, 2, &[(0, 8), (10, 20)])));
+    let inputs = Inputs {
+        images,
+        ..Inputs::new(no_text_sizing(80))
+    };
+    let out = render("# Kiri `code`\n", &inputs);
+    assert_eq!(drawn(&out), ["⟦row 0: 20 cells⟧", "⟦row 1: 20 cells⟧"]);
+    // Without the code, it is another heading, whose image is not there.
+    let out = render("# Kiri code\n", &inputs);
+    assert!(drawn(&out).is_empty(), "{out:?}");
 }

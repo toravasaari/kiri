@@ -186,7 +186,7 @@ pub fn load_headings_in_background(
     let mut jobs = Vec::new();
     for (index, image) in wanted {
         let key = image.key().in_document(parts[index].number);
-        let Wanted::Heading { level, text, cell } = image else {
+        let Wanted::Heading { level, words, cell } = image else {
             continue;
         };
         if images.get(&key).is_some() || loads.loading(&key) {
@@ -194,7 +194,7 @@ pub fn load_headings_in_background(
         }
         images.wait(key.clone(), Placeholder::Unsized);
         let what = What::Heading {
-            text,
+            words,
             look: *look.level(level),
             cell,
         };
@@ -265,12 +265,12 @@ fn job(
     loading: &Loading,
 ) -> Job {
     let (what, program) = match image {
-        Wanted::Heading { level, text, .. } => {
+        Wanted::Heading { level, words, .. } => {
             let look = loading
                 .headings
                 .expect("headings are wanted only with a look");
             let what = What::Heading {
-                text,
+                words,
                 look: *look.level(level),
                 cell: look.cell,
             };

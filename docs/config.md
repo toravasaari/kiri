@@ -345,6 +345,12 @@ A heading too long for the window wraps at its spaces into several lines,
 drawn as an image or with text sizing alike. Only a single word wider than
 the window makes a heading image smaller, to fit on one line.
 
+In a heading drawn as an image, inline code looks as it does in a sized
+heading: in a monospace font, in its colour, on its background. Emphasis,
+links and other inline styles are drawn as the heading's own text, and a
+link in a heading image cannot be clicked. The image's font is the
+system's sans-serif one, not the terminal's.
+
 ## Table rows
 
 The first of these that is given decides the table row style of tables

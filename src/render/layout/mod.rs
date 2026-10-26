@@ -2,6 +2,8 @@
 
 mod code;
 mod front_matter;
+
+pub(crate) use code::inline_code_background;
 mod list;
 mod quote;
 
@@ -632,9 +634,9 @@ impl Layout<'_> {
         if !super::heading_images(self.headings, self.caps) {
             return None;
         }
-        let text = Inline::plain_text(content);
         let cell = image::cell_size(self.caps);
-        let key = ImageKey::heading(level, &text, cell).in_document(self.document);
+        let words = heading_words(content);
+        let key = ImageKey::heading_of(level, words.clone(), cell).in_document(self.document);
         let Some(Ok(Source::Text {
             image,
             breaks,
@@ -643,7 +645,6 @@ impl Layout<'_> {
         else {
             return None;
         };
-        let words = heading_words(&text);
         if words.is_empty() || ends.len() != words.len() || breaks.len() + 1 != words.len() {
             return None;
         }
@@ -689,7 +690,8 @@ impl Layout<'_> {
         });
         let mut rows = Vec::new();
         for (columns, shown) in lines {
-            let text = words[shown].join(" ");
+            let text: Vec<&str> = words[shown].iter().map(|word| word.text.as_str()).collect();
+            let text = text.join(" ");
             for row in 0..size.rows {
                 let mut line = Line::image(Rc::clone(&placement), row);
                 if let Some(image) = &mut line.image {
