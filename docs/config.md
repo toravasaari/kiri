@@ -345,9 +345,10 @@ A heading too long for the window wraps at its spaces into several lines,
 drawn as an image or with text sizing alike. Only a single word wider than
 the window makes a heading image smaller, to fit on one line.
 
-In a heading drawn as an image, inline code looks as it does in a sized
-heading: in a monospace font, in its colour, on its background. Emphasis,
-links and other inline styles are drawn as the heading's own text, and a
+In a heading drawn as an image, inline code and keys (`<kbd>`) look as
+they do in a sized heading: in a monospace font, in the colour of inline
+code, on its background. Emphasis, links and other inline styles are drawn
+as the heading's own text, and a
 link in a heading image cannot be clicked. The image's font is the
 system's sans-serif one, not the terminal's, and a colour of the
 terminal's palette that the terminal does not tell is drawn as xterm's

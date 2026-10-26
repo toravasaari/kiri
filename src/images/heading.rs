@@ -73,8 +73,8 @@ pub fn plain_words(text: &str) -> Vec<HeadingWord> {
 }
 
 /// The words of a heading with `content`, split on whitespace as its
-/// plain text is, each marked with the inline code it is in. Other inline
-/// styles are drawn as heading text.
+/// plain text is, each marked with the inline code or the key it is in,
+/// which are drawn alike. Other inline styles are drawn as heading text.
 pub fn heading_words(content: &[Inline]) -> Vec<HeadingWord> {
     let mut marked = Vec::new();
     mark(content, None, &mut 0, &mut marked);
@@ -102,8 +102,8 @@ pub fn heading_words(content: &[Inline]) -> Vec<HeadingWord> {
 
 /// Appends the characters of the plain text of `content`, as
 /// [`Inline::plain_text`] has it, to `out`, each with the inline code it
-/// is in: `code` around it, or the next of `spans` for an inline code
-/// of its own.
+/// is in: `code` around it, or the next of `spans` for an inline code or
+/// a key of its own.
 fn mark(
     content: &[Inline],
     code: Option<u16>,
@@ -113,9 +113,17 @@ fn mark(
     let text = |out: &mut Vec<_>, text: &str, code| out.extend(text.chars().map(|c| (c, code)));
     for inline in content {
         match inline {
+            // Code inside a key is part of the key.
+            Inline::Code(code_text) if code.is_some() => text(out, code_text, code),
             Inline::Code(code_text) => {
                 text(out, code_text, Some(*spans));
                 *spans += 1;
+            }
+            // A key is drawn as inline code is.
+            Inline::Kbd(inner) if code.is_none() => {
+                let key = Some(*spans);
+                *spans += 1;
+                mark(inner, key, spans, out);
             }
             Inline::Text(plain) | Inline::Html(plain) => text(out, plain, code),
             Inline::SoftBreak | Inline::LineBreak => text(out, " ", code),
@@ -609,6 +617,28 @@ mod tests {
             // Partly code: drawn as heading text.
             ("ef", None),
             ("g", Some(2)),
+        ];
+        let expected: Vec<(String, Option<u16>)> = (expected.iter())
+            .map(|&(text, code)| (text.to_owned(), code))
+            .collect();
+        assert_eq!(marked, expected);
+    }
+
+    #[test]
+    fn a_key_is_marked_as_inline_code_is() {
+        let content = crate::parse::parse("# Press <kbd>Ctrl `C`</kbd> `now`\n");
+        let crate::model::Block::Heading { content, .. } = &content.blocks[0] else {
+            panic!("a heading");
+        };
+        let marked: Vec<(String, Option<u16>)> = (heading_words(content).into_iter())
+            .map(|word| (word.text, word.code))
+            .collect();
+        // Code inside the key is part of the key.
+        let expected = [
+            ("Press", None),
+            ("Ctrl", Some(0)),
+            ("C", Some(0)),
+            ("now", Some(1)),
         ];
         let expected: Vec<(String, Option<u16>)> = (expected.iter())
             .map(|&(text, code)| (text.to_owned(), code))
