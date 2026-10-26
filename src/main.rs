@@ -1719,6 +1719,12 @@ fn loading<'a>(context: &'a Context, settings: &'a Settings, caps: &Capabilities
         theme: kiri::diagrams::Theme::for_page(caps.dark_background),
         formula: formula_colors(&settings.theme, caps),
         largest: Some(kiri::render::image::largest(caps)),
+        headings: kiri::render::heading_look(
+            settings.headings,
+            !settings.images,
+            &settings.theme,
+            caps,
+        ),
     }
 }
 

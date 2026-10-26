@@ -8,7 +8,7 @@ use super::{ImageError, Source};
 
 /// How the headings of each level are drawn, resolved from the theme and
 /// the terminal by the renderer.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HeadingLook {
     /// The size of one cell in pixels, width and height.
     pub cell: (u16, u16),

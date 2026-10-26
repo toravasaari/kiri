@@ -50,6 +50,7 @@ fn a_program_s_diagram_is_reduced_to_the_largest_size_it_can_be_shown_at() {
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: Some((15, 100)),
+        headings: None,
     };
     let loaded = load_documents(&alone(&document, &scratch), &loading, None).unwrap();
     assert!(loaded.interrupt.is_some());
@@ -74,6 +75,7 @@ fn no_diagrams_are_drawn_when_they_are_off() {
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        headings: None,
     };
     let parts = alone(&document, Path::new(""));
     let loaded = load_documents(&parts, &loading, None).unwrap();
@@ -112,6 +114,7 @@ fn a_reload_loads_an_image_file_again_only_when_its_modification_time_changed() 
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        headings: None,
     };
     let document = crate::parse::parse("![x](a.png)\n");
     let parts = alone(&document, &scratch);
@@ -147,6 +150,7 @@ fn a_reload_loads_an_image_whose_file_was_missing_when_it_appears() {
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        headings: None,
     };
     let document = crate::parse::parse("![x](a.png)\n");
     let parts = alone(&document, &scratch);
@@ -173,6 +177,7 @@ fn a_reload_keeps_an_image_that_has_no_file() {
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        headings: None,
     };
     let document = crate::parse::parse("![x](https://example.com/a.png)\n");
     let parts = alone(&document, Path::new(""));
@@ -256,6 +261,7 @@ fn a_reload_in_the_background_keeps_what_it_has_and_loads_the_rest() {
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        headings: None,
     };
     let before = crate::parse::parse("![x](a.png)\n");
     let parts = alone(&before, &scratch);
@@ -288,6 +294,7 @@ fn a_newer_reload_stops_the_loads_it_no_longer_wants_and_keeps_the_others() {
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        headings: None,
     };
     let both = crate::parse::parse("```mermaid\none\n```\n\n```mermaid\ntwo\n```\n");
     let parts = alone(&both, &scratch);
@@ -332,6 +339,7 @@ fn stopping_the_loads_ends_their_programs_before_it_returns() {
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        headings: None,
     };
     let document = crate::parse::parse("```mermaid\none\n```\n");
     let parts = alone(&document, &scratch);
@@ -359,6 +367,7 @@ fn a_reload_in_the_background_loads_a_changed_file_again_and_sets_the_old_image_
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        headings: None,
     };
     let before = crate::parse::parse("![x](a.png)\n\n![y](b.png)\n");
     let parts = alone(&before, &scratch);
@@ -396,6 +405,7 @@ fn overlapping_reloads_run_no_more_programs_at_once_than_one_reload() {
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        headings: None,
     };
     let diagrams = |names: &[&str]| {
         let blocks: Vec<String> = (names.iter())

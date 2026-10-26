@@ -15,7 +15,8 @@ pub mod wrap;
 use std::io::{self, Write};
 
 use crate::caps::Capabilities;
-use crate::images::{ImageKey, Images, Source};
+use crate::color::Color;
+use crate::images::{HeadingLook, ImageKey, Images, LevelLook, Source};
 use crate::model::{Block, Document, File, FrontMatter, FrontMatterError};
 use crate::theme::Theme;
 
@@ -113,6 +114,53 @@ pub enum Headings {
     Images,
     /// One row, bold and coloured, even with text sizing.
     Plain,
+}
+
+/// How the top-level headings are drawn as images, for `headings` and a
+/// terminal with `caps`, in `theme`'s sizes and colours; `None` when they
+/// are not, as with `no_images`.
+pub fn heading_look(
+    headings: Headings,
+    no_images: bool,
+    theme: &Theme,
+    caps: &Capabilities,
+) -> Option<HeadingLook> {
+    let wanted = match headings {
+        Headings::Auto => !caps.text_sizing,
+        Headings::Images => true,
+        Headings::Sized | Headings::Plain => false,
+    };
+    if !wanted || no_images || !caps.draws_images() {
+        return None;
+    }
+    let cell = image::cell_size(caps);
+    let rgb = |color: Option<Color>| match color?.rgb(&caps.palette)? {
+        Color::Rgb(red, green, blue) => Some([red, green, blue]),
+        Color::Palette(_) => None,
+    };
+    // Light text on a dark page, as most terminals have it.
+    let contrast = match caps.dark_background {
+        Some(true) | None => [0xff; 3],
+        Some(false) => [0; 3],
+    };
+    let text = rgb(theme.foreground)
+        .or_else(|| rgb(caps.foreground))
+        .unwrap_or(contrast);
+    let level = |level: u8| {
+        let heading = theme.heading(level);
+        let color = if caps.color { heading.color } else { None };
+        LevelLook {
+            rows: heading.size.scale(),
+            font_px: (heading.size.value() * f64::from(cell.1) / 1.2) as f32,
+            bold: heading.bold,
+            italic: heading.italic,
+            color: rgb(color).unwrap_or(text),
+        }
+    };
+    Some(HeadingLook {
+        cell,
+        levels: [1, 2, 3, 4, 5, 6].map(level),
+    })
 }
 
 /// Why `document`'s front matter, shown as `style`, could not be read: the
@@ -227,4 +275,95 @@ pub fn render_image_on(
     let mut images = Images::new();
     images.insert(key, Ok(image));
     output::write(&lines, &images, caps, page, out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Kitty without text sizing, as inside tmux, with cells of 8 × 16
+    /// pixels.
+    fn no_text_sizing() -> Capabilities {
+        Capabilities {
+            text_sizing: false,
+            cell_pixels: Some((8, 16)),
+            ..Capabilities::kitty(80)
+        }
+    }
+
+    #[test]
+    fn auto_uses_images_only_without_text_sizing() {
+        let theme = Theme::default();
+        let look = heading_look(Headings::Auto, false, &theme, &no_text_sizing());
+        let look = look.expect("images without text sizing");
+        assert_eq!(look.cell, (8, 16));
+        let h1 = theme.heading(1);
+        assert_eq!(look.levels[0].rows, h1.size.scale());
+        let px = h1.size.value() as f32 * 16.0 / 1.2;
+        assert!((look.levels[0].font_px - px).abs() < 0.01, "{look:?}");
+        assert_eq!(look.levels[0].bold, h1.bold);
+        let kitty = Capabilities::kitty(80);
+        assert_eq!(heading_look(Headings::Auto, false, &theme, &kitty), None);
+        let images = heading_look(Headings::Images, false, &theme, &kitty);
+        assert!(images.is_some());
+    }
+
+    #[test]
+    fn plain_and_sized_never_use_images() {
+        let theme = Theme::default();
+        for headings in [Headings::Plain, Headings::Sized] {
+            let look = heading_look(headings, false, &theme, &no_text_sizing());
+            assert_eq!(look, None, "{headings:?}");
+        }
+    }
+
+    #[test]
+    fn no_images_means_no_heading_images() {
+        let theme = Theme::default();
+        for headings in [Headings::Auto, Headings::Images] {
+            let look = heading_look(headings, true, &theme, &no_text_sizing());
+            assert_eq!(look, None, "{headings:?}");
+        }
+    }
+
+    #[test]
+    fn images_need_a_terminal_that_draws_them() {
+        let theme = Theme::default();
+        let ansi = Capabilities::ansi(80);
+        assert_eq!(heading_look(Headings::Images, false, &theme, &ansi), None);
+        assert_eq!(heading_look(Headings::Auto, false, &theme, &ansi), None);
+    }
+
+    #[test]
+    fn heading_images_take_the_heading_colour_or_else_the_text_colour() {
+        let mut theme = Theme::default();
+        let caps = no_text_sizing();
+        theme.headings[0].color = Some(Color::Rgb(9, 8, 7));
+        let look = heading_look(Headings::Auto, false, &theme, &caps).unwrap();
+        assert_eq!(look.levels[0].color, [9, 8, 7]);
+        // A colour of the palette, as the terminal tells it.
+        theme.headings[0].color = Some(Color::Palette(4));
+        let mut palette = caps.palette;
+        palette[4] = Some(Color::Rgb(0, 0, 0xee));
+        let caps = Capabilities { palette, ..caps };
+        let look = heading_look(Headings::Auto, false, &theme, &caps).unwrap();
+        assert_eq!(look.levels[0].color, [0, 0, 0xee]);
+        // Without a colour of its own, in the text's: the theme's, or else
+        // the terminal's, or else white on a dark page.
+        theme
+            .headings
+            .iter_mut()
+            .for_each(|heading| heading.color = None);
+        theme.foreground = Some(Color::Rgb(1, 2, 3));
+        let look = heading_look(Headings::Auto, false, &theme, &caps).unwrap();
+        assert_eq!(look.levels[0].color, [1, 2, 3]);
+        theme.foreground = None;
+        let caps = Capabilities {
+            foreground: None,
+            dark_background: Some(true),
+            ..caps
+        };
+        let look = heading_look(Headings::Auto, false, &theme, &caps).unwrap();
+        assert_eq!(look.levels[0].color, [0xff, 0xff, 0xff]);
+    }
 }

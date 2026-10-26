@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use super::drawn::finish_diagram;
 use super::url::load_url;
-use super::{Fonts, ImageError, ImageKey, LoadOptions, Source};
+use super::{Fonts, ImageError, ImageKey, LevelLook, LoadOptions, Source, draw_heading};
 use crate::diagrams::{FormulaColors, Renderer, Request, Theme};
 
 /// The images loading in the background, and what has come of them.
@@ -68,6 +68,13 @@ pub(super) enum What {
         source: String,
         line: usize,
         by_line: bool,
+    },
+    /// A heading drawn as an image as `look` says, in cells of `cell`
+    /// pixels.
+    Heading {
+        text: String,
+        look: LevelLook,
+        cell: (u16, u16),
     },
 }
 
@@ -624,10 +631,12 @@ fn load(
                 progress: None,
                 panel: context.panel,
                 largest: context.largest,
+                headings: None,
             };
             let max = context.max_file_size;
             finish_diagram(language, source, *line, drawn, max, fonts, &options)
         }
+        What::Heading { text, look, cell } => draw_heading(text, look, *cell, fonts),
     }
 }
 
@@ -651,7 +660,7 @@ fn crashed(what: &What, panic: &(dyn Any + Send)) -> ImageError {
             name: crate::diagrams::name(language, source, *line, *by_line),
             reason: with("the renderer crashed"),
         },
-        What::Url { .. } => ImageError::Corrupt(with("the decoder crashed")),
+        What::Url { .. } | What::Heading { .. } => ImageError::Corrupt(with("the decoder crashed")),
     }
 }
 

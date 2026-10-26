@@ -273,6 +273,8 @@ pub struct LoadOptions<'a> {
     /// diagram drawn in pixels is reduced to fit them as it loads. `None`,
     /// the default, keeps it as drawn.
     pub largest: Option<(u32, u32)>,
+    /// How headings are drawn as images; `None`, the default, draws none.
+    pub headings: Option<HeadingLook>,
 }
 
 impl Default for LoadOptions<'_> {
@@ -285,6 +287,7 @@ impl Default for LoadOptions<'_> {
             progress: None,
             panel: true,
             largest: None,
+            headings: None,
         }
     }
 }
@@ -465,6 +468,8 @@ fn warnings<'a>(
     images
         .filter_map(|(key, image)| match (key, image) {
             (_, Ok(_)) => None,
+            // A heading without its image shows as text, which is enough.
+            (ImageKey::Heading { .. }, Err(_)) => None,
             (_, Err(ImageError::Diagram { .. })) if !render_errors => None,
             // These name the file, resolved against the document.
             (_, Err(error)) if error.names_file() => Some(error.to_string()),
@@ -537,7 +542,7 @@ pub fn load_parts(
     fonts: &Fonts,
     options: &LoadOptions<'_>,
 ) -> Images {
-    let (wanted, mut have) = plan(parts, options.renderer, None);
+    let (wanted, mut have) = plan(parts, options.renderer, options.headings.is_some(), None);
     let key = |&(index, ref image): &(usize, Wanted)| image.key().in_document(parts[index].number);
     // The diagrams first, all together, so a renderer can draw several
     // at once.
@@ -549,7 +554,7 @@ pub fn load_parts(
                 let request = Request::new(language, source, options.theme);
                 Some(request.in_colors(options.formula))
             }
-            Wanted::Diagram { .. } | Wanted::Url(_) => None,
+            Wanted::Diagram { .. } | Wanted::Url(_) | Wanted::Heading { .. } => None,
         })
         .collect();
     let total = requests.len();
@@ -575,6 +580,10 @@ pub fn load_parts(
         let loaded = match image {
             _ if have.is_some() => have.take().expect("an image kept"),
             Wanted::Url(url) => load_url(url, part.base, max_file_size, fonts),
+            Wanted::Heading { level, ref text } => match &options.headings {
+                Some(look) => draw_heading(text, look.level(level), look.cell, fonts),
+                None => unreachable!("headings are wanted only with a look"),
+            },
             Wanted::Diagram {
                 language,
                 source,
@@ -608,16 +617,18 @@ type Outcome = Result<Source, ImageError>;
 /// the order of the documents, and beside each what `kept` holds of it,
 /// taken out of `kept`; `None` for one to load. A diagram that failed is
 /// to be drawn again, as what made it fail, such as a time limit or a
-/// missing program, may have passed.
+/// missing program, may have passed. The headings are wanted as images
+/// only when `headings` says so.
 fn plan<'p>(
     parts: &[Part<'p>],
     renderer: &dyn Renderer,
+    headings: bool,
     mut kept: Option<&mut Images>,
 ) -> (Vec<(usize, Wanted<'p>)>, Vec<Option<Outcome>>) {
     let mut wanted = Vec::new();
     for (index, part) in parts.iter().enumerate() {
         let mut blocks = Vec::new();
-        collect_blocks(&part.document.blocks, renderer, &mut blocks);
+        collect_blocks(&part.document.blocks, renderer, headings, &mut blocks);
         wanted.extend(blocks.into_iter().map(|image| (index, image)));
     }
     let key = |&(index, ref image): &(usize, Wanted)| image.key().in_document(parts[index].number);
@@ -637,11 +648,11 @@ fn plan<'p>(
 /// as diagrams, in order, once for each block.
 pub fn diagram_languages<'a>(document: &'a Document, renderer: &dyn Renderer) -> Vec<&'a str> {
     let mut wanted = Vec::new();
-    collect_blocks(&document.blocks, renderer, &mut wanted);
+    collect_blocks(&document.blocks, renderer, false, &mut wanted);
     (wanted.into_iter())
         .filter_map(|image| match image {
             Wanted::Diagram { language, .. } => Some(language),
-            Wanted::Url(_) => None,
+            Wanted::Url(_) | Wanted::Heading { .. } => None,
         })
         .collect()
 }
@@ -649,11 +660,11 @@ pub fn diagram_languages<'a>(document: &'a Document, renderer: &dyn Renderer) ->
 /// The URLs of the images `document` shows as image blocks.
 fn lone_urls(document: &Document) -> Vec<&str> {
     let mut wanted = Vec::new();
-    collect_blocks(&document.blocks, &NoRenderer, &mut wanted);
+    collect_blocks(&document.blocks, &NoRenderer, false, &mut wanted);
     (wanted.into_iter())
         .filter_map(|image| match image {
             Wanted::Url(url) => Some(url),
-            Wanted::Diagram { .. } => None,
+            Wanted::Diagram { .. } | Wanted::Heading { .. } => None,
         })
         .collect()
 }
@@ -667,12 +678,18 @@ enum Wanted<'a> {
         source: &'a str,
         line: usize,
     },
+    /// A heading drawn as an image: its level and its text.
+    Heading {
+        level: u8,
+        text: String,
+    },
 }
 
 impl Wanted<'_> {
     fn key(&self) -> ImageKey {
         match *self {
             Wanted::Url(url) => ImageKey::from(url),
+            Wanted::Heading { level, ref text } => ImageKey::heading(level, text),
             Wanted::Diagram {
                 language, source, ..
             } => ImageKey::block(language, source),
@@ -682,19 +699,27 @@ impl Wanted<'_> {
 
 /// The images `blocks` show as image blocks, and the code blocks among
 /// them that `renderer` draws. Other images are only ever shown as alt
-/// text, so they are not loaded at all.
-fn collect_blocks<'a>(blocks: &'a [Block], renderer: &dyn Renderer, wanted: &mut Vec<Wanted<'a>>) {
+/// text, so they are not loaded at all. With `headings`, the headings
+/// among `blocks` and in the details blocks among them, which layout
+/// takes as top level, are wanted as images too.
+fn collect_blocks<'a>(
+    blocks: &'a [Block],
+    renderer: &dyn Renderer,
+    headings: bool,
+    wanted: &mut Vec<Wanted<'a>>,
+) {
     for block in blocks {
         match block {
             Block::Paragraph(content) => {
                 wanted.extend(Inline::lone_image(content).map(|image| Wanted::Url(&image.url)));
             }
-            Block::BlockQuote(blocks)
-            | Block::Alert { blocks, .. }
-            | Block::Details { blocks, .. } => collect_blocks(blocks, renderer, wanted),
+            Block::Details { blocks, .. } => collect_blocks(blocks, renderer, headings, wanted),
+            Block::BlockQuote(blocks) | Block::Alert { blocks, .. } => {
+                collect_blocks(blocks, renderer, false, wanted)
+            }
             Block::List(list) => {
                 for item in &list.items {
-                    collect_blocks(&item.blocks, renderer, wanted);
+                    collect_blocks(&item.blocks, renderer, false, wanted);
                 }
             }
             Block::CodeBlock {
@@ -705,6 +730,10 @@ fn collect_blocks<'a>(blocks: &'a [Block], renderer: &dyn Renderer, wanted: &mut
                 language,
                 source: code,
                 line: *line,
+            }),
+            Block::Heading { level, content } if headings => wanted.push(Wanted::Heading {
+                level: *level,
+                text: Inline::plain_text(content),
             }),
             Block::FrontMatter(_)
             | Block::Heading { .. }
@@ -779,6 +808,104 @@ mod tests {
         // Loaded at last.
         images.came(a, Ok(Source::Raster(RgbaImage::new(1, 1))));
         assert_eq!(images.late_warnings(true).len(), 1);
+    }
+
+    /// A look for headings in cells of 10 × 20 pixels.
+    fn heading_look() -> HeadingLook {
+        let level = LevelLook {
+            rows: 2,
+            font_px: 30.0,
+            bold: true,
+            italic: false,
+            color: [0x20, 0x60, 0xd0],
+        };
+        HeadingLook {
+            cell: (10, 20),
+            levels: [level; 6],
+        }
+    }
+
+    /// The images of the Markdown `source`, with headings drawn as
+    /// `heading_look` says in `fonts`.
+    fn with_headings(source: &str, fonts: &Fonts) -> Images {
+        let options = LoadOptions {
+            headings: Some(heading_look()),
+            ..LoadOptions::default()
+        };
+        let document = crate::parse::parse(source);
+        load_with(
+            &document,
+            &fixtures(),
+            DEFAULT_MAX_FILE_SIZE,
+            fonts,
+            &options,
+        )
+    }
+
+    #[test]
+    fn heading_images_load_when_asked() {
+        let images = with_headings("# Kiri\n\n## Kiri *is* `here`\n", &Fonts::fixture());
+        let one = images.get(&ImageKey::heading(1, "Kiri"));
+        assert!(matches!(one, Some(Ok(Source::Text { .. }))), "{images:?}");
+        // As plain text, and apart from the same text at another level.
+        let two = images.get(&ImageKey::heading(2, "Kiri is here"));
+        assert!(matches!(two, Some(Ok(Source::Text { .. }))), "{images:?}");
+        assert_eq!(images.len(), 2);
+    }
+
+    #[test]
+    fn heading_images_inside_details_load() {
+        let source = "<details>\n<summary>S</summary>\n\n# Inside\n\n</details>\n";
+        let images = with_headings(source, &Fonts::fixture());
+        let inside = images.get(&ImageKey::heading(1, "Inside"));
+        assert!(matches!(inside, Some(Ok(_))), "{images:?}");
+    }
+
+    #[test]
+    fn no_heading_images_by_default() {
+        let images = load_source("# Kiri\n", &LoadOptions::default());
+        assert!(images.is_empty(), "{images:?}");
+    }
+
+    #[test]
+    fn headings_in_a_quote_are_not_loaded() {
+        let source = "> # Quoted\n\n- # Listed\n\n> [!NOTE]\n> # Alerted\n\n# Top\n";
+        let images = with_headings(source, &Fonts::fixture());
+        let keys: Vec<String> = images.iter().map(|(key, _)| key.to_string()).collect();
+        assert_eq!(keys, ["heading \"Top\""]);
+    }
+
+    #[test]
+    fn a_failed_heading_image_warns_of_nothing() {
+        let images = with_headings("# Kiri\n", &Fonts::none());
+        let image = images.get(&ImageKey::heading(1, "Kiri"));
+        assert!(matches!(image, Some(Err(_))), "{images:?}");
+        assert_eq!(images.warnings(), Vec::<String>::new());
+        assert_eq!(images.warnings_in(0, true), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_same_heading_in_two_documents_has_two_images() {
+        let options = LoadOptions {
+            headings: Some(heading_look()),
+            ..LoadOptions::default()
+        };
+        let document = crate::parse::parse("# Kiri\n");
+        let part = |number| Part {
+            document: &document,
+            number,
+            base: Path::new("."),
+            by_line: true,
+        };
+        let images = load_parts(
+            &[part(0), part(1)],
+            DEFAULT_MAX_FILE_SIZE,
+            &Fonts::fixture(),
+            &options,
+        );
+        assert!(images.get(&ImageKey::heading(1, "Kiri")).is_some());
+        let second = ImageKey::heading(1, "Kiri").in_document(1);
+        assert!(images.get(&second).is_some(), "{images:?}");
     }
 
     /// The warning about the missing file `url`.
@@ -922,7 +1049,7 @@ Text ![inline](images/pattern.png) and words.
         };
         assert_eq!(calls(&stub), ["a\n", "b\n"]);
         let parts = [part(&after)];
-        let (wanted, have) = plan(&parts, &stub, Some(&mut images));
+        let (wanted, have) = plan(&parts, &stub, false, Some(&mut images));
         let keys: Vec<_> = (wanted.iter()).map(|(_, image)| image.key()).collect();
         assert_eq!(
             keys,
@@ -951,7 +1078,7 @@ Text ![inline](images/pattern.png) and words.
         let key = ImageKey::block("mermaid", "flaky\n");
         let mut images = load_parts(&parts, DEFAULT_MAX_FILE_SIZE, &Fonts::none(), &options);
         assert!(matches!(images.get(&key), Some(Err(_))), "{images:?}");
-        let (wanted, have) = plan(&parts, &stub, Some(&mut images));
+        let (wanted, have) = plan(&parts, &stub, false, Some(&mut images));
         assert_eq!(wanted.len(), 1);
         assert!(matches!(have[..], [None]), "{have:?}");
     }
