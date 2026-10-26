@@ -131,10 +131,10 @@ Each answer, what it looks like and what kiri takes from it:
 look for `\e_G` in the probe answers: without it, the terminal did not
 answer the graphics query. Inside screen, the questions may not reach the
 terminal at all; inside tmux, they reach it only when kiri wraps them and
-the pane's `allow-passthrough` is on: read the **tmux** row. With `without Unicode placeholders`, look at
-the name and version answer: kiri draws images only in a terminal it
-knows has placeholders. Also check that **Images** under Settings is
-`on`.
+the pane's `allow-passthrough` is on: read the **tmux** row. With
+`without Unicode placeholders`, look at the name and version answer: kiri
+draws images only in a terminal it knows has placeholders. Also check
+that **Images** under Settings is `on`.
 
 **Headings are at normal size.** Read **Text sizing**. With `no`, look at
 the three cursor columns at the start of the answers. The same column

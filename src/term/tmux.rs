@@ -80,7 +80,10 @@ pub fn prepare(env: &Environment, run: Run) -> Pane {
 /// (`ESC _ G`) to `ESC \`,
 /// in tmux's passthrough on its way to `inner`, when told to, and passes
 /// everything else untouched. A sequence may come over several writes, so
-/// an ESC, or `ESC _`, at the end of a write waits for the next one.
+/// the start of one at the end of a write, such as an ESC or `ESC _`,
+/// waits for the next write. A flush does not release it: the bytes that
+/// follow decide whether it is wrapped, and kiri writes every other
+/// sequence whole.
 pub struct Wrapping<W: Write> {
     inner: W,
     wrap: bool,
@@ -339,6 +342,18 @@ mod tests {
     fn a_tmux_that_fails_answers_nothing() {
         // Also when tmux is not on PATH at all.
         assert_eq!(run(&["-S", "/nonexistent/kiri-socket", "info"]), None);
+    }
+
+    #[test]
+    fn a_flush_does_not_release_a_held_esc() {
+        let mut inner = Vec::new();
+        let mut out = Wrapping::new(&mut inner, true);
+        out.write_all(b"x\x1b").unwrap();
+        out.flush().unwrap();
+        assert_eq!(out.inner.as_slice(), b"x");
+        out.write_all(b"[1m").unwrap();
+        out.flush().unwrap();
+        assert_eq!(inner, b"x\x1b[1m");
     }
 
     #[test]

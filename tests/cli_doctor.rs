@@ -889,7 +889,7 @@ fn the_doctor_tells_when_tmux_was_not_asked() {
 #[test]
 fn without_passthrough_the_doctor_has_no_tmux_row() {
     let report = tmux_report(None, Passthrough::None);
-    assert!(!report.contains("| tmux |"), "{report}");
+    assert!(!report.contains("\n| tmux |"), "{report}");
 }
 
 #[test]
@@ -904,10 +904,34 @@ fn inside_tmux_with_passthrough_none_tmux_is_left_alone() {
     let out = command.output().unwrap();
     assert_succeeded(&out);
     let report = text(&out.stdout);
-    assert!(!report.contains("| tmux |"), "{report}");
+    assert!(!report.contains("\n| tmux |"), "{report}");
     assert!(
         report.contains("| Passthrough | none | `--passthrough` |"),
         "{report}"
+    );
+}
+
+#[test]
+fn passthrough_tmux_on_a_pipe_outside_tmux_runs_no_tmux_command() {
+    let dir = Scratch::new("doctor-tmux-pipe");
+    // A tmux that leaves a mark when it runs.
+    let mark = dir.join("tmux-ran");
+    let script = format!("#!/bin/sh\necho \"$@\" >> '{}'\n", mark.display());
+    common::executable(&dir.join("bin/tmux"), &script);
+    let mut command = doctor(&dir, &["--passthrough", "tmux"]);
+    command.env("PATH", dir.join("bin"));
+    let out = command.output().unwrap();
+    assert_succeeded(&out);
+    let report = text(&out.stdout);
+    assert!(!report.contains("\n| tmux |"), "{report}");
+    assert!(
+        report.contains("| Passthrough | tmux | `--passthrough` |"),
+        "{report}"
+    );
+    assert!(
+        !mark.exists(),
+        "tmux ran: {:?}",
+        std::fs::read_to_string(&mark)
     );
 }
 
