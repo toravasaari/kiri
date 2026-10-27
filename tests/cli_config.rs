@@ -277,6 +277,15 @@ fn the_warnings_come_before_the_error_of_a_theme_that_does_not_load() {
 }
 
 #[test]
+fn mouse_and_no_mouse_cannot_be_given_together() {
+    let dir = Scratch::new("mouse-both");
+    let out = kiri(&dir, "Text\n", &["--mouse", "--no-mouse"]);
+    assert!(!out.status.success());
+    let stderr = text(&out.stderr);
+    assert!(stderr.contains("cannot be used with"), "{stderr}");
+}
+
+#[test]
 fn the_paging_flags_exclude_each_other() {
     let dir = Scratch::new("paging-flags");
     let document = dir.join("document.md");

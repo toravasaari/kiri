@@ -120,6 +120,35 @@ fn keys_without_a_binding_close_the_help_too() {
 }
 
 #[test]
+fn the_wheel_scrolls_three_lines_a_notch() {
+    // Two notches down, then one up.
+    let down = b"\x1b[<65;5;3M";
+    let frames = shown(&numbers(20), 40, 6, &[down, down, b"\x1b[<64;5;3M"]);
+    assert_eq!(frames.len(), 4, "{frames:?}");
+    // Each line of text has a blank line after it: three lines down
+    // from the top is the blank one above Line 3.
+    assert!(frames[1].contains("\x1b[2;1H  Line 3"), "{frames:?}");
+    assert!(frames[2].contains("\x1b[1;1H  Line 4"), "{frames:?}");
+    assert!(frames[3].contains("\x1b[2;1H  Line 3"), "{frames:?}");
+}
+
+#[test]
+fn clicks_do_nothing() {
+    // A click and its release leave the help open, and j closes it
+    // without moving.
+    let click = b"\x1b[<0;5;3M\x1b[<0;5;3m";
+    let frames = shown(&numbers(30), 60, 24, &[b"?", click, b"j"]);
+    assert_eq!(frames.len(), 3, "{frames:#?}");
+    assert!(frames[1].contains("down a line"), "{frames:#?}");
+    assert_eq!(frames[2], frames[0]);
+    // A click without SGR encoding, with the button a space and the
+    // column and row a q each, neither moves nor quits; j then moves.
+    let frames = shown(&numbers(30), 60, 24, &[b"\x1b[M qq", b"j"]);
+    assert_eq!(frames.len(), 2, "{frames:#?}");
+    assert!(frames[1].contains("\x1b[2;1H  Line 2"), "{frames:#?}");
+}
+
+#[test]
 fn ctrl_c_quits_even_from_the_help() {
     let frames = shown(&numbers(30), 60, 24, &[b"?", b"", b"G"]);
     assert_eq!(frames.len(), 2);

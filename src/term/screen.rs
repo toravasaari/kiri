@@ -120,6 +120,8 @@ impl Drop for RawMode {
 /// when the screen is dropped or, before that, when a panic hook runs.
 struct Leave {
     raw: RawMode,
+    /// Whether the screen turned mouse reporting on.
+    mouse: bool,
     done: AtomicBool,
 }
 
@@ -129,6 +131,9 @@ impl Leave {
     fn run(&self, out: &mut impl Write) {
         if self.done.swap(true, Ordering::SeqCst) {
             return;
+        }
+        if self.mouse {
+            let _ = out.write_all(MOUSE_OFF);
         }
         let _ = out.write_all(LEAVE_SCREEN);
         let _ = out.flush();
@@ -162,19 +167,19 @@ pub struct Screen<W: Write> {
 impl Screen<Wrapping<Stdout>> {
     /// The pager's screen on standard output, with keys from the
     /// controlling terminal, so a piped document can be paged too, with
-    /// kitty's graphics wrapped for tmux if `wrap`. `None`
-    /// without a controlling terminal or in the background, where raw mode
-    /// would stop kiri until it is brought to the foreground. `caught` runs
-    /// once the screen catches the signals, before the terminal is raw,
-    /// such as to drop a guard that would otherwise end kiri by a signal
-    /// with the terminal raw.
-    pub fn open(caught: impl FnOnce(), wrap: bool) -> Option<Self> {
+    /// kitty's graphics wrapped for tmux if `wrap`, and mouse reporting on
+    /// if `mouse`. `None` without a controlling terminal or in the
+    /// background, where raw mode would stop kiri until it is brought to
+    /// the foreground. `caught` runs once the screen catches the signals,
+    /// before the terminal is raw, such as to drop a guard that would
+    /// otherwise end kiri by a signal with the terminal raw.
+    pub fn open(caught: impl FnOnce(), wrap: bool, mouse: bool) -> Option<Self> {
         let tty = probe::controlling_terminal()?;
         if probe::runs_in_background(&tty) {
             return None;
         }
         let out = Wrapping::new(std::io::stdout(), wrap);
-        let mut screen = Self::catching_on(tty, out, caught)?;
+        let mut screen = Self::catching_on(tty, out, mouse, caught)?;
         screen.catch_panics();
         Some(screen)
     }
@@ -187,22 +192,23 @@ impl<W: Write> Screen<W> {
     /// terminal is restored. They are caught before the terminal is raw,
     /// so that none can end kiri and leave it so; `caught` runs in
     /// between.
-    fn catching_on(tty: File, out: W, caught: impl FnOnce()) -> Option<Self> {
+    fn catching_on(tty: File, out: W, mouse: bool, caught: impl FnOnce()) -> Option<Self> {
         let signals = Signals::catch();
         caught();
-        Self::on(tty, out, signals)
+        Self::on(tty, out, signals, mouse)
     }
 
-    /// The pager's screen on `out`, with keys from `tty`, and `signals`
-    /// caught while it is open. When it cannot open, the signals end kiri
-    /// again.
-    fn on(tty: File, mut out: W, signals: Signals) -> Option<Self> {
+    /// The pager's screen on `out`, with keys from `tty`, mouse reporting
+    /// on if `mouse`, and `signals` caught while it is open. When it
+    /// cannot open, the signals end kiri again.
+    fn on(tty: File, mut out: W, signals: Signals, mouse: bool) -> Option<Self> {
         let Some(raw) = RawMode::enter(&tty) else {
             signals.give_back();
             return None;
         };
+        let mouse_on: &[u8] = if mouse { MOUSE_ON } else { b"" };
         if out
-            .write_all(ENTER_SCREEN)
+            .write_all(&[ENTER_SCREEN, mouse_on].concat())
             .and_then(|()| out.flush())
             .is_err()
         {
@@ -217,6 +223,7 @@ impl<W: Write> Screen<W> {
             buffer: Vec::new(),
             leave: Arc::new(Leave {
                 raw,
+                mouse,
                 done: AtomicBool::new(false),
             }),
             hooked: false,
@@ -330,6 +337,11 @@ impl<W: Write> Drop for Screen<W> {
 const ENTER_SCREEN: &[u8] = b"\x1b[?1049h\x1b[?25l\x1b[?1004h";
 /// Back to the main screen as it was, with the cursor shown.
 const LEAVE_SCREEN: &[u8] = b"\x1b[?1004l\x1b[?25h\x1b[?1049l";
+/// Mouse reporting on, in SGR encoding: presses and releases of the
+/// buttons and the wheel. tmux passes these to the pane once it asks.
+const MOUSE_ON: &[u8] = b"\x1b[?1000h\x1b[?1006h";
+/// Mouse reporting off.
+const MOUSE_OFF: &[u8] = b"\x1b[?1006l\x1b[?1000l";
 
 #[cfg(test)]
 mod tests;

@@ -186,6 +186,17 @@ Options:
           
           [possible values: inline, stderr, both]
 
+      --no-mouse
+          Leave the mouse to the terminal in the pager
+          
+          The pager takes the mouse unless set, so that the wheel scrolls it, also inside tmux.
+          While it has the mouse, kitty selects text with Shift and the mouse.
+
+      --mouse
+          Let the pager take the mouse
+          
+          Whatever KIRI_MOUSE and the configuration say.
+
       --max-image-size <MB>
           Largest image file to read, in megabytes
           

@@ -45,6 +45,8 @@ Options:
       --diagrams <SWITCH>      Whether to draw diagrams and formulas [possible values: on, off]
       --render-errors <WHERE>  Where to tell why a diagram could not be drawn [possible values:
                                inline, stderr, both]
+      --no-mouse               Leave the mouse to the terminal in the pager
+      --mouse                  Let the pager take the mouse
       --max-image-size <MB>    Largest image file to read, in megabytes [default: 10]
   -h, --help                   Print help (see more with '--help')
   -V, --version                Print version

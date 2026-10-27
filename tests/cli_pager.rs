@@ -17,6 +17,11 @@ use common::{Scratch, command, fixtures, read_terminal, text};
 const ENTER: &str = "\x1b[?1049h";
 const LEAVE: &str = "\x1b[?1049l";
 
+/// Mouse reporting with SGR encoding, which the pager turns on when it
+/// opens and off when it closes.
+const MOUSE_ON: &str = "\x1b[?1000h\x1b[?1006h";
+const MOUSE_OFF: &str = "\x1b[?1006l\x1b[?1000l";
+
 /// A document of `count` paragraphs, one row each.
 fn paragraphs(count: usize) -> String {
     (1..=count).map(|n| format!("Line {n}\n\n")).collect()
@@ -255,6 +260,43 @@ fn keys_scroll_the_document() {
     assert_eq!(frames.len(), 2, "{seen:?}");
     assert!(!frames[0].contains("Line 10"), "{seen:?}");
     assert!(frames[1].contains("Line 10"), "{seen:?}");
+}
+
+#[test]
+fn the_pager_captures_the_mouse_and_scrolls_on_the_wheel() {
+    let wheel = b"\x1b[<65;1;1M";
+    let (status, seen) = in_terminal("pager-mouse", &["long.md"], 5, None, &[wheel, b"q"]);
+    assert!(status.success());
+    let opened = &seen[..seen.find("\x1b[?2026h").expect("a frame")];
+    assert!(opened.contains(ENTER), "{seen:?}");
+    assert!(opened.contains(MOUSE_ON), "{seen:?}");
+    let closed = &seen[seen.rfind("\x1b[?2026l").expect("a frame")..];
+    let off = closed.find(MOUSE_OFF).expect("mouse reporting off");
+    assert!(off < closed.find(LEAVE).unwrap(), "{seen:?}");
+    // Three lines down: Line 1, the blank line after it and Line 2.
+    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
+    assert_eq!(frames.len(), 2, "{seen:?}");
+    assert!(!frames[0].contains("Line 4"), "{seen:?}");
+    assert!(frames[1].contains("Line 4"), "{seen:?}");
+    assert!(!frames[1].contains("Line 2"), "{seen:?}");
+}
+
+#[test]
+fn no_mouse_leaves_the_mouse_to_the_terminal() {
+    let args = &["--no-mouse", "long.md"];
+    let (status, seen) = in_terminal("pager-no-mouse", args, 5, None, &[b"q"]);
+    assert!(status.success());
+    assert!(seen.starts_with(ENTER), "{seen:?}");
+    assert!(!seen.contains("\x1b[?1000"), "{seen:?}");
+    assert!(!seen.contains("\x1b[?1006"), "{seen:?}");
+}
+
+#[test]
+fn a_printed_document_asks_for_no_mouse_events() {
+    let (status, seen) = in_terminal("pager-print-mouse", &["document.md"], 24, None, &[]);
+    assert!(status.success());
+    assert!(seen.contains("Line 3"), "{seen:?}");
+    assert!(!seen.contains("\x1b[?1000"), "{seen:?}");
 }
 
 #[test]
@@ -566,6 +608,10 @@ fn a_signal_to_end_kiri_leaves_the_screen_first() {
                 }
             });
         assert!(seen.ends_with(LEAVE), "{signal:?}: {seen:?}");
+        // The mouse goes off before the screen is left.
+        let closed = &seen[seen.rfind("\x1b[?2026l").expect("a frame")..];
+        let off = closed.find(MOUSE_OFF).expect("mouse reporting off");
+        assert!(off < closed.find(LEAVE).unwrap(), "{signal:?}: {seen:?}");
         assert_eq!(status.signal(), Some(signal.as_raw()), "{signal:?}");
     }
 }

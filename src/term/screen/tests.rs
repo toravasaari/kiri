@@ -47,7 +47,7 @@ fn ending_raw_mode_discards_unread_answers() {
 fn screen() -> (Screen<Vec<u8>>, File, File) {
     let (terminal, tty) = pty();
     let probe = tty.try_clone().unwrap();
-    let screen = Screen::on(tty, Vec::new(), Signals::none()).expect("the screen opens");
+    let screen = Screen::on(tty, Vec::new(), Signals::none(), false).expect("the screen opens");
     (screen, terminal, probe)
 }
 
@@ -63,7 +63,44 @@ fn the_screen_is_the_alternate_screen_in_raw_mode() {
 }
 
 #[test]
+fn the_screen_captures_the_mouse_only_when_asked() {
+    let entered_and_left = |mouse| {
+        let (_terminal, tty) = pty();
+        let screen = Screen::on(tty, Vec::new(), Signals::none(), mouse).expect("the screen opens");
+        let mut left = Vec::new();
+        screen.leave.run(&mut left);
+        (screen.out.clone(), left)
+    };
+    let (entered, left) = entered_and_left(true);
+    assert_eq!(entered, [ENTER_SCREEN, b"\x1b[?1000h\x1b[?1006h"].concat());
+    assert_eq!(left, [b"\x1b[?1006l\x1b[?1000l", LEAVE_SCREEN].concat());
+    let (entered, left) = entered_and_left(false);
+    assert_eq!(entered, ENTER_SCREEN);
+    assert_eq!(left, LEAVE_SCREEN);
+}
+
+#[test]
 fn the_screen_ends_when_a_panic_unwinds() {
+    let (written, restored, original) = panic_on_the_screen(false);
+    let leave = b"\x1b[?1004l\x1b[?25h\x1b[?1049l";
+    assert!(written.ends_with(leave), "{written:?}");
+    assert_eq!(restored.local_modes, original.local_modes);
+}
+
+#[test]
+fn a_panic_turns_the_mouse_off_before_leaving_the_screen() {
+    let (written, restored, original) = panic_on_the_screen(true);
+    assert!(
+        written.ends_with(&[MOUSE_OFF, LEAVE_SCREEN].concat()),
+        "{written:?}"
+    );
+    assert_eq!(restored.local_modes, original.local_modes);
+}
+
+/// What a screen on a pseudo-terminal, with the mouse on if `mouse`,
+/// writes when a panic unwinds through it, and the terminal's modes after
+/// and before.
+fn panic_on_the_screen(mouse: bool) -> (Vec<u8>, Termios, Termios) {
     use std::sync::{Arc, Mutex};
 
     /// Output that outlives the screen.
@@ -86,16 +123,13 @@ fn the_screen_ends_when_a_panic_unwinds() {
         let tty = tty.try_clone().unwrap();
         let out = out.clone();
         move || {
-            let _screen = Screen::on(tty, out, Signals::none()).expect("the screen opens");
+            let _screen = Screen::on(tty, out, Signals::none(), mouse).expect("the screen opens");
             panic!("the pager fails");
         }
     });
     assert!(result.is_err());
     let written = out.0.lock().unwrap().clone();
-    let leave = b"\x1b[?1004l\x1b[?25h\x1b[?1049l";
-    assert!(written.ends_with(leave), "{written:?}");
-    let restored = tcgetattr(&tty).unwrap();
-    assert_eq!(restored.local_modes, original.local_modes);
+    (written, tcgetattr(&tty).unwrap(), original)
 }
 
 #[test]
@@ -139,7 +173,8 @@ fn panic_on_a_screen() {
     use std::io::Write;
 
     let (_terminal, tty) = pty();
-    let mut screen = Screen::on(tty, std::io::stdout(), Signals::none()).expect("the screen opens");
+    let mut screen =
+        Screen::on(tty, std::io::stdout(), Signals::none(), false).expect("the screen opens");
     screen.catch_panics();
     screen.write_all(b"[part of a frame]").unwrap();
     panic!("[the pager fails]");
@@ -199,7 +234,8 @@ fn sigterm_while_the_screen_opens() {
         .write(true)
         .open(std::env::var_os(PTY).unwrap())
         .unwrap();
-    let screen = Screen::catching_on(tty, RaiseOnEnter(SIGTERM), || {}).expect("the screen opens");
+    let screen =
+        Screen::catching_on(tty, RaiseOnEnter(SIGTERM), false, || {}).expect("the screen opens");
     screen.close();
 }
 
@@ -216,7 +252,7 @@ fn ignored_sigterm_on_the_screen() {
         .write(true)
         .open(std::env::var_os(PTY).unwrap())
         .unwrap();
-    let screen = Screen::catching_on(tty, Vec::new(), || {}).expect("the screen opens");
+    let screen = Screen::catching_on(tty, Vec::new(), false, || {}).expect("the screen opens");
     signal_hook::low_level::raise(SIGTERM).unwrap();
     screen.close();
 }
@@ -235,7 +271,7 @@ fn sigterm_after_drawing_while_the_screen_opens() {
         .unwrap();
     let interrupt = super::super::Interrupt::catch().unwrap();
     assert_eq!(interrupt.release(), None);
-    let screen = Screen::catching_on(tty, RaiseOnEnter(SIGTERM), || drop(interrupt))
+    let screen = Screen::catching_on(tty, RaiseOnEnter(SIGTERM), false, || drop(interrupt))
         .expect("the screen opens");
     screen.close();
 }
@@ -254,7 +290,7 @@ fn sigint_after_the_screen_fails_to_open() {
         .unwrap();
     let interrupt = super::super::Interrupt::catch().unwrap();
     assert_eq!(interrupt.release(), None);
-    let screen = Screen::catching_on(tty, FailOnEnter(None), || drop(interrupt));
+    let screen = Screen::catching_on(tty, FailOnEnter(None), false, || drop(interrupt));
     assert!(screen.is_none());
     signal_hook::low_level::raise(SIGINT).unwrap();
 }
@@ -269,7 +305,7 @@ fn sigint_while_the_screen_fails_to_open() {
         .write(true)
         .open(std::env::var_os(PTY).unwrap())
         .unwrap();
-    let screen = Screen::catching_on(tty, FailOnEnter(Some(SIGINT)), || {});
+    let screen = Screen::catching_on(tty, FailOnEnter(Some(SIGINT)), false, || {});
     assert!(screen.is_none());
 }
 
@@ -327,7 +363,7 @@ fn sigterm_on_a_screen_closed_with_work_after() {
         .write(true)
         .open(std::env::var_os(PTY).unwrap())
         .unwrap();
-    let screen = Screen::catching_on(tty, Vec::new(), || {}).expect("the screen opens");
+    let screen = Screen::catching_on(tty, Vec::new(), false, || {}).expect("the screen opens");
     signal_hook::low_level::raise(SIGTERM).unwrap();
     screen.close_then(|| std::fs::write(std::env::var_os(MARK).unwrap(), "after").unwrap());
 }
@@ -412,7 +448,8 @@ fn caught_panic_beside_a_screen() {
     use std::io::Write;
 
     let (_terminal, tty) = pty();
-    let mut screen = Screen::on(tty, std::io::stdout(), Signals::none()).expect("the screen opens");
+    let mut screen =
+        Screen::on(tty, std::io::stdout(), Signals::none(), false).expect("the screen opens");
     screen.catch_panics();
     let caught = std::thread::spawn(|| crate::panics::catch(|| panic!("[a load fails]")).is_err());
     assert!(caught.join().unwrap());
@@ -429,7 +466,8 @@ fn uncaught_panic_beside_a_screen() {
     use std::io::Write;
 
     let (_terminal, tty) = pty();
-    let mut screen = Screen::on(tty, std::io::stdout(), Signals::none()).expect("the screen opens");
+    let mut screen =
+        Screen::on(tty, std::io::stdout(), Signals::none(), false).expect("the screen opens");
     screen.catch_panics();
     let thread = std::thread::spawn(|| panic!("[a thread fails]"));
     assert!(thread.join().is_err());

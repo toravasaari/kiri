@@ -38,6 +38,12 @@ pub enum Key {
     /// kitty's answer to a check of image `.0`: whether it holds it.
     /// Not a key either.
     Checked(ImageId, bool),
+    /// The mouse wheel turned a notch up.
+    WheelUp,
+    /// The mouse wheel turned a notch down.
+    WheelDown,
+    /// Any other mouse event, such as a click, which the pager ignores.
+    Mouse,
     /// A sequence the pager does not use.
     Other,
 }
@@ -162,6 +168,12 @@ fn cut_off(input: &[u8]) -> (Key, usize) {
 /// and its length.
 fn escape(input: &[u8]) -> Option<(Key, usize)> {
     let key = match input.get(1)? {
+        // A mouse event without SGR encoding: the button, the column and
+        // the row follow, a byte each, 32 more than their value.
+        b'[' if input.get(2) == Some(&b'M') => {
+            let button = input.get(3..6)?[0].wrapping_sub(32);
+            (mouse(Some(button.into()), true), 6)
+        }
         b'[' => {
             // Parameters and intermediates up to the final byte.
             let body = &input[2..];
@@ -211,7 +223,29 @@ fn csi(parameters: &[u8], last: u8) -> Key {
         (b"6;2", b'~') => Key::ShiftPageDown,
         (b"", b'I') => Key::FocusIn,
         (b"", b'O') => Key::FocusOut,
+        // A mouse event in SGR encoding, `<` and the button, the column
+        // and the row, pressed with `M` and released with `m`.
+        ([b'<', rest @ ..], b'M' | b'm') => {
+            let button = std::str::from_utf8(rest).ok().and_then(|rest| {
+                let button = rest.split(';').next()?;
+                button.parse().ok()
+            });
+            mouse(button, last == b'M')
+        }
         _ => Key::Other,
+    }
+}
+
+/// The key of a mouse event with the button code `button`, `pressed` or
+/// released: a notch of the wheel up or down, with or without
+/// modifiers, or else [`Key::Mouse`], such as for a click.
+fn mouse(button: Option<u32>, pressed: bool) -> Key {
+    // Shift, Alt and Ctrl add 4, 8 and 16; the wheel's buttons are 64
+    // and up.
+    match button.map(|button| button & !(4 | 8 | 16)) {
+        Some(64) if pressed => Key::WheelUp,
+        Some(65) if pressed => Key::WheelDown,
+        _ => Key::Mouse,
     }
 }
 
@@ -381,12 +415,20 @@ pub const BINDINGS: &[Binding] = {
     ]
 };
 
-/// What `key` does; `None` for a key without a binding.
+/// How many lines a notch of the mouse wheel moves.
+const WHEEL: usize = 3;
+
+/// What `key` does; `None` for a key without a binding. The wheel is no
+/// key the help lists.
 pub fn action(key: Key) -> Option<Action> {
-    BINDINGS
-        .iter()
-        .find(|binding| binding.keys.contains(&key))
-        .map(|binding| binding.action)
+    match key {
+        Key::WheelUp => Some(Action::Move(Motion::Up(WHEEL))),
+        Key::WheelDown => Some(Action::Move(Motion::Down(WHEEL))),
+        key => BINDINGS
+            .iter()
+            .find(|binding| binding.keys.contains(&key))
+            .map(|binding| binding.action),
+    }
 }
 
 #[cfg(test)]
@@ -496,6 +538,64 @@ mod tests {
                 Key::Char('q'),
             ]
         );
+    }
+
+    #[test]
+    fn decodes_the_mouse_wheel() {
+        // Up and down at a column and a row, then with Ctrl and with
+        // Shift.
+        assert_eq!(
+            decode(b"\x1b[<64;10;5M\x1b[<65;10;5M\x1b[<80;1;1M\x1b[<69;1;1M"),
+            [Key::WheelUp, Key::WheelDown, Key::WheelUp, Key::WheelDown]
+        );
+        // Without SGR encoding: three bytes after the sequence, the
+        // button and the column and row, each 32 more than their value.
+        assert_eq!(
+            decode(b"\x1b[M`*%\x1b[Ma*%"),
+            [Key::WheelUp, Key::WheelDown]
+        );
+    }
+
+    #[test]
+    fn other_mouse_events_are_no_keys() {
+        // A press and a release, a drag, a sideways wheel and a right
+        // click, each followed by a letter.
+        let keys =
+            decode(b"\x1b[<0;10;5Mq\x1b[<0;10;5mq\x1b[<32;11;5Mq\x1b[<66;1;1Mq\x1b[<2;200;99Mq");
+        assert_eq!(
+            keys,
+            [
+                Key::Mouse,
+                Key::Char('q'),
+                Key::Mouse,
+                Key::Char('q'),
+                Key::Mouse,
+                Key::Char('q'),
+                Key::Mouse,
+                Key::Char('q'),
+                Key::Mouse,
+                Key::Char('q'),
+            ]
+        );
+        // Without SGR encoding the column and row could be read as
+        // keys, as a space and a q here.
+        assert_eq!(decode(b"\x1b[M qq\x1b[M#qq"), [Key::Mouse, Key::Mouse]);
+        assert_eq!(action(Key::Mouse), None);
+    }
+
+    #[test]
+    fn a_mouse_event_split_over_two_reads_is_one_key() {
+        let mut decoder = Decoder::default();
+        assert_eq!(decoder.keys(b"\x1b[<64;1"), []);
+        assert_eq!(decoder.keys(b"0;5M"), [Key::WheelUp]);
+        assert_eq!(decoder.keys(b"\x1b[M "), []);
+        assert_eq!(decoder.keys(b"qqj"), [Key::Mouse, Key::Char('j')]);
+    }
+
+    #[test]
+    fn the_wheel_moves_three_lines() {
+        assert_eq!(action(Key::WheelDown), Some(Action::Move(Motion::Down(3))));
+        assert_eq!(action(Key::WheelUp), Some(Action::Move(Motion::Up(3))));
     }
 
     #[test]

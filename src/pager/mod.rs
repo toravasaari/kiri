@@ -989,6 +989,10 @@ impl State {
     /// Does what `key`, pressed at `now`, asks in `layout`, and tells what
     /// is left for the pager to do.
     fn press(&mut self, key: Key, now: Instant, layout: &mut Layout) -> Pressed {
+        // A click, or any mouse event but the wheel, does nothing at all.
+        if key == Key::Mouse {
+            return Pressed::Nothing;
+        }
         self.nowhere = false;
         self.told = None;
         // Any key closes the help and does nothing else, but Ctrl+C

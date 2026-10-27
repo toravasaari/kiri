@@ -267,6 +267,8 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     let errors = &choices.render_errors;
     let name = errors.value.name();
     row(out, &["Render errors", name, &from(errors.origin)])?;
+    let mouse = &choices.mouse;
+    row(out, &["Mouse", mouse.value.name(), &from(mouse.origin)])?;
     let size = &facts.max_image_size;
     let mb = format!("{} MB", size.value);
     row(out, &["Largest image", &mb, &from(size.origin)])?;

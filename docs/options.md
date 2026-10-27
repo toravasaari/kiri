@@ -20,6 +20,7 @@ These are the options kiri takes on the command line.
 | `--follow-jump first\|last\|most` | Which change auto-follow moves the view to: the first, the last or the one that takes the most rows; `first` unless set |
 | `--initial-load wait\|background` | Whether the pager waits for the images before it shows the document, or shows the text at once and each image as it comes; only where the pager surely opens, as with `-p` or `-f`, or with paging on `auto` for a document longer than the window, each image counted at three rows; `wait` unless set |
 | `--passthrough detect\|none\|tmux` | Whether kitty's images pass through tmux: wrapped inside tmux, with the pane's `allow-passthrough` turned on as `kitten icat` does (`detect`), always (`tmux`) or never (`none`); `detect` unless set |
+| `--mouse`, `--no-mouse` | Whether the pager takes the mouse, so that the wheel scrolls it inside tmux too; on unless set; see [Mouse](config.md#mouse) |
 | `--front-matter table\|code\|hide\|off` | Front matter render style; `table` unless set |
 | `--headings auto\|sized\|images\|plain` | How headings show: large with text sizing, as images, or in one row; `auto` unless set; see [Headings](config.md#headings) |
 | `--table-rows zebra\|lines\|indent\|underline\|off` | Table row style; `zebra` unless set |

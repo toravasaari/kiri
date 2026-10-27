@@ -85,6 +85,8 @@ environment! {
     kiri_diagrams: "KIRI_DIAGRAMS",
     /// `KIRI_RENDER_ERRORS`: `inline`, `stderr` or `both`.
     kiri_render_errors: "KIRI_RENDER_ERRORS",
+    /// `KIRI_MOUSE`: `on` or `off`, or `1` or `0`.
+    kiri_mouse: "KIRI_MOUSE",
     /// `PATH`, where kiri looks for a program that draws diagrams.
     path: "PATH",
     /// `NVM_DIR`: where nvm keeps the Node versions it installs.
@@ -223,6 +225,8 @@ pub struct Config {
     pub diagram_no_search: BTreeSet<String>,
     /// Where kiri tells why a diagram could not be drawn.
     pub render_errors: Option<RenderErrors>,
+    /// Whether the pager takes the mouse, to scroll on the wheel.
+    pub mouse: Option<bool>,
 }
 
 /// When the document is shown in the pager rather than printed.
@@ -407,6 +411,7 @@ fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String> {
         diagram_panel: file.diagrams.background_panel,
         diagram_no_search: file.diagrams.no_search,
         render_errors: file.render_errors,
+        mouse: file.mouse,
     })
 }
 
@@ -435,6 +440,7 @@ struct ConfigToml {
     table_rows: Option<TableRows>,
     #[serde(default, deserialize_with = "named")]
     render_errors: Option<RenderErrors>,
+    mouse: Option<bool>,
     #[serde(default)]
     diagrams: DiagramsToml,
 }
@@ -904,6 +910,8 @@ pub struct Options {
     pub diagrams: Option<Setting<bool>>,
     /// Where kiri tells why a diagram could not be drawn.
     pub render_errors: Option<Setting<RenderErrors>>,
+    /// Whether the pager takes the mouse.
+    pub mouse: Option<Setting<bool>>,
 }
 
 /// What the options, the environment and the configuration file choose
@@ -948,6 +956,8 @@ pub struct Settings {
     pub diagram_no_search: BTreeSet<String>,
     /// Where kiri tells why a diagram could not be drawn.
     pub render_errors: RenderErrors,
+    /// Whether the pager takes the mouse, to scroll on the wheel.
+    pub mouse: bool,
 }
 
 /// What the options, the environment and the configuration file choose,
@@ -993,6 +1003,8 @@ pub struct Choices {
     pub diagram_no_search: BTreeSet<String>,
     /// Where kiri tells why a diagram could not be drawn.
     pub render_errors: Setting<RenderErrors>,
+    /// Whether the pager takes the mouse, to scroll on the wheel.
+    pub mouse: Setting<bool>,
     /// What the user should know about settings that were left out.
     pub warnings: Vec<String>,
 }
@@ -1024,6 +1036,7 @@ impl Choices {
             diagram_panel: self.diagram_panel.value,
             diagram_no_search: self.diagram_no_search.clone(),
             render_errors: self.render_errors.value,
+            mouse: self.mouse.value,
         }
     }
 }
@@ -1119,6 +1132,13 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
         diagram_panel: resolve(None, unset, config.diagram_panel, true, w),
         diagram_no_search: config.diagram_no_search.clone(),
         render_errors,
+        mouse: resolve(
+            options.mouse.clone(),
+            variable(env, "KIRI_MOUSE"),
+            config.mouse,
+            true,
+            w,
+        ),
         warnings,
     }
 }

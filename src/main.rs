@@ -231,6 +231,20 @@ struct Cli {
     #[arg(long, value_parser = named::<RenderErrors>(), value_name = "WHERE")]
     render_errors: Option<RenderErrors>,
 
+    /// Leave the mouse to the terminal in the pager
+    ///
+    /// The pager takes the mouse unless set, so that the wheel scrolls it,
+    /// also inside tmux. While it has the mouse, kitty selects text with
+    /// Shift and the mouse.
+    #[arg(long)]
+    no_mouse: bool,
+
+    /// Let the pager take the mouse
+    ///
+    /// Whatever KIRI_MOUSE and the configuration say.
+    #[arg(long, conflicts_with = "no_mouse")]
+    mouse: bool,
+
     /// Largest image file to read, in megabytes
     ///
     /// At most 100; larger images show their alt text.
@@ -1037,9 +1051,8 @@ fn page_files(
             carry_on(still, inputs, loads);
         }
     };
-    let paging = settings.paging;
     let opening = (opening, start);
-    if let Some(result) = page(context, content, name, inputs, paging, options, opening) {
+    if let Some(result) = page(context, content, name, inputs, settings, options, opening) {
         // What the pager would have hidden.
         (drawn.iter().flatten()).for_each(|drawn| tell_drawn(drawn, failed));
         return shown(result);
@@ -1907,7 +1920,7 @@ fn print_document(
         kiri::render::layout::Content::Document(document),
         name,
         &mut inputs,
-        settings.paging,
+        &settings,
         kiri::pager::Options {
             // Without a file to follow, the pager says so only when the
             // command line asked to follow.
@@ -1963,22 +1976,23 @@ fn print_document(
     )?)
 }
 
-/// Shows `content` in the pager when `paging` asks for it and the output
-/// is a terminal that takes escape sequences; `None` when it is to be
-/// printed instead. `options` tell the pager how a search treats case and
-/// where `r` gets the document again from, if anywhere. The pager catches
-/// Ctrl-C itself; of `opening`, `caught` runs once its screen catches the
-/// signals, and then `start`, which may start loading images in the
-/// background.
+/// Shows `content` in the pager when the paging of `settings` asks for it
+/// and the output is a terminal that takes escape sequences, with the
+/// mouse taken if they say so; `None` when it is to be printed instead.
+/// `options` tell the pager how a search treats case and where `r` gets
+/// the document again from, if anywhere. The pager catches Ctrl-C itself;
+/// of `opening`, `caught` runs once its screen catches the signals, and
+/// then `start`, which may start loading images in the background.
 fn page(
     context: &Context,
     content: kiri::render::layout::Content,
     name: &str,
     inputs: &mut Inputs,
-    paging: kiri::config::Paging,
+    settings: &Settings,
     options: kiri::pager::Options,
     (caught, start): (impl FnOnce(), impl FnOnce(&mut Inputs, &mut Loads)),
 ) -> Option<io::Result<()>> {
+    let paging = settings.paging;
     let terminal = kiri::term::stdout_is_terminal() && inputs.caps.styling;
     if !terminal || paging == kiri::config::Paging::Never {
         return None;
@@ -1992,7 +2006,9 @@ fn page(
     // The screen catches the signals before the terminal is raw; the
     // guard, which would otherwise end kiri with the terminal raw, goes
     // then.
-    let Some(mut screen) = kiri::term::Screen::open(caught, inputs.caps.tmux_passthrough) else {
+    let Some(mut screen) =
+        kiri::term::Screen::open(caught, inputs.caps.tmux_passthrough, settings.mouse)
+    else {
         // Without a terminal to read keys from, as in the background, the
         // document is printed, and the signals still end kiri; only a
         // reader who asked for the pager is told.
@@ -2295,6 +2311,8 @@ fn options(cli: &Cli) -> Options {
         table_rows: flag(cli.table_rows, "--table-rows"),
         diagrams: flag(cli.diagrams, "--diagrams"),
         render_errors: flag(cli.render_errors, "--render-errors"),
+        mouse: (flag(cli.mouse.then_some(true), "--mouse"))
+            .or(flag(cli.no_mouse.then_some(false), "--no-mouse")),
     }
 }
 
