@@ -299,7 +299,7 @@ const GREY: Option<Color> = Some(Color::Palette(8));
 
 /// The least contrast with the background that WCAG asks for lines and
 /// other parts of a page that are not text.
-const VISIBLE: f64 = 3.0;
+pub const VISIBLE: f64 = 3.0;
 
 impl Default for Theme {
     fn default() -> Self {
