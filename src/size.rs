@@ -15,6 +15,10 @@ pub struct TextSize {
     scale: u8,
     fraction: Option<Fraction>,
     align: VerticalAlign,
+    /// Where text at a fraction sits among its cells when it is packed as
+    /// one group of its own, as a piece cut out between groups is, so that
+    /// it keeps the packing it had in the whole text.
+    group: Option<HorizontalAlign>,
 }
 
 /// A fraction below one: `numerator` from 1 to 7 and below `denominator`,
@@ -34,6 +38,19 @@ pub struct Group<'a> {
     pub text: &'a str,
     /// The cells of the text's scale the group takes, the protocol's `w`.
     pub cells: u8,
+    /// Where the text sits among its cells when it is drawn narrower than
+    /// they are.
+    pub align: HorizontalAlign,
+}
+
+/// Where text drawn at a fraction of its scale sits among the cells of its
+/// group.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum HorizontalAlign {
+    #[default]
+    Left,
+    Right,
+    Centre,
 }
 
 /// Where text drawn at a fraction of its scale sits among the rows the
@@ -52,6 +69,7 @@ impl TextSize {
         scale: 1,
         fraction: None,
         align: VerticalAlign::Top,
+        group: None,
     };
 
     /// `scale` times the normal size; `None` unless it is 1 to 7, the
@@ -124,6 +142,15 @@ impl TextSize {
         }
     }
 
+    /// This size for text that is packed as one group, placed by `align`
+    /// among its cells, whatever the text around it was.
+    pub const fn as_one_group(self, align: HorizontalAlign) -> Self {
+        Self {
+            group: Some(align),
+            ..self
+        }
+    }
+
     /// The rows the text occupies, and the cells for each normal cell of
     /// its width.
     pub const fn scale(self) -> u8 {
@@ -146,12 +173,27 @@ impl TextSize {
         self.align
     }
 
+    /// `text` cut into the groups it is packed in at this size; none at a
+    /// whole size, which packs nothing.
+    pub fn groups(self, text: &str) -> Vec<Group<'_>> {
+        match (self.fraction, self.group) {
+            (None, _) => Vec::new(),
+            (Some(_), Some(_)) if text.is_empty() => Vec::new(),
+            (Some(fraction), Some(align)) => vec![Group {
+                text,
+                cells: fraction.cells(text.width()),
+                align,
+            }],
+            (Some(fraction), None) => fraction.groups(text),
+        }
+    }
+
     /// The normal cells `text` takes at this size: `scale` for each cell
     /// of its width, or with a fraction, for each cell of its groups.
     pub fn width(self, text: &str) -> usize {
         let cells = match self.fraction {
             None => text.width(),
-            Some(fraction) => (fraction.groups(text).iter())
+            Some(_) => (self.groups(text).iter())
                 .map(|group| usize::from(group.cells))
                 .sum(),
         };
@@ -186,32 +228,187 @@ impl Fraction {
         self.denominator
     }
 
-    /// `text` cut into the groups it is packed in: `denominator` cells of
-    /// text in `numerator` cells, so half-size `abc` is `ab` and `c`, one
-    /// cell each. A group ends between graphemes, early where a wide
-    /// character would cross its end, and a shorter group takes the cells
-    /// its text needs, rounded up.
+    /// The cells a group of text `width` cells wide takes, rounded up.
+    fn cells(self, width: usize) -> u8 {
+        let cells = (width * usize::from(self.numerator)).div_ceil(usize::from(self.denominator));
+        u8::try_from(cells).unwrap_or(u8::MAX)
+    }
+
+    /// `text` cut into the groups it is packed in. A group of text `w`
+    /// cells wide takes `w * numerator / denominator` cells, rounded up and
+    /// at most seven, the most one escape sequence holds, and ends between
+    /// graphemes.
+    ///
+    /// kitty draws text at a fraction a little narrower than its cells,
+    /// and a group that rounds up has cells to spare, so each group leaves
+    /// a gap on the side it is not aligned to. The groups and their
+    /// alignment are chosen for the smallest and most even gaps between
+    /// words, with none before the text, which starts at the margin, and
+    /// none inside a word: where two groups meet in a word, the first sits
+    /// at the right of its cells and the second at the left. Only a word
+    /// too long for two groups has a gap in it.
     pub fn groups(self, text: &str) -> Vec<Group<'_>> {
-        let (numerator, denominator) = (usize::from(self.numerator), usize::from(self.denominator));
-        let mut groups = Vec::new();
-        let group = |text, width: usize| Group {
-            text,
-            cells: u8::try_from((width * numerator).div_ceil(denominator)).unwrap_or(u8::MAX),
+        let graphemes: Vec<Grapheme> = (text.grapheme_indices(true))
+            .map(|(at, grapheme)| Grapheme {
+                at,
+                width: grapheme.width(),
+                space: grapheme.starts_with(char::is_whitespace),
+            })
+            .collect();
+        if graphemes.iter().all(|grapheme| grapheme.width == 0) {
+            // Nothing to pack: a group of no cells, which shows nothing.
+            return (!text.is_empty())
+                .then_some(Group {
+                    text,
+                    cells: 0,
+                    align: HorizontalAlign::Left,
+                })
+                .into_iter()
+                .collect();
+        }
+        // The text cells one group holds.
+        let most = 7 * usize::from(self.denominator) / usize::from(self.numerator);
+        let inside_word = |index: usize| {
+            index > 0
+                && index < graphemes.len()
+                && !graphemes[index - 1].space
+                && !graphemes[index].space
         };
-        let (mut start, mut width) = (0, 0);
-        for (at, grapheme) in text.grapheme_indices(true) {
-            let grapheme_width = grapheme.width();
-            if width + grapheme_width > denominator && width > 0 {
-                groups.push(group(&text[start..at], width));
-                (start, width) = (at, 0);
+        let gaps = |width: usize, align: HorizontalAlign| {
+            let drawn = width as f64 * f64::from(self.numerator) / f64::from(self.denominator);
+            let spare = f64::from(self.cells(width)) - drawn * (1.0 - NARROWER);
+            match align {
+                HorizontalAlign::Left => (0.0, spare),
+                HorizontalAlign::Right => (spare, 0.0),
+                HorizontalAlign::Centre => (spare / 2.0, spare / 2.0),
             }
-            width += grapheme_width;
+        };
+        let cost = |index: usize, gap: f64| match index {
+            0 if !graphemes[0].space => START * gap * gap,
+            _ if index == graphemes.len() && !graphemes[index - 1].space => END * gap * gap,
+            _ if inside_word(index) && gap > 0.0 => INSIDE_WORD + gap * gap,
+            _ => gap * gap,
+        };
+        // The best packings of the text up to each grapheme, one for each
+        // way its last group can start and be aligned.
+        let mut ends: Vec<Vec<Packing>> = (0..=graphemes.len()).map(|_| Vec::new()).collect();
+        for end in 1..=graphemes.len() {
+            let (done, rest) = ends.split_at_mut(end);
+            let mut width = 0;
+            for start in (0..end).rev() {
+                width += graphemes[start].width;
+                if width > most {
+                    break;
+                }
+                // Zero-width graphemes go with the text around them.
+                if width == 0 {
+                    continue;
+                }
+                for align in [
+                    HorizontalAlign::Left,
+                    HorizontalAlign::Right,
+                    HorizontalAlign::Centre,
+                ] {
+                    let (before, after) = gaps(width, align);
+                    // The gaps on both sides of a group of spaces show as
+                    // one, so they are weighed together.
+                    let spaces = graphemes[start..end].iter().all(|grapheme| grapheme.space);
+                    // Of packings with even gaps, the one of fewer groups.
+                    let packing = |cost_so_far: f64, gap: f64, last| match spaces {
+                        true => (cost_so_far + GROUP, gap + after, last),
+                        false => (cost_so_far + GROUP + cost(start, gap), after, last),
+                    };
+                    let best = match start {
+                        0 => Some(packing(0.0, before, None)),
+                        _ => (done[start].iter().enumerate())
+                            .map(|(index, last)| {
+                                packing(last.cost, last.after + before, Some(index))
+                            })
+                            .min_by(|a, b| a.0.total_cmp(&b.0)),
+                    };
+                    if let Some((cost, after, last)) = best {
+                        rest[0].push(Packing {
+                            start,
+                            width,
+                            align,
+                            after,
+                            cost,
+                            last,
+                        });
+                    }
+                }
+            }
         }
-        if start < text.len() {
-            groups.push(group(&text[start..], width));
+        let end = graphemes.len();
+        let mut best = (ends[end].iter().enumerate())
+            .min_by(|(_, a), (_, b)| {
+                (a.cost + cost(end, a.after)).total_cmp(&(b.cost + cost(end, b.after)))
+            })
+            .map(|(index, _)| index);
+        let offset = |index: usize| {
+            graphemes
+                .get(index)
+                .map_or(text.len(), |grapheme| grapheme.at)
+        };
+        let mut groups = Vec::new();
+        let mut stop = end;
+        while let Some(index) = best {
+            let packing = &ends[stop][index];
+            groups.push(Group {
+                text: &text[offset(packing.start)..offset(stop)],
+                cells: self.cells(packing.width),
+                align: packing.align,
+            });
+            (stop, best) = (packing.start, packing.last);
         }
+        groups.reverse();
         groups
     }
+}
+
+/// How much narrower than its cells kitty draws text at a fraction, as a
+/// share of the text's width: about 4 % with an 11 pt font. It only weighs
+/// one packing against another.
+const NARROWER: f64 = 0.04;
+
+/// What a gap before text that starts with a word costs, against the
+/// square of the gap for one between words: a heading starts at the
+/// margin, and text after other text is most often after a space.
+const START: f64 = 100.0;
+
+/// What a gap after text that ends in a word costs: it is most often at
+/// the end of the line, where it does not show. After a space, it is a gap
+/// between words like any other.
+const END: f64 = 0.25;
+
+/// What a gap inside a word costs: more than any gaps between words.
+const INSIDE_WORD: f64 = 1000.0;
+
+/// What a group costs, so that of two packings with gaps as even, the one
+/// of fewer groups wins.
+const GROUP: f64 = 1e-6;
+
+struct Grapheme {
+    /// Where it starts in the text, in bytes.
+    at: usize,
+    width: usize,
+    space: bool,
+}
+
+/// The best packing of text up to a grapheme whose last group starts at
+/// `start` and is aligned by `align`.
+struct Packing {
+    start: usize,
+    /// The text cells of the last group.
+    width: usize,
+    align: HorizontalAlign,
+    /// The gap the last group leaves at its end.
+    after: f64,
+    /// What the gaps before the end cost.
+    cost: f64,
+    /// The packing of the text before the last group, in the packings that
+    /// end at `start`.
+    last: Option<usize>,
 }
 
 #[cfg(test)]
@@ -274,26 +471,185 @@ mod tests {
     }
 
     #[test]
-    fn text_at_a_fraction_is_packed_in_groups_of_the_denominator_s_cells() {
-        assert_eq!(groups(half(), "abcde"), [("ab", 1), ("cd", 1), ("e", 1)]);
-        // A shorter last group takes the cells its text needs, rounded up.
+    fn a_group_takes_the_cells_of_its_text_at_the_fraction_rounded_up() {
+        assert_eq!(groups(half(), "abcde"), [("abcde", 3)]);
         let three_quarters = Fraction::new(3, 4).unwrap();
-        assert_eq!(
-            groups(three_quarters, "abcdefghi"),
-            [("abcd", 3), ("efgh", 3), ("i", 1)]
-        );
-        assert_eq!(groups(three_quarters, "abcdef"), [("abcd", 3), ("ef", 2)]);
+        assert_eq!(groups(three_quarters, "abcdefghi"), [("abcdefghi", 7)]);
         assert_eq!(groups(half(), ""), []);
+        // Text of no width is a group of no cells.
+        assert_eq!(groups(half(), "\u{200b}"), [("\u{200b}", 0)]);
     }
 
     #[test]
     fn a_group_never_splits_a_grapheme() {
-        // A wide character that would cross a group's end starts the next.
-        assert_eq!(groups(half(), "a日b"), [("a", 1), ("日", 1), ("b", 1)]);
-        // An e with a combining acute accent stays whole.
-        assert_eq!(groups(half(), "ae\u{301}b"), [("ae\u{301}", 1), ("b", 1)]);
+        // Twenty cells of text at a half take two groups at least.
+        let accents = "e\u{301}".repeat(20);
+        let groups = half().groups(&accents);
+        assert!(groups.len() > 1);
+        assert!(groups.iter().all(|group| group.text.starts_with('e')));
         // A flag is two regional indicators, two cells together.
-        assert_eq!(groups(half(), "🇫🇮"), [("🇫🇮", 1)]);
+        let flags = "🇫🇮".repeat(10);
+        let groups = half().groups(&flags);
+        assert!(groups.len() > 1);
+        assert!(
+            groups
+                .iter()
+                .all(|group| group.text.len() % "🇫🇮".len() == 0)
+        );
+    }
+
+    fn aligned(fraction: Fraction, text: &str) -> Vec<(&str, u8, HorizontalAlign)> {
+        (fraction.groups(text).into_iter())
+            .map(|group| (group.text, group.cells, group.align))
+            .collect()
+    }
+
+    #[test]
+    fn a_group_takes_up_to_seven_cells() {
+        // `a heading` takes 6 3/4 cells at 3/4, so one group of seven, and
+        // its gap is at the end of the text.
+        let three_quarters = Fraction::new(3, 4).unwrap();
+        assert_eq!(
+            aligned(three_quarters, "a heading"),
+            [("a heading", 7, HorizontalAlign::Left)]
+        );
+    }
+
+    #[test]
+    fn text_starts_at_the_left_of_its_first_group() {
+        // A heading starts at the margin, as the text below it does, so the
+        // first group ends at a space rather than inside `three`.
+        let seven_eighths = Fraction::new(7, 8).unwrap();
+        assert_eq!(
+            aligned(seven_eighths, "Level three"),
+            [
+                ("Level", 5, HorizontalAlign::Left),
+                (" three", 6, HorizontalAlign::Left)
+            ]
+        );
+    }
+
+    #[test]
+    fn text_between_spaces_leaves_even_gaps_on_both_sides() {
+        // Inline code in a heading has a no-break space at each end, and its
+        // background shows the gaps on both sides.
+        let seven_eighths = Fraction::new(7, 8).unwrap();
+        assert_eq!(
+            aligned(seven_eighths, "\u{a0}code\u{a0}"),
+            [("\u{a0}code\u{a0}", 6, HorizontalAlign::Centre)]
+        );
+    }
+
+    // kitty draws text at a fraction a little narrower than its cells, and
+    // the rest of the cells shows as a gap. Gaps go between words.
+    #[test]
+    fn two_groups_meet_inside_a_word_without_a_gap() {
+        use HorizontalAlign::{Left, Right};
+        let three_quarters = Fraction::new(3, 4).unwrap();
+        assert_eq!(
+            aligned(three_quarters, "abcdefghijkl"),
+            [("abcd", 3, Right), ("efghijkl", 6, Left)]
+        );
+        let seven_eighths = Fraction::new(7, 8).unwrap();
+        assert_eq!(
+            aligned(seven_eighths, "abcdefghij"),
+            [("abcdefgh", 7, Right), ("ij", 2, Left)]
+        );
+    }
+
+    #[test]
+    fn no_gap_shows_inside_a_word_that_two_groups_hold() {
+        use HorizontalAlign::{Left, Right};
+        for (numerator, denominator) in [(1, 2), (2, 3), (3, 4), (5, 6), (5, 8), (7, 8)] {
+            let fraction = Fraction::new(numerator, denominator).unwrap();
+            for text in texts(&["a", " "], 10) {
+                let groups = fraction.groups(&text);
+                let mut at = 0;
+                for pair in groups.windows(2) {
+                    at += pair[0].text.len();
+                    let inside = !text[..at].ends_with(' ') && !text[at..].starts_with(' ');
+                    let meet = (pair[0].align, pair[1].align) == (Right, Left);
+                    assert!(!inside || meet, "{fraction:?} {text:?} {groups:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn only_a_word_too_long_for_two_groups_has_a_gap_inside() {
+        use HorizontalAlign::{Left, Right};
+        // At a half a group holds fourteen letters, and the first starts at
+        // the margin.
+        assert_eq!(
+            aligned(half(), "abcdefghijklmnopqrstuvwxyzabcdefgh"),
+            [
+                ("abcdefghijklmn", 7, Left),
+                ("opqrst", 3, Right),
+                ("uvwxyzabcdefgh", 7, Left)
+            ]
+        );
+    }
+
+    #[test]
+    fn the_spare_cells_spread_over_the_spaces() {
+        use HorizontalAlign::{Centre, Left, Right};
+        let three_quarters = Fraction::new(3, 4).unwrap();
+        assert_eq!(
+            aligned(three_quarters, "Several words in a heading at level four"),
+            [
+                ("Several ", 6, Left),
+                ("word", 3, Right),
+                ("s", 1, Left),
+                (" in ", 3, Left),
+                ("a", 1, Centre),
+                (" heading", 6, Centre),
+                (" at ", 3, Right),
+                ("level", 4, Centre),
+                (" four", 4, Left)
+            ]
+        );
+    }
+
+    /// Every text of up to `length` graphemes from `alphabet`.
+    fn texts(alphabet: &[&str], length: usize) -> Vec<String> {
+        let mut texts = vec![String::new()];
+        let mut last = vec![String::new()];
+        for _ in 0..length {
+            last = (last.iter())
+                .flat_map(|text| {
+                    alphabet
+                        .iter()
+                        .map(move |grapheme| format!("{text}{grapheme}"))
+                })
+                .collect();
+            texts.extend(last.iter().cloned());
+        }
+        texts
+    }
+
+    #[test]
+    fn groups_hold_the_text_in_order_in_at_most_seven_cells() {
+        let fractions = [(1, 2), (2, 3), (3, 4), (5, 6), (5, 8), (7, 8), (7, 12)];
+        let texts = [
+            texts(&["a", " "], 9),
+            texts(&["a", " ", "日", "\u{200b}"], 5),
+        ]
+        .concat();
+        for (numerator, denominator) in fractions {
+            let fraction = Fraction::new(numerator, denominator).unwrap();
+            for text in &texts {
+                let groups = fraction.groups(text);
+                let joined: String = groups.iter().map(|group| group.text).collect();
+                assert_eq!(&joined, text, "{fraction:?}");
+                for group in &groups {
+                    let cells = (group.text.width() * usize::from(numerator))
+                        .div_ceil(usize::from(denominator));
+                    assert!(!group.text.is_empty(), "{fraction:?} {text:?}");
+                    assert_eq!(usize::from(group.cells), cells, "{fraction:?} {text:?}");
+                    assert!(group.cells <= 7, "{fraction:?} {text:?}");
+                }
+            }
+        }
     }
 
     #[test]
@@ -308,7 +664,7 @@ mod tests {
         );
         assert_eq!(at(2, 7, 8).width("abcdefgh"), 14);
         assert_eq!(at(2, 7, 8).width("abcdefghi"), 16);
-        assert_eq!(at(1, 1, 2).width("a日b"), 3);
+        assert_eq!(at(1, 1, 2).width("a日b"), 2);
         assert_eq!(at(1, 1, 2).width(""), 0);
     }
 

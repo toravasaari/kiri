@@ -1072,6 +1072,19 @@ go.
   with a hundred headings parses hundreds of SVGs before it shows.
   Measuring a heading's words in one SVG, and the space once per level,
   would be faster.
+- Finer spacing between the words of a heading at a fraction. A space
+  can only grow by whole cells of the heading's scale, so a short heading
+  such as "Level three" at 1 3/4 has one space about twice as wide as
+  normal. A space at the normal size would halve the step, but leaves an
+  empty cell in the rows below it, under backgrounds and marks too. A
+  heading allowed to start a few pixels from the margin would get even
+  spaces for less.
+- Faster wrapping of text at a fraction. The wrapper packs the whole line
+  again for each word, and packing chooses all its groups together, so
+  the time grows with the square of the line: a heading takes 1 to 4 ms
+  in a release build, and one with a 276-byte URL at half size 124 ms.
+  Packing only the last words again would be enough, as groups further
+  back no longer change.
 
 ## Bugs
 
@@ -1115,13 +1128,20 @@ A formula block inside an inline HTML tag, such as `<sub>$$z$$</sub>`,
 is drawn as a formula, but the tags around it show as source: each
 becomes an HTML block of its own, as the wrapper tags in B2 do.
 
-#### B6 A gap inside a word of a heading at a fractional size
+#### B6 A gap inside a word of a heading at a fractional size (fixed)
+
+Fixed: kitty draws each group a few pixels narrower than its cells, and
+kiri now chooses and aligns the groups of a text together, so that the
+spare pixels fall between words and spread over them. A word longer than
+two groups still has a gap inside, and a heading that starts with a word
+longer than one group starts a few pixels to the right.
 
 A level-three heading at 1 3/4, "Level three with `code` and
 *emphasis*", showed as "Level th ree with" in a render-check at 50
 columns: a gap inside "three", where one group of packed cells ends and
 the next begins. B4 has gaps like this around wide characters; here the
-word is plain ASCII. Not yet seen in a real kitty window.
+word is plain ASCII. The maintainer saw the gaps in a real kitty window
+too.
 
 #### B7 Images lost inside tmux in a long document (fixed)
 
@@ -1155,6 +1175,13 @@ answer that comes later, as over a slow connection, reaches the shell
 once kiri has exited, and shows there as text such as
 `^[_Gi=…;OK^[\`. Waiting longer when part of the answers came, or
 reading away what arrives just before exiting, would fix it.
+
+#### B10 Text at a fraction cut too early
+
+Found in review. `cut` in `src/render/wrap.rs` measures text one
+grapheme at a time, and at a fraction each grapheme rounds up to a whole
+cell, so a heading or a sup cut to fit takes fewer letters than fit.
+Measuring the text kept, as `width` does, would fix it.
 
 ### Upstream bugs
 

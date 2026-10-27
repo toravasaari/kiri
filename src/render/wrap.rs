@@ -19,25 +19,27 @@ pub fn width(spans: &[Span]) -> usize {
         .sum()
 }
 
-/// The cells `gap` and then `word` add when appended to `line`. Text at a
-/// fraction is packed together with the text before it in the same style,
-/// so it may add fewer or more cells than it takes on its own.
-fn added_width(line: &[Span], gap: &[Span], word: &[Span]) -> usize {
+/// The cells `line`, which takes `used` cells, takes with `gap` and then
+/// `word` appended. Text at a fraction is packed together with the text
+/// before it in the same style, so it may add fewer or more cells than it
+/// takes on its own, and even take some away.
+fn width_after(line: &[Span], used: usize, gap: &[Span], word: &[Span]) -> usize {
     if (gap.iter().chain(word)).all(|span| span.style.size.fraction().is_none()) {
-        return width(gap) + width(word);
+        return used + width(gap) + width(word);
     }
     // Text is only ever merged into the last span.
     let mut tail: Vec<Span> = line.last().cloned().into_iter().collect();
     let before = width(&tail);
     append(&mut tail, gap);
     append(&mut tail, word);
-    width(&tail) - before
+    used + width(&tail) - before
 }
 
 /// Appends as many spaces in `style` as fit before `spans` take `max`
 /// cells.
 pub fn fill(spans: &mut Vec<Span>, max: usize, style: &Style) {
-    let room = max.saturating_sub(width(spans));
+    let used = width(spans);
+    let room = max.saturating_sub(used);
     let size = style.size;
     let (numerator, denominator) = (size.fraction()).map_or((1, 1), |fraction| {
         (fraction.numerator(), fraction.denominator())
@@ -50,7 +52,8 @@ pub fn fill(spans: &mut Vec<Span>, max: usize, style: &Style) {
     let spaces = (0..=most)
         .rev()
         .find(|&spaces| {
-            added_width(spans, &[], &[Span::new(&" ".repeat(spaces), style.clone())]) <= room
+            let spaces = [Span::new(&" ".repeat(spaces), style.clone())];
+            width_after(spans, used, &[], &spaces) <= used + room
         })
         .unwrap_or(0);
     push(spans, &" ".repeat(spaces), style);
@@ -81,17 +84,16 @@ fn split_onto(
     for span in spans {
         for grapheme in span.text.graphemes(true) {
             let size = span.style.size;
-            let mut grapheme_width = match size.fraction() {
-                None => size.width(grapheme),
-                Some(_) => added_width(line, &[], &[Span::new(grapheme, span.style.clone())]),
+            let mut after = match size.fraction() {
+                None => used + size.width(grapheme),
+                Some(_) => width_after(line, used, &[], &[Span::new(grapheme, span.style.clone())]),
             };
-            if used + grapheme_width > max && used > 0 {
+            if after > max && used > 0 {
                 lines.push(std::mem::take(line));
-                used = 0;
-                grapheme_width = size.width(grapheme);
+                after = size.width(grapheme);
             }
             push(line, grapheme, &span.style);
-            used += grapheme_width;
+            used = after;
         }
     }
     used
@@ -210,12 +212,12 @@ impl Wrapper {
     }
 
     fn word(&mut self, word: &[Span]) {
-        let added = added_width(&self.line, &self.gap, word);
+        let after = width_after(&self.line, self.used, &self.gap, word);
         let word_width = || width(word);
-        if self.used + added <= self.max {
+        if after <= self.max {
             append(&mut self.line, &std::mem::take(&mut self.gap));
             append(&mut self.line, word);
-            self.used += added;
+            self.used = after;
         } else if word_width() <= self.max {
             self.break_line();
             append(&mut self.line, word);
@@ -228,7 +230,7 @@ impl Wrapper {
         } else {
             // The gap needs room for the word's first character after it,
             // or the word starts on a new line.
-            if self.used + added_width(&self.line, &self.gap, &first(word)) <= self.max {
+            if width_after(&self.line, self.used, &self.gap, &first(word)) <= self.max {
                 self.place_gap();
             } else {
                 self.break_line();
@@ -239,7 +241,7 @@ impl Wrapper {
 
     fn place_gap(&mut self) {
         let gap = std::mem::take(&mut self.gap);
-        self.used += added_width(&self.line, &gap, &[]);
+        self.used = width_after(&self.line, self.used, &gap, &[]);
         append(&mut self.line, &gap);
     }
 
@@ -723,6 +725,26 @@ mod tests {
             texts(&split(&[sized("abcdefg", half)], 2)),
             vec!["abcd", "efg"]
         );
+    }
+
+    #[test]
+    fn text_at_a_fraction_that_takes_fewer_cells_as_it_grows_still_wraps() {
+        // Packing chooses the groups of the whole text together, so a
+        // letter more can take a cell less.
+        let size = fraction(1, 5, 7);
+        for text in [
+            "abcdefghijklmnopqrstuvwxyzabcd",
+            "at educavj日k日日cmbtga日h日f",
+        ] {
+            for max in 2..=25 {
+                for line in wrap(&[sized(text, size)], max) {
+                    assert!(width(&line) <= max, "{text:?} {max}");
+                }
+                for line in split(&[sized(text, size)], max) {
+                    assert!(width(&line) <= max, "{text:?} {max}");
+                }
+            }
+        }
     }
 
     #[test]

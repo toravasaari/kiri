@@ -40,6 +40,27 @@ heading's size, in the inline code colour on its background, and the
 emphasis is in italics: with kitty's text sizing, and with
 `--headings images` alike.
 
+## Words in headings
+
+Headings at levels one, three, four and five are drawn at a fraction of
+the cells they take, and kitty draws them a few pixels narrower than
+those cells. Words stay whole: no gap shows inside "heading" or
+"several", and the few pixels go between words instead, so some spaces
+are a little wider than others. Long words such as "documentation" and
+"configuration" stay whole too. Each heading starts at the left margin,
+except one whose first word is longer than kitty can draw in one go, such
+as the last one here: it starts a few pixels to the right.
+
+# Several words in a heading at level one
+
+### Several words in a heading at level three
+
+#### Several words in a heading at level four
+
+##### Several words in a heading at level five
+
+### Documentation for configuration
+
 ## Emphasis and strikethrough
 
 A paragraph with *emphasis* in italics, **strong text** in bold,

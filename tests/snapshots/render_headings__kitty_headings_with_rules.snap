@@ -2,7 +2,7 @@
 source: tests/render_headings.rs
 expression: "visible(&render_fixture(\"headings.md\",\n&inputs(&Capabilities::kitty(WIDTH), &theme)))"
 ---
-␛[0;1;34m␛]66;s=3:n=5:d=6:v=1:w=5;Headin␛\␛]66;s=3:n=5:d=6:v=1:w=5;g leve␛\␛]66;s=3:n=5:d=6:v=1:w=5;l one␛\␛[0m
+␛[0;1;34m␛]66;s=3:n=5:d=6:v=1:w=6;Heading␛\␛]66;s=3:n=5:d=6:v=1:w=5; level␛\␛]66;s=3:n=5:d=6:v=1:w=4; one␛\␛[0m
 
 
 ␛[0;90m────────────────────────────────────────────────␛[0m

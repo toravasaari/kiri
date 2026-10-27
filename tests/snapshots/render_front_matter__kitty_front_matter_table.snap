@@ -63,7 +63,7 @@ expression: "visible(&render_with(\"front-matter.md\", Capabilities::kitty(WIDTH
   ␛[0;90m│␛[0m             ␛[0;90m│␛[0m own break.                 ␛[0;90m│␛[0m
   ␛[0;90m╰─────────────┴────────────────────────────╯␛[0m
 
-␛[0;1;34m␛]66;s=3:n=5:d=6:v=1:w=5;Releas␛\␛]66;s=3:n=5:d=6:v=1:w=5;e note␛\␛]66;s=3:n=5:d=6:v=1:w=1;s␛\␛[0m
+␛[0;1;34m␛]66;s=3:n=5:d=6:v=1:w=6;Release␛\␛]66;s=3:n=5:d=6:v=1:w=5; notes␛\␛[0m
 
 
 

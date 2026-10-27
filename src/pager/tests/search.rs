@@ -279,7 +279,7 @@ fn a_match_in_a_fractional_heading_marks_whole_groups() {
     let mut reads = vec![b"/iri\r".as_slice()];
     reads.extend([b"".as_slice(); 30]);
     let mut terminal = Fake::new(60, 12, &reads);
-    // The default h1 is 2 1/2: groups of six cells, `Kiri t` and `itle`.
+    // The default h1 is 2 1/2, packed in two groups: `Kiri` and ` title`.
     let mut inputs = Inputs::new(Capabilities::kitty(80));
     run_document(
         &crate::parse::parse("# Kiri title\n"),
@@ -289,39 +289,39 @@ fn a_match_in_a_fractional_heading_marks_whole_groups() {
     );
     let frames = terminal.frames();
     let found = document_part(frames.last().unwrap(), 12);
-    let group = "\x1b]66;s=3:n=5:d=6:v=1:w=5;Kiri t\x1b\\";
+    let group = "\x1b]66;s=3:n=5:d=6:v=1:w=4;Kiri\x1b\\";
     assert!(
         style_before(found, group).contains(&"7".into()),
         "{found:?}"
     );
     assert!(
-        found.contains("\x1b[0;1;34m\x1b]66;s=3:n=5:d=6:v=1:w=4;itle"),
+        found.contains("\x1b[0;1;34m\x1b]66;s=3:n=5:d=6:v=1:w=5; title"),
         "{found:?}"
     );
 }
 
 #[test]
 fn a_match_in_a_sup_marks_whole_groups() {
-    let mut reads = vec![b"/e\r".as_slice()];
+    let mut reads = vec![b"/k\r".as_slice()];
     reads.extend([b"".as_slice(); 30]);
     let mut terminal = Fake::new(60, 12, &reads);
-    // A sup is packed three cells in two: `abc` and `def`.
+    // A sup is packed three cells in two, at most seven to a group.
     let mut inputs = Inputs::new(Capabilities::kitty(80));
     run_document(
-        &crate::parse::parse("x<sup>abcdef</sup>\n"),
+        &crate::parse::parse("x<sup>abcdefghijkl</sup>\n"),
         &mut inputs,
         Options::new(SearchCase::Smart),
         &mut terminal,
     );
     let frames = terminal.frames();
     let found = document_part(frames.last().unwrap(), 12);
-    let group = "\x1b]66;s=1:n=2:d=3:w=2;def\x1b\\";
+    let group = "\x1b]66;s=1:n=2:d=3:w=6;defghijkl\x1b\\";
     assert!(
         style_before(found, group).contains(&"7".into()),
         "{found:?}"
     );
     assert!(
-        found.contains("x\x1b]66;s=1:n=2:d=3:w=2;abc\x1b\\"),
+        found.contains("x\x1b]66;s=1:n=2:d=3:h=1:w=2;abc\x1b\\"),
         "{found:?}"
     );
 }

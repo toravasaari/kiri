@@ -2,7 +2,7 @@
 source: tests/render_diagrams.rs
 expression: "readable(&render_fixture(\"mermaid.md\",\n&with_images(&Capabilities::kitty(WIDTH), images)))"
 ---
-␛[0;1;34m␛]66;s=3:n=5:d=6:v=1:w=5;Mermai␛\␛]66;s=3:n=5:d=6:v=1:w=5;d diag␛\␛]66;s=3:n=5:d=6:v=1:w=4;rams␛\␛[0m
+␛[0;1;34m␛]66;s=3:n=5:d=6:v=1:w=7;Mermaid ␛\␛]66;s=3:n=5:d=6:v=1:w=7;diagrams␛\␛[0m
 
 
 
