@@ -341,8 +341,8 @@ graphics protocols work, the background and palette colours, and the
 terminal's name and version (XTVERSION). 24-bit colour, hyperlinks and underline
 styles follow from either protocol working. Images need the graphics
 protocol's Unicode placeholders, which no query reveals; kiri assumes them
-when the graphics protocol works and the terminal is kitty 0.28 or later,
-or when both protocols work, since text sizing came to kitty long after
+when the graphics protocol works and the terminal is kitty 0.28 or later
+or Ghostty 1.0 or later, or when both protocols work, since text sizing came to kitty long after
 placeholders. Elsewhere images are alt text.
 Without them, 24-bit colour can still come from `COLORTERM` and hyperlinks
 from `TERM_PROGRAM` or `VTE_VERSION`; underline styles come only from the
