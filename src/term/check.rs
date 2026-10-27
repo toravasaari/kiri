@@ -14,22 +14,18 @@ use crate::kitty::query;
 
 /// The images of `sent` that kitty, behind tmux, does not hold, asked on
 /// the controlling terminal. kiri waits for kitty's answers as the probe
-/// does, [`TIMEOUT`] at most after the last that came. None when kitty
-/// does not answer, as when tmux shows the pane in no window, nor when
-/// kiri runs in the background.
-pub fn lost_images(sent: &[(ImageId, Cells)]) -> Vec<ImageId> {
+/// does, [`TIMEOUT`] at most after the last that came. `None` when kitty
+/// does not answer at all, as when tmux shows the pane in no window, and
+/// when it cannot be asked, as when kiri runs in the background.
+pub fn lost_images(sent: &[(ImageId, Cells)]) -> Option<Vec<ImageId>> {
     if sent.is_empty() {
-        return Vec::new();
+        return Some(Vec::new());
     }
-    let Some(tty) = probe::controlling_terminal() else {
-        return Vec::new();
-    };
+    let tty = probe::controlling_terminal()?;
     if probe::runs_in_background(&tty) {
-        return Vec::new();
+        return None;
     }
-    let Some(raw) = RawMode::enter(&tty) else {
-        return Vec::new();
-    };
+    let raw = RawMode::enter(&tty)?;
     let answers = ask(&tty, sent, TIMEOUT);
     drop(raw);
     lost(&answers, sent)
@@ -76,11 +72,15 @@ fn ended(answers: &[u8]) -> bool {
 /// The images of `sent` that `answers` tell kitty does not hold: those
 /// it answered so, and, when its answer to the graphics query came, also
 /// those it did not answer, as tmux dropped what asked about them.
-fn lost(answers: &[u8], sent: &[(ImageId, Cells)]) -> Vec<ImageId> {
+/// `None` when kitty did not answer at all.
+fn lost(answers: &[u8], sent: &[(ImageId, Cells)]) -> Option<Vec<ImageId>> {
     let checked: Vec<(ImageId, bool)> =
         (sequences(answers)).filter_map(graphics::checked).collect();
     let all = ended(answers);
-    (sent.iter())
+    if checked.is_empty() && !all {
+        return None;
+    }
+    let lost = (sent.iter())
         .map(|&(id, _)| id)
         .filter(
             |id| match checked.iter().find(|(checked, _)| checked == id) {
@@ -88,7 +88,8 @@ fn lost(answers: &[u8], sent: &[(ImageId, Cells)]) -> Vec<ImageId> {
                 None => all,
             },
         )
-        .collect()
+        .collect();
+    Some(lost)
 }
 
 /// The APC sequences in `answers`, each from `ESC _` to `ESC \`.
@@ -137,22 +138,29 @@ mod tests {
     #[test]
     fn the_images_kitty_does_not_hold_are_lost() {
         let answers = [held(1), missing(2), held(3), END.into()].concat();
-        assert_eq!(lost(answers.as_bytes(), &sent(&[1, 2, 3])), [image(2)]);
+        let lost = lost(answers.as_bytes(), &sent(&[1, 2, 3]));
+        assert_eq!(lost, Some(vec![image(2)]));
     }
 
     #[test]
     fn with_all_the_answers_in_an_image_without_one_is_lost() {
         // tmux dropped the check with the image.
         let answers = [held(1), END.into()].concat();
-        assert_eq!(lost(answers.as_bytes(), &sent(&[1, 2])), [image(2)]);
+        let lost = lost(answers.as_bytes(), &sent(&[1, 2]));
+        assert_eq!(lost, Some(vec![image(2)]));
     }
 
     #[test]
     fn without_the_last_answer_only_what_kitty_said_counts() {
         let answers = [held(1), missing(2)].concat();
-        assert_eq!(lost(answers.as_bytes(), &sent(&[1, 2, 3])), [image(2)]);
-        // No answer at all, as from a pane tmux does not show.
-        assert_eq!(lost(b"", &sent(&[1, 2])), []);
+        let lost_one = lost(answers.as_bytes(), &sent(&[1, 2, 3]));
+        assert_eq!(lost_one, Some(vec![image(2)]));
+        // No answer at all, as from a pane tmux does not show, tells
+        // nothing.
+        assert_eq!(lost(b"", &sent(&[1, 2])), None);
+        assert_eq!(lost(b"\x1b[?62;c", &sent(&[1, 2])), None);
+        // Only the last answer: tmux dropped every check.
+        assert_eq!(lost(END.as_bytes(), &sent(&[1])), Some(vec![image(1)]));
     }
 
     #[test]

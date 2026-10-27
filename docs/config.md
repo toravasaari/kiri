@@ -283,7 +283,9 @@ tmux also drops output when kitty cannot keep up with it, so after
 printing a document, and in the pager after drawing images, kiri asks
 kitty whether it holds them and sends again those it does not. When
 kitty does not answer a printed document's check, as when the pane is
-not shown, kiri waits half a second and goes on.
+not shown, kiri waits half a second and goes on, and it asks no more
+for the other files it prints, so that `kiri *.md` does not wait for
+each of them.
 
 ## Search case
 

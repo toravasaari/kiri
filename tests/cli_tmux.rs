@@ -28,13 +28,14 @@ fn ids_after(seen: &str, prefix: &str) -> Vec<String> {
         .collect()
 }
 
-/// Prints a document with one image, `-P`, on a terminal of its own,
-/// with `args`, while the terminal answers each round of checks with
+/// Prints `documents` documents with one image each, `-P`, on a
+/// terminal of its own, with `args`, while the terminal answers each round of checks with
 /// what `answer` returns for its number, counting from 0, and the ids
 /// checked; nothing when it returns `None`. Returns everything kiri
 /// wrote, and how long it took.
 fn printed(
     name: &str,
+    documents: usize,
     args: &[&str],
     mut answer: impl FnMut(usize, &[String]) -> Option<String>,
 ) -> (String, Duration) {
@@ -42,7 +43,12 @@ fn printed(
     image::RgbaImage::from_pixel(40, 40, image::Rgba([255, 0, 0, 255]))
         .save(dir.join("red.png"))
         .unwrap();
-    std::fs::write(dir.join("document.md"), "Above\n\n![red](red.png)\n").unwrap();
+    let names: Vec<String> = (1..=documents)
+        .map(|n| format!("document-{n}.md"))
+        .collect();
+    for name in &names {
+        std::fs::write(dir.join(name), "Above\n\n![red](red.png)\n").unwrap();
+    }
     let (mut terminal, tty) = common::pty();
     let window = rustix::termios::Winsize {
         ws_col: 40,
@@ -55,7 +61,7 @@ fn printed(
     kiri.current_dir(&*dir)
         .args(["--mode", "kitty", "-P"])
         .args(args)
-        .arg("document.md")
+        .args(&names)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .stdout(Stdio::from(tty));
@@ -115,7 +121,7 @@ const ANSWERED: &str = "\x1b_Gi=31;OK\x1b\\";
 
 #[test]
 fn through_tmux_an_image_kitty_lost_is_sent_again() {
-    let (seen, _) = printed("tmux-lost", &["--passthrough", "tmux"], |round, ids| {
+    let (seen, _) = printed("tmux-lost", 1, &["--passthrough", "tmux"], |round, ids| {
         let held = round > 0;
         let answers: String = ids.iter().map(|id| checked(id, held)).collect();
         Some(answers + ANSWERED)
@@ -134,7 +140,7 @@ fn through_tmux_an_image_kitty_lost_is_sent_again() {
 
 #[test]
 fn through_tmux_an_image_kitty_holds_is_sent_once() {
-    let (seen, _) = printed("tmux-held", &["--passthrough", "tmux"], |_, ids| {
+    let (seen, _) = printed("tmux-held", 1, &["--passthrough", "tmux"], |_, ids| {
         let answers: String = ids.iter().map(|id| checked(id, true)).collect();
         Some(answers + ANSWERED)
     });
@@ -144,7 +150,7 @@ fn through_tmux_an_image_kitty_holds_is_sent_once() {
 
 #[test]
 fn through_tmux_an_image_kitty_never_holds_is_sent_a_few_times_at_most() {
-    let (seen, _) = printed("tmux-never", &["--passthrough", "tmux"], |_, ids| {
+    let (seen, _) = printed("tmux-never", 1, &["--passthrough", "tmux"], |_, ids| {
         let answers: String = ids.iter().map(|id| checked(id, false)).collect();
         Some(answers + ANSWERED)
     });
@@ -155,15 +161,38 @@ fn through_tmux_an_image_kitty_never_holds_is_sent_a_few_times_at_most() {
 #[test]
 fn through_tmux_kiri_does_not_hang_when_kitty_does_not_answer() {
     // As when tmux shows the pane in no window.
-    let (seen, took) = printed("tmux-silent", &["--passthrough", "tmux"], |_, _| None);
+    let (seen, took) = printed("tmux-silent", 1, &["--passthrough", "tmux"], |_, _| None);
     assert_eq!(ids_after(&seen, SENT).len(), 1, "{seen:?}");
     assert_eq!(seen.matches(END).count(), 1, "{seen:?}");
     assert!(took < Duration::from_secs(5), "{took:?}");
 }
 
 #[test]
+fn once_kitty_did_not_answer_nothing_more_is_checked() {
+    // Each file would wait half a second for nothing.
+    let (seen, took) = printed(
+        "tmux-silent-files",
+        3,
+        &["--passthrough", "tmux"],
+        |_, _| None,
+    );
+    assert_eq!(ids_after(&seen, SENT).len(), 3, "{seen:?}");
+    assert_eq!(seen.matches(END).count(), 1, "{seen:?}");
+    assert!(took < Duration::from_secs(5), "{took:?}");
+}
+
+#[test]
+fn kitty_is_asked_after_each_file_while_it_answers() {
+    let (seen, _) = printed("tmux-files", 3, &["--passthrough", "tmux"], |_, ids| {
+        let answers: String = ids.iter().map(|id| checked(id, true)).collect();
+        Some(answers + ANSWERED)
+    });
+    assert_eq!(seen.matches(END).count(), 3, "{seen:?}");
+}
+
+#[test]
 fn without_tmux_nothing_is_checked() {
-    let (seen, _) = printed("tmux-none", &["--passthrough", "none"], |_, _| None);
+    let (seen, _) = printed("tmux-none", 1, &["--passthrough", "none"], |_, _| None);
     assert!(seen.contains("\x1b_Ga=T,"), "{seen:?}");
     assert!(!seen.contains("a=p,U=1"), "{seen:?}");
     assert!(!seen.contains("\x1b_Gi=31,"), "{seen:?}");
