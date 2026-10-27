@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
-# Render Markdown documents with kiri in kitty on a virtual X display and save
-# a screenshot of each, so that output can be reviewed without a real window.
+# Render Markdown documents with kiri in kitty or Ghostty on a virtual X
+# display and save a screenshot of each, so that output can be reviewed
+# without a real window.
 #
 # Usage: render-check.sh [options] FILE.md... [-- KIRI_ARGS...]
 #
 #   --out DIR            where screenshots go (default:
 #                        .local/render-check/BRANCH, or the commit when detached)
+#   --terminal NAME      kitty (default) or ghostty
 #   --size WxH           window and screen size in pixels (default: 1280x16000,
-#                        and llvmpipe draws at most 16384 pixels high)
+#                        and llvmpipe draws at most 16384 pixels high; for
+#                        Ghostty 1280x5900, as it fails above about 6000)
 #   --page-height PX     also slice screenshots into pages this tall
 #                        (default: 1600; 0 turns slicing off)
-#   --kitty-config FILE  kitty config to use (default: none, kitty defaults)
+#   --kitty-config FILE  kitty config to use (default: none, kitty defaults);
+#                        Ghostty gets a config of the script's own
 #   --kiri PATH          kiri binary (default: build target/debug/kiri)
 #   --timeout SECONDS    how long kiri may take for one document (default: 120)
 #
@@ -19,12 +23,14 @@
 # and so on. DATE is today's, such as 2026-10-18.
 # If kiri fails or crashes on a document, its screenshot is still saved and
 # the script exits with kiri's status after the other documents.
-# Needs Xvfb, kitty, ImageMagick (import, magick) and Mesa's llvmpipe.
+# Needs Xvfb, kitty or Ghostty, ImageMagick (import, magick) and Mesa's
+# llvmpipe; Ghostty also dbus-run-session.
 
 set -euo pipefail
 
 out=
-size=1280x16000
+terminal=kitty
+size=
 page_height=1600
 kitty_config=NONE
 kiri=
@@ -40,6 +46,7 @@ die() {
 while [ $# -gt 0 ]; do
 	case $1 in
 	--out) out=$2; shift 2 ;;
+	--terminal) terminal=$2; shift 2 ;;
 	--size) size=$2; shift 2 ;;
 	--page-height) page_height=$2; shift 2 ;;
 	--kitty-config) kitty_config=$2; shift 2 ;;
@@ -56,17 +63,24 @@ done
 for file in "${files[@]}"; do
 	[ -f "$file" ] || die "$file: no such file"
 done
+case $terminal in
+kitty) [ -n "$size" ] || size=1280x16000 ;;
+ghostty) [ -n "$size" ] || size=1280x5900 ;;
+*) die "--terminal must be kitty or ghostty" ;;
+esac
 [[ $size =~ ^([0-9]+)x([0-9]+)$ ]] || die "--size must look like 1280x16000"
 width=${BASH_REMATCH[1]}
 height=${BASH_REMATCH[2]}
 [[ $timeout =~ ^[1-9][0-9]*$ ]] || die "--timeout must be whole seconds"
 
 missing=()
-for tool in Xvfb kitty import magick; do
+tools=(Xvfb "$terminal" import magick)
+[ "$terminal" = kitty ] || tools+=(dbus-run-session)
+for tool in "${tools[@]}"; do
 	command -v "$tool" >/dev/null || missing+=("$tool")
 done
 [ ${#missing[@]} -eq 0 ] || die "missing ${missing[*]}" \
-	"(Fedora: xorg-x11-server-Xvfb, kitty, ImageMagick)"
+	"(Fedora: xorg-x11-server-Xvfb, kitty or ghostty, ImageMagick, dbus)"
 
 if [ -z "$kiri" ]; then
 	cargo build --quiet
@@ -84,9 +98,17 @@ day=$(date +%F)
 
 work=$(mktemp -d)
 xvfb_pid=
-kitty_pid=
+term_pid=
+# Stops the terminal: Ghostty runs under dbus-run-session, which does not
+# stop it when killed itself.
+stop_terminal() {
+	pkill -P "$term_pid" 2>/dev/null
+	kill "$term_pid" 2>/dev/null
+	wait "$term_pid" 2>/dev/null || true
+	term_pid=
+}
 cleanup() {
-	[ -n "$kitty_pid" ] && kill "$kitty_pid" 2>/dev/null
+	[ -n "$term_pid" ] && stop_terminal
 	[ -n "$xvfb_pid" ] && kill "$xvfb_pid" 2>/dev/null
 	wait 2>/dev/null
 	rm -rf "$work"
@@ -109,17 +131,29 @@ done
 [ -s "$work/display" ] || { cat "$work/xvfb.log" >&2; die "Xvfb did not start"; }
 display=:$(cat "$work/display")
 
-# Runs inside kitty: "$0" is the file to report to, the rest is kiri's
+# Runs inside the terminal: "$0" is the file to report to, the rest is kiri's
 # command line. kitty is slow to answer while it starts, so kiri's probe
 # could time out and fall back to text; an answer to a query first means
-# kitty is ready, and without one kiri is not started. kitty answers in
-# order, so when it reports the cursor position after kiri, it has read all
+# kitty is ready, and without one kiri is not started. Ghostty answers at a
+# smaller window size for a second or two before it takes the size asked
+# for, so with WAIT_FOR_SIZE set kiri starts once the size stays the same.
+# The terminal answers in order, so when it reports the cursor position after kiri, it has read all
 # of kiri's output. The report is kiri's exit status, the cursor's row and
 # column and the cell size in pixels. Answers kiri left unread mean its probe
 # timed out, which a busy machine can cause; they would be taken for the
 # answers asked for here.
 inner='ask() { printf "%b" "$1"; IFS= read -r -s -d "$2" -t 60 reply; }
 ask "\033[c" c || { echo "no answer" >"$0"; exit 1; }
+if [ -n "${WAIT_FOR_SIZE:-}" ]; then
+	sleep 2
+	last=
+	for _ in $(seq 20); do
+		ask "\033[18t" t
+		[ "$reply" = "$last" ] && break
+		last=$reply
+		sleep 0.5
+	done
+fi
 "$@"
 status=$?
 IFS= read -r -s -d "" -t 0.5 unread
@@ -178,45 +212,91 @@ settle() {
 	echo "render-check: screen did not settle; saved the last screenshot" >&2
 }
 
+# A Ghostty configuration of the script's own, so that the maintainer's
+# does not apply: a window of the size asked for, in cells of about 9 x 20
+# pixels at 11 pt and 96 dpi, without decorations or a blinking cursor.
+ghostty_config() {
+	cat <<-EOF
+		gtk-single-instance = false
+		linux-cgroup = never
+		shell-integration = none
+		confirm-close-surface = false
+		window-decoration = false
+		gtk-adwaita = false
+		font-size = 11
+		cursor-style-blink = false
+		window-width = $(((width - 20) / 9))
+		window-height = $(((height - 40) / 20))
+	EOF
+}
+
+# Starts the terminal on the virtual display with kiri rendering $1 in it.
+# The child must not talk to the terminal this script may run in, and the
+# terminal must use X11 even when a Wayland session is around. kiri prints
+# rather than pages, as nobody can press a key in the pager; -p after --
+# still opens it.
+start_terminal() {
+	local env=(env -u WAYLAND_DISPLAY -u KITTY_WINDOW_ID -u KITTY_PID
+		-u KITTY_LISTEN_ON -u KITTY_PUBLIC_KEY -u KITTY_INSTALLATION_DIR
+		DISPLAY="$display" KIRI_PAGING=never)
+	case $terminal in
+	kitty)
+		"${env[@]}" kitty --config "$kitty_config" \
+			-o linux_display_server=x11 \
+			-o remember_window_size=no -o cursor_blink_interval=0 \
+			-o initial_window_width="$width" \
+			-o initial_window_height="$height" \
+			bash -c "$inner" "$work/done" "$kiri" "${kiri_args[@]}" "$1" \
+			>"$work/terminal.log" 2>&1 &
+		;;
+	ghostty)
+		# Ghostty's -e runs its arguments through the shell joined into
+		# one line, so the command goes in a script of its own. Its own
+		# D-Bus session keeps it away from a Ghostty already running.
+		ghostty_config >"$work/ghostty.conf"
+		printf '%s\n' "$inner" >"$work/inner.sh"
+		{
+			printf 'exec bash -c "$(cat %q)"' "$work/inner.sh"
+			printf ' %q' "$work/done" "$kiri" "${kiri_args[@]}" "$1"
+			echo
+		} >"$work/launch.sh"
+		"${env[@]}" GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1 GTK_A11Y=none \
+			WAIT_FOR_SIZE=1 dbus-run-session -- \
+			ghostty --config-default-files=false \
+			--config-file="$work/ghostty.conf" -e bash "$work/launch.sh" \
+			>"$work/terminal.log" 2>&1 &
+		;;
+	esac
+	term_pid=$!
+}
+
 failed=0
 for file in "${files[@]}"; do
 	name=$day-$(basename "$file" .md)
 	shot=$out/$name.png
 	rm -f "$work/done" "$out/$name"-p[0-9][0-9].png
 
-	# The child must not talk to the kitty this script may run in, and kitty
-	# must use X11 even when a Wayland session is around. kiri prints rather
-	# than pages, as nobody can press a key in the pager; -p after -- still
-	# opens it.
-	env -u WAYLAND_DISPLAY -u KITTY_WINDOW_ID -u KITTY_PID \
-		-u KITTY_LISTEN_ON -u KITTY_PUBLIC_KEY -u KITTY_INSTALLATION_DIR \
-		DISPLAY="$display" KIRI_PAGING=never \
-		kitty --config "$kitty_config" -o linux_display_server=x11 \
-		-o remember_window_size=no -o cursor_blink_interval=0 \
-		-o initial_window_width="$width" -o initial_window_height="$height" \
-		bash -c "$inner" "$work/done" "$kiri" "${kiri_args[@]}" "$file" \
-		>"$work/kitty.log" 2>&1 &
-	kitty_pid=$!
+	start_terminal "$file"
 
 	deadline=$((SECONDS + timeout))
 	while [ ! -s "$work/done" ] && [ "$SECONDS" -lt "$deadline" ]; do
-		kill -0 "$kitty_pid" 2>/dev/null || break
+		kill -0 "$term_pid" 2>/dev/null || break
 		sleep 0.1
 	done
 	if [ ! -s "$work/done" ]; then
-		cat "$work/kitty.log" >&2
-		die "$file: kiri did not finish in kitty within $timeout s" \
+		cat "$work/terminal.log" >&2
+		die "$file: kiri did not finish in $terminal within $timeout s" \
 			"(--timeout)"
 	fi
 	[ "$(cat "$work/done")" != "no answer" ] ||
-		die "$file: kitty did not answer the device attributes query" \
+		die "$file: $terminal did not answer the device attributes query" \
 			"within 60 s, so kiri was not started"
 	[ "$(cat "$work/done")" != "unread" ] ||
-		die "$file: kiri left kitty's answers unread, so its probe timed" \
+		die "$file: kiri left $terminal's answers unread, so its probe timed" \
 			"out, probably because the machine is busy; run again when idle"
 	read -r status row col cell_h cell_w <"$work/done"
 	[[ "$status $row $col $cell_h $cell_w" =~ ^[0-9]+( [1-9][0-9]*){4}$ ]] ||
-		die "$file: kitty did not report the cursor and cell size" \
+		die "$file: $terminal did not report the cursor and cell size" \
 			"($(cat "$work/done"))"
 	if [ "$status" -gt 128 ]; then
 		echo "render-check: $file: kiri was killed by signal" \
@@ -228,9 +308,7 @@ for file in "${files[@]}"; do
 		failed=$status
 	fi
 	settle "$work/full.ppm"
-	kill "$kitty_pid" 2>/dev/null
-	wait "$kitty_pid" 2>/dev/null || true
-	kitty_pid=
+	stop_terminal
 
 	# Crop below the last row that differs from the background.
 	box=$(magick "$work/full.ppm" -fuzz 2% -format '%@' info:)

@@ -1,14 +1,15 @@
 ---
 name: render-check
-description: Use when kiri's output needs a look in a real kitty window and nobody can watch one — after changing rendering of headings, images, tables, colours or anything else visual, before asking the maintainer for a visual check, or when asked to "render-check" a fixture. Renders Markdown documents in kitty on a virtual X display (Xvfb) and saves screenshots to read and describe.
+description: Use when kiri's output needs a look in a real kitty window and nobody can watch one — after changing rendering of headings, images, tables, colours or anything else visual, before asking the maintainer for a visual check, or when asked to "render-check" a fixture. Renders Markdown documents in kitty, or Ghostty, on a virtual X display (Xvfb) and saves screenshots to read and describe.
 ---
 
 # render-check
 
-Renders documents with kiri inside kitty on a virtual X display of its own
-and saves a screenshot of each. The agent's own terminal and the
-maintainer's desktop are never touched, so it works unattended, also under
-Wayland where screenshots of other windows need the user's consent.
+Renders documents with kiri inside kitty, or Ghostty, on a virtual X
+display of its own and saves a screenshot of each. The agent's own
+terminal and the maintainer's desktop are never touched, so it works
+unattended, also under Wayland where screenshots of other windows need the
+user's consent.
 
 ## Running
 
@@ -49,6 +50,13 @@ From the repository root:
 - kitty starts with its built-in defaults (`--config NONE`, 11 pt
   `monospace` font, 96 dpi, so a cell is about 9 × 20 pixels). Pass
   `--kitty-config FILE` to see the document with another configuration.
+- `--terminal ghostty` renders in Ghostty instead, with a configuration
+  of the script's own (11 pt, Ghostty's built-in font and colours), never
+  the maintainer's. Ghostty fails on windows taller than about 6000
+  pixels, so its window is 1280 × 5900 unless `--size` says otherwise,
+  and a longer document fills the screen and scrolls. Ghostty answers at
+  a smaller window size for its first second or two, so kiri starts once
+  the size stays the same, about three seconds after Ghostty does.
 
 ## Reviewing
 
@@ -75,11 +83,12 @@ window.
 ## Requirements and safety
 
 - `Xvfb` (Fedora: `xorg-x11-server-Xvfb`), `kitty`, ImageMagick (`import`,
-  `magick`) and Mesa's llvmpipe for OpenGL. The script names what is
+  `magick`) and Mesa's llvmpipe for OpenGL; for Ghostty also `ghostty`
+  and `dbus-run-session`, which only the host has. The script names what is
   missing; run it where they are installed: the host, or a jailbee
   container, whose golden image has them.
 - Never copy over or edit font files, kitty's configuration or anything else
   a running kitty may have open; the maintainer's session lives in kitty.
   The script only reads them.
-- The script stops its Xvfb and kitty on exit and removes its temporary
+- The script stops its Xvfb and terminal on exit and removes its temporary
   directory.
