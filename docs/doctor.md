@@ -53,8 +53,12 @@ option on; `tmux set -p allow-passthrough on` in the pane does it. With
 `focus-events off`, tmux does not tell the pager when its window is shown
 again, so images sent while it was hidden, as when following a file, stay
 away until Ctrl+L. `set -g focus-events on` in tmux.conf turns it on;
-kiri leaves it alone, as it is an option for every pane. With
-`passthrough = "tmux"` kiri does not ask tmux at all.
+kiri leaves it alone, as it is an option for every pane. tmux passes
+links on only when its terminal features for the terminal outside include
+`hyperlinks`; when they do not, the Hyperlinks row says so and names the
+line for tmux.conf, such as
+`set -as terminal-features ',xterm-kitty:hyperlinks'`, which kiri also
+leaves to you. With `passthrough = "tmux"` kiri does not ask tmux at all.
 
 What each other row means, and where it comes from:
 
