@@ -328,3 +328,198 @@ fn a_narrower_window_rewraps_a_heading_image_without_a_new_image() {
     assert!(!frames[0].contains(&column(60)), "{frames:#?}");
     assert!(frames.last().unwrap().contains(&column(60)), "{frames:#?}");
 }
+
+/// All the pager writes for the picture on a terminal with kitty's
+/// graphics wrapped for tmux if `tmux`, and the frames it draws, when the
+/// terminal gives `keys`.
+fn pictured_with(tmux: bool, keys: &[&[u8]]) -> (String, Vec<String>) {
+    let (document, mut inputs) = pictured([255, 0, 0, 255]);
+    inputs.caps.tmux_passthrough = tmux;
+    let mut terminal = Fake::new(60, 6, keys);
+    let out = written(&document, inputs, &mut terminal, None);
+    (out, terminal.frames())
+}
+
+#[test]
+fn under_tmux_the_images_are_sent_again_when_the_pane_comes_back() {
+    // tmux dropped what was sent while the pane was not shown.
+    let (out, frames) = pictured_with(true, &[b"\x1b[I"]);
+    assert_eq!(frames.len(), 2, "{out:?}");
+    let sent = sent_ids(&out);
+    assert_eq!(sent.len(), 2, "{out:?}");
+    assert_eq!(sent[0], sent[1]);
+    let again = frames[1].find("\x1b_Ga=T,").unwrap();
+    let shown = frames[1].find(crate::kitty::graphics::PLACEHOLDER).unwrap();
+    assert!(again < shown, "{out:?}");
+}
+
+#[test]
+fn the_focus_coming_back_outside_tmux_changes_nothing() {
+    let (out, frames) = pictured_with(false, &[b"\x1b[I"]);
+    assert_eq!(frames.len(), 1, "{out:?}");
+    assert_eq!(transmits(&out), 1, "{out:?}");
+}
+
+#[test]
+fn the_focus_going_and_coming_back_leaves_the_help_open() {
+    for tmux in [false, true] {
+        let (out, frames) = pictured_with(tmux, &[b"?", b"\x1b[O", b"\x1b[I"]);
+        let last = frames.last().unwrap();
+        assert!(last.contains(" Keys "), "{out:?}");
+    }
+}
+
+#[test]
+fn ctrl_l_draws_the_screen_and_sends_its_images_again() {
+    for tmux in [false, true] {
+        let (out, frames) = pictured_with(tmux, &[b"\x0c"]);
+        assert_eq!(frames.len(), 2, "{out:?}");
+        let sent = sent_ids(&out);
+        assert_eq!(sent.len(), 2, "{out:?}");
+        assert_eq!(sent[0], sent[1]);
+        assert_eq!(
+            frames[1]
+                .matches(crate::kitty::graphics::PLACEHOLDER)
+                .count(),
+            2
+        );
+    }
+}
+
+/// kitty's answer to a check of the picture's image, `ENOENT` unless
+/// `held`.
+fn checked(held: bool) -> Vec<u8> {
+    let id = 3043215;
+    let message = match held {
+        true => "OK".to_owned(),
+        false => format!("ENOENT:Put command refers to non-existent image with id: {id}"),
+    };
+    format!("\x1b_Gi={id},p=1263096393;{message}\x1b\\").into_bytes()
+}
+
+/// The start of a check of an image, up to its id.
+const CHECK: &str = "\x1b_Ga=p,U=1,i=";
+
+#[test]
+fn under_tmux_an_image_kitty_lost_is_sent_again_without_a_frame() {
+    let lost = checked(false);
+    let (out, frames) = pictured_with(true, &[&lost]);
+    // Checked after the frame that sent it, and again after it was sent
+    // again.
+    assert_eq!(frames.len(), 1, "{out:?}");
+    let sent = sent_ids(&out);
+    assert_eq!(sent, [3043215, 3043215], "{out:?}");
+    assert_eq!(ids_after(&out, CHECK), [3043215, 3043215], "{out:?}");
+    let (frame, after) = until_quit(&out);
+    assert_eq!(transmits(frame), 1, "{out:?}");
+    let again = after.find("\x1b_Ga=T,").unwrap();
+    assert!(after[again..].contains(CHECK), "{out:?}");
+    assert!(
+        !after.contains(crate::kitty::graphics::PLACEHOLDER),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn an_image_kitty_holds_is_not_sent_again() {
+    let held = checked(true);
+    let (out, _) = pictured_with(true, &[&held]);
+    assert_eq!(transmits(&out), 1, "{out:?}");
+    assert_eq!(ids_after(&out, CHECK), [3043215], "{out:?}");
+}
+
+#[test]
+fn without_tmux_the_pager_checks_nothing() {
+    let (out, _) = pictured_with(false, &[b""]);
+    assert!(!out.contains(CHECK), "{out:?}");
+}
+
+#[test]
+fn kittys_answers_leave_the_help_open() {
+    let (held, lost) = (checked(true), checked(false));
+    let (out, frames) = pictured_with(true, &[b"?", &held, &lost]);
+    assert!(frames.last().unwrap().contains(" Keys "), "{out:?}");
+    assert_eq!(transmits(&out), 2, "{out:?}");
+}
+
+#[test]
+fn the_pane_coming_back_sends_nothing_when_nothing_was_sent_meanwhile() {
+    // kitty kept what it had before the pane was hidden.
+    let (out, frames) = pictured_with(true, &[b"\x1b[O", b"", b"\x1b[I"]);
+    assert_eq!(frames.len(), 1, "{out:?}");
+    assert_eq!(transmits(&out), 1, "{out:?}");
+}
+
+#[test]
+fn the_pane_coming_back_sends_again_what_was_sent_while_it_was_away() {
+    let (out, sent) = repainted_while_away(&[b"\x1b[O", b"r", b"\x1b[I"]);
+    // Red and green, blue while away, and blue again on coming back.
+    assert_eq!(sent.len(), 4, "{out:?}");
+    assert_eq!(sent[2], sent[3], "{out:?}");
+    assert!(!sent[..2].contains(&sent[2]), "{out:?}");
+}
+
+#[test]
+fn a_second_focus_out_keeps_what_was_sent_while_away() {
+    // kitty losing focus, and then tmux hiding the pane, say so twice.
+    let (out, sent) = repainted_while_away(&[b"\x1b[O", b"r", b"\x1b[O", b"\x1b[I"]);
+    assert_eq!(sent.len(), 4, "{out:?}");
+    assert_eq!(sent[2], sent[3], "{out:?}");
+}
+
+/// The output of the pager under tmux, given `keys`, and the ids of the
+/// images it sent: a red and a green image, where `r` shows the red one
+/// anew in blue.
+fn repainted_while_away(keys: &[&[u8]]) -> (String, Vec<u32>) {
+    let red = [255, 0, 0, 255];
+    let document = crate::parse::parse("![a](square.png)\n\n![b](other.png)\n");
+    let (_, mut inputs) = pictured(red);
+    inputs.caps.tmux_passthrough = true;
+    inputs
+        .images
+        .insert("other.png", Ok(square([0, 255, 0, 255])));
+    // `r` while away shows `square.png` anew, in blue.
+    let mut repaint = Repaint {
+        document: document.clone(),
+        rgba: [0, 0, 255, 255],
+    };
+    let reload: &mut dyn Reload = &mut repaint;
+    let mut terminal = Fake::new(60, 6, keys);
+    run_document(
+        &document,
+        &mut inputs,
+        Options {
+            reload: Some(reload),
+            ..Options::new(SearchCase::Smart)
+        },
+        &mut terminal,
+    );
+    let out = String::from_utf8(terminal.out).unwrap();
+    let sent = sent_ids(&out);
+    (out, sent)
+}
+
+#[test]
+fn an_answer_cut_by_a_reload_is_not_taken_for_keys() {
+    // The rest of the answer has `d`, `e`, `f` and `g` in it.
+    let answer = b"\x1b_Gi=5,p=1263096393;ENOENT:Put command refers to non-existent image\x1b\\";
+    let (cut, rest) = answer.split_at(30);
+    let first = [&b"r"[..], cut].concat();
+    let document = numbers(30);
+    // As many as the `r`s it has would ask for.
+    let mut then = Then::new((0..3).map(|_| Reloaded::Document(document.clone())));
+    let mut inputs = Inputs::new(Capabilities::ansi(80));
+    let mut terminal = Fake::new(60, 6, &[&first, rest]);
+    run_document(
+        &document,
+        &mut inputs,
+        Options {
+            reload: Some(&mut then),
+            ..Options::new(SearchCase::Smart)
+        },
+        &mut terminal,
+    );
+    let frames = terminal.frames();
+    assert_eq!(top_row(frames.last().unwrap()), "Line 1", "{frames:#?}");
+    assert_eq!(then.asked, 1);
+}

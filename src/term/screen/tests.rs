@@ -56,7 +56,8 @@ fn the_screen_is_the_alternate_screen_in_raw_mode() {
     use rustix::termios::LocalModes;
 
     let (screen, _terminal, tty) = screen();
-    assert_eq!(screen.out, b"\x1b[?1049h\x1b[?25l");
+    // With focus reporting, which tells when a tmux pane comes back.
+    assert_eq!(screen.out, b"\x1b[?1049h\x1b[?25l\x1b[?1004h");
     let modes = tcgetattr(&tty).unwrap().local_modes;
     assert!(!modes.contains(LocalModes::ICANON));
 }
@@ -81,7 +82,8 @@ fn the_screen_captures_the_mouse_only_when_asked() {
 #[test]
 fn the_screen_ends_when_a_panic_unwinds() {
     let (written, restored, original) = panic_on_the_screen(false);
-    assert!(written.ends_with(b"\x1b[?25h\x1b[?1049l"), "{written:?}");
+    let leave = b"\x1b[?1004l\x1b[?25h\x1b[?1049l";
+    assert!(written.ends_with(leave), "{written:?}");
     assert_eq!(restored.local_modes, original.local_modes);
 }
 

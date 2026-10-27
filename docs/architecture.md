@@ -364,6 +364,14 @@ that on when it is `off`, as `kitten icat` does. The capabilities then say
 its way out, so the renderers write the same bytes inside tmux as outside
 it.
 
+tmux drops output for a client that cannot keep up, and the images in it
+with it. Through tmux the encoder therefore notes the images it sends,
+and after printing, `src/term/check.rs` asks kitty about them with a
+virtual placement each, which kitty answers with `ENOENT` for an image it
+does not hold; the encoder sends those again, a few times at most. The
+pager writes the same checks after each frame that sent images, and
+kitty's answers come among the keys.
+
 `kiri --doctor` reports what detection found and where each setting came
 from. `src/term/` and `src/config.rs` hand it the detection, the
 settings and the file paths; `src/doctor.rs` checks which files exist and
@@ -384,10 +392,13 @@ writes as it is into a pipe.
 | Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J | `src/render/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows |
 | Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/kitty/query.rs` | Wiping the progress line; erasing the rows the text sizing tests drew |
 | Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term/screen.rs` | The pager's screen of its own |
+| Focus reporting | CSI ?1004h/l; CSI I, CSI O | `src/term/screen.rs`, `src/pager/keys.rs` | Telling the pager that its tmux pane is shown again |
+| Mouse reporting | CSI ?1000h/l, CSI ?1006h/l; CSI < … M/m, CSI M | `src/term/screen.rs`, `src/pager/keys.rs` | The wheel scrolling the pager, also inside tmux |
 | Synchronized output | CSI ?2026h/l | `src/render/output.rs` | Pager frames without flicker |
 | Cell size query | CSI 16 t | `src/kitty/query.rs` | The cell size in pixels where the window size has none |
 | Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI c | `src/term/probe.rs` | Cursor position, foreground, background and palette colours, terminal version, end of the answers |
 | tmux passthrough | DCS `tmux;` … ST, with each ESC doubled | `src/term/tmux.rs` | kitty's graphics, and the probe's graphics query, through tmux to the terminal outside |
+| Image checks | APC `_G` `a=p,U=1` and `a=d,d=i` with a placement id | `src/kitty/graphics.rs`, `src/term/check.rs` | Whether kitty behind tmux holds the images kiri sent |
 
 Sequences that only kitty's protocols define live under `src/kitty/`: text
 sizing, graphics, Unicode placeholders and the queries that detect them;
@@ -419,7 +430,9 @@ src/term/mod.rs            terminal I/O, all of it under src/term/; whether
 src/term/detect.rs         capability detection from the mode, the environment,
                            the window and the probe
 src/term/window.rs         the window size in cells and pixels
-src/term/probe.rs          the queries to the terminal, the only ones
+src/term/probe.rs          the probe's queries to the terminal
+src/term/check.rs          asking kitty behind tmux whether it holds the
+                           images kiri sent
 src/term/answers.rs        reading the terminal's answers
 src/term/tmux.rs           inside tmux: asking tmux, and wrapping kitty's
                            graphics in tmux's passthrough

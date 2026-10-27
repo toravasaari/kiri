@@ -128,6 +128,17 @@ mod tests {
     }
 
     #[test]
+    fn lists_the_redraw_key() {
+        let panel = panel(80, 24, &Style::default(), &Style::default(), false);
+        let rows: Vec<String> = panel.iter().map(text).collect();
+        assert!(
+            rows.iter()
+                .any(|row| row.starts_with("│ Ctrl+L ") && row.contains("   redraw the screen ")),
+            "{rows:#?}"
+        );
+    }
+
+    #[test]
     fn lists_the_follow_key() {
         let panel = panel(80, 24, &Style::default(), &Style::default(), false);
         let rows: Vec<String> = panel.iter().map(text).collect();

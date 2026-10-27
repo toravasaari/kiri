@@ -22,6 +22,7 @@ use crate::caps::Capabilities;
 use crate::compare::{Comparison, Fate, compare};
 use crate::config::{self, FollowJump, Paging, SearchCase};
 use crate::images::{ImageError, ImageKey, Images, Loads, Part, Source};
+use crate::kitty::graphics::ImageId;
 use crate::model::{Document, File, FrontMatterError};
 use crate::render::Inputs;
 use crate::render::block::BlockInfo;
@@ -575,6 +576,8 @@ enum Pressed {
     Reload,
     /// The reader changed how the document is followed.
     Follow,
+    /// The reader asked for the screen and its images again.
+    Redraw,
 }
 
 /// What the status line and the help panel show and how, apart from the
@@ -801,6 +804,22 @@ struct State {
     /// When the number of warnings last changed, while the number of the
     /// mark on the status line flashes.
     counted: Option<Instant>,
+    /// Where the focus is, as the terminal last told.
+    focus: Focus,
+    /// The keys read, with what a read cut off waiting for the rest,
+    /// also when a layout ends between the two reads.
+    decoder: keys::Decoder,
+}
+
+/// Where the focus is, as the terminal tells with focus reporting: under
+/// tmux, whether the pane is in the window shown.
+#[derive(Debug)]
+enum Focus {
+    /// Not told yet, as when kiri started in a pane not shown.
+    Unknown,
+    In,
+    /// Gone, with the images sent since, which tmux may have dropped.
+    Out(Vec<ImageId>),
 }
 
 /// How much to tint which lines, over how many cells, in what colours.
@@ -944,6 +963,16 @@ impl State {
             warnings: Vec::new(),
             noticed: None,
             counted: None,
+            focus: Focus::Unknown,
+            decoder: keys::Decoder::default(),
+        }
+    }
+
+    /// Notes that the images `sent` went to the terminal, which tmux
+    /// may drop while the focus is gone.
+    fn sent(&mut self, sent: Vec<ImageId>) {
+        if let Focus::Out(away) = &mut self.focus {
+            away.extend(sent);
         }
     }
 
@@ -1029,6 +1058,7 @@ impl State {
                 }
             }
             Some(Action::Reload) => return Pressed::Reload,
+            Some(Action::Redraw) => return Pressed::Redraw,
             Some(Action::Follow) => return Pressed::Follow,
             None => {}
         }
@@ -1341,8 +1371,8 @@ fn show(
     let mut shown = layout.frame(state, now);
     writer.at(now.saturating_duration_since(source.started));
     shown.draw(layout.view.rows(), writer, terminal)?;
+    state.sent(writer.check(terminal)?);
     terminal.flush()?;
-    let mut decoder = keys::Decoder::default();
     loop {
         let input = terminal.read(if layout.fades(state, now) || writer.has_bands() {
             FRAME
@@ -1351,13 +1381,48 @@ fn show(
         })?;
         // Nothing more came for a key the last read cut off.
         let keys = if input.is_empty() {
-            decoder.flush()
+            state.decoder.flush()
         } else {
-            decoder.keys(&input)
+            state.decoder.keys(&input)
         };
         now = terminal.now();
         state.tick(now);
+        // Whether the frame is drawn again even if it has not changed.
+        let mut again = false;
+        // Whether a frame was drawn or images sent again, which goes out
+        // with a check of the images it sent.
+        let mut written = false;
         for key in keys {
+            match key {
+                // tmux passed no images while the pane was not shown:
+                // those sent since the focus went, or any when it is not
+                // known when that was.
+                Key::FocusIn if writer.through_tmux() => {
+                    match std::mem::replace(&mut state.focus, Focus::In) {
+                        Focus::Unknown => writer.lost(),
+                        Focus::Out(sent) if !sent.is_empty() => writer.lost_some(&sent),
+                        Focus::Out(_) | Focus::In => continue,
+                    }
+                    again = true;
+                    continue;
+                }
+                // A second one, as from kitty and then tmux, keeps the
+                // images sent while away.
+                Key::FocusOut => {
+                    if !matches!(state.focus, Focus::Out(_)) {
+                        state.focus = Focus::Out(Vec::new());
+                    }
+                    continue;
+                }
+                Key::FocusIn | Key::Checked(_, true) => continue,
+                // tmux dropped it: its placeholders are on the screen.
+                Key::Checked(id, false) => {
+                    writer.send_again(id, terminal)?;
+                    written = true;
+                    continue;
+                }
+                _ => {}
+            }
             match state.press(key, now, layout) {
                 Pressed::Nothing => {}
                 Pressed::Quit => return Ok(Outcome::Quit),
@@ -1370,8 +1435,15 @@ fn show(
                     layout
                         .frame(state, now)
                         .draw(layout.view.rows(), writer, terminal)?;
+                    state.sent(writer.check(terminal)?);
                     terminal.flush()?;
                     return Ok(Outcome::Reload);
+                }
+                // As `less` repaints, also the images, which the
+                // terminal may have lost.
+                Pressed::Redraw => {
+                    writer.lost();
+                    again = true;
                 }
                 Pressed::Follow if reload.is_none() => {
                     state.told = Some(Told::new(NOTHING_TO_FOLLOW));
@@ -1412,10 +1484,14 @@ fn show(
         }
         let frame = layout.frame(state, now);
         // A band on the screen moves on with each frame drawn.
-        if frame != shown || writer.has_bands() {
+        if frame != shown || writer.has_bands() || again {
             shown = frame;
             writer.at(now.saturating_duration_since(source.started));
             shown.draw(layout.view.rows(), writer, terminal)?;
+            written = true;
+        }
+        if written {
+            state.sent(writer.check(terminal)?);
             terminal.flush()?;
         }
     }

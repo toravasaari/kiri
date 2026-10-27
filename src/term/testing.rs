@@ -64,7 +64,7 @@ pub(crate) fn with_tmux<T>(kitty_answers: bool, probe: impl FnOnce(&File) -> T) 
 /// `answer` returns for them, each part after its wait. Returns the
 /// queries the terminal saw and what `probe` returned. The terminal waits
 /// for the queries for 2 s at most and then does not answer.
-fn with_terminal<T>(
+pub(crate) fn with_terminal<T>(
     window: rustix::termios::Winsize,
     last: &'static str,
     probe: impl FnOnce(&File) -> T,

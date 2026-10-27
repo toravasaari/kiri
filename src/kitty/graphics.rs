@@ -97,10 +97,12 @@ pub struct ImageId(u32);
 
 impl ImageId {
     /// An id derived from the image's `content` and the size it is shown at,
-    /// `width` × `height` pixels in `cells`. The same image at the same size
-    /// gets the same id on every run, so rendering a document again does not
-    /// replace the images earlier runs left in the scrollback.
-    pub fn new(content: &[u8], width: u32, height: u32, cells: Cells) -> Self {
+    /// `width` × `height` pixels in `cells`, and from `run` when given. The
+    /// same image at the same size gets the same id on every run without
+    /// `run`, so rendering a document again does not replace the images
+    /// earlier runs left in the scrollback; a `run` of its own gives each
+    /// run ids of its own.
+    pub fn new(content: &[u8], width: u32, height: u32, cells: Cells, run: Option<u64>) -> Self {
         // FNV-1a: simple, and unlike std's hasher stable across releases.
         let mut hash: u64 = 0xCBF2_9CE4_8422_2325;
         let [w0, w1, w2, w3] = width.to_le_bytes();
@@ -108,7 +110,8 @@ impl ImageId {
         let [c0, c1] = cells.columns.to_le_bytes();
         let [r0, r1] = cells.rows.to_le_bytes();
         let size = [w0, w1, w2, w3, h0, h1, h2, h3, c0, c1, r0, r1];
-        for &byte in content.iter().chain(&size) {
+        let run = run.map(u64::to_le_bytes);
+        for &byte in content.iter().chain(&size).chain(run.iter().flatten()) {
             hash ^= u64::from(byte);
             hash = hash.wrapping_mul(0x0100_0000_01B3);
         }
@@ -176,6 +179,44 @@ fn compressed(pixels: &Pixels) -> io::Result<Vec<u8>> {
 /// that the terminal frees the memory it took.
 pub fn delete(out: &mut impl Write, id: ImageId) -> io::Result<()> {
     write!(out, "{START}a=d,d=I,i={},q=2\x1b\\", id.0)
+}
+
+/// The placement id of the virtual placements [`check`] makes.
+const CHECK: u32 = 0x4B49_5249;
+
+/// Asks the terminal whether it holds image `id`, sent for `cells`: a
+/// virtual placement over the same cells, which the terminal answers as
+/// [`checked`] reads, and which goes again at once. It looks as the
+/// image's own placement does, should the terminal draw it meanwhile.
+pub fn check(out: &mut impl Write, id: ImageId, cells: Cells) -> io::Result<()> {
+    let (columns, rows) = (cells.columns, cells.rows);
+    write!(
+        out,
+        "{START}a=p,U=1,i={},p={CHECK},c={columns},r={rows}\x1b\\",
+        id.0
+    )?;
+    write!(out, "{START}a=d,d=i,i={},p={CHECK},q=2\x1b\\", id.0)
+}
+
+/// What `answer`, one APC sequence from the terminal, says about an
+/// image [`check`] asked about: its id, and whether the terminal holds
+/// it. `None` for any other answer, and for an error other than the
+/// image not being there.
+pub fn checked(answer: &[u8]) -> Option<(ImageId, bool)> {
+    let answer = std::str::from_utf8(answer).ok()?;
+    let body = answer.strip_prefix(START)?.strip_suffix("\x1b\\")?;
+    let (keys, message) = body.split_once(';')?;
+    let (id, placement) = keys.strip_prefix("i=")?.split_once(",p=")?;
+    let id: u32 = id.parse().ok()?;
+    if placement.parse() != Ok(CHECK) || id == 0 {
+        return None;
+    }
+    let held = match message {
+        "OK" => true,
+        _ if message.starts_with("ENOENT:") => false,
+        _ => return None,
+    };
+    Some((ImageId(id), held))
 }
 
 /// Writes `payload` in chunks of at most [`CHUNK`] bytes. The first sequence
@@ -419,17 +460,25 @@ mod tests {
 
     #[test]
     fn id_is_stable_across_runs() {
-        assert_eq!(ImageId::new(b"kiri", 40, 20, cells(4, 1)).0, 0x4351F5);
+        assert_eq!(ImageId::new(b"kiri", 40, 20, cells(4, 1), None).0, 0x4351F5);
     }
 
     #[test]
     fn id_depends_on_content_and_size() {
-        let id = ImageId::new(b"kiri", 40, 20, cells(4, 1));
-        assert_ne!(id, ImageId::new(b"kirI", 40, 20, cells(4, 1)));
-        assert_ne!(id, ImageId::new(b"kiri", 41, 20, cells(4, 1)));
-        assert_ne!(id, ImageId::new(b"kiri", 40, 21, cells(4, 1)));
-        assert_ne!(id, ImageId::new(b"kiri", 40, 20, cells(5, 1)));
-        assert_ne!(id, ImageId::new(b"kiri", 40, 20, cells(4, 2)));
+        let id = ImageId::new(b"kiri", 40, 20, cells(4, 1), None);
+        assert_ne!(id, ImageId::new(b"kirI", 40, 20, cells(4, 1), None));
+        assert_ne!(id, ImageId::new(b"kiri", 41, 20, cells(4, 1), None));
+        assert_ne!(id, ImageId::new(b"kiri", 40, 21, cells(4, 1), None));
+        assert_ne!(id, ImageId::new(b"kiri", 40, 20, cells(5, 1), None));
+        assert_ne!(id, ImageId::new(b"kiri", 40, 20, cells(4, 2), None));
+    }
+
+    #[test]
+    fn a_run_of_its_own_gives_ids_of_its_own() {
+        let id = |run| ImageId::new(b"kiri", 40, 20, cells(4, 1), run);
+        assert_ne!(id(Some(1)), id(None));
+        assert_ne!(id(Some(1)), id(Some(2)));
+        assert_eq!(id(Some(1)), id(Some(1)));
     }
 
     #[test]
@@ -438,6 +487,41 @@ mod tests {
         for hash in [1, 0xFF_FFFF, 0x1_0000_0001, u64::MAX, 0xF09A_0A2E_B649_8FD9] {
             let id = fold(hash);
             assert!(id != 0 && id <= 0xFF_FFFF, "{hash:#x} -> {id:#x}");
+        }
+    }
+
+    #[test]
+    fn a_check_places_the_image_over_its_cells_and_takes_it_away() {
+        let mut out = Vec::new();
+        check(&mut out, ID, cells(4, 2)).unwrap();
+        // Without q, so that the terminal answers; the delete keeps
+        // the image's data and its own placement.
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "\x1b_Ga=p,U=1,i=1193046,p=1263096393,c=4,r=2\x1b\\\
+             \x1b_Ga=d,d=i,i=1193046,p=1263096393,q=2\x1b\\"
+        );
+    }
+
+    #[test]
+    fn reads_what_the_terminal_answers_to_a_check() {
+        // As kitty 0.47.1 answers.
+        let held = b"\x1b_Gi=1193046,p=1263096393;OK\x1b\\";
+        assert_eq!(checked(held), Some((ID, true)));
+        let missing = b"\x1b_Gi=1193046,p=1263096393;ENOENT:Put command refers to \
+                        non-existent image with id: 1193046 and number: 0\x1b\\";
+        assert_eq!(checked(missing), Some((ID, false)));
+        // Other placements, other answers and other errors tell nothing.
+        for other in [
+            &b"\x1b_Gi=1193046,p=7;ENOENT:gone\x1b\\"[..],
+            b"\x1b_Gi=1193046;ENOENT:gone\x1b\\",
+            b"\x1b_Gi=31;OK\x1b\\",
+            b"\x1b_Gi=1193046,p=1263096393;EINVAL:bad\x1b\\",
+            b"\x1b_Gi=x,p=1263096393;OK\x1b\\",
+            b"\x1b_Gi=0,p=1263096393;OK\x1b\\",
+            b"\x1b]11;rgb:0000/0000/0000\x1b\\",
+        ] {
+            assert_eq!(checked(other), None, "{other:?}");
         }
     }
 

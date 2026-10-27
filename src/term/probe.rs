@@ -14,7 +14,7 @@ use crate::kitty::query;
 
 /// Long enough for a terminal over SSH, short enough not to notice when
 /// a terminal ignores the queries entirely.
-const TIMEOUT: Duration = Duration::from_millis(500);
+pub(super) const TIMEOUT: Duration = Duration::from_millis(500);
 
 /// Cursor position report.
 const CURSOR_POSITION: &str = "\x1b[6n";

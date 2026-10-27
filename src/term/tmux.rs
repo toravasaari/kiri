@@ -32,6 +32,19 @@ pub fn run(args: &[&str]) -> Option<String> {
     out.status.success().then(|| text.trim().to_owned())
 }
 
+/// Something unique to this run of kiri, to mix into its image ids: every
+/// pane of a kitty window shares kitty's images, and kiri runs in other
+/// panes, also in other containers, whose process ids may be the same.
+pub fn run_id() -> u64 {
+    use std::hash::{BuildHasher, Hasher};
+    // Each `RandomState` has keys of its own, random for each process.
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u32(std::process::id());
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+    hasher.write_u128(now.map_or(0, |now| now.as_nanos()));
+    hasher.finish()
+}
+
 /// Whether kiri runs inside tmux: `TMUX` set and not empty.
 pub fn in_tmux(env: &Environment) -> bool {
     env.tmux.as_ref().is_some_and(|value| !value.is_empty())
@@ -48,6 +61,9 @@ pub struct Pane {
     pub passthrough: Option<String>,
     /// Whether kiri turned the pane's `allow-passthrough` on.
     pub turned_on: bool,
+    /// tmux's `focus-events`, which tells the pager when the pane is
+    /// shown again; `None` when tmux did not tell.
+    pub focus_events: Option<bool>,
 }
 
 /// Asks tmux through `run` for the outer terminal and the pane's
@@ -60,12 +76,20 @@ pub fn prepare(env: &Environment, run: Run) -> Pane {
         Some(pane) => &["-t", pane],
         None => &[],
     };
-    let ask = "#{client_termtype}|#{allow-passthrough}";
+    let ask = "#{client_termtype}|#{allow-passthrough}|#{focus-events}";
     let answer = run(&[&["display-message", "-p"], target, &[ask]].concat());
     let known = |field: &str| (!field.is_empty()).then(|| field.to_owned());
-    let (client, passthrough) = match answer.as_deref().and_then(|a| a.split_once('|')) {
-        Some((client, passthrough)) => (known(client), known(passthrough)),
-        None => (None, None),
+    let mut fields = answer.as_deref().map(|answer| answer.splitn(3, '|'));
+    let mut next = || fields.as_mut().and_then(Iterator::next);
+    let (client, passthrough) = match (next(), next()) {
+        (Some(client), Some(passthrough)) => (known(client), known(passthrough)),
+        _ => (None, None),
+    };
+    // A flag in a format is 1 or 0.
+    let focus_events = match next() {
+        Some("1" | "on") => Some(true),
+        Some("0" | "off") => Some(false),
+        _ => None,
     };
     let turned_on = passthrough.as_deref() == Some("off")
         && run(&[&["set-option", "-p"], target, &["allow-passthrough", "on"]].concat()).is_some();
@@ -73,6 +97,7 @@ pub fn prepare(env: &Environment, run: Run) -> Pane {
         client,
         passthrough,
         turned_on,
+        focus_events,
     }
 }
 
@@ -245,11 +270,12 @@ mod tests {
         }
     }
 
-    const ASK: &str = "#{client_termtype}|#{allow-passthrough}";
+    const ASK: &str = "#{client_termtype}|#{allow-passthrough}|#{focus-events}";
 
     #[test]
     fn prepare_turns_passthrough_on_when_off() {
-        let (calls, pane) = prepared(&pane_three(), &[Some("kitty(0.47.1)|off"), Some("")]);
+        let answers = [Some("kitty(0.47.1)|off|1"), Some("")];
+        let (calls, pane) = prepared(&pane_three(), &answers);
         assert_eq!(
             calls,
             [
@@ -261,6 +287,7 @@ mod tests {
             client: Some("kitty(0.47.1)".into()),
             passthrough: Some("off".into()),
             turned_on: true,
+            focus_events: Some(true),
         };
         assert_eq!(pane, expected);
     }
@@ -292,8 +319,26 @@ mod tests {
             client: None,
             passthrough: None,
             turned_on: false,
+            focus_events: None,
         };
         assert_eq!(pane, nothing);
+    }
+
+    #[test]
+    fn prepare_tells_tmux_s_focus_events() {
+        // A flag in a format is 1 or 0; older tmux may say on or off.
+        for (value, focus) in [
+            ("1", Some(true)),
+            ("on", Some(true)),
+            ("0", Some(false)),
+            ("off", Some(false)),
+            ("", None),
+        ] {
+            let answer = format!("kitty(0.47.1)|on|{value}");
+            let (_, pane) = prepared(&pane_three(), &[Some(&answer)]);
+            assert_eq!(pane.focus_events, focus, "{value:?}");
+            assert_eq!(pane.passthrough.as_deref(), Some("on"));
+        }
     }
 
     #[test]

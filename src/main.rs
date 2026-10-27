@@ -21,6 +21,7 @@ use kiri::images::{
 use kiri::input::Input;
 use kiri::model::{Block, Document, FrontMatterError};
 use kiri::pager::{Change, Look, Reload, Reloaded, Warning};
+use kiri::render::encoder::Encoder;
 use kiri::render::output::Page;
 use kiri::render::{Headings, Inputs, RenderErrors, TableRows};
 use kiri::term::{Interrupt, Mode};
@@ -1080,6 +1081,8 @@ fn page_files(
     };
     let mut out = kiri::term::output(&inputs.caps);
     let mut apart = false;
+    // Whether kitty did not answer the check of a file's images.
+    let silent = Cell::new(false);
     for (number, file) in files.iter().enumerate() {
         if !told_before.get() {
             tell_before(number);
@@ -1094,7 +1097,9 @@ fn page_files(
             true => kiri::render::render(&file.document, inputs, &mut out),
             false => kiri::render::render_file(file, number, apart, inputs, &mut out),
         };
-        shown(rendered.and_then(|()| out.flush()))?;
+        shown(
+            rendered.and_then(|sent| held(sent, &inputs.images, &inputs.caps, &silent, &mut out)),
+        )?;
         apart = true;
         if let Some(drawn) = &drawn[number] {
             tell_drawn(drawn, failed);
@@ -1117,6 +1122,8 @@ fn print_files(
 ) -> io::Result<()> {
     let mut out = kiri::term::output(&inputs.caps);
     let mut apart = false;
+    // Whether kitty did not answer the check of a file's images.
+    let silent = Cell::new(false);
     for (number, given) in given.into_iter().enumerate() {
         let name = given.name;
         let drawn = given.drawn;
@@ -1135,14 +1142,16 @@ fn print_files(
                         read_image_file(context, &inputs.caps, &given.path, format, reader)
                     });
                 match image {
-                    Ok(image) => print_image(image, name, number, apart, inputs, &mut out),
+                    Ok(image) => print_image(image, name, number, apart, inputs, &silent, &mut out),
                     Err(error) => {
                         told(failed, error);
                         continue;
                     }
                 }
             }
-            Shown::Read(image) => print_image(image, name, number, apart, inputs, &mut out),
+            Shown::Read(image) => {
+                print_image(image, name, number, apart, inputs, &silent, &mut out)
+            }
             Shown::Document { document, .. } => {
                 let stderr = settings.render_errors.stderr();
                 for warning in inputs.images.warnings_in(number, stderr) {
@@ -1150,11 +1159,13 @@ fn print_files(
                 }
                 let file = kiri::model::File { name, document };
                 kiri::render::render_file(&file, number, apart, inputs, &mut out)
+                    .and_then(|sent| held(sent, &inputs.images, &inputs.caps, &silent, &mut out))
             }
             // What could not be drawn is told after it.
             Shown::Diagram { document, .. } => {
                 let file = kiri::model::File { name, document };
                 kiri::render::render_file(&file, number, apart, inputs, &mut out)
+                    .and_then(|sent| held(sent, &inputs.images, &inputs.caps, &silent, &mut out))
             }
             Shown::AsIs(text) => {
                 let file = kiri::model::File {
@@ -1162,7 +1173,7 @@ fn print_files(
                     document: Document::default(),
                 };
                 kiri::render::render_file(&file, number, apart, inputs, &mut out)
-                    .and_then(|()| out.write_all(text.as_bytes()))
+                    .and_then(|_| out.write_all(text.as_bytes()))
             }
         };
         apart = true;
@@ -1176,20 +1187,54 @@ fn print_files(
 
 /// Prints `image`, the image file `name` numbered `number` among the files
 /// shown, under its header, as `render_file` prints a file, with the
-/// images `inputs` holds.
+/// images `inputs` holds, and checks it as [`held`] does with `silent`.
 fn print_image(
     image: Source,
     name: String,
     number: usize,
     apart: bool,
     inputs: &mut Inputs,
+    silent: &Cell<bool>,
     out: &mut impl Write,
 ) -> io::Result<()> {
     let key = ImageKey::from(name.as_str()).in_document(number);
     inputs.images.insert(key.clone(), Ok(image));
-    let shown = kiri::render::render_file(&image_file(name), number, apart, inputs, out);
+    let shown = kiri::render::render_file(&image_file(name), number, apart, inputs, out)
+        .and_then(|sent| held(sent, &inputs.images, &inputs.caps, silent, out));
     inputs.images.remove(&key);
     shown
+}
+
+/// Flushes `out` and makes sure kitty holds the images `encoder` sent
+/// there, from `images`, to a terminal with `caps`. tmux drops output for
+/// a client that cannot keep up, and the images in it with it, so through
+/// tmux kiri asks kitty for them and sends again what it lost, a few
+/// times at most. Without tmux, nothing is asked. Once kitty did not
+/// answer at all, as from a pane tmux does not show, `silent` is set and
+/// nothing more is asked, so that each file does not wait for it.
+fn held(
+    mut encoder: Encoder,
+    images: &kiri::images::Images,
+    caps: &Capabilities,
+    silent: &Cell<bool>,
+    out: &mut impl Write,
+) -> io::Result<()> {
+    out.flush()?;
+    for _ in 0..kiri::render::encoder::AGAIN {
+        let sent = encoder.take_sent();
+        if sent.is_empty() || silent.get() {
+            break;
+        }
+        let Some(lost) = kiri::term::lost_images(&sent) else {
+            silent.set(true);
+            break;
+        };
+        for id in lost {
+            encoder.send_again(id, images, caps, out)?;
+        }
+        out.flush()?;
+    }
+    Ok(())
 }
 
 /// A file among several, ready to show.
@@ -1642,7 +1687,9 @@ fn show_diagram(
             };
             let mut out = kiri::term::output(&caps);
             let shown = kiri::render::render_image_on(image, &caps, page, &mut out);
-            return Ok(finish(shown.and_then(|()| out.flush()))?);
+            let held = shown
+                .and_then(|(sent, images)| held(sent, &images, &caps, &Cell::new(false), &mut out));
+            return Ok(finish(held)?);
         }
         Some(Err(error)) => {
             let reason = match &error {
@@ -1917,7 +1964,15 @@ fn print_document(
     };
     let mut out = kiri::term::output(&inputs.caps);
     Ok(finish(
-        kiri::render::render(document, &inputs, &mut out).and_then(|()| out.flush()),
+        kiri::render::render(document, &inputs, &mut out).and_then(|sent| {
+            held(
+                sent,
+                &inputs.images,
+                &inputs.caps,
+                &Cell::new(false),
+                &mut out,
+            )
+        }),
     )?)
 }
 
@@ -2099,7 +2154,10 @@ fn show_image(
 ) -> Result<(), String> {
     let image = read_image_file(context, caps, path, format, reader)?;
     let mut out = kiri::term::output(caps);
-    finish(kiri::render::render_image(image, caps, &mut out).and_then(|()| out.flush()))
+    finish(
+        kiri::render::render_image(image, caps, &mut out)
+            .and_then(|(sent, images)| held(sent, &images, caps, &Cell::new(false), &mut out)),
+    )
 }
 
 /// The image file `path`, in `format`, read from `reader` up to the size

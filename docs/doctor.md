@@ -46,10 +46,14 @@ Inside tmux, tmux answers most questions itself, so the Terminal row says
 `tmux 3.8` or so. When kiri wraps kitty's images for tmux, as
 [Passthrough](config.md#passthrough) says, a **tmux** row follows: the
 terminal outside tmux, as tmux names it, and the pane's
-`allow-passthrough`, such as
-``passthrough for `kitty(0.47.1)`, allow-passthrough `on`, turned on by kiri``.
+`allow-passthrough` and tmux's `focus-events`, such as
+``passthrough for `kitty(0.47.1)`, allow-passthrough `on`, turned on by kiri, focus-events `on` ``.
 With `allow-passthrough off: images cannot pass`, kiri could not turn the
 option on; `tmux set -p allow-passthrough on` in the pane does it. With
+`focus-events off`, tmux does not tell the pager when its window is shown
+again, so images sent while it was hidden, as when following a file, stay
+away until Ctrl+L. `set -g focus-events on` in tmux.conf turns it on;
+kiri leaves it alone, as it is an option for every pane. With
 `passthrough = "tmux"` kiri does not ask tmux at all.
 
 What each other row means, and where it comes from:

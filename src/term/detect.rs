@@ -176,6 +176,7 @@ fn detect(
             client: None,
             passthrough: None,
             turned_on: false,
+            focus_events: None,
         }),
         _ => None,
     };
@@ -220,6 +221,7 @@ fn detect(
         // tmux cannot pass text sizing.
         caps.text_sizing = false;
         caps.tmux_passthrough = true;
+        caps.image_run = Some(tmux::run_id());
     }
     if no_color(env) {
         caps.color = false;
@@ -391,8 +393,33 @@ mod tests {
             client: Some("kitty(0.47.1)".into()),
             passthrough: Some("on".into()),
             turned_on: false,
+            focus_events: None,
         };
         assert_eq!(found.tmux, Some(pane));
+    }
+
+    #[test]
+    fn each_run_through_tmux_has_image_ids_of_its_own() {
+        let answers = (BEHIND_TMUX, "kitty(0.47.1)|on");
+        let run = || {
+            let (_, _, found) =
+                through_tmux(Mode::Auto, &in_tmux(), Passthrough::Detect, true, answers);
+            found.caps.image_run
+        };
+        let (first, second) = (run(), run());
+        assert!(first.is_some());
+        assert_ne!(first, second);
+        let (_, _, found) = through_tmux(Mode::Kitty, &in_tmux(), Passthrough::Tmux, true, answers);
+        assert!(found.caps.image_run.is_some());
+        // Without tmux, ids stay the same on every run.
+        let (_, _, found) = through_tmux(
+            Mode::Auto,
+            &Environment::default(),
+            Passthrough::Detect,
+            true,
+            (KITTY, ""),
+        );
+        assert_eq!(found.caps.image_run, None);
     }
 
     #[test]
@@ -474,6 +501,7 @@ mod tests {
             client: None,
             passthrough: None,
             turned_on: false,
+            focus_events: None,
         };
         assert_eq!(found.tmux, Some(pane));
     }
@@ -515,6 +543,7 @@ mod tests {
             hyperlinks: false,
             styled_underlines: false,
             tmux_passthrough: true,
+            image_run: found.caps.image_run,
             ..Capabilities::kitty(80)
         };
         assert_eq!(found.caps, expected);

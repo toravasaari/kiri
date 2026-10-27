@@ -44,14 +44,15 @@ pub fn end_update(out: &mut impl Write) -> io::Result<()> {
 }
 
 /// Writes `lines` on `page`. `images` holds the pixels of the images the
-/// lines show; each is sent before its first row.
+/// lines show; each is sent before its first row. Returns what the
+/// terminal holds of them, to check that they came.
 pub fn write(
     lines: &[Line],
     images: &Images,
     caps: &Capabilities,
     page: Page,
     out: &mut impl Write,
-) -> io::Result<()> {
+) -> io::Result<Encoder> {
     let mut encoder = Encoder::new();
     let mut writer = Writer::new(images, caps, page, &mut encoder);
     for line in lines {
@@ -60,7 +61,7 @@ pub fn write(
             out.write_all(b"\n")?;
         }
     }
-    Ok(())
+    Ok(encoder)
 }
 
 /// The rows `line` occupies on a terminal with `caps`: as many as the
@@ -230,6 +231,41 @@ impl<'a> Writer<'a> {
 }
 
 impl Writer<'_> {
+    /// Whether kitty's graphics go through tmux, which drops them while
+    /// kiri's pane is not shown.
+    pub fn through_tmux(&self) -> bool {
+        self.caps.tmux_passthrough
+    }
+
+    /// Sends every image again as its rows are next written, as the
+    /// terminal may have lost them.
+    pub fn lost(&mut self) {
+        self.encoder.lost();
+    }
+
+    /// Sends the images `ids` again as their rows are next written, as
+    /// the terminal may have lost them.
+    pub fn lost_some(&mut self, ids: &[graphics::ImageId]) {
+        self.encoder.lost_some(ids);
+    }
+
+    /// Asks kitty whether it holds the images sent through tmux since the
+    /// last check, as tmux drops output for a client that cannot keep
+    /// up; it answers each with [`graphics::checked`]'s answer. Returns
+    /// the images asked about; none without tmux.
+    pub fn check(&mut self, out: &mut impl Write) -> io::Result<Vec<graphics::ImageId>> {
+        let sent = self.encoder.take_sent();
+        for &(id, cells) in &sent {
+            graphics::check(out, id, cells)?;
+        }
+        Ok(sent.into_iter().map(|(id, _)| id).collect())
+    }
+
+    /// Sends image `id` again, as kitty answered it does not hold it.
+    pub fn send_again(&mut self, id: graphics::ImageId, out: &mut impl Write) -> io::Result<()> {
+        (self.encoder).send_again(id, self.images, self.caps, out)
+    }
+
     /// Deletes from the terminal the images the encoder no longer keeps.
     pub fn delete_unused(&mut self, out: &mut impl Write) -> io::Result<()> {
         self.encoder.delete_unused(out)

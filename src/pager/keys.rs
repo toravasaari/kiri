@@ -2,6 +2,7 @@
 //! bindings follow `less` for now.
 
 use super::view::Motion;
+use crate::kitty::graphics::{self, ImageId};
 
 /// A key as the terminal sends it without kitty's keyboard protocol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,6 +30,14 @@ pub enum Key {
     /// in `:n`, which the pager takes as one key with it. The terminal
     /// sends no such key.
     Command(char),
+    /// The terminal tells that the window, or the tmux pane, has the
+    /// focus again, `CSI I`, or lost it, `CSI O`, with focus reporting
+    /// on. Not keys, so they leave the help and the prompt open.
+    FocusIn,
+    FocusOut,
+    /// kitty's answer to a check of image `.0`: whether it holds it.
+    /// Not a key either.
+    Checked(ImageId, bool),
     /// The mouse wheel turned a notch up.
     WheelUp,
     /// The mouse wheel turned a notch down.
@@ -58,6 +67,8 @@ pub enum Action {
     PreviousFile,
     /// Reads the document again.
     Reload,
+    /// Draws the screen again, with every image on it sent again.
+    Redraw,
     /// Follows the document, from off to on to auto and back to off.
     Follow,
     Help,
@@ -182,7 +193,11 @@ fn escape(input: &[u8]) -> Option<(Key, usize)> {
                 [0x1b, _, ..] => Some(i),
                 _ => None,
             })?;
-            (Key::Other, end + 2)
+            let key = match graphics::checked(&input[..end + 2]) {
+                Some((id, held)) => Key::Checked(id, held),
+                None => Key::Other,
+            };
+            (key, end + 2)
         }
         0x20..=0x7e | 0x80.. => match character(&input[1..])? {
             (Key::Char(c), length) => (Key::Alt(c), length + 1),
@@ -206,6 +221,8 @@ fn csi(parameters: &[u8], last: u8) -> Key {
         // The modifier 2 is Shift.
         (b"5;2", b'~') => Key::ShiftPageUp,
         (b"6;2", b'~') => Key::ShiftPageDown,
+        (b"", b'I') => Key::FocusIn,
+        (b"", b'O') => Key::FocusOut,
         // A mouse event in SGR encoding, `<` and the button, the column
         // and the row, pressed with `M` and released with `m`.
         ([b'<', rest @ ..], b'M' | b'm') => {
@@ -372,6 +389,12 @@ pub const BINDINGS: &[Binding] = {
             action: Action::Reload,
         },
         Binding {
+            keys: &[Ctrl('l')],
+            names: "Ctrl+L",
+            what: "redraw the screen",
+            action: Action::Redraw,
+        },
+        Binding {
             keys: &[Char('F')],
             names: "F",
             what: "follow: on, auto, off",
@@ -465,10 +488,47 @@ mod tests {
     }
 
     #[test]
-    fn unknown_sequences_are_one_key_each() {
-        // F5, Shift+Up and a focus event, each followed by a letter.
+    fn ctrl_l_redraws_and_r_still_reloads() {
+        assert_eq!(decode(b"\x0c"), [Key::Ctrl('l')]);
+        assert_eq!(action(Key::Ctrl('l')), Some(Action::Redraw));
+        assert_eq!(action(Key::Char('r')), Some(Action::Reload));
+    }
+
+    #[test]
+    fn decodes_kittys_answers_to_checks() {
+        use crate::kitty::graphics::checked;
+
+        let held = b"\x1b_Gi=7,p=1263096393;OK\x1b\\";
+        let lost = b"\x1b_Gi=8,p=1263096393;ENOENT:Put command refers to non-existent image\x1b\\";
+        let (seven, eight) = (checked(held).unwrap().0, checked(lost).unwrap().0);
+        let input = [&held[..], b"j", lost, b"\x1b_Gi=31;OK\x1b\\"].concat();
         assert_eq!(
-            decode(b"\x1b[15~q\x1b[1;2Aq\x1b[Iq"),
+            decode(&input),
+            [
+                Key::Checked(seven, true),
+                Key::Char('j'),
+                Key::Checked(eight, false),
+                Key::Other,
+            ]
+        );
+        // Cut in two by the reads.
+        let mut decoder = Decoder::default();
+        assert_eq!(decoder.keys(&lost[..20]), []);
+        assert_eq!(decoder.keys(&lost[20..]), [Key::Checked(eight, false)]);
+    }
+
+    #[test]
+    fn decodes_the_focus_coming_back() {
+        assert_eq!(decode(b"\x1b[I\x1b[O"), [Key::FocusIn, Key::FocusOut]);
+        assert_eq!(action(Key::FocusIn), None);
+        assert_eq!(action(Key::FocusOut), None);
+    }
+
+    #[test]
+    fn unknown_sequences_are_one_key_each() {
+        // F5, Shift+Up and Shift+Tab, each followed by a letter.
+        assert_eq!(
+            decode(b"\x1b[15~q\x1b[1;2Aq\x1b[Zq"),
             [
                 Key::Other,
                 Key::Char('q'),
@@ -699,6 +759,7 @@ mod tests {
                     ":p" => Key::Command('p'),
                     "Shift+PgDn" => Key::ShiftPageDown,
                     "Shift+PgUp" => Key::ShiftPageUp,
+                    "Ctrl+L" => Key::Ctrl('l'),
                     name if name.chars().count() == 1 => Key::Char(name.chars().next().unwrap()),
                     name => panic!("unknown key name {name}"),
                 };
