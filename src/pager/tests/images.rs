@@ -452,6 +452,25 @@ fn the_pane_coming_back_sends_nothing_when_nothing_was_sent_meanwhile() {
 
 #[test]
 fn the_pane_coming_back_sends_again_what_was_sent_while_it_was_away() {
+    let (out, sent) = repainted_while_away(&[b"\x1b[O", b"r", b"\x1b[I"]);
+    // Red and green, blue while away, and blue again on coming back.
+    assert_eq!(sent.len(), 4, "{out:?}");
+    assert_eq!(sent[2], sent[3], "{out:?}");
+    assert!(!sent[..2].contains(&sent[2]), "{out:?}");
+}
+
+#[test]
+fn a_second_focus_out_keeps_what_was_sent_while_away() {
+    // kitty losing focus, and then tmux hiding the pane, say so twice.
+    let (out, sent) = repainted_while_away(&[b"\x1b[O", b"r", b"\x1b[O", b"\x1b[I"]);
+    assert_eq!(sent.len(), 4, "{out:?}");
+    assert_eq!(sent[2], sent[3], "{out:?}");
+}
+
+/// The output of the pager under tmux, given `keys`, and the ids of the
+/// images it sent: a red and a green image, where `r` shows the red one
+/// anew in blue.
+fn repainted_while_away(keys: &[&[u8]]) -> (String, Vec<u32>) {
     let red = [255, 0, 0, 255];
     let document = crate::parse::parse("![a](square.png)\n\n![b](other.png)\n");
     let (_, mut inputs) = pictured(red);
@@ -465,7 +484,7 @@ fn the_pane_coming_back_sends_again_what_was_sent_while_it_was_away() {
         rgba: [0, 0, 255, 255],
     };
     let reload: &mut dyn Reload = &mut repaint;
-    let mut terminal = Fake::new(60, 6, &[b"\x1b[O", b"r", b"\x1b[I"]);
+    let mut terminal = Fake::new(60, 6, keys);
     run_document(
         &document,
         &mut inputs,
@@ -477,10 +496,7 @@ fn the_pane_coming_back_sends_again_what_was_sent_while_it_was_away() {
     );
     let out = String::from_utf8(terminal.out).unwrap();
     let sent = sent_ids(&out);
-    // Red and green, blue while away, and blue again on coming back.
-    assert_eq!(sent.len(), 4, "{out:?}");
-    assert_eq!(sent[2], sent[3], "{out:?}");
-    assert!(!sent[..2].contains(&sent[2]), "{out:?}");
+    (out, sent)
 }
 
 #[test]

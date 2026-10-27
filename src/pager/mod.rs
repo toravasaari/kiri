@@ -1402,8 +1402,12 @@ fn show(
                     again = true;
                     continue;
                 }
+                // A second one, as from kitty and then tmux, keeps the
+                // images sent while away.
                 Key::FocusOut => {
-                    state.focus = Focus::Out(Vec::new());
+                    if !matches!(state.focus, Focus::Out(_)) {
+                        state.focus = Focus::Out(Vec::new());
+                    }
                     continue;
                 }
                 Key::FocusIn | Key::Checked(_, true) => continue,
