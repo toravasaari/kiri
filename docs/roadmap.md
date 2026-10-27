@@ -799,7 +799,7 @@ so large headings come with 5.3.
   configuration file choose; on unless set. Shift and a drag still
   select text in kitty.
 
-#### 5.2.4 Links in tmux
+#### 5.2.4 Links in tmux (done)
 
 - Links as OSC 8 hyperlinks inside tmux too. Today kiri tells from the
   environment alone whether links work there, and inside tmux that says
@@ -807,6 +807,10 @@ so large headings come with 5.3.
 - tmux passes links on only when its `terminal-features` give the outer
   terminal `hyperlinks`. kiri asks tmux whether it does, draws links when
   it does, and `--doctor` tells what to add to tmux.conf when it does not.
+- Done: inside tmux only tmux's answer decides. tmux 3.6 gives kitty,
+  Ghostty and WezTerm no `hyperlinks` by itself, so they need
+  `set -as terminal-features ',xterm-kitty:hyperlinks'` (or
+  `xterm-ghostty`) in tmux.conf, and a client that attaches after it.
 
 ### 5.3 Headings without text sizing
 
