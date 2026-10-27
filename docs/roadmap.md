@@ -1115,7 +1115,11 @@ A formula block inside an inline HTML tag, such as `<sub>$$z$$</sub>`,
 is drawn as a formula, but the tags around it show as source: each
 becomes an HTML block of its own, as the wrapper tags in B2 do.
 
-#### B6 A gap inside a word of a heading at a fractional size
+#### B6 A gap inside a word of a heading at a fractional size (fixed)
+
+Fixed: kitty draws each group a few pixels narrower than its cells, and
+kiri now aligns and cuts the groups so that the leftover falls between
+words. Some spaces are a little wider than others as a result.
 
 A level-three heading at 1 3/4, "Level three with `code` and
 *emphasis*", showed as "Level th ree with" in a render-check at 50
