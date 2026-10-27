@@ -443,6 +443,18 @@ mod tests {
     }
 
     #[test]
+    fn ghostty_behind_tmux_draws_images() {
+        // tmux names Ghostty 1.1.3 so, and Ghostty answers the wrapped
+        // graphics query as kitty does.
+        let answers = (BEHIND_TMUX, "ghostty 1.1.3-1.fc43|on");
+        let (_, _, found) =
+            through_tmux(Mode::Auto, &in_tmux(), Passthrough::Detect, true, answers);
+        assert!(found.caps.draws_images());
+        assert_eq!(found.caps.max_image_cells, graphics::MAX_CELLS);
+        assert!(!found.caps.text_sizing);
+    }
+
+    #[test]
     fn behind_tmux_without_an_answer_from_kitty_no_images_are_drawn() {
         // Passthrough stayed off: kitty never saw the graphics query.
         let answers = (
@@ -595,6 +607,24 @@ mod tests {
         assert!(caps.draws_images());
         assert!(!caps.text_sizing);
         assert_eq!(caps.max_image_cells, graphics::MAX_CELLS);
+    }
+
+    #[test]
+    fn a_probed_ghostty_draws_images_without_text_sizing() {
+        // Ghostty 1.1.3's answers, the palette left out: it ignores the
+        // text sizing tests and answers the graphics query.
+        let answers = "\x1b[1;1R\x1b[1;1R\x1b[1;1R\x1b_Gi=31;OK\x1b\\\
+                       \x1b]10;rgb:ffff/ffff/ffff\x1b\\\x1b]11;rgb:2828/2c2c/3434\x1b\\\
+                       \x1bP>|ghostty 1.1.3-1.fc43\x1b\\\x1b[6;20;9t\x1b[?62;22c";
+        let caps = with_probe(
+            Capabilities::ansi(80),
+            &answers::interpret(answers.as_bytes()),
+        );
+        assert!(caps.draws_images());
+        assert!(!caps.text_sizing);
+        assert_eq!(caps.max_image_cells, graphics::MAX_CELLS);
+        assert_eq!(caps.cell_pixels, Some((9, 20)));
+        assert_eq!(caps.dark_background, Some(true));
     }
 
     #[test]

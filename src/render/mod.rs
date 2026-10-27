@@ -351,6 +351,38 @@ mod tests {
         }
     }
 
+    /// The colour the layout gives the bullet of a list with `theme`, on a
+    /// terminal whose bright black is its background.
+    fn bullet_on_hidden_grey(theme: Theme) -> Option<Color> {
+        let background = Color::Rgb(0x19, 0x19, 0x19);
+        let mut caps = Capabilities::kitty(80);
+        caps.background = Some(background);
+        caps.palette[8] = Some(background);
+        let inputs = Inputs {
+            theme,
+            ..Inputs::new(caps)
+        };
+        let lines = layout::layout(&crate::parse::parse("- item\n"), &inputs);
+        let bullet = (lines[0].spans.iter()).find(|span| span.text.contains('•'));
+        bullet.expect("the bullet").style.fg
+    }
+
+    #[test]
+    fn the_built_in_theme_shows_list_markers_the_palette_would_hide() {
+        let bullet = bullet_on_hidden_grey(Theme::default()).expect("a colour");
+        let contrast = bullet.contrast(Color::Rgb(0x19, 0x19, 0x19));
+        assert!(contrast.is_some_and(|ratio| ratio >= 3.0), "{bullet:?}");
+    }
+
+    #[test]
+    fn a_chosen_theme_keeps_its_greys() {
+        let theme = Theme {
+            built_in: false,
+            ..Theme::default()
+        };
+        assert_eq!(bullet_on_hidden_grey(theme), Some(Color::Palette(8)));
+    }
+
     #[test]
     fn auto_uses_images_only_without_text_sizing() {
         let theme = Theme::default();

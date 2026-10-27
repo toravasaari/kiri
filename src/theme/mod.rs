@@ -54,6 +54,9 @@ pub struct Theme {
     /// Messages kiri writes into the document, such as why a diagram
     /// could not be drawn.
     pub error: Option<Color>,
+    /// Whether this is kiri's built-in theme rather than one the user
+    /// chose, so that kiri may adjust its colours to the terminal's.
+    pub built_in: bool,
     /// A box of background colour around code blocks, with one cell and one
     /// line of padding. Without it, code starts at the margin.
     pub code_padding: bool,
@@ -294,6 +297,10 @@ const BLUE: Option<Color> = Some(Color::Palette(4));
 const MAGENTA: Option<Color> = Some(Color::Palette(5));
 const GREY: Option<Color> = Some(Color::Palette(8));
 
+/// The least contrast with the background that WCAG asks for lines and
+/// other parts of a page that are not text.
+pub const VISIBLE: f64 = 3.0;
+
 impl Default for Theme {
     fn default() -> Self {
         Self {
@@ -322,6 +329,7 @@ impl Default for Theme {
             list_marker: GREY,
             table_border: GREY,
             error: RED,
+            built_in: true,
             code_padding: true,
             code_theme_dark: "base16-ocean.dark".into(),
             code_theme_light: "InspiredGitHub".into(),
@@ -357,6 +365,39 @@ impl Theme {
         for heading in &mut self.headings {
             heading.indent = 0;
         }
+        self
+    }
+
+    /// The theme with its quote bars, rules, list markers and table borders
+    /// visible on the terminal's `background`, where the terminal's
+    /// `palette` makes their colour too close to it.
+    /// Some palettes make bright black the background colour, such as
+    /// Solarized Dark's and Ghostty's Bright Lights.
+    pub fn with_visible_greys(
+        mut self,
+        palette: &[Option<Color>; 16],
+        background: Option<Color>,
+    ) -> Self {
+        let Some(background) = background else {
+            return self;
+        };
+        let visible = |color: Option<Color>| match color {
+            Some(Color::Palette(_)) => match color?.rgb(palette) {
+                Some(rgb)
+                    if rgb
+                        .contrast(background)
+                        .is_some_and(|ratio| ratio < VISIBLE) =>
+                {
+                    Some(rgb.readable_on(background, VISIBLE))
+                }
+                _ => color,
+            },
+            _ => color,
+        };
+        self.quote_bar = visible(self.quote_bar);
+        self.rule = visible(self.rule);
+        self.list_marker = visible(self.list_marker);
+        self.table_border = visible(self.table_border);
         self
     }
 
@@ -402,6 +443,44 @@ impl Theme {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The quote bar, rule, list marker and table border colours.
+    fn greys(theme: &Theme) -> [Option<Color>; 4] {
+        [
+            theme.quote_bar,
+            theme.rule,
+            theme.list_marker,
+            theme.table_border,
+        ]
+    }
+
+    #[test]
+    fn greys_the_palette_hides_on_the_background_are_made_visible() {
+        // Ghostty's Bright Lights theme: bright black is the background.
+        let background = Color::Rgb(0x19, 0x19, 0x19);
+        let mut palette = [None; 16];
+        palette[8] = Some(background);
+        let theme = Theme::default().with_visible_greys(&palette, Some(background));
+        for grey in greys(&theme) {
+            let contrast = grey.unwrap().contrast(background);
+            assert!(contrast.is_some_and(|ratio| ratio >= 3.0), "{grey:?}");
+        }
+    }
+
+    #[test]
+    fn greys_that_show_stay_the_terminal_s_own() {
+        // kitty's default bright black on black.
+        let black = Color::Rgb(0, 0, 0);
+        let mut palette = [None; 16];
+        palette[8] = Some(Color::Rgb(0x76, 0x76, 0x76));
+        let theme = Theme::default().with_visible_greys(&palette, Some(black));
+        assert_eq!(theme, Theme::default());
+        // Without the palette or the background nothing is known.
+        let unknown = Theme::default().with_visible_greys(&[None; 16], Some(black));
+        assert_eq!(unknown, Theme::default());
+        let theme = Theme::default().with_visible_greys(&palette, None);
+        assert_eq!(theme, Theme::default());
+    }
 
     #[test]
     fn default_headings_shrink_by_quarters_in_bold_blue() {
@@ -475,6 +554,7 @@ mod tests {
                 list_marker,
                 table_border,
                 error,
+                built_in: _,
                 code_padding: _,
                 code_theme_dark: _,
                 code_theme_light: _,

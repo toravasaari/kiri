@@ -183,13 +183,19 @@ fn with_layout<T>(
         render_errors,
     } = inputs;
     // Without colours, the layout leaves out what only shows a colour, such
-    // as heading fills and the padding around inline code.
-    let colorless;
-    let theme = if caps.color {
-        theme
+    // as heading fills and the padding around inline code. The built-in
+    // theme's greys follow the terminal's palette, which may hide them.
+    let adjusted;
+    let theme = if !caps.color {
+        adjusted = theme.clone().without_colors();
+        &adjusted
+    } else if theme.built_in {
+        adjusted = theme
+            .clone()
+            .with_visible_greys(&caps.palette, caps.background);
+        &adjusted
     } else {
-        colorless = theme.clone().without_colors();
-        &colorless
+        theme
     };
     let mut width = usize::from(caps.width);
     if theme.max_width > 0 {

@@ -38,6 +38,14 @@ Palette colours follow your terminal's colour scheme, which is why the
 defaults use them. With `NO_COLOR` set, kiri ignores every colour in the
 theme.
 
+Some colour schemes make `bright-black` the background colour, such as
+Solarized Dark and Ghostty's Bright Lights, and the built-in theme draws
+quote bars, rules, list markers and table borders in it, and mixes the
+pager's status line from it. When you use no theme file and neither
+`--light` nor `--dark`, kiri then lightens that grey until it shows, when
+the terminal tells it its colours. A theme file keeps the colours it
+gives, even the same `bright-black`.
+
 ## Defaults
 
 ```toml

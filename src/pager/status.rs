@@ -11,7 +11,7 @@ use crate::color::Color;
 use crate::config::Follow;
 use crate::render::style::{self, Span, Style};
 use crate::render::wrap;
-use crate::theme::{StatusColor, Theme};
+use crate::theme::{StatusColor, Theme, VISIBLE};
 
 /// The styles of the status line, and the one the match number fades
 /// into after a search went around an end of the document.
@@ -120,10 +120,17 @@ fn bar_and_badge(theme: &Theme, caps: &Capabilities) -> (Style, Style) {
 }
 
 /// The page mixed halfway with bright black, a grey in most palettes;
-/// `None` when either is not known as RGB.
+/// `None` when either is not known as RGB. The built-in theme lightens a
+/// grey the palette makes too close to the page, as it does its lines.
 fn mixed(theme: &Theme, caps: &Capabilities) -> Option<Color> {
     let page = theme.background.or(caps.background)?.rgb(&caps.palette)?;
-    page.mix(Color::Palette(8).rgb(&caps.palette)?, 0.5)
+    let grey = Color::Palette(8).rgb(&caps.palette)?;
+    let grey = if theme.built_in {
+        grey.readable_on(page, VISIBLE)
+    } else {
+        grey
+    };
+    page.mix(grey, 0.5)
 }
 
 /// What the status line tells besides the document's name and position.
