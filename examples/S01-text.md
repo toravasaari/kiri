@@ -206,11 +206,10 @@ The link at the end of this sentence is long enough to wrap onto the next
 line: [a link whose text goes on long enough to span two lines in most windows](https://example.com/visual-check).
 Every line of it is underlined and opens the same page.
 
-Inside tmux the link opens just as it does outside, once tmux.conf gives
-the terminal tmux's `hyperlinks` feature, such as
-`set -as terminal-features ',xterm-kitty:hyperlinks'` for kitty, and
-tmux has read it and you have detached and attached again. Without
-that line the link does not open and its address follows it in
+Inside tmux the link opens just as it does outside, once tmux.conf has
+the line `set -as terminal-features ',xterm-kitty:hyperlinks'` (for
+kitty), tmux has read it, and you have detached and attached again.
+Without that line the link does not open and its address follows it in
 `<…>`, dimmed, as in a terminal without links, and `kiri --doctor`
 says on its Hyperlinks row that tmux does not pass links on, with the
 line to add.
