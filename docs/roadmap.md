@@ -62,10 +62,7 @@ Refactoring and small fixes that are not bugs go there too.
   cssparser-macros, selectors and dtoa-short (MPL-2.0), whose notice
   also tells where their source is. `make release` generates the notices
   with `cargo-about`; the syntax definitions and themes syntect bundles
-  need a check of their own, as their licenses are not in Cargo metadata.
-- A license check in `make check` (`cargo-deny`) that fails when a
-  dependency brings a license kiri's MIT license cannot ship with, such as
-  the GPL.
+  need a check of their own, as their licences are not in Cargo metadata.
 
 ### 3.4 Render check (done)
 
@@ -987,8 +984,10 @@ A part that needs one names it, such as "needs G1.3".
 
 #### G4.2 Ready for CI
 
-- `rust-version` in `Cargo.toml`, a `deny.toml` for licenses, and a pinned
-  toolchain, before CI (3.2).
+- `rust-version` in `Cargo.toml`, a `deny.toml` for licences, and a pinned
+  toolchain, before CI (3.2). `make check` runs the licence check
+  (`cargo-deny`), which fails when a dependency brings a licence kiri's MIT
+  licence cannot ship with, such as the GPL.
 
 ### G5 Settings
 
