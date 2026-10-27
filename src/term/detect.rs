@@ -198,7 +198,12 @@ fn detect(
                 (Some(answers), Some(pane)) => {
                     through_tmux(caps, &answers::interpret(answers), pane)
                 }
-                (None, _) => caps,
+                // tmux tells about links whether the terminal answers or not.
+                (None, Some(pane)) => Capabilities {
+                    hyperlinks: caps.hyperlinks || passes_links(pane),
+                    ..caps
+                },
+                (None, None) => caps,
             }
         }
         Mode::Plain => Capabilities::plain(width),
@@ -891,5 +896,28 @@ mod tests {
         assert!(found.caps.hyperlinks);
         let (_, _, found) = through_tmux(Mode::Kitty, &env, Passthrough::Tmux, true, answers);
         assert!(!found.caps.hyperlinks);
+    }
+
+    #[test]
+    fn inside_tmux_links_follow_tmux_also_when_the_probe_gets_no_answer() {
+        for (features, links) in [("bpaste,hyperlinks,focus", true), ("bpaste,focus", false)] {
+            let pane = kitty_with(features);
+            let run = |args: &[&str]| {
+                let display = args[0] == "display-message";
+                Some(if display { pane.as_str() } else { "" }.to_owned())
+            };
+            let no_answer = |_, _| None;
+            let found = detect(
+                Mode::Auto,
+                None,
+                &in_tmux(),
+                Passthrough::Detect,
+                None,
+                true,
+                no_answer,
+                &run,
+            );
+            assert_eq!(found.caps.hyperlinks, links, "{features:?}");
+        }
     }
 }
