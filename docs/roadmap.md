@@ -43,6 +43,9 @@ Refactoring and small fixes that are not bugs go there too.
 ### 3.2 Repository and CI
 
 - GitHub repository, CI running `make check`, cargo-deny, Dependabot.
+- Testing in the terminals kiri supports, at their versions. The goal is
+  that kiri works in the latest minor version of each, such as Ghostty's;
+  today each is tested by hand in one version.
 
 ### 3.3 Releases
 
@@ -785,6 +788,15 @@ so large headings come with 5.3.
   `--mouse` and `--no-mouse`, `KIRI_MOUSE` and `mouse` in the
   configuration file choose; on unless set. Shift and a drag still
   select text in kitty.
+
+#### 5.2.4 Links in tmux
+
+- Links as OSC 8 hyperlinks inside tmux too. Today kiri tells from the
+  environment alone whether links work there, and inside tmux that says
+  tmux, so links show as plain text in kitty and Ghostty alike.
+- tmux passes links on only when its `terminal-features` give the outer
+  terminal `hyperlinks`. kiri asks tmux whether it does, draws links when
+  it does, and `--doctor` tells what to add to tmux.conf when it does not.
 
 ### 5.3 Headings without text sizing
 
