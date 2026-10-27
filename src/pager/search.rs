@@ -199,11 +199,11 @@ pub fn mark(
                     fade.step(&span.style, &laid_over(&span.style, &marks.current))
                 }
             };
-            spans.push(piece(span, cut - start..from - start, span.style.clone()));
-            spans.push(piece(span, from - start..to - start, style));
+            spans.extend(pieces(span, cut - start..from - start, &span.style));
+            spans.extend(pieces(span, from - start..to - start, &style));
             cut = to;
         }
-        spans.push(piece(span, cut - start..end - start, span.style.clone()));
+        spans.extend(pieces(span, cut - start..end - start, &span.style));
         start = end;
     }
     spans.retain(|span| !span.text.is_empty());
@@ -217,22 +217,41 @@ pub fn mark(
 /// its text: anywhere at a whole size, which has no edges, and only between
 /// packed groups at a fraction.
 fn edges(span: &Span) -> Vec<usize> {
-    let Some(fraction) = span.style.size.fraction() else {
+    if span.style.size.fraction().is_none() {
         return Vec::new();
-    };
-    let at = |group: &str| group.as_ptr() as usize - span.text.as_ptr() as usize;
-    (fraction.groups(&span.text).iter())
-        .map(|group| at(group.text))
+    }
+    (span.style.size.groups(&span.text).iter())
+        .map(|group| at(span, group.text))
         .chain([span.text.len()])
         .collect()
 }
 
-/// The bytes `bytes` of `span`'s text in `style`.
-fn piece(span: &Span, bytes: Range<usize>, style: Style) -> Span {
-    Span {
-        text: span.text[bytes].to_owned(),
-        style,
+/// Where `text`, a slice of `span`'s text, starts in it.
+fn at(span: &Span, text: &str) -> usize {
+    text.as_ptr() as usize - span.text.as_ptr() as usize
+}
+
+/// The bytes `bytes` of `span`'s text in `style`. A part of text at a
+/// fraction is one span for each of its groups, packed as it was in the
+/// whole text.
+fn pieces(span: &Span, bytes: Range<usize>, style: &Style) -> Vec<Span> {
+    if bytes == (0..span.text.len()) || span.style.size.fraction().is_none() {
+        let text = span.text[bytes].to_owned();
+        return vec![Span {
+            text,
+            style: style.clone(),
+        }];
     }
+    (span.style.size.groups(&span.text).into_iter())
+        .filter(|group| bytes.contains(&at(span, group.text)))
+        .map(|group| Span {
+            text: group.text.to_owned(),
+            style: Style {
+                size: style.size.as_one_group(group.align),
+                ..style.clone()
+            },
+        })
+        .collect()
 }
 
 /// `style` with `mark` laid over it: its colours where it has them, its
@@ -331,7 +350,7 @@ mod tests {
     use super::*;
     use crate::color::Color;
     use crate::pager::fade::Rgb;
-    use crate::size::{Fraction, TextSize, VerticalAlign};
+    use crate::size::{Fraction, HorizontalAlign, TextSize, VerticalAlign};
     use crate::theme::{Paper, SearchTheme};
 
     fn line(text: &str) -> Line {
@@ -663,6 +682,32 @@ mod tests {
     }
 
     #[test]
+    fn a_mark_in_text_at_a_fraction_keeps_its_groups() {
+        // Packing looks at the words around a group, so a piece cut out of
+        // the text could be packed apart from the rest.
+        let two_thirds =
+            TextSize::NORMAL.with_fraction(Fraction::new(2, 3).unwrap(), VerticalAlign::Top);
+        let style = Style {
+            size: two_thirds,
+            ..Style::default()
+        };
+        let text = "dceceddaae ba";
+        let source = Line::new(vec![Span::new(text, style.clone())]);
+        let groups = |line: &Line| -> Vec<(String, u8, HorizontalAlign)> {
+            (line.spans.iter())
+                .flat_map(|span| span.style.size.groups(&span.text))
+                .map(|group| (group.text.to_owned(), group.cells, group.align))
+                .collect()
+        };
+        for start in 0..text.len() {
+            for end in start + 1..=text.len() {
+                let marked = mark(&source, &[(start..end, false)], &marks(), None);
+                assert_eq!(groups(&marked), groups(&source), "{start}..{end}");
+            }
+        }
+    }
+
+    #[test]
     fn a_mark_in_text_at_a_fraction_covers_whole_groups() {
         // Half-size text is packed two cells to a group: `ab`, `cd`, `ef`.
         // Cutting a group would pack its pieces apart, each rounded up, and
@@ -673,19 +718,11 @@ mod tests {
             ..Style::default()
         };
         let source = Line::new(vec![Span::new("abcdef", style.clone())]);
-        let found = Style {
-            reverse: true,
-            ..style.clone()
-        };
         let marked = mark(&source, &[(3..4, false)], &marks(), None);
-        assert_eq!(
-            marked.spans,
-            [
-                Span::new("ab", style.clone()),
-                Span::new("cd", found.clone()),
-                Span::new("ef", style.clone()),
-            ]
-        );
+        let found: Vec<(&str, bool)> = (marked.spans.iter())
+            .map(|span| (span.text.as_str(), span.style.reverse))
+            .collect();
+        assert_eq!(found, [("ab", false), ("cd", true), ("ef", false)]);
         assert_eq!(
             crate::render::wrap::width(&marked.spans),
             crate::render::wrap::width(&source.spans)

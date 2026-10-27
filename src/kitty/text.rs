@@ -24,11 +24,11 @@ pub fn write_sized(out: &mut impl Write, size: TextSize, text: &str) -> io::Resu
             VerticalAlign::Centre => keys += ":v=2",
         }
     }
-    if let Some(fraction) = size.fraction() {
+    if size.fraction().is_some() {
         // Zero-width text joins the group after it, so a group of no
         // cells is a span of nothing else. It shows nothing, and `w=0`
         // would ask the terminal to measure it.
-        for group in fraction.groups(text).iter().filter(|group| group.cells > 0) {
+        for group in size.groups(text).iter().filter(|group| group.cells > 0) {
             // Left is the protocol's default.
             let align = match group.align {
                 HorizontalAlign::Left => "",

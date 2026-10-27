@@ -15,6 +15,9 @@ pub struct TextSize {
     scale: u8,
     fraction: Option<Fraction>,
     align: VerticalAlign,
+    /// Text at a fraction that is one packed group of its own, placed so
+    /// among its cells: a piece cut out between groups keeps its packing.
+    group: Option<HorizontalAlign>,
 }
 
 /// A fraction below one: `numerator` from 1 to 7 and below `denominator`,
@@ -65,6 +68,7 @@ impl TextSize {
         scale: 1,
         fraction: None,
         align: VerticalAlign::Top,
+        group: None,
     };
 
     /// `scale` times the normal size; `None` unless it is 1 to 7, the
@@ -137,6 +141,15 @@ impl TextSize {
         }
     }
 
+    /// This size for text that is packed as one group, placed by `align`
+    /// among its cells, whatever the text around it was.
+    pub const fn as_one_group(self, align: HorizontalAlign) -> Self {
+        Self {
+            group: Some(align),
+            ..self
+        }
+    }
+
     /// The rows the text occupies, and the cells for each normal cell of
     /// its width.
     pub const fn scale(self) -> u8 {
@@ -159,12 +172,27 @@ impl TextSize {
         self.align
     }
 
+    /// `text` cut into the groups it is packed in at this size; none at a
+    /// whole size, which packs nothing.
+    pub fn groups(self, text: &str) -> Vec<Group<'_>> {
+        match (self.fraction, self.group) {
+            (None, _) => Vec::new(),
+            (Some(_), Some(_)) if text.is_empty() => Vec::new(),
+            (Some(fraction), Some(align)) => vec![Group {
+                text,
+                cells: fraction.cells(text.width()),
+                align,
+            }],
+            (Some(fraction), None) => fraction.groups(text),
+        }
+    }
+
     /// The normal cells `text` takes at this size: `scale` for each cell
     /// of its width, or with a fraction, for each cell of its groups.
     pub fn width(self, text: &str) -> usize {
         let cells = match self.fraction {
             None => text.width(),
-            Some(fraction) => (fraction.groups(text).iter())
+            Some(_) => (self.groups(text).iter())
                 .map(|group| usize::from(group.cells))
                 .sum(),
         };
@@ -199,6 +227,12 @@ impl Fraction {
         self.denominator
     }
 
+    /// The cells a group of text `width` cells wide takes, rounded up.
+    fn cells(self, width: usize) -> u8 {
+        let cells = (width * usize::from(self.numerator)).div_ceil(usize::from(self.denominator));
+        u8::try_from(cells).unwrap_or(u8::MAX)
+    }
+
     /// `text` cut into the groups it is packed in: `denominator` cells of
     /// text in `numerator` cells, so half-size `abc` is `ab` and `c`, one
     /// cell each. A group ends between graphemes, early where a wide
@@ -212,7 +246,7 @@ impl Fraction {
     /// instead where the word would also cross the next group's end, and
     /// a group inside a word at both ends with no space is centred.
     pub fn groups(self, text: &str) -> Vec<Group<'_>> {
-        let (numerator, denominator) = (usize::from(self.numerator), usize::from(self.denominator));
+        let denominator = usize::from(self.denominator);
         let graphemes: Vec<_> = (text.grapheme_indices(true))
             .map(|(at, grapheme)| {
                 (
@@ -260,7 +294,7 @@ impl Fraction {
             };
             groups.push(Group {
                 text: &text[offset(start)..offset(end)],
-                cells: u8::try_from((width * numerator).div_ceil(denominator)).unwrap_or(u8::MAX),
+                cells: self.cells(width),
                 align,
             });
             start = end;

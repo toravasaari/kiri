@@ -289,7 +289,7 @@ fn a_match_in_a_fractional_heading_marks_whole_groups() {
     );
     let frames = terminal.frames();
     let found = document_part(frames.last().unwrap(), 12);
-    let group = "\x1b]66;s=3:n=5:d=6:v=1:w=5;Kiri t\x1b\\";
+    let group = "\x1b]66;s=3:n=5:d=6:v=1:h=1:w=5;Kiri t\x1b\\";
     assert!(
         style_before(found, group).contains(&"7".into()),
         "{found:?}"
@@ -321,7 +321,7 @@ fn a_match_in_a_sup_marks_whole_groups() {
         "{found:?}"
     );
     assert!(
-        found.contains("x\x1b]66;s=1:n=2:d=3:w=2;abc\x1b\\"),
+        found.contains("x\x1b]66;s=1:n=2:d=3:h=1:w=2;abc\x1b\\"),
         "{found:?}"
     );
 }
