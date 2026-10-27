@@ -1072,6 +1072,13 @@ go.
   with a hundred headings parses hundreds of SVGs before it shows.
   Measuring a heading's words in one SVG, and the space once per level,
   would be faster.
+- Finer spacing between the words of a heading at a fraction. A space
+  can only grow by whole cells of the heading's scale, so a short heading
+  such as "Level three" at 1 3/4 has one space about twice as wide as
+  normal. A space at the normal size would halve the step, but leaves an
+  empty cell in the rows below it, under backgrounds and marks too. A
+  heading allowed to start a few pixels from the margin would get even
+  spaces for less.
 
 ## Bugs
 
