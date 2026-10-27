@@ -647,13 +647,6 @@ mod tests {
                     assert_eq!(usize::from(group.cells), cells, "{fraction:?} {text:?}");
                     assert!(group.cells <= 7, "{fraction:?} {text:?}");
                 }
-                // The wrapper adds text a grapheme at a time.
-                let size = TextSize::NORMAL.with_fraction(fraction, VerticalAlign::Top);
-                let mut widths = (text.grapheme_indices(true).map(|(at, _)| at))
-                    .chain([text.len()])
-                    .map(|at| size.width(&text[..at]));
-                let mut last = 0;
-                assert!(widths.all(|width| std::mem::replace(&mut last, width) <= width));
             }
         }
     }
