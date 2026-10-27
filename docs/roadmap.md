@@ -718,6 +718,54 @@ A menu in the pager, from which its keys and settings can be found.
 - Allowing remote images from the local network (4.12.8) from the menu,
   for the document shown or for good, as a browser asks for it.
 
+### 4.15 Reading mode
+
+Text in a proportional font, drawn as images, so that a document reads
+the way GitHub shows it in a browser. Selection, copying and tmux are
+given up in this mode, and search may be. It needs a layout engine of
+kiri's own, the native engine that 5.5 mentions. A first experiment
+with Pango laid out a 1300-line document in 0.1 s and showed a 50-row
+screen in 0.05 s.
+
+#### 4.15.1 Text
+
+- Paragraphs, headings, lists, quotes, inline code and links in a
+  proportional font, 16 px with a line height of 1.5, in a column of
+  about 42 em, drawn as images through Unicode placeholders, in print
+  mode and a screen at a time in the pager.
+- GitHub's spacing: margins between blocks collapse, list items are
+  half a line apart, and a list marker sits on its item's first
+  baseline.
+- Inline code without padding spaces, on a background lower than the
+  line, breaking only at spaces.
+
+#### 4.15.2 Tables and code
+
+- An area 1.5 times as wide as the text, centred in the window. Text
+  starts at its left edge; tables and code blocks start there too and
+  may reach across the area.
+- A table is as wide as its content up to that area, and its cells
+  wrap as a browser wraps them.
+
+#### 4.15.3 Sideways scrolling
+
+- A table or code block wider than the area scrolls sideways on its
+  own, with a fade on each edge that has more and a thin scroll bar.
+- One of them is selected: the topmost on screen, until Tab, Shift+Tab
+  or a click selects another. Its scroll bar is brighter. The arrow
+  keys and h/l scroll it, and a sideways wheel scrolls the one under
+  the pointer.
+
+#### 4.15.4 Images, diagrams and formulas
+
+- Images, diagrams and formulas inside the layout, from the renderers
+  kiri already has.
+
+#### 4.15.5 Search and links
+
+- Search, link selection and clicking a link, from the positions the
+  layout knows.
+
 ## Phase 5 – Beyond kitty
 
 kiri outside a plain kitty window: other terminals, kitty inside tmux, and
@@ -847,8 +895,8 @@ or in other terminals, from the best to the plainest.
 
 ### 5.5 Pixel rendering
 
-- A headless browser screenshot (`--browser`), and possibly a native
-  layout and rasterising engine later.
+- A headless browser screenshot (`--browser`). A native layout and
+  rasterising engine comes with reading mode (4.15).
 
 ### 5.6 Editing support
 
