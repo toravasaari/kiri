@@ -728,6 +728,16 @@ the terminals it is tested in.
 
 - kitty's graphics protocol in other terminals that speak it: which of
   them have Unicode placeholders, and what the probe finds there.
+- Done for Ghostty: it has the placeholders but no text sizing, so images,
+  diagrams and formulas draw there, also inside tmux, and headings are
+  images. kiri takes Ghostty 1.0 and later; tested with 1.1.3. The
+  render-check skill renders in Ghostty with `--terminal ghostty`.
+  WezTerm is still to do.
+- Found in Ghostty, done: colour schemes that make bright black the
+  background colour, such as Bright Lights and Solarized Dark, hid the
+  built-in theme's quote bars, rules, list markers and table borders, and
+  the pager's status line. With the built-in theme kiri now lightens that
+  grey until it shows.
 
 #### 5.1.2 Sixel
 
@@ -1024,6 +1034,13 @@ Each time a part of the roadmap is finished, the list is
 sorted: an item moves to a part or to Bugs, or is dropped, and done items
 go.
 
+- How task list boxes look, as a setting. kiri draws ☐ and ☑, but
+  Ghostty's built-in font has only ☐, so ☑ comes from another font,
+  larger than ☐. ☐ and ☒ are the same size in Ghostty and kitty, but some
+  fonts lack ☒.
+- A setting that turns links on or off whatever the terminal seems to
+  support, such as `KIRI_HYPERLINKS`, for terminals and multiplexers
+  where kiri guesses wrong. Inside tmux only tmux's answer counts (5.2.4).
 - Find out which command shortcuts other pagers and editors offer, such
   as the `:` commands of `less` and vim, for `docs/inspiration.md`.
 - A side-by-side view: the Markdown source beside the rendered document,

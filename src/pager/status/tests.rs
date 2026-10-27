@@ -299,6 +299,23 @@ fn the_bar_is_mixed_from_the_page_and_grey_when_both_are_known() {
 }
 
 #[test]
+fn the_bar_shows_where_the_palette_s_grey_is_the_page() {
+    // Ghostty's Bright Lights: bright black is the background.
+    let page = Color::Rgb(0x19, 0x19, 0x19);
+    let mut caps = Capabilities::kitty(80);
+    caps.background = Some(page);
+    caps.palette[8] = Some(page);
+    let bar = Styles::new(&Theme::default(), &caps).bar.bg.expect("a bar");
+    assert_ne!(bar, page);
+    // A theme of the user's own keeps the palette's grey.
+    let theme = Theme {
+        built_in: false,
+        ..Theme::default()
+    };
+    assert_eq!(Styles::new(&theme, &caps).bar.bg, Some(page));
+}
+
+#[test]
 fn colours_from_the_theme_win() {
     let mut theme = Theme::default();
     let red = Some(Color::Palette(1));

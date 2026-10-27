@@ -45,6 +45,13 @@ kiri examples/S06b-pattern.png
 kiri examples/S06*
 ```
 
+## In Ghostty
+
+Ghostty draws the images as kitty does, also inside tmux. It cannot draw
+text at larger sizes, so each heading is an image there, in a colour from
+Ghostty's palette, and the images in this document look as they do in
+kitty.
+
 ## Inside tmux
 
 Inside tmux in kitty, the images show as they do outside it. Try these

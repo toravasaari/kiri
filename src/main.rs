@@ -35,8 +35,8 @@ use kiri::theme::{Paper, Theme};
     max_term_width = 100,
     after_help = "Images and diagrams are drawn only in terminals that support \
                   kitty's graphics protocol with Unicode placeholders, such as \
-                  kitty 0.28 or later; elsewhere images show their alt text \
-                  and diagrams their code."
+                  kitty 0.28 or later and Ghostty 1.0 or later; elsewhere images \
+                  show their alt text and diagrams their code."
 )]
 struct Cli {
     /// Markdown, CSV or TSV, an image, a Mermaid diagram, or a directory

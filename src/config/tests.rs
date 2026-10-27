@@ -1516,3 +1516,17 @@ fn a_wrong_value_in_the_file_names_the_values_it_takes() {
     .collect();
     insta::assert_snapshot!(errors.join("---\n"));
 }
+
+#[test]
+fn only_the_built_in_theme_is_marked_built_in() {
+    assert!(load_theme(&ThemeSource::BuiltIn).unwrap().built_in);
+    let paper = load_theme(&ThemeSource::Paper(Paper::Dark)).unwrap();
+    assert!(!paper.built_in);
+    let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/themes/opaque.toml");
+    for source in [
+        ThemeSource::File(file.clone()),
+        ThemeSource::DefaultFile(file),
+    ] {
+        assert!(!load_theme(&source).unwrap().built_in);
+    }
+}

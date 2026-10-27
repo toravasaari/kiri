@@ -211,5 +211,5 @@ Options:
           Print version
 
 Images and diagrams are drawn only in terminals that support kitty's graphics protocol with Unicode
-placeholders, such as kitty 0.28 or later; elsewhere images show their alt text and diagrams their
-code.
+placeholders, such as kitty 0.28 or later and Ghostty 1.0 or later; elsewhere images show their alt
+text and diagrams their code.

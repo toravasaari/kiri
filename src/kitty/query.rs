@@ -61,22 +61,28 @@ pub fn cell_size(text: &str) -> Option<(u16, u16)> {
 
 /// The first kitty release with the graphics protocol's Unicode
 /// placeholders, as major and minor version.
-const PLACEHOLDERS_SINCE: (u32, u32) = (0, 28);
+const KITTY_PLACEHOLDERS_SINCE: (u32, u32) = (0, 28);
+
+/// The first Ghostty release with them: 1.0, its first public one. Tested
+/// with 1.1.3.
+const GHOSTTY_PLACEHOLDERS_SINCE: (u32, u32) = (1, 0);
 
 /// Whether a terminal that names itself `name_version` in its XTVERSION
-/// answer, such as `kitty(0.47.1)`, has the graphics protocol's Unicode
-/// placeholders. Only kitty's own name counts; other terminals that have
-/// them are not recognised yet.
+/// answer, such as `kitty(0.47.1)` or `ghostty 1.1.3`, has the graphics
+/// protocol's Unicode placeholders. Only kitty and Ghostty are recognised;
+/// other terminals that have them are not yet.
 pub fn placeholders_by_version(name_version: &str) -> bool {
-    let Some(version) = name_version
+    let kitty = name_version
         .strip_prefix("kitty(")
-        .and_then(|rest| rest.strip_suffix(')'))
-    else {
-        return false;
+        .and_then(|rest| rest.strip_suffix(')'));
+    let (version, since) = match (kitty, name_version.strip_prefix("ghostty ")) {
+        (Some(version), _) => (version, KITTY_PLACEHOLDERS_SINCE),
+        (None, Some(version)) => (version, GHOSTTY_PLACEHOLDERS_SINCE),
+        (None, None) => return false,
     };
     let mut parts = version.split('.').map(str::parse::<u32>);
     match (parts.next(), parts.next()) {
-        (Some(Ok(major)), Some(Ok(minor))) => (major, minor) >= PLACEHOLDERS_SINCE,
+        (Some(Ok(major)), Some(Ok(minor))) => (major, minor) >= since,
         _ => false,
     }
 }
@@ -93,6 +99,18 @@ mod tests {
         assert!(placeholders_by_version("kitty(1.0.0)"));
         assert!(!placeholders_by_version("kitty(0.27.1)"));
         assert!(!placeholders_by_version("kitty(0.9.0)"));
+    }
+
+    #[test]
+    fn ghostty_has_placeholders_from_1_0() {
+        // Fedora's build adds its package release to the version.
+        assert!(placeholders_by_version("ghostty 1.1.3-1.fc43"));
+        assert!(placeholders_by_version("ghostty 1.0.0"));
+        assert!(placeholders_by_version("ghostty 1.2.3"));
+        assert!(!placeholders_by_version("ghostty 0.9.0"));
+        assert!(!placeholders_by_version("ghostty"));
+        assert!(!placeholders_by_version("ghostty next"));
+        assert!(!placeholders_by_version("ghostty(1.1.3)"));
     }
 
     #[test]

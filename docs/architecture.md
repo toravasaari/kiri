@@ -341,9 +341,9 @@ graphics protocols work, the background and palette colours, and the
 terminal's name and version (XTVERSION). 24-bit colour, hyperlinks and underline
 styles follow from either protocol working. Images need the graphics
 protocol's Unicode placeholders, which no query reveals; kiri assumes them
-when the graphics protocol works and the terminal is kitty 0.28 or later,
-or when both protocols work, since text sizing came to kitty long after
-placeholders. Elsewhere images are alt text.
+when the graphics protocol works and the terminal is kitty 0.28 or later
+or Ghostty 1.0 or later, or when both protocols work, since text sizing
+came to kitty long after placeholders. Elsewhere images are alt text.
 Without them, 24-bit colour can still come from `COLORTERM` and hyperlinks
 from `TERM_PROGRAM` or `VTE_VERSION`, but inside tmux from tmux, below;
 underline styles come only from the probe. `NO_COLOR` turns colours off in every
@@ -369,11 +369,11 @@ write the same bytes inside tmux as outside it.
 
 tmux drops output for a client that cannot keep up, and the images in it
 with it. Through tmux the encoder therefore notes the images it sends,
-and after printing, `src/term/check.rs` asks kitty about them with a
-virtual placement each, which kitty answers with `ENOENT` for an image it
-does not hold; the encoder sends those again, a few times at most. The
-pager writes the same checks after each frame that sent images, and
-kitty's answers come among the keys.
+and after printing, `src/term/check.rs` asks the terminal about them
+with a virtual placement each, which kitty and Ghostty answer with
+`ENOENT` for an image they do not hold; the encoder sends those again, a
+few times at most. The pager writes the same checks after each frame that
+sent images, and the terminal's answers come among the keys.
 
 `kiri --doctor` reports what detection found and where each setting came
 from. `src/term/` and `src/config.rs` hand it the detection, the

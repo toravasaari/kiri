@@ -107,6 +107,7 @@ impl Theme {
             list_marker: colors.marker,
             table_border: colors.border,
             error: colors.error,
+            built_in: false,
             // The page is the same whatever the terminal's background.
             code_theme_dark: colors.code_theme.into(),
             code_theme_light: colors.code_theme.into(),
@@ -191,14 +192,13 @@ mod tests {
 
     #[test]
     fn the_documented_paper_themes_are_the_paper_themes() {
-        assert_eq!(
-            parse(documented("### Light paper")).unwrap(),
-            Theme::paper(Paper::Light)
-        );
-        assert_eq!(
-            parse(documented("### Dark paper")).unwrap(),
-            Theme::paper(Paper::Dark)
-        );
+        // Loaded from a file, the TOML is a theme of the user's own.
+        let documented = |heading| Theme {
+            built_in: false,
+            ..parse(documented(heading)).unwrap()
+        };
+        assert_eq!(documented("### Light paper"), Theme::paper(Paper::Light));
+        assert_eq!(documented("### Dark paper"), Theme::paper(Paper::Dark));
     }
 
     /// Every colour of `theme` outside code blocks.

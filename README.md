@@ -16,8 +16,9 @@ Existing terminal Markdown viewers limit themselves to plain ANSI text, so
 every heading is the same size as body text and anything visual is left out.
 kitty can do more: its text sizing protocol draws text at several sizes, and
 its graphics protocol displays images that scroll with the text. kiri is built
-around those features. Other terminals get ANSI colours instead, and output
-that is not a terminal gets plain text.
+around those features. Ghostty speaks kitty's graphics protocol too, so
+images show there and headings are drawn as images. Other terminals get
+ANSI colours instead, and output that is not a terminal gets plain text.
 
 ## Usage
 
@@ -30,13 +31,14 @@ some-command | target/release/kiri
 ```
 
 kiri asks the terminal what it supports and uses the best it gets: kitty's
-large headings and clickable links, plain ANSI colours elsewhere, and plain
-text when the output is a pipe.
+large headings and clickable links, Ghostty's images with headings drawn as
+images, plain ANSI colours elsewhere, and plain text when the output is a
+pipe.
 
-Inside tmux running in kitty, kiri wraps its images in tmux's passthrough,
-so images, diagrams and formulas show there too, as `kitten icat` does. It
-turns on the pane's `allow-passthrough` when it is off; `--passthrough none`
-leaves tmux alone. tmux cannot pass kitty's text sizing, so large headings
+Inside tmux running in kitty or Ghostty, kiri wraps its images in tmux's
+passthrough, so images, diagrams and formulas show there too, as
+`kitten icat` does. It turns on the pane's `allow-passthrough` when it is
+off; `--passthrough none` leaves tmux alone. tmux cannot pass kitty's text sizing, so large headings
 are drawn there as images of their text, in the system's sans-serif font;
 `--headings` chooses between that, sized text and one row.
 
