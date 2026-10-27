@@ -15,8 +15,9 @@ pub struct TextSize {
     scale: u8,
     fraction: Option<Fraction>,
     align: VerticalAlign,
-    /// Text at a fraction that is one packed group of its own, placed so
-    /// among its cells: a piece cut out between groups keeps its packing.
+    /// Where text at a fraction sits among its cells when it is packed as
+    /// one group of its own, as a piece cut out between groups is, so that
+    /// it keeps the packing it had in the whole text.
     group: Option<HorizontalAlign>,
 }
 
@@ -313,10 +314,9 @@ impl Fraction {
                     // one, so they are weighed together.
                     let spaces = graphemes[start..end].iter().all(|grapheme| grapheme.space);
                     // Of packings with even gaps, the one of fewer groups.
-                    let so_far = |cost: f64| cost + GROUP;
-                    let packing = |before: f64, gap: f64, last| match spaces {
-                        true => (so_far(before), gap + after, last),
-                        false => (so_far(before) + cost(start, gap), after, last),
+                    let packing = |cost_so_far: f64, gap: f64, last| match spaces {
+                        true => (cost_so_far + GROUP, gap + after, last),
+                        false => (cost_so_far + GROUP + cost(start, gap), after, last),
                     };
                     let best = match start {
                         0 => Some(packing(0.0, before, None)),
@@ -371,8 +371,9 @@ impl Fraction {
 /// one packing against another.
 const NARROWER: f64 = 0.04;
 
-/// What a gap before the text costs, against the square of the gap for
-/// one between words.
+/// What a gap before text that starts with a word costs, against the
+/// square of the gap for one between words: a heading starts at the
+/// margin, and text after other text is most often after a space.
 const START: f64 = 100.0;
 
 /// What a gap after text that ends in a word costs: it is most often at
