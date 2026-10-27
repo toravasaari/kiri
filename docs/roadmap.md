@@ -733,6 +733,10 @@ the terminals it is tested in.
   images. kiri takes Ghostty 1.0 and later; tested with 1.1.3. The
   render-check skill renders in Ghostty with `--terminal ghostty`.
   WezTerm is still to do.
+- Found in Ghostty, done: colour schemes that make bright black the
+  background colour, such as Bright Lights and Solarized Dark, hid the
+  built-in theme's quote bars, rules, list markers and table borders.
+  With the built-in theme kiri now lightens them until they show.
 
 #### 5.1.2 Sixel
 
@@ -1029,6 +1033,9 @@ Each time a part of the roadmap is finished, the list is
 sorted: an item moves to a part or to Bugs, or is dropped, and done items
 go.
 
+- A setting that turns links on or off whatever the terminal seems to
+  support, such as `KIRI_HYPERLINKS`, for terminals and multiplexers
+  where kiri guesses wrong. Inside tmux only tmux's answer counts (5.2.4).
 - Find out which command shortcuts other pagers and editors offer, such
   as the `:` commands of `less` and vim, for `docs/inspiration.md`.
 - A side-by-side view: the Markdown source beside the rendered document,
