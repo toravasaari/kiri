@@ -198,9 +198,6 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
     row(out, &["Background", background])?;
     let hyperlinks = match &detection.tmux {
         Some(pane) if !caps.hyperlinks && pane.hyperlinks == Some(false) => tmux_links(pane),
-        Some(pane) if !caps.hyperlinks && pane.hyperlinks == Some(true) => {
-            "no, though tmux passes them on".into()
-        }
         _ => yes_no(caps.hyperlinks).into(),
     };
     row(out, &["Hyperlinks", &hyperlinks])?;
