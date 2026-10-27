@@ -981,6 +981,12 @@ fn the_doctor_says_how_to_let_tmux_pass_links() {
     let with = pane(Some(true), Some("xterm-kitty"));
     let report = tmux_terminal(Some(with), Passthrough::Detect, true);
     assert!(report.contains("| Hyperlinks | yes |"), "{report}");
+    // tmux passes them, yet kiri does not draw them: no tmux.conf line
+    // would help, so the row says only that.
+    let with = pane(Some(true), Some("xterm-kitty"));
+    let report = tmux_terminal(Some(with), Passthrough::Detect, false);
+    let row = "| Hyperlinks | no, though tmux passes them on |";
+    assert!(report.contains(row), "{report}");
     // When tmux did not tell, the doctor has no advice either.
     let unknown = pane(None, Some("xterm-kitty"));
     let report = tmux_terminal(Some(unknown), Passthrough::Detect, false);
