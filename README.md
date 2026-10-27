@@ -38,9 +38,13 @@ pipe.
 Inside tmux running in kitty or Ghostty, kiri wraps its images in tmux's
 passthrough, so images, diagrams and formulas show there too, as
 `kitten icat` does. It turns on the pane's `allow-passthrough` when it is
-off; `--passthrough none` leaves tmux alone. tmux cannot pass kitty's text sizing, so large headings
-are drawn there as images of their text, in the system's sans-serif font;
-`--headings` chooses between that, sized text and one row.
+off; `--passthrough none` leaves tmux alone. tmux cannot pass kitty's text
+sizing, so large headings are drawn there as images of their text, in the
+system's sans-serif font; `--headings` chooses between that, sized text
+and one row. Links open inside tmux too, once tmux.conf has
+`set -as terminal-features ',xterm-kitty:hyperlinks'` (`xterm-ghostty` in
+Ghostty) and you have attached again; `kiri --doctor` tells when it is
+missing.
 
 kiri follows your terminal's colour scheme. `--light` and `--dark` draw
 the document on a page of fixed colours instead, white or dark grey, like
