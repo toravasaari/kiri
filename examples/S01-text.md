@@ -206,6 +206,10 @@ The link at the end of this sentence is long enough to wrap onto the next
 line: [a link whose text goes on long enough to span two lines in most windows](https://example.com/visual-check).
 Every line of it is underlined and opens the same page.
 
+Inside tmux the link opens just as it does outside, once tmux.conf gives
+the terminal tmux's `hyperlinks` feature, such as
+`set -as terminal-features ',xterm-kitty:hyperlinks'` for kitty.
+
 ## Thematic break
 
 A line of three hyphens on its own is a rule. Between this paragraph and

@@ -207,10 +207,11 @@ fn detect(
         Mode::Kitty => {
             let caps = with_window(Capabilities::kitty(width), window);
             // tmux needs features of its own for links and underline
-            // styles.
-            match pane {
-                Some(_) => Capabilities {
-                    hyperlinks: false,
+            // styles; it tells about links only when it is asked.
+            let asked = passthrough == Passthrough::Detect;
+            match &pane {
+                Some(pane) => Capabilities {
+                    hyperlinks: asked && (passes_links(pane) || hyperlinks_by_environment(env)),
                     styled_underlines: false,
                     ..caps
                 },
@@ -274,7 +275,7 @@ fn with_probe(mut caps: Capabilities, probe: &answers::Probe) -> Capabilities {
 /// graphics answer comes from the terminal outside tmux, the rest from
 /// tmux itself, which `pane` tells about.
 fn through_tmux(caps: Capabilities, probe: &answers::Probe, pane: &Pane) -> Capabilities {
-    let hyperlinks = caps.hyperlinks;
+    let hyperlinks = caps.hyperlinks || passes_links(pane);
     // Only tmux's name says which terminal is outside; without it, the
     // terminal's answer to the graphics query decides.
     let client = pane.client.as_deref();
@@ -289,6 +290,11 @@ fn through_tmux(caps: Capabilities, probe: &answers::Probe, pane: &Pane) -> Capa
         styled_underlines: false,
         ..with_probe(caps, &probe)
     }
+}
+
+/// Whether tmux said it passes OSC 8 links on to the terminal outside.
+fn passes_links(pane: &Pane) -> bool {
+    pane.hyperlinks == Some(true)
 }
 
 /// Whether the user asked for output without colour: `NO_COLOR` set and not
@@ -810,5 +816,80 @@ mod tests {
         assert!(hyperlinks(&|env| env.vte_version = Some("5000".into())));
         assert!(!hyperlinks(&|env| env.vte_version = Some("4999".into())));
         assert!(!hyperlinks(&|env| env.vte_version = Some("new".into())));
+    }
+
+    /// tmux's answer for kitty 0.47.1 behind it, with the client's terminal
+    /// `features`.
+    fn kitty_with(features: &str) -> String {
+        format!("kitty(0.47.1)|on|1|{features}|xterm-kitty")
+    }
+
+    #[test]
+    fn inside_tmux_links_are_drawn_when_tmux_passes_them() {
+        for mode in [Mode::Auto, Mode::Kitty] {
+            let pane = kitty_with("bpaste,clipboard,hyperlinks,focus,title");
+            let answers = (BEHIND_TMUX, pane.as_str());
+            let (_, _, found) = through_tmux(mode, &in_tmux(), Passthrough::Detect, true, answers);
+            assert!(found.caps.hyperlinks, "{mode:?}");
+            // Underline styles still need a feature of their own.
+            assert!(!found.caps.styled_underlines, "{mode:?}");
+            assert_eq!(found.tmux.unwrap().hyperlinks, Some(true));
+        }
+    }
+
+    #[test]
+    fn inside_tmux_links_are_not_drawn_when_tmux_does_not_pass_them() {
+        for mode in [Mode::Auto, Mode::Kitty] {
+            let pane = kitty_with("bpaste,clipboard,focus,title");
+            let answers = (BEHIND_TMUX, pane.as_str());
+            let (_, _, found) = through_tmux(mode, &in_tmux(), Passthrough::Detect, true, answers);
+            assert!(!found.caps.hyperlinks, "{mode:?}");
+            assert_eq!(found.tmux.unwrap().hyperlinks, Some(false));
+        }
+    }
+
+    #[test]
+    fn inside_tmux_links_are_not_drawn_when_tmux_does_not_tell() {
+        for mode in [Mode::Auto, Mode::Kitty] {
+            for pane in ["", "kitty(0.47.1)|on|1"] {
+                let answers = (BEHIND_TMUX, pane);
+                let (_, _, found) =
+                    through_tmux(mode, &in_tmux(), Passthrough::Detect, true, answers);
+                assert!(!found.caps.hyperlinks, "{mode:?} {pane:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn inside_tmux_the_environment_still_tells_of_links() {
+        let env = Environment {
+            vte_version: Some("7600".into()),
+            ..in_tmux()
+        };
+        for mode in [Mode::Auto, Mode::Kitty] {
+            let pane = kitty_with("bpaste,focus");
+            let answers = (BEHIND_TMUX, pane.as_str());
+            let (_, _, found) = through_tmux(mode, &env, Passthrough::Detect, true, answers);
+            assert!(found.caps.hyperlinks, "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn with_passthrough_tmux_links_follow_the_environment_in_auto_mode_only() {
+        // tmux is not asked, so its features do not count.
+        let pane = kitty_with("hyperlinks");
+        let answers = (BEHIND_TMUX, pane.as_str());
+        let (calls, _, found) =
+            through_tmux(Mode::Auto, &in_tmux(), Passthrough::Tmux, true, answers);
+        assert_eq!(calls, Vec::<String>::new());
+        assert!(!found.caps.hyperlinks);
+        let env = Environment {
+            vte_version: Some("7600".into()),
+            ..in_tmux()
+        };
+        let (_, _, found) = through_tmux(Mode::Auto, &env, Passthrough::Tmux, true, answers);
+        assert!(found.caps.hyperlinks);
+        let (_, _, found) = through_tmux(Mode::Kitty, &env, Passthrough::Tmux, true, answers);
+        assert!(!found.caps.hyperlinks);
     }
 }

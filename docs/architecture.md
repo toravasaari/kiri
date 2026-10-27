@@ -345,7 +345,7 @@ when the graphics protocol works and the terminal is kitty 0.28 or later,
 or when both protocols work, since text sizing came to kitty long after
 placeholders. Elsewhere images are alt text.
 Without them, 24-bit colour can still come from `COLORTERM` and hyperlinks
-from `TERM_PROGRAM` or `VTE_VERSION`; underline styles come only from the
+from `TERM_PROGRAM` or `VTE_VERSION`, or inside tmux from tmux; underline styles come only from the
 probe. `NO_COLOR` turns colours off in every mode. These variables come
 in as part of `config::Environment`, read once at start-up with kiri's
 own, so the rules are tested without the process environment. The result
@@ -357,8 +357,9 @@ would get it stopped.
 Inside tmux, the probe's graphics query goes wrapped in tmux's
 passthrough, and only kitty's answer to it comes from kitty; tmux answers
 the rest itself. Detection first asks tmux, with `tmux display-message`,
-for the terminal outside and the pane's `allow-passthrough`, and turns
-that on when it is `off`, as `kitten icat` does. The capabilities then say
+for the terminal outside, the pane's `allow-passthrough` and whether
+tmux passes OSC 8 links on (the `hyperlinks` terminal feature), and turns
+`allow-passthrough` on when it is `off`, as `kitten icat` does. The capabilities then say
 `tmux_passthrough`, and the writer the output goes through
 (`term::output`, and the pager's screen) wraps each graphics sequence on
 its way out, so the renderers write the same bytes inside tmux as outside

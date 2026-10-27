@@ -66,7 +66,7 @@ What each other row means, and where it comes from:
 | Text sizing | Whether headings can be drawn large | The probe: whether the cursor moved for the text sizing tests |
 | Colours | 24-bit colour, fewer colours, or none | The probe; or else the `COLORTERM` environment variable |
 | Background | Dark or light, which picks the code colours | The probe: the background colour |
-| Hyperlinks | Whether links can be clicked | The probe; or else `TERM_PROGRAM` or `VTE_VERSION` |
+| Hyperlinks | Whether links can be clicked | The probe; or else `TERM_PROGRAM` or `VTE_VERSION`; inside tmux, also tmux's terminal features |
 | Underline styles | Whether a curly or dotted underline can be drawn | The probe |
 
 A terminal that answers the graphics query or draws the text sizing tests
