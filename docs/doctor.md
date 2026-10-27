@@ -125,7 +125,7 @@ Each answer, what it looks like and what kiri takes from it:
 | Foreground colour | `\e]10;rgb:dddd/dddd/dddd\e\\` | The text colour, which kiri mixes with the background for shaded table rows and other muted colours |
 | Background colour | `\e]11;rgb:0000/0000/0000\e\\` | The page colour. A dark one makes **Background** `dark`, a light one `light` |
 | Palette, up to 16 | `\e]4;1;rgb:cccc/0000/0000\e\\` | The terminal's 16 colours, by number |
-| Name and version | `\eP>\|kitty(0.47.1)\e\\` | The **Terminal** row. A kitty from 0.28 on has Unicode placeholders, so with the graphics answer **Graphics** is `yes, with Unicode placeholders` |
+| Name and version | `\eP>\|kitty(0.47.1)\e\\` | The **Terminal** row. A kitty from 0.28 on, or a Ghostty from 1.0 on, has Unicode placeholders, so with the graphics answer **Graphics** is `yes, with Unicode placeholders` |
 | Cell size | `\e[6;20;10t` | The height and the width of a cell in pixels. Asked only when the window size has no pixels, as over some SSH connections and in containers |
 | Device attributes | `\e[?62;c` | Nothing; every terminal answers it, so it marks the end of the answers. Inside tmux, tmux answers it at once, and kitty's answer to the same question sent through tmux comes after kitty's graphics answer and ends the answers there |
 
