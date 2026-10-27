@@ -32,7 +32,7 @@ out=
 terminal=kitty
 size=
 page_height=1600
-kitty_config=NONE
+kitty_config=
 kiri=
 timeout=120
 files=()
@@ -64,8 +64,14 @@ for file in "${files[@]}"; do
 	[ -f "$file" ] || die "$file: no such file"
 done
 case $terminal in
-kitty) [ -n "$size" ] || size=1280x16000 ;;
-ghostty) [ -n "$size" ] || size=1280x5900 ;;
+kitty)
+	[ -n "$size" ] || size=1280x16000
+	[ -n "$kitty_config" ] || kitty_config=NONE
+	;;
+ghostty)
+	[ -n "$size" ] || size=1280x5900
+	[ -z "$kitty_config" ] || die "--kitty-config is for kitty only"
+	;;
 *) die "--terminal must be kitty or ghostty" ;;
 esac
 [[ $size =~ ^([0-9]+)x([0-9]+)$ ]] || die "--size must look like 1280x16000"
@@ -101,15 +107,16 @@ xvfb_pid=
 term_pid=
 # Stops the terminal: Ghostty runs under dbus-run-session, which does not
 # stop it when killed itself.
+# Either may have exited already.
 stop_terminal() {
-	pkill -P "$term_pid" 2>/dev/null
-	kill "$term_pid" 2>/dev/null
+	pkill -P "$term_pid" 2>/dev/null || true
+	kill "$term_pid" 2>/dev/null || true
 	wait "$term_pid" 2>/dev/null || true
 	term_pid=
 }
 cleanup() {
-	[ -n "$term_pid" ] && stop_terminal
-	[ -n "$xvfb_pid" ] && kill "$xvfb_pid" 2>/dev/null
+	[ -z "$term_pid" ] || stop_terminal
+	[ -z "$xvfb_pid" ] || kill "$xvfb_pid" 2>/dev/null || true
 	wait 2>/dev/null
 	rm -rf "$work"
 }
@@ -137,11 +144,11 @@ display=:$(cat "$work/display")
 # kitty is ready, and without one kiri is not started. Ghostty answers at a
 # smaller window size for a second or two before it takes the size asked
 # for, so with WAIT_FOR_SIZE set kiri starts once the size stays the same.
-# The terminal answers in order, so when it reports the cursor position after kiri, it has read all
-# of kiri's output. The report is kiri's exit status, the cursor's row and
-# column and the cell size in pixels. Answers kiri left unread mean its probe
-# timed out, which a busy machine can cause; they would be taken for the
-# answers asked for here.
+# The terminal answers in order, so when it reports the cursor position
+# after kiri, it has read all of kiri's output. The report is kiri's exit
+# status, the cursor's row and column and the cell size in pixels. Answers
+# kiri left unread mean its probe timed out, which a busy machine can cause;
+# they would be taken for the answers asked for here.
 inner='ask() { printf "%b" "$1"; IFS= read -r -s -d "$2" -t 60 reply; }
 ask "\033[c" c || { echo "no answer" >"$0"; exit 1; }
 if [ -n "${WAIT_FOR_SIZE:-}" ]; then
@@ -238,6 +245,8 @@ ghostty_config() {
 start_terminal() {
 	local env=(env -u WAYLAND_DISPLAY -u KITTY_WINDOW_ID -u KITTY_PID
 		-u KITTY_LISTEN_ON -u KITTY_PUBLIC_KEY -u KITTY_INSTALLATION_DIR
+		-u TMUX -u TMUX_PANE -u TERM_PROGRAM -u TERM_PROGRAM_VERSION
+		-u GHOSTTY_RESOURCES_DIR -u GHOSTTY_BIN_DIR -u GHOSTTY_SHELL_FEATURES
 		DISPLAY="$display" KIRI_PAGING=never)
 	case $terminal in
 	kitty)
@@ -315,9 +324,15 @@ for file in "${files[@]}"; do
 	[[ $box =~ ^[0-9]+x([0-9]+)\+[0-9]+\+([0-9]+)$ ]] ||
 		die "$file: cannot measure the screenshot ($box)"
 	bottom=$((BASH_REMATCH[1] + BASH_REMATCH[2]))
-	[ "$bottom" -ge "$height" ] &&
-		echo "render-check: $file fills the screen;" \
-			"raise the height of --size to see all of it" >&2
+	if [ "$bottom" -ge "$height" ]; then
+		if [ "$terminal" = ghostty ]; then
+			echo "render-check: $file fills the screen, and Ghostty" \
+				"fails above about 6000 pixels: check a shorter part" >&2
+		else
+			echo "render-check: $file fills the screen;" \
+				"raise the height of --size to see all of it" >&2
+		fi
+	fi
 	magick "$work/full.ppm" -crop "${width}x${bottom}+0+0" +repage "$shot"
 	echo "$shot"
 
