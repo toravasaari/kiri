@@ -51,7 +51,7 @@ pub fn in_tmux(env: &Environment) -> bool {
 }
 
 /// What kiri learnt from tmux about the pane it runs in.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Pane {
     /// The terminal outside tmux, as tmux's `client_termtype` names it,
     /// such as `kitty(0.47.1)`.
@@ -64,10 +64,19 @@ pub struct Pane {
     /// tmux's `focus-events`, which tells the pager when the pane is
     /// shown again; `None` when tmux did not tell.
     pub focus_events: Option<bool>,
+    /// Whether tmux passes OSC 8 links on to the terminal outside: the
+    /// `hyperlinks` feature among `client_termfeatures`; `None` when tmux
+    /// did not tell.
+    pub hyperlinks: Option<bool>,
+    /// The terminal outside tmux as its `TERM` names it, tmux's
+    /// `client_termname`, such as `xterm-kitty`: the name to give
+    /// `terminal-features` in tmux.conf.
+    pub term_name: Option<String>,
 }
 
-/// Asks tmux through `run` for the outer terminal and the pane's
-/// `allow-passthrough`, and turns the option on when it is `off`, as
+/// Asks tmux through `run` for the outer terminal, the pane's
+/// `allow-passthrough`, `focus-events` and whether tmux passes links, and
+/// turns `allow-passthrough` on when it is `off`, as
 /// `kitten icat` does; `on` and `all` stay as they are. The pane is
 /// `TMUX_PANE`, or tmux's current one without it.
 pub fn prepare(env: &Environment, run: Run) -> Pane {
@@ -76,10 +85,11 @@ pub fn prepare(env: &Environment, run: Run) -> Pane {
         Some(pane) => &["-t", pane],
         None => &[],
     };
-    let ask = "#{client_termtype}|#{allow-passthrough}|#{focus-events}";
+    let ask = "#{client_termtype}|#{allow-passthrough}|#{focus-events}\
+               |#{client_termfeatures}|#{client_termname}";
     let answer = run(&[&["display-message", "-p"], target, &[ask]].concat());
     let known = |field: &str| (!field.is_empty()).then(|| field.to_owned());
-    let mut fields = answer.as_deref().map(|answer| answer.splitn(3, '|'));
+    let mut fields = answer.as_deref().map(|answer| answer.splitn(5, '|'));
     let mut next = || fields.as_mut().and_then(Iterator::next);
     let (client, passthrough) = match (next(), next()) {
         (Some(client), Some(passthrough)) => (known(client), known(passthrough)),
@@ -91,6 +101,11 @@ pub fn prepare(env: &Environment, run: Run) -> Pane {
         Some("0" | "off") => Some(false),
         _ => None,
     };
+    // The features are a list such as `bpaste,clipboard,hyperlinks,focus`.
+    let hyperlinks = next()
+        .and_then(known)
+        .map(|features| features.split(',').any(|feature| feature == "hyperlinks"));
+    let term_name = next().and_then(known);
     let turned_on = passthrough.as_deref() == Some("off")
         && run(&[&["set-option", "-p"], target, &["allow-passthrough", "on"]].concat()).is_some();
     Pane {
@@ -98,6 +113,8 @@ pub fn prepare(env: &Environment, run: Run) -> Pane {
         passthrough,
         turned_on,
         focus_events,
+        hyperlinks,
+        term_name,
     }
 }
 
@@ -270,11 +287,15 @@ mod tests {
         }
     }
 
-    const ASK: &str = "#{client_termtype}|#{allow-passthrough}|#{focus-events}";
+    const ASK: &str = "#{client_termtype}|#{allow-passthrough}|#{focus-events}\
+                       |#{client_termfeatures}|#{client_termname}";
 
     #[test]
     fn prepare_turns_passthrough_on_when_off() {
-        let answers = [Some("kitty(0.47.1)|off|1"), Some("")];
+        let answers = [
+            Some("kitty(0.47.1)|off|1|bpaste,clipboard,focus,title|xterm-kitty"),
+            Some(""),
+        ];
         let (calls, pane) = prepared(&pane_three(), &answers);
         assert_eq!(
             calls,
@@ -288,6 +309,8 @@ mod tests {
             passthrough: Some("off".into()),
             turned_on: true,
             focus_events: Some(true),
+            hyperlinks: Some(false),
+            term_name: Some("xterm-kitty".into()),
         };
         assert_eq!(pane, expected);
     }
@@ -315,13 +338,33 @@ mod tests {
     fn prepare_without_tmux_answers_nothing() {
         let (calls, pane) = prepared(&pane_three(), &[None]);
         assert_eq!(calls.len(), 1);
-        let nothing = Pane {
-            client: None,
-            passthrough: None,
-            turned_on: false,
-            focus_events: None,
-        };
-        assert_eq!(pane, nothing);
+        assert_eq!(pane, Pane::default());
+    }
+
+    #[test]
+    fn prepare_tells_whether_tmux_passes_links() {
+        for (features, links) in [
+            ("bpaste,clipboard,hyperlinks,focus,title", Some(true)),
+            ("hyperlinks", Some(true)),
+            ("bpaste,clipboard,focus,title", Some(false)),
+            // Only the whole name counts.
+            ("nohyperlinks,hyperlinks2", Some(false)),
+            // Without a client, or in a tmux without the format.
+            ("", None),
+        ] {
+            let answer = format!("kitty(0.47.1)|on|1|{features}|xterm-kitty");
+            let (_, pane) = prepared(&pane_three(), &[Some(&answer)]);
+            assert_eq!(pane.hyperlinks, links, "{features:?}");
+            assert_eq!(pane.term_name.as_deref(), Some("xterm-kitty"));
+            assert_eq!(pane.focus_events, Some(true));
+        }
+        // An older answer, or one cut short, tells nothing about links.
+        let (_, pane) = prepared(&pane_three(), &[Some("kitty(0.47.1)|on|1")]);
+        assert_eq!(pane.hyperlinks, None);
+        assert_eq!(pane.term_name, None);
+        let (_, pane) = prepared(&pane_three(), &[Some("kitty(0.47.1)|on|1|hyperlinks|")]);
+        assert_eq!(pane.hyperlinks, Some(true));
+        assert_eq!(pane.term_name, None);
     }
 
     #[test]

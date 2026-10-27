@@ -881,6 +881,7 @@ fn the_doctor_tells_the_tmux_pane() {
         passthrough: Some(passthrough.into()),
         turned_on,
         focus_events: Some(true),
+        ..Pane::default()
     };
     let report = tmux_report(Some(pane("off", true)), Passthrough::Detect);
     let row = "| tmux | passthrough for `kitty(0.47.1)`, allow-passthrough `on`, \
@@ -900,6 +901,7 @@ fn the_doctor_says_what_focus_events_off_means() {
         passthrough: Some("on".into()),
         turned_on: false,
         focus_events,
+        ..Pane::default()
     };
     let report = tmux_report(Some(pane(Some(false))), Passthrough::Detect);
     let row = "| tmux | passthrough for `kitty(0.47.1)`, allow-passthrough `on`, \
@@ -919,6 +921,7 @@ fn the_doctor_says_when_passthrough_stays_off() {
         passthrough: Some("off".into()),
         turned_on: false,
         focus_events: Some(true),
+        ..Pane::default()
     };
     let report = tmux_report(Some(pane), Passthrough::Detect);
     let row = "| tmux | passthrough for `kitty(0.47.1)`, allow-passthrough `off`: \
@@ -933,6 +936,7 @@ fn the_doctor_tells_when_tmux_was_not_asked() {
         passthrough: None,
         turned_on: false,
         focus_events: None,
+        ..Pane::default()
     };
     let report = tmux_report(Some(nothing.clone()), Passthrough::Tmux);
     let row = "| tmux | passthrough; tmux not asked, as passthrough is `tmux` |";

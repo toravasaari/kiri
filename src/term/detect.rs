@@ -177,6 +177,7 @@ fn detect(
             passthrough: None,
             turned_on: false,
             focus_events: None,
+            ..Pane::default()
         }),
         _ => None,
     };
@@ -394,6 +395,7 @@ mod tests {
             passthrough: Some("on".into()),
             turned_on: false,
             focus_events: None,
+            ..Pane::default()
         };
         assert_eq!(found.tmux, Some(pane));
     }
@@ -502,6 +504,7 @@ mod tests {
             passthrough: None,
             turned_on: false,
             focus_events: None,
+            ..Pane::default()
         };
         assert_eq!(found.tmux, Some(pane));
     }
