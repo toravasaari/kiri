@@ -22,6 +22,7 @@ use crate::caps::Capabilities;
 use crate::compare::{Comparison, Fate, compare};
 use crate::config::{self, FollowJump, Paging, SearchCase};
 use crate::images::{ImageError, ImageKey, Images, Loads, Part, Source};
+use crate::kitty::graphics::ImageId;
 use crate::model::{Document, File, FrontMatterError};
 use crate::render::Inputs;
 use crate::render::block::BlockInfo;
@@ -803,6 +804,19 @@ struct State {
     /// When the number of warnings last changed, while the number of the
     /// mark on the status line flashes.
     counted: Option<Instant>,
+    /// Where the focus is, as the terminal last told.
+    focus: Focus,
+}
+
+/// Where the focus is, as the terminal tells with focus reporting: under
+/// tmux, whether the pane is in the window shown.
+#[derive(Debug)]
+enum Focus {
+    /// Not told yet, as when kiri started in a pane not shown.
+    Unknown,
+    In,
+    /// Gone, with the images sent since, which tmux may have dropped.
+    Out(Vec<ImageId>),
 }
 
 /// How much to tint which lines, over how many cells, in what colours.
@@ -946,6 +960,15 @@ impl State {
             warnings: Vec::new(),
             noticed: None,
             counted: None,
+            focus: Focus::Unknown,
+        }
+    }
+
+    /// Notes that the images `sent` went to the terminal, which tmux
+    /// may drop while the focus is gone.
+    fn sent(&mut self, sent: Vec<ImageId>) {
+        if let Focus::Out(away) = &mut self.focus {
+            away.extend(sent);
         }
     }
 
@@ -1340,7 +1363,7 @@ fn show(
     let mut shown = layout.frame(state, now);
     writer.at(now.saturating_duration_since(source.started));
     shown.draw(layout.view.rows(), writer, terminal)?;
-    writer.check(terminal)?;
+    state.sent(writer.check(terminal)?);
     terminal.flush()?;
     let mut decoder = keys::Decoder::default();
     loop {
@@ -1364,13 +1387,23 @@ fn show(
         let mut written = false;
         for key in keys {
             match key {
-                // tmux passed no images while the pane was not shown.
+                // tmux passed no images while the pane was not shown:
+                // those sent since the focus went, or any when it is not
+                // known when that was.
                 Key::FocusIn if writer.through_tmux() => {
-                    writer.lost();
+                    match std::mem::replace(&mut state.focus, Focus::In) {
+                        Focus::Unknown => writer.lost(),
+                        Focus::Out(sent) if !sent.is_empty() => writer.lost_some(&sent),
+                        Focus::Out(_) | Focus::In => continue,
+                    }
                     again = true;
                     continue;
                 }
-                Key::FocusIn | Key::FocusOut | Key::Checked(_, true) => continue,
+                Key::FocusOut => {
+                    state.focus = Focus::Out(Vec::new());
+                    continue;
+                }
+                Key::FocusIn | Key::Checked(_, true) => continue,
                 // tmux dropped it: its placeholders are on the screen.
                 Key::Checked(id, false) => {
                     writer.send_again(id, terminal)?;
@@ -1391,7 +1424,7 @@ fn show(
                     layout
                         .frame(state, now)
                         .draw(layout.view.rows(), writer, terminal)?;
-                    writer.check(terminal)?;
+                    state.sent(writer.check(terminal)?);
                     terminal.flush()?;
                     return Ok(Outcome::Reload);
                 }
@@ -1447,7 +1480,7 @@ fn show(
             written = true;
         }
         if written {
-            writer.check(terminal)?;
+            state.sent(writer.check(terminal)?);
             terminal.flush()?;
         }
     }

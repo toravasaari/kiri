@@ -255,6 +255,15 @@ impl Encoder {
         self.again.clear();
     }
 
+    /// Tells the encoder that the terminal may have lost the images
+    /// `ids`, as [`Encoder::lost`] does for all of them.
+    pub fn lost_some(&mut self, ids: &[ImageId]) {
+        for held in self.held.values_mut().filter(|held| ids.contains(&held.id)) {
+            held.sent = false;
+        }
+        self.again.retain(|id, _| !ids.contains(id));
+    }
+
     /// Deletes from the terminal every image it holds, as when the pager
     /// quits.
     pub fn delete_all(&mut self, out: &mut impl Write) -> io::Result<()> {

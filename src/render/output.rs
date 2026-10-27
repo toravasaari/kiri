@@ -243,15 +243,22 @@ impl Writer<'_> {
         self.encoder.lost();
     }
 
+    /// Sends the images `ids` again as their rows are next written, as
+    /// the terminal may have lost them.
+    pub fn lost_some(&mut self, ids: &[graphics::ImageId]) {
+        self.encoder.lost_some(ids);
+    }
+
     /// Asks kitty whether it holds the images sent through tmux since the
     /// last check, as tmux drops output for a client that cannot keep
-    /// up; it answers each with [`graphics::checked`]'s answer. Nothing
-    /// without tmux.
-    pub fn check(&mut self, out: &mut impl Write) -> io::Result<()> {
-        for (id, cells) in self.encoder.take_sent() {
+    /// up; it answers each with [`graphics::checked`]'s answer. Returns
+    /// the images asked about; none without tmux.
+    pub fn check(&mut self, out: &mut impl Write) -> io::Result<Vec<graphics::ImageId>> {
+        let sent = self.encoder.take_sent();
+        for &(id, cells) in &sent {
             graphics::check(out, id, cells)?;
         }
-        Ok(())
+        Ok(sent.into_iter().map(|(id, _)| id).collect())
     }
 
     /// Sends image `id` again, as kitty answered it does not hold it.

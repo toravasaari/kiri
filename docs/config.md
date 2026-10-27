@@ -275,7 +275,8 @@ text sizing, and an image that loads in the background has no moving
 band below it; the status line still says `[rendering: 1/3]`.
 
 tmux passes images only while kiri's pane is shown, so the pager sends
-them again when the pane is shown again. tmux tells it so only with
+the images it drew meanwhile again when the pane is shown again. tmux
+tells it so only with
 `set -g focus-events on` in tmux.conf, which kiri does not change, as
 it is an option for every pane; without it, Ctrl+L sends them again.
 tmux also drops output when kitty cannot keep up with it, so after

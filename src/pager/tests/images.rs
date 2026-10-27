@@ -441,3 +441,44 @@ fn kittys_answers_leave_the_help_open() {
     assert!(frames.last().unwrap().contains(" Keys "), "{out:?}");
     assert_eq!(transmits(&out), 2, "{out:?}");
 }
+
+#[test]
+fn the_pane_coming_back_sends_nothing_when_nothing_was_sent_meanwhile() {
+    // kitty kept what it had before the pane was hidden.
+    let (out, frames) = pictured_with(true, &[b"\x1b[O", b"", b"\x1b[I"]);
+    assert_eq!(frames.len(), 1, "{out:?}");
+    assert_eq!(transmits(&out), 1, "{out:?}");
+}
+
+#[test]
+fn the_pane_coming_back_sends_again_what_was_sent_while_it_was_away() {
+    let red = [255, 0, 0, 255];
+    let document = crate::parse::parse("![a](square.png)\n\n![b](other.png)\n");
+    let (_, mut inputs) = pictured(red);
+    inputs.caps.tmux_passthrough = true;
+    inputs
+        .images
+        .insert("other.png", Ok(square([0, 255, 0, 255])));
+    // `r` while away shows `square.png` anew, in blue.
+    let mut repaint = Repaint {
+        document: document.clone(),
+        rgba: [0, 0, 255, 255],
+    };
+    let reload: &mut dyn Reload = &mut repaint;
+    let mut terminal = Fake::new(60, 6, &[b"\x1b[O", b"r", b"\x1b[I"]);
+    run_document(
+        &document,
+        &mut inputs,
+        Options {
+            reload: Some(reload),
+            ..Options::new(SearchCase::Smart)
+        },
+        &mut terminal,
+    );
+    let out = String::from_utf8(terminal.out).unwrap();
+    let sent = sent_ids(&out);
+    // Red and green, blue while away, and blue again on coming back.
+    assert_eq!(sent.len(), 4, "{out:?}");
+    assert_eq!(sent[2], sent[3], "{out:?}");
+    assert!(!sent[..2].contains(&sent[2]), "{out:?}");
+}
