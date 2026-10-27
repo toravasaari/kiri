@@ -284,7 +284,7 @@ impl Fraction {
         };
         let cost = |index: usize, gap: f64| match index {
             0 if !graphemes[0].space => START * gap * gap,
-            _ if index == graphemes.len() => END * gap * gap,
+            _ if index == graphemes.len() && !graphemes[index - 1].space => END * gap * gap,
             _ if inside_word(index) && gap > 0.0 => INSIDE_WORD + gap * gap,
             _ => gap * gap,
         };
@@ -375,8 +375,9 @@ const NARROWER: f64 = 0.04;
 /// one between words.
 const START: f64 = 100.0;
 
-/// What a gap after the text costs: it is most often at the end of the
-/// line, where it does not show.
+/// What a gap after text that ends in a word costs: it is most often at
+/// the end of the line, where it does not show. After a space, it is a gap
+/// between words like any other.
 const END: f64 = 0.25;
 
 /// What a gap inside a word costs: more than any gaps between words.
@@ -524,6 +525,17 @@ mod tests {
                 ("Level", 5, HorizontalAlign::Left),
                 (" three", 6, HorizontalAlign::Left)
             ]
+        );
+    }
+
+    #[test]
+    fn text_between_spaces_leaves_even_gaps_on_both_sides() {
+        // Inline code in a heading has a no-break space at each end, and its
+        // background shows the gaps on both sides.
+        let seven_eighths = Fraction::new(7, 8).unwrap();
+        assert_eq!(
+            aligned(seven_eighths, "\u{a0}code\u{a0}"),
+            [("\u{a0}code\u{a0}", 6, HorizontalAlign::Centre)]
         );
     }
 
