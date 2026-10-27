@@ -34,6 +34,19 @@ pub struct Group<'a> {
     pub text: &'a str,
     /// The cells of the text's scale the group takes, the protocol's `w`.
     pub cells: u8,
+    /// Where the text sits among its cells when it is drawn narrower than
+    /// they are.
+    pub align: HorizontalAlign,
+}
+
+/// Where text drawn at a fraction of its scale sits among the cells of its
+/// group.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum HorizontalAlign {
+    #[default]
+    Left,
+    Right,
+    Centre,
 }
 
 /// Where text drawn at a fraction of its scale sits among the rows the
@@ -191,24 +204,66 @@ impl Fraction {
     /// cell each. A group ends between graphemes, early where a wide
     /// character would cross its end, and a shorter group takes the cells
     /// its text needs, rounded up.
+    ///
+    /// kitty draws the text a little narrower than its cells, so each
+    /// group leaves a gap, and the gaps go between words: a group that
+    /// ends inside a word sits at the right of its cells, so that it meets
+    /// the next group without a gap. A group ends after its last space
+    /// instead where the word would also cross the next group's end, and
+    /// a group inside a word at both ends with no space is centred.
     pub fn groups(self, text: &str) -> Vec<Group<'_>> {
         let (numerator, denominator) = (usize::from(self.numerator), usize::from(self.denominator));
-        let mut groups = Vec::new();
-        let group = |text, width: usize| Group {
-            text,
-            cells: u8::try_from((width * numerator).div_ceil(denominator)).unwrap_or(u8::MAX),
+        let graphemes: Vec<_> = (text.grapheme_indices(true))
+            .map(|(at, grapheme)| {
+                (
+                    at,
+                    grapheme.width(),
+                    grapheme.starts_with(char::is_whitespace),
+                )
+            })
+            .collect();
+        let offset = |index: usize| graphemes.get(index).map_or(text.len(), |&(at, ..)| at);
+        // Whether the graphemes on both sides of `index` are not spaces.
+        let inside_word = |index: usize| {
+            index > 0 && index < graphemes.len() && !graphemes[index - 1].2 && !graphemes[index].2
         };
-        let (mut start, mut width) = (0, 0);
-        for (at, grapheme) in text.grapheme_indices(true) {
-            let grapheme_width = grapheme.width();
-            if width + grapheme_width > denominator && width > 0 {
-                groups.push(group(&text[start..at], width));
-                (start, width) = (at, 0);
+        let mut groups = Vec::new();
+        let mut start = 0;
+        while start < graphemes.len() {
+            let (mut end, mut width) = (start, 0);
+            while let Some(&(_, grapheme_width, _)) = graphemes.get(end) {
+                if width + grapheme_width > denominator && width > 0 {
+                    break;
+                }
+                width += grapheme_width;
+                end += 1;
             }
-            width += grapheme_width;
-        }
-        if start < text.len() {
-            groups.push(group(&text[start..], width));
+            // The cells the rest of the word after `end` takes.
+            let rest: usize = (graphemes[end..].iter())
+                .take_while(|&&(_, _, space)| !space)
+                .map(|&(_, width, _)| width)
+                .sum();
+            if inside_word(end)
+                && (inside_word(start) || rest > denominator)
+                && let Some(space) = (start..end).rev().find(|&index| graphemes[index].2)
+            {
+                end = space + 1;
+                width = graphemes[start..end]
+                    .iter()
+                    .map(|&(_, width, _)| width)
+                    .sum();
+            }
+            let align = match (inside_word(start), inside_word(end)) {
+                (_, false) => HorizontalAlign::Left,
+                (false, true) => HorizontalAlign::Right,
+                (true, true) => HorizontalAlign::Centre,
+            };
+            groups.push(Group {
+                text: &text[offset(start)..offset(end)],
+                cells: u8::try_from((width * numerator).div_ceil(denominator)).unwrap_or(u8::MAX),
+                align,
+            });
+            start = end;
         }
         groups
     }
@@ -294,6 +349,66 @@ mod tests {
         assert_eq!(groups(half(), "ae\u{301}b"), [("ae\u{301}", 1), ("b", 1)]);
         // A flag is two regional indicators, two cells together.
         assert_eq!(groups(half(), "🇫🇮"), [("🇫🇮", 1)]);
+    }
+
+    fn aligned(fraction: Fraction, text: &str) -> Vec<(&str, u8, HorizontalAlign)> {
+        (fraction.groups(text).into_iter())
+            .map(|group| (group.text, group.cells, group.align))
+            .collect()
+    }
+
+    // kitty draws text at a fraction a little narrower than its cells, and
+    // the rest of the cells shows as a gap. Gaps go between words.
+    #[test]
+    fn a_group_that_ends_inside_a_word_sits_at_the_right_of_its_cells() {
+        use HorizontalAlign::{Left, Right};
+        let three_quarters = Fraction::new(3, 4).unwrap();
+        assert_eq!(
+            aligned(three_quarters, "ab cdef"),
+            [("ab c", 3, Right), ("def", 3, Left)]
+        );
+        // A group that ends at a space, or at the end of the text, keeps
+        // its gap at its end.
+        assert_eq!(
+            aligned(three_quarters, "abc defg"),
+            [("abc ", 3, Left), ("defg", 3, Left)]
+        );
+    }
+
+    #[test]
+    fn a_group_inside_a_word_at_both_ends_ends_after_its_last_space() {
+        use HorizontalAlign::{Left, Right};
+        let three_quarters = Fraction::new(3, 4).unwrap();
+        assert_eq!(
+            aligned(three_quarters, "abcde fghij"),
+            [
+                ("abcd", 3, Right),
+                ("e ", 2, Left),
+                ("fghi", 3, Right),
+                ("j", 1, Left)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_word_longer_than_a_group_starts_one() {
+        use HorizontalAlign::{Left, Right};
+        let three_quarters = Fraction::new(3, 4).unwrap();
+        // Two groups that meet inside a word leave no gap between them.
+        assert_eq!(
+            aligned(three_quarters, "ab cdefgh"),
+            [("ab ", 3, Left), ("cdef", 3, Right), ("gh", 2, Left)]
+        );
+    }
+
+    #[test]
+    fn a_group_inside_a_word_with_no_space_is_centred() {
+        use HorizontalAlign::{Centre, Left, Right};
+        let three_quarters = Fraction::new(3, 4).unwrap();
+        assert_eq!(
+            aligned(three_quarters, "abcdefghij"),
+            [("abcd", 3, Right), ("efgh", 3, Centre), ("ij", 2, Left)]
+        );
     }
 
     #[test]

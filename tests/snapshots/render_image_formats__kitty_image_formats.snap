@@ -2,7 +2,7 @@
 source: tests/render_image_formats.rs
 expression: "readable(&render_fixture(\"images-formats.md\",\n&with_images(&Capabilities::kitty(WIDTH),\nfixture_images(\"images-formats.md\"))))"
 ---
-␛[0;1;34m␛]66;s=3:n=5:d=6:v=1:w=5;Image ␛\␛]66;s=3:n=5:d=6:v=1:w=5;format␛\␛]66;s=3:n=5:d=6:v=1:w=1;s␛\␛[0m
+␛[0;1;34m␛]66;s=3:n=5:d=6:v=1:w=5;Image ␛\␛]66;s=3:n=5:d=6:v=1:h=1:w=5;format␛\␛]66;s=3:n=5:d=6:v=1:w=1;s␛\␛[0m
 
 
 

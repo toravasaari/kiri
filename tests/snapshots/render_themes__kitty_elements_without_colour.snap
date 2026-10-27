@@ -2,7 +2,7 @@
 source: tests/render_themes.rs
 expression: "visible(&render_for(\"elements.md\", caps))"
 ---
-␛[0;1m␛]66;s=3:n=5:d=6:v=1:w=5;Every ␛\␛]66;s=3:n=5:d=6:v=1:w=5;elemen␛\␛]66;s=3:n=5:d=6:v=1:w=1;t␛\␛[0m
+␛[0;1m␛]66;s=3:n=5:d=6:v=1:w=5;Every ␛\␛]66;s=3:n=5:d=6:v=1:h=1:w=5;elemen␛\␛]66;s=3:n=5:d=6:v=1:w=1;t␛\␛[0m
 
 
 
@@ -27,7 +27,7 @@ expression: "visible(&render_for(\"elements.md\", caps))"
   ☑ Done task
   ☐ Open task
 
-␛[0;1m␛]66;s=2:n=7:d=8:v=1:w=7;Quotes a␛\␛]66;s=2:n=7:d=8:v=1:w=7;nd break␛\␛]66;s=2:n=7:d=8:v=1:w=1;s␛\␛[0m
+␛[0;1m␛]66;s=2:n=7:d=8:v=1:h=1:w=7;Quotes a␛\␛]66;s=2:n=7:d=8:v=1:w=3;nd ␛\␛]66;s=2:n=7:d=8:v=1:w=6;breaks␛\␛[0m
 
 
   │ A quote with ␛[0;1mbold␛[0m text.
@@ -46,7 +46,7 @@ expression: "visible(&render_for(\"elements.md\", caps))"
         println!("tab-indented");
     }
 
-␛[0;1m␛]66;s=2:n=3:d=4:v=1:w=3;Tabl␛\␛]66;s=2:n=3:d=4:v=1:w=2;es␛\␛[0m
+␛[0;1m␛]66;s=2:n=3:d=4:v=1:h=1:w=3;Tabl␛\␛]66;s=2:n=3:d=4:v=1:w=2;es␛\␛[0m
 
 
   ╭──────────┬────────┬──────────────────────╮
@@ -58,7 +58,7 @@ expression: "visible(&render_for(\"elements.md\", caps))"
   │ Tables   │ `new`  │                right │
   ╰──────────┴────────┴──────────────────────╯
 
-␛[0;1m␛]66;s=2:n=5:d=8:v=1:w=5;Images a␛\␛]66;s=2:n=5:d=8:v=1:w=5;nd HTML␛\␛[0m
+␛[0;1m␛]66;s=2:n=5:d=8:v=1:h=1:w=5;Images a␛\␛]66;s=2:n=5:d=8:v=1:w=5;nd HTML␛\␛[0m
 
 
   ␛[0;2;3m[image: A diagram]␛[0m

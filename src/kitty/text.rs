@@ -4,7 +4,7 @@
 
 use std::io::{self, Write};
 
-use crate::size::{TextSize, VerticalAlign};
+use crate::size::{HorizontalAlign, TextSize, VerticalAlign};
 
 /// The protocol's limit for the text in one escape sequence.
 const MAX_PAYLOAD: usize = 4096;
@@ -29,7 +29,17 @@ pub fn write_sized(out: &mut impl Write, size: TextSize, text: &str) -> io::Resu
         // cells is a span of nothing else. It shows nothing, and `w=0`
         // would ask the terminal to measure it.
         for group in fraction.groups(text).iter().filter(|group| group.cells > 0) {
-            write!(out, "\x1b]66;{keys}:w={};{}\x1b\\", group.cells, group.text)?;
+            // Left is the protocol's default.
+            let align = match group.align {
+                HorizontalAlign::Left => "",
+                HorizontalAlign::Right => ":h=1",
+                HorizontalAlign::Centre => ":h=2",
+            };
+            write!(
+                out,
+                "\x1b]66;{keys}{align}:w={};{}\x1b\\",
+                group.cells, group.text
+            )?;
         }
         return Ok(());
     }
@@ -90,12 +100,18 @@ mod tests {
         let size = TextSize::NORMAL.with_fraction(half, VerticalAlign::Top);
         assert_eq!(
             written(size, "abc"),
-            ["\x1b]66;s=1:n=1:d=2:w=1;ab", "\x1b]66;s=1:n=1:d=2:w=1;c"]
+            [
+                "\x1b]66;s=1:n=1:d=2:h=1:w=1;ab",
+                "\x1b]66;s=1:n=1:d=2:w=1;c"
+            ]
         );
         // A wide character that would cross a group's end starts the next.
         assert_eq!(
             written(size, "a日"),
-            ["\x1b]66;s=1:n=1:d=2:w=1;a", "\x1b]66;s=1:n=1:d=2:w=1;日"]
+            [
+                "\x1b]66;s=1:n=1:d=2:h=1:w=1;a",
+                "\x1b]66;s=1:n=1:d=2:w=1;日"
+            ]
         );
         let seven_eighths = Fraction::new(7, 8).unwrap();
         let size = TextSize::new(2)
@@ -104,8 +120,24 @@ mod tests {
         assert_eq!(
             written(size, "abcdefghij"),
             [
-                "\x1b]66;s=2:n=7:d=8:v=1:w=7;abcdefgh",
+                "\x1b]66;s=2:n=7:d=8:v=1:h=1:w=7;abcdefgh",
                 "\x1b]66;s=2:n=7:d=8:v=1:w=2;ij"
+            ]
+        );
+    }
+
+    #[test]
+    fn writes_where_a_group_sits_in_its_cells() {
+        let three_quarters = Fraction::new(3, 4).unwrap();
+        let size = TextSize::NORMAL.with_fraction(three_quarters, VerticalAlign::Top);
+        // Left is the protocol's default.
+        assert_eq!(
+            written(size, "ab cdefghijkl"),
+            [
+                "\x1b]66;s=1:n=3:d=4:w=3;ab ",
+                "\x1b]66;s=1:n=3:d=4:h=1:w=3;cdef",
+                "\x1b]66;s=1:n=3:d=4:h=2:w=3;ghij",
+                "\x1b]66;s=1:n=3:d=4:w=2;kl"
             ]
         );
     }
