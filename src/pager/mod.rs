@@ -806,6 +806,9 @@ struct State {
     counted: Option<Instant>,
     /// Where the focus is, as the terminal last told.
     focus: Focus,
+    /// The keys read, with what a read cut off waiting for the rest,
+    /// also when a layout ends between the two reads.
+    decoder: keys::Decoder,
 }
 
 /// Where the focus is, as the terminal tells with focus reporting: under
@@ -961,6 +964,7 @@ impl State {
             noticed: None,
             counted: None,
             focus: Focus::Unknown,
+            decoder: keys::Decoder::default(),
         }
     }
 
@@ -1365,7 +1369,6 @@ fn show(
     shown.draw(layout.view.rows(), writer, terminal)?;
     state.sent(writer.check(terminal)?);
     terminal.flush()?;
-    let mut decoder = keys::Decoder::default();
     loop {
         let input = terminal.read(if layout.fades(state, now) || writer.has_bands() {
             FRAME
@@ -1374,9 +1377,9 @@ fn show(
         })?;
         // Nothing more came for a key the last read cut off.
         let keys = if input.is_empty() {
-            decoder.flush()
+            state.decoder.flush()
         } else {
-            decoder.keys(&input)
+            state.decoder.keys(&input)
         };
         now = terminal.now();
         state.tick(now);

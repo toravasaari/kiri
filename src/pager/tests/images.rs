@@ -482,3 +482,28 @@ fn the_pane_coming_back_sends_again_what_was_sent_while_it_was_away() {
     assert_eq!(sent[2], sent[3], "{out:?}");
     assert!(!sent[..2].contains(&sent[2]), "{out:?}");
 }
+
+#[test]
+fn an_answer_cut_by_a_reload_is_not_taken_for_keys() {
+    // The rest of the answer has `d`, `e`, `f` and `g` in it.
+    let answer = b"\x1b_Gi=5,p=1263096393;ENOENT:Put command refers to non-existent image\x1b\\";
+    let (cut, rest) = answer.split_at(30);
+    let first = [&b"r"[..], cut].concat();
+    let document = numbers(30);
+    // As many as the `r`s it has would ask for.
+    let mut then = Then::new((0..3).map(|_| Reloaded::Document(document.clone())));
+    let mut inputs = Inputs::new(Capabilities::ansi(80));
+    let mut terminal = Fake::new(60, 6, &[&first, rest]);
+    run_document(
+        &document,
+        &mut inputs,
+        Options {
+            reload: Some(&mut then),
+            ..Options::new(SearchCase::Smart)
+        },
+        &mut terminal,
+    );
+    let frames = terminal.frames();
+    assert_eq!(top_row(frames.last().unwrap()), "Line 1", "{frames:#?}");
+    assert_eq!(then.asked, 1);
+}
