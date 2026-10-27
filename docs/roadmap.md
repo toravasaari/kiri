@@ -1034,6 +1034,10 @@ Each time a part of the roadmap is finished, the list is
 sorted: an item moves to a part or to Bugs, or is dropped, and done items
 go.
 
+- How task list boxes look, as a setting. kiri draws ☐ and ☑, but
+  Ghostty's built-in font has only ☐, so ☑ comes from another font,
+  larger than ☐. ☐ and ☒ are the same size in Ghostty and kitty, but some
+  fonts lack ☒.
 - A setting that turns links on or off whatever the terminal seems to
   support, such as `KIRI_HYPERLINKS`, for terminals and multiplexers
   where kiri guesses wrong. Inside tmux only tmux's answer counts (5.2.4).
