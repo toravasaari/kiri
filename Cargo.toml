@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Markdown reader for the kitty terminal"
 readme = "README.md"
+license = "MIT"
 publish = false
 
 [workspace]

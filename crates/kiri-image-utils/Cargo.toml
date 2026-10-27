@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Image code for kiri, a Markdown reader for the kitty terminal, that debug builds optimise"
 readme = "README.md"
+license = "MIT"
 publish = false
 
 [dependencies]

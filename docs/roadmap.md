@@ -60,7 +60,9 @@ Refactoring and small fixes that are not bugs go there too.
   compiled in, among them merman's ELK layout (EPL-2.0), the KaTeX font
   data of its math (OFL-1.1), and the CSS crates it brings, cssparser,
   cssparser-macros, selectors and dtoa-short (MPL-2.0), whose notice
-  also tells where their source is.
+  also tells where their source is. `make release` generates the notices
+  with `cargo-about`; the syntax definitions and themes syntect bundles
+  need a check of their own, as their licences are not in Cargo metadata.
 
 ### 3.4 Render check (done)
 
@@ -983,7 +985,9 @@ A part that needs one names it, such as "needs G1.3".
 #### G4.2 Ready for CI
 
 - `rust-version` in `Cargo.toml`, a `deny.toml` for licences, and a pinned
-  toolchain, before CI (3.2).
+  toolchain, before CI (3.2). `make check` runs the licence check
+  (`cargo-deny`), which fails when a dependency brings a licence kiri's MIT
+  licence cannot ship with, such as the GPL.
 
 ### G5 Settings
 
