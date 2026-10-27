@@ -280,4 +280,4 @@ with the message above it for a few seconds.
 
 ## License
 
-Not decided yet.
+kiri is licensed under the MIT license, see [LICENSE](LICENSE).
