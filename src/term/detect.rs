@@ -198,12 +198,7 @@ fn detect(
                 (Some(answers), Some(pane)) => {
                     through_tmux(caps, &answers::interpret(answers), pane)
                 }
-                // tmux tells about links whether the terminal answers or not.
-                (None, Some(pane)) => Capabilities {
-                    hyperlinks: caps.hyperlinks || passes_links(pane),
-                    ..caps
-                },
-                (None, None) => caps,
+                (None, _) => caps,
             }
         }
         Mode::Plain => Capabilities::plain(width),
@@ -212,11 +207,10 @@ fn detect(
         Mode::Kitty => {
             let caps = with_window(Capabilities::kitty(width), window);
             // tmux needs features of its own for links and underline
-            // styles; it tells about links only when it is asked.
-            let asked = passthrough == Passthrough::Detect;
-            match &pane {
-                Some(pane) => Capabilities {
-                    hyperlinks: asked && (passes_links(pane) || hyperlinks_by_environment(env)),
+            // styles; links come below when tmux is asked.
+            match pane {
+                Some(_) => Capabilities {
+                    hyperlinks: false,
                     styled_underlines: false,
                     ..caps
                 },
@@ -224,11 +218,17 @@ fn detect(
             }
         }
     };
-    if pane.is_some() {
+    if let Some(pane) = &pane {
         // tmux cannot pass text sizing.
         caps.text_sizing = false;
         caps.tmux_passthrough = true;
         caps.image_run = Some(tmux::run_id());
+        // Once asked, tmux alone says whether links pass, whether or not
+        // the terminal answered: a variable inherited from outside tmux
+        // does not tell.
+        if passthrough == Passthrough::Detect {
+            caps.hyperlinks = passes_links(pane);
+        }
     }
     if no_color(env) {
         caps.color = false;
@@ -280,7 +280,9 @@ fn with_probe(mut caps: Capabilities, probe: &answers::Probe) -> Capabilities {
 /// graphics answer comes from the terminal outside tmux, the rest from
 /// tmux itself, which `pane` tells about.
 fn through_tmux(caps: Capabilities, probe: &answers::Probe, pane: &Pane) -> Capabilities {
-    let hyperlinks = caps.hyperlinks || passes_links(pane);
+    // Links come from the environment here; `detect` puts tmux's word in
+    // their place when it asked tmux.
+    let hyperlinks = caps.hyperlinks;
     // Only tmux's name says which terminal is outside; without it, the
     // terminal's answer to the graphics query decides.
     let client = pane.client.as_deref();
@@ -866,16 +868,45 @@ mod tests {
     }
 
     #[test]
-    fn inside_tmux_the_environment_still_tells_of_links() {
+    fn inside_tmux_only_tmux_tells_of_links() {
+        // A variable inherited from outside tmux says nothing about whether
+        // tmux passes links.
         let env = Environment {
             vte_version: Some("7600".into()),
+            term_program: Some("WezTerm".into()),
             ..in_tmux()
         };
         for mode in [Mode::Auto, Mode::Kitty] {
-            let pane = kitty_with("bpaste,focus");
-            let answers = (BEHIND_TMUX, pane.as_str());
-            let (_, _, found) = through_tmux(mode, &env, Passthrough::Detect, true, answers);
-            assert!(found.caps.hyperlinks, "{mode:?}");
+            for (pane, links) in [
+                (kitty_with("bpaste,focus"), false),
+                (kitty_with("bpaste,hyperlinks,focus"), true),
+                // tmux did not answer.
+                (String::new(), false),
+            ] {
+                let answers = (BEHIND_TMUX, pane.as_str());
+                let (_, _, found) = through_tmux(mode, &env, Passthrough::Detect, true, answers);
+                assert_eq!(found.caps.hyperlinks, links, "{mode:?} {pane:?}");
+            }
+        }
+        // Also when the probe gets no answer.
+        for (features, links) in [("bpaste,focus", false), ("hyperlinks", true)] {
+            let pane = kitty_with(features);
+            let run = |args: &[&str]| {
+                let display = args[0] == "display-message";
+                Some(if display { pane.as_str() } else { "" }.to_owned())
+            };
+            let no_answer = |_, _| None;
+            let found = detect(
+                Mode::Auto,
+                None,
+                &env,
+                Passthrough::Detect,
+                None,
+                true,
+                no_answer,
+                &run,
+            );
+            assert_eq!(found.caps.hyperlinks, links, "no answer, {features:?}");
         }
     }
 
