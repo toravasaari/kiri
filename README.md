@@ -16,8 +16,9 @@ Existing terminal Markdown viewers limit themselves to plain ANSI text, so
 every heading is the same size as body text and anything visual is left out.
 kitty can do more: its text sizing protocol draws text at several sizes, and
 its graphics protocol displays images that scroll with the text. kiri is built
-around those features. Other terminals get ANSI colours instead, and output
-that is not a terminal gets plain text.
+around those features. Ghostty speaks kitty's graphics protocol too, so
+images show there and headings are drawn as images. Other terminals get
+ANSI colours instead, and output that is not a terminal gets plain text.
 
 ## Usage
 
