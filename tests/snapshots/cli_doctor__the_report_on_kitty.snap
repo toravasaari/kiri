@@ -42,6 +42,7 @@ kiri [version]: terminal features and settings.
 | Diagram time limit | 20 s | default |
 | Diagram panels | on | default |
 | Render errors | both | default |
+| Mouse | on | default |
 | Largest image | 10 MB | default |
 | Width | 120 cells | terminal |
 

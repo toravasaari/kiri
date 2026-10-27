@@ -32,6 +32,13 @@ the next theme:
 for theme in examples/themes/*.toml; do kiri -p --theme "$theme" examples; done
 ```
 
+In the pager, each notch of the mouse wheel scrolls three lines, inside
+tmux too, large headings in and out whole, and a click does nothing. To
+select text with the mouse in kitty, hold Shift as you drag. With
+`kiri -p --no-mouse examples` a drag selects text without Shift, and the
+wheel is left to the terminal: kitty turns it into arrow keys, and inside
+tmux with `mouse on` it does not scroll the pager.
+
 On paper, the document lies on a white or dark grey page as wide as the
 window, and everything but the code blocks, the alerts and the images is
 in greys: no blue headings or links, no magenta inline code.
