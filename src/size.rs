@@ -411,6 +411,55 @@ mod tests {
         );
     }
 
+    /// Every text of up to `length` graphemes from `alphabet`.
+    fn texts(alphabet: &[&str], length: usize) -> Vec<String> {
+        let mut texts = vec![String::new()];
+        let mut last = vec![String::new()];
+        for _ in 0..length {
+            last = (last.iter())
+                .flat_map(|text| {
+                    alphabet
+                        .iter()
+                        .map(move |grapheme| format!("{text}{grapheme}"))
+                })
+                .collect();
+            texts.extend(last.iter().cloned());
+        }
+        texts
+    }
+
+    #[test]
+    fn groups_hold_the_text_in_order_in_at_most_seven_cells() {
+        let fractions = [(1, 2), (2, 3), (3, 4), (5, 6), (5, 8), (7, 8), (7, 12)];
+        let texts = [
+            texts(&["a", " "], 9),
+            texts(&["a", " ", "日", "\u{200b}"], 5),
+        ]
+        .concat();
+        for (numerator, denominator) in fractions {
+            let fraction = Fraction::new(numerator, denominator).unwrap();
+            for text in &texts {
+                let groups = fraction.groups(text);
+                let joined: String = groups.iter().map(|group| group.text).collect();
+                assert_eq!(&joined, text, "{fraction:?}");
+                for group in &groups {
+                    let cells = (group.text.width() * usize::from(numerator))
+                        .div_ceil(usize::from(denominator));
+                    assert!(!group.text.is_empty(), "{fraction:?} {text:?}");
+                    assert_eq!(usize::from(group.cells), cells, "{fraction:?} {text:?}");
+                    assert!(group.cells <= 7, "{fraction:?} {text:?}");
+                }
+                // The wrapper adds text a grapheme at a time.
+                let size = TextSize::NORMAL.with_fraction(fraction, VerticalAlign::Top);
+                let mut widths = (text.grapheme_indices(true).map(|(at, _)| at))
+                    .chain([text.len()])
+                    .map(|at| size.width(&text[..at]));
+                let mut last = 0;
+                assert!(widths.all(|width| std::mem::replace(&mut last, width) <= width));
+            }
+        }
+    }
+
     #[test]
     fn text_is_as_wide_as_its_groups_at_its_scale() {
         assert_eq!(TextSize::NORMAL.width("abc"), 3);
