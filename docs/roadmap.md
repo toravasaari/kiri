@@ -700,6 +700,9 @@ A menu in the pager, from which its keys and settings can be found.
   files, so it stays the same whatever is shown and the keys of one kind
   can be looked up under their own heading. Today it lists the keys for
   several files only when several are shown.
+- Note: with several files the help panel is 23 rows high, so in a
+  24-row window inside tmux, whose status line takes a row, its last
+  row and bottom border are cut off.
 
 #### 4.14.2 Themes on the fly
 
@@ -754,7 +757,7 @@ so large headings come with 5.3.
 - The probe asks kitty through tmux, so `--doctor` shows what kitty can
   do. Today tmux shows the probe's graphics query as the pane's title.
 
-#### 5.2.2 Images in tmux
+#### 5.2.2 Images in tmux (done)
 
 - Images, diagrams and formulas in tmux, in print mode and in the pager.
 - tmux passes images on only while kiri's pane is visible, so the pager
@@ -762,16 +765,26 @@ so large headings come with 5.3.
 - Every tmux pane in a kitty window shares kitty's image store, so each
   kiri run uses image ids of its own there; one quitting then leaves the
   others' images alone.
+- Done: the pager learns that its pane is shown again from tmux's focus
+  events, which need `set -g focus-events on` in tmux.conf (`--doctor`
+  shows it), and sends again the images it drew meanwhile. Ctrl+L
+  redraws the screen and sends all its images again. After printing,
+  and after each pager frame, kiri asks kitty whether it holds the
+  images and sends again those tmux dropped (B7).
 
-#### 5.2.3 The mouse
+#### 5.2.3 The mouse (done)
 
 - The pager handles the mouse itself, so the wheel scrolls it inside tmux
-  too. Today it asks for no mouse events: kitty turns the wheel into arrow
-  keys in the pager's screen, but tmux with `mouse on` keeps the wheel for
-  itself and goes into its copy mode.
+  too. Without it, kitty turns the wheel into arrow keys in the pager's
+  screen, but tmux with `mouse on` keeps the wheel from the pager: tmux
+  3.6 drops it, and older tmux may go into its copy mode.
 - Capturing the mouse stops plain text selection in kitty, so it is a
   lasting choice, in the configuration file or on the command line, never
   one that changes by itself.
+- Done: the wheel scrolls three lines a notch, and clicks do nothing.
+  `--mouse` and `--no-mouse`, `KIRI_MOUSE` and `mouse` in the
+  configuration file choose; on unless set. Shift and a drag still
+  select text in kitty.
 
 ### 5.3 Headings without text sizing
 
@@ -1077,7 +1090,10 @@ columns: a gap inside "three", where one group of packed cells ends and
 the next begins. B4 has gaps like this around wide characters; here the
 word is plain ASCII. Not yet seen in a real kitty window.
 
-#### B7 Images lost inside tmux in a long document
+#### B7 Images lost inside tmux in a long document (fixed)
+
+Fixed in 5.2.2: kiri asks kitty afterwards whether it holds each image
+and sends again the ones it does not.
 
 `kiri examples/S06a-images.md` in tmux, in the maintainer's kitty
 attached to a jailbee container, left three of the five images under
@@ -1097,6 +1113,15 @@ one cell, and at the smaller levels the difference shows, as in
 "Level  three with code  and". The image is drawn before layout knows
 where the lines break, so the fix has to work for every place a line
 may end.
+
+#### B9 Late answers from kitty typed into the shell
+
+Not seen yet; found in review. After printing through tmux, kiri waits
+half a second for kitty to say whether it holds the images (B7). An
+answer that comes later, as over a slow connection, reaches the shell
+once kiri has exited, and shows there as text such as
+`^[_Gi=…;OK^[\`. Waiting longer when part of the answers came, or
+reading away what arrives just before exiting, would fix it.
 
 ### Upstream bugs
 
