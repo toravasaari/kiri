@@ -78,9 +78,9 @@ images are drawn. `yes, without Unicode placeholders: images show their
 alt text` means the terminal answered the graphics query, but kiri cannot
 tell whether it also has the Unicode placeholders through which kiri
 places every image. No query tells that, so kiri trusts a terminal that
-names itself kitty 0.28 or later, or one that also passed the text sizing
-tests, which only kitty from 0.40 on does. Other terminals with
-placeholders get alt text for now.
+names itself kitty 0.28 or later or Ghostty 1.0 or later, or one that
+also passed the text sizing tests, which only kitty from 0.40 on does.
+Other terminals with placeholders get alt text for now.
 
 ## Settings
 

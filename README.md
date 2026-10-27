@@ -31,10 +31,11 @@ some-command | target/release/kiri
 ```
 
 kiri asks the terminal what it supports and uses the best it gets: kitty's
-large headings and clickable links, plain ANSI colours elsewhere, and plain
-text when the output is a pipe.
+large headings and clickable links, Ghostty's images with headings drawn as
+images, plain ANSI colours elsewhere, and plain text when the output is a
+pipe.
 
-Inside tmux running in kitty, kiri wraps its images in tmux's passthrough,
+Inside tmux running in kitty or Ghostty, kiri wraps its images in tmux's passthrough,
 so images, diagrams and formulas show there too, as `kitten icat` does. It
 turns on the pane's `allow-passthrough` when it is off; `--passthrough none`
 leaves tmux alone. tmux cannot pass kitty's text sizing, so large headings
