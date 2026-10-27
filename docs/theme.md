@@ -40,9 +40,10 @@ theme.
 
 Some colour schemes make `bright-black` the background colour, such as
 Solarized Dark and Ghostty's Bright Lights, and the built-in theme draws
-quote bars, rules, list markers and table borders in it. Without a theme
-of your own, kiri then draws them in a lighter grey that shows, when the
-terminal tells it its colours. A theme of your own keeps the colours it
+quote bars, rules, list markers and table borders in it, and mixes the
+pager's status line from it. When you use no theme file and neither
+`--light` nor `--dark`, kiri then lightens that grey until it shows, when
+the terminal tells it its colours. A theme file keeps the colours it
 gives, even the same `bright-black`.
 
 ## Defaults

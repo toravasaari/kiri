@@ -18,7 +18,7 @@ kiri examples/S02-lists-and-quotes.md
 The bullets, the numbers and the quote bars are grey, also where the
 terminal's colour scheme makes its grey the background colour, such as
 Solarized Dark or Ghostty's Bright Lights: there kiri lightens the grey
-just enough to show, unless you chose a theme of your own.
+just enough to show, unless you use a theme file, `--light` or `--dark`.
 
 ## Lists
 

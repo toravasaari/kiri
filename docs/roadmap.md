@@ -735,8 +735,9 @@ the terminals it is tested in.
   WezTerm is still to do.
 - Found in Ghostty, done: colour schemes that make bright black the
   background colour, such as Bright Lights and Solarized Dark, hid the
-  built-in theme's quote bars, rules, list markers and table borders.
-  With the built-in theme kiri now lightens them until they show.
+  built-in theme's quote bars, rules, list markers and table borders, and
+  the pager's status line. With the built-in theme kiri now lightens that
+  grey until it shows.
 
 #### 5.1.2 Sixel
 

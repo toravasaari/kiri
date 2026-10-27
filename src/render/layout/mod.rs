@@ -183,15 +183,16 @@ fn with_layout<T>(
         render_errors,
     } = inputs;
     // Without colours, the layout leaves out what only shows a colour, such
-    // as heading fills and the padding around inline code.
-    // The built-in theme's greys follow the terminal's palette, which may
-    // hide them.
+    // as heading fills and the padding around inline code. The built-in
+    // theme's greys follow the terminal's palette, which may hide them.
     let adjusted;
     let theme = if !caps.color {
         adjusted = theme.clone().without_colors();
         &adjusted
     } else if theme.built_in {
-        adjusted = (theme.clone()).with_visible_greys(&caps.palette, caps.background);
+        adjusted = theme
+            .clone()
+            .with_visible_greys(&caps.palette, caps.background);
         &adjusted
     } else {
         theme
