@@ -969,13 +969,14 @@ fn the_doctor_says_how_to_let_tmux_pass_links() {
     let report = tmux_terminal(Some(without), Passthrough::Detect, false);
     let row = "| Hyperlinks | no: tmux does not pass them on; \
                `set -as terminal-features ',xterm-kitty:hyperlinks'` \
-               in tmux.conf lets it |";
+               in tmux.conf lets it; then reload tmux.conf, detach and attach again |";
     assert!(report.contains(row), "{report}");
     // Without the terminal's name, the line says where it goes.
     let report = tmux_terminal(Some(pane(Some(false), None)), Passthrough::Detect, false);
     let row = "| Hyperlinks | no: tmux does not pass them on; \
                `set -as terminal-features ',TERM:hyperlinks'` in tmux.conf, \
-               with the `TERM` of the terminal outside tmux, lets it |";
+               with the `TERM` of the terminal outside tmux, lets it; \
+               then reload tmux.conf, detach and attach again |";
     assert!(report.contains(row), "{report}");
     // When tmux passes them, the row is as outside tmux.
     let with = pane(Some(true), Some("xterm-kitty"));

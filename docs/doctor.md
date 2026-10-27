@@ -58,7 +58,11 @@ links on only when its terminal features for the terminal outside include
 `hyperlinks`; when they do not, the Hyperlinks row says so and names the
 line for tmux.conf, such as
 `set -as terminal-features ',xterm-kitty:hyperlinks'`, which kiri also
-leaves to you. With `passthrough = "tmux"` kiri does not ask tmux at all.
+leaves to you. tmux gives a terminal its features when it attaches, so
+after adding the line, reload tmux.conf (`tmux source-file` with its
+path, such as `~/.tmux.conf`), detach and attach again; a new tmux
+server is not needed. With `passthrough = "tmux"` kiri does not ask tmux
+at all.
 
 What each other row means, and where it comes from:
 

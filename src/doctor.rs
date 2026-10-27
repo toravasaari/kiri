@@ -581,16 +581,19 @@ fn tmux(pane: &Pane, how: Passthrough) -> String {
 
 /// The Hyperlinks row when tmux does not pass links on: the line for
 /// tmux.conf that lets it, with the terminal's name when tmux told it.
+/// tmux gives a client its terminal features when it attaches, so the
+/// line counts only for a client that attaches after tmux has read it.
 fn tmux_links(pane: &Pane) -> String {
     let line = |name: &str| code(&format!("set -as terminal-features ',{name}:hyperlinks'"));
+    let then = "then reload tmux.conf, detach and attach again";
     match &pane.term_name {
         Some(name) => format!(
-            "no: tmux does not pass them on; {} in tmux.conf lets it",
+            "no: tmux does not pass them on; {} in tmux.conf lets it; {then}",
             line(name)
         ),
         None => format!(
             "no: tmux does not pass them on; {} in tmux.conf, with the `TERM` of \
-             the terminal outside tmux, lets it",
+             the terminal outside tmux, lets it; {then}",
             line("TERM")
         ),
     }
