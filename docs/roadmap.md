@@ -1118,14 +1118,17 @@ becomes an HTML block of its own, as the wrapper tags in B2 do.
 #### B6 A gap inside a word of a heading at a fractional size (fixed)
 
 Fixed: kitty draws each group a few pixels narrower than its cells, and
-kiri now aligns and cuts the groups so that the leftover falls between
-words. Some spaces are a little wider than others as a result.
+kiri now chooses and aligns the groups of a text together, so that the
+spare pixels fall between words and spread over them. A word longer than
+two groups still has a gap inside, and a heading that starts with a word
+longer than one group starts a few pixels to the right.
 
 A level-three heading at 1 3/4, "Level three with `code` and
 *emphasis*", showed as "Level th ree with" in a render-check at 50
 columns: a gap inside "three", where one group of packed cells ends and
 the next begins. B4 has gaps like this around wide characters; here the
-word is plain ASCII. Not yet seen in a real kitty window.
+word is plain ASCII. The maintainer saw the gaps in a real kitty window
+too.
 
 #### B7 Images lost inside tmux in a long document (fixed)
 
