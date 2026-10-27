@@ -2,7 +2,7 @@
 source: tests/render_images_html.rs
 expression: "readable(&render_fixture(\"images-html.md\",\n&with_images(&Capabilities::kitty(WIDTH), fixture_images(\"images-html.md\"))))"
 ---
-␛[0;1;34m␛]66;s=3:n=5:d=6:v=1:h=1:w=5;HTML i␛\␛]66;s=3:n=5:d=6:v=1:w=5;mages␛\␛[0m
+␛[0;1;34m␛]66;s=3:n=5:d=6:v=1:w=4;HTML␛\␛]66;s=3:n=5:d=6:v=1:w=6; images␛\␛[0m
 
 
 

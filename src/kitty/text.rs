@@ -98,21 +98,8 @@ mod tests {
     fn writes_text_at_a_fraction_in_packed_groups() {
         let half = Fraction::new(1, 2).unwrap();
         let size = TextSize::NORMAL.with_fraction(half, VerticalAlign::Top);
-        assert_eq!(
-            written(size, "abc"),
-            [
-                "\x1b]66;s=1:n=1:d=2:h=1:w=1;ab",
-                "\x1b]66;s=1:n=1:d=2:w=1;c"
-            ]
-        );
-        // A wide character that would cross a group's end starts the next.
-        assert_eq!(
-            written(size, "a日"),
-            [
-                "\x1b]66;s=1:n=1:d=2:h=1:w=1;a",
-                "\x1b]66;s=1:n=1:d=2:w=1;日"
-            ]
-        );
+        assert_eq!(written(size, "abc"), ["\x1b]66;s=1:n=1:d=2:w=2;abc"]);
+        assert_eq!(written(size, "a日"), ["\x1b]66;s=1:n=1:d=2:w=2;a日"]);
         let seven_eighths = Fraction::new(7, 8).unwrap();
         let size = TextSize::new(2)
             .unwrap()
@@ -132,12 +119,14 @@ mod tests {
         let size = TextSize::NORMAL.with_fraction(three_quarters, VerticalAlign::Top);
         // Left is the protocol's default.
         assert_eq!(
-            written(size, "ab cdefghijkl"),
+            written(size, "x a b c d e f g h y"),
             [
-                "\x1b]66;s=1:n=3:d=4:w=3;ab ",
-                "\x1b]66;s=1:n=3:d=4:h=1:w=3;cdef",
-                "\x1b]66;s=1:n=3:d=4:h=2:w=3;ghij",
-                "\x1b]66;s=1:n=3:d=4:w=2;kl"
+                "\x1b]66;s=1:n=3:d=4:w=3;x a ",
+                "\x1b]66;s=1:n=3:d=4:h=2:w=3;b c ",
+                "\x1b]66;s=1:n=3:d=4:h=1:w=3;d e ",
+                "\x1b]66;s=1:n=3:d=4:h=1:w=3;f g ",
+                "\x1b]66;s=1:n=3:d=4:h=2:w=1;h",
+                "\x1b]66;s=1:n=3:d=4:w=2; y"
             ]
         );
     }

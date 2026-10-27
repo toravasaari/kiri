@@ -2,7 +2,7 @@
 source: tests/render_blocks.rs
 expression: "visible(&render_fixture(\"elements.md\",\n&inputs(&Capabilities::kitty(WIDTH), &theme)))"
 ---
-␛[0;1;34m␛]66;s=3:n=5:d=6:v=1:w=5;Every ␛\␛]66;s=3:n=5:d=6:v=1:h=1:w=5;elemen␛\␛]66;s=3:n=5:d=6:v=1:w=1;t␛\␛[0m
+␛[0;1;34m␛]66;s=3:n=5:d=6:v=1:w=5;Every ␛\␛]66;s=3:n=5:d=6:v=1:w=6;element␛\␛[0m
 
 
 
@@ -27,7 +27,7 @@ test width. A ␛]8;;https://example.com␛\␛[0;4;34mlink␛]8;;␛\␛[0m and
 ␛[0;90m☑ ␛[0mDone task
 ␛[0;90m☐ ␛[0mOpen task
 
-␛[0;1;34m␛]66;s=2:n=7:d=8:v=1:h=1:w=7;Quotes a␛\␛]66;s=2:n=7:d=8:v=1:w=3;nd ␛\␛]66;s=2:n=7:d=8:v=1:w=6;breaks␛\␛[0m
+␛[0;1;34m␛]66;s=2:n=7:d=8:v=1:w=6;Quotes␛\␛]66;s=2:n=7:d=8:v=1:h=1:w=7; and bre␛\␛]66;s=2:n=7:d=8:v=1:w=3;aks␛\␛[0m
 
 
 ␛[0;90m│ ␛[0mA quote with ␛[0;1mbold␛[0m text.
@@ -46,7 +46,7 @@ break.
 ␛[0;38;2;192;197;206;48;2;43;48;59m    println!("␛[0;38;2;163;190;140;48;2;43;48;59mtab-indented␛[0;38;2;192;197;206;48;2;43;48;59m");␛[0m
 ␛[0;38;2;192;197;206;48;2;43;48;59m}␛[0m
 
-␛[0;1;34m␛]66;s=2:n=3:d=4:v=1:h=1:w=3;Tabl␛\␛]66;s=2:n=3:d=4:v=1:w=2;es␛\␛[0m
+␛[0;1;34m␛]66;s=2:n=3:d=4:v=1:w=5;Tables␛\␛[0m
 
 
 ␛[0;90m╭──────────┬────────┬──────────────────────────╮␛[0m
@@ -58,7 +58,7 @@ break.
 ␛[0;90m│␛[0m Tables   ␛[0;90m│␛[0m  ␛[0;35;48;2;43;48;59mnew␛[0m   ␛[0;90m│␛[0m                    right ␛[0;90m│␛[0m
 ␛[0;90m╰──────────┴────────┴──────────────────────────╯␛[0m
 
-␛[0;1;34m␛]66;s=2:n=5:d=8:v=1:h=1:w=5;Images a␛\␛]66;s=2:n=5:d=8:v=1:w=5;nd HTML␛\␛[0m
+␛[0;1;34m␛]66;s=2:n=5:d=8:v=1:w=7;Images and ␛\␛]66;s=2:n=5:d=8:v=1:w=3;HTML␛\␛[0m
 
 
 ␛[0;2;3m[image: A diagram]␛[0m

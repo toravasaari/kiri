@@ -709,29 +709,37 @@ mod tests {
 
     #[test]
     fn a_mark_in_text_at_a_fraction_covers_whole_groups() {
-        // Half-size text is packed two cells to a group: `ab`, `cd`, `ef`.
-        // Cutting a group would pack its pieces apart, each rounded up, and
-        // move the cells after them.
+        // Half-size, this word takes three groups: fourteen letters, six
+        // and fourteen. Cutting a group would pack its pieces apart, each
+        // rounded up, and move the cells after them.
         let half = TextSize::NORMAL.with_fraction(Fraction::new(1, 2).unwrap(), VerticalAlign::Top);
         let style = Style {
             size: half,
             ..Style::default()
         };
-        let source = Line::new(vec![Span::new("abcdef", style.clone())]);
-        let marked = mark(&source, &[(3..4, false)], &marks(), None);
+        let text = "abcdefghijklmnopqrstuvwxyzabcdefgh";
+        let source = Line::new(vec![Span::new(text, style.clone())]);
+        let marked = mark(&source, &[(16..17, false)], &marks(), None);
         let found: Vec<(&str, bool)> = (marked.spans.iter())
             .map(|span| (span.text.as_str(), span.style.reverse))
             .collect();
-        assert_eq!(found, [("ab", false), ("cd", true), ("ef", false)]);
+        assert_eq!(
+            found,
+            [
+                ("abcdefghijklmn", false),
+                ("opqrst", true),
+                ("uvwxyzabcdefgh", false)
+            ]
+        );
         assert_eq!(
             crate::render::wrap::width(&marked.spans),
             crate::render::wrap::width(&source.spans)
         );
         // Two matches in one group mark it once; one across groups marks
         // both.
-        let marked = mark(&source, &[(0..1, true), (1..3, false)], &marks(), None);
+        let marked = mark(&source, &[(0..1, true), (1..15, false)], &marks(), None);
         let texts: Vec<&str> = marked.spans.iter().map(|span| span.text.as_str()).collect();
-        assert_eq!(texts, ["ab", "cd", "ef"]);
+        assert_eq!(texts, ["abcdefghijklmn", "opqrst", "uvwxyzabcdefgh"]);
         assert!(marked.spans[0].style.bold && marked.spans[1].style.reverse);
     }
 
