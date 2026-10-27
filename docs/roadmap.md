@@ -728,6 +728,11 @@ the terminals it is tested in.
 
 - kitty's graphics protocol in other terminals that speak it: which of
   them have Unicode placeholders, and what the probe finds there.
+- Done for Ghostty: it has the placeholders but no text sizing, so images,
+  diagrams and formulas draw there, also inside tmux, and headings are
+  images. kiri takes Ghostty 1.0 and later; tested with 1.1.3. The
+  render-check skill renders in Ghostty with `--terminal ghostty`.
+  WezTerm is still to do.
 
 #### 5.1.2 Sixel
 
