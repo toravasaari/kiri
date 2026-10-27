@@ -53,8 +53,16 @@ option on; `tmux set -p allow-passthrough on` in the pane does it. With
 `focus-events off`, tmux does not tell the pager when its window is shown
 again, so images sent while it was hidden, as when following a file, stay
 away until Ctrl+L. `set -g focus-events on` in tmux.conf turns it on;
-kiri leaves it alone, as it is an option for every pane. With
-`passthrough = "tmux"` kiri does not ask tmux at all.
+kiri leaves it alone, as it is an option for every pane. tmux passes
+links on only when its terminal features for the terminal outside include
+`hyperlinks`; when they do not, the Hyperlinks row says so and names the
+line for tmux.conf, such as
+`set -as terminal-features ',xterm-kitty:hyperlinks'`, which kiri also
+leaves to you. tmux gives a terminal its features when it attaches, so
+after adding the line, reload tmux.conf (`tmux source-file` with its
+path, such as `~/.tmux.conf`), detach and attach again; a new tmux
+server is not needed. With `passthrough = "tmux"` kiri does not ask tmux
+at all.
 
 What each other row means, and where it comes from:
 
@@ -66,7 +74,7 @@ What each other row means, and where it comes from:
 | Text sizing | Whether headings can be drawn large | The probe: whether the cursor moved for the text sizing tests |
 | Colours | 24-bit colour, fewer colours, or none | The probe; or else the `COLORTERM` environment variable |
 | Background | Dark or light, which picks the code colours | The probe: the background colour |
-| Hyperlinks | Whether links can be clicked | The probe; or else `TERM_PROGRAM` or `VTE_VERSION` |
+| Hyperlinks | Whether links can be clicked | The probe; or else `TERM_PROGRAM` or `VTE_VERSION`; inside tmux, tmux's terminal features alone |
 | Underline styles | Whether a curly or dotted underline can be drawn | The probe |
 
 A terminal that answers the graphics query or draws the text sizing tests

@@ -834,14 +834,23 @@ fn the_report_on_kitty() {
     insta::assert_snapshot!(stable(&report(&facts)));
 }
 
-/// The terminal section of the report on a kitty behind tmux, where
-/// kiri found `pane` with the passthrough setting `passthrough`.
+/// The terminal section of the report on a kitty behind tmux, up to the
+/// Window row, where kiri found `pane` with the passthrough setting
+/// `passthrough`.
 fn tmux_report(pane: Option<Pane>, passthrough: Passthrough) -> String {
+    let report = tmux_terminal(pane, passthrough, false);
+    let end = report.find("| Window").unwrap();
+    report[..end].to_owned()
+}
+
+/// The whole terminal section of the report that [`tmux_report`] starts,
+/// where kiri draws links if `hyperlinks`.
+fn tmux_terminal(pane: Option<Pane>, passthrough: Passthrough, hyperlinks: bool) -> String {
     let env = Environment::default();
     let detection = Detection {
         caps: Capabilities {
             text_sizing: false,
-            hyperlinks: false,
+            hyperlinks,
             styled_underlines: false,
             tmux_passthrough: true,
             ..Capabilities::kitty(80)
@@ -870,7 +879,7 @@ fn tmux_report(pane: Option<Pane>, passthrough: Passthrough) -> String {
     };
     let report = report(&facts);
     let start = report.find("## Terminal").unwrap();
-    let end = report[start..].find("| Window").unwrap();
+    let end = report[start..].find("\n\n## ").unwrap();
     report[start..start + end].to_owned()
 }
 
@@ -881,6 +890,7 @@ fn the_doctor_tells_the_tmux_pane() {
         passthrough: Some(passthrough.into()),
         turned_on,
         focus_events: Some(true),
+        ..Pane::default()
     };
     let report = tmux_report(Some(pane("off", true)), Passthrough::Detect);
     let row = "| tmux | passthrough for `kitty(0.47.1)`, allow-passthrough `on`, \
@@ -900,6 +910,7 @@ fn the_doctor_says_what_focus_events_off_means() {
         passthrough: Some("on".into()),
         turned_on: false,
         focus_events,
+        ..Pane::default()
     };
     let report = tmux_report(Some(pane(Some(false))), Passthrough::Detect);
     let row = "| tmux | passthrough for `kitty(0.47.1)`, allow-passthrough `on`, \
@@ -919,6 +930,7 @@ fn the_doctor_says_when_passthrough_stays_off() {
         passthrough: Some("off".into()),
         turned_on: false,
         focus_events: Some(true),
+        ..Pane::default()
     };
     let report = tmux_report(Some(pane), Passthrough::Detect);
     let row = "| tmux | passthrough for `kitty(0.47.1)`, allow-passthrough `off`: \
@@ -933,6 +945,7 @@ fn the_doctor_tells_when_tmux_was_not_asked() {
         passthrough: None,
         turned_on: false,
         focus_events: None,
+        ..Pane::default()
     };
     let report = tmux_report(Some(nothing.clone()), Passthrough::Tmux);
     let row = "| tmux | passthrough; tmux not asked, as passthrough is `tmux` |";
@@ -940,6 +953,39 @@ fn the_doctor_tells_when_tmux_was_not_asked() {
     let report = tmux_report(Some(nothing), Passthrough::Detect);
     let row = "| tmux | passthrough; tmux did not answer |";
     assert!(report.contains(row), "{report}");
+}
+
+#[test]
+fn the_doctor_says_how_to_let_tmux_pass_links() {
+    let pane = |hyperlinks, term_name: Option<&str>| Pane {
+        client: Some("kitty(0.47.1)".into()),
+        passthrough: Some("on".into()),
+        focus_events: Some(true),
+        hyperlinks,
+        term_name: term_name.map(Into::into),
+        ..Pane::default()
+    };
+    let without = pane(Some(false), Some("xterm-kitty"));
+    let report = tmux_terminal(Some(without), Passthrough::Detect, false);
+    let row = "| Hyperlinks | no: tmux does not pass them on; \
+               `set -as terminal-features ',xterm-kitty:hyperlinks'` \
+               in tmux.conf lets it; then reload tmux.conf, detach and attach again |";
+    assert!(report.contains(row), "{report}");
+    // Without the terminal's name, the line says where it goes.
+    let report = tmux_terminal(Some(pane(Some(false), None)), Passthrough::Detect, false);
+    let row = "| Hyperlinks | no: tmux does not pass them on; \
+               `set -as terminal-features ',TERM:hyperlinks'` in tmux.conf, \
+               with the `TERM` of the terminal outside tmux, lets it; \
+               then reload tmux.conf, detach and attach again |";
+    assert!(report.contains(row), "{report}");
+    // When tmux passes them, the row is as outside tmux.
+    let with = pane(Some(true), Some("xterm-kitty"));
+    let report = tmux_terminal(Some(with), Passthrough::Detect, true);
+    assert!(report.contains("| Hyperlinks | yes |"), "{report}");
+    // When tmux did not tell, the doctor has no advice either.
+    let unknown = pane(None, Some("xterm-kitty"));
+    let report = tmux_terminal(Some(unknown), Passthrough::Detect, false);
+    assert!(report.contains("| Hyperlinks | no |"), "{report}");
 }
 
 #[test]
