@@ -64,7 +64,10 @@ pub fn panel(
             span(&format!("{}{}", " ".repeat(gap), binding.what), style),
         ]));
     }
-    lines.push(line(Vec::new()));
+    // A blank line above the footer, where the window has room for it.
+    if lines.len() + 3 <= rows {
+        lines.push(line(Vec::new()));
+    }
     lines.push(line(vec![span(FOOTER, muted)]));
     lines.push(vec![span(&format!("└{}┘", "─".repeat(inner + 2)), style)]);
 
@@ -193,9 +196,12 @@ mod tests {
         // The status line takes one of the 24 rows.
         let rows = 23;
         let panel = panel(80, rows, &Style::default(), &Style::default(), true);
-        assert_eq!(panel.len(), BINDINGS.len() + 4);
+        // Without the blank line above the footer, when it does not fit.
+        assert_eq!(panel.len(), BINDINGS.len() + 3);
         assert!(panel.len() <= rows, "{} rows", panel.len());
         assert!(panel[0].row >= 1 && panel[panel.len() - 1].row <= rows);
+        let tall = super::panel(80, 40, &Style::default(), &Style::default(), true);
+        assert_eq!(tall.len(), BINDINGS.len() + 4);
     }
 
     #[test]

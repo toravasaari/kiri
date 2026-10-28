@@ -1071,6 +1071,7 @@ fn page_files(
                 message,
             })
             .collect(),
+        reading: Some(Context::reading_mode()),
         ..kiri::pager::Options::new(settings.search_case)
     };
     let start = |inputs: &mut Inputs, loads: &mut Loads| {
@@ -1470,9 +1471,15 @@ impl<'a> Context<'a> {
     /// Reading mode, when it is asked for and a terminal with `caps` draws
     /// images.
     fn reading(&self, caps: &Capabilities) -> Option<Reading> {
-        (self.reading && caps.draws_images()).then(|| Reading {
+        (self.reading && caps.draws_images()).then(Self::reading_mode)
+    }
+
+    /// Reading mode in the system's fonts, which load when text is first
+    /// laid out in them, as `M` in the pager turns it on.
+    fn reading_mode() -> Reading {
+        Reading {
             fonts: Rc::new(kiri::reading::Fonts::system()),
-        })
+        }
     }
 
     /// Why reading mode is not shown, when it is asked for and a terminal
@@ -1982,6 +1989,7 @@ fn print_document(
             jump: settings.follow_jump,
             warnings,
             reload: reload.as_mut().map(|reload| reload as &mut dyn Reload),
+            reading: Some(Context::reading_mode()),
             ..kiri::pager::Options::new(settings.search_case)
         },
         (

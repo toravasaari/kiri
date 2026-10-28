@@ -17,6 +17,9 @@ kiri --reading --light examples/S09-reading-mode.md
 kiri --reading --dark examples/S09-reading-mode.md
 ```
 
+In the pager, `M` turns reading mode on and off, also without
+`--reading`, and the same block stays at the top of the window.
+
 Without `--reading` this document looks like the others. With it, the
 headings, paragraphs, lists and quotes are in the system's sans-serif font
 at about four fifths of a row's height, in a column 42 times that wide at

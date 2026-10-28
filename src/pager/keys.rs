@@ -71,6 +71,8 @@ pub enum Action {
     Redraw,
     /// Follows the document, from off to on to auto and back to off.
     Follow,
+    /// Turns reading mode on or off.
+    Reading,
     Help,
     Quit,
 }
@@ -399,6 +401,12 @@ pub const BINDINGS: &[Binding] = {
             names: "F",
             what: "follow: on, auto, off",
             action: Action::Follow,
+        },
+        Binding {
+            keys: &[Char('M')],
+            names: "M",
+            what: "reading mode: on, off",
+            action: Action::Reading,
         },
         Binding {
             keys: &[Char('?'), Char('h')],

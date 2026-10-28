@@ -30,6 +30,7 @@ use crate::render::encoder::Encoder;
 use crate::render::image::cell_size;
 use crate::render::layout::{Content, Stream};
 use crate::render::output::{self, Page, Writer};
+use crate::render::reading::Reading;
 use crate::render::style::{self, Line, Span, Style};
 use crate::render::wrap;
 use crate::term::{Screen, WindowSize};
@@ -197,6 +198,9 @@ pub struct Options<'a, 'l> {
     /// itself before it returns, after it deleted the images but with
     /// the screen still open.
     pub loads: Option<&'l mut Loads>,
+    /// The reading mode that `M` turns on, when the document is shown
+    /// without it; `M` turns reading mode off when it is on.
+    pub reading: Option<Reading>,
 }
 
 impl Options<'_, '_> {
@@ -211,6 +215,7 @@ impl Options<'_, '_> {
             jump: FollowJump::First,
             warnings: Vec::new(),
             loads: None,
+            reading: None,
         }
     }
 }
@@ -260,7 +265,10 @@ fn page_through(
         jump,
         warnings,
         loads: _,
+        reading,
     } = options;
+    // The reading mode that `M` turns to, on or off.
+    let mut other = reading.filter(|_| inputs.reading.is_none());
     let mut source = Origin {
         reload,
         loads,
@@ -461,6 +469,17 @@ fn page_through(
                 size = new;
                 view = Some(shown);
             }
+            // Laid out again as after a resize, which keeps the block at
+            // the top.
+            Outcome::Reading => {
+                if inputs.caps.draws_images() {
+                    std::mem::swap(&mut inputs.reading, &mut other);
+                    state.changed = None;
+                } else {
+                    state.told = Some(Told::new(NEEDS_IMAGES));
+                }
+                view = Some(shown);
+            }
             Outcome::Reload => {
                 state.changed = None;
                 view = Some(shown);
@@ -555,6 +574,8 @@ enum Outcome {
     Reload,
     /// These images, loading in the background, came.
     Loaded(Vec<(ImageKey, Result<Source, ImageError>)>),
+    /// Reading mode is to be turned on or off.
+    Reading,
 }
 
 /// Where the pager gets the document and its images again.
@@ -568,6 +589,9 @@ struct Origin<'r, 'l> {
     started: Instant,
 }
 
+/// Why `M` does not turn reading mode on.
+const NEEDS_IMAGES: &str = "reading mode needs a terminal that draws images";
+
 /// What a key did, besides what the pager does itself.
 enum Pressed {
     Nothing,
@@ -578,6 +602,8 @@ enum Pressed {
     Follow,
     /// The reader asked for the screen and its images again.
     Redraw,
+    /// The reader turned reading mode on or off.
+    Reading,
 }
 
 /// What the status line and the help panel show and how, apart from the
@@ -1060,6 +1086,7 @@ impl State {
             Some(Action::Reload) => return Pressed::Reload,
             Some(Action::Redraw) => return Pressed::Redraw,
             Some(Action::Follow) => return Pressed::Follow,
+            Some(Action::Reading) => return Pressed::Reading,
             None => {}
         }
         Pressed::Nothing
@@ -1445,6 +1472,7 @@ fn show(
                     writer.lost();
                     again = true;
                 }
+                Pressed::Reading => return Ok(Outcome::Reading),
                 Pressed::Follow if reload.is_none() => {
                     state.told = Some(Told::new(NOTHING_TO_FOLLOW));
                 }

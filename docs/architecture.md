@@ -214,7 +214,9 @@ view. The rows keep their blocks, so the pager keeps its place across a
 resize, and the row a block starts on carries the block's text for a
 search. The other blocks, such as code and tables, are laid out as text
 between the pages. Where the terminal draws no images, kiri warns and
-shows the text as usual.
+shows the text as usual. In the pager, `M` turns reading mode on and off
+and lays the document out again, keeping the block at the top as a resize
+does.
 
 ## Diagrams
 

@@ -9,6 +9,7 @@ mod following;
 mod images;
 mod loading;
 mod paging;
+mod reading;
 mod reload;
 mod search;
 mod view;
