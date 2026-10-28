@@ -3,6 +3,7 @@
 //! each row of the page a line that shows one row of a part through
 //! kitty's Unicode placeholders.
 
+use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -12,15 +13,16 @@ use image::RgbaImage;
 
 use super::block::BlockId;
 use super::highlight;
-use super::image::{Placement, Shows, Size, cell_size};
+use super::image::{self as sizes, Placement, Shows, Size, Wanted, cell_size};
 use super::layout::{CodeColors, expand_tabs};
-use super::style::{ImageRow, Line, Span, Style};
+use super::loading;
+use super::style::{Band, ImageRow, Line, Span, Style};
 use crate::caps::Capabilities;
 use crate::color::Color;
-use crate::images::ImageKey;
-use crate::model::Block;
+use crate::images::{ImageError, ImageKey, Images, Placeholder, Source};
+use crate::model::{self, Block};
 use crate::reading::Fonts;
-use crate::reading::page::{self, Frame, Highlight, Look, Page, Plain, Wide};
+use crate::reading::page::{self, Frame, Highlight, Look, Page, Picture, Pictures, Plain, Wide};
 use crate::reading::text::{Brush, Run};
 use crate::theme::Theme;
 
@@ -38,6 +40,8 @@ const SIDE: u16 = 2;
 /// How much of the text colour a shaded table row mixes into the page, as
 /// in the text layout.
 const STRIPE: f32 = 0.06;
+/// The most rows a picture is shown at, as many as an image can cover.
+const MAX_ROWS: u16 = 297;
 /// The rows of one part of a page, the image drawn at a time.
 const PART_ROWS: u16 = 30;
 
@@ -156,16 +160,17 @@ impl Eq for Parts {}
 
 /// The lines that show `blocks`, which reading mode lays out, marked with
 /// their `ids`, in a window `width` cells wide on a terminal with `caps`,
-/// in `theme`'s colours; `document` is the number of the document they
-/// are in among those shown.
+/// in `theme`'s colours, with the pictures in `images`, of the document
+/// numbered `document` among those shown, and diagrams telling why they
+/// failed when `inline_errors`.
 pub fn lines(
     blocks: &[&Block],
     ids: &[BlockId],
     reading: &Reading,
     (theme, code, stripes): (&Theme, &CodeColors, bool),
+    (images, inline_errors, document): (&Images, bool, usize),
     caps: &Capabilities,
     width: usize,
-    document: usize,
 ) -> Vec<Line> {
     let cell = cell_size(caps);
     let (cell_width, cell_height) = (f32::from(cell.0), f32::from(cell.1));
@@ -179,11 +184,18 @@ pub fn lines(
         theme: code.theme.as_deref(),
         caps,
     };
+    let gallery = Gallery {
+        images,
+        document,
+        cell,
+        inline_errors,
+        keys: RefCell::new(Vec::new()),
+    };
     let page = page::lay_out(
         blocks,
         &look,
         &reading.fonts,
-        &highlight,
+        (&highlight, &gallery),
         Frame {
             width: text,
             area: f32::from(columns) * cell_width,
@@ -195,7 +207,8 @@ pub fn lines(
     // The id names these pixels to the terminal, which keeps an image it
     // holds under the same id, so it must cover everything that changes
     // them: the blocks, the look (every colour, and the font size), the
-    // sizes, and whether wide blocks wrap or scroll. The fonts and the
+    // sizes, whether wide blocks wrap or scroll, and the pictures, by their
+    // pixels. The fonts and the
     // code theme's name are not in it: the fonts are the same for a run,
     // and the theme has so far always come with another colour in `Look`.
     // An input to the pixels that does not, goes in here too.
@@ -203,7 +216,9 @@ pub fn lines(
     format!("{blocks:?}").hash(&mut hasher);
     format!("{look:?}").hash(&mut hasher);
     (text.to_bits(), cell, columns, reading.wide).hash(&mut hasher);
+    page.pictures.hash(&mut hasher);
     let placed: Vec<_> = page.blocks.clone();
+    let loading = page.loading.clone();
     let parts = Rc::new(Parts {
         id: hasher.finish(),
         page,
@@ -288,7 +303,124 @@ pub fn lines(
         };
         lines.push(line);
     }
+    // Over the bottom row of each picture still loading, a band that says
+    // so, from where the picture starts.
+    let keys = gallery.keys.into_inner();
+    for loading in loading {
+        let (Some(key), true) = (keys.get(loading.tag), !lines.is_empty()) else {
+            continue;
+        };
+        let first = ((loading.rows.start / cell_height).floor() as usize).min(lines.len() - 1);
+        let last = (((loading.rows.end / cell_height).ceil() as usize).saturating_sub(1))
+            .clamp(first, lines.len() - 1);
+        let columns = ((loading.width / cell_width).ceil() as u16).clamp(1, caps.max_image_cells);
+        lines[last].band = Some(Band {
+            columns,
+            indent: (loading.x / cell_width).floor() as usize,
+            low: true,
+            key: key.clone(),
+            above: last - first,
+        });
+    }
     lines
+}
+
+/// The pictures of a document, found in the images that were loaded for it.
+struct Gallery<'a> {
+    images: &'a Images,
+    /// The number of the document among those shown together, which the
+    /// keys of its images carry.
+    document: usize,
+    cell: (u16, u16),
+    /// Whether a diagram that could not be drawn tells why below its code.
+    inline_errors: bool,
+    /// The keys of the pictures that are loading, which their tags number.
+    keys: RefCell<Vec<ImageKey>>,
+}
+
+impl Gallery<'_> {
+    /// The picture the images hold under `key`, at the size `wanted` asks
+    /// for in `room`; `language` when it is a diagram.
+    fn picture(
+        &self,
+        key: ImageKey,
+        wanted: Wanted,
+        room: (f32, f32),
+        language: Option<&str>,
+    ) -> Picture {
+        let room = (
+            f64::from(room.0),
+            f64::from(room.1).min(f64::from(MAX_ROWS) * f64::from(self.cell.1)),
+        );
+        let tag = || {
+            let mut keys = self.keys.borrow_mut();
+            keys.push(key.clone());
+            keys.len() - 1
+        };
+        let drawn = |source: &Source, dimmed: bool| {
+            let size = sizes::pixel_size(source.size(), wanted, self.cell, room)?;
+            let mut pixels = source.render(size.0, size.1);
+            if dimmed {
+                pixels = loading::dimmed(pixels);
+            }
+            Some(pixels)
+        };
+        match (self.images.get(&key), self.images.placeholder(&key)) {
+            (Some(Ok(source)), _) => match drawn(source, false) {
+                Some(pixels) => ready(pixels, None),
+                None => Picture::None,
+            },
+            (Some(Err(ImageError::Diagram { reason, .. })), _) if language.is_some() => {
+                let noun = language.map(crate::diagrams::noun).unwrap_or_default();
+                let message = format!("✗ {noun} could not be drawn: {reason}");
+                Picture::Failed(self.inline_errors.then_some(message))
+            }
+            (Some(Err(_)), _) => Picture::None,
+            (_, Some(Placeholder::Dimmed(old))) => match drawn(old, true) {
+                Some(pixels) => ready(pixels, Some(tag())),
+                None => Picture::None,
+            },
+            (_, Some(&Placeholder::Rows(rows))) => Picture::Loading {
+                width: u32::from(self.cell.0),
+                height: u32::from(rows) * u32::from(self.cell.1),
+                tag: tag(),
+            },
+            _ => Picture::None,
+        }
+    }
+}
+
+/// `pixels` as a picture, with an id from what they are.
+fn ready(pixels: RgbaImage, loading: Option<usize>) -> Picture {
+    let mut hasher = DefaultHasher::new();
+    pixels.dimensions().hash(&mut hasher);
+    pixels.as_raw().hash(&mut hasher);
+    Picture::Ready {
+        pixels: Rc::new(pixels),
+        id: hasher.finish(),
+        loading,
+    }
+}
+
+impl Pictures for Gallery<'_> {
+    fn image(&self, shown: &model::Image, room: (f32, f32)) -> Picture {
+        let key = ImageKey::from(shown.url.as_str()).in_document(self.document);
+        let wanted = Wanted {
+            width: shown.width,
+            height: shown.height,
+        };
+        self.picture(key, wanted, room, None)
+    }
+
+    fn diagram(&self, language: &str, code: &str, room: (f32, f32)) -> Picture {
+        // Spares building a key for every code block of a document
+        // without images.
+        if self.images.is_empty() && !self.images.loading() {
+            return Picture::None;
+        }
+        let key = ImageKey::block(language, code).in_document(self.document);
+        self.picture(key, Wanted::default(), room, Some(language))
+    }
 }
 
 /// The rows of one band in a run of lines, as the pager scrolls it.
@@ -424,6 +556,7 @@ pub fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities
         code_block: rgb(code.background),
         code_text: rgb(code.text).unwrap_or(text),
         label: rgb(code.label),
+        error: rgb(theme.error).unwrap_or([0xf8, 0x51, 0x49]),
         table_border: rgb(theme.table_border).unwrap_or(border),
         stripe: stripes.then(|| mix(text, page, STRIPE)),
     }
@@ -478,8 +611,9 @@ fn mix(color: Brush, page: Brush, share: f32) -> Brush {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::images::ImageError;
     use crate::parse::parse;
-    use crate::render::{Inputs, layout, output};
+    use crate::render::{Inputs, RenderErrors, layout, output};
 
     /// A terminal with cells of 10 by 20 pixels, as the tests assume.
     fn kitty(width: u16) -> Capabilities {
@@ -605,6 +739,152 @@ mod tests {
                 .sum::<usize>(),
             rows.len()
         );
+    }
+
+    /// A raster image of `width` × `height` pixels, all of `colour`.
+    fn raster(width: u32, height: u32, colour: [u8; 3]) -> Source {
+        Source::Raster(RgbaImage::from_pixel(
+            width,
+            height,
+            image::Rgba([colour[0], colour[1], colour[2], 255]),
+        ))
+    }
+
+    /// The first part's pixels of the page that `lines` show.
+    fn first_part(lines: &[Line]) -> RgbaImage {
+        let row = lines[0].image.as_ref().expect("a page's row");
+        row.page.as_ref().expect("a page").draw(0)
+    }
+
+    fn page_id(lines: &[Line]) -> u64 {
+        match lines[0].image.as_ref().expect("a row").placement.key {
+            ImageKey::Page { page, .. } => page,
+            ref key => panic!("a page's key: {key:?}"),
+        }
+    }
+
+    #[test]
+    fn an_image_block_is_drawn_into_the_page_at_its_css_size() {
+        let mut inputs = inputs(kitty(80));
+        inputs
+            .images
+            .insert("a.png", Ok(raster(100, 40, [255, 0, 0])));
+        let lines = layout::layout(&parse("![a](a.png)\n"), &inputs);
+        let part = first_part(&lines);
+        // One CSS pixel is a pixel at rows of 20, as without reading mode.
+        assert_eq!(part.get_pixel(0, 0).0, [255, 0, 0, 255]);
+        assert_eq!(part.get_pixel(99, 39).0, [255, 0, 0, 255]);
+        assert_eq!(part.get_pixel(100, 0).0[3], 0);
+        // The two rows it covers belong to its block, and nothing else
+        // draws a picture there.
+        assert_eq!(lines.len(), 2);
+    }
+
+    #[test]
+    fn an_image_wider_than_the_column_shrinks_to_it() {
+        let mut inputs = inputs(kitty(160));
+        inputs
+            .images
+            .insert("a.png", Ok(raster(1600, 200, [0, 255, 0])));
+        let lines = layout::layout(&parse("![a](a.png)\n"), &inputs);
+        let part = first_part(&lines);
+        // The column is 42 font sizes, 672 pixels.
+        assert_eq!(part.get_pixel(671, 0).0, [0, 255, 0, 255]);
+        assert_eq!(part.get_pixel(672, 0).0[3], 0);
+        assert_eq!(part.get_pixel(0, 83).0, [0, 255, 0, 255]);
+        assert_eq!(part.get_pixel(0, 84).0[3], 0);
+    }
+
+    #[test]
+    fn an_image_that_is_not_there_is_its_alt_text() {
+        let lines = layout::layout(&parse("![the alt text](a.png)\n"), &inputs(kitty(80)));
+        let row = lines[0].image.as_ref().expect("a page's row");
+        assert_eq!(row.text.as_deref(), Some("the alt text"));
+        assert!(first_part(&lines).pixels().any(|pixel| pixel.0[3] > 0));
+    }
+
+    #[test]
+    fn an_image_that_is_loading_has_a_band_over_its_last_row() {
+        let mut inputs = inputs(kitty(80));
+        let key = ImageKey::from("a.png");
+        inputs.images.wait(key.clone(), Placeholder::Rows(3));
+        let lines = layout::layout(&parse("![a](a.png)\n\nAfter.\n"), &inputs);
+        // Three rows reserved, and the band on the third, as the lines of
+        // the page above it show the image too.
+        let bands: Vec<(usize, &Band)> = (lines.iter().enumerate())
+            .filter_map(|(index, line)| line.band.as_ref().map(|band| (index, band)))
+            .collect();
+        let [(index, band)] = bands[..] else {
+            panic!("one band: {bands:?}");
+        };
+        assert_eq!(index, 2);
+        assert_eq!(band.key, key);
+        assert_eq!(band.above, 2);
+        assert!(band.low);
+        assert_eq!(band.columns, 1);
+        // The paragraph below starts after the reserved room and its
+        // margin.
+        let row = lines[3].image.as_ref().expect("a row");
+        assert_eq!(row.text.as_deref(), Some("After."));
+    }
+
+    #[test]
+    fn the_old_image_shows_dimmed_with_a_band_while_a_new_one_loads() {
+        let mut inputs = inputs(kitty(80));
+        let key = ImageKey::from("a.png");
+        inputs.images.wait(
+            key.clone(),
+            Placeholder::Dimmed(raster(100, 40, [255, 0, 0])),
+        );
+        let lines = layout::layout(&parse("![a](a.png)\n"), &inputs);
+        let pixel = first_part(&lines).get_pixel(0, 0).0;
+        assert_eq!(&pixel[..3], &[255, 0, 0]);
+        assert!(pixel[3] > 0 && pixel[3] < 255, "{pixel:?}");
+        let band = (lines.iter()).find_map(|line| line.band.as_ref());
+        assert_eq!(band.map(|band| band.key.clone()), Some(key));
+    }
+
+    #[test]
+    fn the_same_page_with_other_pixels_is_another_page() {
+        let id = |colour| {
+            let mut inputs = inputs(kitty(80));
+            inputs.images.insert("a.png", Ok(raster(100, 40, colour)));
+            page_id(&layout::layout(&parse("![a](a.png)\n"), &inputs))
+        };
+        assert_eq!(id([255, 0, 0]), id([255, 0, 0]));
+        assert_ne!(id([255, 0, 0]), id([0, 0, 255]));
+    }
+
+    #[test]
+    fn a_formula_is_centred_in_the_column_and_a_failed_diagram_says_why() {
+        let mut inputs = inputs(kitty(80));
+        inputs.images.insert(
+            ImageKey::block("math", "x\n"),
+            Ok(raster(100, 40, [255, 255, 255])),
+        );
+        let lines = layout::layout(&parse("```math\nx\n```\n"), &inputs);
+        let part = first_part(&lines);
+        // (672 - 100) / 2 = 286.
+        assert_eq!(part.get_pixel(286, 0).0, [255, 255, 255, 255]);
+        assert_eq!(part.get_pixel(285, 0).0[3], 0);
+        assert_eq!(part.get_pixel(386, 0).0[3], 0);
+        // A diagram that failed is its code and the reason below it,
+        // unless the reason is told on standard error alone.
+        let failed = |render_errors| {
+            let mut inputs = Inputs {
+                render_errors,
+                ..self::inputs(kitty(80))
+            };
+            let error = ImageError::Diagram {
+                name: "diagram".into(),
+                reason: "no program".into(),
+            };
+            inputs
+                .images
+                .insert(ImageKey::block("mermaid", "graph\n"), Err(error));
+            layout::layout(&parse("```mermaid\ngraph\n```\n"), &inputs).len()
+        };
+        assert!(failed(RenderErrors::Both) > failed(RenderErrors::Stderr));
     }
 
     #[test]

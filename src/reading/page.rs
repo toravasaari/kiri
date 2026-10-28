@@ -5,12 +5,14 @@
 
 use std::ops::Range;
 
+use std::rc::Rc;
+
 use image::RgbaImage;
 
 use super::fonts::Fonts;
 use super::paint::Canvas;
 use super::text::{self, Brush, Paragraph, Run};
-use crate::model::{Alignment, Block, Inline, List, Table};
+use crate::model::{Alignment, Block, Image, Inline, List, Table};
 
 /// The size of each heading level, `h1` first, in font sizes of the text,
 /// and the line height of headings.
@@ -81,6 +83,8 @@ pub struct Look {
     /// `None` for no shading.
     pub table_border: Brush,
     pub stripe: Option<Brush>,
+    /// The colour of what could not be drawn, such as a diagram's error.
+    pub error: Brush,
 }
 
 /// The colours of code: each line of `code`, in `language` if known, as
@@ -89,8 +93,49 @@ pub trait Highlight {
     fn lines(&self, language: Option<&str>, code: &str) -> Vec<Vec<Run>>;
 }
 
+/// What a picture, an image or a diagram, is on the page.
+pub enum Picture {
+    /// Not one: the document's alt text shows in its place, or for a
+    /// diagram the code.
+    None,
+    /// Its pixels, at the size they are shown at, and an id of what they
+    /// are, so that the same page of other pixels is another page. Set
+    /// when what shows is a stand-in while the real one loads.
+    Ready {
+        pixels: Rc<RgbaImage>,
+        id: u64,
+        loading: Option<usize>,
+    },
+    /// Not here yet: room for it, and a tag for the pictures to find it
+    /// by.
+    Loading { width: u32, height: u32, tag: usize },
+    /// A diagram that could not be drawn: the message to show below its
+    /// code, if any.
+    Failed(Option<String>),
+}
+
+/// The pictures of a document, as the page asks for them.
+pub trait Pictures {
+    /// The image `image` shows, in a room at most `room.0` pixels wide and
+    /// `room.1` high.
+    fn image(&self, image: &Image, room: (f32, f32)) -> Picture;
+    /// The code block `code` in `language`, when it is drawn as a diagram
+    /// or formula.
+    fn diagram(&self, language: &str, code: &str, room: (f32, f32)) -> Picture;
+}
+
 /// Code in the plain colour of code.
 pub struct Plain;
+
+impl Pictures for Plain {
+    fn image(&self, _: &Image, _: (f32, f32)) -> Picture {
+        Picture::None
+    }
+
+    fn diagram(&self, _: &str, _: &str, _: (f32, f32)) -> Picture {
+        Picture::None
+    }
+}
 
 impl Highlight for Plain {
     fn lines(&self, _: Option<&str>, code: &str) -> Vec<Vec<Run>> {
@@ -173,8 +218,23 @@ pub struct Page {
     pub blocks: Vec<Placed>,
     /// The code blocks and tables that scroll, in order.
     pub bands: Vec<Band>,
+    /// The pictures not loaded yet, or standing in for ones loading.
+    pub loading: Vec<Loading>,
+    /// The ids of the pictures on the page, in order, which are part of
+    /// what the page shows.
+    pub pictures: Vec<u64>,
     items: Vec<Item>,
     look: Look,
+}
+
+/// A picture that is loading: where it is and the tag its `Pictures` gave.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Loading {
+    /// The pixels it covers, from the top of the page.
+    pub rows: Range<f32>,
+    pub x: f32,
+    pub width: f32,
+    pub tag: usize,
 }
 
 /// Something drawn on the page, with the pixels it may reach.
@@ -195,6 +255,9 @@ impl Item {
                 x: left, y: top, ..
             }
             | Shape::RoundRect {
+                x: left, y: top, ..
+            }
+            | Shape::Picture {
                 x: left, y: top, ..
             }
             | Shape::Task {
@@ -231,6 +294,12 @@ enum Shape {
         radius: f32,
         color: Brush,
     },
+    /// A picture at its own size.
+    Picture {
+        x: f32,
+        y: f32,
+        pixels: Rc<RgbaImage>,
+    },
     /// The box of a task list item, ticked or not.
     Task {
         x: f32,
@@ -241,18 +310,17 @@ enum Shape {
     },
 }
 
-/// Whether reading mode lays `block` out: text blocks, code blocks but
-/// those `drawn` as images, given their language and code, and lists and
-/// quotes of nothing else. Other blocks, such as images and diagrams, are
-/// shown as they are without it.
-pub fn lays_out(block: &Block, drawn: &dyn Fn(&str, &str) -> bool) -> bool {
-    let all = |blocks: &[Block]| blocks.iter().all(|block| lays_out(block, drawn));
+/// Whether reading mode lays `block` out: text blocks, code blocks, tables,
+/// images and diagrams, and lists and quotes of nothing else. Other
+/// blocks, such as alerts, are shown as they are without it.
+pub fn lays_out(block: &Block) -> bool {
+    let all = |blocks: &[Block]| blocks.iter().all(lays_out);
     match block {
-        Block::Heading { .. } | Block::ThematicBreak | Block::Table(_) => true,
-        Block::Paragraph(content) => Inline::lone_image(content).is_none(),
-        Block::CodeBlock { language, code, .. } => !language
-            .as_deref()
-            .is_some_and(|language| drawn(language, code)),
+        Block::Heading { .. }
+        | Block::ThematicBreak
+        | Block::Table(_)
+        | Block::Paragraph(_)
+        | Block::CodeBlock { .. } => true,
         Block::BlockQuote(blocks) => all(blocks),
         Block::List(list) => list.items.iter().all(|item| all(&item.blocks)),
         _ => false,
@@ -262,12 +330,12 @@ pub fn lays_out(block: &Block, drawn: &dyn Fn(&str, &str) -> bool) -> bool {
 /// `blocks`, which reading mode lays out, laid out in `fonts` as `look`
 /// says, in `frame`: the text at the left of the area, which tables and
 /// code may reach across, and what becomes of those wider than it. Code
-/// takes its colours from `highlight`.
+/// takes its colours from `highlight`, and pictures come from `pictures`.
 pub fn lay_out(
     blocks: &[&Block],
     look: &Look,
     fonts: &Fonts,
-    highlight: &dyn Highlight,
+    (highlight, pictures): (&dyn Highlight, &dyn Pictures),
     frame: Frame,
 ) -> Page {
     let width = frame.width;
@@ -276,11 +344,14 @@ pub fn lay_out(
         fonts,
         look,
         highlight,
+        pictures,
         area,
         row: frame.row.max(1.0),
         wide: frame.wide,
         items: Vec::new(),
         bands: Vec::new(),
+        loading: Vec::new(),
+        ids: Vec::new(),
         y: 0.0,
         margin: None,
     };
@@ -298,6 +369,8 @@ pub fn lay_out(
         height: flow.y,
         blocks: placed,
         bands: flow.bands,
+        loading: flow.loading,
+        pictures: flow.ids,
         items: flow.items,
         look: *look,
     }
@@ -411,6 +484,7 @@ fn draw_items(canvas: &mut Canvas, items: &[Item], (x, y): (f32, f32)) {
                 radius,
                 color,
             } => canvas.round_rect(x + dx, y + dy, *width, *height, *radius, *color),
+            Shape::Picture { x, y, pixels } => canvas.picture(pixels, x + dx, y + dy),
             Shape::Task {
                 x,
                 y,
@@ -427,6 +501,7 @@ struct Flow<'a> {
     fonts: &'a Fonts,
     look: &'a Look,
     highlight: &'a dyn Highlight,
+    pictures: &'a dyn Pictures,
     /// The right edge of the area, which tables and code may reach.
     area: f32,
     /// The height of a row, which bands start on, and what becomes of
@@ -435,6 +510,9 @@ struct Flow<'a> {
     wide: Wide,
     items: Vec<Item>,
     bands: Vec<Band>,
+    loading: Vec<Loading>,
+    /// The ids of the pictures laid out.
+    ids: Vec<u64>,
     /// The bottom of what is laid out so far.
     y: f32,
     /// The bottom margin of the block above, until the next block takes
@@ -453,7 +531,37 @@ fn block_margins(block: &Block, look: &Look) -> (f32, f32) {
     }
 }
 
-impl Flow<'_> {
+impl<'a> Flow<'a> {
+    /// A flow for what is inside a block, in `look`, from the row `top`.
+    fn child<'b>(&self, look: &'b Look, top: f32) -> Flow<'b>
+    where
+        'a: 'b,
+    {
+        Flow {
+            fonts: self.fonts,
+            look,
+            highlight: self.highlight,
+            pictures: self.pictures,
+            area: self.area,
+            row: self.row,
+            wide: self.wide,
+            items: Vec::new(),
+            bands: Vec::new(),
+            loading: Vec::new(),
+            ids: Vec::new(),
+            y: top,
+            margin: None,
+        }
+    }
+
+    /// Takes what `inner` laid out, which is where it put it.
+    fn take(&mut self, inner: &mut Flow) {
+        self.items.append(&mut inner.items);
+        self.bands.append(&mut inner.bands);
+        self.loading.append(&mut inner.loading);
+        self.ids.append(&mut inner.ids);
+    }
+
     /// Moves below the block above by the larger of its bottom margin and
     /// `margin`, and returns where the next block starts.
     fn top(&mut self, margin: f32) -> f32 {
@@ -526,10 +634,13 @@ impl Flow<'_> {
                     self.y += 1.0;
                 }
             }
-            Block::Paragraph(content) => {
-                let paragraph = self.paragraph(content, look.text, width);
-                self.y += self.text(paragraph, x);
-            }
+            Block::Paragraph(content) => match Inline::lone_image(content) {
+                Some(image) => self.image(image, x, width),
+                None => {
+                    let paragraph = self.paragraph(content, look.text, width);
+                    self.y += self.text(paragraph, x);
+                }
+            },
             Block::ThematicBreak => {
                 let height = (QUOTE_BAR * size).round().max(1.0);
                 self.rect(x, self.y, width, height, look.border);
@@ -542,34 +653,115 @@ impl Flow<'_> {
                     ..look
                 };
                 let indent = QUOTE_INDENT * size;
-                let mut inner = Flow {
-                    fonts: self.fonts,
-                    look: &quoted,
-                    highlight: self.highlight,
-                    area: self.area,
-                    row: self.row,
-                    wide: self.wide,
-                    items: Vec::new(),
-                    bands: Vec::new(),
-                    y: top,
-                    margin: None,
-                };
+                let mut inner = self.child(&quoted, top);
                 inner.blocks(blocks, x + indent, width - indent, depth);
-                self.items.append(&mut inner.items);
-                self.bands.append(&mut inner.bands);
+                self.take(&mut inner);
                 self.y = inner.y;
                 let bar = (QUOTE_BAR * size).round().max(1.0);
                 self.rect(x, top, bar, self.y - top, look.border);
             }
             Block::List(list) => self.list(list, x, width, depth),
             Block::CodeBlock { language, code, .. } => {
-                self.code(language.as_deref(), code, x, width);
+                self.code_or_diagram(language.as_deref(), code, x, width);
             }
             Block::Table(table) => self.table(table, x),
             // Reading mode lays out only the blocks `lays_out` takes.
             _ => {}
         }
         self.margin = Some(block_margins(block, &look).1);
+    }
+
+    /// Lays the picture `picture` out at `x` in `width`, at the left or
+    /// `centred`: whether it is one. `false` for what is no picture, or a
+    /// diagram that failed.
+    fn place(&mut self, picture: Picture, x: f32, width: f32, centred: bool) -> bool {
+        let mut reserved = 0.0;
+        let (pixels, loading, height) = match picture {
+            Picture::Ready {
+                pixels,
+                id,
+                loading,
+            } => {
+                self.ids.push(id);
+                let height = pixels.height() as f32;
+                (Some((pixels, id)), loading, height)
+            }
+            Picture::Loading { width, height, tag } => {
+                reserved = width as f32;
+                (None, Some(tag), height as f32)
+            }
+            Picture::None | Picture::Failed(_) => return false,
+        };
+        let picture_width = match &pixels {
+            Some((pixels, _)) => pixels.width() as f32,
+            None => reserved,
+        };
+        let left = match centred {
+            true => x + ((width - picture_width) / 2.0).max(0.0),
+            false => x,
+        };
+        let top = self.y;
+        if let Some((pixels, _)) = pixels {
+            self.push(
+                top..top + height,
+                Shape::Picture {
+                    x: left,
+                    y: top,
+                    pixels,
+                },
+            );
+        }
+        if let Some(tag) = loading {
+            self.loading.push(Loading {
+                rows: top..top + height,
+                x: left,
+                width: picture_width,
+                tag,
+            });
+        }
+        self.y += height;
+        true
+    }
+
+    /// Lays an image block out: the picture, or its alt text in the quote
+    /// colour where it is not drawn.
+    fn image(&mut self, image: &Image, x: f32, width: f32) {
+        let picture = self.pictures.image(image, (width, f32::MAX));
+        if self.place(picture, x, width, false) {
+            return;
+        }
+        let paragraph = self.paragraph(&image.alt, self.look.quote, width);
+        self.y += self.text(paragraph, x);
+    }
+
+    /// Lays a code block out, as the picture of a diagram or formula it is
+    /// drawn as, centred as the diagram's language says, or as code with
+    /// why it could not be drawn below it.
+    fn code_or_diagram(&mut self, language: Option<&str>, code: &str, x: f32, width: f32) {
+        let picture = match language {
+            Some(language) => self.pictures.diagram(language, code, (width, f32::MAX)),
+            None => Picture::None,
+        };
+        let centred = language.is_some_and(crate::diagrams::centred);
+        let failed = match &picture {
+            Picture::Failed(message) => message.clone(),
+            _ => None,
+        };
+        if self.place(picture, x, width, centred) {
+            return;
+        }
+        self.code(language, code, x, width);
+        if let Some(message) = failed {
+            self.y += 0.5 * self.look.size;
+            let style = text::Look {
+                size: self.look.size,
+                line_height: LINE_HEIGHT,
+                color: self.look.error,
+                ..text::Look::PLAIN
+            };
+            let paragraph = text::lay_out(self.fonts, &[Run::new(&message)], &style, width);
+            self.y += self.text(paragraph, x);
+        }
     }
 
     /// Lays `blocks` out one below another from the current top.
@@ -859,18 +1051,7 @@ impl Flow<'_> {
                 self.y += gap;
             }
             let top = self.y;
-            let mut inner = Flow {
-                fonts: self.fonts,
-                look: self.look,
-                highlight: self.highlight,
-                area: self.area,
-                row: self.row,
-                wide: self.wide,
-                items: Vec::new(),
-                bands: Vec::new(),
-                y: top,
-                margin: None,
-            };
+            let mut inner = self.child(self.look, top);
             for block in &item.blocks {
                 // A tight item's blocks follow one another without
                 // margins, as a nested list follows its item's text.
@@ -887,9 +1068,9 @@ impl Flow<'_> {
                     _ => None,
                 })
                 .unwrap_or(top + size);
-            self.items.append(&mut inner.items);
-            self.bands.append(&mut inner.bands);
-            self.y = inner.y.max(top + LINE_HEIGHT * size);
+            let bottom = inner.y;
+            self.take(&mut inner);
+            self.y = bottom.max(top + LINE_HEIGHT * size);
             let marker_right = x + indent - MARKER_GAP * size;
             match item.checked {
                 Some(checked) => {
@@ -1175,6 +1356,7 @@ const PLAIN: Look = Look {
     label: None,
     table_border: [0; 3],
     stripe: None,
+    error: [0; 3],
 };
 
 #[cfg(test)]
@@ -1204,16 +1386,14 @@ mod tests {
         label: Some([0x80; 3]),
         table_border: [0x3d, 0x44, 0x4d],
         stripe: Some([0x15, 0x1b, 0x23]),
+        error: [0xf8, 0x51, 0x49],
     };
 
     fn page(markdown: &str) -> Page {
         let document = parse(markdown);
         let blocks: Vec<&Block> = document.blocks.iter().collect();
-        assert!(
-            blocks.iter().all(|block| lays_out(block, &|_, _| false)),
-            "{blocks:?}"
-        );
-        lay_out(&blocks, &LOOK, &Fonts::fixture(), &Plain, FRAME)
+        assert!(blocks.iter().all(|block| lays_out(block)), "{blocks:?}");
+        lay_out(&blocks, &LOOK, &Fonts::fixture(), (&Plain, &Plain), FRAME)
     }
 
     /// The texts laid out on the page, each with its left edge, its first
@@ -1465,7 +1645,7 @@ mod tests {
             wide: Wide::Scroll,
             ..FRAME
         };
-        lay_out(&blocks, &LOOK, &Fonts::fixture(), &Plain, frame)
+        lay_out(&blocks, &LOOK, &Fonts::fixture(), (&Plain, &Plain), frame)
     }
 
     #[test]
@@ -1528,7 +1708,7 @@ mod tests {
             area,
             ..FRAME
         };
-        lay_out(&blocks, &LOOK, &Fonts::fixture(), &Plain, frame)
+        lay_out(&blocks, &LOOK, &Fonts::fixture(), (&Plain, &Plain), frame)
     }
 
     #[test]
@@ -1734,7 +1914,7 @@ mod tests {
         };
         let document = parse("- [x] done\n");
         let blocks: Vec<&Block> = document.blocks.iter().collect();
-        let page = lay_out(&blocks, &light, &Fonts::fixture(), &Plain, FRAME);
+        let page = lay_out(&blocks, &light, &Fonts::fixture(), (&Plain, &Plain), FRAME);
         let image = page.draw(0, 40, 24);
         // The box is 13 pixels square, its right edge 8 pixels before the
         // text at 32: the tick is as dark as the box is light.
@@ -1749,21 +1929,195 @@ mod tests {
     }
 
     #[test]
-    fn drawn_diagrams_and_lone_images_are_left_out() {
-        let drawn = |language: &str, _: &str| language == "mermaid";
-        let left_out = "```mermaid\ngraph\n```\n\n![x](x.png)\n\n\
-            - a\n\n  ```mermaid\n  graph\n  ```\n";
-        let document = parse(left_out);
-        assert!(document.blocks.iter().all(|block| !lays_out(block, &drawn)));
-        let laid_out = parse(
-            "```\ncode\n```\n\n```mermaid\ngraph\n```\n\n| a |\n|---|\n\n- a\n\n      code\n",
+    fn images_and_diagrams_are_laid_out_and_alerts_are_not_yet() {
+        let document = parse(
+            "![x](x.png)\n\n```mermaid\ngraph\n```\n\n- ![y](y.png)\n\n  ```math\n  x\n  ```\n\n> quote\n",
         );
-        assert!(
-            laid_out
-                .blocks
-                .iter()
-                .all(|block| lays_out(block, &|_, _| false))
+        assert!(document.blocks.iter().all(lays_out));
+        let alert = parse("> [!NOTE]\n> A note.\n");
+        assert!(!alert.blocks.iter().any(lays_out));
+    }
+
+    /// The pictures a test gives: an image of `size` pixels in the colour
+    /// `colour`, or what else `picture` says.
+    struct Given {
+        image: fn(&Image) -> Picture,
+        diagram: fn(&str) -> Picture,
+    }
+
+    impl Pictures for Given {
+        fn image(&self, image: &Image, _: (f32, f32)) -> Picture {
+            (self.image)(image)
+        }
+
+        fn diagram(&self, language: &str, _: &str, _: (f32, f32)) -> Picture {
+            (self.diagram)(language)
+        }
+    }
+
+    /// A picture of `width` × `height` pixels in `colour`.
+    fn solid(width: u32, height: u32, colour: [u8; 3], id: u64) -> Picture {
+        let pixels = RgbaImage::from_pixel(
+            width,
+            height,
+            image::Rgba([colour[0], colour[1], colour[2], 255]),
         );
+        Picture::Ready {
+            pixels: Rc::new(pixels),
+            id,
+            loading: None,
+        }
+    }
+
+    fn with_pictures(markdown: &str, given: &Given) -> Page {
+        let document = parse(markdown);
+        let blocks: Vec<&Block> = document.blocks.iter().collect();
+        lay_out(&blocks, &LOOK, &Fonts::fixture(), (&Plain, given), FRAME)
+    }
+
+    const NOTHING: Given = Given {
+        image: |_| Picture::None,
+        diagram: |_| Picture::None,
+    };
+
+    /// The pictures on `page`: left edge, top and size.
+    fn pictures(page: &Page) -> Vec<(f32, f32, u32, u32)> {
+        (page.items.iter())
+            .filter_map(|item| match &item.shape {
+                Shape::Picture { x, y, pixels } => Some((*x, *y, pixels.width(), pixels.height())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_image_block_is_a_picture_at_its_size_at_the_left_of_the_column() {
+        let given = Given {
+            image: |_| solid(100, 50, [255, 0, 0], 7),
+            ..NOTHING
+        };
+        let page = with_pictures("Before.\n\n![alt](x.png)\n\nAfter.\n", &given);
+        assert_eq!(pictures(&page), [(0.0, 40.0, 100, 50)]);
+        let [before, image, after] = &page.blocks[..] else {
+            panic!("three blocks: {:?}", page.blocks);
+        };
+        // A paragraph's margin of 16 above and below, as for any block.
+        assert_eq!(image.rows, 40.0..90.0);
+        assert_eq!(after.rows.start - image.rows.end, 16.0);
+        assert_eq!(before.rows.end, 24.0);
+        assert_eq!(page.pictures, [7]);
+    }
+
+    #[test]
+    fn an_image_that_is_not_drawn_is_its_alt_text() {
+        let page = with_pictures("![the alt text](x.png)\n", &NOTHING);
+        assert!(pictures(&page).is_empty());
+        let texts = texts(&page);
+        assert_eq!(texts[0].0, "the alt text");
+        // In the quote colour, as a muted note.
+        let colour = (page.items.iter()).find_map(|item| match &item.shape {
+            Shape::Text { paragraph, .. } => Some(paragraph.look.color),
+            _ => None,
+        });
+        assert_eq!(colour, Some(LOOK.quote));
+        assert!(page.pictures.is_empty());
+    }
+
+    #[test]
+    fn a_picture_still_loading_keeps_its_room_and_says_where_it_is() {
+        let given = Given {
+            image: |_| Picture::Loading {
+                width: 10,
+                height: 60,
+                tag: 3,
+            },
+            ..NOTHING
+        };
+        let page = with_pictures("![alt](x.png)\n\nAfter.\n", &given);
+        assert_eq!(page.blocks[0].rows, 0.0..60.0);
+        assert_eq!(
+            page.loading,
+            [Loading {
+                rows: 0.0..60.0,
+                x: 0.0,
+                width: 10.0,
+                tag: 3
+            }]
+        );
+        assert!(pictures(&page).is_empty());
+    }
+
+    #[test]
+    fn the_old_image_stands_in_while_a_new_one_loads() {
+        let given = Given {
+            image: |_| match solid(40, 30, [0, 0, 255], 9) {
+                Picture::Ready { pixels, id, .. } => Picture::Ready {
+                    pixels,
+                    id,
+                    loading: Some(5),
+                },
+                other => other,
+            },
+            ..NOTHING
+        };
+        let page = with_pictures("![alt](x.png)\n", &given);
+        assert_eq!(pictures(&page), [(0.0, 0.0, 40, 30)]);
+        assert_eq!(page.loading.len(), 1);
+        assert_eq!(page.loading[0].tag, 5);
+        assert_eq!((page.loading[0].x, page.loading[0].width), (0.0, 40.0));
+    }
+
+    #[test]
+    fn a_formula_is_centred_in_the_column_and_a_diagram_is_not() {
+        let given = Given {
+            diagram: |_| solid(100, 40, [0, 255, 0], 1),
+            ..NOTHING
+        };
+        let page = with_pictures("```math\nx\n```\n\n```mermaid\ngraph\n```\n", &given);
+        let [(formula, ..), (diagram, ..)] = pictures(&page)[..] else {
+            panic!("two pictures: {:?}", pictures(&page));
+        };
+        assert_eq!(formula, (672.0 - 100.0) / 2.0);
+        assert_eq!(diagram, 0.0);
+    }
+
+    #[test]
+    fn a_diagram_that_failed_is_its_code_with_why_below_it_in_the_error_colour() {
+        let given = Given {
+            diagram: |_| Picture::Failed(Some("✗ Mermaid diagram could not be drawn: why".into())),
+            ..NOTHING
+        };
+        let page = with_pictures("```mermaid\ngraph\n```\n", &given);
+        assert_eq!(code_blocks(&page).len(), 1);
+        let (_, _, code_height) = code_blocks(&page)[0];
+        let message = (page.items.iter()).find_map(|item| match &item.shape {
+            Shape::Text { paragraph, y, .. } if paragraph.text().starts_with('✗') => {
+                Some((*y, paragraph.look.color))
+            }
+            _ => None,
+        });
+        let (y, colour) = message.expect("the reason");
+        assert_eq!(colour, LOOK.error);
+        assert!(y >= code_height, "{y} below code of {code_height}");
+        // Without a reason to tell, the code alone.
+        let quiet = Given {
+            diagram: |_| Picture::Failed(None),
+            ..NOTHING
+        };
+        let page = with_pictures("```mermaid\ngraph\n```\n", &quiet);
+        assert_eq!(code_blocks(&page).len(), 1);
+        assert!(texts(&page).iter().all(|(text, ..)| !text.starts_with('✗')));
+    }
+
+    #[test]
+    fn a_picture_in_a_list_item_is_in_the_item_s_width() {
+        let given = Given {
+            diagram: |_| solid(100, 40, [0, 255, 0], 1),
+            ..NOTHING
+        };
+        let page = with_pictures("- item\n\n  ```math\n  x\n  ```\n", &given);
+        // The item starts 32 pixels in and is 640 wide: centred there.
+        assert_eq!(pictures(&page)[0].0, 32.0 + (640.0 - 100.0) / 2.0);
     }
 
     /// The left edge, width and height of each code block's background.

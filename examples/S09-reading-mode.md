@@ -26,10 +26,11 @@ headings, paragraphs, lists and quotes are in the system's sans-serif font
 at about four fifths of a row's height, in a column 42 times that wide at
 most, at the left of an area half as wide again in the middle of the
 window. Code blocks and tables are drawn too, and may reach across the
-area. The front matter above, the alert and the image stay as they are
-without reading mode, between the parts in the proportional font, at the
-text's left edge and no wider than its column. The text cannot be
-selected or copied, as it is drawn as images.
+area, and so are images, diagrams and formulas, in the column. The front
+matter above and the alert stay as they are without reading mode,
+between the parts in the proportional font, at the text's left edge and
+no wider than its column. The text cannot be selected or copied, as it is
+drawn as images.
 
 ## Text
 
@@ -178,17 +179,40 @@ end, only on the left. A code band's language stays in its top right
 corner as the code scrolls under it. `W` again wraps them, and the same
 block stays at the top of the window.
 
+## Images, diagrams and formulas
+
+An image is in the page at its natural size, as in a browser, at the
+text's left edge, and shrunk to the column when it is wider: below, the
+test pattern is 32 characters wide, about 320 pixels. One CSS pixel is
+one pixel of the page at the usual row, and grows with the text at a
+taller cell:
+
+![Test pattern](S06b-pattern.png)
+
+A formula is in the middle of the column, in the colour of the text, and
+a diagram at the left, as without reading mode:
+
+```math
+\frac{n(n+1)}{2}
+```
+
+```mermaid
+flowchart LR
+    Write[Write a document] --> Render[Render it]
+    Render --> Look([Look at it])
+```
+
+An image that cannot be shown, such as the missing one in
+[S06a-images.md](S06a-images.md), shows its alt text in grey where it
+would be.
+
 ## Between the text
 
-An alert, an image and the front matter show as they do without reading
-mode, but at the text's left edge rather than the window's margin, and no
-wider than the text's column: only code blocks and tables reach into the
-area. A formula is centred in the column, and a wide image or diagram
-shrinks to it:
+An alert and the front matter show as they do without reading mode, but
+at the text's left edge rather than the window's margin, and no wider
+than the text's column: only code blocks and tables reach into the area:
 
 > [!NOTE]
 > A note: blue, with an icon and the bold title "Note".
-
-![Test pattern](S06b-pattern.png)
 
 And the text goes on below them in the proportional font.

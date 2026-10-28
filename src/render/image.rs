@@ -80,15 +80,58 @@ pub fn size(
     max_columns: u16,
     max_rows: u16,
 ) -> Option<Size> {
+    if max_columns == 0 || max_rows == 0 || cell.0 == 0 || cell.1 == 0 {
+        return None;
+    }
+    let max_width = f64::from(max_columns) * f64::from(cell.0);
+    let shown = wanted_size(natural, wanted, cell, max_width)?;
+    shrink_to(shown, cell, max_columns, max_rows)
+}
+
+/// The size in whole pixels of an image of `natural` CSS pixels, or of the
+/// size `wanted` for it, as `size` gives it, but in a room `max_width` and
+/// `max_height` pixels large, which need not be whole cells. A percentage
+/// width is of `max_width`.
+pub fn pixel_size(
+    natural: (u32, u32),
+    wanted: Wanted,
+    cell: (u16, u16),
+    (max_width, max_height): (f64, f64),
+) -> Option<(u32, u32)> {
+    if max_width < 1.0 || max_height < 1.0 || cell.0 == 0 || cell.1 == 0 {
+        return None;
+    }
+    let (mut width, mut height) = wanted_size(natural, wanted, cell, max_width)?;
+    if width > max_width {
+        height *= max_width / width;
+        width = max_width;
+    }
+    if height > max_height {
+        width *= max_height / height;
+        height = max_height;
+    }
+    Some((
+        (width.round() as u32).max(1),
+        (height.round() as u32).max(1),
+    ))
+}
+
+/// The size in terminal pixels that `wanted` gives an image of `natural`
+/// CSS pixels, before it is shrunk to the room; `None` for an image
+/// without pixels. A percentage width is of `max_width`.
+fn wanted_size(
+    natural: (u32, u32),
+    wanted: Wanted,
+    cell: (u16, u16),
+    max_width: f64,
+) -> Option<(f64, f64)> {
     if natural.0 == 0 || natural.1 == 0 {
         return None;
     }
     let css = f64::from(cell.1) / CSS_PIXELS_PER_ROW;
     let pixels = |length| match length {
         Length::Pixels(pixels) => f64::from(pixels) * css,
-        Length::Percent(percent) => {
-            f64::from(max_columns) * f64::from(cell.0) * f64::from(percent) / 100.0
-        }
+        Length::Percent(percent) => max_width * f64::from(percent) / 100.0,
     };
     let (natural_width, natural_height) = (f64::from(natural.0) * css, f64::from(natural.1) * css);
     let width = wanted.width.map(pixels);
@@ -98,13 +141,12 @@ pub fn size(
         Some(Length::Percent(_)) => None,
         height => height.map(pixels),
     };
-    let (width, height) = match (width, height) {
+    Some(match (width, height) {
         (Some(width), Some(height)) => (width, height),
         (Some(width), None) => (width, width * natural_height / natural_width),
         (None, Some(height)) => (height * natural_width / natural_height, height),
         (None, None) => (natural_width, natural_height),
-    };
-    shrink_to((width, height), cell, max_columns, max_rows)
+    })
 }
 
 /// `size`, for an image whose natural size is in `unit`.
@@ -316,6 +358,40 @@ mod tests {
             size((10000, 1), NATURAL, CELL, 44, 100),
             size_of(440, 1, 44, 1)
         );
+    }
+
+    #[test]
+    fn pixel_sizes_are_those_of_cells_in_a_room_of_any_width() {
+        // In a whole number of cells, the same as `size`.
+        assert_eq!(
+            pixel_size((1600, 200), NATURAL, CELL, (440.0, 5940.0)),
+            Some((440, 55))
+        );
+        // In a room that is not, the image fills it exactly.
+        assert_eq!(
+            pixel_size((1600, 200), NATURAL, CELL, (672.0, 5940.0)),
+            Some((672, 84))
+        );
+        // A small image keeps its size, and a tall one is cut to the height.
+        assert_eq!(
+            pixel_size((16, 16), NATURAL, CELL, (672.0, 5940.0)),
+            Some((16, 16))
+        );
+        assert_eq!(
+            pixel_size((200, 800), NATURAL, CELL, (672.0, 200.0)),
+            Some((50, 200))
+        );
+        // A percentage is of the room.
+        let half = Wanted {
+            width: Some(Length::Percent(50)),
+            height: None,
+        };
+        assert_eq!(
+            pixel_size((100, 50), half, CELL, (672.0, 5940.0)),
+            Some((336, 168))
+        );
+        assert_eq!(pixel_size((0, 50), NATURAL, CELL, (672.0, 5940.0)), None);
+        assert_eq!(pixel_size((10, 10), NATURAL, CELL, (0.0, 5940.0)), None);
     }
 
     #[test]

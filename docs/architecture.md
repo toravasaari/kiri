@@ -214,9 +214,17 @@ image rows, as a large image's are, of parts 30 rows tall that the encoder
 draws when a line first shows them, so the pager draws only the parts in
 view. The rows keep their blocks, so the pager keeps its place across a
 resize, and the row a block starts on carries the block's text for a
-search. The other blocks, such as images and alerts, are laid out as
-text between the pages, from the area's left edge and as wide as the
-text's column: only code blocks and tables reach into the area. A code
+search. Images, diagrams and formulas are in the page at their natural
+size in CSS pixels, shrunk to the column, a formula in the middle of it;
+the page gets them through `Pictures`, which `src/render/reading.rs`
+writes over the loaded images, as it gets code's colours through
+`Highlight`, so `src/reading/` knows nothing of the loader. A picture
+that has not come reserves room, with a loading band over the last row of
+it as in the text layout, and one a reload replaces shows the old
+pixels dimmed; the page's id covers the pixels of its pictures, so a
+picture that came is a new page. The other blocks, such as alerts, are
+laid out as text between the pages, from the area's left edge and as
+wide as the text's column: only code blocks and tables reach into the area. A code
 block or table wider than the area wraps to fit it, or, with `--wide
 scroll` in the pager, or after `W` there, becomes a band on whole rows of
 its own, which keeps its lines and words whole and scrolls sideways under

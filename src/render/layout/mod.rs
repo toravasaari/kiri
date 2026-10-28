@@ -83,7 +83,7 @@ fn settle_bands(lines: &mut [Line]) {
         });
         let at = if blank { index + 1 } else { index };
         lines[at].band = Some(Band {
-            indent,
+            indent: indent + band.indent,
             low: !blank,
             above: band.above + usize::from(blank),
             ..band
@@ -352,9 +352,7 @@ impl Layout<'_> {
             None => (margin, width - 2 * margin),
         };
         for (index, block) in blocks.iter().enumerate() {
-            if self.reading.is_some()
-                && page::lays_out(block, &|language, code| self.drawn(language, code))
-            {
+            if self.reading.is_some() && page::lays_out(block) {
                 run.push((index, block));
                 continue;
             }
@@ -418,9 +416,9 @@ impl Layout<'_> {
                 &self.code_colors(),
                 self.table_rows != TableRows::Off,
             ),
+            (self.images, self.render_errors.inline(), self.document),
             self.caps,
             window,
-            self.document,
         );
         append_block(lines, page, true);
     }
@@ -848,14 +846,6 @@ impl Layout<'_> {
         };
         let key = ImageKey::from(lone.url.as_str()).in_document(self.document);
         self.placed(key, wanted, width, Align::Left)
-    }
-
-    /// Whether the code block `code` in `language` is a diagram or
-    /// formula that is drawn, failed to draw or is loading: one that the
-    /// text layout shows as an image, or as its code with why.
-    fn drawn(&self, language: &str, code: &str) -> bool {
-        let key = ImageKey::block(language, code).in_document(self.document);
-        self.images.get(&key).is_some() || self.images.placeholder(&key).is_some()
     }
 
     /// A code block drawn as a diagram, when it was.

@@ -5,7 +5,7 @@
 
 use image::RgbaImage;
 use resvg::tiny_skia::{
-    BlendMode, Color, FillRule, GradientStop, LinearGradient, Paint, PathBuilder, Pixmap,
+    self, BlendMode, Color, FillRule, GradientStop, LinearGradient, Paint, PathBuilder, Pixmap,
     PixmapPaint, Point, Rect, SpreadMode, Transform,
 };
 use skrifa::instance::{LocationRef, NormalizedCoord, Size};
@@ -142,6 +142,36 @@ impl Canvas {
         }
     }
 
+    /// Draws `image` with its top left at (`x`, `y`) rounded to whole
+    /// pixels, as far as it reaches the canvas.
+    pub fn picture(&mut self, image: &RgbaImage, x: f32, y: f32) {
+        let (left, top) = (x.round() as i64, y.round() as i64);
+        let (width, height) = (i64::from(image.width()), i64::from(image.height()));
+        // The rows of the image that are on the canvas.
+        let from = (-top).clamp(0, height);
+        let to = (i64::from(self.pixmap.height()) - top).clamp(0, height);
+        if from >= to || left >= i64::from(self.pixmap.width()) || left + width <= 0 {
+            return;
+        }
+        let data: Vec<u8> = (image.rows().skip(from as usize).take((to - from) as usize))
+            .flat_map(|row| row.flat_map(|pixel| premultiplied(pixel.0)))
+            .collect();
+        let Some(size) = tiny_skia::IntSize::from_wh(width as u32, (to - from) as u32) else {
+            return;
+        };
+        let Some(pixmap) = Pixmap::from_vec(data, size) else {
+            return;
+        };
+        self.pixmap.draw_pixmap(
+            left as i32,
+            (top + from) as i32,
+            pixmap.as_ref(),
+            &PixmapPaint::default(),
+            Transform::identity(),
+            None,
+        );
+    }
+
     /// Fills a rectangle.
     pub fn rect(&mut self, x: f32, y: f32, width: f32, height: f32, color: Brush) {
         if let Some(rect) = Rect::from_xywh(x, y, width, height) {
@@ -266,6 +296,13 @@ impl Canvas {
             .collect();
         RgbaImage::from_raw(width, height, pixels).expect("as many pixels as the canvas has")
     }
+}
+
+/// `pixel`, red, green, blue and alpha, with its colours multiplied by its
+/// alpha, as tiny-skia holds pixels.
+fn premultiplied([red, green, blue, alpha]: [u8; 4]) -> [u8; 4] {
+    let scale = |channel: u8| ((u16::from(channel) * u16::from(alpha) + 127) / 255) as u8;
+    [scale(red), scale(green), scale(blue), alpha]
 }
 
 fn paint(color: Brush, alpha: u8) -> Paint<'static> {
@@ -410,6 +447,47 @@ mod tests {
             .filter(|pixel| pixel.0[0] > 200 && pixel.0[1] > 150 && pixel.0[2] < 100)
             .count();
         assert!(yellow > 50, "{yellow} yellow pixels");
+    }
+
+    fn red(width: u32, height: u32, alpha: u8) -> RgbaImage {
+        RgbaImage::from_pixel(width, height, image::Rgba([200, 0, 0, alpha]))
+    }
+
+    #[test]
+    fn a_picture_is_drawn_where_it_is_and_cut_at_the_canvas() {
+        let mut canvas = Canvas::new(10, 10);
+        canvas.picture(&red(4, 4, 255), 2.0, 3.0);
+        let image = canvas.into_image();
+        assert_eq!(image.get_pixel(2, 3).0, [200, 0, 0, 255]);
+        assert_eq!(image.get_pixel(5, 6).0, [200, 0, 0, 255]);
+        assert_eq!(image.get_pixel(6, 6).0[3], 0);
+        assert_eq!(image.get_pixel(1, 3).0[3], 0);
+        assert_eq!(image.get_pixel(2, 2).0[3], 0);
+        // Reaching past the top, the left and the bottom edges.
+        let mut canvas = Canvas::new(10, 10);
+        canvas.picture(&red(4, 4, 255), -2.0, -3.0);
+        canvas.picture(&red(4, 4, 255), 8.0, 8.0);
+        let image = canvas.into_image();
+        assert_eq!(image.get_pixel(0, 0).0, [200, 0, 0, 255]);
+        assert_eq!(image.get_pixel(1, 0).0, [200, 0, 0, 255]);
+        assert_eq!(image.get_pixel(2, 0).0[3], 0);
+        assert_eq!(image.get_pixel(0, 1).0[3], 0);
+        assert_eq!(image.get_pixel(9, 9).0, [200, 0, 0, 255]);
+        // Wholly off the canvas: nothing, and no trouble.
+        let mut canvas = Canvas::new(10, 10);
+        canvas.picture(&red(4, 4, 255), 20.0, 0.0);
+        canvas.picture(&red(4, 4, 255), 0.0, -20.0);
+        canvas.picture(&red(4, 4, 255), -20.0, 0.0);
+        assert!(canvas.into_image().pixels().all(|pixel| pixel.0[3] == 0));
+    }
+
+    #[test]
+    fn a_translucent_picture_keeps_its_colour_and_its_alpha() {
+        let mut canvas = Canvas::new(4, 4);
+        canvas.picture(&red(2, 2, 128), 0.0, 0.0);
+        let pixel = canvas.into_image().get_pixel(0, 0).0;
+        assert_eq!(pixel[3], 128);
+        assert!(pixel[0].abs_diff(200) <= 2, "{pixel:?}");
     }
 
     /// The rows of `image` that have ink, first and last.
