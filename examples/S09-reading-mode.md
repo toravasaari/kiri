@@ -173,14 +173,32 @@ bar under it, and fades out on each edge that has more beyond it: at
 first only on the right. Printing always wraps.
 
 One band is selected, the topmost on the screen, and its scroll bar is
-brighter and thicker. Tab selects the next band on the screen and
-Shift+Tab the one before; a click selects the band under it. ← and →
+brighter and thicker. A click selects the band under it, and so does a
+search that finds something in another (see below). ← and →
 scroll the selected band a little, `H` and `L` by most of its width, and
 the sideways wheel, or the wheel with Shift, scrolls the band under the
 pointer. Scrolled to the middle, a band fades out on both edges; at its
 end, only on the left. A code band's language stays in its top right
 corner as the code scrolls under it. `W` again wraps them, and the same
 block stays at the top of the window.
+
+## Search and links
+
+In the pager, `/` searches the text of a page as it does in the text
+layout: the matches are boxes in the theme's match colours with the text
+drawn over them, the current match in its own colours, and where the theme
+gives none, in reverse, a box in the text's colour. `n` and `N` move
+between them and the status line counts them. Search for `band` here: it
+is in this paragraph, in the table above and in the code at the top, and
+a match in a band that is scrolled out of sight scrolls it into sight and
+selects it.
+
+The links in a page are links for kitty, as in the text layout, so it
+opens one as it does there: [a link to the examples](https://example.com/),
+and [one broken over the end of a line, with a long text that wraps onto
+the next line](https://example.org/). Tab selects the first link on the
+screen, and again the next, Shift+Tab the one before: the selected link has
+a box round it and the status line says where it goes. Escape lets it go.
 
 ## Images, diagrams and formulas
 

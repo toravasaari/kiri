@@ -435,3 +435,31 @@ fn a_link_in_a_page_is_a_hyperlink_over_its_placeholders_in_the_frame() {
     assert!(linked.contains('\u{10EEEE}'), "{linked:?}");
     assert!(linked.matches('\u{10EEEE}').count() < 10, "{linked:?}");
 }
+
+#[test]
+fn tab_selects_a_link_with_a_box_and_its_url_on_the_status_line_and_escape_lets_it_go() {
+    let document = crate::parse::parse(
+        "A [first](https://one.example/) and [second](https://two.example/) link.\n",
+    );
+    let frames = reading_frames(
+        &document,
+        crate::reading::page::Wide::Wrap,
+        &[b"\t", b"\t", b"\x1b[Z", b"\x1b", b""],
+    );
+    // The frame's own hyperlinks name the urls too; the status line is the
+    // last row, after the placeholders.
+    let told = |frame: &String| {
+        let bar = frame.rsplit("\x1b[10;1H").next().unwrap_or("");
+        ["https://one.example/", "https://two.example/"]
+            .iter()
+            .find(|url| bar.contains(**url))
+            .map(|url| url.to_string())
+    };
+    assert_eq!(told(&frames[0]), None);
+    assert_eq!(told(&frames[1]).as_deref(), Some("https://one.example/"));
+    assert_eq!(told(&frames[2]).as_deref(), Some("https://two.example/"));
+    assert_eq!(told(&frames[3]).as_deref(), Some("https://one.example/"));
+    assert_eq!(told(&frames[4]), None);
+    // The selection is a box in the page's image: another image is sent.
+    assert!(sends(&frames[1]) >= 1, "{:?}", frames[1]);
+}

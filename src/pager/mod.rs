@@ -7,6 +7,7 @@ pub mod fade;
 pub mod files;
 pub mod help;
 pub mod keys;
+mod links;
 pub mod loading;
 pub mod prompt;
 pub mod search;
@@ -714,9 +715,8 @@ impl Status<'_> {
         &self,
         view: &View,
         state: &State,
-        fade: Option<Fade>,
-        out: Option<Fade>,
-        counted: Option<Fade>,
+        (fade, out, counted): (Option<Fade>, Option<Fade>, Option<Fade>),
+        link: Option<&str>,
     ) -> Vec<Span> {
         if !self.bar {
             return Vec::new();
@@ -730,7 +730,7 @@ impl Status<'_> {
                     .filter(|_| state.jumped.is_some_and(|jump| jump.around))
                     .map(|fade| self.styles.number(fade));
                 let fading = out.and_then(|out| self.styles.fading(out));
-                let found = state.found(flash, fading);
+                let found = state.found(flash, fading, link);
                 let file = state.file(&self.files, view.top());
                 let name = file.map_or(self.name, |file| self.files.name(file));
                 let name = self.loading.as_deref().unwrap_or(name);
@@ -878,6 +878,8 @@ struct State {
     prompt: Option<Prompt>,
     /// The last search.
     search: Option<Search>,
+    /// The selected link.
+    links: links::Links,
     /// Whether a jump to a match scrolled or selected a band, which is
     /// shown anew once the key is done.
     bands_moved: bool,
@@ -1058,6 +1060,7 @@ impl State {
             help: false,
             prompt: None,
             search: None,
+            links: links::Links::default(),
             bands_moved: false,
             shown: false,
             nowhere: false,
@@ -1192,7 +1195,10 @@ impl State {
             }
             Some(Action::Next) => self.step(Search::forward, now, layout),
             Some(Action::Previous) => self.step(Search::backward, now, layout),
-            Some(Action::Clear) => self.shown = false,
+            Some(Action::Clear) => {
+                self.shown = false;
+                self.links.clear();
+            }
             Some(Action::NextFile) => {
                 let files = layout.status.files;
                 if let Some(file) = self.file(&files, layout.view.top()) {
@@ -1222,12 +1228,10 @@ impl State {
                     return Pressed::Bands;
                 }
             }
-            Some(Action::SelectBand) => {
+            Some(Action::SelectLink) => {
                 let visible = layout.view.visible();
                 let back = key == Key::BackTab;
-                if (self.bands).select_next(layout.lines, layout.places, visible, back) {
-                    return Pressed::Bands;
-                }
+                (self.links).select_next(layout.lines, layout.places, visible, back);
             }
             None => {}
         }
@@ -1410,6 +1414,7 @@ impl State {
         marks: &Marks,
         fade: Option<Fade>,
         tint: Option<Tint>,
+        link: Option<(usize, usize)>,
     ) -> Vec<Line> {
         let search = self.search.as_ref().filter(|_| self.shown);
         let mut marked: Vec<Line> = (first..)
@@ -1429,13 +1434,14 @@ impl State {
                 }
             })
             .collect();
-        // The matches in a page of reading mode are drawn into its image.
-        if let Some(search) = search {
-            for page in crate::render::reading::pages(&marked) {
-                let marks = search.in_page(std::rc::Rc::as_ptr(&page.parts) as usize);
-                if let Some(overlay) = page.parts.overlay(marks, None) {
-                    crate::render::reading::set_overlay(&mut marked[page.lines], Some(&overlay));
-                }
+        // The matches in a page of reading mode and the selected link are
+        // drawn into its image.
+        for page in crate::render::reading::pages(&marked) {
+            let address = std::rc::Rc::as_ptr(&page.parts) as usize;
+            let marks = search.map_or_else(Vec::new, |search| search.in_page(address));
+            let link = link.filter(|link| link.0 == address).map(|link| link.1);
+            if let Some(overlay) = page.parts.overlay(marks, link) {
+                crate::render::reading::set_overlay(&mut marked[page.lines], Some(&overlay));
             }
         }
         marked
@@ -1444,11 +1450,23 @@ impl State {
     /// What the status line tells about the last key, in `fading` when
     /// it is given, or else about the last search, with the match number
     /// in `flash` when it is given.
-    fn found(&self, flash: Option<Style>, fading: Option<Style>) -> Option<status::Found<'_>> {
+    fn found<'a>(
+        &'a self,
+        flash: Option<Style>,
+        fading: Option<Style>,
+        link: Option<&'a str>,
+    ) -> Option<status::Found<'a>> {
         if let Some(told) = &self.told {
             return Some(status::Found::Told {
                 message: &told.message,
                 fading,
+            });
+        }
+        // Where the selected link goes.
+        if let Some(url) = link {
+            return Some(status::Found::Told {
+                message: url,
+                fading: None,
             });
         }
         let search = self.search.as_ref()?;
@@ -1515,6 +1533,7 @@ impl Layout<'_> {
         let visible = self.view.visible();
         let fade = state.fade(now, self.rgb);
         let out = state.fade_out(now, self.rgb);
+        let link = state.links.selected(self.lines, self.places);
         Frame {
             lines: state.marked(
                 &self.lines[visible.clone()],
@@ -1522,10 +1541,14 @@ impl Layout<'_> {
                 self.marks,
                 fade,
                 self.rgb.and_then(|rgb| state.tint(now, rgb, self.columns)),
+                link.as_ref().map(|link| link.link),
             ),
-            status: self
-                .status
-                .spans(self.view, state, fade, out, state.count_fade(now, self.rgb)),
+            status: self.status.spans(
+                self.view,
+                state,
+                (fade, out, state.count_fade(now, self.rgb)),
+                link.as_ref().map(|link| link.url.as_str()),
+            ),
             panel: self.status.panel(self.view, state.help),
             notice: self.status.notice(self.view, state, now, self.rgb),
         }

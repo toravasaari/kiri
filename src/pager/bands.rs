@@ -1,5 +1,6 @@
 //! Reading mode's bands in the pager: code blocks and tables that scroll
-//! sideways, how far each is scrolled, and which one is selected.
+//! sideways, how far each is scrolled, and which one is selected: the
+//! topmost on the screen, or the one a click or a search selects.
 
 use std::ops::Range;
 
@@ -58,34 +59,6 @@ impl Bands {
         let topmost = shown.into_iter().next();
         let changed = topmost != self.selected;
         self.selected = topmost;
-        changed
-    }
-
-    /// Selects the next band in `visible`, or the one before it when
-    /// `back`; true when that changed the selection.
-    pub fn select_next(
-        &mut self,
-        lines: &[Line],
-        places: &[Option<BlockInfo>],
-        visible: Range<usize>,
-        back: bool,
-    ) -> bool {
-        let shown: Vec<BandId> = (identify(lines, places).into_iter())
-            .filter(|(_, band)| band.lines.start < visible.end && band.lines.end > visible.start)
-            .map(|(id, _)| id)
-            .collect();
-        if shown.is_empty() {
-            return false;
-        }
-        let at = (self.selected.as_ref()).and_then(|id| shown.iter().position(|shown| shown == id));
-        let next = match (at, back) {
-            (None, false) => 0,
-            (None, true) => shown.len() - 1,
-            (Some(at), false) => (at + 1) % shown.len(),
-            (Some(at), true) => (at + shown.len() - 1) % shown.len(),
-        };
-        let changed = self.selected.as_ref() != Some(&shown[next]);
-        self.selected = Some(shown[next].clone());
         changed
     }
 
@@ -303,23 +276,6 @@ mod tests {
         bands.apply(&mut lines, &places);
         assert_eq!(shown(&lines)[0].0, most);
         assert!(!bands.scroll(&lines, &places, Step::PageRight));
-    }
-
-    #[test]
-    fn tab_selects_the_next_band_on_the_screen_and_shift_tab_the_one_before() {
-        let (mut lines, places) = laid_out();
-        let mut bands = Bands::default();
-        let all = 0..lines.len();
-        bands.refresh(&lines, &places, all.clone());
-        assert!(bands.select_next(&lines, &places, all.clone(), false));
-        bands.apply(&mut lines, &places);
-        assert_eq!(shown(&lines), [(0, false), (0, true)]);
-        assert!(bands.select_next(&lines, &places, all.clone(), false));
-        bands.apply(&mut lines, &places);
-        assert_eq!(shown(&lines), [(0, true), (0, false)]);
-        assert!(bands.select_next(&lines, &places, all, true));
-        bands.apply(&mut lines, &places);
-        assert_eq!(shown(&lines), [(0, false), (0, true)]);
     }
 
     #[test]

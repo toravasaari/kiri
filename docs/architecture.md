@@ -249,7 +249,8 @@ language stays in its top right corner. Its rows show an image of their
 own, cut into slices of at most 30 rows as pages are, keyed by its slice,
 its offset and whether it is selected. The pager keeps those by the
 band's block in `src/pager/bands.rs`: the topmost band on the screen is
-selected until Tab, Shift+Tab or a click selects another, ← and → or `H`
+selected until a click, or a search that finds something in another,
+selects it, ← and → or `H`
 and `L` scroll it, and so does a sideways wheel, or the wheel with Shift,
 over a band, and the pager then shows the same lines with the band's rows
 keyed anew, without laying the document out again. Where the terminal
