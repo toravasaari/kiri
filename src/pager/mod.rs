@@ -1278,11 +1278,12 @@ impl State {
     fn find(&mut self, term: &str, now: Instant, layout: &mut Layout) {
         let search = Search::new(layout.lines, term, self.case, layout.view.top());
         self.jumped = None;
-        match search.current() {
-            Some(found) => self.jump(found.line, now, false, layout),
+        let line = search.current().map(|found| found.line);
+        self.search = Some(search);
+        match line {
+            Some(line) => self.jump(line, now, false, layout),
             None => self.nowhere = true,
         }
-        self.search = Some(search);
         self.shown = true;
     }
 

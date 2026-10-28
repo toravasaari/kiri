@@ -411,14 +411,21 @@ fn a_search_scrolls_a_band_to_its_match_and_draws_it_anew() {
         crate::reading::page::Wide::Scroll,
         &[b"/needle\r"],
     );
-    // The band is sent again scrolled, with the page marked.
-    let last = frames.last().unwrap();
-    assert!(
-        sends(last) >= 2,
-        "{} sends in {} frames",
-        sends(last),
-        frames.len()
-    );
+    // The band is sent again, scrolled to the match and with it marked: an
+    // image that the first frame did not send.
+    let ids = |frame: &str| -> Vec<String> {
+        frame
+            .split("\x1b_Ga=T,")
+            .skip(1)
+            .filter_map(|rest| rest.split(',').find_map(|part| part.strip_prefix("i=")))
+            .map(str::to_owned)
+            .collect()
+    };
+    let before = ids(&frames[0]);
+    let new: Vec<String> = (frames[1..].iter().flat_map(|frame| ids(frame)))
+        .filter(|id| !before.contains(id))
+        .collect();
+    assert!(!new.is_empty(), "{new:?} against {before:?}");
 }
 
 #[test]
