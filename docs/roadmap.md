@@ -1141,6 +1141,9 @@ go.
   back no longer change.
 - One or two empty rows after the end of a document in the pager, so
   that its last line of text does not touch the status line.
+- A menu on the right mouse button, as tmux has one: choices for the
+  place clicked, such as copying a code block or following a link. Inside
+  tmux, how it goes with tmux's own right-click menu.
 
 ## Bugs
 
