@@ -3,12 +3,15 @@
 //! out.
 
 use std::ops::Range;
+use std::rc::Rc;
+
+use image::RgbaImage;
 
 use parley::fontique::GenericFamily;
 use parley::{
     Affinity, Alignment, AlignmentOptions, Cursor, FontFamily, FontFamilyName, FontStyle,
-    FontWeight, Layout, LineHeight, OverflowWrap, Selection, StyleProperty, TextWrapMode,
-    WordBreak,
+    FontWeight, InlineBox, InlineBoxKind, Layout, LineHeight, OverflowWrap, Selection,
+    StyleProperty, TextWrapMode, VerticalAlign, WordBreak,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -73,7 +76,22 @@ pub enum Align {
     Right,
 }
 
-/// A piece of text in one style.
+/// A picture that stands in a line of text as a box, such as an image or a
+/// formula: its pixels, and an id of them, which is what two of them are
+/// the same by.
+#[derive(Debug, Clone)]
+pub struct InlinePicture {
+    pub pixels: Rc<RgbaImage>,
+    pub id: u64,
+}
+
+impl PartialEq for InlinePicture {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+/// A piece of text in one style, or a picture in its place.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Run {
     pub text: String,
@@ -86,12 +104,23 @@ pub struct Run {
     pub strike: bool,
     /// Its own colour, such as a link's.
     pub color: Option<Brush>,
+    /// A picture that stands here as a box on the line, sitting on its
+    /// baseline, which has no text.
+    pub picture: Option<InlinePicture>,
 }
 
 impl Run {
     pub fn new(text: &str) -> Self {
         Self {
             text: text.to_owned(),
+            ..Self::default()
+        }
+    }
+
+    /// A picture in a line.
+    pub fn picture(picture: InlinePicture) -> Self {
+        Self {
+            picture: Some(picture),
             ..Self::default()
         }
     }
@@ -124,6 +153,8 @@ pub struct Paragraph {
     text: String,
     /// The ranges of the text in inline code.
     code: Vec<Range<usize>>,
+    /// The pictures in the lines, by the number of their boxes.
+    pub(crate) pictures: Vec<InlinePicture>,
 }
 
 /// `runs` laid out in `fonts`, set as `look` says, in lines at most `width`
@@ -140,6 +171,7 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
         .filter(|(run, _)| run.code)
         .map(|(_, range)| range.clone())
         .collect();
+    let pictures: Vec<InlinePicture> = runs.iter().filter_map(|run| run.picture.clone()).collect();
     let layout = fonts.with(|contexts| {
         let mut builder = contexts
             .layout
@@ -159,6 +191,21 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
             look.line_height,
         )));
         builder.push_default(StyleProperty::Brush(look.color));
+        // The pictures stand in the lines as boxes on the baseline.
+        for (number, (picture, at)) in (runs.iter().zip(&ranges))
+            .filter_map(|(run, range)| Some((run.picture.as_ref()?, range.start)))
+            .enumerate()
+        {
+            builder.push_inline_box(InlineBox {
+                id: number as u64,
+                kind: InlineBoxKind::InFlow,
+                index: at,
+                width: picture.pixels.width() as f32,
+                height: picture.pixels.height() as f32,
+                baseline: None,
+                vertical_align: VerticalAlign::BASELINE,
+            });
+        }
         for (run, range) in runs.iter().zip(&ranges) {
             if run.bold {
                 builder.push(FontWeight::new(look.weight.max(600.0)), range.clone());
@@ -214,6 +261,7 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
         look: *look,
         text,
         code,
+        pictures,
     }
 }
 
@@ -388,6 +436,71 @@ mod tests {
     fn a_newline_breaks_the_line() {
         let laid = paragraph(&[Run::new("one\ntwo")], 1000.0);
         assert_eq!(laid.lines().len(), 2);
+    }
+
+    /// A picture of `width` × `height` pixels, all red.
+    fn picture(width: u32, height: u32, id: u64) -> Run {
+        Run::picture(InlinePicture {
+            pixels: Rc::new(RgbaImage::from_pixel(
+                width,
+                height,
+                image::Rgba([255, 0, 0, 255]),
+            )),
+            id,
+        })
+    }
+
+    /// The boxes of `laid`: id, left, top, width and height.
+    fn boxes(laid: &Paragraph) -> Vec<(u64, f32, f32, f32, f32)> {
+        (laid.layout.lines())
+            .flat_map(|line| line.items())
+            .filter_map(|item| match item {
+                parley::PositionedLayoutItem::InlineBox(placed) => {
+                    Some((placed.id, placed.x, placed.y, placed.width, placed.height))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_picture_in_a_line_sits_on_the_baseline_and_makes_the_line_taller() {
+        let runs = [Run::new("Before "), picture(20, 40, 1), Run::new(" after")];
+        let laid = paragraph(&runs, 600.0);
+        let [(id, left, top, width, height)] = boxes(&laid)[..] else {
+            panic!("one box: {:?}", boxes(&laid));
+        };
+        assert_eq!((id, width, height), (0, 20.0, 40.0));
+        assert!(left > 40.0, "after the text before it: {left}");
+        let [line] = laid.lines()[..] else {
+            panic!("one line");
+        };
+        // Its bottom edge on the baseline, and the line tall enough.
+        assert!(
+            (top + height - line.baseline).abs() < 0.01,
+            "{top} {line:?}"
+        );
+        assert!(line.height >= 40.0, "{line:?}");
+        assert_eq!(laid.text(), "Before  after");
+    }
+
+    #[test]
+    fn a_picture_moves_to_the_next_line_whole() {
+        let words = "word ".repeat(8);
+        let runs = [Run::new(&words), picture(60, 20, 1), Run::new(" end")];
+        let laid = paragraph(&runs, 200.0);
+        let [(_, left, _, width, _)] = boxes(&laid)[..] else {
+            panic!("one box");
+        };
+        assert!(left + width <= 200.0 + 0.01, "{left} + {width}");
+        assert!(laid.lines().len() > 1);
+        // Two of them in a row, as badges are, side by side while they fit.
+        let badges = [picture(60, 20, 1), Run::new(" "), picture(60, 20, 2)];
+        let laid = paragraph(&badges, 400.0);
+        let found = boxes(&laid);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].2, found[1].2, "{found:?}");
+        assert!(found[1].1 >= found[0].1 + 60.0);
     }
 
     #[test]

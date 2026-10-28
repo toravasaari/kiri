@@ -12,6 +12,7 @@ fn alone<'a>(document: &'a Document, base: &'a Path) -> [Part<'a>; 1] {
         number: 0,
         base,
         by_line: true,
+        inline_images: false,
     }]
 }
 

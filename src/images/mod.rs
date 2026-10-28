@@ -578,6 +578,7 @@ pub fn load_with(
         number: 0,
         base,
         by_line: options.by_line,
+        inline_images: false,
     };
     load_parts(&[part], max_file_size, fonts, options)
 }
@@ -595,6 +596,10 @@ pub struct Part<'a> {
     /// Whether a warning names a diagram by its line in the document, or
     /// by its own first line, as `LoadOptions::by_line` says.
     pub by_line: bool,
+    /// Whether the images in the middle of text are wanted too, as reading
+    /// mode draws them; otherwise only an image that is a block of its
+    /// own is, as the others show as their alt text.
+    pub inline_images: bool,
 }
 
 /// `load_with` for each of `parts`, into one map, with the diagrams of
@@ -695,7 +700,13 @@ fn plan<'p>(
     let mut wanted = Vec::new();
     for (index, part) in parts.iter().enumerate() {
         let mut blocks = Vec::new();
-        collect_blocks(&part.document.blocks, renderer, headings, &mut blocks);
+        let inline = part.inline_images;
+        collect_blocks(
+            &part.document.blocks,
+            renderer,
+            (headings, inline),
+            &mut blocks,
+        );
         wanted.extend(blocks.into_iter().map(|image| (index, image)));
     }
     let key = |&(index, ref image): &(usize, Wanted)| image.key().in_document(parts[index].number);
@@ -715,7 +726,7 @@ fn plan<'p>(
 /// as diagrams, in order, once for each block.
 pub fn diagram_languages<'a>(document: &'a Document, renderer: &dyn Renderer) -> Vec<&'a str> {
     let mut wanted = Vec::new();
-    collect_blocks(&document.blocks, renderer, None, &mut wanted);
+    collect_blocks(&document.blocks, renderer, (None, false), &mut wanted);
     (wanted.into_iter())
         .filter_map(|image| match image {
             Wanted::Diagram { language, .. } => Some(language),
@@ -727,7 +738,7 @@ pub fn diagram_languages<'a>(document: &'a Document, renderer: &dyn Renderer) ->
 /// The URLs of the images `document` shows as image blocks.
 fn lone_urls(document: &Document) -> Vec<&str> {
     let mut wanted = Vec::new();
-    collect_blocks(&document.blocks, &NoRenderer, None, &mut wanted);
+    collect_blocks(&document.blocks, &NoRenderer, (None, false), &mut wanted);
     (wanted.into_iter())
         .filter_map(|image| match image {
             Wanted::Url(url) => Some(url),
@@ -772,28 +783,33 @@ impl Wanted<'_> {
 
 /// The images `blocks` show as image blocks, and the code blocks among
 /// them that `renderer` draws. Other images are only ever shown as alt
-/// text, so they are not loaded at all. With `headings`, the headings
+/// text, so they are not loaded at all, unless `inline`, as reading mode
+/// draws them where they stand in the text. With `headings`, the headings
 /// among `blocks` and in the details blocks among them, which layout
 /// takes as top level, are wanted as images too, drawn for cells of that
 /// many pixels.
 fn collect_blocks<'a>(
     blocks: &'a [Block],
     renderer: &dyn Renderer,
-    headings: Option<(u16, u16)>,
+    (headings, inline): (Option<(u16, u16)>, bool),
     wanted: &mut Vec<Wanted<'a>>,
 ) {
     for block in blocks {
         match block {
-            Block::Paragraph(content) => {
-                wanted.extend(Inline::lone_image(content).map(|image| Wanted::Url(&image.url)));
+            Block::Paragraph(content) => match Inline::lone_image(content) {
+                Some(image) => wanted.push(Wanted::Url(&image.url)),
+                None if inline => inline_images(content, wanted),
+                None => {}
+            },
+            Block::Details { blocks, .. } => {
+                collect_blocks(blocks, renderer, (headings, inline), wanted)
             }
-            Block::Details { blocks, .. } => collect_blocks(blocks, renderer, headings, wanted),
             Block::BlockQuote(blocks) | Block::Alert { blocks, .. } => {
-                collect_blocks(blocks, renderer, None, wanted)
+                collect_blocks(blocks, renderer, (None, inline), wanted)
             }
             Block::List(list) => {
                 for item in &list.items {
-                    collect_blocks(&item.blocks, renderer, None, wanted);
+                    collect_blocks(&item.blocks, renderer, (None, inline), wanted);
                 }
             }
             Block::CodeBlock {
@@ -810,7 +826,16 @@ fn collect_blocks<'a>(
                     level: *level,
                     words: heading_words(content),
                     cell,
-                })
+                });
+                if inline {
+                    inline_images(content, wanted);
+                }
+            }
+            Block::Heading { content, .. } if inline => inline_images(content, wanted),
+            Block::Table(table) if inline => {
+                for cell in table.header.iter().chain(table.rows.iter().flatten()) {
+                    inline_images(cell, wanted);
+                }
             }
             Block::FrontMatter(_)
             | Block::Heading { .. }
@@ -822,6 +847,28 @@ fn collect_blocks<'a>(
             | Block::Error(_)
             // Its pixels are not loaded from a URL.
             | Block::ImageFile(_) => {}
+        }
+    }
+}
+
+/// The images among `content`, in the text, wherever they stand in it.
+fn inline_images<'a>(content: &'a [Inline], wanted: &mut Vec<Wanted<'a>>) {
+    for inline in content {
+        match inline {
+            Inline::Image(image) => wanted.push(Wanted::Url(&image.url)),
+            Inline::Emphasis(inner)
+            | Inline::Strong(inner)
+            | Inline::Strikethrough(inner)
+            | Inline::Kbd(inner)
+            | Inline::Mark(inner)
+            | Inline::Subscript(inner)
+            | Inline::Superscript(inner)
+            | Inline::Link { content: inner, .. } => inline_images(inner, wanted),
+            Inline::Text(_)
+            | Inline::Code(_)
+            | Inline::SoftBreak
+            | Inline::LineBreak
+            | Inline::Html(_) => {}
         }
     }
 }
@@ -991,6 +1038,7 @@ mod tests {
             number,
             base: Path::new("."),
             by_line: true,
+            inline_images: false,
         };
         let images = load_parts(
             &[part(0), part(1)],
@@ -1130,6 +1178,7 @@ Text ![inline](images/pattern.png) and words.
             number: 0,
             base: Path::new(""),
             by_line: true,
+            inline_images: false,
         };
         let before = crate::parse::parse("```mermaid\na\n```\n\n```mermaid\nb\n```\n");
         let after = crate::parse::parse("```mermaid\na\n```\n\n```mermaid\nc\n```\n");
@@ -1173,6 +1222,7 @@ Text ![inline](images/pattern.png) and words.
             number: 0,
             base: Path::new(""),
             by_line: true,
+            inline_images: false,
         }];
         let key = ImageKey::block("mermaid", "flaky\n");
         let mut images = load_parts(&parts, DEFAULT_MAX_FILE_SIZE, &Fonts::none(), &options);
@@ -1180,6 +1230,43 @@ Text ![inline](images/pattern.png) and words.
         let (wanted, have) = plan(&parts, &stub, None, Some(&mut images));
         assert_eq!(wanted.len(), 1);
         assert!(matches!(have[..], [None]), "{have:?}");
+    }
+
+    #[test]
+    fn images_in_the_middle_of_text_are_wanted_only_when_asked_for() {
+        let source = "\
+Text ![a](a.png) and *![b](b.png)* in a paragraph.
+
+# A heading with ![c](c.png)
+
+| table |
+|---|
+| a cell ![d](d.png) |
+
+- an item with ![e](e.png)
+
+![alone](f.png)
+";
+        let document = crate::parse::parse(source);
+        let urls = |inline_images| {
+            let parts = [Part {
+                document: &document,
+                number: 0,
+                base: Path::new(""),
+                by_line: true,
+                inline_images,
+            }];
+            let (wanted, _) = plan(&parts, &NoRenderer, None, None);
+            let urls: Vec<String> = (wanted.iter())
+                .map(|(_, image)| image.key().to_string())
+                .collect();
+            urls
+        };
+        assert_eq!(urls(false), ["f.png"]);
+        assert_eq!(
+            urls(true),
+            ["a.png", "b.png", "c.png", "d.png", "e.png", "f.png"]
+        );
     }
 
     #[test]
@@ -1315,12 +1402,14 @@ fn main() {}
                 number: 0,
                 base: &a,
                 by_line: true,
+                inline_images: false,
             },
             Part {
                 document: &second,
                 number: 1,
                 base: &b,
                 by_line: true,
+                inline_images: false,
             },
         ];
         let stub = Stub::default();

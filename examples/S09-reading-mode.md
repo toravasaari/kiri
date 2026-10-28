@@ -202,6 +202,12 @@ flowchart LR
     Render --> Look([Look at it])
 ```
 
+An image in the middle of a line, such as this one of 24 pixels
+<img src="S06b-pattern.png" width="24" alt="a pattern"> or two badges in a
+row <img src="S06b-pattern.png" width="16" alt="one"> <img
+src="S06b-pattern.png" width="16" alt="two">, stands in the line on its
+baseline, and makes the line taller than the text if it is taller.
+
 An image that cannot be shown, such as the missing one in
 [S06a-images.md](S06a-images.md), shows its alt text in grey where it
 would be.

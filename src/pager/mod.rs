@@ -806,6 +806,7 @@ fn load_headings(content: Content, inputs: &mut Inputs, loads: &mut Loads) {
         number,
         base,
         by_line: true,
+        inline_images: false,
     };
     let parts: Vec<Part> = match content {
         Content::Document(document) => vec![part((0, document))],

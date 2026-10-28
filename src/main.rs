@@ -1022,7 +1022,7 @@ fn page_files(
     let mut parts: Vec<Part> = (documents.iter())
         .map(|(number, file)| Part {
             number: *number,
-            ..part(&files[*number].document, file.as_deref())
+            ..part(&files[*number].document, file.as_deref(), context.reading)
         })
         .collect();
     // With paging on auto, the images load first unless the files are
@@ -1122,7 +1122,7 @@ fn page_files(
             let documents: Vec<Part> = (documents.iter())
                 .map(|(number, file)| Part {
                     number: *number,
-                    ..part(&files[*number].document, file.as_deref())
+                    ..part(&files[*number].document, file.as_deref(), context.reading)
                 })
                 .collect();
             (told_files(&came, &documents, &files, settings), None)
@@ -1386,7 +1386,7 @@ fn load_given(
             let file = given.file.as_deref();
             Some(Part {
                 number,
-                ..part(document, file)
+                ..part(document, file, context.reading)
             })
         })
         .collect();
@@ -1547,7 +1547,7 @@ fn show_document(
     caps: Capabilities,
 ) -> Result<(), Failure> {
     let caps = on_page(caps, &settings);
-    let parts = [part(document, from.map(|from| from.path))];
+    let parts = [part(document, from.map(|from| from.path), context.reading)];
     // Before the images are read, so that a file changed meanwhile counts
     // as changed.
     let stamps = Stamps::of(&parts);
@@ -1763,7 +1763,12 @@ fn show_diagram(
     let caps = on_page(caps, &settings);
     let document = kiri::parse::code(source, Some(language));
     settings.images = true;
-    let mut loaded = load_images(context, &[part(&document, file)], &settings, &caps)?;
+    let mut loaded = load_images(
+        context,
+        &[part(&document, file, context.reading)],
+        &settings,
+        &caps,
+    )?;
     let key = ImageKey::block(language, source);
     let error = match loaded.images.remove(&key) {
         Some(Ok(image)) => {
@@ -1902,12 +1907,13 @@ fn formula_colors(theme: &Theme, caps: &Capabilities) -> kiri::diagrams::Formula
 
 /// `document`, the first and only one shown, from `file` or not as for
 /// `show_document`, as a part whose images are loaded.
-fn part<'a>(document: &'a Document, file: Option<&'a Path>) -> Part<'a> {
+fn part<'a>(document: &'a Document, file: Option<&'a Path>, inline_images: bool) -> Part<'a> {
     Part {
         document,
         number: 0,
         base: file.and_then(Path::parent).unwrap_or(Path::new("")),
         by_line: file.is_some(),
+        inline_images,
     }
 }
 
@@ -2185,7 +2191,7 @@ impl Reload for FileReload<'_> {
             Err(error) => return Reloaded::Failed(without_path(error, path)),
         };
         if self.settings.images && caps.draws_images() {
-            let parts = [part(&document, Some(path))];
+            let parts = [part(&document, Some(path), self.context.reading)];
             let loading = loading(self.context, self.settings, caps);
             reload_in_background(&parts, &loading, images, &mut self.stamps, loads);
         }

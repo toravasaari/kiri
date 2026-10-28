@@ -11,7 +11,7 @@ use image::RgbaImage;
 
 use super::fonts::Fonts;
 use super::paint::Canvas;
-use super::text::{self, Brush, Paragraph, Run};
+use super::text::{self, Brush, InlinePicture, Paragraph, Run};
 use crate::model::{Alignment, Block, Image, Inline, List, Table};
 
 /// The size of each heading level, `h1` first, in font sizes of the text,
@@ -554,6 +554,14 @@ impl<'a> Flow<'a> {
         }
     }
 
+    /// The pictures in text `room` pixels wide.
+    fn ink(&self, room: f32) -> Ink<'a> {
+        Ink {
+            pictures: self.pictures,
+            room,
+        }
+    }
+
     /// Takes what `inner` laid out, which is where it put it.
     fn take(&mut self, inner: &mut Flow) {
         self.items.append(&mut inner.items);
@@ -575,6 +583,9 @@ impl<'a> Flow<'a> {
         // Glyphs may reach past their line's box, so an item is drawn
         // into the parts a little above and below it too.
         let reach = self.look.size;
+        if let Shape::Text { paragraph, .. } = &shape {
+            self.ids.extend(paragraph.pictures.iter().map(|p| p.id));
+        }
         self.items.push(Item {
             rows: rows.start - reach..rows.end + reach,
             shape,
@@ -626,7 +637,9 @@ impl<'a> Flow<'a> {
                     color: look.headings[index],
                     ..text::Look::PLAIN
                 };
-                let paragraph = text::lay_out(self.fonts, &runs(content, &look), &style, width);
+                let ink = self.ink(width);
+                let paragraph =
+                    text::lay_out(self.fonts, &runs(content, &look, ink), &style, width);
                 self.y += self.text(paragraph, x);
                 if *level <= 2 {
                     self.y += (RULE_BELOW * style.size).round();
@@ -922,6 +935,7 @@ impl<'a> Flow<'a> {
             return;
         }
         let fonts = self.fonts;
+        let ink = self.ink(self.area - x);
         let cell = |row: usize, column: usize, width: f32, wrap: text::Wrap| {
             let content = grid[row].get(column).map_or(&[][..], Vec::as_slice);
             let style = text::Look {
@@ -936,7 +950,7 @@ impl<'a> Flow<'a> {
                 },
                 ..text::Look::PLAIN
             };
-            text::lay_out(fonts, &runs(content, &look), &style, width)
+            text::lay_out(fonts, &runs(content, &look, ink), &style, width)
         };
         let (mut least, mut most) = (vec![0.0f32; columns], vec![0.0f32; columns]);
         for row in 0..grid.len() {
@@ -1038,7 +1052,8 @@ impl<'a> Flow<'a> {
             color,
             ..text::Look::PLAIN
         };
-        text::lay_out(self.fonts, &runs(content, self.look), &style, width)
+        let ink = self.ink(width);
+        text::lay_out(self.fonts, &runs(content, self.look, ink), &style, width)
     }
 
     fn list(&mut self, list: &List, x: f32, width: f32, depth: usize) {
@@ -1191,14 +1206,23 @@ fn task(canvas: &mut Canvas, x: f32, y: f32, size: f32, checked: bool, look: &Lo
     }
 }
 
-/// `content` as runs of styled text, as `look` colours links and code.
-fn runs(content: &[Inline], look: &Look) -> Vec<Run> {
+/// Where the pictures in the text come from, and how wide a line they are
+/// in.
+#[derive(Clone, Copy)]
+struct Ink<'a> {
+    pictures: &'a dyn Pictures,
+    room: f32,
+}
+
+/// `content` as runs of styled text, as `look` colours links and code, with
+/// the pictures in it as `ink` gives them.
+fn runs(content: &[Inline], look: &Look, ink: Ink) -> Vec<Run> {
     let mut runs = Vec::new();
-    collect(content, &Run::default(), look, &mut runs);
+    collect(content, &Run::default(), (look, ink), &mut runs);
     runs
 }
 
-fn collect(content: &[Inline], style: &Run, look: &Look, runs: &mut Vec<Run>) {
+fn collect(content: &[Inline], style: &Run, (look, ink): (&Look, Ink), runs: &mut Vec<Run>) {
     for inline in content {
         match inline {
             Inline::Text(text) | Inline::Html(text) => push(runs, text, style),
@@ -1220,7 +1244,7 @@ fn collect(content: &[Inline], style: &Run, look: &Look, runs: &mut Vec<Run>) {
                         italic: true,
                         ..style.clone()
                     },
-                    look,
+                    (look, ink),
                     runs,
                 );
             }
@@ -1231,7 +1255,7 @@ fn collect(content: &[Inline], style: &Run, look: &Look, runs: &mut Vec<Run>) {
                         bold: true,
                         ..style.clone()
                     },
-                    look,
+                    (look, ink),
                     runs,
                 );
             }
@@ -1242,7 +1266,7 @@ fn collect(content: &[Inline], style: &Run, look: &Look, runs: &mut Vec<Run>) {
                         strike: true,
                         ..style.clone()
                     },
-                    look,
+                    (look, ink),
                     runs,
                 );
             }
@@ -1252,18 +1276,27 @@ fn collect(content: &[Inline], style: &Run, look: &Look, runs: &mut Vec<Run>) {
                     color: Some(look.code),
                     ..style.clone()
                 };
-                collect(inner, &key, look, runs);
+                collect(inner, &key, (look, ink), runs);
             }
             Inline::Link { content, .. } => {
                 let link = Run {
                     color: Some(look.link),
                     ..style.clone()
                 };
-                collect(content, &link, look, runs);
+                collect(content, &link, (look, ink), runs);
             }
-            Inline::Image(image) => collect(&image.alt, style, look, runs),
+            Inline::Image(image) => {
+                // A picture that is there stands in the line; otherwise
+                // its alt text does.
+                match ink.pictures.image(image, (ink.room, f32::MAX)) {
+                    Picture::Ready { pixels, id, .. } => {
+                        runs.push(Run::picture(InlinePicture { pixels, id }));
+                    }
+                    _ => collect(&image.alt, style, (look, ink), runs),
+                }
+            }
             Inline::Mark(inner) | Inline::Subscript(inner) | Inline::Superscript(inner) => {
-                collect(inner, style, look, runs);
+                collect(inner, style, (look, ink), runs);
             }
         }
     }
@@ -1276,7 +1309,7 @@ fn push(runs: &mut Vec<Run>, text: &str, style: &Run) {
         return;
     }
     match runs.last_mut() {
-        Some(last) if same_style(last, style) => last.text.push_str(text),
+        Some(last) if last.picture.is_none() && same_style(last, style) => last.text.push_str(text),
         _ => runs.push(Run {
             text: text.to_owned(),
             ..style.clone()
@@ -1297,7 +1330,11 @@ fn plain(block: &Block) -> String {
 
 fn plain_into(block: &Block, text: &mut String) {
     let inline = |content: &[Inline], text: &mut String| {
-        for run in runs(content, &PLAIN) {
+        let ink = Ink {
+            pictures: &Plain,
+            room: 0.0,
+        };
+        for run in runs(content, &PLAIN, ink) {
             text.push_str(&run.text);
         }
     };
@@ -2107,6 +2144,53 @@ mod tests {
         let page = with_pictures("```mermaid\ngraph\n```\n", &quiet);
         assert_eq!(code_blocks(&page).len(), 1);
         assert!(texts(&page).iter().all(|(text, ..)| !text.starts_with('✗')));
+    }
+
+    /// The pictures standing in the lines of `page`'s paragraphs, by the
+    /// ids they carry.
+    fn inline_pictures(page: &Page) -> Vec<u64> {
+        (page.items.iter())
+            .filter_map(|item| match &item.shape {
+                Shape::Text { paragraph, .. } => Some(paragraph.pictures.iter().map(|p| p.id)),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    }
+
+    #[test]
+    fn images_in_a_paragraph_stand_in_its_lines() {
+        let given = Given {
+            image: |image| match image.url.as_str() {
+                "a.png" => solid(20, 10, [255, 0, 0], 11),
+                "b.png" => solid(30, 10, [0, 0, 255], 12),
+                _ => Picture::None,
+            },
+            ..NOTHING
+        };
+        let page = with_pictures(
+            "Badges ![a](a.png) and [![b](b.png)](https://example.com) and ![c](c.png)\n",
+            &given,
+        );
+        // The two that are there are boxes; the one that is not is its alt
+        // text, and none of them a picture block of its own.
+        assert_eq!(inline_pictures(&page), [11, 12]);
+        assert!(pictures(&page).is_empty());
+        assert_eq!(page.pictures, [11, 12]);
+        assert_eq!(page.blocks[0].text, "Badges a and b and c");
+    }
+
+    #[test]
+    fn images_in_headings_and_table_cells_stand_in_their_text_too() {
+        let given = Given {
+            image: |_| solid(20, 10, [255, 0, 0], 11),
+            ..NOTHING
+        };
+        let page = with_pictures(
+            "# Title ![a](a.png)\n\n| h |\n|---|\n| cell ![b](b.png) |\n",
+            &given,
+        );
+        assert_eq!(inline_pictures(&page), [11, 11]);
     }
 
     #[test]

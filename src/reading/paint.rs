@@ -80,8 +80,15 @@ impl Canvas {
                 continue;
             }
             for item in line.items() {
-                let PositionedLayoutItem::GlyphRun(glyphs) = item else {
-                    continue;
+                let glyphs = match item {
+                    PositionedLayoutItem::GlyphRun(glyphs) => glyphs,
+                    PositionedLayoutItem::InlineBox(placed) => {
+                        let picture = paragraph.pictures.get(placed.id as usize);
+                        if let Some(picture) = picture {
+                            self.picture(&picture.pixels, x + placed.x, y + placed.y);
+                        }
+                        continue;
+                    }
                 };
                 let run = glyphs.run();
                 let font = run.font();
@@ -358,6 +365,8 @@ impl OutlinePen for Pen<'_> {
 
 #[cfg(test)]
 mod tests {
+    use std::rc::Rc;
+
     use super::*;
     use crate::reading::Fonts;
     use crate::reading::text::{Look, Run, lay_out};
@@ -488,6 +497,32 @@ mod tests {
         let pixel = canvas.into_image().get_pixel(0, 0).0;
         assert_eq!(pixel[3], 128);
         assert!(pixel[0].abs_diff(200) <= 2, "{pixel:?}");
+    }
+
+    #[test]
+    fn a_picture_in_a_line_is_drawn_where_the_line_puts_it() {
+        let red = Run::picture(crate::reading::text::InlinePicture {
+            pixels: Rc::new(red(10, 10, 255)),
+            id: 1,
+        });
+        let paragraph = lay_out(&Fonts::fixture(), &[Run::new("Ab "), red], &LOOK, 400.0);
+        let mut canvas = Canvas::new(120, 40);
+        canvas.text(&paragraph, 0.0, 5.0, None);
+        let image = canvas.into_image();
+        let reds = image
+            .pixels()
+            .filter(|pixel| pixel.0 == [200, 0, 0, 255])
+            .count();
+        assert_eq!(reds, 100);
+        // After the text, on its baseline: the red square's bottom row is
+        // where the glyphs' feet are.
+        let (x, y) = (0..120)
+            .flat_map(|x| (0..40).map(move |y| (x, y)))
+            .find(|&(x, y)| image.get_pixel(x, y).0 == [200, 0, 0, 255])
+            .expect("a red pixel");
+        assert!(x > 20, "{x}");
+        let baseline = paragraph.first_baseline() + 5.0;
+        assert_eq!(y + 10, baseline.round() as u32);
     }
 
     /// The rows of `image` that have ink, first and last.

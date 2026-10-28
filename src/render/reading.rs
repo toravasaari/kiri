@@ -796,6 +796,33 @@ mod tests {
     }
 
     #[test]
+    fn an_image_in_the_middle_of_text_is_a_box_in_its_line() {
+        let mut inputs = inputs(kitty(80));
+        inputs
+            .images
+            .insert("a.png", Ok(raster(20, 10, [255, 0, 0])));
+        let lines = layout::layout(&parse("Some text ![a](a.png) after it.\n"), &inputs);
+        let part = first_part(&lines);
+        let reds = part
+            .pixels()
+            .filter(|pixel| pixel.0 == [255, 0, 0, 255])
+            .count();
+        assert_eq!(reds, 20 * 10);
+        // The line is still one row, as the picture is shorter than the line.
+        assert_eq!(lines.len(), 2);
+        // The same text without the image shows its alt text and no box.
+        let lines = layout::layout(
+            &parse("Some text ![a](a.png) after it.\n"),
+            &self::inputs(kitty(80)),
+        );
+        let reds = first_part(&lines)
+            .pixels()
+            .filter(|pixel| pixel.0 == [255, 0, 0, 255])
+            .count();
+        assert_eq!(reds, 0);
+    }
+
+    #[test]
     fn an_image_that_is_not_there_is_its_alt_text() {
         let lines = layout::layout(&parse("![the alt text](a.png)\n"), &inputs(kitty(80)));
         let row = lines[0].image.as_ref().expect("a page's row");
