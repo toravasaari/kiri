@@ -759,10 +759,12 @@ impl Flow<'_> {
         let extra = 2.0 * across + 1.0;
         let room = (self.area - x) - columns as f32 * extra - 1.0;
         let scroll = self.wide == Wide::Scroll;
-        // Whether even the least widths are too wide for the area, which
-        // `share` tells from the columns and not from a sum of widths that
-        // may come out a hair over the room.
-        let (widths, too_wide) = share(&least, &most, room);
+        let (widths, forced) = share(&least, &most, room);
+        // Whether to scroll: even the least widths are too wide for the
+        // area, by more than rounding. `share` tells it from the columns
+        // and not from a sum of widths that may come out a hair over the
+        // room; the wrapping path keeps the exact room.
+        let too_wide = share(&least, &most, room + FITS).1;
         let (widths, forced) = match too_wide && scroll {
             // Scrolling, words stay whole: each column takes its least
             // width, and more up to half the area, and the table scrolls.
@@ -773,7 +775,7 @@ impl Flow<'_> {
                     .collect();
                 (widths, false)
             }
-            false => (widths, too_wide),
+            false => (widths, forced),
         };
         let wrap = if forced {
             text::Wrap::Forced
@@ -1571,6 +1573,46 @@ mod tests {
         assert_eq!(width(natural).0, 0);
         assert_eq!(width(natural - 0.25).0, 0);
         assert_eq!(width(natural - 4.0).0, 1);
+    }
+
+    #[test]
+    fn a_table_of_single_words_over_the_room_by_a_hair_is_no_band() {
+        // Every cell is one word, so a column cannot be narrower than its
+        // word, and the words may add up to a hair over the area.
+        let words = [
+            "alpha1",
+            "bravo22",
+            "charlie3",
+            "deltaforce3",
+            "echo4",
+            "foxtrot55",
+            "golf6",
+            "hotel777",
+        ];
+        for columns in 6..=8 {
+            let head = words[..columns].join(" | ");
+            let body: Vec<String> = words[..columns]
+                .iter()
+                .rev()
+                .map(|w| format!("{w}x"))
+                .collect();
+            let table = format!(
+                "| {head} |\n|{}\n| {} |\n",
+                "---|".repeat(columns),
+                body.join(" | ")
+            );
+            for area in 672..1400 {
+                let page = scrolling_in(&table, area as f32);
+                for band in &page.bands {
+                    // A band scrolls by more than what is rounding.
+                    assert!(
+                        band.most() > FITS,
+                        "{columns} columns in {area} px: {}",
+                        band.most()
+                    );
+                }
+            }
+        }
     }
 
     #[test]
