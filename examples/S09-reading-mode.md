@@ -24,9 +24,11 @@ Without `--reading` this document looks like the others. With it, the
 headings, paragraphs, lists and quotes are in the system's sans-serif font
 at about four fifths of a row's height, in a column 42 times that wide at
 most, at the left of an area half as wide again in the middle of the
-window. The front matter above, the code blocks and the table stay as they
-are without reading mode, between the parts in the proportional font. The
-text cannot be selected or copied, as it is drawn as images.
+window. Code blocks and tables are drawn too, and may reach across the
+area. The front matter above, the alert and the image stay as they are
+without reading mode, between the parts in the proportional font, from the
+area's left edge. The text cannot be selected or copied, as it is drawn as
+images.
 
 ## Text
 
@@ -103,10 +105,12 @@ Items in a tight list are half a line apart.
 >
 > A second paragraph in the same quote, under the same bar.
 
-## Between the text
+## Code
 
-A code block and a table show as they do without reading mode, at the
-left with the usual margin:
+A code block starts at the text's left edge on a rounded background in
+the colours of the code theme, highlighted as without reading mode, with
+its language in grey in the top right corner. It is as wide as the text,
+or as its longest line up to the right edge of the area:
 
 ```rust
 fn main() {
@@ -114,8 +118,54 @@ fn main() {
 }
 ```
 
-| Name | Kind |
-|------|------|
-| Fern | plant |
+```sh
+kiri --reading --theme examples/themes/background.toml examples/S09-reading-mode.md
+```
+
+A line longer than the area wraps at the area's edge, and goes on at the
+code's left edge on the next line:
+
+```text
+This line is long enough to be wider than the area in a window of usual width, so that it wraps at the right edge of the area and goes on below.
+```
+
+## Tables
+
+A table starts at the text's left edge, bold in its header, with thin
+borders and every second body row shaded. A small table is as wide as
+its content:
+
+| Name | Kind | Count |
+|:-----|:----:|------:|
+| Fern | plant | 12 |
+| Crab | animal | 7 |
+| Moss | plant | 30 |
+
+The middle column is centred and the last one aligned right.
+
+A wider table reaches past the text into the area, and its cells wrap as
+a browser wraps them, the longer text getting the more room:
+
+| Element | Notes |
+|---------|-------|
+| Headings | Drawn at GitHub's sizes in the system's sans-serif font, with a rule under the two largest levels, and further from the text above them than from the text below. |
+| Tables | As wide as their content up to the right edge of the area, with `inline code` and [links](https://example.com) in their cells as in a paragraph. |
+
+A table too wide even with its cells wrapped at every space breaks its
+long words where it must, so that it still fits the area:
+
+| Path | Another path |
+|------|--------------|
+| `src/render/reading/a_very_long_module_name_that_does_not_fit.rs` | `src/reading/page/another_very_long_name_that_cannot_fit_either.rs` |
+
+## Between the text
+
+An alert, an image and the front matter show as they do without reading
+mode, but from the left edge of the area rather than the window's margin:
+
+> [!NOTE]
+> A note: blue, with an icon and the bold title "Note".
+
+![Test pattern](S06b-pattern.png)
 
 And the text goes on below them in the proportional font.
