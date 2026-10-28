@@ -850,7 +850,6 @@ impl Layout<'_> {
         self.placed(key, wanted, width, Align::Left)
     }
 
-    /// A code block drawn as a diagram, when it was.
     /// Whether the code block `code` in `language` is a diagram or
     /// formula that is drawn, failed to draw or is loading: one that the
     /// text layout shows as an image, or as its code with why.
@@ -859,6 +858,7 @@ impl Layout<'_> {
         self.images.get(&key).is_some() || self.images.placeholder(&key).is_some()
     }
 
+    /// A code block drawn as a diagram, when it was.
     fn diagram(&self, language: Option<&str>, code: &str, width: usize) -> Option<Vec<Line>> {
         // Spares building a key for every code block of a document
         // without images.

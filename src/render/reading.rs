@@ -192,6 +192,13 @@ pub fn lines(
         },
     );
     let rows = ((page.height / cell_height).ceil() as u16).max(1);
+    // The id names these pixels to the terminal, which keeps an image it
+    // holds under the same id, so it must cover everything that changes
+    // them: the blocks, the look (every colour, and the font size), the
+    // sizes, and whether wide blocks wrap or scroll. The fonts and the
+    // code theme's name are not in it: the fonts are the same for a run,
+    // and the theme has so far always come with another colour in `Look`.
+    // An input to the pixels that does not, goes in here too.
     let mut hasher = DefaultHasher::new();
     format!("{blocks:?}").hash(&mut hasher);
     format!("{look:?}").hash(&mut hasher);
@@ -379,8 +386,8 @@ pub fn set_band(lines: &mut [Line], offset: u32, selected: bool) {
 
 /// How reading mode draws text in `theme` on a terminal with `caps`: its
 /// size from the cell height, and its colours from the theme, or from the
-/// terminal where the theme leaves them.
-/// Tables shade every second body row with `stripes`.
+/// terminal where the theme leaves them. Tables shade every second body
+/// row when `stripes` is set.
 pub fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities) -> Look {
     let (_, cell_height) = cell_size(caps);
     let rgb = |color: Option<Color>| match color?.rgb_or_xterm(&caps.palette) {
