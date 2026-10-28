@@ -7,7 +7,8 @@ use std::ops::Range;
 use parley::fontique::GenericFamily;
 use parley::{
     Affinity, Alignment, AlignmentOptions, Cursor, FontFamily, FontFamilyName, FontStyle,
-    FontWeight, Layout, LineHeight, Selection, StyleProperty, TextWrapMode,
+    FontWeight, Layout, LineHeight, OverflowWrap, Selection, StyleProperty, TextWrapMode,
+    WordBreak,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -30,6 +31,46 @@ pub struct Look {
     /// The weight of the font, 400 for regular.
     pub weight: f32,
     pub color: Brush,
+    /// In the monospace font, as a code block is.
+    pub mono: bool,
+    pub wrap: Wrap,
+    pub align: Align,
+}
+
+impl Look {
+    /// Regular text at 16 pixels in lines of 1.5, in black, wrapped at
+    /// words and set from the left, for the other fields to change.
+    pub const PLAIN: Look = Look {
+        size: 16.0,
+        line_height: 1.5,
+        weight: 400.0,
+        color: [0; 3],
+        mono: false,
+        wrap: Wrap::Words,
+        align: Align::Left,
+    };
+}
+
+/// Where lines of text may break.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Wrap {
+    /// Between words, and inside inline code only at its spaces; a word
+    /// longer than the line reaches past it.
+    Words,
+    /// Anywhere, as code lines wrap at the edge of their block.
+    Anywhere,
+    /// Between words, and inside a word or inline code where it must, so
+    /// that nothing reaches past the line, as in a table squeezed into
+    /// less room than its words take.
+    Forced,
+}
+
+/// How lines of text are set across their width.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Align {
+    Left,
+    Centre,
+    Right,
 }
 
 /// A piece of text in one style.
@@ -103,9 +144,15 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
         let mut builder = contexts
             .layout
             .ranged_builder(&mut contexts.fonts, &text, 1.0, true);
-        builder.push_default(StyleProperty::FontFamily(FontFamily::Source(
-            "sans-serif".into(),
-        )));
+        let family = if look.mono { "monospace" } else { "sans-serif" };
+        builder.push_default(StyleProperty::FontFamily(FontFamily::Source(family.into())));
+        match look.wrap {
+            Wrap::Words => {}
+            Wrap::Anywhere => builder.push_default(StyleProperty::WordBreak(WordBreak::BreakAll)),
+            Wrap::Forced => {
+                builder.push_default(StyleProperty::OverflowWrap(OverflowWrap::Anywhere));
+            }
+        }
         builder.push_default(StyleProperty::FontSize(look.size));
         builder.push_default(StyleProperty::FontWeight(FontWeight::new(look.weight)));
         builder.push_default(StyleProperty::LineHeight(LineHeight::FontSizeRelative(
@@ -131,11 +178,14 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
                     StyleProperty::FontSize(look.size * CODE_SIZE),
                     range.clone(),
                 );
-                // Inline code breaks only at its spaces.
-                builder.push(TextWrapMode::NoWrap, range.clone());
-                for (at, _) in run.text.match_indices(' ') {
-                    let at = range.start + at;
-                    builder.push(TextWrapMode::Wrap, at..at + 1);
+                // Inline code breaks only at its spaces, unless the text
+                // must break where it can.
+                if look.wrap == Wrap::Words {
+                    builder.push(TextWrapMode::NoWrap, range.clone());
+                    for (at, _) in run.text.match_indices(' ') {
+                        let at = range.start + at;
+                        builder.push(TextWrapMode::Wrap, at..at + 1);
+                    }
                 }
             }
         }
@@ -151,7 +201,12 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
         }
         let mut layout = builder.build(&text);
         layout.break_all_lines(Some(width));
-        layout.align(Alignment::Start, AlignmentOptions::default());
+        let alignment = match look.align {
+            Align::Left => Alignment::Start,
+            Align::Centre => Alignment::Center,
+            Align::Right => Alignment::End,
+        };
+        layout.align(alignment, AlignmentOptions::default());
         layout
     });
     Paragraph {
@@ -239,10 +294,8 @@ mod tests {
     use super::*;
 
     const LOOK: Look = Look {
-        size: 16.0,
-        line_height: 1.5,
-        weight: 400.0,
         color: [0xdd; 3],
+        ..Look::PLAIN
     };
 
     fn code(text: &str) -> Run {

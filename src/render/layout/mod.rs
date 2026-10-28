@@ -5,7 +5,8 @@ mod front_matter;
 mod list;
 mod quote;
 
-pub(crate) use code::inline_code_background;
+pub use code::CodeColors;
+pub(crate) use code::{expand_tabs, inline_code_background};
 
 use std::ops::Range;
 use std::rc::Rc;
@@ -339,7 +340,9 @@ impl Layout<'_> {
         // block it does not lay out comes.
         let mut run = Vec::new();
         for (index, block) in blocks.iter().enumerate() {
-            if self.reading.is_some() && page::lays_out(block) {
+            if self.reading.is_some()
+                && page::lays_out(block, &|language, code| self.drawn(language, code))
+            {
                 run.push((index, block));
                 continue;
             }
@@ -401,7 +404,7 @@ impl Layout<'_> {
             &blocks,
             &ids,
             reading,
-            self.theme,
+            (self.theme, &self.code_colors()),
             self.caps,
             window,
             self.document,
@@ -835,6 +838,14 @@ impl Layout<'_> {
     }
 
     /// A code block drawn as a diagram, when it was.
+    /// Whether the code block `code` in `language` is a diagram or
+    /// formula that is drawn, failed to draw or is loading: one that the
+    /// text layout shows as an image, or as its code with why.
+    fn drawn(&self, language: &str, code: &str) -> bool {
+        let key = ImageKey::block(language, code).in_document(self.document);
+        self.images.get(&key).is_some() || self.images.placeholder(&key).is_some()
+    }
+
     fn diagram(&self, language: Option<&str>, code: &str, width: usize) -> Option<Vec<Line>> {
         // Spares building a key for every code block of a document
         // without images.

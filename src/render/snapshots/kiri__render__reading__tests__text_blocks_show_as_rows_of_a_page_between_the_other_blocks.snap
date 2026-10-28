@@ -7,10 +7,12 @@ expression: "shown(&lines).join(\"\\n\")"
 2page 2/0 block
 2page 3/0 block "Some text."
 2page 4/0 block
+2page 5/0 block "code"
+2page 6/0 block
+2page 7/0 block
 
-                                                                            
- code                                                                       
-                                                                            
+▎   Note
+▎ A note.
 
 2page 0/0 block "More text."
 2page 1/0 -

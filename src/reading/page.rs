@@ -30,6 +30,12 @@ const QUOTE_INDENT: f32 = 1.0;
 const QUOTE_BAR: f32 = 0.25;
 /// How far below a large heading its rule is, in its own font sizes.
 const RULE_BELOW: f32 = 0.3;
+/// A code block's padding and the radius of its corners, in font sizes;
+/// its font size and line height, and its label's size.
+const CODE_PADDING: f32 = 1.0;
+const CODE_RADIUS: f32 = 0.375;
+const CODE_LINE_HEIGHT: f32 = 1.45;
+const LABEL_SIZE: f32 = 0.75;
 
 /// How the page is drawn: its sizes and colours.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -49,6 +55,27 @@ pub struct Look {
     pub border: Brush,
     /// The colour of list markers.
     pub marker: Brush,
+    /// The background of code blocks, if they have one, and the colour of
+    /// code that is not highlighted.
+    pub code_block: Option<Brush>,
+    pub code_text: Brush,
+    /// The colour of a code block's language label; `None` for no label.
+    pub label: Option<Brush>,
+}
+
+/// The colours of code: each line of `code`, in `language` if known, as
+/// runs of text in their colours. The tabs are spaces already.
+pub trait Highlight {
+    fn lines(&self, language: Option<&str>, code: &str) -> Vec<Vec<Run>>;
+}
+
+/// Code in the plain colour of code.
+pub struct Plain;
+
+impl Highlight for Plain {
+    fn lines(&self, _: Option<&str>, code: &str) -> Vec<Vec<Run>> {
+        code.lines().map(|line| vec![Run::new(line)]).collect()
+    }
 }
 
 /// Where a block of the page is.
@@ -89,6 +116,15 @@ enum Shape {
         height: f32,
         color: Brush,
     },
+    /// A rectangle with rounded corners.
+    RoundRect {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        radius: f32,
+        color: Brush,
+    },
     /// The box of a task list item, ticked or not.
     Task {
         x: f32,
@@ -99,27 +135,40 @@ enum Shape {
     },
 }
 
-/// Whether reading mode lays `block` out: text blocks, and lists and
-/// quotes of nothing else. Other blocks, such as code, tables and images,
-/// are shown as they are without it.
-pub fn lays_out(block: &Block) -> bool {
+/// Whether reading mode lays `block` out: text blocks, code blocks but
+/// those `drawn` as images, given their language and code, and lists and
+/// quotes of nothing else. Other blocks, such as images and diagrams, are
+/// shown as they are without it.
+pub fn lays_out(block: &Block, drawn: &dyn Fn(&str, &str) -> bool) -> bool {
+    let all = |blocks: &[Block]| blocks.iter().all(|block| lays_out(block, drawn));
     match block {
         Block::Heading { .. } | Block::ThematicBreak => true,
         Block::Paragraph(content) => Inline::lone_image(content).is_none(),
-        Block::BlockQuote(blocks) => blocks.iter().all(lays_out),
-        Block::List(list) => (list.items.iter()).all(|item| item.blocks.iter().all(lays_out)),
+        Block::CodeBlock { language, code, .. } => !language
+            .as_deref()
+            .is_some_and(|language| drawn(language, code)),
+        Block::BlockQuote(blocks) => all(blocks),
+        Block::List(list) => list.items.iter().all(|item| all(&item.blocks)),
         _ => false,
     }
 }
 
 /// `blocks`, which reading mode lays out, laid out in `fonts` as `look`
 /// says: the text `width` pixels wide, at the left of an area `area`
-/// pixels wide, which tables and code may reach across.
-pub fn lay_out(blocks: &[&Block], look: &Look, fonts: &Fonts, width: f32, area: f32) -> Page {
+/// pixels wide, which tables and code may reach across. Code takes its
+/// colours from `highlight`.
+pub fn lay_out(
+    blocks: &[&Block],
+    look: &Look,
+    fonts: &Fonts,
+    highlight: &dyn Highlight,
+    (width, area): (f32, f32),
+) -> Page {
     let area = area.max(width);
     let mut flow = Flow {
         fonts,
         look,
+        highlight,
         area,
         items: Vec::new(),
         y: 0.0,
@@ -167,6 +216,14 @@ impl Page {
                     height,
                     color,
                 } => canvas.rect(*x, y + shift, *width, *height, *color),
+                Shape::RoundRect {
+                    x,
+                    y,
+                    width,
+                    height,
+                    radius,
+                    color,
+                } => canvas.round_rect(*x, y + shift, *width, *height, *radius, *color),
                 Shape::Task {
                     x,
                     y,
@@ -184,6 +241,7 @@ impl Page {
 struct Flow<'a> {
     fonts: &'a Fonts,
     look: &'a Look,
+    highlight: &'a dyn Highlight,
     /// The right edge of the area, which tables and code may reach.
     area: f32,
     items: Vec<Item>,
@@ -268,6 +326,7 @@ impl Flow<'_> {
                     line_height: HEADING_LINE_HEIGHT,
                     weight: BOLD,
                     color: look.headings[index],
+                    ..text::Look::PLAIN
                 };
                 let paragraph = text::lay_out(self.fonts, &runs(content, &look), &style, width);
                 self.y += self.text(paragraph, x);
@@ -296,6 +355,7 @@ impl Flow<'_> {
                 let mut inner = Flow {
                     fonts: self.fonts,
                     look: &quoted,
+                    highlight: self.highlight,
                     area: self.area,
                     items: Vec::new(),
                     y: top,
@@ -308,6 +368,9 @@ impl Flow<'_> {
                 self.rect(x, top, bar, self.y - top, look.border);
             }
             Block::List(list) => self.list(list, x, width, depth),
+            Block::CodeBlock { language, code, .. } => {
+                self.code(language.as_deref(), code, x, width);
+            }
             // Reading mode lays out only the blocks `lays_out` takes.
             _ => {}
         }
@@ -322,12 +385,85 @@ impl Flow<'_> {
         }
     }
 
+    /// Lays a code block out at `x`: at least `width` pixels wide, as wide
+    /// as its longest line up to the area's edge, and with lines longer
+    /// than that wrapped at the edge.
+    fn code(&mut self, language: Option<&str>, code: &str, x: f32, width: f32) {
+        let look = *self.look;
+        let size = look.size;
+        let padding = CODE_PADDING * size;
+        let style = text::Look {
+            size: size * text::CODE_SIZE,
+            line_height: CODE_LINE_HEIGHT,
+            color: look.code_text,
+            mono: true,
+            wrap: text::Wrap::Anywhere,
+            ..text::Look::PLAIN
+        };
+        let mut runs = Vec::new();
+        for (index, line) in self.highlight.lines(language, code).into_iter().enumerate() {
+            if index > 0 {
+                push(&mut runs, "\n", &Run::default());
+            }
+            for run in line {
+                push(&mut runs, &run.text.clone(), &run);
+            }
+        }
+        let room = (self.area - x).max(width);
+        let paragraph = text::lay_out(self.fonts, &runs, &style, room - 2.0 * padding);
+        let (_, natural) = paragraph.content_widths();
+        let block_width = (natural + 2.0 * padding).clamp(width, room);
+        let height = paragraph.height() + 2.0 * padding;
+        let top = self.y;
+        if let Some(color) = look.code_block {
+            self.push(
+                top..top + height,
+                Shape::RoundRect {
+                    x,
+                    y: top,
+                    width: block_width,
+                    height,
+                    radius: CODE_RADIUS * size,
+                    color,
+                },
+            );
+        }
+        self.y += padding;
+        self.text(paragraph, x + padding);
+        if let (Some(language), Some(color)) =
+            (language.filter(|name| !name.is_empty()), look.label)
+        {
+            let style = text::Look {
+                size: size * LABEL_SIZE,
+                color,
+                ..text::Look::PLAIN
+            };
+            let label = text::lay_out(self.fonts, &[Run::new(language)], &style, block_width);
+            let (label_x, label_y) = (
+                x + block_width - 0.6 * size - label.width(),
+                top + 0.3 * size,
+            );
+            let label_height = label.height();
+            self.push(
+                label_y..label_y + label_height,
+                Shape::Text {
+                    paragraph: Box::new(label),
+                    x: label_x,
+                    y: label_y,
+                    chip: None,
+                },
+            );
+        }
+        self.y = top + height;
+    }
+
     fn paragraph(&self, content: &[Inline], color: Brush, width: f32) -> Paragraph {
         let style = text::Look {
             size: self.look.size,
             line_height: LINE_HEIGHT,
             weight: 400.0,
             color,
+            ..text::Look::PLAIN
         };
         text::lay_out(self.fonts, &runs(content, self.look), &style, width)
     }
@@ -345,6 +481,7 @@ impl Flow<'_> {
             let mut inner = Flow {
                 fonts: self.fonts,
                 look: self.look,
+                highlight: self.highlight,
                 area: self.area,
                 items: Vec::new(),
                 y: top,
@@ -395,6 +532,7 @@ impl Flow<'_> {
                         line_height: LINE_HEIGHT,
                         weight: 400.0,
                         color: look.marker,
+                        ..text::Look::PLAIN
                     };
                     let marker = text::lay_out(self.fonts, &[Run::new(&marker)], &style, width);
                     // Right-aligned, as GitHub sets markers.
@@ -566,6 +704,7 @@ fn plain_into(block: &Block, text: &mut String) {
     };
     match block {
         Block::Heading { content, .. } | Block::Paragraph(content) => inline(content, text),
+        Block::CodeBlock { code, .. } => text.push_str(code.trim_end()),
         Block::BlockQuote(blocks) => {
             for (index, block) in blocks.iter().enumerate() {
                 if index > 0 {
@@ -597,6 +736,9 @@ const PLAIN: Look = Look {
     quote: [0; 3],
     border: [0; 3],
     marker: [0; 3],
+    code_block: None,
+    code_text: [0; 3],
+    label: None,
 };
 
 #[cfg(test)]
@@ -614,13 +756,19 @@ mod tests {
         quote: [0x90; 3],
         border: [0x3d, 0x44, 0x4d],
         marker: [0xaa; 3],
+        code_block: Some([0x2b, 0x30, 0x3b]),
+        code_text: [0xc0; 3],
+        label: Some([0x80; 3]),
     };
 
     fn page(markdown: &str) -> Page {
         let document = parse(markdown);
         let blocks: Vec<&Block> = document.blocks.iter().collect();
-        assert!(blocks.iter().all(|block| lays_out(block)), "{blocks:?}");
-        lay_out(&blocks, &LOOK, &Fonts::fixture(), 672.0, 1008.0)
+        assert!(
+            blocks.iter().all(|block| lays_out(block, &|_, _| false)),
+            "{blocks:?}"
+        );
+        lay_out(&blocks, &LOOK, &Fonts::fixture(), &Plain, (672.0, 1008.0))
     }
 
     /// The texts laid out on the page, each with its left edge, its first
@@ -763,7 +911,7 @@ mod tests {
         };
         let document = parse("- [x] done\n");
         let blocks: Vec<&Block> = document.blocks.iter().collect();
-        let page = lay_out(&blocks, &light, &Fonts::fixture(), 672.0, 1008.0);
+        let page = lay_out(&blocks, &light, &Fonts::fixture(), &Plain, (672.0, 1008.0));
         let image = page.draw(0, 40, 24);
         // The box is 13 pixels square, its right edge 8 pixels before the
         // text at 32: the tick is as dark as the box is light.
@@ -778,10 +926,81 @@ mod tests {
     }
 
     #[test]
-    fn code_blocks_tables_and_lone_images_are_left_out() {
-        let document =
-            parse("```\ncode\n```\n\n| a |\n|---|\n\n![x](x.png)\n\n- a\n\n      code\n");
-        assert!(document.blocks.iter().all(|block| !lays_out(block)));
+    fn drawn_diagrams_tables_and_lone_images_are_left_out() {
+        let drawn = |language: &str, _: &str| language == "mermaid";
+        let left_out = "```mermaid\ngraph\n```\n\n| a |\n|---|\n\n![x](x.png)\n\n\
+            - a\n\n  ```mermaid\n  graph\n  ```\n";
+        let document = parse(left_out);
+        assert!(document.blocks.iter().all(|block| !lays_out(block, &drawn)));
+        let laid_out = parse("```\ncode\n```\n\n```mermaid\ngraph\n```\n\n- a\n\n      code\n");
+        assert!(
+            laid_out
+                .blocks
+                .iter()
+                .all(|block| lays_out(block, &|_, _| false))
+        );
+    }
+
+    /// The left edge, width and height of each code block's background.
+    fn code_blocks(page: &Page) -> Vec<(f32, f32, f32)> {
+        (page.items.iter())
+            .filter_map(|item| match item.shape {
+                Shape::RoundRect {
+                    x, width, height, ..
+                } => Some((x, width, height)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_code_block_is_at_least_as_wide_as_the_text() {
+        let page = page("```\nx\n```\n");
+        let [(x, width, height)] = code_blocks(&page)[..] else {
+            panic!("one code block");
+        };
+        assert_eq!((x, width), (0.0, 672.0));
+        assert_eq!(height, page.blocks[0].rows.end);
+        assert!(height > 32.0 + 19.0, "{height}");
+    }
+
+    #[test]
+    fn a_long_code_line_reaches_into_the_area() {
+        let page = page(&format!("```\n{}\n```\n", "a".repeat(100)));
+        let [(_, width, _)] = code_blocks(&page)[..] else {
+            panic!("one code block");
+        };
+        assert!(width > 672.0 && width < 1008.0, "{width}");
+    }
+
+    #[test]
+    fn a_code_line_longer_than_the_area_wraps_at_its_edge() {
+        let long = "a".repeat(200);
+        let page = page(&format!("```\n{long}\n```\n"));
+        let [(_, width, _)] = code_blocks(&page)[..] else {
+            panic!("one code block");
+        };
+        assert_eq!(width, 1008.0);
+        let texts = texts(&page);
+        let code = text(&texts, "aaa");
+        assert!(code.3 <= 1008.0 - 32.0, "{code:?}");
+        let lines = (page.items.iter()).find_map(|item| match &item.shape {
+            Shape::Text { paragraph, .. } if paragraph.text() == long => {
+                Some(paragraph.lines().len())
+            }
+            _ => None,
+        });
+        assert_eq!(lines, Some(2));
+    }
+
+    #[test]
+    fn a_code_block_has_its_language_in_the_top_right_corner() {
+        let page = page("```rust\nfn main() {}\n```\n");
+        let texts = texts(&page);
+        let label = text(&texts, "rust");
+        assert_eq!(label.1 + label.3, 672.0 - 0.6 * 16.0);
+        assert!(label.2 < 20.0, "{label:?}");
+        assert_eq!(page.blocks[0].text, "fn main() {}");
     }
 
     #[test]

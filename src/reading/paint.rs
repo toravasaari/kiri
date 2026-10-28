@@ -254,10 +254,8 @@ mod tests {
     const CHIP: Brush = [0x40, 0x40, 0xa0];
 
     const LOOK: Look = Look {
-        size: 16.0,
-        line_height: 1.5,
-        weight: 400.0,
         color: INK,
+        ..Look::PLAIN
     };
 
     fn drawn(runs: &[Run], chip: Option<Brush>) -> RgbaImage {

@@ -11,14 +11,17 @@ use std::rc::Rc;
 use image::RgbaImage;
 
 use super::block::BlockId;
+use super::highlight;
 use super::image::{Placement, Shows, Size, cell_size};
+use super::layout::{CodeColors, expand_tabs};
 use super::style::{ImageRow, Line, Span, Style};
 use crate::caps::Capabilities;
 use crate::color::Color;
 use crate::images::ImageKey;
 use crate::model::Block;
-use crate::reading::page::{self, Look, Page};
-use crate::reading::{Fonts, text::Brush};
+use crate::reading::Fonts;
+use crate::reading::page::{self, Highlight, Look, Page, Plain};
+use crate::reading::text::{Brush, Run};
 use crate::theme::Theme;
 
 /// The text's font size, as a share of the cell height: 16 pixels in rows
@@ -93,14 +96,14 @@ pub fn lines(
     blocks: &[&Block],
     ids: &[BlockId],
     reading: &Reading,
-    theme: &Theme,
+    (theme, code): (&Theme, &CodeColors),
     caps: &Capabilities,
     width: usize,
     document: usize,
 ) -> Vec<Line> {
     let cell = cell_size(caps);
     let (cell_width, cell_height) = (f32::from(cell.0), f32::from(cell.1));
-    let look = look(theme, caps);
+    let look = look(theme, code, caps);
     let window = u16::try_from(width).unwrap_or(u16::MAX);
     let room = window.saturating_sub(2 * SIDE).max(1);
     let text = (TEXT_WIDTH * look.size).min(f32::from(room) * cell_width);
@@ -108,12 +111,16 @@ pub fn lines(
     let left = (window - area) / 2;
     // The page covers the area, as tables and code may reach across it.
     let columns = area.clamp(1, caps.max_image_cells);
+    let highlight = Syntect {
+        theme: code.theme.as_deref(),
+        caps,
+    };
     let page = page::lay_out(
         blocks,
         &look,
         &reading.fonts,
-        text,
-        f32::from(columns) * cell_width,
+        &highlight,
+        (text, f32::from(columns) * cell_width),
     );
     let rows = ((page.height / cell_height).ceil() as u16).max(1);
     let mut hasher = DefaultHasher::new();
@@ -179,7 +186,7 @@ pub fn lines(
 /// How reading mode draws text in `theme` on a terminal with `caps`: its
 /// size from the cell height, and its colours from the theme, or from the
 /// terminal where the theme leaves them.
-pub fn look(theme: &Theme, caps: &Capabilities) -> Look {
+pub fn look(theme: &Theme, code: &CodeColors, caps: &Capabilities) -> Look {
     let (_, cell_height) = cell_size(caps);
     let rgb = |color: Option<Color>| match color?.rgb_or_xterm(&caps.palette) {
         Color::Rgb(red, green, blue) => Some([red, green, blue]),
@@ -212,6 +219,46 @@ pub fn look(theme: &Theme, caps: &Capabilities) -> Look {
         quote: muted,
         border: rgb(theme.rule).unwrap_or(border),
         marker: rgb(theme.list_marker).unwrap_or(text),
+        code_block: rgb(code.background),
+        code_text: rgb(code.text).unwrap_or(text),
+        label: rgb(code.label),
+    }
+}
+
+/// Code highlighted as the text layout highlights it, with `theme`, or in
+/// the plain colour of code without one.
+struct Syntect<'a> {
+    theme: Option<&'a str>,
+    caps: &'a Capabilities,
+}
+
+impl Highlight for Syntect<'_> {
+    fn lines(&self, language: Option<&str>, code: &str) -> Vec<Vec<Run>> {
+        let code: String = code.lines().map(|line| expand_tabs(line) + "\n").collect();
+        let highlighted =
+            (self.theme).and_then(|theme| highlight::highlight(&code, language, theme));
+        let Some(highlighted) = highlighted else {
+            return Plain.lines(language, &code);
+        };
+        (highlighted.lines.into_iter())
+            .map(|spans| {
+                (spans.into_iter())
+                    .map(|span| Run {
+                        bold: span.style.bold,
+                        italic: span.style.italic,
+                        color: span.style.fg.and_then(|color| rgb(color, self.caps)),
+                        ..Run::new(&span.text)
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+}
+
+fn rgb(color: Color, caps: &Capabilities) -> Option<Brush> {
+    match color.rgb_or_xterm(&caps.palette) {
+        Color::Rgb(red, green, blue) => Some([red, green, blue]),
+        Color::Palette(_) => None,
     }
 }
 
@@ -247,7 +294,8 @@ mod tests {
         }
     }
 
-    const DOCUMENT: &str = "# Title\n\nSome *text*.\n\n```\ncode\n```\n\nMore text.\n";
+    const DOCUMENT: &str =
+        "# Title\n\nSome *text*.\n\n```\ncode\n```\n\n> [!NOTE]\n> A note.\n\nMore text.\n";
 
     /// What each line shows: `page R/P` for row R of part P of a page,
     /// with the block's text where one starts, or the line's text.
@@ -357,7 +405,7 @@ mod tests {
             link: Some(Color::Rgb(1, 2, 3)),
             ..Theme::default()
         };
-        let look = look(&theme, &caps);
+        let look = look(&theme, &CodeColors::default(), &caps);
         assert_eq!(look.size, 20.0);
         assert_eq!(look.link, [1, 2, 3]);
     }

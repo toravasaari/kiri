@@ -4,7 +4,7 @@ mod common;
 
 use common::{Scratch, assert_succeeded, kiri, text};
 
-const DOCUMENT: &str = "# Title\n\nSome *text*.\n\n```\ncode\n```\n";
+const DOCUMENT: &str = "# Title\n\nSome *text*.\n\n> [!NOTE]\n> A note.\n";
 
 const NEEDS_IMAGES: &str =
     "kiri: reading mode needs a terminal that draws images; showing the document as text\n";
@@ -19,11 +19,11 @@ fn reading_mode_draws_the_text_as_images() {
     );
     assert_succeeded(&out);
     let shown = text(&out.stdout);
-    assert!(shown.contains("\x1b_Ga=T"), "{shown:?}");
-    assert!(shown.contains('\u{10EEEE}'), "{shown:?}");
-    assert!(!shown.contains("Title"), "{shown:?}");
-    // The code block shows as text, as without reading mode.
-    assert!(shown.contains("code"), "{shown:?}");
+    assert!(shown.contains("\x1b_Ga=T"), "no image sent");
+    assert!(shown.contains('\u{10EEEE}'), "no placeholders");
+    assert!(!shown.contains("Title"), "the heading as text");
+    // The alert shows as text, as without reading mode.
+    assert!(shown.contains("A note"), "no alert as text");
     assert_eq!(text(&out.stderr), "");
 }
 
