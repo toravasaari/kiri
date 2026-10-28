@@ -1139,6 +1139,8 @@ go.
   in a release build, and one with a 276-byte URL at half size 124 ms.
   Packing only the last words again would be enough, as groups further
   back no longer change.
+- One or two empty rows after the end of a document in the pager, so
+  that its last line of text does not touch the status line.
 
 ## Bugs
 
