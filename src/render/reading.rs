@@ -21,9 +21,11 @@ use crate::caps::Capabilities;
 use crate::color::Color;
 use crate::diagrams::INLINE_FORMULA;
 use crate::images::{ImageError, ImageKey, Images, Placeholder, Source};
-use crate::model::{self, Block};
+use crate::model::{self, AlertKind, Block};
 use crate::reading::Fonts;
-use crate::reading::page::{self, Frame, Highlight, Look, Page, Picture, Pictures, Plain, Wide};
+use crate::reading::page::{
+    self, AlertLook, Frame, Highlight, Look, Page, Picture, Pictures, Plain, Wide,
+};
 use crate::reading::text::{Brush, Run};
 use crate::theme::Theme;
 
@@ -570,6 +572,17 @@ pub fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities
         Some(color) => rgb(Some(color)),
         None => None,
     };
+    // An alert is a tint of its colour over the page, and inline code in it
+    // a stronger one, when the theme has tints, as the text layout has them.
+    let alert = |kind| {
+        let color = rgb(theme.alerts.color(kind, dark)).unwrap_or(text);
+        let tint = |share| theme.alerts.tint.then(|| mix(color, page, share));
+        AlertLook {
+            color,
+            tint: tint(0.15),
+            chip: tint(0.3).filter(|_| chip.is_some()),
+        }
+    };
     Look {
         size: (FONT_SIZE * f32::from(cell_height)).round(),
         text,
@@ -586,6 +599,14 @@ pub fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities
         error: rgb(theme.error).unwrap_or([0xf8, 0x51, 0x49]),
         table_border: rgb(theme.table_border).unwrap_or(border),
         stripe: stripes.then(|| mix(text, page, STRIPE)),
+        alerts: [
+            AlertKind::Note,
+            AlertKind::Tip,
+            AlertKind::Important,
+            AlertKind::Warning,
+            AlertKind::Caution,
+        ]
+        .map(alert),
     }
 }
 
@@ -1014,7 +1035,9 @@ mod tests {
     #[test]
     fn the_other_blocks_take_the_column_from_the_area_s_edge() {
         let note = "A note long enough to wrap. ".repeat(8);
-        let document = parse(&format!("Text.\n\n> [!NOTE]\n> {note}\n"));
+        let document = parse(&format!(
+            "Text.\n\n<details>\n<summary>Why</summary>\n\n{note}\n\n</details>\n"
+        ));
         let lines = layout::layout(&document, &inputs(kitty(160)));
         let alert: Vec<&Line> = (lines.iter())
             .filter(|line| line.image.is_none() && !line.is_blank())

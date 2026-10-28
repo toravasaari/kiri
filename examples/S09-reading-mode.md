@@ -29,10 +29,10 @@ headings, paragraphs, lists and quotes are in the system's sans-serif font
 at about four fifths of a row's height, in a column 42 times that wide at
 most, at the left of an area half as wide again in the middle of the
 window. Code blocks and tables are drawn too, and may reach across the
-area, and so are images, diagrams and formulas, in the column. The front
-matter above and the alert stay as they are without reading mode,
-between the parts in the proportional font, at the text's left edge and
-no wider than its column. The text cannot be selected or copied, as it is
+area, and so are images, diagrams, formulas and alerts, in the column.
+The front matter above stays as it is without reading mode, between the
+parts in the proportional font, at the text's left edge and no wider
+than its column. The text cannot be selected or copied, as it is
 drawn as images.
 
 ## Text
@@ -223,13 +223,25 @@ An image that cannot be shown, such as the missing one in
 [S06a-images.md](S06a-images.md), shows its alt text in grey where it
 would be.
 
-## Between the text
+## Alerts
 
-An alert and the front matter show as they do without reading mode, but
-at the text's left edge rather than the window's margin, and no wider
-than the text's column: only code blocks and tables reach into the area:
+An alert is drawn in the proportional font in the column: a bar down its
+left edge in the kind's colour, a tint of that colour behind it, and the
+title in bold in the colour after the kind's icon, a circle with an `i`
+here. The text under it is in the text's colour, and inline code in it
+has a stronger tint behind it. Any blocks may be inside it, such as a
+list or a code block, in the room that is left:
 
 > [!NOTE]
-> A note: blue, with an icon and the bold title "Note".
+> A note: blue, with an icon and the bold title "Note". Some `inline
+> code` in it, and a list:
+>
+> - one item
+> - another
 
-And the text goes on below them in the proportional font.
+> [!WARNING] A title of its own
+> Yellow, with a triangle.
+
+The front matter above stays as it is without reading mode, between the
+parts in the proportional font, at the text's left edge and no wider
+than its column. And the text goes on below in the proportional font.

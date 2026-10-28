@@ -3,6 +3,8 @@
 //! their margins collapsing between blocks as in CSS. The page is drawn a
 //! part at a time, so that a pager draws only what it shows.
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::ops::Range;
 
 use std::rc::Rc;
@@ -10,9 +12,10 @@ use std::rc::Rc;
 use image::RgbaImage;
 
 use super::fonts::Fonts;
+use super::octicons;
 use super::paint::Canvas;
 use super::text::{self, Brush, InlinePicture, Paragraph, Run};
-use crate::model::{Alignment, Block, Image, Inline, List, Table};
+use crate::model::{AlertKind, Alignment, Block, Image, Inline, List, Table};
 
 /// The size of each heading level, `h1` first, in font sizes of the text,
 /// and the line height of headings.
@@ -30,6 +33,12 @@ const MARKER_GAP: f32 = 0.5;
 /// How far a quote's text is indented, and how wide its bar is.
 const QUOTE_INDENT: f32 = 1.0;
 const QUOTE_BAR: f32 = 0.25;
+/// An alert's room above its title and below its text, the gap between its
+/// title and text, and the one between its icon and its title, in font
+/// sizes.
+const ALERT_PADDING: f32 = 0.5;
+const ALERT_TITLE_GAP: f32 = 0.25;
+const ICON_GAP: f32 = 0.5;
 /// How far below a large heading its rule is, in its own font sizes.
 const RULE_BELOW: f32 = 0.3;
 /// A code block's padding and the radius of its corners, in font sizes;
@@ -85,6 +94,26 @@ pub struct Look {
     pub stripe: Option<Brush>,
     /// The colour of what could not be drawn, such as a diagram's error.
     pub error: Brush,
+    /// How alerts look, by kind: note, tip, important, warning, caution.
+    pub alerts: [AlertLook; 5],
+}
+
+impl Look {
+    /// How alerts of `kind` look.
+    pub fn alert(&self, kind: AlertKind) -> AlertLook {
+        self.alerts[kind as usize]
+    }
+}
+
+/// The colours of one kind of alert.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AlertLook {
+    /// Its bar, its icon and its title.
+    pub color: Brush,
+    /// Its background; `None` for the page's.
+    pub tint: Option<Brush>,
+    /// The chip behind inline code in it, if inline code has one.
+    pub chip: Option<Brush>,
 }
 
 /// The colours of code: each line of `code`, in `language` if known, as
@@ -332,7 +361,7 @@ pub fn lays_out(block: &Block) -> bool {
         | Block::Table(_)
         | Block::Paragraph(_)
         | Block::CodeBlock { .. } => true,
-        Block::BlockQuote(blocks) => all(blocks),
+        Block::BlockQuote(blocks) | Block::Alert { blocks, .. } => all(blocks),
         Block::List(list) => list.items.iter().all(|item| all(&item.blocks)),
         _ => false,
     }
@@ -689,6 +718,11 @@ impl<'a> Flow<'a> {
                 self.code_or_diagram(language.as_deref(), code, x, width);
             }
             Block::Table(table) => self.table(table, x),
+            Block::Alert {
+                kind,
+                title,
+                blocks,
+            } => self.alert(*kind, title.as_deref(), blocks, x, width, depth),
             // Reading mode lays out only the blocks `lays_out` takes.
             _ => {}
         }
@@ -757,6 +791,71 @@ impl<'a> Flow<'a> {
         }
         let paragraph = self.paragraph(&image.alt, self.look.quote, width);
         self.y += self.text(paragraph, x);
+    }
+
+    /// Lays an alert out: a tint over the room, a bar down its left edge,
+    /// the title in the kind's colour after the kind's icon, and the blocks
+    /// inside, in the room that is left.
+    fn alert(
+        &mut self,
+        kind: AlertKind,
+        title: Option<&str>,
+        blocks: &[Block],
+        x: f32,
+        width: f32,
+        depth: usize,
+    ) {
+        let look = *self.look;
+        let size = look.size;
+        let alert = look.alert(kind);
+        let bar = (QUOTE_BAR * size).round().max(1.0);
+        let pad = ALERT_PADDING * size;
+        let top = self.y;
+        let (inner_x, inner_width) = (x + bar + size, width - bar - 2.0 * size);
+        // Inline code in it has a chip of its own, if it has one at all.
+        let inside = Look {
+            chip: look.chip.and(alert.chip),
+            ..look
+        };
+        let mut inner = self.child(&inside, top + pad);
+        // The icon is a font size wide and tall, before the title.
+        let icon_size = size.round();
+        let icon_room = icon_size + ICON_GAP * size;
+        let style = text::Look {
+            size,
+            line_height: LINE_HEIGHT,
+            weight: BOLD,
+            color: alert.color,
+            ..text::Look::PLAIN
+        };
+        let name = title.unwrap_or(kind.name());
+        let name = Run::new(name);
+        let title = text::lay_out(self.fonts, &[name], &style, inner_width - icon_room);
+        let line = title.lines().first().map_or(0.0, |line| line.height);
+        let pixels = Rc::new(octicons::icon(kind, icon_size as u32, alert.color));
+        let mut hasher = DefaultHasher::new();
+        (kind as u8, alert.color, icon_size as u32).hash(&mut hasher);
+        let id = hasher.finish();
+        inner.ids.push(id);
+        let y = inner.y + ((line - icon_size) / 2.0).max(0.0);
+        inner.push(
+            y..y + icon_size,
+            Shape::Picture {
+                x: inner_x,
+                y,
+                pixels,
+            },
+        );
+        inner.y += inner.text(title, inner_x + icon_room);
+        inner.y += ALERT_TITLE_GAP * size;
+        inner.blocks(blocks, inner_x, inner_width, depth);
+        let bottom = inner.y + pad;
+        if let Some(tint) = alert.tint {
+            self.rect(x, top, width, bottom - top, tint);
+        }
+        self.rect(x, top, bar, bottom - top, alert.color);
+        self.take(&mut inner);
+        self.y = bottom;
     }
 
     /// Lays a code block out, as the picture of a diagram or formula it is
@@ -1386,6 +1485,17 @@ fn plain_into(block: &Block, text: &mut String) {
                 }
             }
         }
+        Block::Alert {
+            kind,
+            title,
+            blocks,
+        } => {
+            text.push_str(title.as_deref().unwrap_or(kind.name()));
+            for block in blocks {
+                text.push('\n');
+                plain_into(block, text);
+            }
+        }
         Block::BlockQuote(blocks) => {
             for (index, block) in blocks.iter().enumerate() {
                 if index > 0 {
@@ -1423,6 +1533,11 @@ const PLAIN: Look = Look {
     table_border: [0; 3],
     stripe: None,
     error: [0; 3],
+    alerts: [AlertLook {
+        color: [0; 3],
+        tint: None,
+        chip: None,
+    }; 5],
 };
 
 #[cfg(test)]
@@ -1453,6 +1568,33 @@ mod tests {
         table_border: [0x3d, 0x44, 0x4d],
         stripe: Some([0x15, 0x1b, 0x23]),
         error: [0xf8, 0x51, 0x49],
+        alerts: [
+            AlertLook {
+                color: [0x40, 0x90, 0xf0],
+                tint: Some([0x10, 0x20, 0x30]),
+                chip: Some([0x20, 0x38, 0x50]),
+            },
+            AlertLook {
+                color: [0x20, 0xc0, 0x40],
+                tint: Some([0x10, 0x30, 0x18]),
+                chip: Some([0x20, 0x50, 0x30]),
+            },
+            AlertLook {
+                color: [0xa0, 0x60, 0xf0],
+                tint: None,
+                chip: None,
+            },
+            AlertLook {
+                color: [0xd0, 0xa0, 0x20],
+                tint: None,
+                chip: None,
+            },
+            AlertLook {
+                color: [0xf0, 0x40, 0x40],
+                tint: None,
+                chip: None,
+            },
+        ],
     };
 
     fn page(markdown: &str) -> Page {
@@ -1580,6 +1722,81 @@ mod tests {
             _ => None,
         });
         assert_eq!(bar, Some((0.0, 0.0, 4.0, 24.0)));
+    }
+
+    /// The rectangles on the page: left edge, top, width, height, colour.
+    fn rects(page: &Page) -> Vec<(f32, f32, f32, f32, Brush)> {
+        (page.items.iter())
+            .filter_map(|item| match item.shape {
+                Shape::Rect {
+                    x,
+                    y,
+                    width,
+                    height,
+                    color,
+                } => Some((x, y, width, height, color)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_alert_is_a_tinted_box_with_a_bar_an_icon_a_title_and_the_blocks() {
+        let page = page("> [!NOTE]\n> A note.\n\nAfter.\n");
+        let alert = LOOK.alert(AlertKind::Note);
+        // 8 above, the title's 24 and 4, the text's 24 and 8 below.
+        let height = 8.0 + 24.0 + 4.0 + 24.0 + 8.0;
+        let tint = alert.tint.unwrap();
+        assert_eq!(
+            rects(&page),
+            [
+                (0.0, 0.0, 672.0, height, tint),
+                (0.0, 0.0, 4.0, height, alert.color),
+            ]
+        );
+        // The icon is 16 pixels, after the bar and its padding and in the
+        // middle of the title's first line.
+        assert_eq!(pictures(&page), [(20.0, 8.0 + 4.0, 16, 16)]);
+        let texts = texts(&page);
+        assert_eq!(text(&texts, "Note").1, 20.0 + 16.0 + 8.0);
+        assert_eq!(text(&texts, "A note.").1, 20.0);
+        // The text below is a font size under it.
+        assert_eq!(page.blocks[0].rows, 0.0..height);
+        assert!(text(&texts, "After.").2 > height + 16.0);
+    }
+
+    #[test]
+    fn an_alert_s_text_for_searching_is_its_title_and_its_blocks() {
+        let page = page("> [!NOTE]\n> A note.\n>\n> More.\n\n> [!TIP] Mine\n> Text.\n");
+        assert_eq!(page.blocks[0].text, "Note\nA note.\nMore.");
+        assert_eq!(page.blocks[1].text, "Mine\nText.");
+    }
+
+    #[test]
+    fn an_alert_without_a_tint_has_only_its_bar() {
+        let page = page("> [!WARNING]\n> Careful.\n");
+        let alert = LOOK.alert(AlertKind::Warning);
+        let rects = rects(&page);
+        assert_eq!(rects.len(), 1, "{rects:?}");
+        assert_eq!(rects[0].4, alert.color);
+    }
+
+    #[test]
+    fn an_alert_holds_any_blocks_in_its_own_width_and_a_title_of_its_own() {
+        let page =
+            page("> [!TIP] Custom title\n> - an item\n>\n>   more\n>\n> ```\n> code\n> ```\n");
+        let texts = texts(&page);
+        assert_eq!(text(&texts, "Custom title").1, 44.0);
+        // The item's marker and text are inside the padding.
+        assert!(text(&texts, "an item").1 >= 20.0 + 32.0);
+        // The code block's background is as wide as the room inside.
+        let code = (page.items.iter())
+            .find_map(|item| match item.shape {
+                Shape::RoundRect { x, width, .. } => Some((x, width)),
+                _ => None,
+            })
+            .expect("a code block");
+        assert_eq!(code, (20.0, 672.0 - 4.0 - 32.0));
     }
 
     #[test]
@@ -1995,13 +2212,11 @@ mod tests {
     }
 
     #[test]
-    fn images_and_diagrams_are_laid_out_and_alerts_are_not_yet() {
+    fn images_diagrams_and_alerts_are_laid_out() {
         let document = parse(
-            "![x](x.png)\n\n```mermaid\ngraph\n```\n\n- ![y](y.png)\n\n  ```math\n  x\n  ```\n\n> quote\n",
+            "![x](x.png)\n\n```mermaid\ngraph\n```\n\n- ![y](y.png)\n\n  ```math\n  x\n  ```\n\n> quote\n\n> [!NOTE]\n> A note.\n",
         );
         assert!(document.blocks.iter().all(lays_out));
-        let alert = parse("> [!NOTE]\n> A note.\n");
-        assert!(!alert.blocks.iter().any(lays_out));
     }
 
     /// The pictures a test gives: an image of `size` pixels in the colour

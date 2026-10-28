@@ -22,8 +22,7 @@ fn reading_mode_draws_the_text_as_images() {
     assert!(shown.contains("\x1b_Ga=T"), "no image sent");
     assert!(shown.contains('\u{10EEEE}'), "no placeholders");
     assert!(!shown.contains("Title"), "the heading as text");
-    // The alert shows as text, as without reading mode.
-    assert!(shown.contains("A note"), "no alert as text");
+    assert!(!shown.contains("A note"), "the alert as text");
     assert_eq!(text(&out.stderr), "");
 }
 
