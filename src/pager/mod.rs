@@ -203,7 +203,16 @@ pub struct Options<'a, 'l> {
     /// The reading mode that `M` turns on, when the document is shown
     /// without it; `M` turns reading mode off when it is on.
     pub reading: Option<Reading>,
+    /// Starts loading what reading mode shows that the document does not
+    /// without it, such as the images in the middle of text, when `M`
+    /// turns it on: it is given the images, where the loads go and the
+    /// terminal's capabilities, and starts only what is not held or
+    /// loading already.
+    pub inline: Option<InlineLoader<'a>>,
 }
+
+/// See [`Options::inline`].
+pub type InlineLoader<'a> = Box<dyn FnMut(&mut Images, &mut Loads, &Capabilities) + 'a>;
 
 impl Options<'_, '_> {
     /// A window's width to decide the layout, searches that treat case as
@@ -218,6 +227,7 @@ impl Options<'_, '_> {
             warnings: Vec::new(),
             loads: None,
             reading: None,
+            inline: None,
         }
     }
 }
@@ -268,7 +278,9 @@ fn page_through(
         warnings,
         loads: _,
         reading,
+        inline,
     } = options;
+    let mut inline = inline;
     // The reading mode that `M` turns to, on or off.
     let mut other = reading.filter(|_| inputs.reading.is_none());
     let mut source = Origin {
@@ -505,6 +517,12 @@ fn page_through(
                 if inputs.caps.draws_images() {
                     std::mem::swap(&mut inputs.reading, &mut other);
                     state.changed = None;
+                    // Turned on: what it shows that the text does not
+                    // starts loading, and lays the page out again as it
+                    // comes.
+                    if let (Some(_), Some(start)) = (&inputs.reading, inline.as_mut()) {
+                        start(&mut inputs.images, source.loads, &inputs.caps);
+                    }
                 } else {
                     state.told = Some(Told::new(NEEDS_IMAGES));
                 }

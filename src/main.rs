@@ -1091,6 +1091,18 @@ fn page_files(
             })
             .collect(),
         reading: Some(context.reading_mode()),
+        // What reading mode shows in the middle of text loads when `M`
+        // turns it on, unless `--reading` had it loaded at the start.
+        inline: Some(Box::new(|images, loads, caps| {
+            let parts: Vec<Part> = (documents.iter())
+                .map(|(number, file)| Part {
+                    number: *number,
+                    ..part(&files[*number].document, file.as_deref(), true)
+                })
+                .collect();
+            let loading = loading(context, settings, caps);
+            kiri::images::load_inline_in_background(&parts, &loading, images, loads);
+        })),
         ..kiri::pager::Options::new(settings.search_case)
     };
     let start = |inputs: &mut Inputs, loads: &mut Loads| {

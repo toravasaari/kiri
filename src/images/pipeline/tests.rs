@@ -451,3 +451,43 @@ fn overlapping_reloads_run_no_more_programs_at_once_than_one_reload() {
     }
     assert_eq!(came, 8);
 }
+
+#[test]
+fn the_inline_pictures_load_when_asked_for_and_only_those_that_are_missing() {
+    let scratch = Scratch::new("pipeline-inline");
+    let settings = settings(&["/bin/false"]);
+    let loading = Loading {
+        env: &Environment::default(),
+        settings: &settings,
+        max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
+        theme: Theme::Light,
+        formula: FormulaColors::default(),
+        largest: None,
+        headings: None,
+    };
+    write_png(&scratch.join("a.png"), 4, 2, 1000);
+    write_png(&scratch.join("f.png"), 3, 3, 1000);
+    let document = crate::parse::parse("![alone](f.png)\n\nText ![a](a.png) in a line.\n");
+    let parts = alone(&document, &scratch);
+    // Without reading mode the lone image is all there is to load.
+    let mut images = load_documents(&parts, &loading, None).unwrap().images;
+    assert!(images.get(&"f.png".into()).is_some());
+    assert!(images.get(&"a.png".into()).is_none());
+    let mut loads = Loads::new();
+    load_inline_in_background(&parts, &loading, &mut images, &mut loads);
+    // Only the one in the line loads; the other is held, untouched.
+    assert_eq!(loads.keys().collect::<Vec<_>>(), [&ImageKey::from("a.png")]);
+    assert!(images.get(&"f.png".into()).is_some());
+    let came = until(&mut loads, &"a.png".into());
+    assert!(
+        matches!(&came[..], [(_, Ok(image))] if image.size() == (4, 2)),
+        "{came:?}"
+    );
+    // Asked again, while it is loading or held, it starts nothing.
+    images.came(
+        "a.png".into(),
+        Ok(came.into_iter().next().unwrap().1.unwrap()),
+    );
+    load_inline_in_background(&parts, &loading, &mut images, &mut loads);
+    assert!(loads.is_empty());
+}

@@ -325,3 +325,28 @@ fn w_twice_in_text_then_m_wraps() {
     assert!(last.contains("\u{10EEEE}"));
     assert_eq!(last.matches(",r=4,").count(), 0);
 }
+
+/// How many times the pager asked for the inline pictures while it showed
+/// `document` for `keys`.
+fn asked_for_inline_pictures(keys: &[&[u8]]) -> usize {
+    let asked = std::cell::Cell::new(0);
+    let mut terminal = Fake::new(80, 10, keys);
+    let mut inputs = Inputs::new(kitty());
+    let options = Options {
+        reading: Some(reading()),
+        inline: Some(Box::new(|_, _, _| asked.set(asked.get() + 1))),
+        ..Options::new(SearchCase::Smart)
+    };
+    run_document(&numbers(3), &mut inputs, options, &mut terminal);
+    asked.get()
+}
+
+#[test]
+fn m_starts_the_inline_pictures_loading_only_when_it_turns_reading_mode_on() {
+    assert_eq!(asked_for_inline_pictures(&[]), 0);
+    assert_eq!(asked_for_inline_pictures(&[b"M"]), 1);
+    // Off again: nothing more to ask for; on again: asked, and the loader
+    // starts only what is missing.
+    assert_eq!(asked_for_inline_pictures(&[b"M", b"M"]), 1);
+    assert_eq!(asked_for_inline_pictures(&[b"M", b"M", b"M"]), 2);
+}
