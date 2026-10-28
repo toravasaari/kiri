@@ -389,9 +389,10 @@ enum Shape {
     },
 }
 
-/// Whether reading mode lays `block` out: text blocks, code blocks, tables,
-/// images and diagrams, and lists and quotes of nothing else. Other
-/// blocks, such as alerts, are shown as they are without it.
+/// Whether reading mode lays `block` out: every block of a document is
+/// laid out, with what is inside it. What is left is no part of a
+/// document: a message of kiri's own about a file that could not be
+/// shown, and an image file shown on its own.
 pub fn lays_out(block: &Block) -> bool {
     let all = |blocks: &[Block]| blocks.iter().all(lays_out);
     match block {
@@ -400,13 +401,14 @@ pub fn lays_out(block: &Block) -> bool {
         | Block::ThematicBreak
         | Block::Table(_)
         | Block::Paragraph(_)
-        | Block::CodeBlock { .. } => true,
-        Block::Html(_) | Block::Note(_) => true,
+        | Block::CodeBlock { .. }
+        | Block::Html(_)
+        | Block::Note(_) => true,
         Block::Details { blocks, .. } | Block::BlockQuote(blocks) | Block::Alert { blocks, .. } => {
             all(blocks)
         }
         Block::List(list) => list.items.iter().all(|item| all(&item.blocks)),
-        _ => false,
+        Block::Error(_) | Block::ImageFile(_) => false,
     }
 }
 
@@ -793,8 +795,9 @@ impl<'a> Flow<'a> {
                 title,
                 blocks,
             } => self.alert(*kind, title.as_deref(), blocks, x, width, depth),
-            // Reading mode lays out only the blocks `lays_out` takes.
-            _ => {}
+            // Not part of a document, which `lays_out` leaves to the text
+            // layout.
+            Block::Error(_) | Block::ImageFile(_) => {}
         }
         self.margin = Some(block_margins(block, &look).1);
     }
@@ -2664,11 +2667,19 @@ mod tests {
     }
 
     #[test]
-    fn images_diagrams_and_alerts_are_laid_out() {
+    fn every_block_of_a_document_is_laid_out() {
         let document = parse(
-            "![x](x.png)\n\n```mermaid\ngraph\n```\n\n- ![y](y.png)\n\n  ```math\n  x\n  ```\n\n> quote\n\n> [!NOTE]\n> A note.\n",
+            "---\na: b\n---\n\n![x](x.png)\n\n```mermaid\ngraph\n```\n\n- ![y](y.png)\n\n  ```math\n  x\n  ```\n\n> quote\n\n> [!NOTE]\n> A note.\n\n<details>\n<summary>S</summary>\n\n> [!TIP]\n> Inside.\n\n</details>\n\n<div>x</div>\n\n| a |\n|---|\n| b |\n",
         );
-        assert!(document.blocks.iter().all(lays_out));
+        assert!(
+            document.blocks.iter().all(lays_out),
+            "{:?}",
+            document.blocks
+        );
+        // Only what is no part of a document is left to the text layout.
+        assert!(!lays_out(&Block::Error("unreadable".into())));
+        assert!(!lays_out(&Block::ImageFile("a.png".into())));
+        assert!(lays_out(&Block::Note("3 rows".into())));
     }
 
     /// The pictures a test gives: an image of `size` pixels in the colour
