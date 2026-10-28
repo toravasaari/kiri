@@ -417,8 +417,12 @@ impl Flow<'_> {
 fn task(canvas: &mut Canvas, x: f32, y: f32, size: f32, checked: bool, look: &Look) {
     if checked {
         canvas.round_rect(x, y, size, size, (size * 0.2).round(), look.link);
-        // A tick of two strokes, as squares along each.
+        // A tick of two strokes, as squares along each, white on a dark
+        // box and black on a light one.
         let stroke = (size / 8.0).max(1.0);
+        let [red, green, blue] = look.link.map(f32::from);
+        let light = 0.299 * red + 0.587 * green + 0.114 * blue > 160.0;
+        let ink = if light { [0; 3] } else { [0xff; 3] };
         let tick = [(0.2, 0.5), (0.4, 0.72), (0.8, 0.28)];
         for pair in tick.windows(2) {
             let ((x0, y0), (x1, y1)) = (pair[0], pair[1]);
@@ -430,7 +434,7 @@ fn task(canvas: &mut Canvas, x: f32, y: f32, size: f32, checked: bool, look: &Lo
                     y + py * size - stroke / 2.0,
                     stroke,
                     stroke,
-                    [0xff; 3],
+                    ink,
                 );
             }
         }
@@ -742,6 +746,28 @@ mod tests {
             })
             .collect();
         assert_eq!(tasks, [true, false]);
+    }
+
+    #[test]
+    fn a_tick_shows_on_a_light_box() {
+        let light = Look {
+            link: [0xee; 3],
+            ..LOOK
+        };
+        let document = parse("- [x] done\n");
+        let blocks: Vec<&Block> = document.blocks.iter().collect();
+        let page = lay_out(&blocks, &light, &Fonts::fixture(), 672.0);
+        let image = page.draw(0, 40, 24);
+        // The box is 13 pixels square, its right edge 8 pixels before the
+        // text at 32: the tick is as dark as the box is light.
+        let dark = (19..32)
+            .flat_map(|x| (0..24).map(move |y| (x, y)))
+            .filter(|&(x, y)| {
+                let pixel = image.get_pixel(x, y).0;
+                pixel[3] == 255 && pixel[0] < 0x40
+            })
+            .count();
+        assert!(dark > 5, "{dark} dark pixels of the tick");
     }
 
     #[test]
