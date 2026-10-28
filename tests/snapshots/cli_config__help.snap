@@ -204,6 +204,16 @@ Options:
           selected or copied. It needs a terminal that draws images, such as kitty; elsewhere the
           document shows as text. The option's name may still change.
 
+      --wide <HOW>
+          Experimental: wide code and tables wrap or scroll in reading mode
+          
+          With wrap, a code block or table wider than reading mode's area wraps to fit it; with
+          scroll, it keeps its lines and words whole and scrolls sideways in the pager, where W
+          switches between the two. Printing always wraps. wrap unless set. The option's name may
+          still change.
+          
+          [possible values: wrap, scroll]
+
       --max-image-size <MB>
           Largest image file to read, in megabytes
           

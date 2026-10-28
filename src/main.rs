@@ -22,6 +22,7 @@ use kiri::images::{
 use kiri::input::Input;
 use kiri::model::{Block, Document, FrontMatterError};
 use kiri::pager::{Change, Look, Reload, Reloaded, Warning};
+use kiri::reading::page::Wide;
 use kiri::render::encoder::Encoder;
 use kiri::render::output::Page;
 use kiri::render::reading::Reading;
@@ -255,6 +256,16 @@ struct Cli {
     /// option's name may still change.
     #[arg(long)]
     reading: bool,
+
+    /// Experimental: wide code and tables wrap or scroll in reading mode
+    ///
+    /// With wrap, a code block or table wider than reading mode's area
+    /// wraps to fit it; with scroll, it keeps its lines and words whole and
+    /// scrolls sideways in the pager, where W switches between the two.
+    /// Printing always wraps. wrap unless set. The option's name may still
+    /// change.
+    #[arg(long, value_name = "HOW", value_parser = ["wrap", "scroll"])]
+    wide: Option<String>,
 
     /// Largest image file to read, in megabytes
     ///
@@ -695,6 +706,14 @@ fn without_config(cli: &Cli, env: &Environment) -> Settings {
     choices.with_theme(Theme::default())
 }
 
+/// Sets `inputs` up for printing: reading mode's wide code and tables
+/// wrap, as nothing can scroll them.
+fn printing(inputs: &mut Inputs) {
+    if let Some(reading) = &mut inputs.reading {
+        reading.wide = Wide::Wrap;
+    }
+}
+
 /// Whether a file shown on its own as an image is, an image file or a
 /// diagram file, goes to the pager for `settings` on a terminal with
 /// `caps`: only when paging is `always`, as for several such files.
@@ -1071,7 +1090,7 @@ fn page_files(
                 message,
             })
             .collect(),
-        reading: Some(Context::reading_mode()),
+        reading: Some(context.reading_mode()),
         ..kiri::pager::Options::new(settings.search_case)
     };
     let start = |inputs: &mut Inputs, loads: &mut Loads| {
@@ -1110,6 +1129,7 @@ fn page_files(
         }
         (true, None) => (vec![Vec::new(); files.len()], None),
     };
+    printing(inputs);
     let mut out = kiri::term::output(&inputs.caps);
     let mut apart = false;
     // Whether kitty did not answer the check of a file's images.
@@ -1151,6 +1171,7 @@ fn print_files(
     settings: &Settings,
     failed: &Cell<bool>,
 ) -> io::Result<()> {
+    printing(inputs);
     let mut out = kiri::term::output(&inputs.caps);
     let mut apart = false;
     // Whether kitty did not answer the check of a file's images.
@@ -1454,6 +1475,9 @@ struct Context<'a> {
     follow: Follow,
     /// Whether `--reading` asks for reading mode.
     reading: bool,
+    /// What becomes of code blocks and tables wider than reading mode's
+    /// area in the pager, as `--wide` says.
+    wide: Wide,
 }
 
 impl<'a> Context<'a> {
@@ -1465,21 +1489,25 @@ impl<'a> Context<'a> {
             max_file_size: cli.max_image_size * kiri::images::MB,
             follow: follow(cli).map_or(Follow::Off, |follow| follow.value),
             reading: cli.reading,
+            wide: match cli.wide.as_deref() {
+                Some("scroll") => Wide::Scroll,
+                _ => Wide::Wrap,
+            },
         }
     }
 
     /// Reading mode, when it is asked for and a terminal with `caps` draws
     /// images.
     fn reading(&self, caps: &Capabilities) -> Option<Reading> {
-        (self.reading && caps.draws_images()).then(Self::reading_mode)
+        (self.reading && caps.draws_images()).then(|| self.reading_mode())
     }
 
     /// Reading mode in the system's fonts, which load when text is first
     /// laid out in them, as `M` in the pager turns it on.
-    fn reading_mode() -> Reading {
+    fn reading_mode(&self) -> Reading {
         Reading {
             fonts: Rc::new(kiri::reading::Fonts::system()),
-            wide: kiri::reading::page::Wide::Wrap,
+            wide: self.wide,
         }
     }
 
@@ -1990,7 +2018,7 @@ fn print_document(
             jump: settings.follow_jump,
             warnings,
             reload: reload.as_mut().map(|reload| reload as &mut dyn Reload),
-            reading: Some(Context::reading_mode()),
+            reading: Some(context.reading_mode()),
             ..kiri::pager::Options::new(settings.search_case)
         },
         (
@@ -2022,6 +2050,7 @@ fn print_document(
         }
         None => None,
     };
+    printing(&mut inputs);
     let mut out = kiri::term::output(&inputs.caps);
     Ok(finish(
         kiri::render::render(document, &inputs, &mut out).and_then(|sent| {

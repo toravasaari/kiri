@@ -2256,3 +2256,68 @@ fn a_named_pipe_reloads_nothing() {
     assert!(text_of(&seen).contains("nothing to reload"), "{seen:?}");
     assert!(!seen.contains("Again"), "{seen:?}");
 }
+
+/// What kiri draws in the pager for a document with a code line wider
+/// than reading mode's area, with `args` besides `--reading -p`.
+fn wide_code(name: &str, args: &[&str]) -> String {
+    let wide = |dir: &std::path::Path| {
+        let code = format!("Text.\n\n```\n{}\n```\n", "a".repeat(200));
+        std::fs::write(dir.join("wide.md"), code).unwrap();
+    };
+    let mut quit = false;
+    let mut all = vec!["--mode", "kitty", "--reading", "-p"];
+    all.extend(args);
+    all.push("wide.md");
+    let (status, seen) = in_terminal_after(name, wide, &all, 10, None, |frames, terminal, _| {
+        if frames > 0 && !quit {
+            terminal.write_all(b"q").unwrap();
+            quit = true;
+        }
+    });
+    assert!(status.success());
+    seen
+}
+
+/// The images sent in `seen`, by the keys of their transmission.
+fn images(seen: &str) -> Vec<&str> {
+    (seen.split("\x1b_Ga=T").skip(1))
+        .filter_map(|keys| keys.split(';').next())
+        .collect()
+}
+
+#[test]
+fn wide_scroll_scrolls_a_wide_code_block_in_the_pager_and_wrap_wraps_it() {
+    let wrapped = wide_code("pager-wide-wrap", &[]);
+    let scrolling = wide_code("pager-wide-scroll", &["--wide", "scroll"]);
+    let again = wide_code("pager-wide-wrap-again", &["--wide", "wrap"]);
+    // Wrapped, one part of the page; scrolling, the band besides.
+    assert_eq!(images(&wrapped).len(), 1, "{:?}", images(&wrapped));
+    assert_eq!(images(&scrolling).len(), 2, "{:?}", images(&scrolling));
+    assert_eq!(images(&again).len(), 1, "{:?}", images(&again));
+}
+
+#[test]
+fn printing_always_wraps() {
+    let dir = Scratch::new("print-wide-scroll");
+    let code = format!("Text.\n\n```\n{}\n```\n", "a".repeat(200));
+    let path = dir.join("wide.md");
+    std::fs::write(&path, code).unwrap();
+    let print = |wide: &str| {
+        let out = command(&dir)
+            .args([
+                "--mode",
+                "kitty",
+                "--reading",
+                "--width",
+                "40",
+                "--wide",
+                wide,
+            ])
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        out.stdout
+    };
+    assert_eq!(print("scroll"), print("wrap"));
+}
