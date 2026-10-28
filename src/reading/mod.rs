@@ -3,6 +3,7 @@
 //! terminals; `render::reading` shows the pixels.
 
 pub mod fonts;
+pub mod paint;
 pub mod text;
 
 pub use fonts::Fonts;

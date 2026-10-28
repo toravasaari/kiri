@@ -75,6 +75,7 @@ pub struct RangeBox {
 /// Text laid out at a width.
 pub struct Paragraph {
     pub(crate) layout: Layout<Brush>,
+    pub(crate) look: Look,
     text: String,
     /// The ranges of the text in inline code.
     code: Vec<Range<usize>>,
@@ -136,7 +137,12 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
         layout.align(Alignment::Start, AlignmentOptions::default());
         layout
     });
-    Paragraph { layout, text, code }
+    Paragraph {
+        layout,
+        look: *look,
+        text,
+        code,
+    }
 }
 
 impl Paragraph {
