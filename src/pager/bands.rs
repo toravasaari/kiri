@@ -104,6 +104,34 @@ impl Bands {
         Some(changed)
     }
 
+    /// Scrolls the band that shows line `line` so that the pixels `x` of
+    /// its content are in view, and selects it: whether that changed the
+    /// band, or `None` when no band shows the line.
+    pub fn reveal(
+        &mut self,
+        lines: &[Line],
+        places: &[Option<BlockInfo>],
+        line: usize,
+        x: Range<u32>,
+    ) -> Option<bool> {
+        let (id, band) =
+            (identify(lines, places).into_iter()).find(|(_, band)| band.lines.contains(&line))?;
+        let offset = self.offset(&id);
+        let visible = band.visible();
+        let new = match x.start >= offset && x.end <= offset + visible {
+            true => offset,
+            false => x.start.saturating_sub(visible / 4).min(band.most()),
+        };
+        let mut changed = self.selected.as_ref() != Some(&id);
+        self.selected = Some(id.clone());
+        if new != offset {
+            self.offsets.retain(|(kept, _)| *kept != id);
+            self.offsets.push((id, new));
+            changed = true;
+        }
+        Some(changed)
+    }
+
     /// Scrolls the bands a key scrolls by `step`; true when one moved.
     pub fn scroll(&mut self, lines: &[Line], places: &[Option<BlockInfo>], step: Step) -> bool {
         let mut moved = false;
@@ -221,6 +249,42 @@ mod tests {
         bands.apply(&mut lines, &places);
         assert_eq!(shown(&lines), [(0, false), (0, true)]);
         assert!(!bands.refresh(&lines, &places, second.start..lines.len()));
+    }
+
+    #[test]
+    fn a_band_is_scrolled_to_show_what_is_asked_for_and_selected() {
+        let long = "a".repeat(200);
+        let (mut lines, places) = laid_out_from(&format!(
+            "```\n{long}\n```\n\nText.\n\n```\n{long} needle\n```\n"
+        ));
+        let mut bands = Bands::default();
+        bands.refresh(&lines, &places, 0..lines.len());
+        let second = reading::bands(&lines)[1].lines.clone();
+        let visible = reading::bands(&lines)[1].visible();
+        // In view already: only selected.
+        assert_eq!(
+            bands.reveal(&lines, &places, second.start, 0..30),
+            Some(true)
+        );
+        bands.apply(&mut lines, &places);
+        assert_eq!(shown(&lines), [(0, false), (0, true)]);
+        // Far to the right: scrolled so that it is a quarter in.
+        let x = 1500..1560;
+        assert_eq!(
+            bands.reveal(&lines, &places, second.start, x.clone()),
+            Some(true)
+        );
+        bands.apply(&mut lines, &places);
+        let offset = shown(&lines)[1].0;
+        assert_eq!(
+            offset,
+            (x.start - visible / 4).min(reading::bands(&lines)[1].most())
+        );
+        assert!(x.start >= offset && x.end <= offset + visible);
+        // Already there: nothing changes; no band on a line: none.
+        assert_eq!(bands.reveal(&lines, &places, second.start, x), Some(false));
+        let text = reading::bands(&lines)[0].lines.end;
+        assert_eq!(bands.reveal(&lines, &places, text, 0..1), None);
     }
 
     #[test]

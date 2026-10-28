@@ -3,11 +3,14 @@
 //! changes in the middle is found too.
 
 use std::ops::Range;
+use std::rc::Rc;
 
 use super::fade::Fade;
 use crate::caps::Capabilities;
 use crate::color::Underline;
 use crate::config::SearchCase;
+use crate::reading::page::ItemRef;
+use crate::render::reading;
 use crate::render::style::{self, ImageRow, Line, Span, Style};
 use crate::theme::{SearchColor, Theme};
 
@@ -17,8 +20,24 @@ pub struct Match {
     /// The line it is on.
     pub line: usize,
     /// Its bytes in the line's text: the text of its spans one after
-    /// another.
+    /// another. Empty for a match in a page of reading mode, which `place`
+    /// tells.
     pub bytes: Range<usize>,
+    /// Where it is in a page of reading mode, when it is in one.
+    pub place: Option<PageMatch>,
+}
+
+/// A match in a page of reading mode: which page, which of its texts and
+/// the bytes of it, and where in a band, if it is in one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PageMatch {
+    /// The page, by the address of its parts, which is the same for the
+    /// rows of one layout.
+    pub page: usize,
+    pub item: ItemRef,
+    pub range: Range<usize>,
+    /// The band it is in, and the pixels of it across the band's content.
+    pub band: Option<(u32, Range<u32>)>,
 }
 
 /// A search: its term, where it is in the document and which place the
@@ -100,14 +119,27 @@ impl Search {
     }
 
     /// The bytes of the matches on line `line`, from left to right, each
-    /// with whether it is the current match.
+    /// with whether it is the current match. Matches in pages of reading
+    /// mode are not among them.
     pub fn on(&self, line: usize) -> Vec<(Range<usize>, bool)> {
         let start = self.matches.partition_point(|found| found.line < line);
         self.matches[start..]
             .iter()
-            .take_while(|found| found.line == line)
             .enumerate()
+            .take_while(|(_, found)| found.line == line)
+            .filter(|(_, found)| found.place.is_none())
             .map(|(index, found)| (found.bytes.clone(), Some(start + index) == self.current))
+            .collect()
+    }
+
+    /// The matches in the page `page`, each with whether it is the current
+    /// match.
+    pub fn in_page(&self, page: usize) -> Vec<(ItemRef, Range<usize>, bool)> {
+        (self.matches.iter().enumerate())
+            .filter_map(|(index, found)| {
+                let place = found.place.as_ref().filter(|place| place.page == page)?;
+                Some((place.item, place.range.clone(), Some(index) == self.current))
+            })
             .collect()
     }
 }
@@ -287,15 +319,59 @@ fn find(lines: &[Line], term: &str, case: SearchCase) -> Vec<Match> {
         SearchCase::Literal => false,
     };
     let term: Vec<char> = term.chars().collect();
-    lines
+    let mut found: Vec<Match> = lines
         .iter()
         .enumerate()
         .flat_map(|(index, line)| {
             places(&searched(line), &term, ignore_case)
                 .into_iter()
-                .map(move |bytes| Match { line: index, bytes })
+                .map(move |bytes| Match {
+                    line: index,
+                    bytes,
+                    place: None,
+                })
         })
-        .collect()
+        .chain(page_matches(lines, &term, ignore_case))
+        .collect();
+    // Lines in order; the matches of a page, which are on its rows, come
+    // after the text matches of the same line.
+    found.sort_by_key(|found| found.line);
+    found
+}
+
+/// The matches in the texts of the pages of reading mode on `lines`,
+/// each on the row that its first line of text is on.
+fn page_matches(lines: &[Line], term: &[char], ignore_case: bool) -> Vec<Match> {
+    let mut found = Vec::new();
+    for page in reading::pages(lines) {
+        let (_, cell) = page.parts.cells();
+        let address = Rc::as_ptr(&page.parts) as usize;
+        let hits = page
+            .parts
+            .find(&|text: &str| places(text, term, ignore_case));
+        for hit in hits {
+            let row = (hit.top / f32::from(cell.1)).floor().max(0.0) as usize;
+            let line = (page.lines.start + row).min(page.lines.end - 1);
+            let band = hit.item.band.map(|band| {
+                let first = hit.pieces[0];
+                (
+                    band as u32,
+                    first.x.floor().max(0.0) as u32..(first.x + first.width).ceil() as u32,
+                )
+            });
+            found.push(Match {
+                line,
+                bytes: 0..0,
+                place: Some(PageMatch {
+                    page: address,
+                    item: hit.item,
+                    range: hit.range,
+                    band,
+                }),
+            });
+        }
+    }
+    found
 }
 
 /// The text a search looks in on `line`: its spans', and after them the
@@ -304,9 +380,9 @@ fn find(lines: &[Line], term: &str, case: SearchCase) -> Vec<Match> {
 /// there has bytes past the spans, so it is not marked.
 fn searched(line: &Line) -> String {
     let mut text = style::text(&line.spans);
-    // A page of reading mode puts a block's text on the row the block
-    // starts on, wherever that is in its image.
-    let first = |image: &&ImageRow| image.row == 0 || image.page.is_some();
+    // The rows of a page of reading mode have no text to find on them:
+    // its texts are found where they are.
+    let first = |image: &&ImageRow| image.row == 0 && image.page.is_none();
     if let Some(image) = line.image.as_ref().filter(first) {
         text.push_str(image.text.as_deref().unwrap_or_default());
     }
@@ -362,7 +438,11 @@ mod tests {
     }
 
     fn at(line: usize, bytes: Range<usize>) -> Match {
-        Match { line, bytes }
+        Match {
+            line,
+            bytes,
+            place: None,
+        }
     }
 
     /// Row `row` of a heading `text` shown as an image of two rows.
@@ -382,6 +462,65 @@ mod tests {
             image.text = Some(text.to_owned());
         }
         line
+    }
+
+    /// `source` laid out in reading mode, in a window of 80 cells.
+    fn reading_lines(source: &str) -> Vec<Line> {
+        let document = crate::parse::parse(source);
+        let inputs = crate::render::Inputs {
+            reading: Some(crate::render::reading::Reading {
+                fonts: Rc::new(crate::reading::Fonts::fixture()),
+                wide: crate::reading::page::Wide::Scroll,
+            }),
+            ..crate::render::Inputs::new(Capabilities {
+                cell_pixels: Some((10, 20)),
+                ..Capabilities::kitty(80)
+            })
+        };
+        crate::render::layout::content(crate::render::layout::Content::Document(&document), &inputs)
+            .lines
+    }
+
+    #[test]
+    fn a_match_in_a_page_is_on_the_row_of_its_line_of_text() {
+        let filler = "words that fill a line ".repeat(20);
+        let source = format!(
+            "{filler} needle at the end of a long paragraph.\n\nShort.\n\n| a |\n|---|\n| needle |\n\n> [!NOTE]\n> Another needle.\n"
+        );
+        let lines = reading_lines(&source);
+        let search = Search::new(&lines, "needle", SearchCase::Smart, 0);
+        let (current, total) = search.count().unwrap();
+        assert_eq!((current, total), (1, 3));
+        let rows: Vec<usize> = search.matches.iter().map(|found| found.line).collect();
+        // Not on the first row of the long paragraph, but on the row of
+        // the line of text the word is on, and the others below in order.
+        assert!(rows[0] >= 3, "{rows:?}");
+        assert!(rows[0] < rows[1] && rows[1] < rows[2], "{rows:?}");
+        assert!(search.matches.iter().all(|found| found.place.is_some()));
+        // None is a match in the spans of a line, which are marked there.
+        assert!(rows.iter().all(|&row| search.on(row).is_empty()));
+        // The page's marks: all three, the first the current.
+        let page = search.matches[0].place.as_ref().unwrap().page;
+        let marks = search.in_page(page);
+        assert_eq!(marks.len(), 3);
+        assert_eq!(
+            marks.iter().map(|mark| mark.2).collect::<Vec<_>>(),
+            [true, false, false]
+        );
+    }
+
+    #[test]
+    fn a_match_in_a_scrolling_band_tells_where_in_the_band() {
+        let long = "a".repeat(200);
+        let lines = reading_lines(&format!("Text.\n\n```\n{long} needle\n```\n"));
+        let search = Search::new(&lines, "needle", SearchCase::Smart, 0);
+        let place = search
+            .current()
+            .and_then(|found| found.place.as_ref())
+            .unwrap();
+        let (band, x) = place.band.clone().expect("in a band");
+        assert_eq!(band, 0);
+        assert!(x.start > 1000 && x.end > x.start, "{x:?}");
     }
 
     #[test]

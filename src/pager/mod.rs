@@ -878,6 +878,9 @@ struct State {
     prompt: Option<Prompt>,
     /// The last search.
     search: Option<Search>,
+    /// Whether a jump to a match scrolled or selected a band, which is
+    /// shown anew once the key is done.
+    bands_moved: bool,
     /// Whether the last search is shown; Escape hides it until `n` or
     /// `N`.
     shown: bool,
@@ -1055,6 +1058,7 @@ impl State {
             help: false,
             prompt: None,
             search: None,
+            bands_moved: false,
             shown: false,
             nowhere: false,
             jumped: None,
@@ -1093,6 +1097,13 @@ impl State {
     /// Does what `key`, pressed at `now`, asks in `layout`, and tells what
     /// is left for the pager to do.
     fn press(&mut self, key: Key, now: Instant, layout: &mut Layout) -> Pressed {
+        match self.pressed(key, now, layout) {
+            Pressed::Nothing if std::mem::take(&mut self.bands_moved) => Pressed::Bands,
+            pressed => pressed,
+        }
+    }
+
+    fn pressed(&mut self, key: Key, now: Instant, layout: &mut Layout) -> Pressed {
         // A click selects the band under it, and the sideways wheel, or
         // the wheel with Shift, scrolls it; away from a band, the wheel
         // with Shift scrolls as the wheel does.
@@ -1276,6 +1287,14 @@ impl State {
     fn jump(&mut self, line: usize, now: Instant, around: bool, layout: &mut Layout) {
         layout.view.reveal(line);
         self.jumped = Some(Jump { at: now, around });
+        // A match in a band scrolls the band to it, and selects it.
+        let band = (self.search.as_ref().and_then(Search::current))
+            .and_then(|found| found.place.as_ref()?.band.clone());
+        if let Some((_, x)) = band
+            && self.bands.reveal(layout.lines, layout.places, line, x) == Some(true)
+        {
+            self.bands_moved = true;
+        }
     }
 
     /// Finds the last search again in `lines`, laid out anew, from the
@@ -1393,7 +1412,7 @@ impl State {
         tint: Option<Tint>,
     ) -> Vec<Line> {
         let search = self.search.as_ref().filter(|_| self.shown);
-        (first..)
+        let mut marked: Vec<Line> = (first..)
             .zip(lines)
             .map(|(index, line)| {
                 let tinted;
@@ -1409,7 +1428,17 @@ impl State {
                     None => line.clone(),
                 }
             })
-            .collect()
+            .collect();
+        // The matches in a page of reading mode are drawn into its image.
+        if let Some(search) = search {
+            for page in crate::render::reading::pages(&marked) {
+                let marks = search.in_page(std::rc::Rc::as_ptr(&page.parts) as usize);
+                if let Some(overlay) = page.parts.overlay(marks, None) {
+                    crate::render::reading::set_overlay(&mut marked[page.lines], Some(&overlay));
+                }
+            }
+        }
+        marked
     }
 
     /// What the status line tells about the last key, in `fading` when

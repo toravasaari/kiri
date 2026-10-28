@@ -362,3 +362,61 @@ fn the_status_line_tells_that_reading_mode_is_on() {
     assert!(told(&frames[reading]), "{:?}", frames[reading]);
     assert!(!told(frames.last().unwrap()));
 }
+
+/// The frames drawn for `document` in reading mode in a window of 80 × 10
+/// cells, when the terminal gives `keys`.
+fn reading_frames(
+    document: &Document,
+    wide: crate::reading::page::Wide,
+    keys: &[&[u8]],
+) -> Vec<String> {
+    let mut terminal = Fake::new(80, 10, keys);
+    let mut inputs = Inputs {
+        reading: Some(Reading { wide, ..reading() }),
+        ..Inputs::new(kitty())
+    };
+    run_document(
+        document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    terminal.frames()
+}
+
+/// How many images a frame sends.
+fn sends(frame: &str) -> usize {
+    frame.matches("\x1b_Ga=T").count()
+}
+
+#[test]
+fn a_search_marks_its_matches_in_the_page_and_shows_the_one_it_found() {
+    let filler = "A paragraph of filler.\n\n".repeat(30);
+    let document = crate::parse::parse(&format!("{filler}Then the needle is here.\n"));
+    let frames = reading_frames(&document, crate::reading::page::Wide::Wrap, &[b"/needle\r"]);
+    // The first frame sends the page's parts in view; the search moves to
+    // the match, whose part is drawn anew with the mark in it.
+    assert!(sends(&frames[0]) >= 1);
+    let last = frames.last().unwrap();
+    assert!(sends(last) >= 1, "{} frames", frames.len());
+    assert!(last.contains("1/1"), "{last:?}");
+}
+
+#[test]
+fn a_search_scrolls_a_band_to_its_match_and_draws_it_anew() {
+    let long = "a".repeat(200);
+    let document = crate::parse::parse(&format!("Text.\n\n```\n{long} needle\n```\n"));
+    let frames = reading_frames(
+        &document,
+        crate::reading::page::Wide::Scroll,
+        &[b"/needle\r"],
+    );
+    // The band is sent again scrolled, with the page marked.
+    let last = frames.last().unwrap();
+    assert!(
+        sends(last) >= 2,
+        "{} sends in {} frames",
+        sends(last),
+        frames.len()
+    );
+}
