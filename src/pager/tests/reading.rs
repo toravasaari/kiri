@@ -350,3 +350,15 @@ fn m_starts_the_inline_pictures_loading_only_when_it_turns_reading_mode_on() {
     assert_eq!(asked_for_inline_pictures(&[b"M", b"M"]), 1);
     assert_eq!(asked_for_inline_pictures(&[b"M", b"M", b"M"]), 2);
 }
+
+#[test]
+fn the_status_line_tells_that_reading_mode_is_on() {
+    let frames = frames(&numbers(3), kitty(), &[b"M", b"M"]);
+    // The key is in bold, so the word is told after its own escapes.
+    let told = |frame: &String| frame.contains("M\x1b[0;7m reading");
+    let reading = frames.iter().position(|frame| frame.contains('\u{10EEEE}'));
+    let reading = reading.expect("a frame in reading mode");
+    assert!(!told(&frames[0]), "{:?}", frames[0]);
+    assert!(told(&frames[reading]), "{:?}", frames[reading]);
+    assert!(!told(frames.last().unwrap()));
+}

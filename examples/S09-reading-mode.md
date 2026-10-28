@@ -19,7 +19,10 @@ kiri --reading --wide scroll examples/S09-reading-mode.md
 ```
 
 In the pager, `M` turns reading mode on and off, also without
-`--reading`, and the same block stays at the top of the window.
+`--reading`, and the same block stays at the top of the window. While
+reading mode is on, the status line says `M reading` after the position;
+the images and formulas in the middle of a line, such as those below,
+load when `M` turns it on, if they were not loaded already.
 
 Without `--reading` this document looks like the others. With it, the
 headings, paragraphs, lists and quotes are in the system's sans-serif font

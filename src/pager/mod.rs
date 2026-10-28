@@ -443,6 +443,7 @@ fn page_through(
                 bg: inputs.theme.background,
                 ..Style::default()
             },
+            reading: inputs.reading.is_some(),
         };
         let marks = Marks::new(&inputs.theme, &inputs.caps);
         let rgb = Rgb::new(&inputs.theme, &inputs.caps);
@@ -685,6 +686,8 @@ struct Status<'a> {
     /// The style of the warning line: the theme's error colour on the
     /// page.
     red: Style,
+    /// Whether the document is shown in reading mode.
+    reading: bool,
 }
 
 impl Status<'_> {
@@ -723,6 +726,7 @@ impl Status<'_> {
                 let position = view.position();
                 let tags = status::Tags {
                     follow: state.follow.mode,
+                    reading: self.reading,
                     warnings: (!state.warnings.is_empty()).then(|| status::Warned {
                         count: state.warnings.len(),
                         flash: counted.map(|fade| self.styles.number(fade)),
