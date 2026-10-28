@@ -302,6 +302,8 @@ pub struct Page {
     pub pictures: Vec<u64>,
     items: Vec<Item>,
     look: Look,
+    /// Its links, from the top down.
+    links: Vec<LinkPlace>,
 }
 
 /// The part of a line that a link or a match covers, in pixels from the
@@ -442,7 +444,12 @@ impl Page {
     }
 
     /// The links on the page, from the top down.
-    pub fn links(&self) -> Vec<LinkPlace> {
+    pub fn links(&self) -> &[LinkPlace] {
+        &self.links
+    }
+
+    /// Finds the links among the items.
+    fn place_links(&self) -> Vec<LinkPlace> {
         let mut found: Vec<(f32, f32, LinkPlace)> = Vec::new();
         let on_page = self.items.iter().map(|item| (None, 0.0, item));
         let in_bands = (self.bands.iter().enumerate()).flat_map(|(number, band)| {
@@ -661,7 +668,7 @@ pub fn lay_out(
         flow.block(block, 0.0, width, 0);
         placed.push(Placed { rows: top..flow.y });
     }
-    Page {
+    let mut page = Page {
         width: area,
         height: flow.y,
         blocks: placed,
@@ -670,7 +677,10 @@ pub fn lay_out(
         pictures: flow.ids,
         items: flow.items,
         look: *look,
-    }
+        links: Vec::new(),
+    };
+    page.links = page.place_links();
+    page
 }
 
 impl Page {
@@ -717,10 +727,7 @@ impl Page {
         at: (f32, f32),
         overlay: &Overlay,
     ) {
-        let Some(link) = overlay
-            .link
-            .and_then(|number| self.links().into_iter().nth(number))
-        else {
+        let Some(link) = overlay.link.and_then(|number| self.links.get(number)) else {
             return;
         };
         if link.band != band {
@@ -2459,7 +2466,7 @@ mod tests {
              on to **[bold](https://b.example)**.\n",
         );
         let links = page.links();
-        let urls = urls(&links);
+        let urls = urls(links);
         assert_eq!(urls[1], ("https://b.example", 1), "{urls:?}");
         let (url, pieces) = urls[0];
         assert_eq!(url, "https://a.example");
@@ -2482,16 +2489,15 @@ mod tests {
             image: |_| solid(40, 16, [255, 0, 0], 7),
             ..NOTHING
         };
-        let with = with_pictures(markdown, &given).links();
-        let without = with_pictures(markdown, &NOTHING).links();
+        let page_with = with_pictures(markdown, &given);
+        let with = page_with.links();
+        let page_without = with_pictures(markdown, &NOTHING);
+        let without = page_without.links();
         let urls = |links: &[LinkPlace]| -> Vec<String> {
             links.iter().map(|link| link.url.to_string()).collect()
         };
-        assert_eq!(
-            urls(&without),
-            ["https://ci.example/", "https://t.example/"]
-        );
-        assert_eq!(urls(&with), urls(&without));
+        assert_eq!(urls(without), ["https://ci.example/", "https://t.example/"]);
+        assert_eq!(urls(with), urls(without));
         // The picture's own box is the link's piece: 40 pixels wide, on
         // the line.
         let piece = with[0].pieces[0];
@@ -2506,11 +2512,11 @@ mod tests {
             image: |_| solid(20, 10, [255, 0, 0], 7),
             ..NOTHING
         };
-        let links = with_pictures(
+        let page = with_pictures(
             "[some ![i](i.png) more](https://l.example/) after\n",
             &given,
-        )
-        .links();
+        );
+        let links = page.links();
         assert_eq!(links.len(), 1, "{links:?}");
         // One piece, as the text, the picture and the text are side by side
         // on one line.
@@ -2521,21 +2527,21 @@ mod tests {
     #[test]
     fn two_links_side_by_side_are_two_links_and_one_link_in_two_styles_is_one() {
         let page = page("[a](u1)[b](u2) and [*c* d](u3)\n");
-        assert_eq!(urls(&page.links()), [("u1", 1), ("u2", 1), ("u3", 1)]);
+        assert_eq!(urls(page.links()), [("u1", 1), ("u2", 1), ("u3", 1)]);
     }
 
     #[test]
     fn links_in_a_table_cell_a_list_and_a_band_are_in_the_page_or_the_band() {
         let page = page("- item [in a list](l)\n\n| a |\n|---|\n| [in a cell](c) |\n");
         let links = page.links();
-        assert_eq!(urls(&links), [("l", 1), ("c", 1)]);
+        assert_eq!(urls(links), [("l", 1), ("c", 1)]);
         // The list's is indented by the marker's room; the cell's is
         // inside the table's border and below the list.
         assert!(links[0].pieces[0].x >= 32.0);
         assert!(links[1].pieces[0].y > links[0].pieces[0].y);
         let scrolled = scrolling(&format!("| a |\n|---|\n| [{}](w) |\n", "word".repeat(300)));
         let links = scrolled.links();
-        assert_eq!(urls(&links), [("w", 1)]);
+        assert_eq!(urls(links), [("w", 1)]);
         assert_eq!(links[0].band, Some(0));
         // In the band's own pixels, from its left edge.
         assert!(links[0].pieces[0].x >= 14.0 && links[0].pieces[0].x < 40.0);

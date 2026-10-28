@@ -90,7 +90,7 @@ impl Canvas {
                 }
             }
         }
-        self.glyphs(paragraph, x, y, None);
+        self.glyphs_over(paragraph, x, y, None);
         for mark in marks {
             self.mark(paragraph, x, y, mark);
         }
@@ -124,16 +124,6 @@ impl Canvas {
             }
         }
         self.glyphs_over(paragraph, x, y, Some((mark.foreground, &mask)));
-    }
-
-    fn glyphs(
-        &mut self,
-        paragraph: &Paragraph,
-        x: f32,
-        y: f32,
-        over: Option<(Option<Brush>, &tiny_skia::Mask)>,
-    ) {
-        self.glyphs_over(paragraph, x, y, over);
     }
 
     /// The glyphs of `paragraph` at (`x`, `y`), in the colour and inside the

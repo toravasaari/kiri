@@ -105,9 +105,7 @@ pub struct Parts {
     rows: u16,
     /// The colours of a search's marks on it.
     marks: MarkColors,
-    /// Its links, from the top down, and whether the terminal shows them
-    /// as hyperlinks.
-    links: Vec<LinkPlace>,
+    /// Whether the terminal shows its links as hyperlinks.
     hyperlinks: bool,
 }
 
@@ -131,12 +129,12 @@ impl Parts {
 
     /// The links on the page, from the top down.
     pub fn links(&self) -> &[LinkPlace] {
-        &self.links
+        self.page.links()
     }
 
     /// The row of the page that link `number` starts on.
     pub fn link_row(&self, number: usize) -> usize {
-        let Some(link) = self.links.get(number) else {
+        let Some(link) = self.page.links().get(number) else {
             return 0;
         };
         let first = link.pieces.first().map_or(0.0, |piece| piece.y);
@@ -168,7 +166,7 @@ impl Parts {
         // number to beat another's, and 0 for those it has only for its
         // middle.
         let mut claims: Vec<(u16, bool, usize)> = Vec::new();
-        for (number, link) in self.links.iter().enumerate() {
+        for (number, link) in self.page.links().iter().enumerate() {
             if link.band != shown.map(|(band, ..)| band) {
                 continue;
             }
@@ -212,7 +210,7 @@ impl Parts {
                 }
                 _ => found.push(RowLink {
                     columns: at..at + 1,
-                    url: Rc::clone(&self.links[number].url),
+                    url: Rc::clone(&self.page.links()[number].url),
                     link: (address, number),
                 }),
             }
@@ -496,7 +494,6 @@ pub fn lines(
     format!("{look:?}").hash(&mut hasher);
     (text.to_bits(), cell, columns, reading.wide).hash(&mut hasher);
     page.pictures.hash(&mut hasher);
-    let links = page.links();
     let placed: Vec<_> = page.blocks.clone();
     let loading = page.loading.clone();
     let parts = Rc::new(Parts {
@@ -506,7 +503,6 @@ pub fn lines(
         columns,
         rows,
         marks: mark_colors(theme, caps, &look),
-        links,
         hyperlinks: caps.hyperlinks,
     });
     let address = Rc::as_ptr(&parts) as usize;
