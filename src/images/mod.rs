@@ -186,12 +186,14 @@ pub enum ImageKey {
     },
     /// A band of a page of reading mode, a code block or table that
     /// scrolls sideways, drawn when it is shown: the page, the band's
-    /// number on it, how many pixels it is scrolled, and whether it is
-    /// the one selected.
+    /// number on it, the part of its rows, at most 30, which the key
+    /// stands for, how many pixels it is scrolled, and whether it is the
+    /// one selected.
     Band {
         document: usize,
         page: u64,
         band: u32,
+        slice: u32,
         offset: u32,
         selected: bool,
     },
@@ -253,6 +255,7 @@ impl ImageKey {
             ImageKey::Band {
                 page,
                 band,
+                slice,
                 offset,
                 selected,
                 ..
@@ -260,6 +263,7 @@ impl ImageKey {
                 document,
                 page,
                 band,
+                slice,
                 offset,
                 selected,
             },

@@ -308,31 +308,43 @@ impl Page {
         canvas.into_image()
     }
 
-    /// The rows of band `band`, as wide as the page: what the page has
-    /// beside it, and the part of its content `offset` pixels from its left
-    /// edge, faded on each edge with more beyond it, above its scroll bar,
-    /// which is brighter and thicker when it is `selected`.
-    pub fn draw_band(&self, band: usize, offset: f32, selected: bool) -> RgbaImage {
+    /// The pixel rows `rows` of band `band`, counted from its top, as wide
+    /// as the page: what the page has beside it, and the part of its
+    /// content `offset` pixels from its left edge, faded on each edge with
+    /// more beyond it, above its scroll bar, which is brighter and thicker
+    /// when it is `selected`.
+    pub fn draw_band(
+        &self,
+        band: usize,
+        offset: f32,
+        selected: bool,
+        rows: Range<f32>,
+    ) -> RgbaImage {
+        let height = (rows.end - rows.start).ceil().max(1.0) as u32;
         let Some(band) = self.bands.get(band) else {
-            return Canvas::new(self.width.ceil() as u32, 1).into_image();
+            return Canvas::new(self.width.ceil() as u32, height).into_image();
         };
         let size = self.look.size;
-        let (width, height) = (self.width.ceil() as u32, band.height.ceil() as u32);
-        let mut canvas = Canvas::new(width, height);
-        draw_items(&mut canvas, &self.items, (0.0, band.top));
+        let mut canvas = Canvas::new(self.width.ceil() as u32, height);
+        draw_items(&mut canvas, &self.items, (0.0, band.top + rows.start));
         let offset = offset.clamp(0.0, band.most());
-        let mut content = Canvas::new(band.visible.ceil() as u32, band.content.ceil() as u32);
-        draw_items(&mut content, &band.items, (offset, 0.0));
-        let fade = (FADE * size).min(band.visible / 3.0);
-        if offset < band.most() {
-            content.fade(band.visible - fade, fade, band.content, false);
+        // The content is above the scroll bar, which may be below this
+        // part of the rows.
+        let content = (band.content - rows.start).clamp(0.0, height as f32);
+        if content > 0.0 {
+            let mut shown = Canvas::new(band.visible.ceil() as u32, content.ceil() as u32);
+            draw_items(&mut shown, &band.items, (offset, rows.start));
+            let fade = (FADE * size).min(band.visible / 3.0);
+            if offset < band.most() {
+                shown.fade(band.visible - fade, fade, content, false);
+            }
+            if offset > 0.0 {
+                shown.fade(0.0, fade, content, true);
+            }
+            canvas.overlay(&shown, band.x, 0.0);
         }
-        if offset > 0.0 {
-            content.fade(0.0, fade, band.content, true);
-        }
-        canvas.overlay(&content, band.x, 0.0);
         let thickness = if selected { BAR_SELECTED } else { BAR };
-        let bar = (band.content + 0.25 * size).round();
+        let bar = (band.content + 0.25 * size).round() - rows.start;
         let track = bar + (thickness - BAR) / 2.0;
         canvas.round_rect_alpha(
             band.x,
@@ -1537,6 +1549,38 @@ mod tests {
         assert!(page.bands.is_empty());
     }
 
+    /// All the pixel rows of the first band of `page`.
+    fn whole(page: &Page) -> Range<f32> {
+        0.0..page.bands[0].height
+    }
+
+    #[test]
+    fn a_slice_of_a_band_is_the_same_pixels_as_those_rows_of_the_whole() {
+        let code: String = (0..40)
+            .map(|n| format!("{n} {}\n", "a".repeat(200)))
+            .collect();
+        let page = scrolling(&format!("```\n{code}```\n"));
+        let band = &page.bands[0];
+        let (offset, rows) = (50.0, whole(&page));
+        let all = page.draw_band(0, offset, true, rows.clone());
+        // Rows 600 to the end, with the code's end and the scroll bar,
+        // against the same rows cut from the whole.
+        let part = page.draw_band(0, offset, true, 600.0..rows.end);
+        assert_eq!(part.height(), (rows.end - 600.0) as u32);
+        let cut = image::imageops::crop_imm(&all, 0, 600, all.width(), part.height()).to_image();
+        // Below the first row, where a glyph cut by the slice's edge may
+        // antialias a level or two differently, the pixels are the same.
+        let rest = |image: &RgbaImage| {
+            image::imageops::crop_imm(image, 0, 1, image.width(), image.height() - 1).to_image()
+        };
+        assert_eq!(rest(&part), rest(&cut));
+        let bar = (band.content + 4.0).round() as u32;
+        assert!(bar > 600, "the scroll bar is in the last slice");
+        // Inside the thumb, which starts 50 pixels in, scaled.
+        let thumb = (50.0 / band.width * band.visible) as u32 + 5;
+        assert_eq!(&part.get_pixel(thumb, bar - 600 + 1).0[..3], &LOOK.text);
+    }
+
     /// The alpha of the band's pixel at (`x`, `y`).
     fn alpha(image: &RgbaImage, x: u32, y: u32) -> u8 {
         image.get_pixel(x, y).0[3]
@@ -1546,9 +1590,9 @@ mod tests {
     fn a_band_fades_on_each_edge_with_more_beyond_it() {
         let page = scrolling(&format!("```\n{}\n```\n", "a".repeat(200)));
         let band = &page.bands[0];
-        let start = page.draw_band(0, 0.0, false);
-        let end = page.draw_band(0, band.most(), false);
-        let middle = page.draw_band(0, band.most() / 2.0, false);
+        let start = page.draw_band(0, 0.0, false, whole(&page));
+        let end = page.draw_band(0, band.most(), false, whole(&page));
+        let middle = page.draw_band(0, band.most() / 2.0, false, whole(&page));
         // The code's background, opaque in the middle, nearly gone at an
         // edge that fades.
         let (left, right, inner) = (1, 1006, 500);
@@ -1569,7 +1613,10 @@ mod tests {
         let page = scrolling(&format!("```\n{}\n```\n", "a".repeat(200)));
         let band = &page.bands[0];
         let bar = (band.content + 0.25 * 16.0).round() as u32;
-        let (plain, selected) = (page.draw_band(0, 0.0, false), page.draw_band(0, 0.0, true));
+        let (plain, selected) = (
+            page.draw_band(0, 0.0, false, whole(&page)),
+            page.draw_band(0, 0.0, true, whole(&page)),
+        );
         let at = |image: &RgbaImage, y| image.get_pixel(20, y).0;
         assert_eq!(&at(&plain, bar + 1)[..3], &LOOK.quote);
         assert_eq!(&at(&selected, bar + 1)[..3], &LOOK.text);

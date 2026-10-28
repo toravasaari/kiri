@@ -111,10 +111,14 @@ impl Parts {
 }
 
 impl Parts {
-    /// The pixels of band `band` scrolled `offset` pixels, `selected` or
-    /// not, as wide as the page.
-    pub fn draw_band(&self, band: u32, offset: u32, selected: bool) -> RgbaImage {
-        (self.page).draw_band(band as usize, offset as f32, selected)
+    /// The pixels of the rows of slice `slice` of band `band`, scrolled
+    /// `offset` pixels, `selected` or not, as wide as the page.
+    pub fn draw_band(&self, band: u32, slice: u32, offset: u32, selected: bool) -> RgbaImage {
+        let cell = f32::from(self.cell.1);
+        let total = (self.page.bands.get(band as usize)).map_or(0.0, |band| band.height);
+        let from = (slice * u32::from(PART_ROWS)) as f32 * cell;
+        let to = (from + f32::from(PART_ROWS) * cell).min(total);
+        (self.page).draw_band(band as usize, offset as f32, selected, from..to)
     }
 
     /// The furthest band `band` scrolls, in pixels.
@@ -206,8 +210,7 @@ pub fn lines(
     let bands: Vec<(u32, std::ops::Range<u16>)> = (parts.page.bands.iter().enumerate())
         .map(|(band, placed)| {
             let first = (placed.top / cell_height).round() as u16;
-            let count =
-                ((placed.height / cell_height).round() as u16).clamp(1, caps.max_image_cells);
+            let count = ((placed.height / cell_height).round() as u16).max(1);
             (band as u32, first..first + count)
         })
         .collect();
@@ -220,18 +223,22 @@ pub fn lines(
     for row in 0..rows {
         let (key, size, image_row) = match bands.iter().find(|(_, rows)| rows.contains(&row)) {
             // A band's rows show the band, at the start of its scrolling,
-            // and not selected, until the pager scrolls or selects it.
-            Some((band, band_rows)) => (
-                ImageKey::Band {
+            // and not selected, until the pager scrolls or selects it, in
+            // slices of at most 30 rows as pages are.
+            Some((band, band_rows)) => {
+                let (into, count) = (row - band_rows.start, band_rows.len() as u16);
+                let slice = into / PART_ROWS;
+                let slice_rows = (count - slice * PART_ROWS).min(PART_ROWS);
+                let key = ImageKey::Band {
                     document,
                     page: parts.id,
                     band: *band,
+                    slice: u32::from(slice),
                     offset: 0,
                     selected: false,
-                },
-                size(band_rows.len() as u16),
-                row - band_rows.start,
-            ),
+                };
+                (key, size(slice_rows), into % PART_ROWS)
+            }
             None => {
                 let part = row / PART_ROWS;
                 let part_rows = (rows - part * PART_ROWS).min(PART_ROWS);
@@ -351,6 +358,7 @@ pub fn set_band(lines: &mut [Line], offset: u32, selected: bool) {
             document,
             page,
             band,
+            slice,
             ..
         } = image.placement.key
         {
@@ -359,6 +367,7 @@ pub fn set_band(lines: &mut [Line], offset: u32, selected: bool) {
                     document,
                     page,
                     band,
+                    slice,
                     offset,
                     selected,
                 },
@@ -532,6 +541,63 @@ mod tests {
         }
         let lines = layout::layout(&document, &inputs);
         insta::assert_snapshot!(shown(&lines).join("\n"));
+    }
+
+    #[test]
+    fn a_band_taller_than_the_placeholder_limit_is_cut_into_slices_of_30_rows() {
+        // Each line is wider than the area, so the block is one band of
+        // about 300 lines, taller than the 297 rows a placement may have.
+        let code: String = (0..300)
+            .map(|n| format!("{n} {}\n", "a".repeat(200)))
+            .collect();
+        let document = parse(&format!("```\n{code}```\n"));
+        let mut inputs = inputs(kitty(80));
+        if let Some(reading) = &mut inputs.reading {
+            reading.wide = Wide::Scroll;
+        }
+        let lines = layout::layout(&document, &inputs);
+        let rows: Vec<&ImageRow> = (lines.iter())
+            .filter_map(|line| line.image.as_ref())
+            .filter(|row| matches!(row.placement.key, ImageKey::Band { .. }))
+            .collect();
+        // Every row of the band is a band row, as there are lines of code
+        // at 29 pixels each, in rows of 20, and a scroll bar.
+        assert!(rows.len() > 297, "{} band rows", rows.len());
+        // Each row's image is at most 30 rows tall, its row is within it,
+        // and the slices add up to the band's rows.
+        assert!(
+            rows.iter().all(|row| row.placement.size.rows <= 30),
+            "a slice over 30 rows"
+        );
+        assert!(rows.iter().all(|row| row.row < row.placement.size.rows));
+        let mut slices: Vec<(u32, u16)> = (rows.iter())
+            .filter_map(|row| match row.placement.key {
+                ImageKey::Band { slice, .. } => Some((slice, row.placement.size.rows)),
+                _ => None,
+            })
+            .collect();
+        slices.dedup();
+        // The pixels of each slice are as many as its placement covers.
+        let mut drawn = Vec::new();
+        for row in &rows {
+            let ImageKey::Band { band, slice, .. } = row.placement.key else {
+                continue;
+            };
+            if std::mem::replace(&mut drawn, vec![slice]) == [slice] {
+                continue;
+            }
+            let parts = row.page.as_ref().expect("a page");
+            let image = parts.draw_band(band, slice, 0, false);
+            let size = row.placement.size;
+            assert_eq!((image.width(), image.height()), (size.width, size.height));
+        }
+        assert_eq!(
+            slices
+                .iter()
+                .map(|&(_, rows)| usize::from(rows))
+                .sum::<usize>(),
+            rows.len()
+        );
     }
 
     #[test]

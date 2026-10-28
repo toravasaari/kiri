@@ -220,8 +220,9 @@ text's column: only code blocks and tables reach into the area. A
 code block or table wider than the area wraps to fit it, or, with
 `--wide scroll` in the pager, or after `W` there, becomes a band on whole rows of its own, which keeps its lines
 and words whole and scrolls sideways under a thin scroll bar, faded on
-each edge with more beyond it. Its rows show an image of their own,
-keyed by its offset and whether it is selected. The pager keeps those by
+each edge with more beyond it. Its rows show an image of their own, cut
+into slices of at most 30 rows as pages are, keyed by its slice, its
+offset and whether it is selected. The pager keeps those by
 the band's block in `src/pager/bands.rs`: the topmost band on the
 screen is selected until Tab, Shift+Tab or a click selects another, ←
 and → or `H` and `L` scroll it, and so does a sideways wheel, or the

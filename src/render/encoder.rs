@@ -327,10 +327,11 @@ impl Scaled {
             ImageKey::Band {
                 page,
                 band,
+                slice,
                 offset,
                 selected,
                 ..
-            } => (pages.get(&page)).map(|parts| parts.draw_band(band, offset, selected)),
+            } => (pages.get(&page)).map(|parts| parts.draw_band(band, slice, offset, selected)),
             _ => None,
         };
         let pixels = match (placement.shows, images.get(key), images.placeholder(key)) {
