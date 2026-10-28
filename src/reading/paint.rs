@@ -68,7 +68,17 @@ impl Canvas {
                 }
             }
         }
+        // Lines that do not reach the canvas are left out, with a font
+        // size of room for what reaches past their boxes.
+        let reach = paragraph.look.size;
+        let height = self.pixmap.height() as f32;
         for line in paragraph.layout.lines() {
+            let metrics = line.metrics();
+            if y + metrics.block_max_coord + reach < 0.0
+                || y + metrics.block_min_coord - reach > height
+            {
+                continue;
+            }
             for item in line.items() {
                 let PositionedLayoutItem::GlyphRun(glyphs) = item else {
                     continue;
@@ -400,6 +410,23 @@ mod tests {
             .filter(|pixel| pixel.0[0] > 200 && pixel.0[1] > 150 && pixel.0[2] < 100)
             .count();
         assert!(yellow > 50, "{yellow} yellow pixels");
+    }
+
+    #[test]
+    fn text_above_or_below_the_canvas_is_left_out() {
+        let lines: Vec<Run> = (0..200).map(|n| Run::new(&format!("line {n}\n"))).collect();
+        let paragraph = lay_out(&Fonts::fixture(), &lines, &LOOK, 400.0);
+        // The text where it reaches the canvas draws, and far above and
+        // below it nothing does.
+        let draw = |y: f32| {
+            let mut canvas = Canvas::new(100, 30);
+            canvas.text(&paragraph, 0.0, y, None);
+            canvas.into_image()
+        };
+        let inked = |image: &RgbaImage| image.pixels().filter(|p| p.0[3] > 0).count();
+        assert!(inked(&draw(-24.0 * 100.0)) > 0);
+        assert_eq!(inked(&draw(-24.0 * 300.0)), 0);
+        assert_eq!(inked(&draw(1000.0)), 0);
     }
 
     #[test]
