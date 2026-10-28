@@ -3,10 +3,12 @@
 //! kitty opens on its own; the selection draws a box round it and the
 //! status line says where it goes.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::ops::Range;
+use std::rc::Rc;
 
 use crate::render::block::BlockInfo;
+use crate::render::reading;
 use crate::render::style::Line;
 
 /// A link, by the block its first line is in and its number among the
@@ -21,8 +23,8 @@ pub(super) struct Found {
     /// the page's links.
     pub link: (usize, usize),
     pub url: String,
-    /// The line its first cell is on.
-    line: usize,
+    /// The line its first cell is on, none while it has none.
+    line: Option<usize>,
 }
 
 /// Which link is selected.
@@ -43,7 +45,7 @@ impl Links {
         back: bool,
     ) -> bool {
         let shown: Vec<Found> = (identify(lines, places).into_iter())
-            .filter(|found| visible.contains(&found.line))
+            .filter(|found| found.line.is_some_and(|line| visible.contains(&line)))
             .collect();
         if shown.is_empty() {
             return false;
@@ -69,27 +71,33 @@ impl Links {
     /// still on them.
     pub fn selected(&self, lines: &[Line], places: &[Option<BlockInfo>]) -> Option<Found> {
         let id = self.selected.as_ref()?;
-        identify(lines, places)
+        let found = identify(lines, places)
             .into_iter()
-            .find(|found| found.id == *id)
+            .find(|found| found.id == *id)?;
+        // While a band shows none of its cells, there is nothing to show.
+        found.line.map(|_| found)
     }
 }
 
-/// The links that show on `lines`, each once, in order of their first
-/// cells, with the blocks of the lines in `places`.
+/// The links of the pages on `lines`, each once, in order, numbered from
+/// the pages' own lists, so that a link keeps its id whether or not a band
+/// shows it now; `line` is where its first cells are, none while it has
+/// none.
 fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
-    let mut seen: HashSet<(usize, usize)> = HashSet::new();
+    // Where each link that has cells first has them.
+    let mut cells: HashMap<(usize, usize), usize> = HashMap::new();
+    for (index, line) in lines.iter().enumerate() {
+        for link in line.image.iter().flat_map(|image| &image.links) {
+            cells.entry(link.link).or_insert(index);
+        }
+    }
     let mut counted: Vec<(Option<BlockInfo>, usize)> = Vec::new();
     let mut found = Vec::new();
-    for (index, line) in lines.iter().enumerate() {
-        let Some(image) = &line.image else {
-            continue;
-        };
-        for link in &image.links {
-            if !seen.insert(link.link) {
-                continue;
-            }
-            let place = places.get(index).cloned().flatten();
+    for page in reading::pages(lines) {
+        let address = Rc::as_ptr(&page.parts) as usize;
+        for (number, link) in page.parts.links().iter().enumerate() {
+            let at = (page.lines.start + page.parts.link_row(number)).min(page.lines.end - 1);
+            let place = places.get(at).cloned().flatten();
             let nth = match counted.iter_mut().find(|(kept, _)| *kept == place) {
                 Some((_, count)) => {
                     *count += 1;
@@ -102,9 +110,9 @@ fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
             };
             found.push(Found {
                 id: (place, nth),
-                link: link.link,
+                link: (address, number),
                 url: link.url.to_string(),
-                line: index,
+                line: cells.get(&(address, number)).copied(),
             });
         }
     }
@@ -121,7 +129,7 @@ mod tests {
     use crate::reading::page::Wide;
     use crate::render::Inputs;
     use crate::render::layout::{Content, Stream, content};
-    use crate::render::reading::Reading;
+    use crate::render::reading::{self, Reading};
 
     /// `source` laid out in reading mode, with the blocks of its lines.
     fn laid_out(source: &str) -> (Vec<Line>, Vec<Option<BlockInfo>>) {
@@ -176,13 +184,13 @@ mod tests {
         let found = identify(&lines, &places);
         assert_eq!(found.len(), 4);
         // A screen that shows only the rows of the list item's link.
-        let third = found[2].line;
+        let third = found[2].line.unwrap();
         let mut links = Links::default();
         assert!(links.select_next(&lines, &places, third..third + 1, false));
         assert_eq!(urls(links.selected(&lines, &places)).as_deref(), Some("u3"));
         // Nothing on a screen with no link.
         let mut none = Links::default();
-        assert!(!none.select_next(&lines, &places, found[1].line + 1..third, false));
+        assert!(!none.select_next(&lines, &places, found[1].line.unwrap() + 1..third, false));
     }
 
     #[test]
@@ -200,5 +208,46 @@ mod tests {
         // A document without it has no selection to show.
         let (other, places_other) = laid_out("Nothing here.\n");
         assert_eq!(links.selected(&other, &places_other), None);
+    }
+
+    /// `source` laid out in reading mode to scroll, with the blocks of its
+    /// lines.
+    fn scrolling(source: &str) -> (Vec<Line>, Vec<Option<BlockInfo>>) {
+        let document = crate::parse::parse(source);
+        let inputs = Inputs {
+            reading: Some(Reading {
+                fonts: Rc::new(Fonts::fixture()),
+                wide: Wide::Scroll,
+            }),
+            ..Inputs::new(Capabilities {
+                cell_pixels: Some((10, 20)),
+                ..Capabilities::kitty(80)
+            })
+        };
+        let Stream { lines, blocks } = content(Content::Document(&document), &inputs);
+        let places = (lines.iter())
+            .map(|line| line.block.map(|id| blocks.get(id).clone()))
+            .collect();
+        (lines, places)
+    }
+
+    #[test]
+    fn a_selected_link_scrolled_out_of_its_band_is_not_another_link() {
+        let long = "x".repeat(150);
+        let (mut lines, places) = scrolling(&format!(
+            "| a | b |\n|---|---|\n| [near](u1) | {long}[far](u2) |\n"
+        ));
+        let mut links = Links::default();
+        assert!(links.select_next(&lines, &places, 0..lines.len(), false));
+        assert_eq!(urls(links.selected(&lines, &places)).as_deref(), Some("u1"));
+        // Scrolled to the end of the band, `near` has no cells and `far`
+        // has: the selection is none, not `far`.
+        let band = &reading::bands(&lines)[0];
+        let (rows, most) = (band.lines.clone(), band.most());
+        reading::set_band(&mut lines[rows.clone()], most, true);
+        assert_eq!(urls(links.selected(&lines, &places)), None);
+        // Scrolled back, it is `near` again.
+        reading::set_band(&mut lines[rows], 0, true);
+        assert_eq!(urls(links.selected(&lines, &places)).as_deref(), Some("u1"));
     }
 }

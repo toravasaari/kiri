@@ -134,6 +134,19 @@ impl Parts {
         &self.links
     }
 
+    /// The row of the page that link `number` starts on.
+    pub fn link_row(&self, number: usize) -> usize {
+        let Some(link) = self.links.get(number) else {
+            return 0;
+        };
+        let first = link.pieces.first().map_or(0.0, |piece| piece.y);
+        let top = link
+            .band
+            .and_then(|band| self.band_top(band as u32))
+            .unwrap_or(0.0);
+        ((top + first) / f32::from(self.cell.1)).floor().max(0.0) as usize
+    }
+
     /// The links over the cells of row `row` of the page, or of band
     /// `band`'s rows when it is given, scrolled `offset` pixels, as they
     /// are laid over its placeholders. A link covers the cells whose
