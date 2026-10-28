@@ -55,8 +55,10 @@ pub struct Area {
     /// The cells before the area, and its width in cells.
     pub left: u16,
     pub area: u16,
-    /// The text's width in pixels.
+    /// The text's width in pixels, and in whole cells: the column that
+    /// the blocks laid out as text take.
     pub text: f32,
+    pub column: u16,
 }
 
 impl Area {
@@ -75,6 +77,7 @@ impl Area {
             left: (window - area) / 2,
             area,
             text,
+            column: ((text / cell_width) as u16).clamp(1, area),
         }
     }
 }
@@ -138,7 +141,9 @@ pub fn lines(
     let cell = cell_size(caps);
     let (cell_width, cell_height) = (f32::from(cell.0), f32::from(cell.1));
     let look = look(theme, code, stripes, caps);
-    let Area { left, area, text } = Area::of(caps, width);
+    let Area {
+        left, area, text, ..
+    } = Area::of(caps, width);
     // The page covers the area, as tables and code may reach across it.
     let columns = area.clamp(1, caps.max_image_cells);
     let highlight = Syntect {
@@ -390,8 +395,9 @@ mod tests {
     }
 
     #[test]
-    fn the_other_blocks_start_at_the_area_s_edge() {
-        let document = parse("Text.\n\n> [!NOTE]\n> A note that is long enough to wrap.\n");
+    fn the_other_blocks_take_the_column_from_the_area_s_edge() {
+        let note = "A note long enough to wrap. ".repeat(8);
+        let document = parse(&format!("Text.\n\n> [!NOTE]\n> {note}\n"));
         let lines = layout::layout(&document, &inputs(kitty(160)));
         let alert: Vec<&Line> = (lines.iter())
             .filter(|line| line.image.is_none() && !line.is_blank())
@@ -403,7 +409,8 @@ mod tests {
             let cells = crate::render::wrap::width(&line.lead)
                 + crate::render::wrap::width(&line.spans)
                 + crate::render::wrap::width(&line.trail);
-            assert!(cells <= 29 + 101, "{cells}");
+            // As wide as the text's column, 67 cells, not the area.
+            assert!(cells <= 29 + 67, "{cells}");
         }
     }
 

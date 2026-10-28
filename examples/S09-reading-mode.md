@@ -26,9 +26,9 @@ at about four fifths of a row's height, in a column 42 times that wide at
 most, at the left of an area half as wide again in the middle of the
 window. Code blocks and tables are drawn too, and may reach across the
 area. The front matter above, the alert and the image stay as they are
-without reading mode, between the parts in the proportional font, from the
-area's left edge. The text cannot be selected or copied, as it is drawn as
-images.
+without reading mode, between the parts in the proportional font, at the
+text's left edge and no wider than its column. The text cannot be
+selected or copied, as it is drawn as images.
 
 ## Text
 
@@ -161,7 +161,10 @@ long words where it must, so that it still fits the area:
 ## Between the text
 
 An alert, an image and the front matter show as they do without reading
-mode, but from the left edge of the area rather than the window's margin:
+mode, but at the text's left edge rather than the window's margin, and no
+wider than the text's column: only code blocks and tables reach into the
+area. A formula is centred in the column, and a wide image or diagram
+shrinks to it:
 
 > [!NOTE]
 > A note: blue, with an icon and the bold title "Note".

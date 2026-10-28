@@ -340,13 +340,14 @@ impl Layout<'_> {
         // block it does not lay out comes.
         let mut run = Vec::new();
         // Where the other blocks start and how wide they are: in reading
-        // mode, from the area's left edge and as wide as it, so that they
-        // line up with the pages.
+        // mode, from the area's left edge and as wide as the text's column,
+        // so that they line up with the text, a centred formula in the
+        // middle of the column and a wide image shrunk to it.
         let (lead, inner) = match self.reading {
             Some(_) => {
                 let window = usize::from(self.caps.width).max(width);
                 let area = super::reading::Area::of(self.caps, window);
-                (usize::from(area.left), usize::from(area.area))
+                (usize::from(area.left), usize::from(area.column))
             }
             None => (margin, width - 2 * margin),
         };

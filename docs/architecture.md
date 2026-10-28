@@ -215,7 +215,8 @@ draws when a line first shows them, so the pager draws only the parts in
 view. The rows keep their blocks, so the pager keeps its place across a
 resize, and the row a block starts on carries the block's text for a
 search. The other blocks, such as images and alerts, are laid out as
-text between the pages, from the area's left edge and as wide as it. Where the terminal draws no images, kiri warns and
+text between the pages, from the area's left edge and as wide as the
+text's column: only code blocks and tables reach into the area. Where the terminal draws no images, kiri warns and
 shows the text as usual. In the pager, `M` turns reading mode on and off
 and lays the document out again, keeping the block at the top as a resize
 does.
