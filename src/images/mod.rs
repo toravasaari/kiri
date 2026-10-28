@@ -16,6 +16,7 @@ mod stamps;
 mod svg;
 mod url;
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -617,7 +618,7 @@ pub fn load_parts(
     // The diagrams first, all together, so a renderer can draw several
     // at once.
     let requests: Vec<Request> = (wanted.iter().zip(&have))
-        .filter_map(|((_, image), have)| match *image {
+        .filter_map(|((_, image), have)| match image {
             Wanted::Diagram {
                 language, source, ..
             } if have.is_none() => {
@@ -668,7 +669,7 @@ pub fn load_parts(
                 };
                 finish_diagram(
                     language,
-                    source,
+                    &source,
                     line,
                     drawn,
                     max_file_size,
@@ -753,7 +754,9 @@ enum Wanted<'a> {
     /// A code block drawn as a diagram, and the line it starts on.
     Diagram {
         language: &'a str,
-        source: &'a str,
+        source: Cow<'a, str>,
+        /// Where it starts; 0 for a formula in the middle of text, which a
+        /// line does not name.
         line: usize,
     },
     /// A heading drawn as an image: its level, its words and the size of
@@ -775,7 +778,9 @@ impl Wanted<'_> {
                 cell,
             } => ImageKey::heading_of(level, words.clone(), cell),
             Wanted::Diagram {
-                language, source, ..
+                language,
+                ref source,
+                ..
             } => ImageKey::block(language, source),
         }
     }
@@ -798,7 +803,7 @@ fn collect_blocks<'a>(
         match block {
             Block::Paragraph(content) => match Inline::lone_image(content) {
                 Some(image) => wanted.push(Wanted::Url(&image.url)),
-                None if inline => inline_images(content, wanted),
+                None if inline => inline_images(content, renderer, wanted),
                 None => {}
             },
             Block::Details { blocks, .. } => {
@@ -818,7 +823,7 @@ fn collect_blocks<'a>(
                 line,
             } if renderer.draws(language) => wanted.push(Wanted::Diagram {
                 language,
-                source: code,
+                source: Cow::Borrowed(code),
                 line: *line,
             }),
             Block::Heading { level, content } if let Some(cell) = headings => {
@@ -828,13 +833,13 @@ fn collect_blocks<'a>(
                     cell,
                 });
                 if inline {
-                    inline_images(content, wanted);
+                    inline_images(content, renderer, wanted);
                 }
             }
-            Block::Heading { content, .. } if inline => inline_images(content, wanted),
+            Block::Heading { content, .. } if inline => inline_images(content, renderer, wanted),
             Block::Table(table) if inline => {
                 for cell in table.header.iter().chain(table.rows.iter().flatten()) {
-                    inline_images(cell, wanted);
+                    inline_images(cell, renderer, wanted);
                 }
             }
             Block::FrontMatter(_)
@@ -852,10 +857,17 @@ fn collect_blocks<'a>(
 }
 
 /// The images among `content`, in the text, wherever they stand in it.
-fn inline_images<'a>(content: &'a [Inline], wanted: &mut Vec<Wanted<'a>>) {
+fn inline_images<'a>(content: &'a [Inline], renderer: &dyn Renderer, wanted: &mut Vec<Wanted<'a>>) {
     for inline in content {
         match inline {
             Inline::Image(image) => wanted.push(Wanted::Url(&image.url)),
+            Inline::Formula { source, .. } if renderer.draws(crate::parse::FORMULA) => {
+                wanted.push(Wanted::Diagram {
+                    language: crate::parse::FORMULA,
+                    source: Cow::Owned(format!("{source}\n")),
+                    line: 0,
+                });
+            }
             Inline::Emphasis(inner)
             | Inline::Strong(inner)
             | Inline::Strikethrough(inner)
@@ -864,7 +876,7 @@ fn inline_images<'a>(content: &'a [Inline], wanted: &mut Vec<Wanted<'a>>) {
             | Inline::Subscript(inner)
             | Inline::Superscript(inner)
             | Inline::Formula { written: inner, .. }
-            | Inline::Link { content: inner, .. } => inline_images(inner, wanted),
+            | Inline::Link { content: inner, .. } => inline_images(inner, renderer, wanted),
             Inline::Text(_)
             | Inline::Code(_)
             | Inline::SoftBreak
@@ -1268,6 +1280,52 @@ Text ![a](a.png) and *![b](b.png)* in a paragraph.
             urls(true),
             ["a.png", "b.png", "c.png", "d.png", "e.png", "f.png"]
         );
+    }
+
+    #[test]
+    fn formulas_in_the_middle_of_text_are_wanted_only_when_asked_for() {
+        struct Math;
+        impl Renderer for Math {
+            fn draws(&self, language: &str) -> bool {
+                language == "math"
+            }
+
+            fn render(&self, _: &Request) -> Result<Drawn, String> {
+                unreachable!("nothing is drawn")
+            }
+        }
+        let source = "\
+Let $x^2$ be, and $x^2$ again, and cost $5 and $6.
+
+# A heading with $y$
+
+| table |
+|---|
+| a cell $z$ |
+
+```math
+x^2
+```
+";
+        let document = crate::parse::parse(source);
+        let keys = |inline_images, renderer: &dyn Renderer| {
+            let parts = [Part {
+                document: &document,
+                number: 0,
+                base: Path::new(""),
+                by_line: true,
+                inline_images,
+            }];
+            let (wanted, _) = plan(&parts, renderer, None, None);
+            let keys: Vec<String> = (wanted.iter())
+                .map(|(_, image)| image.key().to_string())
+                .collect();
+            keys
+        };
+        // The block with the same source is the same picture.
+        assert_eq!(keys(false, &Math).len(), 1);
+        assert_eq!(keys(true, &Math).len(), 3);
+        assert!(keys(true, &NoRenderer).is_empty());
     }
 
     #[test]

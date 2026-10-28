@@ -295,7 +295,7 @@ fn job(
                 renderers.is_some_and(|renderers| renderers.runs_programs_for([language]));
             let what = What::Diagram {
                 language: language.to_owned(),
-                source: source.to_owned(),
+                source: source.into_owned(),
                 line,
                 by_line: part.by_line,
             };

@@ -388,7 +388,7 @@ pub fn centred(language: &str) -> bool {
 /// matter, directives and comments.
 pub fn name(language: &str, source: &str, line: usize, by_line: bool) -> String {
     let noun = noun(language);
-    if by_line {
+    if by_line && line > 0 {
         return format!("{noun} on line {line}");
     }
     let first_line = match self::language(language) {

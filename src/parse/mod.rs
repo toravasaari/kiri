@@ -152,7 +152,7 @@ fn blocks(parent: Node<'_>) -> Vec<(Block, Position)> {
 
 /// The language of a code block that holds a formula, as ` ```math `
 /// names it.
-const FORMULA: &str = "math";
+pub const FORMULA: &str = "math";
 
 /// A paragraph with display math, `$$…$$`, in it as the paragraphs
 /// before, between and after its formulas and each formula as a code

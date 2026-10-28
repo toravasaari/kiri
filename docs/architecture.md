@@ -225,7 +225,9 @@ pixels dimmed; the page's id covers the pixels of its pictures, so a
 picture that came is a new page. An image in the middle of text, which
 the loader wants only when reading mode is asked for, as the others are
 only ever their alt text, is a box in its line, which parley places on
-the baseline and moves to the next line whole. The other blocks, such as alerts, are
+the baseline and moves to the next line whole. So is a formula in the
+middle of text, `Inline::Formula`, drawn as a diagram in `math` is and
+shown as its source, as the other layouts show it, until it has come. The other blocks, such as alerts, are
 laid out as text between the pages, from the area's left edge and as
 wide as the text's column: only code blocks and tables reach into the area. A code
 block or table wider than the area wraps to fit it, or, with `--wide

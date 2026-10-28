@@ -208,6 +208,11 @@ row <img src="S06b-pattern.png" width="16" alt="one"> <img
 src="S06b-pattern.png" width="16" alt="two">, stands in the line on its
 baseline, and makes the line taller than the text if it is taller.
 
+A formula in the middle of a line, such as $\frac{a}{b}$ or $x^2 + y^2$,
+is drawn in the line as an image is, in the colour of the text. Dollar
+signs that are not math by GitHub's rules, as in "it costs $5 and $10",
+stay text. Without reading mode the formulas show as their source.
+
 An image that cannot be shown, such as the missing one in
 [S06a-images.md](S06a-images.md), shows its alt text in grey where it
 would be.

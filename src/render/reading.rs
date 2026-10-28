@@ -823,6 +823,25 @@ mod tests {
     }
 
     #[test]
+    fn a_formula_in_the_middle_of_text_is_a_box_in_its_line() {
+        let mut inputs = inputs(kitty(80));
+        inputs.images.insert(
+            ImageKey::block("math", "x^2\n"),
+            Ok(raster(20, 10, [0, 255, 0])),
+        );
+        let lines = layout::layout(&parse("Let $x^2$ be one.\n"), &inputs);
+        let greens = first_part(&lines)
+            .pixels()
+            .filter(|pixel| pixel.0 == [0, 255, 0, 255])
+            .count();
+        assert_eq!(greens, 20 * 10);
+        // Without its picture the source is shown, as written.
+        let lines = layout::layout(&parse("Let $x^2$ be one.\n"), &self::inputs(kitty(80)));
+        let row = lines[0].image.as_ref().expect("a page's row");
+        assert_eq!(row.text.as_deref(), Some("Let $x^2$ be one."));
+    }
+
+    #[test]
     fn an_image_that_is_not_there_is_its_alt_text() {
         let lines = layout::layout(&parse("![the alt text](a.png)\n"), &inputs(kitty(80)));
         let row = lines[0].image.as_ref().expect("a page's row");

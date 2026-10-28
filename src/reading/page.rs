@@ -13,6 +13,7 @@ use super::fonts::Fonts;
 use super::paint::Canvas;
 use super::text::{self, Brush, InlinePicture, Paragraph, Run};
 use crate::model::{Alignment, Block, Image, Inline, List, Table};
+use crate::parse::FORMULA;
 
 /// The size of each heading level, `h1` first, in font sizes of the text,
 /// and the line height of headings.
@@ -1298,7 +1299,17 @@ fn collect(content: &[Inline], style: &Run, (look, ink): (&Look, Ink), runs: &mu
             Inline::Mark(inner) | Inline::Subscript(inner) | Inline::Superscript(inner) => {
                 collect(inner, style, (look, ink), runs);
             }
-            Inline::Formula { written, .. } => collect(written, style, (look, ink), runs),
+            Inline::Formula { source, written } => {
+                // The picture of the formula stands in the line, as an
+                // image does; without it the source does, as written.
+                let code = format!("{source}\n");
+                match ink.pictures.diagram(FORMULA, &code, (ink.room, f32::MAX)) {
+                    Picture::Ready { pixels, id, .. } => {
+                        runs.push(Run::picture(InlinePicture { pixels, id }));
+                    }
+                    _ => collect(written, style, (look, ink), runs),
+                }
+            }
         }
     }
 }
@@ -2179,6 +2190,26 @@ mod tests {
         assert!(pictures(&page).is_empty());
         assert_eq!(page.pictures, [11, 12]);
         assert_eq!(page.blocks[0].text, "Badges a and b and c");
+    }
+
+    #[test]
+    fn a_formula_in_a_paragraph_stands_in_its_line_or_is_its_source() {
+        let given = Given {
+            diagram: |language| match language {
+                "math" => solid(30, 20, [0, 0, 255], 21),
+                _ => Picture::None,
+            },
+            ..NOTHING
+        };
+        let markdown = "Let $x^2$ be, and cost $5 and $6.\n";
+        let page = with_pictures(markdown, &given);
+        assert_eq!(inline_pictures(&page), [21]);
+        assert_eq!(page.pictures, [21]);
+        assert_eq!(page.blocks[0].text, "Let $x^2$ be, and cost $5 and $6.");
+        // Without its picture it is the source, as written.
+        let page = with_pictures(markdown, &NOTHING);
+        assert!(inline_pictures(&page).is_empty());
+        assert_eq!(page.blocks[0].text, "Let $x^2$ be, and cost $5 and $6.");
     }
 
     #[test]
