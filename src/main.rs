@@ -1094,6 +1094,9 @@ fn page_files(
         // What reading mode shows in the middle of text loads when `M`
         // turns it on, unless `--reading` had it loaded at the start.
         inline: Some(Box::new(|images, loads, caps| {
+            if !(settings.images && caps.draws_images()) {
+                return;
+            }
             let parts: Vec<Part> = (documents.iter())
                 .map(|(number, file)| Part {
                     number: *number,
@@ -2041,6 +2044,9 @@ fn print_document(
             // What reading mode shows in the middle of text loads when `M`
             // turns it on, unless `--reading` had it loaded at the start.
             inline: Some(Box::new(|images, loads, caps| {
+                if !(settings.images && caps.draws_images()) {
+                    return;
+                }
                 let parts = [part(document, file, true)];
                 let loading = loading(context, &settings, caps);
                 kiri::images::load_inline_in_background(&parts, &loading, images, loads);

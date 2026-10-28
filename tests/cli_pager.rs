@@ -2401,3 +2401,40 @@ fn a_reload_after_m_keeps_the_pictures_m_loaded() {
     assert_ne!(ids[0], ids[1], "{ids:?}");
     assert_eq!(ids.last(), Some(&ids[1]), "{ids:?}");
 }
+
+#[test]
+fn m_loads_no_images_when_images_are_off() {
+    let prepare = |dir: &std::path::Path| {
+        common::quadrants(8, 8).save(dir.join("p.png")).unwrap();
+        let document = "![block](p.png)\n\nA line with a badge <img src=\"p.png\" width=\"24\" alt=\"badge\"> in it.\n";
+        std::fs::write(dir.join("document.md"), document).unwrap();
+    };
+    let mut step = 0;
+    let (status, seen) = in_terminal_after(
+        "pager-m-no-images",
+        prepare,
+        &[
+            "-p",
+            "--no-images",
+            "--mode",
+            "kitty",
+            "--width",
+            "80",
+            "document.md",
+        ],
+        10,
+        None,
+        |frames, terminal, _| {
+            if frames > 0 && step == 0 {
+                step = 1;
+                terminal.write_all(b"M").unwrap();
+                std::thread::sleep(Duration::from_secs(3));
+                terminal.write_all(b"q").unwrap();
+            }
+        },
+    );
+    assert!(status.success());
+    // Only the page of text, as it is with `--reading` and no images: the
+    // pictures never load.
+    assert_eq!(sent_ids(&seen).len(), 1, "{seen:?}");
+}
