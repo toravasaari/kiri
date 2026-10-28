@@ -16,6 +16,10 @@ pub enum Key {
     Backspace,
     Up,
     Down,
+    Left,
+    Right,
+    /// Shift+Tab; Tab itself arrives as Ctrl+I.
+    BackTab,
     PageUp,
     PageDown,
     /// Page Up and Page Down with Shift, which move between files. Other
@@ -73,6 +77,12 @@ pub enum Action {
     Follow,
     /// Turns reading mode on or off.
     Reading,
+    /// Scrolls a wide block sideways a little, left or right by the key.
+    Sideways,
+    /// Scrolls a wide block sideways by most of its width.
+    SidewaysFar,
+    /// Selects the next or the previous wide block on the screen.
+    SelectBand,
     Help,
     Quit,
 }
@@ -216,6 +226,9 @@ fn csi(parameters: &[u8], last: u8) -> Key {
     match (parameters, last) {
         (b"", b'A') => Key::Up,
         (b"", b'B') => Key::Down,
+        (b"", b'C') => Key::Right,
+        (b"", b'D') => Key::Left,
+        (b"", b'Z') => Key::BackTab,
         (b"" | b"1", b'H') | (b"1" | b"7", b'~') => Key::Home,
         (b"" | b"1", b'F') | (b"4" | b"8", b'~') => Key::End,
         (b"5", b'~') => Key::PageUp,
@@ -409,6 +422,24 @@ pub const BINDINGS: &[Binding] = {
             action: Action::Reading,
         },
         Binding {
+            keys: &[Key::Left, Key::Right],
+            names: "← →",
+            what: "scroll a wide block",
+            action: Action::Sideways,
+        },
+        Binding {
+            keys: &[Char('H'), Char('L')],
+            names: "H L",
+            what: "scroll it by its width",
+            action: Action::SidewaysFar,
+        },
+        Binding {
+            keys: &[Ctrl('i'), Key::BackTab],
+            names: "Tab Shift+Tab",
+            what: "another wide block",
+            action: Action::SelectBand,
+        },
+        Binding {
             keys: &[Char('?'), Char('h')],
             names: "? h",
             what: "this help",
@@ -533,10 +564,18 @@ mod tests {
     }
 
     #[test]
-    fn unknown_sequences_are_one_key_each() {
-        // F5, Shift+Up and Shift+Tab, each followed by a letter.
+    fn decodes_the_sideways_arrows_and_shift_tab() {
         assert_eq!(
-            decode(b"\x1b[15~q\x1b[1;2Aq\x1b[Zq"),
+            decode(b"\x1b[D\x1b[C\x1b[Z\t"),
+            [Key::Left, Key::Right, Key::BackTab, Key::Ctrl('i')]
+        );
+    }
+
+    #[test]
+    fn unknown_sequences_are_one_key_each() {
+        // F5, Shift+Up and Ctrl+Right, each followed by a letter.
+        assert_eq!(
+            decode(b"\x1b[15~q\x1b[1;2Aq\x1b[1;5Cq"),
             [
                 Key::Other,
                 Key::Char('q'),
@@ -756,6 +795,10 @@ mod tests {
                 let key = match name {
                     "↓" => Key::Down,
                     "↑" => Key::Up,
+                    "←" => Key::Left,
+                    "→" => Key::Right,
+                    "Tab" => Key::Ctrl('i'),
+                    "Shift+Tab" => Key::BackTab,
                     "Enter" => Key::Enter,
                     "Esc" => Key::Escape,
                     "Space" => Key::Char(' '),

@@ -1,6 +1,7 @@
 //! The interactive pager: the document on a screen of its own, scrolled
 //! with keys.
 
+mod bands;
 pub mod changes;
 pub mod fade;
 pub mod files;
@@ -337,16 +338,19 @@ fn page_through(
                 line.to_normal_size();
             }
         }
+        let places: Vec<Option<BlockInfo>> = lines
+            .iter()
+            .map(|line| line.block.map(|id| blocks.get(id).clone()))
+            .collect();
+        // Reading mode's bands scrolled and selected as they were.
+        state.bands.apply(&mut lines, &places);
+        let band_places = places.clone();
         // The images the new lines do not place go with their first frame.
         encoder.keep(&lines, &inputs.caps);
         let mut writer = Writer::new(&inputs.images, &inputs.caps, page, &mut encoder);
         let heights: Vec<usize> = lines
             .iter()
             .map(|line| usize::from(writer.rows(line)))
-            .collect();
-        let places: Vec<Option<BlockInfo>> = lines
-            .iter()
-            .map(|line| line.block.map(|id| blocks.get(id).clone()))
             .collect();
         if let Some((at, tinted)) = tinted.take() {
             let tinted = |place: &Option<BlockInfo>| {
@@ -424,8 +428,9 @@ fn page_through(
         };
         let marks = Marks::new(&inputs.theme, &inputs.caps);
         let rgb = Rgb::new(&inputs.theme, &inputs.caps);
-        let mut laid_out = Layout {
+        let mut frame_layout = Layout {
             lines: &lines,
+            places: &band_places,
             marks: &marks,
             rgb: rgb.as_ref(),
             columns: usize::from(inputs.caps.width),
@@ -433,7 +438,7 @@ fn page_through(
             view: &mut shown,
         };
         let outcome = show(
-            &mut laid_out,
+            &mut frame_layout,
             &mut state,
             &mut writer,
             terminal,
@@ -467,6 +472,12 @@ fn page_through(
                 // The lines laid out for the new size are others.
                 state.changed = None;
                 size = new;
+                view = Some(shown);
+            }
+            // The same lines, with the band shown anew.
+            Outcome::Bands => {
+                laid_out = Some((inputs.caps.clone(), Stream { lines, blocks }));
+                keep_top = true;
                 view = Some(shown);
             }
             // Laid out again as after a resize, which keeps the block at
@@ -576,6 +587,9 @@ enum Outcome {
     Loaded(Vec<(ImageKey, Result<Source, ImageError>)>),
     /// Reading mode is to be turned on or off.
     Reading,
+    /// A band is scrolled or selected otherwise: the same lines show it
+    /// anew.
+    Bands,
 }
 
 /// Where the pager gets the document and its images again.
@@ -604,6 +618,8 @@ enum Pressed {
     Redraw,
     /// The reader turned reading mode on or off.
     Reading,
+    /// The reader scrolled a band sideways or selected another.
+    Bands,
 }
 
 /// What the status line and the help panel show and how, apart from the
@@ -835,6 +851,8 @@ struct State {
     /// The keys read, with what a read cut off waiting for the rest,
     /// also when a layout ends between the two reads.
     decoder: keys::Decoder,
+    /// How far reading mode's bands are scrolled, and which is selected.
+    bands: bands::Bands,
 }
 
 /// Where the focus is, as the terminal tells with focus reporting: under
@@ -991,6 +1009,7 @@ impl State {
             counted: None,
             focus: Focus::Unknown,
             decoder: keys::Decoder::default(),
+            bands: bands::Bands::default(),
         }
     }
 
@@ -1087,6 +1106,24 @@ impl State {
             Some(Action::Redraw) => return Pressed::Redraw,
             Some(Action::Follow) => return Pressed::Follow,
             Some(Action::Reading) => return Pressed::Reading,
+            Some(Action::Sideways | Action::SidewaysFar) => {
+                let step = match key {
+                    Key::Left => bands::Step::Left,
+                    Key::Right => bands::Step::Right,
+                    Key::Char('H') => bands::Step::PageLeft,
+                    _ => bands::Step::PageRight,
+                };
+                if self.bands.scroll(layout.lines, layout.places, step) {
+                    return Pressed::Bands;
+                }
+            }
+            Some(Action::SelectBand) => {
+                let visible = layout.view.visible();
+                let back = key == Key::BackTab;
+                if (self.bands).select_next(layout.lines, layout.places, visible, back) {
+                    return Pressed::Bands;
+                }
+            }
             None => {}
         }
         Pressed::Nothing
@@ -1304,6 +1341,8 @@ impl State {
 /// marked, the view of them and the status line below it.
 struct Layout<'a> {
     lines: &'a [Line],
+    /// The blocks the lines come from.
+    places: &'a [Option<BlockInfo>],
     marks: &'a Marks,
     /// The colours a fade mixes, where they are known.
     rgb: Option<&'a Rgb>,
@@ -1473,6 +1512,7 @@ fn show(
                     again = true;
                 }
                 Pressed::Reading => return Ok(Outcome::Reading),
+                Pressed::Bands => return Ok(Outcome::Bands),
                 Pressed::Follow if reload.is_none() => {
                     state.told = Some(Told::new(NOTHING_TO_FOLLOW));
                 }
@@ -1501,6 +1541,11 @@ fn show(
         if layout.view.visible() != told {
             told = layout.view.visible();
             prefer(source.loads, layout.lines, told.clone());
+        }
+        // The band selected scrolled away: the topmost on the screen takes
+        // its place.
+        if (state.bands).refresh(layout.lines, layout.places, layout.view.visible()) {
+            return Ok(Outcome::Bands);
         }
         let came = source.loads.poll();
         if !came.is_empty() {

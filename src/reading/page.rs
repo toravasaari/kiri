@@ -292,6 +292,11 @@ pub fn lay_out(
 }
 
 impl Page {
+    /// How the page is drawn.
+    pub fn look(&self) -> &Look {
+        &self.look
+    }
+
     /// The part of the page from `top`, `height` pixels tall and as wide as
     /// `width`, transparent where nothing is drawn. Bands are not drawn.
     pub fn draw(&self, top: u32, width: u32, height: u32) -> RgbaImage {

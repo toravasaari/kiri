@@ -220,7 +220,13 @@ text's column: only code blocks and tables reach into the area. A
 code block or table wider than the area wraps to fit it, or, when it
 scrolls, becomes a band on whole rows of its own, which keeps its lines
 and words whole and scrolls sideways under a thin scroll bar, faded on
-each edge with more beyond it. Where the terminal draws no images, kiri
+each edge with more beyond it. Its rows show an image of their own,
+keyed by its offset and whether it is selected. The pager keeps those by
+the band's block in `src/pager/bands.rs`: the topmost band on the
+screen is selected until Tab or Shift+Tab selects another, ← and → or
+`H` and `L` scroll it, and the pager then shows the same lines with the
+band's rows keyed anew, without laying the document out again. Where the
+terminal draws no images, kiri
 warns and shows the text as usual. In the pager, `M` turns reading mode on and off
 and lays the document out again, keeping the block at the top as a resize
 does.
@@ -556,6 +562,8 @@ src/pager/fade.rs          a style fading into another after a jump or
                            a reload
 src/pager/files.rs         where each of several files starts in the stream,
                            found from the blocks of its lines
+src/pager/bands.rs         reading mode's bands: how far each is scrolled,
+                           and which is selected
 src/pager/changes.rs       where a reload changed the laid-out lines, and
                            which change auto-follow moves to
 src/pager/tint.rs          the lighter background over that change's lines

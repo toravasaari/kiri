@@ -122,6 +122,11 @@ impl Parts {
         (self.page.bands.get(band as usize)).map_or(0, |band| band.most().ceil() as u32)
     }
 
+    /// How far a key scrolls a band sideways: four font sizes.
+    pub fn step(&self) -> u32 {
+        (4.0 * self.page.look().size).round() as u32
+    }
+
     /// The width band `band` shows at a time, in pixels.
     pub fn band_visible(&self, band: u32) -> u32 {
         (self.page.bands.get(band as usize)).map_or(0, |band| band.visible as u32)
@@ -270,6 +275,97 @@ pub fn lines(
         lines.push(line);
     }
     lines
+}
+
+/// The rows of one band in a run of lines, as the pager scrolls it.
+#[derive(Debug, Clone)]
+pub struct BandRows {
+    /// The lines that show it.
+    pub lines: std::ops::Range<usize>,
+    /// The page it is on, and its number there.
+    pub parts: Rc<Parts>,
+    pub band: u32,
+    /// How far it is scrolled, and whether it is selected.
+    pub offset: u32,
+    pub selected: bool,
+}
+
+impl BandRows {
+    /// How far it scrolls at most, in pixels.
+    pub fn most(&self) -> u32 {
+        self.parts.band_most(self.band)
+    }
+
+    /// The width it shows at a time, in pixels.
+    pub fn visible(&self) -> u32 {
+        self.parts.band_visible(self.band)
+    }
+}
+
+/// The bands that `lines` show, in order.
+pub fn bands(lines: &[Line]) -> Vec<BandRows> {
+    let mut bands: Vec<BandRows> = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        let Some(ImageRow {
+            placement,
+            page: Some(parts),
+            ..
+        }) = &line.image
+        else {
+            continue;
+        };
+        let ImageKey::Band {
+            page,
+            band,
+            offset,
+            selected,
+            ..
+        } = placement.key
+        else {
+            continue;
+        };
+        match bands.last_mut() {
+            Some(last) if last.parts.id == page && last.band == band && last.lines.end == index => {
+                last.lines.end = index + 1;
+            }
+            _ => bands.push(BandRows {
+                lines: index..index + 1,
+                parts: Rc::clone(parts),
+                band,
+                offset,
+                selected,
+            }),
+        }
+    }
+    bands
+}
+
+/// Shows the band on `lines` scrolled `offset` pixels, and `selected` or
+/// not, in place of how they showed it.
+pub fn set_band(lines: &mut [Line], offset: u32, selected: bool) {
+    for line in lines {
+        let Some(image) = &mut line.image else {
+            continue;
+        };
+        if let ImageKey::Band {
+            document,
+            page,
+            band,
+            ..
+        } = image.placement.key
+        {
+            image.placement = Rc::new(Placement {
+                key: ImageKey::Band {
+                    document,
+                    page,
+                    band,
+                    offset,
+                    selected,
+                },
+                ..(*image.placement).clone()
+            });
+        }
+    }
 }
 
 /// How reading mode draws text in `theme` on a terminal with `caps`: its

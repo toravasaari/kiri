@@ -74,3 +74,30 @@ fn without_images_m_says_why() {
         "{last:?}"
     );
 }
+
+#[test]
+fn an_arrow_scrolls_the_selected_band_sideways() {
+    let long = "a".repeat(200);
+    let document = crate::parse::parse(&format!("Text.\n\n```\n{long}\n```\n"));
+    let mut terminal = Fake::new(80, 10, &[b"\x1b[C"]);
+    let mut inputs = Inputs {
+        reading: Some(Reading {
+            wide: crate::reading::page::Wide::Scroll,
+            ..reading()
+        }),
+        ..Inputs::new(kitty())
+    };
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let frames = terminal.frames();
+    let sent = |frame: &str| frame.matches("\x1b_Ga=T").count();
+    let first = frames.first().expect("a frame");
+    let last = frames.last().expect("a frame");
+    // The band is sent anew, scrolled, and the page beside it is not.
+    assert!(sent(first) >= 2, "{}", sent(first));
+    assert_eq!(sent(last), 1, "{} frames", frames.len());
+}
