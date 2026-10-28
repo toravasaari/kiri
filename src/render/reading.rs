@@ -20,7 +20,7 @@ use crate::color::Color;
 use crate::images::ImageKey;
 use crate::model::Block;
 use crate::reading::Fonts;
-use crate::reading::page::{self, Highlight, Look, Page, Plain};
+use crate::reading::page::{self, Frame, Highlight, Look, Page, Plain, Wide};
 use crate::reading::text::{Brush, Run};
 use crate::theme::Theme;
 
@@ -46,6 +46,8 @@ const PART_ROWS: u16 = 30;
 #[derive(Debug, Clone)]
 pub struct Reading {
     pub fonts: Rc<Fonts>,
+    /// What becomes of code blocks and tables wider than the area.
+    pub wide: Wide,
 }
 
 /// Where reading mode sets its text in a window: the area that tables
@@ -155,7 +157,12 @@ pub fn lines(
         &look,
         &reading.fonts,
         &highlight,
-        (text, f32::from(columns) * cell_width),
+        Frame {
+            width: text,
+            area: f32::from(columns) * cell_width,
+            row: cell_height,
+            wide: reading.wide,
+        },
     );
     let rows = ((page.height / cell_height).ceil() as u16).max(1);
     let mut hasher = DefaultHasher::new();
@@ -327,6 +334,7 @@ mod tests {
         Inputs {
             reading: Some(Reading {
                 fonts: Rc::new(Fonts::fixture()),
+                wide: Wide::Wrap,
             }),
             ..Inputs::new(caps)
         }

@@ -4,7 +4,10 @@
 //! page shows through.
 
 use image::RgbaImage;
-use resvg::tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Rect, Transform};
+use resvg::tiny_skia::{
+    BlendMode, Color, FillRule, GradientStop, LinearGradient, Paint, PathBuilder, Pixmap,
+    PixmapPaint, Point, Rect, SpreadMode, Transform,
+};
 use skrifa::instance::{LocationRef, NormalizedCoord, Size};
 use skrifa::outline::{DrawSettings, OutlinePen};
 use skrifa::raw::types::F2Dot14;
@@ -146,6 +149,22 @@ impl Canvas {
         radius: f32,
         color: Brush,
     ) {
+        self.round_rect_alpha(x, y, width, height, radius, color, 255);
+    }
+
+    /// Fills a rectangle with corners rounded to `radius`, in `color` at
+    /// the opacity `alpha`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn round_rect_alpha(
+        &mut self,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        radius: f32,
+        color: Brush,
+        alpha: u8,
+    ) {
         let r = radius.min(width / 2.0).min(height / 2.0);
         // How far a cubic's control point lies along the tangent, for a
         // quarter circle.
@@ -172,12 +191,58 @@ impl Canvas {
         if let Some(path) = path.finish() {
             self.pixmap.fill_path(
                 &path,
-                &paint(color, 255),
+                &paint(color, alpha),
                 FillRule::Winding,
                 Transform::identity(),
                 None,
             );
         }
+    }
+
+    /// Fades out what is drawn in the `width` pixels from `x`, from the
+    /// top down to `height`: towards the right edge, or towards the left
+    /// one when `left`, where it is almost gone.
+    pub fn fade(&mut self, x: f32, width: f32, height: f32, left: bool) {
+        let (Some(rect), true) = (Rect::from_xywh(x, 0.0, width, height), width > 0.0) else {
+            return;
+        };
+        let (clear, gone) = (
+            Color::from_rgba8(0, 0, 0, 0),
+            Color::from_rgba8(0, 0, 0, 230),
+        );
+        let stops = match left {
+            true => vec![GradientStop::new(0.0, gone), GradientStop::new(1.0, clear)],
+            false => vec![GradientStop::new(0.0, clear), GradientStop::new(1.0, gone)],
+        };
+        let shader = LinearGradient::new(
+            Point::from_xy(x, 0.0),
+            Point::from_xy(x + width, 0.0),
+            stops,
+            SpreadMode::Pad,
+            Transform::identity(),
+        );
+        let Some(shader) = shader else {
+            return;
+        };
+        let paint = Paint {
+            shader,
+            blend_mode: BlendMode::DestinationOut,
+            ..Paint::default()
+        };
+        self.pixmap
+            .fill_rect(rect, &paint, Transform::identity(), None);
+    }
+
+    /// Draws `other` over this canvas with its top left at (`x`, `y`).
+    pub fn overlay(&mut self, other: &Canvas, x: f32, y: f32) {
+        self.pixmap.draw_pixmap(
+            x.round() as i32,
+            y.round() as i32,
+            other.pixmap.as_ref(),
+            &PixmapPaint::default(),
+            Transform::identity(),
+            None,
+        );
     }
 
     /// The pixels drawn, not premultiplied, as images are sent.

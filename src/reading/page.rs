@@ -36,6 +36,15 @@ const CODE_PADDING: f32 = 1.0;
 const CODE_RADIUS: f32 = 0.375;
 const CODE_LINE_HEIGHT: f32 = 1.45;
 const LABEL_SIZE: f32 = 0.75;
+/// The room below a band's content for its scroll bar, in font sizes;
+/// how far its fades reach in from each edge; the scroll bar's thickness
+/// in pixels, and the selected one's.
+const BAR_ROOM: f32 = 0.6;
+const FADE: f32 = 2.5;
+const BAR: f32 = 4.0;
+const BAR_SELECTED: f32 = 6.0;
+/// A width no line of code reaches, for code laid out unbroken.
+const UNBOUNDED: f32 = 1.0e6;
 /// How far a table cell's text is from its borders, across and down, in
 /// font sizes.
 const CELL_ACROSS: f32 = 13.0 / 16.0;
@@ -86,6 +95,55 @@ impl Highlight for Plain {
     }
 }
 
+/// What becomes of a code block or table wider than the area.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Wide {
+    /// Its lines and cells wrap to fit, breaking words in a table when
+    /// they must.
+    #[default]
+    Wrap,
+    /// It keeps its lines and words whole and becomes a band, which
+    /// scrolls sideways.
+    Scroll,
+}
+
+/// Where and how a page is laid out.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Frame {
+    /// The text's width, and the area's, which code and tables may
+    /// reach, in pixels.
+    pub width: f32,
+    pub area: f32,
+    /// The height of a row, which bands start on.
+    pub row: f32,
+    pub wide: Wide,
+}
+
+/// A code block or table too wide for the area, laid out on whole rows
+/// of its own to scroll sideways, with a scroll bar below it.
+pub struct Band {
+    /// Its top, on a whole row, and its height in whole rows, from the
+    /// top of the page.
+    pub top: f32,
+    pub height: f32,
+    /// Its left edge, the width of its content, and the width it shows
+    /// at a time, up to the area's edge.
+    pub x: f32,
+    pub width: f32,
+    pub visible: f32,
+    /// The height of its content, above the scroll bar.
+    content: f32,
+    /// What it draws, from its own top left.
+    items: Vec<Item>,
+}
+
+impl Band {
+    /// The furthest it scrolls, in pixels.
+    pub fn most(&self) -> f32 {
+        (self.width - self.visible).max(0.0)
+    }
+}
+
 /// Where a block of the page is.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Placed {
@@ -101,13 +159,41 @@ pub struct Page {
     pub height: f32,
     /// Each block laid out, in order.
     pub blocks: Vec<Placed>,
+    /// The code blocks and tables that scroll, in order.
+    pub bands: Vec<Band>,
     items: Vec<Item>,
+    look: Look,
 }
 
 /// Something drawn on the page, with the pixels it may reach.
 struct Item {
     rows: Range<f32>,
     shape: Shape,
+}
+
+impl Item {
+    /// The same item moved by (`x`, `y`).
+    fn shifted(mut self, x: f32, y: f32) -> Self {
+        self.rows = self.rows.start + y..self.rows.end + y;
+        match &mut self.shape {
+            Shape::Text {
+                x: left, y: top, ..
+            }
+            | Shape::Rect {
+                x: left, y: top, ..
+            }
+            | Shape::RoundRect {
+                x: left, y: top, ..
+            }
+            | Shape::Task {
+                x: left, y: top, ..
+            } => {
+                *left += x;
+                *top += y;
+            }
+        }
+        self
+    }
 }
 
 enum Shape {
@@ -162,23 +248,27 @@ pub fn lays_out(block: &Block, drawn: &dyn Fn(&str, &str) -> bool) -> bool {
 }
 
 /// `blocks`, which reading mode lays out, laid out in `fonts` as `look`
-/// says: the text `width` pixels wide, at the left of an area `area`
-/// pixels wide, which tables and code may reach across. Code takes its
-/// colours from `highlight`.
+/// says, in `frame`: the text at the left of the area, which tables and
+/// code may reach across, and what becomes of those wider than it. Code
+/// takes its colours from `highlight`.
 pub fn lay_out(
     blocks: &[&Block],
     look: &Look,
     fonts: &Fonts,
     highlight: &dyn Highlight,
-    (width, area): (f32, f32),
+    frame: Frame,
 ) -> Page {
-    let area = area.max(width);
+    let width = frame.width;
+    let area = frame.area.max(width);
     let mut flow = Flow {
         fonts,
         look,
         highlight,
         area,
+        row: frame.row.max(1.0),
+        wide: frame.wide,
         items: Vec::new(),
+        bands: Vec::new(),
         y: 0.0,
         margin: None,
     };
@@ -195,53 +285,107 @@ pub fn lay_out(
         width: area,
         height: flow.y,
         blocks: placed,
+        bands: flow.bands,
         items: flow.items,
+        look: *look,
     }
 }
 
 impl Page {
     /// The part of the page from `top`, `height` pixels tall and as wide as
-    /// `width`, transparent where nothing is drawn.
+    /// `width`, transparent where nothing is drawn. Bands are not drawn.
     pub fn draw(&self, top: u32, width: u32, height: u32) -> RgbaImage {
         let mut canvas = Canvas::new(width, height);
-        let (from, to) = (top as f32, (top + height) as f32);
-        for item in &self.items {
-            if item.rows.end < from || item.rows.start > to {
-                continue;
-            }
-            let shift = -from;
-            match &item.shape {
-                Shape::Text {
-                    paragraph,
-                    x,
-                    y,
-                    chip,
-                } => canvas.text(paragraph, *x, y + shift, *chip),
-                Shape::Rect {
-                    x,
-                    y,
-                    width,
-                    height,
-                    color,
-                } => canvas.rect(*x, y + shift, *width, *height, *color),
-                Shape::RoundRect {
-                    x,
-                    y,
-                    width,
-                    height,
-                    radius,
-                    color,
-                } => canvas.round_rect(*x, y + shift, *width, *height, *radius, *color),
-                Shape::Task {
-                    x,
-                    y,
-                    size,
-                    checked,
-                    look,
-                } => task(&mut canvas, *x, y + shift, *size, *checked, look),
-            }
-        }
+        draw_items(&mut canvas, &self.items, (0.0, top as f32));
         canvas.into_image()
+    }
+
+    /// The rows of band `band`, as wide as the page: what the page has
+    /// beside it, and the part of its content `offset` pixels from its left
+    /// edge, faded on each edge with more beyond it, above its scroll bar,
+    /// which is brighter and thicker when it is `selected`.
+    pub fn draw_band(&self, band: usize, offset: f32, selected: bool) -> RgbaImage {
+        let Some(band) = self.bands.get(band) else {
+            return Canvas::new(self.width.ceil() as u32, 1).into_image();
+        };
+        let size = self.look.size;
+        let (width, height) = (self.width.ceil() as u32, band.height.ceil() as u32);
+        let mut canvas = Canvas::new(width, height);
+        draw_items(&mut canvas, &self.items, (0.0, band.top));
+        let offset = offset.clamp(0.0, band.most());
+        let mut content = Canvas::new(band.visible.ceil() as u32, band.content.ceil() as u32);
+        draw_items(&mut content, &band.items, (offset, 0.0));
+        let fade = (FADE * size).min(band.visible / 3.0);
+        if offset < band.most() {
+            content.fade(band.visible - fade, fade, band.content, false);
+        }
+        if offset > 0.0 {
+            content.fade(0.0, fade, band.content, true);
+        }
+        canvas.overlay(&content, band.x, 0.0);
+        let thickness = if selected { BAR_SELECTED } else { BAR };
+        let bar = (band.content + 0.25 * size).round();
+        let track = bar + (thickness - BAR) / 2.0;
+        canvas.round_rect_alpha(
+            band.x,
+            track,
+            band.visible,
+            BAR,
+            BAR / 2.0,
+            self.look.border,
+            153,
+        );
+        let thumb = band.visible * band.visible / band.width;
+        let color = if selected {
+            self.look.text
+        } else {
+            self.look.quote
+        };
+        let start = band.x + offset / band.width * band.visible;
+        canvas.round_rect(start, bar, thumb, thickness, thickness / 2.0, color);
+        canvas.into_image()
+    }
+}
+
+/// Draws the `items` that reach the canvas, with the point (`x`, `y`) of
+/// their coordinates at its top left.
+fn draw_items(canvas: &mut Canvas, items: &[Item], (x, y): (f32, f32)) {
+    let (from, to) = (y, y + canvas.height() as f32);
+    for item in items {
+        if item.rows.end < from || item.rows.start > to {
+            continue;
+        }
+        let (dx, dy) = (-x, -y);
+        match &item.shape {
+            Shape::Text {
+                paragraph,
+                x,
+                y,
+                chip,
+            } => canvas.text(paragraph, x + dx, y + dy, *chip),
+            Shape::Rect {
+                x,
+                y,
+                width,
+                height,
+                color,
+            } => canvas.rect(x + dx, y + dy, *width, *height, *color),
+            Shape::RoundRect {
+                x,
+                y,
+                width,
+                height,
+                radius,
+                color,
+            } => canvas.round_rect(x + dx, y + dy, *width, *height, *radius, *color),
+            Shape::Task {
+                x,
+                y,
+                size,
+                checked,
+                look,
+            } => task(canvas, x + dx, y + dy, *size, *checked, look),
+        }
     }
 }
 
@@ -252,7 +396,12 @@ struct Flow<'a> {
     highlight: &'a dyn Highlight,
     /// The right edge of the area, which tables and code may reach.
     area: f32,
+    /// The height of a row, which bands start on, and what becomes of
+    /// code and tables wider than the area.
+    row: f32,
+    wide: Wide,
     items: Vec<Item>,
+    bands: Vec<Band>,
     /// The bottom of what is laid out so far.
     y: f32,
     /// The bottom margin of the block above, until the next block takes
@@ -365,12 +514,16 @@ impl Flow<'_> {
                     look: &quoted,
                     highlight: self.highlight,
                     area: self.area,
+                    row: self.row,
+                    wide: self.wide,
                     items: Vec::new(),
+                    bands: Vec::new(),
                     y: top,
                     margin: None,
                 };
                 inner.blocks(blocks, x + indent, width - indent, depth);
                 self.items.append(&mut inner.items);
+                self.bands.append(&mut inner.bands);
                 self.y = inner.y;
                 let bar = (QUOTE_BAR * size).round().max(1.0);
                 self.rect(x, top, bar, self.y - top, look.border);
@@ -419,54 +572,101 @@ impl Flow<'_> {
             }
         }
         let room = (self.area - x).max(width);
-        let paragraph = text::lay_out(self.fonts, &runs, &style, room - 2.0 * padding);
+        // Scrolling, the lines stay whole; wrapping, they break at the
+        // area's edge.
+        let scroll = self.wide == Wide::Scroll;
+        let line_width = if scroll {
+            UNBOUNDED
+        } else {
+            room - 2.0 * padding
+        };
+        let paragraph = text::lay_out(self.fonts, &runs, &style, line_width);
         let (_, natural) = paragraph.content_widths();
-        let block_width = (natural + 2.0 * padding).clamp(width, room);
-        let height = paragraph.height() + 2.0 * padding;
-        let top = self.y;
-        if let Some(color) = look.code_block {
-            self.push(
-                top..top + height,
-                Shape::RoundRect {
-                    x,
-                    y: top,
-                    width: block_width,
-                    height,
-                    radius: CODE_RADIUS * size,
+        let banded = scroll && natural + 2.0 * padding > room;
+        let block_width = match banded {
+            true => natural + 2.0 * padding,
+            false => (natural + 2.0 * padding).clamp(width, room),
+        };
+        let fonts = self.fonts;
+        let draw = move |flow: &mut Self| {
+            let height = paragraph.height() + 2.0 * padding;
+            let top = flow.y;
+            if let Some(color) = look.code_block {
+                flow.push(
+                    top..top + height,
+                    Shape::RoundRect {
+                        x,
+                        y: top,
+                        width: block_width,
+                        height,
+                        radius: CODE_RADIUS * size,
+                        color,
+                    },
+                );
+            }
+            flow.y += padding;
+            flow.text(paragraph, x + padding);
+            if let (Some(language), Some(color)) =
+                (language.filter(|name| !name.is_empty()), look.label)
+            {
+                // In the padding above the code, one line of its own
+                // height, so that a long first line never runs under it.
+                let style = text::Look {
+                    size: size * LABEL_SIZE,
+                    line_height: 1.0,
                     color,
-                },
-            );
+                    ..text::Look::PLAIN
+                };
+                let label = text::lay_out(fonts, &[Run::new(language)], &style, block_width);
+                let (label_x, label_y) = (
+                    x + block_width - 0.6 * size - label.width(),
+                    top + ((padding - label.height()) / 2.0).max(0.0),
+                );
+                let label_height = label.height();
+                flow.push(
+                    label_y..label_y + label_height,
+                    Shape::Text {
+                        paragraph: Box::new(label),
+                        x: label_x,
+                        y: label_y,
+                        chip: None,
+                    },
+                );
+            }
+            flow.y = top + height;
+        };
+        match banded {
+            true => self.band(x, block_width, draw),
+            false => draw(self),
         }
-        self.y += padding;
-        self.text(paragraph, x + padding);
-        if let (Some(language), Some(color)) =
-            (language.filter(|name| !name.is_empty()), look.label)
-        {
-            // In the padding above the code, one line of its own height,
-            // so that a long first line never runs under it.
-            let style = text::Look {
-                size: size * LABEL_SIZE,
-                line_height: 1.0,
-                color,
-                ..text::Look::PLAIN
-            };
-            let label = text::lay_out(self.fonts, &[Run::new(language)], &style, block_width);
-            let (label_x, label_y) = (
-                x + block_width - 0.6 * size - label.width(),
-                top + ((padding - label.height()) / 2.0).max(0.0),
-            );
-            let label_height = label.height();
-            self.push(
-                label_y..label_y + label_height,
-                Shape::Text {
-                    paragraph: Box::new(label),
-                    x: label_x,
-                    y: label_y,
-                    chip: None,
-                },
-            );
-        }
-        self.y = top + height;
+    }
+
+    /// Lays out what `lay_out` lays out from the next whole row, `width`
+    /// pixels wide from `x`, as a band of its own, which scrolls sideways
+    /// in the room the area leaves it, above a scroll bar.
+    fn band(&mut self, x: f32, width: f32, lay_out: impl FnOnce(&mut Self)) {
+        let row = self.row;
+        let top = (self.y / row).ceil() * row;
+        self.y = top;
+        let start = self.items.len();
+        lay_out(self);
+        let content = self.y - top;
+        let items = (self.items.drain(start..))
+            .map(|item| item.shifted(-x, -top))
+            .collect();
+        let rows = ((content + BAR_ROOM * self.look.size) / row)
+            .ceil()
+            .max(1.0);
+        self.bands.push(Band {
+            top,
+            height: rows * row,
+            x,
+            width,
+            visible: (self.area - x).max(1.0),
+            content,
+            items,
+        });
+        self.y = top + rows * row;
     }
 
     /// Lays a table out at `x`: as wide as its content up to the area's
@@ -481,6 +681,7 @@ impl Flow<'_> {
         if columns == 0 {
             return;
         }
+        let fonts = self.fonts;
         let cell = |row: usize, column: usize, width: f32, wrap: text::Wrap| {
             let content = grid[row].get(column).map_or(&[][..], Vec::as_slice);
             let style = text::Look {
@@ -495,7 +696,7 @@ impl Flow<'_> {
                 },
                 ..text::Look::PLAIN
             };
-            text::lay_out(self.fonts, &runs(content, &look), &style, width)
+            text::lay_out(fonts, &runs(content, &look), &style, width)
         };
         let (mut least, mut most) = (vec![0.0f32; columns], vec![0.0f32; columns]);
         for row in 0..grid.len() {
@@ -509,57 +710,75 @@ impl Flow<'_> {
         // last border closes the table.
         let extra = 2.0 * across + 1.0;
         let room = (self.area - x) - columns as f32 * extra - 1.0;
-        let (widths, forced) = share(&least, &most, room);
+        let scroll = self.wide == Wide::Scroll;
+        let (widths, forced) = match share(&least, &most, room) {
+            // Scrolling, words stay whole: each column takes its least
+            // width, and more up to half the area, and the table scrolls.
+            (_, true) if scroll => {
+                let half = (self.area - x) / 2.0;
+                let widths = (least.iter().zip(&most))
+                    .map(|(min, max)| min.max(max.min(half)))
+                    .collect();
+                (widths, false)
+            }
+            shared => shared,
+        };
         let wrap = if forced {
             text::Wrap::Forced
         } else {
             text::Wrap::Words
         };
         let table_width = widths.iter().sum::<f32>() + columns as f32 * extra + 1.0;
-        let top = self.y;
-        let mut y = top;
-        let mut rows = Vec::new();
-        for row in 0..grid.len() {
-            let cells: Vec<Paragraph> = (0..columns)
-                .map(|column| cell(row, column, widths[column], wrap))
-                .collect();
-            let height = cells.iter().map(Paragraph::height).fold(0.0, f32::max) + 2.0 * down;
-            if row > 0
-                && row % 2 == 0
-                && let Some(stripe) = look.stripe
-            {
-                self.rect(x, y, table_width, height, stripe);
-            }
-            let mut left = x;
-            for (column, paragraph) in cells.into_iter().enumerate() {
-                let paragraph_y = y + down;
-                let paragraph_height = paragraph.height();
-                self.push(
-                    paragraph_y..paragraph_y + paragraph_height,
-                    Shape::Text {
-                        paragraph: Box::new(paragraph),
-                        x: left + 1.0 + across,
-                        y: paragraph_y,
-                        chip: look.chip,
-                    },
-                );
-                left += widths[column] + extra;
+        let draw = |flow: &mut Self| {
+            let top = flow.y;
+            let mut y = top;
+            let mut rows = Vec::new();
+            for row in 0..grid.len() {
+                let cells: Vec<Paragraph> = (0..columns)
+                    .map(|column| cell(row, column, widths[column], wrap))
+                    .collect();
+                let height = cells.iter().map(Paragraph::height).fold(0.0, f32::max) + 2.0 * down;
+                if row > 0
+                    && row % 2 == 0
+                    && let Some(stripe) = look.stripe
+                {
+                    flow.rect(x, y, table_width, height, stripe);
+                }
+                let mut left = x;
+                for (column, paragraph) in cells.into_iter().enumerate() {
+                    let paragraph_y = y + down;
+                    let paragraph_height = paragraph.height();
+                    flow.push(
+                        paragraph_y..paragraph_y + paragraph_height,
+                        Shape::Text {
+                            paragraph: Box::new(paragraph),
+                            x: left + 1.0 + across,
+                            y: paragraph_y,
+                            chip: look.chip,
+                        },
+                    );
+                    left += widths[column] + extra;
+                }
+                rows.push(y);
+                y += height;
             }
             rows.push(y);
-            y += height;
+            // The borders, over the shading.
+            for &line in &rows {
+                flow.rect(x, line.round(), table_width, 1.0, look.table_border);
+            }
+            let mut left = x;
+            flow.rect(left.round(), top, 1.0, y - top + 1.0, look.table_border);
+            for width in &widths {
+                left += width + extra;
+                flow.rect(left.round(), top, 1.0, y - top + 1.0, look.table_border);
+            }
+            flow.y = y + 1.0;
+        };
+        match scroll && table_width > self.area - x {
+            true => self.band(x, table_width, draw),
+            false => draw(self),
         }
-        rows.push(y);
-        // The borders, over the shading.
-        for &line in &rows {
-            self.rect(x, line.round(), table_width, 1.0, look.table_border);
-        }
-        let mut left = x;
-        self.rect(left.round(), top, 1.0, y - top + 1.0, look.table_border);
-        for width in &widths {
-            left += width + extra;
-            self.rect(left.round(), top, 1.0, y - top + 1.0, look.table_border);
-        }
-        self.y = y + 1.0;
     }
 
     fn paragraph(&self, content: &[Inline], color: Brush, width: f32) -> Paragraph {
@@ -588,7 +807,10 @@ impl Flow<'_> {
                 look: self.look,
                 highlight: self.highlight,
                 area: self.area,
+                row: self.row,
+                wide: self.wide,
                 items: Vec::new(),
+                bands: Vec::new(),
                 y: top,
                 margin: None,
             };
@@ -609,6 +831,7 @@ impl Flow<'_> {
                 })
                 .unwrap_or(top + size);
             self.items.append(&mut inner.items);
+            self.bands.append(&mut inner.bands);
             self.y = inner.y.max(top + LINE_HEIGHT * size);
             let marker_right = x + indent - MARKER_GAP * size;
             match item.checked {
@@ -902,6 +1125,13 @@ mod tests {
     use super::*;
     use crate::parse::parse;
 
+    const FRAME: Frame = Frame {
+        width: 672.0,
+        area: 1008.0,
+        row: 20.0,
+        wide: Wide::Wrap,
+    };
+
     const LOOK: Look = Look {
         size: 16.0,
         text: [0xdd; 3],
@@ -926,7 +1156,7 @@ mod tests {
             blocks.iter().all(|block| lays_out(block, &|_, _| false)),
             "{blocks:?}"
         );
-        lay_out(&blocks, &LOOK, &Fonts::fixture(), &Plain, (672.0, 1008.0))
+        lay_out(&blocks, &LOOK, &Fonts::fixture(), &Plain, FRAME)
     }
 
     /// The texts laid out on the page, each with its left edge, its first
@@ -1171,6 +1401,117 @@ mod tests {
         assert!(offset("b") > 0.0, "{paragraphs:?}");
     }
 
+    fn scrolling(markdown: &str) -> Page {
+        let document = parse(markdown);
+        let blocks: Vec<&Block> = document.blocks.iter().collect();
+        let frame = Frame {
+            wide: Wide::Scroll,
+            ..FRAME
+        };
+        lay_out(&blocks, &LOOK, &Fonts::fixture(), &Plain, frame)
+    }
+
+    #[test]
+    fn a_code_line_wider_than_the_area_scrolls_in_a_band_of_whole_rows() {
+        let long = "a".repeat(200);
+        let page = scrolling(&format!("Text.\n\n```\n{long}\n```\n\nMore.\n"));
+        let [band] = &page.bands[..] else {
+            panic!("one band");
+        };
+        assert_eq!(band.top % 20.0, 0.0);
+        assert_eq!(band.height % 20.0, 0.0);
+        assert!(band.top >= page.blocks[0].rows.end + 16.0, "{}", band.top);
+        assert_eq!((band.x, band.visible), (0.0, 1008.0));
+        assert!(band.width > 1008.0 + 500.0, "{}", band.width);
+        assert!(band.most() > 500.0);
+        // Its code stays one line, in the band and not on the page.
+        assert!(code_blocks(&page).is_empty());
+        let line = (band.items.iter()).find_map(|item| match &item.shape {
+            Shape::Text { paragraph, .. } if paragraph.text() == long => {
+                Some(paragraph.lines().len())
+            }
+            _ => None,
+        });
+        assert_eq!(line, Some(1));
+        assert!(page.blocks[2].rows.start >= band.top + band.height);
+        // Wrapping, the same code has no band.
+        assert!(page_wrapped(&long).bands.is_empty());
+    }
+
+    fn page_wrapped(long: &str) -> Page {
+        page(&format!("```\n{long}\n```\n"))
+    }
+
+    #[test]
+    fn a_scrolling_table_keeps_its_words_whole() {
+        let long = "a".repeat(150);
+        let page = scrolling(&format!("| x | y |\n|---|---|\n| {long} | {long} |\n"));
+        let [band] = &page.bands[..] else {
+            panic!("one band");
+        };
+        let widest = (band.items.iter())
+            .filter_map(|item| match &item.shape {
+                Shape::Text { paragraph, .. } if paragraph.text() == long => {
+                    Some((paragraph.lines().len(), paragraph.width()))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(widest.len(), 2);
+        assert!(widest.iter().all(|&(lines, _)| lines == 1), "{widest:?}");
+        assert!(band.width > 1008.0);
+    }
+
+    #[test]
+    fn a_table_that_fits_does_not_scroll() {
+        let page = scrolling("| a | b |\n|---|---|\n| c | d |\n");
+        assert!(page.bands.is_empty());
+    }
+
+    /// The alpha of the band's pixel at (`x`, `y`).
+    fn alpha(image: &RgbaImage, x: u32, y: u32) -> u8 {
+        image.get_pixel(x, y).0[3]
+    }
+
+    #[test]
+    fn a_band_fades_on_each_edge_with_more_beyond_it() {
+        let page = scrolling(&format!("```\n{}\n```\n", "a".repeat(200)));
+        let band = &page.bands[0];
+        let start = page.draw_band(0, 0.0, false);
+        let end = page.draw_band(0, band.most(), false);
+        let middle = page.draw_band(0, band.most() / 2.0, false);
+        // The code's background, opaque in the middle, nearly gone at an
+        // edge that fades.
+        let (left, right, inner) = (1, 1006, 500);
+        assert_eq!(alpha(&start, inner, 10), 255);
+        assert!(
+            alpha(&start, right, 10) < 60,
+            "{}",
+            alpha(&start, right, 10)
+        );
+        assert_eq!(alpha(&start, left + 4, 10), 255);
+        assert!(alpha(&end, left, 10) < 60);
+        assert_eq!(alpha(&end, right - 4, 10), 255);
+        assert!(alpha(&middle, left, 10) < 60 && alpha(&middle, right, 10) < 60);
+    }
+
+    #[test]
+    fn the_selected_band_s_thumb_is_brighter_and_thicker() {
+        let page = scrolling(&format!("```\n{}\n```\n", "a".repeat(200)));
+        let band = &page.bands[0];
+        let bar = (band.content + 0.25 * 16.0).round() as u32;
+        let (plain, selected) = (page.draw_band(0, 0.0, false), page.draw_band(0, 0.0, true));
+        let at = |image: &RgbaImage, y| image.get_pixel(20, y).0;
+        assert_eq!(&at(&plain, bar + 1)[..3], &LOOK.quote);
+        assert_eq!(&at(&selected, bar + 1)[..3], &LOOK.text);
+        // Six pixels thick when selected, four otherwise.
+        assert_eq!(at(&selected, bar + 5)[3], 255);
+        assert_ne!(&at(&plain, bar + 5)[..3], &LOOK.quote);
+        // The thumb is as long as the visible share: past it, the track.
+        let thumb = (band.visible * band.visible / band.width) as u32;
+        assert_ne!(&plain.get_pixel(thumb + 10, bar + 1).0[..3], &LOOK.quote);
+    }
+
     #[test]
     fn a_tick_shows_on_a_light_box() {
         let light = Look {
@@ -1179,7 +1520,7 @@ mod tests {
         };
         let document = parse("- [x] done\n");
         let blocks: Vec<&Block> = document.blocks.iter().collect();
-        let page = lay_out(&blocks, &light, &Fonts::fixture(), &Plain, (672.0, 1008.0));
+        let page = lay_out(&blocks, &light, &Fonts::fixture(), &Plain, FRAME);
         let image = page.draw(0, 40, 24);
         // The box is 13 pixels square, its right edge 8 pixels before the
         // text at 32: the tick is as dark as the box is light.

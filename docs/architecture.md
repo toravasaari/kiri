@@ -216,7 +216,11 @@ view. The rows keep their blocks, so the pager keeps its place across a
 resize, and the row a block starts on carries the block's text for a
 search. The other blocks, such as images and alerts, are laid out as
 text between the pages, from the area's left edge and as wide as the
-text's column: only code blocks and tables reach into the area. Where the terminal draws no images, kiri warns and
+text's column: only code blocks and tables reach into the area. A
+code block or table wider than the area wraps to fit it, or, with
+when it scrolls, becomes a band on whole rows of its own, which keeps
+its lines and words whole and scrolls sideways under a thin scroll bar,
+faded on each edge with more beyond it. Where the terminal draws no images, kiri warns and
 shows the text as usual. In the pager, `M` turns reading mode on and off
 and lays the document out again, keeping the block at the top as a resize
 does.

@@ -1479,6 +1479,7 @@ impl<'a> Context<'a> {
     fn reading_mode() -> Reading {
         Reading {
             fonts: Rc::new(kiri::reading::Fonts::system()),
+            wide: kiri::reading::page::Wide::Wrap,
         }
     }
 
