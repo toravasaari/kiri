@@ -46,8 +46,11 @@ From the repository root:
   Python's escapes, such as `\x1b[C` for →). Each `--key` is one step:
   `DATE-NAME-k00.png` is the first frame, `-k01.png` the frame after the
   first key, and so on, each a whole window of 1280 × 800 unless `--size`
-  says otherwise; `q` then ends the pager. A frame counts as drawn once
-  three screenshots half a second apart are the same. For example:
+  says otherwise; `q` then ends the pager. The first frame is taken once
+  the pager's status line shows on kitty's screen (`kitty @ get-text`),
+  up to `--timeout`, as a slow first layout can take many seconds; a
+  later frame counts as drawn once three screenshots half a second apart
+  are the same. For example:
   `render-check.sh --key j --key '\t' doc.md -- --reading`.
 - The screenshot is taken once kitty shows the cursor where kiri's output
   ended and two screenshots in a row are equal. kitty's software renderer

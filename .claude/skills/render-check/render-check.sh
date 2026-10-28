@@ -255,6 +255,20 @@ settle_frame() {
 	echo "render-check: the pager did not settle; saved the last screenshot" >&2
 }
 
+# Waits until the pager's status line shows on kitty's screen, which a slow
+# first layout can delay by many seconds, up to $timeout.
+wait_for_pager() {
+	local deadline=$((SECONDS + timeout))
+	while [ "$SECONDS" -lt "$deadline" ]; do
+		if kitty @ --to "unix:$work/kitty.sock" get-text 2>/dev/null |
+			grep -q 'q quit'; then
+			return 0
+		fi
+		sleep 0.5
+	done
+	die "the pager did not show its status line within $timeout s (--timeout)"
+}
+
 # Types $1 into kitty through its remote control, as the reader would.
 type_keys() {
 	kitty @ --to "unix:$work/kitty.sock" send-text -- "$1" \
@@ -344,7 +358,8 @@ for file in "${files[@]}"; do
 			sleep 0.1
 		done
 		[ -S "$work/kitty.sock" ] || die "$file: kitty did not listen for keys"
-		settle_frame "$work/full.ppm" 3
+		wait_for_pager
+		settle_frame "$work/full.ppm" 1
 		magick "$work/full.ppm" "$out/$name-k00.png"
 		echo "$out/$name-k00.png"
 		step=0
