@@ -285,8 +285,6 @@ impl Band {
 pub struct Placed {
     /// The pixels it covers, from the top of the page.
     pub rows: Range<f32>,
-    /// Its text, as a search finds it.
-    pub text: String,
 }
 
 /// A run of blocks laid out.
@@ -661,10 +659,7 @@ pub fn lay_out(
     for block in blocks {
         let top = flow.top(block_margins(block, look).0);
         flow.block(block, 0.0, width, 0);
-        placed.push(Placed {
-            rows: top..flow.y,
-            text: plain(block),
-        });
+        placed.push(Placed { rows: top..flow.y });
     }
     Page {
         width: area,
@@ -2040,106 +2035,6 @@ fn same_style(a: &Run, b: &Run) -> bool {
         == (b.bold, b.italic, b.code, b.strike, b.color, &b.link)
 }
 
-/// The text of `block`, as a search finds it.
-fn plain(block: &Block) -> String {
-    let mut text = String::new();
-    plain_into(block, &mut text);
-    text
-}
-
-fn plain_into(block: &Block, text: &mut String) {
-    let inline = |content: &[Inline], text: &mut String| {
-        let ink = Ink {
-            pictures: &Plain,
-            room: 0.0,
-        };
-        for run in runs(content, &PLAIN, ink) {
-            text.push_str(&run.text);
-        }
-    };
-    match block {
-        Block::Heading { content, .. } | Block::Paragraph(content) => inline(content, text),
-        Block::FrontMatter(front_matter) => text.push_str(front_matter.source.trim_end()),
-        Block::Html(source) | Block::Note(source) => text.push_str(source),
-        Block::Details { summary, blocks } => {
-            inline(summary, text);
-            for block in blocks {
-                text.push('\n');
-                plain_into(block, text);
-            }
-        }
-        Block::CodeBlock { code, .. } => text.push_str(code.trim_end()),
-        Block::Table(table) => {
-            for (index, row) in std::iter::once(&table.header)
-                .chain(&table.rows)
-                .enumerate()
-            {
-                if index > 0 {
-                    text.push('\n');
-                }
-                for (column, cell) in row.iter().enumerate() {
-                    if column > 0 {
-                        text.push('\t');
-                    }
-                    inline(cell, text);
-                }
-            }
-        }
-        Block::Alert {
-            kind,
-            title,
-            blocks,
-        } => {
-            text.push_str(title.as_deref().unwrap_or(kind.name()));
-            for block in blocks {
-                text.push('\n');
-                plain_into(block, text);
-            }
-        }
-        Block::BlockQuote(blocks) => {
-            for (index, block) in blocks.iter().enumerate() {
-                if index > 0 {
-                    text.push('\n');
-                }
-                plain_into(block, text);
-            }
-        }
-        Block::List(list) => {
-            for (index, block) in list.items.iter().flat_map(|item| &item.blocks).enumerate() {
-                if index > 0 {
-                    text.push('\n');
-                }
-                plain_into(block, text);
-            }
-        }
-        _ => {}
-    }
-}
-
-/// A look for text whose colours do not matter.
-const PLAIN: Look = Look {
-    size: 16.0,
-    text: [0; 3],
-    headings: [[0; 3]; 6],
-    link: [0; 3],
-    code: [0; 3],
-    chip: None,
-    quote: [0; 3],
-    border: [0; 3],
-    marker: [0; 3],
-    code_block: None,
-    code_text: [0; 3],
-    label: None,
-    table_border: [0; 3],
-    stripe: None,
-    error: [0; 3],
-    alerts: [AlertLook {
-        color: [0; 3],
-        tint: None,
-        chip: None,
-    }; 5],
-};
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2238,7 +2133,6 @@ mod tests {
         assert_eq!(one.rows, 0.0..24.0);
         assert_eq!(two.rows, 40.0..64.0);
         assert_eq!(page.height, 64.0);
-        assert_eq!(two.text, "Two.");
     }
 
     #[test]
@@ -2367,13 +2261,6 @@ mod tests {
     }
 
     #[test]
-    fn an_alert_s_text_for_searching_is_its_title_and_its_blocks() {
-        let page = page("> [!NOTE]\n> A note.\n>\n> More.\n\n> [!TIP] Mine\n> Text.\n");
-        assert_eq!(page.blocks[0].text, "Note\nA note.\nMore.");
-        assert_eq!(page.blocks[1].text, "Mine\nText.");
-    }
-
-    #[test]
     fn an_alert_without_a_tint_has_only_its_bar() {
         let page = page("> [!WARNING]\n> Careful.\n");
         let alert = LOOK.alert(AlertKind::Warning);
@@ -2467,7 +2354,6 @@ mod tests {
         assert!(lines.iter().all(|line| line.0 == 0.0 && line.2 <= 672.0));
         // The text goes on below it.
         assert!(text(&texts, "Text.").2 > lines[3].1);
-        assert_eq!(page.blocks[0].text, "title: Hello\ntags: [a, b]\nempty:");
     }
 
     #[test]
@@ -2541,8 +2427,6 @@ mod tests {
         // that is smaller than the text.
         let html = text(&texts, "<div>");
         assert!(html.0.contains("\n  <b>x</b>\n"), "{html:?}");
-        assert_eq!(page.blocks[0].text, "3 rows are left out.");
-        assert_eq!(page.blocks[1].text, "<div>\n  <b>x</b>\n</div>");
     }
 
     #[test]
@@ -2851,7 +2735,6 @@ mod tests {
         let (a, b) = (text(&texts, "a"), text(&texts, "b"));
         assert_eq!(a.1, 1.0 + 13.0);
         assert!(b.1 > a.1 + a.3 + 26.0, "{a:?} {b:?}");
-        assert_eq!(page.blocks[0].text, "a\tb\nc\td");
     }
 
     #[test]
@@ -3479,7 +3362,6 @@ mod tests {
         assert_eq!(inline_pictures(&page), [11, 12]);
         assert!(pictures(&page).is_empty());
         assert_eq!(page.pictures, [11, 12]);
-        assert_eq!(page.blocks[0].text, "Badges a and b and c");
     }
 
     #[test]
@@ -3492,11 +3374,9 @@ mod tests {
         let page = with_pictures(markdown, &given);
         assert_eq!(inline_pictures(&page), [21]);
         assert_eq!(page.pictures, [21]);
-        assert_eq!(page.blocks[0].text, "Let $x^2$ be, and cost $5 and $6.");
         // Without its picture it is the source, as written.
         let page = with_pictures(markdown, &NOTHING);
         assert!(inline_pictures(&page).is_empty());
-        assert_eq!(page.blocks[0].text, "Let $x^2$ be, and cost $5 and $6.");
     }
 
     #[test]
@@ -3582,7 +3462,6 @@ mod tests {
         let label = text(&texts, "rust");
         assert_eq!(label.1 + label.3, 672.0 - 0.6 * 16.0);
         assert!(label.2 < 20.0, "{label:?}");
-        assert_eq!(page.blocks[0].text, "fn main() {}");
         // In the padding above the code, so that a long first line never
         // runs under it.
         let bottom = (page.items.iter()).find_map(|item| match &item.shape {

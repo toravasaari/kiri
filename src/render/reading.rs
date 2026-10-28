@@ -574,11 +574,8 @@ pub fn lines(
         );
         let middle = (top + bottom) / 2.0;
         // A row belongs to the block its middle is in; the rows between
-        // blocks belong to none. The row a block starts on carries its text
-        // for a search.
+        // blocks belong to none.
         let block = (placed.iter().zip(ids)).find(|(placed, _)| placed.rows.contains(&middle));
-        let starts =
-            (placed.iter()).find(|placed| placed.rows.start >= top && placed.rows.start < bottom);
         let line = Line {
             lead: vec![lead.clone()],
             image: Some(ImageRow {
@@ -586,7 +583,7 @@ pub fn lines(
                 row: image_row,
                 background: None,
                 columns: 0..columns,
-                text: starts.map(|placed| placed.text.clone()),
+                text: None,
                 page: Some(Rc::clone(&parts)),
                 overlay: None,
                 links: parts.row_links(address, at.0, at.1),
@@ -990,7 +987,6 @@ mod tests {
                 Some(ImageRow {
                     placement,
                     row,
-                    text,
                     page: Some(_),
                     ..
                 }) => {
@@ -1000,12 +996,8 @@ mod tests {
                         _ => panic!("a page's key: {placement:?}"),
                     };
                     let lead: String = line.lead.iter().map(|span| span.text.as_str()).collect();
-                    let text = text
-                        .as_deref()
-                        .map(|text| format!(" {text:?}"))
-                        .unwrap_or_default();
                     let block = line.block.map_or("-".to_owned(), |_| "block".to_owned());
-                    format!("{}{kind} {row}/{slice} {block}{text}", lead.len())
+                    format!("{}{kind} {row}/{slice} {block}", lead.len())
                 }
                 _ => crate::render::style::text(&line.spans),
             })
@@ -1183,8 +1175,10 @@ mod tests {
         assert_eq!(greens, 20 * 10);
         // Without its picture the source is shown, as written.
         let lines = layout::layout(&parse("Let $x^2$ be one.\n"), &self::inputs(kitty(80)));
-        let row = lines[0].image.as_ref().expect("a page's row");
-        assert_eq!(row.text.as_deref(), Some("Let $x^2$ be one."));
+        let greens = (first_part(&lines).pixels())
+            .filter(|pixel| pixel.0 == [0, 255, 0, 255])
+            .count();
+        assert_eq!(greens, 0);
     }
 
     #[test]
@@ -1385,8 +1379,6 @@ mod tests {
     #[test]
     fn an_image_that_is_not_there_is_its_alt_text() {
         let lines = layout::layout(&parse("![the alt text](a.png)\n"), &inputs(kitty(80)));
-        let row = lines[0].image.as_ref().expect("a page's row");
-        assert_eq!(row.text.as_deref(), Some("the alt text"));
         assert!(first_part(&lines).pixels().any(|pixel| pixel.0[3] > 0));
     }
 
@@ -1411,8 +1403,6 @@ mod tests {
         assert_eq!(band.columns, 1);
         // The paragraph below starts after the reserved room and its
         // margin.
-        let row = lines[3].image.as_ref().expect("a row");
-        assert_eq!(row.text.as_deref(), Some("After."));
     }
 
     #[test]

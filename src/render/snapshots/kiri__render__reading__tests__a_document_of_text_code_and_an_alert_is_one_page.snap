@@ -2,18 +2,18 @@
 source: src/render/reading.rs
 expression: "shown(&lines).join(\"\\n\")"
 ---
-2page 0/0 block "Title"
+2page 0/0 block
 2page 1/0 block
 2page 2/0 block
-2page 3/0 block "Some text."
+2page 3/0 block
 2page 4/0 block
-2page 5/0 block "code"
+2page 5/0 block
 2page 6/0 block
 2page 7/0 block
-2page 8/0 - "Note\nA note."
+2page 8/0 -
 2page 9/0 block
 2page 10/0 block
 2page 11/0 block
-2page 12/0 - "More text."
+2page 12/0 -
 2page 13/0 block
 2page 14/0 -

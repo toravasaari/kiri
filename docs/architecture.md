@@ -213,8 +213,7 @@ blocks. `src/render/reading.rs` turns such a run into a page: its rows are
 image rows, as a large image's are, of parts 30 rows tall that the encoder
 draws when a line first shows them, so the pager draws only the parts in
 view. The rows keep their blocks, so the pager keeps its place across a
-resize, and the row a block starts on carries the block's text for a
-search. Images, diagrams and formulas are in the page at their natural
+resize. Images, diagrams and formulas are in the page at their natural
 size in CSS pixels, shrunk to the column, a formula in the middle of it;
 the page gets them through `Pictures`, which `src/render/reading.rs`
 writes over the loaded images, as it gets code's colours through
@@ -257,6 +256,22 @@ keyed anew, without laying the document out again. Where the terminal
 draws no images, kiri warns and shows the text as usual. In the pager,
 `M` turns reading mode on and off and lays the document out again,
 keeping the block at the top as a resize does.
+
+Search and links in a page work from the positions the layout knows: it
+records, in pixels and a piece for each line, where each link and each
+place of a search term is, in the page's or a band's own coordinates.
+`src/pager/search.rs` finds a term in the texts of a page, so a match is
+on the row of its line of text, and a match in a band scrolls the band to
+it and selects it. The marks are drawn into the page's image, a box in
+the theme's match colours with the text drawn over it, and so is a box
+round the selected link: what is drawn over a part is an overlay, named by
+a hash in the key of the rows it is on, so that the terminal keeps the
+part with it and the part without. A link is an OSC 8 hyperlink round the
+placeholders it covers (`src/kitty/graphics.rs`), which kitty opens as it
+does a link in text; in a band the cells move with the scrolling.
+`src/pager/links.rs` selects one of the links on the screen with Tab and
+Shift+Tab, numbering them from the page's own list so that a link keeps its
+id while a band scrolls, and the status line says where it goes.
 
 ## Diagrams
 
@@ -591,6 +606,7 @@ src/pager/files.rs         where each of several files starts in the stream,
                            found from the blocks of its lines
 src/pager/bands.rs         reading mode's bands: how far each is scrolled,
                            and which is selected
+src/pager/links.rs         reading mode's selected link
 src/pager/changes.rs       where a reload changed the laid-out lines, and
                            which change auto-follow moves to
 src/pager/tint.rs          the lighter background over that change's lines
