@@ -275,6 +275,7 @@ pub fn write_row_linked(
     let [_, red, green, blue] = id.0.to_be_bytes();
     write!(out, "\x1b[38;2;{red};{green};{blue}m")?;
     let row = DIACRITICS[usize::from(row)];
+    let mut open = false;
     for (at, column) in DIACRITICS[usize::from(columns.start)..usize::from(columns.end)]
         .iter()
         .enumerate()
@@ -284,11 +285,17 @@ pub fn write_row_linked(
             // Control characters would end the sequence early.
             let url: String = link.url.chars().filter(|c| !c.is_control()).collect();
             write!(out, "\x1b]8;;{url}\x1b\\")?;
+            open = true;
         }
         write!(out, "{PLACEHOLDER}{row}{column}")?;
         if links.iter().any(|link| link.columns.end == at + 1) {
             out.write_all(b"\x1b]8;;\x1b\\")?;
+            open = false;
         }
+    }
+    // A link that reaches past the last cell ends there.
+    if open {
+        out.write_all(b"\x1b]8;;\x1b\\")?;
     }
     out.write_all(b"\x1b[39m")
 }
@@ -436,6 +443,20 @@ mod tests {
         write_row(&mut plain, ID, 2, 0..6).unwrap();
         write_row_linked(&mut linked, ID, 2, 0..6, &[]).unwrap();
         assert_eq!(plain, linked);
+    }
+
+    #[test]
+    fn a_link_that_reaches_past_the_written_cells_is_closed_after_the_last_one() {
+        let mut out = Vec::new();
+        let links = [LinkRun {
+            columns: 2..5,
+            url: "https://a.example/",
+        }];
+        write_row_linked(&mut out, ID, 0, 0..3, &links).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        assert_eq!(out.matches("\x1b]8;;https").count(), 1, "{out:?}");
+        // Closed before the colour is reset, and nothing after it is linked.
+        assert!(out.ends_with("\x1b]8;;\x1b\\\x1b[39m"), "{out:?}");
     }
 
     #[test]

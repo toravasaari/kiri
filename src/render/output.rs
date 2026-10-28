@@ -217,11 +217,17 @@ impl<'a> Writer<'a> {
                 });
                 transition(&current, &plain, caps, out)?;
                 // The links of a page are hyperlinks over its placeholders.
+                let written = columns.clone();
                 let runs: Vec<graphics::LinkRun> = (links.iter())
-                    .map(|link| graphics::LinkRun {
-                        columns: link.columns.start.saturating_sub(columns.start)
-                            ..link.columns.end.saturating_sub(columns.start),
-                        url: &link.url,
+                    .filter_map(|link| {
+                        // Only what is over the written columns, counted
+                        // from the first of them.
+                        let from = link.columns.start.max(written.start);
+                        let to = link.columns.end.min(written.end);
+                        (from < to).then(|| graphics::LinkRun {
+                            columns: from - written.start..to - written.start,
+                            url: &link.url,
+                        })
                     })
                     .collect();
                 graphics::write_row_linked(out, id, image_row, columns, &runs)?;
