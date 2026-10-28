@@ -1060,10 +1060,12 @@ impl State {
         // A click selects the band under it, and the sideways wheel, or
         // the wheel with Shift, scrolls it; away from a band, the wheel
         // with Shift scrolls as the wheel does.
+        // While the help or the prompt is open, the mouse does nothing.
+        let open = self.help || self.prompt.is_some();
         let key = match key {
+            Key::Click { .. } | Key::Sideways { .. } if open => return Pressed::Nothing,
             Key::Click { row, .. } => {
-                let open = self.help || self.prompt.is_some();
-                return match self.band_at(row, layout).filter(|_| !open) {
+                return match self.band_at(row, layout) {
                     Some(true) => Pressed::Bands,
                     _ => Pressed::Nothing,
                 };
