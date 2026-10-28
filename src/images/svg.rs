@@ -183,17 +183,20 @@ impl Fonts {
     /// else, so text in SVGs looks the same on every machine.
     #[cfg(test)]
     pub(crate) fn fixture() -> Self {
+        Self::new(|| fixture_database(&["DejaVuSans.ttf", "DejaVuSans-Oblique.ttf"]))
+    }
+
+    /// The fixture fonts that reading mode's tests lay text out in: DejaVu
+    /// Sans in its regular, bold and oblique faces, and Noto Sans Mono.
+    #[cfg(test)]
+    pub(crate) fn reading_fixture() -> Self {
         Self::new(|| {
-            let mut database = fontdb::Database::new();
-            let fonts =
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fonts");
-            for name in ["DejaVuSans.ttf", "DejaVuSans-Oblique.ttf"] {
-                database
-                    .load_font_file(fonts.join(name))
-                    .expect("the fixture font loads");
-            }
-            choose_generic_families(&mut database);
-            database
+            fixture_database(&[
+                "DejaVuSans.ttf",
+                "DejaVuSans-Bold.ttf",
+                "DejaVuSans-Oblique.ttf",
+                "NotoSansMono.ttf",
+            ])
         })
     }
 
@@ -202,9 +205,24 @@ impl Fonts {
         self.database.get().is_some()
     }
 
-    fn database(&self) -> Arc<fontdb::Database> {
+    /// The fonts, loaded now if they are not yet.
+    pub(crate) fn database(&self) -> Arc<fontdb::Database> {
         Arc::clone(self.database.get_or_init(|| Arc::new((self.load)())))
     }
+}
+
+/// A database of the fixture fonts `names` and nothing else.
+#[cfg(test)]
+fn fixture_database(names: &[&str]) -> fontdb::Database {
+    let mut database = fontdb::Database::new();
+    let fonts = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fonts");
+    for name in names {
+        database
+            .load_font_file(fonts.join(name))
+            .expect("the fixture font loads");
+    }
+    choose_generic_families(&mut database);
+    database
 }
 
 /// Installed fonts for the generic families, in fontconfig's order of

@@ -471,6 +471,11 @@ src/images/pipeline.rs     a document's images for a run: renderers from the
 src/images/stamps.rs       when the files behind the images were last changed
 src/images/url.rs          data URLs, file URLs and paths, read up to a limit
 src/images/svg.rs          SVG images and the fonts for their text
+src/reading/mod.rs         reading mode: text in a proportional font, drawn
+                           as pixels
+src/reading/fonts.rs       the fonts of SVG text handed to parley, with
+                           fallbacks for emoji and other scripts
+src/reading/text.rs        styled text laid out in lines with parley
 src/compare.rs             which blocks stayed, changed, were added or
                            removed between two documents
 src/diagrams/mod.rs        diagrams written in code blocks, drawn as images
