@@ -412,21 +412,60 @@ mod tests {
         assert!(yellow > 50, "{yellow} yellow pixels");
     }
 
+    /// The rows of `image` that have ink, first and last.
+    fn inked_rows(image: &RgbaImage) -> Option<(u32, u32)> {
+        let rows: Vec<u32> = (0..image.height())
+            .filter(|&y| (0..image.width()).any(|x| image.get_pixel(x, y).0[3] > 0))
+            .collect();
+        Some((*rows.first()?, *rows.last()?))
+    }
+
     #[test]
-    fn text_above_or_below_the_canvas_is_left_out() {
-        let lines: Vec<Run> = (0..200).map(|n| Run::new(&format!("line {n}\n"))).collect();
-        let paragraph = lay_out(&Fonts::fixture(), &lines, &LOOK, 400.0);
-        // The text where it reaches the canvas draws, and far above and
-        // below it nothing does.
-        let draw = |y: f32| {
-            let mut canvas = Canvas::new(100, 30);
+    fn text_reaching_only_a_pixel_or_two_into_the_canvas_still_draws_there() {
+        // Lines of half the font size, so that glyphs reach well past
+        // their line boxes: a skip that went by the boxes alone, or by too
+        // little room around them, would leave these out.
+        let look = Look {
+            line_height: 0.5,
+            ..LOOK
+        };
+        let paragraph = lay_out(&Fonts::fixture(), &[Run::new("Hxgpq")], &look, 400.0);
+        let draw = |height: u32, y: f32| {
+            let mut canvas = Canvas::new(120, height);
             canvas.text(&paragraph, 0.0, y, None);
             canvas.into_image()
         };
-        let inked = |image: &RgbaImage| image.pixels().filter(|p| p.0[3] > 0).count();
-        assert!(inked(&draw(-24.0 * 100.0)) > 0);
-        assert_eq!(inked(&draw(-24.0 * 300.0)), 0);
-        assert_eq!(inked(&draw(1000.0)), 0);
+        // The whole text on a canvas it is well inside of, and where its
+        // ink is from the text's own top.
+        let whole = draw(300, 100.0);
+        let (top, bottom) = inked_rows(&whole).expect("ink");
+        let (top, bottom) = (top as f32 - 100.0, bottom as f32 - 100.0);
+        // The same text on a canvas of 30 rows, moved so that the ink's
+        // last row is the canvas's third, and its first row the
+        // second last.
+        for (y, row) in [(2.0 - bottom, 2), (28.0 - top, 28)] {
+            let small = draw(30, y);
+            let (first, last) = inked_rows(&small).expect("ink at the edge");
+            assert!(
+                first <= row && row <= last,
+                "{first}..{last} for ink at row {row}"
+            );
+            // The same pixels as those rows of the whole text, but for the
+            // canvas's first and last rows, where a glyph cut by the edge
+            // may antialias a level or two differently.
+            let from = (100.0 - y) as u32 + 1;
+            let inner = |image: &RgbaImage, from: u32| {
+                image::imageops::crop_imm(image, 0, from, 120, 28).to_image()
+            };
+            let (small, cut) = (inner(&small, 1), inner(&whole, from));
+            let far = (small.pixels().zip(cut.pixels()))
+                .filter(|(a, b)| a.0.iter().zip(&b.0).any(|(a, b)| a.abs_diff(*b) > 8))
+                .count();
+            assert_eq!(far, 0, "{far} pixels differ at y = {y}");
+        }
+        // Far from the canvas, nothing draws.
+        assert_eq!(inked_rows(&draw(30, -2000.0)), None);
+        assert_eq!(inked_rows(&draw(30, 2000.0)), None);
     }
 
     #[test]
