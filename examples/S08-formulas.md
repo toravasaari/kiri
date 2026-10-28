@@ -102,5 +102,12 @@ same and names the formula by its line, `kiri: formula on line …: …`.
 
 ## What stays text
 
-Inline formulas are not drawn yet: $E = mc^2$ and $`x_1`$ show as
-written, dollar signs and all, and so do prices such as $5 and $6.
+Inline formulas are drawn only in reading mode: here $E = mc^2$ and
+$`x_1`$ show as written, dollar signs and all, and so do prices such as
+$5 and $6, which are not math in any mode. With `--reading` the two
+formulas are drawn in their lines, in text style at the size of the text,
+with their own baseline on the line's:
+
+```sh
+kiri --reading examples/S08-formulas.md
+```

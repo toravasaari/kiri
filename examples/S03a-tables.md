@@ -145,3 +145,14 @@ with its comma:
 ```sh
 kiri examples/S03b-table.csv
 ```
+
+## In reading mode
+
+With `--reading` the tables above are drawn in the proportional font, as
+wide as their content, and the front matter at the top of this file is a
+table in the column, with a table in a cell for each value that has keys of
+its own, such as the columns and the layout:
+
+```sh
+kiri --reading examples/S03a-tables.md
+```

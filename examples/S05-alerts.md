@@ -56,3 +56,16 @@ kiri --dark examples/S05-alerts.md
 NO_COLOR=1 kiri examples/S05-alerts.md
 kiri --mode plain examples/S05-alerts.md
 ```
+
+## In reading mode
+
+With `--reading` the alerts are drawn in the proportional font, in the
+column: the same bar, tint, colours and bold title, but the icon is a
+picture, so it is there in every terminal that draws images, not only in
+kitty with its symbols font. Look for the circled `i`, the light bulb,
+the speech bubble, the triangle and the octagon, each in its kind's
+colour:
+
+```sh
+kiri --reading examples/S05-alerts.md
+```

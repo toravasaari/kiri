@@ -373,3 +373,12 @@ gitGraph
     checkout main
     commit id: "next"
 ```
+
+## In reading mode
+
+With `--reading` a diagram is in the page at the left of the column, as it
+is here, and shrunk to the column when it is wider.
+
+```sh
+kiri --reading examples/S07a-diagrams.md
+```
