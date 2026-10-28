@@ -637,11 +637,14 @@ mod tests {
 
     #[test]
     fn a_picture_in_a_line_is_drawn_where_the_line_puts_it() {
-        let red = Run::picture(crate::reading::text::InlinePicture {
-            pixels: Rc::new(red(10, 10, 255)),
-            id: 1,
-            depth: 0.0,
-        });
+        let red = Run::picture(
+            crate::reading::text::InlinePicture {
+                pixels: Rc::new(red(10, 10, 255)),
+                id: 1,
+                depth: 0.0,
+            },
+            None,
+        );
         let paragraph = lay_out(&Fonts::fixture(), &[Run::new("Ab "), red], &LOOK, 400.0);
         let mut canvas = Canvas::new(120, 40);
         canvas.text(&paragraph, 0.0, 5.0, None);

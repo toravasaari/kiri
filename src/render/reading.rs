@@ -1294,6 +1294,29 @@ mod tests {
     }
 
     #[test]
+    fn a_linked_picture_in_a_line_is_a_hyperlink_over_the_cells_it_is_over() {
+        let mut inputs = inputs(kitty(80));
+        inputs
+            .images
+            .insert("a.png", Ok(raster(60, 10, [255, 0, 0])));
+        let lines = layout::layout(
+            &parse("Some [![a](a.png)](https://badge.example/) more.\n"),
+            &inputs,
+        );
+        let links = &lines[0].image.as_ref().unwrap().links;
+        let [link] = &links[..] else {
+            panic!("one link on the first row: {links:?}");
+        };
+        assert_eq!(&*link.url, "https://badge.example/");
+        // The picture is 60 pixels, 6 cells of 10, which the link covers.
+        assert!(
+            link.columns.len() >= 5 && link.columns.len() <= 7,
+            "{:?}",
+            link.columns
+        );
+    }
+
+    #[test]
     fn a_link_broken_over_two_lines_is_over_two_rows() {
         let words = "word ".repeat(30);
         let rows = row_links(&format!("[{words}](https://e.example/)\n"), kitty(80));

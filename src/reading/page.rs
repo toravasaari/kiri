@@ -456,28 +456,54 @@ impl Page {
                 continue;
             };
             let lines = paragraph.lines();
-            // The ranges of a link in several styles are one link.
-            let mut joined: Vec<(Range<usize>, Rc<str>)> = Vec::new();
+            // The text and the pictures of a link, in order; those of one
+            // link that touch are one link, whatever their styles.
+            let mut parts: Vec<(usize, usize, Rc<str>, Option<usize>)> = Vec::new();
+            for (at, number, url) in paragraph.linked_pictures() {
+                parts.push((*at, *at, Rc::clone(url), Some(*number)));
+            }
             for (range, url) in paragraph.links() {
+                parts.push((range.start, range.end, Rc::clone(url), None));
+            }
+            parts.sort_by_key(|(start, _, _, picture)| (*start, picture.is_none()));
+            let mut joined: Vec<(usize, Rc<str>, Vec<(Range<usize>, Option<usize>)>)> = Vec::new();
+            for (start, end, url, picture) in parts {
                 match joined.last_mut() {
-                    Some((last, before)) if last.end == range.start && before == url => {
-                        last.end = range.end;
+                    Some((last, before, members)) if *last == start && *before == url => {
+                        *last = end;
+                        members.push((start..end, picture));
                     }
-                    _ => joined.push((range.clone(), Rc::clone(url))),
+                    _ => joined.push((end, url, vec![(start..end, picture)])),
                 }
             }
-            for (range, url) in joined {
-                let pieces: Vec<Piece> = (paragraph.boxes(range).into_iter())
-                    .filter_map(|part| {
-                        let line = lines.get(part.line)?;
-                        Some(Piece {
-                            x: x + part.left,
-                            y: y + line.top,
-                            width: part.right - part.left,
-                            height: line.height,
-                        })
-                    })
-                    .collect();
+            for (_, url, members) in joined {
+                let mut boxes = Vec::new();
+                for (range, picture) in members {
+                    match picture {
+                        Some(number) => boxes.extend(paragraph.picture_box(number)),
+                        None => boxes.extend(paragraph.boxes(range)),
+                    }
+                }
+                let mut pieces: Vec<Piece> = Vec::new();
+                for part in boxes {
+                    let Some(line) = lines.get(part.line) else {
+                        continue;
+                    };
+                    let piece = Piece {
+                        x: x + part.left,
+                        y: y + line.top,
+                        width: part.right - part.left,
+                        height: line.height,
+                    };
+                    // Pieces side by side on a line are one.
+                    match pieces.last_mut() {
+                        Some(last) if last.y == piece.y && piece.x <= last.x + last.width + 0.5 => {
+                            let right = (last.x + last.width).max(piece.x + piece.width);
+                            last.width = right - last.x;
+                        }
+                        _ => pieces.push(piece),
+                    }
+                }
                 if let Some(first) = pieces.first() {
                     found.push((top + first.y, first.x, LinkPlace { url, pieces, band }));
                 }
@@ -1959,11 +1985,12 @@ fn collect(content: &[Inline], style: &Run, (look, ink): (&Look, Ink), runs: &mu
                 // its alt text does.
                 match ink.pictures.image(image, (ink.room, f32::MAX)) {
                     Picture::Ready { pixels, id, .. } => {
-                        runs.push(Run::picture(InlinePicture {
+                        let picture = InlinePicture {
                             pixels,
                             id,
                             depth: 0.0,
-                        }));
+                        };
+                        runs.push(Run::picture(picture, style.link.clone()));
                     }
                     _ => collect(&image.alt, style, (look, ink), runs),
                 }
@@ -1979,7 +2006,8 @@ fn collect(content: &[Inline], style: &Run, (look, ink): (&Look, Ink), runs: &mu
                     Picture::Ready {
                         pixels, id, depth, ..
                     } => {
-                        runs.push(Run::picture(InlinePicture { pixels, id, depth }));
+                        let picture = InlinePicture { pixels, id, depth };
+                        runs.push(Run::picture(picture, style.link.clone()));
                     }
                     _ => collect(written, style, (look, ink), runs),
                 }
@@ -2557,6 +2585,49 @@ mod tests {
         let second = links[1].pieces[0];
         assert!(second.x > first.x + first.width || second.y > first.y);
         assert!(links.iter().all(|link| link.band.is_none()));
+    }
+
+    #[test]
+    fn a_linked_picture_is_a_link_once_the_picture_has_come() {
+        let markdown = "[![CI](ci.svg)](https://ci.example/) and [text](https://t.example/)\n";
+        let given = Given {
+            image: |_| solid(40, 16, [255, 0, 0], 7),
+            ..NOTHING
+        };
+        let with = with_pictures(markdown, &given).links();
+        let without = with_pictures(markdown, &NOTHING).links();
+        let urls = |links: &[LinkPlace]| -> Vec<String> {
+            links.iter().map(|link| link.url.to_string()).collect()
+        };
+        assert_eq!(
+            urls(&without),
+            ["https://ci.example/", "https://t.example/"]
+        );
+        assert_eq!(urls(&with), urls(&without));
+        // The picture's own box is the link's piece: 40 pixels wide, on
+        // the line.
+        let piece = with[0].pieces[0];
+        assert_eq!(with[0].pieces.len(), 1);
+        assert!((piece.width - 40.0).abs() < 0.5, "{piece:?}");
+        assert!(with[1].pieces[0].x > piece.x + piece.width);
+    }
+
+    #[test]
+    fn a_picture_inside_a_link_is_joined_with_the_text_of_the_same_link() {
+        let given = Given {
+            image: |_| solid(20, 10, [255, 0, 0], 7),
+            ..NOTHING
+        };
+        let links = with_pictures(
+            "[some ![i](i.png) more](https://l.example/) after\n",
+            &given,
+        )
+        .links();
+        assert_eq!(links.len(), 1, "{links:?}");
+        // One piece, as the text, the picture and the text are side by side
+        // on one line.
+        assert_eq!(links[0].pieces.len(), 1, "{:?}", links[0].pieces);
+        assert!(links[0].pieces[0].width > 20.0 + 40.0);
     }
 
     #[test]

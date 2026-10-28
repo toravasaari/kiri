@@ -124,9 +124,10 @@ impl Run {
     }
 
     /// A picture in a line.
-    pub fn picture(picture: InlinePicture) -> Self {
+    pub fn picture(picture: InlinePicture, link: Option<Rc<str>>) -> Self {
         Self {
             picture: Some(picture),
+            link,
             ..Self::default()
         }
     }
@@ -161,6 +162,9 @@ pub struct Paragraph {
     code: Vec<Range<usize>>,
     /// The ranges of the text in links, with where each links to.
     links: Vec<(Range<usize>, Rc<str>)>,
+    /// The pictures in links: where each is in the text, its number among
+    /// the pictures, and where its link goes.
+    linked_pictures: Vec<(usize, usize, Rc<str>)>,
     /// The pictures in the lines, by the number of their boxes.
     pub(crate) pictures: Vec<InlinePicture>,
 }
@@ -177,6 +181,11 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
     }
     let links: Vec<(Range<usize>, Rc<str>)> = (runs.iter().zip(&ranges))
         .filter_map(|(run, range)| Some((range.clone(), run.link.clone()?)))
+        .collect();
+    let linked_pictures: Vec<(usize, usize, Rc<str>)> = (runs.iter().zip(&ranges))
+        .filter(|(run, _)| run.picture.is_some())
+        .enumerate()
+        .filter_map(|(number, (run, range))| Some((range.start, number, run.link.clone()?)))
         .collect();
     let code: Vec<Range<usize>> = (runs.iter().zip(&ranges))
         .filter(|(run, _)| run.code)
@@ -273,6 +282,7 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
         text,
         code,
         links,
+        linked_pictures,
         pictures,
     }
 }
@@ -340,6 +350,28 @@ impl Paragraph {
     /// of several runs is several ranges.
     pub fn links(&self) -> &[(Range<usize>, Rc<str>)] {
         &self.links
+    }
+
+    /// The pictures in links: the place of each in the text, its number
+    /// and where it links to.
+    pub fn linked_pictures(&self) -> &[(usize, usize, Rc<str>)] {
+        &self.linked_pictures
+    }
+
+    /// The part of its line that picture `number` is in.
+    pub fn picture_box(&self, number: usize) -> Option<RangeBox> {
+        (self.layout.lines()).enumerate().find_map(|(line, laid)| {
+            laid.items().find_map(|item| match item {
+                parley::PositionedLayoutItem::InlineBox(placed) if placed.id == number as u64 => {
+                    Some(RangeBox {
+                        line,
+                        left: placed.x,
+                        right: placed.x + placed.width,
+                    })
+                }
+                _ => None,
+            })
+        })
     }
 
     /// The ranges of the text in inline code.
@@ -458,15 +490,18 @@ mod tests {
 
     /// A picture of `width` × `height` pixels, all red.
     fn picture(width: u32, height: u32, id: u64) -> Run {
-        Run::picture(InlinePicture {
-            pixels: Rc::new(RgbaImage::from_pixel(
-                width,
-                height,
-                image::Rgba([255, 0, 0, 255]),
-            )),
-            id,
-            depth: 0.0,
-        })
+        Run::picture(
+            InlinePicture {
+                pixels: Rc::new(RgbaImage::from_pixel(
+                    width,
+                    height,
+                    image::Rgba([255, 0, 0, 255]),
+                )),
+                id,
+                depth: 0.0,
+            },
+            None,
+        )
     }
 
     /// The boxes of `laid`: id, left, top, width and height.
@@ -505,13 +540,16 @@ mod tests {
 
     #[test]
     fn a_picture_with_a_depth_reaches_below_the_baseline_and_the_line_grows_there() {
-        let formula = Run::picture(InlinePicture {
-            depth: 14.0,
-            ..match picture(20, 40, 1).picture {
-                Some(picture) => picture,
-                None => unreachable!("a picture"),
-            }
-        });
+        let formula = Run::picture(
+            InlinePicture {
+                depth: 14.0,
+                ..match picture(20, 40, 1).picture {
+                    Some(picture) => picture,
+                    None => unreachable!("a picture"),
+                }
+            },
+            None,
+        );
         let runs = [Run::new("Before "), formula, Run::new(" after")];
         let laid = paragraph(&runs, 600.0);
         let [(_, _, top, _, height)] = boxes(&laid)[..] else {
