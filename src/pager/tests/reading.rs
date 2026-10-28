@@ -420,3 +420,18 @@ fn a_search_scrolls_a_band_to_its_match_and_draws_it_anew() {
         frames.len()
     );
 }
+
+#[test]
+fn a_link_in_a_page_is_a_hyperlink_over_its_placeholders_in_the_frame() {
+    let document = crate::parse::parse("Go [here](https://e.example/) now.\n");
+    let frames = reading_frames(&document, crate::reading::page::Wide::Wrap, &[]);
+    let first = &frames[0];
+    let open = first
+        .find("\x1b]8;;https://e.example/\x1b\\")
+        .expect("the link opens");
+    let close = first[open..].find("\x1b]8;;\x1b\\").expect("and closes") + open;
+    // Over placeholders only, and not over the whole row.
+    let linked = &first[open..close];
+    assert!(linked.contains('\u{10EEEE}'), "{linked:?}");
+    assert!(linked.matches('\u{10EEEE}').count() < 10, "{linked:?}");
+}

@@ -105,6 +105,21 @@ pub struct Parts {
     rows: u16,
     /// The colours of a search's marks on it.
     marks: MarkColors,
+    /// Its links, from the top down, and whether the terminal shows them
+    /// as hyperlinks.
+    links: Vec<LinkPlace>,
+    hyperlinks: bool,
+}
+
+/// A link over some cells of a row of a page: the columns of the page's
+/// image it covers, where it goes, and which of the page's links it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RowLink {
+    pub columns: std::ops::Range<u16>,
+    pub url: Rc<str>,
+    /// The page, by the address of its parts, and the link's number among
+    /// the page's links.
+    pub link: (usize, usize),
 }
 
 impl Parts {
@@ -115,8 +130,81 @@ impl Parts {
     }
 
     /// The links on the page, from the top down.
-    pub fn links(&self) -> Vec<LinkPlace> {
-        self.page.links()
+    pub fn links(&self) -> &[LinkPlace] {
+        &self.links
+    }
+
+    /// The links over the cells of row `row` of the page, or of band
+    /// `band`'s rows when it is given, scrolled `offset` pixels, as they
+    /// are laid over its placeholders. A link covers the cells whose
+    /// centres its text is over, in the rows whose centres its line is
+    /// over, and at least the cell at the middle of its text; where two
+    /// links want a cell, the one over its centre has it, and then the
+    /// earlier one.
+    pub fn row_links(&self, address: usize, band: Option<(u32, u32)>, row: u16) -> Vec<RowLink> {
+        if !self.hyperlinks {
+            return Vec::new();
+        }
+        let (cell_width, cell_height) = (f32::from(self.cell.0), f32::from(self.cell.1));
+        let middle = (f32::from(row) + 0.5) * cell_height;
+        let shown = band.and_then(|(number, offset)| {
+            let band = self.page.bands.get(number as usize)?;
+            Some((number as usize, band.x, band.visible, offset as f32))
+        });
+        // The cell each link claims: for those over its centre, a link
+        // number to beat another's, and 0 for those it has only for its
+        // middle.
+        let mut claims: Vec<(u16, bool, usize)> = Vec::new();
+        for (number, link) in self.links.iter().enumerate() {
+            if link.band != shown.map(|(band, ..)| band) {
+                continue;
+            }
+            for piece in &link.pieces {
+                if !(piece.y..piece.y + piece.height).contains(&middle) {
+                    continue;
+                }
+                // Where it is in the page's pixels, cut to what the band
+                // shows.
+                let (mut left, mut right) = (piece.x, piece.x + piece.width);
+                if let Some((_, x, visible, offset)) = shown {
+                    left = (x + left - offset).max(x);
+                    right = (x + right - offset).min(x + visible);
+                }
+                if right <= left {
+                    continue;
+                }
+                let first = (left / cell_width - 0.5).ceil().max(0.0) as u16;
+                let last = (right / cell_width - 0.5).ceil().max(0.0) as u16;
+                let over: Vec<u16> = (first..last).collect();
+                if over.is_empty() {
+                    let at = ((left + right) / 2.0 / cell_width).floor() as u16;
+                    claims.push((at, false, number));
+                }
+                claims.extend(over.into_iter().map(|at| (at, true, number)));
+            }
+        }
+        // A cell goes to the link over its centre, and then to the earlier.
+        let mut owners: Vec<(u16, usize)> = Vec::new();
+        claims.sort_by_key(|&(at, over, number)| (at, !over, number));
+        for (at, _, number) in claims {
+            if at < self.columns && owners.last().is_none_or(|&(last, _)| last != at) {
+                owners.push((at, number));
+            }
+        }
+        let mut found: Vec<RowLink> = Vec::new();
+        for (at, number) in owners {
+            match found.last_mut() {
+                Some(last) if last.link.1 == number && last.columns.end == at => {
+                    last.columns.end = at + 1;
+                }
+                _ => found.push(RowLink {
+                    columns: at..at + 1,
+                    url: Rc::clone(&self.links[number].url),
+                    link: (address, number),
+                }),
+            }
+        }
+        found
     }
 
     /// The page's size in cells and the size of a cell, in pixels.
@@ -395,6 +483,7 @@ pub fn lines(
     format!("{look:?}").hash(&mut hasher);
     (text.to_bits(), cell, columns, reading.wide).hash(&mut hasher);
     page.pictures.hash(&mut hasher);
+    let links = page.links();
     let placed: Vec<_> = page.blocks.clone();
     let loading = page.loading.clone();
     let parts = Rc::new(Parts {
@@ -404,7 +493,10 @@ pub fn lines(
         columns,
         rows,
         marks: mark_colors(theme, caps, &look),
+        links,
+        hyperlinks: caps.hyperlinks,
     });
+    let address = Rc::as_ptr(&parts) as usize;
     let lead = Span::new(&" ".repeat(usize::from(left)), Style::default());
     let mut lines = Vec::with_capacity(usize::from(rows));
     // The rows each band covers, from the first, which it starts on.
@@ -422,7 +514,7 @@ pub fn lines(
         rows,
     };
     for row in 0..rows {
-        let (key, size, image_row) = match bands.iter().find(|(_, rows)| rows.contains(&row)) {
+        let (key, size, image_row, at) = match bands.iter().find(|(_, rows)| rows.contains(&row)) {
             // A band's rows show the band, at the start of its scrolling,
             // and not selected, until the pager scrolls or selects it, in
             // slices of at most 30 rows as pages are.
@@ -439,7 +531,12 @@ pub fn lines(
                     selected: false,
                     overlay: 0,
                 };
-                (key, size(slice_rows), into % PART_ROWS)
+                (
+                    key,
+                    size(slice_rows),
+                    into % PART_ROWS,
+                    (Some((*band, 0)), into),
+                )
             }
             None => {
                 let part = row / PART_ROWS;
@@ -450,7 +547,7 @@ pub fn lines(
                     slice: u32::from(part),
                     overlay: 0,
                 };
-                (key, size(part_rows), row % PART_ROWS)
+                (key, size(part_rows), row % PART_ROWS, (None, row))
             }
         };
         let placement = Rc::new(Placement {
@@ -479,6 +576,7 @@ pub fn lines(
                 text: starts.map(|placed| placed.text.clone()),
                 page: Some(Rc::clone(&parts)),
                 overlay: None,
+                links: parts.row_links(address, at.0, at.1),
             }),
             block: block.map(|(_, id)| *id),
             ..Line::blank()
@@ -722,6 +820,12 @@ pub fn set_band(lines: &mut [Line], offset: u32, selected: bool) {
                 },
                 ..(*image.placement).clone()
             });
+            // The links in the band are where it shows them now.
+            if let Some(parts) = &image.page {
+                let row = slice * u32::from(PART_ROWS) + u32::from(image.row);
+                let address = Rc::as_ptr(parts) as usize;
+                image.links = parts.row_links(address, Some((band, offset)), row as u16);
+            }
         }
     }
 }
@@ -1137,6 +1241,109 @@ mod tests {
             .filter(|pixel| pixel.0[..3] == text && pixel.0[3] == 255)
             .count();
         assert!(boxed > 200, "{boxed}");
+    }
+
+    /// The links over the rows of the lines of `source` laid out in a
+    /// window of 80 cells of 10 × 20 pixels: each row's columns and urls.
+    fn row_links(source: &str, caps: Capabilities) -> Vec<Vec<(std::ops::Range<u16>, String)>> {
+        let lines = layout::layout(&parse(source), &inputs(caps));
+        (lines.iter())
+            .filter_map(|line| line.image.as_ref())
+            .map(|image| {
+                (image.links.iter())
+                    .map(|link| (link.columns.clone(), link.url.to_string()))
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_link_in_a_page_is_a_hyperlink_over_the_cells_its_text_is_over() {
+        let rows = row_links("Go [here](https://e.example/) now.\n\nPlain.\n", kitty(80));
+        let [(columns, url)] = &rows[0][..] else {
+            panic!("one link on the first row: {rows:?}");
+        };
+        assert_eq!(url, "https://e.example/");
+        // "Go " is about 24 pixels, "here" about 33: cells 2 or 3 to 5 or
+        // 6 of 10 pixels, covering the word and not much past it.
+        assert!((2..=3).contains(&columns.start), "{columns:?}");
+        assert!((5..=7).contains(&columns.end), "{columns:?}");
+        assert!(rows[1].is_empty() && rows[2].is_empty());
+        // A terminal without hyperlinks has none.
+        let rows = row_links(
+            "Go [here](https://e.example/) now.\n",
+            Capabilities {
+                hyperlinks: false,
+                ..kitty(80)
+            },
+        );
+        assert!(rows.iter().all(Vec::is_empty));
+    }
+
+    #[test]
+    fn a_link_broken_over_two_lines_is_over_two_rows() {
+        let words = "word ".repeat(30);
+        let rows = row_links(&format!("[{words}](https://e.example/)\n"), kitty(80));
+        let linked: Vec<_> = rows.iter().filter(|row| !row.is_empty()).collect();
+        assert!(linked.len() >= 2, "{rows:?}");
+        assert!(linked.iter().all(|row| row.len() == 1));
+    }
+
+    #[test]
+    fn where_two_links_want_a_cell_the_one_over_its_centre_has_it_and_then_the_earlier() {
+        // Two narrow letters in two links, side by side in one cell of 10
+        // pixels: the cell's centre is over the second, so it has the cell
+        // and the first, which has nothing over its own centre, has none.
+        let rows = row_links(
+            "[i](https://one.example/)[l](https://two.example/)\n",
+            kitty(80),
+        );
+        assert_eq!(
+            rows[0],
+            [(0..1, "https://two.example/".to_owned())],
+            "{rows:?}"
+        );
+        // Two links that are both only over their middle cell, in the same
+        // one: the earlier has it.
+        let rows = row_links(
+            "[.](https://one.example/)[.](https://two.example/)\n",
+            kitty(80),
+        );
+        assert_eq!(rows[0].len(), 1, "{rows:?}");
+        assert_eq!(rows[0][0].1, "https://one.example/");
+    }
+
+    #[test]
+    fn the_links_in_a_band_move_with_the_band() {
+        let long = "x".repeat(150);
+        let source = format!("| a |\n|---|\n| {long}[far](https://far.example/) |\n");
+        let document = parse(&source);
+        let mut inputs = inputs(kitty(80));
+        if let Some(reading) = &mut inputs.reading {
+            reading.wide = Wide::Scroll;
+        }
+        let mut lines = layout::layout(&document, &inputs);
+        let at = |lines: &[Line]| -> Vec<usize> {
+            (lines.iter().enumerate())
+                .filter(|(_, line)| {
+                    line.image
+                        .as_ref()
+                        .is_some_and(|image| !image.links.is_empty())
+                })
+                .map(|(index, _)| index)
+                .collect()
+        };
+        // Out of sight at the start of the band; in sight when it is
+        // scrolled to its end, over the cells that show the word.
+        assert!(at(&lines).is_empty());
+        let band = &bands(&lines)[0];
+        let (rows, most) = (band.lines.clone(), band.most());
+        set_band(&mut lines[rows], most, true);
+        let shown = at(&lines);
+        assert!(!shown.is_empty());
+        let link = &lines[shown[0]].image.as_ref().unwrap().links[0];
+        assert_eq!(&*link.url, "https://far.example/");
+        assert!(link.columns.end <= 80);
     }
 
     #[test]

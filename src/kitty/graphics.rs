@@ -247,14 +247,48 @@ pub fn write_row(
     row: u16,
     columns: Range<u16>,
 ) -> io::Result<()> {
+    write_row_linked(out, id, row, columns, &[])
+}
+
+/// A hyperlink over some of the placeholders of a row: the columns it
+/// covers, counted from the first one written, and where it goes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkRun<'a> {
+    pub columns: Range<u16>,
+    pub url: &'a str,
+}
+
+/// `write_row`, with each of `links` as an OSC 8 hyperlink round the
+/// placeholders it covers, as for text: kitty keeps a hyperlink on the
+/// cells of placeholders and opens it as it does a link in text. The links
+/// are in order and do not overlap.
+pub fn write_row_linked(
+    out: &mut impl Write,
+    id: ImageId,
+    row: u16,
+    columns: Range<u16>,
+    links: &[LinkRun<'_>],
+) -> io::Result<()> {
     if row >= MAX_CELLS || columns.end > MAX_CELLS || columns.start > columns.end {
         return Err(invalid("placeholder position has no diacritic"));
     }
     let [_, red, green, blue] = id.0.to_be_bytes();
     write!(out, "\x1b[38;2;{red};{green};{blue}m")?;
     let row = DIACRITICS[usize::from(row)];
-    for column in &DIACRITICS[usize::from(columns.start)..usize::from(columns.end)] {
+    for (at, column) in DIACRITICS[usize::from(columns.start)..usize::from(columns.end)]
+        .iter()
+        .enumerate()
+    {
+        let at = at as u16;
+        if let Some(link) = links.iter().find(|link| link.columns.start == at) {
+            // Control characters would end the sequence early.
+            let url: String = link.url.chars().filter(|c| !c.is_control()).collect();
+            write!(out, "\x1b]8;;{url}\x1b\\")?;
+        }
         write!(out, "{PLACEHOLDER}{row}{column}")?;
+        if links.iter().any(|link| link.columns.end == at + 1) {
+            out.write_all(b"\x1b]8;;\x1b\\")?;
+        }
     }
     out.write_all(b"\x1b[39m")
 }
@@ -368,6 +402,40 @@ mod tests {
             "A".repeat(CHUNK)
         );
         assert_eq!(String::from_utf8(out).unwrap(), expected);
+    }
+
+    #[test]
+    fn links_are_hyperlinks_round_the_placeholders_they_cover() {
+        let mut out = Vec::new();
+        let links = [
+            LinkRun {
+                columns: 1..3,
+                url: "https://a.example/",
+            },
+            LinkRun {
+                columns: 4..5,
+                url: "https://b.example/\x1b]8;;evil",
+            },
+        ];
+        write_row_linked(&mut out, ID, 2, 0..6, &links).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        let cell = |column: usize| format!("{PLACEHOLDER}{}{}", DIACRITICS[2], DIACRITICS[column]);
+        let expected = format!(
+            "\x1b[38;2;18;52;86m{}\x1b]8;;https://a.example/\x1b\\{}{}\x1b]8;;\x1b\\{}\
+             \x1b]8;;https://b.example/]8;;evil\x1b\\{}\x1b]8;;\x1b\\{}\x1b[39m",
+            cell(0),
+            cell(1),
+            cell(2),
+            cell(3),
+            cell(4),
+            cell(5)
+        );
+        assert_eq!(out, expected);
+        // Without links it is what `write_row` writes.
+        let (mut plain, mut linked) = (Vec::new(), Vec::new());
+        write_row(&mut plain, ID, 2, 0..6).unwrap();
+        write_row_linked(&mut linked, ID, 2, 0..6, &[]).unwrap();
+        assert_eq!(plain, linked);
     }
 
     #[test]

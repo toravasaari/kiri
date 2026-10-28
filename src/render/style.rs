@@ -4,6 +4,7 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use crate::reading::page::Overlay;
+use crate::render::reading::RowLink;
 
 use super::block::BlockId;
 use super::image::Placement;
@@ -113,6 +114,8 @@ pub struct ImageRow {
     /// What is drawn over the part of the page, such as a search's marks,
     /// when the key says so.
     pub overlay: Option<Rc<Overlay>>,
+    /// The hyperlinks over the cells of the row, as the page has them.
+    pub links: Vec<RowLink>,
 }
 
 /// The band that tells that a block's image is loading, which a line
@@ -185,6 +188,7 @@ impl Line {
                 text: None,
                 page: None,
                 overlay: None,
+                links: Vec::new(),
             }),
             ..Self::blank()
         }

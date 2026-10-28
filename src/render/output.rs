@@ -171,13 +171,14 @@ impl<'a> Writer<'a> {
                 columns,
                 page,
                 overlay,
+                links,
                 ..
             }) => {
                 if let Some(page) = page {
                     (self.encoder).page(&placement.key, page, overlay.as_ref());
                 }
                 let id = (self.encoder).id(placement, self.images, caps, out)?;
-                Some((id, *row, columns.clone(), *background))
+                Some((id, *row, columns.clone(), *background, links))
             }
             None => None,
         };
@@ -206,7 +207,7 @@ impl<'a> Writer<'a> {
                 }
                 current = style;
             }
-            if let Some((id, image_row, columns, under)) = image {
+            if let Some((id, image_row, columns, under, links)) = image {
                 // Placeholders are neither underlined nor links, and
                 // their foreground colour is the image id. Their
                 // background shows where the image is transparent.
@@ -215,7 +216,15 @@ impl<'a> Writer<'a> {
                     ..Style::default()
                 });
                 transition(&current, &plain, caps, out)?;
-                graphics::write_row(out, id, image_row, columns)?;
+                // The links of a page are hyperlinks over its placeholders.
+                let runs: Vec<graphics::LinkRun> = (links.iter())
+                    .map(|link| graphics::LinkRun {
+                        columns: link.columns.start.saturating_sub(columns.start)
+                            ..link.columns.end.saturating_sub(columns.start),
+                        url: &link.url,
+                    })
+                    .collect();
+                graphics::write_row_linked(out, id, image_row, columns, &runs)?;
                 // The placeholders leave the terminal's foreground.
                 current = Style { fg: None, ..plain };
             }
