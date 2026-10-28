@@ -108,6 +108,8 @@ pub struct Run {
     pub strike: bool,
     /// Its own colour, such as a link's.
     pub color: Option<Brush>,
+    /// Where it links to, when it is in a link.
+    pub link: Option<Rc<str>>,
     /// A picture that stands here as a box on the line, sitting on its
     /// baseline, which has no text.
     pub picture: Option<InlinePicture>,
@@ -157,6 +159,8 @@ pub struct Paragraph {
     text: String,
     /// The ranges of the text in inline code.
     code: Vec<Range<usize>>,
+    /// The ranges of the text in links, with where each links to.
+    links: Vec<(Range<usize>, Rc<str>)>,
     /// The pictures in the lines, by the number of their boxes.
     pub(crate) pictures: Vec<InlinePicture>,
 }
@@ -171,6 +175,9 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
         text.push_str(&run.text);
         ranges.push(start..text.len());
     }
+    let links: Vec<(Range<usize>, Rc<str>)> = (runs.iter().zip(&ranges))
+        .filter_map(|(run, range)| Some((range.clone(), run.link.clone()?)))
+        .collect();
     let code: Vec<Range<usize>> = (runs.iter().zip(&ranges))
         .filter(|(run, _)| run.code)
         .map(|(_, range)| range.clone())
@@ -265,6 +272,7 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
         look: *look,
         text,
         code,
+        links,
         pictures,
     }
 }
@@ -326,6 +334,12 @@ impl Paragraph {
                 right: rect.x1 as f32,
             })
             .collect()
+    }
+
+    /// The ranges of the text in links, with where each links to; a link
+    /// of several runs is several ranges.
+    pub fn links(&self) -> &[(Range<usize>, Rc<str>)] {
+        &self.links
     }
 
     /// The ranges of the text in inline code.

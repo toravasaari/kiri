@@ -306,6 +306,156 @@ pub struct Page {
     look: Look,
 }
 
+/// The part of a line that a link or a match covers, in pixels from the
+/// top left of the page, or of the band it is in.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Piece {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+/// A link on the page: where it goes and where it is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LinkPlace {
+    pub url: Rc<str>,
+    /// One piece for each line it covers.
+    pub pieces: Vec<Piece>,
+    /// The band it is in, whose pixels the pieces are in, if it is in one.
+    pub band: Option<usize>,
+}
+
+/// Where an item is: its number among the items of the page, or of a
+/// band, which `band` says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ItemRef {
+    pub band: Option<usize>,
+    pub index: usize,
+}
+
+/// A place of a search term on the page.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Hit {
+    /// The text it is in, and its bytes there.
+    pub item: ItemRef,
+    pub range: Range<usize>,
+    /// One piece for each line it covers, in the pixels of the page, or of
+    /// the band `item` is in.
+    pub pieces: Vec<Piece>,
+    /// The top of its first piece from the top of the page.
+    pub top: f32,
+}
+
+impl Page {
+    /// Where `places` finds a search term in the texts on the page, from
+    /// the top down: `places` gives the byte ranges in a text.
+    pub fn find(&self, places: &dyn Fn(&str) -> Vec<Range<usize>>) -> Vec<Hit> {
+        let mut found = Vec::new();
+        let on_page = (self.items.iter().enumerate())
+            .map(|(index, item)| (ItemRef { band: None, index }, 0.0, item));
+        let in_bands = (self.bands.iter().enumerate()).flat_map(|(number, band)| {
+            (band.items.iter().enumerate()).map(move |(index, item)| {
+                let at = ItemRef {
+                    band: Some(number),
+                    index,
+                };
+                (at, band.top, item)
+            })
+        });
+        for (at, top, item) in on_page.chain(in_bands) {
+            let Shape::Text {
+                paragraph, x, y, ..
+            } = &item.shape
+            else {
+                continue;
+            };
+            let lines = paragraph.lines();
+            for range in places(paragraph.text()) {
+                let pieces: Vec<Piece> = (paragraph.boxes(range.clone()).into_iter())
+                    .filter_map(|part| {
+                        let line = lines.get(part.line)?;
+                        Some(Piece {
+                            x: x + part.left,
+                            y: y + line.top,
+                            width: part.right - part.left,
+                            height: line.height,
+                        })
+                    })
+                    .collect();
+                if let Some(first) = pieces.first() {
+                    let top = top + first.y;
+                    found.push(Hit {
+                        item: at,
+                        range,
+                        pieces,
+                        top,
+                    });
+                }
+            }
+        }
+        let key = |hit: &Hit| (hit.top, hit.pieces[0].x);
+        found.sort_by(|a, b| {
+            key(a)
+                .partial_cmp(&key(b))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        found
+    }
+
+    /// The links on the page, from the top down.
+    pub fn links(&self) -> Vec<LinkPlace> {
+        let mut found: Vec<(f32, f32, LinkPlace)> = Vec::new();
+        let on_page = self.items.iter().map(|item| (None, 0.0, item));
+        let in_bands = (self.bands.iter().enumerate()).flat_map(|(number, band)| {
+            band.items
+                .iter()
+                .map(move |item| (Some(number), band.top, item))
+        });
+        for (band, top, item) in on_page.chain(in_bands) {
+            let Shape::Text {
+                paragraph, x, y, ..
+            } = &item.shape
+            else {
+                continue;
+            };
+            let lines = paragraph.lines();
+            // The ranges of a link in several styles are one link.
+            let mut joined: Vec<(Range<usize>, Rc<str>)> = Vec::new();
+            for (range, url) in paragraph.links() {
+                match joined.last_mut() {
+                    Some((last, before)) if last.end == range.start && before == url => {
+                        last.end = range.end;
+                    }
+                    _ => joined.push((range.clone(), Rc::clone(url))),
+                }
+            }
+            for (range, url) in joined {
+                let pieces: Vec<Piece> = (paragraph.boxes(range).into_iter())
+                    .filter_map(|part| {
+                        let line = lines.get(part.line)?;
+                        Some(Piece {
+                            x: x + part.left,
+                            y: y + line.top,
+                            width: part.right - part.left,
+                            height: line.height,
+                        })
+                    })
+                    .collect();
+                if let Some(first) = pieces.first() {
+                    found.push((top + first.y, first.x, LinkPlace { url, pieces, band }));
+                }
+            }
+        }
+        found.sort_by(|a, b| {
+            (a.0, a.1)
+                .partial_cmp(&(b.0, b.1))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        found.into_iter().map(|(_, _, link)| link).collect()
+    }
+}
+
 /// A picture that is loading: where it is and the tag its `Pictures` gave.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Loading {
@@ -1672,9 +1822,10 @@ fn collect(content: &[Inline], style: &Run, (look, ink): (&Look, Ink), runs: &mu
                 };
                 collect(inner, &key, (look, ink), runs);
             }
-            Inline::Link { content, .. } => {
+            Inline::Link { url, content } => {
                 let link = Run {
                     color: Some(look.link),
+                    link: Some(Rc::from(url.as_str())),
                     ..style.clone()
                 };
                 collect(content, &link, (look, ink), runs);
@@ -1729,7 +1880,8 @@ fn push(runs: &mut Vec<Run>, text: &str, style: &Run) {
 }
 
 fn same_style(a: &Run, b: &Run) -> bool {
-    (a.bold, a.italic, a.code, a.strike, a.color) == (b.bold, b.italic, b.code, b.strike, b.color)
+    (a.bold, a.italic, a.code, a.strike, a.color, &a.link)
+        == (b.bold, b.italic, b.code, b.strike, b.color, &b.link)
 }
 
 /// The text of `block`, as a search finds it.
@@ -2253,6 +2405,101 @@ mod tests {
             &item.shape,
             Shape::Text { paragraph, .. } if paragraph.text().starts_with("▼") && paragraph.look.weight >= 600.0
         )));
+    }
+
+    /// The urls of `links` and the number of pieces of each.
+    fn urls(links: &[LinkPlace]) -> Vec<(&str, usize)> {
+        links.iter().map(|l| (&*l.url, l.pieces.len())).collect()
+    }
+
+    #[test]
+    fn a_link_is_where_its_text_is_a_piece_for_each_line() {
+        let page = page(
+            "Go [here for a long link text that wraps over lines](https://a.example) and \
+             on to **[bold](https://b.example)**.\n",
+        );
+        let links = page.links();
+        let urls = urls(&links);
+        assert_eq!(urls[1], ("https://b.example", 1), "{urls:?}");
+        let (url, pieces) = urls[0];
+        assert_eq!(url, "https://a.example");
+        // The long one wraps in the 672 pixel column or does not; either
+        // way its pieces are on the lines of the text, left to right.
+        let first = links[0].pieces[0];
+        assert!(first.x > 20.0 && first.width > 10.0, "{first:?}");
+        assert_eq!((first.y, first.height), (0.0, 24.0));
+        assert!(pieces >= 1);
+        // The second is after the first on the same line.
+        let second = links[1].pieces[0];
+        assert!(second.x > first.x + first.width || second.y > first.y);
+        assert!(links.iter().all(|link| link.band.is_none()));
+    }
+
+    #[test]
+    fn two_links_side_by_side_are_two_links_and_one_link_in_two_styles_is_one() {
+        let page = page("[a](u1)[b](u2) and [*c* d](u3)\n");
+        assert_eq!(urls(&page.links()), [("u1", 1), ("u2", 1), ("u3", 1)]);
+    }
+
+    #[test]
+    fn links_in_a_table_cell_a_list_and_a_band_are_in_the_page_or_the_band() {
+        let page = page("- item [in a list](l)\n\n| a |\n|---|\n| [in a cell](c) |\n");
+        let links = page.links();
+        assert_eq!(urls(&links), [("l", 1), ("c", 1)]);
+        // The list's is indented by the marker's room; the cell's is
+        // inside the table's border and below the list.
+        assert!(links[0].pieces[0].x >= 32.0);
+        assert!(links[1].pieces[0].y > links[0].pieces[0].y);
+        let scrolled = scrolling(&format!("| a |\n|---|\n| [{}](w) |\n", "word".repeat(300)));
+        let links = scrolled.links();
+        assert_eq!(urls(&links), [("w", 1)]);
+        assert_eq!(links[0].band, Some(0));
+        // In the band's own pixels, from its left edge.
+        assert!(links[0].pieces[0].x >= 14.0 && links[0].pieces[0].x < 40.0);
+    }
+
+    /// A search for `term` as a plain text search finds it.
+    fn finds(term: &'static str) -> impl Fn(&str) -> Vec<Range<usize>> {
+        move |text| {
+            text.match_indices(term)
+                .map(|(at, found)| at..at + found.len())
+                .collect()
+        }
+    }
+
+    #[test]
+    fn a_match_is_where_its_text_is_wherever_the_text_is() {
+        let page = page("One word here.\n\n- a word in a list\n\n| word |\n|---|\n| other |\n");
+        let hits = page.find(&finds("word"));
+        assert_eq!(hits.len(), 3, "{hits:?}");
+        // From the top down, each a piece the width of the word, on the
+        // line of its text.
+        assert!(hits[0].top < hits[1].top && hits[1].top < hits[2].top);
+        assert_eq!(hits[0].pieces.len(), 1);
+        let piece = hits[0].pieces[0];
+        assert!(
+            piece.x > 20.0 && piece.width > 20.0 && piece.width < 50.0,
+            "{piece:?}"
+        );
+        assert_eq!((piece.y, piece.height), (0.0, 24.0));
+        assert!(hits[1].pieces[0].x >= 32.0);
+        assert!(hits.iter().all(|hit| hit.item.band.is_none()));
+    }
+
+    #[test]
+    fn a_match_over_two_lines_is_two_pieces_and_one_in_a_band_is_in_its_pixels() {
+        let words = "word ".repeat(60);
+        let page = page(&format!("{words}\n"));
+        let hits = page.find(&finds("word word"));
+        assert!(hits.iter().any(|hit| hit.pieces.len() == 2), "{hits:?}");
+        let long = "a".repeat(200);
+        let scrolled = scrolling(&format!("Text.\n\n```\n{long} needle\n```\n"));
+        let hits = scrolled.find(&finds("needle"));
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].item.band, Some(0));
+        // Far to the right in the band's own pixels, and below its top.
+        assert!(hits[0].pieces[0].x > 1000.0, "{:?}", hits[0].pieces);
+        assert!(hits[0].top > 24.0);
     }
 
     #[test]
