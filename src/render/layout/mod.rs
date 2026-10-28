@@ -404,7 +404,11 @@ impl Layout<'_> {
             &blocks,
             &ids,
             reading,
-            (self.theme, &self.code_colors()),
+            (
+                self.theme,
+                &self.code_colors(),
+                self.table_rows != TableRows::Off,
+            ),
             self.caps,
             window,
             self.document,

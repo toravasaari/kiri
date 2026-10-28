@@ -35,6 +35,9 @@ const TEXT_WIDTH: f32 = 42.0;
 const AREA: f32 = 1.5;
 /// The cells kept free on each side of the area.
 const SIDE: u16 = 2;
+/// How much of the text colour a shaded table row mixes into the page, as
+/// in the text layout.
+const STRIPE: f32 = 0.06;
 /// The rows of one part of a page, the image drawn at a time.
 const PART_ROWS: u16 = 30;
 
@@ -96,14 +99,14 @@ pub fn lines(
     blocks: &[&Block],
     ids: &[BlockId],
     reading: &Reading,
-    (theme, code): (&Theme, &CodeColors),
+    (theme, code, stripes): (&Theme, &CodeColors, bool),
     caps: &Capabilities,
     width: usize,
     document: usize,
 ) -> Vec<Line> {
     let cell = cell_size(caps);
     let (cell_width, cell_height) = (f32::from(cell.0), f32::from(cell.1));
-    let look = look(theme, code, caps);
+    let look = look(theme, code, stripes, caps);
     let window = u16::try_from(width).unwrap_or(u16::MAX);
     let room = window.saturating_sub(2 * SIDE).max(1);
     let text = (TEXT_WIDTH * look.size).min(f32::from(room) * cell_width);
@@ -186,7 +189,8 @@ pub fn lines(
 /// How reading mode draws text in `theme` on a terminal with `caps`: its
 /// size from the cell height, and its colours from the theme, or from the
 /// terminal where the theme leaves them.
-pub fn look(theme: &Theme, code: &CodeColors, caps: &Capabilities) -> Look {
+/// Tables shade every second body row with `stripes`.
+pub fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities) -> Look {
     let (_, cell_height) = cell_size(caps);
     let rgb = |color: Option<Color>| match color?.rgb_or_xterm(&caps.palette) {
         Color::Rgb(red, green, blue) => Some([red, green, blue]),
@@ -222,6 +226,8 @@ pub fn look(theme: &Theme, code: &CodeColors, caps: &Capabilities) -> Look {
         code_block: rgb(code.background),
         code_text: rgb(code.text).unwrap_or(text),
         label: rgb(code.label),
+        table_border: rgb(theme.table_border).unwrap_or(border),
+        stripe: stripes.then(|| mix(text, page, STRIPE)),
     }
 }
 
@@ -405,7 +411,7 @@ mod tests {
             link: Some(Color::Rgb(1, 2, 3)),
             ..Theme::default()
         };
-        let look = look(&theme, &CodeColors::default(), &caps);
+        let look = look(&theme, &CodeColors::default(), true, &caps);
         assert_eq!(look.size, 20.0);
         assert_eq!(look.link, [1, 2, 3]);
     }

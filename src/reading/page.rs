@@ -10,7 +10,7 @@ use image::RgbaImage;
 use super::fonts::Fonts;
 use super::paint::Canvas;
 use super::text::{self, Brush, Paragraph, Run};
-use crate::model::{Block, Inline, List};
+use crate::model::{Alignment, Block, Inline, List, Table};
 
 /// The size of each heading level, `h1` first, in font sizes of the text,
 /// and the line height of headings.
@@ -36,6 +36,10 @@ const CODE_PADDING: f32 = 1.0;
 const CODE_RADIUS: f32 = 0.375;
 const CODE_LINE_HEIGHT: f32 = 1.45;
 const LABEL_SIZE: f32 = 0.75;
+/// How far a table cell's text is from its borders, across and down, in
+/// font sizes.
+const CELL_ACROSS: f32 = 13.0 / 16.0;
+const CELL_DOWN: f32 = 6.0 / 16.0;
 
 /// How the page is drawn: its sizes and colours.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -61,6 +65,10 @@ pub struct Look {
     pub code_text: Brush,
     /// The colour of a code block's language label; `None` for no label.
     pub label: Option<Brush>,
+    /// The colour of a table's borders, and of every second body row;
+    /// `None` for no shading.
+    pub table_border: Brush,
+    pub stripe: Option<Brush>,
 }
 
 /// The colours of code: each line of `code`, in `language` if known, as
@@ -142,7 +150,7 @@ enum Shape {
 pub fn lays_out(block: &Block, drawn: &dyn Fn(&str, &str) -> bool) -> bool {
     let all = |blocks: &[Block]| blocks.iter().all(|block| lays_out(block, drawn));
     match block {
-        Block::Heading { .. } | Block::ThematicBreak => true,
+        Block::Heading { .. } | Block::ThematicBreak | Block::Table(_) => true,
         Block::Paragraph(content) => Inline::lone_image(content).is_none(),
         Block::CodeBlock { language, code, .. } => !language
             .as_deref()
@@ -371,6 +379,7 @@ impl Flow<'_> {
             Block::CodeBlock { language, code, .. } => {
                 self.code(language.as_deref(), code, x, width);
             }
+            Block::Table(table) => self.table(table, x),
             // Reading mode lays out only the blocks `lays_out` takes.
             _ => {}
         }
@@ -455,6 +464,99 @@ impl Flow<'_> {
             );
         }
         self.y = top + height;
+    }
+
+    /// Lays a table out at `x`: as wide as its content up to the area's
+    /// edge, with its columns shared out as a browser shares them.
+    fn table(&mut self, table: &Table, x: f32) {
+        let look = *self.look;
+        let size = look.size;
+        let (across, down) = (CELL_ACROSS * size, CELL_DOWN * size);
+        let grid: Vec<&Vec<Vec<Inline>>> =
+            std::iter::once(&table.header).chain(&table.rows).collect();
+        let columns = grid.iter().map(|row| row.len()).max().unwrap_or(0);
+        if columns == 0 {
+            return;
+        }
+        let cell = |row: usize, column: usize, width: f32, wrap: text::Wrap| {
+            let content = grid[row].get(column).map_or(&[][..], Vec::as_slice);
+            let style = text::Look {
+                size,
+                weight: if row == 0 { BOLD } else { 400.0 },
+                color: look.text,
+                wrap,
+                align: match table.alignments.get(column) {
+                    Some(Alignment::Center) => text::Align::Centre,
+                    Some(Alignment::Right) => text::Align::Right,
+                    _ => text::Align::Left,
+                },
+                ..text::Look::PLAIN
+            };
+            text::lay_out(self.fonts, &runs(content, &look), &style, width)
+        };
+        let (mut least, mut most) = (vec![0.0f32; columns], vec![0.0f32; columns]);
+        for row in 0..grid.len() {
+            for column in 0..columns {
+                let (min, max) = cell(row, column, f32::MAX, text::Wrap::Words).content_widths();
+                least[column] = least[column].max(min);
+                most[column] = most[column].max(max);
+            }
+        }
+        // Each column takes its padding and the border at its left; the
+        // last border closes the table.
+        let extra = 2.0 * across + 1.0;
+        let room = (self.area - x) - columns as f32 * extra - 1.0;
+        let (widths, forced) = share(&least, &most, room);
+        let wrap = if forced {
+            text::Wrap::Forced
+        } else {
+            text::Wrap::Words
+        };
+        let table_width = widths.iter().sum::<f32>() + columns as f32 * extra + 1.0;
+        let top = self.y;
+        let mut y = top;
+        let mut rows = Vec::new();
+        for row in 0..grid.len() {
+            let cells: Vec<Paragraph> = (0..columns)
+                .map(|column| cell(row, column, widths[column], wrap))
+                .collect();
+            let height = cells.iter().map(Paragraph::height).fold(0.0, f32::max) + 2.0 * down;
+            if row > 0
+                && row % 2 == 0
+                && let Some(stripe) = look.stripe
+            {
+                self.rect(x, y, table_width, height, stripe);
+            }
+            let mut left = x;
+            for (column, paragraph) in cells.into_iter().enumerate() {
+                let paragraph_y = y + down;
+                let paragraph_height = paragraph.height();
+                self.push(
+                    paragraph_y..paragraph_y + paragraph_height,
+                    Shape::Text {
+                        paragraph: Box::new(paragraph),
+                        x: left + 1.0 + across,
+                        y: paragraph_y,
+                        chip: look.chip,
+                    },
+                );
+                left += widths[column] + extra;
+            }
+            rows.push(y);
+            y += height;
+        }
+        rows.push(y);
+        // The borders, over the shading.
+        for &line in &rows {
+            self.rect(x, line.round(), table_width, 1.0, look.table_border);
+        }
+        let mut left = x;
+        self.rect(left.round(), top, 1.0, y - top + 1.0, look.table_border);
+        for width in &widths {
+            left += width + extra;
+            self.rect(left.round(), top, 1.0, y - top + 1.0, look.table_border);
+        }
+        self.y = y + 1.0;
     }
 
     fn paragraph(&self, content: &[Inline], color: Brush, width: f32) -> Paragraph {
@@ -554,6 +656,39 @@ impl Flow<'_> {
             }
         }
     }
+}
+
+/// The widths of columns whose content is at least `least` and at most
+/// `most` wide, sharing `room` as a browser's automatic table layout does:
+/// as wide as their content when it fits; otherwise each at least its
+/// least width, and the room left shared in proportion to how much each
+/// could still grow. When even the least widths do not fit, each column
+/// gets its share of the room in proportion to its least width, and the
+/// second value says that words must then break inside to fit.
+pub fn share(least: &[f32], most: &[f32], room: f32) -> (Vec<f32>, bool) {
+    let (sum_least, sum_most) = (least.iter().sum::<f32>(), most.iter().sum::<f32>());
+    if sum_most <= room {
+        return (most.to_vec(), false);
+    }
+    if sum_least <= room {
+        let flex: f32 = least.iter().zip(most).map(|(min, max)| max - min).sum();
+        let spare = room - sum_least;
+        let widths = (least.iter().zip(most))
+            .map(|(min, max)| match flex > 0.0 {
+                true => min + spare * (max - min) / flex,
+                false => *min,
+            })
+            .collect();
+        return (widths, false);
+    }
+    let room = room.max(0.0);
+    let widths = (least.iter())
+        .map(|min| match sum_least > 0.0 {
+            true => min * room / sum_least,
+            false => room / least.len() as f32,
+        })
+        .collect();
+    (widths, true)
 }
 
 /// Draws the box of a task list item, `size` pixels square, with its top
@@ -705,6 +840,22 @@ fn plain_into(block: &Block, text: &mut String) {
     match block {
         Block::Heading { content, .. } | Block::Paragraph(content) => inline(content, text),
         Block::CodeBlock { code, .. } => text.push_str(code.trim_end()),
+        Block::Table(table) => {
+            for (index, row) in std::iter::once(&table.header)
+                .chain(&table.rows)
+                .enumerate()
+            {
+                if index > 0 {
+                    text.push('\n');
+                }
+                for (column, cell) in row.iter().enumerate() {
+                    if column > 0 {
+                        text.push('\t');
+                    }
+                    inline(cell, text);
+                }
+            }
+        }
         Block::BlockQuote(blocks) => {
             for (index, block) in blocks.iter().enumerate() {
                 if index > 0 {
@@ -739,6 +890,8 @@ const PLAIN: Look = Look {
     code_block: None,
     code_text: [0; 3],
     label: None,
+    table_border: [0; 3],
+    stripe: None,
 };
 
 #[cfg(test)]
@@ -759,6 +912,8 @@ mod tests {
         code_block: Some([0x2b, 0x30, 0x3b]),
         code_text: [0xc0; 3],
         label: Some([0x80; 3]),
+        table_border: [0x3d, 0x44, 0x4d],
+        stripe: Some([0x15, 0x1b, 0x23]),
     };
 
     fn page(markdown: &str) -> Page {
@@ -904,6 +1059,116 @@ mod tests {
     }
 
     #[test]
+    fn columns_are_as_wide_as_their_content_when_it_fits() {
+        assert_eq!(
+            share(&[10.0, 20.0], &[30.0, 40.0], 100.0),
+            (vec![30.0, 40.0], false)
+        );
+    }
+
+    #[test]
+    fn the_spare_room_goes_to_the_columns_that_can_grow() {
+        // 30 to share: the first column could grow by 20, the second by 40.
+        let (widths, forced) = share(&[10.0, 20.0], &[30.0, 60.0], 60.0);
+        assert_eq!(widths, [20.0, 40.0]);
+        assert!(!forced);
+    }
+
+    #[test]
+    fn columns_too_wide_even_wrapped_share_the_room_and_break_words() {
+        let (widths, forced) = share(&[100.0, 300.0], &[200.0, 600.0], 200.0);
+        assert_eq!(widths, [50.0, 150.0]);
+        assert!(forced);
+    }
+
+    /// The left edge and width of each table's top border.
+    fn tables(page: &Page) -> Vec<(f32, f32)> {
+        let mut tops: Vec<(f32, f32, f32)> = (page.items.iter())
+            .filter_map(|item| match item.shape {
+                Shape::Rect {
+                    x,
+                    y,
+                    width,
+                    height: 1.0,
+                    color,
+                    ..
+                } if color == LOOK.table_border && width > 1.0 => Some((y, x, width)),
+                _ => None,
+            })
+            .collect();
+        tops.sort_by(|a, b| a.0.total_cmp(&b.0));
+        tops.first()
+            .map(|&(_, x, width)| (x, width))
+            .into_iter()
+            .collect()
+    }
+
+    #[test]
+    fn a_small_table_is_as_wide_as_its_content() {
+        let page = page("| a | b |\n|---|---|\n| c | d |\n");
+        let [(x, width)] = tables(&page)[..] else {
+            panic!("one table");
+        };
+        assert_eq!(x, 0.0);
+        assert!(width < 150.0, "{width}");
+        let texts = texts(&page);
+        let (a, b) = (text(&texts, "a"), text(&texts, "b"));
+        assert_eq!(a.1, 1.0 + 13.0);
+        assert!(b.1 > a.1 + a.3 + 26.0, "{a:?} {b:?}");
+        assert_eq!(page.blocks[0].text, "a\tb\nc\td");
+    }
+
+    #[test]
+    fn a_wide_table_reaches_into_the_area_and_wraps_its_cells() {
+        let words = "word ".repeat(60);
+        let page = page(&format!("| a | b |\n|---|---|\n| {words} | {words} |\n"));
+        let [(_, width)] = tables(&page)[..] else {
+            panic!("one table");
+        };
+        assert!((width - 1008.0).abs() < 1.0, "{width}");
+        let texts = texts(&page);
+        assert!(text(&texts, "word").3 < 500.0);
+    }
+
+    #[test]
+    fn a_table_too_wide_even_wrapped_breaks_its_words_to_fit_the_area() {
+        let long = "a".repeat(150);
+        let page = page(&format!("| x | y |\n|---|---|\n| {long} | {long} |\n"));
+        let [(_, width)] = tables(&page)[..] else {
+            panic!("one table");
+        };
+        assert!(width <= 1008.0 + 0.5, "{width}");
+        let texts = texts(&page);
+        assert!(text(&texts, "aaa").3 < 500.0, "{texts:?}");
+    }
+
+    #[test]
+    fn every_second_body_row_is_shaded() {
+        let page = page("| a |\n|---|\n| 1 |\n| 2 |\n| 3 |\n");
+        let shaded = (page.items.iter())
+            .filter(|item| matches!(item.shape, Shape::Rect { color, .. } if Some(color) == LOOK.stripe))
+            .count();
+        assert_eq!(shaded, 1);
+    }
+
+    #[test]
+    fn a_column_is_aligned_as_the_table_says() {
+        let page = page("| left | right |\n|:---|---:|\n| a | b |\n");
+        let paragraphs: Vec<(String, f32)> = (page.items.iter())
+            .filter_map(|item| match &item.shape {
+                Shape::Text { paragraph, .. } => {
+                    let line = paragraph.layout.lines().next()?;
+                    Some((paragraph.text().to_owned(), line.metrics().offset))
+                }
+                _ => None,
+            })
+            .collect();
+        let offset = |text: &str| paragraphs.iter().find(|(t, _)| t == text).unwrap().1;
+        assert_eq!(offset("a"), 0.0);
+        assert!(offset("b") > 0.0, "{paragraphs:?}");
+    }
+
+    #[test]
     fn a_tick_shows_on_a_light_box() {
         let light = Look {
             link: [0xee; 3],
@@ -926,13 +1191,15 @@ mod tests {
     }
 
     #[test]
-    fn drawn_diagrams_tables_and_lone_images_are_left_out() {
+    fn drawn_diagrams_and_lone_images_are_left_out() {
         let drawn = |language: &str, _: &str| language == "mermaid";
-        let left_out = "```mermaid\ngraph\n```\n\n| a |\n|---|\n\n![x](x.png)\n\n\
+        let left_out = "```mermaid\ngraph\n```\n\n![x](x.png)\n\n\
             - a\n\n  ```mermaid\n  graph\n  ```\n";
         let document = parse(left_out);
         assert!(document.blocks.iter().all(|block| !lays_out(block, &drawn)));
-        let laid_out = parse("```\ncode\n```\n\n```mermaid\ngraph\n```\n\n- a\n\n      code\n");
+        let laid_out = parse(
+            "```\ncode\n```\n\n```mermaid\ngraph\n```\n\n| a |\n|---|\n\n- a\n\n      code\n",
+        );
         assert!(
             laid_out
                 .blocks

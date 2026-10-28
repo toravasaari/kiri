@@ -203,8 +203,9 @@ pager quits, every image it sent is.
 `--reading`, experimental, shows the text as a browser does: in a
 proportional font, drawn as images. `src/reading/` knows nothing about
 terminals. It lays a run of text blocks (headings, paragraphs, lists,
-quotes, thematic breaks and code blocks, highlighted as the text layout
-highlights them) out with parley, in the fonts of the fontdb
+quotes, thematic breaks, code blocks, highlighted as the text layout
+highlights them, and tables, whose columns share the room as a browser
+shares it) out with parley, in the fonts of the fontdb
 database that SVG text uses, and draws them with tiny-skia, colour emoji
 included. GitHub's sizes and spacing are its measure: 16 pixels of text in
 rows of 20, a column of 42 times that, margins that collapse between
@@ -213,7 +214,7 @@ image rows, as a large image's are, of parts 30 rows tall that the encoder
 draws when a line first shows them, so the pager draws only the parts in
 view. The rows keep their blocks, so the pager keeps its place across a
 resize, and the row a block starts on carries the block's text for a
-search. The other blocks, such as tables and images, are laid out as
+search. The other blocks, such as images and alerts, are laid out as
 text between the pages. Where the terminal draws no images, kiri warns and
 shows the text as usual. In the pager, `M` turns reading mode on and off
 and lays the document out again, keeping the block at the top as a resize
