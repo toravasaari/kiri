@@ -756,10 +756,12 @@ screen in 0.05 s.
   keys and h/l scroll it, and a sideways wheel scrolls the one under
   the pointer.
 
-#### 4.15.4 Images, diagrams and formulas
+#### 4.15.4 Images, diagrams, formulas and other blocks
 
 - Images, diagrams and formulas inside the layout, from the renderers
   kiri already has.
+- Alerts, front matter and `<details>` in the proportional font too,
+  instead of the terminal's monospace text.
 
 #### 4.15.5 Search and links
 
