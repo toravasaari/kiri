@@ -362,6 +362,10 @@ impl Overlay {
     }
 }
 
+/// Text and pictures of one link: where the last ends, where it links to,
+/// and each member's bytes and, for a picture, its number.
+type Joined = (usize, Rc<str>, Vec<(Range<usize>, Option<usize>)>);
+
 /// Where an item is: its number among the items of the page, or of a
 /// band, which `band` says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -466,7 +470,7 @@ impl Page {
                 parts.push((range.start, range.end, Rc::clone(url), None));
             }
             parts.sort_by_key(|(start, _, _, picture)| (*start, picture.is_none()));
-            let mut joined: Vec<(usize, Rc<str>, Vec<(Range<usize>, Option<usize>)>)> = Vec::new();
+            let mut joined: Vec<Joined> = Vec::new();
             for (start, end, url, picture) in parts {
                 match joined.last_mut() {
                     Some((last, before, members)) if *last == start && *before == url => {
