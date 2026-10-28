@@ -339,6 +339,17 @@ impl Layout<'_> {
         // The text blocks that reading mode lays out together, until a
         // block it does not lay out comes.
         let mut run = Vec::new();
+        // Where the other blocks start and how wide they are: in reading
+        // mode, from the area's left edge and as wide as it, so that they
+        // line up with the pages.
+        let (lead, inner) = match self.reading {
+            Some(_) => {
+                let window = usize::from(self.caps.width).max(width);
+                let area = super::reading::Area::of(self.caps, window);
+                (usize::from(area.left), usize::from(area.area))
+            }
+            None => (margin, width - 2 * margin),
+        };
         for (index, block) in blocks.iter().enumerate() {
             if self.reading.is_some()
                 && page::lays_out(block, &|language, code| self.drawn(language, code))
@@ -354,18 +365,15 @@ impl Layout<'_> {
                     self.block(block, width, Context::default())
                 }
                 Block::Details { summary, blocks } => {
-                    let summary = self.summary(summary, width - 2 * margin);
-                    let mut summary = with_margin(summary, margin);
+                    let summary = self.summary(summary, inner);
+                    let mut summary = with_margin(summary, lead);
                     stamp(&mut summary, marks.add(self.document));
                     append_block(lines, summary, true);
                     self.top_level(blocks, width, margin, lines, marks);
                     marks.path.pop();
                     continue;
                 }
-                _ => with_margin(
-                    self.block(block, width - 2 * margin, Context::default()),
-                    margin,
-                ),
+                _ => with_margin(self.block(block, inner, Context::default()), lead),
             };
             if !block_lines.is_empty() {
                 stamp(&mut block_lines, marks.add(self.document));

@@ -48,6 +48,37 @@ pub struct Reading {
     pub fonts: Rc<Fonts>,
 }
 
+/// Where reading mode sets its text in a window: the area that tables
+/// and code may take, centred, and the text at its left edge.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Area {
+    /// The cells before the area, and its width in cells.
+    pub left: u16,
+    pub area: u16,
+    /// The text's width in pixels.
+    pub text: f32,
+}
+
+impl Area {
+    /// The area in a window `width` cells wide on a terminal with `caps`.
+    pub fn of(caps: &Capabilities, width: usize) -> Self {
+        let (cell_width, cell_height) = cell_size(caps);
+        let (cell_width, size) = (
+            f32::from(cell_width),
+            (FONT_SIZE * f32::from(cell_height)).round(),
+        );
+        let window = u16::try_from(width).unwrap_or(u16::MAX);
+        let room = window.saturating_sub(2 * SIDE).max(1);
+        let text = (TEXT_WIDTH * size).min(f32::from(room) * cell_width);
+        let area = ((AREA * text / cell_width).ceil() as u16).min(room);
+        Self {
+            left: (window - area) / 2,
+            area,
+            text,
+        }
+    }
+}
+
 /// A page cut into parts, which draw themselves when they are first
 /// shown.
 pub struct Parts {
@@ -107,11 +138,7 @@ pub fn lines(
     let cell = cell_size(caps);
     let (cell_width, cell_height) = (f32::from(cell.0), f32::from(cell.1));
     let look = look(theme, code, stripes, caps);
-    let window = u16::try_from(width).unwrap_or(u16::MAX);
-    let room = window.saturating_sub(2 * SIDE).max(1);
-    let text = (TEXT_WIDTH * look.size).min(f32::from(room) * cell_width);
-    let area = ((AREA * text / cell_width).ceil() as u16).min(room);
-    let left = (window - area) / 2;
+    let Area { left, area, text } = Area::of(caps, width);
     // The page covers the area, as tables and code may reach across it.
     let columns = area.clamp(1, caps.max_image_cells);
     let highlight = Syntect {
@@ -360,6 +387,24 @@ mod tests {
         let row = lines[0].image.as_ref().expect("a page's row");
         assert_eq!(row.columns, 0..36);
         assert_eq!(lines[0].lead[0].text.len(), 2);
+    }
+
+    #[test]
+    fn the_other_blocks_start_at_the_area_s_edge() {
+        let document = parse("Text.\n\n> [!NOTE]\n> A note that is long enough to wrap.\n");
+        let lines = layout::layout(&document, &inputs(kitty(160)));
+        let alert: Vec<&Line> = (lines.iter())
+            .filter(|line| line.image.is_none() && !line.is_blank())
+            .collect();
+        assert!(!alert.is_empty());
+        for line in alert {
+            let lead: String = line.lead.iter().map(|span| span.text.as_str()).collect();
+            assert_eq!(lead.len(), 29, "{line:?}");
+            let cells = crate::render::wrap::width(&line.lead)
+                + crate::render::wrap::width(&line.spans)
+                + crate::render::wrap::width(&line.trail);
+            assert!(cells <= 29 + 101, "{cells}");
+        }
     }
 
     #[test]
