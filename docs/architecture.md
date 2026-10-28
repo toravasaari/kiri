@@ -233,9 +233,11 @@ baseline; until it has come it is shown as its source, as the other
 layouts show it. An alert is a tint, a bar, a title after the
 kind's icon, which is drawn from an embedded Octicon outline
 (`src/reading/octicons.rs`), and the blocks inside it in the room left.
-The other blocks are laid out as text between the pages, from the
-area's left edge and as wide as the text's column: only code blocks and
-tables reach into the area. A code
+Front matter is a table of its keys and values in the column, with a
+table in a cell for a value that has keys, or a code block when the
+front matter shows as code. The other blocks are laid out as text between
+the pages, from the area's left edge and as wide as the text's column:
+only code blocks and tables reach into the area. A code
 block or table wider than the area wraps to fit it, or, with `--wide
 scroll` in the pager, or after `W` there, becomes a band on whole rows of
 its own, which keeps its lines and words whole and scrolls sideways under

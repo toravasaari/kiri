@@ -24,9 +24,10 @@ use crate::images::{ImageError, ImageKey, Images, Placeholder, Source};
 use crate::model::{self, AlertKind, Block};
 use crate::reading::Fonts;
 use crate::reading::page::{
-    self, AlertLook, Frame, Highlight, Look, Page, Picture, Pictures, Plain, Wide,
+    self, AlertLook, Frame, FrontMatterShown, Highlight, Look, Page, Picture, Pictures, Plain, Wide,
 };
 use crate::reading::text::{Brush, Run};
+use crate::render::FrontMatterStyle;
 use crate::theme::Theme;
 
 /// The text's font size, as a share of the cell height: 16 pixels in rows
@@ -163,14 +164,15 @@ impl Eq for Parts {}
 
 /// The lines that show `blocks`, which reading mode lays out, marked with
 /// their `ids`, in a window `width` cells wide on a terminal with `caps`,
-/// in `theme`'s colours, with the pictures in `images`, of the document
+/// in `theme`'s colours, with tables shaded as `stripes` says and front
+/// matter shown as `front_matter` says, with the pictures in `images`, of the document
 /// numbered `document` among those shown, and diagrams telling why they
 /// failed when `inline_errors`.
 pub fn lines(
     blocks: &[&Block],
     ids: &[BlockId],
     reading: &Reading,
-    (theme, code, stripes): (&Theme, &CodeColors, bool),
+    (theme, code, (stripes, front_matter)): (&Theme, &CodeColors, (bool, FrontMatterStyle)),
     (images, inline_errors, document): (&Images, bool, usize),
     caps: &Capabilities,
     width: usize,
@@ -204,6 +206,10 @@ pub fn lines(
             area: f32::from(columns) * cell_width,
             row: cell_height,
             wide: reading.wide,
+            front_matter: match front_matter {
+                FrontMatterStyle::Code => FrontMatterShown::Code,
+                FrontMatterStyle::Table | FrontMatterStyle::Hide => FrontMatterShown::Table,
+            },
         },
     );
     let rows = ((page.height / cell_height).ceil() as u16).max(1);

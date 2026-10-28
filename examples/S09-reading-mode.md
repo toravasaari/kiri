@@ -30,9 +30,9 @@ at about four fifths of a row's height, in a column 42 times that wide at
 most, at the left of an area half as wide again in the middle of the
 window. Code blocks and tables are drawn too, and may reach across the
 area, and so are images, diagrams, formulas and alerts, in the column.
-The front matter above stays as it is without reading mode, between the
-parts in the proportional font, at the text's left edge and no wider
-than its column. The text cannot be selected or copied, as it is
+The front matter above is a table of its keys and values, in the
+column and in the proportional font, with a table in a cell for a value
+that has keys of its own. The text cannot be selected or copied, as it is
 drawn as images.
 
 ## Text
@@ -242,6 +242,4 @@ list or a code block, in the room that is left:
 > [!WARNING] A title of its own
 > Yellow, with a triangle.
 
-The front matter above stays as it is without reading mode, between the
-parts in the proportional font, at the text's left edge and no wider
-than its column. And the text goes on below in the proportional font.
+And the text goes on below it in the proportional font.

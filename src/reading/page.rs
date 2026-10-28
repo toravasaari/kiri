@@ -15,7 +15,7 @@ use super::fonts::Fonts;
 use super::octicons;
 use super::paint::Canvas;
 use super::text::{self, Brush, InlinePicture, Paragraph, Run};
-use crate::model::{AlertKind, Alignment, Block, Image, Inline, List, Table};
+use crate::model::{AlertKind, Alignment, Block, FrontMatter, Image, Inline, List, Table, Value};
 
 /// The size of each heading level, `h1` first, in font sizes of the text,
 /// and the line height of headings.
@@ -232,6 +232,18 @@ pub struct Frame {
     /// The height of a row, which bands start on.
     pub row: f32,
     pub wide: Wide,
+    /// How front matter shows.
+    pub front_matter: FrontMatterShown,
+}
+
+/// How front matter shows, when it shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrontMatterShown {
+    /// As GitHub shows it: a table of keys and values, with tables in it
+    /// for nested values.
+    Table,
+    /// As GitLab shows it: a code block in its language.
+    Code,
 }
 
 /// A code block or table too wide for the area, laid out on whole rows
@@ -383,7 +395,8 @@ enum Shape {
 pub fn lays_out(block: &Block) -> bool {
     let all = |blocks: &[Block]| blocks.iter().all(lays_out);
     match block {
-        Block::Heading { .. }
+        Block::FrontMatter(_)
+        | Block::Heading { .. }
         | Block::ThematicBreak
         | Block::Table(_)
         | Block::Paragraph(_)
@@ -415,6 +428,7 @@ pub fn lay_out(
         area,
         row: frame.row.max(1.0),
         wide: frame.wide,
+        front_matter: frame.front_matter,
         items: Vec::new(),
         bands: Vec::new(),
         loading: Vec::new(),
@@ -575,6 +589,7 @@ struct Flow<'a> {
     /// code and tables wider than the area.
     row: f32,
     wide: Wide,
+    front_matter: FrontMatterShown,
     items: Vec<Item>,
     bands: Vec<Band>,
     loading: Vec<Loading>,
@@ -612,6 +627,7 @@ impl<'a> Flow<'a> {
             area: self.area,
             row: self.row,
             wide: self.wide,
+            front_matter: self.front_matter,
             items: Vec::new(),
             bands: Vec::new(),
             loading: Vec::new(),
@@ -745,6 +761,7 @@ impl<'a> Flow<'a> {
                 self.code_or_diagram(language.as_deref(), code, x, width);
             }
             Block::Table(table) => self.table(table, x),
+            Block::FrontMatter(front_matter) => self.front_matter(front_matter, x, width),
             Block::Alert {
                 kind,
                 title,
@@ -1282,6 +1299,22 @@ impl<'a> Flow<'a> {
         self.y - top
     }
 
+    /// Lays front matter out at `x` in `width` pixels: a table of its keys
+    /// and values when it has keys, otherwise, or when it is asked for as
+    /// code, a code block; an empty one is nothing. It does not use the
+    /// area: its cells wrap and it never scrolls.
+    fn front_matter(&mut self, front_matter: &FrontMatter, x: f32, width: f32) {
+        if front_matter.source.trim().is_empty() {
+            return;
+        }
+        match (&front_matter.value, self.front_matter) {
+            (Some(Ok(Value::Map(entries))), FrontMatterShown::Table) => {
+                self.nested(&map_grid(entries, 1), x, width);
+            }
+            _ => self.code(Some(&front_matter.language), &front_matter.source, x, width),
+        }
+    }
+
     /// Lays a table that is in a cell out at `x`, in `width` pixels: it
     /// wraps and never scrolls.
     fn nested(&mut self, grid: &Grid, x: f32, width: f32) {
@@ -1392,6 +1425,61 @@ impl<'a> Flow<'a> {
                 }
             }
         }
+    }
+}
+
+/// `entries` as a table at `level`, its keys in a column of their own.
+fn map_grid(entries: &[(String, Value)], level: usize) -> Grid {
+    Grid {
+        rows: (entries.iter())
+            .map(|(key, value)| {
+                vec![
+                    Cell::Text(vec![Inline::Text(key.clone())]),
+                    value_cell(value, level),
+                ]
+            })
+            .collect(),
+        alignments: Vec::new(),
+        header_row: false,
+        header_column: true,
+    }
+}
+
+/// `value` in a cell of a table at `level`.
+fn value_cell(value: &Value, level: usize) -> Cell {
+    let text = |text: &str| Cell::Text(vec![Inline::Text(text.to_owned())]);
+    match value {
+        Value::Map(entries) if entries.is_empty() => Cell::Text(Vec::new()),
+        Value::List(items) if items.iter().all(Value::is_scalar) => {
+            let items: Vec<&str> = items.iter().filter_map(Value::scalar).collect();
+            text(&items.join(", "))
+        }
+        Value::Map(entries) if level < Value::TABLE_LEVELS => {
+            Cell::Table(map_grid(entries, level + 1))
+        }
+        Value::List(items) if level < Value::TABLE_LEVELS => Cell::Stack(
+            (items.iter())
+                .map(|item| match item {
+                    Value::Map(entries) if !entries.is_empty() => {
+                        Cell::Table(map_grid(entries, level + 1))
+                    }
+                    item => value_cell(item, level),
+                })
+                .collect(),
+        ),
+        // Nested deeper than tables go, as code.
+        Value::Map(_) | Value::List(_) => {
+            let yaml = value.yaml();
+            let mut lines = Vec::new();
+            for (number, line) in yaml.lines().enumerate() {
+                if number > 0 {
+                    lines.push(Inline::LineBreak);
+                }
+                lines.push(Inline::Code(line.to_owned()));
+            }
+            Cell::Text(lines)
+        }
+        scalar => text(scalar.scalar().unwrap_or_default()),
     }
 }
 
@@ -1615,6 +1703,7 @@ fn plain_into(block: &Block, text: &mut String) {
     };
     match block {
         Block::Heading { content, .. } | Block::Paragraph(content) => inline(content, text),
+        Block::FrontMatter(front_matter) => text.push_str(front_matter.source.trim_end()),
         Block::CodeBlock { code, .. } => text.push_str(code.trim_end()),
         Block::Table(table) => {
             for (index, row) in std::iter::once(&table.header)
@@ -1697,6 +1786,7 @@ mod tests {
         area: 1008.0,
         row: 20.0,
         wide: Wide::Wrap,
+        front_matter: FrontMatterShown::Table,
     };
 
     const LOOK: Look = Look {
@@ -1977,6 +2067,84 @@ mod tests {
             "| Name | Kind | Count |\n|:-----|:----:|------:|\n| Fern | plant | 12 |\n| Crab | animal | 7 |\n| Moss | plant | 30 |\n\nAfter.\n\n| A | B |\n|---|---|\n| `inline code` and a [link](u) in a long cell that wraps at some point as it needs to | short |\n",
         );
         insta::assert_snapshot!(drawn(&page));
+    }
+
+    /// `markdown` laid out with its front matter shown as `shown`.
+    fn with_front_matter(markdown: &str, shown: FrontMatterShown) -> Page {
+        let document = parse(markdown);
+        let blocks: Vec<&Block> = document.blocks.iter().collect();
+        let frame = Frame {
+            front_matter: shown,
+            ..FRAME
+        };
+        lay_out(&blocks, &LOOK, &Fonts::fixture(), (&Plain, &Plain), frame)
+    }
+
+    #[test]
+    fn front_matter_is_a_table_of_its_keys_and_values_in_the_column() {
+        let source = "---\ntitle: Hello\ntags: [a, b]\nempty:\n---\n\nText.\n";
+        let page = with_front_matter(source, FrontMatterShown::Table);
+        let texts = texts(&page);
+        // The keys in a column of their own, the values in the next, a
+        // list of words in one line.
+        let key = text(&texts, "title");
+        let value = text(&texts, "Hello");
+        assert_eq!(key.1, 14.0);
+        assert!(value.1 > key.1 + key.3, "{texts:?}");
+        assert_eq!(value.2, key.2, "on one baseline");
+        assert_eq!(text(&texts, "a, b").1, value.1);
+        // The table's borders: a line over each of the three rows and one
+        // under them, within the column.
+        let lines: Vec<_> = rects(&page)
+            .into_iter()
+            .filter(|rect| rect.3 == 1.0)
+            .collect();
+        assert_eq!(lines.len(), 4, "{lines:?}");
+        assert!(lines.iter().all(|line| line.0 == 0.0 && line.2 <= 672.0));
+        // The text goes on below it.
+        assert!(text(&texts, "Text.").2 > lines[3].1);
+        assert_eq!(page.blocks[0].text, "title: Hello\ntags: [a, b]\nempty:");
+    }
+
+    #[test]
+    fn a_value_with_keys_is_a_table_inside_its_cell() {
+        let source = "---\nauthor:\n  name: Kim\n  mail: kim@example.com\n---\n";
+        let page = with_front_matter(source, FrontMatterShown::Table);
+        let texts = texts(&page);
+        let author = text(&texts, "author");
+        let name = text(&texts, "name");
+        let kim = text(&texts, "Kim");
+        // The nested table starts inside the cell of the outer one, past
+        // its border and padding, and its rows are under each other.
+        assert!(name.1 > author.1 + author.3 + 26.0, "{texts:?}");
+        assert!(kim.1 > name.1 + name.3);
+        assert!(text(&texts, "mail").2 > name.2);
+        // Two tables' borders: the outer's two and the inner's three
+        // lines across, and the same count of lines down.
+        let across = rects(&page)
+            .into_iter()
+            .filter(|rect| rect.3 == 1.0)
+            .count();
+        assert_eq!(across, 2 + 3);
+    }
+
+    #[test]
+    fn front_matter_as_code_is_a_code_block_in_its_language() {
+        let source = "---\ntitle: Hello\n---\n\nText.\n";
+        let page = with_front_matter(source, FrontMatterShown::Code);
+        let code = (page.items.iter()).any(|item| matches!(item.shape, Shape::RoundRect { .. }));
+        assert!(code);
+        assert!(rects(&page).iter().all(|rect| rect.3 != 1.0), "no table");
+        // Front matter that is not a map is code too, and an empty one is
+        // nothing.
+        let list = with_front_matter("---\n- a\n- b\n---\n", FrontMatterShown::Table);
+        assert!(
+            list.items
+                .iter()
+                .any(|item| matches!(item.shape, Shape::RoundRect { .. }))
+        );
+        let empty = with_front_matter("---\n---\n\nText.\n", FrontMatterShown::Table);
+        assert!(texts(&empty).iter().all(|text| text.0 == "Text."));
     }
 
     #[test]

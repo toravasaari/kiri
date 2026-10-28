@@ -352,7 +352,11 @@ impl Layout<'_> {
             None => (margin, width - 2 * margin),
         };
         for (index, block) in blocks.iter().enumerate() {
-            if self.reading.is_some() && page::lays_out(block) {
+            // Hidden front matter is nothing, which the page would still
+            // give a place.
+            let hidden = matches!(block, Block::FrontMatter(_))
+                && self.front_matter == FrontMatterStyle::Hide;
+            if self.reading.is_some() && page::lays_out(block) && !hidden {
                 run.push((index, block));
                 continue;
             }
@@ -414,7 +418,7 @@ impl Layout<'_> {
             (
                 self.theme,
                 &self.code_colors(),
-                self.table_rows != TableRows::Off,
+                (self.table_rows != TableRows::Off, self.front_matter),
             ),
             (self.images, self.render_errors.inline(), self.document),
             self.caps,
