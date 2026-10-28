@@ -178,8 +178,12 @@ mod tests {
     /// to scroll, with the blocks of their lines.
     fn laid_out() -> (Vec<Line>, Vec<Option<BlockInfo>>) {
         let long = "a".repeat(200);
-        let source = format!("```\n{long}\n```\n\nText.\n\n```\n{long}\n```\n");
-        let document = crate::parse::parse(&source);
+        laid_out_from(&format!("```\n{long}\n```\n\nText.\n\n```\n{long}\n```\n"))
+    }
+
+    /// `source` laid out to scroll, with the blocks of its lines.
+    fn laid_out_from(source: &str) -> (Vec<Line>, Vec<Option<BlockInfo>>) {
+        let document = crate::parse::parse(source);
         let inputs = Inputs {
             reading: Some(Reading {
                 fonts: Rc::new(Fonts::fixture()),
@@ -252,6 +256,35 @@ mod tests {
         assert!(bands.select_next(&lines, &places, all, true));
         bands.apply(&mut lines, &places);
         assert_eq!(shown(&lines), [(0, false), (0, true)]);
+    }
+
+    #[test]
+    fn two_bands_in_one_block_keep_their_own_places_across_a_layout() {
+        let long = "a".repeat(200);
+        let code = format!("```\n{long}\n```\n");
+        let quote: String = code.lines().map(|line| format!("> {line}\n")).collect();
+        for source in [
+            format!("{quote}>\n{quote}"),
+            format!(
+                "- item\n\n  {}\n  {}",
+                code.replace('\n', "\n  "),
+                code.replace('\n', "\n  ")
+            ),
+        ] {
+            let (lines, places) = laid_out_from(&source);
+            let found = reading::bands(&lines);
+            assert_eq!(found.len(), 2, "{source:?}");
+            // Both are in one block, whose place they share.
+            assert_eq!(places[found[0].lines.start], places[found[1].lines.start]);
+            let mut bands = Bands::default();
+            bands.select_at(&lines, &places, found[1].lines.start);
+            bands.scroll(&lines, &places, Step::Right);
+            bands.scroll(&lines, &places, Step::Right);
+            let (mut again, places) = laid_out_from(&source);
+            bands.apply(&mut again, &places);
+            // The second is scrolled and selected, the first neither.
+            assert_eq!(shown(&again), [(0, false), (128, true)], "{source:?}");
+        }
     }
 
     #[test]

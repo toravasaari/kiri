@@ -273,3 +273,55 @@ fn a_click_behind_the_search_prompt_does_not_select_a_band() {
         last_sent(&[right])
     );
 }
+
+/// The frames drawn for two wide code blocks, shown as text, with reading
+/// mode for `M` to turn on, when the terminal gives `keys`.
+fn text_frames(keys: &[&[u8]]) -> Vec<String> {
+    let long = "a".repeat(200);
+    let source = format!("```\n{long}\n```\n\n```\n{long}\n```\n");
+    let document = crate::parse::parse(&source);
+    let mut terminal = Fake::new(80, 10, keys);
+    let mut inputs = Inputs::new(kitty());
+    let options = Options {
+        reading: Some(reading()),
+        ..Options::new(SearchCase::Smart)
+    };
+    run_document(&document, &mut inputs, options, &mut terminal);
+    terminal.frames()
+}
+
+#[test]
+fn w_in_text_then_m_turns_reading_mode_on_with_wide_blocks_scrolling() {
+    let frames = text_frames(&[b"W", b"M"]);
+    // The text shows no images, whatever W did; M then shows the pages,
+    // with the two code blocks as bands of four rows.
+    let last = frames.last().expect("a frame");
+    assert!(!frames[0].contains("\u{10EEEE}"));
+    assert_eq!(last.matches(",r=4,").count(), 2, "{:?}", sent(last));
+}
+
+#[test]
+fn m_then_w_in_text_wraps_no_longer() {
+    let frames = text_frames(&[b"M", b"W"]);
+    // M shows the wrapped blocks in the page; W then scrolls them.
+    assert_eq!(
+        frames[1].matches(",r=4,").count(),
+        0,
+        "{:?}",
+        sent(&frames[1])
+    );
+    assert_eq!(
+        frames[2].matches(",r=4,").count(),
+        2,
+        "{:?}",
+        sent(&frames[2])
+    );
+}
+
+#[test]
+fn w_twice_in_text_then_m_wraps() {
+    let frames = text_frames(&[b"W", b"W", b"M"]);
+    let last = frames.last().expect("a frame");
+    assert!(last.contains("\u{10EEEE}"));
+    assert_eq!(last.matches(",r=4,").count(), 0);
+}
