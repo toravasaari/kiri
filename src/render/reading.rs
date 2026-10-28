@@ -24,11 +24,12 @@ use crate::images::{ImageError, ImageKey, Images, Placeholder, Source};
 use crate::model::{self, AlertKind, Block};
 use crate::reading::Fonts;
 use crate::reading::page::{
-    self, AlertLook, Frame, FrontMatterShown, Highlight, Look, Page, Picture, Pictures, Plain, Wide,
+    self, AlertLook, Frame, FrontMatterShown, Highlight, Hit, ItemRef, LinkPlace, Look, MarkColors,
+    Overlay, Page, Picture, Pictures, Plain, Wide,
 };
 use crate::reading::text::{Brush, Run};
 use crate::render::FrontMatterStyle;
-use crate::theme::Theme;
+use crate::theme::{SearchColor, Theme};
 
 /// The text's font size, as a share of the cell height: 16 pixels in rows
 /// of 20, as a browser sets text in rows of that height.
@@ -102,18 +103,179 @@ pub struct Parts {
     cell: (u16, u16),
     columns: u16,
     rows: u16,
+    /// The colours of a search's marks on it.
+    marks: MarkColors,
+}
+
+impl Parts {
+    /// The places of a search in the page's texts, from the top down:
+    /// `places` gives the byte ranges of the term in a text.
+    pub fn find(&self, places: &dyn Fn(&str) -> Vec<std::ops::Range<usize>>) -> Vec<Hit> {
+        self.page.find(places)
+    }
+
+    /// The links on the page, from the top down.
+    pub fn links(&self) -> Vec<LinkPlace> {
+        self.page.links()
+    }
+
+    /// The page's size in cells and the size of a cell, in pixels.
+    pub fn cells(&self) -> ((u16, u16), (u16, u16)) {
+        ((self.columns, self.rows), self.cell)
+    }
+
+    /// Where, from the top of the page, band `band` starts and how far
+    /// it scrolls: the pixels a hit in it is in start at its left edge.
+    pub fn band_top(&self, band: u32) -> Option<f32> {
+        self.page.bands.get(band as usize).map(|band| band.top)
+    }
+
+    /// An overlay of `marks`, each with whether it is the current one, and
+    /// the selected link, in the page's colours for them; `None` when
+    /// there is nothing to draw.
+    pub fn overlay(
+        &self,
+        marks: Vec<(ItemRef, std::ops::Range<usize>, bool)>,
+        link: Option<usize>,
+    ) -> Option<Rc<Overlay>> {
+        (!marks.is_empty() || link.is_some()).then(|| {
+            Rc::new(Overlay {
+                colors: self.marks,
+                marks,
+                link,
+            })
+        })
+    }
+}
+
+/// The colours a search's marks have in reading mode: those the theme
+/// gives a match, as the text layout lays them over its text; where the
+/// theme gives none, or there is no colour, the reverse, a box in the
+/// text's colour with the text in the page's.
+fn mark_colors(theme: &Theme, caps: &Capabilities, look: &Look) -> MarkColors {
+    let dark = caps.dark_background != Some(false);
+    let rgb_of = |color: Option<Color>| match color?.rgb_or_xterm(&caps.palette) {
+        Color::Rgb(red, green, blue) => Some([red, green, blue]),
+        Color::Palette(_) => None,
+    };
+    let page = (rgb_of(theme.background).or_else(|| rgb_of(caps.background))).unwrap_or(if dark {
+        [0; 3]
+    } else {
+        [0xff; 3]
+    });
+    let colors = |foreground, background| match (foreground, background) {
+        _ if !caps.color => (Some(page), Some(look.text)),
+        (SearchColor::Auto, SearchColor::Auto) => (Some(page), Some(look.text)),
+        (foreground, background) => {
+            let pick = |color| match color {
+                SearchColor::Color(color) => rgb_of(color),
+                SearchColor::Auto => None,
+            };
+            (pick(foreground), pick(background))
+        }
+    };
+    let search = &theme.search;
+    MarkColors {
+        found: colors(search.match_foreground, search.match_background),
+        current: colors(search.current_foreground, search.current_background),
+    }
+}
+
+/// The rows of one page of reading mode on `lines`, as the pager lays an
+/// overlay over them.
+pub struct PageRows {
+    pub lines: std::ops::Range<usize>,
+    pub parts: Rc<Parts>,
+}
+
+/// The pages on `lines`, in order, each the rows that share one page.
+pub fn pages(lines: &[Line]) -> Vec<PageRows> {
+    let mut pages: Vec<PageRows> = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        let Some(ImageRow {
+            page: Some(parts), ..
+        }) = &line.image
+        else {
+            continue;
+        };
+        match pages.last_mut() {
+            Some(last) if Rc::ptr_eq(&last.parts, parts) && last.lines.end == index => {
+                last.lines.end = index + 1;
+            }
+            _ => pages.push(PageRows {
+                lines: index..index + 1,
+                parts: Rc::clone(parts),
+            }),
+        }
+    }
+    pages
+}
+
+/// Draws `overlay` over the rows `lines` of a page, or nothing over them
+/// when it is `None`: their keys name it by a hash, so that what was
+/// drawn without it, or with another, is not what is shown.
+pub fn set_overlay(lines: &mut [Line], overlay: Option<&Rc<Overlay>>) {
+    let hash = overlay.map_or(0, |overlay| {
+        let mut hasher = DefaultHasher::new();
+        format!("{overlay:?}").hash(&mut hasher);
+        hasher.finish().max(1)
+    });
+    for line in lines {
+        let Some(image) = &mut line.image else {
+            continue;
+        };
+        let key = match image.placement.key {
+            ImageKey::Page {
+                document,
+                page,
+                slice,
+                ..
+            } => ImageKey::Page {
+                document,
+                page,
+                slice,
+                overlay: hash,
+            },
+            ImageKey::Band {
+                document,
+                page,
+                band,
+                slice,
+                offset,
+                selected,
+                ..
+            } => ImageKey::Band {
+                document,
+                page,
+                band,
+                slice,
+                offset,
+                selected,
+                overlay: hash,
+            },
+            _ => continue,
+        };
+        if key != image.placement.key {
+            image.placement = Rc::new(Placement {
+                key,
+                ..(*image.placement).clone()
+            });
+        }
+        image.overlay = overlay.cloned();
+    }
 }
 
 impl Parts {
     /// The pixels of part `part`.
-    pub fn draw(&self, part: u32) -> RgbaImage {
+    pub fn draw(&self, part: u32, overlay: Option<&Overlay>) -> RgbaImage {
         let (width, height) = (u32::from(self.cell.0), u32::from(self.cell.1));
         let first = part * u32::from(PART_ROWS);
         let rows = (u32::from(self.rows) - first).min(u32::from(PART_ROWS));
-        (self.page).draw(
+        (self.page).draw_with(
             first * height,
             u32::from(self.columns) * width,
             rows * height,
+            overlay,
         )
     }
 }
@@ -121,12 +283,19 @@ impl Parts {
 impl Parts {
     /// The pixels of the rows of slice `slice` of band `band`, scrolled
     /// `offset` pixels, `selected` or not, as wide as the page.
-    pub fn draw_band(&self, band: u32, slice: u32, offset: u32, selected: bool) -> RgbaImage {
+    pub fn draw_band(
+        &self,
+        band: u32,
+        slice: u32,
+        offset: u32,
+        selected: bool,
+        overlay: Option<&Overlay>,
+    ) -> RgbaImage {
         let cell = f32::from(self.cell.1);
         let total = (self.page.bands.get(band as usize)).map_or(0.0, |band| band.height);
         let from = (slice * u32::from(PART_ROWS)) as f32 * cell;
         let to = (from + f32::from(PART_ROWS) * cell).min(total);
-        (self.page).draw_band(band as usize, offset as f32, selected, from..to)
+        (self.page).draw_band_with(band as usize, offset as f32, selected, from..to, overlay)
     }
 
     /// The furthest band `band` scrolls, in pixels.
@@ -234,6 +403,7 @@ pub fn lines(
         cell,
         columns,
         rows,
+        marks: mark_colors(theme, caps, &look),
     });
     let lead = Span::new(&" ".repeat(usize::from(left)), Style::default());
     let mut lines = Vec::with_capacity(usize::from(rows));
@@ -267,6 +437,7 @@ pub fn lines(
                     slice: u32::from(slice),
                     offset: 0,
                     selected: false,
+                    overlay: 0,
                 };
                 (key, size(slice_rows), into % PART_ROWS)
             }
@@ -277,6 +448,7 @@ pub fn lines(
                     document,
                     page: parts.id,
                     slice: u32::from(part),
+                    overlay: 0,
                 };
                 (key, size(part_rows), row % PART_ROWS)
             }
@@ -306,6 +478,7 @@ pub fn lines(
                 columns: 0..columns,
                 text: starts.map(|placed| placed.text.clone()),
                 page: Some(Rc::clone(&parts)),
+                overlay: None,
             }),
             block: block.map(|(_, id)| *id),
             ..Line::blank()
@@ -533,6 +706,7 @@ pub fn set_band(lines: &mut [Line], offset: u32, selected: bool) {
             page,
             band,
             slice,
+            overlay,
             ..
         } = image.placement.key
         {
@@ -544,6 +718,7 @@ pub fn set_band(lines: &mut [Line], offset: u32, selected: bool) {
                     slice,
                     offset,
                     selected,
+                    overlay,
                 },
                 ..(*image.placement).clone()
             });
@@ -782,7 +957,7 @@ mod tests {
                 continue;
             }
             let parts = row.page.as_ref().expect("a page");
-            let image = parts.draw_band(band, slice, 0, false);
+            let image = parts.draw_band(band, slice, 0, false, None);
             let size = row.placement.size;
             assert_eq!((image.width(), image.height()), (size.width, size.height));
         }
@@ -807,7 +982,7 @@ mod tests {
     /// The first part's pixels of the page that `lines` show.
     fn first_part(lines: &[Line]) -> RgbaImage {
         let row = lines[0].image.as_ref().expect("a page's row");
-        row.page.as_ref().expect("a page").draw(0)
+        row.page.as_ref().expect("a page").draw(0, None)
     }
 
     fn page_id(lines: &[Line]) -> u64 {
@@ -919,6 +1094,49 @@ mod tests {
         // edge was, as the text sets it; a fraction's depth is a fifth of
         // its image or more.
         assert!(formula >= image + 3, "{formula} against {image}");
+    }
+
+    #[test]
+    fn an_overlay_changes_the_key_of_the_rows_it_is_drawn_on_and_what_is_drawn() {
+        let mut lines = layout::layout(
+            &parse("A word here.\n\nAnother word.\n"),
+            &inputs(kitty(80)),
+        );
+        let pages = pages(&lines);
+        let [page] = &pages[..] else {
+            panic!("one page");
+        };
+        let parts = Rc::clone(&page.parts);
+        let hits = parts.find(&|text: &str| {
+            text.match_indices("word")
+                .map(|(at, found)| at..at + found.len())
+                .collect()
+        });
+        assert_eq!(hits.len(), 2);
+        let marks = vec![(hits[0].item, hits[0].range.clone(), true)];
+        let overlay = parts.overlay(marks, None).expect("an overlay");
+        let key = |lines: &[Line]| lines[0].image.as_ref().unwrap().placement.key.clone();
+        let before = key(&lines);
+        set_overlay(&mut lines[page.lines.clone()], Some(&overlay));
+        assert_ne!(key(&lines), before);
+        // The same overlay is the same key, and none is the key it was.
+        let marked = key(&lines);
+        set_overlay(&mut lines, Some(&overlay));
+        assert_eq!(key(&lines), marked);
+        set_overlay(&mut lines, None);
+        assert_eq!(key(&lines), before);
+        assert!(parts.overlay(Vec::new(), None).is_none());
+        // The default theme gives a match no colours, so it is the reverse:
+        // a box in the text's colour, with the text in the page's.
+        let plain = parts.draw(0, None);
+        let drawn = parts.draw(0, Some(&overlay));
+        assert_ne!(plain, drawn);
+        let text = look(&Theme::default(), &CodeColors::default(), true, &kitty(80)).text;
+        let boxed = drawn
+            .pixels()
+            .filter(|pixel| pixel.0[..3] == text && pixel.0[3] == 255)
+            .count();
+        assert!(boxed > 200, "{boxed}");
     }
 
     #[test]

@@ -328,15 +328,15 @@ pub struct LinkPlace {
 
 /// The colours of a search's marks: foreground and background of a match,
 /// and of the current one.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MarkColors {
-    pub found: (Brush, Brush),
-    pub current: (Brush, Brush),
+    pub found: (Option<Brush>, Option<Brush>),
+    pub current: (Option<Brush>, Option<Brush>),
 }
 
 /// What is drawn over a page: the places of a search, one of them the
 /// current, and the selected link, as its number among the page's links.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Overlay {
     pub colors: MarkColors,
     pub marks: Vec<(ItemRef, Range<usize>, bool)>,
@@ -2644,8 +2644,8 @@ mod tests {
     }
 
     const MARKS: MarkColors = MarkColors {
-        found: ([0x10, 0x10, 0x10], [0xe0, 0xe0, 0x00]),
-        current: ([0xff, 0xff, 0xff], [0xd0, 0x40, 0x00]),
+        found: (Some([0x10, 0x10, 0x10]), Some([0xe0, 0xe0, 0x00])),
+        current: (Some([0xff, 0xff, 0xff]), Some([0xd0, 0x40, 0x00])),
     };
 
     #[test]

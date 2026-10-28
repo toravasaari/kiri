@@ -26,13 +26,14 @@ const CHIP_HEIGHT: f32 = 1.25;
 const CHIP_PAD: f32 = 0.12;
 const CHIP_RADIUS: f32 = 0.25;
 
-/// A place in a text drawn over: a box in `background`, with the text in
-/// it drawn again in `foreground`.
+/// A place in a text drawn over: a box in `background`, if it has one,
+/// with the text in it drawn again in `foreground`, or in its own colours
+/// when there is none.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextMark {
     pub range: std::ops::Range<usize>,
-    pub foreground: Brush,
-    pub background: Brush,
+    pub foreground: Option<Brush>,
+    pub background: Option<Brush>,
 }
 
 /// A picture being drawn, transparent where nothing is.
@@ -110,7 +111,9 @@ impl Canvas {
             };
             let (left, top) = (x + part.left, y + line.top);
             let (width, height) = (part.right - part.left, line.height);
-            self.rect(left, top, width, height, mark.background);
+            if let Some(background) = mark.background {
+                self.rect(left, top, width, height, background);
+            }
             if let Some(rect) = Rect::from_xywh(left, top, width, height) {
                 mask.fill_path(
                     &PathBuilder::from_rect(rect),
@@ -128,7 +131,7 @@ impl Canvas {
         paragraph: &Paragraph,
         x: f32,
         y: f32,
-        over: Option<(Brush, &tiny_skia::Mask)>,
+        over: Option<(Option<Brush>, &tiny_skia::Mask)>,
     ) {
         self.glyphs_over(paragraph, x, y, over);
     }
@@ -140,7 +143,7 @@ impl Canvas {
         paragraph: &Paragraph,
         x: f32,
         y: f32,
-        over: Option<(Brush, &tiny_skia::Mask)>,
+        over: Option<(Option<Brush>, &tiny_skia::Mask)>,
     ) {
         // Lines that do not reach the canvas are left out, with a font
         // size of room for what reaches past their boxes.
@@ -175,7 +178,9 @@ impl Canvas {
                 // An italic the font has no face for is slanted.
                 let skew =
                     (run.synthesis().skew()).map_or(0.0, |degrees| degrees.to_radians().tan());
-                let color = over.map_or(glyphs.style().brush, |(color, _)| color);
+                let color = over
+                    .and_then(|(color, _)| color)
+                    .unwrap_or(glyphs.style().brush);
                 let mut path = PathBuilder::new();
                 let outlines = face.outline_glyphs();
                 let size = Size::new(run.font_size());
@@ -582,8 +587,8 @@ mod tests {
         };
         let mark = TextMark {
             range: 3..5,
-            foreground: [0, 200, 0],
-            background: [200, 0, 200],
+            foreground: Some([0, 200, 0]),
+            background: Some([200, 0, 200]),
         };
         let mut canvas = Canvas::new(120, 40);
         canvas.text_marked(&paragraph, 4.0, 5.0, None, &[mark]);

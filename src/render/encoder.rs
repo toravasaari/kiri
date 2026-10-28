@@ -21,6 +21,7 @@ use super::style::Line;
 use crate::caps::Capabilities;
 use crate::images::{ImageKey, Images, Placeholder, Source};
 use crate::kitty::graphics::{self, ImageId};
+use crate::reading::page::Overlay;
 
 /// The images the terminal holds, by where and how large they are shown.
 /// One encoder can serve one layout after another, as the pager's does,
@@ -46,6 +47,8 @@ pub struct Encoder {
     /// The pages of reading mode whose parts lines show, by their id,
     /// which draw a part when it is sent.
     pages: HashMap<u64, Rc<Parts>>,
+    /// What is drawn over parts of those pages, by the hash in their keys.
+    overlays: HashMap<u64, Rc<Overlay>>,
 }
 
 /// An image the terminal holds.
@@ -84,7 +87,13 @@ impl Encoder {
         if let Some(held) = old.filter(|held| held.checked && held.sent) {
             return Ok(held.id);
         }
-        let scaled = Scaled::new(placement, images, &self.pages, cell, caps.image_run)?;
+        let scaled = Scaled::new(
+            placement,
+            images,
+            (&self.pages, &self.overlays),
+            cell,
+            caps.image_run,
+        )?;
         let held = Held {
             id: scaled.id,
             cell,
@@ -112,9 +121,18 @@ impl Encoder {
 
     /// Takes `parts` as the page that draws the parts of reading mode's
     /// text that `key` names, for [`Encoder::id`] to send.
-    pub fn page(&mut self, key: &ImageKey, parts: &Rc<Parts>) {
+    pub fn page(&mut self, key: &ImageKey, parts: &Rc<Parts>, overlay: Option<&Rc<Overlay>>) {
         if let ImageKey::Page { page, .. } | ImageKey::Band { page, .. } = key {
             self.pages.entry(*page).or_insert_with(|| Rc::clone(parts));
+        }
+        if let (
+            ImageKey::Page { overlay: hash, .. } | ImageKey::Band { overlay: hash, .. },
+            Some(overlay),
+        ) = (key, overlay)
+        {
+            self.overlays
+                .entry(*hash)
+                .or_insert_with(|| Rc::clone(overlay));
         }
     }
 
@@ -247,7 +265,14 @@ impl Encoder {
         // Pixels that are gone, or that changed since, are no longer the
         // image's: the next frame sends what it shows.
         let scaled = placement.and_then(|placement| {
-            Scaled::new(&placement, images, &self.pages, cell, caps.image_run).ok()
+            Scaled::new(
+                &placement,
+                images,
+                (&self.pages, &self.overlays),
+                cell,
+                caps.image_run,
+            )
+            .ok()
         });
         let Some(scaled) = scaled.filter(|scaled| scaled.id == id) else {
             return Ok(());
@@ -310,28 +335,43 @@ struct Scaled {
     cells: graphics::Cells,
 }
 
+/// The pages of reading mode, by their id, and what is drawn over parts of
+/// them, by the hash in their keys.
+type Pages = HashMap<u64, Rc<Parts>>;
+type Overlays = HashMap<u64, Rc<Overlay>>;
+
 impl Scaled {
     /// The image `placement` shows, from `images`, scaled to its size in
     /// cells of `cell` pixels, with an id of `run`'s own when given.
     fn new(
         placement: &Placement,
         images: &Images,
-        pages: &HashMap<u64, Rc<Parts>>,
+        (pages, overlays): (&Pages, &Overlays),
         cell: (u16, u16),
         run: Option<u64>,
     ) -> io::Result<Self> {
         let key = &placement.key;
         let size = placement.size;
         let drawn = match *key {
-            ImageKey::Page { page, slice, .. } => pages.get(&page).map(|parts| parts.draw(slice)),
+            ImageKey::Page {
+                page,
+                slice,
+                overlay,
+                ..
+            } => (pages.get(&page))
+                .map(|parts| parts.draw(slice, overlays.get(&overlay).map(Rc::as_ref))),
             ImageKey::Band {
                 page,
                 band,
                 slice,
                 offset,
                 selected,
+                overlay,
                 ..
-            } => (pages.get(&page)).map(|parts| parts.draw_band(band, slice, offset, selected)),
+            } => (pages.get(&page)).map(|parts| {
+                let over = overlays.get(&overlay).map(Rc::as_ref);
+                parts.draw_band(band, slice, offset, selected, over)
+            }),
             _ => None,
         };
         let pixels = match (placement.shows, images.get(key), images.placeholder(key)) {
@@ -446,14 +486,23 @@ mod tests {
         let dimmed = Scaled::new(
             &placed("a.png", 2, 1, Shows::Placeholder),
             &images,
-            &HashMap::new(),
+            (&HashMap::new(), &HashMap::new()),
             (10, 20),
             None,
         );
         assert_eq!(dimmed.unwrap().pixels.get_pixel(5, 5).0, [255, 0, 0, 120]);
         // Nothing to show as the image itself.
         let image = placed("a.png", 2, 1, Shows::Image);
-        assert!(Scaled::new(&image, &images, &HashMap::new(), (10, 20), None).is_err());
+        assert!(
+            Scaled::new(
+                &image,
+                &images,
+                (&HashMap::new(), &HashMap::new()),
+                (10, 20),
+                None
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -633,7 +682,14 @@ mod tests {
             (Encoder::new().id(&placement, &images, &caps, &mut Vec::new())).unwrap()
         };
         // As on every run without one.
-        let scaled = Scaled::new(&placement, &images, &HashMap::new(), (10, 20), None).unwrap();
+        let scaled = Scaled::new(
+            &placement,
+            &images,
+            (&HashMap::new(), &HashMap::new()),
+            (10, 20),
+            None,
+        )
+        .unwrap();
         let (width, height) = scaled.pixels.dimensions();
         let stable = ImageId::new(scaled.pixels.as_raw(), width, height, scaled.cells, None);
         assert_eq!(id(None), stable);

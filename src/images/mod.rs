@@ -184,6 +184,9 @@ pub enum ImageKey {
         document: usize,
         page: u64,
         slice: u32,
+        /// A hash of what is drawn over the part, such as a search's
+        /// marks; 0 for nothing.
+        overlay: u64,
     },
     /// A band of a page of reading mode, a code block or table that
     /// scrolls sideways, drawn when it is shown: the page, the band's
@@ -197,6 +200,8 @@ pub enum ImageKey {
         slice: u32,
         offset: u32,
         selected: bool,
+        /// As for a part of a page.
+        overlay: u64,
     },
 }
 
@@ -248,10 +253,16 @@ impl ImageKey {
                 words,
                 cell,
             },
-            ImageKey::Page { page, slice, .. } => ImageKey::Page {
+            ImageKey::Page {
+                page,
+                slice,
+                overlay,
+                ..
+            } => ImageKey::Page {
                 document,
                 page,
                 slice,
+                overlay,
             },
             ImageKey::Band {
                 page,
@@ -259,6 +270,7 @@ impl ImageKey {
                 slice,
                 offset,
                 selected,
+                overlay,
                 ..
             } => ImageKey::Band {
                 document,
@@ -267,6 +279,7 @@ impl ImageKey {
                 slice,
                 offset,
                 selected,
+                overlay,
             },
         }
     }

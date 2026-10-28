@@ -170,10 +170,11 @@ impl<'a> Writer<'a> {
                 background,
                 columns,
                 page,
+                overlay,
                 ..
             }) => {
                 if let Some(page) = page {
-                    (self.encoder).page(&placement.key, page);
+                    (self.encoder).page(&placement.key, page, overlay.as_ref());
                 }
                 let id = (self.encoder).id(placement, self.images, caps, out)?;
                 Some((id, *row, columns.clone(), *background))

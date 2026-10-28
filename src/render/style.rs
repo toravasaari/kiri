@@ -3,6 +3,8 @@
 use std::ops::Range;
 use std::rc::Rc;
 
+use crate::reading::page::Overlay;
+
 use super::block::BlockId;
 use super::image::Placement;
 use super::reading::Parts;
@@ -108,6 +110,9 @@ pub struct ImageRow {
     /// The page of reading mode that the image is a part of, which draws
     /// it; `None` for an image from `Images`.
     pub page: Option<Rc<Parts>>,
+    /// What is drawn over the part of the page, such as a search's marks,
+    /// when the key says so.
+    pub overlay: Option<Rc<Overlay>>,
 }
 
 /// The band that tells that a block's image is loading, which a line
@@ -179,6 +184,7 @@ impl Line {
                 columns,
                 text: None,
                 page: None,
+                overlay: None,
             }),
             ..Self::blank()
         }
