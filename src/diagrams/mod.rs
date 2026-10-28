@@ -272,6 +272,17 @@ impl BuiltIn {
     }
 }
 
+/// How far below its baseline the diagram `source` in `language` reaches,
+/// as a fraction of its image's height, when it has a baseline: the
+/// inline formula that [`INLINE_FORMULA`] names.
+pub fn baseline_depth(language: &str, source: &str) -> Option<f64> {
+    (BuiltIn::of(language)?.baseline)(source)
+}
+
+/// The language of a formula in the middle of text, drawn in text style
+/// at the size of the text around it.
+pub const INLINE_FORMULA: &str = "math-inline";
+
 impl Renderer for BuiltIn {
     fn draws(&self, language: &str) -> bool {
         Self::of(language).is_some()

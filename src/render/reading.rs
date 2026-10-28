@@ -19,6 +19,7 @@ use super::loading;
 use super::style::{Band, ImageRow, Line, Span, Style};
 use crate::caps::Capabilities;
 use crate::color::Color;
+use crate::diagrams::INLINE_FORMULA;
 use crate::images::{ImageError, ImageKey, Images, Placeholder, Source};
 use crate::model::{self, Block};
 use crate::reading::Fonts;
@@ -399,10 +400,36 @@ fn ready(pixels: RgbaImage, loading: Option<usize>) -> Picture {
         pixels: Rc::new(pixels),
         id: hasher.finish(),
         loading,
+        depth: 0.0,
     }
 }
 
 impl Pictures for Gallery<'_> {
+    fn formula(&self, source: &str, room: (f32, f32)) -> Picture {
+        let key = ImageKey::block(INLINE_FORMULA, source).in_document(self.document);
+        let picture = self.picture(key, Wanted::default(), room, Some(INLINE_FORMULA));
+        match picture {
+            Picture::Ready {
+                pixels,
+                id,
+                loading,
+                ..
+            } => {
+                // The renderer tells how much of the image is below the
+                // formula's baseline.
+                let below = crate::diagrams::baseline_depth(INLINE_FORMULA, source);
+                let depth = below.map_or(0.0, |below| below as f32 * pixels.height() as f32);
+                Picture::Ready {
+                    pixels,
+                    id,
+                    loading,
+                    depth,
+                }
+            }
+            other => other,
+        }
+    }
+
     fn image(&self, shown: &model::Image, room: (f32, f32)) -> Picture {
         let key = ImageKey::from(shown.url.as_str()).in_document(self.document);
         let wanted = Wanted {
@@ -826,7 +853,7 @@ mod tests {
     fn a_formula_in_the_middle_of_text_is_a_box_in_its_line() {
         let mut inputs = inputs(kitty(80));
         inputs.images.insert(
-            ImageKey::block("math", "x^2\n"),
+            ImageKey::block("math-inline", "x^2\n"),
             Ok(raster(20, 10, [0, 255, 0])),
         );
         let lines = layout::layout(&parse("Let $x^2$ be one.\n"), &inputs);
@@ -839,6 +866,32 @@ mod tests {
         let lines = layout::layout(&parse("Let $x^2$ be one.\n"), &self::inputs(kitty(80)));
         let row = lines[0].image.as_ref().expect("a page's row");
         assert_eq!(row.text.as_deref(), Some("Let $x^2$ be one."));
+    }
+
+    #[test]
+    fn a_formula_s_baseline_is_the_text_s_and_an_image_s_is_its_bottom_edge() {
+        // The lowest row of a picture 20 pixels high in a line of text:
+        // an image sits on the baseline, a formula with something below its
+        // own baseline reaches below it.
+        let lowest = |source: &str, key: ImageKey| {
+            let mut inputs = inputs(kitty(80));
+            inputs.images.insert(key, Ok(raster(20, 20, [0, 255, 0])));
+            let lines = layout::layout(&parse(source), &inputs);
+            let part = first_part(&lines);
+            (0..part.height())
+                .rev()
+                .find(|&y| (0..part.width()).any(|x| part.get_pixel(x, y).0 == [0, 255, 0, 255]))
+                .expect("the picture is drawn")
+        };
+        let image = lowest("A ![a](a.png) b.\n", ImageKey::from("a.png"));
+        let formula = lowest(
+            "A $\\frac{a}{b}$ b.\n",
+            ImageKey::block("math-inline", "\\frac{a}{b}\n"),
+        );
+        // The line's baseline is a little higher than the image's bottom
+        // edge was, as the text sets it; a fraction's depth is a fifth of
+        // its image or more.
+        assert!(formula >= image + 3, "{formula} against {image}");
     }
 
     #[test]

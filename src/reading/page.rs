@@ -13,7 +13,6 @@ use super::fonts::Fonts;
 use super::paint::Canvas;
 use super::text::{self, Brush, InlinePicture, Paragraph, Run};
 use crate::model::{Alignment, Block, Image, Inline, List, Table};
-use crate::parse::FORMULA;
 
 /// The size of each heading level, `h1` first, in font sizes of the text,
 /// and the line height of headings.
@@ -106,6 +105,9 @@ pub enum Picture {
         pixels: Rc<RgbaImage>,
         id: u64,
         loading: Option<usize>,
+        /// How many of its pixels are below the baseline it stands on in
+        /// a line of text; none unless it is a formula in one.
+        depth: f32,
     },
     /// Not here yet: room for it, and a tag for the pictures to find it
     /// by.
@@ -123,6 +125,10 @@ pub trait Pictures {
     /// The code block `code` in `language`, when it is drawn as a diagram
     /// or formula.
     fn diagram(&self, language: &str, code: &str, room: (f32, f32)) -> Picture;
+    /// The formula `source` in the middle of text, as the text around it
+    /// is: in text style, at the size of the text. Its `depth` is how far
+    /// it reaches below its baseline.
+    fn formula(&self, source: &str, room: (f32, f32)) -> Picture;
 }
 
 /// Code in the plain colour of code.
@@ -134,6 +140,10 @@ impl Pictures for Plain {
     }
 
     fn diagram(&self, _: &str, _: &str, _: (f32, f32)) -> Picture {
+        Picture::None
+    }
+
+    fn formula(&self, _: &str, _: (f32, f32)) -> Picture {
         Picture::None
     }
 }
@@ -695,6 +705,7 @@ impl<'a> Flow<'a> {
                 pixels,
                 id,
                 loading,
+                ..
             } => {
                 self.ids.push(id);
                 let height = pixels.height() as f32;
@@ -1291,7 +1302,11 @@ fn collect(content: &[Inline], style: &Run, (look, ink): (&Look, Ink), runs: &mu
                 // its alt text does.
                 match ink.pictures.image(image, (ink.room, f32::MAX)) {
                     Picture::Ready { pixels, id, .. } => {
-                        runs.push(Run::picture(InlinePicture { pixels, id }));
+                        runs.push(Run::picture(InlinePicture {
+                            pixels,
+                            id,
+                            depth: 0.0,
+                        }));
                     }
                     _ => collect(&image.alt, style, (look, ink), runs),
                 }
@@ -1303,9 +1318,11 @@ fn collect(content: &[Inline], style: &Run, (look, ink): (&Look, Ink), runs: &mu
                 // The picture of the formula stands in the line, as an
                 // image does; without it the source does, as written.
                 let code = format!("{source}\n");
-                match ink.pictures.diagram(FORMULA, &code, (ink.room, f32::MAX)) {
-                    Picture::Ready { pixels, id, .. } => {
-                        runs.push(Run::picture(InlinePicture { pixels, id }));
+                match ink.pictures.formula(&code, (ink.room, f32::MAX)) {
+                    Picture::Ready {
+                        pixels, id, depth, ..
+                    } => {
+                        runs.push(Run::picture(InlinePicture { pixels, id, depth }));
                     }
                     _ => collect(written, style, (look, ink), runs),
                 }
@@ -1992,6 +2009,7 @@ mod tests {
     struct Given {
         image: fn(&Image) -> Picture,
         diagram: fn(&str) -> Picture,
+        formula: fn() -> Picture,
     }
 
     impl Pictures for Given {
@@ -2001,6 +2019,10 @@ mod tests {
 
         fn diagram(&self, language: &str, _: &str, _: (f32, f32)) -> Picture {
             (self.diagram)(language)
+        }
+
+        fn formula(&self, _: &str, _: (f32, f32)) -> Picture {
+            (self.formula)()
         }
     }
 
@@ -2015,6 +2037,7 @@ mod tests {
             pixels: Rc::new(pixels),
             id,
             loading: None,
+            depth: 0.0,
         }
     }
 
@@ -2027,6 +2050,7 @@ mod tests {
     const NOTHING: Given = Given {
         image: |_| Picture::None,
         diagram: |_| Picture::None,
+        formula: || Picture::None,
     };
 
     /// The pictures on `page`: left edge, top and size.
@@ -2104,6 +2128,7 @@ mod tests {
                     pixels,
                     id,
                     loading: Some(5),
+                    depth: 0.0,
                 },
                 other => other,
             },
@@ -2195,10 +2220,7 @@ mod tests {
     #[test]
     fn a_formula_in_a_paragraph_stands_in_its_line_or_is_its_source() {
         let given = Given {
-            diagram: |language| match language {
-                "math" => solid(30, 20, [0, 0, 255], 21),
-                _ => Picture::None,
-            },
+            formula: || solid(30, 20, [0, 0, 255], 21),
             ..NOTHING
         };
         let markdown = "Let $x^2$ be, and cost $5 and $6.\n";

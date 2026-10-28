@@ -22,7 +22,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::diagrams::{FormulaColors, NoRenderer, Renderer, Request, Theme};
+use crate::diagrams::{FormulaColors, INLINE_FORMULA, NoRenderer, Renderer, Request, Theme};
 use crate::model::{Block, Document, Inline};
 
 #[cfg(test)]
@@ -861,9 +861,9 @@ fn inline_images<'a>(content: &'a [Inline], renderer: &dyn Renderer, wanted: &mu
     for inline in content {
         match inline {
             Inline::Image(image) => wanted.push(Wanted::Url(&image.url)),
-            Inline::Formula { source, .. } if renderer.draws(crate::parse::FORMULA) => {
+            Inline::Formula { source, .. } if renderer.draws(INLINE_FORMULA) => {
                 wanted.push(Wanted::Diagram {
-                    language: crate::parse::FORMULA,
+                    language: INLINE_FORMULA,
                     source: Cow::Owned(format!("{source}\n")),
                     line: 0,
                 });
@@ -1287,7 +1287,7 @@ Text ![a](a.png) and *![b](b.png)* in a paragraph.
         struct Math;
         impl Renderer for Math {
             fn draws(&self, language: &str) -> bool {
-                language == "math"
+                language == INLINE_FORMULA || language == "math"
             }
 
             fn render(&self, _: &Request) -> Result<Drawn, String> {
@@ -1322,9 +1322,10 @@ x^2
                 .collect();
             keys
         };
-        // The block with the same source is the same picture.
+        // A formula in the text is drawn in its own style, so it is not
+        // the picture of the block with the same source.
         assert_eq!(keys(false, &Math).len(), 1);
-        assert_eq!(keys(true, &Math).len(), 3);
+        assert_eq!(keys(true, &Math).len(), 4);
         assert!(keys(true, &NoRenderer).is_empty());
     }
 

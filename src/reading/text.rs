@@ -83,6 +83,10 @@ pub enum Align {
 pub struct InlinePicture {
     pub pixels: Rc<RgbaImage>,
     pub id: u64,
+    /// How many pixels of it are below the baseline it sits on in its
+    /// line: none for an image, which sits on its bottom edge; some for a
+    /// formula, whose baseline is a letter's.
+    pub depth: f32,
 }
 
 impl PartialEq for InlinePicture {
@@ -202,7 +206,7 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
                 index: at,
                 width: picture.pixels.width() as f32,
                 height: picture.pixels.height() as f32,
-                baseline: None,
+                baseline: Some(picture.pixels.height() as f32 - picture.depth),
                 vertical_align: VerticalAlign::BASELINE,
             });
         }
@@ -447,6 +451,7 @@ mod tests {
                 image::Rgba([255, 0, 0, 255]),
             )),
             id,
+            depth: 0.0,
         })
     }
 
@@ -482,6 +487,34 @@ mod tests {
         );
         assert!(line.height >= 40.0, "{line:?}");
         assert_eq!(laid.text(), "Before  after");
+    }
+
+    #[test]
+    fn a_picture_with_a_depth_reaches_below_the_baseline_and_the_line_grows_there() {
+        let formula = Run::picture(InlinePicture {
+            depth: 14.0,
+            ..match picture(20, 40, 1).picture {
+                Some(picture) => picture,
+                None => unreachable!("a picture"),
+            }
+        });
+        let runs = [Run::new("Before "), formula, Run::new(" after")];
+        let laid = paragraph(&runs, 600.0);
+        let [(_, _, top, _, height)] = boxes(&laid)[..] else {
+            panic!("one box: {:?}", boxes(&laid));
+        };
+        let [line] = laid.lines()[..] else {
+            panic!("one line");
+        };
+        // Its baseline, 26 pixels from its top, is the line's.
+        assert!((top + 26.0 - line.baseline).abs() < 0.01, "{top} {line:?}");
+        assert!(
+            (top + height - line.baseline - 14.0).abs() < 0.01,
+            "{top} {line:?}"
+        );
+        // The line is as tall as the formula needs on both sides, not
+        // taller than the formula and the text's usual room below it.
+        assert!(line.height >= 40.0 && line.height < 40.0 + 14.0, "{line:?}");
     }
 
     #[test]

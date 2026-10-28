@@ -504,6 +504,7 @@ mod tests {
         let red = Run::picture(crate::reading::text::InlinePicture {
             pixels: Rc::new(red(10, 10, 255)),
             id: 1,
+            depth: 0.0,
         });
         let paragraph = lay_out(&Fonts::fixture(), &[Run::new("Ab "), red], &LOOK, 400.0);
         let mut canvas = Canvas::new(120, 40);

@@ -23,7 +23,18 @@ pub(super) const MATH: Language = Language {
     chosen_page: None,
     first_line: language::first_line,
     dark_background: None,
-    built_in: Some(BuiltInRenderer { version, render }),
+    built_in: Some(BuiltInRenderer {
+        version,
+        render,
+        baseline,
+    }),
+};
+
+/// A formula in the middle of text.
+pub(super) const MATH_INLINE: Language = Language {
+    name: super::INLINE_FORMULA,
+    centred: false,
+    ..MATH
 };
 
 /// RaTeX's version. Cargo tells a crate only its own version, so a test
@@ -32,8 +43,12 @@ const RATEX_VERSION: &str = "0.1.15";
 
 /// How large a formula block's letters are, in CSS pixels to the em:
 /// KaTeX's 1.21 em of a browser's body text, 16 CSS pixels, as GitHub
-/// draws a formula block. An inline formula will have a size of its own.
+/// draws a formula block.
 const BLOCK_FONT_SIZE: f64 = 16.0 * 1.21;
+
+/// How large an inline formula's letters are: those of the text around
+/// it, which is 16 CSS pixels to the em.
+const INLINE_FONT_SIZE: f64 = 16.0;
 
 /// The room around a formula, in CSS pixels, so that the edges of its
 /// letters are not cut off.
@@ -41,6 +56,18 @@ const PADDING: f64 = 2.0;
 
 /// RaTeX gives an SVG's size in points, which are 4/3 of a CSS pixel.
 const POINTS_PER_CSS_PIXEL: f64 = 0.75;
+
+/// The fraction of a formula's image, from its bottom, that is below its
+/// baseline.
+fn baseline(source: &str) -> Option<f64> {
+    let nodes = ratex_parser::parse(source).ok()?;
+    let options = LayoutOptions::default().with_style(MathStyle::Text);
+    let tree = layout(&nodes, &options);
+    validate_layout(&tree).ok()?;
+    let list = to_display_list(&tree);
+    let (em, pad) = (INLINE_FONT_SIZE, PADDING);
+    Some((list.depth * em + pad) / ((list.height + list.depth) * em + 2.0 * pad))
+}
 
 /// RaTeX's version.
 fn version() -> String {
@@ -58,15 +85,21 @@ fn render(request: &Request) -> Result<Drawn, String> {
         Theme::Light => [0x00, 0x00, 0x00],
     });
     let channel = |value: u8| f32::from(value) / 255.0;
+    // A formula in the middle of text is in text style at the size of the
+    // text; one of its own is larger, in display style.
+    let (style, size) = match request.language == super::INLINE_FORMULA {
+        true => (MathStyle::Text, INLINE_FONT_SIZE),
+        false => (MathStyle::Display, BLOCK_FONT_SIZE),
+    };
     let options = (LayoutOptions::default())
-        .with_style(MathStyle::Display)
+        .with_style(style)
         .with_color(Color::rgb(channel(red), channel(green), channel(blue)));
     let tree = layout(&nodes, &options);
     validate_layout(&tree)?;
     let svg = render_to_svg(
         &to_display_list(&tree),
         &SvgOptions {
-            font_size: BLOCK_FONT_SIZE * POINTS_PER_CSS_PIXEL,
+            font_size: size * POINTS_PER_CSS_PIXEL,
             padding: PADDING * POINTS_PER_CSS_PIXEL,
             embed_glyphs: true,
             ..SvgOptions::default()
@@ -162,6 +195,45 @@ mod tests {
         let image = decode(svg.as_bytes(), DEFAULT_MAX_FILE_SIZE, &Fonts::none()).unwrap();
         let (width, _) = image.size();
         assert_eq!(width, 1936 + 2 * 2);
+    }
+
+    /// The size of the image of `source` as `language` draws it.
+    fn size_of(language: &str, source: &str) -> (u32, u32) {
+        let request = Request::new(language, source, Theme::Light);
+        let svg = render(&request).unwrap().text();
+        decode(svg.as_bytes(), DEFAULT_MAX_FILE_SIZE, &Fonts::none())
+            .unwrap()
+            .size()
+    }
+
+    #[test]
+    fn an_inline_formula_is_as_large_as_the_text_around_it() {
+        // 16 CSS pixels to the em, as the text is: a rule 100 em wide is
+        // 1600 pixels, with 2 of padding on each side.
+        assert_eq!(size_of("math-inline", "\\rule{100em}{1em}").0, 1600 + 4);
+    }
+
+    #[test]
+    fn an_inline_formula_is_in_text_style() {
+        // A fraction in text style is smaller than in display style, which
+        // is the style of the block.
+        let source = "\\frac{a}{b}";
+        let inline = size_of("math-inline", source).1;
+        let block = size_of("math", source).1;
+        assert!(inline * 10 < block * 8, "{inline} of {block}");
+    }
+
+    #[test]
+    fn a_formula_tells_how_far_below_its_baseline_it_reaches() {
+        // A rule 1 em high on the baseline, 16 pixels with 2 of padding
+        // on each side, has only the padding below it.
+        let depth = baseline("\\rule{1em}{1em}").unwrap();
+        assert!((depth - 2.0 / 20.0).abs() < 1e-6, "{depth}");
+        // A fraction reaches further below, as the line of its bar is
+        // above the baseline and its denominator below it.
+        let fraction = baseline("\\frac{a}{b}").unwrap();
+        assert!(fraction > 0.3 && fraction < 0.6, "{fraction}");
+        assert!(baseline("\\frac{").is_none());
     }
 
     #[test]

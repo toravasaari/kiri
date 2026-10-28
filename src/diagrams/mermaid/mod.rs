@@ -40,6 +40,7 @@ pub(super) const MERMAID: Language = Language {
 const BUILT_IN: Option<BuiltInRenderer> = Some(BuiltInRenderer {
     version: merman::version,
     render: |request| merman::render(request.source, request.theme),
+    baseline: |_| None,
 });
 
 #[cfg(not(feature = "mermaid"))]

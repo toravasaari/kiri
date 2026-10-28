@@ -226,8 +226,11 @@ picture that came is a new page. An image in the middle of text, which
 the loader wants only when reading mode is asked for, as the others are
 only ever their alt text, is a box in its line, which parley places on
 the baseline and moves to the next line whole. So is a formula in the
-middle of text, `Inline::Formula`, drawn as a diagram in `math` is and
-shown as its source, as the other layouts show it, until it has come. The other blocks, such as alerts, are
+middle of text, `Inline::Formula`, drawn by the formula renderer as
+a diagram in text style at the text's size, which also tells how far
+below its baseline it reaches, so that the box sits on the line's
+baseline; until it has come it is shown as its source, as the other
+layouts show it. The other blocks, such as alerts, are
 laid out as text between the pages, from the area's left edge and as
 wide as the text's column: only code blocks and tables reach into the area. A code
 block or table wider than the area wraps to fit it, or, with `--wide

@@ -209,7 +209,10 @@ src="S06b-pattern.png" width="16" alt="two">, stands in the line on its
 baseline, and makes the line taller than the text if it is taller.
 
 A formula in the middle of a line, such as $\frac{a}{b}$ or $x^2 + y^2$,
-is drawn in the line as an image is, in the colour of the text. Dollar
+is drawn in the line in the colour of the text, as large as the text
+and in text style, with its own baseline on the line's: the fraction's
+bar is at the height of the text's minus sign, and its denominator
+reaches below the line. Dollar
 signs that are not math by GitHub's rules, as in "it costs $5 and $10",
 stay text. Without reading mode the formulas show as their source.
 
