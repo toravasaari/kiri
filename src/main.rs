@@ -3,6 +3,7 @@ use std::fs::File;
 use std::io::{self, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::rc::Rc;
 
 use clap::builder::{PossibleValue, PossibleValuesParser, TypedValueParser};
 use clap::error::ErrorKind;
@@ -23,6 +24,7 @@ use kiri::model::{Block, Document, FrontMatterError};
 use kiri::pager::{Change, Look, Reload, Reloaded, Warning};
 use kiri::render::encoder::Encoder;
 use kiri::render::output::Page;
+use kiri::render::reading::Reading;
 use kiri::render::{Headings, Inputs, RenderErrors, TableRows};
 use kiri::term::{Interrupt, Mode};
 use kiri::theme::{Paper, Theme};
@@ -245,6 +247,15 @@ struct Cli {
     #[arg(long, conflicts_with = "no_mouse")]
     mouse: bool,
 
+    /// Experimental: the text in a proportional font, as a browser shows it
+    ///
+    /// Headings, paragraphs, lists and quotes are drawn as images, so their
+    /// text cannot be selected or copied. It needs a terminal that draws
+    /// images, such as kitty; elsewhere the document shows as text. The
+    /// option's name may still change.
+    #[arg(long)]
+    reading: bool,
+
     /// Largest image file to read, in megabytes
     ///
     /// At most 100; larger images show their alt text.
@@ -454,6 +465,13 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     let Some(document) = document(input, &source, path, &settings, &caps, warn)? else {
         return Ok(write_as_is(&source)?);
     };
+    if let Some(warning) = context.reading_warning(&caps) {
+        eprintln!("kiri: {warning}");
+        warnings.push(Warning {
+            line: None,
+            message: warning,
+        });
+    }
     // Only a document read from a regular file can be read again: a pipe
     // given by its path, such as <(cmd), is read to its end already.
     let from = (file.filter(|path| path.is_file())).map(|path| FromFile { path, input, look });
@@ -771,6 +789,11 @@ fn show_files(
     for (number, file) in given.iter_mut().enumerate() {
         file.drawn = self::drawn(number, file, &mut images, &settings, &caps);
     }
+    // Once for all the files, before the pager opens, and in the pager.
+    let reading_warning = context.reading_warning(&caps);
+    if let Some(warning) = &reading_warning {
+        eprintln!("kiri: {warning}");
+    }
     let mut inputs = Inputs {
         images,
         theme: settings.theme.clone(),
@@ -778,6 +801,7 @@ fn show_files(
         headings: settings.headings.with_images(settings.images),
         table_rows: settings.table_rows,
         render_errors: settings.render_errors,
+        reading: context.reading(&caps),
         ..Inputs::new(caps)
     };
     if paged {
@@ -787,7 +811,7 @@ fn show_files(
             given,
             &mut inputs,
             &settings,
-            later,
+            (later, reading_warning),
             failed,
             caught,
         )?;
@@ -912,7 +936,7 @@ fn page_files(
     given: Vec<Given>,
     inputs: &mut Inputs,
     settings: &Settings,
-    later: bool,
+    (later, reading_warning): (bool, Option<String>),
     failed: &Cell<bool>,
     caught: impl FnOnce(),
 ) -> Result<(), Failure> {
@@ -1041,6 +1065,12 @@ fn page_files(
     // to follow.
     let options = kiri::pager::Options {
         follow: context.follow,
+        warnings: (reading_warning.into_iter())
+            .map(|message| Warning {
+                line: None,
+                message,
+            })
+            .collect(),
         ..kiri::pager::Options::new(settings.search_case)
     };
     let start = |inputs: &mut Inputs, loads: &mut Loads| {
@@ -1421,6 +1451,8 @@ struct Context<'a> {
     /// How the command line asks to follow the file, so that the pager
     /// says when there is nothing to follow.
     follow: Follow,
+    /// Whether `--reading` asks for reading mode.
+    reading: bool,
 }
 
 impl<'a> Context<'a> {
@@ -1431,7 +1463,25 @@ impl<'a> Context<'a> {
             width: cli.width,
             max_file_size: cli.max_image_size * kiri::images::MB,
             follow: follow(cli).map_or(Follow::Off, |follow| follow.value),
+            reading: cli.reading,
         }
+    }
+
+    /// Reading mode, when it is asked for and a terminal with `caps` draws
+    /// images.
+    fn reading(&self, caps: &Capabilities) -> Option<Reading> {
+        (self.reading && caps.draws_images()).then(|| Reading {
+            fonts: Rc::new(kiri::reading::Fonts::system()),
+        })
+    }
+
+    /// Why reading mode is not shown, when it is asked for and a terminal
+    /// with `caps` cannot draw it.
+    fn reading_warning(&self, caps: &Capabilities) -> Option<String> {
+        (self.reading && !caps.draws_images()).then(|| {
+            "reading mode needs a terminal that draws images; showing the document as text"
+                .to_owned()
+        })
     }
 }
 
@@ -1868,6 +1918,7 @@ fn print_document(
         headings: settings.headings.with_images(settings.images),
         table_rows: settings.table_rows,
         render_errors: settings.render_errors,
+        reading: context.reading(&caps),
         ..Inputs::new(caps)
     };
     // With paging on auto, the images load first unless the document is

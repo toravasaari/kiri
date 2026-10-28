@@ -198,6 +198,24 @@ pixels as they were. An image that the lines of a new layout no longer
 place, or that changed, is deleted from the terminal, and when the
 pager quits, every image it sent is.
 
+## Reading mode
+
+`--reading`, experimental, shows the text as a browser does: in a
+proportional font, drawn as images. `src/reading/` knows nothing about
+terminals. It lays a run of text blocks (headings, paragraphs, lists,
+quotes and thematic breaks) out with parley, in the fonts of the fontdb
+database that SVG text uses, and draws them with tiny-skia, colour emoji
+included. GitHub's sizes and spacing are its measure: 16 pixels of text in
+rows of 20, a column of 42 times that, margins that collapse between
+blocks. `src/render/reading.rs` turns such a run into a page: its rows are
+image rows, as a large image's are, of parts 30 rows tall that the encoder
+draws when a line first shows them, so the pager draws only the parts in
+view. The rows keep their blocks, so the pager keeps its place across a
+resize, and the row a block starts on carries the block's text for a
+search. The other blocks, such as code and tables, are laid out as text
+between the pages. Where the terminal draws no images, kiri warns and
+shows the text as usual.
+
 ## Diagrams
 
 A diagram stays a code block in the document model, `Block::CodeBlock`
