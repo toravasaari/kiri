@@ -863,6 +863,7 @@ fn inline_images<'a>(content: &'a [Inline], wanted: &mut Vec<Wanted<'a>>) {
             | Inline::Mark(inner)
             | Inline::Subscript(inner)
             | Inline::Superscript(inner)
+            | Inline::Formula { written: inner, .. }
             | Inline::Link { content: inner, .. } => inline_images(inner, wanted),
             Inline::Text(_)
             | Inline::Code(_)

@@ -1298,6 +1298,7 @@ fn collect(content: &[Inline], style: &Run, (look, ink): (&Look, Ink), runs: &mu
             Inline::Mark(inner) | Inline::Subscript(inner) | Inline::Superscript(inner) => {
                 collect(inner, style, (look, ink), runs);
             }
+            Inline::Formula { written, .. } => collect(written, style, (look, ink), runs),
         }
     }
 }

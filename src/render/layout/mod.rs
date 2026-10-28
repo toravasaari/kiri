@@ -1120,6 +1120,7 @@ impl Layout<'_> {
                 }),
                 out,
             ),
+            Inline::Formula { written, .. } => self.inlines(written, style, out),
             Inline::Mark(content) => {
                 let mark = self.theme.mark;
                 let style = if self.caps.color {

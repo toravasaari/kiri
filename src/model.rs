@@ -234,6 +234,14 @@ pub enum Inline {
         content: Vec<Inline>,
     },
     Image(Image),
+    /// A formula in the middle of text, as `$x^2$` writes one.
+    Formula {
+        /// The formula, as LaTeX.
+        source: String,
+        /// What the source reads as without math, as Markdown: what a
+        /// backend that cannot draw formulas shows.
+        written: Vec<Inline>,
+    },
     /// A line break in the source that renders as a space.
     SoftBreak,
     LineBreak,
@@ -290,6 +298,9 @@ impl Inline {
                 | Inline::Subscript(content)
                 | Inline::Superscript(content)
                 | Inline::Link { content, .. }
+                | Inline::Formula {
+                    written: content, ..
+                }
                 | Inline::Image(Image { alt: content, .. }) => {
                     out.push_str(&Self::plain_text(content))
                 }
