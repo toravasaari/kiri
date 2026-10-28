@@ -113,11 +113,14 @@ pub fn lays_out(block: &Block) -> bool {
 }
 
 /// `blocks`, which reading mode lays out, laid out in `fonts` as `look`
-/// says, `width` pixels wide.
-pub fn lay_out(blocks: &[&Block], look: &Look, fonts: &Fonts, width: f32) -> Page {
+/// says: the text `width` pixels wide, at the left of an area `area`
+/// pixels wide, which tables and code may reach across.
+pub fn lay_out(blocks: &[&Block], look: &Look, fonts: &Fonts, width: f32, area: f32) -> Page {
+    let area = area.max(width);
     let mut flow = Flow {
         fonts,
         look,
+        area,
         items: Vec::new(),
         y: 0.0,
         margin: None,
@@ -132,7 +135,7 @@ pub fn lay_out(blocks: &[&Block], look: &Look, fonts: &Fonts, width: f32) -> Pag
         });
     }
     Page {
-        width,
+        width: area,
         height: flow.y,
         blocks: placed,
         items: flow.items,
@@ -181,6 +184,8 @@ impl Page {
 struct Flow<'a> {
     fonts: &'a Fonts,
     look: &'a Look,
+    /// The right edge of the area, which tables and code may reach.
+    area: f32,
     items: Vec<Item>,
     /// The bottom of what is laid out so far.
     y: f32,
@@ -291,6 +296,7 @@ impl Flow<'_> {
                 let mut inner = Flow {
                     fonts: self.fonts,
                     look: &quoted,
+                    area: self.area,
                     items: Vec::new(),
                     y: top,
                     margin: None,
@@ -339,6 +345,7 @@ impl Flow<'_> {
             let mut inner = Flow {
                 fonts: self.fonts,
                 look: self.look,
+                area: self.area,
                 items: Vec::new(),
                 y: top,
                 margin: None,
@@ -613,7 +620,7 @@ mod tests {
         let document = parse(markdown);
         let blocks: Vec<&Block> = document.blocks.iter().collect();
         assert!(blocks.iter().all(|block| lays_out(block)), "{blocks:?}");
-        lay_out(&blocks, &LOOK, &Fonts::fixture(), 672.0)
+        lay_out(&blocks, &LOOK, &Fonts::fixture(), 672.0, 1008.0)
     }
 
     /// The texts laid out on the page, each with its left edge, its first
@@ -756,7 +763,7 @@ mod tests {
         };
         let document = parse("- [x] done\n");
         let blocks: Vec<&Block> = document.blocks.iter().collect();
-        let page = lay_out(&blocks, &light, &Fonts::fixture(), 672.0);
+        let page = lay_out(&blocks, &light, &Fonts::fixture(), 672.0, 1008.0);
         let image = page.draw(0, 40, 24);
         // The box is 13 pixels square, its right edge 8 pixels before the
         // text at 32: the tick is as dark as the box is light.

@@ -106,8 +106,15 @@ pub fn lines(
     let text = (TEXT_WIDTH * look.size).min(f32::from(room) * cell_width);
     let area = ((AREA * text / cell_width).ceil() as u16).min(room);
     let left = (window - area) / 2;
-    let columns = ((text / cell_width).ceil() as u16).clamp(1, caps.max_image_cells);
-    let page = page::lay_out(blocks, &look, &reading.fonts, text);
+    // The page covers the area, as tables and code may reach across it.
+    let columns = area.clamp(1, caps.max_image_cells);
+    let page = page::lay_out(
+        blocks,
+        &look,
+        &reading.fonts,
+        text,
+        f32::from(columns) * cell_width,
+    );
     let rows = ((page.height / cell_height).ceil() as u16).max(1);
     let mut hasher = DefaultHasher::new();
     format!("{blocks:?}").hash(&mut hasher);
@@ -287,10 +294,11 @@ mod tests {
 
     #[test]
     fn the_column_is_42_font_sizes_wide_at_the_left_of_an_area_half_as_wide_again() {
-        // 16 px text: 672 px or 68 cells, in an area of 101 of 160 cells.
+        // 16 px text: 672 px or 68 cells, in an area of 101 of 160 cells,
+        // which the page covers for the tables and code that reach into it.
         let lines = layout::layout(&parse("Text.\n"), &inputs(kitty(160)));
         let row = lines[0].image.as_ref().expect("a page's row");
-        assert_eq!(row.columns, 0..68);
+        assert_eq!(row.columns, 0..101);
         let lead: usize = lines[0].lead.iter().map(|span| span.text.len()).sum();
         assert_eq!(lead, (160 - 101) / 2);
         // In a narrow window, the window less two cells on each side.
@@ -335,9 +343,10 @@ mod tests {
         // 25 paragraphs of 24 px, 16 px apart: 984 px, or 50 rows in
         // parts of 30 and 20.
         assert_eq!(sent.len(), 2, "{sent:?}");
-        assert!(sent[0].contains("s=680,v=600,c=68,r=30"), "{sent:?}");
-        assert!(sent[1].contains("s=680,v=400,c=68,r=20"), "{sent:?}");
-        assert_eq!(out.matches('\u{10EEEE}').count(), 50 * 68);
+        // The parts cover the area, 76 of the 80 columns.
+        assert!(sent[0].contains("s=760,v=600,c=76,r=30"), "{sent:?}");
+        assert!(sent[1].contains("s=760,v=400,c=76,r=20"), "{sent:?}");
+        assert_eq!(out.matches('\u{10EEEE}').count(), 50 * 76);
     }
 
     #[test]
