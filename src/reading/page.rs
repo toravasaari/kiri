@@ -116,6 +116,33 @@ pub struct AlertLook {
     pub chip: Option<Brush>,
 }
 
+/// What a table's cell holds.
+#[derive(Debug, Clone)]
+pub enum Cell {
+    Text(Vec<Inline>),
+    /// A table of its own, as front matter shows a value that has keys.
+    Table(Grid),
+    /// Cells one below another.
+    Stack(Vec<Cell>),
+}
+
+/// Rows of cells, as a table or a front matter's map has them.
+#[derive(Debug, Clone)]
+pub struct Grid {
+    pub rows: Vec<Vec<Cell>>,
+    pub alignments: Vec<Alignment>,
+    /// Whether the first row is a header, in bold.
+    pub header_row: bool,
+    /// Whether the first column is a header, in bold.
+    pub header_column: bool,
+}
+
+impl Grid {
+    fn columns(&self) -> usize {
+        self.rows.iter().map(Vec::len).max().unwrap_or(0)
+    }
+}
+
 /// The colours of code: each line of `code`, in `language` if known, as
 /// runs of text in their colours. The tabs are spaces already.
 pub trait Highlight {
@@ -1036,46 +1063,32 @@ impl<'a> Flow<'a> {
     /// Lays a table out at `x`: as wide as its content up to the area's
     /// edge, with its columns shared out as a browser shares them.
     fn table(&mut self, table: &Table, x: f32) {
-        let look = *self.look;
-        let size = look.size;
-        let (across, down) = (CELL_ACROSS * size, CELL_DOWN * size);
-        let grid: Vec<&Vec<Vec<Inline>>> =
-            std::iter::once(&table.header).chain(&table.rows).collect();
-        let columns = grid.iter().map(|row| row.len()).max().unwrap_or(0);
+        let cells = |row: &Vec<Vec<Inline>>| row.iter().cloned().map(Cell::Text).collect();
+        let grid = Grid {
+            rows: std::iter::once(&table.header)
+                .chain(&table.rows)
+                .map(cells)
+                .collect(),
+            alignments: table.alignments.clone(),
+            header_row: true,
+            header_column: false,
+        };
+        self.grid_at(&grid, x, self.area - x, self.wide == Wide::Scroll);
+    }
+
+    /// Lays `grid` out at `x` in at most `room` pixels, scrolling in a
+    /// band when `scroll` is set and even its narrowest columns do not fit.
+    fn grid_at(&mut self, grid: &Grid, x: f32, room: f32, scroll: bool) {
+        let columns = grid.columns();
         if columns == 0 {
             return;
         }
-        let fonts = self.fonts;
-        let ink = self.ink(self.area - x);
-        let cell = |row: usize, column: usize, width: f32, wrap: text::Wrap| {
-            let content = grid[row].get(column).map_or(&[][..], Vec::as_slice);
-            let style = text::Look {
-                size,
-                weight: if row == 0 { BOLD } else { 400.0 },
-                color: look.text,
-                wrap,
-                align: match table.alignments.get(column) {
-                    Some(Alignment::Center) => text::Align::Centre,
-                    Some(Alignment::Right) => text::Align::Right,
-                    _ => text::Align::Left,
-                },
-                ..text::Look::PLAIN
-            };
-            text::lay_out(fonts, &runs(content, &look, ink), &style, width)
-        };
-        let (mut least, mut most) = (vec![0.0f32; columns], vec![0.0f32; columns]);
-        for row in 0..grid.len() {
-            for column in 0..columns {
-                let (min, max) = cell(row, column, f32::MAX, text::Wrap::Words).content_widths();
-                least[column] = least[column].max(min);
-                most[column] = most[column].max(max);
-            }
-        }
+        let ink = self.ink(room);
+        let (least, most) = self.grid_widths(grid, ink);
         // Each column takes its padding and the border at its left; the
         // last border closes the table.
-        let extra = 2.0 * across + 1.0;
-        let room = (self.area - x) - columns as f32 * extra - 1.0;
-        let scroll = self.wide == Wide::Scroll;
+        let extra = self.look.size * 2.0 * CELL_ACROSS + 1.0;
+        let room = room - columns as f32 * extra - 1.0;
         let (widths, forced) = share(&least, &most, room);
         // Whether to scroll: even the least widths are too wide for the
         // area, by more than rounding. `share` tells it from the columns
@@ -1100,59 +1113,193 @@ impl<'a> Flow<'a> {
             text::Wrap::Words
         };
         let table_width = widths.iter().sum::<f32>() + columns as f32 * extra + 1.0;
-        let draw = |flow: &mut Self| {
-            let top = flow.y;
-            let mut y = top;
-            let mut rows = Vec::new();
-            for row in 0..grid.len() {
-                let cells: Vec<Paragraph> = (0..columns)
-                    .map(|column| cell(row, column, widths[column], wrap))
-                    .collect();
-                let height = cells.iter().map(Paragraph::height).fold(0.0, f32::max) + 2.0 * down;
-                if row > 0
-                    && row % 2 == 0
-                    && let Some(stripe) = look.stripe
-                {
-                    flow.rect(x, y, table_width, height, stripe);
-                }
-                let mut left = x;
-                for (column, paragraph) in cells.into_iter().enumerate() {
-                    let paragraph_y = y + down;
-                    let paragraph_height = paragraph.height();
-                    flow.push(
-                        paragraph_y..paragraph_y + paragraph_height,
-                        Shape::Text {
-                            paragraph: Box::new(paragraph),
-                            x: left + 1.0 + across,
-                            y: paragraph_y,
-                            chip: look.chip,
-                        },
-                    );
-                    left += widths[column] + extra;
-                }
-                rows.push(y);
-                y += height;
-            }
-            rows.push(y);
-            // The borders, over the shading.
-            for &line in &rows {
-                flow.rect(x, line.round(), table_width, 1.0, look.table_border);
-            }
-            let mut left = x;
-            flow.rect(left.round(), top, 1.0, y - top + 1.0, look.table_border);
-            for width in &widths {
-                left += width + extra;
-                flow.rect(left.round(), top, 1.0, y - top + 1.0, look.table_border);
-            }
-            flow.y = y + 1.0;
-            None
-        };
         match scroll && too_wide {
-            true => self.band(x, table_width, draw),
-            false => {
-                draw(self);
+            true => self.band(x, table_width, |flow| {
+                flow.grid(grid, x, &widths, wrap);
+                None
+            }),
+            false => self.grid(grid, x, &widths, wrap),
+        }
+    }
+
+    /// The narrowest and the widest each column of `grid` can be.
+    fn grid_widths(&self, grid: &Grid, ink: Ink) -> (Vec<f32>, Vec<f32>) {
+        let columns = grid.columns();
+        let (mut least, mut most) = (vec![0.0f32; columns], vec![0.0f32; columns]);
+        for (row, cells) in grid.rows.iter().enumerate() {
+            for (column, cell) in cells.iter().enumerate() {
+                let (min, max) = self.cell_widths(grid, (row, column), cell, ink);
+                least[column] = least[column].max(min);
+                most[column] = most[column].max(max);
             }
         }
+        (least, most)
+    }
+
+    /// The narrowest and the widest `cell`, at (`row`, `column`) of `grid`,
+    /// can be.
+    fn cell_widths(
+        &self,
+        grid: &Grid,
+        (row, column): (usize, usize),
+        cell: &Cell,
+        ink: Ink,
+    ) -> (f32, f32) {
+        match cell {
+            Cell::Text(content) => self
+                .cell_text(
+                    grid,
+                    (row, column),
+                    content,
+                    f32::MAX,
+                    text::Wrap::Words,
+                    ink,
+                )
+                .content_widths(),
+            Cell::Table(inner) => {
+                let columns = inner.columns();
+                let (least, most) = self.grid_widths(inner, ink);
+                let extra = self.look.size * 2.0 * CELL_ACROSS + 1.0;
+                let border = columns as f32 * extra + 1.0;
+                (
+                    least.iter().sum::<f32>() + border,
+                    most.iter().sum::<f32>() + border,
+                )
+            }
+            Cell::Stack(cells) => (cells.iter())
+                .map(|cell| self.cell_widths(grid, (row, column), cell, ink))
+                .fold((0.0, 0.0), |(min, max), (least, most)| {
+                    (f32::max(min, least), f32::max(max, most))
+                }),
+        }
+    }
+
+    /// The text of a cell at (`row`, `column`) of `grid`, laid out in
+    /// `width` pixels.
+    fn cell_text(
+        &self,
+        grid: &Grid,
+        (row, column): (usize, usize),
+        content: &[Inline],
+        width: f32,
+        wrap: text::Wrap,
+        ink: Ink,
+    ) -> Paragraph {
+        let bold = (grid.header_row && row == 0) || (grid.header_column && column == 0);
+        let style = text::Look {
+            size: self.look.size,
+            weight: if bold { BOLD } else { 400.0 },
+            color: self.look.text,
+            wrap,
+            align: match grid.alignments.get(column) {
+                Some(Alignment::Center) => text::Align::Centre,
+                Some(Alignment::Right) => text::Align::Right,
+                _ => text::Align::Left,
+            },
+            ..text::Look::PLAIN
+        };
+        text::lay_out(self.fonts, &runs(content, self.look, ink), &style, width)
+    }
+
+    /// Lays `grid` out at `x` and the current top, its columns `widths`
+    /// wide, and moves below it.
+    fn grid(&mut self, grid: &Grid, x: f32, widths: &[f32], wrap: text::Wrap) {
+        let look = *self.look;
+        let (across, down) = (CELL_ACROSS * look.size, CELL_DOWN * look.size);
+        let columns = widths.len();
+        let extra = 2.0 * across + 1.0;
+        let table_width = widths.iter().sum::<f32>() + columns as f32 * extra + 1.0;
+        let top = self.y;
+        let mut y = top;
+        let mut rows = Vec::new();
+        for (row, cells) in grid.rows.iter().enumerate() {
+            // Each cell is laid out where it goes, apart from the rest of
+            // the row, whose shading goes under all of them.
+            let mut inners = Vec::new();
+            let mut left = x;
+            let mut height = 0.0f32;
+            for (column, &width) in widths.iter().enumerate() {
+                let mut inner = self.child(self.look, y + down);
+                if let Some(cell) = cells.get(column) {
+                    let cell_x = left + 1.0 + across;
+                    height = height.max(inner.cell(grid, (row, column), cell, cell_x, width, wrap));
+                }
+                inners.push(inner);
+                left += width + extra;
+            }
+            let height = height + 2.0 * down;
+            if row > 0
+                && row % 2 == 0
+                && let Some(stripe) = look.stripe
+            {
+                self.rect(x, y, table_width, height, stripe);
+            }
+            for inner in &mut inners {
+                self.take(inner);
+            }
+            rows.push(y);
+            y += height;
+        }
+        rows.push(y);
+        // The borders, over the shading.
+        for &line in &rows {
+            self.rect(x, line.round(), table_width, 1.0, look.table_border);
+        }
+        let mut left = x;
+        self.rect(left.round(), top, 1.0, y - top + 1.0, look.table_border);
+        for width in widths {
+            left += width + extra;
+            self.rect(left.round(), top, 1.0, y - top + 1.0, look.table_border);
+        }
+        self.y = y + 1.0;
+    }
+
+    /// Lays `cell`, at (`row`, `column`) of `grid`, out at `x` and the
+    /// current top in `width` pixels, and returns its height.
+    fn cell(
+        &mut self,
+        grid: &Grid,
+        (row, column): (usize, usize),
+        cell: &Cell,
+        x: f32,
+        width: f32,
+        wrap: text::Wrap,
+    ) -> f32 {
+        let top = self.y;
+        match cell {
+            Cell::Text(content) => {
+                let ink = self.ink(width);
+                let paragraph = self.cell_text(grid, (row, column), content, width, wrap, ink);
+                self.y += self.text(paragraph, x);
+            }
+            Cell::Table(inner) => self.nested(inner, x, width),
+            Cell::Stack(cells) => {
+                for cell in cells {
+                    self.cell(grid, (row, column), cell, x, width, wrap);
+                }
+            }
+        }
+        self.y - top
+    }
+
+    /// Lays a table that is in a cell out at `x`, in `width` pixels: it
+    /// wraps and never scrolls.
+    fn nested(&mut self, grid: &Grid, x: f32, width: f32) {
+        let columns = grid.columns();
+        if columns == 0 {
+            return;
+        }
+        let ink = self.ink(width);
+        let (least, most) = self.grid_widths(grid, ink);
+        let extra = self.look.size * 2.0 * CELL_ACROSS + 1.0;
+        let room = width - columns as f32 * extra - 1.0;
+        let (widths, forced) = share(&least, &most, room);
+        let wrap = if forced {
+            text::Wrap::Forced
+        } else {
+            text::Wrap::Words
+        };
+        self.grid(grid, x, &widths, wrap);
     }
 
     fn paragraph(&self, content: &[Inline], color: Brush, width: f32) -> Paragraph {
@@ -1797,6 +1944,39 @@ mod tests {
             })
             .expect("a code block");
         assert_eq!(code, (20.0, 672.0 - 4.0 - 32.0));
+    }
+
+    /// Everything a page draws of tables, as lines of text: each rectangle
+    /// and each text with its place.
+    fn drawn(page: &Page) -> String {
+        let mut out = String::new();
+        for item in &page.items {
+            match &item.shape {
+                Shape::Rect {
+                    x,
+                    y,
+                    width,
+                    height,
+                    color,
+                } => out += &format!("rect {x} {y} {width} {height} {color:?}\n"),
+                Shape::Text {
+                    paragraph, x, y, ..
+                } => {
+                    let text = paragraph.text();
+                    out += &format!("text {x} {y} {} {text:?}\n", paragraph.width());
+                }
+                _ => out += "other\n",
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn tables_are_laid_out_as_they_were_before_cells_could_hold_tables() {
+        let page = page(
+            "| Name | Kind | Count |\n|:-----|:----:|------:|\n| Fern | plant | 12 |\n| Crab | animal | 7 |\n| Moss | plant | 30 |\n\nAfter.\n\n| A | B |\n|---|---|\n| `inline code` and a [link](u) in a long cell that wraps at some point as it needs to | short |\n",
+        );
+        insta::assert_snapshot!(drawn(&page));
     }
 
     #[test]
