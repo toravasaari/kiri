@@ -110,6 +110,24 @@ impl Parts {
     }
 }
 
+impl Parts {
+    /// The pixels of band `band` scrolled `offset` pixels, `selected` or
+    /// not, as wide as the page.
+    pub fn draw_band(&self, band: u32, offset: u32, selected: bool) -> RgbaImage {
+        (self.page).draw_band(band as usize, offset as f32, selected)
+    }
+
+    /// The furthest band `band` scrolls, in pixels.
+    pub fn band_most(&self, band: u32) -> u32 {
+        (self.page.bands.get(band as usize)).map_or(0, |band| band.most().ceil() as u32)
+    }
+
+    /// The width band `band` shows at a time, in pixels.
+    pub fn band_visible(&self, band: u32) -> u32 {
+        (self.page.bands.get(band as usize)).map_or(0, |band| band.visible as u32)
+    }
+}
+
 impl fmt::Debug for Parts {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Parts")
@@ -168,7 +186,7 @@ pub fn lines(
     let mut hasher = DefaultHasher::new();
     format!("{blocks:?}").hash(&mut hasher);
     format!("{look:?}").hash(&mut hasher);
-    (text.to_bits(), cell, columns).hash(&mut hasher);
+    (text.to_bits(), cell, columns, reading.wide).hash(&mut hasher);
     let placed: Vec<_> = page.blocks.clone();
     let parts = Rc::new(Parts {
         id: hasher.finish(),
@@ -179,21 +197,50 @@ pub fn lines(
     });
     let lead = Span::new(&" ".repeat(usize::from(left)), Style::default());
     let mut lines = Vec::with_capacity(usize::from(rows));
+    // The rows each band covers, from the first, which it starts on.
+    let bands: Vec<(u32, std::ops::Range<u16>)> = (parts.page.bands.iter().enumerate())
+        .map(|(band, placed)| {
+            let first = (placed.top / cell_height).round() as u16;
+            let count =
+                ((placed.height / cell_height).round() as u16).clamp(1, caps.max_image_cells);
+            (band as u32, first..first + count)
+        })
+        .collect();
+    let size = |rows: u16| Size {
+        width: u32::from(columns) * u32::from(cell.0),
+        height: u32::from(rows) * u32::from(cell.1),
+        columns,
+        rows,
+    };
     for row in 0..rows {
-        let part = row / PART_ROWS;
-        let part_rows = (rows - part * PART_ROWS).min(PART_ROWS);
+        let (key, size, image_row) = match bands.iter().find(|(_, rows)| rows.contains(&row)) {
+            // A band's rows show the band, at the start of its scrolling,
+            // and not selected, until the pager scrolls or selects it.
+            Some((band, band_rows)) => (
+                ImageKey::Band {
+                    document,
+                    page: parts.id,
+                    band: *band,
+                    offset: 0,
+                    selected: false,
+                },
+                size(band_rows.len() as u16),
+                row - band_rows.start,
+            ),
+            None => {
+                let part = row / PART_ROWS;
+                let part_rows = (rows - part * PART_ROWS).min(PART_ROWS);
+                let key = ImageKey::Page {
+                    document,
+                    page: parts.id,
+                    slice: u32::from(part),
+                };
+                (key, size(part_rows), row % PART_ROWS)
+            }
+        };
         let placement = Rc::new(Placement {
-            key: ImageKey::Page {
-                document,
-                page: parts.id,
-                slice: u32::from(part),
-            },
-            size: Size {
-                width: u32::from(columns) * u32::from(cell.0),
-                height: u32::from(part_rows) * u32::from(cell.1),
-                columns,
-                rows: part_rows,
-            },
+            key,
+            size,
             shows: Shows::Image,
         });
         let (top, bottom) = (
@@ -211,7 +258,7 @@ pub fn lines(
             lead: vec![lead.clone()],
             image: Some(ImageRow {
                 placement,
-                row: row % PART_ROWS,
+                row: image_row,
                 background: None,
                 columns: 0..columns,
                 text: starts.map(|placed| placed.text.clone()),
@@ -355,8 +402,10 @@ mod tests {
                     page: Some(_),
                     ..
                 }) => {
-                    let ImageKey::Page { slice, .. } = placement.key else {
-                        panic!("a page's key: {placement:?}");
+                    let (kind, slice) = match placement.key {
+                        ImageKey::Page { slice, .. } => ("page", slice),
+                        ImageKey::Band { band, .. } => ("band", band),
+                        _ => panic!("a page's key: {placement:?}"),
                     };
                     let lead: String = line.lead.iter().map(|span| span.text.as_str()).collect();
                     let text = text
@@ -364,7 +413,7 @@ mod tests {
                         .map(|text| format!(" {text:?}"))
                         .unwrap_or_default();
                     let block = line.block.map_or("-".to_owned(), |_| "block".to_owned());
-                    format!("{}page {row}/{slice} {block}{text}", lead.len())
+                    format!("{}{kind} {row}/{slice} {block}{text}", lead.len())
                 }
                 _ => crate::render::style::text(&line.spans),
             })
@@ -374,6 +423,18 @@ mod tests {
     #[test]
     fn text_blocks_show_as_rows_of_a_page_between_the_other_blocks() {
         let lines = layout::layout(&parse(DOCUMENT), &inputs(kitty(80)));
+        insta::assert_snapshot!(shown(&lines).join("\n"));
+    }
+
+    #[test]
+    fn a_code_block_wider_than_the_area_scrolls_in_rows_of_its_own() {
+        let long = "a".repeat(200);
+        let document = parse(&format!("Text.\n\n```\n{long}\n```\n\nMore text.\n"));
+        let mut inputs = inputs(kitty(80));
+        if let Some(reading) = &mut inputs.reading {
+            reading.wide = Wide::Scroll;
+        }
+        let lines = layout::layout(&document, &inputs);
         insta::assert_snapshot!(shown(&lines).join("\n"));
     }
 

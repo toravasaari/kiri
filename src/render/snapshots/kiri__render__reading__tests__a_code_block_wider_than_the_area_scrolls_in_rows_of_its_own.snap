@@ -1,0 +1,12 @@
+---
+source: src/render/reading.rs
+expression: "shown(&lines).join(\"\\n\")"
+---
+2page 0/0 block "Text."
+2page 1/0 -
+2band 0/0 block "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+2band 1/0 block
+2band 2/0 block
+2band 3/0 block
+2page 6/0 - "More text."
+2page 7/0 block

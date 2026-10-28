@@ -184,6 +184,17 @@ pub enum ImageKey {
         page: u64,
         slice: u32,
     },
+    /// A band of a page of reading mode, a code block or table that
+    /// scrolls sideways, drawn when it is shown: the page, the band's
+    /// number on it, how many pixels it is scrolled, and whether it is
+    /// the one selected.
+    Band {
+        document: usize,
+        page: u64,
+        band: u32,
+        offset: u32,
+        selected: bool,
+    },
 }
 
 impl ImageKey {
@@ -239,6 +250,19 @@ impl ImageKey {
                 page,
                 slice,
             },
+            ImageKey::Band {
+                page,
+                band,
+                offset,
+                selected,
+                ..
+            } => ImageKey::Band {
+                document,
+                page,
+                band,
+                offset,
+                selected,
+            },
         }
     }
 
@@ -248,7 +272,8 @@ impl ImageKey {
             ImageKey::Url { document, .. }
             | ImageKey::Block { document, .. }
             | ImageKey::Heading { document, .. }
-            | ImageKey::Page { document, .. } => document,
+            | ImageKey::Page { document, .. }
+            | ImageKey::Band { document, .. } => document,
         }
     }
 }
@@ -277,6 +302,7 @@ impl fmt::Display for ImageKey {
                 write!(f, "heading {:?}", text.join(" "))
             }
             ImageKey::Page { slice, .. } => write!(f, "part {slice} of a page of text"),
+            ImageKey::Band { band, .. } => write!(f, "band {band} of a page of text"),
         }
     }
 }

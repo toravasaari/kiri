@@ -113,7 +113,7 @@ impl Encoder {
     /// Takes `parts` as the page that draws the parts of reading mode's
     /// text that `key` names, for [`Encoder::id`] to send.
     pub fn page(&mut self, key: &ImageKey, parts: &Rc<Parts>) {
-        if let ImageKey::Page { page, .. } = key {
+        if let ImageKey::Page { page, .. } | ImageKey::Band { page, .. } = key {
             self.pages.entry(*page).or_insert_with(|| Rc::clone(parts));
         }
     }
@@ -181,7 +181,7 @@ impl Encoder {
         });
         let pages: HashSet<u64> = (placed.iter())
             .filter_map(|placement| match placement.key {
-                ImageKey::Page { page, .. } => Some(page),
+                ImageKey::Page { page, .. } | ImageKey::Band { page, .. } => Some(page),
                 _ => None,
             })
             .collect();
@@ -322,12 +322,19 @@ impl Scaled {
     ) -> io::Result<Self> {
         let key = &placement.key;
         let size = placement.size;
-        let page = match *key {
-            ImageKey::Page { page, slice, .. } => pages.get(&page).map(|parts| (parts, slice)),
+        let drawn = match *key {
+            ImageKey::Page { page, slice, .. } => pages.get(&page).map(|parts| parts.draw(slice)),
+            ImageKey::Band {
+                page,
+                band,
+                offset,
+                selected,
+                ..
+            } => (pages.get(&page)).map(|parts| parts.draw_band(band, offset, selected)),
             _ => None,
         };
         let pixels = match (placement.shows, images.get(key), images.placeholder(key)) {
-            _ if let Some((parts, slice)) = page => parts.draw(slice),
+            _ if let Some(pixels) = drawn => pixels,
             (Shows::Image, Some(Ok(source)), _) => fit(source, size, cell),
             (Shows::Placeholder, _, Some(Placeholder::Dimmed(old))) => {
                 loading::dimmed(fit(old, size, cell))

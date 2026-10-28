@@ -96,7 +96,7 @@ impl Highlight for Plain {
 }
 
 /// What becomes of a code block or table wider than the area.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Wide {
     /// Its lines and cells wrap to fit, breaking words in a table when
     /// they must.
