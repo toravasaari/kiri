@@ -1039,11 +1039,10 @@ mod tests {
     }
 
     #[test]
-    fn the_other_blocks_take_the_column_from_the_area_s_edge() {
+    fn the_blocks_not_in_the_page_take_the_column_from_the_area_s_edge() {
         let note = "A note long enough to wrap. ".repeat(8);
-        let document = parse(&format!(
-            "Text.\n\n<details>\n<summary>Why</summary>\n\n{note}\n\n</details>\n"
-        ));
+        let mut document = parse("Text.\n");
+        document.blocks.push(Block::Error(note));
         let lines = layout::layout(&document, &inputs(kitty(160)));
         let alert: Vec<&Line> = (lines.iter())
             .filter(|line| line.image.is_none() && !line.is_blank())

@@ -242,4 +242,25 @@ list or a code block, in the room that is left:
 > [!WARNING] A title of its own
 > Yellow, with a triangle.
 
+## Details and HTML
+
+A `<details>` block is its summary in bold after a triangle, and what is
+inside it below, always shown, as the text layout shows it:
+
+<details>
+<summary>The summary, in bold</summary>
+
+What is inside: a paragraph, in the text's colour,
+
+- and a list.
+
+</details>
+
+Raw HTML that kiri does not draw is its source in the code's font, in the
+muted colour, in lines of its own:
+
+<div>
+  <b>HTML</b>
+</div>
+
 And the text goes on below it in the proportional font.

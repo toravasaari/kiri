@@ -401,7 +401,10 @@ pub fn lays_out(block: &Block) -> bool {
         | Block::Table(_)
         | Block::Paragraph(_)
         | Block::CodeBlock { .. } => true,
-        Block::BlockQuote(blocks) | Block::Alert { blocks, .. } => all(blocks),
+        Block::Html(_) | Block::Note(_) => true,
+        Block::Details { blocks, .. } | Block::BlockQuote(blocks) | Block::Alert { blocks, .. } => {
+            all(blocks)
+        }
         Block::List(list) => list.items.iter().all(|item| all(&item.blocks)),
         _ => false,
     }
@@ -761,6 +764,29 @@ impl<'a> Flow<'a> {
                 self.code_or_diagram(language.as_deref(), code, x, width);
             }
             Block::Table(table) => self.table(table, x),
+            Block::Html(html) => {
+                // Source, as the text layout shows it: muted, in the code's
+                // font and in lines of its own.
+                let style = text::Look {
+                    size: size * text::CODE_SIZE,
+                    line_height: CODE_LINE_HEIGHT,
+                    color: look.quote,
+                    mono: true,
+                    wrap: text::Wrap::Anywhere,
+                    ..text::Look::PLAIN
+                };
+                let paragraph = text::lay_out(self.fonts, &[Run::new(html)], &style, width);
+                self.y += self.text(paragraph, x);
+            }
+            Block::Note(note) => {
+                let content = [Inline::Text(note.clone())];
+                let paragraph = self.paragraph(&content, look.quote, width);
+                self.y += self.text(paragraph, x);
+            }
+            Block::Details { summary, blocks } => {
+                self.summary(summary, x, width);
+                self.blocks(blocks, x, width, depth);
+            }
             Block::FrontMatter(front_matter) => self.front_matter(front_matter, x, width),
             Block::Alert {
                 kind,
@@ -1299,6 +1325,24 @@ impl<'a> Flow<'a> {
         self.y - top
     }
 
+    /// Lays the summary of a `<details>` out in bold after a triangle, as
+    /// a browser shows an open one.
+    fn summary(&mut self, summary: &[Inline], x: f32, width: f32) {
+        let mut content = vec![Inline::Text("▼ ".to_owned())];
+        content.extend_from_slice(summary);
+        let style = text::Look {
+            size: self.look.size,
+            line_height: LINE_HEIGHT,
+            weight: BOLD,
+            color: self.look.text,
+            ..text::Look::PLAIN
+        };
+        let ink = self.ink(width);
+        let paragraph = text::lay_out(self.fonts, &runs(&content, self.look, ink), &style, width);
+        self.y += self.text(paragraph, x);
+        self.margin = Some(self.look.size);
+    }
+
     /// Lays front matter out at `x` in `width` pixels: a table of its keys
     /// and values when it has keys, otherwise, or when it is asked for as
     /// code, a code block; an empty one is nothing. It does not use the
@@ -1704,6 +1748,14 @@ fn plain_into(block: &Block, text: &mut String) {
     match block {
         Block::Heading { content, .. } | Block::Paragraph(content) => inline(content, text),
         Block::FrontMatter(front_matter) => text.push_str(front_matter.source.trim_end()),
+        Block::Html(source) | Block::Note(source) => text.push_str(source),
+        Block::Details { summary, blocks } => {
+            inline(summary, text);
+            for block in blocks {
+                text.push('\n');
+                plain_into(block, text);
+            }
+        }
         Block::CodeBlock { code, .. } => text.push_str(code.trim_end()),
         Block::Table(table) => {
             for (index, row) in std::iter::once(&table.header)
@@ -2145,6 +2197,58 @@ mod tests {
         );
         let empty = with_front_matter("---\n---\n\nText.\n", FrontMatterShown::Table);
         assert!(texts(&empty).iter().all(|text| text.0 == "Text."));
+    }
+
+    /// `blocks`, which the parser does not give, laid out.
+    fn laid_out(blocks: &[Block]) -> Page {
+        let blocks: Vec<&Block> = blocks.iter().collect();
+        lay_out(&blocks, &LOOK, &Fonts::fixture(), (&Plain, &Plain), FRAME)
+    }
+
+    /// The colours the texts on `page` are set in, one for each text.
+    fn text_colors(page: &Page) -> Vec<Brush> {
+        (page.items.iter())
+            .filter_map(|item| match &item.shape {
+                Shape::Text { paragraph, .. } => Some(paragraph.look.color),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_note_is_muted_text_and_html_is_muted_source_in_the_code_font() {
+        let page = laid_out(&[
+            Block::Note("3 rows are left out.".into()),
+            Block::Html("<div>\n  <b>x</b>\n</div>".into()),
+        ]);
+        let texts = texts(&page);
+        assert_eq!(text(&texts, "3 rows").1, 0.0);
+        assert_eq!(text(&texts, "<div>").1, 0.0);
+        assert_eq!(text_colors(&page), [LOOK.quote, LOOK.quote]);
+        // The source keeps its lines and indentation, in a font of its own
+        // that is smaller than the text.
+        let html = text(&texts, "<div>");
+        assert!(html.0.contains("\n  <b>x</b>\n"), "{html:?}");
+        assert_eq!(page.blocks[0].text, "3 rows are left out.");
+        assert_eq!(page.blocks[1].text, "<div>\n  <b>x</b>\n</div>");
+    }
+
+    #[test]
+    fn details_is_its_summary_in_bold_after_a_triangle_and_the_blocks_below_it() {
+        let page = page(
+            "<details>\n<summary>More here</summary>\n\nInside.\n\n- an item\n\n</details>\n\nAfter.\n",
+        );
+        let texts = texts(&page);
+        let summary = text(&texts, "▼ More here");
+        let inside = text(&texts, "Inside.");
+        assert_eq!((summary.1, inside.1), (0.0, 0.0));
+        assert!(inside.2 > summary.2 + 16.0, "{texts:?}");
+        assert!(text(&texts, "After.").2 > text(&texts, "an item").2);
+        // The summary is bold, as it is in a browser.
+        assert!(page.items.iter().any(|item| matches!(
+            &item.shape,
+            Shape::Text { paragraph, .. } if paragraph.text().starts_with("▼") && paragraph.look.weight >= 600.0
+        )));
     }
 
     #[test]
