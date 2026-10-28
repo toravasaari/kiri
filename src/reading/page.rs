@@ -1137,10 +1137,8 @@ impl<'a> Flow<'a> {
         let room = room - columns as f32 * extra - 1.0;
         let (widths, forced) = share(&least, &most, room);
         // Whether to scroll: even the least widths are too wide for the
-        // area, by more than rounding. `share` tells it from the columns
-        // and not from a sum of widths that may come out a hair over the
-        // room; the wrapping path keeps the exact room.
-        let too_wide = share(&least, &most, room + FITS).1;
+        // area, by more than rounding, which `share` allows for.
+        let too_wide = forced;
         let (widths, forced) = match too_wide && scroll {
             // Scrolling, words stay whole: each column takes its least
             // width, and more up to half the area, and the table scrolls.
@@ -1536,15 +1534,18 @@ fn value_cell(value: &Value, level: usize) -> Cell {
 /// least width, and the room left shared in proportion to how much each
 /// could still grow. When even the least widths do not fit, each column
 /// gets its share of the room in proportion to its least width, and the
-/// second value says that words must then break inside to fit.
+/// second value says that words must then break inside to fit. Least widths
+/// that are over the room by less than [`FITS`] still fit.
 pub fn share(least: &[f32], most: &[f32], room: f32) -> (Vec<f32>, bool) {
     let (sum_least, sum_most) = (least.iter().sum::<f32>(), most.iter().sum::<f32>());
     if sum_most <= room {
         return (most.to_vec(), false);
     }
-    if sum_least <= room {
+    // The words may add up to a hair over the room, by less than what is
+    // rounding; they fit, and no word breaks.
+    if sum_least <= room + FITS {
         let flex: f32 = least.iter().zip(most).map(|(min, max)| max - min).sum();
-        let spare = room - sum_least;
+        let spare = (room - sum_least).max(0.0);
         let widths = (least.iter().zip(most))
             .map(|(min, max)| match flex > 0.0 {
                 true => min + spare * (max - min) / flex,
@@ -2531,6 +2532,65 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_table_of_single_words_over_the_room_by_a_hair_keeps_its_words_whole() {
+        // The same tables: when they are no band, wrapping or scrolling,
+        // no word is broken in the middle, so no cell has a second line.
+        let words = [
+            "alpha1",
+            "bravo22",
+            "charlie3",
+            "deltaforce3",
+            "echo4",
+            "foxtrot55",
+            "golf6",
+            "hotel777",
+        ];
+        let mut cells = 0;
+        for columns in 6..=8 {
+            let head = words[..columns].join(" | ");
+            let body: Vec<String> = words[..columns]
+                .iter()
+                .rev()
+                .map(|w| format!("{w}x"))
+                .collect();
+            let table = format!(
+                "| {head} |\n|{}\n| {} |\n",
+                "---|".repeat(columns),
+                body.join(" | ")
+            );
+            for area in 672..1400 {
+                // Where scrolling needs no band the words fit, and so they
+                // do when wrapping, which has the same room.
+                if !scrolling_in(&table, area as f32).bands.is_empty() {
+                    continue;
+                }
+                for wide in [Wide::Scroll, Wide::Wrap] {
+                    let document = parse(&table);
+                    let blocks: Vec<&Block> = document.blocks.iter().collect();
+                    let frame = Frame {
+                        wide,
+                        area: area as f32,
+                        ..FRAME
+                    };
+                    let page = lay_out(&blocks, &LOOK, &Fonts::fixture(), (&Plain, &Plain), frame);
+                    for item in &page.items {
+                        if let Shape::Text { paragraph, .. } = &item.shape {
+                            cells += 1;
+                            assert_eq!(
+                                paragraph.lines().len(),
+                                1,
+                                "{columns} columns in {area} px, {wide:?}: {:?}",
+                                paragraph.text()
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        assert!(cells > 1000, "{cells} cells looked at");
     }
 
     #[test]
