@@ -442,15 +442,18 @@ impl Flow<'_> {
         if let (Some(language), Some(color)) =
             (language.filter(|name| !name.is_empty()), look.label)
         {
+            // In the padding above the code, one line of its own height,
+            // so that a long first line never runs under it.
             let style = text::Look {
                 size: size * LABEL_SIZE,
+                line_height: 1.0,
                 color,
                 ..text::Look::PLAIN
             };
             let label = text::lay_out(self.fonts, &[Run::new(language)], &style, block_width);
             let (label_x, label_y) = (
                 x + block_width - 0.6 * size - label.width(),
-                top + 0.3 * size,
+                top + ((padding - label.height()) / 2.0).max(0.0),
             );
             let label_height = label.height();
             self.push(
@@ -1268,6 +1271,15 @@ mod tests {
         assert_eq!(label.1 + label.3, 672.0 - 0.6 * 16.0);
         assert!(label.2 < 20.0, "{label:?}");
         assert_eq!(page.blocks[0].text, "fn main() {}");
+        // In the padding above the code, so that a long first line never
+        // runs under it.
+        let bottom = (page.items.iter()).find_map(|item| match &item.shape {
+            Shape::Text { paragraph, y, .. } if paragraph.text() == "rust" => {
+                Some(y + paragraph.height())
+            }
+            _ => None,
+        });
+        assert!(bottom.is_some_and(|bottom| bottom <= 16.0), "{bottom:?}");
     }
 
     #[test]
