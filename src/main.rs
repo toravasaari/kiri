@@ -2013,6 +2013,7 @@ fn print_document(
         }
         later => later,
     };
+    let file = reading.as_ref().map(|(from, _)| from.path);
     let mut reload = reading.map(|(from, stamps)| FileReload {
         context,
         settings: &settings,
@@ -2037,6 +2038,13 @@ fn print_document(
             warnings,
             reload: reload.as_mut().map(|reload| reload as &mut dyn Reload),
             reading: Some(context.reading_mode()),
+            // What reading mode shows in the middle of text loads when `M`
+            // turns it on, unless `--reading` had it loaded at the start.
+            inline: Some(Box::new(|images, loads, caps| {
+                let parts = [part(document, file, true)];
+                let loading = loading(context, &settings, caps);
+                kiri::images::load_inline_in_background(&parts, &loading, images, loads);
+            })),
             ..kiri::pager::Options::new(settings.search_case)
         },
         (

@@ -2321,3 +2321,37 @@ fn printing_always_wraps() {
     };
     assert_eq!(print("scroll"), print("wrap"));
 }
+
+#[test]
+fn m_loads_the_pictures_in_the_middle_of_text_that_reading_mode_shows() {
+    let prepare = |dir: &std::path::Path| {
+        common::quadrants(8, 8).save(dir.join("p.png")).unwrap();
+        let document =
+            "A line with a badge <img src=\"p.png\" width=\"24\" alt=\"badge\"> in it.\n";
+        std::fs::write(dir.join("document.md"), document).unwrap();
+    };
+    let mut typed = false;
+    let (status, seen) = in_terminal_after(
+        "pager-m-inline",
+        prepare,
+        &["-p", "--mode", "kitty", "--width", "80", "document.md"],
+        10,
+        None,
+        |frames, terminal, _| {
+            if frames > 0 && !typed {
+                typed = true;
+                terminal.write_all(b"M").unwrap();
+                // Long enough for the picture to load and the page to be
+                // laid out again.
+                std::thread::sleep(Duration::from_secs(3));
+                terminal.write_all(b"q").unwrap();
+            }
+        },
+    );
+    assert!(status.success());
+    // The page without the picture when `M` turns reading mode on, and
+    // again with it when it has come: sent as two images, as it is two
+    // different pages.
+    let pages = seen.matches("\x1b_Ga=T,U=1").count();
+    assert_eq!(pages, 2, "{seen:?}");
+}
