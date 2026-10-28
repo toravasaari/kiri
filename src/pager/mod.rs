@@ -1522,6 +1522,8 @@ fn show(
         // Whether a frame was drawn or images sent again, which goes out
         // with a check of the images it sent.
         let mut written = false;
+        // Whether a key scrolled a band or selected another.
+        let mut bands = false;
         for key in keys {
             match key {
                 // tmux passed no images while the pane was not shown:
@@ -1576,7 +1578,9 @@ fn show(
                     again = true;
                 }
                 Pressed::Reading => return Ok(Outcome::Reading),
-                Pressed::Bands => return Ok(Outcome::Bands),
+                // The keys after it in the same read still count, as
+                // they would read one by one.
+                Pressed::Bands => bands = true,
                 Pressed::Wide => return Ok(Outcome::Wide),
                 Pressed::Follow if reload.is_none() => {
                     state.told = Some(Told::new(NOTHING_TO_FOLLOW));
@@ -1609,7 +1613,8 @@ fn show(
         }
         // The band selected scrolled away: the topmost on the screen takes
         // its place.
-        if (state.bands).refresh(layout.lines, layout.places, layout.view.visible()) {
+        let refreshed = (state.bands).refresh(layout.lines, layout.places, layout.view.visible());
+        if bands || refreshed {
             return Ok(Outcome::Bands);
         }
         let came = source.loads.poll();

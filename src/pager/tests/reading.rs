@@ -204,3 +204,28 @@ fn a_search_finds_a_laid_out_block_below_the_first_row_of_its_part() {
     let last = terminal.frames().pop().expect("a frame");
     assert!(!last.contains("not found"), "{last:?}");
 }
+
+#[test]
+fn keys_after_a_band_key_in_the_same_read_are_kept() {
+    let images = |keys: &[&[u8]]| {
+        let (document, mut inputs) = two_bands();
+        let mut terminal = Fake::new(80, 10, keys);
+        run_document(
+            &document,
+            &mut inputs,
+            Options::new(SearchCase::Smart),
+            &mut terminal,
+        );
+        let frames = terminal.frames();
+        frames
+            .iter()
+            .flat_map(|frame| sent(frame))
+            .collect::<Vec<String>>()
+    };
+    // Read one after the other, Tab selects the second band and → then
+    // sends it scrolled; read at once, they send that image too.
+    let apart = images(&[b"\t", b"\x1b[C"]);
+    let scrolled = apart.last().expect("an image sent");
+    let together = images(&[b"\t\x1b[C"]);
+    assert!(together.contains(scrolled), "{together:?} {apart:?}");
+}
