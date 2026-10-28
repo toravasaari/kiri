@@ -721,7 +721,7 @@ mod tests {
     }
 
     #[test]
-    fn text_blocks_show_as_rows_of_a_page_between_the_other_blocks() {
+    fn a_document_of_text_code_and_an_alert_is_one_page() {
         let lines = layout::layout(&parse(DOCUMENT), &inputs(kitty(80)));
         insta::assert_snapshot!(shown(&lines).join("\n"));
     }
