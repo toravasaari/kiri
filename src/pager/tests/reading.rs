@@ -101,3 +101,63 @@ fn an_arrow_scrolls_the_selected_band_sideways() {
     assert!(sent(first) >= 2, "{}", sent(first));
     assert_eq!(sent(last), 1, "{} frames", frames.len());
 }
+
+/// A document with two wide code blocks, the second at the bottom of a
+/// window of 10 rows, laid out to scroll.
+fn two_bands() -> (Document, Inputs) {
+    let long = "a".repeat(200);
+    let source = format!("```\n{long}\n```\n\n```\n{long}\n```\n");
+    let inputs = Inputs {
+        reading: Some(Reading {
+            wide: crate::reading::page::Wide::Scroll,
+            ..reading()
+        }),
+        ..Inputs::new(kitty())
+    };
+    (crate::parse::parse(&source), inputs)
+}
+
+/// The ids of the images sent in `frame`.
+fn sent(frame: &str) -> Vec<String> {
+    (frame.split("\x1b_Ga=T").skip(1))
+        .filter_map(|keys| {
+            keys.split(",i=")
+                .nth(1)?
+                .split(',')
+                .next()
+                .map(str::to_owned)
+        })
+        .collect()
+}
+
+#[test]
+fn a_click_selects_the_band_under_it_and_the_sideways_wheel_scrolls_it() {
+    let (document, mut inputs) = two_bands();
+    // The second band starts on the fifth row: a click there, then the
+    // sideways wheel to the right on it.
+    let keys: &[&[u8]] = &[b"\x1b[<0;10;6M", b"\x1b[<67;10;6M"];
+    let mut terminal = Fake::new(80, 10, keys);
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let frames = terminal.frames();
+    // The click sends both bands anew, the second now selected; the
+    // wheel sends the second scrolled.
+    assert_eq!(frames.len(), 3, "{} frames", frames.len());
+    assert_eq!(sent(&frames[1]).len(), 2, "{:?}", sent(&frames[1]));
+    assert_eq!(sent(&frames[2]).len(), 1, "{:?}", sent(&frames[2]));
+}
+
+#[test]
+fn the_wheel_with_shift_away_from_a_band_scrolls_down() {
+    let frames = frames(&numbers(30), kitty(), &[b"\x1b[<69;10;3M"]);
+    assert!(frames[0].contains("Line 1"));
+    assert!(
+        !frames.last().unwrap().contains("Line 1 "),
+        "{:?}",
+        frames.last()
+    );
+}

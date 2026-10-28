@@ -398,6 +398,11 @@ fn page_through(
             }
             None => View::new(heights, rows).with_blocks(places),
         };
+        // The topmost band on the screen is selected before the first
+        // frame, which then shows it so.
+        if (state.bands).refresh(&lines, &band_places, shown.visible()) {
+            state.bands.apply(&mut lines, &band_places);
+        }
         state.lay_out(&lines, shown.top(), bar);
         let status = Status {
             name,
@@ -1034,7 +1039,39 @@ impl State {
     /// Does what `key`, pressed at `now`, asks in `layout`, and tells what
     /// is left for the pager to do.
     fn press(&mut self, key: Key, now: Instant, layout: &mut Layout) -> Pressed {
-        // A click, or any mouse event but the wheel, does nothing at all.
+        // A click selects the band under it, and the sideways wheel, or
+        // the wheel with Shift, scrolls it; away from a band, the wheel
+        // with Shift scrolls as the wheel does.
+        let key = match key {
+            Key::Click { row, .. } => {
+                let open = self.help || self.prompt.is_some();
+                return match self.band_at(row, layout).filter(|_| !open) {
+                    Some(true) => Pressed::Bands,
+                    _ => Pressed::Nothing,
+                };
+            }
+            Key::Sideways {
+                right, shift, row, ..
+            } => match self.band_at(row, layout) {
+                Some(selected) => {
+                    let step = if right {
+                        bands::Step::Right
+                    } else {
+                        bands::Step::Left
+                    };
+                    let moved = self.bands.scroll(layout.lines, layout.places, step);
+                    return match moved || selected {
+                        true => Pressed::Bands,
+                        false => Pressed::Nothing,
+                    };
+                }
+                None if shift && right => Key::WheelDown,
+                None if shift => Key::WheelUp,
+                None => return Pressed::Nothing,
+            },
+            key => key,
+        };
+        // Any other mouse event does nothing at all.
         if key == Key::Mouse {
             return Pressed::Nothing;
         }
@@ -1127,6 +1164,14 @@ impl State {
             None => {}
         }
         Pressed::Nothing
+    }
+
+    /// Selects the band on row `row` of the window, counted from 1:
+    /// whether that changed the selection, or `None` when no band is
+    /// there.
+    fn band_at(&mut self, row: u16, layout: &Layout) -> Option<bool> {
+        let line = layout.view.line_at(usize::from(row).checked_sub(1)?)?;
+        self.bands.select_at(layout.lines, layout.places, line)
     }
 
     /// The file the reader is in, of `files`, with the view's top on the

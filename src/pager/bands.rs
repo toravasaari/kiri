@@ -89,6 +89,21 @@ impl Bands {
         changed
     }
 
+    /// Selects the band that shows line `line`: whether that changed the
+    /// selection, or `None` when no band shows it.
+    pub fn select_at(
+        &mut self,
+        lines: &[Line],
+        places: &[Option<BlockInfo>],
+        line: usize,
+    ) -> Option<bool> {
+        let (id, _) =
+            (identify(lines, places).into_iter()).find(|(_, band)| band.lines.contains(&line))?;
+        let changed = self.selected.as_ref() != Some(&id);
+        self.selected = Some(id);
+        Some(changed)
+    }
+
     /// Scrolls the bands a key scrolls by `step`; true when one moved.
     pub fn scroll(&mut self, lines: &[Line], places: &[Option<BlockInfo>], step: Step) -> bool {
         let mut moved = false;
@@ -237,6 +252,20 @@ mod tests {
         assert!(bands.select_next(&lines, &places, all, true));
         bands.apply(&mut lines, &places);
         assert_eq!(shown(&lines), [(0, false), (0, true)]);
+    }
+
+    #[test]
+    fn a_line_of_a_band_selects_it() {
+        let (lines, places) = laid_out();
+        let mut bands = Bands::default();
+        let second = reading::bands(&lines)[1].lines.clone();
+        assert_eq!(
+            bands.select_at(&lines, &places, second.start + 1),
+            Some(true)
+        );
+        assert_eq!(bands.select_at(&lines, &places, second.start), Some(false));
+        let between = reading::bands(&lines)[0].lines.end;
+        assert_eq!(bands.select_at(&lines, &places, between), None);
     }
 
     #[test]

@@ -223,8 +223,9 @@ and words whole and scrolls sideways under a thin scroll bar, faded on
 each edge with more beyond it. Its rows show an image of their own,
 keyed by its offset and whether it is selected. The pager keeps those by
 the band's block in `src/pager/bands.rs`: the topmost band on the
-screen is selected until Tab or Shift+Tab selects another, ← and → or
-`H` and `L` scroll it, and the pager then shows the same lines with the
+screen is selected until Tab, Shift+Tab or a click selects another, ←
+and → or `H` and `L` scroll it, and so does a sideways wheel, or the
+wheel with Shift, over a band, and the pager then shows the same lines with the
 band's rows keyed anew, without laying the document out again. Where the
 terminal draws no images, kiri
 warns and shows the text as usual. In the pager, `M` turns reading mode on and off
@@ -429,7 +430,7 @@ writes as it is into a pipe.
 | Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/kitty/query.rs` | Wiping the progress line; erasing the rows the text sizing tests drew |
 | Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term/screen.rs` | The pager's screen of its own |
 | Focus reporting | CSI ?1004h/l; CSI I, CSI O | `src/term/screen.rs`, `src/pager/keys.rs` | Telling the pager that its tmux pane is shown again |
-| Mouse reporting | CSI ?1000h/l, CSI ?1006h/l; CSI < … M/m, CSI M | `src/term/screen.rs`, `src/pager/keys.rs` | The wheel scrolling the pager, also inside tmux |
+| Mouse reporting | CSI ?1000h/l, CSI ?1006h/l; CSI < … M/m, CSI M | `src/term/screen.rs`, `src/pager/keys.rs` | The wheel scrolling the pager, also inside tmux; in reading mode, a click selecting a band and the sideways wheel scrolling it |
 | Synchronized output | CSI ?2026h/l | `src/render/output.rs` | Pager frames without flicker |
 | Cell size query | CSI 16 t | `src/kitty/query.rs` | The cell size in pixels where the window size has none |
 | Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI c | `src/term/probe.rs` | Cursor position, foreground, background and palette colours, terminal version, end of the answers |

@@ -93,6 +93,18 @@ impl View {
         self.top..self.top + end
     }
 
+    /// The line shown on row `row` of the window, counted from 0.
+    pub fn line_at(&self, row: usize) -> Option<usize> {
+        let mut used = 0;
+        for line in self.visible() {
+            used += self.heights[line];
+            if row < used {
+                return Some(line);
+            }
+        }
+        None
+    }
+
     /// The top of the last page: the first line from which the rest of
     /// the document fits in the window.
     fn last_top(&self) -> usize {
