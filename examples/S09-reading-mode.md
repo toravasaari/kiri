@@ -131,7 +131,7 @@ A line longer than the area wraps at the area's edge, and goes on at the
 code's left edge on the next line:
 
 ```text
-This line is long enough to be wider than the area in a window of usual width, so that it wraps at the right edge of the area and goes on below.
+This line is long enough to be wider than the area in a window of usual width, so that it wraps at the right edge of the area and goes on below, to findme.
 ```
 
 ## Tables
@@ -161,7 +161,7 @@ long words where it must, so that it still fits the area:
 
 | Path | Another path |
 |------|--------------|
-| `src/render/reading/a_very_long_module_name_that_does_not_fit.rs` | `src/reading/page/another_very_long_name_that_cannot_fit_either.rs` |
+| `src/render/reading/a_very_long_module_name_that_does_not_fit.rs` | `src/reading/page/another_very_long_name_that_cannot_fit_either.rs`findme |
 
 ## Scrolling sideways
 
@@ -188,10 +188,13 @@ In the pager, `/` searches the text of a page as it does in the text
 layout: the matches are boxes in the theme's match colours with the text
 drawn over them, the current match in its own colours, and where the theme
 gives none, in reverse, a box in the text's colour. `n` and `N` move
-between them and the status line counts them. Search for `band` here: it
-is in this paragraph, in the table above and in the code at the top, and
-a match in a band that is scrolled out of sight scrolls it into sight and
-selects it.
+between them and the status line counts them. Open this document with `--wide scroll` and search for `findme`: the first
+match is at the end of the long code line near the top, past its right
+edge, so that band scrolls to the end of its line, the match boxed, and is
+selected; `n` goes to the second, at the end of the second path in the
+table too wide, whose band then scrolls and is selected in turn (the first
+keeps where it was); the third is in this paragraph. Without
+`--wide scroll` the code and the table wrap and nothing scrolls.
 
 The links in a page are links for kitty, as in the text layout, so it
 opens one as it does there: [a link to the examples](https://example.com/),
