@@ -479,6 +479,8 @@ src/reading/text.rs        styled text laid out in lines with parley
 src/reading/paint.rs       laid-out text drawn as pixels: glyph outlines,
                            chips behind inline code, rules
 src/reading/colr.rs        colour glyphs, such as emoji, from the COLR table
+src/reading/page.rs        a run of text blocks laid out as GitHub sets them,
+                           drawn a part at a time
 src/compare.rs             which blocks stayed, changed, were added or
                            removed between two documents
 src/diagrams/mod.rs        diagrams written in code blocks, drawn as images

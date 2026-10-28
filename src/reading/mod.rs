@@ -4,6 +4,7 @@
 
 mod colr;
 pub mod fonts;
+pub mod page;
 pub mod paint;
 pub mod text;
 

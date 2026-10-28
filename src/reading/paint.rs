@@ -119,6 +119,12 @@ impl Canvas {
                         None,
                     );
                 }
+                if glyphs.style().strikethrough.is_some() {
+                    let metrics = run.font_metrics();
+                    let thickness = metrics.strikethrough_size.max(1.0);
+                    let top = y + glyphs.baseline() - metrics.strikethrough_offset;
+                    self.rect(x + glyphs.offset(), top, glyphs.advance(), thickness, color);
+                }
             }
         }
     }

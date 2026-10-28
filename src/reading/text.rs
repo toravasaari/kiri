@@ -41,6 +41,8 @@ pub struct Run {
     /// Inline code, or a key: in the monospace font, smaller, and broken
     /// only at its spaces.
     pub code: bool,
+    /// Struck through, in its colour.
+    pub strike: bool,
     /// Its own colour, such as a link's.
     pub color: Option<Brush>,
 }
@@ -119,6 +121,9 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
             }
             if let Some(color) = run.color {
                 builder.push(StyleProperty::Brush(color), range.clone());
+            }
+            if run.strike {
+                builder.push(StyleProperty::Strikethrough(true), range.clone());
             }
             if run.code {
                 builder.push(FontFamily::Source("monospace".into()), range.clone());
