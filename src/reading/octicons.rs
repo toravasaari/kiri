@@ -1,9 +1,11 @@
 //! The icons GitHub shows on its alerts, drawn as pictures: reading mode's
 //! text has no symbols font to take them from.
 //!
-//! The Octicons are GitHub's, under the MIT licence:
+//! The Octicons are GitHub's (primer/octicons), under the MIT License:
 //!
-//! > Copyright (c) 2023 GitHub Inc.
+//! > MIT License
+//! >
+//! > Copyright (c) 2026 GitHub Inc.
 //! >
 //! > Permission is hereby granted, free of charge, to any person obtaining
 //! > a copy of this software and associated documentation files (the
@@ -24,9 +26,11 @@
 //! > OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 //! > WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //!
-//! The outlines below are those of the `info`, `light-bulb`, `report`,
-//! `alert` and `stop` icons (16 pixels) as the symbols font that kitty
-//! bundles holds them, in that font's units (2048 to the icon).
+//! The outlines below were taken from the Octicons in the Nerd Fonts
+//! symbols font that kitty bundles (`SymbolsNerdFontMono-Regular.ttf`),
+//! not from primer/octicons itself: the `info`, `light-bulb`, `report`,
+//! `alert` and `stop` icons (16 pixels), in that font's units (2048 to the
+//! icon).
 
 use image::RgbaImage;
 use resvg::{tiny_skia, usvg};
