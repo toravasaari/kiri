@@ -161,3 +161,27 @@ fn the_wheel_with_shift_away_from_a_band_scrolls_down() {
         frames.last()
     );
 }
+
+#[test]
+fn w_switches_wide_blocks_between_wrapping_and_scrolling() {
+    let long = "a".repeat(200);
+    let document = crate::parse::parse(&format!("Text.\n\n```\n{long}\n```\n"));
+    let mut terminal = Fake::new(80, 10, &[b"W", b"W"]);
+    let mut inputs = Inputs {
+        reading: Some(reading()),
+        ..Inputs::new(kitty())
+    };
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let frames = terminal.frames();
+    let bands = |frame: &str| frame.matches(",r=4,").count();
+    // Wrapped, no band; scrolling, a band of four rows; wrapped again.
+    assert_eq!(frames.len(), 3, "{} frames", frames.len());
+    assert_eq!(bands(&frames[0]), 0);
+    assert_eq!(bands(&frames[1]), 1, "{:?}", sent(&frames[1]));
+    assert_eq!(bands(&frames[2]), 0);
+}

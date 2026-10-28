@@ -85,7 +85,8 @@ fn the_help_opens_over_the_dimmed_document_and_any_key_closes_it() {
 #[test]
 fn the_help_s_footer_is_muted_text_on_the_page() {
     let footer = |theme: &str| {
-        let mut terminal = Fake::new(60, 24, &[b"?"]);
+        // Tall enough for the whole panel, footer and all.
+        let mut terminal = Fake::new(60, 30, &[b"?"]);
         let mut inputs = Inputs::new(Capabilities::ansi(80));
         inputs.theme = crate::theme::parse(theme).unwrap();
         let document = numbers(30);

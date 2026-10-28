@@ -96,6 +96,8 @@ pub enum Action {
     SidewaysFar,
     /// Selects the next or the previous wide block on the screen.
     SelectBand,
+    /// Switches wide blocks between wrapping and scrolling.
+    Wide,
     Help,
     Quit,
 }
@@ -471,6 +473,12 @@ pub const BINDINGS: &[Binding] = {
             names: "Tab Shift+Tab",
             what: "another wide block",
             action: Action::SelectBand,
+        },
+        Binding {
+            keys: &[Char('W')],
+            names: "W",
+            what: "wide blocks: wrap, scroll",
+            action: Action::Wide,
         },
         Binding {
             keys: &[Char('?'), Char('h')],

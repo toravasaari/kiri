@@ -25,6 +25,7 @@ use crate::config::{self, FollowJump, Paging, SearchCase};
 use crate::images::{ImageError, ImageKey, Images, Loads, Part, Source};
 use crate::kitty::graphics::ImageId;
 use crate::model::{Document, File, FrontMatterError};
+use crate::reading::page::Wide;
 use crate::render::Inputs;
 use crate::render::block::BlockInfo;
 use crate::render::encoder::Encoder;
@@ -479,6 +480,19 @@ fn page_through(
                 size = new;
                 view = Some(shown);
             }
+            // Laid out again with wide blocks the other way, in reading
+            // mode as it is and as `M` would turn it on, keeping the
+            // block at the top as a resize does.
+            Outcome::Wide => {
+                for reading in [&mut inputs.reading, &mut other].into_iter().flatten() {
+                    reading.wide = match reading.wide {
+                        Wide::Wrap => Wide::Scroll,
+                        Wide::Scroll => Wide::Wrap,
+                    };
+                }
+                state.changed = None;
+                view = Some(shown);
+            }
             // The same lines, with the band shown anew.
             Outcome::Bands => {
                 laid_out = Some((inputs.caps.clone(), Stream { lines, blocks }));
@@ -595,6 +609,8 @@ enum Outcome {
     /// A band is scrolled or selected otherwise: the same lines show it
     /// anew.
     Bands,
+    /// Wide blocks are to switch between wrapping and scrolling.
+    Wide,
 }
 
 /// Where the pager gets the document and its images again.
@@ -625,6 +641,8 @@ enum Pressed {
     Reading,
     /// The reader scrolled a band sideways or selected another.
     Bands,
+    /// The reader switched wide blocks between wrapping and scrolling.
+    Wide,
 }
 
 /// What the status line and the help panel show and how, apart from the
@@ -1143,6 +1161,7 @@ impl State {
             Some(Action::Redraw) => return Pressed::Redraw,
             Some(Action::Follow) => return Pressed::Follow,
             Some(Action::Reading) => return Pressed::Reading,
+            Some(Action::Wide) => return Pressed::Wide,
             Some(Action::Sideways | Action::SidewaysFar) => {
                 let step = match key {
                     Key::Left => bands::Step::Left,
@@ -1558,6 +1577,7 @@ fn show(
                 }
                 Pressed::Reading => return Ok(Outcome::Reading),
                 Pressed::Bands => return Ok(Outcome::Bands),
+                Pressed::Wide => return Ok(Outcome::Wide),
                 Pressed::Follow if reload.is_none() => {
                     state.told = Some(Told::new(NOTHING_TO_FOLLOW));
                 }

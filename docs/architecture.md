@@ -218,7 +218,7 @@ search. The other blocks, such as images and alerts, are laid out as
 text between the pages, from the area's left edge and as wide as the
 text's column: only code blocks and tables reach into the area. A
 code block or table wider than the area wraps to fit it, or, with
-`--wide scroll` in the pager, becomes a band on whole rows of its own, which keeps its lines
+`--wide scroll` in the pager, or after `W` there, becomes a band on whole rows of its own, which keeps its lines
 and words whole and scrolls sideways under a thin scroll bar, faded on
 each edge with more beyond it. Its rows show an image of their own,
 keyed by its offset and whether it is selected. The pager keeps those by
