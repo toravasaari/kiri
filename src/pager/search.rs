@@ -8,7 +8,7 @@ use super::fade::Fade;
 use crate::caps::Capabilities;
 use crate::color::Underline;
 use crate::config::SearchCase;
-use crate::render::style::{self, Line, Span, Style};
+use crate::render::style::{self, ImageRow, Line, Span, Style};
 use crate::theme::{SearchColor, Theme};
 
 /// Where a search term is.
@@ -299,11 +299,15 @@ fn find(lines: &[Line], term: &str, case: SearchCase) -> Vec<Match> {
 }
 
 /// The text a search looks in on `line`: its spans', and after them the
-/// text that the image on its first row shows, such as a heading's. A
-/// match there has bytes past the spans, so it is not marked.
+/// text that the image on its first row shows, such as a heading's, or
+/// the text of a block of reading mode's page that starts on it. A match
+/// there has bytes past the spans, so it is not marked.
 fn searched(line: &Line) -> String {
     let mut text = style::text(&line.spans);
-    if let Some(image) = line.image.as_ref().filter(|image| image.row == 0) {
+    // A page of reading mode puts a block's text on the row the block
+    // starts on, wherever that is in its image.
+    let first = |image: &&ImageRow| image.row == 0 || image.page.is_some();
+    if let Some(image) = line.image.as_ref().filter(first) {
         text.push_str(image.text.as_deref().unwrap_or_default());
     }
     text

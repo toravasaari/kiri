@@ -185,3 +185,22 @@ fn w_switches_wide_blocks_between_wrapping_and_scrolling() {
     assert_eq!(bands(&frames[1]), 1, "{:?}", sent(&frames[1]));
     assert_eq!(bands(&frames[2]), 0);
 }
+
+#[test]
+fn a_search_finds_a_laid_out_block_below_the_first_row_of_its_part() {
+    let source = "First paragraph.\n\nSecond paragraph, far down.\n";
+    let document = crate::parse::parse(source);
+    let mut terminal = Fake::new(80, 10, &[b"/far down\r"]);
+    let mut inputs = Inputs {
+        reading: Some(reading()),
+        ..Inputs::new(kitty())
+    };
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let last = terminal.frames().pop().expect("a frame");
+    assert!(!last.contains("not found"), "{last:?}");
+}
