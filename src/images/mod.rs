@@ -176,6 +176,14 @@ pub enum ImageKey {
         words: Vec<HeadingWord>,
         cell: (u16, u16),
     },
+    /// A part of a page of reading mode's text, drawn when it is shown:
+    /// the page, by a hash of what it shows and how, and the part's number
+    /// from its top.
+    Page {
+        document: usize,
+        page: u64,
+        slice: u32,
+    },
 }
 
 impl ImageKey {
@@ -226,6 +234,11 @@ impl ImageKey {
                 words,
                 cell,
             },
+            ImageKey::Page { page, slice, .. } => ImageKey::Page {
+                document,
+                page,
+                slice,
+            },
         }
     }
 
@@ -234,7 +247,8 @@ impl ImageKey {
         match *self {
             ImageKey::Url { document, .. }
             | ImageKey::Block { document, .. }
-            | ImageKey::Heading { document, .. } => document,
+            | ImageKey::Heading { document, .. }
+            | ImageKey::Page { document, .. } => document,
         }
     }
 }
@@ -262,6 +276,7 @@ impl fmt::Display for ImageKey {
                 let text: Vec<&str> = words.iter().map(|word| word.text.as_str()).collect();
                 write!(f, "heading {:?}", text.join(" "))
             }
+            ImageKey::Page { slice, .. } => write!(f, "part {slice} of a page of text"),
         }
     }
 }

@@ -5,6 +5,7 @@ use std::rc::Rc;
 
 use super::block::BlockId;
 use super::image::Placement;
+use super::reading::Parts;
 use crate::color::{Color, Underline};
 use crate::images::ImageKey;
 use crate::size::TextSize;
@@ -104,6 +105,9 @@ pub struct ImageRow {
     /// which a search finds on its first row; `None` for every other
     /// image.
     pub text: Option<String>,
+    /// The page of reading mode that the image is a part of, which draws
+    /// it; `None` for an image from `Images`.
+    pub page: Option<Rc<Parts>>,
 }
 
 /// The band that tells that a block's image is loading, which a line
@@ -174,6 +178,7 @@ impl Line {
                 background: None,
                 columns,
                 text: None,
+                page: None,
             }),
             ..Self::blank()
         }

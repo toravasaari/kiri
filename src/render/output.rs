@@ -169,8 +169,12 @@ impl<'a> Writer<'a> {
                 row,
                 background,
                 columns,
+                page,
                 ..
             }) => {
+                if let Some(page) = page {
+                    (self.encoder).page(&placement.key, page);
+                }
                 let id = (self.encoder).id(placement, self.images, caps, out)?;
                 Some((id, *row, columns.clone(), *background))
             }

@@ -12,6 +12,7 @@ use std::rc::Rc;
 
 use super::block::{BlockId, Blocks};
 use super::image::{self, Placement, Shows};
+use super::reading::Reading;
 use super::script::{self, Script};
 use super::style::{Band, Line, Spaces, Span, Style, push};
 use super::table::{self, Cells};
@@ -21,6 +22,7 @@ use crate::caps::Capabilities;
 use crate::color::{Color, Underline};
 use crate::images::{ImageError, ImageKey, Images, Placeholder, Source, heading_words};
 use crate::model::{Block, Document, File, Image, Inline, SourceLines, Table};
+use crate::reading::page;
 use crate::size::{TextSize, VerticalAlign};
 use crate::theme::{BandColor, Theme};
 
@@ -181,6 +183,7 @@ fn with_layout<T>(
         headings,
         table_rows,
         render_errors,
+        reading,
     } = inputs;
     // Without colours, the layout leaves out what only shows a colour, such
     // as heading fills and the padding around inline code. The built-in
@@ -210,6 +213,9 @@ fn with_layout<T>(
         headings: *headings,
         table_rows: *table_rows,
         render_errors: *render_errors,
+        // Only where the terminal draws images, which reading mode's text
+        // is.
+        reading: reading.as_ref().filter(|_| caps.draws_images()),
         document: number,
         // The row below for the shell's prompt or the pager's status line.
         reserved: 1,
@@ -273,6 +279,8 @@ struct Layout<'a> {
     headings: Headings,
     table_rows: TableRows,
     render_errors: RenderErrors,
+    /// Reading mode, which lays the text blocks out as pages of their own.
+    reading: Option<&'a Reading>,
     /// The number of the document laid out among those shown together,
     /// which the keys of its images carry.
     document: usize,
@@ -327,7 +335,15 @@ impl Layout<'_> {
         lines: &mut Vec<Line>,
         marks: &mut Marks,
     ) {
+        // The text blocks that reading mode lays out together, until a
+        // block it does not lay out comes.
+        let mut run = Vec::new();
         for (index, block) in blocks.iter().enumerate() {
+            if self.reading.is_some() && page::lays_out(block) {
+                run.push((index, block));
+                continue;
+            }
+            self.reading_page(&mut run, width, lines, marks);
             marks.path.push(index);
             let mut block_lines = match block {
                 Block::ThematicBreak => vec![self.rule(usize::from(self.caps.width).max(width))],
@@ -354,6 +370,43 @@ impl Layout<'_> {
             append_block(lines, block_lines, true);
             marks.path.pop();
         }
+        self.reading_page(&mut run, width, lines, marks);
+    }
+
+    /// Lays out the text blocks of `run`, each with its index among its
+    /// siblings, as a page of reading mode, and empties it.
+    fn reading_page(
+        &self,
+        run: &mut Vec<(usize, &Block)>,
+        width: usize,
+        lines: &mut Vec<Line>,
+        marks: &mut Marks,
+    ) {
+        let Some(reading) = self.reading.filter(|_| !run.is_empty()) else {
+            return;
+        };
+        let ids: Vec<BlockId> = (run.iter())
+            .map(|(index, _)| {
+                marks.path.push(*index);
+                let id = marks.add(self.document);
+                marks.path.pop();
+                id
+            })
+            .collect();
+        let blocks: Vec<&Block> = run.drain(..).map(|(_, block)| block).collect();
+        // Reading mode sets its own width: the theme's widest text is for
+        // text in the terminal's font.
+        let window = usize::from(self.caps.width).max(width);
+        let page = super::reading::lines(
+            &blocks,
+            &ids,
+            reading,
+            self.theme,
+            self.caps,
+            window,
+            self.document,
+        );
+        append_block(lines, page, true);
     }
 
     fn blocks(&self, blocks: &[Block], width: usize, context: Context) -> Vec<Line> {

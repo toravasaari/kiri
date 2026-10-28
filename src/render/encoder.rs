@@ -8,6 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
+use std::rc::Rc;
 use std::time::Duration;
 
 use image::RgbaImage;
@@ -15,9 +16,10 @@ use image::imageops;
 
 use super::image::{Placement, Shows, Size, cell_size};
 use super::loading::{self, Ink};
+use super::reading::Parts;
 use super::style::Line;
 use crate::caps::Capabilities;
-use crate::images::{Images, Placeholder, Source};
+use crate::images::{ImageKey, Images, Placeholder, Source};
 use crate::kitty::graphics::{self, ImageId};
 
 /// The images the terminal holds, by where and how large they are shown.
@@ -41,6 +43,9 @@ pub struct Encoder {
     sent: Vec<(ImageId, graphics::Cells)>,
     /// How many times each image has been sent again for being lost.
     again: HashMap<ImageId, u8>,
+    /// The pages of reading mode whose parts lines show, by their id,
+    /// which draw a part when it is sent.
+    pages: HashMap<u64, Rc<Parts>>,
 }
 
 /// An image the terminal holds.
@@ -79,7 +84,7 @@ impl Encoder {
         if let Some(held) = old.filter(|held| held.checked && held.sent) {
             return Ok(held.id);
         }
-        let scaled = Scaled::new(placement, images, cell, caps.image_run)?;
+        let scaled = Scaled::new(placement, images, &self.pages, cell, caps.image_run)?;
         let held = Held {
             id: scaled.id,
             cell,
@@ -103,6 +108,14 @@ impl Encoder {
         self.sending(&scaled, caps);
         scaled.send(out)?;
         Ok(scaled.id)
+    }
+
+    /// Takes `parts` as the page that draws the parts of reading mode's
+    /// text that `key` names, for [`Encoder::id`] to send.
+    pub fn page(&mut self, key: &ImageKey, parts: &Rc<Parts>) {
+        if let ImageKey::Page { page, .. } = key {
+            self.pages.entry(*page).or_insert_with(|| Rc::clone(parts));
+        }
     }
 
     /// The id of the band `columns` cells of `cell` pixels wide, in
@@ -166,6 +179,13 @@ impl Encoder {
             }
             kept
         });
+        let pages: HashSet<u64> = (placed.iter())
+            .filter_map(|placement| match placement.key {
+                ImageKey::Page { page, .. } => Some(page),
+                _ => None,
+            })
+            .collect();
+        self.pages.retain(|page, _| pages.contains(page));
         let mut gone = Vec::new();
         self.held.retain(|placement, held| {
             let kept = held.cell == cell && placed.contains(placement);
@@ -226,8 +246,9 @@ impl Encoder {
             .map(|(placement, _)| placement.clone());
         // Pixels that are gone, or that changed since, are no longer the
         // image's: the next frame sends what it shows.
-        let scaled = placement
-            .and_then(|placement| Scaled::new(&placement, images, cell, caps.image_run).ok());
+        let scaled = placement.and_then(|placement| {
+            Scaled::new(&placement, images, &self.pages, cell, caps.image_run).ok()
+        });
         let Some(scaled) = scaled.filter(|scaled| scaled.id == id) else {
             return Ok(());
         };
@@ -295,12 +316,18 @@ impl Scaled {
     fn new(
         placement: &Placement,
         images: &Images,
+        pages: &HashMap<u64, Rc<Parts>>,
         cell: (u16, u16),
         run: Option<u64>,
     ) -> io::Result<Self> {
         let key = &placement.key;
         let size = placement.size;
+        let page = match *key {
+            ImageKey::Page { page, slice, .. } => pages.get(&page).map(|parts| (parts, slice)),
+            _ => None,
+        };
         let pixels = match (placement.shows, images.get(key), images.placeholder(key)) {
+            _ if let Some((parts, slice)) = page => parts.draw(slice),
             (Shows::Image, Some(Ok(source)), _) => fit(source, size, cell),
             (Shows::Placeholder, _, Some(Placeholder::Dimmed(old))) => {
                 loading::dimmed(fit(old, size, cell))
@@ -411,13 +438,14 @@ mod tests {
         let dimmed = Scaled::new(
             &placed("a.png", 2, 1, Shows::Placeholder),
             &images,
+            &HashMap::new(),
             (10, 20),
             None,
         );
         assert_eq!(dimmed.unwrap().pixels.get_pixel(5, 5).0, [255, 0, 0, 120]);
         // Nothing to show as the image itself.
         let image = placed("a.png", 2, 1, Shows::Image);
-        assert!(Scaled::new(&image, &images, (10, 20), None).is_err());
+        assert!(Scaled::new(&image, &images, &HashMap::new(), (10, 20), None).is_err());
     }
 
     #[test]
@@ -597,7 +625,7 @@ mod tests {
             (Encoder::new().id(&placement, &images, &caps, &mut Vec::new())).unwrap()
         };
         // As on every run without one.
-        let scaled = Scaled::new(&placement, &images, (10, 20), None).unwrap();
+        let scaled = Scaled::new(&placement, &images, &HashMap::new(), (10, 20), None).unwrap();
         let (width, height) = scaled.pixels.dimensions();
         let stable = ImageId::new(scaled.pixels.as_raw(), width, height, scaled.cells, None);
         assert_eq!(id(None), stable);
