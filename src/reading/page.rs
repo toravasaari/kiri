@@ -43,6 +43,9 @@ const BAR_ROOM: f32 = 0.6;
 const FADE: f32 = 2.5;
 const BAR: f32 = 4.0;
 const BAR_SELECTED: f32 = 6.0;
+/// How much wider than the room something may measure and still fit it,
+/// in pixels: rounding in the widths of laid-out text.
+const FITS: f32 = 0.5;
 /// A width no line of code reaches, for code laid out unbroken.
 const UNBOUNDED: f32 = 1.0e6;
 /// How far a table cell's text is from its borders, across and down, in
@@ -587,7 +590,8 @@ impl Flow<'_> {
         };
         let paragraph = text::lay_out(self.fonts, &runs, &style, line_width);
         let (_, natural) = paragraph.content_widths();
-        let banded = scroll && natural + 2.0 * padding > room;
+        // A line that reaches the area's edge to within rounding fits.
+        let banded = scroll && natural + 2.0 * padding > room + FITS;
         let block_width = match banded {
             true => natural + 2.0 * padding,
             false => (natural + 2.0 * padding).clamp(width, room),
@@ -716,17 +720,21 @@ impl Flow<'_> {
         let extra = 2.0 * across + 1.0;
         let room = (self.area - x) - columns as f32 * extra - 1.0;
         let scroll = self.wide == Wide::Scroll;
-        let (widths, forced) = match share(&least, &most, room) {
+        // Whether even the least widths are too wide for the area, which
+        // `share` tells from the columns and not from a sum of widths that
+        // may come out a hair over the room.
+        let (widths, too_wide) = share(&least, &most, room);
+        let (widths, forced) = match too_wide && scroll {
             // Scrolling, words stay whole: each column takes its least
             // width, and more up to half the area, and the table scrolls.
-            (_, true) if scroll => {
+            true => {
                 let half = (self.area - x) / 2.0;
                 let widths = (least.iter().zip(&most))
                     .map(|(min, max)| min.max(max.min(half)))
                     .collect();
                 (widths, false)
             }
-            shared => shared,
+            false => (widths, too_wide),
         };
         let wrap = if forced {
             text::Wrap::Forced
@@ -780,7 +788,7 @@ impl Flow<'_> {
             }
             flow.y = y + 1.0;
         };
-        match scroll && table_width > self.area - x {
+        match scroll && too_wide {
             true => self.band(x, table_width, draw),
             false => draw(self),
         }
@@ -1465,6 +1473,62 @@ mod tests {
         assert_eq!(widest.len(), 2);
         assert!(widest.iter().all(|&(lines, _)| lines == 1), "{widest:?}");
         assert!(band.width > 1008.0);
+    }
+
+    /// `markdown` laid out to scroll in an area `area` pixels wide.
+    fn scrolling_in(markdown: &str, area: f32) -> Page {
+        let document = parse(markdown);
+        let blocks: Vec<&Block> = document.blocks.iter().collect();
+        let frame = Frame {
+            wide: Wide::Scroll,
+            area,
+            ..FRAME
+        };
+        lay_out(&blocks, &LOOK, &Fonts::fixture(), &Plain, frame)
+    }
+
+    #[test]
+    fn a_table_that_shares_the_room_exactly_is_no_band() {
+        // Tables whose cells wrap to fill the room: the widths share the
+        // room out, and their sum may come out a hair over it.
+        for area in [700.0, 800.0, 864.0, 1008.0, 1100.0] {
+            for words in 20..90 {
+                let (left, right) = ("word ".repeat(words), "other text ".repeat(100 - words));
+                let table =
+                    format!("| a | b | c |\n|---|---|---|\n| {left} | {right} | {left} |\n");
+                let page = scrolling_in(&table, area);
+                for band in &page.bands {
+                    // A band scrolls by more than float rounding.
+                    assert!(
+                        band.most() > 2.0,
+                        "{words} words in {area} px: {}",
+                        band.most()
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_code_line_that_reaches_the_edge_to_within_rounding_is_no_band() {
+        let line = "a".repeat(120);
+        let width = |area: f32| {
+            let page = scrolling_in(&format!("```\n{line}\n```\n"), area);
+            (page.bands.len(), page.items.len())
+        };
+        // The line and the block's padding, as wide as a very wide area
+        // lets the block be.
+        let natural = (scrolling_in(&format!("```\n{line}\n```\n"), 5000.0)
+            .items
+            .iter())
+        .find_map(|item| match &item.shape {
+            Shape::RoundRect { width, .. } => Some(*width),
+            _ => None,
+        })
+        .expect("the block's background");
+        assert_eq!(width(natural).0, 0);
+        assert_eq!(width(natural - 0.25).0, 0);
+        assert_eq!(width(natural - 4.0).0, 1);
     }
 
     #[test]
