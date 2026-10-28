@@ -36,7 +36,7 @@ pub use pipeline::{
     measure_in_background, reload_in_background,
 };
 pub use stamps::Stamps;
-pub use svg::{Fonts, Svg};
+pub use svg::{EMOJI, Fonts, SCRIPTS, Svg, installed};
 
 pub(crate) use decode::{MAX_PIXELS, png_size};
 #[cfg(all(test, feature = "mermaid"))]
