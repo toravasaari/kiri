@@ -118,8 +118,16 @@ pub trait Reload {
     /// in the background in `loads`, which may stop what is loading
     /// there for the document before. What `images` held that the
     /// document no longer shows, or that loads anew, is set aside in it,
-    /// as [`crate::images::reload_in_background`] does.
-    fn reload(&mut self, images: &mut Images, loads: &mut Loads, caps: &Capabilities) -> Reloaded;
+    /// as [`crate::images::reload_in_background`] does. `reading` says
+    /// whether reading mode is on now, which wants the images in the middle
+    /// of text too, whatever the document was opened with.
+    fn reload(
+        &mut self,
+        images: &mut Images,
+        loads: &mut Loads,
+        caps: &Capabilities,
+        reading: bool,
+    ) -> Reloaded;
 
     /// Whether the document changed since it was last read, as the pager
     /// asks while it follows it.
@@ -543,7 +551,12 @@ fn page_through(
                 let before = inputs.images.take_placeholders();
                 // The images in view start first, once the view is known.
                 source.loads.hold();
-                let reloaded_now = reload.reload(&mut inputs.images, source.loads, &inputs.caps);
+                let reloaded_now = reload.reload(
+                    &mut inputs.images,
+                    source.loads,
+                    &inputs.caps,
+                    inputs.reading.is_some(),
+                );
                 let replaced = inputs.images.take_replaced();
                 let (document, warnings) = match reloaded_now {
                     Reloaded::Document(document) => (document, Vec::new()),

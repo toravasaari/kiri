@@ -2194,7 +2194,13 @@ struct FileReload<'a> {
 }
 
 impl Reload for FileReload<'_> {
-    fn reload(&mut self, images: &mut Images, loads: &mut Loads, caps: &Capabilities) -> Reloaded {
+    fn reload(
+        &mut self,
+        images: &mut Images,
+        loads: &mut Loads,
+        caps: &Capabilities,
+        reading: bool,
+    ) -> Reloaded {
         let FromFile { path, input, .. } = self.from;
         // Before the file is read, so that a change meanwhile counts.
         self.read = look(path).ok();
@@ -2211,7 +2217,7 @@ impl Reload for FileReload<'_> {
             Err(error) => return Reloaded::Failed(without_path(error, path)),
         };
         if self.settings.images && caps.draws_images() {
-            let parts = [part(&document, Some(path), self.context.reading)];
+            let parts = [part(&document, Some(path), reading)];
             let loading = loading(self.context, self.settings, caps);
             reload_in_background(&parts, &loading, images, &mut self.stamps, loads);
         }

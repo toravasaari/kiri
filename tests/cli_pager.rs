@@ -2355,3 +2355,49 @@ fn m_loads_the_pictures_in_the_middle_of_text_that_reading_mode_shows() {
     let pages = seen.matches("\x1b_Ga=T,U=1").count();
     assert_eq!(pages, 2, "{seen:?}");
 }
+
+/// The ids of the images sent in `seen`, in order.
+fn sent_ids(seen: &str) -> Vec<String> {
+    seen.split("\x1b_Ga=T,U=1,")
+        .skip(1)
+        .filter_map(|rest| {
+            let id = rest.split(',').find_map(|part| part.strip_prefix("i="))?;
+            Some(id.to_owned())
+        })
+        .collect()
+}
+
+#[test]
+fn a_reload_after_m_keeps_the_pictures_m_loaded() {
+    let prepare = |dir: &std::path::Path| {
+        common::quadrants(8, 8).save(dir.join("p.png")).unwrap();
+        let document =
+            "A line with a badge <img src=\"p.png\" width=\"24\" alt=\"badge\"> in it.\n";
+        std::fs::write(dir.join("document.md"), document).unwrap();
+    };
+    let mut step = 0;
+    let (status, seen) = in_terminal_after(
+        "pager-m-reload",
+        prepare,
+        &["-p", "--mode", "kitty", "--width", "80", "document.md"],
+        10,
+        None,
+        |frames, terminal, _| {
+            if frames > 0 && step == 0 {
+                step = 1;
+                terminal.write_all(b"M").unwrap();
+                std::thread::sleep(Duration::from_secs(3));
+                terminal.write_all(b"r").unwrap();
+                std::thread::sleep(Duration::from_secs(3));
+                terminal.write_all(b"q").unwrap();
+            }
+        },
+    );
+    assert!(status.success());
+    // The page without the picture, then with it; a reload leaves the
+    // page with the picture, as it is when `--reading` asked for it.
+    let ids = sent_ids(&seen);
+    assert!(ids.len() >= 2, "{ids:?}");
+    assert_ne!(ids[0], ids[1], "{ids:?}");
+    assert_eq!(ids.last(), Some(&ids[1]), "{ids:?}");
+}
