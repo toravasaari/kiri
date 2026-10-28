@@ -49,6 +49,9 @@ pub struct Encoder {
     pages: HashMap<u64, Rc<Parts>>,
     /// What is drawn over parts of those pages, by the hash in their keys.
     overlays: HashMap<u64, Rc<Overlay>>,
+    /// The overlays the frame being drawn has used; those of the frames
+    /// before are dropped when it is done.
+    drawn: HashSet<u64>,
 }
 
 /// An image the terminal holds.
@@ -130,6 +133,7 @@ impl Encoder {
             Some(overlay),
         ) = (key, overlay)
         {
+            self.drawn.insert(*hash);
             self.overlays
                 .entry(*hash)
                 .or_insert_with(|| Rc::clone(overlay));
@@ -221,6 +225,10 @@ impl Encoder {
 
     /// Deletes from the terminal the images [`Encoder::keep`] let go.
     pub fn delete_unused(&mut self, out: &mut impl Write) -> io::Result<()> {
+        // A new frame starts: only the overlays the last one drew are kept,
+        // as the parts it showed are drawn anew from them.
+        let drawn = std::mem::take(&mut self.drawn);
+        self.overlays.retain(|hash, _| drawn.contains(hash));
         for id in self.unused.drain(..) {
             graphics::delete(out, id)?;
         }
@@ -475,6 +483,61 @@ mod tests {
         Capabilities {
             cell_pixels: Some((10, 20)),
             ..Capabilities::kitty(80)
+        }
+    }
+
+    #[test]
+    fn the_overlays_of_frames_gone_by_are_dropped() {
+        use crate::reading::page::{MarkColors, Overlay};
+        use crate::render::Inputs;
+        // A page of reading mode, to register overlays against.
+        let inputs = Inputs {
+            reading: Some(crate::render::reading::Reading {
+                fonts: Rc::new(crate::reading::Fonts::fixture()),
+                wide: crate::reading::page::Wide::Wrap,
+            }),
+            ..Inputs::new(Capabilities {
+                cell_pixels: Some((10, 20)),
+                ..Capabilities::kitty(80)
+            })
+        };
+        let lines = crate::render::layout::layout(&crate::parse::parse("Text.\n"), &inputs);
+        let image = lines[0].image.as_ref().expect("a page");
+        let parts = Rc::clone(image.page.as_ref().expect("its parts"));
+        let ImageKey::Page {
+            document,
+            page,
+            slice,
+            ..
+        } = image.placement.key
+        else {
+            panic!("a page's key");
+        };
+        let colors = MarkColors {
+            found: (None, None),
+            current: (None, None),
+        };
+        let mut encoder = Encoder::default();
+        for hash in 1..=50u64 {
+            // Each frame, one `n` further: a new overlay, drawn.
+            encoder.delete_unused(&mut Vec::new()).unwrap();
+            let overlay = Rc::new(Overlay {
+                colors,
+                marks: Vec::new(),
+                link: Some(hash as usize),
+            });
+            let key = ImageKey::Page {
+                document,
+                page,
+                slice,
+                overlay: hash,
+            };
+            encoder.page(&key, &parts, Some(&overlay));
+            assert!(
+                encoder.overlays.len() <= 2,
+                "{} after {hash}",
+                encoder.overlays.len()
+            );
         }
     }
 
