@@ -187,7 +187,8 @@ impl Fonts {
     }
 
     /// The fixture fonts that reading mode's tests lay text out in: DejaVu
-    /// Sans in its regular, bold and oblique faces, and Noto Sans Mono.
+    /// Sans in its regular, bold and oblique faces, Noto Sans Mono, and a
+    /// few of Noto Color Emoji's emoji.
     #[cfg(test)]
     pub(crate) fn reading_fixture() -> Self {
         Self::new(|| {
@@ -196,6 +197,7 @@ impl Fonts {
                 "DejaVuSans-Bold.ttf",
                 "DejaVuSans-Oblique.ttf",
                 "NotoSansMono.ttf",
+                "NotoColorEmoji-subset.ttf",
             ])
         })
     }

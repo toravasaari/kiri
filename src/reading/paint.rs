@@ -10,6 +10,7 @@ use skrifa::outline::{DrawSettings, OutlinePen};
 use skrifa::raw::types::F2Dot14;
 use skrifa::{FontRef, GlyphId, MetadataProvider};
 
+use super::colr;
 use super::text::{Brush, Paragraph};
 use parley::PositionedLayoutItem;
 
@@ -85,6 +86,17 @@ impl Canvas {
                 let outlines = face.outline_glyphs();
                 let size = Size::new(run.font_size());
                 for glyph in glyphs.positioned_glyphs() {
+                    let origin = (x + glyph.x, y + glyph.y);
+                    if colr::draw(
+                        &mut self.pixmap,
+                        &face,
+                        glyph.id,
+                        run.font_size(),
+                        origin,
+                        color,
+                    ) {
+                        continue;
+                    }
                     let Some(outline) = outlines.get(GlyphId::new(glyph.id)) else {
                         continue;
                     };
@@ -306,6 +318,19 @@ mod tests {
             None,
         );
         assert!(upright != italic, "italic text drawn upright");
+    }
+
+    #[test]
+    fn emoji_are_drawn_in_their_colours() {
+        let image = drawn(&[Run::new("Kiri 😀")], None);
+        let coloured = (image.pixels())
+            .filter(|pixel| pixel.0[3] == 255 && pixel.0[..3] != INK)
+            .count();
+        assert!(coloured > 100, "{coloured} pixels in colour");
+        let yellow = (image.pixels())
+            .filter(|pixel| pixel.0[0] > 200 && pixel.0[1] > 150 && pixel.0[2] < 100)
+            .count();
+        assert!(yellow > 50, "{yellow} yellow pixels");
     }
 
     #[test]

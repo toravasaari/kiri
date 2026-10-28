@@ -478,6 +478,7 @@ src/reading/fonts.rs       the fonts of SVG text handed to parley, with
 src/reading/text.rs        styled text laid out in lines with parley
 src/reading/paint.rs       laid-out text drawn as pixels: glyph outlines,
                            chips behind inline code, rules
+src/reading/colr.rs        colour glyphs, such as emoji, from the COLR table
 src/compare.rs             which blocks stayed, changed, were added or
                            removed between two documents
 src/diagrams/mod.rs        diagrams written in code blocks, drawn as images

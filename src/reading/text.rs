@@ -4,10 +4,12 @@
 
 use std::ops::Range;
 
+use parley::fontique::GenericFamily;
 use parley::{
-    Affinity, Alignment, AlignmentOptions, Cursor, FontFamily, FontStyle, FontWeight, Layout,
-    LineHeight, Selection, StyleProperty, TextWrapMode,
+    Affinity, Alignment, AlignmentOptions, Cursor, FontFamily, FontFamilyName, FontStyle,
+    FontWeight, Layout, LineHeight, Selection, StyleProperty, TextWrapMode,
 };
+use unicode_segmentation::UnicodeSegmentation;
 
 use super::fonts::Fonts;
 
@@ -132,6 +134,16 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
                 }
             }
         }
+        // Emoji come from the emoji font first, as a browser takes them,
+        // even where the text's font has a plain glyph of its own.
+        for (at, grapheme) in text.grapheme_indices(true) {
+            if is_emoji(grapheme) {
+                builder.push(
+                    FontFamily::Single(FontFamilyName::Generic(GenericFamily::Emoji)),
+                    at..at + grapheme.len(),
+                );
+            }
+        }
         let mut layout = builder.build(&text);
         layout.break_all_lines(Some(width));
         layout.align(Alignment::Start, AlignmentOptions::default());
@@ -143,6 +155,17 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
         text,
         code,
     }
+}
+
+/// Whether `grapheme` is an emoji shown as a picture by default, or asked
+/// to be with U+FE0F; not one such as © that is text unless asked.
+fn is_emoji(grapheme: &str) -> bool {
+    let picture = grapheme.contains('\u{fe0f}')
+        || grapheme
+            .chars()
+            .next()
+            .is_some_and(|c| u32::from(c) >= 0x1f000);
+    picture && emojis::get(grapheme).is_some()
 }
 
 impl Paragraph {

@@ -2,6 +2,7 @@
 //! drawn as pixels, as a browser shows it. Nothing here knows about
 //! terminals; `render::reading` shows the pixels.
 
+mod colr;
 pub mod fonts;
 pub mod paint;
 pub mod text;
