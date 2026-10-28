@@ -40,8 +40,15 @@ From the repository root:
   document is taller than the window, the script says so; the screen
   cannot be taller than about 16384 pixels.
 - kiri prints the document instead of paging it (`KIRI_PAGING=never`),
-  whatever the configuration file says, as nobody can press a key in the
-  pager. The script cannot check the pager.
+  whatever the configuration file says, unless `--key` is given.
+- `--key TEXT` opens the pager instead, in kitty only, and types TEXT
+  into it through kitty's remote control (`kitty @ send-text`, which takes
+  Python's escapes, such as `\x1b[C` for →). Each `--key` is one step:
+  `DATE-NAME-k00.png` is the first frame, `-k01.png` the frame after the
+  first key, and so on, each a whole window of 1280 × 800 unless `--size`
+  says otherwise; `q` then ends the pager. A frame counts as drawn once
+  three screenshots half a second apart are the same. For example:
+  `render-check.sh --key j --key '\t' doc.md -- --reading`.
 - The screenshot is taken once kitty shows the cursor where kiri's output
   ended and two screenshots in a row are equal. kitty's software renderer
   can take seconds to draw large images, and until then shows its last
