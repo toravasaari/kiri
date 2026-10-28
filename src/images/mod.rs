@@ -806,7 +806,10 @@ fn collect_blocks<'a>(
                 None if inline => inline_images(content, renderer, wanted),
                 None => {}
             },
-            Block::Details { blocks, .. } => {
+            Block::Details { summary, blocks } => {
+                if inline {
+                    inline_images(summary, renderer, wanted);
+                }
                 collect_blocks(blocks, renderer, (headings, inline), wanted)
             }
             Block::BlockQuote(blocks) | Block::Alert { blocks, .. } => {
@@ -1280,6 +1283,31 @@ Text ![a](a.png) and *![b](b.png)* in a paragraph.
             urls(true),
             ["a.png", "b.png", "c.png", "d.png", "e.png", "f.png"]
         );
+    }
+
+    #[test]
+    fn an_image_in_a_details_summary_is_wanted_only_when_asked_for() {
+        // The parser gives a summary the images that HTML puts in it; a
+        // Markdown image or a formula there stays text.
+        let source = "<details>\n<summary>Open <img src=\"s.png\" alt=\"s\"></summary>\n\n\
+                      Inside <img src=\"i.png\" alt=\"i\">.\n\n</details>\n";
+        let document = crate::parse::parse(source);
+        let urls = |inline_images| {
+            let parts = [Part {
+                document: &document,
+                number: 0,
+                base: Path::new(""),
+                by_line: true,
+                inline_images,
+            }];
+            let (wanted, _) = plan(&parts, &NoRenderer, None, None);
+            let urls: Vec<String> = (wanted.iter())
+                .map(|(_, image)| image.key().to_string())
+                .collect();
+            urls
+        };
+        assert!(urls(false).is_empty());
+        assert_eq!(urls(true), ["s.png", "i.png"]);
     }
 
     #[test]
