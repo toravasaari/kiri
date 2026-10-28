@@ -28,6 +28,18 @@ fn reading_mode_draws_the_text_as_images() {
 }
 
 #[test]
+fn text_in_any_script_leaves_standard_error_alone() {
+    let dir = Scratch::new("reading-scripts");
+    let source = "日本語のテキスト, ไทย, ខ្មែរ and ລາວ.\n";
+    let out = kiri(
+        &dir,
+        source,
+        &["--reading", "--mode", "kitty", "--width", "80"],
+    );
+    assert_succeeded(&out);
+}
+
+#[test]
 fn without_images_reading_mode_warns_and_shows_the_text() {
     let dir = Scratch::new("reading-ansi");
     let args = ["--mode", "ansi", "--width", "80"];
