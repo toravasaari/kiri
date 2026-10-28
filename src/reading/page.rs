@@ -136,8 +136,17 @@ pub struct Band {
     pub visible: f32,
     /// The height of its content, above the scroll bar.
     content: f32,
+    /// A code block's language, which stays at the band's top right corner
+    /// as the code scrolls under it.
+    label: Option<Label>,
     /// What it draws, from its own top left.
     items: Vec<Item>,
+}
+
+/// A band's label, and its top from the band's.
+struct Label {
+    paragraph: Box<Paragraph>,
+    y: f32,
 }
 
 impl Band {
@@ -342,6 +351,10 @@ impl Page {
                 shown.fade(0.0, fade, content, true);
             }
             canvas.overlay(&shown, band.x, 0.0);
+        }
+        if let Some(label) = &band.label {
+            let left = band.x + band.visible - 0.6 * size - label.paragraph.width();
+            canvas.text(&label.paragraph, left, label.y - rows.start, None);
         }
         let thickness = if selected { BAR_SELECTED } else { BAR };
         let bar = (band.content + 0.25 * size).round() - rows.start;
@@ -639,10 +652,17 @@ impl Flow<'_> {
                     ..text::Look::PLAIN
                 };
                 let label = text::lay_out(fonts, &[Run::new(language)], &style, block_width);
-                let (label_x, label_y) = (
-                    x + block_width - 0.6 * size - label.width(),
-                    top + ((padding - label.height()) / 2.0).max(0.0),
-                );
+                let label_y = top + ((padding - label.height()) / 2.0).max(0.0);
+                if banded {
+                    // The band draws it at its own corner, whatever the
+                    // offset, and not scrolled with the code.
+                    flow.y = top + height;
+                    return Some(Label {
+                        paragraph: Box::new(label),
+                        y: label_y,
+                    });
+                }
+                let label_x = x + block_width - 0.6 * size - label.width();
                 let label_height = label.height();
                 flow.push(
                     label_y..label_y + label_height,
@@ -655,22 +675,25 @@ impl Flow<'_> {
                 );
             }
             flow.y = top + height;
+            None
         };
         match banded {
             true => self.band(x, block_width, draw),
-            false => draw(self),
+            false => {
+                draw(self);
+            }
         }
     }
 
     /// Lays out what `lay_out` lays out from the next whole row, `width`
     /// pixels wide from `x`, as a band of its own, which scrolls sideways
     /// in the room the area leaves it, above a scroll bar.
-    fn band(&mut self, x: f32, width: f32, lay_out: impl FnOnce(&mut Self)) {
+    fn band(&mut self, x: f32, width: f32, lay_out: impl FnOnce(&mut Self) -> Option<Label>) {
         let row = self.row;
         let top = (self.y / row).ceil() * row;
         self.y = top;
         let start = self.items.len();
-        lay_out(self);
+        let label = lay_out(self);
         let content = self.y - top;
         let items = (self.items.drain(start..))
             .map(|item| item.shifted(-x, -top))
@@ -685,6 +708,10 @@ impl Flow<'_> {
             width,
             visible: (self.area - x).max(1.0),
             content,
+            label: label.map(|label| Label {
+                y: label.y - top,
+                ..label
+            }),
             items,
         });
         self.y = top + rows * row;
@@ -799,10 +826,13 @@ impl Flow<'_> {
                 flow.rect(left.round(), top, 1.0, y - top + 1.0, look.table_border);
             }
             flow.y = y + 1.0;
+            None
         };
         match scroll && too_wide {
             true => self.band(x, table_width, draw),
-            false => draw(self),
+            false => {
+                draw(self);
+            }
         }
     }
 
@@ -1552,6 +1582,32 @@ mod tests {
     /// All the pixel rows of the first band of `page`.
     fn whole(page: &Page) -> Range<f32> {
         0.0..page.bands[0].height
+    }
+
+    #[test]
+    fn a_code_band_keeps_its_label_in_the_top_right_corner_at_any_offset() {
+        let page = scrolling(&format!("```rust\n{}\n```\n", "a".repeat(200)));
+        let band = &page.bands[0];
+        // Ink of the label, which is lighter than the code's background
+        // and the padding above the code, in the corner of the band.
+        let ink = |offset: f32| {
+            let image = page.draw_band(0, offset, false, whole(&page));
+            let right = (band.x + band.visible) as u32;
+            (0..16)
+                .flat_map(|y| (right - 60..right).map(move |x| (x, y)))
+                .filter(|&(x, y)| {
+                    let pixel = image.get_pixel(x, y).0;
+                    pixel[3] > 128 && pixel[0] >= 0x50
+                })
+                .count()
+        };
+        for offset in [0.0, band.most() / 2.0, band.most()] {
+            assert!(
+                ink(offset) > 5,
+                "{} pixels of label at {offset}",
+                ink(offset)
+            );
+        }
     }
 
     #[test]

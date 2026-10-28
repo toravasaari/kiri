@@ -216,22 +216,22 @@ view. The rows keep their blocks, so the pager keeps its place across a
 resize, and the row a block starts on carries the block's text for a
 search. The other blocks, such as images and alerts, are laid out as
 text between the pages, from the area's left edge and as wide as the
-text's column: only code blocks and tables reach into the area. A
-code block or table wider than the area wraps to fit it, or, with
-`--wide scroll` in the pager, or after `W` there, becomes a band on whole rows of its own, which keeps its lines
-and words whole and scrolls sideways under a thin scroll bar, faded on
-each edge with more beyond it. Its rows show an image of their own, cut
-into slices of at most 30 rows as pages are, keyed by its slice, its
-offset and whether it is selected. The pager keeps those by
-the band's block in `src/pager/bands.rs`: the topmost band on the
-screen is selected until Tab, Shift+Tab or a click selects another, ←
-and → or `H` and `L` scroll it, and so does a sideways wheel, or the
-wheel with Shift, over a band, and the pager then shows the same lines with the
-band's rows keyed anew, without laying the document out again. Where the
-terminal draws no images, kiri
-warns and shows the text as usual. In the pager, `M` turns reading mode on and off
-and lays the document out again, keeping the block at the top as a resize
-does.
+text's column: only code blocks and tables reach into the area. A code
+block or table wider than the area wraps to fit it, or, with `--wide
+scroll` in the pager, or after `W` there, becomes a band on whole rows of
+its own, which keeps its lines and words whole and scrolls sideways under
+a thin scroll bar, faded on each edge with more beyond it; a code band's
+language stays in its top right corner. Its rows show an image of their
+own, cut into slices of at most 30 rows as pages are, keyed by its slice,
+its offset and whether it is selected. The pager keeps those by the
+band's block in `src/pager/bands.rs`: the topmost band on the screen is
+selected until Tab, Shift+Tab or a click selects another, ← and → or `H`
+and `L` scroll it, and so does a sideways wheel, or the wheel with Shift,
+over a band, and the pager then shows the same lines with the band's rows
+keyed anew, without laying the document out again. Where the terminal
+draws no images, kiri warns and shows the text as usual. In the pager,
+`M` turns reading mode on and off and lays the document out again,
+keeping the block at the top as a resize does.
 
 ## Diagrams
 

@@ -174,8 +174,9 @@ Shift+Tab the one before; a click selects the band under it. ← and →
 scroll the selected band a little, `H` and `L` by most of its width, and
 the sideways wheel, or the wheel with Shift, scrolls the band under the
 pointer. Scrolled to the middle, a band fades out on both edges; at its
-end, only on the left. `W` again wraps them, and the same block stays at
-the top of the window.
+end, only on the left. A code band's language stays in its top right
+corner as the code scrolls under it. `W` again wraps them, and the same
+block stays at the top of the window.
 
 ## Between the text
 
