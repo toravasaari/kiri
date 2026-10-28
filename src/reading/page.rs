@@ -13,7 +13,7 @@ use image::RgbaImage;
 
 use super::fonts::Fonts;
 use super::octicons;
-use super::paint::Canvas;
+use super::paint::{Canvas, TextMark};
 use super::text::{self, Brush, InlinePicture, Paragraph, Run};
 use crate::model::{AlertKind, Alignment, Block, FrontMatter, Image, Inline, List, Table, Value};
 
@@ -326,6 +326,42 @@ pub struct LinkPlace {
     pub band: Option<usize>,
 }
 
+/// The colours of a search's marks: foreground and background of a match,
+/// and of the current one.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MarkColors {
+    pub found: (Brush, Brush),
+    pub current: (Brush, Brush),
+}
+
+/// What is drawn over a page: the places of a search, one of them the
+/// current, and the selected link, as its number among the page's links.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Overlay {
+    pub colors: MarkColors,
+    pub marks: Vec<(ItemRef, Range<usize>, bool)>,
+    pub link: Option<usize>,
+}
+
+impl Overlay {
+    fn marks_in(&self, at: ItemRef) -> Vec<TextMark> {
+        (self.marks.iter())
+            .filter(|(item, ..)| *item == at)
+            .map(|(_, range, current)| {
+                let (foreground, background) = match current {
+                    true => self.colors.current,
+                    false => self.colors.found,
+                };
+                TextMark {
+                    range: range.clone(),
+                    foreground,
+                    background,
+                }
+            })
+            .collect()
+    }
+}
+
 /// Where an item is: its number among the items of the page, or of a
 /// band, which `band` says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -621,9 +657,57 @@ impl Page {
     /// The part of the page from `top`, `height` pixels tall and as wide as
     /// `width`, transparent where nothing is drawn. Bands are not drawn.
     pub fn draw(&self, top: u32, width: u32, height: u32) -> RgbaImage {
+        self.draw_with(top, width, height, None)
+    }
+
+    /// `draw`, with `overlay`'s marks and selected link on it.
+    pub fn draw_with(
+        &self,
+        top: u32,
+        width: u32,
+        height: u32,
+        overlay: Option<&Overlay>,
+    ) -> RgbaImage {
         let mut canvas = Canvas::new(width, height);
-        draw_items(&mut canvas, &self.items, (0.0, top as f32));
+        let at = (0.0, top as f32);
+        draw_items(
+            &mut canvas,
+            &self.items,
+            at,
+            overlay.map(|overlay| (None, overlay)),
+        );
+        if let Some(overlay) = overlay {
+            self.draw_link(&mut canvas, None, at, overlay);
+        }
         canvas.into_image()
+    }
+
+    /// The box round the selected link of `overlay`, where it is in the
+    /// page (`band` is `None`) or in a band, with the point `at` of their
+    /// coordinates at the canvas's top left.
+    fn draw_link(
+        &self,
+        canvas: &mut Canvas,
+        band: Option<usize>,
+        at: (f32, f32),
+        overlay: &Overlay,
+    ) {
+        let Some(link) = overlay
+            .link
+            .and_then(|number| self.links().into_iter().nth(number))
+        else {
+            return;
+        };
+        if link.band != band {
+            return;
+        }
+        let size = self.look.size;
+        for piece in &link.pieces {
+            let (x, y) = (piece.x - at.0 - 2.0, piece.y - at.1 - 1.0);
+            let (width, height) = (piece.width + 4.0, piece.height + 2.0);
+            canvas.round_rect_alpha(x, y, width, height, 0.25 * size, self.look.link, 64);
+            canvas.frame(x, y, width, height, 2.0, self.look.link);
+        }
     }
 
     /// The pixel rows `rows` of band `band`, counted from its top, as wide
@@ -638,20 +722,47 @@ impl Page {
         selected: bool,
         rows: Range<f32>,
     ) -> RgbaImage {
+        self.draw_band_with(band, offset, selected, rows, None)
+    }
+
+    /// `draw_band`, with `overlay`'s marks and selected link on it.
+    pub fn draw_band_with(
+        &self,
+        number: usize,
+        offset: f32,
+        selected: bool,
+        rows: Range<f32>,
+        overlay: Option<&Overlay>,
+    ) -> RgbaImage {
+        let band = number;
         let height = (rows.end - rows.start).ceil().max(1.0) as u32;
         let Some(band) = self.bands.get(band) else {
             return Canvas::new(self.width.ceil() as u32, height).into_image();
         };
         let size = self.look.size;
         let mut canvas = Canvas::new(self.width.ceil() as u32, height);
-        draw_items(&mut canvas, &self.items, (0.0, band.top + rows.start));
+        draw_items(
+            &mut canvas,
+            &self.items,
+            (0.0, band.top + rows.start),
+            overlay.map(|overlay| (None, overlay)),
+        );
         let offset = offset.clamp(0.0, band.most());
         // The content is above the scroll bar, which may be below this
         // part of the rows.
         let content = (band.content - rows.start).clamp(0.0, height as f32);
         if content > 0.0 {
             let mut shown = Canvas::new(band.visible.ceil() as u32, content.ceil() as u32);
-            draw_items(&mut shown, &band.items, (offset, rows.start));
+            let at = (offset, rows.start);
+            draw_items(
+                &mut shown,
+                &band.items,
+                at,
+                overlay.map(|overlay| (Some(number), overlay)),
+            );
+            if let Some(overlay) = overlay {
+                self.draw_link(&mut shown, Some(number), at, overlay);
+            }
             let fade = (FADE * size).min(band.visible / 3.0);
             if offset < band.most() {
                 shown.fade(band.visible - fade, fade, content, false);
@@ -691,9 +802,14 @@ impl Page {
 
 /// Draws the `items` that reach the canvas, with the point (`x`, `y`) of
 /// their coordinates at its top left.
-fn draw_items(canvas: &mut Canvas, items: &[Item], (x, y): (f32, f32)) {
+fn draw_items(
+    canvas: &mut Canvas,
+    items: &[Item],
+    (x, y): (f32, f32),
+    overlay: Option<(Option<usize>, &Overlay)>,
+) {
     let (from, to) = (y, y + canvas.height() as f32);
-    for item in items {
+    for (number, item) in items.iter().enumerate() {
         if item.rows.end < from || item.rows.start > to {
             continue;
         }
@@ -704,7 +820,15 @@ fn draw_items(canvas: &mut Canvas, items: &[Item], (x, y): (f32, f32)) {
                 x,
                 y,
                 chip,
-            } => canvas.text(paragraph, x + dx, y + dy, *chip),
+            } => {
+                let marks = overlay.map_or_else(Vec::new, |(band, overlay)| {
+                    overlay.marks_in(ItemRef {
+                        band,
+                        index: number,
+                    })
+                });
+                canvas.text_marked(paragraph, x + dx, y + dy, *chip, &marks);
+            }
             Shape::Rect {
                 x,
                 y,
@@ -2500,6 +2624,87 @@ mod tests {
         // Far to the right in the band's own pixels, and below its top.
         assert!(hits[0].pieces[0].x > 1000.0, "{:?}", hits[0].pieces);
         assert!(hits[0].top > 24.0);
+    }
+
+    /// The pixels of `image` in the box `piece` that are `colour`, within a
+    /// few steps of each channel, and not transparent.
+    fn colored(image: &RgbaImage, piece: Piece, colour: Brush) -> usize {
+        let (x0, y0) = (piece.x.round() as u32, piece.y.round() as u32);
+        let (x1, y1) = (
+            (piece.x + piece.width).round() as u32,
+            (piece.y + piece.height).round() as u32,
+        );
+        (x0..x1)
+            .flat_map(|x| (y0..y1).map(move |y| (x, y)))
+            .filter(|&(x, y)| {
+                let pixel = image.get_pixel(x, y).0;
+                pixel[3] > 200 && (0..3).all(|i| pixel[i].abs_diff(colour[i]) <= 3)
+            })
+            .count()
+    }
+
+    const MARKS: MarkColors = MarkColors {
+        found: ([0x10, 0x10, 0x10], [0xe0, 0xe0, 0x00]),
+        current: ([0xff, 0xff, 0xff], [0xd0, 0x40, 0x00]),
+    };
+
+    #[test]
+    fn marks_and_the_selected_link_are_drawn_over_the_page_in_a_page_or_a_band() {
+        let page = page("A word, another word and [a link](u).\n");
+        let hits = page.find(&finds("word"));
+        let overlay = Overlay {
+            colors: MARKS,
+            marks: vec![
+                (hits[0].item, hits[0].range.clone(), false),
+                (hits[1].item, hits[1].range.clone(), true),
+            ],
+            link: Some(0),
+        };
+        let plain = page.draw(0, 672, 24);
+        let marked = page.draw_with(0, 672, 24, Some(&overlay));
+        assert_ne!(plain, marked);
+        assert!(colored(&marked, hits[0].pieces[0], [0xe0, 0xe0, 0x00]) > 100);
+        assert!(colored(&marked, hits[1].pieces[0], [0xd0, 0x40, 0x00]) > 100);
+        assert_eq!(colored(&plain, hits[0].pieces[0], [0xe0, 0xe0, 0x00]), 0);
+        // The link has a box round it in its colour, above and below its
+        // text, and none without the selection.
+        let link = page.links()[0].pieces[0];
+        let top = Piece {
+            height: 1.0,
+            ..link
+        };
+        assert!(colored(&marked, Piece { y: link.y, ..top }, LOOK.link) > 10);
+        let unselected = Overlay {
+            link: None,
+            ..overlay
+        };
+        let image = page.draw_with(0, 672, 24, Some(&unselected));
+        assert_eq!(colored(&image, Piece { y: link.y, ..top }, LOOK.link), 0);
+    }
+
+    #[test]
+    fn a_mark_in_a_band_is_drawn_where_the_band_shows_it() {
+        let long = "a".repeat(200);
+        let page = scrolling(&format!("```\n{long} needle\n```\n"));
+        let hits = page.find(&finds("needle"));
+        let overlay = Overlay {
+            colors: MARKS,
+            marks: vec![(hits[0].item, hits[0].range.clone(), true)],
+            link: None,
+        };
+        let rows = 0.0..page.bands[0].height;
+        let shown = |offset| page.draw_band_with(0, offset, false, rows.clone(), Some(&overlay));
+        let count = |image: &RgbaImage| {
+            image
+                .pixels()
+                .filter(|pixel| pixel.0[..3] == [0xd0, 0x40, 0x00])
+                .count()
+        };
+        // Scrolled to the start the needle is out of sight; scrolled to its
+        // place it is in the band, in the mark's colour.
+        assert_eq!(count(&shown(0.0)), 0);
+        let at = hits[0].pieces[0].x - 40.0;
+        assert!(count(&shown(at)) > 100);
     }
 
     #[test]

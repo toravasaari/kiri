@@ -26,6 +26,15 @@ const CHIP_HEIGHT: f32 = 1.25;
 const CHIP_PAD: f32 = 0.12;
 const CHIP_RADIUS: f32 = 0.25;
 
+/// A place in a text drawn over: a box in `background`, with the text in
+/// it drawn again in `foreground`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextMark {
+    pub range: std::ops::Range<usize>,
+    pub foreground: Brush,
+    pub background: Brush,
+}
+
 /// A picture being drawn, transparent where nothing is.
 pub struct Canvas {
     pixmap: Pixmap,
@@ -50,6 +59,18 @@ impl Canvas {
     /// Draws `paragraph` with the top left of its text at (`x`, `y`), on
     /// chips of `chip` behind its inline code when given.
     pub fn text(&mut self, paragraph: &Paragraph, x: f32, y: f32, chip: Option<Brush>) {
+        self.text_marked(paragraph, x, y, chip, &[]);
+    }
+
+    /// `text`, with `marks` laid over it.
+    pub fn text_marked(
+        &mut self,
+        paragraph: &Paragraph,
+        x: f32,
+        y: f32,
+        chip: Option<Brush>,
+        marks: &[TextMark],
+    ) {
         if let Some(chip) = chip {
             let size = paragraph.look.size;
             let lines = paragraph.lines();
@@ -68,6 +89,59 @@ impl Canvas {
                 }
             }
         }
+        self.glyphs(paragraph, x, y, None);
+        for mark in marks {
+            self.mark(paragraph, x, y, mark);
+        }
+    }
+
+    /// Lays `mark` over the text drawn at (`x`, `y`): a box of its
+    /// background colour on each line it covers, and the glyphs in it
+    /// again in its foreground colour.
+    fn mark(&mut self, paragraph: &Paragraph, x: f32, y: f32, mark: &TextMark) {
+        let lines = paragraph.lines();
+        let mut mask = match tiny_skia::Mask::new(self.pixmap.width(), self.pixmap.height()) {
+            Some(mask) => mask,
+            None => return,
+        };
+        for part in paragraph.boxes(mark.range.clone()) {
+            let Some(line) = lines.get(part.line) else {
+                continue;
+            };
+            let (left, top) = (x + part.left, y + line.top);
+            let (width, height) = (part.right - part.left, line.height);
+            self.rect(left, top, width, height, mark.background);
+            if let Some(rect) = Rect::from_xywh(left, top, width, height) {
+                mask.fill_path(
+                    &PathBuilder::from_rect(rect),
+                    FillRule::Winding,
+                    false,
+                    Transform::identity(),
+                );
+            }
+        }
+        self.glyphs_over(paragraph, x, y, Some((mark.foreground, &mask)));
+    }
+
+    fn glyphs(
+        &mut self,
+        paragraph: &Paragraph,
+        x: f32,
+        y: f32,
+        over: Option<(Brush, &tiny_skia::Mask)>,
+    ) {
+        self.glyphs_over(paragraph, x, y, over);
+    }
+
+    /// The glyphs of `paragraph` at (`x`, `y`), in the colour and inside the
+    /// mask of `over` when it is given.
+    fn glyphs_over(
+        &mut self,
+        paragraph: &Paragraph,
+        x: f32,
+        y: f32,
+        over: Option<(Brush, &tiny_skia::Mask)>,
+    ) {
         // Lines that do not reach the canvas are left out, with a font
         // size of room for what reaches past their boxes.
         let reach = paragraph.look.size;
@@ -101,7 +175,7 @@ impl Canvas {
                 // An italic the font has no face for is slanted.
                 let skew =
                     (run.synthesis().skew()).map_or(0.0, |degrees| degrees.to_radians().tan());
-                let color = glyphs.style().brush;
+                let color = over.map_or(glyphs.style().brush, |(color, _)| color);
                 let mut path = PathBuilder::new();
                 let outlines = face.outline_glyphs();
                 let size = Size::new(run.font_size());
@@ -136,7 +210,7 @@ impl Canvas {
                         &paint(color, 255),
                         FillRule::Winding,
                         Transform::identity(),
-                        None,
+                        over.map(|(_, mask)| mask),
                     );
                 }
                 if glyphs.style().strikethrough.is_some() {
@@ -177,6 +251,14 @@ impl Canvas {
             Transform::identity(),
             None,
         );
+    }
+
+    /// Draws the outline of a rectangle, `thickness` thick, inside it.
+    pub fn frame(&mut self, x: f32, y: f32, width: f32, height: f32, thickness: f32, color: Brush) {
+        self.rect(x, y, width, thickness, color);
+        self.rect(x, y + height - thickness, width, thickness, color);
+        self.rect(x, y, thickness, height, color);
+        self.rect(x + width - thickness, y, thickness, height, color);
     }
 
     /// Fills a rectangle.
@@ -488,6 +570,55 @@ mod tests {
         canvas.picture(&red(4, 4, 255), 0.0, -20.0);
         canvas.picture(&red(4, 4, 255), -20.0, 0.0);
         assert!(canvas.into_image().pixels().all(|pixel| pixel.0[3] == 0));
+    }
+
+    #[test]
+    fn a_mark_is_a_box_with_the_text_drawn_again_in_it() {
+        let paragraph = lay_out(&Fonts::fixture(), &[Run::new("Ab cd")], &LOOK, 400.0);
+        let lines = paragraph.lines();
+        let boxes = paragraph.boxes(3..5);
+        let [part] = boxes[..] else {
+            panic!("one box: {boxes:?}");
+        };
+        let mark = TextMark {
+            range: 3..5,
+            foreground: [0, 200, 0],
+            background: [200, 0, 200],
+        };
+        let mut canvas = Canvas::new(120, 40);
+        canvas.text_marked(&paragraph, 4.0, 5.0, None, &[mark]);
+        let image = canvas.into_image();
+        let (left, right) = (4.0 + part.left, 4.0 + part.right);
+        let (top, bottom) = (5.0 + lines[0].top, 5.0 + lines[0].top + lines[0].height);
+        let count = |from: f32, to: f32, colour: [u8; 3]| {
+            (from.round() as u32..to.round() as u32)
+                .flat_map(|x| (top.round() as u32..bottom.round() as u32).map(move |y| (x, y)))
+                .filter(|&(x, y)| {
+                    let pixel = image.get_pixel(x, y).0;
+                    pixel[3] > 100 && (0..3).all(|i| pixel[i].abs_diff(colour[i]) <= 3)
+                })
+                .count()
+        };
+        // The box is in the background colour, with the text in the
+        // foreground colour over it, and none of the text's own colour.
+        assert!(count(left, right, [200, 0, 200]) > 100);
+        let greenish = (left.round() as u32..right.round() as u32)
+            .flat_map(|x| (top.round() as u32..bottom.round() as u32).map(move |y| (x, y)))
+            .filter(|&(x, y)| {
+                let [red, green, ..] = image.get_pixel(x, y).0;
+                green > red.saturating_add(40)
+            })
+            .count();
+        assert!(greenish > 10, "{greenish}");
+        assert_eq!(count(left, right, INK), 0);
+        // Beside it the text is as it was, with no box.
+        assert!(
+            count(4.0, left - 2.0, INK) > 5,
+            "{}",
+            count(4.0, left - 2.0, INK)
+        );
+        assert_eq!(count(4.0, left - 2.0, [200, 0, 200]), 0);
+        assert_eq!(count(right + 2.0, 100.0, [200, 0, 200]), 0);
     }
 
     #[test]
