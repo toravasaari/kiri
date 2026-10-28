@@ -15,6 +15,7 @@ still change:
 kiri --reading examples/S09-reading-mode.md
 kiri --reading --light examples/S09-reading-mode.md
 kiri --reading --dark examples/S09-reading-mode.md
+kiri --reading --wide scroll examples/S09-reading-mode.md
 ```
 
 In the pager, `M` turns reading mode on and off, also without
@@ -157,6 +158,24 @@ long words where it must, so that it still fits the area:
 | Path | Another path |
 |------|--------------|
 | `src/render/reading/a_very_long_module_name_that_does_not_fit.rs` | `src/reading/page/another_very_long_name_that_cannot_fit_either.rs` |
+
+## Scrolling sideways
+
+By default the long code line and the too wide table above wrap, also in
+the pager. With `--wide scroll`, or after `W` in the pager, they keep
+their lines and words whole instead, each in a band of its own that
+scrolls sideways. A band is as wide as the area, with a thin grey scroll
+bar under it, and fades out on each edge that has more beyond it: at
+first only on the right. Printing always wraps.
+
+One band is selected, the topmost on the screen, and its scroll bar is
+brighter and thicker. Tab selects the next band on the screen and
+Shift+Tab the one before; a click selects the band under it. ← and →
+scroll the selected band a little, `H` and `L` by most of its width, and
+the sideways wheel, or the wheel with Shift, scrolls the band under the
+pointer. Scrolled to the middle, a band fades out on both edges; at its
+end, only on the left. `W` again wraps them, and the same block stays at
+the top of the window.
 
 ## Between the text
 
