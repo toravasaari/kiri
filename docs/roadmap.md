@@ -1278,6 +1278,10 @@ the edge of two 30-row parts of a page is another suspect.
 Seen once on a virtual display with the machine under heavy load: after
 the window was resized in reading mode, the pager stayed blank.
 
+Seen again while checking B11, without load: in reading mode in tmux,
+after kitty's font size changed, the first frame showed only the status
+line, twice in a row. The page came back with the next key.
+
 ### Upstream bugs
 
 Bugs in projects kiri uses, which kiri works around until they are fixed
