@@ -2562,12 +2562,10 @@ mod tests {
         let page = with_front_matter(source, FrontMatterShown::Table);
         let stripe = LOOK.stripe.unwrap();
         let stripes: Vec<_> = rects(&page).into_iter().filter(|r| r.4 == stripe).collect();
-        // Rows 2 and 4 of four, not the first, and 3 when the first is the
-        // header of a Markdown table.
+        // Rows 2 and 4 of four, not the first.
         assert_eq!(stripes.len(), 2, "{stripes:?}");
-        let top = rects(&page).iter().map(|r| r.1).fold(f32::MAX, f32::min);
         let first_row = text(&texts(&page), "a").2;
-        assert!(stripes[0].1 > first_row, "{stripes:?} {top}");
+        assert!(stripes[0].1 > first_row, "{stripes:?}");
         // A Markdown table's header is no body row: its second body row is
         // the first shaded.
         let table = page_of_table();
