@@ -66,6 +66,7 @@ fn warned(follow: Follow, count: usize) -> Tags {
     Tags {
         follow,
         warnings: Some(Warned { count, flash: None }),
+        ..Tags::default()
     }
 }
 
@@ -113,11 +114,11 @@ fn the_warning_mark_comes_after_a_search() {
 fn the_number_of_the_warning_mark_shows_in_the_flash_style() {
     let flash = Style::fg(Some(Color::Palette(5)));
     let tags = Tags {
-        follow: Follow::Off,
         warnings: Some(Warned {
             count: 12,
             flash: Some(flash.clone()),
         }),
+        ..Tags::default()
     };
     let spans = spans("notes.md", None, at(42), tags, None, 60, &styles());
     let flashed: Vec<_> = spans.iter().filter(|span| span.style == flash).collect();
@@ -599,4 +600,87 @@ fn a_window_too_narrow_for_more_shows_the_badge() {
         )),
         ""
     );
+}
+
+/// `Tags` for a document that follows as `follow` says, in reading mode
+/// when `reading` says so.
+fn reading(follow: Follow, reading: bool) -> Tags {
+    Tags {
+        follow,
+        reading,
+        ..Tags::default()
+    }
+}
+
+#[test]
+fn reading_mode_is_told_after_the_position_with_its_key() {
+    let shown = |tags| text(&spans("notes.md", None, at(42), tags, None, 60, &styles()));
+    assert_eq!(
+        shown(reading(Follow::Off, true)),
+        " kiri  notes.md           42%   M reading   ? help   q quit "
+    );
+    // Nothing when it is off.
+    assert_eq!(
+        shown(reading(Follow::Off, false)),
+        " kiri  notes.md                       42%   ? help   q quit "
+    );
+    // After the word for following, which keeps its place; the keys for
+    // help and quitting have no room left.
+    assert_eq!(
+        shown(reading(Follow::On, true)),
+        " kiri  notes.md                  42%   F follow   M reading "
+    );
+    // The key in bold, as the others are.
+    let spans = spans(
+        "notes.md",
+        None,
+        at(42),
+        reading(Follow::Off, true),
+        None,
+        60,
+        &styles(),
+    );
+    let bold = |text: &str| {
+        spans
+            .iter()
+            .find(|span| span.text == text)
+            .map(|s| s.style.bold)
+    };
+    assert_eq!(bold("M"), Some(true), "{spans:?}");
+}
+
+#[test]
+fn a_narrow_window_leaves_out_the_reading_word_with_the_following_word() {
+    let shown = |width, tags| {
+        let spans = spans("notes.md", None, at(42), tags, None, width, &styles());
+        assert_eq!(wrap::width(&spans), width, "{spans:?}");
+        text(&spans)
+    };
+    // Room for the word for following and not for both: both go, as the
+    // warning mark and the search go before the keys.
+    assert_eq!(
+        shown(33, reading(Follow::On, true)),
+        " kiri  notes.md              42% "
+    );
+    assert_eq!(
+        shown(34, reading(Follow::On, true)),
+        " kiri  42%   F follow   M reading "
+    );
+    assert_eq!(
+        shown(36, reading(Follow::Off, true)),
+        " kiri  notes.md     42%   M reading "
+    );
+    for width in 0..80 {
+        let spans = spans(
+            "docs/notes.md",
+            None,
+            at(42),
+            reading(Follow::On, true),
+            AT,
+            width,
+            &styles(),
+        );
+        let expected = if width < 11 { width.min(6) } else { width };
+        assert_eq!(wrap::width(&spans), expected, "{width}: {spans:?}");
+    }
 }

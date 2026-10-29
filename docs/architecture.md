@@ -198,6 +198,94 @@ pixels as they were. An image that the lines of a new layout no longer
 place, or that changed, is deleted from the terminal, and when the
 pager quits, every image it sent is.
 
+## Reading mode
+
+`--reading`, experimental, shows the text as a browser does: in a
+proportional font, drawn as images. `src/reading/` knows nothing about
+terminals. It lays a run of text blocks (headings, paragraphs, lists,
+quotes, thematic breaks, code blocks, highlighted as the text layout
+highlights them, and tables, whose columns share the room as a browser
+shares it) out with parley, in the fonts of the fontdb
+database that SVG text uses, and draws them with tiny-skia, colour emoji
+included. GitHub's sizes and spacing are its measure: 16 pixels of text in
+rows of 20, a column of 42 times that, margins that collapse between
+blocks. `src/render/reading.rs` turns such a run into a page: its rows are
+image rows, as a large image's are, of parts 30 rows tall that the encoder
+draws when a line first shows them, so the pager draws only the parts in
+view. The rows keep their blocks, so the pager keeps its place across a
+resize. Images, diagrams and formulas are in the page at their natural
+size in CSS pixels, shrunk to the column, a formula in the middle of it;
+the page gets them through `Pictures`, which `src/render/reading.rs`
+writes over the loaded images, as it gets code's colours through
+`Highlight`, so `src/reading/` knows nothing of the loader. A picture
+that has not come reserves room, with a loading band over the last row of
+it as in the text layout, and one a reload replaces shows the old
+pixels dimmed; the page's id covers the pixels of its pictures, so a
+picture that came is a new page. An image in the middle of text, which
+the loader wants only when reading mode is asked for, as the others are
+only ever their alt text, is a box in its line, which parley places on
+the baseline and moves to the next line whole. So is a formula in the
+middle of text, `Inline::Formula`, drawn by the formula renderer as
+a diagram in text style at the text's size, which also tells how far
+below its baseline it reaches, so that the box sits on the line's
+baseline; until it has come it is shown as its source, as the other
+layouts show it. An alert is a tint, a bar, a title after the
+kind's icon, which is drawn from an embedded Octicon outline
+(`src/reading/octicons.rs`), and the blocks inside it in the room left.
+Front matter is a table of its keys and values in the column, with a
+table in a cell for a value that has keys, or a code block when the
+front matter shows as code. A `<details>` block is its summary after a
+triangle and its blocks, each with a place of its own for the pager; raw
+HTML is its source, and a note of kiri's own is muted text. What is left
+as text between the pages, a file's header, a file's error message and an
+image file shown on its own, starts at the area's left edge and is as wide as the text's column:
+only code blocks and tables reach into the area. A code
+block or table wider than the area wraps to fit it, or, with `--wide
+scroll` in the pager, or after `W` there, becomes a band on whole rows of
+its own, which keeps its lines and words whole and scrolls sideways under
+a thin scroll bar, faded on each edge with more beyond it; a code band's
+language stays in its top right corner. Its rows show an image of their
+own, cut into slices of at most 30 rows as pages are, keyed by its slice,
+its offset and whether it is selected. The pager keeps those by the
+band's block in `src/pager/bands.rs`: the topmost band on the screen is
+selected until a click, or a search that finds something in another,
+selects it, ← and → or `H`
+and `L` scroll it, and so does a sideways wheel, or the wheel with Shift,
+over a band, and the pager then shows the same lines with the band's rows
+keyed anew, without laying the document out again. Where the terminal
+draws no images, kiri warns and shows the text as usual. In the pager,
+`M` turns reading mode on and off and lays the document out again,
+keeping the block at the top as a resize does.
+
+A page is drawn opaque, in the page's colour, when that colour is known:
+the theme's background or the one the terminal reported. Then all of its
+text is blended by kiri over the same ground, shaded rows or not. Where
+kiri would have to guess black or white, the page stays transparent and the
+terminal blends it. With `background_opacity` below 1 an opaque page shows
+as an opaque area, not as the translucent background.
+
+Search and links in a page work from the positions the layout knows: it
+records, in pixels and a piece for each line, where each link and each
+place of a search term is, in the page's or a band's own coordinates.
+`src/pager/search.rs` finds a term in the texts of a page, so a match is
+on the row of its line of text, and a match in a band scrolls the band to
+it and selects it. The marks are drawn into the page's image, a box in
+the theme's match colours with the text drawn over it, and so is a box
+round the selected link: what is drawn over a part is an overlay, named by
+a hash of the marks and the link in that part alone, in the key of the
+rows it is on, and kept by the encoder under its page and that hash, so
+that the terminal keeps the part with it and the part without and moving
+the current match draws only the parts it leaves and enters. A link is an
+OSC 8 hyperlink round the placeholders it covers (`src/kitty/graphics.rs`),
+which kitty opens as it does a link in text; in a band the cells move with
+the scrolling.
+`src/pager/links.rs` selects one of the links on the screen with Tab and
+Shift+Tab, numbering them from the page's own list so that a link keeps its
+id while a band scrolls, and the status line says where it goes.
+`Reading` also holds a cache of the pictures scaled for the last layout,
+by image, its pixels and size, so that a layout scales only what is new
+and lets go of what it did not show.
+
 ## Diagrams
 
 A diagram stays a code block in the document model, `Block::CodeBlock`
@@ -396,7 +484,7 @@ writes as it is into a pipe.
 | Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/kitty/query.rs` | Wiping the progress line; erasing the rows the text sizing tests drew |
 | Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term/screen.rs` | The pager's screen of its own |
 | Focus reporting | CSI ?1004h/l; CSI I, CSI O | `src/term/screen.rs`, `src/pager/keys.rs` | Telling the pager that its tmux pane is shown again |
-| Mouse reporting | CSI ?1000h/l, CSI ?1006h/l; CSI < … M/m, CSI M | `src/term/screen.rs`, `src/pager/keys.rs` | The wheel scrolling the pager, also inside tmux |
+| Mouse reporting | CSI ?1000h/l, CSI ?1006h/l; CSI < … M/m, CSI M | `src/term/screen.rs`, `src/pager/keys.rs` | The wheel scrolling the pager, also inside tmux; in reading mode, a click selecting a band and the sideways wheel scrolling it |
 | Synchronized output | CSI ?2026h/l | `src/render/output.rs` | Pager frames without flicker |
 | Cell size query | CSI 16 t | `src/kitty/query.rs` | The cell size in pixels where the window size has none |
 | Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI c | `src/term/probe.rs` | Cursor position, foreground, background and palette colours, terminal version, end of the answers |
@@ -471,6 +559,16 @@ src/images/pipeline.rs     a document's images for a run: renderers from the
 src/images/stamps.rs       when the files behind the images were last changed
 src/images/url.rs          data URLs, file URLs and paths, read up to a limit
 src/images/svg.rs          SVG images and the fonts for their text
+src/reading/mod.rs         reading mode: text in a proportional font, drawn
+                           as pixels
+src/reading/fonts.rs       the fonts of SVG text handed to parley, with
+                           fallbacks for emoji and other scripts
+src/reading/text.rs        styled text laid out in lines with parley
+src/reading/paint.rs       laid-out text drawn as pixels: glyph outlines,
+                           chips behind inline code, rules
+src/reading/colr.rs        colour glyphs, such as emoji, from the COLR table
+src/reading/page.rs        a run of text blocks laid out as GitHub sets them,
+                           drawn a part at a time
 src/compare.rs             which blocks stayed, changed, were added or
                            removed between two documents
 src/diagrams/mod.rs        diagrams written in code blocks, drawn as images
@@ -505,6 +603,8 @@ src/render/script.rs       Unicode's super- and subscript characters
 src/render/output.rs       styled lines -> bytes (SGR, OSC 8, CSI C/K, OSC 66),
                            cursor placement and synchronized output
 src/render/encoder.rs      the images the terminal holds, and under which ids
+src/render/reading.rs      reading mode's pages as rows of images, each part
+                           drawn when it is first shown
 src/render/loading.rs      the pixels of what stands in for an image while
                            it loads, and of the band below it
 src/render/highlight.rs    syntax highlighting for code blocks (syntect)
@@ -517,6 +617,9 @@ src/pager/fade.rs          a style fading into another after a jump or
                            a reload
 src/pager/files.rs         where each of several files starts in the stream,
                            found from the blocks of its lines
+src/pager/bands.rs         reading mode's bands: how far each is scrolled,
+                           and which is selected
+src/pager/links.rs         reading mode's selected link
 src/pager/changes.rs       where a reload changed the laid-out lines, and
                            which change auto-follow moves to
 src/pager/tint.rs          the lighter background over that change's lines

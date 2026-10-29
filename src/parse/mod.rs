@@ -152,7 +152,7 @@ fn blocks(parent: Node<'_>) -> Vec<(Block, Position)> {
 
 /// The language of a code block that holds a formula, as ` ```math `
 /// names it.
-const FORMULA: &str = "math";
+pub const FORMULA: &str = "math";
 
 /// A paragraph with display math, `$$…$$`, in it as the paragraphs
 /// before, between and after its formulas and each formula as a code
@@ -435,10 +435,18 @@ fn inlines_of<'a>(nodes: impl Iterator<Item = Node<'a>>) -> Vec<Inline> {
     let mut after_math = false;
     for node in nodes {
         if let NodeValue::Math(math) = &node.data().value {
-            for inline in math_as_written(math) {
-                push_joined(&mut inlines, inline);
+            if math.display_math {
+                for inline in math_as_written(math) {
+                    push_joined(&mut inlines, inline);
+                }
+                after_math = true;
+            } else {
+                inlines.push(Inline::Formula {
+                    source: formula_source(&math.literal),
+                    written: math_as_written(math),
+                });
+                after_math = false;
             }
-            after_math = true;
         } else if let Some(inline) = inline(node) {
             match after_math {
                 true => push_joined(&mut inlines, inline),
@@ -448,6 +456,18 @@ fn inlines_of<'a>(nodes: impl Iterator<Item = Node<'a>>) -> Vec<Inline> {
         }
     }
     inlines
+}
+
+/// The LaTeX of an inline formula written as `literal` between dollars:
+/// the text itself, or what is in the backticks of GitHub's `$`x`$`, which
+/// keeps Markdown from reading the formula.
+fn formula_source(literal: &str) -> String {
+    let source = literal.trim();
+    let inner = source
+        .strip_prefix('`')
+        .and_then(|rest| rest.strip_suffix('`'))
+        .filter(|inner| !inner.is_empty() && !inner.contains('`'));
+    inner.unwrap_or(source).trim().to_owned()
 }
 
 /// Math that kiri does not draw, such as `$x$`, read as it was before

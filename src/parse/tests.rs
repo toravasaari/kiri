@@ -871,50 +871,94 @@ fn display_math_in_headings_cells_and_links_stays_text() {
     }
 }
 
-#[test]
-fn inline_math_stays_text_as_written() {
-    // Until inline formulas are drawn, they read as they always have.
-    for source in [
-        "Cost $5 and $6 today.",
-        "Let $x$ be one.",
-        "Let $`x`$ be one.",
-        "A $*b*$ c.",
-        "A $\\{b\\}$ c.",
-        "$HOME/$USER and $a_1$.",
-    ] {
-        let without_math = {
-            let arena = Arena::new();
-            let mut options = options();
-            options.extension.math_dollars = false;
-            let root = parse_document(&arena, source, &options);
-            blocks(root)
-                .into_iter()
-                .map(|(block, _)| block)
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(parse(source).blocks, without_math, "{source}");
+fn inline_formula(source: &str, written: Vec<Inline>) -> Inline {
+    Inline::Formula {
+        source: source.to_owned(),
+        written,
     }
+}
+
+#[test]
+fn reads_inline_dollar_math_as_a_formula() {
     assert_eq!(
-        parse("Let $x$ be one.\n").blocks,
-        [paragraph("Let $x$ be one.")]
+        parse("Let $x^2$ be one.\n").blocks,
+        [Block::Paragraph(vec![
+            text("Let "),
+            inline_formula("x^2", vec![text("$x^2$")]),
+            text(" be one."),
+        ])]
+    );
+    // The backtick form GitHub has for formulas with Markdown in them.
+    assert_eq!(
+        parse("A $`a_1`$ b.\n").blocks,
+        [Block::Paragraph(vec![
+            text("A "),
+            inline_formula(
+                "a_1",
+                vec![text("$"), Inline::Code("a_1".into()), text("$")]
+            ),
+            text(" b."),
+        ])]
     );
 }
 
 #[test]
-fn inline_math_in_a_quote_or_a_link_stays_text() {
+fn a_formula_keeps_what_it_reads_as_without_math() {
     assert_eq!(
-        parse("> é $*x*$ y\n").blocks,
-        [Block::BlockQuote(vec![Block::Paragraph(vec![
-            text("é $"),
-            Inline::Emphasis(vec![text("x")]),
-            text("$ y"),
-        ])])]
+        parse("A $*b*$ c.\n").blocks,
+        [Block::Paragraph(vec![
+            text("A "),
+            inline_formula(
+                "*b*",
+                vec![text("$"), Inline::Emphasis(vec![text("b")]), text("$")]
+            ),
+            text(" c."),
+        ])]
     );
+}
+
+#[test]
+fn dollars_that_are_not_math_by_githubs_rules_stay_text() {
+    // GitHub opens a formula at a `$` followed by no space and closes it
+    // at one preceded by no space and followed by no digit.
+    for source in [
+        "Cost $5 and $10 today.",
+        "A $ x$ b.",
+        "A $x $ b.",
+        "A $x$5 b.",
+        "A $5 b.",
+        "Costs 5$ and 6$.",
+        "A \\$x$ b.",
+        "A `$x$` b.",
+    ] {
+        let blocks = parse(source).blocks;
+        assert!(
+            matches!(blocks.as_slice(), [Block::Paragraph(content)]
+                if !content.iter().any(|i| matches!(i, Inline::Formula { .. }))),
+            "{source}: {blocks:?}"
+        );
+    }
+    // By the same rules two variables can be a formula, as on GitHub.
+    assert_eq!(
+        parse("$HOME/$USER\n").blocks,
+        [Block::Paragraph(vec![
+            inline_formula("HOME/", vec![text("$HOME/$")]),
+            text("USER"),
+        ])]
+    );
+    assert_eq!(
+        parse("Cost $5 and $10 today.\n").blocks,
+        [paragraph("Cost $5 and $10 today.")]
+    );
+}
+
+#[test]
+fn inline_math_in_a_quote_or_a_link_is_a_formula() {
     assert_eq!(
         parse("[a $x$](u)\n").blocks,
         [Block::Paragraph(vec![Inline::Link {
             url: "u".into(),
-            content: vec![text("a $x$")],
+            content: vec![text("a "), inline_formula("x", vec![text("$x$")])],
         }])]
     );
 }

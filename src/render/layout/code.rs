@@ -153,6 +153,24 @@ impl Layout<'_> {
         (indent, inner.max(1))
     }
 
+    /// How reading mode colours code blocks, as this layout does.
+    pub(super) fn code_colors(&self) -> CodeColors {
+        let theme = self.highlights_code().then(|| self.code_theme().to_owned());
+        let background = (theme.as_deref()).and_then(highlight::background).flatten();
+        let text = highlight::foreground(self.code_theme()).flatten();
+        let label = match self.theme.language_label {
+            _ if !self.theme.show_language_label || !self.theme.code_padding => None,
+            LabelColor::CodeBlock => halfway(text, background),
+            LabelColor::Color(color) => color,
+        };
+        CodeColors {
+            theme,
+            background,
+            text,
+            label,
+        }
+    }
+
     pub(super) fn code_theme(&self) -> &str {
         if self.dark() {
             &self.theme.code_theme_dark
@@ -160,6 +178,17 @@ impl Layout<'_> {
             &self.theme.code_theme_light
         }
     }
+}
+
+/// How code blocks are coloured: the highlighting theme, when code is
+/// highlighted, the block's background and text colour, and the colour of
+/// its language label, when it has one.
+#[derive(Debug, Clone, Default)]
+pub struct CodeColors {
+    pub theme: Option<String>,
+    pub background: Option<Color>,
+    pub text: Option<Color>,
+    pub label: Option<Color>,
 }
 
 /// The background of inline code in `theme` on a terminal with `caps`:
@@ -199,7 +228,7 @@ pub(super) fn on_background(line: Vec<Span>, background: Option<Color>) -> Vec<S
         .collect()
 }
 
-fn expand_tabs(line: &str) -> String {
+pub(crate) fn expand_tabs(line: &str) -> String {
     let mut out = String::new();
     for c in line.chars() {
         if c == '\t' {

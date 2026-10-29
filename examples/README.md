@@ -174,3 +174,5 @@ of a printed formula, a little larger than the text.
   [Mermaid file](S07b-flowchart.mmd)
 - [Formulas](S08-formulas.md): formulas in math blocks and between `$$`,
   in lists and quotes, and what stays text
+- [Reading mode](S09-reading-mode.md): with `--reading`, the text in a
+  proportional font, as a browser shows it; experimental

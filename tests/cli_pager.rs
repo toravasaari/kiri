@@ -2256,3 +2256,185 @@ fn a_named_pipe_reloads_nothing() {
     assert!(text_of(&seen).contains("nothing to reload"), "{seen:?}");
     assert!(!seen.contains("Again"), "{seen:?}");
 }
+
+/// What kiri draws in the pager for a document with a code line wider
+/// than reading mode's area, with `args` besides `--reading -p`.
+fn wide_code(name: &str, args: &[&str]) -> String {
+    let wide = |dir: &std::path::Path| {
+        let code = format!("Text.\n\n```\n{}\n```\n", "a".repeat(200));
+        std::fs::write(dir.join("wide.md"), code).unwrap();
+    };
+    let mut quit = false;
+    let mut all = vec!["--mode", "kitty", "--reading", "-p"];
+    all.extend(args);
+    all.push("wide.md");
+    let (status, seen) = in_terminal_after(name, wide, &all, 10, None, |frames, terminal, _| {
+        if frames > 0 && !quit {
+            terminal.write_all(b"q").unwrap();
+            quit = true;
+        }
+    });
+    assert!(status.success());
+    seen
+}
+
+/// The images sent in `seen`, by the keys of their transmission.
+fn images(seen: &str) -> Vec<&str> {
+    (seen.split("\x1b_Ga=T").skip(1))
+        .filter_map(|keys| keys.split(';').next())
+        .collect()
+}
+
+#[test]
+fn wide_scroll_scrolls_a_wide_code_block_in_the_pager_and_wrap_wraps_it() {
+    let wrapped = wide_code("pager-wide-wrap", &[]);
+    let scrolling = wide_code("pager-wide-scroll", &["--wide", "scroll"]);
+    let again = wide_code("pager-wide-wrap-again", &["--wide", "wrap"]);
+    // Wrapped, one part of the page; scrolling, the band besides.
+    assert_eq!(images(&wrapped).len(), 1, "{:?}", images(&wrapped));
+    assert_eq!(images(&scrolling).len(), 2, "{:?}", images(&scrolling));
+    assert_eq!(images(&again).len(), 1, "{:?}", images(&again));
+}
+
+#[test]
+fn printing_always_wraps() {
+    let dir = Scratch::new("print-wide-scroll");
+    let code = format!("Text.\n\n```\n{}\n```\n", "a".repeat(200));
+    let path = dir.join("wide.md");
+    std::fs::write(&path, code).unwrap();
+    let print = |wide: &str| {
+        let out = command(&dir)
+            .args([
+                "--mode",
+                "kitty",
+                "--reading",
+                "--width",
+                "40",
+                "--wide",
+                wide,
+            ])
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        out.stdout
+    };
+    assert_eq!(print("scroll"), print("wrap"));
+}
+
+#[test]
+fn m_loads_the_pictures_in_the_middle_of_text_that_reading_mode_shows() {
+    let prepare = |dir: &std::path::Path| {
+        common::quadrants(8, 8).save(dir.join("p.png")).unwrap();
+        let document =
+            "A line with a badge <img src=\"p.png\" width=\"24\" alt=\"badge\"> in it.\n";
+        std::fs::write(dir.join("document.md"), document).unwrap();
+    };
+    let mut typed = false;
+    let (status, seen) = in_terminal_after(
+        "pager-m-inline",
+        prepare,
+        &["-p", "--mode", "kitty", "--width", "80", "document.md"],
+        10,
+        None,
+        |frames, terminal, _| {
+            if frames > 0 && !typed {
+                typed = true;
+                terminal.write_all(b"M").unwrap();
+                // Long enough for the picture to load and the page to be
+                // laid out again.
+                std::thread::sleep(Duration::from_secs(3));
+                terminal.write_all(b"q").unwrap();
+            }
+        },
+    );
+    assert!(status.success());
+    // The page without the picture when `M` turns reading mode on, and
+    // again with it when it has come: sent as two images, as it is two
+    // different pages.
+    let pages = seen.matches("\x1b_Ga=T,U=1").count();
+    assert_eq!(pages, 2, "{seen:?}");
+}
+
+/// The ids of the images sent in `seen`, in order.
+fn sent_ids(seen: &str) -> Vec<String> {
+    seen.split("\x1b_Ga=T,U=1,")
+        .skip(1)
+        .filter_map(|rest| {
+            let id = rest.split(',').find_map(|part| part.strip_prefix("i="))?;
+            Some(id.to_owned())
+        })
+        .collect()
+}
+
+#[test]
+fn a_reload_after_m_keeps_the_pictures_m_loaded() {
+    let prepare = |dir: &std::path::Path| {
+        common::quadrants(8, 8).save(dir.join("p.png")).unwrap();
+        let document =
+            "A line with a badge <img src=\"p.png\" width=\"24\" alt=\"badge\"> in it.\n";
+        std::fs::write(dir.join("document.md"), document).unwrap();
+    };
+    let mut step = 0;
+    let (status, seen) = in_terminal_after(
+        "pager-m-reload",
+        prepare,
+        &["-p", "--mode", "kitty", "--width", "80", "document.md"],
+        10,
+        None,
+        |frames, terminal, _| {
+            if frames > 0 && step == 0 {
+                step = 1;
+                terminal.write_all(b"M").unwrap();
+                std::thread::sleep(Duration::from_secs(3));
+                terminal.write_all(b"r").unwrap();
+                std::thread::sleep(Duration::from_secs(3));
+                terminal.write_all(b"q").unwrap();
+            }
+        },
+    );
+    assert!(status.success());
+    // The page without the picture, then with it; a reload leaves the
+    // page with the picture, as it is when `--reading` asked for it.
+    let ids = sent_ids(&seen);
+    assert!(ids.len() >= 2, "{ids:?}");
+    assert_ne!(ids[0], ids[1], "{ids:?}");
+    assert_eq!(ids.last(), Some(&ids[1]), "{ids:?}");
+}
+
+#[test]
+fn m_loads_no_images_when_images_are_off() {
+    let prepare = |dir: &std::path::Path| {
+        common::quadrants(8, 8).save(dir.join("p.png")).unwrap();
+        let document = "![block](p.png)\n\nA line with a badge <img src=\"p.png\" width=\"24\" alt=\"badge\"> in it.\n";
+        std::fs::write(dir.join("document.md"), document).unwrap();
+    };
+    let mut step = 0;
+    let (status, seen) = in_terminal_after(
+        "pager-m-no-images",
+        prepare,
+        &[
+            "-p",
+            "--no-images",
+            "--mode",
+            "kitty",
+            "--width",
+            "80",
+            "document.md",
+        ],
+        10,
+        None,
+        |frames, terminal, _| {
+            if frames > 0 && step == 0 {
+                step = 1;
+                terminal.write_all(b"M").unwrap();
+                std::thread::sleep(Duration::from_secs(3));
+                terminal.write_all(b"q").unwrap();
+            }
+        },
+    );
+    assert!(status.success());
+    // Only the page of text, as it is with `--reading` and no images: the
+    // pictures never load.
+    assert_eq!(sent_ids(&seen).len(), 1, "{seen:?}");
+}

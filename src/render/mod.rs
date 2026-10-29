@@ -7,6 +7,7 @@ pub mod image;
 pub mod layout;
 pub mod loading;
 pub mod output;
+pub mod reading;
 pub mod script;
 pub mod style;
 pub mod table;
@@ -41,6 +42,9 @@ pub struct Inputs {
     /// Whether a diagram that could not be drawn tells why in the
     /// document.
     pub render_errors: RenderErrors,
+    /// Reading mode, where the terminal draws images: the document's text
+    /// in a proportional font. `None` for the text layout.
+    pub reading: Option<reading::Reading>,
 }
 
 /// Where kiri tells why something it draws from source, such as a
@@ -249,6 +253,7 @@ impl Inputs {
             headings: Headings::default(),
             table_rows: TableRows::default(),
             render_errors: RenderErrors::default(),
+            reading: None,
         }
     }
 }

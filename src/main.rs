@@ -3,6 +3,7 @@ use std::fs::File;
 use std::io::{self, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::rc::Rc;
 
 use clap::builder::{PossibleValue, PossibleValuesParser, TypedValueParser};
 use clap::error::ErrorKind;
@@ -21,8 +22,10 @@ use kiri::images::{
 use kiri::input::Input;
 use kiri::model::{Block, Document, FrontMatterError};
 use kiri::pager::{Change, Look, Reload, Reloaded, Warning};
+use kiri::reading::page::Wide;
 use kiri::render::encoder::Encoder;
 use kiri::render::output::Page;
+use kiri::render::reading::Reading;
 use kiri::render::{Headings, Inputs, RenderErrors, TableRows};
 use kiri::term::{Interrupt, Mode};
 use kiri::theme::{Paper, Theme};
@@ -245,6 +248,25 @@ struct Cli {
     #[arg(long, conflicts_with = "no_mouse")]
     mouse: bool,
 
+    /// Experimental: the text in a proportional font, as a browser shows it
+    ///
+    /// Headings, paragraphs, lists and quotes are drawn as images, so their
+    /// text cannot be selected or copied. It needs a terminal that draws
+    /// images, such as kitty; elsewhere the document shows as text. The
+    /// option's name may still change.
+    #[arg(long)]
+    reading: bool,
+
+    /// Experimental: wide code and tables wrap or scroll in reading mode
+    ///
+    /// With wrap, a code block or table wider than reading mode's area
+    /// wraps to fit it; with scroll, it keeps its lines and words whole and
+    /// scrolls sideways in the pager, where W switches between the two.
+    /// Printing always wraps. wrap unless set. The option's name may still
+    /// change.
+    #[arg(long, value_name = "HOW", value_parser = ["wrap", "scroll"])]
+    wide: Option<String>,
+
     /// Largest image file to read, in megabytes
     ///
     /// At most 100; larger images show their alt text.
@@ -454,6 +476,13 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     let Some(document) = document(input, &source, path, &settings, &caps, warn)? else {
         return Ok(write_as_is(&source)?);
     };
+    if let Some(warning) = context.reading_warning(&caps) {
+        eprintln!("kiri: {warning}");
+        warnings.push(Warning {
+            line: None,
+            message: warning,
+        });
+    }
     // Only a document read from a regular file can be read again: a pipe
     // given by its path, such as <(cmd), is read to its end already.
     let from = (file.filter(|path| path.is_file())).map(|path| FromFile { path, input, look });
@@ -677,6 +706,14 @@ fn without_config(cli: &Cli, env: &Environment) -> Settings {
     choices.with_theme(Theme::default())
 }
 
+/// Sets `inputs` up for printing: reading mode's wide code and tables
+/// wrap, as nothing can scroll them.
+fn printing(inputs: &mut Inputs) {
+    if let Some(reading) = &mut inputs.reading {
+        reading.wide = Wide::Wrap;
+    }
+}
+
 /// Whether a file shown on its own as an image is, an image file or a
 /// diagram file, goes to the pager for `settings` on a terminal with
 /// `caps`: only when paging is `always`, as for several such files.
@@ -771,6 +808,11 @@ fn show_files(
     for (number, file) in given.iter_mut().enumerate() {
         file.drawn = self::drawn(number, file, &mut images, &settings, &caps);
     }
+    // Once for all the files, before the pager opens, and in the pager.
+    let reading_warning = context.reading_warning(&caps);
+    if let Some(warning) = &reading_warning {
+        eprintln!("kiri: {warning}");
+    }
     let mut inputs = Inputs {
         images,
         theme: settings.theme.clone(),
@@ -778,6 +820,7 @@ fn show_files(
         headings: settings.headings.with_images(settings.images),
         table_rows: settings.table_rows,
         render_errors: settings.render_errors,
+        reading: context.reading(&caps),
         ..Inputs::new(caps)
     };
     if paged {
@@ -787,7 +830,7 @@ fn show_files(
             given,
             &mut inputs,
             &settings,
-            later,
+            (later, reading_warning),
             failed,
             caught,
         )?;
@@ -912,7 +955,7 @@ fn page_files(
     given: Vec<Given>,
     inputs: &mut Inputs,
     settings: &Settings,
-    later: bool,
+    (later, reading_warning): (bool, Option<String>),
     failed: &Cell<bool>,
     caught: impl FnOnce(),
 ) -> Result<(), Failure> {
@@ -979,7 +1022,7 @@ fn page_files(
     let mut parts: Vec<Part> = (documents.iter())
         .map(|(number, file)| Part {
             number: *number,
-            ..part(&files[*number].document, file.as_deref())
+            ..part(&files[*number].document, file.as_deref(), context.reading)
         })
         .collect();
     // With paging on auto, the images load first unless the files are
@@ -1041,6 +1084,28 @@ fn page_files(
     // to follow.
     let options = kiri::pager::Options {
         follow: context.follow,
+        warnings: (reading_warning.into_iter())
+            .map(|message| Warning {
+                line: None,
+                message,
+            })
+            .collect(),
+        reading: Some(context.reading_mode()),
+        // What reading mode shows in the middle of text loads when `M`
+        // turns it on, unless `--reading` had it loaded at the start.
+        inline: Some(Box::new(|images, loads, caps| {
+            if !(settings.images && caps.draws_images()) {
+                return;
+            }
+            let parts: Vec<Part> = (documents.iter())
+                .map(|(number, file)| Part {
+                    number: *number,
+                    ..part(&files[*number].document, file.as_deref(), true)
+                })
+                .collect();
+            let loading = loading(context, settings, caps);
+            kiri::images::load_inline_in_background(&parts, &loading, images, loads);
+        })),
         ..kiri::pager::Options::new(settings.search_case)
     };
     let start = |inputs: &mut Inputs, loads: &mut Loads| {
@@ -1072,13 +1137,14 @@ fn page_files(
             let documents: Vec<Part> = (documents.iter())
                 .map(|(number, file)| Part {
                     number: *number,
-                    ..part(&files[*number].document, file.as_deref())
+                    ..part(&files[*number].document, file.as_deref(), context.reading)
                 })
                 .collect();
             (told_files(&came, &documents, &files, settings), None)
         }
         (true, None) => (vec![Vec::new(); files.len()], None),
     };
+    printing(inputs);
     let mut out = kiri::term::output(&inputs.caps);
     let mut apart = false;
     // Whether kitty did not answer the check of a file's images.
@@ -1120,6 +1186,7 @@ fn print_files(
     settings: &Settings,
     failed: &Cell<bool>,
 ) -> io::Result<()> {
+    printing(inputs);
     let mut out = kiri::term::output(&inputs.caps);
     let mut apart = false;
     // Whether kitty did not answer the check of a file's images.
@@ -1334,7 +1401,7 @@ fn load_given(
             let file = given.file.as_deref();
             Some(Part {
                 number,
-                ..part(document, file)
+                ..part(document, file, context.reading)
             })
         })
         .collect();
@@ -1421,6 +1488,11 @@ struct Context<'a> {
     /// How the command line asks to follow the file, so that the pager
     /// says when there is nothing to follow.
     follow: Follow,
+    /// Whether `--reading` asks for reading mode.
+    reading: bool,
+    /// What becomes of code blocks and tables wider than reading mode's
+    /// area in the pager, as `--wide` says.
+    wide: Wide,
 }
 
 impl<'a> Context<'a> {
@@ -1431,7 +1503,37 @@ impl<'a> Context<'a> {
             width: cli.width,
             max_file_size: cli.max_image_size * kiri::images::MB,
             follow: follow(cli).map_or(Follow::Off, |follow| follow.value),
+            reading: cli.reading,
+            wide: match cli.wide.as_deref() {
+                Some("scroll") => Wide::Scroll,
+                _ => Wide::Wrap,
+            },
         }
+    }
+
+    /// Reading mode, when it is asked for and a terminal with `caps` draws
+    /// images.
+    fn reading(&self, caps: &Capabilities) -> Option<Reading> {
+        (self.reading && caps.draws_images()).then(|| self.reading_mode())
+    }
+
+    /// Reading mode in the system's fonts, which load when text is first
+    /// laid out in them, as `M` in the pager turns it on.
+    fn reading_mode(&self) -> Reading {
+        Reading {
+            pictures: Default::default(),
+            fonts: Rc::new(kiri::reading::Fonts::system()),
+            wide: self.wide,
+        }
+    }
+
+    /// Why reading mode is not shown, when it is asked for and a terminal
+    /// with `caps` cannot draw it.
+    fn reading_warning(&self, caps: &Capabilities) -> Option<String> {
+        (self.reading && !caps.draws_images()).then(|| {
+            "reading mode needs a terminal that draws images; showing the document as text"
+                .to_owned()
+        })
     }
 }
 
@@ -1461,7 +1563,7 @@ fn show_document(
     caps: Capabilities,
 ) -> Result<(), Failure> {
     let caps = on_page(caps, &settings);
-    let parts = [part(document, from.map(|from| from.path))];
+    let parts = [part(document, from.map(|from| from.path), context.reading)];
     // Before the images are read, so that a file changed meanwhile counts
     // as changed.
     let stamps = Stamps::of(&parts);
@@ -1677,7 +1779,12 @@ fn show_diagram(
     let caps = on_page(caps, &settings);
     let document = kiri::parse::code(source, Some(language));
     settings.images = true;
-    let mut loaded = load_images(context, &[part(&document, file)], &settings, &caps)?;
+    let mut loaded = load_images(
+        context,
+        &[part(&document, file, context.reading)],
+        &settings,
+        &caps,
+    )?;
     let key = ImageKey::block(language, source);
     let error = match loaded.images.remove(&key) {
         Some(Ok(image)) => {
@@ -1816,12 +1923,13 @@ fn formula_colors(theme: &Theme, caps: &Capabilities) -> kiri::diagrams::Formula
 
 /// `document`, the first and only one shown, from `file` or not as for
 /// `show_document`, as a part whose images are loaded.
-fn part<'a>(document: &'a Document, file: Option<&'a Path>) -> Part<'a> {
+fn part<'a>(document: &'a Document, file: Option<&'a Path>, inline_images: bool) -> Part<'a> {
     Part {
         document,
         number: 0,
         base: file.and_then(Path::parent).unwrap_or(Path::new("")),
         by_line: file.is_some(),
+        inline_images,
     }
 }
 
@@ -1868,6 +1976,7 @@ fn print_document(
         headings: settings.headings.with_images(settings.images),
         table_rows: settings.table_rows,
         render_errors: settings.render_errors,
+        reading: context.reading(&caps),
         ..Inputs::new(caps)
     };
     // With paging on auto, the images load first unless the document is
@@ -1908,6 +2017,7 @@ fn print_document(
         }
         later => later,
     };
+    let file = reading.as_ref().map(|(from, _)| from.path);
     let mut reload = reading.map(|(from, stamps)| FileReload {
         context,
         settings: &settings,
@@ -1931,6 +2041,17 @@ fn print_document(
             jump: settings.follow_jump,
             warnings,
             reload: reload.as_mut().map(|reload| reload as &mut dyn Reload),
+            reading: Some(context.reading_mode()),
+            // What reading mode shows in the middle of text loads when `M`
+            // turns it on, unless `--reading` had it loaded at the start.
+            inline: Some(Box::new(|images, loads, caps| {
+                if !(settings.images && caps.draws_images()) {
+                    return;
+                }
+                let parts = [part(document, file, true)];
+                let loading = loading(context, &settings, caps);
+                kiri::images::load_inline_in_background(&parts, &loading, images, loads);
+            })),
             ..kiri::pager::Options::new(settings.search_case)
         },
         (
@@ -1962,6 +2083,7 @@ fn print_document(
         }
         None => None,
     };
+    printing(&mut inputs);
     let mut out = kiri::term::output(&inputs.caps);
     Ok(finish(
         kiri::render::render(document, &inputs, &mut out).and_then(|sent| {
@@ -2079,7 +2201,13 @@ struct FileReload<'a> {
 }
 
 impl Reload for FileReload<'_> {
-    fn reload(&mut self, images: &mut Images, loads: &mut Loads, caps: &Capabilities) -> Reloaded {
+    fn reload(
+        &mut self,
+        images: &mut Images,
+        loads: &mut Loads,
+        caps: &Capabilities,
+        reading: bool,
+    ) -> Reloaded {
         let FromFile { path, input, .. } = self.from;
         // Before the file is read, so that a change meanwhile counts.
         self.read = look(path).ok();
@@ -2096,7 +2224,7 @@ impl Reload for FileReload<'_> {
             Err(error) => return Reloaded::Failed(without_path(error, path)),
         };
         if self.settings.images && caps.draws_images() {
-            let parts = [part(&document, Some(path))];
+            let parts = [part(&document, Some(path), reading)];
             let loading = loading(self.context, self.settings, caps);
             reload_in_background(&parts, &loading, images, &mut self.stamps, loads);
         }

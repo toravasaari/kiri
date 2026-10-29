@@ -348,3 +348,15 @@ each of them on stderr:
 ![Huge image](../tests/fixtures/images/huge.png)
 
 ![Remote image](https://example.com/image.png)
+
+## In reading mode
+
+With `--reading` an image is in the page at its natural size in CSS
+pixels, one pixel to a pixel of the text's 16, and shrunk to the column
+when it is wider. An image in the middle of a line stands in the line, on
+its baseline, as the badge here does: <img src="S06b-pattern.png" width="16" alt="a badge">.
+An image that cannot be shown is its alt text in grey.
+
+```sh
+kiri --reading examples/S06a-images.md
+```

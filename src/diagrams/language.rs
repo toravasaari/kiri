@@ -93,15 +93,23 @@ pub struct BuiltInRenderer {
     /// page, unless it chooses its own colours, or why it could not be
     /// drawn.
     pub render: fn(&Request) -> Result<Drawn, String>,
+    /// How far below its baseline a drawn diagram reaches, as a fraction
+    /// of the image's height, for a diagram that has a baseline to sit on
+    /// in a line of text, such as an inline formula; `None` for the rest.
+    pub baseline: fn(&str) -> Option<f64>,
 }
 
 /// The languages kiri draws diagrams in.
 pub static LANGUAGES: &[Language] = &[mermaid::MERMAID, math::MATH];
 
+/// The languages kiri draws for itself, which no code block is meant to
+/// name and no setting or program applies to.
+static INTERNAL: &[Language] = &[math::MATH_INLINE];
+
 /// The language that a code block's info string `name` names, in any
 /// case, by its name or an alias.
 pub fn language(name: &str) -> Option<&'static Language> {
-    LANGUAGES.iter().find(|language| {
+    LANGUAGES.iter().chain(INTERNAL).find(|language| {
         let is = |other: &str| name.eq_ignore_ascii_case(other);
         is(language.name) || language.aliases.iter().any(|alias| is(alias))
     })

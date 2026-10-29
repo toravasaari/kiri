@@ -138,6 +138,8 @@ fn mixed(theme: &Theme, caps: &Capabilities) -> Option<Color> {
 pub struct Tags {
     /// How the pager follows the document.
     pub follow: Follow,
+    /// Whether the document is shown in reading mode.
+    pub reading: bool,
     /// The warnings about the document shown, when there are any.
     pub warnings: Option<Warned>,
 }
@@ -146,6 +148,7 @@ impl From<Follow> for Tags {
     fn from(follow: Follow) -> Self {
         Self {
             follow,
+            reading: false,
             warnings: None,
         }
     }
@@ -191,7 +194,8 @@ pub enum Found<'a> {
 /// tells after the name. `tags` holds that word and the mark for the
 /// document's warnings, which comes before the position. A narrow window
 /// leaves out the keys first, then the start of the name and then of its
-/// place, then the word, then the warning mark, then the search.
+/// place, then the words for following and for reading mode, then the
+/// warning mark, then the search.
 pub fn spans(
     name: &str,
     place: Option<(usize, usize)>,
@@ -201,7 +205,11 @@ pub fn spans(
     width: usize,
     styles: &Styles,
 ) -> Vec<Span> {
-    let Tags { follow, warnings } = tags.into();
+    let Tags {
+        follow,
+        reading,
+        warnings,
+    } = tags.into();
     let warnings = warnings.as_ref();
     // Measured as shown: a file name may hold any character but `/`.
     let mut name = printable(name);
@@ -236,11 +244,14 @@ pub fn spans(
     };
     // The word that tells the pager follows the document, and a gap of
     // three before it.
-    let following = follow_word(follow);
-    let mark = match following {
-        Some((key, what)) => key.width() + what.width() + 3,
-        None => 0,
-    };
+    // Reading mode's word comes after it, and goes with it.
+    let words: Vec<(&str, &str)> = follow_word(follow)
+        .into_iter()
+        .chain(reading.then_some(("M", " reading")))
+        .collect();
+    let mark: usize = (words.iter())
+        .map(|(key, what)| key.width() + what.width() + 3)
+        .sum();
     // The search and a gap of three before the position.
     let search = found.map(|found| search(found, styles)).unwrap_or_default();
     let search_width = if search.is_empty() {
@@ -287,7 +298,7 @@ pub fn spans(
         right.push(Span::new("   ", styles.bar.clone()));
     }
     right.push(Span::new(&percent, styles.bar.clone()));
-    if let Some((key, what)) = following.filter(|_| with_mark) {
+    for (key, what) in words.into_iter().filter(|_| with_mark) {
         right.push(Span::new("   ", styles.bar.clone()));
         right.push(Span::new(key, bold.clone()));
         right.push(Span::new(what, styles.bar.clone()));

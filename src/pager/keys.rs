@@ -16,6 +16,10 @@ pub enum Key {
     Backspace,
     Up,
     Down,
+    Left,
+    Right,
+    /// Shift+Tab; Tab itself arrives as Ctrl+I.
+    BackTab,
     PageUp,
     PageDown,
     /// Page Up and Page Down with Shift, which move between files. Other
@@ -42,6 +46,19 @@ pub enum Key {
     WheelUp,
     /// The mouse wheel turned a notch down.
     WheelDown,
+    /// The left button pressed at a column and a row, counted from 1.
+    Click {
+        column: u16,
+        row: u16,
+    },
+    /// A notch of the sideways wheel, to the right or to the left, or of
+    /// the wheel with Shift, down or up, at a column and a row.
+    Sideways {
+        right: bool,
+        shift: bool,
+        column: u16,
+        row: u16,
+    },
     /// Any other mouse event, such as a click, which the pager ignores.
     Mouse,
     /// A sequence the pager does not use.
@@ -71,6 +88,16 @@ pub enum Action {
     Redraw,
     /// Follows the document, from off to on to auto and back to off.
     Follow,
+    /// Turns reading mode on or off.
+    Reading,
+    /// Scrolls a wide block sideways a little, left or right by the key.
+    Sideways,
+    /// Scrolls a wide block sideways by most of its width.
+    SidewaysFar,
+    /// Selects the next or the previous link on the screen.
+    SelectLink,
+    /// Switches wide blocks between wrapping and scrolling.
+    Wide,
     Help,
     Quit,
 }
@@ -171,8 +198,10 @@ fn escape(input: &[u8]) -> Option<(Key, usize)> {
         // A mouse event without SGR encoding: the button, the column and
         // the row follow, a byte each, 32 more than their value.
         b'[' if input.get(2) == Some(&b'M') => {
-            let button = input.get(3..6)?[0].wrapping_sub(32);
-            (mouse(Some(button.into()), true), 6)
+            let bytes = input.get(3..6)?;
+            let [button, column, row] = [0, 1, 2].map(|i| bytes[i].wrapping_sub(32));
+            let at = (u16::from(column), u16::from(row));
+            (mouse(Some(button.into()), true, at), 6)
         }
         b'[' => {
             // Parameters and intermediates up to the final byte.
@@ -214,6 +243,9 @@ fn csi(parameters: &[u8], last: u8) -> Key {
     match (parameters, last) {
         (b"", b'A') => Key::Up,
         (b"", b'B') => Key::Down,
+        (b"", b'C') => Key::Right,
+        (b"", b'D') => Key::Left,
+        (b"", b'Z') => Key::BackTab,
         (b"" | b"1", b'H') | (b"1" | b"7", b'~') => Key::Home,
         (b"" | b"1", b'F') | (b"4" | b"8", b'~') => Key::End,
         (b"5", b'~') => Key::PageUp,
@@ -226,25 +258,43 @@ fn csi(parameters: &[u8], last: u8) -> Key {
         // A mouse event in SGR encoding, `<` and the button, the column
         // and the row, pressed with `M` and released with `m`.
         ([b'<', rest @ ..], b'M' | b'm') => {
-            let button = std::str::from_utf8(rest).ok().and_then(|rest| {
-                let button = rest.split(';').next()?;
-                button.parse().ok()
-            });
-            mouse(button, last == b'M')
+            let fields: Vec<u32> = (std::str::from_utf8(rest).unwrap_or(""))
+                .split(';')
+                .map(|field| field.parse().unwrap_or(0))
+                .collect();
+            let button = fields.first().copied();
+            let at = |index: usize| {
+                let value = fields.get(index).copied().unwrap_or(0);
+                u16::try_from(value).unwrap_or(u16::MAX)
+            };
+            mouse(button, last == b'M', (at(1), at(2)))
         }
         _ => Key::Other,
     }
 }
 
 /// The key of a mouse event with the button code `button`, `pressed` or
-/// released: a notch of the wheel up or down, with or without
-/// modifiers, or else [`Key::Mouse`], such as for a click.
-fn mouse(button: Option<u32>, pressed: bool) -> Key {
+/// released, at the column and row `at`: a notch of the wheel up or down,
+/// with or without Alt or Ctrl, of the sideways wheel or of the wheel with
+/// Shift, a press of the left button, or else [`Key::Mouse`].
+fn mouse(button: Option<u32>, pressed: bool, (column, row): (u16, u16)) -> Key {
+    let sideways = |right, shift| Key::Sideways {
+        right,
+        shift,
+        column,
+        row,
+    };
     // Shift, Alt and Ctrl add 4, 8 and 16; the wheel's buttons are 64
     // and up.
+    let shift = button.is_some_and(|button| button & 4 != 0);
     match button.map(|button| button & !(4 | 8 | 16)) {
+        Some(64) if pressed && shift => sideways(false, true),
+        Some(65) if pressed && shift => sideways(true, true),
         Some(64) if pressed => Key::WheelUp,
         Some(65) if pressed => Key::WheelDown,
+        Some(66) if pressed => sideways(false, false),
+        Some(67) if pressed => sideways(true, false),
+        Some(0) if pressed => Key::Click { column, row },
         _ => Key::Mouse,
     }
 }
@@ -401,6 +451,36 @@ pub const BINDINGS: &[Binding] = {
             action: Action::Follow,
         },
         Binding {
+            keys: &[Char('M')],
+            names: "M",
+            what: "reading mode: on, off",
+            action: Action::Reading,
+        },
+        Binding {
+            keys: &[Key::Left, Key::Right],
+            names: "← →",
+            what: "scroll a wide block",
+            action: Action::Sideways,
+        },
+        Binding {
+            keys: &[Char('H'), Char('L')],
+            names: "H L",
+            what: "scroll it by its width",
+            action: Action::SidewaysFar,
+        },
+        Binding {
+            keys: &[Ctrl('i'), Key::BackTab],
+            names: "Tab Shift+Tab",
+            what: "select a link",
+            action: Action::SelectLink,
+        },
+        Binding {
+            keys: &[Char('W')],
+            names: "W",
+            what: "wide blocks: wrap, scroll",
+            action: Action::Wide,
+        },
+        Binding {
             keys: &[Char('?'), Char('h')],
             names: "? h",
             what: "this help",
@@ -525,10 +605,18 @@ mod tests {
     }
 
     #[test]
-    fn unknown_sequences_are_one_key_each() {
-        // F5, Shift+Up and Shift+Tab, each followed by a letter.
+    fn decodes_the_sideways_arrows_and_shift_tab() {
         assert_eq!(
-            decode(b"\x1b[15~q\x1b[1;2Aq\x1b[Zq"),
+            decode(b"\x1b[D\x1b[C\x1b[Z\t"),
+            [Key::Left, Key::Right, Key::BackTab, Key::Ctrl('i')]
+        );
+    }
+
+    #[test]
+    fn unknown_sequences_are_one_key_each() {
+        // F5, Shift+Up and Ctrl+Right, each followed by a letter.
+        assert_eq!(
+            decode(b"\x1b[15~q\x1b[1;2Aq\x1b[1;5Cq"),
             [
                 Key::Other,
                 Key::Char('q'),
@@ -542,11 +630,10 @@ mod tests {
 
     #[test]
     fn decodes_the_mouse_wheel() {
-        // Up and down at a column and a row, then with Ctrl and with
-        // Shift.
+        // Up and down at a column and a row, then with Ctrl.
         assert_eq!(
-            decode(b"\x1b[<64;10;5M\x1b[<65;10;5M\x1b[<80;1;1M\x1b[<69;1;1M"),
-            [Key::WheelUp, Key::WheelDown, Key::WheelUp, Key::WheelDown]
+            decode(b"\x1b[<64;10;5M\x1b[<65;10;5M\x1b[<80;1;1M"),
+            [Key::WheelUp, Key::WheelDown, Key::WheelUp]
         );
         // Without SGR encoding: three bytes after the sequence, the
         // button and the column and row, each 32 more than their value.
@@ -557,18 +644,33 @@ mod tests {
     }
 
     #[test]
-    fn other_mouse_events_are_no_keys() {
-        // A press and a release, a drag, a sideways wheel and a right
-        // click, each followed by a letter.
-        let keys =
-            decode(b"\x1b[<0;10;5Mq\x1b[<0;10;5mq\x1b[<32;11;5Mq\x1b[<66;1;1Mq\x1b[<2;200;99Mq");
+    fn decodes_a_click_and_the_sideways_wheel_with_where_they_are() {
+        let keys = decode(b"\x1b[<0;10;5M\x1b[<66;3;4M\x1b[<67;3;4M\x1b[<69;7;8M\x1b[M -%");
+        let sideways = |right, shift, column, row| Key::Sideways {
+            right,
+            shift,
+            column,
+            row,
+        };
         assert_eq!(
             keys,
             [
-                Key::Mouse,
-                Key::Char('q'),
-                Key::Mouse,
-                Key::Char('q'),
+                Key::Click { column: 10, row: 5 },
+                sideways(false, false, 3, 4),
+                sideways(true, false, 3, 4),
+                sideways(true, true, 7, 8),
+                Key::Click { column: 13, row: 5 },
+            ]
+        );
+    }
+
+    #[test]
+    fn other_mouse_events_are_no_keys() {
+        // A release, a drag and a right click, each followed by a letter.
+        let keys = decode(b"\x1b[<0;10;5mq\x1b[<32;11;5Mq\x1b[<2;200;99Mq");
+        assert_eq!(
+            keys,
+            [
                 Key::Mouse,
                 Key::Char('q'),
                 Key::Mouse,
@@ -579,7 +681,7 @@ mod tests {
         );
         // Without SGR encoding the column and row could be read as
         // keys, as a space and a q here.
-        assert_eq!(decode(b"\x1b[M qq\x1b[M#qq"), [Key::Mouse, Key::Mouse]);
+        assert_eq!(decode(b"\x1b[M#qq"), [Key::Mouse]);
         assert_eq!(action(Key::Mouse), None);
     }
 
@@ -589,7 +691,12 @@ mod tests {
         assert_eq!(decoder.keys(b"\x1b[<64;1"), []);
         assert_eq!(decoder.keys(b"0;5M"), [Key::WheelUp]);
         assert_eq!(decoder.keys(b"\x1b[M "), []);
-        assert_eq!(decoder.keys(b"qqj"), [Key::Mouse, Key::Char('j')]);
+        // A press of the left button, at column and row 81.
+        let click = Key::Click {
+            column: 81,
+            row: 81,
+        };
+        assert_eq!(decoder.keys(b"qqj"), [click, Key::Char('j')]);
     }
 
     #[test]
@@ -748,6 +855,10 @@ mod tests {
                 let key = match name {
                     "↓" => Key::Down,
                     "↑" => Key::Up,
+                    "←" => Key::Left,
+                    "→" => Key::Right,
+                    "Tab" => Key::Ctrl('i'),
+                    "Shift+Tab" => Key::BackTab,
                     "Enter" => Key::Enter,
                     "Esc" => Key::Escape,
                     "Space" => Key::Char(' '),

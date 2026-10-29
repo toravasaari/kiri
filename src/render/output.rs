@@ -3,11 +3,13 @@
 //! sends them, and the placeholders of `kitty::graphics`, which show them.
 
 use std::io::{self, Write};
+use std::ops::Range;
 use std::time::Duration;
 
 use super::encoder::Encoder;
 use super::image::cell_size;
 use super::loading::{self, Ink};
+use super::reading::RowLink;
 use super::style::{ImageRow, Line, Span, Style};
 use super::wrap::width;
 use crate::caps::Capabilities;
@@ -169,10 +171,16 @@ impl<'a> Writer<'a> {
                 row,
                 background,
                 columns,
+                page,
+                overlay,
+                links,
                 ..
             }) => {
+                if let Some(page) = page {
+                    (self.encoder).page(&placement.key, page, overlay.as_ref());
+                }
                 let id = (self.encoder).id(placement, self.images, caps, out)?;
-                Some((id, *row, columns.clone(), *background))
+                Some((id, *row, columns.clone(), *background, links))
             }
             None => None,
         };
@@ -201,7 +209,7 @@ impl<'a> Writer<'a> {
                 }
                 current = style;
             }
-            if let Some((id, image_row, columns, under)) = image {
+            if let Some((id, image_row, columns, under, links)) = image {
                 // Placeholders are neither underlined nor links, and
                 // their foreground colour is the image id. Their
                 // background shows where the image is transparent.
@@ -210,7 +218,11 @@ impl<'a> Writer<'a> {
                     ..Style::default()
                 });
                 transition(&current, &plain, caps, out)?;
-                graphics::write_row(out, id, image_row, columns)?;
+                // The links of a page are hyperlinks over its placeholders.
+                // Without hyperlinks the cells are for selecting a link only.
+                let links = if caps.hyperlinks { &links[..] } else { &[] };
+                let runs = clip(links, &columns);
+                graphics::write_row_linked(out, id, image_row, columns, &runs)?;
                 // The placeholders leave the terminal's foreground.
                 current = Style { fg: None, ..plain };
             }
@@ -228,6 +240,22 @@ impl<'a> Writer<'a> {
         }
         transition(&current, &Style::default(), caps, out)
     }
+}
+
+/// `links` as runs over the placeholders of the image's columns `written`,
+/// counted from the first of them: what is over other columns is left out
+/// and a link that reaches past them ends at their edge.
+fn clip<'a>(links: &'a [RowLink], written: &Range<u16>) -> Vec<graphics::LinkRun<'a>> {
+    (links.iter())
+        .filter_map(|link| {
+            let from = link.columns.start.max(written.start);
+            let to = link.columns.end.min(written.end);
+            (from < to).then(|| graphics::LinkRun {
+                columns: from - written.start..to - written.start,
+                url: &link.url,
+            })
+        })
+        .collect()
 }
 
 impl Writer<'_> {
@@ -433,7 +461,53 @@ fn rgb_to_256(r: u8, g: u8, b: u8) -> u8 {
 
 #[cfg(test)]
 mod tests {
+    use std::rc::Rc;
+
     use super::*;
+
+    fn link(columns: Range<u16>) -> RowLink {
+        RowLink {
+            columns,
+            url: Rc::from("https://l.example/"),
+            link: (0, 0),
+        }
+    }
+
+    #[test]
+    fn links_are_clipped_to_the_written_columns_and_counted_from_the_first() {
+        let runs = |links: &[RowLink], written: Range<u16>| -> Vec<Range<u16>> {
+            clip(links, &written)
+                .into_iter()
+                .map(|run| run.columns)
+                .collect()
+        };
+        let written = 4..10;
+        // Before, across the start, inside, across the end and after.
+        assert_eq!(
+            runs(&[link(0..3)], written.clone()),
+            Vec::<Range<u16>>::new()
+        );
+        assert_eq!(runs(&[link(2..6)], written.clone()), vec![0..2]);
+        assert_eq!(runs(&[link(5..8)], written.clone()), vec![1..4]);
+        assert_eq!(runs(&[link(8..14)], written.clone()), vec![4..6]);
+        assert_eq!(
+            runs(&[link(10..12)], written.clone()),
+            Vec::<Range<u16>>::new()
+        );
+        // Touching the edges leaves nothing, and a link over all of them
+        // is all of them.
+        assert_eq!(
+            runs(&[link(0..4)], written.clone()),
+            Vec::<Range<u16>>::new()
+        );
+        assert_eq!(runs(&[link(0..20)], written), vec![0..6]);
+        // Several, in order, each by itself.
+        assert_eq!(
+            runs(&[link(0..5), link(6..7), link(9..12)], 4..10),
+            [0..1, 2..3, 5..6]
+        );
+    }
+
     use crate::size::{Fraction, VerticalAlign};
 
     #[test]

@@ -311,3 +311,14 @@ fn an_image_in_an_alert_lies_on_the_alert_s_tint() {
     let out = render("![a](a.png)\n", &inputs);
     assert_eq!(background_at_image(&out), None, "{}", visible(&out));
 }
+
+#[test]
+fn a_long_title_wraps_inside_the_block_without_styling_too() {
+    let source = "> [!TIP] A title of its own\n> Text.\n";
+    let lines = text(source, Capabilities::plain(16), &Theme::default());
+    assert!(
+        lines.iter().all(|line| line.chars().count() <= 16),
+        "{lines:?}"
+    );
+    assert_eq!(lines, ["  > A title of", "  > its own", "  > Text."]);
+}

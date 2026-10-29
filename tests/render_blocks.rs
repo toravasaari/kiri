@@ -314,3 +314,20 @@ fn kitty_code_blocks() {
         Capabilities::kitty(WIDTH)
     )));
 }
+
+#[test]
+fn a_formula_in_a_line_is_text_as_written_in_every_terminal_layout() {
+    // Only reading mode draws inline formulas; the other layouts show them
+    // as they showed the source before formulas were read.
+    let formulas = "Let $x^2$ be, $*b*$ and $`a_1`$ are, a cost of $5 and $6.";
+    let escaped = r"Let \$x^2\$ be, \$*b*\$ and \$`a_1`\$ are, a cost of $5 and $6.";
+    for caps in [
+        Capabilities::plain(WIDTH),
+        Capabilities::ansi(WIDTH),
+        Capabilities::kitty(WIDTH),
+    ] {
+        let theme = Theme::default();
+        let inputs = inputs(&caps, &theme);
+        assert_eq!(render(formulas, &inputs), render(escaped, &inputs));
+    }
+}

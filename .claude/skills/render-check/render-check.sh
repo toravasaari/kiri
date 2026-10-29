@@ -17,10 +17,18 @@
 #                        Ghostty gets a config of the script's own
 #   --kiri PATH          kiri binary (default: build target/debug/kiri)
 #   --timeout SECONDS    how long kiri may take for one document (default: 120)
+#   --key TEXT           open the pager and type TEXT, after a screenshot of
+#                        its first frame; each --key is one step, with a
+#                        screenshot after it, and q ends the pager. TEXT takes
+#                        Python's escapes, such as \x1b[C for the right arrow.
+#                        kitty only; the window is 1280x800 unless --size
+#                        says otherwise.
 #
 # Each FILE.md gives OUT/DATE-NAME.png, cropped below the last drawn row, and,
 # when it is taller than a page, OUT/DATE-NAME-p01.png, OUT/DATE-NAME-p02.png
-# and so on. DATE is today's, such as 2026-10-18.
+# and so on. DATE is today's, such as 2026-10-18. With --key, it gives the
+# pager's frames instead, whole: OUT/DATE-NAME-k00.png before the first key,
+# OUT/DATE-NAME-k01.png after it, and so on.
 # If kiri fails or crashes on a document, its screenshot is still saved and
 # the script exits with kiri's status after the other documents.
 # Needs Xvfb, kitty or Ghostty, ImageMagick (import, magick) and Mesa's
@@ -37,6 +45,7 @@ kiri=
 timeout=120
 files=()
 kiri_args=()
+keys=()
 
 die() {
 	echo "render-check: $*" >&2
@@ -52,6 +61,7 @@ while [ $# -gt 0 ]; do
 	--kitty-config) kitty_config=$2; shift 2 ;;
 	--kiri) kiri=$2; shift 2 ;;
 	--timeout) timeout=$2; shift 2 ;;
+	--key) keys+=("$2"); shift 2 ;;
 	--) shift; kiri_args=("$@"); break ;;
 	-h | --help) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;;
 	-*) die "unknown option $1" ;;
@@ -65,12 +75,16 @@ for file in "${files[@]}"; do
 done
 case $terminal in
 kitty)
+	if [ ${#keys[@]} -gt 0 ]; then
+		[ -n "$size" ] || size=1280x800
+	fi
 	[ -n "$size" ] || size=1280x16000
 	[ -n "$kitty_config" ] || kitty_config=NONE
 	;;
 ghostty)
 	[ -n "$size" ] || size=1280x5900
 	[ -z "$kitty_config" ] || die "--kitty-config is for kitty only"
+	[ ${#keys[@]} -eq 0 ] || die "--key is for kitty only"
 	;;
 *) die "--terminal must be kitty or ghostty" ;;
 esac
@@ -219,6 +233,49 @@ settle() {
 	echo "render-check: screen did not settle; saved the last screenshot" >&2
 }
 
+# With --key, the pager's frame after waiting $2 seconds: three screenshots
+# in a row, half a second apart, that are equal, as the pager hides the
+# cursor that settle waits for, and kitty's software renderer can take a
+# while to draw the images of a frame.
+settle_frame() {
+	local shot=$1 prev=$work/prev.ppm deadline=$((SECONDS + 60)) same=0
+	rm -f "$prev"
+	sleep "$2"
+	while [ "$SECONDS" -lt "$deadline" ]; do
+		DISPLAY=$display import -window root "$shot"
+		if [ -e "$prev" ] && cmp -s "$shot" "$prev"; then
+			same=$((same + 1))
+			[ "$same" -lt 2 ] || return 0
+		else
+			same=0
+		fi
+		cp "$shot" "$prev"
+		sleep 0.5
+	done
+	echo "render-check: the pager did not settle; saved the last screenshot" >&2
+}
+
+# Waits until the pager's status line shows on kitty's screen, which a slow
+# first layout can delay by many seconds, up to $timeout.
+wait_for_pager() {
+	local deadline=$((SECONDS + timeout))
+	while [ "$SECONDS" -lt "$deadline" ]; do
+		if kitty @ --to "unix:$work/kitty.sock" get-text 2>/dev/null |
+			grep -q 'q quit'; then
+			return 0
+		fi
+		sleep 0.5
+	done
+	die "the pager did not show its status line within $timeout s (--timeout)"
+}
+
+# Types $1 into kitty through its remote control, as the reader would.
+type_keys() {
+	kitty @ --to "unix:$work/kitty.sock" send-text -- "$1" \
+		>>"$work/terminal.log" 2>&1 ||
+		die "kitty did not take the keys $1"
+}
+
 # A Ghostty configuration of the script's own, so that the maintainer's
 # does not apply: a window of the size asked for, in cells of about 9 x 20
 # pixels at 11 pt and 96 dpi, without decorations or a blinking cursor.
@@ -240,17 +297,22 @@ ghostty_config() {
 # Starts the terminal on the virtual display with kiri rendering $1 in it.
 # The child must not talk to the terminal this script may run in, and the
 # terminal must use X11 even when a Wayland session is around. kiri prints
-# rather than pages, as nobody can press a key in the pager; -p after --
-# still opens it.
+# rather than pages, unless --key is given and the script types into the
+# pager through kitty's remote control; -p after -- still opens it.
 start_terminal() {
+	local paging=never remote=()
+	if [ ${#keys[@]} -gt 0 ]; then
+		paging=always
+		remote=(-o allow_remote_control=yes --listen-on "unix:$work/kitty.sock")
+	fi
 	local env=(env -u WAYLAND_DISPLAY -u KITTY_WINDOW_ID -u KITTY_PID
 		-u KITTY_LISTEN_ON -u KITTY_PUBLIC_KEY -u KITTY_INSTALLATION_DIR
 		-u TMUX -u TMUX_PANE -u TERM_PROGRAM -u TERM_PROGRAM_VERSION
 		-u GHOSTTY_RESOURCES_DIR -u GHOSTTY_BIN_DIR -u GHOSTTY_SHELL_FEATURES
-		DISPLAY="$display" KIRI_PAGING=never)
+		DISPLAY="$display" KIRI_PAGING=$paging)
 	case $terminal in
 	kitty)
-		"${env[@]}" kitty --config "$kitty_config" \
+		"${env[@]}" kitty --config "$kitty_config" "${remote[@]}" \
 			-o linux_display_server=x11 \
 			-o remember_window_size=no -o cursor_blink_interval=0 \
 			-o initial_window_width="$width" \
@@ -287,6 +349,31 @@ for file in "${files[@]}"; do
 
 	start_terminal "$file"
 
+	if [ ${#keys[@]} -gt 0 ]; then
+		rm -f "$out/$name"-k[0-9][0-9].png
+		# The pager's first frame, once kitty listens and the screen
+		# stays the same.
+		deadline=$((SECONDS + timeout))
+		while [ ! -S "$work/kitty.sock" ] && [ "$SECONDS" -lt "$deadline" ]; do
+			sleep 0.1
+		done
+		[ -S "$work/kitty.sock" ] || die "$file: kitty did not listen for keys"
+		wait_for_pager
+		settle_frame "$work/full.ppm" 1
+		magick "$work/full.ppm" "$out/$name-k00.png"
+		echo "$out/$name-k00.png"
+		step=0
+		for key in "${keys[@]}"; do
+			step=$((step + 1))
+			type_keys "$key"
+			settle_frame "$work/full.ppm" 0.5
+			printf -v shot '%s/%s-k%02d.png' "$out" "$name" "$step"
+			magick "$work/full.ppm" "$shot"
+			echo "$shot"
+		done
+		type_keys q
+	fi
+
 	deadline=$((SECONDS + timeout))
 	while [ ! -s "$work/done" ] && [ "$SECONDS" -lt "$deadline" ]; do
 		kill -0 "$term_pid" 2>/dev/null || break
@@ -315,6 +402,10 @@ for file in "${files[@]}"; do
 	fi
 	if [ "$status" -ne 0 ] && [ "$failed" -eq 0 ]; then
 		failed=$status
+	fi
+	if [ ${#keys[@]} -gt 0 ]; then
+		stop_terminal
+		continue
 	fi
 	settle "$work/full.ppm"
 	stop_terminal

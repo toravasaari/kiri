@@ -82,6 +82,12 @@ rule = "bright-black"
 list_marker = "bright-black"
 # Also the colour of the underline between rows with --table-rows underline.
 table_border = "bright-black"
+# How reading mode draws tables and front matter, nested tables included;
+# only reading mode reads it, as the text layout draws its own frame.
+# "frame": a rounded frame, lines between the columns and under the header
+# row, none between the rows, which the shading tells apart.
+# "grid": a line round every cell and square corners, as GitHub draws it.
+table_style = "frame"
 # Messages kiri writes into the document, such as why a diagram could
 # not be drawn, below its code.
 error = "red"
@@ -205,9 +211,13 @@ badge_foreground = "auto"
 
 # Search matches in the pager: every match shown, and the current one, the
 # match the reader is at, in bold. A colour, none, or auto. With both
-# colours of a kind auto, its matches are in reverse video; otherwise auto
-# and none keep the text's own colour. Without colours, as with NO_COLOR,
-# matches are in reverse video whatever the theme says.
+# colours of a kind auto, the text layout shows its matches in reverse
+# video, and reading mode, where the text is a picture, in a browser's
+# find colours: the other matches black on yellow (#ffff00) and the
+# current match black on orange (#ff9632). Otherwise auto and none keep
+# the text's own colour, and a colour set here is used in both modes.
+# Without colours, as with NO_COLOR, matches are in reverse video in both
+# whatever the theme says.
 [search]
 match_foreground = "auto"
 match_background = "auto"

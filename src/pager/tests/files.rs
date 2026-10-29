@@ -284,5 +284,5 @@ fn the_help_lists_colon_n_and_colon_p_only_with_several_files() {
     let help = shown(&numbers(30), 60, 24, &[b"?"])[1].clone();
     assert!(help.contains("down a line"), "{help:?}");
     assert!(!help.contains("next file"), "{help:?}");
-    assert!(!help.contains("Shift+"), "{help:?}");
+    assert!(!help.contains("Shift+PgDn"), "{help:?}");
 }

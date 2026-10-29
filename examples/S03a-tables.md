@@ -145,3 +145,28 @@ with its comma:
 ```sh
 kiri examples/S03b-table.csv
 ```
+
+## In reading mode
+
+With `--reading` the tables above are drawn in the proportional font, as
+wide as their content, and the front matter at the top of this file is a
+table as wide as the text column, a blank line below the top of the page,
+every second row from the second shaded. A value that has keys of its own,
+such as the layout, is a table in its cell; the columns, a list of maps, are
+one table for each with a gap between them and the same column widths, so
+that their borders are in line. Each nested table shades its own rows, from
+its second, also inside a shaded row of the one around it:
+
+```sh
+kiri --reading examples/S03a-tables.md
+```
+
+Reading mode draws a table as a rounded frame with lines between the
+columns and under the header, as the text layout does, and tells the rows
+apart by shading. To have a line round every cell, as GitHub draws tables,
+put `table_style = "grid"` in a theme file and use it:
+
+```sh
+echo 'table_style = "grid"' > /tmp/grid.toml
+kiri --reading --theme /tmp/grid.toml examples/S03a-tables.md
+```

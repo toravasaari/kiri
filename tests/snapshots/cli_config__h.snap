@@ -47,6 +47,9 @@ Options:
                                inline, stderr, both]
       --no-mouse               Leave the mouse to the terminal in the pager
       --mouse                  Let the pager take the mouse
+      --reading                Experimental: the text in a proportional font, as a browser shows it
+      --wide <HOW>             Experimental: wide code and tables wrap or scroll in reading mode
+                               [possible values: wrap, scroll]
       --max-image-size <MB>    Largest image file to read, in megabytes [default: 10]
   -h, --help                   Print help (see more with '--help')
   -V, --version                Print version

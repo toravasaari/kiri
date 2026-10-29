@@ -64,7 +64,10 @@ pub fn panel(
             span(&format!("{}{}", " ".repeat(gap), binding.what), style),
         ]));
     }
-    lines.push(line(Vec::new()));
+    // A blank line above the footer, where the window has room for it.
+    if lines.len() + 3 <= rows {
+        lines.push(line(Vec::new()));
+    }
     lines.push(line(vec![span(FOOTER, muted)]));
     lines.push(vec![span(&format!("└{}┘", "─".repeat(inner + 2)), style)]);
 
@@ -98,7 +101,7 @@ mod tests {
 
     #[test]
     fn lists_every_binding_in_a_box() {
-        let panel = panel(80, 24, &Style::default(), &Style::default(), true);
+        let panel = panel(80, 40, &Style::default(), &Style::default(), true);
         let rows: Vec<String> = panel.iter().map(text).collect();
         assert_eq!(rows.len(), BINDINGS.len() + 4, "{rows:#?}");
         assert!(rows[0].starts_with("┌─ Keys ─"), "{rows:#?}");
@@ -169,7 +172,7 @@ mod tests {
     #[test]
     fn lists_the_keys_between_files_only_for_several() {
         let listed = |several| {
-            let panel = panel(80, 24, &Style::default(), &Style::default(), several);
+            let panel = panel(80, 40, &Style::default(), &Style::default(), several);
             panel.iter().map(text).collect::<Vec<_>>()
         };
         for (names, what) in [
@@ -189,13 +192,14 @@ mod tests {
     }
 
     #[test]
-    fn fits_a_window_of_24_rows_whole() {
+    fn a_window_too_short_cuts_the_panel_s_last_rows() {
         // The status line takes one of the 24 rows.
         let rows = 23;
         let panel = panel(80, rows, &Style::default(), &Style::default(), true);
-        assert_eq!(panel.len(), BINDINGS.len() + 4);
-        assert!(panel.len() <= rows, "{} rows", panel.len());
+        assert_eq!(panel.len(), rows);
         assert!(panel[0].row >= 1 && panel[panel.len() - 1].row <= rows);
+        let tall = super::panel(80, 40, &Style::default(), &Style::default(), true);
+        assert_eq!(tall.len(), BINDINGS.len() + 4);
     }
 
     #[test]

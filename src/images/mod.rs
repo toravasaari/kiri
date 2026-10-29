@@ -16,12 +16,13 @@ mod stamps;
 mod svg;
 mod url;
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::diagrams::{FormulaColors, NoRenderer, Renderer, Request, Theme};
+use crate::diagrams::{FormulaColors, INLINE_FORMULA, NoRenderer, Renderer, Request, Theme};
 use crate::model::{Block, Document, Inline};
 
 #[cfg(test)]
@@ -33,10 +34,10 @@ pub use heading::{
 };
 pub use pipeline::{
     Interrupted, Loaded, Loading, load_documents, load_headings_in_background, load_in_background,
-    measure_in_background, reload_in_background,
+    load_inline_in_background, measure_in_background, reload_in_background,
 };
 pub use stamps::Stamps;
-pub use svg::{Fonts, Svg};
+pub use svg::{EMOJI, Fonts, SCRIPTS, Svg, installed};
 
 pub(crate) use decode::{MAX_PIXELS, png_size};
 #[cfg(all(test, feature = "mermaid"))]
@@ -176,6 +177,32 @@ pub enum ImageKey {
         words: Vec<HeadingWord>,
         cell: (u16, u16),
     },
+    /// A part of a page of reading mode's text, drawn when it is shown:
+    /// the page, by a hash of what it shows and how, and the part's number
+    /// from its top.
+    Page {
+        document: usize,
+        page: u64,
+        slice: u32,
+        /// A hash of what is drawn over the part, such as a search's
+        /// marks; 0 for nothing.
+        overlay: u64,
+    },
+    /// A band of a page of reading mode, a code block or table that
+    /// scrolls sideways, drawn when it is shown: the page, the band's
+    /// number on it, the part of its rows, at most 30, which the key
+    /// stands for, how many pixels it is scrolled, and whether it is the
+    /// one selected.
+    Band {
+        document: usize,
+        page: u64,
+        band: u32,
+        slice: u32,
+        offset: u32,
+        selected: bool,
+        /// As for a part of a page.
+        overlay: u64,
+    },
 }
 
 impl ImageKey {
@@ -226,6 +253,34 @@ impl ImageKey {
                 words,
                 cell,
             },
+            ImageKey::Page {
+                page,
+                slice,
+                overlay,
+                ..
+            } => ImageKey::Page {
+                document,
+                page,
+                slice,
+                overlay,
+            },
+            ImageKey::Band {
+                page,
+                band,
+                slice,
+                offset,
+                selected,
+                overlay,
+                ..
+            } => ImageKey::Band {
+                document,
+                page,
+                band,
+                slice,
+                offset,
+                selected,
+                overlay,
+            },
         }
     }
 
@@ -234,7 +289,9 @@ impl ImageKey {
         match *self {
             ImageKey::Url { document, .. }
             | ImageKey::Block { document, .. }
-            | ImageKey::Heading { document, .. } => document,
+            | ImageKey::Heading { document, .. }
+            | ImageKey::Page { document, .. }
+            | ImageKey::Band { document, .. } => document,
         }
     }
 }
@@ -262,6 +319,8 @@ impl fmt::Display for ImageKey {
                 let text: Vec<&str> = words.iter().map(|word| word.text.as_str()).collect();
                 write!(f, "heading {:?}", text.join(" "))
             }
+            ImageKey::Page { slice, .. } => write!(f, "part {slice} of a page of text"),
+            ImageKey::Band { band, .. } => write!(f, "band {band} of a page of text"),
         }
     }
 }
@@ -330,6 +389,8 @@ pub struct Images {
     /// The keys of the images the documents show, in their order, as a
     /// load in the background last found them.
     shown: Vec<ImageKey>,
+    /// What each loaded image is, by a hash of it.
+    prints: std::cell::RefCell<HashMap<ImageKey, u64>>,
 }
 
 /// What a block shows in place of its image while the image loads.
@@ -359,7 +420,20 @@ impl Images {
         if !self.by_key.contains_key(&key) {
             self.order.push(key.clone());
         }
+        // A hash of the new image is made when it is asked for.
+        self.prints.get_mut().remove(&key);
         self.by_key.insert(key, image);
+    }
+
+    /// A hash of the image loaded under `key`, which another image under
+    /// the same key does not have; `None` when none loaded.
+    pub fn print(&self, key: &ImageKey) -> Option<u64> {
+        if let Some(print) = self.prints.borrow().get(key) {
+            return Some(*print);
+        }
+        let print = self.by_key.get(key)?.as_ref().ok()?.fingerprint();
+        self.prints.borrow_mut().insert(key.clone(), print);
+        Some(print)
     }
 
     /// Takes the outcome for `key` out, as for an image shown on its own;
@@ -367,6 +441,7 @@ impl Images {
     pub fn remove(&mut self, key: &ImageKey) -> Option<Result<Source, ImageError>> {
         self.order.retain(|loaded| loaded != key);
         self.late.remove(key);
+        self.prints.get_mut().remove(key);
         self.by_key.remove(key)
     }
 
@@ -533,6 +608,7 @@ pub fn load_with(
         number: 0,
         base,
         by_line: options.by_line,
+        inline_images: false,
     };
     load_parts(&[part], max_file_size, fonts, options)
 }
@@ -550,6 +626,10 @@ pub struct Part<'a> {
     /// Whether a warning names a diagram by its line in the document, or
     /// by its own first line, as `LoadOptions::by_line` says.
     pub by_line: bool,
+    /// Whether the images in the middle of text are wanted too, as reading
+    /// mode draws them; otherwise only an image that is a block of its
+    /// own is, as the others show as their alt text.
+    pub inline_images: bool,
 }
 
 /// `load_with` for each of `parts`, into one map, with the diagrams of
@@ -567,7 +647,7 @@ pub fn load_parts(
     // The diagrams first, all together, so a renderer can draw several
     // at once.
     let requests: Vec<Request> = (wanted.iter().zip(&have))
-        .filter_map(|((_, image), have)| match *image {
+        .filter_map(|((_, image), have)| match image {
             Wanted::Diagram {
                 language, source, ..
             } if have.is_none() => {
@@ -618,7 +698,7 @@ pub fn load_parts(
                 };
                 finish_diagram(
                     language,
-                    source,
+                    &source,
                     line,
                     drawn,
                     max_file_size,
@@ -650,7 +730,13 @@ fn plan<'p>(
     let mut wanted = Vec::new();
     for (index, part) in parts.iter().enumerate() {
         let mut blocks = Vec::new();
-        collect_blocks(&part.document.blocks, renderer, headings, &mut blocks);
+        let inline = part.inline_images;
+        collect_blocks(
+            &part.document.blocks,
+            renderer,
+            (headings, inline),
+            &mut blocks,
+        );
         wanted.extend(blocks.into_iter().map(|image| (index, image)));
     }
     let key = |&(index, ref image): &(usize, Wanted)| image.key().in_document(parts[index].number);
@@ -670,7 +756,7 @@ fn plan<'p>(
 /// as diagrams, in order, once for each block.
 pub fn diagram_languages<'a>(document: &'a Document, renderer: &dyn Renderer) -> Vec<&'a str> {
     let mut wanted = Vec::new();
-    collect_blocks(&document.blocks, renderer, None, &mut wanted);
+    collect_blocks(&document.blocks, renderer, (None, false), &mut wanted);
     (wanted.into_iter())
         .filter_map(|image| match image {
             Wanted::Diagram { language, .. } => Some(language),
@@ -682,7 +768,7 @@ pub fn diagram_languages<'a>(document: &'a Document, renderer: &dyn Renderer) ->
 /// The URLs of the images `document` shows as image blocks.
 fn lone_urls(document: &Document) -> Vec<&str> {
     let mut wanted = Vec::new();
-    collect_blocks(&document.blocks, &NoRenderer, None, &mut wanted);
+    collect_blocks(&document.blocks, &NoRenderer, (None, false), &mut wanted);
     (wanted.into_iter())
         .filter_map(|image| match image {
             Wanted::Url(url) => Some(url),
@@ -697,7 +783,9 @@ enum Wanted<'a> {
     /// A code block drawn as a diagram, and the line it starts on.
     Diagram {
         language: &'a str,
-        source: &'a str,
+        source: Cow<'a, str>,
+        /// Where it starts; 0 for a formula in the middle of text, which a
+        /// line does not name.
         line: usize,
     },
     /// A heading drawn as an image: its level, its words and the size of
@@ -719,7 +807,9 @@ impl Wanted<'_> {
                 cell,
             } => ImageKey::heading_of(level, words.clone(), cell),
             Wanted::Diagram {
-                language, source, ..
+                language,
+                ref source,
+                ..
             } => ImageKey::block(language, source),
         }
     }
@@ -727,28 +817,36 @@ impl Wanted<'_> {
 
 /// The images `blocks` show as image blocks, and the code blocks among
 /// them that `renderer` draws. Other images are only ever shown as alt
-/// text, so they are not loaded at all. With `headings`, the headings
+/// text, so they are not loaded at all, unless `inline`, as reading mode
+/// draws them where they stand in the text. With `headings`, the headings
 /// among `blocks` and in the details blocks among them, which layout
 /// takes as top level, are wanted as images too, drawn for cells of that
 /// many pixels.
 fn collect_blocks<'a>(
     blocks: &'a [Block],
     renderer: &dyn Renderer,
-    headings: Option<(u16, u16)>,
+    (headings, inline): (Option<(u16, u16)>, bool),
     wanted: &mut Vec<Wanted<'a>>,
 ) {
     for block in blocks {
         match block {
-            Block::Paragraph(content) => {
-                wanted.extend(Inline::lone_image(content).map(|image| Wanted::Url(&image.url)));
+            Block::Paragraph(content) => match Inline::lone_image(content) {
+                Some(image) => wanted.push(Wanted::Url(&image.url)),
+                None if inline => inline_images(content, renderer, wanted),
+                None => {}
+            },
+            Block::Details { summary, blocks } => {
+                if inline {
+                    inline_images(summary, renderer, wanted);
+                }
+                collect_blocks(blocks, renderer, (headings, inline), wanted)
             }
-            Block::Details { blocks, .. } => collect_blocks(blocks, renderer, headings, wanted),
             Block::BlockQuote(blocks) | Block::Alert { blocks, .. } => {
-                collect_blocks(blocks, renderer, None, wanted)
+                collect_blocks(blocks, renderer, (None, inline), wanted)
             }
             Block::List(list) => {
                 for item in &list.items {
-                    collect_blocks(&item.blocks, renderer, None, wanted);
+                    collect_blocks(&item.blocks, renderer, (None, inline), wanted);
                 }
             }
             Block::CodeBlock {
@@ -757,7 +855,7 @@ fn collect_blocks<'a>(
                 line,
             } if renderer.draws(language) => wanted.push(Wanted::Diagram {
                 language,
-                source: code,
+                source: Cow::Borrowed(code),
                 line: *line,
             }),
             Block::Heading { level, content } if let Some(cell) = headings => {
@@ -765,7 +863,16 @@ fn collect_blocks<'a>(
                     level: *level,
                     words: heading_words(content),
                     cell,
-                })
+                });
+                if inline {
+                    inline_images(content, renderer, wanted);
+                }
+            }
+            Block::Heading { content, .. } if inline => inline_images(content, renderer, wanted),
+            Block::Table(table) if inline => {
+                for cell in table.header.iter().chain(table.rows.iter().flatten()) {
+                    inline_images(cell, renderer, wanted);
+                }
             }
             Block::FrontMatter(_)
             | Block::Heading { .. }
@@ -777,6 +884,36 @@ fn collect_blocks<'a>(
             | Block::Error(_)
             // Its pixels are not loaded from a URL.
             | Block::ImageFile(_) => {}
+        }
+    }
+}
+
+/// The images among `content`, in the text, wherever they stand in it.
+fn inline_images<'a>(content: &'a [Inline], renderer: &dyn Renderer, wanted: &mut Vec<Wanted<'a>>) {
+    for inline in content {
+        match inline {
+            Inline::Image(image) => wanted.push(Wanted::Url(&image.url)),
+            Inline::Formula { source, .. } if renderer.draws(INLINE_FORMULA) => {
+                wanted.push(Wanted::Diagram {
+                    language: INLINE_FORMULA,
+                    source: Cow::Owned(format!("{source}\n")),
+                    line: 0,
+                });
+            }
+            Inline::Emphasis(inner)
+            | Inline::Strong(inner)
+            | Inline::Strikethrough(inner)
+            | Inline::Kbd(inner)
+            | Inline::Mark(inner)
+            | Inline::Subscript(inner)
+            | Inline::Superscript(inner)
+            | Inline::Formula { written: inner, .. }
+            | Inline::Link { content: inner, .. } => inline_images(inner, renderer, wanted),
+            Inline::Text(_)
+            | Inline::Code(_)
+            | Inline::SoftBreak
+            | Inline::LineBreak
+            | Inline::Html(_) => {}
         }
     }
 }
@@ -946,6 +1083,7 @@ mod tests {
             number,
             base: Path::new("."),
             by_line: true,
+            inline_images: false,
         };
         let images = load_parts(
             &[part(0), part(1)],
@@ -1085,6 +1223,7 @@ Text ![inline](images/pattern.png) and words.
             number: 0,
             base: Path::new(""),
             by_line: true,
+            inline_images: false,
         };
         let before = crate::parse::parse("```mermaid\na\n```\n\n```mermaid\nb\n```\n");
         let after = crate::parse::parse("```mermaid\na\n```\n\n```mermaid\nc\n```\n");
@@ -1128,6 +1267,7 @@ Text ![inline](images/pattern.png) and words.
             number: 0,
             base: Path::new(""),
             by_line: true,
+            inline_images: false,
         }];
         let key = ImageKey::block("mermaid", "flaky\n");
         let mut images = load_parts(&parts, DEFAULT_MAX_FILE_SIZE, &Fonts::none(), &options);
@@ -1135,6 +1275,136 @@ Text ![inline](images/pattern.png) and words.
         let (wanted, have) = plan(&parts, &stub, None, Some(&mut images));
         assert_eq!(wanted.len(), 1);
         assert!(matches!(have[..], [None]), "{have:?}");
+    }
+
+    #[test]
+    fn images_in_the_middle_of_text_are_wanted_only_when_asked_for() {
+        let source = "\
+Text ![a](a.png) and *![b](b.png)* in a paragraph.
+
+# A heading with ![c](c.png)
+
+| table |
+|---|
+| a cell ![d](d.png) |
+
+- an item with ![e](e.png)
+
+![alone](f.png)
+";
+        let document = crate::parse::parse(source);
+        let urls = |inline_images| {
+            let parts = [Part {
+                document: &document,
+                number: 0,
+                base: Path::new(""),
+                by_line: true,
+                inline_images,
+            }];
+            let (wanted, _) = plan(&parts, &NoRenderer, None, None);
+            let urls: Vec<String> = (wanted.iter())
+                .map(|(_, image)| image.key().to_string())
+                .collect();
+            urls
+        };
+        assert_eq!(urls(false), ["f.png"]);
+        assert_eq!(
+            urls(true),
+            ["a.png", "b.png", "c.png", "d.png", "e.png", "f.png"]
+        );
+    }
+
+    #[test]
+    fn an_image_is_hashed_when_asked_and_once_and_not_when_it_is_inserted() {
+        let mut images = Images::new();
+        let pixels = |red| image::RgbaImage::from_pixel(8, 8, image::Rgba([red, 0, 0, 255]));
+        images.insert("a.png", Ok(Source::Raster(pixels(1))));
+        // Inserting costs no hash: it is made when the cache asks.
+        assert!(images.prints.borrow().is_empty());
+        let key = ImageKey::from("a.png");
+        let first = images.print(&key).expect("a loaded image has one");
+        assert_eq!(images.prints.borrow().len(), 1);
+        assert_eq!(images.print(&key), Some(first));
+        // The same pixels loaded again are the same, other pixels not, and
+        // a failure has none.
+        images.insert("a.png", Ok(Source::Raster(pixels(1))));
+        assert_eq!(images.print(&key), Some(first));
+        images.insert("a.png", Ok(Source::Raster(pixels(2))));
+        assert_ne!(images.print(&key), Some(first));
+        images.insert("a.png", Err(ImageError::Missing("a.png".into())));
+        assert_eq!(images.print(&key), None);
+    }
+
+    #[test]
+    fn an_image_in_a_details_summary_is_wanted_only_when_asked_for() {
+        // The parser gives a summary the images that HTML puts in it; a
+        // Markdown image or a formula there stays text.
+        let source = "<details>\n<summary>Open <img src=\"s.png\" alt=\"s\"></summary>\n\n\
+                      Inside <img src=\"i.png\" alt=\"i\">.\n\n</details>\n";
+        let document = crate::parse::parse(source);
+        let urls = |inline_images| {
+            let parts = [Part {
+                document: &document,
+                number: 0,
+                base: Path::new(""),
+                by_line: true,
+                inline_images,
+            }];
+            let (wanted, _) = plan(&parts, &NoRenderer, None, None);
+            let urls: Vec<String> = (wanted.iter())
+                .map(|(_, image)| image.key().to_string())
+                .collect();
+            urls
+        };
+        assert!(urls(false).is_empty());
+        assert_eq!(urls(true), ["s.png", "i.png"]);
+    }
+
+    #[test]
+    fn formulas_in_the_middle_of_text_are_wanted_only_when_asked_for() {
+        struct Math;
+        impl Renderer for Math {
+            fn draws(&self, language: &str) -> bool {
+                language == INLINE_FORMULA || language == "math"
+            }
+
+            fn render(&self, _: &Request) -> Result<Drawn, String> {
+                unreachable!("nothing is drawn")
+            }
+        }
+        let source = "\
+Let $x^2$ be, and $x^2$ again, and cost $5 and $6.
+
+# A heading with $y$
+
+| table |
+|---|
+| a cell $z$ |
+
+```math
+x^2
+```
+";
+        let document = crate::parse::parse(source);
+        let keys = |inline_images, renderer: &dyn Renderer| {
+            let parts = [Part {
+                document: &document,
+                number: 0,
+                base: Path::new(""),
+                by_line: true,
+                inline_images,
+            }];
+            let (wanted, _) = plan(&parts, renderer, None, None);
+            let keys: Vec<String> = (wanted.iter())
+                .map(|(_, image)| image.key().to_string())
+                .collect();
+            keys
+        };
+        // A formula in the text is drawn in its own style, so it is not
+        // the picture of the block with the same source.
+        assert_eq!(keys(false, &Math).len(), 1);
+        assert_eq!(keys(true, &Math).len(), 4);
+        assert!(keys(true, &NoRenderer).is_empty());
     }
 
     #[test]
@@ -1270,12 +1540,14 @@ fn main() {}
                 number: 0,
                 base: &a,
                 by_line: true,
+                inline_images: false,
             },
             Part {
                 document: &second,
                 number: 1,
                 base: &b,
                 by_line: true,
+                inline_images: false,
             },
         ];
         let stub = Stub::default();

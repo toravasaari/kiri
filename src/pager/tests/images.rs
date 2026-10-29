@@ -43,7 +43,13 @@ struct Repaint {
 }
 
 impl Reload for Repaint {
-    fn reload(&mut self, images: &mut Images, _: &mut Loads, _: &Capabilities) -> Reloaded {
+    fn reload(
+        &mut self,
+        images: &mut Images,
+        _: &mut Loads,
+        _: &Capabilities,
+        _: bool,
+    ) -> Reloaded {
         images.insert("square.png", Ok(square(self.rgba)));
         Reloaded::Document(self.document.clone())
     }

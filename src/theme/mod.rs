@@ -51,6 +51,8 @@ pub struct Theme {
     pub rule: Option<Color>,
     pub list_marker: Option<Color>,
     pub table_border: Option<Color>,
+    /// How reading mode draws tables; the text layout has its own frame.
+    pub table_style: TableStyle,
     /// Messages kiri writes into the document, such as why a diagram
     /// could not be drawn.
     pub error: Option<Color>,
@@ -206,6 +208,48 @@ impl AlertTheme {
     }
 }
 
+impl AlertTheme {
+    /// The pale background GitHub gives alerts of `kind` on a light page,
+    /// when the kind has GitHub's own colour, which is not the case for a
+    /// colour the theme sets, or on a dark page, where mixing the colour
+    /// with the page does well.
+    pub fn github_background(&self, kind: AlertKind, dark: bool) -> Option<[u8; 3]> {
+        let automatic = match kind {
+            AlertKind::Note => self.note,
+            AlertKind::Tip => self.tip,
+            AlertKind::Important => self.important,
+            AlertKind::Warning => self.warning,
+            AlertKind::Caution => self.caution,
+        } == AlertColor::Auto;
+        if dark || !automatic || self.colors != AlertColors::Github {
+            return None;
+        }
+        let [_, r, g, b] = (match kind {
+            AlertKind::Note => 0xddf4ff_u32,
+            AlertKind::Tip => 0xdafbe1,
+            AlertKind::Important => 0xfbefff,
+            AlertKind::Warning => 0xfff8c5,
+            AlertKind::Caution => 0xffebe9,
+        })
+        .to_be_bytes();
+        Some([r, g, b])
+    }
+}
+
+impl AlertTheme {
+    /// The bar and the title of a warning on a light page, when it has
+    /// GitHub's colour and the page GitHub's pale yellow: the gold of
+    /// GitHub's attention emphasis, #bf8700, for the bar, and for the
+    /// title and the icon a darker one, #ac7a00, which has 3.5:1 contrast
+    /// with the pale yellow where the bar's gold has 2.9:1. GitHub's
+    /// darker #9a6700 reads as brown on that yellow.
+    pub fn github_gold(&self, kind: AlertKind, dark: bool) -> Option<(Color, Color)> {
+        let pale = self.github_background(kind, dark)?;
+        (kind == AlertKind::Warning && pale == [0xff, 0xf8, 0xc5])
+            .then_some((Color::Rgb(0xbf, 0x87, 0x00), Color::Rgb(0xac, 0x7a, 0x00)))
+    }
+}
+
 impl Default for AlertTheme {
     fn default() -> Self {
         Self {
@@ -265,6 +309,18 @@ pub enum LabelColor {
     /// Halfway between the code block colour theme's text and background.
     CodeBlock,
     Color(Option<Color>),
+}
+
+/// How reading mode draws tables and front matter.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TableStyle {
+    /// A rounded frame, lines between the columns and under the header
+    /// row, and none between the rows, which the shading tells apart: as
+    /// the text layout draws a table.
+    #[default]
+    Frame,
+    /// A line round every cell and square corners, as GitHub draws it.
+    Grid,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -328,6 +384,7 @@ impl Default for Theme {
             rule: GREY,
             list_marker: GREY,
             table_border: GREY,
+            table_style: TableStyle::default(),
             error: RED,
             built_in: true,
             code_padding: true,
@@ -553,6 +610,7 @@ mod tests {
                 rule,
                 list_marker,
                 table_border,
+                table_style: _,
                 error,
                 built_in: _,
                 code_padding: _,

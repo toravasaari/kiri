@@ -3,8 +3,12 @@
 use std::ops::Range;
 use std::rc::Rc;
 
+use crate::reading::page::Overlay;
+use crate::render::reading::RowLink;
+
 use super::block::BlockId;
 use super::image::Placement;
+use super::reading::Parts;
 use crate::color::{Color, Underline};
 use crate::images::ImageKey;
 use crate::size::TextSize;
@@ -104,6 +108,14 @@ pub struct ImageRow {
     /// which a search finds on its first row; `None` for every other
     /// image.
     pub text: Option<String>,
+    /// The page of reading mode that the image is a part of, which draws
+    /// it; `None` for an image from `Images`.
+    pub page: Option<Rc<Parts>>,
+    /// What is drawn over the part of the page, such as a search's marks,
+    /// when the key says so.
+    pub overlay: Option<Rc<Overlay>>,
+    /// The hyperlinks over the cells of the row, as the page has them.
+    pub links: Vec<RowLink>,
 }
 
 /// The band that tells that a block's image is loading, which a line
@@ -174,6 +186,9 @@ impl Line {
                 background: None,
                 columns,
                 text: None,
+                page: None,
+                overlay: None,
+                links: Vec::new(),
             }),
             ..Self::blank()
         }

@@ -26,7 +26,13 @@ struct Background {
 }
 
 impl Reload for Background {
-    fn reload(&mut self, images: &mut Images, loads: &mut Loads, _: &Capabilities) -> Reloaded {
+    fn reload(
+        &mut self,
+        images: &mut Images,
+        loads: &mut Loads,
+        _: &Capabilities,
+        _: bool,
+    ) -> Reloaded {
         self.asked += 1;
         if let Some(why) = self.afterwards.clone().filter(|_| self.asked > 1) {
             return Reloaded::Failed(why);
@@ -567,7 +573,7 @@ fn quitting_leaves_the_programs_ending_to_the_caller() {
 struct Drawing(Document, Duration);
 
 impl Reload for Drawing {
-    fn reload(&mut self, _: &mut Images, loads: &mut Loads, _: &Capabilities) -> Reloaded {
+    fn reload(&mut self, _: &mut Images, loads: &mut Loads, _: &Capabilities, _: bool) -> Reloaded {
         loads.program(ImageKey::block("mermaid", "slow\n"), self.1);
         Reloaded::Document(self.0.clone())
     }
@@ -662,7 +668,7 @@ fn no_band_is_placed_under_the_help_panel() {
 struct Gating(Document, Vec<&'static str>, crate::images::Gated);
 
 impl Reload for Gating {
-    fn reload(&mut self, _: &mut Images, loads: &mut Loads, _: &Capabilities) -> Reloaded {
+    fn reload(&mut self, _: &mut Images, loads: &mut Loads, _: &Capabilities, _: bool) -> Reloaded {
         loads.gated(&self.1, &self.2);
         Reloaded::Document(self.0.clone())
     }

@@ -8,6 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
+use std::rc::Rc;
 use std::time::Duration;
 
 use image::RgbaImage;
@@ -15,10 +16,12 @@ use image::imageops;
 
 use super::image::{Placement, Shows, Size, cell_size};
 use super::loading::{self, Ink};
+use super::reading::Parts;
 use super::style::Line;
 use crate::caps::Capabilities;
-use crate::images::{Images, Placeholder, Source};
+use crate::images::{ImageKey, Images, Placeholder, Source};
 use crate::kitty::graphics::{self, ImageId};
+use crate::reading::page::Overlay;
 
 /// The images the terminal holds, by where and how large they are shown.
 /// One encoder can serve one layout after another, as the pager's does,
@@ -41,6 +44,14 @@ pub struct Encoder {
     sent: Vec<(ImageId, graphics::Cells)>,
     /// How many times each image has been sent again for being lost.
     again: HashMap<ImageId, u8>,
+    /// The pages of reading mode whose parts lines show, by their id,
+    /// which draw a part when it is sent.
+    pages: HashMap<u64, Rc<Parts>>,
+    /// What is drawn over parts of those pages, by the hash in their keys.
+    overlays: Overlays,
+    /// The overlays the frame being drawn has used; those of the frames
+    /// before are dropped when it is done.
+    drawn: HashSet<(u64, u64)>,
 }
 
 /// An image the terminal holds.
@@ -79,7 +90,13 @@ impl Encoder {
         if let Some(held) = old.filter(|held| held.checked && held.sent) {
             return Ok(held.id);
         }
-        let scaled = Scaled::new(placement, images, cell, caps.image_run)?;
+        let scaled = Scaled::new(
+            placement,
+            images,
+            (&self.pages, &self.overlays),
+            cell,
+            caps.image_run,
+        )?;
         let held = Held {
             id: scaled.id,
             cell,
@@ -103,6 +120,40 @@ impl Encoder {
         self.sending(&scaled, caps);
         scaled.send(out)?;
         Ok(scaled.id)
+    }
+
+    /// Takes `parts` as the page that draws the parts of reading mode's
+    /// text that `key` names, for [`Encoder::id`] to send.
+    pub fn page(&mut self, key: &ImageKey, parts: &Rc<Parts>, overlay: Option<&Rc<Overlay>>) {
+        if let ImageKey::Page { page, .. } | ImageKey::Band { page, .. } = key {
+            self.pages.entry(*page).or_insert_with(|| Rc::clone(parts));
+        }
+        if let (
+            ImageKey::Page {
+                page,
+                overlay: hash,
+                ..
+            }
+            | ImageKey::Band {
+                page,
+                overlay: hash,
+                ..
+            },
+            Some(overlay),
+        ) = (key, overlay)
+        {
+            // By page too: two pages may have the same marks in a part.
+            self.drawn.insert((*page, *hash));
+            self.overlays
+                .entry((*page, *hash))
+                .or_insert_with(|| Rc::clone(overlay));
+        }
+    }
+
+    /// The overlay named by `hash` on page `page`.
+    #[cfg(test)]
+    fn overlay_of(&self, page: u64, hash: u64) -> Option<&Rc<Overlay>> {
+        self.overlays.get(&(page, hash))
     }
 
     /// The id of the band `columns` cells of `cell` pixels wide, in
@@ -166,6 +217,13 @@ impl Encoder {
             }
             kept
         });
+        let pages: HashSet<u64> = (placed.iter())
+            .filter_map(|placement| match placement.key {
+                ImageKey::Page { page, .. } | ImageKey::Band { page, .. } => Some(page),
+                _ => None,
+            })
+            .collect();
+        self.pages.retain(|page, _| pages.contains(page));
         let mut gone = Vec::new();
         self.held.retain(|placement, held| {
             let kept = held.cell == cell && placed.contains(placement);
@@ -183,6 +241,10 @@ impl Encoder {
 
     /// Deletes from the terminal the images [`Encoder::keep`] let go.
     pub fn delete_unused(&mut self, out: &mut impl Write) -> io::Result<()> {
+        // A new frame starts: only the overlays the last one drew are kept,
+        // as the parts it showed are drawn anew from them.
+        let drawn = std::mem::take(&mut self.drawn);
+        self.overlays.retain(|hash, _| drawn.contains(hash));
         for id in self.unused.drain(..) {
             graphics::delete(out, id)?;
         }
@@ -226,8 +288,16 @@ impl Encoder {
             .map(|(placement, _)| placement.clone());
         // Pixels that are gone, or that changed since, are no longer the
         // image's: the next frame sends what it shows.
-        let scaled = placement
-            .and_then(|placement| Scaled::new(&placement, images, cell, caps.image_run).ok());
+        let scaled = placement.and_then(|placement| {
+            Scaled::new(
+                &placement,
+                images,
+                (&self.pages, &self.overlays),
+                cell,
+                caps.image_run,
+            )
+            .ok()
+        });
         let Some(scaled) = scaled.filter(|scaled| scaled.id == id) else {
             return Ok(());
         };
@@ -289,18 +359,47 @@ struct Scaled {
     cells: graphics::Cells,
 }
 
+/// The pages of reading mode, by their id, and what is drawn over parts of
+/// them, by the hash in their keys.
+type Pages = HashMap<u64, Rc<Parts>>;
+type Overlays = HashMap<(u64, u64), Rc<Overlay>>;
+
 impl Scaled {
     /// The image `placement` shows, from `images`, scaled to its size in
     /// cells of `cell` pixels, with an id of `run`'s own when given.
     fn new(
         placement: &Placement,
         images: &Images,
+        (pages, overlays): (&Pages, &Overlays),
         cell: (u16, u16),
         run: Option<u64>,
     ) -> io::Result<Self> {
         let key = &placement.key;
         let size = placement.size;
+        let drawn = match *key {
+            ImageKey::Page {
+                page,
+                slice,
+                overlay,
+                ..
+            } => (pages.get(&page))
+                .map(|parts| parts.draw(slice, overlays.get(&(page, overlay)).map(Rc::as_ref))),
+            ImageKey::Band {
+                page,
+                band,
+                slice,
+                offset,
+                selected,
+                overlay,
+                ..
+            } => (pages.get(&page)).map(|parts| {
+                let over = overlays.get(&(page, overlay)).map(Rc::as_ref);
+                parts.draw_band(band, slice, offset, selected, over)
+            }),
+            _ => None,
+        };
         let pixels = match (placement.shows, images.get(key), images.placeholder(key)) {
+            _ if let Some(pixels) = drawn => pixels,
             (Shows::Image, Some(Ok(source)), _) => fit(source, size, cell),
             (Shows::Placeholder, _, Some(Placeholder::Dimmed(old))) => {
                 loading::dimmed(fit(old, size, cell))
@@ -404,6 +503,132 @@ mod tests {
     }
 
     #[test]
+    fn the_overlays_of_frames_gone_by_are_dropped() {
+        use crate::reading::page::{MarkColors, Overlay};
+        use crate::render::Inputs;
+        // A page of reading mode, to register overlays against.
+        let inputs = Inputs {
+            reading: Some(crate::render::reading::Reading {
+                pictures: Default::default(),
+                fonts: Rc::new(crate::reading::Fonts::fixture()),
+                wide: crate::reading::page::Wide::Wrap,
+            }),
+            ..Inputs::new(Capabilities {
+                cell_pixels: Some((10, 20)),
+                ..Capabilities::kitty(80)
+            })
+        };
+        let lines = crate::render::layout::layout(&crate::parse::parse("Text.\n"), &inputs);
+        let image = lines[0].image.as_ref().expect("a page");
+        let parts = Rc::clone(image.page.as_ref().expect("its parts"));
+        let ImageKey::Page {
+            document,
+            page,
+            slice,
+            ..
+        } = image.placement.key
+        else {
+            panic!("a page's key");
+        };
+        let colors = MarkColors {
+            found: (None, None),
+            current: (None, None),
+        };
+        let mut encoder = Encoder::default();
+        for hash in 1..=50u64 {
+            // Each frame, one `n` further: a new overlay, drawn.
+            encoder.delete_unused(&mut Vec::new()).unwrap();
+            let overlay = Rc::new(Overlay {
+                colors,
+                marks: Vec::new(),
+                link: Some(hash as usize),
+                rows: Vec::new(),
+                link_rows: None,
+            });
+            let key = ImageKey::Page {
+                document,
+                page,
+                slice,
+                overlay: hash,
+            };
+            encoder.page(&key, &parts, Some(&overlay));
+            assert!(
+                encoder.overlays.len() <= 2,
+                "{} after {hash}",
+                encoder.overlays.len()
+            );
+        }
+    }
+
+    #[test]
+    fn two_pages_with_the_same_hash_have_their_own_overlays() {
+        use crate::reading::page::{MarkColors, Overlay};
+        use crate::render::Inputs;
+        let inputs = Inputs {
+            reading: Some(crate::render::reading::Reading {
+                pictures: Default::default(),
+                fonts: Rc::new(crate::reading::Fonts::fixture()),
+                wide: crate::reading::page::Wide::Wrap,
+            }),
+            ..Inputs::new(Capabilities {
+                cell_pixels: Some((10, 20)),
+                ..Capabilities::kitty(80)
+            })
+        };
+        let page_of = |source: &str| {
+            let lines = crate::render::layout::layout(&crate::parse::parse(source), &inputs);
+            let image = lines[0].image.as_ref().expect("a page");
+            let parts = Rc::clone(image.page.as_ref().expect("parts"));
+            let ImageKey::Page {
+                document,
+                page,
+                slice,
+                ..
+            } = image.placement.key
+            else {
+                panic!("a page's key");
+            };
+            (parts, document, page, slice)
+        };
+        let (parts_a, document, page_a, slice) = page_of("Page A.\n");
+        let (parts_b, _, page_b, _) = page_of("Page B.\n");
+        assert_ne!(page_a, page_b);
+        let colors = MarkColors {
+            found: (None, None),
+            current: (None, None),
+        };
+        let overlay = |link| {
+            Rc::new(Overlay {
+                colors,
+                marks: Vec::new(),
+                link: Some(link),
+                rows: Vec::new(),
+                link_rows: None,
+            })
+        };
+        let (a, b) = (overlay(1), overlay(2));
+        let mut encoder = Encoder::default();
+        // The same hash on two pages, as the same marks in a part of each
+        // give.
+        let key = |page| ImageKey::Page {
+            document,
+            page,
+            slice,
+            overlay: 77,
+        };
+        encoder.page(&key(page_a), &parts_a, Some(&a));
+        encoder.page(&key(page_b), &parts_b, Some(&b));
+        assert_eq!(
+            encoder.overlay_of(page_a, 77).map(|o| o.link),
+            Some(Some(1))
+        );
+        assert_eq!(
+            encoder.overlay_of(page_b, 77).map(|o| o.link),
+            Some(Some(2))
+        );
+    }
+
+    #[test]
     fn a_placeholder_is_the_old_image_dimmed() {
         let mut images = Images::new();
         let red = RgbaImage::from_pixel(20, 20, image::Rgba([255, 0, 0, 200]));
@@ -411,13 +636,23 @@ mod tests {
         let dimmed = Scaled::new(
             &placed("a.png", 2, 1, Shows::Placeholder),
             &images,
+            (&HashMap::new(), &HashMap::new()),
             (10, 20),
             None,
         );
         assert_eq!(dimmed.unwrap().pixels.get_pixel(5, 5).0, [255, 0, 0, 120]);
         // Nothing to show as the image itself.
         let image = placed("a.png", 2, 1, Shows::Image);
-        assert!(Scaled::new(&image, &images, (10, 20), None).is_err());
+        assert!(
+            Scaled::new(
+                &image,
+                &images,
+                (&HashMap::new(), &HashMap::new()),
+                (10, 20),
+                None
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -597,7 +832,14 @@ mod tests {
             (Encoder::new().id(&placement, &images, &caps, &mut Vec::new())).unwrap()
         };
         // As on every run without one.
-        let scaled = Scaled::new(&placement, &images, (10, 20), None).unwrap();
+        let scaled = Scaled::new(
+            &placement,
+            &images,
+            (&HashMap::new(), &HashMap::new()),
+            (10, 20),
+            None,
+        )
+        .unwrap();
         let (width, height) = scaled.pixels.dimensions();
         let stable = ImageId::new(scaled.pixels.as_raw(), width, height, scaled.cells, None);
         assert_eq!(id(None), stable);

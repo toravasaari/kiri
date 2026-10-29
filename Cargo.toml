@@ -51,6 +51,14 @@ image = { version = "0.25.10", default-features = false, features = ["png", "jpe
 kiri-image-utils = { version = "0.1.0", path = "crates/kiri-image-utils" }
 libc = "0.2.190"
 merman = { version = "0.9.1", optional = true }
+# Reading mode's text layout. Without its `system` feature, which would
+# link libfontconfig: the fonts come from the fontdb that resvg loads.
+parley = { version = "0.12.0", default-features = false, features = ["std"] }
+# Only for its `logging` feature: without it, a debug build prints on
+# standard error each time parley's segmenter has no model for a script,
+# such as Thai or Japanese. With it, the messages go to the `log` crate,
+# for which kiri sets no logger.
+icu_provider = { version = "2.3.1", features = ["logging"] }
 # Formulas, drawn as SVG with the glyphs of KaTeX's fonts as paths, so
 # that no fonts are needed to show them. The versions merman uses.
 ratex-layout = "0.1.15"
@@ -59,6 +67,8 @@ ratex-svg = { version = "0.1.15", features = ["embed-fonts"] }
 ratex-types = "0.1.15"
 resvg = "0.48.1"
 rustix = { version = "1.1.5", features = ["termios", "event", "process", "fs", "system"] }
+# The glyphs of reading mode's text, in the version resvg uses.
+skrifa = "0.44.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 signal-hook = "0.4.5"
@@ -76,9 +86,9 @@ rustix = { version = "1.1.5", features = ["pty", "process"] }
 
 # Decoding images without optimisation is slow: a 4845 × 2980 JPEG takes
 # about 3 s instead of 0.07 s. Debug builds optimise the image decoders, the
-# SVG parser and renderer and the fonts and text shaping for SVG text, and
-# keep kiri's own code easy to debug. An SVG with 400 lines of text takes
-# 0.7 s instead of 1.2 s. The fern as an LZW TIFF takes 0.36 s instead of
+# SVG parser and renderer, the fonts and text shaping for SVG text and the
+# layout of reading mode's text, and keep kiri's own code easy to debug. An
+# SVG with 400 lines of text takes 0.7 s instead of 1.2 s. The fern as an LZW TIFF takes 0.36 s instead of
 # 0.64 s. flate2, moxcms and the TIFF decoder's fax and half made no
 # measurable difference.
 # Generic code is compiled in the crate that uses it. kiri-image-utils is
@@ -111,5 +121,9 @@ harfrust.opt-level = 3
 skrifa.opt-level = 3
 read-fonts.opt-level = 3
 font-types.opt-level = 3
+parley.opt-level = 3
+parley_engine.opt-level = 3
+fontique.opt-level = 3
+icu_segmenter.opt-level = 3
 fast_image_resize.opt-level = 3
 kiri-image-utils.opt-level = 3

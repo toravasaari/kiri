@@ -43,7 +43,10 @@ impl Layout<'_> {
         };
         let body_width = width.saturating_sub(2).max(1);
         if !self.caps.styling {
-            let mut lines = vec![Line::new(vec![Span::new(title, Style::default())])];
+            let title = [Span::new(title, Style::default())];
+            let mut lines: Vec<Line> = (wrap(&title, body_width).into_iter())
+                .map(Line::new)
+                .collect();
             lines.extend(self.blocks(blocks, body_width, inner));
             for line in &mut lines {
                 let bar = if line.is_blank() { ">" } else { "> " };

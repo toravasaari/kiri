@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use super::{
     AlertColor, AlertColors, AlertTheme, BandColor, CODE_THEMES, CodeBackground, HeadingTheme,
-    LabelColor, SearchColor, StatusColor, Theme,
+    LabelColor, SearchColor, StatusColor, TableStyle, Theme,
 };
 use crate::color::{Color, Underline};
 use crate::size::{TextSize, VerticalAlign};
@@ -70,6 +70,17 @@ pub fn parse(text: &str) -> Result<Theme, String> {
     set_color(&mut theme.rule, file.rule, "rule")?;
     set_color(&mut theme.list_marker, file.list_marker, "list_marker")?;
     set_color(&mut theme.table_border, file.table_border, "table_border")?;
+    if let Some(style) = file.table_style {
+        theme.table_style = match style.as_str() {
+            "frame" => TableStyle::Frame,
+            "grid" => TableStyle::Grid,
+            _ => {
+                return Err(format!(
+                    "unknown table_style \"{style}\"; use frame or grid"
+                ));
+            }
+        };
+    }
     set_color(&mut theme.error, file.error, "error")?;
     for (target, name, key) in [
         (
@@ -301,6 +312,7 @@ struct ThemeFile {
     rule: Option<String>,
     list_marker: Option<String>,
     table_border: Option<String>,
+    table_style: Option<String>,
     error: Option<String>,
     code_padding: Option<bool>,
     code_theme_dark: Option<String>,
@@ -620,6 +632,25 @@ mod tests {
             !parse("inline_code_wrap = false\n")
                 .unwrap()
                 .inline_code_wrap
+        );
+    }
+
+    #[test]
+    fn the_table_style_is_a_frame_unless_the_theme_says_grid() {
+        use crate::theme::TableStyle;
+        assert_eq!(Theme::default().table_style, TableStyle::Frame);
+        assert_eq!(parse("").unwrap().table_style, TableStyle::Frame);
+        assert_eq!(
+            parse("table_style = \"frame\"\n").unwrap().table_style,
+            TableStyle::Frame
+        );
+        assert_eq!(
+            parse("table_style = \"grid\"\n").unwrap().table_style,
+            TableStyle::Grid
+        );
+        assert_eq!(
+            parse("table_style = \"round\"\n").unwrap_err(),
+            "unknown table_style \"round\"; use frame or grid"
         );
     }
 

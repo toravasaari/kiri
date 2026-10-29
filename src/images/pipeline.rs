@@ -219,6 +219,50 @@ pub fn load_headings_in_background(
     loads.start(jobs, context);
 }
 
+/// Starts loading the images in the middle of the text of `parts`, which
+/// reading mode shows and the other layouts do not, that `images` neither
+/// holds nor is loading, in the background in `loads`: each shows as its
+/// alt text, or its source for a formula, until it comes. What else
+/// `images` holds stays.
+///
+/// The signals are not caught, as for [`reload_in_background`].
+pub fn load_inline_in_background(
+    parts: &[Part<'_>],
+    loading: &Loading,
+    images: &mut Images,
+    loads: &mut Loads,
+) {
+    let parts: Vec<Part> = (parts.iter())
+        .map(|part| Part {
+            inline_images: true,
+            ..*part
+        })
+        .collect();
+    let renderers = background_renderers(loading);
+    let renderer: &dyn Renderer = match &renderers {
+        Some(renderers) => renderers,
+        None => &NoRenderer,
+    };
+    let (wanted, _) = plan(
+        &parts,
+        renderer,
+        loading.headings.map(|look| look.cell),
+        None,
+    );
+    let mut jobs = Vec::new();
+    for (index, image) in wanted {
+        let part = &parts[index];
+        let key = image.key().in_document(part.number);
+        if images.get(&key).is_some() || loads.loading(&key) {
+            continue;
+        }
+        images.wait(key.clone(), Placeholder::Unsized);
+        images.shown.push(key.clone());
+        jobs.push(job(part, key, image, renderers.as_ref(), loading));
+    }
+    loads.start(jobs, context(loading, renderers));
+}
+
 /// Stands in for every image of `parts` that [`load_in_background`] would
 /// load with a box of `rows` rows in `images`, to tell how tall the
 /// documents are before their images load, such as whether they are
@@ -295,7 +339,7 @@ fn job(
                 renderers.is_some_and(|renderers| renderers.runs_programs_for([language]));
             let what = What::Diagram {
                 language: language.to_owned(),
-                source: source.to_owned(),
+                source: source.into_owned(),
                 line,
                 by_line: part.by_line,
             };

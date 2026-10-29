@@ -9,6 +9,7 @@ mod following;
 mod images;
 mod loading;
 mod paging;
+mod reading;
 mod reload;
 mod search;
 mod view;
@@ -203,7 +204,7 @@ impl Then {
 }
 
 impl Reload for Then {
-    fn reload(&mut self, _: &mut Images, _: &mut Loads, _: &Capabilities) -> Reloaded {
+    fn reload(&mut self, _: &mut Images, _: &mut Loads, _: &Capabilities, _: bool) -> Reloaded {
         self.asked += 1;
         self.then.pop_front().expect("an outcome for each reload")
     }

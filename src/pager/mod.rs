@@ -1,11 +1,13 @@
 //! The interactive pager: the document on a screen of its own, scrolled
 //! with keys.
 
+mod bands;
 pub mod changes;
 pub mod fade;
 pub mod files;
 pub mod help;
 pub mod keys;
+mod links;
 pub mod loading;
 pub mod prompt;
 pub mod search;
@@ -24,12 +26,14 @@ use crate::config::{self, FollowJump, Paging, SearchCase};
 use crate::images::{ImageError, ImageKey, Images, Loads, Part, Source};
 use crate::kitty::graphics::ImageId;
 use crate::model::{Document, File, FrontMatterError};
+use crate::reading::page::Wide;
 use crate::render::Inputs;
 use crate::render::block::BlockInfo;
 use crate::render::encoder::Encoder;
 use crate::render::image::cell_size;
 use crate::render::layout::{Content, Stream};
 use crate::render::output::{self, Page, Writer};
+use crate::render::reading::Reading;
 use crate::render::style::{self, Line, Span, Style};
 use crate::render::wrap;
 use crate::term::{Screen, WindowSize};
@@ -115,8 +119,16 @@ pub trait Reload {
     /// in the background in `loads`, which may stop what is loading
     /// there for the document before. What `images` held that the
     /// document no longer shows, or that loads anew, is set aside in it,
-    /// as [`crate::images::reload_in_background`] does.
-    fn reload(&mut self, images: &mut Images, loads: &mut Loads, caps: &Capabilities) -> Reloaded;
+    /// as [`crate::images::reload_in_background`] does. `reading` says
+    /// whether reading mode is on now, which wants the images in the middle
+    /// of text too, whatever the document was opened with.
+    fn reload(
+        &mut self,
+        images: &mut Images,
+        loads: &mut Loads,
+        caps: &Capabilities,
+        reading: bool,
+    ) -> Reloaded;
 
     /// Whether the document changed since it was last read, as the pager
     /// asks while it follows it.
@@ -197,7 +209,19 @@ pub struct Options<'a, 'l> {
     /// itself before it returns, after it deleted the images but with
     /// the screen still open.
     pub loads: Option<&'l mut Loads>,
+    /// The reading mode that `M` turns on, when the document is shown
+    /// without it; `M` turns reading mode off when it is on.
+    pub reading: Option<Reading>,
+    /// Starts loading what reading mode shows that the document does not
+    /// without it, such as the images in the middle of text, when `M`
+    /// turns it on: it is given the images, where the loads go and the
+    /// terminal's capabilities, and starts only what is not held or
+    /// loading already.
+    pub inline: Option<InlineLoader<'a>>,
 }
+
+/// See [`Options::inline`].
+pub type InlineLoader<'a> = Box<dyn FnMut(&mut Images, &mut Loads, &Capabilities) + 'a>;
 
 impl Options<'_, '_> {
     /// A window's width to decide the layout, searches that treat case as
@@ -211,6 +235,8 @@ impl Options<'_, '_> {
             jump: FollowJump::First,
             warnings: Vec::new(),
             loads: None,
+            reading: None,
+            inline: None,
         }
     }
 }
@@ -260,7 +286,12 @@ fn page_through(
         jump,
         warnings,
         loads: _,
+        reading,
+        inline,
     } = options;
+    let mut inline = inline;
+    // The reading mode that `M` turns to, on or off.
+    let mut other = reading.filter(|_| inputs.reading.is_none());
     let mut source = Origin {
         reload,
         loads,
@@ -329,16 +360,19 @@ fn page_through(
                 line.to_normal_size();
             }
         }
+        let places: Vec<Option<BlockInfo>> = lines
+            .iter()
+            .map(|line| line.block.map(|id| blocks.get(id).clone()))
+            .collect();
+        // Reading mode's bands scrolled and selected as they were.
+        state.bands.apply(&mut lines, &places);
+        let band_places = places.clone();
         // The images the new lines do not place go with their first frame.
         encoder.keep(&lines, &inputs.caps);
         let mut writer = Writer::new(&inputs.images, &inputs.caps, page, &mut encoder);
         let heights: Vec<usize> = lines
             .iter()
             .map(|line| usize::from(writer.rows(line)))
-            .collect();
-        let places: Vec<Option<BlockInfo>> = lines
-            .iter()
-            .map(|line| line.block.map(|id| blocks.get(id).clone()))
             .collect();
         if let Some((at, tinted)) = tinted.take() {
             let tinted = |place: &Option<BlockInfo>| {
@@ -386,6 +420,11 @@ fn page_through(
             }
             None => View::new(heights, rows).with_blocks(places),
         };
+        // The topmost band on the screen is selected before the first
+        // frame, which then shows it so.
+        if (state.bands).refresh(&lines, &band_places, shown.visible()) {
+            state.bands.apply(&mut lines, &band_places);
+        }
         state.lay_out(&lines, shown.top(), bar);
         let status = Status {
             name,
@@ -413,11 +452,13 @@ fn page_through(
                 bg: inputs.theme.background,
                 ..Style::default()
             },
+            reading: inputs.reading.is_some(),
         };
         let marks = Marks::new(&inputs.theme, &inputs.caps);
         let rgb = Rgb::new(&inputs.theme, &inputs.caps);
-        let mut laid_out = Layout {
+        let mut frame_layout = Layout {
             lines: &lines,
+            places: &band_places,
             marks: &marks,
             rgb: rgb.as_ref(),
             columns: usize::from(inputs.caps.width),
@@ -425,7 +466,7 @@ fn page_through(
             view: &mut shown,
         };
         let outcome = show(
-            &mut laid_out,
+            &mut frame_layout,
             &mut state,
             &mut writer,
             terminal,
@@ -461,6 +502,42 @@ fn page_through(
                 size = new;
                 view = Some(shown);
             }
+            // Laid out again with wide blocks the other way, in reading
+            // mode as it is and as `M` would turn it on, keeping the
+            // block at the top as a resize does.
+            Outcome::Wide => {
+                for reading in [&mut inputs.reading, &mut other].into_iter().flatten() {
+                    reading.wide = match reading.wide {
+                        Wide::Wrap => Wide::Scroll,
+                        Wide::Scroll => Wide::Wrap,
+                    };
+                }
+                state.changed = None;
+                view = Some(shown);
+            }
+            // The same lines, with the band shown anew.
+            Outcome::Bands => {
+                laid_out = Some((inputs.caps.clone(), Stream { lines, blocks }));
+                keep_top = true;
+                view = Some(shown);
+            }
+            // Laid out again as after a resize, which keeps the block at
+            // the top.
+            Outcome::Reading => {
+                if inputs.caps.draws_images() {
+                    std::mem::swap(&mut inputs.reading, &mut other);
+                    state.changed = None;
+                    // Turned on: what it shows that the text does not
+                    // starts loading, and lays the page out again as it
+                    // comes.
+                    if let (Some(_), Some(start)) = (&inputs.reading, inline.as_mut()) {
+                        start(&mut inputs.images, source.loads, &inputs.caps);
+                    }
+                } else {
+                    state.told = Some(Told::new(NEEDS_IMAGES));
+                }
+                view = Some(shown);
+            }
             Outcome::Reload => {
                 state.changed = None;
                 view = Some(shown);
@@ -475,7 +552,12 @@ fn page_through(
                 let before = inputs.images.take_placeholders();
                 // The images in view start first, once the view is known.
                 source.loads.hold();
-                let reloaded_now = reload.reload(&mut inputs.images, source.loads, &inputs.caps);
+                let reloaded_now = reload.reload(
+                    &mut inputs.images,
+                    source.loads,
+                    &inputs.caps,
+                    inputs.reading.is_some(),
+                );
                 let replaced = inputs.images.take_replaced();
                 let (document, warnings) = match reloaded_now {
                     Reloaded::Document(document) => (document, Vec::new()),
@@ -555,6 +637,13 @@ enum Outcome {
     Reload,
     /// These images, loading in the background, came.
     Loaded(Vec<(ImageKey, Result<Source, ImageError>)>),
+    /// Reading mode is to be turned on or off.
+    Reading,
+    /// A band is scrolled or selected otherwise: the same lines show it
+    /// anew.
+    Bands,
+    /// Wide blocks are to switch between wrapping and scrolling.
+    Wide,
 }
 
 /// Where the pager gets the document and its images again.
@@ -568,6 +657,9 @@ struct Origin<'r, 'l> {
     started: Instant,
 }
 
+/// Why `M` does not turn reading mode on.
+const NEEDS_IMAGES: &str = "reading mode needs a terminal that draws images";
+
 /// What a key did, besides what the pager does itself.
 enum Pressed {
     Nothing,
@@ -578,6 +670,12 @@ enum Pressed {
     Follow,
     /// The reader asked for the screen and its images again.
     Redraw,
+    /// The reader turned reading mode on or off.
+    Reading,
+    /// The reader scrolled a band sideways or selected another.
+    Bands,
+    /// The reader switched wide blocks between wrapping and scrolling.
+    Wide,
 }
 
 /// What the status line and the help panel show and how, apart from the
@@ -602,6 +700,8 @@ struct Status<'a> {
     /// The style of the warning line: the theme's error colour on the
     /// page.
     red: Style,
+    /// Whether the document is shown in reading mode.
+    reading: bool,
 }
 
 impl Status<'_> {
@@ -615,9 +715,8 @@ impl Status<'_> {
         &self,
         view: &View,
         state: &State,
-        fade: Option<Fade>,
-        out: Option<Fade>,
-        counted: Option<Fade>,
+        (fade, out, counted): (Option<Fade>, Option<Fade>, Option<Fade>),
+        link: Option<&str>,
     ) -> Vec<Span> {
         if !self.bar {
             return Vec::new();
@@ -631,7 +730,7 @@ impl Status<'_> {
                     .filter(|_| state.jumped.is_some_and(|jump| jump.around))
                     .map(|fade| self.styles.number(fade));
                 let fading = out.and_then(|out| self.styles.fading(out));
-                let found = state.found(flash, fading);
+                let found = state.found(flash, fading, link);
                 let file = state.file(&self.files, view.top());
                 let name = file.map_or(self.name, |file| self.files.name(file));
                 let name = self.loading.as_deref().unwrap_or(name);
@@ -640,6 +739,7 @@ impl Status<'_> {
                 let position = view.position();
                 let tags = status::Tags {
                     follow: state.follow.mode,
+                    reading: self.reading,
                     warnings: (!state.warnings.is_empty()).then(|| status::Warned {
                         count: state.warnings.len(),
                         flash: counted.map(|fade| self.styles.number(fade)),
@@ -741,6 +841,7 @@ fn load_headings(content: Content, inputs: &mut Inputs, loads: &mut Loads) {
         number,
         base,
         by_line: true,
+        inline_images: false,
     };
     let parts: Vec<Part> = match content {
         Content::Document(document) => vec![part((0, document))],
@@ -777,6 +878,11 @@ struct State {
     prompt: Option<Prompt>,
     /// The last search.
     search: Option<Search>,
+    /// The selected link.
+    links: links::Links,
+    /// Whether a jump to a match scrolled or selected a band, which is
+    /// shown anew once the key is done.
+    bands_moved: bool,
     /// Whether the last search is shown; Escape hides it until `n` or
     /// `N`.
     shown: bool,
@@ -809,6 +915,8 @@ struct State {
     /// The keys read, with what a read cut off waiting for the rest,
     /// also when a layout ends between the two reads.
     decoder: keys::Decoder,
+    /// How far reading mode's bands are scrolled, and which is selected.
+    bands: bands::Bands,
 }
 
 /// Where the focus is, as the terminal tells with focus reporting: under
@@ -952,6 +1060,8 @@ impl State {
             help: false,
             prompt: None,
             search: None,
+            links: links::Links::default(),
+            bands_moved: false,
             shown: false,
             nowhere: false,
             jumped: None,
@@ -965,6 +1075,7 @@ impl State {
             counted: None,
             focus: Focus::Unknown,
             decoder: keys::Decoder::default(),
+            bands: bands::Bands::default(),
         }
     }
 
@@ -989,7 +1100,48 @@ impl State {
     /// Does what `key`, pressed at `now`, asks in `layout`, and tells what
     /// is left for the pager to do.
     fn press(&mut self, key: Key, now: Instant, layout: &mut Layout) -> Pressed {
-        // A click, or any mouse event but the wheel, does nothing at all.
+        match self.pressed(key, now, layout) {
+            Pressed::Nothing if std::mem::take(&mut self.bands_moved) => Pressed::Bands,
+            pressed => pressed,
+        }
+    }
+
+    fn pressed(&mut self, key: Key, now: Instant, layout: &mut Layout) -> Pressed {
+        // A click selects the band under it, and the sideways wheel, or
+        // the wheel with Shift, scrolls it; away from a band, the wheel
+        // with Shift scrolls as the wheel does.
+        // While the help or the prompt is open, the mouse does nothing.
+        let open = self.help || self.prompt.is_some();
+        let key = match key {
+            Key::Click { .. } | Key::Sideways { .. } if open => return Pressed::Nothing,
+            Key::Click { row, .. } => {
+                return match self.band_at(row, layout) {
+                    Some(true) => Pressed::Bands,
+                    _ => Pressed::Nothing,
+                };
+            }
+            Key::Sideways {
+                right, shift, row, ..
+            } => match self.band_at(row, layout) {
+                Some(selected) => {
+                    let step = if right {
+                        bands::Step::Right
+                    } else {
+                        bands::Step::Left
+                    };
+                    let moved = self.bands.scroll(layout.lines, layout.places, step);
+                    return match moved || selected {
+                        true => Pressed::Bands,
+                        false => Pressed::Nothing,
+                    };
+                }
+                None if shift && right => Key::WheelDown,
+                None if shift => Key::WheelUp,
+                None => return Pressed::Nothing,
+            },
+            key => key,
+        };
+        // Any other mouse event does nothing at all.
         if key == Key::Mouse {
             return Pressed::Nothing;
         }
@@ -1043,7 +1195,10 @@ impl State {
             }
             Some(Action::Next) => self.step(Search::forward, now, layout),
             Some(Action::Previous) => self.step(Search::backward, now, layout),
-            Some(Action::Clear) => self.shown = false,
+            Some(Action::Clear) => {
+                self.shown = false;
+                self.links.clear();
+            }
             Some(Action::NextFile) => {
                 let files = layout.status.files;
                 if let Some(file) = self.file(&files, layout.view.top()) {
@@ -1060,9 +1215,35 @@ impl State {
             Some(Action::Reload) => return Pressed::Reload,
             Some(Action::Redraw) => return Pressed::Redraw,
             Some(Action::Follow) => return Pressed::Follow,
+            Some(Action::Reading) => return Pressed::Reading,
+            Some(Action::Wide) => return Pressed::Wide,
+            Some(Action::Sideways | Action::SidewaysFar) => {
+                let step = match key {
+                    Key::Left => bands::Step::Left,
+                    Key::Right => bands::Step::Right,
+                    Key::Char('H') => bands::Step::PageLeft,
+                    _ => bands::Step::PageRight,
+                };
+                if self.bands.scroll(layout.lines, layout.places, step) {
+                    return Pressed::Bands;
+                }
+            }
+            Some(Action::SelectLink) => {
+                let visible = layout.view.visible();
+                let back = key == Key::BackTab;
+                (self.links).select_next(layout.lines, layout.places, visible, back);
+            }
             None => {}
         }
         Pressed::Nothing
+    }
+
+    /// Selects the band on row `row` of the window, counted from 1:
+    /// whether that changed the selection, or `None` when no band is
+    /// there.
+    fn band_at(&mut self, row: u16, layout: &Layout) -> Option<bool> {
+        let line = layout.view.line_at(usize::from(row).checked_sub(1)?)?;
+        self.bands.select_at(layout.lines, layout.places, line)
     }
 
     /// The file the reader is in, of `files`, with the view's top on the
@@ -1097,11 +1278,12 @@ impl State {
     fn find(&mut self, term: &str, now: Instant, layout: &mut Layout) {
         let search = Search::new(layout.lines, term, self.case, layout.view.top());
         self.jumped = None;
-        match search.current() {
-            Some(found) => self.jump(found.line, now, false, layout),
+        let line = search.current().map(|found| found.line);
+        self.search = Some(search);
+        match line {
+            Some(line) => self.jump(line, now, false, layout),
             None => self.nowhere = true,
         }
-        self.search = Some(search);
         self.shown = true;
     }
 
@@ -1110,6 +1292,14 @@ impl State {
     fn jump(&mut self, line: usize, now: Instant, around: bool, layout: &mut Layout) {
         layout.view.reveal(line);
         self.jumped = Some(Jump { at: now, around });
+        // A match in a band scrolls the band to it, and selects it.
+        let band = (self.search.as_ref().and_then(Search::current))
+            .and_then(|found| found.place.as_ref()?.band.clone());
+        if let Some((_, x)) = band
+            && self.bands.reveal(layout.lines, layout.places, line, x) == Some(true)
+        {
+            self.bands_moved = true;
+        }
     }
 
     /// Finds the last search again in `lines`, laid out anew, from the
@@ -1125,7 +1315,7 @@ impl State {
             went.top = top;
         }
         if let Some(search) = &mut self.search {
-            *search = Search::new(lines, search.term(), self.case, top);
+            *search = search.again(lines, self.case, top);
         }
     }
 
@@ -1225,9 +1415,10 @@ impl State {
         marks: &Marks,
         fade: Option<Fade>,
         tint: Option<Tint>,
+        link: Option<(usize, usize)>,
     ) -> Vec<Line> {
         let search = self.search.as_ref().filter(|_| self.shown);
-        (first..)
+        let mut marked: Vec<Line> = (first..)
             .zip(lines)
             .map(|(index, line)| {
                 let tinted;
@@ -1243,17 +1434,40 @@ impl State {
                     None => line.clone(),
                 }
             })
-            .collect()
+            .collect();
+        // The matches in a page of reading mode and the selected link are
+        // drawn into its image.
+        for page in crate::render::reading::pages(&marked) {
+            let address = std::rc::Rc::as_ptr(&page.parts) as usize;
+            let marks = search.map_or_else(Vec::new, |search| search.in_page(address));
+            let link = link.filter(|link| link.0 == address).map(|link| link.1);
+            if let Some(overlay) = page.parts.overlay(marks, link) {
+                crate::render::reading::set_overlay(&mut marked[page.lines], Some(&overlay));
+            }
+        }
+        marked
     }
 
     /// What the status line tells about the last key, in `fading` when
     /// it is given, or else about the last search, with the match number
     /// in `flash` when it is given.
-    fn found(&self, flash: Option<Style>, fading: Option<Style>) -> Option<status::Found<'_>> {
+    fn found<'a>(
+        &'a self,
+        flash: Option<Style>,
+        fading: Option<Style>,
+        link: Option<&'a str>,
+    ) -> Option<status::Found<'a>> {
         if let Some(told) = &self.told {
             return Some(status::Found::Told {
                 message: &told.message,
                 fading,
+            });
+        }
+        // Where the selected link goes.
+        if let Some(url) = link {
+            return Some(status::Found::Told {
+                message: url,
+                fading: None,
             });
         }
         let search = self.search.as_ref()?;
@@ -1277,6 +1491,8 @@ impl State {
 /// marked, the view of them and the status line below it.
 struct Layout<'a> {
     lines: &'a [Line],
+    /// The blocks the lines come from.
+    places: &'a [Option<BlockInfo>],
     marks: &'a Marks,
     /// The colours a fade mixes, where they are known.
     rgb: Option<&'a Rgb>,
@@ -1318,6 +1534,7 @@ impl Layout<'_> {
         let visible = self.view.visible();
         let fade = state.fade(now, self.rgb);
         let out = state.fade_out(now, self.rgb);
+        let link = state.links.selected(self.lines, self.places);
         Frame {
             lines: state.marked(
                 &self.lines[visible.clone()],
@@ -1325,10 +1542,14 @@ impl Layout<'_> {
                 self.marks,
                 fade,
                 self.rgb.and_then(|rgb| state.tint(now, rgb, self.columns)),
+                link.as_ref().map(|link| link.link),
             ),
-            status: self
-                .status
-                .spans(self.view, state, fade, out, state.count_fade(now, self.rgb)),
+            status: self.status.spans(
+                self.view,
+                state,
+                (fade, out, state.count_fade(now, self.rgb)),
+                link.as_ref().map(|link| link.url.as_str()),
+            ),
             panel: self.status.panel(self.view, state.help),
             notice: self.status.notice(self.view, state, now, self.rgb),
         }
@@ -1392,6 +1613,8 @@ fn show(
         // Whether a frame was drawn or images sent again, which goes out
         // with a check of the images it sent.
         let mut written = false;
+        // Whether a key scrolled a band or selected another.
+        let mut bands = false;
         for key in keys {
             match key {
                 // tmux passed no images while the pane was not shown:
@@ -1445,6 +1668,11 @@ fn show(
                     writer.lost();
                     again = true;
                 }
+                Pressed::Reading => return Ok(Outcome::Reading),
+                // The keys after it in the same read still count, as
+                // they would read one by one.
+                Pressed::Bands => bands = true,
+                Pressed::Wide => return Ok(Outcome::Wide),
                 Pressed::Follow if reload.is_none() => {
                     state.told = Some(Told::new(NOTHING_TO_FOLLOW));
                 }
@@ -1473,6 +1701,12 @@ fn show(
         if layout.view.visible() != told {
             told = layout.view.visible();
             prefer(source.loads, layout.lines, told.clone());
+        }
+        // The band selected scrolled away: the topmost on the screen takes
+        // its place.
+        let refreshed = (state.bands).refresh(layout.lines, layout.places, layout.view.visible());
+        if bands || refreshed {
+            return Ok(Outcome::Bands);
         }
         let came = source.loads.poll();
         if !came.is_empty() {
