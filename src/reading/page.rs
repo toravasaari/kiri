@@ -1743,7 +1743,12 @@ impl<'a> Flow<'a> {
             }
             Cell::Table(inner) => self.nested(inner, x, width),
             Cell::Stack(cells) => {
-                for cell in cells {
+                for (number, cell) in cells.iter().enumerate() {
+                    // A gap between tables, as between blocks.
+                    let table = |cell: &Cell| matches!(cell, Cell::Table(_));
+                    if number > 0 && (table(cell) || table(&cells[number - 1])) {
+                        self.y += self.look.size;
+                    }
                     self.cell(grid, (row, column), cell, x, width, wrap);
                 }
             }
@@ -2523,6 +2528,17 @@ mod tests {
         let empty = with_front_matter("---\n---\n\nText.\n", FrontMatterShown::Table);
         // Only the margin the empty block always had, 16 above the text.
         assert_eq!(text(&texts(&empty), "Text.").2, 33.0);
+    }
+
+    #[test]
+    fn the_tables_in_a_list_in_one_cell_have_a_gap_between_them() {
+        let source = "---\nitems:\n  - a: 1\n  - b: 2\n---\n";
+        let page = with_front_matter(source, FrontMatterShown::Table);
+        let texts = texts(&page);
+        // A table of one row is 36 pixels and its border: 37 from one to
+        // the next, and a gap of a font size, 16, between them.
+        let apart = text(&texts, "2").2 - text(&texts, "1").2;
+        assert_eq!(apart, 37.0 + 16.0);
     }
 
     #[test]
