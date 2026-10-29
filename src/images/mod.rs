@@ -390,7 +390,7 @@ pub struct Images {
     /// load in the background last found them.
     shown: Vec<ImageKey>,
     /// What each loaded image is, by a hash of it.
-    prints: HashMap<ImageKey, u64>,
+    prints: std::cell::RefCell<HashMap<ImageKey, u64>>,
 }
 
 /// What a block shows in place of its image while the image loads.
@@ -420,17 +420,20 @@ impl Images {
         if !self.by_key.contains_key(&key) {
             self.order.push(key.clone());
         }
-        match &image {
-            Ok(source) => self.prints.insert(key.clone(), source.fingerprint()),
-            Err(_) => self.prints.remove(&key),
-        };
+        // A hash of the new image is made when it is asked for.
+        self.prints.get_mut().remove(&key);
         self.by_key.insert(key, image);
     }
 
     /// A hash of the image loaded under `key`, which another image under
     /// the same key does not have; `None` when none loaded.
     pub fn print(&self, key: &ImageKey) -> Option<u64> {
-        self.prints.get(key).copied()
+        if let Some(print) = self.prints.borrow().get(key) {
+            return Some(*print);
+        }
+        let print = self.by_key.get(key)?.as_ref().ok()?.fingerprint();
+        self.prints.borrow_mut().insert(key.clone(), print);
+        Some(print)
     }
 
     /// Takes the outcome for `key` out, as for an image shown on its own;
@@ -438,7 +441,7 @@ impl Images {
     pub fn remove(&mut self, key: &ImageKey) -> Option<Result<Source, ImageError>> {
         self.order.retain(|loaded| loaded != key);
         self.late.remove(key);
-        self.prints.remove(key);
+        self.prints.get_mut().remove(key);
         self.by_key.remove(key)
     }
 
@@ -1309,6 +1312,27 @@ Text ![a](a.png) and *![b](b.png)* in a paragraph.
             urls(true),
             ["a.png", "b.png", "c.png", "d.png", "e.png", "f.png"]
         );
+    }
+
+    #[test]
+    fn an_image_is_hashed_when_asked_and_once_and_not_when_it_is_inserted() {
+        let mut images = Images::new();
+        let pixels = |red| image::RgbaImage::from_pixel(8, 8, image::Rgba([red, 0, 0, 255]));
+        images.insert("a.png", Ok(Source::Raster(pixels(1))));
+        // Inserting costs no hash: it is made when the cache asks.
+        assert!(images.prints.borrow().is_empty());
+        let key = ImageKey::from("a.png");
+        let first = images.print(&key).expect("a loaded image has one");
+        assert_eq!(images.prints.borrow().len(), 1);
+        assert_eq!(images.print(&key), Some(first));
+        // The same pixels loaded again are the same, other pixels not, and
+        // a failure has none.
+        images.insert("a.png", Ok(Source::Raster(pixels(1))));
+        assert_eq!(images.print(&key), Some(first));
+        images.insert("a.png", Ok(Source::Raster(pixels(2))));
+        assert_ne!(images.print(&key), Some(first));
+        images.insert("a.png", Err(ImageError::Missing("a.png".into())));
+        assert_eq!(images.print(&key), None);
     }
 
     #[test]
