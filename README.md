@@ -256,6 +256,19 @@ background`, the pager never waits for them. Text below an image moves
 down when the image comes, which is why this is not the default. A
 document that is printed rather than paged always waits.
 
+`--reading`, or `M` in the pager, draws the document as a browser shows
+it: text in the system's proportional font, headings at GitHub's sizes,
+and lists, quotes, alerts, front matter, code, tables, images, diagrams
+and formulas, also those in the middle of a line, all drawn as images.
+It needs a terminal that draws images through Unicode placeholders, such
+as kitty or Ghostty; elsewhere the document shows as usual. The text
+cannot be selected or copied there. A long code line or a wide table
+wraps; with `--wide scroll`, or `W` in the pager, it keeps its lines
+whole and scrolls sideways with the arrow keys. In the pager `/` marks
+the matches in the page, and Tab selects a link, which kitty opens as
+it does any link. Reading mode is experimental, and its options' names
+may still change.
+
 Front matter that does not parse shows as `⚠ 1` on the status line,
 with the message above it for a few seconds.
 

@@ -63,6 +63,9 @@ Refactoring and small fixes that are not bugs go there too.
   also tells where their source is. `make release` generates the notices
   with `cargo-about`; the syntax definitions and themes syntect bundles
   need a check of their own, as their licences are not in Cargo metadata.
+  So do the five Octicons of reading mode's alerts
+  (`src/reading/octicons.rs`, MIT, Copyright (c) 2026 GitHub Inc.), whose
+  outlines come from the Nerd Fonts symbols font that kitty bundles.
 
 ### 3.4 Render check (done)
 
@@ -718,55 +721,61 @@ A menu in the pager, from which its keys and settings can be found.
 - Allowing remote images from the local network (4.12.8) from the menu,
   for the document shown or for good, as a browser asks for it.
 
-### 4.15 Reading mode
+### 4.15 Reading mode (done)
 
 Text in a proportional font, drawn as images, so that a document reads
-the way GitHub shows it in a browser. Selection, copying and tmux are
-given up in this mode, and search may be. It needs a layout engine of
-kiri's own, the native engine that 5.5 mentions. A first experiment
-with Pango laid out a 1300-line document in 0.1 s and showed a 50-row
-screen in 0.05 s.
+the way GitHub shows it in a browser: `--reading`, or `M` in the pager,
+both experimental. Selection and copying are given up in this mode. The
+layout is kiri's own, on parley, with the fonts resvg already loads.
 
-#### 4.15.1 Text
+#### 4.15.1 Text (done)
 
-- Paragraphs, headings, lists, quotes, inline code and links in a
-  proportional font, 16 px with a line height of 1.5, in a column of
-  about 42 em, drawn as images through Unicode placeholders, in print
-  mode and a screen at a time in the pager.
+- Paragraphs, headings, lists, quotes, inline code and links in the
+  system's sans-serif font at 0.8 times the cell height, with a line
+  height of 1.5, in a column of 42 em, drawn as images through Unicode
+  placeholders, in print mode and a screen at a time in the pager.
 - GitHub's spacing: margins between blocks collapse, list items are
   half a line apart, and a list marker sits on its item's first
-  baseline.
+  baseline. Colour emoji and a fallback font for each script.
 - Inline code without padding spaces, on a background lower than the
   line, breaking only at spaces.
+- The page is opaque in the page's colour when the theme or the
+  terminal tells it, so text is blended the same way everywhere.
 
-#### 4.15.2 Tables and code
+#### 4.15.2 Tables and code (done)
 
 - An area 1.5 times as wide as the text, centred in the window. Text
-  starts at its left edge; tables and code blocks start there too and
-  may reach across the area.
+  and every other block keep the column; tables and code blocks start
+  at its left edge and may reach across the area.
 - A table is as wide as its content up to that area, and its cells
-  wrap as a browser wraps them.
+  wrap as a browser wraps them. The theme's `table_style` draws a
+  rounded frame, as the text layout does, or GitHub's grid.
 
-#### 4.15.3 Sideways scrolling
+#### 4.15.3 Sideways scrolling (done)
 
-- A table or code block wider than the area scrolls sideways on its
-  own, with a fade on each edge that has more and a thin scroll bar.
-- One of them is selected: the topmost on screen, until Tab, Shift+Tab
-  or a click selects another. Its scroll bar is brighter. The arrow
-  keys and h/l scroll it, and a sideways wheel scrolls the one under
-  the pointer.
+- A table or code block wider than the area wraps, or with
+  `--wide scroll` or `W` in the pager scrolls sideways on its own, with
+  a fade on each edge that has more and a thin scroll bar.
+- One of them is selected: the topmost on screen, or the one a click or
+  a search selects. Its scroll bar is brighter. ← → and `H` `L` scroll
+  it, and a sideways wheel scrolls the one under the pointer.
 
-#### 4.15.4 Images, diagrams, formulas and other blocks
+#### 4.15.4 Images, diagrams, formulas and other blocks (done)
 
-- Images, diagrams and formulas inside the layout, from the renderers
-  kiri already has.
-- Alerts, front matter and `<details>` in the proportional font too,
-  instead of the terminal's monospace text.
+- Images, diagrams and formulas inside the layout, block and inline,
+  from the renderers kiri already has; `$…$` formulas in text style on
+  the line's baseline. Scaled pictures are cached between layouts.
+- Alerts with GitHub's icons and colours, front matter as a table with
+  tables in its cells, and `<details>` in the proportional font too.
 
-#### 4.15.5 Search and links
+#### 4.15.5 Search and links (done)
 
-- Search, link selection and clicking a link, from the positions the
-  layout knows.
+- `/` marks the matches in the page, in the theme's search colours, or
+  black on yellow and orange where the theme leaves them to kiri. A
+  match in a band scrolls it into view.
+- Links are OSC 8 hyperlinks over the placeholders, which kitty opens.
+  Tab and Shift+Tab select a link on the screen, and the status line
+  tells where it goes. Still open: what Enter does with it.
 
 ## Phase 5 – Beyond kitty
 
@@ -1241,6 +1250,24 @@ Found in review. `cut` in `src/render/wrap.rs` measures text one
 grapheme at a time, and at a fraction each grapheme rounds up to a whole
 cell, so a heading or a sup cut to fit takes fewer letters than fit.
 Measuring the text kept, as `width` does, would fix it.
+
+#### B11 Rows of reading mode broken in a container's tmux
+
+In the maintainer's kitty, reading mode shows a few broken rows in
+tmux inside a jailbee container (tmux 3.6): the lower part of a line of
+text is cut, the rest of the row starts a new line, and its text is
+gone, as near "fifths of a row's height" in S09. Ctrl+L does not mend
+it. It does not happen in the host's tmux (3.8), nor in the container
+without tmux, and could not be reproduced in kitty on a virtual
+display with either tmux. That tmux client's features were
+`bpaste,ccolour,clipboard,cstyle,focus,title`, without `RGB`, which
+the image ids in the placeholders' 24-bit colour depend on. A row on
+the edge of two 30-row parts of a page is another suspect.
+
+#### B12 The pager blank after a resize under load
+
+Seen once on a virtual display with the machine under heavy load: after
+the window was resized in reading mode, the pager stayed blank.
 
 ### Upstream bugs
 
