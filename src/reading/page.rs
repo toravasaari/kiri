@@ -2768,8 +2768,8 @@ mod tests {
     }
 
     /// `markdown` laid out as `LOOK` but with tables in `style`, drawn as
-    /// far as its table reaches: the pixels and the table's size.
-    fn drawn_table(markdown: &str, style: TableStyle) -> (RgbaImage, u32, u32) {
+    /// far as its table reaches.
+    fn drawn_table(markdown: &str, style: TableStyle) -> RgbaImage {
         let document = parse(markdown);
         let blocks: Vec<&Block> = document.blocks.iter().collect();
         let look = Look {
@@ -2777,18 +2777,15 @@ mod tests {
             ..LOOK
         };
         let page = lay_out(&blocks, &look, &Fonts::fixture(), (&Plain, &Plain), FRAME);
-        let width = rects(&page)
-            .iter()
-            .map(|r| r.0 + r.2)
-            .fold(0.0, f32::max)
-            .ceil() as u32
-            + 1;
-        let height = page.height.ceil() as u32;
-        (page.draw(0, width, height), width, height)
+        // As wide as the widest rectangle or frame reaches.
+        let reach = (rects(&page).iter().map(|r| r.0 + r.2))
+            .chain(frames(&page).iter().map(|f| f.0 + f.2))
+            .fold(0.0, f32::max);
+        page.draw(0, reach.ceil() as u32 + 1, page.height.ceil() as u32)
     }
 
-    /// The pixels of `image` on the line `along` that are the border's
-    /// colour, as their positions on it; `across` is the other axis.
+    /// The positions of the pixels that are the border's colour down the
+    /// column `at` of `image` when `vertical`, else along the row `at`.
     fn border_at(image: &RgbaImage, vertical: bool, at: u32) -> Vec<u32> {
         let border = LOOK.table_border;
         let (width, height) = image.dimensions();
@@ -2806,7 +2803,7 @@ mod tests {
 
     #[test]
     fn a_table_in_a_frame_has_rounded_corners_and_lines_under_its_header_and_between_columns() {
-        let (image, ..) = drawn_table(TABLE, TableStyle::Frame);
+        let image = drawn_table(TABLE, TableStyle::Frame);
         let bottom = 3 * 36;
         let right = *border_at(&image, false, 54).last().expect("a right edge");
         // The corners are cut; the straight edges are the border.
@@ -2836,7 +2833,7 @@ mod tests {
 
     #[test]
     fn a_table_in_a_grid_has_square_corners_and_a_line_round_every_cell() {
-        let (image, ..) = drawn_table(TABLE, TableStyle::Grid);
+        let image = drawn_table(TABLE, TableStyle::Grid);
         let bottom = 3 * 36;
         let right = *border_at(&image, false, 54).last().expect("a right edge");
         for (x, y) in [(0, 0), (right, 0), (0, bottom), (right, bottom)] {
