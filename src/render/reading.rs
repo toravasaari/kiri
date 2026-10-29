@@ -262,9 +262,12 @@ fn mark_colors(theme: &Theme, caps: &Capabilities, look: &Look) -> MarkColors {
     } else {
         [0xff; 3]
     });
-    let colors = |foreground, background| match (foreground, background) {
-        _ if !caps.color => (Some(page), Some(look.text)),
-        (SearchColor::Auto, SearchColor::Auto) => (Some(page), Some(look.text)),
+    let reverse = (Some(page), Some(look.text));
+    // `auto` is what a browser's find gives where the text layout has
+    // reverse video: black on yellow, and black on orange for the current.
+    let colors = |foreground, background, browser: (Brush, Brush)| match (foreground, background) {
+        _ if !caps.color => reverse,
+        (SearchColor::Auto, SearchColor::Auto) => (Some(browser.0), Some(browser.1)),
         (foreground, background) => {
             let pick = |color| match color {
                 SearchColor::Color(color) => rgb_of(color),
@@ -275,8 +278,16 @@ fn mark_colors(theme: &Theme, caps: &Capabilities, look: &Look) -> MarkColors {
     };
     let search = &theme.search;
     MarkColors {
-        found: colors(search.match_foreground, search.match_background),
-        current: colors(search.current_foreground, search.current_background),
+        found: colors(
+            search.match_foreground,
+            search.match_background,
+            ([0, 0, 0], [0xff, 0xff, 0x00]),
+        ),
+        current: colors(
+            search.current_foreground,
+            search.current_background,
+            ([0, 0, 0], [0xff, 0x96, 0x32]),
+        ),
     }
 }
 
@@ -1203,6 +1214,72 @@ mod tests {
         assert!(formula >= image + 3, "{formula} against {image}");
     }
 
+    /// The boxes of the two marks, the first of two "word"s as found and the
+    /// second as the current one, drawn with `theme` on `caps`: how many
+    /// pixels each box has of `colours`.
+    fn mark_boxes(theme: Theme, caps: Capabilities, colours: [[u8; 3]; 2]) -> [usize; 2] {
+        let inputs = Inputs {
+            theme,
+            ..inputs(caps)
+        };
+        let lines = layout::layout(&parse("A word here.\n\nAnother word.\n"), &inputs);
+        let parts = Rc::clone(&pages(&lines)[0].parts);
+        let hits = parts.find(&|text: &str| {
+            text.match_indices("word")
+                .map(|(at, found)| at..at + found.len())
+                .collect()
+        });
+        let marks = vec![
+            (hits[0].item, hits[0].range.clone(), false),
+            (hits[1].item, hits[1].range.clone(), true),
+        ];
+        let drawn = parts.draw(0, parts.overlay(marks, None).as_deref());
+        colours.map(|colour| {
+            drawn
+                .pixels()
+                .filter(|pixel| pixel.0[..3] == colour && pixel.0[3] == 255)
+                .count()
+        })
+    }
+
+    #[test]
+    fn a_theme_with_auto_search_colours_gets_the_browsers_find_colours() {
+        // The other matches black on yellow, the current one black on
+        // orange, where the text layout reads `auto` as reverse video.
+        let [found, current] =
+            mark_boxes(Theme::default(), kitty(80), [[255, 255, 0], [255, 150, 50]]);
+        assert!(found > 200 && current > 200, "{found} {current}");
+    }
+
+    #[test]
+    fn marks_in_the_themes_own_colours_are_those_and_without_colour_the_reverse() {
+        // The paper themes' own: the others on their grey, the current in
+        // the text colour.
+        let light = Theme::paper(crate::theme::Paper::Light);
+        let search = light.search;
+        let rgb = |color: crate::theme::SearchColor| match color {
+            crate::theme::SearchColor::Color(Some(crate::color::Color::Rgb(r, g, b))) => [r, g, b],
+            other => panic!("a colour: {other:?}"),
+        };
+        let colours = [rgb(search.match_background), rgb(search.current_background)];
+        let [found, current] = mark_boxes(light, kitty(80), colours);
+        assert!(found > 200 && current > 200, "{found} {current}");
+        // A colour the theme sets is used.
+        let mut custom = Theme::default();
+        custom.search.match_background =
+            crate::theme::SearchColor::Color(Some(crate::color::Color::Rgb(1, 2, 3)));
+        let [found, _] = mark_boxes(custom, kitty(80), [[1, 2, 3], [255, 150, 50]]);
+        assert!(found > 200, "{found}");
+        // Without colour: a box in the text's colour.
+        let plain = Capabilities {
+            color: false,
+            ..kitty(80)
+        };
+        let text = look(&Theme::default(), &CodeColors::default(), true, &plain).text;
+        let [found, current] = mark_boxes(Theme::default(), plain, [text, text]);
+        assert!(found > 400 && current == found, "{found} {current}");
+    }
+
     #[test]
     fn an_overlay_changes_the_key_of_the_rows_it_is_drawn_on_and_what_is_drawn() {
         let mut lines = layout::layout(
@@ -1233,15 +1310,13 @@ mod tests {
         set_overlay(&mut lines, None);
         assert_eq!(key(&lines), before);
         assert!(parts.overlay(Vec::new(), None).is_none());
-        // The default theme gives a match no colours, so it is the reverse:
-        // a box in the text's colour, with the text in the page's.
+        // The default theme's `auto` is the browsers' orange for the
+        // current match.
         let plain = parts.draw(0, None);
         let drawn = parts.draw(0, Some(&overlay));
         assert_ne!(plain, drawn);
-        let text = look(&Theme::default(), &CodeColors::default(), true, &kitty(80)).text;
-        let boxed = drawn
-            .pixels()
-            .filter(|pixel| pixel.0[..3] == text && pixel.0[3] == 255)
+        let boxed = (drawn.pixels())
+            .filter(|pixel| pixel.0 == [0xff, 0x96, 0x32, 255])
             .count();
         assert!(boxed > 200, "{boxed}");
     }
