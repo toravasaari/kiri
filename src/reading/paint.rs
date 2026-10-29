@@ -310,34 +310,70 @@ impl Canvas {
         color: Brush,
         alpha: u8,
     ) {
-        let r = radius.min(width / 2.0).min(height / 2.0);
-        // How far a cubic's control point lies along the tangent, for a
-        // quarter circle.
-        let k = 0.5523 * r;
-        let (right, bottom) = (x + width, y + height);
-        let mut path = PathBuilder::new();
-        path.move_to(x + r, y);
-        path.line_to(right - r, y);
-        path.cubic_to(right - r + k, y, right, y + r - k, right, y + r);
-        path.line_to(right, bottom - r);
-        path.cubic_to(
-            right,
-            bottom - r + k,
-            right - r + k,
-            bottom,
-            right - r,
-            bottom,
-        );
-        path.line_to(x + r, bottom);
-        path.cubic_to(x + r - k, bottom, x, bottom - r + k, x, bottom - r);
-        path.line_to(x, y + r);
-        path.cubic_to(x, y + r - k, x + r - k, y, x + r, y);
-        path.close();
-        if let Some(path) = path.finish() {
+        let radii = [radius; 4];
+        if let Some(path) = rounded_path(x, y, width, height, radii) {
             self.pixmap.fill_path(
                 &path,
                 &paint(color, alpha),
                 FillRule::Winding,
+                Transform::identity(),
+                None,
+            );
+        }
+    }
+
+    /// Fills a rectangle with its corners rounded to `radii`: top left,
+    /// top right, bottom right, bottom left.
+    pub fn corners_rect(
+        &mut self,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        radii: [f32; 4],
+        color: Brush,
+    ) {
+        if let Some(path) = rounded_path(x, y, width, height, radii) {
+            self.pixmap.fill_path(
+                &path,
+                &paint(color, 255),
+                FillRule::Winding,
+                Transform::identity(),
+                None,
+            );
+        }
+    }
+
+    /// Draws the outline of a rectangle with corners rounded to `radius`,
+    /// one pixel thick, inside it.
+    pub fn round_frame(
+        &mut self,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        radius: f32,
+        color: Brush,
+    ) {
+        let outer = rounded_path(x, y, width, height, [radius; 4]);
+        let inner = rounded_path(
+            x + 1.0,
+            y + 1.0,
+            width - 2.0,
+            height - 2.0,
+            [(radius - 1.0).max(0.0); 4],
+        );
+        let (Some(outer), Some(inner)) = (outer, inner) else {
+            return;
+        };
+        let mut path = PathBuilder::new();
+        path.push_path(&outer);
+        path.push_path(&inner);
+        if let Some(path) = path.finish() {
+            self.pixmap.fill_path(
+                &path,
+                &paint(color, 255),
+                FillRule::EvenOdd,
                 Transform::identity(),
                 None,
             );
@@ -408,6 +444,56 @@ impl Canvas {
 fn premultiplied([red, green, blue, alpha]: [u8; 4]) -> [u8; 4] {
     let scale = |channel: u8| ((u16::from(channel) * u16::from(alpha) + 127) / 255) as u8;
     [scale(red), scale(green), scale(blue), alpha]
+}
+
+/// A rectangle's outline with its corners rounded to `radii`: top left,
+/// top right, bottom right, bottom left.
+fn rounded_path(
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    radii: [f32; 4],
+) -> Option<tiny_skia::Path> {
+    let limit = (width / 2.0).min(height / 2.0).max(0.0);
+    let [tl, tr, br, bl] = radii.map(|radius| radius.min(limit));
+    // How far a cubic's control point lies along the tangent, for a
+    // quarter circle.
+    let k = 0.5523;
+    let (right, bottom) = (x + width, y + height);
+    let mut path = PathBuilder::new();
+    path.move_to(x + tl, y);
+    path.line_to(right - tr, y);
+    path.cubic_to(
+        right - tr + k * tr,
+        y,
+        right,
+        y + tr - k * tr,
+        right,
+        y + tr,
+    );
+    path.line_to(right, bottom - br);
+    path.cubic_to(
+        right,
+        bottom - br + k * br,
+        right - br + k * br,
+        bottom,
+        right - br,
+        bottom,
+    );
+    path.line_to(x + bl, bottom);
+    path.cubic_to(
+        x + bl - k * bl,
+        bottom,
+        x,
+        bottom - bl + k * bl,
+        x,
+        bottom - bl,
+    );
+    path.line_to(x, y + tl);
+    path.cubic_to(x, y + tl - k * tl, x + tl - k * tl, y, x + tl, y);
+    path.close();
+    path.finish()
 }
 
 fn paint(color: Brush, alpha: u8) -> Paint<'static> {

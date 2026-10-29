@@ -91,11 +91,23 @@ pub struct Look {
     /// The colour of a table's borders, and of every second body row;
     /// `None` for no shading.
     pub table_border: Brush,
+    /// How tables are drawn.
+    pub table_style: TableStyle,
     pub stripe: Option<Brush>,
     /// The colour of what could not be drawn, such as a diagram's error.
     pub error: Brush,
     /// How alerts look, by kind: note, tip, important, warning, caution.
     pub alerts: [AlertLook; 5],
+}
+
+/// How a table is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TableStyle {
+    /// A rounded frame, lines between the columns and under the header
+    /// row, none between the rows.
+    Frame,
+    /// A line round every cell, square corners.
+    Grid,
 }
 
 impl Look {
@@ -620,6 +632,12 @@ impl Item {
             | Shape::RoundRect {
                 x: left, y: top, ..
             }
+            | Shape::Frame {
+                x: left, y: top, ..
+            }
+            | Shape::Stripe {
+                x: left, y: top, ..
+            }
             | Shape::Picture {
                 x: left, y: top, ..
             }
@@ -646,6 +664,25 @@ enum Shape {
         y: f32,
         width: f32,
         height: f32,
+        color: Brush,
+    },
+    /// The outline of a rectangle with rounded corners, one pixel thick.
+    Frame {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        radius: f32,
+        color: Brush,
+    },
+    /// A rectangle with its bottom corners rounded, the shading of the
+    /// last row of a table in a frame.
+    Stripe {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        radius: f32,
         color: Brush,
     },
     /// A rectangle with rounded corners.
@@ -945,6 +982,29 @@ fn draw_items(
                 height,
                 color,
             } => canvas.rect(x + dx, y + dy, *width, *height, *color),
+            Shape::Frame {
+                x,
+                y,
+                width,
+                height,
+                radius,
+                color,
+            } => canvas.round_frame(x + dx, y + dy, *width, *height, *radius, *color),
+            Shape::Stripe {
+                x,
+                y,
+                width,
+                height,
+                radius,
+                color,
+            } => canvas.corners_rect(
+                x + dx,
+                y + dy,
+                *width,
+                *height,
+                [0.0, 0.0, *radius, *radius],
+                *color,
+            ),
             Shape::RoundRect {
                 x,
                 y,
@@ -1729,7 +1789,21 @@ impl<'a> Flow<'a> {
             if body.is_some_and(|body| body % 2 == 1)
                 && let Some(stripe) = look.stripe
             {
-                self.rect(x, y, table_width, height, stripe);
+                // In a frame the last row's bottom corners are round too.
+                match look.table_style == TableStyle::Frame && row + 1 == grid.rows.len() {
+                    true => self.push(
+                        y..y + height,
+                        Shape::Stripe {
+                            x,
+                            y,
+                            width: table_width,
+                            height,
+                            radius: CODE_RADIUS * look.size,
+                            color: stripe,
+                        },
+                    ),
+                    false => self.rect(x, y, table_width, height, stripe),
+                }
             }
             for inner in &mut inners {
                 self.take(inner);
@@ -1739,14 +1813,55 @@ impl<'a> Flow<'a> {
         }
         rows.push(y);
         // The borders, over the shading.
-        for &line in &rows {
-            self.rect(x, line.round(), table_width, 1.0, look.table_border);
-        }
-        let mut left = x;
-        self.rect(left.round(), top, 1.0, y - top + 1.0, look.table_border);
-        for width in widths {
-            left += width + extra;
-            self.rect(left.round(), top, 1.0, y - top + 1.0, look.table_border);
+        match look.table_style {
+            TableStyle::Grid => {
+                for &line in &rows {
+                    self.rect(x, line.round(), table_width, 1.0, look.table_border);
+                }
+                let mut left = x;
+                self.rect(left.round(), top, 1.0, y - top + 1.0, look.table_border);
+                for width in widths {
+                    left += width + extra;
+                    self.rect(left.round(), top, 1.0, y - top + 1.0, look.table_border);
+                }
+            }
+            TableStyle::Frame => {
+                // A rounded frame, a line under the header row and lines
+                // between the columns.
+                let (frame_top, bottom) = (top.round(), y.round() + 1.0);
+                self.push(
+                    frame_top..bottom,
+                    Shape::Frame {
+                        x: x.round(),
+                        y: frame_top,
+                        width: (table_width).round(),
+                        height: bottom - frame_top,
+                        radius: CODE_RADIUS * look.size,
+                        color: look.table_border,
+                    },
+                );
+                if grid.header_row && rows.len() > 2 {
+                    let line = rows[1].round();
+                    self.rect(
+                        x.round() + 1.0,
+                        line,
+                        table_width.round() - 2.0,
+                        1.0,
+                        look.table_border,
+                    );
+                }
+                let mut left = x;
+                for width in &widths[..widths.len().saturating_sub(1)] {
+                    left += width + extra;
+                    self.rect(
+                        left.round(),
+                        frame_top + 1.0,
+                        1.0,
+                        bottom - frame_top - 2.0,
+                        look.table_border,
+                    );
+                }
+            }
         }
         self.y = y + 1.0;
     }
@@ -2254,6 +2369,8 @@ mod tests {
         code_text: [0xc0; 3],
         label: Some([0x80; 3]),
         table_border: [0x3d, 0x44, 0x4d],
+        // The look the older tests were written for; the new ones say.
+        table_style: TableStyle::Grid,
         stripe: Some([0x15, 0x1b, 0x23]),
         error: [0xf8, 0x51, 0x49],
         alerts: [
@@ -2633,6 +2750,82 @@ mod tests {
         let long = "word ".repeat(200);
         let page = with_front_matter(&format!("---\na: {long}\n---\n"), FrontMatterShown::Table);
         assert!(rects(&page).iter().all(|r| r.0 + r.2 <= 672.5));
+    }
+
+    /// `markdown` laid out as `LOOK` but with tables in `style`, drawn as
+    /// far as its table reaches: the pixels and the table's size.
+    fn drawn_table(markdown: &str, style: TableStyle) -> (RgbaImage, u32, u32) {
+        let document = parse(markdown);
+        let blocks: Vec<&Block> = document.blocks.iter().collect();
+        let look = Look {
+            table_style: style,
+            ..LOOK
+        };
+        let page = lay_out(&blocks, &look, &Fonts::fixture(), (&Plain, &Plain), FRAME);
+        let width = rects(&page)
+            .iter()
+            .map(|r| r.0 + r.2)
+            .fold(0.0, f32::max)
+            .ceil() as u32
+            + 1;
+        let height = page.height.ceil() as u32;
+        (page.draw(0, width, height), width, height)
+    }
+
+    /// The pixels of `image` on the line `along` that are the border's
+    /// colour, as their positions on it; `across` is the other axis.
+    fn border_at(image: &RgbaImage, vertical: bool, at: u32) -> Vec<u32> {
+        let border = LOOK.table_border;
+        let (width, height) = image.dimensions();
+        let length = if vertical { height } else { width };
+        (0..length)
+            .filter(|&n| {
+                let (x, y) = if vertical { (at, n) } else { (n, at) };
+                let pixel = image.get_pixel(x, y).0;
+                pixel[3] == 255 && pixel[..3] == border
+            })
+            .collect()
+    }
+
+    const TABLE: &str = "| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n";
+
+    #[test]
+    fn a_table_in_a_frame_has_rounded_corners_and_lines_under_its_header_and_between_columns() {
+        let (image, ..) = drawn_table(TABLE, TableStyle::Frame);
+        let bottom = 3 * 36;
+        let right = *border_at(&image, false, 54).last().expect("a right edge");
+        // The corners are cut; the straight edges are the border.
+        for (x, y) in [(0, 0), (right, 0), (0, bottom), (right, bottom)] {
+            assert_eq!(image.get_pixel(x, y).0[3], 0, "corner {x},{y}");
+        }
+        assert_eq!(image.get_pixel(30, 0).0[..3], LOOK.table_border);
+        assert_eq!(image.get_pixel(0, 40).0[..3], LOOK.table_border);
+        // Down a column's middle: the top edge, the line under the header
+        // and the bottom edge, and none between the body rows.
+        let down = border_at(&image, true, 5);
+        assert_eq!(down, [0, 36, bottom], "{down:?}");
+        // Across a row: the left edge, the line between the columns and the
+        // right edge.
+        let across = border_at(&image, false, 54);
+        assert_eq!(across.len(), 3, "{across:?}");
+    }
+
+    #[test]
+    fn a_table_in_a_grid_has_square_corners_and_a_line_round_every_cell() {
+        let (image, ..) = drawn_table(TABLE, TableStyle::Grid);
+        let bottom = 3 * 36;
+        let right = *border_at(&image, false, 54).last().expect("a right edge");
+        for (x, y) in [(0, 0), (right, 0), (0, bottom), (right, bottom)] {
+            assert_eq!(
+                image.get_pixel(x, y).0[..3],
+                LOOK.table_border,
+                "corner {x},{y}"
+            );
+        }
+        let down = border_at(&image, true, 5);
+        assert_eq!(down, [0, 36, 72, bottom], "{down:?}");
+        let across = border_at(&image, false, 54);
+        assert_eq!(across.len(), 3, "{across:?}");
     }
 
     #[test]

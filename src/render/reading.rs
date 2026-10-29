@@ -30,7 +30,7 @@ use crate::reading::page::{
 };
 use crate::reading::text::{Brush, Run};
 use crate::render::FrontMatterStyle;
-use crate::theme::{SearchColor, Theme};
+use crate::theme::{SearchColor, TableStyle, Theme};
 
 /// The text's font size, as a share of the cell height: 16 pixels in rows
 /// of 20, as a browser sets text in rows of that height.
@@ -993,6 +993,10 @@ pub fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities
         label: rgb(code.label),
         error: rgb(theme.error).unwrap_or([0xf8, 0x51, 0x49]),
         table_border: rgb(theme.table_border).unwrap_or(border),
+        table_style: match theme.table_style {
+            TableStyle::Frame => page::TableStyle::Frame,
+            TableStyle::Grid => page::TableStyle::Grid,
+        },
         stripe: stripes.then(|| mix(text, page, STRIPE)),
         alerts: [
             AlertKind::Note,
@@ -1664,6 +1668,18 @@ mod tests {
         let changed = first.iter().zip(&last).filter(|(a, b)| a != b).count();
         // The part the current match leaves and the one it enters.
         assert_eq!(changed, 2, "{first:?} {last:?}");
+    }
+
+    #[test]
+    fn the_look_has_the_themes_table_style() {
+        let style =
+            |theme: &Theme| look(theme, &CodeColors::default(), true, &kitty(80)).table_style;
+        assert_eq!(style(&Theme::default()), page::TableStyle::Frame);
+        let grid = Theme {
+            table_style: TableStyle::Grid,
+            ..Theme::default()
+        };
+        assert_eq!(style(&grid), page::TableStyle::Grid);
     }
 
     #[test]
