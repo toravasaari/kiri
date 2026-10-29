@@ -1073,7 +1073,6 @@ fn rgb(color: Color, caps: &Capabilities) -> Option<Brush> {
     }
 }
 
-/// `share` of `color` over `page`.
 /// `page` seen through a filter of colour `pale`: each channel scaled by
 /// the filter's share of full. White stays `pale`.
 fn filter(page: Brush, pale: Brush) -> Brush {
@@ -1082,6 +1081,7 @@ fn filter(page: Brush, pale: Brush) -> Brush {
     [channel(0), channel(1), channel(2)]
 }
 
+/// `share` of `color` over `page`.
 fn mix(color: Brush, page: Brush, share: f32) -> Brush {
     let channel = |index: usize| {
         let (a, b) = (f32::from(color[index]), f32::from(page[index]));
