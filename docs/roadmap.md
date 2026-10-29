@@ -756,10 +756,12 @@ screen in 0.05 s.
   keys and h/l scroll it, and a sideways wheel scrolls the one under
   the pointer.
 
-#### 4.15.4 Images, diagrams and formulas
+#### 4.15.4 Images, diagrams, formulas and other blocks
 
 - Images, diagrams and formulas inside the layout, from the renderers
   kiri already has.
+- Alerts, front matter and `<details>` in the proportional font too,
+  instead of the terminal's monospace text.
 
 #### 4.15.5 Search and links
 
@@ -1137,6 +1139,11 @@ go.
   in a release build, and one with a 276-byte URL at half size 124 ms.
   Packing only the last words again would be enough, as groups further
   back no longer change.
+- One or two empty rows after the end of a document in the pager, so
+  that its last line of text does not touch the status line.
+- A menu on the right mouse button, as tmux has one: choices for the
+  place clicked, such as copying a code block or following a link. Inside
+  tmux, how it goes with tmux's own right-click menu.
 
 ## Bugs
 
