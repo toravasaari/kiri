@@ -105,8 +105,6 @@ pub struct Parts {
     rows: u16,
     /// The colours of a search's marks on it.
     marks: MarkColors,
-    /// Whether the terminal shows its links as hyperlinks.
-    hyperlinks: bool,
 }
 
 /// A link over some cells of a row of a page: the columns of the page's
@@ -153,9 +151,6 @@ impl Parts {
     /// links want a cell, the one over its centre has it, and then the
     /// earlier one.
     pub fn row_links(&self, address: usize, band: Option<(u32, u32)>, row: u16) -> Vec<RowLink> {
-        if !self.hyperlinks {
-            return Vec::new();
-        }
         let (cell_width, cell_height) = (f32::from(self.cell.0), f32::from(self.cell.1));
         let middle = (f32::from(row) + 0.5) * cell_height;
         let shown = band.and_then(|(number, offset)| {
@@ -514,7 +509,6 @@ pub fn lines(
         columns,
         rows,
         marks: mark_colors(theme, caps, &look),
-        hyperlinks: caps.hyperlinks,
     });
     let address = Rc::as_ptr(&parts) as usize;
     let lead = Span::new(&" ".repeat(usize::from(left)), Style::default());
@@ -1347,7 +1341,8 @@ mod tests {
         assert!((2..=3).contains(&columns.start), "{columns:?}");
         assert!((5..=7).contains(&columns.end), "{columns:?}");
         assert!(rows[1].is_empty() && rows[2].is_empty());
-        // A terminal without hyperlinks has none.
+        // A terminal without hyperlinks has the cells too, to select a link
+        // by; the writer leaves them out.
         let rows = row_links(
             "Go [here](https://e.example/) now.\n",
             Capabilities {
@@ -1355,7 +1350,7 @@ mod tests {
                 ..kitty(80)
             },
         );
-        assert!(rows.iter().all(Vec::is_empty));
+        assert_eq!(rows[0].len(), 1);
     }
 
     #[test]

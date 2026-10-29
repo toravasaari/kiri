@@ -218,6 +218,8 @@ impl<'a> Writer<'a> {
                 transition(&current, &plain, caps, out)?;
                 // The links of a page are hyperlinks over its placeholders.
                 let written = columns.clone();
+                // Without hyperlinks the cells are for selecting a link only.
+                let links = if caps.hyperlinks { &links[..] } else { &[] };
                 let runs: Vec<graphics::LinkRun> = (links.iter())
                     .filter_map(|link| {
                         // Only what is over the written columns, counted

@@ -488,3 +488,32 @@ fn n_to_a_match_in_another_band_counts_it_and_the_count_stays_after_the_band_mov
     assert!(frames[1].contains("1/2"), "{:?}", frames[1]);
     assert!(frames[2].contains("2/2"), "{:?}", frames[2]);
 }
+
+#[test]
+fn tab_selects_a_link_without_hyperlinks_and_none_are_written() {
+    let document = crate::parse::parse("A [first](https://one.example/) link.\n");
+    let mut terminal = Fake::new(80, 10, &[b"\t"]);
+    let caps = Capabilities {
+        hyperlinks: false,
+        ..kitty()
+    };
+    let mut inputs = Inputs {
+        reading: Some(reading()),
+        ..Inputs::new(caps)
+    };
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let frames = terminal.frames();
+    // The status line tells where the link goes, though no frame has a
+    // hyperlink for the terminal to open.
+    let bar = frames[1].rsplit("\x1b[10;1H").next().unwrap_or("");
+    assert!(bar.contains("https://one.example/"), "{bar:?}");
+    assert!(
+        frames.iter().all(|frame| !frame.contains("\x1b]8;")),
+        "{frames:?}"
+    );
+}
