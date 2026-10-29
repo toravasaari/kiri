@@ -91,30 +91,51 @@ impl Canvas {
             }
         }
         self.glyphs_over(paragraph, x, y, None);
-        for mark in marks {
-            self.mark(paragraph, x, y, mark);
-        }
+        self.marks(paragraph, x, y, marks);
     }
 
-    /// Lays `mark` over the text drawn at (`x`, `y`): a box of its
-    /// background colour on each line it covers, and the glyphs in it
-    /// again in its foreground colour.
-    fn mark(&mut self, paragraph: &Paragraph, x: f32, y: f32, mark: &TextMark) {
+    /// Lays `marks` over the text drawn at (`x`, `y`): a box of its
+    /// background colour on each line a mark covers, and the glyphs in the
+    /// boxes drawn again in their foreground colour. Marks of one colour
+    /// share one mask and one pass over the glyphs.
+    fn marks(&mut self, paragraph: &Paragraph, x: f32, y: f32, marks: &[TextMark]) {
+        if marks.is_empty() {
+            return;
+        }
         let lines = paragraph.lines();
-        let mut mask = match tiny_skia::Mask::new(self.pixmap.width(), self.pixmap.height()) {
-            Some(mask) => mask,
-            None => return,
-        };
-        for part in paragraph.boxes(mark.range.clone()) {
-            let Some(line) = lines.get(part.line) else {
+        // The boxes first, so that no glyph pass is covered by another's.
+        let mut groups: Vec<(Option<Brush>, Vec<Rect>)> = Vec::new();
+        for mark in marks {
+            let at = match groups
+                .iter()
+                .position(|(foreground, _)| *foreground == mark.foreground)
+            {
+                Some(at) => at,
+                None => {
+                    groups.push((mark.foreground, Vec::new()));
+                    groups.len() - 1
+                }
+            };
+            for part in paragraph.boxes(mark.range.clone()) {
+                let Some(line) = lines.get(part.line) else {
+                    continue;
+                };
+                let (left, top) = (x + part.left, y + line.top);
+                let (width, height) = (part.right - part.left, line.height);
+                if let Some(background) = mark.background {
+                    self.rect(left, top, width, height, background);
+                }
+                if let Some(rect) = Rect::from_xywh(left, top, width, height) {
+                    groups[at].1.push(rect);
+                }
+            }
+        }
+        for (foreground, boxes) in groups {
+            let Some(mut mask) = tiny_skia::Mask::new(self.pixmap.width(), self.pixmap.height())
+            else {
                 continue;
             };
-            let (left, top) = (x + part.left, y + line.top);
-            let (width, height) = (part.right - part.left, line.height);
-            if let Some(background) = mark.background {
-                self.rect(left, top, width, height, background);
-            }
-            if let Some(rect) = Rect::from_xywh(left, top, width, height) {
+            for rect in boxes {
                 mask.fill_path(
                     &PathBuilder::from_rect(rect),
                     FillRule::Winding,
@@ -122,8 +143,8 @@ impl Canvas {
                     Transform::identity(),
                 );
             }
+            self.glyphs_over(paragraph, x, y, Some((foreground, &mask)));
         }
-        self.glyphs_over(paragraph, x, y, Some((mark.foreground, &mask)));
     }
 
     /// The glyphs of `paragraph` at (`x`, `y`), in the colour and inside the
@@ -614,6 +635,53 @@ mod tests {
         );
         assert_eq!(count(4.0, left - 2.0, [200, 0, 200]), 0);
         assert_eq!(count(right + 2.0, 100.0, [200, 0, 200]), 0);
+    }
+
+    #[test]
+    fn marks_of_one_colour_and_of_another_in_a_paragraph_are_each_drawn_in_theirs() {
+        let paragraph = lay_out(&Fonts::fixture(), &[Run::new("ab cd ef gh")], &LOOK, 400.0);
+        let green = Some([0, 200, 0]);
+        let marks = [
+            TextMark {
+                range: 0..2,
+                foreground: green,
+                background: Some([200, 0, 200]),
+            },
+            TextMark {
+                range: 3..5,
+                foreground: Some([250, 250, 0]),
+                background: Some([0, 0, 90]),
+            },
+            TextMark {
+                range: 6..8,
+                foreground: green,
+                background: Some([200, 0, 200]),
+            },
+        ];
+        let mut canvas = Canvas::new(160, 40);
+        canvas.text_marked(&paragraph, 4.0, 5.0, None, &marks);
+        let image = canvas.into_image();
+        let lines = paragraph.lines();
+        let (top, bottom) = (5.0 + lines[0].top, 5.0 + lines[0].top + lines[0].height);
+        let within = |range: std::ops::Range<usize>, test: &dyn Fn([u8; 4]) -> bool| {
+            let part = paragraph.boxes(range)[0];
+            let (left, right) = (
+                (4.0 + part.left).round() as u32,
+                (4.0 + part.right).round() as u32,
+            );
+            (left..right)
+                .flat_map(|x| (top.round() as u32..bottom.round() as u32).map(move |y| (x, y)))
+                .filter(|&(x, y)| test(image.get_pixel(x, y).0))
+                .count()
+        };
+        let greenish =
+            |p: [u8; 4]| p[1] > p[0].saturating_add(40) && p[1] > p[2].saturating_add(40);
+        let yellowish = |p: [u8; 4]| p[0] > 150 && p[1] > 150 && p[2] < 100;
+        // The first and third in green, the second in yellow, none in the
+        // text's own colour.
+        assert!(within(0..2, &greenish) > 5 && within(6..8, &greenish) > 5);
+        assert!(within(3..5, &yellowish) > 5 && within(3..5, &greenish) == 0);
+        assert!(within(0..2, &yellowish) == 0 && within(6..8, &yellowish) == 0);
     }
 
     #[test]
