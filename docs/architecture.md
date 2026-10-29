@@ -269,8 +269,9 @@ a hash of the marks and the link in that part alone, in the key of the
 rows it is on, and kept by the encoder under its page and that hash, so
 that the terminal keeps the part with it and the part without and moving
 the current match draws only the parts it leaves and enters. A link is an
-OSC 8 hyperlink round the placeholders it covers (`src/kitty/graphics.rs`), which kitty opens as it
-does a link in text; in a band the cells move with the scrolling.
+OSC 8 hyperlink round the placeholders it covers (`src/kitty/graphics.rs`),
+which kitty opens as it does a link in text; in a band the cells move with
+the scrolling.
 `src/pager/links.rs` selects one of the links on the screen with Tab and
 Shift+Tab, numbering them from the page's own list so that a link keeps its
 id while a band scrolls, and the status line says where it goes.
