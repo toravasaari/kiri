@@ -303,6 +303,9 @@ fn page_through(
     };
     let mut laid_out = laid_out.map(|lines| (inputs.caps.clone(), lines));
     let mut size = terminal.size();
+    // The cells the window told last; only a change in them replaces the
+    // cell size detection found.
+    let mut window_cell = size.and_then(|size| size.cell_pixels());
     let mut view: Option<View> = None;
     let mut state = State::new(case);
     state.warn(warnings, terminal.now());
@@ -331,7 +334,7 @@ fn page_through(
     };
     loop {
         let cell = cell_size(&inputs.caps);
-        fit(&mut inputs.caps, size, width);
+        fit(&mut inputs.caps, size, width, &mut window_cell);
         if cell_size(&inputs.caps) != cell {
             let content = match &reloaded {
                 Some(document) => Content::Document(document),
@@ -854,15 +857,27 @@ fn load_headings(content: Content, inputs: &mut Inputs, loads: &mut Loads) {
 }
 
 /// `caps` for a window of `size`, `width` columns wide when it is given.
-fn fit(caps: &mut Capabilities, size: Option<WindowSize>, width: Option<u16>) {
+/// `window_cell` is the cells the window told before.
+fn fit(
+    caps: &mut Capabilities,
+    size: Option<WindowSize>,
+    width: Option<u16>,
+    window_cell: &mut Option<(u16, u16)>,
+) {
     let Some(size) = size else {
         return;
     };
     caps.width = width.unwrap_or(size.columns);
     caps.height = Some(size.rows).filter(|&rows| rows > 0);
     // A new font size changes the cells, when the window tells its pixels.
-    if let Some(cell) = size.cell_pixels() {
-        caps.cell_pixels = Some(cell);
+    // Cells that stay the same keep the size detection found, which inside
+    // tmux may be the terminal's where the window has tmux's guess.
+    let cell = size.cell_pixels();
+    if cell != *window_cell {
+        *window_cell = cell;
+        if cell.is_some() {
+            caps.cell_pixels = cell;
+        }
     }
 }
 

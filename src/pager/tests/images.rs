@@ -299,6 +299,38 @@ fn a_new_cell_size_loads_the_heading_images_for_it() {
 }
 
 #[test]
+fn the_terminal_s_cell_size_stays_until_the_window_s_changes() {
+    // Inside tmux in a container the window tells tmux's guess of 16 x 32
+    // pixels a cell, and kitty's answer of 10 x 20 came first. A window
+    // whose cells stay the same does not replace it; a new font, which
+    // changes the window's cells, does.
+    let pixels = |cell: (u16, u16)| WindowSize {
+        columns: 60,
+        rows: 6,
+        width: 60 * cell.0,
+        height: 6 * cell.1,
+    };
+    let sent = |after| {
+        let (document, mut inputs) = pictured([255, 0, 0, 255]);
+        inputs.caps.cell_pixels = Some((10, 20));
+        let mut terminal = Fake::new(60, 6, &[b"", b"", b"q"]);
+        terminal.size = pixels((16, 32));
+        terminal.sizes = [pixels((16, 32)), pixels(after)].into();
+        let out = written(&document, inputs, &mut terminal, None);
+        // The square's size in pixels, as many as a row's height.
+        (out.split("\x1b_Ga=T,").skip(1))
+            .map(|rest| {
+                let at = rest.find(",s=").unwrap() + 3;
+                let digits = rest[at..].chars().take_while(char::is_ascii_digit);
+                digits.collect::<String>().parse::<u16>().unwrap()
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(sent((16, 32)), [20]);
+    assert_eq!(sent((8, 16)), [20, 16]);
+}
+
+#[test]
 fn a_narrower_window_rewraps_a_heading_image_without_a_new_image() {
     let mut terminal = Fake::new(100, 12, &[b"", b"", b"q"]);
     terminal.sizes = [window(100, 12), window(30, 12)].into();
