@@ -214,6 +214,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_filter_scales_each_channel_by_its_share_of_full() {
+        let pale = [0xff, 0xf8, 0xc5];
+        // White through the filter is the filter itself.
+        assert_eq!(
+            Color::Rgb(255, 255, 255).filter(pale),
+            Some(Color::Rgb(0xff, 0xf8, 0xc5))
+        );
+        // 248 * 248 / 255 = 241.2 and 197 * 197 / 255 = 152.2, rounded.
+        assert_eq!(
+            Color::Rgb(0xff, 0xf8, 0xc5).filter(pale),
+            Some(Color::Rgb(255, 241, 152))
+        );
+        assert_eq!(Color::Rgb(0, 0, 0).filter(pale), Some(Color::Rgb(0, 0, 0)));
+        assert_eq!(Color::Palette(7).filter(pale), None);
+    }
+
+    #[test]
     fn contrast_is_the_wcag_ratio() {
         let black = Color::Rgb(0, 0, 0);
         let white = Color::Rgb(255, 255, 255);
