@@ -1984,7 +1984,7 @@ mod tests {
     }
 
     #[test]
-    fn the_warning_keeps_its_colours_on_a_dark_page_and_when_the_theme_sets_them() {
+    fn the_warning_keeps_its_colours_on_a_dark_page_without_tints_and_when_the_theme_sets_them() {
         let colors = |theme: &Theme, dark: bool| {
             let caps = Capabilities {
                 dark_background: Some(dark),
@@ -1999,6 +1999,12 @@ mod tests {
         let mut theme = Theme::default();
         theme.alerts.warning = crate::theme::AlertColor::Color(Some(Color::Rgb(1, 2, 3)));
         assert_eq!(colors(&theme, false), ([1, 2, 3], [1, 2, 3]));
+        // Without tints the light page stays plain, and the gold is not
+        // needed.
+        let mut theme = Theme::default();
+        theme.alerts.tint = false;
+        let github_light = [0x9a, 0x67, 0x00];
+        assert_eq!(colors(&theme, false), (github_light, github_light));
     }
 
     #[test]

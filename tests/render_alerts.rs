@@ -202,6 +202,16 @@ fn a_warning_on_a_light_page_has_a_gold_bar_and_title() {
 }
 
 #[test]
+fn a_warning_without_a_tint_keeps_githubs_colour_on_a_light_page() {
+    // The gold is there for the pale yellow; on the plain page it would
+    // only lower the contrast.
+    let off = kiri::theme::parse("[alerts]\nbackground = \"none\"\n").unwrap();
+    let out = render("> [!WARNING]\n> x\n", &inputs(&light_kitty(), &off));
+    assert!(out.contains("38;2;154;103;0"), "{out:?}");
+    assert!(!out.contains("38;2;191;135;0"), "{out:?}");
+}
+
+#[test]
 fn a_colour_the_theme_sets_is_mixed_with_a_light_page() {
     let theme = kiri::theme::parse("[alerts]\nwarning = \"#000000\"\n").unwrap();
     let out = render("> [!WARNING]\n> x\n", &inputs(&light_kitty(), &theme));
