@@ -812,7 +812,8 @@ impl Page {
     }
 
     /// The part of the page from `top`, `height` pixels tall and as wide as
-    /// `width`, transparent where nothing is drawn unless the page is opaque. Bands are not drawn.
+    /// `width`, transparent where nothing is drawn unless the page is
+    /// opaque. Bands are not drawn.
     pub fn draw(&self, top: u32, width: u32, height: u32) -> RgbaImage {
         self.draw_with(top, width, height, None)
     }
@@ -2907,12 +2908,13 @@ mod tests {
     /// The pixel of a nested table's row for `value` (`1`, `2` or `3`, of
     /// the keys `aa`, `bb`, `cc`): in the padding of the value's cell, 7
     /// pixels left of its text, 10 above its baseline, clear of the text and
-    /// of the column's border 14 pixels left of it.
+    /// of the column's border about 13 pixels left of it.
     fn nested_pixel(image: &RgbaImage, texts: &[(String, f32, f32, f32)], value: &str) -> [u8; 4] {
         let key = match value {
             "1" => "aa",
             "2" => "bb",
-            _ => "cc",
+            "3" => "cc",
+            _ => panic!("no row for {value:?}"),
         };
         let (_, _, baseline, _) = text(texts, key);
         let (_, value_x, ..) = text(texts, value);
