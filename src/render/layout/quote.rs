@@ -55,16 +55,23 @@ impl Layout<'_> {
             return lines;
         }
 
-        let color = self.theme.alerts.color(kind, self.dark());
-        let tint = |amount| self.tint(color, amount);
+        let dark = self.dark();
+        let color = self.theme.alerts.color(kind, dark);
         let fill = Style {
-            bg: tint(0.15),
+            bg: self.tint(kind, color, false),
             ..Style::default()
         };
         // Inline code inside stands out with a stronger tint, unless the
         // theme gives inline code no background.
         let theme;
-        let code = tint(0.3).filter(|_| self.inline_code_background().is_some());
+        let code =
+            (self.tint(kind, color, true)).filter(|_| self.inline_code_background().is_some());
+        // GitHub's dark yellow reads as brown on its pale yellow: a warning
+        // there has a gold bar and a darker gold title.
+        let (bar_color, color) = match self.theme.alerts.github_gold(kind, dark) {
+            Some((bar, title)) => (Some(bar), Some(title)),
+            None => (color, color),
+        };
         let body = match code {
             Some(code) => {
                 theme = Theme {
@@ -116,7 +123,7 @@ impl Layout<'_> {
         lines.extend(body.blocks(blocks, body_width, inner));
 
         let bar = Style {
-            fg: color,
+            fg: bar_color,
             ..fill.clone()
         };
         for line in &mut lines {
@@ -143,13 +150,28 @@ impl Layout<'_> {
         lines
     }
 
-    /// `amount` of `color` mixed into the page. `None` when either is not
+    /// The background of an alert of `kind`, or with `strong` that of
+    /// inline code in it. GitHub's own colours on a light page have its
+    /// pale backgrounds, which a mix with the page does not match: dark
+    /// yellow and white make beige. They tint the page as a colour filter
+    /// does, and inline code takes the filter twice. Otherwise 15 or 30 %
+    /// of `color` is mixed into the page. `None` when a colour is not
     /// known as RGB, or the theme has no tints.
-    fn tint(&self, color: Option<Color>, amount: f32) -> Option<Color> {
+    fn tint(&self, kind: AlertKind, color: Option<Color>, strong: bool) -> Option<Color> {
         if !self.theme.alerts.tint {
             return None;
         }
-        self.mixed_into_page(color, amount)
+        match self.theme.alerts.github_background(kind, self.dark()) {
+            Some(pale) => {
+                let once = self.page()?.filter(pale)?;
+                if strong {
+                    once.filter(pale)
+                } else {
+                    Some(once)
+                }
+            }
+            None => self.mixed_into_page(color, if strong { 0.3 } else { 0.15 }),
+        }
     }
 }
 

@@ -130,7 +130,7 @@ fn no_tint_without_a_known_background_or_when_the_theme_turns_it_off() {
 }
 
 #[test]
-fn paper_mixes_the_tint_into_its_own_page() {
+fn paper_tints_its_own_page() {
     // The light page is white, whatever the terminal's background.
     let caps = Capabilities {
         background: None,
@@ -138,8 +138,59 @@ fn paper_mixes_the_tint_into_its_own_page() {
         ..kitty()
     };
     let out = render(NOTE, &inputs(&caps, &Theme::paper(Paper::Light)));
-    // 15 % of GitHub's light note blue, #0969da, over white.
-    assert!(out.contains("48;2;218;233;249"), "{out:?}");
+    // GitHub's pale blue over the white page.
+    assert!(out.contains("48;2;221;244;255"), "{out:?}");
+}
+
+/// kitty on a white background.
+fn light_kitty() -> Capabilities {
+    Capabilities {
+        background: Some(Color::Rgb(0xff, 0xff, 0xff)),
+        dark_background: Some(false),
+        ..kitty()
+    }
+}
+
+#[test]
+fn a_light_page_tints_alerts_with_githubs_pale_backgrounds() {
+    // A plain mix of a dark colour with white is dusty: the warning would
+    // be beige. GitHub's own pale backgrounds are used instead.
+    for (source, tint) in [
+        ("> [!NOTE]\n> x\n", "48;2;221;244;255"),
+        ("> [!TIP]\n> x\n", "48;2;218;251;225"),
+        ("> [!IMPORTANT]\n> x\n", "48;2;251;239;255"),
+        ("> [!WARNING]\n> x\n", "48;2;255;248;197"),
+        ("> [!CAUTION]\n> x\n", "48;2;255;235;233"),
+    ] {
+        let out = render(source, &inputs(&light_kitty(), &Theme::default()));
+        assert!(out.contains(tint), "{source:?}: {out:?}");
+    }
+    // Inline code in an alert takes the same tint twice.
+    let out = render(
+        "> [!WARNING]\n> Run `make`.\n",
+        &inputs(&light_kitty(), &Theme::default()),
+    );
+    assert!(out.contains("48;2;255;241;152m\u{a0}make"), "{out:?}");
+}
+
+#[test]
+fn a_warning_on_a_light_page_has_a_gold_bar_and_title() {
+    let out = render(
+        "> [!WARNING]\n> x\n",
+        &inputs(&light_kitty(), &Theme::default()),
+    );
+    // GitHub's #9a6700 reads as brown on the pale yellow.
+    assert!(!out.contains("38;2;154;103;0"), "{out:?}");
+    assert!(out.contains("38;2;191;135;0"), "the bar: {out:?}");
+    assert!(out.contains("38;2;172;122;0"), "the title: {out:?}");
+}
+
+#[test]
+fn a_colour_the_theme_sets_is_mixed_with_a_light_page() {
+    let theme = kiri::theme::parse("[alerts]\nwarning = \"#000000\"\n").unwrap();
+    let out = render("> [!WARNING]\n> x\n", &inputs(&light_kitty(), &theme));
+    // 15 % of black over white.
+    assert!(out.contains("48;2;217;217;217"), "{out:?}");
 }
 
 #[test]

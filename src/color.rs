@@ -21,6 +21,18 @@ impl Color {
         Some(Self::Rgb(channel(r1, r2), channel(g1, g2), channel(b1, b2)))
     }
 
+    /// This colour seen through a filter of colour `filter`: each channel
+    /// scaled by the filter's share of full, so white becomes `filter`.
+    /// `None` for a palette colour.
+    pub fn filter(self, filter: [u8; 3]) -> Option<Color> {
+        let Self::Rgb(r, g, b) = self else {
+            return None;
+        };
+        let channel = |from: u8, by: u8| (f32::from(from) * f32::from(by) / 255.0).round() as u8;
+        let [fr, fg, fb] = filter;
+        Some(Self::Rgb(channel(r, fr), channel(g, fg), channel(b, fb)))
+    }
+
     /// The WCAG contrast ratio of two RGB colours, from 1 to 21; `None`
     /// when either is a palette colour.
     pub fn contrast(self, other: Color) -> Option<f64> {

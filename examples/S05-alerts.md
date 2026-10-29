@@ -35,8 +35,8 @@ code in an alert has a stronger tint of the colour than the rest.
 > the title "Important".
 
 > [!WARNING]
-> A warning: yellow-brown, with a warning triangle and the title
-> "Warning".
+> A warning: yellow, gold on a light page, with a warning triangle and
+> the title "Warning".
 
 > [!CAUTION]
 > A caution: red, with an octagon holding an exclamation mark, as on a
@@ -45,8 +45,11 @@ code in an alert has a stronger tint of the colour than the rest.
 ## Paper and without colours
 
 On the paper themes the alerts keep their colours, in GitHub's darker
-shades on the light page and its lighter ones on the dark page, each over
-a faint tint of its colour. Without colours, with `NO_COLOR`, an alert
+shades on the light page and its lighter ones on the dark page. On a light
+page, which `--light` gives, the tints are GitHub's pale ones: light blue,
+light green, light lilac, light yellow (the warning is lemon, not beige or
+brown, and its bar and title are gold, not brown) and light pink. On a
+dark page they are dark shades of the colours. Without colours, with `NO_COLOR`, an alert
 keeps its bar, icon and bold title, with no colour and no tint. In plain
 text output it is an ordinary quote, with the title on its first line:
 
@@ -64,11 +67,8 @@ column: the same bar, tint, colours and bold title, but the icon is a
 picture, so it is there in every terminal that draws images, not only in
 kitty with its symbols font. Look for the circled `i`, the light bulb,
 the speech bubble, the triangle and the octagon, each in its kind's
-colour. On a light page, which `--light` gives, the tints are GitHub's
-pale ones: light blue, light green, light lilac, light yellow (the
-warning is lemon, not beige or brown, and its bar and title are gold, not
-brown) and light pink. On a dark page they
-are dark shades of the colours:
+colour. The tints are the same as in the text layout, on a light page
+and on a dark one:
 
 ```sh
 kiri --reading examples/S05-alerts.md
