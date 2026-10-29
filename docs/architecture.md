@@ -265,13 +265,18 @@ on the row of its line of text, and a match in a band scrolls the band to
 it and selects it. The marks are drawn into the page's image, a box in
 the theme's match colours with the text drawn over it, and so is a box
 round the selected link: what is drawn over a part is an overlay, named by
-a hash in the key of the rows it is on, so that the terminal keeps the
-part with it and the part without. A link is an OSC 8 hyperlink round the
+a hash of the marks and the link in that part alone, in the key of the
+rows it is on, and kept by the encoder under its page and that hash, so
+that the terminal keeps the part with it and the part without and moving
+the current match draws only the parts it leaves and enters. A link is an OSC 8 hyperlink round the
 placeholders it covers (`src/kitty/graphics.rs`), which kitty opens as it
 does a link in text; in a band the cells move with the scrolling.
 `src/pager/links.rs` selects one of the links on the screen with Tab and
 Shift+Tab, numbering them from the page's own list so that a link keeps its
 id while a band scrolls, and the status line says where it goes.
+`Reading` also holds a cache of the pictures scaled for the last layout,
+by image, its pixels and size, so that a layout scales only what is new
+and lets go of what it did not show.
 
 ## Diagrams
 
