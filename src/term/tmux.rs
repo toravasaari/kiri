@@ -131,8 +131,12 @@ pub struct ClientCells {
     pane: Option<String>,
     /// The pane's columns and rows when tmux was asked last, and its
     /// answer.
-    asked: Cell<Option<((u16, u16), Option<(u16, u16)>)>>,
+    asked: Cell<Option<(Cells, Option<Cells>)>>,
 }
+
+/// Two numbers of a cell grid: columns and rows, or a cell's width and
+/// height in pixels.
+type Cells = (u16, u16);
 
 impl ClientCells {
     /// For the pane `env` names.
@@ -168,7 +172,7 @@ impl ClientCells {
     }
 
     /// The client's cell size, `None` when tmux does not tell it.
-    fn ask(&self, run: Run) -> Option<(u16, u16)> {
+    fn ask(&self, run: Run) -> Option<Cells> {
         let target: &[&str] = match &self.pane {
             Some(pane) => &["-t", pane],
             None => &[],
