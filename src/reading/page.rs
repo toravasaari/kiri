@@ -1634,12 +1634,48 @@ impl<'a> Flow<'a> {
                     most.iter().sum::<f32>() + border,
                 )
             }
-            Cell::Stack(cells) => (cells.iter())
-                .map(|cell| self.cell_widths(grid, (row, column), cell, ink))
-                .fold((0.0, 0.0), |(min, max), (least, most)| {
+            Cell::Stack(cells) => {
+                // The tables of a stack share their columns' widths.
+                let extra = self.look.size * 2.0 * CELL_ACROSS + 1.0;
+                let tables = self.stack_columns(cells, ink).map(|(least, most)| {
+                    let border = least.len() as f32 * extra + 1.0;
+                    (
+                        least.iter().sum::<f32>() + border,
+                        most.iter().sum::<f32>() + border,
+                    )
+                });
+                let others = cells
+                    .iter()
+                    .filter(|cell| !matches!(cell, Cell::Table(_)))
+                    .map(|cell| self.cell_widths(grid, (row, column), cell, ink));
+                (others.chain(tables)).fold((0.0, 0.0), |(min, max), (least, most)| {
                     (f32::max(min, least), f32::max(max, most))
-                }),
+                })
+            }
         }
+    }
+
+    /// The narrowest and the widest each column of the tables among
+    /// `cells` can be, the widest of each column across them; `None` when
+    /// there are none.
+    fn stack_columns(&self, cells: &[Cell], ink: Ink) -> Option<(Vec<f32>, Vec<f32>)> {
+        let mut found: Option<(Vec<f32>, Vec<f32>)> = None;
+        for cell in cells {
+            let Cell::Table(inner) = cell else {
+                continue;
+            };
+            let (least, most) = self.grid_widths(inner, ink);
+            let (all_least, all_most) = found.get_or_insert_with(|| (Vec::new(), Vec::new()));
+            for (column, (min, max)) in least.into_iter().zip(most).enumerate() {
+                if column == all_least.len() {
+                    all_least.push(0.0);
+                    all_most.push(0.0);
+                }
+                all_least[column] = all_least[column].max(min);
+                all_most[column] = all_most[column].max(max);
+            }
+        }
+        found
     }
 
     /// The text of a cell at (`row`, `column`) of `grid`, laid out in
@@ -1743,13 +1779,34 @@ impl<'a> Flow<'a> {
             }
             Cell::Table(inner) => self.nested(inner, x, width),
             Cell::Stack(cells) => {
+                // The tables of a stack have the same columns.
+                let shared = self
+                    .stack_columns(cells, self.ink(width))
+                    .map(|(least, most)| {
+                        let extra = self.look.size * 2.0 * CELL_ACROSS + 1.0;
+                        let room = width - least.len() as f32 * extra - 1.0;
+                        let (widths, forced) = share(&least, &most, room);
+                        let wrap = match forced {
+                            true => text::Wrap::Forced,
+                            false => text::Wrap::Words,
+                        };
+                        (widths, wrap)
+                    });
                 for (number, cell) in cells.iter().enumerate() {
                     // A gap between tables, as between blocks.
                     let table = |cell: &Cell| matches!(cell, Cell::Table(_));
                     if number > 0 && (table(cell) || table(&cells[number - 1])) {
                         self.y += self.look.size;
                     }
-                    self.cell(grid, (row, column), cell, x, width, wrap);
+                    match (cell, &shared) {
+                        (Cell::Table(inner), Some((widths, wrap))) => {
+                            let columns = inner.columns();
+                            self.grid(inner, x, &widths[..columns], *wrap);
+                        }
+                        _ => {
+                            self.cell(grid, (row, column), cell, x, width, wrap);
+                        }
+                    }
                 }
             }
         }
@@ -2539,6 +2596,24 @@ mod tests {
         // the next, and a gap of a font size, 16, between them.
         let apart = text(&texts, "2").2 - text(&texts, "1").2;
         assert_eq!(apart, 37.0 + 16.0);
+    }
+
+    #[test]
+    fn the_tables_in_a_list_in_one_cell_have_the_same_column_widths() {
+        let source = "---\nitems:\n  - k: short\n  - k: a much longer value\n---\n";
+        let page = with_front_matter(source, FrontMatterShown::Table);
+        // The one-row tables' vertical borders: 37 pixels tall, three for
+        // each (the outer table's are taller).
+        let mut borders: Vec<(f32, f32)> = rects(&page)
+            .into_iter()
+            .filter(|r| r.2 == 1.0 && r.3 == 37.0)
+            .map(|r| (r.1, r.0))
+            .collect();
+        borders.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(borders.len(), 6, "{borders:?}");
+        let (first, second) = (&borders[..3], &borders[3..]);
+        let xs = |lines: &[(f32, f32)]| lines.iter().map(|b| b.1).collect::<Vec<_>>();
+        assert_eq!(xs(first), xs(second));
     }
 
     #[test]
