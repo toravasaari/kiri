@@ -960,7 +960,7 @@ pub fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities
         Color::Rgb(red, green, blue) => Some([red, green, blue]),
         Color::Palette(_) => None,
     };
-    let known = exact(theme.background).or_else(|| exact(caps.background));
+    let known = exact(theme.background.or(caps.background));
     let page = (rgb(theme.background).or_else(|| rgb(caps.background))).unwrap_or(if dark {
         [0; 3]
     } else {
@@ -1946,5 +1946,10 @@ mod tests {
         let reported = look_of(&caps);
         assert!(reported.opaque);
         assert_eq!(reported.page, [1, 2, 3]);
+        // The terminal's own background does not make the theme's colour
+        // known: the cells take the theme's.
+        caps.palette[1] = None;
+        caps.background = Some(Color::Rgb(0x0d, 0x11, 0x17));
+        assert!(!look_of(&caps).opaque);
     }
 }
