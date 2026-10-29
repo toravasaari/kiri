@@ -48,10 +48,10 @@ pub struct Encoder {
     /// which draw a part when it is sent.
     pages: HashMap<u64, Rc<Parts>>,
     /// What is drawn over parts of those pages, by the hash in their keys.
-    overlays: HashMap<u64, Rc<Overlay>>,
+    overlays: Overlays,
     /// The overlays the frame being drawn has used; those of the frames
     /// before are dropped when it is done.
-    drawn: HashSet<u64>,
+    drawn: HashSet<(u64, u64)>,
 }
 
 /// An image the terminal holds.
@@ -129,15 +129,31 @@ impl Encoder {
             self.pages.entry(*page).or_insert_with(|| Rc::clone(parts));
         }
         if let (
-            ImageKey::Page { overlay: hash, .. } | ImageKey::Band { overlay: hash, .. },
+            ImageKey::Page {
+                page,
+                overlay: hash,
+                ..
+            }
+            | ImageKey::Band {
+                page,
+                overlay: hash,
+                ..
+            },
             Some(overlay),
         ) = (key, overlay)
         {
-            self.drawn.insert(*hash);
+            // By page too: two pages may have the same marks in a part.
+            self.drawn.insert((*page, *hash));
             self.overlays
-                .entry(*hash)
+                .entry((*page, *hash))
                 .or_insert_with(|| Rc::clone(overlay));
         }
+    }
+
+    /// The overlay named by `hash` on page `page`.
+    #[cfg(test)]
+    fn overlay_of(&self, page: u64, hash: u64) -> Option<&Rc<Overlay>> {
+        self.overlays.get(&(page, hash))
     }
 
     /// The id of the band `columns` cells of `cell` pixels wide, in
@@ -346,7 +362,7 @@ struct Scaled {
 /// The pages of reading mode, by their id, and what is drawn over parts of
 /// them, by the hash in their keys.
 type Pages = HashMap<u64, Rc<Parts>>;
-type Overlays = HashMap<u64, Rc<Overlay>>;
+type Overlays = HashMap<(u64, u64), Rc<Overlay>>;
 
 impl Scaled {
     /// The image `placement` shows, from `images`, scaled to its size in
@@ -367,7 +383,7 @@ impl Scaled {
                 overlay,
                 ..
             } => (pages.get(&page))
-                .map(|parts| parts.draw(slice, overlays.get(&overlay).map(Rc::as_ref))),
+                .map(|parts| parts.draw(slice, overlays.get(&(page, overlay)).map(Rc::as_ref))),
             ImageKey::Band {
                 page,
                 band,
@@ -377,7 +393,7 @@ impl Scaled {
                 overlay,
                 ..
             } => (pages.get(&page)).map(|parts| {
-                let over = overlays.get(&overlay).map(Rc::as_ref);
+                let over = overlays.get(&(page, overlay)).map(Rc::as_ref);
                 parts.draw_band(band, slice, offset, selected, over)
             }),
             _ => None,
@@ -542,6 +558,74 @@ mod tests {
                 encoder.overlays.len()
             );
         }
+    }
+
+    #[test]
+    fn two_pages_with_the_same_hash_have_their_own_overlays() {
+        use crate::reading::page::{MarkColors, Overlay};
+        use crate::render::Inputs;
+        let inputs = Inputs {
+            reading: Some(crate::render::reading::Reading {
+                pictures: Default::default(),
+                fonts: Rc::new(crate::reading::Fonts::fixture()),
+                wide: crate::reading::page::Wide::Wrap,
+            }),
+            ..Inputs::new(Capabilities {
+                cell_pixels: Some((10, 20)),
+                ..Capabilities::kitty(80)
+            })
+        };
+        let page_of = |source: &str| {
+            let lines = crate::render::layout::layout(&crate::parse::parse(source), &inputs);
+            let image = lines[0].image.as_ref().expect("a page");
+            let parts = Rc::clone(image.page.as_ref().expect("parts"));
+            let ImageKey::Page {
+                document,
+                page,
+                slice,
+                ..
+            } = image.placement.key
+            else {
+                panic!("a page's key");
+            };
+            (parts, document, page, slice)
+        };
+        let (parts_a, document, page_a, slice) = page_of("Page A.\n");
+        let (parts_b, _, page_b, _) = page_of("Page B.\n");
+        assert_ne!(page_a, page_b);
+        let colors = MarkColors {
+            found: (None, None),
+            current: (None, None),
+        };
+        let overlay = |link| {
+            Rc::new(Overlay {
+                colors,
+                marks: Vec::new(),
+                link: Some(link),
+                rows: Vec::new(),
+                link_rows: None,
+            })
+        };
+        let (a, b) = (overlay(1), overlay(2));
+        let mut encoder = Encoder::default();
+        // The same hash on two pages, as the same marks in a part of each
+        // give.
+        let key = |page| ImageKey::Page {
+            document,
+            page,
+            slice,
+            overlay: 77,
+        };
+        encoder.page(&key(page_a), &parts_a, Some(&a));
+        encoder.page(&key(page_b), &parts_b, Some(&b));
+        assert_eq!(
+            encoder.overlay_of(page_a, 77).map(|o| o.link),
+            Some(Some(1))
+        );
+        assert_eq!(
+            encoder.overlay_of(page_b, 77).map(|o| o.link),
+            Some(Some(2))
+        );
     }
 
     #[test]
