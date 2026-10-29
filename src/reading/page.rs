@@ -1777,6 +1777,8 @@ impl<'a> Flow<'a> {
         if front_matter.source.trim().is_empty() {
             return;
         }
+        // A blank line above it, so that it does not touch the page's top.
+        self.y += LINE_HEIGHT * self.look.size;
         match (&front_matter.value, self.front_matter) {
             (Some(Ok(Value::Map(entries))), FrontMatterShown::Table) => {
                 self.nested(&map_grid(entries, 1), x, width);
@@ -2502,6 +2504,25 @@ mod tests {
 
     fn page_of_table() -> Page {
         page("| h |\n|---|\n| a |\n| b |\n")
+    }
+
+    #[test]
+    fn front_matter_has_a_blank_line_above_it() {
+        let source = "---\na: 1\n---\n\nText.\n";
+        let page = with_front_matter(source, FrontMatterShown::Table);
+        // A line of the text's height, 24 pixels, before its top border.
+        let top = rects(&page).iter().map(|r| r.1).fold(f32::MAX, f32::min);
+        assert_eq!(top, 24.0);
+        // Front matter as code has it too, and an empty one none.
+        let code = with_front_matter(source, FrontMatterShown::Code);
+        let block = (code.items.iter()).find_map(|item| match item.shape {
+            Shape::RoundRect { y, .. } => Some(y),
+            _ => None,
+        });
+        assert_eq!(block, Some(24.0));
+        let empty = with_front_matter("---\n---\n\nText.\n", FrontMatterShown::Table);
+        // Only the margin the empty block always had, 16 above the text.
+        assert_eq!(text(&texts(&empty), "Text.").2, 33.0);
     }
 
     #[test]
