@@ -11,7 +11,7 @@ use signal_hook::consts::{SIGHUP, SIGINT, SIGQUIT, SIGTERM};
 
 use rustix::termios::{OptionalActions, Termios, tcgetattr, tcsetattr};
 
-use super::tmux::{ClientCells, Wrapping};
+use super::tmux::{self, ClientCells, Wrapping};
 use super::window::{WindowSize, window_size};
 use super::{interrupt, probe};
 
@@ -289,7 +289,7 @@ impl<W: Write> Screen<W> {
     pub fn size(&self) -> Option<WindowSize> {
         let window = window_size(&self.tty)?;
         Some(match &self.client_cells {
-            Some(cells) => cells.window(window, &super::tmux::run),
+            Some(cells) => cells.window(window, &tmux::run),
             None => window,
         })
     }

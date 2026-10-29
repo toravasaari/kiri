@@ -6,9 +6,9 @@ use std::cell::Cell;
 use std::io::{self, Write};
 use std::process::{Command, Stdio};
 
+use super::window::WindowSize;
 use crate::config::Environment;
 use crate::kitty::graphics;
-use crate::term::window::WindowSize;
 
 /// The start of tmux's passthrough: a DCS for tmux.
 const OPEN: &str = "\x1bPtmux;";
