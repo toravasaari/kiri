@@ -526,6 +526,8 @@ mod tests {
                 colors,
                 marks: Vec::new(),
                 link: Some(hash as usize),
+                rows: Vec::new(),
+                link_rows: None,
             });
             let key = ImageKey::Page {
                 document,

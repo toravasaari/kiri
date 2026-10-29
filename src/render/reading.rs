@@ -293,10 +293,15 @@ impl Parts {
         link: Option<usize>,
     ) -> Option<Rc<Overlay>> {
         (!marks.is_empty() || link.is_some()).then(|| {
+            let rows = (marks.iter())
+                .map(|(item, range, _)| self.page.mark_rows(*item, range.clone()))
+                .collect();
             Rc::new(Overlay {
                 colors: self.marks,
                 marks,
                 link,
+                rows,
+                link_rows: link.map(|number| self.page.link_rows(number)),
             })
         })
     }
@@ -377,18 +382,28 @@ pub fn pages(lines: &[Line]) -> Vec<PageRows> {
 }
 
 /// Draws `overlay` over the rows `lines` of a page, or nothing over them
-/// when it is `None`: their keys name it by a hash, so that what was
-/// drawn without it, or with another, is not what is shown.
+/// when it is `None`: their keys name what is drawn over each part by a
+/// hash of the marks and the link in that part alone, so that a part with
+/// none is the one it was, and what was drawn without it, or with another,
+/// is not what is shown.
 pub fn set_overlay(lines: &mut [Line], overlay: Option<&Rc<Overlay>>) {
-    let hash = overlay.map_or(0, |overlay| {
-        let mut hasher = DefaultHasher::new();
-        format!("{overlay:?}").hash(&mut hasher);
-        hasher.finish().max(1)
-    });
     for line in lines {
         let Some(image) = &mut line.image else {
             continue;
         };
+        // The pixel rows of the page the part of this row covers.
+        let covered = |parts: &Parts, band: Option<u32>, slice: u32| {
+            let height = f32::from(parts.cell.1);
+            let from = (slice * u32::from(PART_ROWS)) as f32 * height;
+            let top = band.and_then(|band| parts.band_top(band)).unwrap_or(0.0);
+            let to = from + f32::from(PART_ROWS) * height;
+            (top + from).floor() as u32..(top + to).ceil() as u32
+        };
+        let hash_of =
+            |parts: Option<&Rc<Parts>>, band: Option<u32>, slice: u32| match (overlay, parts) {
+                (Some(overlay), Some(parts)) => overlay.hash_over(covered(parts, band, slice)),
+                _ => 0,
+            };
         let key = match image.placement.key {
             ImageKey::Page {
                 document,
@@ -399,7 +414,7 @@ pub fn set_overlay(lines: &mut [Line], overlay: Option<&Rc<Overlay>>) {
                 document,
                 page,
                 slice,
-                overlay: hash,
+                overlay: hash_of(image.page.as_ref(), None, slice),
             },
             ImageKey::Band {
                 document,
@@ -416,17 +431,21 @@ pub fn set_overlay(lines: &mut [Line], overlay: Option<&Rc<Overlay>>) {
                 slice,
                 offset,
                 selected,
-                overlay: hash,
+                overlay: hash_of(image.page.as_ref(), Some(band), slice),
             },
             _ => continue,
         };
+        let drawn = matches!(
+            key,
+            ImageKey::Page { overlay: hash, .. } | ImageKey::Band { overlay: hash, .. } if hash != 0
+        );
         if key != image.placement.key {
             image.placement = Rc::new(Placement {
                 key,
                 ..(*image.placement).clone()
             });
         }
-        image.overlay = overlay.cloned();
+        image.overlay = overlay.filter(|_| drawn).cloned();
     }
 }
 
@@ -1569,6 +1588,42 @@ mod tests {
         layout::layout(&document, &inputs);
         assert_eq!(cache.borrow().scaled(), 2);
         assert_eq!(cache.borrow().len(), 1);
+    }
+
+    #[test]
+    fn moving_the_current_match_redraws_only_the_parts_it_leaves_and_enters() {
+        let document = parse(&"A word here.\n\n".repeat(120));
+        let mut lines = layout::layout(&document, &inputs(kitty(80)));
+        let page = &pages(&lines)[0];
+        let (parts, rows) = (Rc::clone(&page.parts), page.lines.clone());
+        let hits = parts.find(&|text: &str| {
+            text.match_indices("word")
+                .map(|(at, found)| at..at + found.len())
+                .collect()
+        });
+        let count = hits.len();
+        assert_eq!(count, 120);
+        // Every match marked, the current one the first or the last.
+        let overlay = |current: usize| {
+            let marks = (hits.iter().enumerate())
+                .map(|(number, hit)| (hit.item, hit.range.clone(), number == current))
+                .collect();
+            parts.overlay(marks, None)
+        };
+        let keys = |lines: &[Line]| -> Vec<_> {
+            (lines[rows.clone()].iter())
+                .step_by(30)
+                .map(|line| line.image.as_ref().unwrap().placement.key.clone())
+                .collect()
+        };
+        set_overlay(&mut lines[rows.clone()], overlay(0).as_ref());
+        let first = keys(&lines);
+        set_overlay(&mut lines[rows.clone()], overlay(count - 1).as_ref());
+        let last = keys(&lines);
+        assert!(first.len() >= 4, "{} parts", first.len());
+        let changed = first.iter().zip(&last).filter(|(a, b)| a != b).count();
+        // The part the current match leaves and the one it enters.
+        assert_eq!(changed, 2, "{first:?} {last:?}");
     }
 
     #[test]

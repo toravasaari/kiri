@@ -341,9 +341,34 @@ pub struct Overlay {
     pub colors: MarkColors,
     pub marks: Vec<(ItemRef, Range<usize>, bool)>,
     pub link: Option<usize>,
+    /// The pixel rows from the top of the page that each mark covers, and
+    /// the selected link.
+    pub rows: Vec<Range<u32>>,
+    pub link_rows: Option<Range<u32>>,
 }
 
 impl Overlay {
+    /// A hash of what the overlay draws over the pixel rows `rows` of the
+    /// page, and 0 when it draws nothing there: a part with no mark in it
+    /// is the part it was.
+    pub fn hash_over(&self, rows: Range<u32>) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let over = |covered: &Range<u32>| covered.start < rows.end && rows.start < covered.end;
+        let marks: Vec<_> = (self.marks.iter().zip(&self.rows))
+            .filter(|(_, covered)| over(covered))
+            .map(|(mark, _)| mark)
+            .collect();
+        let link = self
+            .link
+            .filter(|_| self.link_rows.as_ref().is_some_and(over));
+        if marks.is_empty() && link.is_none() {
+            return 0;
+        }
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        format!("{:?} {marks:?} {link:?}", self.colors).hash(&mut hasher);
+        hasher.finish().max(1)
+    }
+
     fn marks_in(&self, at: ItemRef) -> Vec<TextMark> {
         (self.marks.iter())
             .filter(|(item, ..)| *item == at)
@@ -446,6 +471,52 @@ impl Page {
     /// The links on the page, from the top down.
     pub fn links(&self) -> &[LinkPlace] {
         &self.links
+    }
+
+    /// The pixel rows from the top of the page that the bytes `range` of
+    /// the text `item` cover.
+    pub fn mark_rows(&self, item: ItemRef, range: Range<usize>) -> Range<u32> {
+        let (items, top) = match item.band {
+            None => (&self.items, 0.0),
+            Some(band) => match self.bands.get(band) {
+                Some(band) => (&band.items, band.top),
+                None => return 0..0,
+            },
+        };
+        let Some(Shape::Text { paragraph, y, .. }) = items.get(item.index).map(|item| &item.shape)
+        else {
+            return 0..0;
+        };
+        let lines = paragraph.lines();
+        let (mut from, mut to) = (f32::MAX, 0.0f32);
+        for part in paragraph.boxes(range) {
+            if let Some(line) = lines.get(part.line) {
+                from = from.min(top + y + line.top);
+                to = to.max(top + y + line.top + line.height);
+            }
+        }
+        if from > to {
+            return 0..0;
+        }
+        from.floor() as u32..to.ceil() as u32
+    }
+
+    /// The pixel rows from the top of the page that link `number` covers.
+    pub fn link_rows(&self, number: usize) -> Range<u32> {
+        let Some(link) = self.links.get(number) else {
+            return 0..0;
+        };
+        let top = link
+            .band
+            .and_then(|band| self.bands.get(band))
+            .map_or(0.0, |band| band.top);
+        let from = (link.pieces.iter())
+            .map(|piece| piece.y)
+            .fold(f32::MAX, f32::min);
+        let to = (link.pieces.iter())
+            .map(|piece| piece.y + piece.height)
+            .fold(0.0, f32::max);
+        (top + from).floor() as u32..(top + to).ceil() as u32
     }
 
     /// Finds the links among the items.
@@ -2624,6 +2695,8 @@ mod tests {
                 (hits[1].item, hits[1].range.clone(), true),
             ],
             link: Some(0),
+            rows: Vec::new(),
+            link_rows: None,
         };
         let plain = page.draw(0, 672, 24);
         let marked = page.draw_with(0, 672, 24, Some(&overlay));
@@ -2641,6 +2714,8 @@ mod tests {
         assert!(colored(&marked, Piece { y: link.y, ..top }, LOOK.link) > 10);
         let unselected = Overlay {
             link: None,
+            rows: Vec::new(),
+            link_rows: None,
             ..overlay
         };
         let image = page.draw_with(0, 672, 24, Some(&unselected));
@@ -2656,6 +2731,8 @@ mod tests {
             colors: MARKS,
             marks: vec![(hits[0].item, hits[0].range.clone(), true)],
             link: None,
+            rows: Vec::new(),
+            link_rows: None,
         };
         let rows = 0.0..page.bands[0].height;
         let shown = |offset| page.draw_band_with(0, offset, false, rows.clone(), Some(&overlay));
