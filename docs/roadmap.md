@@ -1259,7 +1259,8 @@ container's terminal does not tell its size in pixels, so tmux gave the
 pane 16 × 32 pixels a cell where kitty's were 10 × 21. kiri drew each
 part of a page for the wrong cells, and kitty, fitting the part into its
 cells, left gaps above and below it; where two parts met, rows were cut.
-Neither the tmux version nor `RGB` played a part.
+Neither the tmux version nor `RGB` played a part. `--mode kitty` asks
+the terminal nothing, so inside such a tmux it still takes tmux's guess.
 
 In the maintainer's kitty, reading mode shows a few broken rows in
 tmux inside a jailbee container (tmux 3.6): the lower part of a line of
