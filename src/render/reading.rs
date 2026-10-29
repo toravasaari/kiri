@@ -998,6 +998,7 @@ pub fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities
             TableStyle::Grid => page::TableStyle::Grid,
         },
         stripe: stripes.then(|| mix(text, page, STRIPE)),
+        page,
         alerts: [
             AlertKind::Note,
             AlertKind::Tip,

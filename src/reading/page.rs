@@ -94,6 +94,9 @@ pub struct Look {
     /// How tables are drawn.
     pub table_style: TableStyle,
     pub stripe: Option<Brush>,
+    /// The page's colour, which a table inside a shaded row paints its own
+    /// unshaded rows in.
+    pub page: Brush,
     /// The colour of what could not be drawn, such as a diagram's error.
     pub error: Brush,
     /// How alerts look, by kind: note, tip, important, warning, caution.
@@ -1635,10 +1638,10 @@ impl<'a> Flow<'a> {
         let table_width = widths.iter().sum::<f32>() + columns as f32 * extra + 1.0;
         match scroll && too_wide {
             true => self.band(x, table_width, |flow| {
-                flow.grid(grid, x, &widths, wrap);
+                flow.grid(grid, x, &widths, wrap, false);
                 None
             }),
-            false => self.grid(grid, x, &widths, wrap),
+            false => self.grid(grid, x, &widths, wrap, false),
         }
     }
 
@@ -1758,8 +1761,10 @@ impl<'a> Flow<'a> {
     }
 
     /// Lays `grid` out at `x` and the current top, its columns `widths`
-    /// wide, and moves below it.
-    fn grid(&mut self, grid: &Grid, x: f32, widths: &[f32], wrap: text::Wrap) {
+    /// wide, and moves below it. A table `inside` another's cell paints
+    /// each of its rows, in the page's colour or the stripe's, whatever
+    /// shade the row it is in has.
+    fn grid(&mut self, grid: &Grid, x: f32, widths: &[f32], wrap: text::Wrap, inside: bool) {
         let look = *self.look;
         let (across, down) = (CELL_ACROSS * look.size, CELL_DOWN * look.size);
         let columns = widths.len();
@@ -1786,9 +1791,13 @@ impl<'a> Flow<'a> {
             let height = height + 2.0 * down;
             // Every second body row, from the second: a header is none.
             let body = row.checked_sub(usize::from(grid.header_row));
-            if body.is_some_and(|body| body % 2 == 1)
-                && let Some(stripe) = look.stripe
-            {
+            let shaded = body.is_some_and(|body| body % 2 == 1);
+            let paint = match (look.stripe, shaded) {
+                (Some(stripe), true) => Some(stripe),
+                (Some(_), false) if inside => Some(look.page),
+                _ => None,
+            };
+            if let Some(color) = paint {
                 // In a frame the last row's bottom corners are round too.
                 match look.table_style == TableStyle::Frame && row + 1 == grid.rows.len() {
                     true => self.push(
@@ -1799,10 +1808,10 @@ impl<'a> Flow<'a> {
                             width: table_width,
                             height,
                             radius: CODE_RADIUS * look.size,
-                            color: stripe,
+                            color,
                         },
                     ),
-                    false => self.rect(x, y, table_width, height, stripe),
+                    false => self.rect(x, y, table_width, height, color),
                 }
             }
             for inner in &mut inners {
@@ -1908,7 +1917,7 @@ impl<'a> Flow<'a> {
                     match (cell, &shared) {
                         (Cell::Table(inner), Some((widths, wrap))) => {
                             let columns = inner.columns();
-                            self.grid(inner, x, &widths[..columns], *wrap);
+                            self.grid(inner, x, &widths[..columns], *wrap, true);
                         }
                         _ => {
                             self.cell(grid, (row, column), cell, x, width, wrap);
@@ -1983,7 +1992,7 @@ impl<'a> Flow<'a> {
         } else {
             text::Wrap::Words
         };
-        self.grid(grid, x, &widths, wrap);
+        self.grid(grid, x, &widths, wrap, !fill);
     }
 
     fn paragraph(&self, content: &[Inline], color: Brush, width: f32) -> Paragraph {
@@ -2372,6 +2381,7 @@ mod tests {
         // The look the older tests were written for; the new ones say.
         table_style: TableStyle::Grid,
         stripe: Some([0x15, 0x1b, 0x23]),
+        page: [0x0d, 0x11, 0x17],
         error: [0xf8, 0x51, 0x49],
         alerts: [
             AlertLook {
@@ -2826,6 +2836,35 @@ mod tests {
         assert_eq!(down, [0, 36, 72, bottom], "{down:?}");
         let across = border_at(&image, false, 54);
         assert_eq!(across.len(), 3, "{across:?}");
+    }
+
+    #[test]
+    fn a_table_in_a_shaded_row_paints_its_own_rows_by_its_own_zebra() {
+        // S03a's shape: a list of maps under the second key, a shaded row.
+        let source = "---\ntitle: T\ncolumns:\n  - aa: 1\n    bb: 2\n    cc: 3\n---\n";
+        for style in [TableStyle::Frame, TableStyle::Grid] {
+            let document = parse(source);
+            let blocks: Vec<&Block> = document.blocks.iter().collect();
+            let look = Look {
+                table_style: style,
+                ..LOOK
+            };
+            let page = lay_out(&blocks, &look, &Fonts::fixture(), (&Plain, &Plain), FRAME);
+            let image = page.draw(0, 672, page.height.ceil() as u32);
+            let texts = texts(&page);
+            // A pixel in the value column of a nested row, right of its text.
+            let at = |value: &str| {
+                let (_, x, baseline, _) = text(&texts, value);
+                let (x, y) = (*x as u32 + 22, (*baseline as u32).saturating_sub(10));
+                image.get_pixel(x, y).0
+            };
+            let rgb = |brush: Brush| [brush[0], brush[1], brush[2], 255];
+            // The first row is the page's colour, the second the stripe's,
+            // the third the page's, whatever the outer row under it is.
+            assert_eq!(at("1"), rgb(LOOK.page), "{style:?} first");
+            assert_eq!(at("2"), rgb(LOOK.stripe.unwrap()), "{style:?} second");
+            assert_eq!(at("3"), rgb(LOOK.page), "{style:?} third");
+        }
     }
 
     #[test]
