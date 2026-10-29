@@ -2,9 +2,11 @@
 //! wrapped in tmux's passthrough, `ESC P tmux ; … ESC \` with every ESC
 //! inside doubled.
 
+use std::cell::Cell;
 use std::io::{self, Write};
 use std::process::{Command, Stdio};
 
+use super::window::WindowSize;
 use crate::config::Environment;
 use crate::kitty::graphics;
 
@@ -115,6 +117,71 @@ pub fn prepare(env: &Environment, run: Run) -> Pane {
         focus_events,
         hyperlinks,
         term_name,
+    }
+}
+
+/// The cells of the terminal outside tmux in pixels, as tmux knows them,
+/// for a pane whose own pixel size may be tmux's guess: 16 x 32 a cell
+/// where tmux's terminal does not tell its pixels, as in a container.
+/// tmux is asked again each time the pane's size in cells changes, as
+/// after a new font size, and not otherwise.
+#[derive(Debug, Default)]
+pub struct ClientCells {
+    /// The pane, `TMUX_PANE`, or tmux's current one without it.
+    pane: Option<String>,
+    /// The pane's columns and rows when tmux was asked last, and its
+    /// answer.
+    asked: Cell<Option<(Cells, Option<Cells>)>>,
+}
+
+/// Two numbers of a cell grid: columns and rows, or a cell's width and
+/// height in pixels.
+type Cells = (u16, u16);
+
+impl ClientCells {
+    /// For the pane `env` names.
+    pub fn new(env: &Environment) -> Self {
+        let pane = env.tmux_pane.as_deref().and_then(|pane| pane.to_str());
+        Self {
+            pane: pane.map(str::to_owned),
+            asked: Cell::new(None),
+        }
+    }
+
+    /// `window` with the pixels of the cells tmux tells, asking tmux with
+    /// `run` when the window's columns or rows changed; as it is when tmux
+    /// does not tell.
+    pub fn window(&self, window: WindowSize, run: Run) -> WindowSize {
+        let size = (window.columns, window.rows);
+        let cell = match self.asked.get() {
+            Some((asked, cell)) if asked == size => cell,
+            _ => {
+                let cell = self.ask(run);
+                self.asked.set(Some((size, cell)));
+                cell
+            }
+        };
+        match cell {
+            Some((width, height)) => WindowSize {
+                width: window.columns.saturating_mul(width),
+                height: window.rows.saturating_mul(height),
+                ..window
+            },
+            None => window,
+        }
+    }
+
+    /// The client's cell size, `None` when tmux does not tell it.
+    fn ask(&self, run: Run) -> Option<Cells> {
+        let target: &[&str] = match &self.pane {
+            Some(pane) => &["-t", pane],
+            None => &[],
+        };
+        let format = "#{client_cell_width}x#{client_cell_height}";
+        let answer = run(&[&["display-message", "-p"], target, &[format]].concat())?;
+        let (width, height) = answer.split_once('x')?;
+        let (width, height) = (width.parse().ok()?, height.parse().ok()?);
+        (width > 0 && height > 0).then_some((width, height))
     }
 }
 
@@ -277,6 +344,53 @@ mod tests {
         };
         let pane = prepare(env, &run);
         (calls.into_inner(), pane)
+    }
+
+    #[test]
+    fn the_client_s_cells_give_the_window_its_pixels() {
+        let calls = RefCell::new(Vec::new());
+        let answer = RefCell::new(Some("10x21"));
+        let run = |args: &[&str]| {
+            calls.borrow_mut().push(args.join(" "));
+            answer.borrow().map(str::to_owned)
+        };
+        let cells = ClientCells::new(&pane_three());
+        let window = |columns: u16, rows: u16| WindowSize {
+            columns,
+            rows,
+            width: columns * 16,
+            height: rows * 32,
+        };
+        let shown = cells.window(window(112, 65), &run);
+        assert_eq!((shown.width, shown.height), (1120, 1365));
+        assert_eq!(
+            calls.borrow().as_slice(),
+            ["display-message -p -t %3 #{client_cell_width}x#{client_cell_height}"]
+        );
+        // The same cells: tmux is not asked again.
+        let shown = cells.window(window(112, 65), &run);
+        assert_eq!((shown.width, shown.height), (1120, 1365));
+        assert_eq!(calls.borrow().len(), 1);
+        // A new font: other cells, and fewer of them.
+        *answer.borrow_mut() = Some("11x26");
+        let shown = cells.window(window(92, 50), &run);
+        assert_eq!((shown.width, shown.height), (92 * 11, 50 * 26));
+        assert_eq!(calls.borrow().len(), 2);
+    }
+
+    #[test]
+    fn the_window_stays_when_tmux_does_not_tell_the_client_s_cells() {
+        let window = WindowSize {
+            columns: 80,
+            rows: 24,
+            width: 1280,
+            height: 768,
+        };
+        for answer in [None, Some(""), Some("0x0"), Some("x"), Some("10")] {
+            let run = |_: &[&str]| answer.map(str::to_owned);
+            let cells = ClientCells::new(&Environment::default());
+            assert_eq!(cells.window(window, &run), window, "{answer:?}");
+        }
     }
 
     fn pane_three() -> Environment {

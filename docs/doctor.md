@@ -69,7 +69,7 @@ What each other row means, and where it comes from:
 | Row | Meaning | From |
 |---|---|---|
 | Window | The window size in cells and pixels | The kernel's window size |
-| Cell size | One cell in pixels, which sets the size of images | The window size; or else the terminal's answer; or else a default |
+| Cell size | One cell in pixels, which sets the size of images | The window size; or else the terminal's answer; or else a default. Inside tmux the terminal's answer comes first |
 | Graphics | Whether images can be drawn | The probe: an answer to the graphics query, and Unicode placeholders, below |
 | Text sizing | Whether headings can be drawn large | The probe: whether the cursor moved for the text sizing tests |
 | Colours | 24-bit colour, fewer colours, or none | The probe; or else the `COLORTERM` environment variable |
@@ -134,7 +134,7 @@ Each answer, what it looks like and what kiri takes from it:
 | Background colour | `\e]11;rgb:0000/0000/0000\e\\` | The page colour. A dark one makes **Background** `dark`, a light one `light` |
 | Palette, up to 16 | `\e]4;1;rgb:cccc/0000/0000\e\\` | The terminal's 16 colours, by number |
 | Name and version | `\eP>\|kitty(0.47.1)\e\\` | The **Terminal** row. A kitty from 0.28 on, or a Ghostty from 1.0 on, has Unicode placeholders, so with the graphics answer **Graphics** is `yes, with Unicode placeholders` |
-| Cell size | `\e[6;20;10t` | The height and the width of a cell in pixels. Asked only when the window size has no pixels, as over some SSH connections and in containers |
+| Cell size | `\e[6;20;10t` | The height and the width of a cell in pixels. Asked when the window size has no pixels, as over some SSH connections and in containers, and always inside tmux, through tmux to the terminal outside: tmux gives a pane 16 × 32 pixels a cell when its own terminal does not tell the pixels |
 | Device attributes | `\e[?62;c` | Nothing; every terminal answers it, so it marks the end of the answers. Inside tmux, tmux answers it at once, and kitty's answer to the same question sent through tmux comes after kitty's graphics answer and ends the answers there |
 
 ## When something looks wrong

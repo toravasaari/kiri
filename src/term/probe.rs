@@ -55,16 +55,23 @@ pub enum GraphicsQuery {
 /// others. Behind tmux, tmux answers it at once, before kitty's answer to
 /// the wrapped graphics query comes; the device attributes are then also
 /// asked wrapped, from kitty, whose answer comes after its graphics
-/// answer and marks the end.
+/// answer and marks the end. The cell size is asked wrapped there too:
+/// tmux answers it from a pixel size it may only guess.
 fn queries(ask_cell_size: bool, graphics: GraphicsQuery) -> String {
     let [width, scale] = query::text_sizing();
-    let (graphics, end) = match graphics {
-        GraphicsQuery::Plain => (query::GRAPHICS.to_owned(), String::new()),
+    let cell_size = if ask_cell_size { query::CELL_SIZE } else { "" };
+    let (graphics, cell_size, end) = match graphics {
+        GraphicsQuery::Plain => (query::GRAPHICS.to_owned(), cell_size, String::new()),
         GraphicsQuery::Wrapped => (
             tmux::passthrough(query::GRAPHICS),
-            tmux::passthrough(DEVICE_ATTRIBUTES),
+            "",
+            [cell_size, DEVICE_ATTRIBUTES]
+                .into_iter()
+                .filter(|query| !query.is_empty())
+                .map(tmux::passthrough)
+                .collect(),
         ),
-        GraphicsQuery::Skip => (String::new(), String::new()),
+        GraphicsQuery::Skip => (String::new(), cell_size, String::new()),
     };
     [
         "\r",
@@ -78,7 +85,7 @@ fn queries(ask_cell_size: bool, graphics: GraphicsQuery) -> String {
         BACKGROUND,
         &palette(),
         VERSION,
-        if ask_cell_size { query::CELL_SIZE } else { "" },
+        cell_size,
         DEVICE_ATTRIBUTES,
         &end,
     ]
@@ -190,6 +197,16 @@ mod tests {
         // answer to the wrapped ones comes after its graphics answer.
         let expected = plain.replace(query::GRAPHICS, wrapped) + "\x1bPtmux;\x1b\x1b[c\x1b\\";
         assert_eq!(queries(false, GraphicsQuery::Wrapped), expected);
+    }
+
+    #[test]
+    fn behind_tmux_the_cell_size_is_asked_from_the_terminal_outside() {
+        // tmux answers it itself, from a pixel size it may not know.
+        let plain = queries(false, GraphicsQuery::Plain);
+        let wrapped = "\x1bPtmux;\x1b\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\x1b\\\x1b\\";
+        let expected = plain.replace(query::GRAPHICS, wrapped)
+            + "\x1bPtmux;\x1b\x1b[16t\x1b\\\x1bPtmux;\x1b\x1b[c\x1b\\";
+        assert_eq!(queries(true, GraphicsQuery::Wrapped), expected);
     }
 
     #[test]

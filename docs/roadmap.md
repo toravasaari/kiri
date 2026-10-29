@@ -1251,7 +1251,16 @@ grapheme at a time, and at a fraction each grapheme rounds up to a whole
 cell, so a heading or a sup cut to fit takes fewer letters than fit.
 Measuring the text kept, as `width` does, would fix it.
 
-#### B11 Rows of reading mode broken in a container's tmux
+#### B11 Rows of reading mode broken in a container's tmux (fixed)
+
+Fixed: inside tmux, kiri asks kitty for its cell size through
+passthrough and takes kitty's answer over the window size. The
+container's terminal does not tell its size in pixels, so tmux gave the
+pane 16 × 32 pixels a cell where kitty's were 10 × 21. kiri drew each
+part of a page for the wrong cells, and kitty, fitting the part into its
+cells, left gaps above and below it; where two parts met, rows were cut.
+Neither the tmux version nor `RGB` played a part. `--mode kitty` asks
+the terminal nothing, so inside such a tmux it still takes tmux's guess.
 
 In the maintainer's kitty, reading mode shows a few broken rows in
 tmux inside a jailbee container (tmux 3.6): the lower part of a line of
@@ -1268,6 +1277,13 @@ the edge of two 30-row parts of a page is another suspect.
 
 Seen once on a virtual display with the machine under heavy load: after
 the window was resized in reading mode, the pager stayed blank.
+
+Seen again while checking B11, without load: in reading mode in tmux,
+after kitty's font size changed, the first frame showed only the status
+line, twice in a row. The page came back with the next key. In tmux on
+a terminal that does not tell its pixels, the first frame at start was
+blank too, in 5 of 11 starts, also before the B11 fix; it stayed blank
+for 24 seconds without a key.
 
 ### Upstream bugs
 

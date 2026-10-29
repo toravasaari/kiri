@@ -65,8 +65,10 @@ impl Detection {
     pub fn cell_size(&self) -> CellSize {
         let window = self.window.and_then(|window| window.cell_pixels());
         match (self.caps.cell_pixels, window) {
-            (Some((width, height)), Some(_)) => CellSize::Window(width, height),
-            (Some((width, height)), None) => CellSize::Terminal(width, height),
+            (Some((width, height)), Some(window)) if window == (width, height) => {
+                CellSize::Window(width, height)
+            }
+            (Some((width, height)), _) => CellSize::Terminal(width, height),
             (None, _) => CellSize::Unknown,
         }
     }
@@ -192,7 +194,10 @@ fn detect(
         Mode::Auto => {
             let caps = with_environment(Capabilities::ansi(width), env);
             let caps = with_window(caps, window);
-            answers = ask(caps.cell_pixels.is_none(), graphics);
+            // Inside tmux the window's pixel size may be tmux's guess, so
+            // the terminal outside is asked for its cells as well.
+            let wrapped = graphics == GraphicsQuery::Wrapped;
+            answers = ask(caps.cell_pixels.is_none() || wrapped, graphics);
             match (&answers, &pane) {
                 (Some(answers), None) => with_probe(caps, &answers::interpret(answers)),
                 (Some(answers), Some(pane)) => {
@@ -291,6 +296,13 @@ fn through_tmux(caps: Capabilities, probe: &answers::Probe, pane: &Pane) -> Capa
         text_sizing: false,
         image_placeholders: placeholders,
         ..probe.clone()
+    };
+    // The terminal outside knows its cells. tmux gives a pane 16 x 32
+    // pixels a cell when its own terminal does not tell the pixel size,
+    // as in a container.
+    let caps = Capabilities {
+        cell_pixels: probe.cell_pixels.or(caps.cell_pixels),
+        ..caps
     };
     Capabilities {
         hyperlinks,
@@ -411,6 +423,69 @@ mod tests {
             ..Pane::default()
         };
         assert_eq!(found.tmux, Some(pane));
+    }
+
+    #[test]
+    fn inside_tmux_the_cell_size_comes_from_the_terminal_outside() {
+        // tmux gives a pane 16 x 32 pixels a cell when it does not know
+        // the terminal's pixel size, as in a container whose terminal does
+        // not pass it; kitty's cells are 10 x 21.
+        let window = WindowSize {
+            columns: 112,
+            rows: 65,
+            width: 112 * 16,
+            height: 65 * 32,
+        };
+        let answers = BEHIND_TMUX.replace("\x1bP>|", "\x1b[6;21;10t\x1bP>|");
+        let run = |args: &[&str]| {
+            let display = args[0] == "display-message";
+            Some(if display { "kitty(0.47.1)|on" } else { "" }.to_owned())
+        };
+        let mut asked = None;
+        let ask = |cell_size, _| {
+            asked = Some(cell_size);
+            Some(answers.as_bytes().to_vec())
+        };
+        let found = detect(
+            Mode::Auto,
+            None,
+            &in_tmux(),
+            Passthrough::Detect,
+            Some(window),
+            true,
+            ask,
+            &run,
+        );
+        assert_eq!(asked, Some(true));
+        assert_eq!(found.caps.cell_pixels, Some((10, 21)));
+        assert_eq!(found.cell_size(), CellSize::Terminal(10, 21));
+    }
+
+    #[test]
+    fn inside_tmux_the_window_s_cell_size_stays_when_kitty_does_not_tell() {
+        let window = WindowSize {
+            columns: 112,
+            rows: 65,
+            width: 112 * 16,
+            height: 65 * 32,
+        };
+        let run = |args: &[&str]| {
+            let display = args[0] == "display-message";
+            Some(if display { "kitty(0.47.1)|on" } else { "" }.to_owned())
+        };
+        let ask = |_, _| Some(BEHIND_TMUX.as_bytes().to_vec());
+        let found = detect(
+            Mode::Auto,
+            None,
+            &in_tmux(),
+            Passthrough::Detect,
+            Some(window),
+            true,
+            ask,
+            &run,
+        );
+        assert_eq!(found.caps.cell_pixels, Some((16, 32)));
+        assert_eq!(found.cell_size(), CellSize::Window(16, 32));
     }
 
     #[test]
