@@ -236,6 +236,20 @@ impl AlertTheme {
     }
 }
 
+impl AlertTheme {
+    /// The bar and the title of a warning on a light page, when it has
+    /// GitHub's colour and the page GitHub's pale yellow: the gold of
+    /// GitHub's attention emphasis, #bf8700, for the bar, and for the
+    /// title and the icon a darker one, #ac7a00, which has 3.5:1 contrast
+    /// with the pale yellow where the bar's gold has 2.9:1. GitHub's
+    /// darker #9a6700 reads as brown on that yellow.
+    pub fn github_gold(&self, kind: AlertKind, dark: bool) -> Option<(Color, Color)> {
+        let pale = self.github_background(kind, dark)?;
+        (kind == AlertKind::Warning && pale == [0xff, 0xf8, 0xc5])
+            .then_some((Color::Rgb(0xbf, 0x87, 0x00), Color::Rgb(0xac, 0x7a, 0x00)))
+    }
+}
+
 impl Default for AlertTheme {
     fn default() -> Self {
         Self {

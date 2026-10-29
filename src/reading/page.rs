@@ -126,8 +126,10 @@ impl Look {
 /// The colours of one kind of alert.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AlertLook {
-    /// Its bar, its icon and its title.
+    /// Its icon and its title.
     pub color: Brush,
+    /// Its bar.
+    pub bar: Brush,
     /// Its background; `None` for the page's.
     pub tint: Option<Brush>,
     /// The chip behind inline code in it, if inline code has one.
@@ -1413,7 +1415,7 @@ impl<'a> Flow<'a> {
         if let Some(tint) = alert.tint {
             self.rect(x, top, width, bottom - top, tint);
         }
-        self.rect(x, top, bar, bottom - top, alert.color);
+        self.rect(x, top, bar, bottom - top, alert.bar);
         self.take(&mut inner);
         self.y = bottom;
     }
@@ -2407,26 +2409,31 @@ mod tests {
         alerts: [
             AlertLook {
                 color: [0x40, 0x90, 0xf0],
+                bar: [0x40, 0x90, 0xf0],
                 tint: Some([0x10, 0x20, 0x30]),
                 chip: Some([0x20, 0x38, 0x50]),
             },
             AlertLook {
                 color: [0x20, 0xc0, 0x40],
+                bar: [0x20, 0xc0, 0x40],
                 tint: Some([0x10, 0x30, 0x18]),
                 chip: Some([0x20, 0x50, 0x30]),
             },
             AlertLook {
                 color: [0xa0, 0x60, 0xf0],
+                bar: [0xa0, 0x60, 0xf0],
                 tint: None,
                 chip: None,
             },
             AlertLook {
                 color: [0xd0, 0xa0, 0x20],
+                bar: [0xd0, 0xa0, 0x20],
                 tint: None,
                 chip: None,
             },
             AlertLook {
                 color: [0xf0, 0x40, 0x40],
+                bar: [0xf0, 0x40, 0x40],
                 tint: None,
                 chip: None,
             },
@@ -2586,7 +2593,7 @@ mod tests {
             rects(&page),
             [
                 (0.0, 0.0, 672.0, height, tint),
-                (0.0, 0.0, 4.0, height, alert.color),
+                (0.0, 0.0, 4.0, height, alert.bar),
             ]
         );
         // The icon is 16 pixels, after the bar and its padding and in the
@@ -2606,7 +2613,7 @@ mod tests {
         let alert = LOOK.alert(AlertKind::Warning);
         let rects = rects(&page);
         assert_eq!(rects.len(), 1, "{rects:?}");
-        assert_eq!(rects[0].4, alert.color);
+        assert_eq!(rects[0].4, alert.bar);
     }
 
     #[test]

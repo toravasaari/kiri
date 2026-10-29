@@ -980,7 +980,14 @@ pub fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities
     // They tint the page as a colour filter does, so on white they are
     // GitHub's, and the stronger one is that tint applied twice.
     let alert = |kind| {
-        let color = rgb(theme.alerts.color(kind, dark)).unwrap_or(text);
+        let mut color = rgb(theme.alerts.color(kind, dark)).unwrap_or(text);
+        let mut bar = color;
+        if let Some((gold, title)) = theme.alerts.github_gold(kind, dark) {
+            (bar, color) = (
+                rgb(Some(gold)).unwrap_or(bar),
+                rgb(Some(title)).unwrap_or(color),
+            );
+        }
         let pale = theme.alerts.github_background(kind, dark);
         let tint = |strong: bool| {
             theme.alerts.tint.then(|| match pale {
@@ -991,6 +998,7 @@ pub fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities
         };
         AlertLook {
             color,
+            bar,
             tint: tint(false),
             chip: tint(true).filter(|_| chip.is_some()),
         }
@@ -1929,6 +1937,68 @@ mod tests {
         // Inline code in the warning has a stronger tint of the same yellow.
         let chip = look.alert(AlertKind::Warning).chip.expect("a chip");
         assert_eq!(chip, [0xff, 0xf1, 0x98]);
+    }
+
+    /// WCAG's contrast ratio of two colours.
+    fn contrast(a: [u8; 3], b: [u8; 3]) -> f32 {
+        let luminance = |c: [u8; 3]| {
+            let [r, g, b] = c.map(|channel| {
+                let v = f32::from(channel) / 255.0;
+                if v <= 0.04045 {
+                    v / 12.92
+                } else {
+                    ((v + 0.055) / 1.055).powf(2.4)
+                }
+            });
+            0.2126 * r + 0.7152 * g + 0.0722 * b
+        };
+        let (a, b) = (luminance(a), luminance(b));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    #[test]
+    fn the_warning_on_a_light_page_is_gold_with_a_title_that_is_still_readable() {
+        let light = Capabilities {
+            dark_background: Some(false),
+            ..kitty(80)
+        };
+        let look = look(&Theme::default(), &CodeColors::default(), true, &light);
+        let warning = look.alert(AlertKind::Warning);
+        // GitHub's attention emphasis for the bar, a little darker for the
+        // title and the icon, which need 3:1 against the pale yellow.
+        assert_eq!(warning.bar, [0xbf, 0x87, 0x00]);
+        assert_eq!(warning.color, [0xac, 0x7a, 0x00]);
+        let tint = warning.tint.expect("a tint");
+        assert!(contrast(warning.color, tint) >= 3.0, "{warning:?}");
+        // The other kinds keep their colours, bar and title the same.
+        for kind in [
+            AlertKind::Note,
+            AlertKind::Tip,
+            AlertKind::Important,
+            AlertKind::Caution,
+        ] {
+            let other = look.alert(kind);
+            assert_eq!(other.bar, other.color, "{kind:?}");
+        }
+        assert_eq!(look.alert(AlertKind::Note).color, [0x09, 0x69, 0xda]);
+    }
+
+    #[test]
+    fn the_warning_keeps_its_colours_on_a_dark_page_and_when_the_theme_sets_them() {
+        let colors = |theme: &Theme, dark: bool| {
+            let caps = Capabilities {
+                dark_background: Some(dark),
+                ..kitty(80)
+            };
+            let warning =
+                look(theme, &CodeColors::default(), true, &caps).alert(AlertKind::Warning);
+            (warning.bar, warning.color)
+        };
+        let github_dark = [0xd2, 0x99, 0x22];
+        assert_eq!(colors(&Theme::default(), true), (github_dark, github_dark));
+        let mut theme = Theme::default();
+        theme.alerts.warning = crate::theme::AlertColor::Color(Some(Color::Rgb(1, 2, 3)));
+        assert_eq!(colors(&theme, false), ([1, 2, 3], [1, 2, 3]));
     }
 
     #[test]

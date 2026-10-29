@@ -66,7 +66,8 @@ kitty with its symbols font. Look for the circled `i`, the light bulb,
 the speech bubble, the triangle and the octagon, each in its kind's
 colour. On a light page, which `--light` gives, the tints are GitHub's
 pale ones: light blue, light green, light lilac, light yellow (the
-warning is lemon, not beige or brown) and light pink. On a dark page they
+warning is lemon, not beige or brown, and its bar and title are gold, not
+brown) and light pink. On a dark page they
 are dark shades of the colours:
 
 ```sh
