@@ -911,11 +911,7 @@ impl Page {
         // part of the rows.
         let content = (band.content - rows.start).clamp(0.0, height as f32);
         if content > 0.0 {
-            let mut shown = Canvas::on(
-                band.visible.ceil() as u32,
-                content.ceil() as u32,
-                self.background(),
-            );
+            let mut shown = Canvas::new(band.visible.ceil() as u32, content.ceil() as u32);
             let at = (offset, rows.start);
             draw_items(
                 &mut shown,
@@ -3493,6 +3489,38 @@ mod tests {
         assert!(page.blocks[2].rows.start >= band.top + band.height);
         // Wrapping, the same code has no band.
         assert!(page_wrapped(&long).bands.is_empty());
+    }
+
+    #[test]
+    fn a_band_in_an_alert_shows_the_alert_s_tint_on_an_opaque_page() {
+        let long = "a".repeat(200);
+        let document = parse(&format!(
+            "> [!NOTE]\n> | a |\n> |---|\n> | b |\n> | {long} |\n"
+        ));
+        let blocks: Vec<&Block> = document.blocks.iter().collect();
+        let (look, frame) = (
+            Look {
+                opaque: true,
+                ..LOOK
+            },
+            Frame {
+                wide: Wide::Scroll,
+                ..FRAME
+            },
+        );
+        let page = lay_out(&blocks, &look, &Fonts::fixture(), (&Plain, &Plain), frame);
+        let band = &page.bands[0];
+        let image = page.draw_band(0, 0.0, false, 0.0..band.height);
+        // Down a column in the middle of the band, clear of the text and
+        // the fades: the tint of the alert, not the page, where the table
+        // does not shade.
+        let x = (band.x + band.visible / 2.0) as u32;
+        let column: Vec<[u8; 4]> = (0..image.height())
+            .map(|y| image.get_pixel(x, y).0)
+            .collect();
+        let (page_colour, tint) = ([0x0d, 0x11, 0x17, 255], [0x10, 0x20, 0x30, 255]);
+        assert!(!column.contains(&page_colour), "{column:?}");
+        assert!(column.contains(&tint), "{column:?}");
     }
 
     fn page_wrapped(long: &str) -> Page {
