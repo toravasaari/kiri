@@ -11,7 +11,7 @@ use signal_hook::consts::{SIGHUP, SIGINT, SIGQUIT, SIGTERM};
 
 use rustix::termios::{OptionalActions, Termios, tcgetattr, tcsetattr};
 
-use super::tmux::Wrapping;
+use super::tmux::{ClientCells, Wrapping};
 use super::window::{WindowSize, window_size};
 use super::{interrupt, probe};
 
@@ -158,6 +158,9 @@ pub struct Screen<W: Write> {
     leave: Arc<Leave>,
     /// Whether a panic hook of the screen's own is set.
     hooked: bool,
+    /// Inside tmux, where the window's pixels may be tmux's guess, the
+    /// cells of the terminal outside as tmux knows them.
+    client_cells: Option<ClientCells>,
     /// The signals that ask kiri to end. The last field, so that its
     /// handlers go only after the terminal is restored, and a signal that
     /// comes until then is caught rather than lost.
@@ -227,6 +230,7 @@ impl<W: Write> Screen<W> {
                 done: AtomicBool::new(false),
             }),
             hooked: false,
+            client_cells: None,
             signals,
         })
     }
@@ -275,9 +279,19 @@ impl<W: Write> Screen<W> {
         }
     }
 
+    /// Takes the window's pixels from the cells tmux knows of the terminal
+    /// outside, as [`ClientCells`] says.
+    pub fn follow_client_cells(&mut self, cells: ClientCells) {
+        self.client_cells = Some(cells);
+    }
+
     /// The size of the window now.
     pub fn size(&self) -> Option<WindowSize> {
-        window_size(&self.tty)
+        let window = window_size(&self.tty)?;
+        Some(match &self.client_cells {
+            Some(cells) => cells.window(window, &super::tmux::run),
+            None => window,
+        })
     }
 
     /// The bytes of the keys pressed, waiting at most `timeout` for the
