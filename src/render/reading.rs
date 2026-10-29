@@ -955,11 +955,8 @@ pub fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities
     let text = rgb(theme.foreground)
         .or_else(|| rgb(caps.foreground))
         .unwrap_or(contrast);
-    let page = (rgb(theme.background).or_else(|| rgb(caps.background))).unwrap_or(if dark {
-        [0; 3]
-    } else {
-        [0xff; 3]
-    });
+    let known = rgb(theme.background).or_else(|| rgb(caps.background));
+    let page = known.unwrap_or(if dark { [0; 3] } else { [0xff; 3] });
     let muted = rgb(theme.muted).unwrap_or_else(|| mix(text, page, 0.6));
     let border = mix(text, page, 0.25);
     let headings = [1, 2, 3, 4, 5, 6].map(|level| rgb(theme.heading(level).color).unwrap_or(text));
@@ -999,6 +996,7 @@ pub fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities
         },
         stripe: stripes.then(|| mix(text, page, STRIPE)),
         page,
+        opaque: known.is_some(),
         alerts: [
             AlertKind::Note,
             AlertKind::Tip,
@@ -1869,5 +1867,57 @@ mod tests {
         let look = look(&theme, &CodeColors::default(), true, &caps);
         assert_eq!(look.size, 20.0);
         assert_eq!(look.link, [1, 2, 3]);
+    }
+
+    /// A document with a table and a code block, which scrolls: the page
+    /// has a part and a band.
+    fn drawn_in(theme: Theme, caps: Capabilities) -> (RgbaImage, RgbaImage) {
+        let long = "a".repeat(200);
+        let document = parse(&format!("Text.\n\n```\n{long}\n```\n\nMore text.\n"));
+        let mut inputs = Inputs {
+            theme,
+            ..inputs(caps)
+        };
+        if let Some(reading) = &mut inputs.reading {
+            reading.wide = Wide::Scroll;
+        }
+        let lines = layout::layout(&document, &inputs);
+        let parts = (lines.iter())
+            .find_map(|line| line.image.as_ref()?.page.clone())
+            .expect("a page");
+        (parts.draw(0, None), parts.draw_band(0, 0, 0, false, None))
+    }
+
+    #[test]
+    fn a_page_is_opaque_in_the_page_s_colour_when_the_theme_gives_it() {
+        let theme = Theme {
+            background: Some(Color::Rgb(1, 2, 3)),
+            ..Theme::default()
+        };
+        let (part, band) = drawn_in(theme, kitty(80));
+        for image in [part, band] {
+            assert!(image.pixels().all(|pixel| pixel.0[3] == 255));
+            assert_eq!(image.get_pixel(0, 0).0, [1, 2, 3, 255]);
+        }
+    }
+
+    #[test]
+    fn a_page_is_opaque_in_the_colour_the_terminal_reports() {
+        let caps = Capabilities {
+            background: Some(Color::Rgb(9, 8, 7)),
+            ..kitty(80)
+        };
+        let (part, band) = drawn_in(Theme::default(), caps);
+        for image in [part, band] {
+            assert_eq!(image.get_pixel(0, 0).0, [9, 8, 7, 255]);
+        }
+    }
+
+    #[test]
+    fn a_page_stays_transparent_when_its_colour_would_be_a_guess() {
+        let (part, band) = drawn_in(Theme::default(), kitty(80));
+        for image in [part, band] {
+            assert_eq!(image.get_pixel(0, 0).0[3], 0);
+        }
     }
 }

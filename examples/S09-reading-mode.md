@@ -33,7 +33,11 @@ area, and so are images, diagrams, formulas and alerts, in the column.
 The front matter above is a table of its keys and values, as wide as the
 column and a line below the top, in the proportional font, every second
 row from the second shaded; `S03a-tables.md` has nested tables in it. The
-text cannot be selected or copied, as it is drawn as images.
+text cannot be selected or copied, as it is drawn as images. With a theme
+or terminal that gives the background's colour, the page is an opaque area
+in that colour, so bold text in a shaded row looks as heavy as in an
+unshaded one; with `background_opacity` below 1 in kitty it does not show
+the window behind it.
 
 ## Text
 

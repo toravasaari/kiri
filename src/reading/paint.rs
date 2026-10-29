@@ -49,6 +49,16 @@ impl Canvas {
         }
     }
 
+    /// A canvas `width` by `height` pixels in `background`, or transparent
+    /// where there is none.
+    pub fn on(width: u32, height: u32, background: Option<Brush>) -> Self {
+        let mut canvas = Self::new(width, height);
+        if let Some([red, green, blue]) = background {
+            canvas.pixmap.fill(Color::from_rgba8(red, green, blue, 255));
+        }
+        canvas
+    }
+
     pub fn width(&self) -> u32 {
         self.pixmap.width()
     }

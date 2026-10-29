@@ -257,6 +257,13 @@ draws no images, kiri warns and shows the text as usual. In the pager,
 `M` turns reading mode on and off and lays the document out again,
 keeping the block at the top as a resize does.
 
+A page is drawn opaque, in the page's colour, when that colour is known:
+the theme's background or the one the terminal reported. Then all of its
+text is blended by kiri over the same ground, shaded rows or not. Where
+kiri would have to guess black or white, the page stays transparent and the
+terminal blends it. With `background_opacity` below 1 an opaque page shows
+as an opaque area, not as the translucent background.
+
 Search and links in a page work from the positions the layout knows: it
 records, in pixels and a piece for each line, where each link and each
 place of a search term is, in the page's or a band's own coordinates.

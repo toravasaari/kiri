@@ -97,6 +97,9 @@ pub struct Look {
     /// The page's colour, which a table in the cell of a shaded row paints
     /// its own unshaded rows in; nothing is painted over an unshaded row.
     pub page: Brush,
+    /// Whether the page is drawn on an opaque background in `page`, which
+    /// is so when the colour is known and not a guess.
+    pub opaque: bool,
     /// The colour of what could not be drawn, such as a diagram's error.
     pub error: Brush,
     /// How alerts look, by kind: note, tip, important, warning, caution.
@@ -809,9 +812,14 @@ impl Page {
     }
 
     /// The part of the page from `top`, `height` pixels tall and as wide as
-    /// `width`, transparent where nothing is drawn. Bands are not drawn.
+    /// `width`, transparent where nothing is drawn unless the page is opaque. Bands are not drawn.
     pub fn draw(&self, top: u32, width: u32, height: u32) -> RgbaImage {
         self.draw_with(top, width, height, None)
+    }
+
+    /// The colour the page is drawn on, where it is opaque.
+    fn background(&self) -> Option<Brush> {
+        self.look.opaque.then_some(self.look.page)
     }
 
     /// `draw`, with `overlay`'s marks and selected link on it.
@@ -822,7 +830,7 @@ impl Page {
         height: u32,
         overlay: Option<&Overlay>,
     ) -> RgbaImage {
-        let mut canvas = Canvas::new(width, height);
+        let mut canvas = Canvas::on(width, height, self.background());
         let at = (0.0, top as f32);
         draw_items(
             &mut canvas,
@@ -888,10 +896,10 @@ impl Page {
         let band = number;
         let height = (rows.end - rows.start).ceil().max(1.0) as u32;
         let Some(band) = self.bands.get(band) else {
-            return Canvas::new(self.width.ceil() as u32, height).into_image();
+            return Canvas::on(self.width.ceil() as u32, height, self.background()).into_image();
         };
         let size = self.look.size;
-        let mut canvas = Canvas::new(self.width.ceil() as u32, height);
+        let mut canvas = Canvas::on(self.width.ceil() as u32, height, self.background());
         draw_items(
             &mut canvas,
             &self.items,
@@ -903,7 +911,11 @@ impl Page {
         // part of the rows.
         let content = (band.content - rows.start).clamp(0.0, height as f32);
         if content > 0.0 {
-            let mut shown = Canvas::new(band.visible.ceil() as u32, content.ceil() as u32);
+            let mut shown = Canvas::on(
+                band.visible.ceil() as u32,
+                content.ceil() as u32,
+                self.background(),
+            );
             let at = (offset, rows.start);
             draw_items(
                 &mut shown,
@@ -2393,6 +2405,7 @@ mod tests {
         table_style: TableStyle::Grid,
         stripe: Some([0x15, 0x1b, 0x23]),
         page: [0x0d, 0x11, 0x17],
+        opaque: false,
         error: [0xf8, 0x51, 0x49],
         alerts: [
             AlertLook {
