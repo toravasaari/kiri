@@ -154,7 +154,8 @@ table as wide as the text column, a blank line below the top of the page,
 every second row from the second shaded. A value that has keys of its own,
 such as the layout, is a table in its cell; the columns, a list of maps, are
 one table for each with a gap between them and the same column widths, so
-that their borders are in line:
+that their borders are in line. Each nested table shades its own rows, from
+its second, also inside a shaded row of the one around it:
 
 ```sh
 kiri --reading examples/S03a-tables.md
