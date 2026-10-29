@@ -284,6 +284,17 @@ impl Inline {
         }
     }
 
+    /// The image that `content` consists of, as [`Inline::lone_image`]
+    /// finds it, and where the link around it goes, if there is one.
+    pub fn lone_linked_image(content: &[Inline]) -> Option<(&Image, Option<&str>)> {
+        match content {
+            [Inline::Link { url, content }] => {
+                Self::lone_image(content).map(|image| (image, Some(url.as_str())))
+            }
+            _ => Self::lone_image(content).map(|image| (image, None)),
+        }
+    }
+
     /// The inline's text without any styling, as alt text or for measuring.
     pub fn plain_text(inlines: &[Inline]) -> String {
         let mut out = String::new();

@@ -729,6 +729,7 @@ pub fn lay_out(
         items: Vec::new(),
         bands: Vec::new(),
         loading: Vec::new(),
+        linked: Vec::new(),
         ids: Vec::new(),
         y: 0.0,
         margin: None,
@@ -751,6 +752,19 @@ pub fn lay_out(
         links: Vec::new(),
     };
     page.links = page.place_links();
+    page.links.extend(flow.linked);
+    page.links.sort_by(|a, b| {
+        let key = |link: &LinkPlace| {
+            let top = link
+                .band
+                .and_then(|band| page.bands.get(band))
+                .map_or(0.0, |band| band.top);
+            (top + link.pieces[0].y, link.pieces[0].x)
+        };
+        key(a)
+            .partial_cmp(&key(b))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     page
 }
 
@@ -975,6 +989,8 @@ struct Flow<'a> {
     items: Vec<Item>,
     bands: Vec<Band>,
     loading: Vec<Loading>,
+    /// The links that are pictures on their own, in the page's pixels.
+    linked: Vec<LinkPlace>,
     /// The ids of the pictures laid out.
     ids: Vec<u64>,
     /// The bottom of what is laid out so far.
@@ -1013,6 +1029,7 @@ impl<'a> Flow<'a> {
             items: Vec::new(),
             bands: Vec::new(),
             loading: Vec::new(),
+            linked: Vec::new(),
             ids: Vec::new(),
             y: top,
             margin: None,
@@ -1032,6 +1049,7 @@ impl<'a> Flow<'a> {
         self.items.append(&mut inner.items);
         self.bands.append(&mut inner.bands);
         self.loading.append(&mut inner.loading);
+        self.linked.append(&mut inner.linked);
         self.ids.append(&mut inner.ids);
     }
 
@@ -1112,8 +1130,8 @@ impl<'a> Flow<'a> {
                     self.y += 1.0;
                 }
             }
-            Block::Paragraph(content) => match Inline::lone_image(content) {
-                Some(image) => self.image(image, x, width),
+            Block::Paragraph(content) => match Inline::lone_linked_image(content) {
+                Some((image, link)) => self.image(image, link, x, width),
                 None => {
                     let paragraph = self.paragraph(content, look.text, width);
                     self.y += self.text(paragraph, x);
@@ -1182,7 +1200,14 @@ impl<'a> Flow<'a> {
     /// Lays the picture `picture` out at `x` in `width`, at the left or
     /// `centred`: whether it is one. `false` for what is no picture, or a
     /// diagram that failed.
-    fn place(&mut self, picture: Picture, x: f32, width: f32, centred: bool) -> bool {
+    fn place(
+        &mut self,
+        picture: Picture,
+        link: Option<&str>,
+        x: f32,
+        width: f32,
+        centred: bool,
+    ) -> bool {
         let mut reserved = 0.0;
         let (pixels, loading, height) = match picture {
             Picture::Ready {
@@ -1210,6 +1235,18 @@ impl<'a> Flow<'a> {
             false => x,
         };
         let top = self.y;
+        if let (Some((pixels, _)), Some(url)) = (&pixels, link) {
+            self.linked.push(LinkPlace {
+                url: Rc::from(url),
+                pieces: vec![Piece {
+                    x: left,
+                    y: top,
+                    width: pixels.width() as f32,
+                    height,
+                }],
+                band: None,
+            });
+        }
         if let Some((pixels, _)) = pixels {
             self.push(
                 top..top + height,
@@ -1234,12 +1271,22 @@ impl<'a> Flow<'a> {
 
     /// Lays an image block out: the picture, or its alt text in the quote
     /// colour where it is not drawn.
-    fn image(&mut self, image: &Image, x: f32, width: f32) {
+    fn image(&mut self, image: &Image, link: Option<&str>, x: f32, width: f32) {
         let picture = self.pictures.image(image, (width, f32::MAX));
-        if self.place(picture, x, width, false) {
+        if self.place(picture, link, x, width, false) {
             return;
         }
-        let paragraph = self.paragraph(&image.alt, self.look.quote, width);
+        // Where the picture is missing, its alt text is the link.
+        let paragraph = match link {
+            Some(url) => {
+                let linked = [Inline::Link {
+                    url: url.to_owned(),
+                    content: image.alt.clone(),
+                }];
+                self.paragraph(&linked, self.look.quote, width)
+            }
+            None => self.paragraph(&image.alt, self.look.quote, width),
+        };
         self.y += self.text(paragraph, x);
     }
 
@@ -1321,7 +1368,7 @@ impl<'a> Flow<'a> {
             Picture::Failed(message) => message.clone(),
             _ => None,
         };
-        if self.place(picture, x, width, centred) {
+        if self.place(picture, None, x, width, centred) {
             return;
         }
         self.code(language, code, x, width);
@@ -2575,6 +2622,40 @@ mod tests {
         assert_eq!(with[0].pieces.len(), 1);
         assert!((piece.width - 40.0).abs() < 0.5, "{piece:?}");
         assert!(with[1].pieces[0].x > piece.x + piece.width);
+    }
+
+    #[test]
+    fn a_paragraph_that_is_only_a_linked_picture_is_a_link_with_or_without_the_picture() {
+        let markdown = "[![CI](ci.svg)](https://ci.example/)\n";
+        let given = Given {
+            image: |_| solid(40, 16, [255, 0, 0], 7),
+            ..NOTHING
+        };
+        let page = with_pictures(markdown, &given);
+        let [link] = page.links() else {
+            panic!("one link: {:?}", page.links());
+        };
+        assert_eq!(&*link.url, "https://ci.example/");
+        // The picture's own box.
+        let piece = link.pieces[0];
+        assert_eq!(
+            (piece.x, piece.y, piece.width, piece.height),
+            (0.0, 0.0, 40.0, 16.0)
+        );
+        // While it is missing the alt text is the link.
+        let page = with_pictures(markdown, &NOTHING);
+        let [link] = page.links() else {
+            panic!("one link: {:?}", page.links());
+        };
+        assert_eq!(&*link.url, "https://ci.example/");
+        assert!(link.pieces[0].width > 10.0);
+        // An image alone with no link has none.
+        assert!(with_pictures("![CI](ci.svg)\n", &given).links().is_empty());
+        assert!(
+            with_pictures("![CI](ci.svg)\n", &NOTHING)
+                .links()
+                .is_empty()
+        );
     }
 
     #[test]
