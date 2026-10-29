@@ -18,8 +18,8 @@ kiri examples/S05-alerts.md
 ## The five types
 
 Each alert has a bar down its left edge, an icon and a bold title in a
-colour of its own, over a faint tint of that colour as wide as the text.
-The colours and icons are the ones GitHub uses. kitty draws the icons from
+colour of its own, over a faint tint of that colour as wide as the text,
+with a blank row of the tint under the text. The colours and icons are the ones GitHub uses. kitty draws the icons from
 the symbols font it bundles, so outside kitty an alert has no icon. Inline
 code in an alert has a stronger tint of the colour than the rest.
 

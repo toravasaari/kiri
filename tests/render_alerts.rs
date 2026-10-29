@@ -152,6 +152,22 @@ fn light_kitty() -> Capabilities {
 }
 
 #[test]
+fn a_tinted_alert_ends_with_a_blank_row_of_its_tint() {
+    let lines = text(NOTE, kitty(), &Theme::default());
+    assert_eq!(lines.len(), 3, "{lines:#?}");
+    assert_eq!(lines[2].trim_end(), "  ▎", "{lines:#?}");
+    assert_eq!(
+        lines[2].chars().count(),
+        usize::from(WIDTH) - 2,
+        "{lines:#?}"
+    );
+    // Without a tint there is nothing to pad.
+    let off = kiri::theme::parse("[alerts]\nbackground = \"none\"\n").unwrap();
+    let lines = text(NOTE, kitty(), &off);
+    assert_eq!(lines.len(), 2, "{lines:#?}");
+}
+
+#[test]
 fn a_light_page_tints_alerts_with_githubs_pale_backgrounds() {
     // A plain mix of a dark colour with white is dusty: the warning would
     // be beige. GitHub's own pale backgrounds are used instead.
@@ -211,7 +227,8 @@ fn a_long_title_wraps_under_itself_inside_the_block() {
             .starts_with(char::is_alphabetic),
         "{lines:#?}"
     );
-    assert_eq!(lines.len(), 3, "{lines:#?}");
+    // The title's two rows, the text and the blank row under it.
+    assert_eq!(lines.len(), 4, "{lines:#?}");
     for line in &lines {
         assert_eq!(line.chars().count(), usize::from(WIDTH) - 2, "{lines:#?}");
     }
@@ -274,7 +291,7 @@ fn an_alert_inside_a_list_or_a_quote_fills_its_own_width() {
     ] {
         let lines = text(source, kitty(), &Theme::default());
         let alert: Vec<&String> = lines.iter().filter(|line| line.contains('▎')).collect();
-        assert_eq!(alert.len(), 2, "{lines:#?}");
+        assert_eq!(alert.len(), 3, "{lines:#?}");
         assert!(alert[0].contains("▎ \u{f449}  Note"), "{lines:#?}");
         // The tint ends where the list item or the quote ends.
         assert!(

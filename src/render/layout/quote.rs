@@ -121,6 +121,10 @@ impl Layout<'_> {
             })
             .collect();
         lines.extend(body.blocks(blocks, body_width, inner));
+        // A blank row of the tint under the text, as GitHub pads an alert.
+        if fill.bg.is_some() {
+            lines.push(Line::new(Vec::new()));
+        }
 
         let bar = Style {
             fg: bar_color,
