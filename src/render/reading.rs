@@ -974,14 +974,25 @@ pub fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities
         None => None,
     };
     // An alert is a tint of its colour over the page, and inline code in it
-    // a stronger one, when the theme has tints, as the text layout has them.
+    // a stronger one, when the theme has tints. GitHub's colours on a light
+    // page have its own pale backgrounds, which a plain mix with the page
+    // does not match: dark yellow and white make beige, not pale yellow.
+    // They tint the page as a colour filter does, so on white they are
+    // GitHub's, and the stronger one is that tint applied twice.
     let alert = |kind| {
         let color = rgb(theme.alerts.color(kind, dark)).unwrap_or(text);
-        let tint = |share| theme.alerts.tint.then(|| mix(color, page, share));
+        let pale = theme.alerts.github_background(kind, dark);
+        let tint = |strong: bool| {
+            theme.alerts.tint.then(|| match pale {
+                Some(pale) if strong => filter(filter(page, pale), pale),
+                Some(pale) => filter(page, pale),
+                None => mix(color, page, if strong { 0.3 } else { 0.15 }),
+            })
+        };
         AlertLook {
             color,
-            tint: tint(0.15),
-            chip: tint(0.3).filter(|_| chip.is_some()),
+            tint: tint(false),
+            chip: tint(true).filter(|_| chip.is_some()),
         }
     };
     Look {
@@ -1055,6 +1066,14 @@ fn rgb(color: Color, caps: &Capabilities) -> Option<Brush> {
 }
 
 /// `share` of `color` over `page`.
+/// `page` seen through a filter of colour `pale`: each channel scaled by
+/// the filter's share of full. White stays `pale`.
+fn filter(page: Brush, pale: Brush) -> Brush {
+    let channel =
+        |index: usize| (f32::from(page[index]) * f32::from(pale[index]) / 255.0).round() as u8;
+    [channel(0), channel(1), channel(2)]
+}
+
 fn mix(color: Brush, page: Brush, share: f32) -> Brush {
     let channel = |index: usize| {
         let (a, b) = (f32::from(color[index]), f32::from(page[index]));
@@ -1876,6 +1895,63 @@ mod tests {
         let look = look(&theme, &CodeColors::default(), true, &caps);
         assert_eq!(look.size, 20.0);
         assert_eq!(look.link, [1, 2, 3]);
+    }
+
+    #[test]
+    fn the_alert_tints_on_a_light_page_are_githubs_pale_backgrounds() {
+        let light = Capabilities {
+            dark_background: Some(false),
+            ..kitty(80)
+        };
+        let look = look(&Theme::default(), &CodeColors::default(), true, &light);
+        assert_eq!(look.page, [0xff; 3]);
+        // A plain mix of the dark yellow with white is the beige #f0e8d9.
+        let tints = |look: &Look| {
+            [
+                AlertKind::Note,
+                AlertKind::Tip,
+                AlertKind::Important,
+                AlertKind::Warning,
+                AlertKind::Caution,
+            ]
+            .map(|kind| look.alert(kind).tint.expect("a tint"))
+        };
+        assert_eq!(
+            tints(&look),
+            [
+                [0xdd, 0xf4, 0xff],
+                [0xda, 0xfb, 0xe1],
+                [0xfb, 0xef, 0xff],
+                [0xff, 0xf8, 0xc5],
+                [0xff, 0xeb, 0xe9],
+            ]
+        );
+        // Inline code in the warning has a stronger tint of the same yellow.
+        let chip = look.alert(AlertKind::Warning).chip.expect("a chip");
+        assert_eq!(chip, [0xff, 0xf1, 0x98]);
+    }
+
+    #[test]
+    fn the_alert_tints_stay_mixes_on_a_dark_page_and_for_the_theme_s_own_colours() {
+        let dark = Capabilities {
+            dark_background: Some(true),
+            ..kitty(80)
+        };
+        let look_of = |theme: &Theme, caps: &Capabilities| {
+            look(theme, &CodeColors::default(), true, caps)
+                .alert(AlertKind::Warning)
+                .tint
+        };
+        // 15 % of GitHub's dark yellow over the black page.
+        assert_eq!(look_of(&Theme::default(), &dark), Some([0x20, 0x17, 0x05]));
+        // A colour the theme sets is mixed with the light page too.
+        let mut theme = Theme::default();
+        theme.alerts.warning = crate::theme::AlertColor::Color(Some(Color::Rgb(0, 0, 0)));
+        let light = Capabilities {
+            dark_background: Some(false),
+            ..kitty(80)
+        };
+        assert_eq!(look_of(&theme, &light), Some([217; 3]));
     }
 
     /// A document with a table and a code block, which scrolls: the page

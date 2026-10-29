@@ -208,6 +208,34 @@ impl AlertTheme {
     }
 }
 
+impl AlertTheme {
+    /// The pale background GitHub gives alerts of `kind` on a light page,
+    /// when the kind has GitHub's own colour, which is not the case for a
+    /// colour the theme sets, or on a dark page, where mixing the colour
+    /// with the page does well.
+    pub fn github_background(&self, kind: AlertKind, dark: bool) -> Option<[u8; 3]> {
+        let automatic = match kind {
+            AlertKind::Note => self.note,
+            AlertKind::Tip => self.tip,
+            AlertKind::Important => self.important,
+            AlertKind::Warning => self.warning,
+            AlertKind::Caution => self.caution,
+        } == AlertColor::Auto;
+        if dark || !automatic || self.colors != AlertColors::Github {
+            return None;
+        }
+        let [_, r, g, b] = (match kind {
+            AlertKind::Note => 0xddf4ff_u32,
+            AlertKind::Tip => 0xdafbe1,
+            AlertKind::Important => 0xfbefff,
+            AlertKind::Warning => 0xfff8c5,
+            AlertKind::Caution => 0xffebe9,
+        })
+        .to_be_bytes();
+        Some([r, g, b])
+    }
+}
+
 impl Default for AlertTheme {
     fn default() -> Self {
         Self {
