@@ -185,23 +185,32 @@ block stays at the top of the window.
 ## Search and links
 
 In the pager, `/` searches the text of a page as it does in the text
-layout: the matches are boxes in the theme's match colours with the text
-drawn over them, the current match in its own colours, and where the theme
-gives none, in reverse, a box in the text's colour. `n` and `N` move
-between them and the status line counts them. Open this document with `--wide scroll` and search for `findme`: the first
-match is at the end of the long code line near the top, past its right
-edge, so that band scrolls to the end of its line, the match boxed, and is
-selected; `n` goes to the second, at the end of the second path in the
-table too wide, whose band then scrolls and is selected in turn (the first
-keeps where it was); the third is in this paragraph. Without
-`--wide scroll` the code and the table wrap and nothing scrolls.
+layout: the matches are boxes with the text drawn over them, the others
+black on yellow and the current match black on orange with the default
+theme, in the theme's own colours where it sets them, and in reverse,
+a box in the text's colour, without colour. `n` and `N` move between them
+and the status line counts them. Open this document with `--wide scroll`
+and search for `findme`: the first match is at the end of the long code
+line near the top, past its right edge, so that band scrolls to the end
+of its line, the match boxed, and is selected; `n` goes to the second, at
+the end of the second path in the table too wide, whose band then scrolls
+and is selected in turn (the first keeps where it was); the third is in
+this paragraph. Without `--wide scroll` the code and the table wrap and
+nothing scrolls.
 
 The links in a page are links for kitty, as in the text layout, so it
 opens one as it does there: [a link to the examples](https://example.com/),
 and [one broken over the end of a line, with a long text that wraps onto
-the next line](https://example.org/). Tab selects the first link on the
-screen, and again the next, Shift+Tab the one before: the selected link has
-a box round it and the status line says where it goes. Escape lets it go.
+the next line](https://example.org/). A picture in a link is one too,
+inline here, <a href="https://example.net/inline"><img
+src="S06b-pattern.png" width="24" alt="a badge"></a> in the middle of a
+line, and alone on its line:
+
+<a href="https://example.net/alone"><img src="S06b-pattern.png" width="48" alt="a badge alone"></a>
+
+Tab selects the first link on the screen, and again the next, the badges
+among them, Shift+Tab the one before: the selected link has a box round it
+and the status line says where it goes. Escape lets it go.
 
 ## Images, diagrams and formulas
 
