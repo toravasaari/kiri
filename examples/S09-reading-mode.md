@@ -32,9 +32,8 @@ window. Code blocks and tables are drawn too, and may reach across the
 area, and so are images, diagrams, formulas and alerts, in the column.
 The front matter above is a table of its keys and values, as wide as the
 column and a line below the top, in the proportional font, every second
-row from the second shaded, with a table in a cell for a value that has
-keys of its own and the tables of a list in line with each other. The text cannot be selected or copied, as it is
-drawn as images.
+row from the second shaded; `S03a-tables.md` has nested tables in it. The
+text cannot be selected or copied, as it is drawn as images.
 
 ## Text
 
