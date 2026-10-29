@@ -1280,7 +1280,10 @@ the window was resized in reading mode, the pager stayed blank.
 
 Seen again while checking B11, without load: in reading mode in tmux,
 after kitty's font size changed, the first frame showed only the status
-line, twice in a row. The page came back with the next key.
+line, twice in a row. The page came back with the next key. In tmux on
+a terminal that does not tell its pixels, the first frame at start was
+blank too, in 5 of 11 starts, also before the B11 fix; it stayed blank
+for 24 seconds without a key.
 
 ### Upstream bugs
 
