@@ -678,14 +678,15 @@ enum Shape {
         radius: f32,
         color: Brush,
     },
-    /// A rectangle with its bottom corners rounded, the shading of the
-    /// last row of a table in a frame.
+    /// A rectangle with its corners rounded to `radii`: top left, top
+    /// right, bottom right, bottom left; the fill of the first or the last
+    /// row of a table in a frame.
     Stripe {
         x: f32,
         y: f32,
         width: f32,
         height: f32,
-        radius: f32,
+        radii: [f32; 4],
         color: Brush,
     },
     /// A rectangle with rounded corners.
@@ -998,16 +999,9 @@ fn draw_items(
                 y,
                 width,
                 height,
-                radius,
+                radii,
                 color,
-            } => canvas.corners_rect(
-                x + dx,
-                y + dy,
-                *width,
-                *height,
-                [0.0, 0.0, *radius, *radius],
-                *color,
-            ),
+            } => canvas.corners_rect(x + dx, y + dy, *width, *height, *radii, *color),
             Shape::RoundRect {
                 x,
                 y,
@@ -1798,20 +1792,31 @@ impl<'a> Flow<'a> {
                 _ => None,
             };
             if let Some(color) = paint {
-                // In a frame the last row's bottom corners are round too.
-                match look.table_style == TableStyle::Frame && row + 1 == grid.rows.len() {
-                    true => self.push(
+                // In a frame the first row's top corners and the last row's
+                // bottom corners are round, as the frame is.
+                let round = CODE_RADIUS * look.size;
+                let (first, last) = (row == 0, row + 1 == grid.rows.len());
+                let corner = |at: bool| {
+                    if at && look.table_style == TableStyle::Frame {
+                        round
+                    } else {
+                        0.0
+                    }
+                };
+                let radii = [corner(first), corner(first), corner(last), corner(last)];
+                match radii == [0.0; 4] {
+                    true => self.rect(x, y, table_width, height, color),
+                    false => self.push(
                         y..y + height,
                         Shape::Stripe {
                             x,
                             y,
                             width: table_width,
                             height,
-                            radius: CODE_RADIUS * look.size,
+                            radii,
                             color,
                         },
                     ),
-                    false => self.rect(x, y, table_width, height, color),
                 }
             }
             for inner in &mut inners {
@@ -2864,6 +2869,65 @@ mod tests {
             assert_eq!(at("1"), rgb(LOOK.page), "{style:?} first");
             assert_eq!(at("2"), rgb(LOOK.stripe.unwrap()), "{style:?} second");
             assert_eq!(at("3"), rgb(LOOK.page), "{style:?} third");
+        }
+    }
+
+    /// The frames the page draws, as (left, top, width, height).
+    fn frames(page: &Page) -> Vec<(f32, f32, f32, f32)> {
+        (page.items.iter())
+            .filter_map(|item| match item.shape {
+                Shape::Frame {
+                    x,
+                    y,
+                    width,
+                    height,
+                    ..
+                } => Some((x, y, width, height)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_corners_of_a_nested_frame_show_the_row_it_is_in() {
+        // The nested tables in a shaded outer row, one of three rows and
+        // one of a single row: outside their rounded corners is the outer
+        // stripe, not the page's colour.
+        for source in [
+            "---\ntitle: T\ncolumns:\n  - aa: 1\n    bb: 2\n    cc: 3\n---\n",
+            "---\ntitle: T\ncolumns:\n  - aa: 1\n---\n",
+        ] {
+            let document = parse(source);
+            let blocks: Vec<&Block> = document.blocks.iter().collect();
+            let look = Look {
+                table_style: TableStyle::Frame,
+                ..LOOK
+            };
+            let page = lay_out(&blocks, &look, &Fonts::fixture(), (&Plain, &Plain), FRAME);
+            let image = page.draw(0, 672, page.height.ceil() as u32);
+            let nested = frames(&page)
+                .into_iter()
+                .find(|frame| frame.2 < 300.0)
+                .expect("a nested frame");
+            let (x, y, width, height) = (
+                nested.0 as u32,
+                nested.1 as u32,
+                nested.2 as u32,
+                nested.3 as u32,
+            );
+            let stripe = LOOK.stripe.unwrap();
+            for (cx, cy, corner) in [
+                (x, y, "top left"),
+                (x + width - 1, y, "top right"),
+                (x, y + height - 1, "bottom left"),
+                (x + width - 1, y + height - 1, "bottom right"),
+            ] {
+                assert_eq!(
+                    image.get_pixel(cx, cy).0,
+                    [stripe[0], stripe[1], stripe[2], 255],
+                    "{corner} of {source:?}"
+                );
+            }
         }
     }
 
