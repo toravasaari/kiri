@@ -1315,7 +1315,7 @@ impl State {
             went.top = top;
         }
         if let Some(search) = &mut self.search {
-            *search = Search::new(lines, search.term(), self.case, top);
+            *search = search.again(lines, self.case, top);
         }
     }
 

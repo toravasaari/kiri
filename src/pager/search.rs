@@ -66,6 +66,22 @@ impl Search {
         }
     }
 
+    /// This search again in `lines`, laid out anew: at the match it was at
+    /// when that is still among them, as when only a band was shown
+    /// anew, and otherwise at the first on line `top` or below.
+    pub fn again(&self, lines: &[Line], case: SearchCase, top: usize) -> Self {
+        let mut search = Self::new(lines, &self.term, case, top);
+        // Only a match in a page is known again so: a page is the same
+        // layout while its parts are the same.
+        let kept = (self.current())
+            .filter(|current| current.place.is_some())
+            .and_then(|current| search.matches.iter().position(|found| found == current));
+        if kept.is_some() {
+            search.current = kept;
+        }
+        search
+    }
+
     /// The term searched for.
     pub fn term(&self) -> &str {
         &self.term

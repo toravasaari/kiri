@@ -470,3 +470,21 @@ fn tab_selects_a_link_with_a_box_and_its_url_on_the_status_line_and_escape_lets_
     // The selection is a box in the page's image: another image is sent.
     assert!(sends(&frames[1]) >= 1, "{:?}", frames[1]);
 }
+
+#[test]
+fn n_to_a_match_in_another_band_counts_it_and_the_count_stays_after_the_band_moves() {
+    let long = "a".repeat(200);
+    let document = crate::parse::parse(&format!(
+        "```\n{long} needle\n```\n\nText.\n\n```\n{long} needle\n```\n"
+    ));
+    let frames = reading_frames(
+        &document,
+        crate::reading::page::Wide::Scroll,
+        &[b"/needle\r", b"n"],
+    );
+    // The second match is the current one in the frame after `n`, whose
+    // band has scrolled to it: the layout that shows the band anew does not
+    // start the search over.
+    assert!(frames[1].contains("1/2"), "{:?}", frames[1]);
+    assert!(frames[2].contains("2/2"), "{:?}", frames[2]);
+}
