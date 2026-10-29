@@ -519,16 +519,13 @@ impl Page {
         (top + from).floor() as u32..(top + to).ceil() as u32
     }
 
-    /// Finds the links among the items.
+    /// Finds the links among the items, in no order: `lay_out` sorts them.
     fn place_links(&self) -> Vec<LinkPlace> {
-        let mut found: Vec<(f32, f32, LinkPlace)> = Vec::new();
-        let on_page = self.items.iter().map(|item| (None, 0.0, item));
-        let in_bands = (self.bands.iter().enumerate()).flat_map(|(number, band)| {
-            band.items
-                .iter()
-                .map(move |item| (Some(number), band.top, item))
-        });
-        for (band, top, item) in on_page.chain(in_bands) {
+        let mut found: Vec<LinkPlace> = Vec::new();
+        let on_page = self.items.iter().map(|item| (None, item));
+        let in_bands = (self.bands.iter().enumerate())
+            .flat_map(|(number, band)| (band.items.iter()).map(move |item| (Some(number), item)));
+        for (band, item) in on_page.chain(in_bands) {
             let Shape::Text {
                 paragraph, x, y, ..
             } = &item.shape
@@ -584,17 +581,12 @@ impl Page {
                         _ => pieces.push(piece),
                     }
                 }
-                if let Some(first) = pieces.first() {
-                    found.push((top + first.y, first.x, LinkPlace { url, pieces, band }));
+                if !pieces.is_empty() {
+                    found.push(LinkPlace { url, pieces, band });
                 }
             }
         }
-        found.sort_by(|a, b| {
-            (a.0, a.1)
-                .partial_cmp(&(b.0, b.1))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        found.into_iter().map(|(_, _, link)| link).collect()
+        found
     }
 }
 
