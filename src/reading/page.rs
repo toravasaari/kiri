@@ -1696,8 +1696,9 @@ impl<'a> Flow<'a> {
                 left += width + extra;
             }
             let height = height + 2.0 * down;
-            if row > 0
-                && row % 2 == 0
+            // Every second body row, from the second: a header is none.
+            let body = row.checked_sub(usize::from(grid.header_row));
+            if body.is_some_and(|body| body % 2 == 1)
                 && let Some(stripe) = look.stripe
             {
                 self.rect(x, y, table_width, height, stripe);
@@ -2479,6 +2480,28 @@ mod tests {
         assert!(lines.iter().all(|line| line.0 == 0.0 && line.2 <= 672.0));
         // The text goes on below it.
         assert!(text(&texts, "Text.").2 > lines[3].1);
+    }
+
+    #[test]
+    fn the_zebra_of_the_front_matter_table_starts_from_its_second_row() {
+        let source = "---\na: 1\nb: 2\nc: 3\nd: 4\n---\n";
+        let page = with_front_matter(source, FrontMatterShown::Table);
+        let stripe = LOOK.stripe.unwrap();
+        let stripes: Vec<_> = rects(&page).into_iter().filter(|r| r.4 == stripe).collect();
+        // Rows 2 and 4 of four, not the first, and 3 when the first is the
+        // header of a Markdown table.
+        assert_eq!(stripes.len(), 2, "{stripes:?}");
+        let top = rects(&page).iter().map(|r| r.1).fold(f32::MAX, f32::min);
+        let first_row = text(&texts(&page), "a").2;
+        assert!(stripes[0].1 > first_row, "{stripes:?} {top}");
+        // A Markdown table's header is no body row: its second body row is
+        // the first shaded.
+        let table = page_of_table();
+        assert_eq!(rects(&table).iter().filter(|r| r.4 == stripe).count(), 1);
+    }
+
+    fn page_of_table() -> Page {
+        page("| h |\n|---|\n| a |\n| b |\n")
     }
 
     #[test]
