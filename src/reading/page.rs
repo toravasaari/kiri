@@ -1760,9 +1760,8 @@ impl<'a> Flow<'a> {
     }
 
     /// Lays `grid` out at `x` and the current top, its columns `widths`
-    /// wide, and moves below it. A table `inside` another's cell paints
-    /// each of its rows, in the page's colour or the stripe's, whatever
-    /// shade the row it is in has.
+    /// wide, and moves below it. On a shaded row of another table (the flow
+    /// is `shaded`) it paints its unshaded rows in the page's colour too.
     fn grid(&mut self, grid: &Grid, x: f32, widths: &[f32], wrap: text::Wrap) {
         let look = *self.look;
         let (across, down) = (CELL_ACROSS * look.size, CELL_DOWN * look.size);
@@ -1784,7 +1783,7 @@ impl<'a> Flow<'a> {
             for (column, &width) in widths.iter().enumerate() {
                 let mut inner = self.child(self.look, y + down);
                 // What a table in this cell is on, shaded or not.
-                inner.shaded = shaded && look.stripe.is_some();
+                inner.shaded = shaded;
                 if let Some(cell) = cells.get(column) {
                     let cell_x = left + 1.0 + across;
                     height = height.max(inner.cell(grid, (row, column), cell, cell_x, width, wrap));
@@ -2870,12 +2869,7 @@ mod tests {
             let page = lay_out(&blocks, &look, &Fonts::fixture(), (&Plain, &Plain), FRAME);
             let image = page.draw(0, 672, page.height.ceil() as u32);
             let texts = texts(&page);
-            // A pixel in the value column of a nested row, right of its text.
-            let at = |value: &str| {
-                let (_, x, baseline, _) = text(&texts, value);
-                let (x, y) = (*x as u32 + 22, (*baseline as u32).saturating_sub(10));
-                image.get_pixel(x, y).0
-            };
+            let at = |value: &str| nested_pixel(&image, &texts, value);
             let rgb = |brush: Brush| [brush[0], brush[1], brush[2], 255];
             // The first row is the page's colour, the second the stripe's,
             // the third the page's, whatever the outer row under it is.
@@ -2899,6 +2893,26 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    /// The pixel of a nested table's row for `value` (`1`, `2` or `3`, of
+    /// the keys `aa`, `bb`, `cc`): in the padding of the value's cell, 7
+    /// pixels left of its text, 10 above its baseline, clear of the text and
+    /// of the column's border 14 pixels left of it.
+    fn nested_pixel(image: &RgbaImage, texts: &[(String, f32, f32, f32)], value: &str) -> [u8; 4] {
+        let key = match value {
+            "1" => "aa",
+            "2" => "bb",
+            _ => "cc",
+        };
+        let (_, _, baseline, _) = text(texts, key);
+        let (_, value_x, ..) = text(texts, value);
+        image
+            .get_pixel(
+                (*value_x - 7.0) as u32,
+                (*baseline as u32).saturating_sub(10),
+            )
+            .0
     }
 
     #[test]
@@ -2955,12 +2969,7 @@ mod tests {
         let page = lay_out(&blocks, &LOOK, &Fonts::fixture(), (&Plain, &Plain), FRAME);
         let image = page.draw(0, 672, page.height.ceil() as u32);
         let texts = texts(&page);
-        let at = |value: &str| {
-            let (_, x, baseline, _) = text(&texts, value);
-            image
-                .get_pixel(*x as u32 + 22, (*baseline as u32).saturating_sub(10))
-                .0
-        };
+        let at = |value: &str| nested_pixel(&image, &texts, value);
         assert_eq!(at("1")[3], 0);
         let stripe = LOOK.stripe.unwrap();
         assert_eq!(at("2"), [stripe[0], stripe[1], stripe[2], 255]);
