@@ -19,9 +19,10 @@ kiri examples/S05-alerts.md
 
 Each alert has a bar down its left edge, an icon and a bold title in a
 colour of its own, over a faint tint of that colour as wide as the text,
-with a blank row of the tint under the text. The colours and icons are the ones GitHub uses. kitty draws the icons from
-the symbols font it bundles, so outside kitty an alert has no icon. Inline
-code in an alert has a stronger tint of the colour than the rest.
+with a blank row of the tint under the text. The colours and icons are the
+ones GitHub uses. kitty draws the icons from the symbols font it bundles,
+so outside kitty an alert has no icon. Inline code in an alert has a
+stronger tint of the colour than the rest.
 
 > [!NOTE]
 > A note: blue, with a circled "i" for an info icon and the title "Note".
@@ -49,9 +50,10 @@ shades on the light page and its lighter ones on the dark page. On a light
 page, which `--light` gives, the tints are GitHub's pale ones: light blue,
 light green, light lilac, light yellow (the warning is lemon, not beige or
 brown, and its bar and title are gold, not brown) and light pink. On a
-dark page they are dark shades of the colours. Without colours, with `NO_COLOR`, an alert
-keeps its bar, icon and bold title, with no colour and no tint. In plain
-text output it is an ordinary quote, with the title on its first line:
+dark page they are dark shades of the colours. Without colours, with
+`NO_COLOR`, an alert keeps its bar, icon and bold title, with no colour
+and no tint. In plain text output it is an ordinary quote, with the title
+on its first line:
 
 ```sh
 kiri --light examples/S05-alerts.md
