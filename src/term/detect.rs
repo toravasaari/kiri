@@ -462,6 +462,33 @@ mod tests {
     }
 
     #[test]
+    fn inside_tmux_the_window_s_cell_size_stays_when_kitty_does_not_tell() {
+        let window = WindowSize {
+            columns: 112,
+            rows: 65,
+            width: 112 * 16,
+            height: 65 * 32,
+        };
+        let run = |args: &[&str]| {
+            let display = args[0] == "display-message";
+            Some(if display { "kitty(0.47.1)|on" } else { "" }.to_owned())
+        };
+        let ask = |_, _| Some(BEHIND_TMUX.as_bytes().to_vec());
+        let found = detect(
+            Mode::Auto,
+            None,
+            &in_tmux(),
+            Passthrough::Detect,
+            Some(window),
+            true,
+            ask,
+            &run,
+        );
+        assert_eq!(found.caps.cell_pixels, Some((16, 32)));
+        assert_eq!(found.cell_size(), CellSize::Window(16, 32));
+    }
+
+    #[test]
     fn each_run_through_tmux_has_image_ids_of_its_own() {
         let answers = (BEHIND_TMUX, "kitty(0.47.1)|on");
         let run = || {
