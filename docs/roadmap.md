@@ -1251,7 +1251,15 @@ grapheme at a time, and at a fraction each grapheme rounds up to a whole
 cell, so a heading or a sup cut to fit takes fewer letters than fit.
 Measuring the text kept, as `width` does, would fix it.
 
-#### B11 Rows of reading mode broken in a container's tmux
+#### B11 Rows of reading mode broken in a container's tmux (fixed)
+
+Fixed: inside tmux, kiri asks kitty for its cell size through
+passthrough and takes kitty's answer over the window size. The
+container's terminal does not tell its size in pixels, so tmux gave the
+pane 16 × 32 pixels a cell where kitty's were 10 × 21. kiri drew each
+part of a page for the wrong cells, and kitty, fitting the part into its
+cells, left gaps above and below it; where two parts met, rows were cut.
+Neither the tmux version nor `RGB` played a part.
 
 In the maintainer's kitty, reading mode shows a few broken rows in
 tmux inside a jailbee container (tmux 3.6): the lower part of a line of
