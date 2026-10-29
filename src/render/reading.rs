@@ -1593,6 +1593,28 @@ mod tests {
     }
 
     #[test]
+    fn printing_files_one_by_one_holds_the_pictures_of_the_last_only() {
+        let mut inputs = inputs(kitty(80));
+        let cache = cache(&inputs);
+        for number in 0..4 {
+            inputs.images.insert(
+                ImageKey::from("a.png").in_document(number),
+                Ok(raster(200, 100, [255, 0, 0])),
+            );
+            let file = crate::model::File {
+                name: format!("{number}.md"),
+                document: parse("![a](a.png)\n"),
+            };
+            layout::file(&file, number, &inputs);
+            assert!(
+                cache.borrow().len() <= 1,
+                "{} after file {number}",
+                cache.borrow().len()
+            );
+        }
+    }
+
+    #[test]
     fn a_picture_shown_at_another_size_is_another_entry_and_the_old_size_goes() {
         let mut inputs = inputs(kitty(80));
         inputs

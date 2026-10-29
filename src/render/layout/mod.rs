@@ -120,10 +120,14 @@ pub fn content(content: Content, inputs: &Inputs) -> Stream {
 /// Ends a layout: the pictures of reading mode that it did not show are
 /// let go.
 fn finished(stream: Stream, inputs: &Inputs) -> Stream {
+    end_layout(inputs);
+    stream
+}
+
+fn end_layout(inputs: &Inputs) {
     if let Some(reading) = &inputs.reading {
         reading.pictures.borrow_mut().finish();
     }
-    stream
 }
 
 /// Lines laid out, with the blocks they come from.
@@ -156,7 +160,9 @@ pub fn files(files: &[File], inputs: &Inputs) -> Stream {
 /// not kept, so the block numbers of its lines point into nothing;
 /// [`files`] keeps the table.
 pub fn file(file: &File, number: usize, inputs: &Inputs) -> Vec<Line> {
-    file_into(file, number, inputs, &mut Blocks::default())
+    let lines = file_into(file, number, inputs, &mut Blocks::default());
+    end_layout(inputs);
+    lines
 }
 
 /// [`file`], with its blocks added to `blocks`. The header lines come from
