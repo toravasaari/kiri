@@ -94,8 +94,8 @@ pub struct Look {
     /// How tables are drawn.
     pub table_style: TableStyle,
     pub stripe: Option<Brush>,
-    /// The page's colour, which a table inside a shaded row paints its own
-    /// unshaded rows in.
+    /// The page's colour, which a table in the cell of a shaded row paints
+    /// its own unshaded rows in; nothing is painted over an unshaded row.
     pub page: Brush,
     /// The colour of what could not be drawn, such as a diagram's error.
     pub error: Brush,
@@ -766,6 +766,7 @@ pub fn lay_out(
         ids: Vec::new(),
         y: 0.0,
         margin: None,
+        shaded: false,
     };
     let mut placed = Vec::new();
     for block in blocks {
@@ -1048,6 +1049,9 @@ struct Flow<'a> {
     /// the larger of it and its own top margin; `None` at the top, where
     /// no margin is kept.
     margin: Option<f32>,
+    /// Whether it is laid out on a shaded row of a table, which a table in
+    /// it paints its own unshaded rows over, in the page's colour.
+    shaded: bool,
 }
 
 /// The margins above and below a block, as GitHub gives them.
@@ -1082,6 +1086,7 @@ impl<'a> Flow<'a> {
             ids: Vec::new(),
             y: top,
             margin: None,
+            shaded: false,
         }
     }
 
@@ -1632,10 +1637,10 @@ impl<'a> Flow<'a> {
         let table_width = widths.iter().sum::<f32>() + columns as f32 * extra + 1.0;
         match scroll && too_wide {
             true => self.band(x, table_width, |flow| {
-                flow.grid(grid, x, &widths, wrap, false);
+                flow.grid(grid, x, &widths, wrap);
                 None
             }),
-            false => self.grid(grid, x, &widths, wrap, false),
+            false => self.grid(grid, x, &widths, wrap),
         }
     }
 
@@ -1758,7 +1763,7 @@ impl<'a> Flow<'a> {
     /// wide, and moves below it. A table `inside` another's cell paints
     /// each of its rows, in the page's colour or the stripe's, whatever
     /// shade the row it is in has.
-    fn grid(&mut self, grid: &Grid, x: f32, widths: &[f32], wrap: text::Wrap, inside: bool) {
+    fn grid(&mut self, grid: &Grid, x: f32, widths: &[f32], wrap: text::Wrap) {
         let look = *self.look;
         let (across, down) = (CELL_ACROSS * look.size, CELL_DOWN * look.size);
         let columns = widths.len();
@@ -1773,8 +1778,13 @@ impl<'a> Flow<'a> {
             let mut inners = Vec::new();
             let mut left = x;
             let mut height = 0.0f32;
+            // Every second body row, from the second: a header is none.
+            let body = row.checked_sub(usize::from(grid.header_row));
+            let shaded = body.is_some_and(|body| body % 2 == 1);
             for (column, &width) in widths.iter().enumerate() {
                 let mut inner = self.child(self.look, y + down);
+                // What a table in this cell is on, shaded or not.
+                inner.shaded = shaded && look.stripe.is_some();
                 if let Some(cell) = cells.get(column) {
                     let cell_x = left + 1.0 + across;
                     height = height.max(inner.cell(grid, (row, column), cell, cell_x, width, wrap));
@@ -1783,12 +1793,9 @@ impl<'a> Flow<'a> {
                 left += width + extra;
             }
             let height = height + 2.0 * down;
-            // Every second body row, from the second: a header is none.
-            let body = row.checked_sub(usize::from(grid.header_row));
-            let shaded = body.is_some_and(|body| body % 2 == 1);
             let paint = match (look.stripe, shaded) {
                 (Some(stripe), true) => Some(stripe),
-                (Some(_), false) if inside => Some(look.page),
+                (Some(_), false) if self.shaded => Some(look.page),
                 _ => None,
             };
             if let Some(color) = paint {
@@ -1922,7 +1929,7 @@ impl<'a> Flow<'a> {
                     match (cell, &shared) {
                         (Cell::Table(inner), Some((widths, wrap))) => {
                             let columns = inner.columns();
-                            self.grid(inner, x, &widths[..columns], *wrap, true);
+                            self.grid(inner, x, &widths[..columns], *wrap);
                         }
                         _ => {
                             self.cell(grid, (row, column), cell, x, width, wrap);
@@ -1997,7 +2004,7 @@ impl<'a> Flow<'a> {
         } else {
             text::Wrap::Words
         };
-        self.grid(grid, x, &widths, wrap, !fill);
+        self.grid(grid, x, &widths, wrap);
     }
 
     fn paragraph(&self, content: &[Inline], color: Brush, width: f32) -> Paragraph {
@@ -2935,6 +2942,28 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_table_in_an_unshaded_row_paints_nothing_over_it() {
+        // The first key's row is unshaded: the nested table's own rows are
+        // transparent where its zebra says unshaded, and the stripe where it
+        // says shaded.
+        let source = "---\ncolumns:\n  - aa: 1\n    bb: 2\n---\n";
+        let document = parse(source);
+        let blocks: Vec<&Block> = document.blocks.iter().collect();
+        let page = lay_out(&blocks, &LOOK, &Fonts::fixture(), (&Plain, &Plain), FRAME);
+        let image = page.draw(0, 672, page.height.ceil() as u32);
+        let texts = texts(&page);
+        let at = |value: &str| {
+            let (_, x, baseline, _) = text(&texts, value);
+            image
+                .get_pixel(*x as u32 + 22, (*baseline as u32).saturating_sub(10))
+                .0
+        };
+        assert_eq!(at("1")[3], 0);
+        let stripe = LOOK.stripe.unwrap();
+        assert_eq!(at("2"), [stripe[0], stripe[1], stripe[2], 255]);
     }
 
     #[test]
