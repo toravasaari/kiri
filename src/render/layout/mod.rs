@@ -46,7 +46,7 @@ pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
 /// `document` laid out as a lone document, with the blocks its lines come
 /// from.
 fn document_stream(document: &Document, inputs: &Inputs) -> Stream {
-    with_layout(inputs, 0, |layout, width, margin| {
+    let stream = with_layout(inputs, 0, |layout, width, margin| {
         let mut stream = Stream::default();
         let mut marks = Marks::new(&mut stream.blocks, &document.lines);
         layout.top_level(
@@ -58,7 +58,8 @@ fn document_stream(document: &Document, inputs: &Inputs) -> Stream {
         );
         settle_bands(&mut stream.lines);
         stream
-    })
+    });
+    finished(stream, inputs)
 }
 
 /// Puts each band in `lines` where it is drawn: on the blank line after
@@ -116,6 +117,15 @@ pub fn content(content: Content, inputs: &Inputs) -> Stream {
     }
 }
 
+/// Ends a layout: the pictures of reading mode that it did not show are
+/// let go.
+fn finished(stream: Stream, inputs: &Inputs) -> Stream {
+    if let Some(reading) = &inputs.reading {
+        reading.pictures.borrow_mut().finish();
+    }
+    stream
+}
+
 /// Lines laid out, with the blocks they come from.
 #[derive(Debug, Default)]
 pub struct Stream {
@@ -136,7 +146,7 @@ pub fn files(files: &[File], inputs: &Inputs) -> Stream {
         let lines = file_into(shown, number, inputs, &mut stream.blocks);
         stream.lines.extend(lines);
     }
-    stream
+    finished(stream, inputs)
 }
 
 /// `file`, numbered `number` among the files shown together, laid out
@@ -1639,6 +1649,7 @@ mod tests {
                       Back in outer\n\n</details>\n\nAfter\n";
         let inputs = Inputs {
             reading: Some(crate::render::reading::Reading {
+                pictures: Default::default(),
                 fonts: Rc::new(crate::reading::Fonts::fixture()),
                 wide: crate::reading::page::Wide::Wrap,
             }),

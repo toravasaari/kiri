@@ -15,6 +15,7 @@ fn kitty() -> Capabilities {
 
 fn reading() -> Reading {
     Reading {
+        pictures: Default::default(),
         fonts: Rc::new(Fonts::fixture()),
         wide: crate::reading::page::Wide::Wrap,
     }

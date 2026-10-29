@@ -485,6 +485,7 @@ mod tests {
         let document = crate::parse::parse(source);
         let inputs = crate::render::Inputs {
             reading: Some(crate::render::reading::Reading {
+                pictures: Default::default(),
                 fonts: Rc::new(crate::reading::Fonts::fixture()),
                 wide: crate::reading::page::Wide::Scroll,
             }),

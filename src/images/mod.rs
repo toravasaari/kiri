@@ -389,6 +389,8 @@ pub struct Images {
     /// The keys of the images the documents show, in their order, as a
     /// load in the background last found them.
     shown: Vec<ImageKey>,
+    /// What each loaded image is, by a hash of it.
+    prints: HashMap<ImageKey, u64>,
 }
 
 /// What a block shows in place of its image while the image loads.
@@ -418,7 +420,17 @@ impl Images {
         if !self.by_key.contains_key(&key) {
             self.order.push(key.clone());
         }
+        match &image {
+            Ok(source) => self.prints.insert(key.clone(), source.fingerprint()),
+            Err(_) => self.prints.remove(&key),
+        };
         self.by_key.insert(key, image);
+    }
+
+    /// A hash of the image loaded under `key`, which another image under
+    /// the same key does not have; `None` when none loaded.
+    pub fn print(&self, key: &ImageKey) -> Option<u64> {
+        self.prints.get(key).copied()
     }
 
     /// Takes the outcome for `key` out, as for an image shown on its own;
@@ -426,6 +438,7 @@ impl Images {
     pub fn remove(&mut self, key: &ImageKey) -> Option<Result<Source, ImageError>> {
         self.order.retain(|loaded| loaded != key);
         self.late.remove(key);
+        self.prints.remove(key);
         self.by_key.remove(key)
     }
 

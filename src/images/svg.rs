@@ -99,6 +99,17 @@ impl Svg {
         }
     }
 
+    /// Feeds what the image is, to a hash.
+    pub(super) fn fingerprint(&self, hasher: &mut impl std::hash::Hasher) {
+        use std::hash::Hash;
+        self.bytes.hash(hasher);
+        let view = self.view;
+        for edge in [view.left(), view.top(), view.right(), view.bottom()] {
+            edge.to_bits().hash(hasher);
+        }
+        self.panel.hash(hasher);
+    }
+
     pub(super) fn render(&self, width: u32, height: u32) -> RgbaImage {
         let mut image = RgbaImage::new(width, height);
         let Some(mut pixmap) = tiny_skia::Pixmap::new(width, height) else {

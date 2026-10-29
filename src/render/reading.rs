@@ -5,6 +5,7 @@
 
 use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
@@ -57,6 +58,65 @@ pub struct Reading {
     pub fonts: Rc<Fonts>,
     /// What becomes of code blocks and tables wider than the area.
     pub wide: Wide,
+    /// The pictures of the last layout, scaled.
+    pub pictures: Rc<RefCell<PictureCache>>,
+}
+
+/// Images scaled to the size a layout shows them at, kept from one layout
+/// to the next so that a layout does not scale every picture again. Only
+/// what the last layout used stays.
+#[derive(Debug, Default)]
+pub struct PictureCache {
+    entries: HashMap<PictureKey, (Rc<RgbaImage>, u64)>,
+    /// What the layout under way has used.
+    used: HashSet<PictureKey>,
+    /// How many pictures were scaled, not taken from here.
+    scaled: usize,
+}
+
+/// An image, by its key, what its pixels are and the size it is scaled to.
+type PictureKey = (ImageKey, u64, (u32, u32));
+
+impl PictureCache {
+    /// The pictures held, and how many were ever scaled.
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn scaled(&self) -> usize {
+        self.scaled
+    }
+
+    /// The bytes of the pixels held.
+    pub fn bytes(&self) -> usize {
+        self.entries
+            .values()
+            .map(|(pixels, _)| pixels.as_raw().len())
+            .sum()
+    }
+
+    /// Ends a layout: what it did not use is let go.
+    pub fn finish(&mut self) {
+        let used = std::mem::take(&mut self.used);
+        self.entries.retain(|key, _| used.contains(key));
+    }
+
+    /// The picture under `key`, scaled by `scale` when it is not held.
+    fn get(&mut self, key: PictureKey, scale: impl FnOnce() -> RgbaImage) -> (Rc<RgbaImage>, u64) {
+        self.used.insert(key.clone());
+        if let Some((pixels, id)) = self.entries.get(&key) {
+            return (Rc::clone(pixels), *id);
+        }
+        self.scaled += 1;
+        let (pixels, id) = hashed(scale());
+        let pixels = Rc::new(pixels);
+        self.entries.insert(key, (Rc::clone(&pixels), id));
+        (pixels, id)
+    }
 }
 
 /// Where reading mode sets its text in a window: the area that tables
@@ -469,6 +529,7 @@ pub fn lines(
         cell,
         inline_errors,
         keys: RefCell::new(Vec::new()),
+        cache: &reading.pictures,
     };
     let page = page::lay_out(
         blocks,
@@ -627,6 +688,8 @@ struct Gallery<'a> {
     inline_errors: bool,
     /// The keys of the pictures that are loading, which their tags number.
     keys: RefCell<Vec<ImageKey>>,
+    /// The pictures of the last layout, which this one takes from.
+    cache: &'a RefCell<PictureCache>,
 }
 
 impl Gallery<'_> {
@@ -657,10 +720,20 @@ impl Gallery<'_> {
             Some(pixels)
         };
         match (self.images.get(&key), self.images.placeholder(&key)) {
-            (Some(Ok(source)), _) => match drawn(source, false) {
-                Some(pixels) => ready(pixels, None),
-                None => Picture::None,
-            },
+            (Some(Ok(source)), _) => {
+                let Some(size) = sizes::pixel_size(source.size(), wanted, self.cell, room) else {
+                    return Picture::None;
+                };
+                let print = self.images.print(&key).unwrap_or(0);
+                let (pixels, id) = (self.cache.borrow_mut())
+                    .get((key.clone(), print, size), || source.render(size.0, size.1));
+                Picture::Ready {
+                    pixels,
+                    id,
+                    loading: None,
+                    depth: 0.0,
+                }
+            }
             (Some(Err(ImageError::Diagram { reason, .. })), _) if language.is_some() => {
                 let noun = language.map(crate::diagrams::noun).unwrap_or_default();
                 let message = format!("✗ {noun} could not be drawn: {reason}");
@@ -681,14 +754,21 @@ impl Gallery<'_> {
     }
 }
 
-/// `pixels` as a picture, with an id from what they are.
-fn ready(pixels: RgbaImage, loading: Option<usize>) -> Picture {
+/// `pixels` with an id from what they are.
+fn hashed(pixels: RgbaImage) -> (RgbaImage, u64) {
     let mut hasher = DefaultHasher::new();
     pixels.dimensions().hash(&mut hasher);
     pixels.as_raw().hash(&mut hasher);
+    let id = hasher.finish();
+    (pixels, id)
+}
+
+/// `pixels` as a picture, with an id from what they are.
+fn ready(pixels: RgbaImage, loading: Option<usize>) -> Picture {
+    let (pixels, id) = hashed(pixels);
     Picture::Ready {
         pixels: Rc::new(pixels),
-        id: hasher.finish(),
+        id,
         loading,
         depth: 0.0,
     }
@@ -970,6 +1050,7 @@ mod tests {
     fn inputs(caps: Capabilities) -> Inputs {
         Inputs {
             reading: Some(Reading {
+                pictures: Default::default(),
                 fonts: Rc::new(Fonts::fixture()),
                 wide: Wide::Wrap,
             }),
@@ -1440,6 +1521,54 @@ mod tests {
         let link = &lines[shown[0]].image.as_ref().unwrap().links[0];
         assert_eq!(&*link.url, "https://far.example/");
         assert!(link.columns.end <= 80);
+    }
+
+    /// The cache of `inputs`.
+    fn cache(inputs: &Inputs) -> Rc<RefCell<PictureCache>> {
+        Rc::clone(&inputs.reading.as_ref().expect("reading mode").pictures)
+    }
+
+    #[test]
+    fn a_picture_is_scaled_once_for_layouts_that_show_it_alike() {
+        let mut inputs = inputs(kitty(80));
+        inputs
+            .images
+            .insert("a.png", Ok(raster(40, 20, [255, 0, 0])));
+        let document = parse("Text.\n\n![a](a.png)\n");
+        let first = layout::layout(&document, &inputs);
+        let cache = cache(&inputs);
+        assert_eq!(cache.borrow().scaled(), 1);
+        let second = layout::layout(&document, &inputs);
+        assert_eq!(cache.borrow().scaled(), 1);
+        assert_eq!(cache.borrow().len(), 1);
+        // The same pictures: the same page.
+        assert_eq!(page_id(&first), page_id(&second));
+        // Other pixels under the same key are scaled anew, and the old ones
+        // go; so does a picture the next layout does not show.
+        inputs
+            .images
+            .insert("a.png", Ok(raster(40, 20, [0, 0, 255])));
+        layout::layout(&document, &inputs);
+        assert_eq!(cache.borrow().scaled(), 2);
+        assert_eq!(cache.borrow().len(), 1);
+        layout::layout(&parse("Nothing.\n"), &inputs);
+        assert!(cache.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_picture_shown_at_another_size_is_another_entry_and_the_old_size_goes() {
+        let mut inputs = inputs(kitty(80));
+        inputs
+            .images
+            .insert("a.png", Ok(raster(1000, 20, [255, 0, 0])));
+        let document = parse("![a](a.png)\n");
+        layout::layout(&document, &inputs);
+        let cache = cache(&inputs);
+        // A window of another width shrinks it to another column.
+        inputs.caps.width = 60;
+        layout::layout(&document, &inputs);
+        assert_eq!(cache.borrow().scaled(), 2);
+        assert_eq!(cache.borrow().len(), 1);
     }
 
     #[test]

@@ -493,6 +493,7 @@ mod tests {
         // A page of reading mode, to register overlays against.
         let inputs = Inputs {
             reading: Some(crate::render::reading::Reading {
+                pictures: Default::default(),
                 fonts: Rc::new(crate::reading::Fonts::fixture()),
                 wide: crate::reading::page::Wide::Wrap,
             }),

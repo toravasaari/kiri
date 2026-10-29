@@ -1521,6 +1521,7 @@ impl<'a> Context<'a> {
     /// laid out in them, as `M` in the pager turns it on.
     fn reading_mode(&self) -> Reading {
         Reading {
+            pictures: Default::default(),
             fonts: Rc::new(kiri::reading::Fonts::system()),
             wide: self.wide,
         }

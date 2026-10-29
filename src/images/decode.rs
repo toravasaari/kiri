@@ -68,6 +68,31 @@ impl Source {
         }
     }
 
+    /// A hash of what the image is, so that two are told apart without
+    /// comparing their pixels.
+    pub fn fingerprint(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        match self {
+            Source::Raster(image) => (0u8, image.dimensions(), image.as_raw()).hash(&mut hasher),
+            Source::Dense { image, css } => {
+                (1u8, css, image.dimensions(), image.as_raw()).hash(&mut hasher)
+            }
+            Source::Text {
+                image,
+                breaks,
+                ends,
+            } => {
+                (2u8, image.dimensions(), image.as_raw(), breaks, ends).hash(&mut hasher);
+            }
+            Source::Svg(svg) => {
+                3u8.hash(&mut hasher);
+                svg.fingerprint(&mut hasher);
+            }
+        }
+        hasher.finish()
+    }
+
     /// The image drawn `width` × `height` pixels large: a raster image
     /// scaled, an SVG drawn at that size.
     pub fn render(&self, width: u32, height: u32) -> RgbaImage {
