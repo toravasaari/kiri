@@ -1777,7 +1777,7 @@ impl<'a> Flow<'a> {
                 let paragraph = self.cell_text(grid, (row, column), content, width, wrap, ink);
                 self.y += self.text(paragraph, x);
             }
-            Cell::Table(inner) => self.nested(inner, x, width),
+            Cell::Table(inner) => self.nested(inner, x, width, false),
             Cell::Stack(cells) => {
                 // The tables of a stack have the same columns.
                 let shared = self
@@ -1843,7 +1843,7 @@ impl<'a> Flow<'a> {
         self.y += LINE_HEIGHT * self.look.size;
         match (&front_matter.value, self.front_matter) {
             (Some(Ok(Value::Map(entries))), FrontMatterShown::Table) => {
-                self.nested(&map_grid(entries, 1), x, width);
+                self.nested(&map_grid(entries, 1), x, width, true);
             }
             _ => self.code(Some(&front_matter.language), &front_matter.source, x, width),
         }
@@ -1851,7 +1851,10 @@ impl<'a> Flow<'a> {
 
     /// Lays a table that is in a cell out at `x`, in `width` pixels: it
     /// wraps and never scrolls.
-    fn nested(&mut self, grid: &Grid, x: f32, width: f32) {
+    /// With `fill`, as wide as `width`: the spare room goes to the columns
+    /// in proportion to their content, as a browser's table at `width:
+    /// 100%` shares it.
+    fn nested(&mut self, grid: &Grid, x: f32, width: f32, fill: bool) {
         let columns = grid.columns();
         if columns == 0 {
             return;
@@ -1860,7 +1863,14 @@ impl<'a> Flow<'a> {
         let (least, most) = self.grid_widths(grid, ink);
         let extra = self.look.size * 2.0 * CELL_ACROSS + 1.0;
         let room = width - columns as f32 * extra - 1.0;
-        let (widths, forced) = share(&least, &most, room);
+        let (mut widths, forced) = share(&least, &most, room);
+        let spare = room - widths.iter().sum::<f32>();
+        let content: f32 = most.iter().sum();
+        if fill && !forced && spare > 0.0 && content > 0.0 {
+            for (width, max) in widths.iter_mut().zip(&most) {
+                *width += spare * max / content;
+            }
+        }
         let wrap = if forced {
             text::Wrap::Forced
         } else {
@@ -2614,6 +2624,25 @@ mod tests {
         let (first, second) = (&borders[..3], &borders[3..]);
         let xs = |lines: &[(f32, f32)]| lines.iter().map(|b| b.1).collect::<Vec<_>>();
         assert_eq!(xs(first), xs(second));
+    }
+
+    #[test]
+    fn the_front_matter_table_is_as_wide_as_the_text_column() {
+        let page = with_front_matter("---\na: 1\nb: 2\n---\n", FrontMatterShown::Table);
+        let widest = rects(&page).iter().map(|r| r.2).fold(0.0, f32::max);
+        assert_eq!(widest, 672.0);
+        // The spare room goes to the columns in proportion to their content,
+        // and the table's right border is the column's edge.
+        let right = rects(&page)
+            .iter()
+            .filter(|r| r.2 == 1.0)
+            .map(|r| r.0)
+            .fold(0.0, f32::max);
+        assert_eq!(right, 671.0);
+        // A table too wide for the column is as it was, in the column.
+        let long = "word ".repeat(200);
+        let page = with_front_matter(&format!("---\na: {long}\n---\n"), FrontMatterShown::Table);
+        assert!(rects(&page).iter().all(|r| r.0 + r.2 <= 672.5));
     }
 
     #[test]

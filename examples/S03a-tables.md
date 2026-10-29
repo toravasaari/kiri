@@ -150,8 +150,11 @@ kiri examples/S03b-table.csv
 
 With `--reading` the tables above are drawn in the proportional font, as
 wide as their content, and the front matter at the top of this file is a
-table in the column, with a table in a cell for each value that has keys of
-its own, such as the columns and the layout:
+table as wide as the text column, a blank line below the top of the page,
+every second row from the second shaded. A value that has keys of its own,
+such as the layout, is a table in its cell; the columns, a list of maps, are
+one table for each with a gap between them and the same column widths, so
+that their borders are in line:
 
 ```sh
 kiri --reading examples/S03a-tables.md
