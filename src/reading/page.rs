@@ -2813,6 +2813,15 @@ mod tests {
         for (x, y) in [(0, 0), (right, 0), (0, bottom), (right, bottom)] {
             assert_eq!(image.get_pixel(x, y).0[3], 0, "corner {x},{y}");
         }
+        // The shading of the last row stays inside the round corners.
+        let stripe = LOOK.stripe.unwrap();
+        for x in [0, right] {
+            let pixel = image.get_pixel(x, bottom - 1).0;
+            assert!(
+                pixel[3] == 0 || pixel[..3] != stripe,
+                "bottom corner {x}: {pixel:?}"
+            );
+        }
         assert_eq!(image.get_pixel(30, 0).0[..3], LOOK.table_border);
         assert_eq!(image.get_pixel(0, 40).0[..3], LOOK.table_border);
         // Down a column's middle: the top edge, the line under the header
