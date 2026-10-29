@@ -82,6 +82,12 @@ rule = "bright-black"
 list_marker = "bright-black"
 # Also the colour of the underline between rows with --table-rows underline.
 table_border = "bright-black"
+# How reading mode draws tables and front matter, nested tables included;
+# only reading mode reads it, as the text layout draws its own frame.
+# "frame": a rounded frame, lines between the columns and under the header
+# row, none between the rows, which the shading tells apart.
+# "grid": a line round every cell and square corners, as GitHub draws it.
+table_style = "frame"
 # Messages kiri writes into the document, such as why a diagram could
 # not be drawn, below its code.
 error = "red"

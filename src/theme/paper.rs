@@ -2,7 +2,7 @@
 
 use super::{
     BandColor, CodeBackground, FileHeaderTheme, MarkTheme, SearchColor, SearchTheme, StatusColor,
-    StatusLineTheme, Theme,
+    StatusLineTheme, TableStyle, Theme,
 };
 use crate::color::Color;
 
@@ -106,6 +106,7 @@ impl Theme {
             rule: colors.line,
             list_marker: colors.marker,
             table_border: colors.border,
+            table_style: TableStyle::default(),
             error: colors.error,
             built_in: false,
             // The page is the same whatever the terminal's background.

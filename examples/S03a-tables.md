@@ -159,3 +159,13 @@ that their borders are in line:
 ```sh
 kiri --reading examples/S03a-tables.md
 ```
+
+Reading mode draws a table as a rounded frame with lines between the
+columns and under the header, as the text layout does, and tells the rows
+apart by shading. To have a line round every cell, as GitHub draws tables,
+put `table_style = "grid"` in a theme file and use it:
+
+```sh
+echo 'table_style = "grid"' > /tmp/grid.toml
+kiri --reading --theme /tmp/grid.toml examples/S03a-tables.md
+```

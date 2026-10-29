@@ -51,6 +51,8 @@ pub struct Theme {
     pub rule: Option<Color>,
     pub list_marker: Option<Color>,
     pub table_border: Option<Color>,
+    /// How reading mode draws tables; the text layout has its own frame.
+    pub table_style: TableStyle,
     /// Messages kiri writes into the document, such as why a diagram
     /// could not be drawn.
     pub error: Option<Color>,
@@ -267,6 +269,18 @@ pub enum LabelColor {
     Color(Option<Color>),
 }
 
+/// How reading mode draws tables and front matter.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TableStyle {
+    /// A rounded frame, lines between the columns and under the header
+    /// row, and none between the rows, which the shading tells apart: as
+    /// the text layout draws a table.
+    #[default]
+    Frame,
+    /// A line round every cell and square corners, as GitHub draws it.
+    Grid,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CodeBackground {
     /// The background of the code block colour theme.
@@ -328,6 +342,7 @@ impl Default for Theme {
             rule: GREY,
             list_marker: GREY,
             table_border: GREY,
+            table_style: TableStyle::default(),
             error: RED,
             built_in: true,
             code_padding: true,
@@ -553,6 +568,7 @@ mod tests {
                 rule,
                 list_marker,
                 table_border,
+                table_style: _,
                 error,
                 built_in: _,
                 code_padding: _,
