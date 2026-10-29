@@ -955,8 +955,17 @@ pub fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities
     let text = rgb(theme.foreground)
         .or_else(|| rgb(caps.foreground))
         .unwrap_or(contrast);
-    let known = rgb(theme.background).or_else(|| rgb(caps.background));
-    let page = known.unwrap_or(if dark { [0; 3] } else { [0xff; 3] });
+    // A palette colour the terminal did not report is xterm's, a guess.
+    let exact = |color: Option<Color>| match color?.rgb(&caps.palette)? {
+        Color::Rgb(red, green, blue) => Some([red, green, blue]),
+        Color::Palette(_) => None,
+    };
+    let known = exact(theme.background).or_else(|| exact(caps.background));
+    let page = (rgb(theme.background).or_else(|| rgb(caps.background))).unwrap_or(if dark {
+        [0; 3]
+    } else {
+        [0xff; 3]
+    });
     let muted = rgb(theme.muted).unwrap_or_else(|| mix(text, page, 0.6));
     let border = mix(text, page, 0.25);
     let headings = [1, 2, 3, 4, 5, 6].map(|level| rgb(theme.heading(level).color).unwrap_or(text));
@@ -1919,5 +1928,23 @@ mod tests {
         for image in [part, band] {
             assert_eq!(image.get_pixel(0, 0).0[3], 0);
         }
+    }
+
+    #[test]
+    fn a_palette_background_is_known_only_when_the_terminal_reported_it() {
+        let theme = Theme {
+            background: Some(Color::Palette(1)),
+            ..Theme::default()
+        };
+        let mut caps = kitty(80);
+        let look_of = |caps: &Capabilities| look(&theme, &CodeColors::default(), true, caps);
+        // Not reported: xterm's red is a guess, so the page stays transparent.
+        let guessed = look_of(&caps);
+        assert!(!guessed.opaque);
+        assert_eq!(guessed.page, [0xcd, 0, 0]);
+        caps.palette[1] = Some(Color::Rgb(1, 2, 3));
+        let reported = look_of(&caps);
+        assert!(reported.opaque);
+        assert_eq!(reported.page, [1, 2, 3]);
     }
 }
