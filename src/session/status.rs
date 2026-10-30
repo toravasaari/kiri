@@ -198,6 +198,7 @@ pub enum Found<'a> {
 /// leaves out the keys first, then the start of the name and then of its
 /// place, then the words for following and for reading mode, then the
 /// warning mark, then the search.
+#[expect(clippy::too_many_lines)]
 pub fn spans(
     name: &str,
     place: Option<(usize, usize)>,

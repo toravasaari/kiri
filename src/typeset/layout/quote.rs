@@ -27,6 +27,7 @@ impl Layout<'_> {
 
     /// A GitHub alert: a bar and a title in the kind's colour over a tint
     /// of it. Without styling, a quote with the title on its first line.
+    #[expect(clippy::too_many_lines)]
     pub(super) fn alert(
         &self,
         kind: AlertKind,

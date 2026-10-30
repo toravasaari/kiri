@@ -247,6 +247,7 @@ impl Fraction {
     /// none inside a word: where two groups meet in a word, the first sits
     /// at the right of its cells and the second at the left. Only a word
     /// too long for two groups has a gap in it.
+    #[expect(clippy::too_many_lines)]
     pub fn groups(self, text: &str) -> Vec<Group<'_>> {
         let graphemes: Vec<Grapheme> = (text.grapheme_indices(true))
             .map(|(at, grapheme)| Grapheme {

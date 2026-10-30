@@ -966,6 +966,7 @@ fn tell_drawn(drawn: &Drawn, failed: &Cell<bool>) {
 /// pager's screen catches the signals. With `later`, the images of the
 /// documents load in the background once the pager has opened; should it
 /// not open, they load before the files are printed.
+#[expect(clippy::too_many_lines)]
 fn page_files(
     context: &Context,
     given: Vec<Given>,
@@ -1967,6 +1968,7 @@ struct ToShow<'a> {
 /// them that came with the images goes once its screen catches them. With
 /// `reading`, the file the document is from and when its images' files
 /// were last changed, the pager can read it again.
+#[expect(clippy::too_many_lines)]
 fn print_document(
     context: &Context,
     shown: ToShow,
