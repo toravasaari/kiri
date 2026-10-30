@@ -589,7 +589,7 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 |---|---|---|
 | `src/lib.rs` | platform | stays; declares the three parts |
 | `src/main.rs` | mixed | stays. Platform: the command line, opening files and standard input, the shells, loading, the file reload. State engine: the decisions `printing`, `pages_alone`, `surely_paged` and `may_load_later`, in the startup plan. Only `printing` is free of I/O: `pages_alone` and `may_load_later` ask whether stdout is a terminal, and `surely_paged` measures images and reads the window size. The plan takes the answers in as values read by `main.rs`. One route makes the one-file and many-files routes one |
-| `src/config.rs` | mixed | stays. Platform: `Environment`, which reads the process's variables, the file, and resolving a setting from the flags, the environment, the file and its default. State engine: the setting types the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump`). Terminal layer: `Passthrough`, which only capability detection and the parser read. The terminal layer takes the variables it reads (`TMUX`, `TMUX_PANE`, `NO_COLOR` and the terminal variables) as values, not `Environment`. The config split |
+| `src/config.rs` | mixed | stays. Platform: `Environment`, which reads the process's variables, the file, and resolving a setting from the flags, the environment, the file and its default. State engine: the setting types the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump`). `Passthrough` stays a setting type with the others, though it is read by capability detection, the command line and `--doctor`; capability detection takes its value, and the variables it reads (`TMUX`, `TMUX_PANE`, `NO_COLOR`, `COLORTERM`, `TERM_PROGRAM` and `VTE_VERSION`), as arguments, not `Environment`. The config split |
 | `src/config/tests.rs` | follows `config.rs` | stays; goes with its pieces in the config split |
 | `src/doctor.rs` | platform | stays (it searches `PATH` through `diagrams::find`) |
 | `src/list.rs` | platform | stays (the `--list-emojis` shell) |
@@ -640,7 +640,7 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | `src/reading/paint.rs` | typesetting | `src/typeset/reading/paint.rs` |
 | `src/reading/text.rs` | typesetting | `src/typeset/reading/text.rs` |
 | `src/reading/fonts.rs` | mixed | `src/typeset/reading/fonts.rs`. Typesetting: `Fonts`, the fonts handed to parley, with the fallbacks. Platform: loading the system fonts and memory-mapping the font files, lazily, on the first layout; the font database moves that loading out |
-| `src/images/mod.rs` | mixed | stays. Typesetting: `ImageKey`, `ImageError`, `Images` and the plan of which images a document wants. Platform: `load`, `load_with` and `load_parts`, which read files and run the renderers. Loading and sessions |
+| `src/images/mod.rs` | mixed | stays. Typesetting: `ImageKey`, `ImageError`, `Images`, the plan of which images a document wants, and `LoadOptions`, the drawing options, which carry `progress`, a callback that the platform's `load_parts` calls. Platform: `load`, `load_with` and `load_parts`, which read files and run the renderers. Loading and sessions |
 | `src/images/decode.rs` | typesetting | `src/typeset/images/decode.rs` |
 | `src/images/drawn.rs` | typesetting | `src/typeset/images/drawn.rs` |
 | `src/images/drawn/tests.rs` | typesetting | `src/typeset/images/drawn/tests.rs` |
@@ -651,7 +651,7 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | `src/images/pipeline.rs` | platform | stays |
 | `src/images/pipeline/tests.rs` | platform | stays |
 | `src/images/stamps.rs` | platform | stays |
-| `src/diagrams/mod.rs` | mixed | stays. Typesetting: `Request`, `Drawn`, `Theme`, `FormulaColors`, `INLINE_FORMULA`, `centred`, `BuiltIn` and the `Renderer` trait. Platform: the external choice, which is `Renderers` with its `External` and `chosen`, and `render_all`'s parallel run through `render_in_parallel`, on threads. Loading and sessions |
+| `src/diagrams/mod.rs` | mixed | stays. Typesetting: `Request`, `Drawn`, `Theme`, `FormulaColors`, `INLINE_FORMULA`, `centred`, `dark_background`, `baseline_depth`, `noun`, `name`, `BuiltIn` and the `Renderer` trait. Platform: the external choice, which is `Renderers` with its `External` and `chosen`, and `render_all`'s parallel run through `render_in_parallel`, on threads. Loading and sessions |
 | `src/diagrams/language.rs` | typesetting | `src/typeset/diagrams/language.rs` |
 | `src/diagrams/math.rs` | typesetting | `src/typeset/diagrams/math.rs` |
 | `src/diagrams/mermaid/mod.rs` | typesetting | `src/typeset/diagrams/mermaid/mod.rs` |
@@ -693,7 +693,7 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | `src/term/check.rs` | mixed | stays. Platform: asking kitty behind tmux, on the terminal. Terminal layer: reading what it answered, `lost` and `sequences`. The terminal layer split |
 | `src/term/detect.rs` | mixed | stays. Platform: `capabilities` and `examine`, which read the window, the environment and the probe's answer. Terminal layer: turning those into `Capabilities` (`with_probe`, `with_window`, `through_tmux`). The terminal layer split |
 | `src/term/probe.rs` | mixed | stays. Platform: sending the probe and reading the answer on the controlling terminal. Terminal layer: the text of the queries. The terminal layer split |
-| `src/term/tmux.rs` | mixed | stays. Platform: running `tmux` and reading its answer, and `run_id`, which reads the process id and the clock. Terminal layer: `Wrapping` and `passthrough`, which wrap kitty's sequences for tmux, and `Pane`, `prepare` and `ClientCells`, which take the run as a value. The terminal layer split passes the run id in as a value |
+| `src/term/tmux.rs` | mixed | stays. Platform: running `tmux` and reading its answer, and `run_id`, which reads the process id, the clock and the OS's random seed. Terminal layer: `Wrapping` and `passthrough`, which wrap kitty's sequences for tmux, and `Pane`, `prepare` and `ClientCells`, which are plain data or take the run (`prepare`, `ClientCells::window`) as a value. The terminal layer split passes the run id in as a value |
 | `src/term/window.rs` | mixed | stays. Platform: `window_size`, the ioctl. Terminal layer: `WindowSize`. The terminal layer split |
 | `src/term/screen.rs` | platform | stays |
 | `src/term/screen/tests.rs` | platform | stays |
@@ -740,8 +740,9 @@ known today, each with the work that removes it. It is not a proof that
 there are no others. A script resolved every `crate::` and `super::` path
 in the non-test code of every file that the table puts wholly in a part,
 and found the first two rows; the rest were found by reading the pieces of
-mixed modules, and test code was not scanned. The direction test that the
-guards work adds will hold the complete list and check it. A mixed module
+mixed modules. The direction rules and this table cover non-test code
+only: test modules may use any part. The direction test that the guards
+work adds will hold the complete list and check it. A mixed module
 is read by piece, so edges from whole files into one go to the pieces named
 in its row.
 
@@ -752,12 +753,11 @@ in its row.
 | `Ink::new` in `render/loading.rs` (typesetting's `Ink`) takes the terminal layer's `output::Page` | the terminal layer split, which moves `Ink::new` to the terminal layer |
 | `term/clipboard.rs` and `term/cell_query.rs` (terminal layer) import `passthrough` from `term/tmux.rs`, which is at a platform path until the split | the terminal layer split, which moves `passthrough` |
 | `pages_alone` and `may_load_later` (state engine) call `term::stdout_is_terminal` (platform) | the startup plan, which takes the answer as a value |
-| `surely_paged` (state engine) calls `images::measure_in_background` and `term::window_size` (platform) | the startup plan, which takes the measure and the window size as values |
+| `surely_paged` (state engine) calls `images::measure_in_background` and `term::window_size` (platform) | the startup plan, which takes the measured layout (or the window rows) and the window size as values |
 | `detect` in `term/detect.rs` (terminal layer) calls `tmux::run_id` (platform) | the terminal layer split, which passes the run id in |
-| `term/detect.rs` and `term/tmux.rs` (terminal layer) take `config::Environment` (platform) and `Passthrough` | the config split and the terminal layer split: `Passthrough` moves to the terminal layer, and the variables are passed as values |
+| `term/detect.rs` and `term/tmux.rs` (terminal layer) take `config::Environment` (platform) and `config::Passthrough` (a setting type) | the terminal layer split, which passes the variables and the `Passthrough` value as arguments |
 | `reading/fonts.rs` (typesetting) loads and memory-maps system fonts | the font database |
 | `theme/file.rs` (typesetting) has `load`, which reads a file | the config split |
-| the tests of `render/reading.rs` (typesetting) use `render/output.rs` (terminal layer) | the terminal layer split, or moving the tests |
 
 ### Where a new thing goes
 
