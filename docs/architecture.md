@@ -632,7 +632,7 @@ src/kitty/mod.rs           kitty-specific escape sequences
 src/kitty/text.rs          text sizing protocol (OSC 66)
 src/kitty/graphics.rs      graphics protocol with Unicode placeholders
 src/kitty/query.rs         queries that detect kitty's protocols
-crates/kiri-image-utils    raster image decoding and scaling, a crate of its
+crates/kiri-tr-image-utils raster image decoding and scaling, a crate of its
                            own in the workspace
 ```
 

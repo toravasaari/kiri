@@ -1,4 +1,4 @@
-# kiri-image-utils
+# kiri-tr-image-utils
 
 Image code for [kiri](../../README.md) that debug builds optimise: two
 functions that decode raster images into 8-bit RGBA through

@@ -1137,14 +1137,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kiri-image-utils"
-version = "0.1.0"
-dependencies = [
- "fast_image_resize",
- "image",
-]
-
-[[package]]
 name = "kiri-md"
 version = "0.1.0"
 dependencies = [
@@ -1157,7 +1149,7 @@ dependencies = [
  "icu_provider",
  "image",
  "insta",
- "kiri-image-utils",
+ "kiri-tr-image-utils",
  "libc",
  "merman",
  "parley",
@@ -1176,6 +1168,14 @@ dependencies = [
  "unicode-segmentation",
  "unicode-width",
  "yaml-rust2",
+]
+
+[[package]]
+name = "kiri-tr-image-utils"
+version = "0.1.0"
+dependencies = [
+ "fast_image_resize",
+ "image",
 ]
 
 [[package]]
