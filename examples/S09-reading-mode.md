@@ -266,7 +266,7 @@ After `r`, or when the pager reloads the file by itself, such an image
 is loaded again if its file changed meanwhile, as an image on a line of
 its own is: replace `S06b-pattern.png` with another picture, press `r`,
 and the badge in the line shows the new one. Put the file back afterwards
-with `git checkout S06b-pattern.png`.
+with `git checkout examples/S06b-pattern.png` in the repository.
 
 A formula in the middle of a line, such as $\frac{a}{b}$ or $x^2 + y^2$,
 is drawn in the line in the colour of the text, as large as the text
