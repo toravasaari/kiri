@@ -7,10 +7,10 @@ use std::time::{Duration, Instant};
 use rustix::process::{Pid, getpgrp};
 use rustix::termios::tcgetpgrp;
 
-use super::answers::{PALETTE_ANSWER, device_attributes};
 use super::screen::RawMode;
 use super::tmux;
-use crate::kitty::query;
+use crate::present::answers::{PALETTE_ANSWER, device_attributes};
+use crate::present::kitty::query;
 
 /// Long enough for a terminal over SSH, short enough not to notice when
 /// a terminal ignores the queries entirely.
@@ -161,7 +161,7 @@ fn exchange(mut tty: &File, ask_cell_size: bool, graphics: GraphicsQuery) -> Opt
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::term::answers::interpret;
+    use crate::present::answers::interpret;
 
     #[test]
     fn a_process_group_other_than_the_foreground_one_is_in_the_background() {

@@ -21,7 +21,7 @@ Markdown ──parse──▶ document model ──▶ backend ──▶ output
   HTML tags in it itself: `<img>`, so an image means the same in the model
   whether Markdown or HTML wrote it, and `<details>`, `<summary>`, `<kbd>`,
   `<mark>`, `<sub>`, `<sup>` and `<br>`. Front matter at the start of a
-  Markdown file is split off in `src/parse/front_matter.rs` before comrak
+  Markdown file is split off in `src/typeset/parse/front_matter.rs` before comrak
   sees the text and read as YAML, TOML or JSON into the model's own value
   tree; `--front-matter off` leaves it to comrak. A formula in `$$…$$`
   becomes a code block in `math`, as a ` ```math ` block is, so that a
@@ -37,11 +37,11 @@ Keeping the document model between the parser and the backends is the main
 design decision. It is what lets a browser view, pixel rendering or other
 terminals arrive later as new backends instead of rewrites.
 
-A file given on the command line need not be Markdown: `src/input.rs`
+A file given on the command line need not be Markdown: `src/typeset/input.rs`
 tells an image from a document by its extension and first bytes, and an
 image skips the parser and is drawn on its own, as large as fits the
 window. A CSV or TSV file, told by its extension or by `--format csv`
-or `--format tsv`, goes through a parser of its own, `src/parse/csv.rs`,
+or `--format tsv`, goes through a parser of its own, `src/typeset/parse/csv.rs`,
 into a document of one table, so the backends draw it as any other table.
 A Mermaid file becomes a document of one Mermaid code block, whose
 diagram is drawn as in any document and then shown on its own as an
@@ -53,7 +53,7 @@ gets the file as it is instead, from `src/main.rs`.
 
 The document can also come from standard input, which errors call
 `<stdin>`, or from a directory, which stands for its README. Both are
-resolved in `src/main.rs`, before `src/input.rs` looks at the bytes, so
+resolved in `src/main.rs`, before `src/typeset/input.rs` looks at the bytes, so
 an image piped in is shown on its own as well.
 
 Several files on the command line are shown one after another, each under
@@ -98,7 +98,7 @@ A document also keeps the line of the source each of its blocks starts on,
 in a table that is looked up by the same kind of place, and the layout
 copies the line into its table of blocks. The table takes no part when two
 documents are compared for equality, because the lines say where a block
-was written and not what the document is. `src/compare.rs` compares an
+was written and not what the document is. `src/typeset/compare.rs` compares an
 old document with a new one: it finds the blocks that stayed as they were,
 then pairs the blocks of the same kind that stand in the gaps between them
 as changed, and calls the rest removed or added. When a block that changed
@@ -109,21 +109,21 @@ The places inside lists have two numbers, the item and then the block in
 it; the layout's table has to use them too once it marks those blocks.
 
 The pager shows the same styled lines on the terminal's alternate screen.
-`src/pager/view.rs` chooses the lines that fit in the window, a scaled
+`src/session/view.rs` chooses the lines that fit in the window, a scaled
 line whole or not at all, and moves them, and when the window changes size
 it keeps the same block at the top; `src/pager/keys.rs` turns the bytes
-the terminal sends into keys and keys into moves; `src/pager/prompt.rs`
-keeps the search term as it is typed, and `src/pager/search.rs` finds it
+the terminal sends into keys and keys into moves; `src/session/prompt.rs`
+keeps the search term as it is typed, and `src/session/search.rs` finds it
 in the laid-out lines and splits a line where a match starts and ends, so
 the matches can be highlighted without a change to the writer;
-`src/pager/fade.rs` mixes the colours a match fades through after a jump,
+`src/session/fade.rs` mixes the colours a match fades through after a jump,
 those of the status line's `reloaded` as it fades out, and those of the
 warning line;
-`src/pager/files.rs` finds where each of several files starts from the
+`src/session/files.rs` finds where each of several files starts from the
 blocks of the lines, so the status line names the file at the top of the
 view and `:n` and `:p` move from one file's start to another's;
-`src/pager/status.rs` and `src/pager/help.rs` make the status line and the
-help panel as styled spans, and `src/pager/warnings.rs` the line of text
+`src/session/status.rs` and `src/session/help.rs` make the status line and the
+help panel as styled spans, and `src/session/warnings.rs` the line of text
 above the status line that tells the first warning; `src/pager/mod.rs` draws each frame, row by
 row through the backend's writer, and lays the document out again when the
 window changes size or when `r` reloads it. For that the pager is given a
@@ -135,11 +135,11 @@ above the view does not move it. When the block at the top is gone, the
 view goes to the next block that is still there. A view at the end of the
 document goes to the new end, so a document that grew shows what was
 added. Following on auto then moves the view to a change:
-`src/pager/changes.rs` finds the runs of lines whose blocks changed or
+`src/session/changes.rs` finds the runs of lines whose blocks changed or
 were added, and the place of a removal with neither beside it, and chooses
-one as the follow jump setting says, and `src/pager/tint.rs` gives the
+one as the follow jump setting says, and `src/session/tint.rs` gives the
 lines of that change a lighter background for a moment, fading out
-through `src/pager/fade.rs`. While the pager follows the
+through `src/session/fade.rs`. While the pager follows the
 document, it asks the `Reload` on each poll for keys whether the document
 changed, and reads it again once a change still looks the same 100 ms, a
 poll's time, after it was first seen, so that a file caught half written
@@ -150,7 +150,7 @@ reading keys from the controlling terminal, is opened in
 A reload shows the new text at once: the `Reload` keeps the images the
 document still shows and starts the others loading in the background, in
 the pager's `Loads`, which the pager polls beside the follow poll.
-Meanwhile `src/pager/loading.rs` chooses what stands in for each image
+Meanwhile `src/session/loading.rs` chooses what stands in for each image
 from the comparison: a block that changed shows its old image dimmed,
 and any other block, a new one or one that stayed while its image file
 changed, shows as it does without its image, code or alt text. Below
@@ -163,7 +163,7 @@ sends it anew, as it is then, and the pager draws a frame each 50 ms
 while a band shows, so that it moves. The status line says
 `[rendering: 1/3]` in place of the name meanwhile. The images in view
 load first, then the nearest: each band knows its image and the lines
-that show it, and whenever the view moves `src/pager/loading.rs` orders
+that show it, and whenever the view moves `src/session/loading.rs` orders
 the images by how far those lines are from the view, a line below
 before a line above, and tells `Loads`, which hands the waiting jobs out
 in that order. Say the reader is at the end when a reload adds three
@@ -191,7 +191,7 @@ among several files load before, as they have nothing else to show.
 Should the screen not open, the images load before the documents are
 printed.
 
-The pager keeps one image encoder, `src/render/encoder.rs`, for as long
+The pager keeps one image encoder, `src/present/encoder.rs`, for as long
 as it runs. An image the terminal holds is not sent again: after a
 resize that leaves it at the same size, or a reload that leaves its
 pixels as they were. An image that the lines of a new layout no longer
@@ -201,7 +201,7 @@ pager quits, every image it sent is.
 ## Reading mode
 
 `--reading`, experimental, shows the text as a browser does: in a
-proportional font, drawn as images. `src/reading/` knows nothing about
+proportional font, drawn as images. `src/typeset/reading/` knows nothing about
 terminals. It lays a run of text blocks (headings, paragraphs, lists,
 quotes, thematic breaks, code blocks, highlighted as the text layout
 highlights them, and tables, whose columns share the room as a browser
@@ -209,15 +209,15 @@ shares it) out with parley, in the fonts of the fontdb
 database that SVG text uses, and draws them with tiny-skia, colour emoji
 included. GitHub's sizes and spacing are its measure: 16 pixels of text in
 rows of 20, a column of 42 times that, margins that collapse between
-blocks. `src/render/reading.rs` turns such a run into a page: its rows are
+blocks. `src/typeset/reading/engine.rs` turns such a run into a page: its rows are
 image rows, as a large image's are, of parts 30 rows tall that the encoder
 draws when a line first shows them, so the pager draws only the parts in
 view. The rows keep their blocks, so the pager keeps its place across a
 resize. Images, diagrams and formulas are in the page at their natural
 size in CSS pixels, shrunk to the column, a formula in the middle of it;
-the page gets them through `Pictures`, which `src/render/reading.rs`
+the page gets them through `Pictures`, which `src/typeset/reading/engine.rs`
 writes over the loaded images, as it gets code's colours through
-`Highlight`, so `src/reading/` knows nothing of the loader. A picture
+`Highlight`, so `src/typeset/reading/` knows nothing of the loader. A picture
 that has not come reserves room, with a loading band over the last row of
 it as in the text layout, and one a reload replaces shows the old
 pixels dimmed; the page's id covers the pixels of its pictures, so a
@@ -231,7 +231,7 @@ below its baseline it reaches, so that the box sits on the line's
 baseline; until it has come it is shown as its source, as the other
 layouts show it. An alert is a tint, a bar, a title after the
 kind's icon, which is drawn from an embedded Octicon outline
-(`src/reading/octicons.rs`), and the blocks inside it in the room left.
+(`src/typeset/reading/octicons.rs`), and the blocks inside it in the room left.
 Front matter is a table of its keys and values in the column, with a
 table in a cell for a value that has keys, or a code block when the
 front matter shows as code. A `<details>` block is its summary after a
@@ -247,7 +247,7 @@ a thin scroll bar, faded on each edge with more beyond it; a code band's
 language stays in its top right corner. Its rows show an image of their
 own, cut into slices of at most 30 rows as pages are, keyed by its slice,
 its offset and whether it is selected. The pager keeps those by the
-band's block in `src/pager/bands.rs`: the topmost band on the screen is
+band's block in `src/session/bands.rs`: the topmost band on the screen is
 selected until a click, or a search that finds something in another,
 selects it, ← and → or `H`
 and `L` scroll it, and so does a sideways wheel, or the wheel with Shift,
@@ -267,7 +267,7 @@ as an opaque area, not as the translucent background.
 Search and links in a page work from the positions the layout knows: it
 records, in pixels and a piece for each line, where each link and each
 place of a search term is, in the page's or a band's own coordinates.
-`src/pager/search.rs` finds a term in the texts of a page, so a match is
+`src/session/search.rs` finds a term in the texts of a page, so a match is
 on the row of its line of text, and a match in a band scrolls the band to
 it and selects it. The marks are drawn into the page's image, a box in
 the theme's match colours with the text drawn over it, and so is a box
@@ -276,10 +276,10 @@ a hash of the marks and the link in that part alone, in the key of the
 rows it is on, and kept by the encoder under its page and that hash, so
 that the terminal keeps the part with it and the part without and moving
 the current match draws only the parts it leaves and enters. A link is an
-OSC 8 hyperlink round the placeholders it covers (`src/kitty/graphics.rs`),
+OSC 8 hyperlink round the placeholders it covers (`src/present/kitty/graphics.rs`),
 which kitty opens as it does a link in text; in a band the cells move with
 the scrolling.
-`src/pager/links.rs` selects one of the links on the screen with Tab and
+`src/session/links.rs` selects one of the links on the screen with Tab and
 Shift+Tab, numbering them from the page's own list so that a link keeps its
 id while a band scrolls, and the status line says where it goes. In the
 text layout a link is the run of spans on one line that share a hyperlink
@@ -289,7 +289,7 @@ selected one is drawn in reverse video by `search::mark`; a link in a
 heading drawn as an image has no spans, so it is not there to select. Tab
 also reaches a link whose band is scrolled so that it is out of view, and
 scrolls the band to it as a search match does. Enter copies the selected
-link's URL with OSC 52 (`src/term/clipboard.rs`), wrapped in tmux's
+link's URL with OSC 52 (`src/present/clipboard.rs`), wrapped in tmux's
 passthrough where the images are.
 `Reading` also holds a cache of the pictures scaled for the last layout,
 by image, its pixels and size, so that a layout scales only what is new
@@ -306,7 +306,7 @@ case, and its source), with the number of the document it is in, so
 that documents shown together keep their own images, and collects the
 code blocks whose language a renderer draws besides the lone images. It
 hands all of a document's diagrams to the renderer at once, then
-`src/images/drawn.rs` decodes each image it gets back by its content,
+`src/typeset/images/drawn.rs` decodes each image it gets back by its content,
 as it decodes an image file, so sizing, the width limit and redrawing
 after a window resize work as for any image. An SVG is decoded as an
 SVG file is; a raster image, such as the PNG of a browser's drawing,
@@ -323,7 +323,7 @@ A heading is drawn as an image the same way, where the terminal draws
 images but not large text, as kitty inside tmux: `ImageKey::Heading`
 holds its level, its words, each marked with the inline code or key it
 is in and whether it is emphasised, and the cell size it is drawn for,
-and `src/images/heading.rs` draws the text through the SVG renderer in
+and `src/typeset/images/heading.rs` draws the text through the SVG renderer in
 the system's sans-serif font, emphasis in italics, and inline code and
 keys in its monospace font on the background of inline code, at the size
 and in the colours that `render::heading_look` resolves from the theme
@@ -337,7 +337,7 @@ placeholders allow from any column, and the image stays one whatever the
 width. A heading whose image did not come is laid out as text, without a
 warning.
 
-Renderers live in `src/diagrams/`, outside `src/kitty/` and the parser.
+Renderers live in `src/diagrams/`, outside `src/present/kitty/` and the parser.
 A renderer implements the `Renderer` trait: whether it draws a language,
 and a diagram's source and a `Theme`, for a light or a dark page, with
 the colour of the page's text for a formula, turned into an image file, SVG or raster, and the page its colours are for. It
@@ -352,14 +352,14 @@ move to a module of their own when a second language, in
 4.3.2, shows what the two share.
 
 What kiri knows about each language is one entry of `LANGUAGES`, a
-`Language` in `src/diagrams/language.rs`: plain data, such as its name,
+`Language` in `src/typeset/diagrams/language.rs`: plain data, such as its name,
 its display name, the extensions of its files, its theme names and the
 command kiri looks for, with functions where languages differ, such as
 reading the page a diagram chooses from its source, finding its first
 line for a warning, writing a configuration file for its program, and
 its built-in renderer. Mermaid's entry and what it needs, its directives,
 the settings kiri gives a diagram and mermaid-cli's command line, are in
-`src/diagrams/mermaid/mod.rs`, compiled in every build; only the part
+`src/typeset/diagrams/mermaid/mod.rs`, compiled in every build; only the part
 that runs merman is behind the `mermaid` feature. The rest of kiri asks
 the table: input detection for diagram files, the configuration file's
 `[diagrams.<language>]` tables, `--doctor`'s rows and the image loader's
@@ -368,7 +368,7 @@ panel colour.
 - **Built-in:** `BuiltIn` draws a language with the renderer its entry
   has in this build: Mermaid through merman, in a build with the
   `mermaid` feature, and formulas through RaTeX, in every build
-  (`src/diagrams/math.rs`). `src/diagrams/mermaid/merman.rs` fixes merman's SVG
+  (`src/typeset/diagrams/math.rs`). `src/typeset/diagrams/mermaid/merman.rs` fixes merman's SVG
   where resvg would lose part of it, and tests the fixes through merman
   itself. A fault that kiri works around elsewhere, such as text past a
   diagram's edge, has a test that fails once merman no longer has it.
@@ -425,7 +425,7 @@ terminal is raw until it has been restored, or until its screen fails to
 open, when they end kiri again while the document is printed. A signal
 that was ignored when kiri started, as under `nohup`, stays ignored in
 both. A new diagram language is a new entry in `LANGUAGES` in
-`src/diagrams/language.rs`, in a module of its own as Mermaid's is, with
+`src/typeset/diagrams/language.rs`, in a module of its own as Mermaid's is, with
 a default command, a built-in renderer or both; the rest follows from the
 entry.
 
@@ -447,7 +447,7 @@ underline styles come only from the probe. `NO_COLOR` turns colours off in every
 mode. These variables come in as part of `config::Environment`, read once
 at start-up with kiri's own, so the rules are tested without the process
 environment. The result is a plain value, `Capabilities` in
-`src/caps.rs`, passed to the renderer, so tests can render for any
+`src/typeset/caps.rs`, passed to the renderer, so tests can render for any
 terminal without having one. kiri asks nothing when it runs in the
 background of its terminal, where raw mode would get it stopped.
 
@@ -482,32 +482,32 @@ writes as it is into a pipe.
 
 | Feature | Escape sequence | Written by | Used for |
 |---|---|---|---|
-| Text sizing | OSC 66 (kitty 0.40+) | `src/kitty/text.rs` | Headings in a larger font; without it, headings as images |
-| Graphics | APC `_G` | `src/kitty/graphics.rs` | Images and diagrams, later formulas |
-| Unicode placeholders | U+10EEEE with graphics | `src/kitty/graphics.rs` | Images that scroll with text, work in pagers and tmux |
-| Protocol queries | OSC 66 tests, APC `_G` query | `src/kitty/query.rs` | Telling whether kitty's protocols work |
-| Hyperlinks | OSC 8 | `src/render/output.rs` | Clickable links |
-| Text attributes and colours | SGR | `src/render/output.rs` | Bold, italic, colours |
-| Styled underlines | SGR 4:x, SGR 58 | `src/render/output.rs` | Heading underline styles; the dashed underline between table rows in the border colour |
-| Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J | `src/render/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows |
-| Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/kitty/query.rs` | Wiping the progress line; erasing the rows the text sizing tests drew |
+| Text sizing | OSC 66 (kitty 0.40+) | `src/present/kitty/text.rs` | Headings in a larger font; without it, headings as images |
+| Graphics | APC `_G` | `src/present/kitty/graphics.rs` | Images and diagrams, later formulas |
+| Unicode placeholders | U+10EEEE with graphics | `src/present/kitty/graphics.rs` | Images that scroll with text, work in pagers and tmux |
+| Protocol queries | OSC 66 tests, APC `_G` query | `src/present/kitty/query.rs` | Telling whether kitty's protocols work |
+| Hyperlinks | OSC 8 | `src/present/output.rs` | Clickable links |
+| Text attributes and colours | SGR | `src/present/output.rs` | Bold, italic, colours |
+| Styled underlines | SGR 4:x, SGR 58 | `src/present/output.rs` | Heading underline styles; the dashed underline between table rows in the border colour |
+| Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J | `src/present/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows |
+| Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/present/kitty/query.rs` | Wiping the progress line; erasing the rows the text sizing tests drew |
 | Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term/screen.rs` | The pager's screen of its own |
 | Focus reporting | CSI ?1004h/l; CSI I, CSI O | `src/term/screen.rs`, `src/pager/keys.rs` | Telling the pager that its tmux pane is shown again |
 | Mouse reporting | CSI ?1000h/l, CSI ?1006h/l; CSI < … M/m, CSI M | `src/term/screen.rs`, `src/pager/keys.rs` | The wheel scrolling the pager, also inside tmux; in reading mode, a click selecting a band and the sideways wheel scrolling it |
-| Synchronized output | CSI ?2026h/l | `src/render/output.rs` | Pager frames without flicker |
-| Cell size query | CSI 16 t; the answer CSI 6 ; height ; width t | `src/kitty/query.rs`, `src/term/cell_query.rs`, `src/pager/keys.rs` | The cell size in pixels where the window size has none, and inside tmux, where the window's may be tmux's guess: asked at start, and by the pager when the window changes size, so that it follows a new font size |
+| Synchronized output | CSI ?2026h/l | `src/present/output.rs` | Pager frames without flicker |
+| Cell size query | CSI 16 t; the answer CSI 6 ; height ; width t | `src/present/kitty/query.rs`, `src/present/cell_query.rs`, `src/pager/keys.rs` | The cell size in pixels where the window size has none, and inside tmux, where the window's may be tmux's guess: asked at start, and by the pager when the window changes size, so that it follows a new font size |
 | Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI c | `src/term/probe.rs` | Cursor position, foreground, background and palette colours, terminal version, end of the answers |
 | tmux passthrough | DCS `tmux;` … ST, with each ESC doubled | `src/term/tmux.rs` | kitty's graphics, the probe's graphics query, and the probe's and the pager's cell size queries, through tmux to the terminal outside |
-| Image checks | APC `_G` `a=p,U=1` and `a=d,d=i` with a placement id | `src/kitty/graphics.rs`, `src/term/check.rs` | Whether kitty behind tmux holds the images kiri sent |
+| Image checks | APC `_G` `a=p,U=1` and `a=d,d=i` with a placement id | `src/present/kitty/graphics.rs`, `src/term/check.rs` | Whether kitty behind tmux holds the images kiri sent |
 
-Sequences that only kitty's protocols define live under `src/kitty/`: text
+Sequences that only kitty's protocols define live under `src/present/kitty/`: text
 sizing, graphics, Unicode placeholders and the queries that detect them;
 `src/term/probe.rs` sends those along with the generic queries it spells
 out itself. OSC 8 hyperlinks, SGR attributes, underline styles and cursor
-movement are general terminal features that `src/render/output.rs` writes
-itself; for scaled text it calls `src/kitty/text.rs`, and for images
-`src/render/encoder.rs`, which sends and deletes them, and
-`src/kitty/graphics.rs`, which writes those sequences and the
+movement are general terminal features that `src/present/output.rs` writes
+itself; for scaled text it calls `src/present/kitty/text.rs`, and for images
+`src/present/encoder.rs`, which sends and deletes them, and
+`src/present/kitty/graphics.rs`, which writes those sequences and the
 placeholders.
 Underline styles began in kitty but are now common; kiri uses them only
 when the probe finds kitty's protocols or `--mode kitty` asks for them.
@@ -590,10 +590,6 @@ The later work that the rows name, in words:
   policy, reading mode's block modules:** later work that the map below
   names, for the places that do not exist yet.
 
-A few files arrive with the branch `fix/reading-leftovers`, which is not
-merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
-`pager/tests/links.rs`. They have rows too.
-
 | Module | Part | After the move |
 |---|---|---|
 | `src/lib.rs` | platform | stays; declares the three parts |
@@ -604,56 +600,56 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | `src/list.rs` | platform | stays (the `--list-emojis` shell) |
 | `src/panics.rs` | platform | stays |
 | `src/testing.rs` | platform | stays (test support) |
-| `src/caps.rs` | typesetting | `src/typeset/caps.rs` |
-| `src/color.rs` | typesetting | `src/typeset/color.rs` |
-| `src/size.rs` | typesetting | `src/typeset/size.rs` |
-| `src/model.rs` | typesetting | `src/typeset/model.rs` |
-| `src/input.rs` | typesetting | `src/typeset/input.rs` |
-| `src/compare.rs` | typesetting | `src/typeset/compare.rs` |
-| `src/parse/mod.rs` | typesetting | `src/typeset/parse/mod.rs` |
-| `src/parse/html.rs` | typesetting | `src/typeset/parse/html.rs` |
-| `src/parse/csv.rs` | typesetting | `src/typeset/parse/csv.rs` |
-| `src/parse/csv/tests.rs` | typesetting | `src/typeset/parse/csv/tests.rs` |
-| `src/parse/front_matter.rs` | typesetting | `src/typeset/parse/front_matter.rs` |
-| `src/parse/front_matter/tests.rs` | typesetting | `src/typeset/parse/front_matter/tests.rs` |
-| `src/parse/tests.rs` | typesetting | `src/typeset/parse/tests.rs` |
-| `src/theme/mod.rs` | typesetting | `src/typeset/theme/mod.rs` |
-| `src/theme/paper.rs` | typesetting | `src/typeset/theme/paper.rs` |
-| `src/theme/file.rs` | mixed | `src/typeset/theme/file.rs`. Typesetting: parsing the theme file's text. Platform: `load`, which reads the file; the config split moves `load` out |
-| `src/kitty/mod.rs` | terminal layer | `src/present/kitty/mod.rs` |
-| `src/kitty/graphics.rs` | terminal layer | `src/present/kitty/graphics.rs` |
-| `src/kitty/query.rs` | terminal layer | `src/present/kitty/query.rs` |
-| `src/kitty/text.rs` | terminal layer | `src/present/kitty/text.rs` |
-| `src/render/mod.rs` | mixed | stays. Typesetting: `Inputs`, the render options (`FrontMatterStyle`, `Headings`, `TableRows`, `RenderErrors`) and `heading_look`, the front matter helpers. Terminal layer: `render`, `render_files`, `render_file`, `render_image` and `render_image_on`, which lay out and write in one call. The terminal layer split |
-| `src/render/block.rs` | typesetting | `src/typeset/block.rs` |
-| `src/render/style.rs` | typesetting | `src/typeset/style.rs` |
-| `src/render/image.rs` | typesetting | `src/typeset/images/size.rs` |
-| `src/render/wrap.rs` | typesetting | `src/typeset/wrap.rs` |
-| `src/render/layout/mod.rs` | typesetting | `src/typeset/layout/mod.rs` |
-| `src/render/layout/code.rs` | typesetting | `src/typeset/layout/code.rs` |
-| `src/render/layout/front_matter.rs` | typesetting | `src/typeset/layout/front_matter.rs` |
-| `src/render/layout/list.rs` | typesetting | `src/typeset/layout/list.rs` |
-| `src/render/layout/quote.rs` | typesetting | `src/typeset/layout/quote.rs` |
-| `src/render/table.rs` | typesetting | `src/typeset/layout/table.rs` |
-| `src/render/table/tests.rs` | typesetting | `src/typeset/layout/table/tests.rs` |
-| `src/render/script.rs` | typesetting | `src/typeset/layout/script.rs` |
-| `src/render/highlight.rs` | typesetting | `src/typeset/layout/highlight.rs` |
-| `src/render/reading.rs` | typesetting | `src/typeset/reading/engine.rs` |
-| `src/render/output.rs` | terminal layer | `src/present/output.rs` |
-| `src/render/encoder.rs` | terminal layer | `src/present/encoder.rs` |
+| `src/caps.rs` | typesetting | moved to `src/typeset/caps.rs` |
+| `src/color.rs` | typesetting | moved to `src/typeset/color.rs` |
+| `src/size.rs` | typesetting | moved to `src/typeset/size.rs` |
+| `src/model.rs` | typesetting | moved to `src/typeset/model.rs` |
+| `src/input.rs` | typesetting | moved to `src/typeset/input.rs` |
+| `src/compare.rs` | typesetting | moved to `src/typeset/compare.rs` |
+| `src/parse/mod.rs` | typesetting | moved to `src/typeset/parse/mod.rs` |
+| `src/parse/html.rs` | typesetting | moved to `src/typeset/parse/html.rs` |
+| `src/parse/csv.rs` | typesetting | moved to `src/typeset/parse/csv.rs` |
+| `src/parse/csv/tests.rs` | typesetting | moved to `src/typeset/parse/csv/tests.rs` |
+| `src/parse/front_matter.rs` | typesetting | moved to `src/typeset/parse/front_matter.rs` |
+| `src/parse/front_matter/tests.rs` | typesetting | moved to `src/typeset/parse/front_matter/tests.rs` |
+| `src/parse/tests.rs` | typesetting | moved to `src/typeset/parse/tests.rs` |
+| `src/theme/mod.rs` | typesetting | moved to `src/typeset/theme/mod.rs` |
+| `src/theme/paper.rs` | typesetting | moved to `src/typeset/theme/paper.rs` |
+| `src/theme/file.rs` | mixed | moved to `src/typeset/theme/file.rs`. Typesetting: parsing the theme file's text. Platform: `load`, which reads the file; the config split moves `load` out |
+| `src/kitty/mod.rs` | terminal layer | moved to `src/present/kitty/mod.rs` |
+| `src/kitty/graphics.rs` | terminal layer | moved to `src/present/kitty/graphics.rs` |
+| `src/kitty/query.rs` | terminal layer | moved to `src/present/kitty/query.rs` |
+| `src/kitty/text.rs` | terminal layer | moved to `src/present/kitty/text.rs` |
+| `src/render/mod.rs` | mixed | stays. Typesetting: `Inputs`, the render options (`FrontMatterStyle`, `Headings`, `TableRows`, `RenderErrors`), `heading_look`, `heading_images` (whether headings take images, given the capabilities), and the front matter helpers. Terminal layer: `render`, `render_files`, `render_file`, `render_image` and `render_image_on`, which lay out and write in one call. The terminal layer split |
+| `src/render/block.rs` | typesetting | moved to `src/typeset/block.rs` |
+| `src/render/style.rs` | typesetting | moved to `src/typeset/style.rs` |
+| `src/render/image.rs` | typesetting | moved to `src/typeset/images/size.rs` |
+| `src/render/wrap.rs` | typesetting | moved to `src/typeset/wrap.rs` |
+| `src/render/layout/mod.rs` | typesetting | moved to `src/typeset/layout/mod.rs` |
+| `src/render/layout/code.rs` | typesetting | moved to `src/typeset/layout/code.rs` |
+| `src/render/layout/front_matter.rs` | typesetting | moved to `src/typeset/layout/front_matter.rs` |
+| `src/render/layout/list.rs` | typesetting | moved to `src/typeset/layout/list.rs` |
+| `src/render/layout/quote.rs` | typesetting | moved to `src/typeset/layout/quote.rs` |
+| `src/render/table.rs` | typesetting | moved to `src/typeset/layout/table.rs` |
+| `src/render/table/tests.rs` | typesetting | moved to `src/typeset/layout/table/tests.rs` |
+| `src/render/script.rs` | typesetting | moved to `src/typeset/layout/script.rs` |
+| `src/render/highlight.rs` | typesetting | moved to `src/typeset/layout/highlight.rs` |
+| `src/render/reading.rs` | typesetting | moved to `src/typeset/reading/engine.rs` |
+| `src/render/output.rs` | terminal layer | moved to `src/present/output.rs` |
+| `src/render/encoder.rs` | terminal layer | moved to `src/present/encoder.rs` |
 | `src/render/loading.rs` | mixed | stays. Typesetting: `Ink` (the struct), `dimmed` and `band`, which draw pixels. Terminal layer: `Ink::new`, the one function that takes the output's `Page`, and `band_offset`. The terminal layer split |
-| `src/reading/mod.rs` | typesetting | `src/typeset/reading/mod.rs` |
-| `src/reading/colr.rs` | typesetting | `src/typeset/reading/colr.rs` |
-| `src/reading/octicons.rs` | typesetting | `src/typeset/reading/octicons.rs` |
-| `src/reading/page.rs` | typesetting | `src/typeset/reading/page.rs` |
-| `src/reading/paint.rs` | typesetting | `src/typeset/reading/paint.rs` |
-| `src/reading/text.rs` | typesetting | `src/typeset/reading/text.rs` |
-| `src/reading/fonts.rs` | mixed | `src/typeset/reading/fonts.rs`. Typesetting: `Fonts`, the fonts handed to parley, with the fallbacks. Platform: loading the system fonts and memory-mapping the font files, lazily, on the first layout; the font database moves that loading out |
+| `src/reading/mod.rs` | typesetting | moved to `src/typeset/reading/mod.rs` |
+| `src/reading/colr.rs` | typesetting | moved to `src/typeset/reading/colr.rs` |
+| `src/reading/octicons.rs` | typesetting | moved to `src/typeset/reading/octicons.rs` |
+| `src/reading/page.rs` | typesetting | moved to `src/typeset/reading/page.rs` |
+| `src/reading/paint.rs` | typesetting | moved to `src/typeset/reading/paint.rs` |
+| `src/reading/text.rs` | typesetting | moved to `src/typeset/reading/text.rs` |
+| `src/reading/fonts.rs` | mixed | moved to `src/typeset/reading/fonts.rs`. Typesetting: `Fonts`, the fonts handed to parley, with the fallbacks. Platform: loading the system fonts and memory-mapping the font files, lazily, on the first layout; the font database moves that loading out |
 | `src/images/mod.rs` | mixed | stays. Typesetting: `ImageKey`, `ImageError`, `Images`, the plan of which images a document wants, and `LoadOptions`, the drawing options, which carry `progress`, a callback that the platform's `load_parts` calls. Platform: `load`, `load_with` and `load_parts`, which read files and run the renderers. Loading and sessions |
-| `src/images/decode.rs` | typesetting | `src/typeset/images/decode.rs` |
-| `src/images/drawn.rs` | typesetting | `src/typeset/images/drawn.rs` |
-| `src/images/drawn/tests.rs` | typesetting | `src/typeset/images/drawn/tests.rs` |
-| `src/images/heading.rs` | typesetting | `src/typeset/images/heading.rs` |
+| `src/images/decode.rs` | typesetting | moved to `src/typeset/images/decode.rs` |
+| `src/images/drawn.rs` | typesetting | moved to `src/typeset/images/drawn.rs` |
+| `src/images/drawn/tests.rs` | typesetting | moved to `src/typeset/images/drawn/tests.rs` |
+| `src/images/heading.rs` | typesetting | moved to `src/typeset/images/heading.rs` |
 | `src/images/svg.rs` | mixed | stays. Typesetting: `Svg`, parsing and drawing, and `Fonts`, the database handed in. Platform: `Fonts::system`, which scans the system's fonts. The font database |
 | `src/images/url.rs` | mixed | stays. Typesetting: `data:` URLs and the reading of a URL's parts. Platform: `read_file`, which opens files. Loading and sessions |
 | `src/images/background.rs` | platform | stays |
@@ -661,10 +657,10 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | `src/images/pipeline/tests.rs` | platform | stays |
 | `src/images/stamps.rs` | platform | stays |
 | `src/diagrams/mod.rs` | mixed | stays. Typesetting: `Request`, `Drawn`, `Theme`, `FormulaColors`, `INLINE_FORMULA`, `centred`, `dark_background`, `baseline_depth`, `noun`, `name`, `BuiltIn` and the `Renderer` trait. Platform: the external choice, which is `Renderers` with its `External` and `chosen`, and `render_all`'s parallel run through `render_in_parallel`, on threads. Loading and sessions |
-| `src/diagrams/language.rs` | typesetting | `src/typeset/diagrams/language.rs` |
-| `src/diagrams/math.rs` | typesetting | `src/typeset/diagrams/math.rs` |
-| `src/diagrams/mermaid/mod.rs` | typesetting | `src/typeset/diagrams/mermaid/mod.rs` |
-| `src/diagrams/mermaid/merman.rs` | typesetting | `src/typeset/diagrams/mermaid/merman.rs` |
+| `src/diagrams/language.rs` | typesetting | moved to `src/typeset/diagrams/language.rs` |
+| `src/diagrams/math.rs` | typesetting | moved to `src/typeset/diagrams/math.rs` |
+| `src/diagrams/mermaid/mod.rs` | typesetting | moved to `src/typeset/diagrams/mermaid/mod.rs` |
+| `src/diagrams/mermaid/merman.rs` | typesetting | moved to `src/typeset/diagrams/mermaid/merman.rs` |
 | `src/diagrams/external.rs` | platform | stays |
 | `src/diagrams/external/tests.rs` | platform | stays |
 | `src/diagrams/find.rs` | platform | stays |
@@ -673,7 +669,7 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | `src/pager/tests/files.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/following.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/images.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
-| `src/pager/tests/links.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop (arrives with `fix/reading-leftovers`) |
+| `src/pager/tests/links.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/loading.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/paging.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/reading.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
@@ -681,24 +677,24 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | `src/pager/tests/search.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/view.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/keys.rs` | mixed | stays. Terminal layer: `Key` and the `Decoder` that turns bytes into keys. State engine: `Action`, `BINDINGS` and `action`. The terminal layer split for the decoding, the pager's loop for the actions |
-| `src/pager/bands.rs` | state engine | `src/session/bands.rs` |
-| `src/pager/changes.rs` | state engine | `src/session/changes.rs` |
-| `src/pager/fade.rs` | state engine | `src/session/fade.rs` |
-| `src/pager/files.rs` | state engine | `src/session/files.rs` |
-| `src/pager/help.rs` | state engine | `src/session/help.rs` |
-| `src/pager/links.rs` | state engine | `src/session/links.rs` |
-| `src/pager/loading.rs` | state engine | `src/session/loading.rs` |
-| `src/pager/prompt.rs` | state engine | `src/session/prompt.rs` |
-| `src/pager/search.rs` | state engine | `src/session/search.rs` |
-| `src/pager/status.rs` | state engine | `src/session/status.rs` |
-| `src/pager/status/tests.rs` | state engine | `src/session/status/tests.rs` |
-| `src/pager/tint.rs` | state engine | `src/session/tint.rs` |
-| `src/pager/view.rs` | state engine | `src/session/view.rs` |
-| `src/pager/warnings.rs` | state engine | `src/session/warnings.rs` |
+| `src/pager/bands.rs` | state engine | moved to `src/session/bands.rs` |
+| `src/pager/changes.rs` | state engine | moved to `src/session/changes.rs` |
+| `src/pager/fade.rs` | state engine | moved to `src/session/fade.rs` |
+| `src/pager/files.rs` | state engine | moved to `src/session/files.rs` |
+| `src/pager/help.rs` | state engine | moved to `src/session/help.rs` |
+| `src/pager/links.rs` | state engine | moved to `src/session/links.rs` |
+| `src/pager/loading.rs` | state engine | moved to `src/session/loading.rs` |
+| `src/pager/prompt.rs` | state engine | moved to `src/session/prompt.rs` |
+| `src/pager/search.rs` | state engine | moved to `src/session/search.rs` |
+| `src/pager/status.rs` | state engine | moved to `src/session/status.rs` |
+| `src/pager/status/tests.rs` | state engine | moved to `src/session/status/tests.rs` |
+| `src/pager/tint.rs` | state engine | moved to `src/session/tint.rs` |
+| `src/pager/view.rs` | state engine | moved to `src/session/view.rs` |
+| `src/pager/warnings.rs` | state engine | moved to `src/session/warnings.rs` |
 | `src/term/mod.rs` | platform | stays |
-| `src/term/answers.rs` | terminal layer | `src/present/answers.rs` |
-| `src/term/cell_query.rs` | terminal layer | `src/present/cell_query.rs` (arrives with `fix/reading-leftovers`). It uses `tmux::passthrough`, which stays in `term/tmux.rs` until the terminal layer split |
-| `src/term/clipboard.rs` | terminal layer | `src/present/clipboard.rs` (arrives with `fix/reading-leftovers`; it builds the OSC 52 bytes and writes them to an `impl Write`). It uses `tmux::passthrough`, which stays in `term/tmux.rs` until the terminal layer split |
+| `src/term/answers.rs` | terminal layer | moved to `src/present/answers.rs` |
+| `src/term/cell_query.rs` | terminal layer | moved to `src/present/cell_query.rs`. It uses `tmux::passthrough`, which stays in `term/tmux.rs` until the terminal layer split |
+| `src/term/clipboard.rs` | terminal layer | moved to `src/present/clipboard.rs` (it builds the OSC 52 bytes and writes them to an `impl Write`). It uses `tmux::passthrough`, which stays in `term/tmux.rs` until the terminal layer split |
 | `src/term/check.rs` | mixed | stays. Platform: asking kitty behind tmux, on the terminal. Terminal layer: reading what it answered, `lost` and `sequences`. The terminal layer split |
 | `src/term/detect.rs` | mixed | stays. Platform: `capabilities` and `examine`, which read the window, the environment and the probe's answer. Terminal layer: turning those into `Capabilities` (`with_probe`, `with_window`, `through_tmux`). The terminal layer split |
 | `src/term/probe.rs` | mixed | stays. Platform: sending the probe and reading the answer on the controlling terminal. Terminal layer: the text of the queries. The terminal layer split |
@@ -724,8 +720,8 @@ debug.
 Once the move is done, a module's tests, its snapshots and its `tests/`
 directory go with it, and the table's paths are the final ones.
 
-The move creates these files; they are not in the table above, because they do
-not exist yet. Each declares the modules that moved into its directory and
+The move created these files; they are not in the table above, because they had
+no path before it. Each declares the modules that moved into its directory and
 exports the public surface of its part.
 
 | New file | What it is |
@@ -735,11 +731,6 @@ exports the public surface of its part.
 | `src/session/mod.rs` | new: the root of the state engine |
 | `src/typeset/images/mod.rs` | new: declares `decode`, `drawn`, `heading` and `size`; the pure pieces of `images/mod.rs` arrive in it with loading and sessions |
 | `src/typeset/diagrams/mod.rs` | new: declares `language`, `math` and `mermaid`; the pure pieces of `diagrams/mod.rs` arrive in it with loading and sessions |
-
-The move also changes the paths that name moved files elsewhere: `AGENTS.md`
-says that kitty's sequences live under `src/kitty/`, which becomes
-`src/present/kitty/`, and the sections of this document above name today's
-paths.
 
 ### Exceptions to the direction
 
@@ -757,25 +748,25 @@ in its row.
 
 | Edge | Removed by |
 |---|---|
-| `caps.rs` (typesetting) uses `kitty::graphics::MAX_CELLS` (terminal layer) | giving `caps.rs` the constant, a small change of its own |
-| `diagrams/language.rs` and `diagrams/mermaid/mod.rs` (typesetting) use `diagrams::external::Output` (platform) | loading and sessions, which moves `Output` to the typesetting side |
+| `typeset/caps.rs` (typesetting) uses `present::kitty::graphics::MAX_CELLS` (terminal layer) | giving `caps.rs` the constant, a small change of its own |
+| `typeset/diagrams/language.rs` and `typeset/diagrams/mermaid/mod.rs` (typesetting) use `diagrams::external::Output` (platform) | loading and sessions, which moves `Output` to the typesetting side |
 | `Ink::new` in `render/loading.rs` (typesetting's `Ink`) takes the terminal layer's `output::Page` | the terminal layer split, which moves `Ink::new` to the terminal layer |
-| `term/clipboard.rs` and `term/cell_query.rs` (terminal layer) import `passthrough` from `term/tmux.rs`, which is at a platform path until the split | the terminal layer split, which moves `passthrough` |
+| `present/clipboard.rs` and `present/cell_query.rs` (terminal layer) import `passthrough` from `term/tmux.rs`, which is at a platform path until the split | the terminal layer split, which moves `passthrough` |
 | `pages_alone` and `may_load_later` (state engine) call `term::stdout_is_terminal` (platform) | the startup plan, which takes the answer as a value |
 | `surely_paged` (state engine) calls `images::measure_in_background` and `term::window_size` (platform) | the startup plan, which takes the measured layout (or the window rows) and the window size as values |
 | `detect` in `term/detect.rs` (terminal layer) calls `tmux::run_id` (platform) | the terminal layer split, which passes the run id in |
 | `term/detect.rs` and `term/tmux.rs` (terminal layer) take `config::Environment` (platform) and `config::Passthrough` (a setting type) | the terminal layer split, which passes the variables and the `Passthrough` value as arguments |
-| `reading/fonts.rs` (typesetting) loads and memory-maps system fonts | the font database |
-| `theme/file.rs` (typesetting) has `load`, which reads a file | the config split |
+| `typeset/reading/fonts.rs` (typesetting) loads and memory-maps system fonts | the font database |
+| `typeset/theme/file.rs` (typesetting) has `load`, which reads a file | the config split |
 
 ### Where a new thing goes
 
 New code goes where this map puts it. When the map has no place for it,
 that is a question for the maintainer, not a reason to add it to a hub
 file (`main.rs`, `pager/mod.rs`, `config.rs`, `render/mod.rs`,
-`render/layout/mod.rs`, `render/reading.rs`, `reading/page.rs`,
-`images/mod.rs` and `diagrams/mod.rs`). **No path yet** means that the
-work named creates the place; until then, ask.
+`typeset/layout/mod.rs`, `typeset/reading/engine.rs`,
+`typeset/reading/page.rs`, `images/mod.rs` and `diagrams/mod.rs`).
+**No path yet** means that the work named creates the place; until then, ask.
 
 | A new… | Goes in |
 |---|---|
@@ -784,7 +775,7 @@ work named creates the place; until then, ask.
 | key or action | `src/session/commands.rs`, new, made by commands as data; until then `BINDINGS` in `src/pager/keys.rs` |
 | setting | no path yet, the config split makes the registry of setting keys, each with its owner, its effect and its medium; until then `src/config.rs`, named after its owner |
 | use of a file, the network or a program | no path yet, loading and sessions makes the platform's work runner, and the trust policy a `Policy`; until then `src/images/background.rs`, `src/images/pipeline.rs` or `src/diagrams/external.rs` |
-| block type or input format | the typesetting engine's registry of block types and formats, no path yet (today `src/model.rs`, `src/parse/` and `src/render/layout/`); in reading mode a module per block type in `src/typeset/reading/`, new, made by reading mode's block modules |
+| block type or input format | the typesetting engine's registry of block types and formats, no path yet (today `src/typeset/model.rs`, `src/typeset/parse/` and `src/typeset/layout/`); in reading mode a module per block type in `src/typeset/reading/`, new, made by reading mode's block modules |
 | diagram language | `src/typeset/diagrams/`: a file and one entry in `language.rs`; a program that draws it is run by the platform |
 | image format | the decoder in `src/typeset/images/decode.rs` |
 | theme or look setting | `src/typeset/theme/` |

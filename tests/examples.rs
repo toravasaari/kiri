@@ -2,11 +2,11 @@
 
 use std::path::{Path, PathBuf};
 
-use kiri::caps::Capabilities;
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, LoadOptions};
-use kiri::parse::csv::Separator;
 use kiri::render::Inputs;
-use kiri::theme::{Paper, Theme};
+use kiri::typeset::caps::Capabilities;
+use kiri::typeset::parse::csv::Separator;
+use kiri::typeset::theme::{Paper, Theme};
 
 mod common;
 
@@ -19,14 +19,14 @@ fn examples() -> PathBuf {
 
 #[test]
 fn the_visual_check_documents_fit_every_mode() {
-    use kiri::render::wrap::width;
+    use kiri::typeset::wrap::width;
     let examples = examples();
     let themes = [
         Theme::default(),
         example_theme("background.toml"),
         example_theme("rules.toml"),
         example_theme("opaque.toml"),
-        kiri::theme::parse("inline_code_wrap = false\n").unwrap(),
+        kiri::typeset::theme::parse("inline_code_wrap = false\n").unwrap(),
         Theme::paper(Paper::Light),
         Theme::paper(Paper::Dark),
     ];
@@ -52,9 +52,9 @@ fn the_visual_check_documents_fit_every_mode() {
         };
         let source = std::fs::read_to_string(examples.join(name)).unwrap();
         let document = if name.ends_with(".csv") {
-            kiri::parse::csv::parse(&source, Separator::Comma).unwrap()
+            kiri::typeset::parse::csv::parse(&source, Separator::Comma).unwrap()
         } else {
-            kiri::parse::parse(&source)
+            kiri::typeset::parse::parse(&source)
         };
         // Layout needs only the sizes of the images, so it gets the real
         // ones; rendering them at every width would only take longer. Text
@@ -86,7 +86,7 @@ fn the_visual_check_documents_fit_every_mode() {
                     assert!(!out.is_empty());
                     with_images.caps = caps.clone();
                     with_images.theme = theme.clone();
-                    for line in kiri::render::layout::layout(&document, &with_images) {
+                    for line in kiri::typeset::layout::layout(&document, &with_images) {
                         let image = (line.image.as_ref())
                             .map_or(0, |image| usize::from(image.placement.size.columns));
                         let cells =
@@ -108,7 +108,7 @@ fn all_example_themes_load() {
     for entry in std::fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
         if path.extension().is_some_and(|ext| ext == "toml") {
-            kiri::theme::load(&path).unwrap_or_else(|error| panic!("{error}"));
+            kiri::typeset::theme::load(&path).unwrap_or_else(|error| panic!("{error}"));
         }
     }
 }

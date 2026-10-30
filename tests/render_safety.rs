@@ -1,7 +1,7 @@
 //! What the document cannot do to the terminal.
 
-use kiri::caps::Capabilities;
 use kiri::render::Inputs;
+use kiri::typeset::caps::Capabilities;
 
 mod common;
 
@@ -26,7 +26,7 @@ fn control_characters_in_the_document_do_not_reach_the_terminal() {
         ![alt \x1bc \u{9c}](image.png)\n\n\
         | Cell |\n|---|\n| \x1b]0;evil\x07 \u{9c} |\n\n\
         ```rust\x1b]0;evil\x07\u{9c}\ncode \x1b[2J \u{9c}\n```\n";
-    let document = kiri::parse::parse(source);
+    let document = kiri::typeset::parse::parse(source);
     // The control characters survive parsing, so the renderer sees them.
     assert_eq!(format!("{document:?}").matches("\\u{1b}").count(), 6);
     assert_eq!(format!("{document:?}").matches("\\u{9c}").count(), 6);

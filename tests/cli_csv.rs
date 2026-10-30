@@ -105,12 +105,12 @@ fn a_table_not_in_utf_8_is_an_error() {
 #[test]
 fn rows_past_the_cell_limit_are_counted_below_the_table() {
     let dir = Scratch::new("csv-limit");
-    let source = "x\n".repeat(kiri::parse::csv::MAX_CELLS + 2);
+    let source = "x\n".repeat(kiri::typeset::parse::csv::MAX_CELLS + 2);
     let out = kiri_on_content(&dir, "t.csv", source.as_bytes(), &["--mode", "plain"]);
     let shown = shown(&out);
     assert_eq!(
         shown.matches("│ x │").count(),
-        kiri::parse::csv::MAX_CELLS,
+        kiri::typeset::parse::csv::MAX_CELLS,
         "{}",
         shown.len()
     );
@@ -124,7 +124,7 @@ fn rows_past_the_cell_limit_are_counted_below_the_table() {
 #[test]
 fn a_header_past_the_cell_limit_is_an_error() {
     let dir = Scratch::new("csv-too-wide");
-    let header = vec!["x"; kiri::parse::csv::MAX_CELLS + 1].join(",");
+    let header = vec!["x"; kiri::typeset::parse::csv::MAX_CELLS + 1].join(",");
     let out = kiri_on_content(&dir, "t.csv", header.as_bytes(), &["--mode", "plain"]);
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(

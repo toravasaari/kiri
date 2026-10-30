@@ -2,8 +2,9 @@
 //!
 //! This is the hub of rendering: `Inputs`, the options that decide how a
 //! document looks, and the entry points that lay a document out and write
-//! it to an `impl Write`. The two layout engines, the styled lines between
-//! layout and output, and the byte writers are the modules below it.
+//! it to an `impl Write`. The two layout engines and the styled lines between
+//! layout and output live in `src/typeset/`, and the byte writers in
+//! `src/present/`. Only `loading` is still below it.
 //!
 //! No layout rule, no escape sequence and no file access belongs in here.
 //! A new option is a field of `Inputs` only when layout reads it.
@@ -13,27 +14,21 @@
 //! `kitty/`), and loading to the platform. The placement map in
 //! docs/architecture.md has the paths.
 
-pub mod block;
-pub mod encoder;
-pub mod highlight;
-pub mod image;
-pub mod layout;
 pub mod loading;
-pub mod output;
-pub mod reading;
-pub mod script;
-pub mod style;
-pub mod table;
-pub mod wrap;
 
 use std::io::{self, Write};
 
-use crate::caps::Capabilities;
-use crate::color::Color;
 use crate::images::{CodeLook, HeadingLook, ImageKey, Images, LevelLook, Source};
-use crate::model::{Block, Document, File, FrontMatter, FrontMatterError};
-use crate::theme::Theme;
-use encoder::Encoder;
+use crate::present::encoder::Encoder;
+use crate::present::output;
+use crate::typeset::caps::Capabilities;
+use crate::typeset::color::Color;
+use crate::typeset::images::size;
+use crate::typeset::layout;
+use crate::typeset::model::{Block, Document, File, FrontMatter, FrontMatterError};
+use crate::typeset::reading::engine;
+use crate::typeset::style;
+use crate::typeset::theme::Theme;
 
 /// Everything rendering takes besides the document. A new input gets a
 /// default in `new`, so callers that do not need it stay as they are.
@@ -57,7 +52,7 @@ pub struct Inputs {
     pub render_errors: RenderErrors,
     /// Reading mode, where the terminal draws images: the document's text
     /// in a proportional font. `None` for the text layout.
-    pub reading: Option<reading::Reading>,
+    pub reading: Option<engine::Reading>,
 }
 
 /// Where kiri tells why something it draws from source, such as a
@@ -146,7 +141,7 @@ pub fn heading_look(
     if no_images || !heading_images(headings, caps) {
         return None;
     }
-    let cell = image::cell_size(caps);
+    let cell = size::cell_size(caps);
     // Light text on a dark page, as most terminals have it.
     let contrast = match caps.dark_background {
         Some(true) | None => [0xff; 3],
@@ -223,7 +218,7 @@ impl Headings {
 
 /// Whether the top-level headings show as images, where theirs loaded,
 /// for `headings` on a terminal with `caps`.
-fn heading_images(headings: Headings, caps: &Capabilities) -> bool {
+pub(crate) fn heading_images(headings: Headings, caps: &Capabilities) -> bool {
     let wanted = match headings {
         Headings::Auto => !caps.text_sizing,
         Headings::Images => true,
@@ -341,14 +336,14 @@ pub fn render_image_on(
     if !caps.draws_images() {
         return Ok((Encoder::new(), images));
     }
-    let Some(size) = image::on_its_own(&image, caps, 1) else {
+    let Some(size) = size::on_its_own(&image, caps, 1) else {
         return Ok((Encoder::new(), images));
     };
     let key = ImageKey::from("");
-    let lines = layout::image_rows(image::Placement {
+    let lines = layout::image_rows(size::Placement {
         key: key.clone(),
         size,
-        shows: image::Shows::Image,
+        shows: size::Shows::Image,
     });
     images.insert(key, Ok(image));
     let encoder = output::write(&lines, &images, caps, page, out)?;
@@ -380,7 +375,7 @@ mod tests {
             theme,
             ..Inputs::new(caps)
         };
-        let lines = layout::layout(&crate::parse::parse("- item\n"), &inputs);
+        let lines = layout::layout(&crate::typeset::parse::parse("- item\n"), &inputs);
         let bullet = (lines[0].spans.iter()).find(|span| span.text.contains('•'));
         bullet.expect("the bullet").style.fg
     }
@@ -423,7 +418,7 @@ mod tests {
     /// background's.
     fn laid_out_code(caps: &Capabilities) -> (Option<[u8; 3]>, Option<[u8; 3]>) {
         let inputs = Inputs::new(caps.clone());
-        let document = crate::parse::parse("# a `b`\n");
+        let document = crate::typeset::parse::parse("# a `b`\n");
         let lines = layout::layout(&document, &inputs);
         let span = (lines[0].spans.iter()).find(|span| span.text.contains('b'));
         let style = &span.expect("the code").style;
@@ -448,7 +443,7 @@ mod tests {
     #[test]
     fn heading_code_without_a_background_of_its_own_is_padded_on_the_heading_s() {
         let mut theme = Theme::default();
-        theme.inline_code_background = crate::theme::CodeBackground::Color(None);
+        theme.inline_code_background = crate::typeset::theme::CodeBackground::Color(None);
         theme.headings[0].background = Some(Color::Rgb(0x20, 0x20, 0x30));
         let look = heading_look(Headings::Auto, false, &theme, &no_text_sizing()).unwrap();
         let code = look.levels[0].code;

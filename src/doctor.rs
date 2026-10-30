@@ -14,11 +14,11 @@ use crate::config::{
 };
 use crate::diagrams::find::{self, Choice, Search};
 use crate::diagrams::{BuiltIn, Command, LANGUAGES};
-use crate::render::image::DEFAULT_CELL;
-use crate::size::TextSize;
 use crate::term::tmux::Pane;
 use crate::term::{CellSize, Detection, Mode};
-use crate::theme::{Paper, Theme};
+use crate::typeset::images::size::DEFAULT_CELL;
+use crate::typeset::size::TextSize;
+use crate::typeset::theme::{Paper, Theme};
 
 /// What the report tells.
 #[derive(Debug)]

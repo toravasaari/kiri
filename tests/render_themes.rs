@@ -1,8 +1,8 @@
 //! Themes and colours: papers, muted text, and NO_COLOR.
 
-use kiri::caps::Capabilities;
 use kiri::render::Inputs;
-use kiri::theme::{Paper, Theme};
+use kiri::typeset::caps::Capabilities;
+use kiri::typeset::theme::{Paper, Theme};
 
 mod common;
 
@@ -30,9 +30,10 @@ fn kitty_elements_on_dark_paper() {
 
 #[test]
 fn text_without_a_colour_of_its_own_takes_the_foreground() {
-    let theme =
-        kiri::theme::parse("foreground = \"#123456\"\nlink = \"none\"\nrule = \"#ff0000\"\n")
-            .unwrap();
+    let theme = kiri::typeset::theme::parse(
+        "foreground = \"#123456\"\nlink = \"none\"\nrule = \"#ff0000\"\n",
+    )
+    .unwrap();
     let out = render(
         "Plain *text* and [a link](https://example.com)\n\n---\n\n```rust\nfn main() {}\n```\n",
         &inputs(&Capabilities::kitty(WIDTH), &theme),
@@ -90,7 +91,7 @@ fn muted_text_takes_the_theme_colour_instead_of_dim() {
         hyperlinks: false,
         ..Capabilities::kitty(WIDTH)
     };
-    let theme = kiri::theme::parse("muted = \"#808080\"\n").unwrap();
+    let theme = kiri::typeset::theme::parse("muted = \"#808080\"\n").unwrap();
     let out = render(MUTED_SOURCE, &inputs(&caps, &theme));
     for muted in [
         "\x1b[0;3;38;2;128;128;128m[image: alt]",
@@ -162,7 +163,7 @@ fn no_color_keeps_everything_but_colours() {
         assert!(out.contains("\x1b]66;s="), "{fixture}: heading sizes stay");
         assert!(out.contains("\x1b[0;1"), "{fixture}: bold stays");
     }
-    let dotted = kiri::theme::parse("[headings]\nunderline = \"dotted\"\n").unwrap();
+    let dotted = kiri::typeset::theme::parse("[headings]\nunderline = \"dotted\"\n").unwrap();
     let out = render_fixture("elements.md", &inputs(&caps, &dotted));
     assert!(out.contains("\x1b]8;;https://example.com"), "links stay");
     assert!(out.contains(";4:4"), "underline styles stay");
@@ -179,8 +180,10 @@ fn no_color_keeps_everything_but_colours() {
         theme: example_theme("background.toml"),
         ..Inputs::new(caps)
     };
-    let lines =
-        kiri::render::layout::layout(&kiri::parse::parse("# Heading\n\nSome `code`\n"), &inputs);
+    let lines = kiri::typeset::layout::layout(
+        &kiri::typeset::parse::parse("# Heading\n\nSome `code`\n"),
+        &inputs,
+    );
     let mut spans =
         (lines.iter()).flat_map(|line| line.lead.iter().chain(&line.spans).chain(&line.trail));
     assert!(

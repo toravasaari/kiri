@@ -11,12 +11,12 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use super::drawn::finish_diagram;
 use super::url::load_url;
 use super::{
     Fonts, HeadingWord, ImageError, ImageKey, LevelLook, LoadOptions, Source, draw_heading,
 };
 use crate::diagrams::{FormulaColors, Renderer, Request, Theme};
+use crate::typeset::images::drawn::finish_diagram;
 
 /// The images loading in the background, and what has come of them.
 /// Dropping it stops the loads, as [`Loads::halt`] does, without waiting

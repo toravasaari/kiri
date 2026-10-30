@@ -35,7 +35,7 @@ fn bar(frame: &str, rows: u16) -> String {
 
 #[test]
 fn tab_selects_a_link_in_the_text_in_reverse_video_and_the_status_line_says_where_it_goes() {
-    let document = crate::parse::parse("A [first](https://one.example/) link.\n");
+    let document = crate::typeset::parse::parse("A [first](https://one.example/) link.\n");
     let (frames, _) = shown_with(&document, 6, &[b"\t", b"\x1b", b""]);
     assert_eq!(frames.len(), 3, "{frames:#?}");
     let reversed =
@@ -54,7 +54,7 @@ fn tab_selects_a_link_in_the_text_in_reverse_video_and_the_status_line_says_wher
 
 #[test]
 fn a_wrapped_link_is_in_reverse_video_on_each_of_its_lines() {
-    let document = crate::parse::parse(
+    let document = crate::typeset::parse::parse(
         "[a long link text that wraps over lines in the window](https://one.example/)\n",
     );
     let (frames, _) = shown_with(&document, 6, &[b"\t", b""]);
@@ -72,7 +72,7 @@ fn a_wrapped_link_is_in_reverse_video_on_each_of_its_lines() {
 
 #[test]
 fn enter_copies_the_selected_link_s_address_in_the_text_too() {
-    let document = crate::parse::parse("A [first](https://one.example/) link.\n");
+    let document = crate::typeset::parse::parse("A [first](https://one.example/) link.\n");
     let (frames, out) = shown_with(&document, 6, &[b"\t", b"\r", b""]);
     assert_eq!(out.matches(COPY_ONE).count(), 1, "{out:?}");
     assert!(
@@ -83,7 +83,7 @@ fn enter_copies_the_selected_link_s_address_in_the_text_too() {
 
 #[test]
 fn enter_with_a_link_that_has_no_address_copies_nothing_in_the_text() {
-    let document = crate::parse::parse("A [first]() link.\n");
+    let document = crate::typeset::parse::parse("A [first]() link.\n");
     let (_, out) = shown_with(&document, 6, &[b"\t", b"\r", b""]);
     assert!(!out.contains("\x1b]52;"), "{out:?}");
 }
@@ -91,7 +91,7 @@ fn enter_with_a_link_that_has_no_address_copies_nothing_in_the_text() {
 #[test]
 fn a_wrapped_link_is_copied_while_one_of_its_lines_is_on_the_screen() {
     let filler = "A paragraph of filler.\n\n".repeat(10);
-    let document = crate::parse::parse(&format!(
+    let document = crate::typeset::parse::parse(&format!(
         "[a long link text that wraps over lines in the window](https://one.example/)\n\n{filler}"
     ));
     // The first line scrolls off the screen, the second stays; then the
@@ -105,8 +105,8 @@ fn a_wrapped_link_is_copied_while_one_of_its_lines_is_on_the_screen() {
 #[test]
 fn a_link_in_a_heading_drawn_as_an_image_is_skipped_by_tab() {
     use crate::images::{ImageKey, Source, heading_words};
-    use crate::model::Block;
-    let document = crate::parse::parse(
+    use crate::typeset::model::Block;
+    let document = crate::typeset::parse::parse(
         "# A [link](https://one.example/) here\n\nBody [other](https://two.example/)\n",
     );
     let Block::Heading { level, content } = &document.blocks[0] else {

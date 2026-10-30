@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 
 use super::*;
-use crate::color::Color;
-use crate::model::{Document, File};
+use crate::typeset::color::Color;
+use crate::typeset::model::{Document, File};
 
 mod files;
 mod following;
@@ -114,7 +114,7 @@ impl Terminal for Fake {
 
 fn numbers(count: usize) -> Document {
     let source: String = (1..=count).map(|n| format!("Line {n}\n\n")).collect();
-    crate::parse::parse(&source)
+    crate::typeset::parse::parse(&source)
 }
 
 /// Runs the pager on `document`, named `notes.md`, with `inputs` and
@@ -159,7 +159,7 @@ fn shown(document: &Document, columns: u16, rows: u16, keys: &[&[u8]]) -> Vec<St
 fn show_laid_out(document: &Document, before: &Document, caps: Capabilities) -> Vec<String> {
     let mut terminal = Fake::new(40, 6, &[b"q"]);
     let mut inputs = Inputs::new(caps);
-    let stream = crate::render::layout::content(Content::Document(before), &inputs);
+    let stream = crate::typeset::layout::content(Content::Document(before), &inputs);
     run(
         Content::Document(document),
         Some(stream),
@@ -283,7 +283,7 @@ fn reloading_in(
 
 fn rows(count: usize) -> Document {
     let source: String = (1..=count).map(|n| format!("Row {n}\n\n")).collect();
-    crate::parse::parse(&source)
+    crate::typeset::parse::parse(&source)
 }
 
 /// The text on the top row of the document in `frame`.
@@ -353,7 +353,7 @@ fn square(rgba: [u8; 4]) -> crate::images::Source {
 /// A document that shows the image `square.png`, and inputs for kitty
 /// with its pixels in `rgba`.
 fn pictured(rgba: [u8; 4]) -> (Document, Inputs) {
-    let document = crate::parse::parse("Above\n\n![a square](square.png)\n\nBelow\n");
+    let document = crate::typeset::parse::parse("Above\n\n![a square](square.png)\n\nBelow\n");
     let mut inputs = Inputs::new(Capabilities::kitty(80));
     inputs.images.insert("square.png", Ok(square(rgba)));
     (document, inputs)

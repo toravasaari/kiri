@@ -9,8 +9,8 @@ use std::time::Duration;
 use image::{Rgba, RgbaImage};
 
 use super::output::Page;
-use crate::caps::Capabilities;
-use crate::color::Color;
+use crate::typeset::caps::Capabilities;
+use crate::typeset::color::Color;
 
 /// How much of an old image shows through while its block's new one
 /// loads.

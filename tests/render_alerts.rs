@@ -1,9 +1,9 @@
 //! GitHub alert blocks: `> [!NOTE]` and the other kinds.
 
-use kiri::caps::Capabilities;
-use kiri::color::Color;
 use kiri::render::Inputs;
-use kiri::theme::{Paper, Theme};
+use kiri::typeset::caps::Capabilities;
+use kiri::typeset::color::Color;
+use kiri::typeset::theme::{Paper, Theme};
 
 mod common;
 
@@ -94,14 +94,14 @@ fn inline_code_in_an_alert_takes_a_stronger_tint() {
     // 30 % of #4493f8 over black.
     assert!(out.contains("48;2;20;44;74m\u{a0}make"), "{out:?}");
     // A theme that gives inline code no background keeps it so.
-    let theme = kiri::theme::parse("inline_code_background = \"none\"\n").unwrap();
+    let theme = kiri::typeset::theme::parse("inline_code_background = \"none\"\n").unwrap();
     let out = render("> [!NOTE]\n> Run `make`.\n", &inputs(&kitty(), &theme));
     assert!(!out.contains("48;2;20;44;74"), "{out:?}");
 }
 
 #[test]
 fn the_terminal_palette_gives_the_colours_when_the_theme_says_so() {
-    let theme = kiri::theme::parse("[alerts]\ncolors = \"terminal\"\n").unwrap();
+    let theme = kiri::typeset::theme::parse("[alerts]\ncolors = \"terminal\"\n").unwrap();
     let out = render(NOTE, &inputs(&kitty(), &theme));
     assert!(out.contains("\x1b[0;34"), "{out:?}");
     // 15 % of the palette's #0000ee over black.
@@ -123,7 +123,7 @@ fn no_tint_without_a_known_background_or_when_the_theme_turns_it_off() {
     };
     let out = render(NOTE, &inputs(&unknown, &Theme::default()));
     assert!(!out.contains("48;2"), "{out:?}");
-    let off = kiri::theme::parse("[alerts]\nbackground = \"none\"\n").unwrap();
+    let off = kiri::typeset::theme::parse("[alerts]\nbackground = \"none\"\n").unwrap();
     let out = render(NOTE, &inputs(&kitty(), &off));
     assert!(!out.contains("48;2"), "{out:?}");
     assert!(out.contains("38;2;68;147;248"), "the colour stays: {out:?}");
@@ -162,7 +162,7 @@ fn a_tinted_alert_ends_with_a_blank_row_of_its_tint() {
         "{lines:#?}"
     );
     // Without a tint there is nothing to pad.
-    let off = kiri::theme::parse("[alerts]\nbackground = \"none\"\n").unwrap();
+    let off = kiri::typeset::theme::parse("[alerts]\nbackground = \"none\"\n").unwrap();
     let lines = text(NOTE, kitty(), &off);
     assert_eq!(lines.len(), 2, "{lines:#?}");
 }
@@ -205,7 +205,7 @@ fn a_warning_on_a_light_page_has_a_gold_bar_and_title() {
 fn a_warning_without_a_tint_keeps_githubs_colour_on_a_light_page() {
     // The gold is there for the pale yellow; on the plain page it would
     // only lower the contrast.
-    let off = kiri::theme::parse("[alerts]\nbackground = \"none\"\n").unwrap();
+    let off = kiri::typeset::theme::parse("[alerts]\nbackground = \"none\"\n").unwrap();
     let out = render("> [!WARNING]\n> x\n", &inputs(&light_kitty(), &off));
     assert!(out.contains("38;2;154;103;0"), "{out:?}");
     assert!(!out.contains("38;2;191;135;0"), "{out:?}");
@@ -213,7 +213,7 @@ fn a_warning_without_a_tint_keeps_githubs_colour_on_a_light_page() {
 
 #[test]
 fn a_colour_the_theme_sets_is_mixed_with_a_light_page() {
-    let theme = kiri::theme::parse("[alerts]\nwarning = \"#000000\"\n").unwrap();
+    let theme = kiri::typeset::theme::parse("[alerts]\nwarning = \"#000000\"\n").unwrap();
     let out = render("> [!WARNING]\n> x\n", &inputs(&light_kitty(), &theme));
     // 15 % of black over white.
     assert!(out.contains("48;2;217;217;217"), "{out:?}");
@@ -247,8 +247,8 @@ fn a_long_title_wraps_under_itself_inside_the_block() {
 /// The cells each line of `source` covers, with `inputs`: the margin, the
 /// text, an image row and the fill after it.
 fn widths(source: &str, inputs: &Inputs) -> Vec<usize> {
-    use kiri::render::wrap::width;
-    let lines = kiri::render::layout::layout(&kiri::parse::parse(source), inputs);
+    use kiri::typeset::wrap::width;
+    let lines = kiri::typeset::layout::layout(&kiri::typeset::parse::parse(source), inputs);
     lines
         .iter()
         .filter(|line| !line.is_blank())
@@ -276,7 +276,7 @@ fn blocks_inside_an_alert_keep_the_bar_and_fill_it_to_the_edge() {
         widths.iter().all(|&w| w == usize::from(WIDTH) - 2),
         "{widths:?}"
     );
-    let laid_out = kiri::render::layout::layout(&kiri::parse::parse(source), &inputs);
+    let laid_out = kiri::typeset::layout::layout(&kiri::typeset::parse::parse(source), &inputs);
     assert!(laid_out.iter().any(|line| line.image.is_some()), "no image");
     let lines = text(source, kitty(), &Theme::default());
     assert!(
@@ -344,7 +344,7 @@ fn no_color_leaves_the_bar_and_the_title_without_colours() {
 /// `None` for the terminal's own.
 fn background_at_image(out: &str) -> Option<[u8; 3]> {
     let image = out
-        .find(kiri::kitty::graphics::PLACEHOLDER)
+        .find(kiri::present::kitty::graphics::PLACEHOLDER)
         .expect("an image row");
     let mut background = None;
     for sequence in out[..image].split("\x1b[").skip(1) {

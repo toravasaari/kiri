@@ -6,12 +6,12 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use kiri::caps::Capabilities;
 use kiri::config::{Environment, Options, Origin, Passthrough, Setting, choose};
 use kiri::doctor::{Facts, report};
 use kiri::term::tmux::Pane;
 use kiri::term::{Detection, Mode, WindowSize};
-use kiri::theme::Theme;
+use kiri::typeset::caps::Capabilities;
+use kiri::typeset::theme::Theme;
 
 mod common;
 
@@ -1112,7 +1112,7 @@ fn heading_sizes_show_their_rounding() {
         tmux: None,
     };
     let choices = choose(&Options::default(), &env, &Default::default());
-    let theme = kiri::theme::parse("[h1]\nscale = 3\n[h5]\nscale = 1.3\n").unwrap();
+    let theme = kiri::typeset::theme::parse("[h1]\nscale = 3\n[h5]\nscale = 1.3\n").unwrap();
     let facts = Facts {
         env: &env,
         mode: Setting::new(Mode::Auto, Origin::Default),

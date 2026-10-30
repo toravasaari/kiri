@@ -1,18 +1,18 @@
 //! Tables: borders, column widths and stacking.
 
-use kiri::caps::Capabilities;
-use kiri::color::Color;
 use kiri::render::{Inputs, TableRows};
+use kiri::typeset::caps::Capabilities;
+use kiri::typeset::color::Color;
 
 mod common;
 
 use common::{WIDTH, fixture, inputs, render, render_for, strip_own_sequences, visible};
-use kiri::parse::csv::Separator;
+use kiri::typeset::parse::csv::Separator;
 
 #[test]
 fn inline_code_kept_together_in_a_narrow_table_cell() {
     let source = "| A | B |\n|---|---|\n| see (`a b`). | x |\n";
-    let together = kiri::theme::parse("inline_code_wrap = false\n").unwrap();
+    let together = kiri::typeset::theme::parse("inline_code_wrap = false\n").unwrap();
     // The first column is nine cells wide.
     let plain = Capabilities::plain(21);
     let out = render(source, &inputs(&plain, &together));
@@ -56,7 +56,7 @@ fn stacked_tables_nest_in_quotes_and_list_items() {
 
 /// The CSV or TSV fixture `name` rendered for `caps`.
 fn render_table_file(name: &str, separator: Separator, caps: Capabilities) -> String {
-    let document = kiri::parse::csv::parse(&fixture(name), separator).unwrap();
+    let document = kiri::typeset::parse::csv::parse(&fixture(name), separator).unwrap();
     let mut out = Vec::new();
     kiri::render::render(&document, &Inputs::new(caps), &mut out).unwrap();
     String::from_utf8(out).unwrap()
@@ -91,9 +91,11 @@ fn kitty_csv_file() {
 
 #[test]
 fn a_note_is_muted_text_below_the_table() {
-    let mut document = kiri::parse::csv::parse("a,b\n1,2\n", Separator::Comma).unwrap();
+    let mut document = kiri::typeset::parse::csv::parse("a,b\n1,2\n", Separator::Comma).unwrap();
     let note = "… 98\u{a0}000 more rows not shown";
-    document.blocks.push(kiri::model::Block::Note(note.into()));
+    document
+        .blocks
+        .push(kiri::typeset::model::Block::Note(note.into()));
     let render = |caps: Capabilities| {
         let mut out = Vec::new();
         kiri::render::render(&document, &Inputs::new(caps), &mut out).unwrap();
@@ -219,11 +221,11 @@ fn inline_styles_keep_their_colours_on_a_striped_row() {
 
 #[test]
 fn every_underlined_cell_of_a_row_has_one_underline_colour() {
-    use kiri::color::Underline;
+    use kiri::typeset::color::Underline;
     let source = "| A | B |\n|---|---|\n\
                   | **key** `code` [link](https://example.com) | y |\n| z | w |\n";
     let inputs = with_rows(Capabilities::kitty(WIDTH), TableRows::Underline);
-    let lines = kiri::render::layout::layout(&kiri::parse::parse(source), &inputs);
+    let lines = kiri::typeset::layout::layout(&kiri::typeset::parse::parse(source), &inputs);
     let row = lines
         .iter()
         .find(|line| line.spans.iter().any(|span| span.text.contains("link")))

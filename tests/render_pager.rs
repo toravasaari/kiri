@@ -3,19 +3,19 @@
 mod common;
 
 use common::{WIDTH, visible};
-use kiri::caps::Capabilities;
 use kiri::images::Images;
-use kiri::pager::view::{Motion, View};
+use kiri::present::encoder::Encoder;
+use kiri::present::output::{Page, Writer};
 use kiri::render::Inputs;
-use kiri::render::encoder::Encoder;
-use kiri::render::output::{Page, Writer};
+use kiri::session::view::{Motion, View};
+use kiri::typeset::caps::Capabilities;
 
 /// The frame `kiri::pager::draw` writes for `source` in a window of `rows`
 /// rows, after `motions`.
 fn frame(source: &str, caps: Capabilities, page: Page, rows: usize, motions: &[Motion]) -> String {
-    let document = kiri::parse::parse(source);
+    let document = kiri::typeset::parse::parse(source);
     let inputs = Inputs::new(caps);
-    let lines = kiri::render::layout::layout(&document, &inputs);
+    let lines = kiri::typeset::layout::layout(&document, &inputs);
     let images = Images::new();
     let mut encoder = Encoder::new();
     let mut writer = Writer::new(&images, &inputs.caps, page, &mut encoder);
@@ -67,7 +67,7 @@ fn a_heading_scrolled_past_is_not_drawn() {
 #[test]
 fn the_screen_is_cleared_in_the_page_colour() {
     let page = Page {
-        background: Some(kiri::color::Color::Rgb(1, 2, 3)),
+        background: Some(kiri::typeset::color::Color::Rgb(1, 2, 3)),
         foreground: None,
     };
     let out = frame(DOCUMENT, Capabilities::kitty(WIDTH), page, 6, &[]);

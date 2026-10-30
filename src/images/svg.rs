@@ -26,7 +26,7 @@ pub struct Svg {
     /// The colour of a panel under the whole image, if it lies on one.
     panel: Option<[u8; 3]>,
     /// The natural size in whole CSS pixels.
-    pub(super) size: (u32, u32),
+    pub(crate) size: (u32, u32),
 }
 
 impl Svg {
@@ -57,7 +57,7 @@ impl Svg {
     /// This SVG grown to show all of its text, also where the text reaches
     /// past its edges. A renderer that measures text with metrics of its
     /// own may place it there, when the fonts it is drawn with are wider.
-    pub(super) fn grown_to_text(self) -> Self {
+    pub(crate) fn grown_to_text(self) -> Self {
         let mut view = self.view;
         each_text_bounds(self.tree.root(), &mut |bounds| {
             view = tiny_skia::Rect::from_ltrb(
@@ -73,7 +73,7 @@ impl Svg {
 
     /// The left and right edges of all of its text on the canvas, in CSS
     /// pixels; `None` when it draws no text, as when no font has it.
-    pub(super) fn text_edges(&self) -> Option<(f32, f32)> {
+    pub(crate) fn text_edges(&self) -> Option<(f32, f32)> {
         let mut edges: Option<(f32, f32)> = None;
         each_text_bounds(self.tree.root(), &mut |bounds| {
             let (left, right) = edges.unwrap_or((bounds.left(), bounds.right()));
@@ -84,7 +84,7 @@ impl Svg {
 
     /// This SVG on a panel of `colour`, `padding` CSS pixels wider than
     /// what it shows on each side.
-    pub(super) fn on_panel(self, colour: [u8; 3], padding: f32) -> Self {
+    pub(crate) fn on_panel(self, colour: [u8; 3], padding: f32) -> Self {
         let view = self.view;
         let view = tiny_skia::Rect::from_ltrb(
             view.left() - padding,
@@ -100,7 +100,7 @@ impl Svg {
     }
 
     /// Feeds what the image is, to a hash.
-    pub(super) fn fingerprint(&self, hasher: &mut impl std::hash::Hasher) {
+    pub(crate) fn fingerprint(&self, hasher: &mut impl std::hash::Hasher) {
         use std::hash::Hash;
         self.bytes.hash(hasher);
         let view = self.view;
@@ -110,7 +110,7 @@ impl Svg {
         self.panel.hash(hasher);
     }
 
-    pub(super) fn render(&self, width: u32, height: u32) -> RgbaImage {
+    pub(crate) fn render(&self, width: u32, height: u32) -> RgbaImage {
         let mut image = RgbaImage::new(width, height);
         let Some(mut pixmap) = tiny_skia::Pixmap::new(width, height) else {
             // Too large for the renderer; left transparent.
@@ -420,14 +420,14 @@ const GZIP: &[u8] = &[0x1f, 0x8b];
 
 /// SVG has no magic number: it is XML with an `<svg` element, or that
 /// compressed with gzip.
-pub(super) fn looks_like_svg(bytes: &[u8]) -> bool {
+pub(crate) fn looks_like_svg(bytes: &[u8]) -> bool {
     let text = bytes.strip_prefix("\u{feff}".as_bytes()).unwrap_or(bytes);
     let text = text.trim_ascii_start();
     bytes.starts_with(GZIP)
         || (text.starts_with(b"<") && text.windows(4).any(|window| window == b"<svg"))
 }
 
-pub(super) fn decode_svg(bytes: &[u8], max_size: u64, fonts: &Fonts) -> Result<Svg, ImageError> {
+pub(crate) fn decode_svg(bytes: &[u8], max_size: u64, fonts: &Fonts) -> Result<Svg, ImageError> {
     // usvg would decompress without a limit: a few kilobytes of gzip can
     // grow to gigabytes.
     let plain;
@@ -666,7 +666,7 @@ mod tests {
         let without = "![a](images/pattern.png)\n\n![b](images/missing.svg)\n\n\
             ![c](images/not-an-image.png)\n";
         load_with(
-            &crate::parse::parse(without),
+            &crate::typeset::parse::parse(without),
             &fixtures(),
             DEFAULT_MAX_FILE_SIZE,
             &fonts,
@@ -675,7 +675,7 @@ mod tests {
         assert!(!fonts.loaded());
         let with = "![d](images/pattern.svg)\n";
         load_with(
-            &crate::parse::parse(with),
+            &crate::typeset::parse::parse(with),
             &fixtures(),
             DEFAULT_MAX_FILE_SIZE,
             &fonts,
