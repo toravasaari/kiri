@@ -629,6 +629,43 @@ fn enter_with_the_selected_link_off_the_screen_scrolls_and_copies_nothing() {
 }
 
 #[test]
+fn the_status_line_tells_a_selected_link_s_address_only_while_it_is_on_the_screen() {
+    let filler = "A paragraph of filler.\n\n".repeat(30);
+    let document = crate::parse::parse(&format!(
+        "A [first](https://one.example/) link.\n\n{filler}"
+    ));
+    // Tab selects the link, three pages down it is off the screen, and
+    // three pages back it is there again, still selected.
+    let keys: [&[u8]; 8] = [
+        b"\t", b"\x06", b"\x06", b"\x06", b"\x02", b"\x02", b"\x02", b"",
+    ];
+    let mut terminal = Fake::new(80, 10, &keys);
+    let mut inputs = Inputs {
+        reading: Some(reading()),
+        ..Inputs::new(kitty())
+    };
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let told: Vec<bool> = (terminal.frames().iter())
+        .map(|frame| {
+            let bar = frame.rsplit("\x1b[10;1H").next().unwrap_or("");
+            bar.contains("https://one.example/")
+        })
+        .collect();
+    // At the start none is selected; then it is, then it is off the screen
+    // for three pages down and two back, and then it is there again.
+    assert_eq!(
+        told,
+        [false, true, false, false, false, false, false, true],
+        "{told:?}"
+    );
+}
+
+#[test]
 fn in_tmux_with_passthrough_the_copy_goes_through_to_kitty() {
     let document = crate::parse::parse("A [first](https://one.example/) link.\n");
     let caps = Capabilities {

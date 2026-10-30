@@ -23,8 +23,8 @@ pub(super) struct Found {
     /// the page's links.
     pub link: (usize, usize),
     pub url: String,
-    /// The line its first cell is on, none while it has none.
-    line: Option<usize>,
+    /// The lines that have cells of it, none while it has none.
+    lines: Vec<usize>,
     /// For a link in a band, the line it is on and the pixels it covers
     /// across the band's content, to scroll the band to it.
     pub band_at: Option<(usize, Range<u32>)>,
@@ -33,13 +33,16 @@ pub(super) struct Found {
 impl Found {
     /// Whether the link is in a band that shows none of its cells.
     pub fn is_scrolled_out(&self) -> bool {
-        self.line.is_none() && self.band_at.is_some()
+        self.lines.is_empty() && self.band_at.is_some()
     }
 
-    /// The line the link is on for Tab: its first cell's, or while a band
-    /// shows none of its cells, the line of the band it is on.
-    fn reached_at(&self) -> Option<usize> {
-        self.line.or(self.band_at.as_ref().map(|(line, _)| *line))
+    /// Whether the link is on the lines `visible`: any of its cells is, or
+    /// while a band shows none of them, the band's line is.
+    fn is_on(&self, visible: &Range<usize>) -> bool {
+        match self.lines.is_empty() {
+            false => self.lines.iter().any(|line| visible.contains(line)),
+            true => (self.band_at.as_ref()).is_some_and(|(line, _)| visible.contains(line)),
+        }
     }
 }
 
@@ -61,11 +64,7 @@ impl Links {
         back: bool,
     ) -> bool {
         let shown: Vec<Found> = (identify(lines, places).into_iter())
-            .filter(|found| {
-                found
-                    .reached_at()
-                    .is_some_and(|line| visible.contains(&line))
-            })
+            .filter(|found| found.is_on(&visible))
             .collect();
         if shown.is_empty() {
             return false;
@@ -94,8 +93,8 @@ impl Links {
         self.selected.take().is_some()
     }
 
-    /// The selected link when it is on the lines `visible`, as the lines
-    /// of this layout have it.
+    /// The selected link when any of its cells is on the lines `visible`,
+    /// as the lines of this layout have it.
     pub fn selected_on(
         &self,
         lines: &[Line],
@@ -103,7 +102,7 @@ impl Links {
         visible: Range<usize>,
     ) -> Option<Found> {
         (self.selected(lines, places))
-            .filter(|found| found.line.is_some_and(|l| visible.contains(&l)))
+            .filter(|found| found.lines.iter().any(|line| visible.contains(line)))
     }
 
     /// The selected link, as the lines of this layout have it, when it is
@@ -114,20 +113,23 @@ impl Links {
             .into_iter()
             .find(|found| found.id == *id)?;
         // While a band shows none of its cells, there is nothing to show.
-        found.line.map(|_| found)
+        (!found.lines.is_empty()).then_some(found)
     }
 }
 
 /// The links of the pages on `lines`, each once, in order, numbered from
 /// the pages' own lists, so that a link keeps its id whether or not a band
-/// shows it now; `line` is where its first cells are, none while it has
-/// none, and `band_at` where to scroll its band to.
+/// shows it now; `lines` are where its cells are, none while it has none,
+/// and `band_at` where to scroll its band to.
 fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
-    // Where each link that has cells first has them.
-    let mut cells: HashMap<(usize, usize), usize> = HashMap::new();
+    // The lines that have cells of each link.
+    let mut cells: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
     for (index, line) in lines.iter().enumerate() {
         for link in line.image.iter().flat_map(|image| &image.links) {
-            cells.entry(link.link).or_insert(index);
+            let at = cells.entry(link.link).or_default();
+            if at.last() != Some(&index) {
+                at.push(index);
+            }
         }
     }
     let mut counted: Vec<(Option<BlockInfo>, usize)> = Vec::new();
@@ -156,7 +158,7 @@ fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
                 id: (place, nth),
                 link: (address, number),
                 url: link.url.to_string(),
-                line: cells.get(&(address, number)).copied(),
+                lines: cells.remove(&(address, number)).unwrap_or_default(),
                 band_at,
             });
         }
@@ -230,13 +232,13 @@ mod tests {
         let found = identify(&lines, &places);
         assert_eq!(found.len(), 4);
         // A screen that shows only the rows of the list item's link.
-        let third = found[2].line.unwrap();
+        let third = found[2].lines[0];
         let mut links = Links::default();
         assert!(links.select_next(&lines, &places, third..third + 1, false));
         assert_eq!(urls(links.selected(&lines, &places)).as_deref(), Some("u3"));
         // Nothing on a screen with no link.
         let mut none = Links::default();
-        assert!(!none.select_next(&lines, &places, found[1].line.unwrap() + 1..third, false));
+        assert!(!none.select_next(&lines, &places, found[1].lines[0] + 1..third, false));
     }
 
     #[test]
@@ -254,6 +256,41 @@ mod tests {
         // A document without it has no selection to show.
         let (other, places_other) = laid_out("Nothing here.\n");
         assert_eq!(links.selected(&other, &places_other), None);
+    }
+
+    /// A document whose first link is long enough to wrap, a tail after it.
+    fn wrapped_link() -> String {
+        format!("A [{}end](u1) tail.\n", "word ".repeat(60))
+    }
+
+    #[test]
+    fn a_link_wrapped_over_lines_is_on_the_screen_when_any_of_them_is() {
+        let (lines, places) = laid_out(&wrapped_link());
+        let all = 0..lines.len();
+        let mut links = Links::default();
+        assert!(links.select_next(&lines, &places, all.clone(), false));
+        // Where its cells are: the first and the last of the lines.
+        let at: Vec<usize> = (all.clone())
+            .filter(|&line| {
+                let screen = line..line + 1;
+                (links.selected_on(&lines, &places, screen)).is_some()
+            })
+            .collect();
+        assert!(at.len() >= 2, "{at:?}");
+        let last = *at.last().unwrap();
+        assert!(last > at[0]);
+        // A screen that shows only the last of them still has the link, and
+        // Tab selects it from none.
+        assert_eq!(
+            urls(links.selected_on(&lines, &places, last..last + 1)).as_deref(),
+            Some("u1")
+        );
+        let mut fresh = Links::default();
+        assert!(fresh.select_next(&lines, &places, last..last + 1, false));
+        // A screen with none of its lines has no link, though one is
+        // selected.
+        let past = last + 1..lines.len();
+        assert_eq!(links.selected_on(&lines, &places, past), None);
     }
 
     /// `source` laid out in reading mode to scroll, with the blocks of its
@@ -307,7 +344,7 @@ mod tests {
         let all = 0..lines.len();
         // At the start of the band `far` has no cells to show.
         let identified = identify(&lines, &places);
-        assert_eq!(identified[1].line, None);
+        assert!(identified[1].lines.is_empty());
         let target = |links: &Links| links.target(&lines, &places).map(|found| found.url);
         let mut links = Links::default();
         assert!(links.select_next(&lines, &places, all.clone(), false));

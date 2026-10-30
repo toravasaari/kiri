@@ -1598,7 +1598,7 @@ impl Layout<'_> {
         let visible = self.view.visible();
         let fade = state.fade(now, self.rgb);
         let out = state.fade_out(now, self.rgb);
-        let link = state.links.selected(self.lines, self.places);
+        let link = (state.links).selected_on(self.lines, self.places, visible.clone());
         Frame {
             lines: state.marked(
                 &self.lines[visible.clone()],

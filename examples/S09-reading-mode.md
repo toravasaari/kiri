@@ -217,8 +217,11 @@ among them, Shift+Tab the one before: the selected link has a box round it
 and the status line says where it goes. Enter copies the selected link's
 address to the clipboard, also in tmux when it passes images through, and
 the status line says `link copied` for a moment; paste it somewhere to
-check. With no link selected, or the selected one off the screen, Enter
-scrolls down a line. Escape lets the link go.
+check. A link counts as on the screen while any line of it is, so the
+wrapped one above is still selected and copied when you scroll its first
+line away. With no link selected, or none of the selected one on the
+screen, the status line does not name it and Enter scrolls down a line;
+scrolled back, the link is selected again. Escape lets the link go.
 
 An address too long for the status line is cut in the middle, with `…`
 where the cut is, so that both its start and its end show, as that of
