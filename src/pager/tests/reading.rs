@@ -335,7 +335,7 @@ fn asked_for_inline_pictures(keys: &[&[u8]]) -> usize {
     let mut inputs = Inputs::new(kitty());
     let options = Options {
         reading: Some(reading()),
-        inline: Some(Box::new(|_, _, _| asked.set(asked.get() + 1))),
+        inline: Some(Box::new(|_, _, _, _| asked.set(asked.get() + 1))),
         ..Options::new(SearchCase::Smart)
     };
     run_document(&numbers(3), &mut inputs, options, &mut terminal);
@@ -350,6 +350,26 @@ fn m_starts_the_inline_pictures_loading_only_when_it_turns_reading_mode_on() {
     // starts only what is missing.
     assert_eq!(asked_for_inline_pictures(&[b"M", b"M"]), 1);
     assert_eq!(asked_for_inline_pictures(&[b"M", b"M", b"M"]), 2);
+}
+
+#[test]
+fn m_starts_the_inline_pictures_loading_for_the_document_as_it_was_last_reloaded() {
+    // The blocks of the document each call of the loader was given.
+    let seen = std::cell::RefCell::new(Vec::new());
+    let mut terminal = Fake::new(80, 10, &[b"r", b"M"]);
+    let mut inputs = Inputs::new(kitty());
+    let mut then = Then::new([Reloaded::Document(numbers(5))]);
+    let options = Options {
+        reading: Some(reading()),
+        reload: Some(&mut then),
+        inline: Some(Box::new(|content, _, _, _| match content {
+            Content::Document(document) => seen.borrow_mut().push(document.blocks.len()),
+            Content::Files(_) => unreachable!("a document is shown"),
+        })),
+        ..Options::new(SearchCase::Smart)
+    };
+    run_document(&numbers(3), &mut inputs, options, &mut terminal);
+    assert_eq!(*seen.borrow(), [5]);
 }
 
 #[test]

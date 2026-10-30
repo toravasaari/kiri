@@ -214,14 +214,16 @@ pub struct Options<'a, 'l> {
     pub reading: Option<Reading>,
     /// Starts loading what reading mode shows that the document does not
     /// without it, such as the images in the middle of text, when `M`
-    /// turns it on: it is given the images, where the loads go and the
+    /// turns it on: it is given the content shown, which is the document
+    /// as it was last reloaded, the images, where the loads go and the
     /// terminal's capabilities, and starts only what is not held or
     /// loading already.
     pub inline: Option<InlineLoader<'a>>,
 }
 
 /// See [`Options::inline`].
-pub type InlineLoader<'a> = Box<dyn FnMut(&mut Images, &mut Loads, &Capabilities) + 'a>;
+pub type InlineLoader<'a> =
+    Box<dyn FnMut(Content<'_>, &mut Images, &mut Loads, &Capabilities) + 'a>;
 
 impl Options<'_, '_> {
     /// A window's width to decide the layout, searches that treat case as
@@ -553,7 +555,7 @@ fn page_through(
                     // starts loading, and lays the page out again as it
                     // comes.
                     if let (Some(_), Some(start)) = (&inputs.reading, inline.as_mut()) {
-                        start(&mut inputs.images, source.loads, &inputs.caps);
+                        start(content, &mut inputs.images, source.loads, &inputs.caps);
                     }
                 } else {
                     state.told = Some(Told::new(NEEDS_IMAGES));
