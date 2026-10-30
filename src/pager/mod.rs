@@ -337,11 +337,6 @@ fn page_through(
     // The cells the heading images were last loaded for.
     let mut headed = cell_size(&inputs.caps);
     loop {
-        // An answer that came with a key that ended the last layout.
-        if let Some(cell) = state.cell.take() {
-            state.changed = None;
-            inputs.caps.cell_pixels = Some(cell);
-        }
         fit(&mut inputs.caps, size, width, &mut window_cell);
         if cell_size(&inputs.caps) != headed {
             headed = cell_size(&inputs.caps);
@@ -486,6 +481,12 @@ fn page_through(
             inputs.caps.cell_pixels,
             &mut source,
         )?;
+        // An answer that came with a key that ended the frame: the outcome is
+        // handled with the cells the keys after it saw.
+        if let Some(cell) = state.cell.take() {
+            state.changed = None;
+            inputs.caps.cell_pixels = Some(cell);
+        }
         match outcome {
             Outcome::Quit => {
                 // The caller waits for the programs, once the screen is

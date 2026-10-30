@@ -373,6 +373,24 @@ fn m_starts_the_inline_pictures_loading_for_the_document_as_it_was_last_reloaded
 }
 
 #[test]
+fn m_after_a_cell_size_answer_starts_the_inline_pictures_for_the_new_cells() {
+    // The answer and `M` come in one read: the loads start for the cells
+    // the answer tells.
+    let cells = std::cell::RefCell::new(Vec::new());
+    let mut terminal = Fake::new(80, 10, &[b"\x1b[6;24;10t\x1b[6;32;16tM"]);
+    let mut inputs = Inputs::new(kitty());
+    let options = Options {
+        reading: Some(reading()),
+        inline: Some(Box::new(|_, _, _, caps| {
+            cells.borrow_mut().push(caps.cell_pixels)
+        })),
+        ..Options::new(SearchCase::Smart)
+    };
+    run_document(&numbers(3), &mut inputs, options, &mut terminal);
+    assert_eq!(*cells.borrow(), [Some((16, 32))]);
+}
+
+#[test]
 fn the_status_line_tells_that_reading_mode_is_on() {
     let frames = frames(&numbers(3), kitty(), &[b"M", b"M"]);
     // The key is in bold, so the word is told after its own escapes.

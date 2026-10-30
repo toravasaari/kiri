@@ -346,6 +346,50 @@ fn a_cell_size_answer_loads_the_heading_images_for_it() {
     background.halt();
 }
 
+/// Reloads `document` and notes the cell size the terminal had then.
+struct NoteCells<'a> {
+    document: Document,
+    cells: &'a std::cell::RefCell<Vec<Option<(u16, u16)>>>,
+}
+
+impl Reload for NoteCells<'_> {
+    fn reload(&mut self, _: &mut Images, _: &mut Loads, caps: &Capabilities, _: bool) -> Reloaded {
+        self.cells.borrow_mut().push(caps.cell_pixels);
+        Reloaded::Document(self.document.clone())
+    }
+
+    fn change(&mut self) -> Change {
+        Change::Unchanged
+    }
+}
+
+#[test]
+fn r_after_a_cell_size_answer_reloads_for_the_new_cells() {
+    // The answer and `r` come in one read: the reload starts its loads
+    // for the cells the answer tells.
+    let cells = std::cell::RefCell::new(Vec::new());
+    let document = crate::parse::parse("Text\n");
+    let mut then = NoteCells {
+        document: document.clone(),
+        cells: &cells,
+    };
+    let mut terminal = Fake::new(60, 6, &[b"\x1b[6;16;8tr", b"q"]);
+    let mut inputs = Inputs::new(Capabilities {
+        cell_pixels: Some((10, 20)),
+        ..Capabilities::kitty(60)
+    });
+    run_document(
+        &document,
+        &mut inputs,
+        Options {
+            reload: Some(&mut then),
+            ..Options::new(SearchCase::Smart)
+        },
+        &mut terminal,
+    );
+    assert_eq!(*cells.borrow(), [Some((8, 16))]);
+}
+
 #[test]
 fn the_terminal_s_cell_size_stays_until_the_window_s_changes() {
     // Inside tmux in a container the window tells tmux's guess of 16 x 32
@@ -470,6 +514,14 @@ fn a_key_after_an_answer_in_the_same_read_counts() {
     let (sent, out) = squares_after_a_new_font(true, [(16, 32); 2], b"\x1b[6;24;10t?");
     assert_eq!(sent, [20, 30], "{out:?}");
     assert!(out.contains(" Keys "), "{out:?}");
+}
+
+#[test]
+fn an_answer_kept_across_a_key_that_ends_the_frame_counts() {
+    // `W` lays the page out again, and the answer before it in the read
+    // is applied to that layout.
+    let (sent, out) = squares_after_a_new_font(true, [(16, 32); 2], b"\x1b[6;24;10tW");
+    assert_eq!(sent, [20, 30], "{out:?}");
 }
 
 #[test]
