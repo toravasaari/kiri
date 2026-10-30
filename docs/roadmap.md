@@ -1239,7 +1239,7 @@ Needs G3.4.1.
 - G6.4.1 (done) A placement map in `docs/architecture.md`: four parts, each
   module's place, and where a new thing goes; module docs at the top of
   the large files; rules on placement in `AGENTS.md`.
-- G6.4.2 The modules that belong wholly to one part moved into it, with
+- G6.4.2 (done) The modules that belong wholly to one part moved into it, with
   paths and nothing else changed.
 - G6.4.3 Guards in `make check`: Clippy's limit on function length, line
   caps for the large files, and a test of which part may refer to which.
