@@ -604,56 +604,56 @@ merged yet: `present/cell_query.rs`, `present/clipboard.rs` and
 | `src/list.rs` | platform | stays (the `--list-emojis` shell) |
 | `src/panics.rs` | platform | stays |
 | `src/testing.rs` | platform | stays (test support) |
-| `src/caps.rs` | typesetting | moved |
-| `src/color.rs` | typesetting | moved |
-| `src/size.rs` | typesetting | moved |
-| `src/model.rs` | typesetting | moved |
-| `src/input.rs` | typesetting | moved |
-| `src/compare.rs` | typesetting | moved |
-| `src/parse/mod.rs` | typesetting | moved |
-| `src/parse/html.rs` | typesetting | moved |
-| `src/parse/csv.rs` | typesetting | moved |
-| `src/parse/csv/tests.rs` | typesetting | moved |
-| `src/parse/front_matter.rs` | typesetting | moved |
-| `src/parse/front_matter/tests.rs` | typesetting | moved |
-| `src/parse/tests.rs` | typesetting | moved |
-| `src/theme/mod.rs` | typesetting | moved |
-| `src/theme/paper.rs` | typesetting | moved |
-| `src/theme/file.rs` | mixed | moved. Typesetting: parsing the theme file's text. Platform: `load`, which reads the file; the config split moves `load` out |
-| `src/kitty/mod.rs` | terminal layer | moved |
-| `src/kitty/graphics.rs` | terminal layer | moved |
-| `src/kitty/query.rs` | terminal layer | moved |
-| `src/kitty/text.rs` | terminal layer | moved |
+| `src/caps.rs` | typesetting | moved to `src/typeset/caps.rs` |
+| `src/color.rs` | typesetting | moved to `src/typeset/color.rs` |
+| `src/size.rs` | typesetting | moved to `src/typeset/size.rs` |
+| `src/model.rs` | typesetting | moved to `src/typeset/model.rs` |
+| `src/input.rs` | typesetting | moved to `src/typeset/input.rs` |
+| `src/compare.rs` | typesetting | moved to `src/typeset/compare.rs` |
+| `src/parse/mod.rs` | typesetting | moved to `src/typeset/parse/mod.rs` |
+| `src/parse/html.rs` | typesetting | moved to `src/typeset/parse/html.rs` |
+| `src/parse/csv.rs` | typesetting | moved to `src/typeset/parse/csv.rs` |
+| `src/parse/csv/tests.rs` | typesetting | moved to `src/typeset/parse/csv/tests.rs` |
+| `src/parse/front_matter.rs` | typesetting | moved to `src/typeset/parse/front_matter.rs` |
+| `src/parse/front_matter/tests.rs` | typesetting | moved to `src/typeset/parse/front_matter/tests.rs` |
+| `src/parse/tests.rs` | typesetting | moved to `src/typeset/parse/tests.rs` |
+| `src/theme/mod.rs` | typesetting | moved to `src/typeset/theme/mod.rs` |
+| `src/theme/paper.rs` | typesetting | moved to `src/typeset/theme/paper.rs` |
+| `src/theme/file.rs` | mixed | moved to `src/typeset/theme/file.rs`. Typesetting: parsing the theme file's text. Platform: `load`, which reads the file; the config split moves `load` out |
+| `src/kitty/mod.rs` | terminal layer | moved to `src/present/kitty/mod.rs` |
+| `src/kitty/graphics.rs` | terminal layer | moved to `src/present/kitty/graphics.rs` |
+| `src/kitty/query.rs` | terminal layer | moved to `src/present/kitty/query.rs` |
+| `src/kitty/text.rs` | terminal layer | moved to `src/present/kitty/text.rs` |
 | `src/render/mod.rs` | mixed | stays. Typesetting: `Inputs`, the render options (`FrontMatterStyle`, `Headings`, `TableRows`, `RenderErrors`), `heading_look`, `heading_images` (whether headings take images, given the capabilities), and the front matter helpers. Terminal layer: `render`, `render_files`, `render_file`, `render_image` and `render_image_on`, which lay out and write in one call. The terminal layer split |
-| `src/render/block.rs` | typesetting | moved |
-| `src/render/style.rs` | typesetting | moved |
-| `src/render/image.rs` | typesetting | moved |
-| `src/render/wrap.rs` | typesetting | moved |
-| `src/render/layout/mod.rs` | typesetting | moved |
-| `src/render/layout/code.rs` | typesetting | moved |
-| `src/render/layout/front_matter.rs` | typesetting | moved |
-| `src/render/layout/list.rs` | typesetting | moved |
-| `src/render/layout/quote.rs` | typesetting | moved |
-| `src/render/table.rs` | typesetting | moved |
-| `src/render/table/tests.rs` | typesetting | moved |
-| `src/render/script.rs` | typesetting | moved |
-| `src/render/highlight.rs` | typesetting | moved |
-| `src/render/reading.rs` | typesetting | moved |
-| `src/render/output.rs` | terminal layer | moved |
-| `src/render/encoder.rs` | terminal layer | moved |
+| `src/render/block.rs` | typesetting | moved to `src/typeset/block.rs` |
+| `src/render/style.rs` | typesetting | moved to `src/typeset/style.rs` |
+| `src/render/image.rs` | typesetting | moved to `src/typeset/images/size.rs` |
+| `src/render/wrap.rs` | typesetting | moved to `src/typeset/wrap.rs` |
+| `src/render/layout/mod.rs` | typesetting | moved to `src/typeset/layout/mod.rs` |
+| `src/render/layout/code.rs` | typesetting | moved to `src/typeset/layout/code.rs` |
+| `src/render/layout/front_matter.rs` | typesetting | moved to `src/typeset/layout/front_matter.rs` |
+| `src/render/layout/list.rs` | typesetting | moved to `src/typeset/layout/list.rs` |
+| `src/render/layout/quote.rs` | typesetting | moved to `src/typeset/layout/quote.rs` |
+| `src/render/table.rs` | typesetting | moved to `src/typeset/layout/table.rs` |
+| `src/render/table/tests.rs` | typesetting | moved to `src/typeset/layout/table/tests.rs` |
+| `src/render/script.rs` | typesetting | moved to `src/typeset/layout/script.rs` |
+| `src/render/highlight.rs` | typesetting | moved to `src/typeset/layout/highlight.rs` |
+| `src/render/reading.rs` | typesetting | moved to `src/typeset/reading/engine.rs` |
+| `src/render/output.rs` | terminal layer | moved to `src/present/output.rs` |
+| `src/render/encoder.rs` | terminal layer | moved to `src/present/encoder.rs` |
 | `src/render/loading.rs` | mixed | stays. Typesetting: `Ink` (the struct), `dimmed` and `band`, which draw pixels. Terminal layer: `Ink::new`, the one function that takes the output's `Page`, and `band_offset`. The terminal layer split |
-| `src/reading/mod.rs` | typesetting | moved |
-| `src/reading/colr.rs` | typesetting | moved |
-| `src/reading/octicons.rs` | typesetting | moved |
-| `src/reading/page.rs` | typesetting | moved |
-| `src/reading/paint.rs` | typesetting | moved |
-| `src/reading/text.rs` | typesetting | moved |
-| `src/reading/fonts.rs` | mixed | moved. Typesetting: `Fonts`, the fonts handed to parley, with the fallbacks. Platform: loading the system fonts and memory-mapping the font files, lazily, on the first layout; the font database moves that loading out |
+| `src/reading/mod.rs` | typesetting | moved to `src/typeset/reading/mod.rs` |
+| `src/reading/colr.rs` | typesetting | moved to `src/typeset/reading/colr.rs` |
+| `src/reading/octicons.rs` | typesetting | moved to `src/typeset/reading/octicons.rs` |
+| `src/reading/page.rs` | typesetting | moved to `src/typeset/reading/page.rs` |
+| `src/reading/paint.rs` | typesetting | moved to `src/typeset/reading/paint.rs` |
+| `src/reading/text.rs` | typesetting | moved to `src/typeset/reading/text.rs` |
+| `src/reading/fonts.rs` | mixed | moved to `src/typeset/reading/fonts.rs`. Typesetting: `Fonts`, the fonts handed to parley, with the fallbacks. Platform: loading the system fonts and memory-mapping the font files, lazily, on the first layout; the font database moves that loading out |
 | `src/images/mod.rs` | mixed | stays. Typesetting: `ImageKey`, `ImageError`, `Images`, the plan of which images a document wants, and `LoadOptions`, the drawing options, which carry `progress`, a callback that the platform's `load_parts` calls. Platform: `load`, `load_with` and `load_parts`, which read files and run the renderers. Loading and sessions |
-| `src/images/decode.rs` | typesetting | moved |
-| `src/images/drawn.rs` | typesetting | moved |
-| `src/images/drawn/tests.rs` | typesetting | moved |
-| `src/images/heading.rs` | typesetting | moved |
+| `src/images/decode.rs` | typesetting | moved to `src/typeset/images/decode.rs` |
+| `src/images/drawn.rs` | typesetting | moved to `src/typeset/images/drawn.rs` |
+| `src/images/drawn/tests.rs` | typesetting | moved to `src/typeset/images/drawn/tests.rs` |
+| `src/images/heading.rs` | typesetting | moved to `src/typeset/images/heading.rs` |
 | `src/images/svg.rs` | mixed | stays. Typesetting: `Svg`, parsing and drawing, and `Fonts`, the database handed in. Platform: `Fonts::system`, which scans the system's fonts. The font database |
 | `src/images/url.rs` | mixed | stays. Typesetting: `data:` URLs and the reading of a URL's parts. Platform: `read_file`, which opens files. Loading and sessions |
 | `src/images/background.rs` | platform | stays |
@@ -661,10 +661,10 @@ merged yet: `present/cell_query.rs`, `present/clipboard.rs` and
 | `src/images/pipeline/tests.rs` | platform | stays |
 | `src/images/stamps.rs` | platform | stays |
 | `src/diagrams/mod.rs` | mixed | stays. Typesetting: `Request`, `Drawn`, `Theme`, `FormulaColors`, `INLINE_FORMULA`, `centred`, `dark_background`, `baseline_depth`, `noun`, `name`, `BuiltIn` and the `Renderer` trait. Platform: the external choice, which is `Renderers` with its `External` and `chosen`, and `render_all`'s parallel run through `render_in_parallel`, on threads. Loading and sessions |
-| `src/diagrams/language.rs` | typesetting | moved |
-| `src/diagrams/math.rs` | typesetting | moved |
-| `src/diagrams/mermaid/mod.rs` | typesetting | moved |
-| `src/diagrams/mermaid/merman.rs` | typesetting | moved |
+| `src/diagrams/language.rs` | typesetting | moved to `src/typeset/diagrams/language.rs` |
+| `src/diagrams/math.rs` | typesetting | moved to `src/typeset/diagrams/math.rs` |
+| `src/diagrams/mermaid/mod.rs` | typesetting | moved to `src/typeset/diagrams/mermaid/mod.rs` |
+| `src/diagrams/mermaid/merman.rs` | typesetting | moved to `src/typeset/diagrams/mermaid/merman.rs` |
 | `src/diagrams/external.rs` | platform | stays |
 | `src/diagrams/external/tests.rs` | platform | stays |
 | `src/diagrams/find.rs` | platform | stays |
@@ -681,24 +681,24 @@ merged yet: `present/cell_query.rs`, `present/clipboard.rs` and
 | `src/pager/tests/search.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/view.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/keys.rs` | mixed | stays. Terminal layer: `Key` and the `Decoder` that turns bytes into keys. State engine: `Action`, `BINDINGS` and `action`. The terminal layer split for the decoding, the pager's loop for the actions |
-| `src/pager/bands.rs` | state engine | moved |
-| `src/pager/changes.rs` | state engine | moved |
-| `src/pager/fade.rs` | state engine | moved |
-| `src/pager/files.rs` | state engine | moved |
-| `src/pager/help.rs` | state engine | moved |
-| `src/pager/links.rs` | state engine | moved |
-| `src/pager/loading.rs` | state engine | moved |
-| `src/pager/prompt.rs` | state engine | moved |
-| `src/pager/search.rs` | state engine | moved |
-| `src/pager/status.rs` | state engine | moved |
-| `src/pager/status/tests.rs` | state engine | moved |
-| `src/pager/tint.rs` | state engine | moved |
-| `src/pager/view.rs` | state engine | moved |
-| `src/pager/warnings.rs` | state engine | moved |
+| `src/pager/bands.rs` | state engine | moved to `src/session/bands.rs` |
+| `src/pager/changes.rs` | state engine | moved to `src/session/changes.rs` |
+| `src/pager/fade.rs` | state engine | moved to `src/session/fade.rs` |
+| `src/pager/files.rs` | state engine | moved to `src/session/files.rs` |
+| `src/pager/help.rs` | state engine | moved to `src/session/help.rs` |
+| `src/pager/links.rs` | state engine | moved to `src/session/links.rs` |
+| `src/pager/loading.rs` | state engine | moved to `src/session/loading.rs` |
+| `src/pager/prompt.rs` | state engine | moved to `src/session/prompt.rs` |
+| `src/pager/search.rs` | state engine | moved to `src/session/search.rs` |
+| `src/pager/status.rs` | state engine | moved to `src/session/status.rs` |
+| `src/pager/status/tests.rs` | state engine | moved to `src/session/status/tests.rs` |
+| `src/pager/tint.rs` | state engine | moved to `src/session/tint.rs` |
+| `src/pager/view.rs` | state engine | moved to `src/session/view.rs` |
+| `src/pager/warnings.rs` | state engine | moved to `src/session/warnings.rs` |
 | `src/term/mod.rs` | platform | stays |
-| `src/term/answers.rs` | terminal layer | moved |
-| `src/term/cell_query.rs` | terminal layer | moved (arrives with `fix/reading-leftovers`). It uses `tmux::passthrough`, which stays in `term/tmux.rs` until the terminal layer split |
-| `src/term/clipboard.rs` | terminal layer | moved (arrives with `fix/reading-leftovers`; it builds the OSC 52 bytes and writes them to an `impl Write`). It uses `tmux::passthrough`, which stays in `term/tmux.rs` until the terminal layer split |
+| `src/term/answers.rs` | terminal layer | moved to `src/present/answers.rs` |
+| `src/term/cell_query.rs` | terminal layer | moved to `src/present/cell_query.rs` (arrives with `fix/reading-leftovers`). It uses `tmux::passthrough`, which stays in `term/tmux.rs` until the terminal layer split |
+| `src/term/clipboard.rs` | terminal layer | moved to `src/present/clipboard.rs` (arrives with `fix/reading-leftovers`; it builds the OSC 52 bytes and writes them to an `impl Write`). It uses `tmux::passthrough`, which stays in `term/tmux.rs` until the terminal layer split |
 | `src/term/check.rs` | mixed | stays. Platform: asking kitty behind tmux, on the terminal. Terminal layer: reading what it answered, `lost` and `sequences`. The terminal layer split |
 | `src/term/detect.rs` | mixed | stays. Platform: `capabilities` and `examine`, which read the window, the environment and the probe's answer. Terminal layer: turning those into `Capabilities` (`with_probe`, `with_window`, `through_tmux`). The terminal layer split |
 | `src/term/probe.rs` | mixed | stays. Platform: sending the probe and reading the answer on the controlling terminal. Terminal layer: the text of the queries. The terminal layer split |
