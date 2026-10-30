@@ -1153,6 +1153,18 @@ go.
 - A menu on the right mouse button, as tmux has one: choices for the
   place clicked, such as copying a code block or following a link. Inside
   tmux, how it goes with tmux's own right-click menu.
+- A minimap beside the document in the pager: the whole document drawn
+  too small to read, with the part in view marked on it, so the reader
+  sees where they are and remembers places by their shape. Search
+  matches, headings and the changes that following finds could be marked
+  on it too. An image where the terminal draws images, braille
+  characters elsewhere, as code-minimap draws them.
+- Documentation sites read without a build step, as Read the Docs shows
+  them: a directory of Markdown files, or one described by an
+  `mkdocs.yml`, read with its navigation beside the page in the pager,
+  or served to a browser by `kiri serve` (5.4). It would build on
+  several files (4.9.2), heading anchors (4.10.1), the table of contents
+  (4.6.5) and resolving links across a vault (4.13).
 
 ## Bugs
 
