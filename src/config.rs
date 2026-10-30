@@ -16,8 +16,9 @@
 //!
 //! The intent is that a feature keeps its own type, in the part that uses
 //! it, and this file only names and resolves it; it still holds the types
-//! the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump`). The placement
-//! map in docs/architecture.md says where a setting goes.
+//! the pager reads (`Paging`, `SearchCase`, `Follow`,
+//! `FollowJump`). The placement map in docs/architecture.md says where a
+//! setting goes.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
