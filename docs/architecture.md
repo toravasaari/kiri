@@ -624,7 +624,7 @@ merged yet: `present/cell_query.rs`, `present/clipboard.rs` and
 | `src/kitty/graphics.rs` | terminal layer | moved |
 | `src/kitty/query.rs` | terminal layer | moved |
 | `src/kitty/text.rs` | terminal layer | moved |
-| `src/render/mod.rs` | mixed | stays. Typesetting: `Inputs`, the render options (`FrontMatterStyle`, `Headings`, `TableRows`, `RenderErrors`) and `heading_look`, the front matter helpers. Terminal layer: `render`, `render_files`, `render_file`, `render_image` and `render_image_on`, which lay out and write in one call. The terminal layer split |
+| `src/render/mod.rs` | mixed | stays. Typesetting: `Inputs`, the render options (`FrontMatterStyle`, `Headings`, `TableRows`, `RenderErrors`), `heading_look`, `heading_images` (whether headings take images, given the capabilities), and the front matter helpers. Terminal layer: `render`, `render_files`, `render_file`, `render_image` and `render_image_on`, which lay out and write in one call. The terminal layer split |
 | `src/render/block.rs` | typesetting | moved |
 | `src/render/style.rs` | typesetting | moved |
 | `src/render/image.rs` | typesetting | moved |
