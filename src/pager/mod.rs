@@ -1273,10 +1273,12 @@ impl State {
         Pressed::Nothing
     }
 
-    /// The selected link, when it is on the screen.
+    /// The selected link, when it is on the screen and has an address to
+    /// copy.
     fn link_on_screen(&self, layout: &Layout) -> Option<links::Found> {
         let visible = layout.view.visible();
-        self.links.selected_on(layout.lines, layout.places, visible)
+        (self.links.selected_on(layout.lines, layout.places, visible))
+            .filter(|link| !link.url.is_empty())
     }
 
     /// Selects the band on row `row` of the window, counted from 1:

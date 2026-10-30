@@ -574,6 +574,14 @@ fn enter_without_a_selected_link_scrolls_down_a_line_and_copies_nothing() {
 }
 
 #[test]
+fn enter_with_a_selected_link_that_has_no_address_copies_nothing() {
+    let document = crate::parse::parse("A [first]() link.\n");
+    let out = written(&document, kitty(), &[b"\t", b"\r", b""]);
+    assert!(!out.contains("\x1b]52;"), "in what was written");
+    assert!(!out.contains("link copied"), "in what was written");
+}
+
+#[test]
 fn enter_with_the_selected_link_off_the_screen_scrolls_and_copies_nothing() {
     let filler = "A paragraph of filler.\n\n".repeat(30);
     let document = crate::parse::parse(&format!(
