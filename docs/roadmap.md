@@ -1362,8 +1362,8 @@ a large first frame undrawn: the placeholders are on the screen, kitty
 answers that it holds the images, and they show as soon as something
 wakes kitty, such as `kitty @ ls` or `kitty @ get-text`. A write to the
 terminal does not wake it. It happens without tmux and with
-`kitten icat` too, so it is kitty's, and the maintainer has not seen it
-in his own kitty. Reading mode in the pager, whose first frame sends
+`kitten icat` too, so it is kitty's, and it has not been seen in the
+maintainer's own kitty. Reading mode in the pager, whose first frame sends
 two large images, came up blank in more than half of its starts.
 
 This was B12, a blank pager after a resize under load, after a font
