@@ -13,10 +13,20 @@ pub(crate) fn summary(block: &Block, setup: &Setup) -> Vec<Fact> {
     let mut facts = Vec::new();
     match block {
         Block::Heading { level, content } => {
-            let lines = lines(block);
-            let rule = lines
-                .iter()
-                .any(|line| (line.spans.first()).is_some_and(|span| span.text.starts_with('─')));
+            // Laid out as plain text, so that a script or a link at the
+            // start does not set the size the text is read by.
+            let flat = Block::Heading {
+                level: *level,
+                content: plain(content),
+            };
+            let lines = lines(&flat);
+            let colour = with_layout(&inputs, 0, |layout, _, _| layout.theme.rule);
+            let rule = lines.iter().any(|line| {
+                let spans = || line.spans.iter().filter(|span| !span.text.is_empty());
+                spans().count() > 0
+                    && spans()
+                        .all(|span| span.style.fg == colour && span.text.chars().all(|c| c == '─'))
+            });
             let at = format!("level {level}");
             // An empty heading has no text to tell the size by.
             if let Some(span) = first_text(&lines).filter(|_| !content.is_empty()) {
@@ -26,10 +36,17 @@ pub(crate) fn summary(block: &Block, setup: &Setup) -> Vec<Fact> {
             facts.push(Fact::new(Field::HeadingRule, at, rule.to_string()));
         }
         Block::BlockQuote(blocks) if matches!(blocks.first(), Some(Block::Paragraph(_))) => {
+            // The first paragraph as plain text, so that a link or code at
+            // its start does not stand for the quote's colour.
+            let mut flat = blocks.clone();
+            if let Block::Paragraph(content) = &mut flat[0] {
+                *content = plain(content);
+            }
             let own =
                 |lines: &[Line]| first_text(lines).map(|span| (span.style.fg, span.style.dim));
-            let plain = Block::Paragraph(vec![Inline::Text("x".into())]);
-            let value = match own(&lines(block)) == own(&lines(&plain)) {
+            let flat = Block::BlockQuote(flat);
+            let alone = Block::Paragraph(vec![Inline::Text("x".into())]);
+            let value = match own(&lines(&flat)) == own(&lines(&alone)) {
                 true => "own",
                 false => "dimmed",
             };
@@ -72,6 +89,11 @@ pub(crate) fn summary(block: &Block, setup: &Setup) -> Vec<Fact> {
         facts.push(inline_fact(kind, apart));
     }
     facts
+}
+
+/// `content` as one run of plain text.
+fn plain(content: &[Inline]) -> Vec<Inline> {
+    vec![Inline::Text(Inline::plain_text(content))]
 }
 
 fn inline_fact(kind: Apart, apart: bool) -> Fact {

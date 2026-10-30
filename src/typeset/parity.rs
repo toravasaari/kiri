@@ -349,6 +349,24 @@ const DIFFERENCES: &[Difference] = &[
         pixel_where: "reading/page.rs:2097: the three glyphs indexed by depth.min(2), so every level from the third is ▪",
     },
     Difference {
+        field: Field::ListMarker,
+        at: "depth 6 bullet item",
+        cell: "•",
+        pixel: "▪",
+        status: Status::Drift,
+        cell_where: "layout/list.rs:22: BULLETS[list_depth % 3], so a level past the third starts the cycle over",
+        pixel_where: "reading/page.rs:2097: the three glyphs indexed by depth.min(2), so every level from the third is ▪",
+    },
+    Difference {
+        field: Field::ListMarker,
+        at: "depth 7 bullet item",
+        cell: "◦",
+        pixel: "▪",
+        status: Status::Drift,
+        cell_where: "layout/list.rs:22: BULLETS[list_depth % 3], so a level past the third starts the cycle over",
+        pixel_where: "reading/page.rs:2097: the three glyphs indexed by depth.min(2), so every level from the third is ▪",
+    },
+    Difference {
         field: Field::HeadingRule,
         at: "level 1",
         cell: "false",
@@ -372,7 +390,7 @@ const DIFFERENCES: &[Difference] = &[
         cell: "2.50",
         pixel: "2.00",
         status: Status::Drift,
-        cell_where: "theme/mod.rs:375: the theme's size, 2.5 down to 1.0 in quarters, rounded to a scale kitty draws",
+        cell_where: "theme/mod.rs:375: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
         pixel_where: "reading/page.rs:37: HEADING_SIZES, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
@@ -381,7 +399,7 @@ const DIFFERENCES: &[Difference] = &[
         cell: "2.00",
         pixel: "1.50",
         status: Status::Drift,
-        cell_where: "theme/mod.rs:375: the theme's size, 2.5 down to 1.0 in quarters, rounded to a scale kitty draws",
+        cell_where: "theme/mod.rs:375: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
         pixel_where: "reading/page.rs:37: HEADING_SIZES, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
@@ -390,7 +408,7 @@ const DIFFERENCES: &[Difference] = &[
         cell: "1.75",
         pixel: "1.25",
         status: Status::Drift,
-        cell_where: "theme/mod.rs:375: the theme's size, 2.5 down to 1.0 in quarters, rounded to a scale kitty draws",
+        cell_where: "theme/mod.rs:375: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
         pixel_where: "reading/page.rs:37: HEADING_SIZES, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
@@ -399,7 +417,7 @@ const DIFFERENCES: &[Difference] = &[
         cell: "1.50",
         pixel: "1.00",
         status: Status::Drift,
-        cell_where: "theme/mod.rs:375: the theme's size, 2.5 down to 1.0 in quarters, rounded to a scale kitty draws",
+        cell_where: "theme/mod.rs:375: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
         pixel_where: "reading/page.rs:37: HEADING_SIZES, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
@@ -408,7 +426,7 @@ const DIFFERENCES: &[Difference] = &[
         cell: "1.25",
         pixel: "0.88",
         status: Status::Drift,
-        cell_where: "theme/mod.rs:375: the theme's size, 2.5 down to 1.0 in quarters, rounded to a scale kitty draws",
+        cell_where: "theme/mod.rs:375: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
         pixel_where: "reading/page.rs:37: HEADING_SIZES, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
@@ -417,7 +435,7 @@ const DIFFERENCES: &[Difference] = &[
         cell: "1.00",
         pixel: "0.85",
         status: Status::Drift,
-        cell_where: "theme/mod.rs:375: the theme's size, 2.5 down to 1.0 in quarters, rounded to a scale kitty draws",
+        cell_where: "theme/mod.rs:375: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
         pixel_where: "reading/page.rs:37: HEADING_SIZES, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
@@ -516,7 +534,7 @@ const DIFFERENCES: &[Difference] = &[
         cell: "styled",
         pixel: "unstyled",
         status: Status::Drift,
-        cell_where: "layout/mod.rs:1211: superscript characters, or a smaller size where text sizing is",
+        cell_where: "layout/mod.rs:1213: superscript characters, or a smaller size where text sizing is",
         pixel_where: "reading/page.rs:2350: the text as it is, with no colour, size or shift of its own",
     },
 ];
@@ -732,5 +750,41 @@ mod tests {
                 "{field:?} at {at:?} is not a drift on the list"
             );
         }
+    }
+
+    /// The value of the cell layout's fact of `field` for the one block of
+    /// `markdown`.
+    fn cell_value(markdown: &str, field: Field) -> String {
+        let block = parse(markdown).blocks.remove(0);
+        let facts = cell::summary(&block, &Setup::DEFAULT);
+        (facts.into_iter().find(|fact| fact.field == field))
+            .unwrap_or_else(|| panic!("no {field:?} fact for {markdown:?}"))
+            .value
+    }
+
+    #[test]
+    fn a_quote_is_read_by_its_text_not_by_a_link_or_code_that_opens_it() {
+        // The cell layout leaves a quote's text in its own colour.
+        for markdown in [
+            "> plain text",
+            "> [link](https://example.com) text",
+            "> `code` text",
+        ] {
+            assert_eq!(cell_value(markdown, Field::QuoteText), "own", "{markdown}");
+        }
+    }
+
+    #[test]
+    fn a_heading_is_read_by_its_own_size_not_by_a_script_that_opens_it() {
+        assert_eq!(
+            cell_value("# <sup>2</sup> head", Field::HeadingSize),
+            "2.50"
+        );
+    }
+
+    #[test]
+    fn a_heading_has_a_rule_only_where_one_is_drawn_not_where_its_text_has_a_line_glyph() {
+        assert_eq!(cell_value("# ─ head", Field::HeadingRule), "false");
+        assert_eq!(cell_value("# head", Field::HeadingRule), "false");
     }
 }

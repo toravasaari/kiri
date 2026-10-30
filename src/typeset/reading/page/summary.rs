@@ -83,15 +83,7 @@ pub(crate) fn summary(block: &Block, setup: &Setup) -> Vec<Fact> {
             pictures: &Plain,
             room: area.text,
         };
-        let apart = runs(&[kind.wrap(content.clone())], &look, ink)
-            != runs(
-                &content,
-                &look,
-                Ink {
-                    pictures: &Plain,
-                    room: area.text,
-                },
-            );
+        let apart = runs(&[kind.wrap(content.clone())], &look, ink) != runs(&content, &look, ink);
         let value = if apart { "styled" } else { "unstyled" };
         facts.push(Fact::new(Field::InlineStyle, kind.name(), value));
     }

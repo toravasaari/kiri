@@ -6,6 +6,8 @@
       - Level four
         - Level five
           - Level six
+            - Level seven
+              - Level eight
 
 1. First
    1. Nested number
