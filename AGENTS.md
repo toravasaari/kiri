@@ -29,13 +29,21 @@ clickable links. It is written in Rust and ships as a single binary, `kiri`.
 
 - The pipeline is parse -> document model -> backend. Parsing knows nothing
   about terminals; backends know nothing about Markdown syntax.
-- Every kitty-specific escape sequence lives under `src/kitty/`. Other
+- Every kitty-specific escape sequence lives under `src/kitty/`, which the
+  placement map in docs/architecture.md puts in the terminal layer. Other
   backends (HTML, pixel rendering) and terminals without kitty's protocols
   must stay possible without touching the parser or the document model.
 - Rendering writes to a `std::io::Write` and takes terminal capabilities as
   input. Capability detection and other terminal I/O happen in one place
   (`src/term/`), so renderers stay pure and testable.
 - No global mutable state.
+
+## Placement
+
+- New code goes where the placement map in docs/architecture.md puts it.
+  When the map has no place for it, stop and ask the maintainer; do not add
+  it to a hub file.
+- A reviewer checks the placement of new code against the map.
 
 ## Commands
 

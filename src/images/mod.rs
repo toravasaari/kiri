@@ -6,6 +6,20 @@
 //! work on pixels and never touch the file system. A failure is a value,
 //! not an error for the whole document, because the renderer still shows
 //! the alt text in place of an image it could not load.
+//!
+//! This file owns the key of an image, the store of loaded images that
+//! layout reads, the plan of which images a document wants, and for now
+//! the functions that load them. The loading reads files and runs the
+//! renderers, and is the part of it that is not pure.
+//!
+//! What does not belong here is any new way to read, fetch or draw an
+//! image, which is work for threads and programs, and nothing that decodes
+//! a format, which has a file of its own in this directory.
+//!
+//! Reading and fetching go to the platform's work runner, as the loads in
+//! `src/images/background.rs` and `src/images/pipeline.rs` do, and
+//! decoding and drawing from given data to the typesetting engine
+//! (`src/typeset/images/`).
 
 mod background;
 mod decode;

@@ -2,6 +2,21 @@
 //! of whole rows, each part an image drawn when a line first shows it, and
 //! each row of the page a line that shows one row of a part through
 //! kitty's Unicode placeholders.
+//!
+//! This file is the typesetting engine's page driver for reading mode: it
+//! turns a document's runs of text blocks into pages from `reading::page`,
+//! keeps the cache of drawn parts, and gives the rows of a page as styled
+//! lines. What the pager does with those lines belongs to the state engine.
+//!
+//! The layout of a page does not belong here, nor the painting of text,
+//! nor anything about escape sequences, files or fonts as I/O. The pixel
+//! layout is `reading/page.rs`, and a block kind of reading mode is a file
+//! of its own beside it.
+//!
+//! Page layout and painting go to the typesetting engine's reading module
+//! (`src/typeset/reading/`), and bytes to the terminal layer
+//! (`src/present/`). The placement map in docs/architecture.md has the
+//! paths.
 
 use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;

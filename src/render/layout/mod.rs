@@ -1,4 +1,18 @@
 //! Document model to styled lines of a fixed width.
+//!
+//! This is the cell layout engine's driver: it walks the blocks of a
+//! document, hands each kind to its own file (code, lists, quotes, front
+//! matter, tables) and gives the runs that reading mode lays out to that
+//! engine. It reads the images that are loaded and never loads one.
+//!
+//! What does not belong here is the layout of one kind of block, which has
+//! a file beside this one; word wrapping, tables and colours, which have
+//! theirs; pixels; and anything about a terminal's bytes or a key.
+//!
+//! A new block kind gets a file of its own in the typesetting engine
+//! (`src/typeset/layout/`), and its pixel layout goes to the reading
+//! engine (`src/typeset/reading/`). Bytes go to the terminal layer
+//! (`src/present/`).
 
 mod code;
 mod front_matter;

@@ -2,6 +2,19 @@
 //! them: headings, paragraphs, lists, quotes and thematic breaks, with
 //! their margins collapsing between blocks as in CSS. The page is drawn a
 //! part at a time, so that a pager draws only what it shows.
+//!
+//! This is the reading engine's layout, and it is the largest file of the
+//! crate: the flow of blocks, their margins and the pixel boxes of a page.
+//! It takes its fonts and pictures as values and does no I/O.
+//!
+//! A new block kind does not go in here as more code in this file, nor
+//! does text shaping, which is `text.rs`, painting, which is `paint.rs`, or
+//! anything about terminals, files or the pager's state.
+//!
+//! A block kind of its own gets a file in the typesetting engine's reading
+//! module (`src/typeset/reading/`). Showing the pixels in a terminal is
+//! the work of the terminal layer (`src/present/`), and what the pager
+//! does with a page is the state engine's (`src/session/`).
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
