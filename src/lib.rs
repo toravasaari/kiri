@@ -9,6 +9,7 @@ pub mod pager;
 pub mod panics;
 pub mod present;
 pub mod render;
+pub mod session;
 pub mod term;
 pub mod typeset;
 

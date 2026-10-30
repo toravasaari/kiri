@@ -14,14 +14,14 @@ type BandId = (Option<BlockInfo>, usize);
 
 /// How far each band is scrolled, and which one is selected.
 #[derive(Debug, Default)]
-pub(super) struct Bands {
+pub(crate) struct Bands {
     offsets: Vec<(BandId, u32)>,
     selected: Option<BandId>,
 }
 
 /// Which way, and how far, a key scrolls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Step {
+pub(crate) enum Step {
     Left,
     Right,
     PageLeft,

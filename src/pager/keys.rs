@@ -1,9 +1,9 @@
 //! Keys read from the terminal, and what each does in the pager. The
 //! bindings follow `less` for now.
 
-use super::view::Motion;
 use crate::present::kitty::graphics::{self, ImageId};
 use crate::present::kitty::query;
+use crate::session::view::Motion;
 
 /// A key as the terminal sends it without kitty's keyboard protocol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

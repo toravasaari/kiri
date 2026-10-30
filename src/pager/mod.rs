@@ -16,20 +16,7 @@
 //! platform (`src/main.rs` and the rest of `src/`), and bytes for the
 //! terminal to the terminal layer (`src/present/`).
 
-mod bands;
-pub mod changes;
-pub mod fade;
-pub mod files;
-pub mod help;
 pub mod keys;
-mod links;
-pub mod loading;
-pub mod prompt;
-pub mod search;
-pub mod status;
-pub mod tint;
-pub mod view;
-pub mod warnings;
 
 use std::io::{self, Write};
 use std::ops::Range;
@@ -42,6 +29,15 @@ use crate::present::kitty::graphics::ImageId;
 use crate::present::output::{self, Page, Writer};
 use crate::present::{cell_query, clipboard};
 use crate::render::Inputs;
+use crate::session::fade::{
+    FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY, WARNING_STAY,
+};
+use crate::session::files::Files;
+use crate::session::help::Placed;
+use crate::session::prompt::{Edit, Prompt};
+use crate::session::search::{Marks, Search};
+use crate::session::view::View;
+use crate::session::{bands, changes, help, links, loading, search, status, tint, warnings};
 use crate::term::{Screen, WindowSize};
 use crate::typeset::block::BlockInfo;
 use crate::typeset::caps::Capabilities;
@@ -53,15 +49,7 @@ use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page::Wide;
 use crate::typeset::style::{self, Line, Span, Style};
 use crate::typeset::wrap;
-use fade::{
-    FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY, WARNING_STAY,
-};
-use files::Files;
-use help::Placed;
 use keys::{Action, Key};
-use prompt::{Edit, Prompt};
-use search::{Marks, Search};
-use view::View;
 
 /// Whether a document of `rows` rows is paged: never when the output is not
 /// a terminal, and with `Auto` only when it is longer than the window's

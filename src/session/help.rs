@@ -3,7 +3,7 @@
 
 use unicode_width::UnicodeWidthStr;
 
-use super::keys::{BINDINGS, Binding};
+use crate::pager::keys::{BINDINGS, Binding};
 use crate::typeset::style::{Span, Style};
 use crate::typeset::wrap;
 

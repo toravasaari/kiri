@@ -18,7 +18,7 @@ type LinkId = (Option<BlockInfo>, usize);
 
 /// A link on the lines of a layout.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Found {
+pub(crate) struct Found {
     id: LinkId,
     /// For a link in a page of reading mode, the page it is on, by the
     /// address of its parts, and its number among the page's links.
@@ -59,7 +59,7 @@ impl Found {
 
 /// Which link is selected.
 #[derive(Debug, Default)]
-pub(super) struct Links {
+pub(crate) struct Links {
     selected: Option<LinkId>,
 }
 

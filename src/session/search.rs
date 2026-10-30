@@ -5,8 +5,8 @@
 use std::ops::Range;
 use std::rc::Rc;
 
-use super::fade::Fade;
 use crate::config::SearchCase;
+use crate::session::fade::Fade;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Underline;
 use crate::typeset::reading::engine as reading;
@@ -457,7 +457,7 @@ fn same(a: char, b: char, ignore_case: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pager::fade::Rgb;
+    use crate::session::fade::Rgb;
     use crate::typeset::color::Color;
     use crate::typeset::size::{Fraction, HorizontalAlign, TextSize, VerticalAlign};
     use crate::typeset::theme::{Paper, SearchTheme};

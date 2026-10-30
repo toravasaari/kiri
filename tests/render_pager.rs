@@ -4,10 +4,10 @@ mod common;
 
 use common::{WIDTH, visible};
 use kiri::images::Images;
-use kiri::pager::view::{Motion, View};
 use kiri::present::encoder::Encoder;
 use kiri::present::output::{Page, Writer};
 use kiri::render::Inputs;
+use kiri::session::view::{Motion, View};
 use kiri::typeset::caps::Capabilities;
 
 /// The frame `kiri::pager::draw` writes for `source` in a window of `rows`

@@ -6,7 +6,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::typeset::style::{self, Span, Style};
 use crate::typeset::wrap;
 
-use super::Warning;
+use crate::pager::Warning;
 
 /// The spans of the warning line for `warnings` in a window `columns`
 /// wide, with the first warning in `red` and how many more there are in

@@ -109,21 +109,21 @@ The places inside lists have two numbers, the item and then the block in
 it; the layout's table has to use them too once it marks those blocks.
 
 The pager shows the same styled lines on the terminal's alternate screen.
-`src/pager/view.rs` chooses the lines that fit in the window, a scaled
+`src/session/view.rs` chooses the lines that fit in the window, a scaled
 line whole or not at all, and moves them, and when the window changes size
 it keeps the same block at the top; `src/pager/keys.rs` turns the bytes
-the terminal sends into keys and keys into moves; `src/pager/prompt.rs`
-keeps the search term as it is typed, and `src/pager/search.rs` finds it
+the terminal sends into keys and keys into moves; `src/session/prompt.rs`
+keeps the search term as it is typed, and `src/session/search.rs` finds it
 in the laid-out lines and splits a line where a match starts and ends, so
 the matches can be highlighted without a change to the writer;
-`src/pager/fade.rs` mixes the colours a match fades through after a jump,
+`src/session/fade.rs` mixes the colours a match fades through after a jump,
 those of the status line's `reloaded` as it fades out, and those of the
 warning line;
-`src/pager/files.rs` finds where each of several files starts from the
+`src/session/files.rs` finds where each of several files starts from the
 blocks of the lines, so the status line names the file at the top of the
 view and `:n` and `:p` move from one file's start to another's;
-`src/pager/status.rs` and `src/pager/help.rs` make the status line and the
-help panel as styled spans, and `src/pager/warnings.rs` the line of text
+`src/session/status.rs` and `src/session/help.rs` make the status line and the
+help panel as styled spans, and `src/session/warnings.rs` the line of text
 above the status line that tells the first warning; `src/pager/mod.rs` draws each frame, row by
 row through the backend's writer, and lays the document out again when the
 window changes size or when `r` reloads it. For that the pager is given a
@@ -135,11 +135,11 @@ above the view does not move it. When the block at the top is gone, the
 view goes to the next block that is still there. A view at the end of the
 document goes to the new end, so a document that grew shows what was
 added. Following on auto then moves the view to a change:
-`src/pager/changes.rs` finds the runs of lines whose blocks changed or
+`src/session/changes.rs` finds the runs of lines whose blocks changed or
 were added, and the place of a removal with neither beside it, and chooses
-one as the follow jump setting says, and `src/pager/tint.rs` gives the
+one as the follow jump setting says, and `src/session/tint.rs` gives the
 lines of that change a lighter background for a moment, fading out
-through `src/pager/fade.rs`. While the pager follows the
+through `src/session/fade.rs`. While the pager follows the
 document, it asks the `Reload` on each poll for keys whether the document
 changed, and reads it again once a change still looks the same 100 ms, a
 poll's time, after it was first seen, so that a file caught half written
@@ -150,7 +150,7 @@ reading keys from the controlling terminal, is opened in
 A reload shows the new text at once: the `Reload` keeps the images the
 document still shows and starts the others loading in the background, in
 the pager's `Loads`, which the pager polls beside the follow poll.
-Meanwhile `src/pager/loading.rs` chooses what stands in for each image
+Meanwhile `src/session/loading.rs` chooses what stands in for each image
 from the comparison: a block that changed shows its old image dimmed,
 and any other block, a new one or one that stayed while its image file
 changed, shows as it does without its image, code or alt text. Below
@@ -163,7 +163,7 @@ sends it anew, as it is then, and the pager draws a frame each 50 ms
 while a band shows, so that it moves. The status line says
 `[rendering: 1/3]` in place of the name meanwhile. The images in view
 load first, then the nearest: each band knows its image and the lines
-that show it, and whenever the view moves `src/pager/loading.rs` orders
+that show it, and whenever the view moves `src/session/loading.rs` orders
 the images by how far those lines are from the view, a line below
 before a line above, and tells `Loads`, which hands the waiting jobs out
 in that order. Say the reader is at the end when a reload adds three
@@ -247,7 +247,7 @@ a thin scroll bar, faded on each edge with more beyond it; a code band's
 language stays in its top right corner. Its rows show an image of their
 own, cut into slices of at most 30 rows as pages are, keyed by its slice,
 its offset and whether it is selected. The pager keeps those by the
-band's block in `src/pager/bands.rs`: the topmost band on the screen is
+band's block in `src/session/bands.rs`: the topmost band on the screen is
 selected until a click, or a search that finds something in another,
 selects it, ← and → or `H`
 and `L` scroll it, and so does a sideways wheel, or the wheel with Shift,
@@ -267,7 +267,7 @@ as an opaque area, not as the translucent background.
 Search and links in a page work from the positions the layout knows: it
 records, in pixels and a piece for each line, where each link and each
 place of a search term is, in the page's or a band's own coordinates.
-`src/pager/search.rs` finds a term in the texts of a page, so a match is
+`src/session/search.rs` finds a term in the texts of a page, so a match is
 on the row of its line of text, and a match in a band scrolls the band to
 it and selects it. The marks are drawn into the page's image, a box in
 the theme's match colours with the text drawn over it, and so is a box
@@ -279,7 +279,7 @@ the current match draws only the parts it leaves and enters. A link is an
 OSC 8 hyperlink round the placeholders it covers (`src/present/kitty/graphics.rs`),
 which kitty opens as it does a link in text; in a band the cells move with
 the scrolling.
-`src/pager/links.rs` selects one of the links on the screen with Tab and
+`src/session/links.rs` selects one of the links on the screen with Tab and
 Shift+Tab, numbering them from the page's own list so that a link keeps its
 id while a band scrolls, and the status line says where it goes. In the
 text layout a link is the run of spans on one line that share a hyperlink
@@ -681,20 +681,20 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | `src/pager/tests/search.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/view.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/keys.rs` | mixed | stays. Terminal layer: `Key` and the `Decoder` that turns bytes into keys. State engine: `Action`, `BINDINGS` and `action`. The terminal layer split for the decoding, the pager's loop for the actions |
-| `src/pager/bands.rs` | state engine | `src/session/bands.rs` |
-| `src/pager/changes.rs` | state engine | `src/session/changes.rs` |
-| `src/pager/fade.rs` | state engine | `src/session/fade.rs` |
-| `src/pager/files.rs` | state engine | `src/session/files.rs` |
-| `src/pager/help.rs` | state engine | `src/session/help.rs` |
-| `src/pager/links.rs` | state engine | `src/session/links.rs` |
-| `src/pager/loading.rs` | state engine | `src/session/loading.rs` |
-| `src/pager/prompt.rs` | state engine | `src/session/prompt.rs` |
-| `src/pager/search.rs` | state engine | `src/session/search.rs` |
-| `src/pager/status.rs` | state engine | `src/session/status.rs` |
-| `src/pager/status/tests.rs` | state engine | `src/session/status/tests.rs` |
-| `src/pager/tint.rs` | state engine | `src/session/tint.rs` |
-| `src/pager/view.rs` | state engine | `src/session/view.rs` |
-| `src/pager/warnings.rs` | state engine | `src/session/warnings.rs` |
+| `src/pager/bands.rs` | state engine | moved |
+| `src/pager/changes.rs` | state engine | moved |
+| `src/pager/fade.rs` | state engine | moved |
+| `src/pager/files.rs` | state engine | moved |
+| `src/pager/help.rs` | state engine | moved |
+| `src/pager/links.rs` | state engine | moved |
+| `src/pager/loading.rs` | state engine | moved |
+| `src/pager/prompt.rs` | state engine | moved |
+| `src/pager/search.rs` | state engine | moved |
+| `src/pager/status.rs` | state engine | moved |
+| `src/pager/status/tests.rs` | state engine | moved |
+| `src/pager/tint.rs` | state engine | moved |
+| `src/pager/view.rs` | state engine | moved |
+| `src/pager/warnings.rs` | state engine | moved |
 | `src/term/mod.rs` | platform | stays |
 | `src/term/answers.rs` | terminal layer | moved |
 | `src/term/cell_query.rs` | terminal layer | moved (arrives with `fix/reading-leftovers`). It uses `tmux::passthrough`, which stays in `term/tmux.rs` until the terminal layer split |

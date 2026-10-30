@@ -1,4 +1,4 @@
-use super::*;
+use crate::session::status::*;
 use crate::typeset::style::text;
 use crate::typeset::theme::{Paper, StatusLineTheme};
 use crate::typeset::wrap::width;
