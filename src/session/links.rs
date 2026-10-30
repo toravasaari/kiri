@@ -9,7 +9,7 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use crate::typeset::block::BlockInfo;
-use crate::typeset::reading::engine as reading;
+use crate::typeset::reading::engine;
 use crate::typeset::style::{Line, Span};
 
 /// A link, by the block its first line is in and its number among the
@@ -159,7 +159,7 @@ fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
             }
         };
     let mut found = Vec::new();
-    for page in reading::pages(lines) {
+    for page in engine::pages(lines) {
         let address = Rc::as_ptr(&page.parts) as usize;
         for (number, link) in page.parts.links().iter().enumerate() {
             let at = (page.lines.start + page.parts.link_row(number)).min(page.lines.end - 1);
@@ -288,7 +288,7 @@ mod tests {
     use crate::typeset::caps::Capabilities;
     use crate::typeset::layout::{Content, Stream, content};
     use crate::typeset::reading::Fonts;
-    use crate::typeset::reading::engine::{self as reading, Reading};
+    use crate::typeset::reading::engine::{self, Reading};
     use crate::typeset::reading::page::Wide;
 
     /// `source` laid out in reading mode, with the blocks of its lines.
@@ -662,12 +662,12 @@ mod tests {
         assert_eq!(urls(links.selected(&lines, &places)).as_deref(), Some("u1"));
         // Scrolled to the end of the band, `near` has no cells and `far`
         // has: the selection is none, not `far`.
-        let band = &reading::bands(&lines)[0];
+        let band = &engine::bands(&lines)[0];
         let (rows, most) = (band.lines.clone(), band.most());
-        reading::set_band(&mut lines[rows.clone()], most, true);
+        engine::set_band(&mut lines[rows.clone()], most, true);
         assert_eq!(urls(links.selected(&lines, &places)), None);
         // Scrolled back, it is `near` again.
-        reading::set_band(&mut lines[rows], 0, true);
+        engine::set_band(&mut lines[rows], 0, true);
         assert_eq!(urls(links.selected(&lines, &places)).as_deref(), Some("u1"));
     }
 
@@ -695,7 +695,7 @@ mod tests {
         // It says where in its band to scroll to, on the band's line.
         let found = links.target(&lines, &places).unwrap();
         let (line, x) = found.band_at.expect("in a band");
-        assert!(reading::bands(&lines)[0].lines.contains(&line));
+        assert!(engine::bands(&lines)[0].lines.contains(&line));
         assert!(x.start > 1000, "{x:?}");
     }
 }

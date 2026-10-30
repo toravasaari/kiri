@@ -25,9 +25,9 @@ use crate::typeset::color::Color;
 use crate::typeset::model::{Block, Document, File, FrontMatter, FrontMatterError};
 use crate::typeset::theme::Theme;
 
-use crate::typeset::images::size as image;
+use crate::typeset::images::size;
 use crate::typeset::layout;
-use crate::typeset::reading::engine as reading;
+use crate::typeset::reading::engine;
 use crate::typeset::style;
 
 /// Everything rendering takes besides the document. A new input gets a
@@ -52,7 +52,7 @@ pub struct Inputs {
     pub render_errors: RenderErrors,
     /// Reading mode, where the terminal draws images: the document's text
     /// in a proportional font. `None` for the text layout.
-    pub reading: Option<reading::Reading>,
+    pub reading: Option<engine::Reading>,
 }
 
 /// Where kiri tells why something it draws from source, such as a
@@ -141,7 +141,7 @@ pub fn heading_look(
     if no_images || !heading_images(headings, caps) {
         return None;
     }
-    let cell = image::cell_size(caps);
+    let cell = size::cell_size(caps);
     // Light text on a dark page, as most terminals have it.
     let contrast = match caps.dark_background {
         Some(true) | None => [0xff; 3],
@@ -336,14 +336,14 @@ pub fn render_image_on(
     if !caps.draws_images() {
         return Ok((Encoder::new(), images));
     }
-    let Some(size) = image::on_its_own(&image, caps, 1) else {
+    let Some(size) = size::on_its_own(&image, caps, 1) else {
         return Ok((Encoder::new(), images));
     };
     let key = ImageKey::from("");
-    let lines = layout::image_rows(image::Placement {
+    let lines = layout::image_rows(size::Placement {
         key: key.clone(),
         size,
-        shows: image::Shows::Image,
+        shows: size::Shows::Image,
     });
     images.insert(key, Ok(image));
     let encoder = output::write(&lines, &images, caps, page, out)?;

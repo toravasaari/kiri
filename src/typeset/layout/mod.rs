@@ -35,7 +35,7 @@ use crate::render::{FrontMatterStyle, Headings, Inputs, RenderErrors, TableRows}
 use crate::typeset::block::{BlockId, Blocks};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::{Color, Underline};
-use crate::typeset::images::size::{self as image, Placement, Shows};
+use crate::typeset::images::size::{self, Placement, Shows};
 use crate::typeset::layout::script::Script;
 use crate::typeset::layout::table::Cells;
 use crate::typeset::model::{Block, Document, File, Image, Inline, SourceLines, Table};
@@ -640,7 +640,7 @@ impl Layout<'_> {
         let key = ImageKey::from(name).in_document(self.document);
         if self.caps.draws_images()
             && let Some(Ok(source)) = self.images.get(&key)
-            && let Some(size) = image::on_its_own(source, self.caps, self.reserved)
+            && let Some(size) = size::on_its_own(source, self.caps, self.reserved)
         {
             return image_rows(Placement {
                 key,
@@ -778,7 +778,7 @@ impl Layout<'_> {
         if !crate::render::heading_images(self.headings, self.caps) {
             return None;
         }
-        let cell = image::cell_size(self.caps);
+        let cell = size::cell_size(self.caps);
         let words = heading_words(content);
         let key = ImageKey::heading_of(level, words.clone(), cell).in_document(self.document);
         let Some(Ok(Source::Text {
@@ -815,10 +815,10 @@ impl Layout<'_> {
             |words: &Range<usize>| ends[words.end - 1].saturating_sub(starts[words.start]);
         let wide = groups.iter().any(|group| width_of(group) > room);
         let (size, lines) = if wide {
-            let shrunk = image::size_in((width, height), image::Unit::Pixel, cell, room, rows)?;
+            let shrunk = size::size_in((width, height), size::Unit::Pixel, cell, room, rows)?;
             (shrunk, vec![(0..shrunk.columns, 0..words.len())])
         } else {
-            let full = image::Size {
+            let full = size::Size {
                 width,
                 height,
                 columns,
@@ -910,7 +910,7 @@ impl Layout<'_> {
     /// is not written yet.
     fn image_block(&self, content: &[Inline], width: usize) -> Option<Vec<Line>> {
         let lone = Inline::lone_image(content)?;
-        let wanted = image::Wanted {
+        let wanted = size::Wanted {
             width: lone.width,
             height: lone.height,
         };
@@ -931,7 +931,7 @@ impl Layout<'_> {
             true => Align::Centre,
             false => Align::Left,
         };
-        self.placed(key, image::Wanted::default(), width, align)
+        self.placed(key, size::Wanted::default(), width, align)
     }
 
     /// Why the code block `code` in `language` could not be drawn as a
@@ -977,7 +977,7 @@ impl Layout<'_> {
     fn placed(
         &self,
         key: ImageKey,
-        wanted: image::Wanted,
+        wanted: size::Wanted,
         width: usize,
         align: Align,
     ) -> Option<Vec<Line>> {
@@ -988,8 +988,8 @@ impl Layout<'_> {
             (Some(Ok(source)), _) => (source.size(), Shows::Image),
             (_, Some(Placeholder::Dimmed(old))) => (old.size(), Shows::Placeholder),
             (_, Some(&Placeholder::Rows(rows))) => {
-                let (width, height) = image::cell_size(self.caps);
-                let size = image::Size {
+                let (width, height) = size::cell_size(self.caps);
+                let size = size::Size {
                     width: u32::from(width),
                     height: u32::from(height) * u32::from(rows),
                     columns: 1,
@@ -1008,10 +1008,10 @@ impl Layout<'_> {
         };
         let max_cells = self.caps.max_image_cells;
         let max_columns = u16::try_from(width).unwrap_or(u16::MAX).min(max_cells);
-        let size = image::size(
+        let size = size::size(
             natural,
             wanted,
-            image::cell_size(self.caps),
+            size::cell_size(self.caps),
             max_columns,
             max_cells,
         )?;

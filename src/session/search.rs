@@ -9,7 +9,7 @@ use crate::config::SearchCase;
 use crate::session::fade::Fade;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Underline;
-use crate::typeset::reading::engine as reading;
+use crate::typeset::reading::engine;
 use crate::typeset::reading::page::ItemRef;
 use crate::typeset::style::{self, ImageRow, Line, Span, Style};
 use crate::typeset::theme::{SearchColor, Theme};
@@ -372,7 +372,7 @@ fn find(lines: &[Line], term: &str, case: SearchCase) -> Vec<Match> {
 /// each on the row that its first line of text is on.
 fn page_matches(lines: &[Line], term: &[char], ignore_case: bool) -> Vec<Match> {
     let mut found = Vec::new();
-    for page in reading::pages(lines) {
+    for page in engine::pages(lines) {
         let (_, cell) = page.parts.cells();
         let address = Rc::as_ptr(&page.parts) as usize;
         let hits = page

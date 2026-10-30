@@ -5,7 +5,7 @@
 use std::ops::Range;
 
 use crate::typeset::block::BlockInfo;
-use crate::typeset::reading::engine::{self as reading, BandRows};
+use crate::typeset::reading::engine::{self, BandRows};
 use crate::typeset::style::Line;
 
 /// A band, by the block its first line is in and its number among the
@@ -36,7 +36,7 @@ impl Bands {
             let offset = self.offset(&id).min(band.most());
             let selected = self.selected.as_ref() == Some(&id);
             if (offset, selected) != (band.offset, band.selected) {
-                reading::set_band(&mut lines[band.lines.clone()], offset, selected);
+                engine::set_band(&mut lines[band.lines.clone()], offset, selected);
             }
         }
     }
@@ -145,7 +145,7 @@ impl Bands {
 /// The bands on `lines`, each with its id.
 fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<(BandId, BandRows)> {
     let mut counted: Vec<(Option<BlockInfo>, usize)> = Vec::new();
-    (reading::bands(lines).into_iter())
+    (engine::bands(lines).into_iter())
         .map(|band| {
             let place = places.get(band.lines.start).cloned().flatten();
             let nth = match counted.iter_mut().find(|(kept, _)| *kept == place) {
@@ -205,7 +205,7 @@ mod tests {
 
     /// Each band's offset and whether it is selected, as `lines` show it.
     fn shown(lines: &[Line]) -> Vec<(u32, bool)> {
-        (reading::bands(lines).iter())
+        (engine::bands(lines).iter())
             .map(|band| (band.offset, band.selected))
             .collect()
     }
@@ -218,7 +218,7 @@ mod tests {
         bands.apply(&mut lines, &places);
         assert_eq!(shown(&lines), [(0, true), (0, false)]);
         // Scrolled past the first, the second takes its place.
-        let second = reading::bands(&lines)[1].lines.clone();
+        let second = engine::bands(&lines)[1].lines.clone();
         assert!(bands.refresh(&lines, &places, second.start..lines.len()));
         bands.apply(&mut lines, &places);
         assert_eq!(shown(&lines), [(0, false), (0, true)]);
@@ -233,8 +233,8 @@ mod tests {
         ));
         let mut bands = Bands::default();
         bands.refresh(&lines, &places, 0..lines.len());
-        let second = reading::bands(&lines)[1].lines.clone();
-        let visible = reading::bands(&lines)[1].visible();
+        let second = engine::bands(&lines)[1].lines.clone();
+        let visible = engine::bands(&lines)[1].visible();
         // In view already: only selected.
         assert_eq!(
             bands.reveal(&lines, &places, second.start, 0..30),
@@ -252,12 +252,12 @@ mod tests {
         let offset = shown(&lines)[1].0;
         assert_eq!(
             offset,
-            (x.start - visible / 4).min(reading::bands(&lines)[1].most())
+            (x.start - visible / 4).min(engine::bands(&lines)[1].most())
         );
         assert!(x.start >= offset && x.end <= offset + visible);
         // Already there: nothing changes; no band on a line: none.
         assert_eq!(bands.reveal(&lines, &places, second.start, x), Some(false));
-        let text = reading::bands(&lines)[0].lines.end;
+        let text = engine::bands(&lines)[0].lines.end;
         assert_eq!(bands.reveal(&lines, &places, text, 0..1), None);
     }
 
@@ -266,7 +266,7 @@ mod tests {
         let (mut lines, places) = laid_out();
         let mut bands = Bands::default();
         bands.refresh(&lines, &places, 0..lines.len());
-        let most = reading::bands(&lines)[0].most();
+        let most = engine::bands(&lines)[0].most();
         assert!(!bands.scroll(&lines, &places, Step::Left));
         assert!(bands.scroll(&lines, &places, Step::Right));
         bands.apply(&mut lines, &places);
@@ -293,7 +293,7 @@ mod tests {
             ),
         ] {
             let (lines, places) = laid_out_from(&source);
-            let found = reading::bands(&lines);
+            let found = engine::bands(&lines);
             assert_eq!(found.len(), 2, "{source:?}");
             // Both are in one block, whose place they share.
             assert_eq!(places[found[0].lines.start], places[found[1].lines.start]);
@@ -312,13 +312,13 @@ mod tests {
     fn a_line_of_a_band_selects_it() {
         let (lines, places) = laid_out();
         let mut bands = Bands::default();
-        let second = reading::bands(&lines)[1].lines.clone();
+        let second = engine::bands(&lines)[1].lines.clone();
         assert_eq!(
             bands.select_at(&lines, &places, second.start + 1),
             Some(true)
         );
         assert_eq!(bands.select_at(&lines, &places, second.start), Some(false));
-        let between = reading::bands(&lines)[0].lines.end;
+        let between = engine::bands(&lines)[0].lines.end;
         assert_eq!(bands.select_at(&lines, &places, between), None);
     }
 
