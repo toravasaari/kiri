@@ -337,6 +337,11 @@ fn page_through(
     // The cells the heading images were last loaded for.
     let mut headed = cell_size(&inputs.caps);
     loop {
+        // An answer that came with a key that ended the last layout.
+        if let Some(cell) = state.cell.take() {
+            state.changed = None;
+            inputs.caps.cell_pixels = Some(cell);
+        }
         fit(&mut inputs.caps, size, width, &mut window_cell);
         if cell_size(&inputs.caps) != headed {
             headed = cell_size(&inputs.caps);
@@ -958,6 +963,9 @@ struct State {
     decoder: keys::Decoder,
     /// How far reading mode's bands are scrolled, and which is selected.
     bands: bands::Bands,
+    /// The cells the terminal last answered, until the next layout
+    /// applies them.
+    cell: Option<(u16, u16)>,
 }
 
 /// Where the focus is, as the terminal tells with focus reporting: under
@@ -1117,6 +1125,7 @@ impl State {
             focus: Focus::Unknown,
             decoder: keys::Decoder::default(),
             bands: bands::Bands::default(),
+            cell: None,
         }
     }
 
@@ -1712,10 +1721,12 @@ fn show(
                     continue;
                 }
                 Key::FocusIn | Key::Checked(_, true) => continue,
-                Key::CellSize(width, height) => match (width, height) {
-                    new if Some(new) == cell => continue,
-                    new => return Ok(Outcome::Cell(new)),
-                },
+                // The last answer of the read is the cells now; the keys
+                // after it still count.
+                Key::CellSize(width, height) => {
+                    state.cell = Some((width, height));
+                    continue;
+                }
                 // tmux dropped it: its placeholders are on the screen.
                 Key::Checked(id, false) => {
                     writer.send_again(id, terminal)?;
@@ -1770,6 +1781,11 @@ fn show(
                 }
             }
             state.moved(layout.view.top());
+        }
+        if let Some(new) = state.cell.take()
+            && Some(new) != cell
+        {
+            return Ok(Outcome::Cell(new));
         }
         if state.follow.on()
             && let Some(source) = reload.as_deref_mut()

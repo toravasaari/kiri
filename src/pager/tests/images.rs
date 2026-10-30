@@ -405,6 +405,26 @@ fn an_answer_that_is_the_cell_size_in_use_does_not_lay_the_page_out_again() {
 }
 
 #[test]
+fn of_several_answers_in_one_read_the_last_one_counts() {
+    // Two font changes before the pager reads: 20 × 40 pixels a cell and
+    // then 10 × 24, which makes the square 30 × 24.
+    let both = b"\x1b[6;40;20t\x1b[6;24;10t";
+    let (sent, out) = squares_after_a_new_font(true, [(16, 32); 2], both);
+    assert_eq!(sent, [20, 30], "{out:?}");
+    // The last one is the cells in use: nothing is laid out again.
+    let both = b"\x1b[6;40;20t\x1b[6;20;10t";
+    let (sent, out) = squares_after_a_new_font(true, [(16, 32); 2], both);
+    assert_eq!(sent, [20], "{out:?}");
+}
+
+#[test]
+fn a_key_after_an_answer_in_the_same_read_counts() {
+    let (sent, out) = squares_after_a_new_font(true, [(16, 32); 2], b"\x1b[6;24;10t?");
+    assert_eq!(sent, [20, 30], "{out:?}");
+    assert!(out.contains(" Keys "), "{out:?}");
+}
+
+#[test]
 fn without_an_answer_the_pager_keeps_the_cell_size_it_has() {
     let (sent, out) = squares_after_a_new_font(true, [(16, 32); 2], b"");
     assert_eq!(sent, [20], "{out:?}");
