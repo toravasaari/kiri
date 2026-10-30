@@ -2139,11 +2139,6 @@ fn page(
         }
         return None;
     };
-    // Inside tmux the window's pixels may be tmux's guess; the cells tmux
-    // knows of the terminal outside follow a new font size.
-    if inputs.caps.tmux_passthrough {
-        screen.follow_client_cells(kiri::term::tmux::ClientCells::new(context.env));
-    }
     // The images that still load when the pager quits, which it stops;
     // their programs may take a moment to end.
     let mut loads = Loads::new();
