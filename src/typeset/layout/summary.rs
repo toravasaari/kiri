@@ -28,8 +28,10 @@ pub(crate) fn summary(block: &Block, setup: &Setup) -> Vec<Fact> {
                         .all(|span| span.style.fg == colour && span.text.chars().all(|c| c == '─'))
             });
             let at = format!("level {level}");
-            // An empty heading has no text to tell the size by.
-            if let Some(span) = first_text(&lines).filter(|_| !content.is_empty()) {
+            // A heading with no text has no size to tell by.
+            if let Some(span) =
+                first_text(&lines).filter(|_| !Inline::plain_text(content).is_empty())
+            {
                 let size = format!("{:.2}", span.style.size.value());
                 facts.push(Fact::new(Field::HeadingSize, &at, size));
             }

@@ -597,6 +597,34 @@ mod tests {
         }
     }
 
+    /// The facts the two sides do not agree on, each as its field, its
+    /// case and what each side says, `(no fact)` where it says nothing.
+    fn pair(cell: &[Fact], pixel: &[Fact]) -> Vec<(Field, String, String, String)> {
+        // A fact is the same one on both sides by its field and case; the
+        // second `mark` of a block is the second on the other side too.
+        let mut rest: Vec<&Fact> = pixel.iter().collect();
+        let mut out = Vec::new();
+        let none = || "(no fact)".to_owned();
+        for a in cell {
+            let at = rest
+                .iter()
+                .position(|b| (b.field, &b.at) == (a.field, &a.at));
+            let b = at.map(|at| rest.remove(at));
+            if b != Some(a) {
+                out.push((
+                    a.field,
+                    a.at.clone(),
+                    a.value.clone(),
+                    b.map_or_else(none, |b| b.value.clone()),
+                ));
+            }
+        }
+        for b in rest {
+            out.push((b.field, b.at.clone(), none(), b.value.clone()));
+        }
+        out
+    }
+
     fn compare(paths: &[PathBuf]) -> Vec<Found> {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut found = Vec::new();
@@ -618,24 +646,14 @@ mod tests {
                         pixel.into_iter().filter(kept).collect(),
                     );
                     let label = format!("{name}#{number} ({})", kind(block));
-                    let facts = cell.iter().map(Some).chain(std::iter::repeat(None));
-                    let other = pixel.iter().map(Some).chain(std::iter::repeat(None));
-                    for (a, b) in facts.zip(other).take(cell.len().max(pixel.len())) {
-                        let (field, at) = match (a, b) {
-                            (Some(a), _) => (a.field, a.at.clone()),
-                            (None, Some(b)) => (b.field, b.at.clone()),
-                            (None, None) => unreachable!(),
-                        };
-                        let same = a.zip(b).is_some_and(|(a, b)| a == b);
-                        if !same {
-                            found.push(Found {
-                                block: label.clone(),
-                                field,
-                                at,
-                                cell: a.map_or("(no fact)".into(), |f| f.value.clone()),
-                                pixel: b.map_or("(no fact)".into(), |f| f.value.clone()),
-                            });
-                        }
+                    for (field, at, cell, pixel) in pair(&cell, &pixel) {
+                        found.push(Found {
+                            block: label.clone(),
+                            field,
+                            at,
+                            cell,
+                            pixel,
+                        });
                     }
                 }
             }
@@ -786,5 +804,44 @@ mod tests {
     fn a_heading_has_a_rule_only_where_one_is_drawn_not_where_its_text_has_a_line_glyph() {
         assert_eq!(cell_value("# ─ head", Field::HeadingRule), "false");
         assert_eq!(cell_value("# head", Field::HeadingRule), "false");
+    }
+
+    #[test]
+    fn a_fact_one_side_lacks_is_reported_as_itself_and_not_shifts_the_rest() {
+        let fact = |field, value: &str| Fact::new(field, "level 1", value);
+        let cell = [fact(Field::HeadingRule, "false")];
+        let pixel = [
+            fact(Field::HeadingSize, "2.00"),
+            fact(Field::HeadingRule, "true"),
+        ];
+        let line = |field, cell: &str, pixel: &str| {
+            (
+                field,
+                "level 1".to_owned(),
+                cell.to_owned(),
+                pixel.to_owned(),
+            )
+        };
+        assert_eq!(
+            pair(&cell, &pixel),
+            [
+                line(Field::HeadingRule, "false", "true"),
+                line(Field::HeadingSize, "(no fact)", "2.00"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_heading_with_no_text_has_no_size_in_either_layout() {
+        let block = parse("# ![](a.png)").blocks.remove(0);
+        for facts in [
+            cell::summary(&block, &Setup::DEFAULT),
+            pixel::summary(&block, &Setup::DEFAULT),
+        ] {
+            assert!(
+                facts.iter().all(|fact| fact.field != Field::HeadingSize),
+                "{facts:?}"
+            );
+        }
     }
 }

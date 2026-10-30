@@ -4,7 +4,7 @@
 use crate::render::TableRows;
 use crate::typeset::images::size::cell_size;
 use crate::typeset::layout::CodeColors;
-use crate::typeset::model::Block;
+use crate::typeset::model::{Block, Inline};
 use crate::typeset::parity::{self, Fact, Field, Setup};
 use crate::typeset::reading::engine::{self, Area};
 use crate::typeset::reading::fonts::Fonts;
@@ -46,7 +46,11 @@ pub(crate) fn summary(block: &Block, setup: &Setup) -> Vec<Fact> {
                 .any(|item| matches!(item.shape, Shape::Rect { .. }));
             let at = format!("level {level}");
             // The cell layout has no text to tell an empty heading's size by.
-            if let Some(text) = page.paragraphs().first().filter(|_| !content.is_empty()) {
+            if let Some(text) = page
+                .paragraphs()
+                .first()
+                .filter(|_| !Inline::plain_text(content).is_empty())
+            {
                 let size = format!("{:.2}", text.look.size / look.size);
                 facts.push(Fact::new(Field::HeadingSize, &at, size));
             }
