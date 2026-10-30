@@ -207,9 +207,11 @@ fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
 /// (`src/render/layout/quote.rs`), which are an indent too.
 const BARS: [char; 2] = ['│', '▎'];
 
-/// Whether `span` only indents the line: blanks, or the bar of a quote.
-fn is_indent(span: &Span) -> bool {
-    (span.text.chars()).all(|c| c.is_whitespace() || BARS.contains(&c))
+/// Whether `span` is the edge of a cell: the border of a table, or the bar
+/// of a quote.
+fn is_edge(span: &Span) -> bool {
+    let text = span.text.trim();
+    !text.is_empty() && text.chars().all(|c| BARS.contains(&c))
 }
 
 /// A link in text: its address and the spans of each line it is on.
@@ -217,17 +219,19 @@ type TextLink = (Rc<str>, Vec<(usize, Range<usize>)>);
 
 /// The links in the spans of `lines`, each by its address and the spans of
 /// each line it is on. A link continues from the line before when that
-/// ends with it, and this one starts with it and is of the same block:
-/// nothing but blanks come after it there, and before it here only an
-/// indent, as in a list or a quote.
+/// has it at the end of a cell, the same link, of the same block: nothing
+/// but blanks come after it there up to the cell's edge (a table's border
+/// or the end of the line), and before it here back to the cell's edge,
+/// such as an indent in a list or a quote. A cell is the same one when as
+/// many edges come before the link on both lines.
 fn text_links(lines: &[Line]) -> Vec<TextLink> {
     let blank = |spans: &[Span]| spans.iter().all(|span| span.text.trim().is_empty());
     let mut links: Vec<TextLink> = Vec::new();
-    // The link the line before ends with.
-    let mut open: Option<usize> = None;
+    // The links the line before ends a cell with, and the cell of each.
+    let mut open: Vec<(usize, usize)> = Vec::new();
     for (index, line) in lines.iter().enumerate() {
-        let carried = open.take();
-        // The runs of spans that share an address.
+        let carried = std::mem::take(&mut open);
+        // The runs of spans that are of one link.
         let mut runs: Vec<(Rc<str>, Range<usize>)> = Vec::new();
         if line.image.is_none() {
             for (at, span) in line.spans.iter().enumerate() {
@@ -235,18 +239,22 @@ fn text_links(lines: &[Line]) -> Vec<TextLink> {
                     continue;
                 };
                 match runs.last_mut() {
-                    Some((last, range)) if range.end == at && last == url => range.end = at + 1,
+                    Some((last, range)) if range.end == at && Rc::ptr_eq(last, url) => {
+                        range.end = at + 1
+                    }
                     _ => runs.push((Rc::clone(url), at..at + 1)),
                 }
             }
         }
-        let count = runs.len();
-        for (n, (url, range)) in runs.into_iter().enumerate() {
-            let goes_on = (carried.filter(|_| n == 0)).filter(|&link| {
-                links[link].0 == url
-                    && lines[index - 1].block == line.block
-                    && line.spans[..range.start].iter().all(is_indent)
-            });
+        for (url, range) in runs {
+            let (before, after) = (&line.spans[..range.start], &line.spans[range.end..]);
+            let cell = before.iter().filter(|span| is_edge(span)).count();
+            let edge = before.iter().rposition(is_edge).map_or(0, |at| at + 1);
+            let goes_on = carried
+                .iter()
+                .find(|&&(link, kept)| kept == cell && Rc::ptr_eq(&links[link].0, &url))
+                .filter(|_| lines[index - 1].block == line.block && blank(&before[edge..]))
+                .map(|&(link, _)| link);
             let link = match goes_on {
                 Some(link) => link,
                 None => {
@@ -254,8 +262,9 @@ fn text_links(lines: &[Line]) -> Vec<TextLink> {
                     links.len() - 1
                 }
             };
-            if n + 1 == count && blank(&line.spans[range.end..]) {
-                open = Some(link);
+            let end = after.iter().position(is_edge).unwrap_or(after.len());
+            if blank(&after[..end]) {
+                open.push((link, cell));
             }
             links[link].1.push((index, range));
         }
@@ -358,10 +367,15 @@ mod tests {
     /// `source` laid out as text in 40 columns, with the blocks of its
     /// lines.
     fn text(source: &str) -> (Vec<Line>, Vec<Option<BlockInfo>>) {
+        text_in(source, 40)
+    }
+
+    /// `source` laid out as text in `columns` columns.
+    fn text_in(source: &str, columns: u16) -> (Vec<Line>, Vec<Option<BlockInfo>>) {
         let document = crate::parse::parse(source);
         let inputs = Inputs::new(Capabilities {
             cell_pixels: Some((10, 20)),
-            ..Capabilities::kitty(40)
+            ..Capabilities::kitty(columns)
         });
         let Stream { lines, blocks } = content(Content::Document(&document), &inputs);
         let places = (lines.iter())
@@ -399,6 +413,55 @@ mod tests {
         let all = ids(&found);
         for (at, id) in all.iter().enumerate() {
             assert!(!all[at + 1..].contains(id), "{id:?} twice");
+        }
+    }
+
+    /// A table whose first cell has a link that wraps over three or more
+    /// lines in 30 columns, with links in the cells and rows after it.
+    const TABLE: &str = "| a | b |\n|---|---|\n| [one two three four five six seven eight nine ten](u1) | x [y](u2) |\n| [next](u3) | [last](u3) |\n| [next](u3) | z |\n";
+
+    #[test]
+    fn a_link_wrapped_inside_a_table_cell_is_one_link() {
+        let (lines, places) = text_in(TABLE, 30);
+        let found = identify(&lines, &places);
+        let urls: Vec<&str> = found.iter().map(|found| found.url.as_str()).collect();
+        assert_eq!(urls, ["u1", "u2", "u3", "u3", "u3"]);
+        // On three lines or more, one after the other.
+        let on = &found[0].lines;
+        assert!(on.len() >= 3, "{on:?}");
+        assert!(on.windows(2).all(|pair| pair[1] == pair[0] + 1), "{on:?}");
+        // The whole of it is selected, on each line, and the next link is
+        // another.
+        assert_eq!(found[0].runs.len(), on.len());
+        assert_eq!(found[1].lines, [on[0]]);
+    }
+
+    #[test]
+    fn the_links_in_a_table_have_the_same_ids_whatever_the_width() {
+        let ids = |columns| {
+            let (lines, places) = text_in(TABLE, columns);
+            let found = identify(&lines, &places);
+            found.into_iter().map(|found| found.id).collect::<Vec<_>>()
+        };
+        assert_eq!(ids(30), ids(80));
+    }
+
+    #[test]
+    fn links_of_one_address_in_a_table_stay_apart() {
+        // Under each other in a column, and side by side.
+        let source = "| a | b |\n|---|---|\n| [x](u) | [y](u) |\n| [x](u) | [y](u) |\n";
+        let (lines, places) = text_in(source, 30);
+        assert_eq!(identify(&lines, &places).len(), 4);
+    }
+
+    #[test]
+    fn two_links_of_one_address_a_soft_wrap_falls_between_stay_apart() {
+        let source = "A line to fill [aaaa](u) [bbbb](u) [cccc](v) end.\n";
+        for columns in [24, 80] {
+            let (lines, places) = text_in(source, columns);
+            let found = identify(&lines, &places);
+            let urls: Vec<&str> = found.iter().map(|found| found.url.as_str()).collect();
+            assert_eq!(urls, ["u", "u", "v"], "{columns}");
         }
     }
 
