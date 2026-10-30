@@ -1656,6 +1656,17 @@ impl Layout<'_> {
     }
 }
 
+/// Keeps the last cell size answer among the keys a read still has behind
+/// a key that ends the frame. The other keys behind it are dropped, but the
+/// answer says what the terminal is, so the next layout applies it.
+fn keep_last_answer(state: &mut State, rest: &[Key]) {
+    let last = rest.iter().rev().find_map(|key| match key {
+        Key::CellSize(width, height) => Some((*width, *height)),
+        _ => None,
+    });
+    state.cell = last.or(state.cell);
+}
+
 /// Shows `layout` in `state` on `terminal`, whose window is of `size`, and
 /// scrolls it until the reader quits or the window changes size, until
 /// the document is to be read again from `source`, if there is one to
@@ -1700,7 +1711,8 @@ fn show(
         let mut written = false;
         // Whether a key scrolled a band or selected another.
         let mut bands = false;
-        for key in keys {
+        let mut keys = keys.into_iter();
+        while let Some(key) = keys.next() {
             match key {
                 // tmux passed no images while the pane was not shown:
                 // those sent since the focus went, or any when it is not
@@ -1739,7 +1751,10 @@ fn show(
             }
             match state.press(key, now, layout) {
                 Pressed::Nothing => {}
-                Pressed::Quit => return Ok(Outcome::Quit),
+                Pressed::Quit => {
+                    keep_last_answer(state, keys.as_slice());
+                    return Ok(Outcome::Quit);
+                }
                 Pressed::Reload if reload.is_none() => {
                     state.told = Some(Told::new("nothing to reload"));
                 }
@@ -1751,6 +1766,7 @@ fn show(
                         .draw(layout.view.rows(), writer, terminal)?;
                     state.sent(writer.check(terminal)?);
                     terminal.flush()?;
+                    keep_last_answer(state, keys.as_slice());
                     return Ok(Outcome::Reload);
                 }
                 // As `less` repaints, also the images, which the
@@ -1759,11 +1775,17 @@ fn show(
                     writer.lost();
                     again = true;
                 }
-                Pressed::Reading => return Ok(Outcome::Reading),
+                Pressed::Reading => {
+                    keep_last_answer(state, keys.as_slice());
+                    return Ok(Outcome::Reading);
+                }
                 // The keys after it in the same read still count, as
                 // they would read one by one.
                 Pressed::Bands => bands = true,
-                Pressed::Wide => return Ok(Outcome::Wide),
+                Pressed::Wide => {
+                    keep_last_answer(state, keys.as_slice());
+                    return Ok(Outcome::Wide);
+                }
                 Pressed::Copy(text) => {
                     clipboard::copy(&text, writer.through_tmux(), terminal)?;
                     terminal.flush()?;

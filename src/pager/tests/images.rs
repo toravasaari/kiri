@@ -391,6 +391,35 @@ fn r_after_a_cell_size_answer_reloads_for_the_new_cells() {
 }
 
 #[test]
+fn an_answer_after_r_in_one_read_reloads_for_the_new_cells() {
+    // `r` ends the read's keys at once, but the answer behind it in the
+    // same read still tells the cells the reload starts its loads for.
+    let cells = std::cell::RefCell::new(Vec::new());
+    let document = crate::parse::parse("Text\n");
+    let mut then = NoteCells {
+        document: document.clone(),
+        cells: &cells,
+    };
+    let mut terminal = Fake::new(60, 6, &[b"r\x1b[6;16;8t", b"q"]);
+    let mut inputs = Inputs::new(Capabilities {
+        cell_pixels: Some((10, 20)),
+        ..Capabilities::kitty(60)
+    });
+    run_document(
+        &document,
+        &mut inputs,
+        Options {
+            reload: Some(&mut then),
+            ..Options::new(SearchCase::Smart)
+        },
+        &mut terminal,
+    );
+    assert_eq!(*cells.borrow(), [Some((8, 16))]);
+    // The answer is not lost for the layouts after the reload.
+    assert_eq!(inputs.caps.cell_pixels, Some((8, 16)));
+}
+
+#[test]
 fn the_terminal_s_cell_size_stays_until_the_window_s_changes() {
     // Inside tmux in a container the window tells tmux's guess of 16 x 32
     // pixels a cell, and kitty's answer of 10 x 20 came first. A window
