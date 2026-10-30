@@ -299,6 +299,54 @@ fn a_new_cell_size_loads_the_heading_images_for_it() {
 }
 
 #[test]
+fn a_cell_size_answer_loads_the_heading_images_for_it() {
+    let key = |cell| crate::images::ImageKey::heading(1, "Kiri", cell);
+    // Inside tmux the window tells tmux's guess of 16 x 32 pixels a cell
+    // before and after the font changes, and kitty's answer tells 8 × 16
+    // instead of the 10 × 20 detection found.
+    let pixels = |columns: u16| WindowSize {
+        columns,
+        rows: 6,
+        width: columns * 16,
+        height: 6 * 32,
+    };
+    let mut terminal = Fake::new(60, 6, &[b"", b"\x1b[6;16;8t", b"q"]);
+    terminal.size = pixels(60);
+    terminal.sizes = [pixels(70)].into();
+    let mut inputs = Inputs::new(Capabilities {
+        text_sizing: false,
+        cell_pixels: Some((10, 20)),
+        tmux_passthrough: true,
+        ..Capabilities::kitty(60)
+    });
+    let image = image::RgbaImage::from_pixel(100, 40, image::Rgba([200, 30, 30, 255]));
+    let text = crate::images::Source::Text {
+        image,
+        breaks: Vec::new(),
+        ends: vec![10],
+    };
+    inputs.images.insert(key((10, 20)), Ok(text));
+    inputs.headings = crate::render::Headings::Auto;
+    let mut background = Loads::new();
+    run_document(
+        &crate::parse::parse("# Kiri\n\nText\n"),
+        &mut inputs,
+        Options {
+            loads: Some(&mut background),
+            ..Options::new(SearchCase::Smart)
+        },
+        &mut terminal,
+    );
+    let wanted = key((8, 16));
+    let asked = background.loading(&wanted)
+        || inputs.images.placeholder(&wanted).is_some()
+        || inputs.images.get(&wanted).is_some();
+    let keys: Vec<_> = inputs.images.iter().map(|(key, _)| key.clone()).collect();
+    assert!(asked, "{keys:?}");
+    background.halt();
+}
+
+#[test]
 fn the_terminal_s_cell_size_stays_until_the_window_s_changes() {
     // Inside tmux in a container the window tells tmux's guess of 16 x 32
     // pixels a cell, and kitty's answer of 10 x 20 came first. A window
