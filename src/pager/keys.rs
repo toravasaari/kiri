@@ -471,7 +471,7 @@ pub const BINDINGS: &[Binding] = {
         Binding {
             keys: &[Ctrl('i'), Key::BackTab],
             names: "Tab Shift+Tab",
-            what: "select a link",
+            what: "select a link, Enter copies it",
             action: Action::SelectLink,
         },
         Binding {

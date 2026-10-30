@@ -518,3 +518,101 @@ fn tab_selects_a_link_without_hyperlinks_and_none_are_written() {
         "{frames:?}"
     );
 }
+
+/// Everything written to a terminal of 80 × 10 cells for `document` in
+/// reading mode with `caps`, when it gives `keys`.
+fn written(document: &Document, caps: Capabilities, keys: &[&[u8]]) -> String {
+    let mut terminal = Fake::new(80, 10, keys);
+    let mut inputs = Inputs {
+        reading: Some(reading()),
+        ..Inputs::new(caps)
+    };
+    run_document(
+        document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    String::from_utf8(terminal.out).unwrap()
+}
+
+/// OSC 52 for the clipboard, with `https://one.example/` in base64.
+const COPY_ONE: &str = "\x1b]52;c;aHR0cHM6Ly9vbmUuZXhhbXBsZS8=\x1b\\";
+
+#[test]
+fn enter_copies_the_selected_link_s_url_and_the_status_line_says_so() {
+    let document = crate::parse::parse("A [first](https://one.example/) link.\n");
+    let out = written(&document, kitty(), &[b"\t", b"\r", b""]);
+    assert_eq!(out.matches(COPY_ONE).count(), 1, "OSC 52 sequences written");
+    // The sequence comes before the frame that tells it was copied.
+    let copied = out.find(COPY_ONE).unwrap();
+    let told = out.rfind("link copied").expect("the status line says so");
+    assert!(copied < told, "in what was written");
+}
+
+#[test]
+fn enter_without_a_selected_link_scrolls_down_a_line_and_copies_nothing() {
+    let filler = "A paragraph of filler.\n\n".repeat(30);
+    let document = crate::parse::parse(&format!(
+        "A [first](https://one.example/) link.\n\n{filler}"
+    ));
+    let mut terminal = Fake::new(80, 10, &[b"\r"]);
+    let mut inputs = Inputs {
+        reading: Some(reading()),
+        ..Inputs::new(kitty())
+    };
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    assert!(terminal.frames().len() >= 2, "the view did not move");
+    let out = String::from_utf8(terminal.out).unwrap();
+    assert!(!out.contains("\x1b]52;"), "in what was written");
+    assert!(!out.contains("link copied"), "in what was written");
+}
+
+#[test]
+fn enter_with_the_selected_link_off_the_screen_scrolls_and_copies_nothing() {
+    let filler = "A paragraph of filler.\n\n".repeat(30);
+    let document = crate::parse::parse(&format!(
+        "A [first](https://one.example/) link.\n\n{filler}"
+    ));
+    // Tab selects the link, and three pages down it is off the screen.
+    let keys: [&[u8]; 6] = [b"\t", b"\x06", b"\x06", b"\x06", b"\r", b""];
+    let mut terminal = Fake::new(80, 10, &keys);
+    let mut inputs = Inputs {
+        reading: Some(reading()),
+        ..Inputs::new(kitty())
+    };
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let frames = terminal.frames();
+    let before = frames[frames.len() - 2].clone();
+    let last = frames.last().unwrap();
+    assert_ne!(*last, before, "the view did not move");
+    let out = String::from_utf8(terminal.out).unwrap();
+    assert!(!out.contains("\x1b]52;"), "in what was written");
+}
+
+#[test]
+fn in_tmux_with_passthrough_the_copy_goes_through_to_kitty() {
+    let document = crate::parse::parse("A [first](https://one.example/) link.\n");
+    let caps = Capabilities {
+        tmux_passthrough: true,
+        ..kitty()
+    };
+    let out = written(&document, caps, &[b"\t", b"\r", b""]);
+    let wrapped = format!("\x1bPtmux;{}\x1b\\", COPY_ONE.replace('\x1b', "\x1b\x1b"));
+    assert_eq!(
+        out.matches(&wrapped).count(),
+        1,
+        "wrapped OSC 52 sequences written"
+    );
+    assert!(!out.contains(COPY_ONE), "in what was written");
+}

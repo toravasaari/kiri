@@ -775,7 +775,9 @@ layout is kiri's own, on parley, with the fonts resvg already loads.
   match in a band scrolls it into view.
 - Links are OSC 8 hyperlinks over the placeholders, which kitty opens.
   Tab and Shift+Tab select a link on the screen, and the status line
-  tells where it goes. Still open: what Enter does with it.
+  tells where it goes. Enter copies the URL of the selected link to the
+  clipboard with OSC 52, also in tmux, and the status line says so;
+  without a link selected on the screen it scrolls a line as before.
 
 ## Phase 5 – Beyond kitty
 
@@ -1165,9 +1167,10 @@ go.
   or served to a browser by `kiri serve` (5.4). It would build on
   several files (4.9.2), heading anchors (4.10.1), the table of contents
   (4.6.5) and resolving links across a vault (4.13).
-- Enter on a link selected with Tab in reading mode (4.15.5) opens it in
-  the browser, as a click on the link does in kitty. kiri would need a
-  program to open it with, such as `xdg-open` from a setting.
+- Opening a link selected with Tab in reading mode (4.15.5) in the
+  browser, as a click on the link does in kitty; Enter copies its URL
+  instead, so it would need another key. kiri would need a program to
+  open it with, such as `xdg-open` from a setting.
 - The current search match fading in reading mode as it does in the
   text layout. The marks are drawn into the page's images, so each step
   of the fade would draw and send the page again.

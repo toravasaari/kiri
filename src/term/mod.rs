@@ -11,6 +11,7 @@ use crate::caps::Capabilities;
 
 mod answers;
 mod check;
+pub mod clipboard;
 mod detect;
 mod interrupt;
 mod keys;

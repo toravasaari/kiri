@@ -214,7 +214,11 @@ line, and alone on its line:
 
 Tab selects the first link on the screen, and again the next, the badges
 among them, Shift+Tab the one before: the selected link has a box round it
-and the status line says where it goes. Escape lets it go.
+and the status line says where it goes. Enter copies the selected link's
+address to the clipboard, also in tmux when it passes images through, and
+the status line says `link copied` for a moment; paste it somewhere to
+check. With no link selected, or the selected one off the screen, Enter
+scrolls down a line. Escape lets the link go.
 
 ## Images, diagrams and formulas
 

@@ -67,6 +67,18 @@ impl Links {
         self.selected.take().is_some()
     }
 
+    /// The selected link when it is on the lines `visible`, as the lines
+    /// of this layout have it.
+    pub fn selected_on(
+        &self,
+        lines: &[Line],
+        places: &[Option<BlockInfo>],
+        visible: Range<usize>,
+    ) -> Option<Found> {
+        (self.selected(lines, places))
+            .filter(|found| found.line.is_some_and(|l| visible.contains(&l)))
+    }
+
     /// The selected link, as the lines of this layout have it, when it is
     /// still on them.
     pub fn selected(&self, lines: &[Line], places: &[Option<BlockInfo>]) -> Option<Found> {

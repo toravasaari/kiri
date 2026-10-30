@@ -36,7 +36,7 @@ use crate::render::output::{self, Page, Writer};
 use crate::render::reading::Reading;
 use crate::render::style::{self, Line, Span, Style};
 use crate::render::wrap;
-use crate::term::{Screen, WindowSize};
+use crate::term::{Screen, WindowSize, clipboard};
 use fade::{
     FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY, WARNING_STAY,
 };
@@ -679,6 +679,8 @@ enum Pressed {
     Bands,
     /// The reader switched wide blocks between wrapping and scrolling.
     Wide,
+    /// The reader asked for this to go on the clipboard.
+    Copy(String),
 }
 
 /// What the status line and the help panel show and how, apart from the
@@ -1202,6 +1204,15 @@ impl State {
         };
         match keys::action(key) {
             Some(Action::Quit) => return Pressed::Quit,
+            // Enter copies the link selected on the screen, and otherwise
+            // goes down a line.
+            Some(Action::Move(_))
+                if key == Key::Enter
+                    && let Some(link) = self.link_on_screen(layout) =>
+            {
+                self.told = Some(Told::fading("link copied", now));
+                return Pressed::Copy(link.url);
+            }
             Some(Action::Move(motion)) => layout.view.scroll(motion),
             // The help and the prompt need a row besides the status line's.
             Some(Action::Help) => self.help = layout.status.bar,
@@ -1251,6 +1262,12 @@ impl State {
             None => {}
         }
         Pressed::Nothing
+    }
+
+    /// The selected link, when it is on the screen.
+    fn link_on_screen(&self, layout: &Layout) -> Option<links::Found> {
+        let visible = layout.view.visible();
+        self.links.selected_on(layout.lines, layout.places, visible)
     }
 
     /// Selects the band on row `row` of the window, counted from 1:
@@ -1688,6 +1705,10 @@ fn show(
                 // they would read one by one.
                 Pressed::Bands => bands = true,
                 Pressed::Wide => return Ok(Outcome::Wide),
+                Pressed::Copy(text) => {
+                    clipboard::copy(&text, writer.through_tmux(), terminal)?;
+                    terminal.flush()?;
+                }
                 Pressed::Follow if reload.is_none() => {
                     state.told = Some(Told::new(NOTHING_TO_FOLLOW));
                 }
