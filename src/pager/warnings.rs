@@ -3,8 +3,8 @@
 
 use unicode_width::UnicodeWidthStr;
 
-use crate::render::style::{self, Span, Style};
-use crate::render::wrap;
+use crate::typeset::style::{self, Span, Style};
+use crate::typeset::wrap;
 
 use super::Warning;
 
@@ -56,7 +56,7 @@ fn head(text: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::style::text;
+    use crate::typeset::style::text;
 
     fn warning(line: Option<usize>, message: &str) -> Warning {
         Warning {
@@ -66,10 +66,10 @@ mod tests {
     }
 
     fn styles() -> (Style, Style) {
-        let red = Style::fg(Some(crate::color::Color::Palette(1)));
+        let red = Style::fg(Some(crate::typeset::color::Color::Palette(1)));
         let dim = Style {
             italic: true,
-            ..Style::fg(Some(crate::color::Color::Palette(8)))
+            ..Style::fg(Some(crate::typeset::color::Color::Palette(8)))
         };
         (red, dim)
     }
@@ -119,9 +119,9 @@ mod tests {
             line.ends_with("\u{2026}  and 1 more warning\u{2026}"),
             "{line}"
         );
-        assert!(crate::render::wrap::width(&spans) <= 38, "{line}");
+        assert!(crate::typeset::wrap::width(&spans) <= 38, "{line}");
         let one = shown(&two[..1], 40);
         assert!(text(&one).ends_with("word\u{2026}"), "{}", text(&one));
-        assert!(crate::render::wrap::width(&one) <= 38);
+        assert!(crate::typeset::wrap::width(&one) <= 38);
     }
 }

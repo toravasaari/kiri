@@ -6,13 +6,13 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use super::fade::Fade;
-use crate::caps::Capabilities;
-use crate::color::Underline;
 use crate::config::SearchCase;
-use crate::reading::page::ItemRef;
-use crate::render::reading;
-use crate::render::style::{self, ImageRow, Line, Span, Style};
-use crate::theme::{SearchColor, Theme};
+use crate::typeset::caps::Capabilities;
+use crate::typeset::color::Underline;
+use crate::typeset::reading::engine as reading;
+use crate::typeset::reading::page::ItemRef;
+use crate::typeset::style::{self, ImageRow, Line, Span, Style};
+use crate::typeset::theme::{SearchColor, Theme};
 
 /// Where a search term is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -332,7 +332,7 @@ fn laid_over(style: &Style, mark: &Style) -> Style {
 }
 
 /// The colour `color` gives a match: none for the text's own.
-fn color(color: SearchColor) -> Option<crate::color::Color> {
+fn color(color: SearchColor) -> Option<crate::typeset::color::Color> {
     match color {
         SearchColor::Color(color) => color,
         SearchColor::Auto => None,
@@ -457,10 +457,10 @@ fn same(a: char, b: char, ignore_case: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::color::Color;
     use crate::pager::fade::Rgb;
-    use crate::size::{Fraction, HorizontalAlign, TextSize, VerticalAlign};
-    use crate::theme::{Paper, SearchTheme};
+    use crate::typeset::color::Color;
+    use crate::typeset::size::{Fraction, HorizontalAlign, TextSize, VerticalAlign};
+    use crate::typeset::theme::{Paper, SearchTheme};
 
     fn line(text: &str) -> Line {
         Line::new(vec![Span::new(text, Style::default())])
@@ -476,15 +476,15 @@ mod tests {
 
     /// Row `row` of a heading `text` shown as an image of two rows.
     fn heading_row(text: &str, row: u16) -> Line {
-        let placement = crate::render::image::Placement {
+        let placement = crate::typeset::images::size::Placement {
             key: crate::images::ImageKey::heading(1, text, (10, 20)),
-            size: crate::render::image::Size {
+            size: crate::typeset::images::size::Size {
                 width: 100,
                 height: 40,
                 columns: 10,
                 rows: 2,
             },
-            shows: crate::render::image::Shows::Image,
+            shows: crate::typeset::images::size::Shows::Image,
         };
         let mut line = Line::image(std::rc::Rc::new(placement), row);
         if let Some(image) = &mut line.image {
@@ -495,20 +495,23 @@ mod tests {
 
     /// `source` laid out in reading mode, in a window of 80 cells.
     fn reading_lines(source: &str) -> Vec<Line> {
-        let document = crate::parse::parse(source);
+        let document = crate::typeset::parse::parse(source);
         let inputs = crate::render::Inputs {
-            reading: Some(crate::render::reading::Reading {
+            reading: Some(crate::typeset::reading::engine::Reading {
                 pictures: Default::default(),
-                fonts: Rc::new(crate::reading::Fonts::fixture()),
-                wide: crate::reading::page::Wide::Scroll,
+                fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
+                wide: crate::typeset::reading::page::Wide::Scroll,
             }),
             ..crate::render::Inputs::new(Capabilities {
                 cell_pixels: Some((10, 20)),
                 ..Capabilities::kitty(80)
             })
         };
-        crate::render::layout::content(crate::render::layout::Content::Document(&document), &inputs)
-            .lines
+        crate::typeset::layout::content(
+            crate::typeset::layout::Content::Document(&document),
+            &inputs,
+        )
+        .lines
     }
 
     #[test]
@@ -584,8 +587,8 @@ mod tests {
         };
         let key = crate::images::ImageKey::heading(1, "One two three", (10, 20));
         inputs.images.insert(key, Ok(text));
-        let document = crate::parse::parse("# One two three\n");
-        let lines = crate::render::layout::layout(&document, &inputs);
+        let document = crate::typeset::parse::parse("# One two three\n");
+        let lines = crate::typeset::layout::layout(&document, &inputs);
         // Two rows for each of three lines of the image.
         assert_eq!(lines.len(), 6, "{lines:?}");
         let found = |term| find(&lines, term, SearchCase::Smart);
@@ -958,8 +961,8 @@ mod tests {
             ]
         );
         assert_eq!(
-            crate::render::wrap::width(&marked.spans),
-            crate::render::wrap::width(&source.spans)
+            crate::typeset::wrap::width(&marked.spans),
+            crate::typeset::wrap::width(&source.spans)
         );
         // Two matches in one group mark it once; one across groups marks
         // both.

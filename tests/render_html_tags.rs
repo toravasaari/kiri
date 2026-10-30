@@ -1,8 +1,8 @@
 //! The HTML tags kiri reads besides `<img>`: `<details>` with its
 //! `<summary>`, `<kbd>`, `<mark>`, `<sub>`, `<sup>` and `<br>`.
 
-use kiri::caps::Capabilities;
-use kiri::theme::Theme;
+use kiri::typeset::caps::Capabilities;
+use kiri::typeset::theme::Theme;
 
 mod common;
 
@@ -24,7 +24,8 @@ fn kitty_html_tags() {
 #[test]
 fn marked_text_takes_the_theme_colours() {
     let theme =
-        kiri::theme::parse("[mark]\nforeground = \"#101010\"\nbackground = \"#fff8c5\"\n").unwrap();
+        kiri::typeset::theme::parse("[mark]\nforeground = \"#101010\"\nbackground = \"#fff8c5\"\n")
+            .unwrap();
     let out = render(
         "Some <mark>marked</mark> text\n",
         &inputs(&Capabilities::kitty(WIDTH), &theme),

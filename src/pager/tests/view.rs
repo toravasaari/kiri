@@ -1,7 +1,7 @@
 use super::*;
 
 fn others() -> Document {
-    crate::parse::parse("Other 1\n\nOther 2\n")
+    crate::typeset::parse::parse("Other 1\n\nOther 2\n")
 }
 
 #[test]
@@ -88,7 +88,7 @@ fn the_help_s_footer_is_muted_text_on_the_page() {
         // Tall enough for the whole panel, footer and all.
         let mut terminal = Fake::new(60, 30, &[b"?"]);
         let mut inputs = Inputs::new(Capabilities::ansi(80));
-        inputs.theme = crate::theme::parse(theme).unwrap();
+        inputs.theme = crate::typeset::theme::parse(theme).unwrap();
         let document = numbers(30);
         run_document(
             &document,
@@ -179,7 +179,7 @@ fn a_window_shrunk_to_one_row_closes_the_prompt() {
 fn lays_the_document_out_again_for_a_new_window_size() {
     let mut terminal = Fake::new(40, 5, &[b"", b""]);
     terminal.sizes = [window(40, 5), window(8, 5)].into();
-    let document = crate::parse::parse("A paragraph of several words\n");
+    let document = crate::typeset::parse::parse("A paragraph of several words\n");
     show(&document, &mut terminal);
     let frames = terminal.frames();
     assert_eq!(frames.len(), 2, "{frames:?}");
@@ -193,7 +193,7 @@ fn lays_the_document_out_again_for_a_new_window_size() {
 #[test]
 fn a_heading_taller_than_the_window_is_drawn_at_normal_size() {
     let mut terminal = Fake::new(40, 3, &[b"G"]);
-    let document = crate::parse::parse("# Title\n\nText\n");
+    let document = crate::typeset::parse::parse("# Title\n\nText\n");
     let mut inputs = Inputs::new(Capabilities::kitty(80));
     run_document(
         &document,
@@ -212,7 +212,7 @@ fn a_heading_taller_than_the_window_is_drawn_at_normal_size() {
 fn a_given_width_stays_when_the_window_changes() {
     let mut terminal = Fake::new(40, 5, &[b""]);
     terminal.sizes = [window(80, 5)].into();
-    let document = crate::parse::parse("A paragraph of several words\n");
+    let document = crate::typeset::parse::parse("A paragraph of several words\n");
     let mut inputs = Inputs::new(Capabilities::ansi(80));
     run_document(
         &document,

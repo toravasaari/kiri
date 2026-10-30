@@ -4,9 +4,9 @@
 
 use std::ops::Range;
 
-use crate::render::block::BlockInfo;
-use crate::render::reading::{self, BandRows};
-use crate::render::style::Line;
+use crate::typeset::block::BlockInfo;
+use crate::typeset::reading::engine::{self as reading, BandRows};
+use crate::typeset::style::Line;
 
 /// A band, by the block its first line is in and its number among the
 /// bands of that block, so that it is found again in a new layout.
@@ -168,12 +168,12 @@ mod tests {
     use std::rc::Rc;
 
     use super::*;
-    use crate::caps::Capabilities;
-    use crate::reading::Fonts;
-    use crate::reading::page::Wide;
     use crate::render::Inputs;
-    use crate::render::layout::{Content, Stream, content};
-    use crate::render::reading::Reading;
+    use crate::typeset::caps::Capabilities;
+    use crate::typeset::layout::{Content, Stream, content};
+    use crate::typeset::reading::Fonts;
+    use crate::typeset::reading::engine::Reading;
+    use crate::typeset::reading::page::Wide;
 
     /// Two code blocks too wide for the area, a paragraph apart, laid out
     /// to scroll, with the blocks of their lines.
@@ -184,7 +184,7 @@ mod tests {
 
     /// `source` laid out to scroll, with the blocks of its lines.
     fn laid_out_from(source: &str) -> (Vec<Line>, Vec<Option<BlockInfo>>) {
-        let document = crate::parse::parse(source);
+        let document = crate::typeset::parse::parse(source);
         let inputs = Inputs {
             reading: Some(Reading {
                 pictures: Default::default(),

@@ -1,7 +1,7 @@
 //! The terminal's answers to the probe's queries, read without I/O.
 
-use crate::color::Color;
 use crate::kitty::query;
+use crate::typeset::color::Color;
 
 /// Start of an answer to `probe::palette`:
 /// `ESC ] 4 ; index ; rgb:…`.

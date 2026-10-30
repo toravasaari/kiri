@@ -3,8 +3,8 @@
 use std::rc::Rc;
 
 use super::*;
-use crate::reading::Fonts;
-use crate::render::reading::Reading;
+use crate::typeset::reading::Fonts;
+use crate::typeset::reading::engine::Reading;
 
 fn kitty() -> Capabilities {
     Capabilities {
@@ -17,7 +17,7 @@ fn reading() -> Reading {
     Reading {
         pictures: Default::default(),
         fonts: Rc::new(Fonts::fixture()),
-        wide: crate::reading::page::Wide::Wrap,
+        wide: crate::typeset::reading::page::Wide::Wrap,
     }
 }
 
@@ -79,11 +79,11 @@ fn without_images_m_says_why() {
 #[test]
 fn an_arrow_scrolls_the_selected_band_sideways() {
     let long = "a".repeat(200);
-    let document = crate::parse::parse(&format!("Text.\n\n```\n{long}\n```\n"));
+    let document = crate::typeset::parse::parse(&format!("Text.\n\n```\n{long}\n```\n"));
     let mut terminal = Fake::new(80, 10, &[b"\x1b[C"]);
     let mut inputs = Inputs {
         reading: Some(Reading {
-            wide: crate::reading::page::Wide::Scroll,
+            wide: crate::typeset::reading::page::Wide::Scroll,
             ..reading()
         }),
         ..Inputs::new(kitty())
@@ -110,12 +110,12 @@ fn two_bands() -> (Document, Inputs) {
     let source = format!("```\n{long}\n```\n\n```\n{long}\n```\n");
     let inputs = Inputs {
         reading: Some(Reading {
-            wide: crate::reading::page::Wide::Scroll,
+            wide: crate::typeset::reading::page::Wide::Scroll,
             ..reading()
         }),
         ..Inputs::new(kitty())
     };
-    (crate::parse::parse(&source), inputs)
+    (crate::typeset::parse::parse(&source), inputs)
 }
 
 /// The ids of the images sent in `frame`.
@@ -166,7 +166,7 @@ fn the_wheel_with_shift_away_from_a_band_scrolls_down() {
 #[test]
 fn w_switches_wide_blocks_between_wrapping_and_scrolling() {
     let long = "a".repeat(200);
-    let document = crate::parse::parse(&format!("Text.\n\n```\n{long}\n```\n"));
+    let document = crate::typeset::parse::parse(&format!("Text.\n\n```\n{long}\n```\n"));
     let mut terminal = Fake::new(80, 10, &[b"W", b"W"]);
     let mut inputs = Inputs {
         reading: Some(reading()),
@@ -190,7 +190,7 @@ fn w_switches_wide_blocks_between_wrapping_and_scrolling() {
 #[test]
 fn a_search_finds_a_laid_out_block_below_the_first_row_of_its_part() {
     let source = "First paragraph.\n\nSecond paragraph, far down.\n";
-    let document = crate::parse::parse(source);
+    let document = crate::typeset::parse::parse(source);
     let mut terminal = Fake::new(80, 10, &[b"/far down\r"]);
     let mut inputs = Inputs {
         reading: Some(reading()),
@@ -280,7 +280,7 @@ fn a_click_behind_the_search_prompt_does_not_select_a_band() {
 fn text_frames(keys: &[&[u8]]) -> Vec<String> {
     let long = "a".repeat(200);
     let source = format!("```\n{long}\n```\n\n```\n{long}\n```\n");
-    let document = crate::parse::parse(&source);
+    let document = crate::typeset::parse::parse(&source);
     let mut terminal = Fake::new(80, 10, keys);
     let mut inputs = Inputs::new(kitty());
     let options = Options {
@@ -424,7 +424,7 @@ fn the_status_line_tells_that_reading_mode_is_on() {
 /// cells, when the terminal gives `keys`.
 fn reading_frames(
     document: &Document,
-    wide: crate::reading::page::Wide,
+    wide: crate::typeset::reading::page::Wide,
     keys: &[&[u8]],
 ) -> Vec<String> {
     let mut terminal = Fake::new(80, 10, keys);
@@ -449,8 +449,12 @@ fn sends(frame: &str) -> usize {
 #[test]
 fn a_search_marks_its_matches_in_the_page_and_shows_the_one_it_found() {
     let filler = "A paragraph of filler.\n\n".repeat(30);
-    let document = crate::parse::parse(&format!("{filler}Then the needle is here.\n"));
-    let frames = reading_frames(&document, crate::reading::page::Wide::Wrap, &[b"/needle\r"]);
+    let document = crate::typeset::parse::parse(&format!("{filler}Then the needle is here.\n"));
+    let frames = reading_frames(
+        &document,
+        crate::typeset::reading::page::Wide::Wrap,
+        &[b"/needle\r"],
+    );
     // The first frame sends the page's parts in view; the search moves to
     // the match, whose part is drawn anew with the mark in it.
     assert!(sends(&frames[0]) >= 1);
@@ -462,10 +466,10 @@ fn a_search_marks_its_matches_in_the_page_and_shows_the_one_it_found() {
 #[test]
 fn a_search_scrolls_a_band_to_its_match_and_draws_it_anew() {
     let long = "a".repeat(200);
-    let document = crate::parse::parse(&format!("Text.\n\n```\n{long} needle\n```\n"));
+    let document = crate::typeset::parse::parse(&format!("Text.\n\n```\n{long} needle\n```\n"));
     let frames = reading_frames(
         &document,
-        crate::reading::page::Wide::Scroll,
+        crate::typeset::reading::page::Wide::Scroll,
         &[b"/needle\r"],
     );
     // The band is sent again, scrolled to the match and with it marked: an
@@ -487,8 +491,8 @@ fn a_search_scrolls_a_band_to_its_match_and_draws_it_anew() {
 
 #[test]
 fn a_link_in_a_page_is_a_hyperlink_over_its_placeholders_in_the_frame() {
-    let document = crate::parse::parse("Go [here](https://e.example/) now.\n");
-    let frames = reading_frames(&document, crate::reading::page::Wide::Wrap, &[]);
+    let document = crate::typeset::parse::parse("Go [here](https://e.example/) now.\n");
+    let frames = reading_frames(&document, crate::typeset::reading::page::Wide::Wrap, &[]);
     let first = &frames[0];
     let open = first
         .find("\x1b]8;;https://e.example/\x1b\\")
@@ -502,12 +506,12 @@ fn a_link_in_a_page_is_a_hyperlink_over_its_placeholders_in_the_frame() {
 
 #[test]
 fn tab_selects_a_link_with_a_box_and_its_url_on_the_status_line_and_escape_lets_it_go() {
-    let document = crate::parse::parse(
+    let document = crate::typeset::parse::parse(
         "A [first](https://one.example/) and [second](https://two.example/) link.\n",
     );
     let frames = reading_frames(
         &document,
-        crate::reading::page::Wide::Wrap,
+        crate::typeset::reading::page::Wide::Wrap,
         &[b"\t", b"\t", b"\x1b[Z", b"\x1b", b""],
     );
     // The frame's own hyperlinks name the urls too; the status line is the
@@ -531,12 +535,12 @@ fn tab_selects_a_link_with_a_box_and_its_url_on_the_status_line_and_escape_lets_
 #[test]
 fn n_to_a_match_in_another_band_counts_it_and_the_count_stays_after_the_band_moves() {
     let long = "a".repeat(200);
-    let document = crate::parse::parse(&format!(
+    let document = crate::typeset::parse::parse(&format!(
         "```\n{long} needle\n```\n\nText.\n\n```\n{long} needle\n```\n"
     ));
     let frames = reading_frames(
         &document,
-        crate::reading::page::Wide::Scroll,
+        crate::typeset::reading::page::Wide::Scroll,
         &[b"/needle\r", b"n"],
     );
     // The second match is the current one in the frame after `n`, whose
@@ -548,7 +552,7 @@ fn n_to_a_match_in_another_band_counts_it_and_the_count_stays_after_the_band_mov
 
 #[test]
 fn tab_selects_a_link_without_hyperlinks_and_none_are_written() {
-    let document = crate::parse::parse("A [first](https://one.example/) link.\n");
+    let document = crate::typeset::parse::parse("A [first](https://one.example/) link.\n");
     let mut terminal = Fake::new(80, 10, &[b"\t"]);
     let caps = Capabilities {
         hyperlinks: false,
@@ -597,7 +601,7 @@ const COPY_ONE: &str = "\x1b]52;c;aHR0cHM6Ly9vbmUuZXhhbXBsZS8=\x1b\\";
 
 #[test]
 fn enter_copies_the_selected_link_s_url_and_the_status_line_says_so() {
-    let document = crate::parse::parse("A [first](https://one.example/) link.\n");
+    let document = crate::typeset::parse::parse("A [first](https://one.example/) link.\n");
     let out = written(&document, kitty(), &[b"\t", b"\r", b""]);
     assert_eq!(out.matches(COPY_ONE).count(), 1, "OSC 52 sequences written");
     // The sequence comes before the frame that tells it was copied.
@@ -609,7 +613,7 @@ fn enter_copies_the_selected_link_s_url_and_the_status_line_says_so() {
 #[test]
 fn enter_without_a_selected_link_scrolls_down_a_line_and_copies_nothing() {
     let filler = "A paragraph of filler.\n\n".repeat(30);
-    let document = crate::parse::parse(&format!(
+    let document = crate::typeset::parse::parse(&format!(
         "A [first](https://one.example/) link.\n\n{filler}"
     ));
     let mut terminal = Fake::new(80, 10, &[b"\r"]);
@@ -631,7 +635,7 @@ fn enter_without_a_selected_link_scrolls_down_a_line_and_copies_nothing() {
 
 #[test]
 fn enter_with_a_selected_link_that_has_no_address_copies_nothing() {
-    let document = crate::parse::parse("A [first]() link.\n");
+    let document = crate::typeset::parse::parse("A [first]() link.\n");
     let out = written(&document, kitty(), &[b"\t", b"\r", b""]);
     assert!(!out.contains("\x1b]52;"), "in what was written");
     assert!(!out.contains("link copied"), "in what was written");
@@ -640,7 +644,7 @@ fn enter_with_a_selected_link_that_has_no_address_copies_nothing() {
 #[test]
 fn enter_with_the_selected_link_off_the_screen_scrolls_and_copies_nothing() {
     let filler = "A paragraph of filler.\n\n".repeat(30);
-    let document = crate::parse::parse(&format!(
+    let document = crate::typeset::parse::parse(&format!(
         "A [first](https://one.example/) link.\n\n{filler}"
     ));
     // Tab selects the link, and three pages down it is off the screen.
@@ -667,7 +671,7 @@ fn enter_with_the_selected_link_off_the_screen_scrolls_and_copies_nothing() {
 #[test]
 fn the_status_line_tells_a_selected_link_s_address_only_while_it_is_on_the_screen() {
     let filler = "A paragraph of filler.\n\n".repeat(30);
-    let document = crate::parse::parse(&format!(
+    let document = crate::typeset::parse::parse(&format!(
         "A [first](https://one.example/) link.\n\n{filler}"
     ));
     // Tab selects the link, three pages down it is off the screen, and
@@ -703,7 +707,7 @@ fn the_status_line_tells_a_selected_link_s_address_only_while_it_is_on_the_scree
 
 #[test]
 fn in_tmux_with_passthrough_the_copy_goes_through_to_kitty() {
-    let document = crate::parse::parse("A [first](https://one.example/) link.\n");
+    let document = crate::typeset::parse::parse("A [first](https://one.example/) link.\n");
     let caps = Capabilities {
         tmux_passthrough: true,
         ..kitty()
@@ -721,12 +725,12 @@ fn in_tmux_with_passthrough_the_copy_goes_through_to_kitty() {
 #[test]
 fn tab_selects_a_link_in_a_band_scrolled_out_of_view_and_scrolls_the_band_to_it() {
     let long = "x".repeat(150);
-    let document = crate::parse::parse(&format!(
+    let document = crate::typeset::parse::parse(&format!(
         "| a | b |\n|---|---|\n| [near](https://one.example/) | {long}[far](https://two.example/) |\n"
     ));
     let frames = reading_frames(
         &document,
-        crate::reading::page::Wide::Scroll,
+        crate::typeset::reading::page::Wide::Scroll,
         &[b"\t", b"\t", b"\t", b""],
     );
     // The status line is the last row, after the placeholders.
@@ -747,7 +751,7 @@ fn tab_selects_a_link_in_a_band_scrolled_out_of_view_and_scrolls_the_band_to_it(
 #[test]
 fn the_status_line_cuts_a_long_link_in_the_middle() {
     let url = "https://example.org/a/very/long/path/that/goes/on/and/on/to/the/page.html";
-    let document = crate::parse::parse(&format!("A [link]({url}) in a line.\n"));
+    let document = crate::typeset::parse::parse(&format!("A [link]({url}) in a line.\n"));
     let mut terminal = Fake::new(60, 10, &[b"\t", b""]);
     let mut inputs = Inputs {
         reading: Some(reading()),

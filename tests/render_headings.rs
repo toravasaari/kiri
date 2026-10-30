@@ -1,10 +1,10 @@
 //! Headings: sizes, rules, backgrounds and indentation.
 
 use image::{Rgba, RgbaImage};
-use kiri::caps::Capabilities;
 use kiri::images::{HeadingWord, ImageError, ImageKey, Images, Source};
 use kiri::render::{Headings, Inputs};
-use kiri::theme::Theme;
+use kiri::typeset::caps::Capabilities;
+use kiri::typeset::theme::Theme;
 
 mod common;
 
@@ -33,14 +33,14 @@ fn kitty_headings_on_a_background() {
 
 #[test]
 fn heading_background_reaches_the_right_edge() {
-    use kiri::render::wrap::width;
-    let document = kiri::parse::parse("# One\n\n## Two\n");
+    use kiri::typeset::wrap::width;
+    let document = kiri::typeset::parse::parse("# One\n\n## Two\n");
     // Indented by one cell, and at the edge on an opaque document.
     let unindented = "background = \"#1c1f26\"\n\
         [h1]\nbackground = \"#2b303b\"\n[h2]\nbackground = \"#232830\"\n";
     let themes = [
         example_theme("background.toml"),
-        kiri::theme::parse(unindented).unwrap(),
+        kiri::typeset::theme::parse(unindented).unwrap(),
     ];
     // Scales 3 and 2 leave a remainder at most of these widths.
     for theme in &themes {
@@ -49,7 +49,7 @@ fn heading_background_reaches_the_right_edge() {
                 theme: theme.clone(),
                 ..Inputs::new(Capabilities::kitty(terminal_width))
             };
-            let lines = kiri::render::layout::layout(&document, &inputs);
+            let lines = kiri::typeset::layout::layout(&document, &inputs);
             for line in lines.iter().filter(|line| line.rows() > 1) {
                 let cells = width(&line.lead) + width(&line.spans) + width(&line.trail);
                 assert_eq!(cells, usize::from(terminal_width), "{line:?}");
@@ -69,7 +69,7 @@ fn kitty_headings_on_an_opaque_document() {
 
 #[test]
 fn rules_span_the_terminal_past_max_width() {
-    let theme = kiri::theme::parse("max_width = 20\n[h1]\nrule = true\n").unwrap();
+    let theme = kiri::typeset::theme::parse("max_width = 20\n[h1]\nrule = true\n").unwrap();
     let out = render(
         "# Title\n\nText\n\n---\n",
         &inputs(&Capabilities::ansi(30), &theme),
@@ -123,7 +123,7 @@ fn a_heading_that_renders_nothing_disappears() {
 
 #[test]
 fn an_empty_heading_keeps_its_rule() {
-    let theme = kiri::theme::parse("[h1]\nrule = true\n").unwrap();
+    let theme = kiri::typeset::theme::parse("[h1]\nrule = true\n").unwrap();
     let out = render(
         "Before\n\n#\n\nAfter\n",
         &inputs(&Capabilities::kitty(20), &theme),
@@ -312,7 +312,7 @@ fn a_heading_that_fits_writes_every_cell() {
         text_image(30, 2, &[(0, 14), (15, 30)]),
         Headings::Auto,
     );
-    let lines = kiri::render::layout::layout(&kiri::parse::parse("# One two\n"), &inputs);
+    let lines = kiri::typeset::layout::layout(&kiri::typeset::parse::parse("# One two\n"), &inputs);
     let rows: Vec<_> = lines
         .iter()
         .filter_map(|line| line.image.as_ref())

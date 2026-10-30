@@ -25,15 +25,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+use crate::typeset::diagrams::language;
+
 pub mod external;
 pub mod find;
-mod language;
-mod math;
-mod mermaid;
 
+pub use crate::typeset::diagrams::language::{LANGUAGES, Language, ThemeNames, language};
+pub use crate::typeset::diagrams::mermaid::MMDC;
 pub use external::{Command, External, ExternalSettings};
-pub use language::{LANGUAGES, Language, ThemeNames, language};
-pub use mermaid::MMDC;
 
 /// The colours a diagram is drawn in when it does not choose its own.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

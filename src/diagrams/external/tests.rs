@@ -1,6 +1,7 @@
 use super::*;
-use crate::diagrams::{Theme, mermaid};
+use crate::diagrams::Theme;
 use crate::testing::Scratch;
+use crate::typeset::diagrams::mermaid;
 
 /// A directory of its own for the test that calls it `name`, with
 /// `temp` in it for the files. Some tests make the directory for the

@@ -14,14 +14,14 @@ use std::time::Duration;
 use image::RgbaImage;
 use image::imageops;
 
-use super::image::{Placement, Shows, Size, cell_size};
 use super::loading::{self, Ink};
-use super::reading::Parts;
-use super::style::Line;
-use crate::caps::Capabilities;
 use crate::images::{ImageKey, Images, Placeholder, Source};
 use crate::kitty::graphics::{self, ImageId};
-use crate::reading::page::Overlay;
+use crate::typeset::caps::Capabilities;
+use crate::typeset::images::size::{Placement, Shows, Size, cell_size};
+use crate::typeset::reading::engine::Parts;
+use crate::typeset::reading::page::Overlay;
+use crate::typeset::style::Line;
 
 /// The images the terminal holds, by where and how large they are shown.
 /// One encoder can serve one layout after another, as the pager's does,
@@ -504,21 +504,22 @@ mod tests {
 
     #[test]
     fn the_overlays_of_frames_gone_by_are_dropped() {
-        use crate::reading::page::{MarkColors, Overlay};
         use crate::render::Inputs;
+        use crate::typeset::reading::page::{MarkColors, Overlay};
         // A page of reading mode, to register overlays against.
         let inputs = Inputs {
-            reading: Some(crate::render::reading::Reading {
+            reading: Some(crate::typeset::reading::engine::Reading {
                 pictures: Default::default(),
-                fonts: Rc::new(crate::reading::Fonts::fixture()),
-                wide: crate::reading::page::Wide::Wrap,
+                fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
+                wide: crate::typeset::reading::page::Wide::Wrap,
             }),
             ..Inputs::new(Capabilities {
                 cell_pixels: Some((10, 20)),
                 ..Capabilities::kitty(80)
             })
         };
-        let lines = crate::render::layout::layout(&crate::parse::parse("Text.\n"), &inputs);
+        let lines =
+            crate::typeset::layout::layout(&crate::typeset::parse::parse("Text.\n"), &inputs);
         let image = lines[0].image.as_ref().expect("a page");
         let parts = Rc::clone(image.page.as_ref().expect("its parts"));
         let ImageKey::Page {
@@ -562,13 +563,13 @@ mod tests {
 
     #[test]
     fn two_pages_with_the_same_hash_have_their_own_overlays() {
-        use crate::reading::page::{MarkColors, Overlay};
         use crate::render::Inputs;
+        use crate::typeset::reading::page::{MarkColors, Overlay};
         let inputs = Inputs {
-            reading: Some(crate::render::reading::Reading {
+            reading: Some(crate::typeset::reading::engine::Reading {
                 pictures: Default::default(),
-                fonts: Rc::new(crate::reading::Fonts::fixture()),
-                wide: crate::reading::page::Wide::Wrap,
+                fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
+                wide: crate::typeset::reading::page::Wide::Wrap,
             }),
             ..Inputs::new(Capabilities {
                 cell_pixels: Some((10, 20)),
@@ -576,7 +577,8 @@ mod tests {
             })
         };
         let page_of = |source: &str| {
-            let lines = crate::render::layout::layout(&crate::parse::parse(source), &inputs);
+            let lines =
+                crate::typeset::layout::layout(&crate::typeset::parse::parse(source), &inputs);
             let image = lines[0].image.as_ref().expect("a page");
             let parts = Rc::clone(image.page.as_ref().expect("parts"));
             let ImageKey::Page {

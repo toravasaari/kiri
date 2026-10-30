@@ -1,7 +1,7 @@
 use super::*;
-use crate::render::style::text;
-use crate::render::wrap::width;
-use crate::theme::{Paper, StatusLineTheme};
+use crate::typeset::style::text;
+use crate::typeset::theme::{Paper, StatusLineTheme};
+use crate::typeset::wrap::width;
 
 fn at(percent: u8) -> Position {
     Position { percent }

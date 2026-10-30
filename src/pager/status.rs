@@ -6,12 +6,12 @@ use unicode_width::UnicodeWidthStr;
 
 use super::fade::{FADE_OUT, FLASH, Fade};
 use super::view::Position;
-use crate::caps::Capabilities;
-use crate::color::Color;
 use crate::config::Follow;
-use crate::render::style::{self, Span, Style};
-use crate::render::wrap;
-use crate::theme::{StatusColor, Theme, VISIBLE};
+use crate::typeset::caps::Capabilities;
+use crate::typeset::color::Color;
+use crate::typeset::style::{self, Span, Style};
+use crate::typeset::theme::{StatusColor, Theme, VISIBLE};
+use crate::typeset::wrap;
 
 /// The styles of the status line, and the one the match number fades
 /// into after a search went around an end of the document.

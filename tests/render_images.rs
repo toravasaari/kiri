@@ -1,11 +1,11 @@
 //! Images: where they are drawn, their sizes and what is sent.
 
 use image::RgbaImage;
-use kiri::caps::Capabilities;
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, ImageError, Images, Source};
 use kiri::kitty::graphics::{DIACRITICS, PLACEHOLDER};
 use kiri::render::Inputs;
-use kiri::theme::{Paper, Theme};
+use kiri::typeset::caps::Capabilities;
+use kiri::typeset::theme::{Paper, Theme};
 
 mod common;
 
@@ -45,7 +45,7 @@ fn images_for_tmux_are_wrapped_on_the_way_out() {
         ..Capabilities::kitty(WIDTH)
     };
     let inputs = with_images(&caps, one_image("p.png", quadrants(40, 30)));
-    let document = kiri::parse::parse("![alone](p.png)\n");
+    let document = kiri::typeset::parse::parse("![alone](p.png)\n");
     let mut out = kiri::term::wrapped(Vec::new(), &caps);
     kiri::render::render(&document, &inputs, &mut out).unwrap();
     let out = String::from_utf8(out.into_inner()).unwrap();
@@ -70,7 +70,7 @@ fn images_for_tmux_are_wrapped_on_the_way_out() {
 fn without_tmux_images_go_out_as_they_are() {
     let caps = Capabilities::kitty(WIDTH);
     let inputs = with_images(&caps, one_image("p.png", quadrants(40, 30)));
-    let document = kiri::parse::parse("![alone](p.png)\n");
+    let document = kiri::typeset::parse::parse("![alone](p.png)\n");
     let mut out = kiri::term::wrapped(Vec::new(), &caps);
     kiri::render::render(&document, &inputs, &mut out).unwrap();
     let out = String::from_utf8(out.into_inner()).unwrap();
@@ -220,11 +220,11 @@ fn no_color_draws_images_without_other_colours() {
 
 #[test]
 fn images_indent_with_margins_lists_and_quotes() {
-    use kiri::render::wrap::width;
+    use kiri::typeset::wrap::width;
     let images = one_image("p.png", quadrants(40, 30));
     let source = "![top](p.png)\n\n- ![listed](p.png)\n\n> ![quoted](p.png)\n";
     let inputs = with_images(&Capabilities::kitty(WIDTH), images);
-    let lines = kiri::render::layout::layout(&kiri::parse::parse(source), &inputs);
+    let lines = kiri::typeset::layout::layout(&kiri::typeset::parse::parse(source), &inputs);
     let rows: Vec<(String, u16, u16)> = (lines.iter())
         .filter_map(|line| {
             let image = line.image.as_ref()?;
@@ -249,14 +249,14 @@ fn images_indent_with_margins_lists_and_quotes() {
 
 #[test]
 fn images_never_reach_past_the_width() {
-    use kiri::render::wrap::width;
+    use kiri::typeset::wrap::width;
     let images = one_image("p.png", quadrants(2000, 100));
     let source = "![top](p.png)\n\n- ![listed](p.png)\n\n> > ![quoted](p.png)\n";
-    let document = kiri::parse::parse(source);
+    let document = kiri::typeset::parse::parse(source);
     let mut inputs = with_images(&Capabilities::kitty(WIDTH), images);
     for terminal_width in [12, 16, 24, 40, 80] {
         inputs.caps = Capabilities::kitty(terminal_width);
-        let lines = kiri::render::layout::layout(&document, &inputs);
+        let lines = kiri::typeset::layout::layout(&document, &inputs);
         let image_rows: Vec<_> = lines.iter().filter(|line| line.image.is_some()).collect();
         let first_rows = image_rows
             .iter()
@@ -274,10 +274,10 @@ fn images_never_reach_past_the_width() {
 fn images_taller_than_the_cell_limit_are_clamped() {
     // 2000 CSS pixels high, a hundred rows at their natural size.
     let tall = || one_image("p.png", quadrants(400, 2000));
-    let document = kiri::parse::parse("![tall](p.png)\n");
+    let document = kiri::typeset::parse::parse("![tall](p.png)\n");
     let image_sizes = |caps: Capabilities, images: Images| -> Vec<(u16, u16)> {
         let inputs = with_images(&caps, images);
-        let lines = kiri::render::layout::layout(&document, &inputs);
+        let lines = kiri::typeset::layout::layout(&document, &inputs);
         (lines.iter())
             .filter_map(|line| line.image.as_ref())
             .filter(|image| image.row == 0)

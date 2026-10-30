@@ -4,8 +4,8 @@
 use unicode_width::UnicodeWidthStr;
 
 use super::keys::{BINDINGS, Binding};
-use crate::render::style::{Span, Style};
-use crate::render::wrap;
+use crate::typeset::style::{Span, Style};
+use crate::typeset::wrap;
 
 /// Spans to write at a place in the window.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,8 +92,8 @@ const FOOTER: &str = "Any key closes this.";
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::style;
-    use crate::render::wrap::width;
+    use crate::typeset::style;
+    use crate::typeset::wrap::width;
 
     fn text(placed: &Placed) -> String {
         style::text(&placed.spans)

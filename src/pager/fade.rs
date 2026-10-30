@@ -4,10 +4,10 @@
 
 use std::time::Duration;
 
-use crate::caps::Capabilities;
-use crate::color::Color;
-use crate::render::style::Style;
-use crate::theme::Theme;
+use crate::typeset::caps::Capabilities;
+use crate::typeset::color::Color;
+use crate::typeset::style::Style;
+use crate::typeset::theme::Theme;
 
 /// How long a fade takes.
 pub const FADE: Duration = Duration::from_millis(750);
@@ -189,7 +189,7 @@ mod tests {
         let unknown = Rgb::new(&Theme::default(), &caps).unwrap();
         assert_eq!(unknown.colors(&Style::default()), None);
         // The theme's page wins over the terminal's.
-        let theme = Theme::paper(crate::theme::Paper::Light);
+        let theme = Theme::paper(crate::typeset::theme::Paper::Light);
         let paper = Rgb::new(&theme, &caps).unwrap();
         assert_eq!(
             paper.colors(&Style::default()),

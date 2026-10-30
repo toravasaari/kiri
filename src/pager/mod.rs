@@ -35,23 +35,23 @@ use std::io::{self, Write};
 use std::ops::Range;
 use std::time::{Duration, Instant, SystemTime};
 
-use crate::caps::Capabilities;
-use crate::compare::{Comparison, Fate, compare};
 use crate::config::{self, FollowJump, Paging, SearchCase};
 use crate::images::{ImageError, ImageKey, Images, Loads, Part, Source};
 use crate::kitty::graphics::ImageId;
-use crate::model::{Document, File, FrontMatterError};
-use crate::reading::page::Wide;
 use crate::render::Inputs;
-use crate::render::block::BlockInfo;
 use crate::render::encoder::Encoder;
-use crate::render::image::cell_size;
-use crate::render::layout::{Content, Stream};
 use crate::render::output::{self, Page, Writer};
-use crate::render::reading::Reading;
-use crate::render::style::{self, Line, Span, Style};
-use crate::render::wrap;
 use crate::term::{Screen, WindowSize, cell_query, clipboard};
+use crate::typeset::block::BlockInfo;
+use crate::typeset::caps::Capabilities;
+use crate::typeset::compare::{Comparison, Fate, compare};
+use crate::typeset::images::size::cell_size;
+use crate::typeset::layout::{Content, Stream};
+use crate::typeset::model::{Document, File, FrontMatterError};
+use crate::typeset::reading::engine::Reading;
+use crate::typeset::reading::page::Wide;
+use crate::typeset::style::{self, Line, Span, Style};
+use crate::typeset::wrap;
 use fade::{
     FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY, WARNING_STAY,
 };
@@ -372,7 +372,7 @@ fn page_through(
         };
         let stream = match laid_out.take() {
             Some((caps, stream)) if caps == inputs.caps => stream,
-            _ => crate::render::layout::content(content, inputs),
+            _ => crate::typeset::layout::content(content, inputs),
         };
         let Stream { mut lines, blocks } = stream;
         // The text sizing protocol cannot draw part of a line, so a line
@@ -1537,14 +1537,17 @@ impl State {
             .collect();
         // The matches in a page of reading mode and the selected link are
         // drawn into its image.
-        for page in crate::render::reading::pages(&marked) {
+        for page in crate::typeset::reading::engine::pages(&marked) {
             let address = std::rc::Rc::as_ptr(&page.parts) as usize;
             let marks = search.map_or_else(Vec::new, |search| search.in_page(address));
             let link = (link.and_then(|link| link.link))
                 .filter(|link| link.0 == address)
                 .map(|link| link.1);
             if let Some(overlay) = page.parts.overlay(marks, link) {
-                crate::render::reading::set_overlay(&mut marked[page.lines], Some(&overlay));
+                crate::typeset::reading::engine::set_overlay(
+                    &mut marked[page.lines],
+                    Some(&overlay),
+                );
             }
         }
         marked

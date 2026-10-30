@@ -13,27 +13,23 @@
 //! `kitty/`), and loading to the platform. The placement map in
 //! docs/architecture.md has the paths.
 
-pub mod block;
 pub mod encoder;
-pub mod highlight;
-pub mod image;
-pub mod layout;
 pub mod loading;
 pub mod output;
-pub mod reading;
-pub mod script;
-pub mod style;
-pub mod table;
-pub mod wrap;
 
 use std::io::{self, Write};
 
-use crate::caps::Capabilities;
-use crate::color::Color;
 use crate::images::{CodeLook, HeadingLook, ImageKey, Images, LevelLook, Source};
-use crate::model::{Block, Document, File, FrontMatter, FrontMatterError};
-use crate::theme::Theme;
+use crate::typeset::caps::Capabilities;
+use crate::typeset::color::Color;
+use crate::typeset::model::{Block, Document, File, FrontMatter, FrontMatterError};
+use crate::typeset::theme::Theme;
 use encoder::Encoder;
+
+use crate::typeset::images::size as image;
+use crate::typeset::layout;
+use crate::typeset::reading::engine as reading;
+use crate::typeset::style;
 
 /// Everything rendering takes besides the document. A new input gets a
 /// default in `new`, so callers that do not need it stay as they are.
@@ -223,7 +219,7 @@ impl Headings {
 
 /// Whether the top-level headings show as images, where theirs loaded,
 /// for `headings` on a terminal with `caps`.
-fn heading_images(headings: Headings, caps: &Capabilities) -> bool {
+pub(crate) fn heading_images(headings: Headings, caps: &Capabilities) -> bool {
     let wanted = match headings {
         Headings::Auto => !caps.text_sizing,
         Headings::Images => true,
@@ -380,7 +376,7 @@ mod tests {
             theme,
             ..Inputs::new(caps)
         };
-        let lines = layout::layout(&crate::parse::parse("- item\n"), &inputs);
+        let lines = layout::layout(&crate::typeset::parse::parse("- item\n"), &inputs);
         let bullet = (lines[0].spans.iter()).find(|span| span.text.contains('•'));
         bullet.expect("the bullet").style.fg
     }
@@ -423,7 +419,7 @@ mod tests {
     /// background's.
     fn laid_out_code(caps: &Capabilities) -> (Option<[u8; 3]>, Option<[u8; 3]>) {
         let inputs = Inputs::new(caps.clone());
-        let document = crate::parse::parse("# a `b`\n");
+        let document = crate::typeset::parse::parse("# a `b`\n");
         let lines = layout::layout(&document, &inputs);
         let span = (lines[0].spans.iter()).find(|span| span.text.contains('b'));
         let style = &span.expect("the code").style;
@@ -448,7 +444,7 @@ mod tests {
     #[test]
     fn heading_code_without_a_background_of_its_own_is_padded_on_the_heading_s() {
         let mut theme = Theme::default();
-        theme.inline_code_background = crate::theme::CodeBackground::Color(None);
+        theme.inline_code_background = crate::typeset::theme::CodeBackground::Color(None);
         theme.headings[0].background = Some(Color::Rgb(0x20, 0x20, 0x30));
         let look = heading_look(Headings::Auto, false, &theme, &no_text_sizing()).unwrap();
         let code = look.levels[0].code;

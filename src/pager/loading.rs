@@ -7,10 +7,10 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
-use crate::compare::{self, Comparison, Fate};
 use crate::images::{ImageKey, Images, Placeholder, Source};
-use crate::model::{Block, Document, Inline};
-use crate::render::style::Line;
+use crate::typeset::compare::{self, Comparison, Fate};
+use crate::typeset::model::{Block, Document, Inline};
+use crate::typeset::style::Line;
 
 /// The key of the image `block` shows, when it may show one: the image of
 /// a paragraph of only an image, or the diagram a code block may be drawn
@@ -114,8 +114,8 @@ impl Reloaded<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compare::compare;
-    use crate::parse::parse;
+    use crate::typeset::compare::compare;
+    use crate::typeset::parse::parse;
 
     fn square(size: u32) -> Source {
         Source::Raster(image::RgbaImage::new(size, size))
@@ -153,7 +153,7 @@ mod tests {
     /// lines above it too.
     fn band(url: &str, above: usize) -> Line {
         Line {
-            band: Some(crate::render::style::Band {
+            band: Some(crate::typeset::style::Band {
                 columns: 4,
                 indent: 0,
                 low: false,

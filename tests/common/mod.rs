@@ -11,12 +11,12 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use image::{Rgba, RgbaImage};
-use kiri::caps::Capabilities;
 use kiri::diagrams::{Drawn, Renderer, Request};
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, Images, LoadOptions, Source};
 use kiri::kitty::graphics::{DIACRITICS, PLACEHOLDER};
 use kiri::render::Inputs;
-use kiri::theme::Theme;
+use kiri::typeset::caps::Capabilities;
+use kiri::typeset::theme::Theme;
 
 #[path = "../../src/term/pty.rs"]
 mod pty;
@@ -46,7 +46,7 @@ pub fn with_images(caps: &Capabilities, images: Images) -> Inputs {
 
 /// `source` rendered with `inputs`.
 pub fn render(source: &str, inputs: &Inputs) -> String {
-    let document = kiri::parse::parse(source);
+    let document = kiri::typeset::parse::parse(source);
     let mut out = Vec::new();
     kiri::render::render(&document, inputs, &mut out).expect("rendering to memory succeeds");
     String::from_utf8(out).expect("output is UTF-8")
@@ -72,7 +72,7 @@ pub fn example_theme(name: &str) -> Theme {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("examples/themes")
         .join(name);
-    kiri::theme::load(&path).expect("example theme loads")
+    kiri::typeset::theme::load(&path).expect("example theme loads")
 }
 
 /// Escape characters and no-break spaces made visible, so snapshots can be
@@ -173,7 +173,7 @@ pub fn fixture_images(name: &str) -> Images {
 /// `fixture_images`, loaded with `options`, such as a renderer for the
 /// diagrams.
 pub fn fixture_images_with(name: &str, options: &LoadOptions<'_>) -> Images {
-    let document = kiri::parse::parse(&fixture(name));
+    let document = kiri::typeset::parse::parse(&fixture(name));
     let loaded = kiri::images::load_with(
         &document,
         &fixtures(),
@@ -236,7 +236,7 @@ pub fn stub_diagrams() -> LoadOptions<'static> {
 /// by `StubDiagrams`.
 pub fn stub_diagram_images(source: &str) -> Images {
     kiri::images::load_with(
-        &kiri::parse::parse(source),
+        &kiri::typeset::parse::parse(source),
         &fixtures(),
         DEFAULT_MAX_FILE_SIZE,
         &Fonts::none(),

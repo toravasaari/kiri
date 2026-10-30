@@ -86,7 +86,7 @@ fn numbers_changed(count: usize, changed: &[usize]) -> Document {
             false => format!("Line {n}\n\n"),
         })
         .collect();
-    crate::parse::parse(&source)
+    crate::typeset::parse::parse(&source)
 }
 
 #[test]
@@ -290,8 +290,8 @@ fn a_new_reload_replaces_the_tint_still_fading() {
 
 #[test]
 fn a_tint_is_mixed_over_the_background_a_line_has() {
-    let old = crate::parse::parse("Text.\n\n```\ncode\n```\n");
-    let new = crate::parse::parse("Text.\n\n```\ncode changed\n```\n");
+    let old = crate::typeset::parse::parse("Text.\n\n```\ncode\n```\n");
+    let new = crate::typeset::parse::parse("Text.\n\n```\ncode changed\n```\n");
     let terminal = reloaded_to(known_colours(), AUTO, (&old, new), &[b"r"], 3);
     let frames = terminal.frames();
     let before = background(&row_style(&frames[0], "code"));
@@ -385,7 +385,7 @@ fn auto_following_moves_to_the_change_the_setting_chooses() {
         (FollowJump::Last, "Line 30 changed"),
         (FollowJump::Most, "Line 30 changed"),
     ] {
-        let new = crate::parse::parse(&source);
+        let new = crate::typeset::parse::parse(&source);
         let mut then = Then::new([Reloaded::Document(new)]);
         let auto = (config::Follow::Auto, jump);
         let frames = following_in(21, auto, &numbers(40), &mut then, &[b"r"], 1);
@@ -417,7 +417,7 @@ fn auto_following_moves_to_a_removal_as_the_setting_chooses() {
         // A removal counts as no rows.
         (FollowJump::Most, "Line 15 changed"),
     ] {
-        let new = crate::parse::parse(&source);
+        let new = crate::typeset::parse::parse(&source);
         let mut then = Then::new([Reloaded::Document(new)]);
         let auto = (config::Follow::Auto, jump);
         let frames = following_in(21, auto, &numbers(40), &mut then, &[b"r"], 1);
@@ -429,7 +429,7 @@ fn auto_following_moves_to_a_removal_as_the_setting_chooses() {
         .filter(|&n| n != 30)
         .map(|n| format!("Line {n}\n\n"))
         .collect();
-    let mut then = Then::new([Reloaded::Document(crate::parse::parse(&source))]);
+    let mut then = Then::new([Reloaded::Document(crate::typeset::parse::parse(&source))]);
     let most = (config::Follow::Auto, FollowJump::Most);
     let frames = following_in(21, most, &numbers(40), &mut then, &[b"r"], 1);
     let last = frames.last().unwrap();

@@ -1,8 +1,8 @@
 //! Paragraphs, lists, quotes, code and the space between blocks.
 
-use kiri::caps::Capabilities;
 use kiri::render::Inputs;
-use kiri::theme::Theme;
+use kiri::typeset::caps::Capabilities;
+use kiri::typeset::theme::Theme;
 
 mod common;
 
@@ -71,7 +71,7 @@ fn plain_wide_characters_narrow() {
 
 #[test]
 fn text_margin_narrows_everything_but_headings() {
-    let theme = kiri::theme::parse("text_margin = 2\n").unwrap();
+    let theme = kiri::typeset::theme::parse("text_margin = 2\n").unwrap();
     insta::assert_snapshot!(render_fixture(
         "elements.md",
         &inputs(&Capabilities::plain(WIDTH), &theme)
@@ -137,7 +137,7 @@ fn empty_list_items_end_at_the_marker() {
 #[test]
 fn tiny_widths_do_not_underflow() {
     // A wide character in a heading scaled to one character per line.
-    let theme = kiri::theme::parse("[h1]\nscale = 7\nbackground = \"blue\"\n").unwrap();
+    let theme = kiri::typeset::theme::parse("[h1]\nscale = 7\nbackground = \"blue\"\n").unwrap();
     let out = render("# 日本\n", &inputs(&Capabilities::kitty(10), &theme));
     assert!(out.contains('日'), "{out:?}");
     // Quotes nested until a code block's padding is wider than its room.
@@ -173,7 +173,7 @@ fn inline_code_wraps_at_its_spaces_unless_the_theme_keeps_it_together() {
         render(source, &Inputs::new(plain.clone())),
         "  Type `git\n  commit`\n  here.\n"
     );
-    let together = kiri::theme::parse("inline_code_wrap = false\n").unwrap();
+    let together = kiri::typeset::theme::parse("inline_code_wrap = false\n").unwrap();
     assert_eq!(
         render(source, &inputs(&plain, &together)),
         "  Type\n  `git commit`\n  here.\n"
@@ -220,7 +220,7 @@ fn code_blocks_name_their_language_in_the_top_right_corner() {
 fn the_language_label_is_left_out_without_padding_colour_or_room() {
     let kitty = Capabilities::kitty(WIDTH);
     let theme = Theme::default();
-    let hidden = kiri::theme::parse("show_language_label = false\n").unwrap();
+    let hidden = kiri::typeset::theme::parse("show_language_label = false\n").unwrap();
     let no_color = Capabilities {
         color: false,
         ..kitty.clone()
@@ -298,10 +298,10 @@ fn the_language_label_takes_its_colour_from_the_code_theme_or_the_theme() {
     // background, #2b303b.
     let default = top(&Theme::default());
     assert!(default.contains("38;2;118;123;133;"), "{default:?}");
-    let red = top(&kiri::theme::parse("language_label = \"red\"\n").unwrap());
+    let red = top(&kiri::typeset::theme::parse("language_label = \"red\"\n").unwrap());
     assert!(red.contains("\x1b[0;31;"), "{red:?}");
     let ansi = Capabilities::ansi(WIDTH);
-    let red = kiri::theme::parse("language_label = \"red\"\n").unwrap();
+    let red = kiri::typeset::theme::parse("language_label = \"red\"\n").unwrap();
     let out = render(source, &inputs(&ansi, &red));
     let top = out.lines().next().unwrap();
     assert!(top.contains("\x1b[0;31;"), "{top:?}");

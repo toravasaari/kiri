@@ -8,9 +8,9 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
 
-use crate::render::block::BlockInfo;
-use crate::render::reading;
-use crate::render::style::{Line, Span};
+use crate::typeset::block::BlockInfo;
+use crate::typeset::reading::engine as reading;
+use crate::typeset::style::{Line, Span};
 
 /// A link, by the block its first line is in and its number among the
 /// links of that block, so that it is found again in a new layout.
@@ -284,16 +284,16 @@ mod tests {
     use std::rc::Rc;
 
     use super::*;
-    use crate::caps::Capabilities;
-    use crate::reading::Fonts;
-    use crate::reading::page::Wide;
     use crate::render::Inputs;
-    use crate::render::layout::{Content, Stream, content};
-    use crate::render::reading::{self, Reading};
+    use crate::typeset::caps::Capabilities;
+    use crate::typeset::layout::{Content, Stream, content};
+    use crate::typeset::reading::Fonts;
+    use crate::typeset::reading::engine::{self as reading, Reading};
+    use crate::typeset::reading::page::Wide;
 
     /// `source` laid out in reading mode, with the blocks of its lines.
     fn laid_out(source: &str) -> (Vec<Line>, Vec<Option<BlockInfo>>) {
-        let document = crate::parse::parse(source);
+        let document = crate::typeset::parse::parse(source);
         let inputs = Inputs {
             reading: Some(Reading {
                 pictures: Default::default(),
@@ -379,7 +379,7 @@ mod tests {
 
     /// `source` laid out as text in `columns` columns.
     fn text_in(source: &str, columns: u16) -> (Vec<Line>, Vec<Option<BlockInfo>>) {
-        let document = crate::parse::parse(source);
+        let document = crate::typeset::parse::parse(source);
         let inputs = Inputs::new(Capabilities {
             cell_pixels: Some((10, 20)),
             ..Capabilities::kitty(columns)
@@ -559,8 +559,8 @@ mod tests {
     #[test]
     fn a_link_in_a_heading_drawn_as_an_image_cannot_be_selected() {
         use crate::images::{ImageKey, Source, heading_words};
-        use crate::model::Block;
-        let document = crate::parse::parse("# A [link](u1) here\n\nBody [other](u2)\n");
+        use crate::typeset::model::Block;
+        let document = crate::typeset::parse::parse("# A [link](u1) here\n\nBody [other](u2)\n");
         let Block::Heading {
             level,
             content: words,
@@ -632,7 +632,7 @@ mod tests {
     /// `source` laid out in reading mode to scroll, with the blocks of its
     /// lines.
     fn scrolling(source: &str) -> (Vec<Line>, Vec<Option<BlockInfo>>) {
-        let document = crate::parse::parse(source);
+        let document = crate::typeset::parse::parse(source);
         let inputs = Inputs {
             reading: Some(Reading {
                 pictures: Default::default(),

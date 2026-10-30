@@ -36,7 +36,7 @@ use serde::Deserialize;
 use serde::de::{self, Deserializer, EnumAccess, MapAccess, VariantAccess};
 
 use crate::render::{FrontMatterStyle, Headings, RenderErrors, TableRows};
-use crate::theme::{Paper, Theme};
+use crate::typeset::theme::{Paper, Theme};
 
 /// `Environment`, with a field for each variable, from one table, so that
 /// a variable cannot be read without `get` knowing it.
@@ -1179,7 +1179,9 @@ pub fn settings(
 /// The theme that `source` names.
 pub fn load_theme(source: &ThemeSource) -> Result<Theme, String> {
     match source {
-        ThemeSource::File(path) | ThemeSource::DefaultFile(path) => crate::theme::load(path),
+        ThemeSource::File(path) | ThemeSource::DefaultFile(path) => {
+            crate::typeset::theme::load(path)
+        }
         ThemeSource::BuiltIn => Ok(Theme::default()),
         ThemeSource::Paper(paper) => Ok(Theme::paper(*paper)),
     }

@@ -22,13 +22,10 @@
 //! (`src/typeset/images/`).
 
 mod background;
-mod decode;
-mod drawn;
-mod heading;
 mod pipeline;
 mod stamps;
-mod svg;
-mod url;
+pub(crate) mod svg;
+pub(crate) mod url;
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -37,15 +34,17 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::diagrams::{FormulaColors, INLINE_FORMULA, NoRenderer, Renderer, Request, Theme};
-use crate::model::{Block, Document, Inline};
+use crate::typeset::model::{Block, Document, Inline};
 
+pub use crate::typeset::images::decode::{
+    DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image,
+};
+pub use crate::typeset::images::heading::{
+    CodeLook, HeadingLook, HeadingWord, LevelLook, draw_heading, heading_words, plain_words,
+};
 #[cfg(test)]
 pub(crate) use background::{Arrival, Gated};
 pub use background::{Loads, STOPPING};
-pub use decode::{DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image};
-pub use heading::{
-    CodeLook, HeadingLook, HeadingWord, LevelLook, draw_heading, heading_words, plain_words,
-};
 pub use pipeline::{
     Interrupted, Loaded, Loading, load_documents, load_headings_in_background, load_in_background,
     load_inline_in_background, measure_in_background, reload_in_background,
@@ -53,13 +52,13 @@ pub use pipeline::{
 pub use stamps::Stamps;
 pub use svg::{EMOJI, Fonts, SCRIPTS, Svg, installed};
 
-pub(crate) use decode::{MAX_PIXELS, png_size};
+pub(crate) use crate::typeset::images::decode::{MAX_PIXELS, png_size};
 #[cfg(all(test, feature = "mermaid"))]
-pub(crate) use drawn::decode_diagram;
+pub(crate) use crate::typeset::images::drawn::decode_diagram;
 pub(crate) use url::read_at_most;
 
-use decode::decode_named;
-use drawn::finish_diagram;
+use crate::typeset::images::decode::decode_named;
+use crate::typeset::images::drawn::finish_diagram;
 use url::{load_url, scheme};
 
 /// Why an image could not be loaded.
@@ -934,21 +933,21 @@ fn inline_images<'a>(content: &'a [Inline], renderer: &dyn Renderer, wanted: &mu
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use image::RgbaImage;
 
     use super::*;
     use crate::diagrams::{Drawn, Renderer, Theme};
 
-    pub(super) fn fixtures() -> PathBuf {
+    pub(crate) fn fixtures() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
     }
 
     /// The images of the Markdown `source` with the default size limit, no
     /// fonts and the fixtures directory as the base.
-    pub(super) fn load_source(source: &str, options: &LoadOptions<'_>) -> Images {
+    pub(crate) fn load_source(source: &str, options: &LoadOptions<'_>) -> Images {
         load_with(
-            &crate::parse::parse(source),
+            &crate::typeset::parse::parse(source),
             &fixtures(),
             DEFAULT_MAX_FILE_SIZE,
             &Fonts::none(),
@@ -961,11 +960,11 @@ mod tests {
         load_url(url, base, DEFAULT_MAX_FILE_SIZE, &Fonts::none())
     }
 
-    pub(super) fn fixture(name: &str) -> Result<Source, ImageError> {
+    pub(crate) fn fixture(name: &str) -> Result<Source, ImageError> {
         open(name, &fixtures().join("images"))
     }
 
-    pub(super) fn rgba(image: &RgbaImage, x: u32, y: u32) -> [u8; 4] {
+    pub(crate) fn rgba(image: &RgbaImage, x: u32, y: u32) -> [u8; 4] {
         image.get_pixel(x, y).0
     }
 
@@ -1021,7 +1020,7 @@ mod tests {
             headings: Some(heading_look()),
             ..LoadOptions::default()
         };
-        let document = crate::parse::parse(source);
+        let document = crate::typeset::parse::parse(source);
         load_with(
             &document,
             &fixtures(),
@@ -1092,7 +1091,7 @@ mod tests {
             headings: Some(heading_look()),
             ..LoadOptions::default()
         };
-        let document = crate::parse::parse("# Kiri\n");
+        let document = crate::typeset::parse::parse("# Kiri\n");
         let part = |number| Part {
             document: &document,
             number,
@@ -1122,7 +1121,7 @@ mod tests {
 
     #[test]
     fn loads_the_images_inside_details() {
-        let document = crate::parse::parse(
+        let document = crate::typeset::parse::parse(
             "<details>\n<summary>S</summary>\n\n![x](pattern.png)\n\n</details>\n",
         );
         let images = load(
@@ -1188,7 +1187,7 @@ Text ![inline](images/pattern.png) and words.
     /// says `flaky` the first time it is asked to draw it. Remembers what
     /// it was asked to draw.
     #[derive(Default)]
-    pub(super) struct Stub {
+    pub(crate) struct Stub {
         pub(super) calls: std::cell::RefCell<Vec<(String, Theme)>>,
     }
 
@@ -1220,7 +1219,7 @@ Text ![inline](images/pattern.png) and words.
         }
     }
 
-    pub(super) fn with_stub(stub: &Stub, theme: Theme, by_line: bool) -> LoadOptions<'_> {
+    pub(crate) fn with_stub(stub: &Stub, theme: Theme, by_line: bool) -> LoadOptions<'_> {
         LoadOptions {
             renderer: stub,
             theme,
@@ -1240,8 +1239,8 @@ Text ![inline](images/pattern.png) and words.
             by_line: true,
             inline_images: false,
         };
-        let before = crate::parse::parse("```mermaid\na\n```\n\n```mermaid\nb\n```\n");
-        let after = crate::parse::parse("```mermaid\na\n```\n\n```mermaid\nc\n```\n");
+        let before = crate::typeset::parse::parse("```mermaid\na\n```\n\n```mermaid\nb\n```\n");
+        let after = crate::typeset::parse::parse("```mermaid\na\n```\n\n```mermaid\nc\n```\n");
         let mut images = load_parts(
             &[part(&before)],
             DEFAULT_MAX_FILE_SIZE,
@@ -1276,7 +1275,7 @@ Text ![inline](images/pattern.png) and words.
     fn a_reload_draws_again_a_diagram_that_failed() {
         let stub = Stub::default();
         let options = with_stub(&stub, Theme::Light, true);
-        let document = crate::parse::parse("```mermaid\nflaky\n```\n");
+        let document = crate::typeset::parse::parse("```mermaid\nflaky\n```\n");
         let parts = [Part {
             document: &document,
             number: 0,
@@ -1307,7 +1306,7 @@ Text ![a](a.png) and *![b](b.png)* in a paragraph.
 
 ![alone](f.png)
 ";
-        let document = crate::parse::parse(source);
+        let document = crate::typeset::parse::parse(source);
         let urls = |inline_images| {
             let parts = [Part {
                 document: &document,
@@ -1356,7 +1355,7 @@ Text ![a](a.png) and *![b](b.png)* in a paragraph.
         // Markdown image or a formula there stays text.
         let source = "<details>\n<summary>Open <img src=\"s.png\" alt=\"s\"></summary>\n\n\
                       Inside <img src=\"i.png\" alt=\"i\">.\n\n</details>\n";
-        let document = crate::parse::parse(source);
+        let document = crate::typeset::parse::parse(source);
         let urls = |inline_images| {
             let parts = [Part {
                 document: &document,
@@ -1400,7 +1399,7 @@ Let $x^2$ be, and $x^2$ again, and cost $5 and $6.
 x^2
 ```
 ";
-        let document = crate::parse::parse(source);
+        let document = crate::typeset::parse::parse(source);
         let keys = |inline_images, renderer: &dyn Renderer| {
             let parts = [Part {
                 document: &document,
@@ -1546,8 +1545,9 @@ fn main() {}
             let image = RgbaImage::new(width, 1);
             image.save(scratch.join(dir).join("fig.png")).unwrap();
         }
-        let first = crate::parse::parse("![a](fig.png)\n\n```mermaid\nbroken\n```\n");
-        let second = crate::parse::parse("Text.\n\n![b](fig.png)\n\n```mermaid\nbroken\n```\n");
+        let first = crate::typeset::parse::parse("![a](fig.png)\n\n```mermaid\nbroken\n```\n");
+        let second =
+            crate::typeset::parse::parse("Text.\n\n![b](fig.png)\n\n```mermaid\nbroken\n```\n");
         let (a, b) = (scratch.join("a"), scratch.join("b"));
         let parts = [
             Part {

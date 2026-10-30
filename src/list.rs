@@ -113,9 +113,9 @@ mod tests {
     /// row for every line of the pipe's form and no escape left showing.
     #[test]
     fn the_document_has_a_table_row_per_line() {
-        use crate::model::{Block, Inline};
+        use crate::typeset::model::{Block, Inline};
 
-        let blocks = crate::parse::parse(&emoji_document()).blocks;
+        let blocks = crate::typeset::parse::parse(&emoji_document()).blocks;
         let groups = blocks
             .iter()
             .filter(|block| matches!(block, Block::Heading { level: 2, .. }))

@@ -497,7 +497,7 @@ fn a_reload_finds_the_search_again_in_the_new_lines() {
 #[test]
 fn a_reload_keeps_the_place_when_a_block_is_added_above_it() {
     // Ten lines, scrolled to Line 4; then a block before all of them.
-    let mut then = Then::new([Reloaded::Document(crate::parse::parse(&format!(
+    let mut then = Then::new([Reloaded::Document(crate::typeset::parse::parse(&format!(
         "Added\n\n{}",
         (1..=10)
             .map(|n| format!("Line {n}\n\n"))
@@ -510,7 +510,7 @@ fn a_reload_keeps_the_place_when_a_block_is_added_above_it() {
 
 /// A document of `blocks`, one after the other.
 fn blocks(blocks: &[&str]) -> Document {
-    crate::parse::parse(&blocks.join("\n\n"))
+    crate::typeset::parse::parse(&blocks.join("\n\n"))
 }
 
 #[test]
@@ -549,8 +549,8 @@ fn a_reload_keeps_the_place_in_a_details_block() {
         let inner: String = (1..=6).map(|n| format!("Inner {n}\n\n")).collect();
         format!("{added}<details>\n<summary>More</summary>\n\n{inner}</details>\n\nEnd")
     };
-    let old = crate::parse::parse(&details(""));
-    let new = crate::parse::parse(&details("Added\n\n"));
+    let old = crate::typeset::parse::parse(&details(""));
+    let new = crate::typeset::parse::parse(&details("Added\n\n"));
     let mut then = Then::new([Reloaded::Document(new)]);
     let frames = show_reloading(&old, &mut then, &[b"jjjjjj", b"r"]);
     assert_eq!(frames.len(), 4, "{frames:#?}");
@@ -578,7 +578,7 @@ fn a_reload_goes_to_the_next_block_from_a_blank_top_line() {
 fn a_reload_goes_to_the_next_block_when_the_top_block_in_a_details_is_removed() {
     let details = |inner: &[&str]| {
         let inner: String = inner.iter().map(|line| format!("{line}\n\n")).collect();
-        crate::parse::parse(&format!(
+        crate::typeset::parse::parse(&format!(
             "<details>\n<summary>More</summary>\n\n{inner}</details>\n\nEnd"
         ))
     };

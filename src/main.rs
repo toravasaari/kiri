@@ -23,7 +23,6 @@ use clap::builder::{PossibleValue, PossibleValuesParser, TypedValueParser};
 use clap::error::ErrorKind;
 use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser};
-use kiri::caps::Capabilities;
 use kiri::config::{
     Environment, Follow, FollowJump, FrontMatter, InitialLoad, Named, Options, Origin, Paging,
     Passthrough, Setting, Settings,
@@ -33,16 +32,17 @@ use kiri::images::{
     Fonts, Format, ImageError, ImageKey, Images, Interrupted, Loaded, Loading, Loads, Part,
     Placeholder, Source, Stamps, reload_in_background,
 };
-use kiri::input::Input;
-use kiri::model::{Block, Document, FrontMatterError};
 use kiri::pager::{Change, Look, Reload, Reloaded, Warning};
-use kiri::reading::page::Wide;
 use kiri::render::encoder::Encoder;
 use kiri::render::output::Page;
-use kiri::render::reading::Reading;
 use kiri::render::{Headings, Inputs, RenderErrors, TableRows};
 use kiri::term::{Interrupt, Mode};
-use kiri::theme::{Paper, Theme};
+use kiri::typeset::caps::Capabilities;
+use kiri::typeset::input::Input;
+use kiri::typeset::model::{Block, Document, FrontMatterError};
+use kiri::typeset::reading::engine::Reading;
+use kiri::typeset::reading::page::Wide;
+use kiri::typeset::theme::{Paper, Theme};
 
 /// Render a Markdown document, or show an image, in the terminal.
 #[derive(Parser)]
@@ -298,7 +298,7 @@ fn max_image_size(value: &str) -> Result<u64, String> {
 
 /// The `--format` value.
 fn format(value: &str) -> Result<Input, String> {
-    kiri::input::format(value).ok_or_else(|| {
+    kiri::typeset::input::format(value).ok_or_else(|| {
         "give markdown, csv, tsv, mermaid, text, image, or an image format such as svg, png \
          or jpg"
             .to_owned()
@@ -560,12 +560,12 @@ fn open(cli: &Cli, path: Option<&Path>) -> Result<Opened, String> {
     };
     let mut head = Vec::new();
     (&mut reader)
-        .take(kiri::input::HEAD as u64)
+        .take(kiri::typeset::input::HEAD as u64)
         .read_to_end(&mut head)
         .map_err(failed)?;
     let input = cli
         .format
-        .unwrap_or_else(|| kiri::input::detect(&path, &head));
+        .unwrap_or_else(|| kiri::typeset::input::detect(&path, &head));
     if let Input::Image(format) = input {
         let content = Content::Image {
             format,
@@ -639,13 +639,15 @@ fn document(
     warn: impl FnOnce(&FrontMatterError),
 ) -> Result<Option<Document>, String> {
     Ok(Some(match input {
-        Input::Table(separator) => kiri::parse::csv::parse(source, separator)
+        Input::Table(separator) => kiri::typeset::parse::csv::parse(source, separator)
             .map_err(|error| format!("{}: {error}", path.display()))?,
         Input::Text if !caps.styling => return Ok(None),
-        Input::Text => kiri::parse::code(source, kiri::input::language(path).as_deref()),
+        Input::Text => {
+            kiri::typeset::parse::code(source, kiri::typeset::input::language(path).as_deref())
+        }
         _ => {
             let style = settings.front_matter.style();
-            let document = kiri::parse::parse_with(source, style.is_some());
+            let document = kiri::typeset::parse::parse_with(source, style.is_some());
             let error = style.and_then(|style| kiri::render::front_matter_error(&document, style));
             if let Some(error) = error {
                 warn(error);
@@ -771,7 +773,7 @@ fn show_files(
             Content::Text(source) => match opened.input {
                 Input::Diagram(_) if !caps.styling => Shown::AsIs(source),
                 Input::Diagram(language) => Shown::Diagram {
-                    document: kiri::parse::code(&source, Some(language)),
+                    document: kiri::typeset::parse::code(&source, Some(language)),
                     language,
                     source,
                 },
@@ -863,7 +865,7 @@ fn show_files(
 fn load_files_now(
     context: &Context,
     parts: &[Part],
-    files: &[kiri::model::File],
+    files: &[kiri::typeset::model::File],
     settings: &Settings,
     caps: &Capabilities,
 ) -> Result<(Loaded, Vec<Vec<String>>), Failure> {
@@ -877,7 +879,7 @@ fn load_files_now(
 fn told_files(
     images: &Images,
     parts: &[Part],
-    files: &[kiri::model::File],
+    files: &[kiri::typeset::model::File],
     settings: &Settings,
 ) -> Vec<Vec<String>> {
     let stderr = settings.render_errors.stderr();
@@ -1017,21 +1019,21 @@ fn page_files(
             Shown::Diagram { document, .. } => document,
             // Plain output, the only one to get text as it is, has no
             // pager, nor do images read as they are shown.
-            Shown::AsIs(text) => kiri::parse::code(&text, None),
+            Shown::AsIs(text) => kiri::typeset::parse::code(&text, None),
             Shown::Image { .. } => unreachable!("an image file in the pager is read whole"),
         };
         errors.push(error);
         warnings.push(warned);
-        files.push(kiri::model::File { name, document });
+        files.push(kiri::typeset::model::File { name, document });
     }
     let lone = files.len() == 1;
     let (content, name) = match lone {
         true => (
-            kiri::render::layout::Content::Document(&files[0].document),
+            kiri::typeset::layout::Content::Document(&files[0].document),
             files[0].name.as_str(),
         ),
         // The pager's status line names each file after itself.
-        false => (kiri::render::layout::Content::Files(&files), ""),
+        false => (kiri::typeset::layout::Content::Files(&files), ""),
     };
     let mut parts: Vec<Part> = (documents.iter())
         .map(|(number, file)| Part {
@@ -1238,18 +1240,18 @@ fn print_files(
                 for warning in inputs.images.warnings_in(number, stderr) {
                     eprintln!("kiri: {name}: {warning}");
                 }
-                let file = kiri::model::File { name, document };
+                let file = kiri::typeset::model::File { name, document };
                 kiri::render::render_file(&file, number, apart, inputs, &mut out)
                     .and_then(|sent| held(sent, &inputs.images, &inputs.caps, &silent, &mut out))
             }
             // What could not be drawn is told after it.
             Shown::Diagram { document, .. } => {
-                let file = kiri::model::File { name, document };
+                let file = kiri::typeset::model::File { name, document };
                 kiri::render::render_file(&file, number, apart, inputs, &mut out)
                     .and_then(|sent| held(sent, &inputs.images, &inputs.caps, &silent, &mut out))
             }
             Shown::AsIs(text) => {
-                let file = kiri::model::File {
+                let file = kiri::typeset::model::File {
                     name,
                     document: Document::default(),
                 };
@@ -1474,9 +1476,9 @@ fn drawn(
 }
 
 /// The image file `name` among several, as a file to render.
-fn image_file(name: String) -> kiri::model::File {
+fn image_file(name: String) -> kiri::typeset::model::File {
     let document = Document::new(vec![Block::ImageFile(name.clone())]);
-    kiri::model::File { name, document }
+    kiri::typeset::model::File { name, document }
 }
 
 /// The README the directory `dir` shows: `README.md`, or else `README`.
@@ -1536,7 +1538,7 @@ impl<'a> Context<'a> {
     fn reading_mode(&self) -> Reading {
         Reading {
             pictures: Default::default(),
-            fonts: Rc::new(kiri::reading::Fonts::system()),
+            fonts: Rc::new(kiri::typeset::reading::Fonts::system()),
             wide: self.wide,
         }
     }
@@ -1622,7 +1624,7 @@ const ROWS_UNLOADED: u16 = 3;
 /// until they start loading.
 fn surely_paged(
     context: &Context,
-    content: kiri::render::layout::Content,
+    content: kiri::typeset::layout::Content,
     parts: &[Part],
     settings: &Settings,
     inputs: &mut Inputs,
@@ -1632,7 +1634,7 @@ fn surely_paged(
     }
     let loading = loading(context, settings, &inputs.caps);
     kiri::images::measure_in_background(parts, &loading, &mut inputs.images, ROWS_UNLOADED);
-    let stream = kiri::render::layout::content(content, inputs);
+    let stream = kiri::typeset::layout::content(content, inputs);
     let rows = kiri::pager::rows(&stream.lines, &inputs.caps);
     let height = kiri::term::window_size(io::stdout()).map(|window| window.rows);
     let longer = kiri::pager::pages(Paging::Auto, true, rows, height);
@@ -1791,7 +1793,7 @@ fn show_diagram(
     caps: Capabilities,
 ) -> Result<(), Failure> {
     let caps = on_page(caps, &settings);
-    let document = kiri::parse::code(source, Some(language));
+    let document = kiri::typeset::parse::code(source, Some(language));
     settings.images = true;
     let mut loaded = load_images(
         context,
@@ -1910,7 +1912,7 @@ fn loading<'a>(context: &'a Context, settings: &'a Settings, caps: &Capabilities
         max_file_size: context.max_file_size,
         theme: kiri::diagrams::Theme::for_page(caps.dark_background),
         formula: formula_colors(&settings.theme, caps),
-        largest: Some(kiri::render::image::largest(caps)),
+        largest: Some(kiri::typeset::images::size::largest(caps)),
         headings: kiri::render::heading_look(
             settings.headings,
             !settings.images,
@@ -1924,9 +1926,9 @@ fn loading<'a>(context: &'a Context, settings: &'a Settings, caps: &Capabilities
 /// and otherwise the text's, the theme's or else the terminal's; the
 /// first of them known as RGB.
 fn formula_colors(theme: &Theme, caps: &Capabilities) -> kiri::diagrams::FormulaColors {
-    let rgb = |color: Option<kiri::color::Color>| match color?.rgb(&caps.palette)? {
-        kiri::color::Color::Rgb(red, green, blue) => Some([red, green, blue]),
-        kiri::color::Color::Palette(_) => None,
+    let rgb = |color: Option<kiri::typeset::color::Color>| match color?.rgb(&caps.palette)? {
+        kiri::typeset::color::Color::Rgb(red, green, blue) => Some([red, green, blue]),
+        kiri::typeset::color::Color::Palette(_) => None,
     };
     let text = [theme.formula.text, theme.foreground, caps.foreground];
     kiri::diagrams::FormulaColors {
@@ -1997,7 +1999,7 @@ fn print_document(
     // longer than the window without them.
     // Waiting, the reader can open the pager before they have all come,
     // and the rest then load in the background.
-    let content = kiri::render::layout::Content::Document(document);
+    let content = kiri::typeset::layout::Content::Document(document);
     let mut still = None;
     let later = match later {
         Some(parts) if !surely_paged(context, content, parts, &settings, &mut inputs) => {
@@ -2041,7 +2043,7 @@ fn print_document(
     });
     if let Some(result) = page(
         context,
-        kiri::render::layout::Content::Document(document),
+        kiri::typeset::layout::Content::Document(document),
         name,
         &mut inputs,
         &settings,
@@ -2060,7 +2062,7 @@ fn print_document(
             // turns it on, unless `--reading` had it loaded at the start,
             // for the document as the last reload read it.
             inline: Some(Box::new(|shown, images, loads, caps| {
-                let kiri::render::layout::Content::Document(document) = shown else {
+                let kiri::typeset::layout::Content::Document(document) = shown else {
                     return;
                 };
                 if !(settings.images && caps.draws_images()) {
@@ -2125,7 +2127,7 @@ fn print_document(
 /// then `start`, which may start loading images in the background.
 fn page(
     context: &Context,
-    content: kiri::render::layout::Content,
+    content: kiri::typeset::layout::Content,
     name: &str,
     inputs: &mut Inputs,
     settings: &Settings,
@@ -2137,7 +2139,7 @@ fn page(
     if !terminal || paging == kiri::config::Paging::Never {
         return None;
     }
-    let stream = kiri::render::layout::content(content, inputs);
+    let stream = kiri::typeset::layout::content(content, inputs);
     let rows = kiri::pager::rows(&stream.lines, &inputs.caps);
     let height = kiri::term::window_size(io::stdout()).map(|window| window.rows);
     if !kiri::pager::pages(paging, terminal, rows, height) {
@@ -2182,10 +2184,10 @@ fn page(
     let stderr = inputs.render_errors.stderr();
     for (number, warning) in inputs.images.late_warnings(stderr) {
         match content {
-            kiri::render::layout::Content::Files(files) => {
+            kiri::typeset::layout::Content::Files(files) => {
                 eprintln!("kiri: {}: {warning}", files[number].name)
             }
-            kiri::render::layout::Content::Document(_) => eprintln!("kiri: {warning}"),
+            kiri::typeset::layout::Content::Document(_) => eprintln!("kiri: {warning}"),
         }
     }
     Some(result)
@@ -2376,7 +2378,7 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), Failure> {
                 .and_then(|()| out.flush()),
         )?);
     }
-    let document = kiri::parse::parse(&markdown);
+    let document = kiri::typeset::parse::parse(&markdown);
     let mut settings = choices.with_theme(theme);
     settings.paging = kiri::pager::only_always(settings.paging);
     show_document(
@@ -2408,7 +2410,7 @@ fn list_emojis(cli: &Cli) -> Result<(), Failure> {
     }
     let settings = settings?;
     let caps = kiri::term::capabilities(cli.mode, cli.width, &env, settings.passthrough);
-    let document = kiri::parse::parse(&kiri::list::emoji_document());
+    let document = kiri::typeset::parse::parse(&kiri::list::emoji_document());
     show_document(
         &Context::new(cli, &env),
         &document,

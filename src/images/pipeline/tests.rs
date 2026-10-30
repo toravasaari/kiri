@@ -2,8 +2,8 @@ use std::path::Path;
 
 use super::*;
 use crate::images::{ImageError, Source};
-use crate::model::Document;
 use crate::testing::Scratch;
+use crate::typeset::model::Document;
 
 /// `document` alone, the first, with images relative to `base`.
 fn alone<'a>(document: &'a Document, base: &'a Path) -> [Part<'a>; 1] {
@@ -24,7 +24,7 @@ fn settings(command: &[&str]) -> Settings {
         .diagram_commands
         .insert("mermaid".to_owned(), command);
     let choices = crate::config::choose(&Default::default(), &Environment::default(), &settings);
-    choices.with_theme(crate::theme::Theme::default())
+    choices.with_theme(crate::typeset::theme::Theme::default())
 }
 
 #[test]
@@ -43,7 +43,7 @@ fn a_program_s_diagram_is_reduced_to_the_largest_size_it_can_be_shown_at() {
         tmpdir: Some(scratch.as_os_str().to_owned()),
         ..Environment::default()
     };
-    let document = crate::parse::parse("```mermaid\nflowchart TD\n```\n");
+    let document = crate::typeset::parse::parse("```mermaid\nflowchart TD\n```\n");
     let loading = Loading {
         env: &env,
         settings: &settings,
@@ -68,7 +68,7 @@ fn a_program_s_diagram_is_reduced_to_the_largest_size_it_can_be_shown_at() {
 fn no_diagrams_are_drawn_when_they_are_off() {
     let mut settings = settings(&["/bin/false", "{input}", "{output}"]);
     settings.diagrams = false;
-    let document = crate::parse::parse("```mermaid\nflowchart TD\n```\n");
+    let document = crate::typeset::parse::parse("```mermaid\nflowchart TD\n```\n");
     let loading = Loading {
         env: &Environment::default(),
         settings: &settings,
@@ -117,7 +117,7 @@ fn a_reload_loads_an_image_file_again_only_when_its_modification_time_changed() 
         largest: None,
         headings: None,
     };
-    let document = crate::parse::parse("![x](a.png)\n");
+    let document = crate::typeset::parse::parse("![x](a.png)\n");
     let parts = alone(&document, &scratch);
     let mut stamps = Stamps::of(&parts);
     let mut images = load_documents(&parts, &loading, None).unwrap().images;
@@ -154,7 +154,7 @@ fn a_reload_in_reading_mode_loads_an_image_in_the_text_again_when_its_file_chang
         largest: None,
         headings: None,
     };
-    let document = crate::parse::parse("Words ![x](a.png) in a line.\n");
+    let document = crate::typeset::parse::parse("Words ![x](a.png) in a line.\n");
     let parts = [Part {
         inline_images: true,
         ..alone(&document, &scratch)[0]
@@ -194,7 +194,7 @@ fn a_reload_after_reading_mode_came_on_keeps_an_image_in_the_text_whose_file_did
         largest: None,
         headings: None,
     };
-    let document = crate::parse::parse("Words ![x](a.png) in a line.\n");
+    let document = crate::typeset::parse::parse("Words ![x](a.png) in a line.\n");
     // Opened as text, then `M` loads what reading mode shows in the text.
     let text = alone(&document, &scratch);
     let mut stamps = Stamps::of(&text);
@@ -230,7 +230,7 @@ fn a_reload_loads_an_image_whose_file_was_missing_when_it_appears() {
         largest: None,
         headings: None,
     };
-    let document = crate::parse::parse("![x](a.png)\n");
+    let document = crate::typeset::parse::parse("![x](a.png)\n");
     let parts = alone(&document, &scratch);
     let mut stamps = Stamps::of(&parts);
     let mut images = load_documents(&parts, &loading, None).unwrap().images;
@@ -257,7 +257,7 @@ fn a_reload_keeps_an_image_that_has_no_file() {
         largest: None,
         headings: None,
     };
-    let document = crate::parse::parse("![x](https://example.com/a.png)\n");
+    let document = crate::typeset::parse::parse("![x](https://example.com/a.png)\n");
     let parts = alone(&document, Path::new(""));
     let mut stamps = Stamps::of(&parts);
     let mut images = Images::new();
@@ -341,11 +341,11 @@ fn a_reload_in_the_background_keeps_what_it_has_and_loads_the_rest() {
         largest: None,
         headings: None,
     };
-    let before = crate::parse::parse("![x](a.png)\n");
+    let before = crate::typeset::parse::parse("![x](a.png)\n");
     let parts = alone(&before, &scratch);
     let mut stamps = Stamps::of(&parts);
     let mut images = load_documents(&parts, &loading, None).unwrap().images;
-    let document = crate::parse::parse("![x](a.png)\n\n```mermaid\none\n```\n");
+    let document = crate::typeset::parse::parse("![x](a.png)\n\n```mermaid\none\n```\n");
     let parts = alone(&document, &scratch);
     let mut loads = Loads::new();
     reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
@@ -374,7 +374,7 @@ fn a_newer_reload_stops_the_loads_it_no_longer_wants_and_keeps_the_others() {
         largest: None,
         headings: None,
     };
-    let both = crate::parse::parse("```mermaid\none\n```\n\n```mermaid\ntwo\n```\n");
+    let both = crate::typeset::parse::parse("```mermaid\none\n```\n\n```mermaid\ntwo\n```\n");
     let parts = alone(&both, &scratch);
     let (mut images, mut stamps, mut loads) = (Images::new(), Stamps::of(&parts), Loads::new());
     reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
@@ -385,7 +385,7 @@ fn a_newer_reload_stops_the_loads_it_no_longer_wants_and_keeps_the_others() {
     while started().lines().count() < 2 && start.elapsed() < std::time::Duration::from_secs(10) {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    let one = crate::parse::parse("```mermaid\none\n```\n");
+    let one = crate::typeset::parse::parse("```mermaid\none\n```\n");
     let parts = alone(&one, &scratch);
     reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
     wait_for(&scratch.join("two.stopped"));
@@ -419,7 +419,7 @@ fn stopping_the_loads_ends_their_programs_before_it_returns() {
         largest: None,
         headings: None,
     };
-    let document = crate::parse::parse("```mermaid\none\n```\n");
+    let document = crate::typeset::parse::parse("```mermaid\none\n```\n");
     let parts = alone(&document, &scratch);
     let (mut images, mut stamps, mut loads) = (Images::new(), Stamps::of(&parts), Loads::new());
     reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
@@ -447,12 +447,12 @@ fn a_reload_in_the_background_loads_a_changed_file_again_and_sets_the_old_image_
         largest: None,
         headings: None,
     };
-    let before = crate::parse::parse("![x](a.png)\n\n![y](b.png)\n");
+    let before = crate::typeset::parse::parse("![x](a.png)\n\n![y](b.png)\n");
     let parts = alone(&before, &scratch);
     let mut stamps = Stamps::of(&parts);
     let mut images = load_documents(&parts, &loading, None).unwrap().images;
     write_png(&scratch.join("a.png"), 6, 3, 2000);
-    let document = crate::parse::parse("![x](a.png)\n");
+    let document = crate::typeset::parse::parse("![x](a.png)\n");
     let parts = alone(&document, &scratch);
     let mut loads = Loads::new();
     reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
@@ -489,7 +489,7 @@ fn overlapping_reloads_run_no_more_programs_at_once_than_one_reload() {
         let blocks: Vec<String> = (names.iter())
             .map(|name| format!("```mermaid\n{name}\n```\n"))
             .collect();
-        crate::parse::parse(&blocks.join("\n"))
+        crate::typeset::parse::parse(&blocks.join("\n"))
     };
     let started = || {
         let started = std::fs::read_to_string(scratch.join("started")).unwrap_or_default();
@@ -544,7 +544,7 @@ fn the_inline_pictures_load_when_asked_for_and_only_those_that_are_missing() {
     };
     write_png(&scratch.join("a.png"), 4, 2, 1000);
     write_png(&scratch.join("f.png"), 3, 3, 1000);
-    let document = crate::parse::parse("![alone](f.png)\n\nText ![a](a.png) in a line.\n");
+    let document = crate::typeset::parse::parse("![alone](f.png)\n\nText ![a](a.png) in a line.\n");
     let parts = alone(&document, &scratch);
     // Without reading mode the lone image is all there is to load.
     let mut images = load_documents(&parts, &loading, None).unwrap().images;

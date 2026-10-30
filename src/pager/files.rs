@@ -2,9 +2,9 @@
 //! starts in the laid-out lines, which one a line is in, and where `:n`
 //! and `:p` go.
 
-use crate::model::File;
-use crate::render::block::Blocks;
-use crate::render::style::Line;
+use crate::typeset::block::Blocks;
+use crate::typeset::model::File;
+use crate::typeset::style::Line;
 
 /// The files of a stream, found from the blocks their lines come from.
 /// A lone document is no file, so it has none.
@@ -86,9 +86,9 @@ impl<'a> Files<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::Document;
-    use crate::render::block::Blocks;
-    use crate::render::style::Line;
+    use crate::typeset::block::Blocks;
+    use crate::typeset::model::Document;
+    use crate::typeset::style::Line;
 
     fn named(names: &[&str]) -> Vec<File> {
         names

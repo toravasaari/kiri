@@ -2,10 +2,10 @@
 //! otherwise.
 
 use image::RgbaImage;
-use kiri::caps::Capabilities;
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, ImageError, ImageKey, Images, Source};
 use kiri::render::{Inputs, RenderErrors};
-use kiri::theme::{Paper, Theme};
+use kiri::typeset::caps::Capabilities;
+use kiri::typeset::theme::{Paper, Theme};
 
 mod common;
 

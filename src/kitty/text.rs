@@ -4,7 +4,7 @@
 
 use std::io::{self, Write};
 
-use crate::size::{HorizontalAlign, TextSize, VerticalAlign};
+use crate::typeset::size::{HorizontalAlign, TextSize, VerticalAlign};
 
 /// The protocol's limit for the text in one escape sequence.
 const MAX_PAYLOAD: usize = 4096;
@@ -58,7 +58,7 @@ pub fn write_sized(out: &mut impl Write, size: TextSize, text: &str) -> io::Resu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::size::Fraction;
+    use crate::typeset::size::Fraction;
 
     #[test]
     fn wraps_a_whole_scale_in_one_sequence() {

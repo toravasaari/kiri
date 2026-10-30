@@ -7,17 +7,17 @@ use std::ops::Range;
 use std::time::Duration;
 
 use super::encoder::Encoder;
-use super::image::cell_size;
 use super::loading::{self, Ink};
-use super::reading::RowLink;
-use super::style::{ImageRow, Line, Span, Style};
-use super::wrap::width;
-use crate::caps::Capabilities;
-use crate::color::{Color, Underline};
 use crate::images::Images;
 use crate::kitty;
 use crate::kitty::graphics;
-use crate::size::TextSize;
+use crate::typeset::caps::Capabilities;
+use crate::typeset::color::{Color, Underline};
+use crate::typeset::images::size::cell_size;
+use crate::typeset::reading::engine::RowLink;
+use crate::typeset::size::TextSize;
+use crate::typeset::style::{ImageRow, Line, Span, Style};
+use crate::typeset::wrap::width;
 
 /// The colours of the page the document is drawn on. `None` leaves the
 /// terminal's own showing through.
@@ -508,7 +508,7 @@ mod tests {
         );
     }
 
-    use crate::size::{Fraction, VerticalAlign};
+    use crate::typeset::size::{Fraction, VerticalAlign};
 
     #[test]
     fn empty_scaled_line_does_not_step_over_anything() {
@@ -591,7 +591,7 @@ mod tests {
 
     #[test]
     fn a_band_is_placed_where_its_line_says_without_moving_the_cursor() {
-        use crate::render::style::Band;
+        use crate::typeset::style::Band;
 
         // High on a blank line, six cells in, and low over a line of text.
         let high = Line {
@@ -639,7 +639,7 @@ mod tests {
 
     #[test]
     fn no_band_is_drawn_under_tmux() {
-        use crate::render::style::Band;
+        use crate::typeset::style::Band;
 
         // A direct placement lands at kitty's cursor, not tmux's.
         let line = Line {

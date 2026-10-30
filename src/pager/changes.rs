@@ -18,9 +18,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::{Bound, Range};
 
-use crate::compare::{Comparison, Fate, Path};
 use crate::config::FollowJump;
-use crate::render::block::BlockInfo;
+use crate::typeset::block::BlockInfo;
+use crate::typeset::compare::{Comparison, Fate, Path};
 
 /// A change in the laid-out lines.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -239,12 +239,12 @@ fn removed_inside(removed: &BTreeSet<&Path>, path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::caps::Capabilities;
-    use crate::compare::compare;
-    use crate::parse::parse;
-    use crate::render::layout::{Content, Stream, content};
-    use crate::render::style;
     use crate::render::{FrontMatterStyle, Inputs};
+    use crate::typeset::caps::Capabilities;
+    use crate::typeset::compare::compare;
+    use crate::typeset::layout::{Content, Stream, content};
+    use crate::typeset::parse::parse;
+    use crate::typeset::style;
 
     /// The changes from `old` to `new`, laid out with `inputs`: each the
     /// text of its lines that are not blank, a bar between them, or for a

@@ -4,7 +4,7 @@
 
 use std::ops::Range;
 
-use crate::render::block::BlockInfo;
+use crate::typeset::block::BlockInfo;
 
 /// A move through the document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -551,7 +551,7 @@ mod tests {
     /// Lines in runs of blocks: each run is `(file, path, lines)`, one row
     /// high each, and `None` for a blank line between blocks.
     fn blocked(runs: &[Run]) -> Laid {
-        let mut table = crate::render::block::Blocks::default();
+        let mut table = crate::typeset::block::Blocks::default();
         let mut blocks = Vec::new();
         for &(block, count) in runs {
             let block = block.map(|(file, path)| {

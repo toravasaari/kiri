@@ -2,8 +2,8 @@
 //! to, so that the reader sees why the view moved.
 
 use super::fade::Rgb;
-use crate::render::style::{Line, Span, Style};
-use crate::render::wrap;
+use crate::typeset::style::{Line, Span, Style};
+use crate::typeset::wrap;
 
 /// `line` with its background mixed `amount` of the way toward the text
 /// colour, across the `width` cells of the text area. The background a span
@@ -59,10 +59,10 @@ fn tinted(style: &Style, rgb: &Rgb, amount: f32) -> Style {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::caps::Capabilities;
-    use crate::color::Color;
-    use crate::size::TextSize;
-    use crate::theme::Theme;
+    use crate::typeset::caps::Capabilities;
+    use crate::typeset::color::Color;
+    use crate::typeset::size::TextSize;
+    use crate::typeset::theme::Theme;
 
     fn rgb() -> Rgb {
         let mut caps = Capabilities::kitty(80);
