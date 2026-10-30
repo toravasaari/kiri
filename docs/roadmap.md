@@ -1326,12 +1326,12 @@ first would delay every resize by a terminal that never answers.
 
 #### B14 Two touching links to one address split at a line break
 
-In the pager's text layout, two links to one address with nothing
-between them, such as `[aaaa](u)**[bbbb](u)**`, are one link for Tab on
-one line, but two when a line break falls between them. The layout drops
-the space at a break, so they then look like two links with a space
-between them, which stay two. Reading mode keeps them one. A mark that
-the layout kept for touching parts across a break would mend it.
+In the pager's text layout, two links to one address that touch, with a
+style change between them, such as `[aaaa](u)**[bbbb](u)**`, are one
+link for Tab on one line but two when a line break falls between them.
+Without the style change they stay one. Reading mode keeps them one. A
+mark that the layout kept for touching parts across a break would mend
+it.
 
 #### B15 Tab stops at a link without an address
 
@@ -1352,8 +1352,8 @@ to mark its borders.
 
 ### Upstream bugs
 
-Bugs in projects kiri uses, which kiri works around until they are fixed
-there.
+Bugs in projects kiri uses. kiri works around most of them until they
+are fixed there; an entry says when it does not.
 
 #### kitty on a virtual display leaves images undrawn
 
@@ -1362,8 +1362,8 @@ a large first frame undrawn: the placeholders are on the screen, kitty
 answers that it holds the images, and they show as soon as something
 wakes kitty, such as `kitty @ ls` or `kitty @ get-text`. A write to the
 terminal does not wake it. It happens without tmux and with
-`kitten icat` too, so it is kitty's, and it has not been seen in kitty
-on a real display. Reading mode in the pager, whose first frame sends
+`kitten icat` too, so it is kitty's, and the maintainer has not seen it
+in his own kitty. Reading mode in the pager, whose first frame sends
 two large images, came up blank in more than half of its starts.
 
 This was B12, a blank pager after a resize under load, after a font

@@ -481,8 +481,9 @@ fn page_through(
             inputs.caps.cell_pixels,
             &mut source,
         )?;
-        // An answer that came with a key that ended the frame: the outcome is
-        // handled with the cells the keys after it saw.
+        // An answer that came in the same read as a key that ended the frame
+        // is applied first, so the outcome that key asks for uses the new
+        // cells.
         if let Some(cell) = state.cell.take() {
             state.changed = None;
             inputs.caps.cell_pixels = Some(cell);
@@ -964,8 +965,8 @@ struct State {
     decoder: keys::Decoder,
     /// How far reading mode's bands are scrolled, and which is selected.
     bands: bands::Bands,
-    /// The cells the terminal last answered, until the next layout
-    /// applies them.
+    /// The cells the terminal last answered, until `page_through` applies
+    /// them when `show` returns.
     cell: Option<(u16, u16)>,
 }
 
