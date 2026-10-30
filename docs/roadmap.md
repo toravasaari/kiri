@@ -1165,6 +1165,9 @@ go.
   or served to a browser by `kiri serve` (5.4). It would build on
   several files (4.9.2), heading anchors (4.10.1), the table of contents
   (4.6.5) and resolving links across a vault (4.13).
+- Enter on a link selected with Tab in reading mode (4.15.5) opens it in
+  the browser, as a click on the link does in kitty. kiri would need a
+  program to open it with, such as `xdg-open` from a setting.
 
 ## Bugs
 
