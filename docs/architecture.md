@@ -514,11 +514,11 @@ private. The fourth part, the platform, is `src/main.rs` and the rest of
 
 ### The four parts
 
-- **The platform:** `src/main.rs` and the rest of `src/` outside the three
-  part directories. It owns all the I/O: the command line and the settings
-  files, the shells (interactive and print), the work runner (threads,
-  programs, watchers) and `term/`, where kiri talks to the terminal.
-  `main.rs` wires the parts together.
+- **The typesetting engine, `src/typeset/`:** pure given its resources;
+  the fonts, for one, are passed in. It owns the document model, parsing
+  and the input formats, the themes and the look, both layout engines (the
+  cells and reading mode), and the images and diagrams that it draws from
+  data it is given.
 - **The terminal layer, `src/present/`:** pure and sans-IO. It turns what
   is shown into bytes for an `impl Write` (`kitty/` and the encoders) and
   decodes keys and the terminal's answers to the probe. It makes no system
@@ -526,43 +526,60 @@ private. The fourth part, the platform, is `src/main.rs` and the rest of
 - **The state engine, `src/session/`:** pure. It holds the pager's state
   and its decisions, and the components and panels that the pager is made
   of.
-- **The typesetting engine, `src/typeset/`:** pure given its resources;
-  the fonts, for one, are passed in. It owns the document model, parsing
-  and the input formats, the themes and the look, both layout engines (the
-  cells and reading mode), and the images and diagrams that it draws from
-  data it is given.
+- **The platform:** `src/main.rs` and the rest of `src/` outside the three
+  part directories. It owns all the I/O: the command line and the settings
+  files, the shells (interactive and print), the work runner (threads,
+  programs, watchers) and `term/`, where kiri talks to the terminal.
+  `main.rs` wires the parts together.
 
-Dependencies point down this list: the typesetting engine uses none of the
-others, the terminal layer uses it, the state engine uses both, and the
-platform uses all three. The mixed modules below are where today's code
-still points the other way.
+Each part uses only the parts above it in this list: the typesetting
+engine uses none of the others, the terminal layer uses the typesetting
+engine, the state engine uses both, and the platform uses all three. A
+mixed module (below) has code in two parts, so its pieces follow this rule
+one by one. The exceptions to the rule that exist today are listed after
+the table.
 
 ### Every module
 
 The table has a row for each file of `src/`. **Part** is the part the
 module's code belongs to; **mixed** means that its non-test code does the
 work of two parts, usually I/O inside what would otherwise be pure. **After
-the move** says where the file goes in step V2, which moves whole modules
-and nothing else; no re-export is left at the old path. A mixed module
-stays where it is, and the row names the pieces, where each goes, and the
-step that splits it:
+the move** says where the file goes in step V2, the move into the parts,
+which moves whole modules and nothing else; no re-export is left at the old
+path. The rules for V2:
 
-- **B2:** one font database, loaded by the platform and handed to the
-  engines.
-- **B4:** startup decisions that need no I/O move out of `main.rs` into
-  `session/plan.rs`.
-- **B5:** `config.rs` is split, and each setting gets an owner.
-- **D1:** the pager's loop and its state are split, the state into the
-  state engine and the loop into the platform.
-- **D3:** sessions and loading: the platform reads, fetches and runs, and
-  the engines draw from the data it gives them.
-- **E5:** the terminal layer is built: the presenter, the encoders, and the
-  key and probe decoding that today sit in `term/`, `render/` and
-  `pager/`.
+- A whole module moves to the path in its row. Its `mod` line goes from the
+  old parent to the new one: when the old parent stays (it is mixed), it
+  drops the line, and the new parent declares the module.
+- A mixed file under a parent that moves moves with it, and its row says
+  which work splits it. Its I/O is on the list of exceptions until then.
+- A mixed module whose parent does not move stays at its path, and the row
+  names its pieces, where each goes and the work that splits it.
+- `src/lib.rs` declares the three parts, and each part's root exports its
+  public surface. The files for the new parents are in their own table
+  below.
 
-A file that stays while the module above it moves keeps its place on disk,
-and its `mod` line in the moved parent gets a `#[path]`, until the step
-that splits it.
+The later work that the rows name, in words:
+
+- **The config split:** `config.rs` is divided, and each setting gets an
+  owner.
+- **The font database:** one font database, loaded by the platform and
+  handed to the engines.
+- **The startup plan:** the decisions of `main.rs` move into
+  `session/plan.rs`, with what they ask of the terminal and the files
+  passed in as values.
+- **One route:** the routes for one file and for several become one.
+- **The pager's loop:** the pager's state and its loop are split, the state
+  into the state engine and the loop into the platform, as messages in and
+  effects out.
+- **Loading and sessions:** the platform reads, fetches and runs, and the
+  engines draw from the data it gives them.
+- **The terminal layer split:** the presenter, the encoders, and the key and
+  probe decoding that today sit in `term/`, `render/` and `pager/` are
+  gathered in the terminal layer.
+- **Commands as data, layers, panels as documents, diagnostics, the trust
+  policy, reading mode's block modules:** later work that the map below
+  names where a row has no path yet.
 
 A few files arrive with the branch `fix/reading-leftovers`, which is not
 merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
@@ -571,9 +588,9 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | Module | Part | After the move |
 |---|---|---|
 | `src/lib.rs` | platform | stays; declares the three parts |
-| `src/main.rs` | mixed | stays. Platform: the command line, opening files and standard input, the shells, loading, the file reload. State engine: the decisions that need no I/O (`surely_paged`, `pages_alone`, `printing`) go to `session/plan.rs` in B4. B6 makes the one-file and many-files routes one |
-| `src/config.rs` | mixed | stays. Platform: reading the environment and the file, and resolving a setting from the flags, the environment, the file and its default. State engine: the setting types the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump`). B5 |
-| `src/config/tests.rs` | follows `config.rs` | stays; goes with its pieces in B5 |
+| `src/main.rs` | mixed | stays. Platform: the command line, opening files and standard input, the shells, loading, the file reload. State engine: the decisions in `printing`, `pages_alone` and `surely_paged`, in the startup plan. Only `printing` is free of I/O: `pages_alone` asks whether stdout is a terminal, and `surely_paged` measures images and reads the window size. The plan takes these in as values read by `main.rs`. One route makes the one-file and many-files routes one |
+| `src/config.rs` | mixed | stays. Platform: reading the environment and the file, and resolving a setting from the flags, the environment, the file and its default. State engine: the setting types the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump`). The config split |
+| `src/config/tests.rs` | follows `config.rs` | stays; goes with its pieces in the config split |
 | `src/doctor.rs` | platform | stays (it searches `PATH` through `diagrams::find`) |
 | `src/list.rs` | platform | stays (the `--list-emojis` shell) |
 | `src/panics.rs` | platform | stays |
@@ -593,15 +610,15 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | `src/parse/tests.rs` | typesetting | `src/typeset/parse/tests.rs` |
 | `src/theme/mod.rs` | typesetting | `src/typeset/theme/mod.rs` |
 | `src/theme/paper.rs` | typesetting | `src/typeset/theme/paper.rs` |
-| `src/theme/file.rs` | mixed | stays. Typesetting: parsing the theme file's text. Platform: `load`, which reads the file. B5 |
+| `src/theme/file.rs` | mixed | `src/typeset/theme/file.rs`. Typesetting: parsing the theme file's text. Platform: `load`, which reads the file; the config split moves it |
 | `src/kitty/mod.rs` | terminal layer | `src/present/kitty/mod.rs` |
 | `src/kitty/graphics.rs` | terminal layer | `src/present/kitty/graphics.rs` |
 | `src/kitty/query.rs` | terminal layer | `src/present/kitty/query.rs` |
 | `src/kitty/text.rs` | terminal layer | `src/present/kitty/text.rs` |
-| `src/render/mod.rs` | mixed | stays. Typesetting: `Inputs`, the render options and `heading_look`, the front matter helpers. Terminal layer: `render`, `render_files`, `render_file`, `render_image` and `render_image_on`, which lay out and write in one call. E5 |
+| `src/render/mod.rs` | mixed | stays. Typesetting: `Inputs`, the render options and `heading_look`, the front matter helpers. Terminal layer: `render`, `render_files`, `render_file`, `render_image` and `render_image_on`, which lay out and write in one call. The terminal layer split |
 | `src/render/block.rs` | typesetting | `src/typeset/block.rs` |
 | `src/render/style.rs` | typesetting | `src/typeset/style.rs` |
-| `src/render/image.rs` | typesetting | `src/typeset/image_size.rs` |
+| `src/render/image.rs` | typesetting | `src/typeset/images/size.rs` |
 | `src/render/wrap.rs` | typesetting | `src/typeset/wrap.rs` |
 | `src/render/layout/mod.rs` | typesetting | `src/typeset/layout/mod.rs` |
 | `src/render/layout/code.rs` | typesetting | `src/typeset/layout/code.rs` |
@@ -615,26 +632,26 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | `src/render/reading.rs` | typesetting | `src/typeset/reading/engine.rs` |
 | `src/render/output.rs` | terminal layer | `src/present/output.rs` |
 | `src/render/encoder.rs` | terminal layer | `src/present/encoder.rs` |
-| `src/render/loading.rs` | terminal layer | `src/present/loading.rs` |
+| `src/render/loading.rs` | mixed | stays. Typesetting: `dimmed` and `band`, which draw pixels. Terminal layer: `Ink`, built from the output's `Page`, and `band_offset`. The terminal layer split |
 | `src/reading/mod.rs` | typesetting | `src/typeset/reading/mod.rs` |
 | `src/reading/colr.rs` | typesetting | `src/typeset/reading/colr.rs` |
 | `src/reading/octicons.rs` | typesetting | `src/typeset/reading/octicons.rs` |
 | `src/reading/page.rs` | typesetting | `src/typeset/reading/page.rs` |
 | `src/reading/paint.rs` | typesetting | `src/typeset/reading/paint.rs` |
 | `src/reading/text.rs` | typesetting | `src/typeset/reading/text.rs` |
-| `src/reading/fonts.rs` | mixed | stays. Typesetting: the fonts handed to parley, with the fallbacks. Platform: loading the system fonts and memory-mapping the font files, lazily, on the first layout. B2 |
-| `src/images/mod.rs` | mixed | stays. Typesetting: `ImageKey`, `Images` and the plan of which images a document wants. Platform: `load`, `load_with` and `load_parts`, which read files and run the renderers. D3 |
+| `src/reading/fonts.rs` | mixed | `src/typeset/reading/fonts.rs`. Typesetting: the fonts handed to parley, with the fallbacks. Platform: loading the system fonts and memory-mapping the font files, lazily, on the first layout; the font database moves it |
+| `src/images/mod.rs` | mixed | stays. Typesetting: `ImageKey`, `Images` and the plan of which images a document wants. Platform: `load`, `load_with` and `load_parts`, which read files and run the renderers. Loading and sessions |
 | `src/images/decode.rs` | typesetting | `src/typeset/images/decode.rs` |
 | `src/images/drawn.rs` | typesetting | `src/typeset/images/drawn.rs` |
 | `src/images/drawn/tests.rs` | typesetting | `src/typeset/images/drawn/tests.rs` |
 | `src/images/heading.rs` | typesetting | `src/typeset/images/heading.rs` |
-| `src/images/svg.rs` | mixed | stays. Typesetting: `Svg`, parsing and drawing. Platform: `Fonts::system`, which scans the system's fonts. B2 |
-| `src/images/url.rs` | mixed | stays. Typesetting: `data:` URLs and the reading of a URL's parts. Platform: `read_file`, which opens files. D3 |
+| `src/images/svg.rs` | mixed | stays. Typesetting: `Svg`, parsing and drawing. Platform: `Fonts::system`, which scans the system's fonts. The font database |
+| `src/images/url.rs` | mixed | stays. Typesetting: `data:` URLs and the reading of a URL's parts. Platform: `read_file`, which opens files. Loading and sessions |
 | `src/images/background.rs` | platform | stays |
 | `src/images/pipeline.rs` | platform | stays |
 | `src/images/pipeline/tests.rs` | platform | stays |
 | `src/images/stamps.rs` | platform | stays |
-| `src/diagrams/mod.rs` | mixed | stays. Typesetting: `Request`, `Drawn`, the `Renderer` trait and the choice among renderers. Platform: `render_in_parallel`, which draws on threads. D3 |
+| `src/diagrams/mod.rs` | mixed | stays. Typesetting: `Request`, `Drawn`, the `Renderer` trait and the choice among renderers. Platform: `render_in_parallel`, which draws on threads. Loading and sessions |
 | `src/diagrams/language.rs` | typesetting | `src/typeset/diagrams/language.rs` |
 | `src/diagrams/math.rs` | typesetting | `src/typeset/diagrams/math.rs` |
 | `src/diagrams/mermaid/mod.rs` | typesetting | `src/typeset/diagrams/mermaid/mod.rs` |
@@ -642,19 +659,19 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | `src/diagrams/external.rs` | platform | stays |
 | `src/diagrams/external/tests.rs` | platform | stays |
 | `src/diagrams/find.rs` | platform | stays |
-| `src/pager/mod.rs` | mixed | stays. State engine: `State`, the key and tick handling, the frame. Platform: `page_through` and `show`, the loop, with the `Reload`, `InlineLoader`, `Loads` and `Terminal` it does its I/O through. D1 |
-| `src/pager/tests/mod.rs` | follows `pager/mod.rs` | stays; goes with its pieces in D1 |
-| `src/pager/tests/files.rs` | follows `pager/mod.rs` | stays; D1 |
-| `src/pager/tests/following.rs` | follows `pager/mod.rs` | stays; D1 |
-| `src/pager/tests/images.rs` | follows `pager/mod.rs` | stays; D1 |
-| `src/pager/tests/links.rs` | follows `pager/mod.rs` | stays; D1 (arrives with `fix/reading-leftovers`) |
-| `src/pager/tests/loading.rs` | follows `pager/mod.rs` | stays; D1 |
-| `src/pager/tests/paging.rs` | follows `pager/mod.rs` | stays; D1 |
-| `src/pager/tests/reading.rs` | follows `pager/mod.rs` | stays; D1 |
-| `src/pager/tests/reload.rs` | follows `pager/mod.rs` | stays; D1 |
-| `src/pager/tests/search.rs` | follows `pager/mod.rs` | stays; D1 |
-| `src/pager/tests/view.rs` | follows `pager/mod.rs` | stays; D1 |
-| `src/pager/keys.rs` | mixed | stays. Terminal layer: `Key` and the `Decoder` that turns bytes into keys. State engine: `Action`, `BINDINGS` and `action`. E5 for the decoding, D1 for the actions |
+| `src/pager/mod.rs` | mixed | stays. State engine: `State`, the key and tick handling, the frame. Platform: `page_through` and `show`, the loop, with the `Reload`, `InlineLoader`, `Loads` and `Terminal` it does its I/O through. The pager's loop |
+| `src/pager/tests/mod.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
+| `src/pager/tests/files.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
+| `src/pager/tests/following.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
+| `src/pager/tests/images.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
+| `src/pager/tests/links.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop (arrives with `fix/reading-leftovers`) |
+| `src/pager/tests/loading.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
+| `src/pager/tests/paging.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
+| `src/pager/tests/reading.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
+| `src/pager/tests/reload.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
+| `src/pager/tests/search.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
+| `src/pager/tests/view.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
+| `src/pager/keys.rs` | mixed | stays. Terminal layer: `Key` and the `Decoder` that turns bytes into keys. State engine: `Action`, `BINDINGS` and `action`. The terminal layer split for the decoding, the pager's loop for the actions |
 | `src/pager/bands.rs` | state engine | `src/session/bands.rs` |
 | `src/pager/changes.rs` | state engine | `src/session/changes.rs` |
 | `src/pager/fade.rs` | state engine | `src/session/fade.rs` |
@@ -671,13 +688,13 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | `src/pager/warnings.rs` | state engine | `src/session/warnings.rs` |
 | `src/term/mod.rs` | platform | stays |
 | `src/term/answers.rs` | terminal layer | `src/present/answers.rs` |
-| `src/term/cell_query.rs` | terminal layer | `src/present/cell_query.rs` (arrives with `fix/reading-leftovers`) |
-| `src/term/clipboard.rs` | terminal layer | `src/present/clipboard.rs` (arrives with `fix/reading-leftovers`; it builds the OSC 52 bytes and writes them to an `impl Write`) |
-| `src/term/check.rs` | mixed | stays. Platform: asking kitty behind tmux, on the terminal. Terminal layer: reading what it answered, `lost` and `sequences`. E5 |
-| `src/term/detect.rs` | mixed | stays. Platform: `capabilities` and `examine`, which read the window, the environment and the probe's answer. Terminal layer: turning those into `Capabilities` (`with_probe`, `with_window`, `through_tmux`). E5 |
-| `src/term/probe.rs` | mixed | stays. Platform: sending the probe and reading the answer on the controlling terminal. Terminal layer: the text of the queries. E5 |
-| `src/term/tmux.rs` | mixed | stays. Platform: running `tmux` and reading its answer. Terminal layer: `Wrapping` and `passthrough`, which wrap kitty's sequences for tmux. E5 |
-| `src/term/window.rs` | mixed | stays. Platform: `window_size`, the ioctl. Terminal layer: `WindowSize`. E5 |
+| `src/term/cell_query.rs` | terminal layer | `src/present/cell_query.rs` (arrives with `fix/reading-leftovers`). It uses `tmux::passthrough`, which stays in `term/tmux.rs` until the terminal layer split |
+| `src/term/clipboard.rs` | terminal layer | `src/present/clipboard.rs` (arrives with `fix/reading-leftovers`; it builds the OSC 52 bytes and writes them to an `impl Write`). It uses `tmux::passthrough`, which stays in `term/tmux.rs` until the terminal layer split |
+| `src/term/check.rs` | mixed | stays. Platform: asking kitty behind tmux, on the terminal. Terminal layer: reading what it answered, `lost` and `sequences`. The terminal layer split |
+| `src/term/detect.rs` | mixed | stays. Platform: `capabilities` and `examine`, which read the window, the environment and the probe's answer. Terminal layer: turning those into `Capabilities` (`with_probe`, `with_window`, `through_tmux`). The terminal layer split |
+| `src/term/probe.rs` | mixed | stays. Platform: sending the probe and reading the answer on the controlling terminal. Terminal layer: the text of the queries. The terminal layer split |
+| `src/term/tmux.rs` | mixed | stays. Platform: running `tmux` and reading its answer. Terminal layer: `Wrapping` and `passthrough`, which wrap kitty's sequences for tmux. The terminal layer split |
+| `src/term/window.rs` | mixed | stays. Platform: `window_size`, the ioctl. Terminal layer: `WindowSize`. The terminal layer split |
 | `src/term/screen.rs` | platform | stays |
 | `src/term/screen/tests.rs` | platform | stays |
 | `src/term/progress.rs` | platform | stays |
@@ -698,35 +715,70 @@ debug.
 Once the move is done, a module's tests, its snapshots and its `tests/`
 directory go with it, and the table's paths are the final ones.
 
+V2 creates these files; they are not in the table above, because they do
+not exist yet. Each declares the modules that moved into its directory and
+exports the public surface of its part.
+
+| New file | What it is |
+|---|---|
+| `src/typeset/mod.rs` | new: the root of the typesetting engine |
+| `src/present/mod.rs` | new: the root of the terminal layer |
+| `src/session/mod.rs` | new: the root of the state engine |
+| `src/typeset/images/mod.rs` | new: declares `decode`, `drawn`, `heading` and `size`; the pure pieces of `images/mod.rs` arrive in it with loading and sessions |
+| `src/typeset/diagrams/mod.rs` | new: declares `language`, `math` and `mermaid`; the pure pieces of `diagrams/mod.rs` arrive in it with loading and sessions |
+
+V2 also changes the paths that name moved files elsewhere: `AGENTS.md`
+says that kitty's sequences live under `src/kitty/`, which becomes
+`src/present/kitty/`, and the sections of this document above name today's
+paths.
+
+### Exceptions to the direction
+
+An exception is code that uses a part below its own in the list of parts,
+or that does the work of another part. These are all of them today; each
+goes when the work named removes it. A script resolved every `crate::` and
+`super::` path in the non-test code of every file that the table puts
+wholly in a part, and found no other edge that points the wrong way. Edges
+into a mixed module go to its pieces in the right part (`images::ImageKey`,
+`diagrams::Drawn`, `config::SearchCase` and the like), which were checked by
+name.
+
+| Edge | Removed by |
+|---|---|
+| `caps.rs` (typesetting) uses `kitty::graphics::MAX_CELLS` (terminal layer) | giving `caps.rs` the constant, a small change of its own |
+| `diagrams/language.rs` and `diagrams/mermaid/mod.rs` (typesetting) use `diagrams::external::Output` (platform) | loading and sessions, which moves `Output` to the typesetting side |
+| `render/reading.rs` (typesetting) uses `render/loading.rs::dimmed`, which is in a mixed module | the terminal layer split, which keeps `dimmed` in typesetting |
+| `term/clipboard.rs` and `term/cell_query.rs` (terminal layer) use `term/tmux.rs::passthrough`, in a mixed module | the terminal layer split, which moves `passthrough` |
+| `reading/fonts.rs` (typesetting) loads and memory-maps system fonts | the font database |
+| `theme/file.rs` (typesetting) has `load`, which reads a file | the config split |
+
 ### Where a new thing goes
 
 New code goes where this map puts it. When the map has no place for it,
 that is a question for the maintainer, not a reason to add it to a hub
 file (`main.rs`, `pager/mod.rs`, `config.rs`, `render/mod.rs`,
 `render/layout/mod.rs`, `render/reading.rs`, `reading/page.rs`,
-`images/mod.rs` and `diagrams/mod.rs`).
+`images/mod.rs` and `diagrams/mod.rs`). **No path yet** means that the
+work named creates the place; until then, ask.
 
 | A new… | Goes in |
 |---|---|
-| command-line option | the platform's command-line code; today `Cli` in `src/main.rs` |
-| startup decision, such as whether a run pages | `src/session/plan.rs`, with unit tests (B4) |
-| key or action | the component's list of commands in the state engine (`src/session/`); until the commands are data (A2), `BINDINGS` in `src/pager/keys.rs` |
-| setting | the registry of setting keys, each with its owner, its effect and its medium (B5); until then `config.rs`, named after its owner |
-| use of a file, the network or a program | the platform's work runner (D3), and the trust decision in a `Policy` (B7); today `src/images/background.rs`, `src/images/pipeline.rs` and `src/diagrams/external.rs` |
-| block type or input format | the typesetting engine: the type in `src/typeset/model.rs`, parsing in `src/typeset/parse/`, its layout in `src/typeset/layout/`, and its reading mode layout in a file of its own in `src/typeset/reading/` (C7) |
+| command-line option | `src/cli.rs`, new, made by one route; until then `Cli` in `src/main.rs` |
+| startup decision, such as whether a run pages | `src/session/plan.rs`, new, made by the startup plan; take what it needs from the terminal as values |
+| key or action | `src/session/commands.rs`, new, made by commands as data; until then `BINDINGS` in `src/pager/keys.rs` |
+| setting | no path yet, the config split makes the registry of setting keys, each with its owner, its effect and its medium; until then `src/config.rs`, named after its owner |
+| use of a file, the network or a program | no path yet, loading and sessions makes the platform's work runner, and the trust policy a `Policy`; until then `src/images/background.rs`, `src/images/pipeline.rs` or `src/diagrams/external.rs` |
+| block type or input format | the typesetting engine's registry of block types and formats, no path yet (today `src/typeset/model.rs`, `src/typeset/parse/` and `src/typeset/layout/`); in reading mode a module per block type in `src/typeset/reading/`, new, made by reading mode's block modules |
 | diagram language | `src/typeset/diagrams/`: a file and one entry in `language.rs`; a program that draws it is run by the platform |
 | image format | the decoder in `src/typeset/images/decode.rs` |
 | theme or look setting | `src/typeset/theme/` |
-| warning | a `Diagnostic` with a code of its own (B3); today a `Warning` in `src/pager/mod.rs` |
-| highlight, or anything else that changes from frame to frame | a layer in the state engine (A3) |
-| panel, such as help or a file list | a document in the panel's look, built by the state engine (A4) |
+| warning | a `Diagnostic` with a code of its own, no path yet, made by diagnostics; until then a `Warning` in `src/pager/mod.rs` |
+| highlight, or anything else that changes from frame to frame | a layer, no path yet, made by layers, in the state engine (`src/session/`) |
+| panel, such as help or a file list | a document in the panel's look, no path yet, made by panels as documents, built in `src/session/` |
 | feature of the pager | a file of its own in `src/session/`, never a new branch in `src/pager/mod.rs` |
 | terminal feature | the I/O in `src/term/`, the bytes in the terminal layer (`src/present/`), and kitty's own sequences in `src/present/kitty/` |
 
-Steps named in the table: A2 makes commands and the key map data, A3 makes
-highlights layers, A4 makes panels documents, B3 replaces the warning types
-by one `Diagnostic`, B7 puts trust decisions in one `Policy`, and C7 splits
-reading mode's layout by block type.
+The paths marked new are for the maintainer to confirm.
 
 ### What `main.rs` is
 
