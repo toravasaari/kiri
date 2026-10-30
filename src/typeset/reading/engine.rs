@@ -10,8 +10,8 @@
 //!
 //! The layout of a page does not belong here, nor the painting of text,
 //! nor anything about escape sequences, files or fonts as I/O. The pixel
-//! layout is `reading/page.rs`, and a block kind of reading mode is a file
-//! of its own beside it.
+//! layout is `src/typeset/reading/page.rs`, and a block kind of reading mode
+//! is a file of its own beside it.
 //!
 //! Page layout and painting go to the typesetting engine's reading module
 //! (`src/typeset/reading/`), and bytes to the terminal layer

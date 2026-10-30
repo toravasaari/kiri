@@ -2,8 +2,9 @@
 //!
 //! This is the hub of rendering: `Inputs`, the options that decide how a
 //! document looks, and the entry points that lay a document out and write
-//! it to an `impl Write`. The two layout engines, the styled lines between
-//! layout and output, and the byte writers are the modules below it.
+//! it to an `impl Write`. The two layout engines and the styled lines between
+//! layout and output live in `src/typeset/`, and the byte writers in
+//! `src/present/`. Only `loading` is still below it.
 //!
 //! No layout rule, no escape sequence and no file access belongs in here.
 //! A new option is a field of `Inputs` only when layout reads it.
@@ -22,13 +23,12 @@ use crate::present::encoder::Encoder;
 use crate::present::output;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
-use crate::typeset::model::{Block, Document, File, FrontMatter, FrontMatterError};
-use crate::typeset::theme::Theme;
-
 use crate::typeset::images::size;
 use crate::typeset::layout;
+use crate::typeset::model::{Block, Document, File, FrontMatter, FrontMatterError};
 use crate::typeset::reading::engine;
 use crate::typeset::style;
+use crate::typeset::theme::Theme;
 
 /// Everything rendering takes besides the document. A new input gets a
 /// default in `new`, so callers that do not need it stay as they are.

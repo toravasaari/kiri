@@ -204,7 +204,7 @@ fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
 }
 
 /// The bars a quote or an alert puts in front of each of its lines
-/// (`src/render/layout/quote.rs`), which are an indent too, and the
+/// (`src/typeset/layout/quote.rs`), which are an indent too, and the
 /// borders of a table, which are the edges of its cells.
 const BARS: [char; 2] = ['│', '▎'];
 
