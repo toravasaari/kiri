@@ -64,7 +64,7 @@ Refactoring and small fixes that are not bugs go there too.
   with `cargo-about`; the syntax definitions and themes syntect bundles
   need a check of their own, as their licences are not in Cargo metadata.
   So do the five Octicons of reading mode's alerts
-  (`src/reading/octicons.rs`, MIT, Copyright (c) 2026 GitHub Inc.), whose
+  (`src/typeset/reading/octicons.rs`, MIT, Copyright (c) 2026 GitHub Inc.), whose
   outlines come from the Nerd Fonts symbols font that kitty bundles.
 
 ### 3.4 Render check (done)
@@ -1477,7 +1477,7 @@ reading away what arrives just before exiting, would fix it.
 
 #### B10 Text at a fraction cut too early
 
-Found in review. `cut` in `src/render/wrap.rs` measures text one
+Found in review. `cut` in `src/typeset/wrap.rs` measures text one
 grapheme at a time, and at a fraction each grapheme rounds up to a whole
 cell, so a heading or a sup cut to fit takes fewer letters than fit.
 Measuring the text kept, as `width` does, would fix it.
