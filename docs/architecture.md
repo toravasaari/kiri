@@ -588,8 +588,8 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | Module | Part | After the move |
 |---|---|---|
 | `src/lib.rs` | platform | stays; declares the three parts |
-| `src/main.rs` | mixed | stays. Platform: the command line, opening files and standard input, the shells, loading, the file reload. State engine: the decisions in `printing`, `pages_alone` and `surely_paged`, in the startup plan. Only `printing` is free of I/O: `pages_alone` asks whether stdout is a terminal, and `surely_paged` measures images and reads the window size. The plan takes these in as values read by `main.rs`. One route makes the one-file and many-files routes one |
-| `src/config.rs` | mixed | stays. Platform: reading the environment and the file, and resolving a setting from the flags, the environment, the file and its default. State engine: the setting types the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump`). The config split |
+| `src/main.rs` | mixed | stays. Platform: the command line, opening files and standard input, the shells, loading, the file reload. State engine: the decisions `printing`, `pages_alone`, `surely_paged` and `may_load_later`, in the startup plan. Only `printing` is free of I/O: `pages_alone` and `may_load_later` ask whether stdout is a terminal, and `surely_paged` measures images and reads the window size. The plan takes the answers in as values read by `main.rs`. One route makes the one-file and many-files routes one |
+| `src/config.rs` | mixed | stays. Platform: `Environment`, which reads the process's variables, the file, and resolving a setting from the flags, the environment, the file and its default. State engine: the setting types the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump`). Terminal layer: `Passthrough`, which only capability detection and the parser read. The terminal layer takes the variables it reads (`TMUX`, `TMUX_PANE`, `NO_COLOR` and the terminal variables) as values, not `Environment`. The config split |
 | `src/config/tests.rs` | follows `config.rs` | stays; goes with its pieces in the config split |
 | `src/doctor.rs` | platform | stays (it searches `PATH` through `diagrams::find`) |
 | `src/list.rs` | platform | stays (the `--list-emojis` shell) |
@@ -693,7 +693,7 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | `src/term/check.rs` | mixed | stays. Platform: asking kitty behind tmux, on the terminal. Terminal layer: reading what it answered, `lost` and `sequences`. The terminal layer split |
 | `src/term/detect.rs` | mixed | stays. Platform: `capabilities` and `examine`, which read the window, the environment and the probe's answer. Terminal layer: turning those into `Capabilities` (`with_probe`, `with_window`, `through_tmux`). The terminal layer split |
 | `src/term/probe.rs` | mixed | stays. Platform: sending the probe and reading the answer on the controlling terminal. Terminal layer: the text of the queries. The terminal layer split |
-| `src/term/tmux.rs` | mixed | stays. Platform: running `tmux` and reading its answer. Terminal layer: `Wrapping` and `passthrough`, which wrap kitty's sequences for tmux, and `Pane`, `prepare` and `ClientCells`, which take the run as a value. The terminal layer split |
+| `src/term/tmux.rs` | mixed | stays. Platform: running `tmux` and reading its answer, and `run_id`, which reads the process id and the clock. Terminal layer: `Wrapping` and `passthrough`, which wrap kitty's sequences for tmux, and `Pane`, `prepare` and `ClientCells`, which take the run as a value. The terminal layer split passes the run id in as a value |
 | `src/term/window.rs` | mixed | stays. Platform: `window_size`, the ioctl. Terminal layer: `WindowSize`. The terminal layer split |
 | `src/term/screen.rs` | platform | stays |
 | `src/term/screen/tests.rs` | platform | stays |
@@ -735,24 +735,26 @@ paths.
 ### Exceptions to the direction
 
 An exception is code that uses a part below its own in the list of parts,
-or that does the work of another part. Three kinds of place were checked:
-a script resolved every `crate::` and `super::` path in the non-test code of
-every file that the table puts wholly in a part, and found three wrong-way
-edges (the first two rows below); the pieces of the mixed modules were read
-by hand, which found the rest; and test code was not scanned, though one
-test edge is listed. The list is complete for what was checked, and a
-direction test that scans more must be checked against it. Edges from whole
-files into a mixed module go to the pieces named in its row.
+or that does the work of another part. This table lists the exceptions
+known today, each with the work that removes it. It is not a proof that
+there are no others. A script resolved every `crate::` and `super::` path
+in the non-test code of every file that the table puts wholly in a part,
+and found the first two rows; the rest were found by reading the pieces of
+mixed modules, and test code was not scanned. The direction test that the
+guards work adds will hold the complete list and check it. A mixed module
+is read by piece, so edges from whole files into one go to the pieces named
+in its row.
 
 | Edge | Removed by |
 |---|---|
 | `caps.rs` (typesetting) uses `kitty::graphics::MAX_CELLS` (terminal layer) | giving `caps.rs` the constant, a small change of its own |
 | `diagrams/language.rs` and `diagrams/mermaid/mod.rs` (typesetting) use `diagrams::external::Output` (platform) | loading and sessions, which moves `Output` to the typesetting side |
-| `render/reading.rs` (typesetting) uses `dimmed` from `render/loading.rs`, a mixed module | the terminal layer split, which moves `Ink::new` out and leaves `dimmed` in typesetting |
-| `render/loading.rs`: `Ink::new` (terminal layer) is built into the typesetting `Ink`, and `band` (typesetting) takes that `Ink` | the terminal layer split |
-| `term/clipboard.rs` and `term/cell_query.rs` (terminal layer) use `passthrough` from `term/tmux.rs`, a mixed module | the terminal layer split, which moves `passthrough` |
-| `Renderers` in `diagrams/mod.rs` (typesetting) holds `External`, which runs programs (platform) | loading and sessions, which splits the external choice from the built-in one |
-| `prefer` and `load_headings` in `pager/mod.rs` (state engine) use `Loads` (platform) | the pager's loop |
+| `Ink::new` in `render/loading.rs` (typesetting's `Ink`) takes the terminal layer's `output::Page` | the terminal layer split, which moves `Ink::new` to the terminal layer |
+| `term/clipboard.rs` and `term/cell_query.rs` (terminal layer) import `passthrough` from `term/tmux.rs`, which is at a platform path until the split | the terminal layer split, which moves `passthrough` |
+| `pages_alone` and `may_load_later` (state engine) call `term::stdout_is_terminal` (platform) | the startup plan, which takes the answer as a value |
+| `surely_paged` (state engine) calls `images::measure_in_background` and `term::window_size` (platform) | the startup plan, which takes the measure and the window size as values |
+| `detect` in `term/detect.rs` (terminal layer) calls `tmux::run_id` (platform) | the terminal layer split, which passes the run id in |
+| `term/detect.rs` and `term/tmux.rs` (terminal layer) take `config::Environment` (platform) and `Passthrough` | the config split and the terminal layer split: `Passthrough` moves to the terminal layer, and the variables are passed as values |
 | `reading/fonts.rs` (typesetting) loads and memory-maps system fonts | the font database |
 | `theme/file.rs` (typesetting) has `load`, which reads a file | the config split |
 | the tests of `render/reading.rs` (typesetting) use `render/output.rs` (terminal layer) | the terminal layer split, or moving the tests |
