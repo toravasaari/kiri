@@ -224,9 +224,11 @@ matches exactly, unless `search_case = "literal"` in the
 [configuration file](docs/config.md#search-case) makes every search exact.
 The search looks at the lines as they are laid out, so a phrase broken
 over two lines is not found, and neither is the alt text of an image that
-is shown. Tab and Shift+Tab select a link on the screen, in reverse video,
-and the status line says where it goes; Enter copies its address to the
-clipboard, and Escape lets it go. Following a link in kiri is planned.
+is shown. Where the terminal shows links as hyperlinks (inside tmux, only
+with its hyperlinks feature, see above), Tab and Shift+Tab select a link on
+the screen, in reverse video, and the status line says where it goes; Enter
+copies its address to the clipboard, and Escape lets it go. Following a link
+in kiri is planned.
 
 `r` reads the file again, such as after an editor saved it. The view stays
 at the same block, or goes to the new end when it was at the end, and only
