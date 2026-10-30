@@ -1046,7 +1046,7 @@ Covered by G1.10.1.
 
 #### G1.9 Layouts side by side
 
-- G1.9.1 A test that lays out documents in both layouts and compares
+- G1.9.1 (done) A test that lays out documents in both layouts and compares
   what each decided per block, with a list of the differences that are
   meant. Seven differences nobody chose come first: list bullets from
   the third level, the heading rule, heading sizes, numbered task lists,
