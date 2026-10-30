@@ -132,8 +132,8 @@ impl Links {
 /// numbered from the pages' own lists for the pages, so that a link keeps
 /// its id whether or not a band shows it now; `lines` are where its cells
 /// are, none while it has none, and `band_at` where to scroll its band to.
-/// A link in text is the run of spans sharing one link (one `Rc`, so two
-/// links to one address stay apart), and one that wraps is one link.
+/// A link in text is what `text_links` finds: spans side by side on a line
+/// with one address, and one that wraps is one link.
 fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
     // The lines that have cells of each link of a page.
     let mut cells: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
@@ -219,43 +219,49 @@ fn is_edge(span: &Span) -> bool {
 type TextLink = (Rc<str>, Vec<(usize, Range<usize>)>);
 
 /// The links in the spans of `lines`, each by its address and the spans of
-/// each line it is on. A link continues from the line before when that
-/// has it at the end of a cell, the same link, of the same block: nothing
-/// but blanks come after it there up to the cell's edge (a table's border
-/// or the end of the line), and before it here back to the cell's edge,
-/// such as an indent in a list or a quote. A cell is the same one when as
-/// many edges come before the link on both lines.
+/// each line it is on. Spans side by side on a line with one address are
+/// one link, as the terminal shows them as one hyperlink. A link continues
+/// from the line before when that has it at the end of a cell, as the same
+/// link (one `Rc`, so two links to one address stay apart, as the rows of
+/// a table do), of the same block: nothing but blanks come after it there
+/// up to the cell's edge (a table's border or the end of the line), and
+/// before it here back to the cell's edge, such as an indent in a list or
+/// a quote. A cell is the same one when as many edges come before the link
+/// on both lines.
 fn text_links(lines: &[Line]) -> Vec<TextLink> {
     let blank = |spans: &[Span]| spans.iter().all(|span| span.text.trim().is_empty());
     let mut links: Vec<TextLink> = Vec::new();
-    // The links the line before ends a cell with, and the cell of each.
-    let mut open: Vec<(usize, usize)> = Vec::new();
+    // The links the line before ends a cell with, the cell of each, and the
+    // link of the last span of each.
+    let mut open: Vec<(usize, usize, Rc<str>)> = Vec::new();
     for (index, line) in lines.iter().enumerate() {
         let carried = std::mem::take(&mut open);
-        // The runs of spans that are of one link.
-        let mut runs: Vec<(Rc<str>, Range<usize>)> = Vec::new();
+        // The runs of spans that are of one address, with the link of the
+        // first span and of the last.
+        let mut runs: Vec<(Rc<str>, Rc<str>, Range<usize>)> = Vec::new();
         if line.image.is_none() {
             for (at, span) in line.spans.iter().enumerate() {
                 let Some(url) = &span.style.link else {
                     continue;
                 };
                 match runs.last_mut() {
-                    Some((last, range)) if range.end == at && Rc::ptr_eq(last, url) => {
+                    Some((_, last, range)) if range.end == at && **last == **url => {
+                        *last = Rc::clone(url);
                         range.end = at + 1
                     }
-                    _ => runs.push((Rc::clone(url), at..at + 1)),
+                    _ => runs.push((Rc::clone(url), Rc::clone(url), at..at + 1)),
                 }
             }
         }
-        for (url, range) in runs {
+        for (url, last, range) in runs {
             let (before, after) = (&line.spans[..range.start], &line.spans[range.end..]);
             let cell = before.iter().filter(|span| is_edge(span)).count();
             let edge = before.iter().rposition(is_edge).map_or(0, |at| at + 1);
             let goes_on = carried
                 .iter()
-                .find(|&&(link, kept)| kept == cell && Rc::ptr_eq(&links[link].0, &url))
+                .find(|(_, kept, above)| *kept == cell && Rc::ptr_eq(above, &url))
                 .filter(|_| lines[index - 1].block == line.block && blank(&before[edge..]))
-                .map(|&(link, _)| link);
+                .map(|&(link, ..)| link);
             let link = match goes_on {
                 Some(link) => link,
                 None => {
@@ -265,7 +271,7 @@ fn text_links(lines: &[Line]) -> Vec<TextLink> {
             };
             let end = after.iter().position(is_edge).unwrap_or(after.len());
             if blank(&after[..end]) {
-                open.push((link, cell));
+                open.push((link, cell, last));
             }
             links[link].1.push((index, range));
         }
@@ -463,6 +469,30 @@ mod tests {
             let found = identify(&lines, &places);
             let urls: Vec<&str> = found.iter().map(|found| found.url.as_str()).collect();
             assert_eq!(urls, ["u", "u", "v"], "{columns}");
+        }
+    }
+
+    #[test]
+    fn spans_of_one_address_side_by_side_on_a_line_are_one_link() {
+        // The terminal shows one hyperlink there, so Tab marks all of it.
+        let (lines, places) = text("Text [aaaa](u)**[bbbb](u)** end.\n");
+        let found = identify(&lines, &places);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].url, "u");
+        let [(line, range)] = found[0].runs.as_slice() else {
+            panic!("one run: {:?}", found[0].runs);
+        };
+        let shown: String = lines[*line].spans[range.clone()]
+            .iter()
+            .map(|span| span.text.as_str())
+            .collect();
+        assert_eq!(shown, "aaaabbbb");
+        // Also where it wraps over lines, at any width.
+        let source = "A [aaaa bbbb cccc](u)**[dddd eeee](u)** end.\n";
+        for columns in [10, 14, 80] {
+            let (lines, places) = text_in(source, columns);
+            let found = identify(&lines, &places);
+            assert_eq!(found.len(), 1, "{columns}");
         }
     }
 

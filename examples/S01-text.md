@@ -233,6 +233,10 @@ where it goes. Enter copies its address to the clipboard, Shift+Tab selects
 the one before, and Escape lets it go. The link stays selected while either
 of its lines is on the screen.
 
+A link written in two parts of one style change is still one link:
+[plain part](https://example.com/parts)**[bold part](https://example.com/parts)**
+is underlined as one link, and Tab selects both parts in one step.
+
 Inside tmux the link opens just as it does outside, once tmux.conf has
 the line `set -as terminal-features ',xterm-kitty:hyperlinks'` (for
 kitty), tmux has read it, and you have detached and attached again.
