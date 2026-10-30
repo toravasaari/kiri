@@ -590,10 +590,6 @@ The later work that the rows name, in words:
   policy, reading mode's block modules:** later work that the map below
   names, for the places that do not exist yet.
 
-A few files arrive with the branch `fix/reading-leftovers`, which is not
-merged yet: `present/cell_query.rs`, `present/clipboard.rs` and
-`pager/tests/links.rs`. They have rows too.
-
 | Module | Part | After the move |
 |---|---|---|
 | `src/lib.rs` | platform | stays; declares the three parts |
@@ -673,7 +669,7 @@ merged yet: `present/cell_query.rs`, `present/clipboard.rs` and
 | `src/pager/tests/files.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/following.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/images.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
-| `src/pager/tests/links.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop (arrives with `fix/reading-leftovers`) |
+| `src/pager/tests/links.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/loading.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/paging.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/reading.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
@@ -697,8 +693,8 @@ merged yet: `present/cell_query.rs`, `present/clipboard.rs` and
 | `src/pager/warnings.rs` | state engine | moved to `src/session/warnings.rs` |
 | `src/term/mod.rs` | platform | stays |
 | `src/term/answers.rs` | terminal layer | moved to `src/present/answers.rs` |
-| `src/term/cell_query.rs` | terminal layer | moved to `src/present/cell_query.rs` (arrives with `fix/reading-leftovers`). It uses `tmux::passthrough`, which stays in `term/tmux.rs` until the terminal layer split |
-| `src/term/clipboard.rs` | terminal layer | moved to `src/present/clipboard.rs` (arrives with `fix/reading-leftovers`; it builds the OSC 52 bytes and writes them to an `impl Write`). It uses `tmux::passthrough`, which stays in `term/tmux.rs` until the terminal layer split |
+| `src/term/cell_query.rs` | terminal layer | moved to `src/present/cell_query.rs`. It uses `tmux::passthrough`, which stays in `term/tmux.rs` until the terminal layer split |
+| `src/term/clipboard.rs` | terminal layer | moved to `src/present/clipboard.rs` (it builds the OSC 52 bytes and writes them to an `impl Write`). It uses `tmux::passthrough`, which stays in `term/tmux.rs` until the terminal layer split |
 | `src/term/check.rs` | mixed | stays. Platform: asking kitty behind tmux, on the terminal. Terminal layer: reading what it answered, `lost` and `sequences`. The terminal layer split |
 | `src/term/detect.rs` | mixed | stays. Platform: `capabilities` and `examine`, which read the window, the environment and the probe's answer. Terminal layer: turning those into `Capabilities` (`with_probe`, `with_window`, `through_tmux`). The terminal layer split |
 | `src/term/probe.rs` | mixed | stays. Platform: sending the probe and reading the answer on the controlling terminal. Terminal layer: the text of the queries. The terminal layer split |
