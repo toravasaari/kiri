@@ -1,5 +1,5 @@
 ---
-source: src/reading/page.rs
+source: src/typeset/reading/page.rs
 expression: drawn(&page)
 ---
 text 14 6 51.710938 "Name"
