@@ -735,29 +735,29 @@ exports the public surface of its part.
 ### Exceptions to the direction
 
 An exception is code that uses a part below its own in the list of parts,
-or that does the work of another part. This table lists the exceptions
-known today, each with the work that removes it. It is not a proof that
-there are no others. A script resolved every `crate::` and `super::` path
-in the non-test code of every file that the table puts wholly in a part,
-and found the first two rows; the rest were found by reading the pieces of
-mixed modules. The direction rules and this table cover non-test code
-only: test modules may use any part. The direction test that the guards
-work adds will hold the complete list and check it. A mixed module
-is read by piece, so edges from whole files into one go to the pieces named
-in its row.
+or that does the work of another part. `tests/guard_direction.rs` holds
+the complete list of the crossings between files, each with the work that
+removes it, and `make check` fails on a crossing that is not on the list
+or on a listed one that is gone. A file's part is its directory's, and a
+reference into a mixed platform module (`images`, `diagrams`, `render`,
+`pager`, `config`, `term`) from a part above the platform is a crossing
+too. The rules cover non-test code only: test modules may use any part.
 
-| Edge | Removed by |
+The crossings in the list fall into these kinds:
+
+| Kind | Removed by |
 |---|---|
-| `typeset/caps.rs` (typesetting) uses `present::kitty::graphics::MAX_CELLS` (terminal layer) | giving `caps.rs` the constant, a small change of its own |
-| `typeset/diagrams/language.rs` and `typeset/diagrams/mermaid/mod.rs` (typesetting) use `diagrams::external::Output` (platform) | loading and sessions, which moves `Output` to the typesetting side |
-| `Ink::new` in `render/loading.rs` (typesetting's `Ink`) takes the terminal layer's `output::Page` | the terminal layer split, which moves `Ink::new` to the terminal layer |
-| `present/clipboard.rs` and `present/cell_query.rs` (terminal layer) import `passthrough` from `term/tmux.rs`, which is at a platform path until the split | the terminal layer split, which moves `passthrough` |
-| `pages_alone` and `may_load_later` (state engine) call `term::stdout_is_terminal` (platform) | the startup plan, which takes the answer as a value |
-| `surely_paged` (state engine) calls `images::measure_in_background` and `term::window_size` (platform) | the startup plan, which takes the measured layout (or the window rows) and the window size as values |
-| `detect` in `term/detect.rs` (terminal layer) calls `tmux::run_id` (platform) | the terminal layer split, which passes the run id in |
-| `term/detect.rs` and `term/tmux.rs` (terminal layer) take `config::Environment` (platform) and `config::Passthrough` (a setting type) | the terminal layer split, which passes the variables and the `Passthrough` value as arguments |
-| `typeset/reading/fonts.rs` (typesetting) loads and memory-maps system fonts | the font database |
-| `typeset/theme/file.rs` (typesetting) has `load`, which reads a file | the config split |
+| typesetting uses `images`, `diagrams`, or the platform parts of `render` | loading and sessions; the terminal layer split for `render` |
+| typesetting uses the font loading in `images/svg.rs` | the font database |
+| typesetting uses `present::kitty::graphics` | a small change of its own, giving `caps.rs` the constant |
+| the terminal layer uses `term::tmux`, `render::loading`, `pager::keys` or `images` | the terminal layer split; loading and sessions |
+| the state engine uses `config` | the config split |
+| the state engine uses `pager::keys` or `pager::Warning` | commands as data; the pager's loop |
+
+The test reads files by directory, so it does not see a crossing inside a
+mixed module that goes to another part, such as `Ink::new` in
+`render/loading.rs` or `pages_alone` in `main.rs`. Those are named in the
+rows of the table above, with the work that removes them.
 
 ### Where a new thing goes
 
