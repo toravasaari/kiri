@@ -141,6 +141,46 @@ fn a_reload_loads_an_image_file_again_only_when_its_modification_time_changed() 
 }
 
 #[test]
+fn a_reload_in_reading_mode_loads_an_image_in_the_text_again_when_its_file_changed() {
+    let scratch = Scratch::new("pipeline-stamps-inline");
+    write_png(&scratch.join("a.png"), 4, 2, 1000);
+    let settings = settings(&["/bin/false"]);
+    let loading = Loading {
+        env: &Environment::default(),
+        settings: &settings,
+        max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
+        theme: Theme::Light,
+        formula: FormulaColors::default(),
+        largest: None,
+        headings: None,
+    };
+    let document = crate::parse::parse("Words ![x](a.png) in a line.\n");
+    let parts = [Part {
+        inline_images: true,
+        ..alone(&document, &scratch)[0]
+    }];
+    let mut stamps = Stamps::of(&parts);
+    let mut images = load_documents(&parts, &loading, None).unwrap().images;
+    assert_eq!(size_of(&images, "a.png"), (4, 2));
+
+    // The same time: the file is taken as it was.
+    write_png(&scratch.join("a.png"), 6, 3, 1000);
+    let mut loads = Loads::new();
+    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    assert_eq!(size_of(&images, "a.png"), (4, 2));
+    assert!(loads.is_empty());
+
+    write_png(&scratch.join("a.png"), 6, 3, 2000);
+    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    assert!(images.is_empty());
+    let came = until(&mut loads, &"a.png".into());
+    assert!(
+        matches!(&came[..], [(_, Ok(image))] if image.size() == (6, 3)),
+        "{came:?}"
+    );
+}
+
+#[test]
 fn a_reload_loads_an_image_whose_file_was_missing_when_it_appears() {
     let scratch = Scratch::new("pipeline-stamps-missing");
     let settings = settings(&["/bin/false"]);

@@ -244,6 +244,10 @@ An image in the middle of a line, such as this one of 24 pixels
 row <img src="S06b-pattern.png" width="16" alt="one"> <img
 src="S06b-pattern.png" width="16" alt="two">, stands in the line on its
 baseline, and makes the line taller than the text if it is taller.
+After `r`, or when the pager reloads the file by itself, such an image
+is loaded again if its file changed meanwhile, as an image on a line of
+its own is: replace `S06b-pattern.png` with another picture, press `r`,
+and the badge in the line shows the new one.
 
 A formula in the middle of a line, such as $\frac{a}{b}$ or $x^2 + y^2$,
 is drawn in the line in the colour of the text, as large as the text

@@ -765,10 +765,11 @@ pub fn diagram_languages<'a>(document: &'a Document, renderer: &dyn Renderer) ->
         .collect()
 }
 
-/// The URLs of the images `document` shows as image blocks.
-fn lone_urls(document: &Document) -> Vec<&str> {
+/// The URLs of the images `document` shows as image blocks, and with
+/// `inline`, those in the middle of text too.
+fn shown_urls(document: &Document, inline: bool) -> Vec<&str> {
     let mut wanted = Vec::new();
-    collect_blocks(&document.blocks, &NoRenderer, (None, false), &mut wanted);
+    collect_blocks(&document.blocks, &NoRenderer, (None, inline), &mut wanted);
     (wanted.into_iter())
         .filter_map(|image| match image {
             Wanted::Url(url) => Some(url),

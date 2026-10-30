@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 
 use super::url::local_file;
-use super::{ImageError, ImageKey, Images, Part, Source, lone_urls};
+use super::{ImageError, ImageKey, Images, Part, Source, shown_urls};
 
 /// The modification time of the file behind each image of the documents
 /// shown, when the image was last loaded: `None` for a file that could not
@@ -51,7 +51,7 @@ impl Stamps {
 fn modified_times(parts: &[Part<'_>]) -> HashMap<ImageKey, Option<SystemTime>> {
     let mut times = HashMap::new();
     for part in parts {
-        for url in lone_urls(part.document) {
+        for url in shown_urls(part.document, part.inline_images) {
             let Some(path) = local_file(url, part.base) else {
                 continue;
             };
