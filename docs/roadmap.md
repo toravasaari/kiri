@@ -1300,22 +1300,27 @@ display with either tmux. That tmux client's features were
 the image ids in the placeholders' 24-bit colour depend on. A row on
 the edge of two 30-row parts of a page is another suspect.
 
-#### B12 The pager blank after a resize under load
-
-Seen once on a virtual display with the machine under heavy load: after
-the window was resized in reading mode, the pager stayed blank.
-
-Seen again while checking B11, without load: in reading mode in tmux,
-after kitty's font size changed, the first frame showed only the status
-line, twice in a row. The page came back with the next key. In tmux on
-a terminal that does not tell its pixels, the first frame at start was
-blank too, in 5 of 11 starts, also before the B11 fix; it stayed blank
-for 24 seconds without a key.
-
 ### Upstream bugs
 
 Bugs in projects kiri uses, which kiri works around until they are fixed
 there.
+
+#### kitty on a virtual display leaves images undrawn
+
+kitty 0.47.1 on Xvfb, drawing with llvmpipe, often leaves the images of
+a large first frame undrawn: the placeholders are on the screen, kitty
+answers that it holds the images, and they show as soon as something
+wakes kitty, such as `kitty @ ls` or `kitty @ get-text`. A write to the
+terminal does not wake it. It happens without tmux and with
+`kitten icat` too, so it is kitty's, and it has not been seen in kitty
+on a real display. Reading mode in the pager, whose first frame sends
+two large images, came up blank in more than half of its starts.
+
+This was B12, a blank pager after a resize under load, after a font
+change and at start in tmux, all seen on a virtual display. kiri does
+not work around it. The render-check skill waits for the pager by
+asking kitty for its text, which wakes kitty, so its screenshots are
+not blank.
 
 #### resvg and the SVG that mmdc writes
 
