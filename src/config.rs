@@ -16,10 +16,12 @@
 //!
 //! The intent is that a feature keeps its own type, in the part that uses
 //! it, and this file only names and resolves it. It still holds the types
-//! the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump`) and
-//! `Passthrough`, which only capability detection reads; `Passthrough`
-//! goes to the terminal layer, and the terminal layer takes the variables
-//! it reads as values, not `Environment`. The placement map in
+//! the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump`).
+//! `Passthrough` stays a setting type with them, though capability
+//! detection, the command line and `--doctor` read it; capability detection
+//! takes its value, and the variables it reads (`TMUX`, `TMUX_PANE`,
+//! `NO_COLOR`, `COLORTERM`, `TERM_PROGRAM` and `VTE_VERSION`), as
+//! arguments, not `Environment`. The placement map in
 //! docs/architecture.md says where a setting goes.
 
 use std::collections::{BTreeMap, BTreeSet};
