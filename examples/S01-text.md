@@ -233,7 +233,8 @@ where it goes. Enter copies its address to the clipboard, Shift+Tab selects
 the one before, and Escape lets it go. The link stays selected while either
 of its lines is on the screen.
 
-A link written in two parts of one style change is still one link:
+Two links to one address that touch, with no space between them, are one
+link on one line, even when the style changes between them:
 [plain part](https://example.com/parts)**[bold part](https://example.com/parts)**
 is underlined as one link, and Tab selects both parts in one step.
 
