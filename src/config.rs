@@ -4,6 +4,19 @@
 //!
 //! Everything here takes the environment as a value, so the rules can be
 //! tested without touching the process environment.
+//!
+//! This file owns the names of the settings, the environment variables
+//! and the configuration file, and the rule that picks a setting from the
+//! flags, the environment, the file and its default. It is a hub that
+//! every new setting has so far been added to.
+//!
+//! What a setting does does not belong here: no code that uses the value,
+//! no I/O beyond reading the file and the environment, and no type that
+//! only one feature reads.
+//!
+//! The feature keeps its own type, in the part that uses it, and this
+//! file only names and resolves it. The placement map in
+//! docs/architecture.md says where a setting goes.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};

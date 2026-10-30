@@ -5,6 +5,20 @@
 //! drawing. It knows nothing about terminals: the image loader decodes it
 //! as it does an image file, and another backend could use the same
 //! image.
+//!
+//! This file owns the types a diagram renderer is spoken to in, a
+//! request, a drawing and the `Renderer` trait, and the choice among the
+//! renderers kiri has. Today it also draws several diagrams at once on
+//! threads.
+//!
+//! A diagram language does not belong here, nor a renderer, nor a way to
+//! find or run a program. The languages are files of their own beside this
+//! one, with one entry each in `language.rs`.
+//!
+//! A new language goes to the typesetting engine (`src/typeset/diagrams/`)
+//! when kiri draws it itself. Running a program, finding one and the
+//! threads belong to the platform's work runner (`src/diagrams/` stays
+//! with them). The placement map in docs/architecture.md has the paths.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;

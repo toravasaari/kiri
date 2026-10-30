@@ -1,5 +1,20 @@
 //! The interactive pager: the document on a screen of its own, scrolled
 //! with keys.
+//!
+//! This is the hub of the pager: the state of a pager run and the loop
+//! that reads keys, applies reloads and loads, and draws. The features
+//! live in the files beside it (search, links, bands, status, files and
+//! the rest); this file only routes between them.
+//!
+//! A new feature does not go in here, and nor does a new key, a new
+//! overlay or a new piece of state of one feature. Neither does file,
+//! network or program access, which the pager reaches only through the
+//! traits and handles it is given.
+//!
+//! A feature is a file of its own in the state engine (`src/session/`); a
+//! key is a binding there. Work on files and programs belongs to the
+//! platform (`src/main.rs` and the rest of `src/`), and bytes for the
+//! terminal to the terminal layer (`src/present/`).
 
 mod bands;
 pub mod changes;

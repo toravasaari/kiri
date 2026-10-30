@@ -1,3 +1,17 @@
+//! The kiri binary: the platform's entry point. It owns the command line,
+//! choosing what to show and how (print, interactive, one file or many),
+//! opening files and standard input, and starting the image loads and the
+//! pager with the settings and the terminal's capabilities. It wires the
+//! parts of the library together and does the I/O that they must not do.
+//!
+//! What does not belong here is a decision that needs no I/O, such as
+//! whether a run pages, nor a rule about a document, a key or a setting. A
+//! new function is a sign that the code has no place yet, not a place.
+//!
+//! Such decisions go to the state engine (`src/session/`), settings to
+//! `config.rs`, and bytes for the terminal to the terminal layer
+//! (`src/present/`). The placement map in docs/architecture.md says which.
+
 use std::cell::Cell;
 use std::fs::File;
 use std::io::{self, Cursor, Read, Write};
