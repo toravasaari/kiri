@@ -1168,6 +1168,13 @@ go.
 - Enter on a link selected with Tab in reading mode (4.15.5) opens it in
   the browser, as a click on the link does in kitty. kiri would need a
   program to open it with, such as `xdg-open` from a setting.
+- The current search match fading in reading mode as it does in the
+  text layout. The marks are drawn into the page's images, so each step
+  of the fade would draw and send the page again.
+- A faster first `M` on a document opened as text: reading mode's layout
+  could be made ready in the background while the text is shown.
+- A setting that keeps tables and code blocks in reading mode to the
+  column's width instead of the wider area (4.15.2).
 
 ## Bugs
 
