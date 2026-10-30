@@ -8,13 +8,12 @@
 //!
 //! This file owns the types a diagram renderer is spoken to in, a
 //! request, a drawing and the `Renderer` trait, and the choice among the
-//! renderers kiri has. Today it also holds the program runner: `Renderers`
-//! owns the `External` renderer, and several diagrams are drawn at once on
-//! threads.
+//! renderers kiri has. Today it also holds `Renderers`, which owns the
+//! program renderer `External`, and the parallel run on threads.
 //!
 //! A diagram language does not belong here, nor a new renderer, nor a new
-//! way to find or run a program. The languages are files of their own beside this
-//! one, with one entry each in `language.rs`.
+//! way to find or run a program. The languages are files of their own
+//! beside this one, with one entry each in `language.rs`.
 //!
 //! A new language goes to the typesetting engine (`src/typeset/diagrams/`)
 //! when kiri draws it itself. Running a program, finding one and the
