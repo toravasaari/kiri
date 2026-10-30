@@ -2389,6 +2389,9 @@ fn same_style(a: &Run, b: &Run) -> bool {
 }
 
 #[cfg(test)]
+pub(crate) mod summary;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::typeset::parse::parse;
