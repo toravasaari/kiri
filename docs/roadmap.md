@@ -1236,7 +1236,7 @@ Needs G3.4.1.
 
 #### G6.4 Map, move and guards
 
-- G6.4.1 A placement map in `docs/architecture.md`: four parts, each
+- G6.4.1 (done) A placement map in `docs/architecture.md`: four parts, each
   module's place, and where a new thing goes; module docs at the top of
   the large files; rules on placement in `AGENTS.md`.
 - G6.4.2 The modules that belong wholly to one part moved into it, with
