@@ -270,8 +270,7 @@ cannot be selected or copied there. A long code line or a wide table
 wraps; with `--wide scroll`, or `W` in the pager, it keeps its lines
 whole and scrolls sideways with the arrow keys. In the pager `/` marks
 the matches in the page, and Tab selects a link, which kitty opens as
-it does any link; Enter copies the selected link's address. Reading mode
-is experimental, and its options' names may still change.
+it does any link; Enter copies the selected link's address.
 
 Front matter that does not parse shows as `⚠ 1` on the status line,
 with the message above it for a few seconds.

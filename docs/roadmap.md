@@ -196,6 +196,8 @@ Needs G1.2 to G1.4.
 
 #### 4.3.3 Renderers from the configuration file
 
+Needs G5.1, G5.2 and G5.3.
+
 - A code block in any language drawn by a program that the configuration
   file names: a way out when kiri has no support of its own for a rare
   format. Each renderer is a table under `[diagrams]`, and the table's
@@ -246,7 +248,7 @@ Needs G1.2 to G1.4.
 
 ### 4.4 Animation and video
 
-Needs G2.2.
+Needs G2.2, G7.3.2 for time and G7.3.3 for what it watches.
 
 - Animated GIF, WebP and APNG, played by kitty itself.
 - Video (WebM, MP4, AVI and others) through ffmpeg when it is installed.
@@ -303,6 +305,8 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 
 #### 4.6.4 Reload
 
+Its open items need G7.3.1.
+
 - Reload with `r`, for a lone document read from a file. The view
   stays at the block that was at the top, found by comparing the two
   versions (G1.6), so a block added above it does not move it; a view at
@@ -317,6 +321,8 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 
 #### 4.6.5 Moving around
 
+Needs G1.10.2, G7.2.3 and G7.2.4.
+
 - A table of contents, anchor jumps and back history.
 - In print mode, without the pager: `--toc` puts a table of contents with
   links at the top of the document.
@@ -329,6 +335,8 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 
 #### 4.6.6 Link selection
 
+Following a link is done with G7.2.4.
+
 - Choosing a link with the keyboard and following it; a Markdown target
   opens in an overlay window, as in 4.5. Choosing is done, and so is
   copying the address with Enter: Tab and Shift+Tab select a link on the
@@ -337,6 +345,8 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   is open.
 
 #### 4.6.7 Copying
+
+Needs G1.10.2.
 
 - Code blocks can be copied to the clipboard (OSC 52): in the pager with a
   key, and in print mode through a link beside the block that kitty's
@@ -351,6 +361,8 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   and spans the width of the status line.
 
 #### 4.6.9 Follow mode
+
+Its open items, and watching the config files, need G7.3.3.
 
 - Follow, for a lone document read from a file, such as one Claude is
   working on in the next window: it reloads on every change without a
@@ -398,6 +410,8 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 
 #### 4.6.10 Changes as a diff
 
+Needs G1.8.2 and G1.10.3.
+
 - Changes shown as a diff, added text green and removed text red, fading
   out slowly: after a reload, and against a git revision.
 
@@ -409,6 +423,8 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 ### 4.7 Other input formats
 
 #### 4.7.1 Formats
+
+Needs G2.6.2 and G2.6.3.
 
 - reStructuredText, Org, AsciiDoc, possibly through pandoc.
 - Jupyter notebooks (`.ipynb`): Markdown cells, code cells with syntax
@@ -423,6 +439,8 @@ own and leaves the shell's scrollback as it was, as `bat` does through
   `--doctor`.
 
 #### 4.7.2 Large files
+
+Needs G1.10.2 and G1.11.2.
 
 - Lazy layout, so that a large file, such as a CSV export, opens at once
   and takes little memory: only the source and where each line starts are
@@ -533,6 +551,8 @@ GitHub's Markdown first, then what is common elsewhere.
 
 #### 4.10.1 Links within the document
 
+Needs G1.10.2 and G7.2.4.
+
 - Heading anchors as GitHub makes them, so a link such as `[see](#install)`
   leads to its heading; the pager jumps there (4.6).
 - Footnotes (`[^1]`), listed at the end of the document as in a browser,
@@ -542,6 +562,8 @@ GitHub's Markdown first, then what is common elsewhere.
   Needs the heading anchors above and anchor jumps in the pager (4.6.5).
 
 #### 4.10.2 HTML tags
+
+Opening and closing `<details>` needs G1.11.2 and G7.3.4.
 
 - `<details>` and `<summary>` are shown open, the summary in bold after a
   triangle, also nested and inside lists and quotes. (done)
@@ -668,6 +690,8 @@ The counterpart of several files (4.9.2) for images.
 
 #### 4.12.8 Remote images
 
+Needs G7.3.3 and G5.3.
+
 - Images from URLs, as many other viewers show them. `https:` URLs and
   the local machine, also over `http:`, are fetched by default; the local
   network, such as a home network or a Docker network, also over `http:`,
@@ -704,9 +728,13 @@ split once it is worked on.
 
 ### 4.14 Menu
 
+Needs G5.2, G7.2.2 and G7.2.4; the help comes with G7.2.3, and the theme among the options needs G1.8.1 and G2.5.1 too.
+
 A menu in the pager, from which its keys and settings can be found.
 
 #### 4.14.1 Keys by kind
+
+Done with G7.2.3, which needs G7.2.2.
 
 - The help panel in sections, such as moving, searching and several
   files, so it stays the same whatever is shown and the keys of one kind
@@ -718,9 +746,13 @@ A menu in the pager, from which its keys and settings can be found.
 
 #### 4.14.2 Themes on the fly
 
+Needs G1.8.1, G2.5.1, G2.5.2 and G5.2.
+
 - Changing the theme (4.11) from the menu while the document is shown.
 
 #### 4.14.3 Remote images from the menu
+
+Needs G7.3.3 and G5.3.
 
 - Allowing remote images from the local network (4.12.8) from the menu,
   for the document shown or for good, as a browser asks for it.
@@ -729,7 +761,7 @@ A menu in the pager, from which its keys and settings can be found.
 
 Text in a proportional font, drawn as images, so that a document reads
 the way GitHub shows it in a browser: `--reading`, or `M` in the pager,
-both experimental. Selection and copying are given up in this mode. The
+a core feature of kiri. Selection and copying are given up in this mode. The
 layout is kiri's own, on parley, with the fonts resvg already loads.
 
 #### 4.15.1 Text (done)
@@ -810,15 +842,19 @@ the terminals it is tested in.
 
 #### 5.1.2 Sixel
 
-- Sixel images, as foot, Konsole, xterm and others draw them. Needs G3.3.
+- Sixel images, as foot, Konsole, xterm and others draw them. Needs G3.3, G3.4.1 and G2.6.1.
 - `--doctor` lists the image protocols probed.
 
 #### 5.1.3 iTerm2's protocol
+
+Needs G3.4.1 and G2.6.1.
 
 - Images through iTerm2's protocol, in iTerm2 and the terminals that
   follow it.
 
 #### 5.1.4 Block characters
+
+Needs G3.4.1 and G2.6.1.
 
 - Images as coloured Unicode block characters where no image protocol
   works.
@@ -909,6 +945,8 @@ or in other terminals, from the best to the plainest.
 
 ### 5.4 HTML backend
 
+Needs G1.10.1, G2.6.1, G6.3.2, G7.3.1 and G7.3.2.
+
 - An HTML backend and `kiri serve` for reading in a browser with live
   reload.
 
@@ -918,6 +956,8 @@ or in other terminals, from the best to the plainest.
   rasterising engine comes with reading mode (4.15).
 
 ### 5.6 Editing support
+
+Needs G1.10.1 for byte ranges and G7.3.1 for handing the terminal over.
 
 - An editor and kiri side by side in kitty with live reload, and a key to
   open the editor at the current position.
@@ -954,6 +994,8 @@ A part that needs one names it, such as "needs G1.3".
 
 #### G1.4 Images in a line
 
+Needs G1.11.1 and G2.6.4.
+
 - A span can be the cells of an image instead of text: which image, how
   many columns and rows it covers, and the row its baseline is on. The
   wrapper keeps it whole, and its alt text or source is what search
@@ -980,11 +1022,62 @@ A part that needs one names it, such as "needs G1.3".
 
 #### G1.7 Lines know their nested block
 
+Covered by G1.10.1.
+
 - The layout marks the blocks inside lists, quotes and alerts as it
   marks those inside `<details>`, so each laid-out line knows the
   innermost block it comes from. Today a change inside a list counts as
   a change of the whole list: auto-follow (4.6.9) goes to the list's
   start, and `most` counts all of its rows.
+
+#### G1.8 One look and layers
+
+- G1.8.1 One look, resolved from the theme in one place and read by both
+  layouts, instead of decisions spread over the theme, the text layout
+  and reading mode; spacing as a table for each medium, with reading
+  mode's GitHub values as the pixel table. Carries out the decisions on
+  the differences G1.9.1 finds.
+- G1.8.2 Highlights as layers: one list of layers with a paint
+  vocabulary and an order, which each layout paints in its own way, for
+  the colouring after a reload, search matches, the selected link and
+  the selected band. First tests for the cases that meet: a match on a
+  coloured line, a match and the selected link on one page, Esc with
+  both, and which message the status line shows.
+
+#### G1.9 Layouts side by side
+
+- G1.9.1 A test that lays out documents in both layouts and compares
+  what each decided per block, with a list of the differences that are
+  meant. Seven differences nobody chose come first: list bullets from
+  the third level, the heading rule, heading sizes, numbered task lists,
+  dimmed quotes, table rows and table style, and `mark`, `sub` and `sup`.
+- G1.9.2 Reading mode's layout split into modules by block type, as the
+  text layout's is (G1.1), with every snapshot byte for byte the same.
+- G1.9.3 The grid builders and the sharing out of widths written once,
+  for cells and pixels alike.
+- G1.9.4 One document driver: both layouts lay out whole documents side
+  by side, instead of the text layout handing blocks to reading mode.
+
+#### G1.10 Positions and identity
+
+- G1.10.1 Each node of the document gets a stable id, a stable hash and
+  its byte range in the source, for blocks and spans.
+- G1.10.2 Positions in the document for search, links, colouring and
+  changes, the same in both layouts; reading mode's pages get stable ids;
+  search runs once over the document's text.
+- G1.10.3 Comparing two versions (G1.6) by the nodes' hashes.
+
+#### G1.11 The layout's queries
+
+- G1.11.1 One contract for the lines of both layouts, with a block's
+  decorations (bars, frames) on the lines' lead and trail.
+- G1.11.2 The layout answers a fixed set of queries: its rows for a
+  range, its height, where a range of the document is, what is at a
+  cell, its text, and the images it needs. The image plan moves under
+  the last of these. With it, a test that lazy layout gives the same as
+  laying out everything, before 4.7.2.
+- G1.11.3 Layout in pieces by block, with reading mode's tiles cut along
+  them.
 
 ### G2 Images
 
@@ -1007,6 +1100,8 @@ A part that needs one names it, such as "needs G1.3".
 
 #### G2.3 Images kitty drops
 
+Needs G3.4.2.
+
 - kitty keeps about 320 MiB of images per screen and drops the oldest
   past that. Since the pager does not send an image again, a dropped one
   stays blank until its pixels or size change. It takes a document with
@@ -1016,10 +1111,29 @@ A part that needs one names it, such as "needs G1.3".
 
 #### G2.4 One send for images with the same pixels
 
+Needs G2.6.2.
+
 - Two images with the same pixels share an id, yet each is sent, so that
   print mode writes what it always has. Sending a shared id once saves
   the bytes, also when a reload changes both, but it changes the print
   snapshots where pixels repeat.
+
+#### G2.5 Image keys
+
+- G2.5.1 Image keys that name every input, a test first for each: the
+  diagram's page colour and a formula's colours, the heading's look, and
+  the code theme and fonts in reading mode's page key.
+- G2.5.2 One font database, loaded once by the platform and given to
+  what draws, with its fingerprint in the keys that depend on it.
+
+#### G2.6 Embeds and renditions
+
+- G2.6.1 An image block as an embed that offers more than one rendition,
+  with every snapshot byte for byte the same.
+- G2.6.2 Image keys become rendition keys.
+- G2.6.3 Mermaid as an embed.
+- G2.6.4 Embeds in a line: images and formulas inside text, shown as text
+  in the text layout until G1.4.
 
 ### G3 Terminal
 
@@ -1036,10 +1150,19 @@ A part that needs one names it, such as "needs G1.3".
 
 #### G3.3 The image protocol as a capability
 
+Needs G3.4.1.
+
 - `Capabilities.graphics` names the image protocol instead of a yes or
   no. The probe already keeps the terminal's answers, and `--doctor`
   shows its name and version; the device attributes, where sixel support
   shows, are not read yet.
+
+#### G3.4 The terminal layer
+
+- G3.4.1 A terminal layer that does no I/O: what is shown as a scene,
+  turned into rows and the parts that changed, written to any writer.
+- G3.4.2 A ledger of the images the terminal holds, kept from its
+  answers, and the image protocol as a choice the layer makes (G3.3).
 
 ### G4 Build
 
@@ -1069,8 +1192,21 @@ A part that needs one names it, such as "needs G1.3".
 - Internal names match the keys, such as `diagram_panel` for
   `background_panel`, and environment values are read the same way
   everywhere: `KIRI_NO_IMAGES` takes a wrong value without a warning.
+- Each setting declared once, with the module that reads it, what a
+  change of it needs (paint only, a new layout, the images again, the
+  display, the next start) and its medium (cells, pixels, both), instead
+  of being repeated in seven places.
 - Some settings exist only as a flag (`--width`) or only in the file
-  (`search_case`); decide which belong on every level.
+  (`search_case`). General settings, which matter without the pager too
+  (`-P`), get a flag of their own and belong on every level. Settings of
+  how the pager works, such as `search_case`, need no flag: they change
+  in the file and later in the menu (4.14).
+
+#### G5.3 Trust in one place
+
+- G5.3.1 One policy for what kiri may read and run, starting with the ban
+  on remote images moved out of the image URL code with no visible
+  change. Done at the start of its first user, 4.3.3 or 4.12.8.
 
 ### G6 Code
 
@@ -1087,9 +1223,40 @@ A part that needs one names it, such as "needs G1.3".
 - `kiri -h` gives each option one short line; `kiri --help` shows the
   details below it.
 
+#### G6.3 Purity by types
+
+- G6.3.1 The decisions kiri makes at start, taken out of `main.rs` into a
+  module of their own with unit tests; the answers that need I/O come in
+  as values.
+- G6.3.2 What layout gives is `Send + Sync`: no `Rc`, caches owned by
+  the caller, a pixel type of kiri's own, and a snapshot of the public
+  surface.
+- G6.3.3 Clippy's list of banned methods as a guard for the parts that
+  do no I/O, once G7.3.1 and G7.3.2 are done.
+
+#### G6.4 Map, move and guards
+
+- G6.4.1 A placement map in `docs/architecture.md`: four parts, each
+  module's place, and where a new thing goes; module docs at the top of
+  the large files; rules on placement in `AGENTS.md`.
+- G6.4.2 The modules that belong wholly to one part moved into it, with
+  paths and nothing else changed.
+- G6.4.3 Guards in `make check`: Clippy's limit on function length, line
+  caps for the large files, and a test of which part may refer to which.
+  With them, the pseudo-terminal tests wait on a condition instead of a
+  fixed time.
+
+#### G6.5 One route
+
+- G6.5.1 One file shown as the special case of several, so that
+  `main.rs`'s pairs of functions for one file and for several become
+  one; the differences between the two are tested first and kept.
+
 ### G7 Pager
 
 #### G7.1 Every warning in the pager
+
+Needs G7.2.1.
 
 - The warning mark on the status line and the messages above it, which
   front matter warnings get in 4.6.9, for every warning: a diagram that
@@ -1100,6 +1267,37 @@ A part that needs one names it, such as "needs G1.3".
   many show, and for how long, to be looked at again.
 - With the menu (4.14), a key such as `e` opens the warnings in a tab of
   their own.
+
+#### G7.2 The pager's vocabulary
+
+- G7.2.1 One type for warnings, with where each came from, instead of
+  the five ways warnings travel now.
+- G7.2.2 Commands and keys as data, each with its topic; the help panel
+  built from them; Esc as one message that what is open answers.
+- G7.2.3 The help as a document in a panel that scrolls, by topic,
+  opening at the topic of what is in view (4.14.1).
+- G7.2.4 Typed targets in the pager, a link one of them, with following
+  a link (4.6.6) and a link's title.
+
+#### G7.3 Control
+
+- G7.3.1 The pager's loop as messages and effects: one step from a
+  message to the effects it asks for, and the loop waits, steps and
+  draws.
+- G7.3.2 A simulated terminal for the pager's tests, with a virtual
+  clock and files in memory, instead of most pseudo-terminal tests;
+  with it, a fixed test theme and real terminals' probe answers as
+  fixtures.
+- G7.3.3 A session that holds the sources, their versions and the views;
+  the images it wants and what it watches replace the background loads'
+  six entries and follow mode's polling, with one watcher for the
+  document, its images, the config and the theme.
+- G7.3.4 The pager's core rules as named functions with tests: finding a
+  place, bringing it into view, the status line's place and the stack of
+  panels.
+- G7.3.5 A screen model for the simulated terminal that knows kitty:
+  the byte stream turned into a grid with image placements and scaled
+  text.
 
 ## Uncategorized (extras)
 
@@ -1166,13 +1364,15 @@ go.
   sees where they are and remembers places by their shape. Search
   matches, headings and the changes that following finds could be marked
   on it too. An image where the terminal draws images, braille
-  characters elsewhere, as code-minimap draws them.
+  characters elsewhere, as code-minimap draws them. Needs G1.11.2
+  and G7.3.3.
 - Documentation sites read without a build step, as Read the Docs shows
   them: a directory of Markdown files, or one described by an
   `mkdocs.yml`, read with its navigation beside the page in the pager,
   or served to a browser by `kiri serve` (5.4). It would build on
   several files (4.9.2), heading anchors (4.10.1), the table of contents
-  (4.6.5) and resolving links across a vault (4.13).
+  (4.6.5) and resolving links across a vault (4.13). Needs G7.2.3,
+  G7.2.4 and G7.3.3.
 - Enter on a link selected with Tab in reading mode (4.15.5) opens it in
   the browser, as a click on the link does in kitty, instead of copying
   its URL. kiri would need a program to open it with, such as
