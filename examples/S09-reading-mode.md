@@ -220,6 +220,12 @@ the status line says `link copied` for a moment; paste it somewhere to
 check. With no link selected, or the selected one off the screen, Enter
 scrolls down a line. Escape lets the link go.
 
+An address too long for the status line is cut in the middle, with `…`
+where the cut is, so that both its start and its end show, as that of
+[a link with a long address](https://example.com/a/very/long/address/that/does/not/fit/on/the/status/line/of/a/window/of/usual/width/index.html?with=a&query=string)
+does when Tab selects it: the address on the status line begins with
+`https://example.com/` and ends with `query=string`.
+
 With `--wide scroll`, Tab reaches the links in a band too, also while the
 band is scrolled so that the link is out of its view: the last cell of
 the table too wide has one, "link", beyond the band's right edge at

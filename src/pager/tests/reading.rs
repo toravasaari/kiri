@@ -642,3 +642,25 @@ fn tab_selects_a_link_in_a_band_scrolled_out_of_view_and_scrolls_the_band_to_it(
     // On round, the band scrolled back to the first.
     assert_eq!(told.get(3), Some(&Some("https://one.example/".to_owned())));
 }
+
+#[test]
+fn the_status_line_cuts_a_long_link_in_the_middle() {
+    let url = "https://example.org/a/very/long/path/that/goes/on/and/on/to/the/page.html";
+    let document = crate::parse::parse(&format!("A [link]({url}) in a line.\n"));
+    let mut terminal = Fake::new(60, 10, &[b"\t", b""]);
+    let mut inputs = Inputs {
+        reading: Some(reading()),
+        ..Inputs::new(kitty())
+    };
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let frames = terminal.frames();
+    let bar = frames[1].rsplit("\x1b[10;1H").next().unwrap_or("");
+    assert!(bar.contains("https://example.org/"), "{bar:?}");
+    assert!(bar.contains("…"), "{bar:?}");
+    assert!(bar.contains("/page.html"), "{bar:?}");
+}

@@ -438,6 +438,27 @@ fn a_message_too_long_for_the_window_loses_its_end() {
 }
 
 #[test]
+fn a_link_too_long_for_the_window_loses_its_middle() {
+    let url = "https://example.org/a/very/long/path/to/the/page.html";
+    let spans = spans(
+        "notes.md",
+        None,
+        at(42),
+        Follow::Off,
+        Some(Found::Link(url)),
+        40,
+        &styles(),
+    );
+    // Its start and its end stay: the host and the page.
+    assert_eq!(text(&spans), " kiri  https://examp…he/page.html   42% ");
+    assert_eq!(width(&spans), 40);
+    // One that fits is whole.
+    let short = Some(Found::Link("https://example.org/"));
+    let spans = super::spans("notes.md", None, at(42), Follow::Off, short, 40, &styles());
+    assert_eq!(text(&spans), " kiri  …s.md https://example.org/   42% ");
+}
+
+#[test]
 fn a_flash_shows_the_current_match_number_apart() {
     let flash = Some(Found::At {
         term: "kiri",

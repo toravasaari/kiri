@@ -185,6 +185,8 @@ pub enum Found<'a> {
         message: &'a str,
         fading: Option<Style>,
     },
+    /// Where the selected link goes.
+    Link(&'a str),
 }
 
 /// The status line for the document `name` at `position`, with what was
@@ -239,6 +241,10 @@ pub fn spans(
                 message: &told,
                 fading,
             })
+        }
+        Some(Found::Link(url)) => {
+            told = middle(&printable(url), (width - fixed).saturating_sub(3));
+            Some(Found::Link(&told))
         }
         found => found,
     };
@@ -333,6 +339,27 @@ fn head(text: &str, max: usize) -> String {
     format!("{}…", style::text(&kept))
 }
 
+/// `text` in at most `max` cells, with the middle left out for `…` when it
+/// does not fit: the start and the end are what tells a link apart.
+fn middle(text: &str, max: usize) -> String {
+    if text.width() <= max {
+        return text.to_owned();
+    }
+    if max < 3 {
+        return head(text, max);
+    }
+    // The `…` takes a cell; the start gets the odd one of the rest.
+    let kept = max - 1;
+    let start = wrap::cut(vec![Span::new(text, Style::default())], kept - kept / 2);
+    let end = wrap::tail(text, kept / 2 + 1);
+    let end = if end.is_empty() {
+        "…".to_owned()
+    } else {
+        end
+    };
+    format!("{}{end}", style::text(&start))
+}
+
 /// The spans that tell what was `found`: the term and the place among
 /// its matches, or that it is nowhere.
 fn search(found: Found, styles: &Styles) -> Vec<Span> {
@@ -352,6 +379,7 @@ fn search(found: Found, styles: &Styles) -> Vec<Span> {
             span(&format!("/{total}")),
         ],
         Found::Nowhere(term) => vec![span(&format!("not found: {}", printable(term)))],
+        Found::Link(url) => vec![span(url)],
         Found::Told { message, fading } => vec![match fading {
             Some(style) => Span::new(message, style),
             None => span(message),

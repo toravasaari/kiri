@@ -1506,10 +1506,7 @@ impl State {
         }
         // Where the selected link goes.
         if let Some(url) = link {
-            return Some(status::Found::Told {
-                message: url,
-                fading: None,
-            });
+            return Some(status::Found::Link(url));
         }
         let search = self.search.as_ref()?;
         if self.nowhere {
