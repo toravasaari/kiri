@@ -229,10 +229,10 @@ does when Tab selects it: the address on the status line begins with
 With `--wide scroll`, Tab reaches the links in a band too, also while the
 band is scrolled so that the link is out of its view: the last cell of
 the table too wide has one, "link", beyond the band's right edge at
-first in a window of usual width. Tab, with the table on the screen, selects it after the
-links above it, and the band scrolls until the link is in view, with its
-box round it; Tab on from there goes on to the link after it, and
-Shift+Tab back.
+first in a window of usual width. Tab, with the table on the screen,
+selects it after the links above it, and the band scrolls until the link
+is in view, with its box round it; Tab on from there goes on to the link
+after it, and Shift+Tab back.
 
 ## Images, diagrams and formulas
 

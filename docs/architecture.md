@@ -283,9 +283,9 @@ the scrolling.
 Shift+Tab, numbering them from the page's own list so that a link keeps its
 id while a band scrolls, and the status line says where it goes. Tab
 also reaches a link whose band is scrolled so that it is out of view, and
-scrolls the band to it as a search match does. Enter
-copies the selected link's URL with OSC 52 (`src/term/clipboard.rs`),
-wrapped in tmux's passthrough where the images are.
+scrolls the band to it as a search match does. Enter copies the selected
+link's URL with OSC 52 (`src/term/clipboard.rs`), wrapped in tmux's
+passthrough where the images are.
 `Reading` also holds a cache of the pictures scaled for the last layout,
 by image, its pixels and size, so that a layout scales only what is new
 and lets go of what it did not show.
