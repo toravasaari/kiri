@@ -330,7 +330,11 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 #### 4.6.6 Link selection
 
 - Choosing a link with the keyboard and following it; a Markdown target
-  opens in an overlay window, as in 4.5.
+  opens in an overlay window, as in 4.5. Choosing is done, and so is
+  copying the address with Enter: Tab and Shift+Tab select a link on the
+  screen in the text as in reading mode (4.15.5), in reverse video, and
+  a link in a heading drawn as an image cannot be selected. Following it
+  is open.
 
 #### 4.6.7 Copying
 

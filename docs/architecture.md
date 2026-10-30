@@ -281,7 +281,11 @@ which kitty opens as it does a link in text; in a band the cells move with
 the scrolling.
 `src/pager/links.rs` selects one of the links on the screen with Tab and
 Shift+Tab, numbering them from the page's own list so that a link keeps its
-id while a band scrolls, and the status line says where it goes. Tab
+id while a band scrolls, and the status line says where it goes. In the
+text layout a link is the run of spans that share a hyperlink address, one
+that wraps being one link, numbered in the block it starts in, and the
+selected one is drawn in reverse video by `search::mark`; a link in a
+heading drawn as an image has no spans, so it is not there to select. Tab
 also reaches a link whose band is scrolled so that it is out of view, and
 scrolls the band to it as a search match does. Enter copies the selected
 link's URL with OSC 52 (`src/term/clipboard.rs`), wrapped in tmux's

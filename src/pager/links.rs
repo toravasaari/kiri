@@ -1,7 +1,8 @@
-//! Reading mode's links in the pager: which of the links on the screen is
-//! selected, by Tab and Shift+Tab. A link in a page is a hyperlink, which
-//! kitty opens on its own; the selection draws a box round it and the
-//! status line says where it goes.
+//! The links in the pager: which of the links on the screen is selected,
+//! by Tab and Shift+Tab. A link is a hyperlink, which kitty opens on its
+//! own; the selection draws a box round it in a page of reading mode and
+//! shows it in reverse video in text, and the status line says where it
+//! goes.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -9,7 +10,7 @@ use std::rc::Rc;
 
 use crate::render::block::BlockInfo;
 use crate::render::reading;
-use crate::render::style::Line;
+use crate::render::style::{Line, Span};
 
 /// A link, by the block its first line is in and its number among the
 /// links of that block, so that it is found again in a new layout.
@@ -19,12 +20,15 @@ type LinkId = (Option<BlockInfo>, usize);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Found {
     id: LinkId,
-    /// The page it is on, by the address of its parts, and its number among
-    /// the page's links.
-    pub link: (usize, usize),
+    /// For a link in a page of reading mode, the page it is on, by the
+    /// address of its parts, and its number among the page's links.
+    pub link: Option<(usize, usize)>,
     pub url: String,
     /// The lines that have cells of it, none while it has none.
     lines: Vec<usize>,
+    /// For a link in text, the spans of each of its lines, which are
+    /// consecutive and of the link alone.
+    pub runs: Vec<(usize, Range<usize>)>,
     /// For a link in a band, the line it is on and the pixels it covers
     /// across the band's content, to scroll the band to it.
     pub band_at: Option<(usize, Range<u32>)>,
@@ -34,6 +38,13 @@ impl Found {
     /// Whether the link is in a band that shows none of its cells.
     pub fn is_scrolled_out(&self) -> bool {
         self.lines.is_empty() && self.band_at.is_some()
+    }
+
+    /// The line the link comes first on, for putting it in order among
+    /// the others.
+    fn first(&self) -> usize {
+        let band = self.band_at.as_ref().map(|(line, _)| *line);
+        self.lines.first().copied().or(band).unwrap_or(usize::MAX)
     }
 
     /// Whether the link is on the lines `visible`: any of its cells is, or
@@ -117,12 +128,14 @@ impl Links {
     }
 }
 
-/// The links of the pages on `lines`, each once, in order, numbered from
-/// the pages' own lists, so that a link keeps its id whether or not a band
-/// shows it now; `lines` are where its cells are, none while it has none,
-/// and `band_at` where to scroll its band to.
+/// The links of the pages and the text on `lines`, each once, in order,
+/// numbered from the pages' own lists for the pages, so that a link keeps
+/// its id whether or not a band shows it now; `lines` are where its cells
+/// are, none while it has none, and `band_at` where to scroll its band to.
+/// A link in text is the run of spans with one address, and one that
+/// wraps is one link.
 fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
-    // The lines that have cells of each link.
+    // The lines that have cells of each link of a page.
     let mut cells: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
     for (index, line) in lines.iter().enumerate() {
         for link in line.image.iter().flat_map(|image| &image.links) {
@@ -133,22 +146,25 @@ fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
         }
     }
     let mut counted: Vec<(Option<BlockInfo>, usize)> = Vec::new();
+    // The number of a link among those of the block it first comes in.
+    let mut number_in =
+        |place: &Option<BlockInfo>| match counted.iter_mut().find(|(kept, _)| kept == place) {
+            Some((_, count)) => {
+                *count += 1;
+                *count - 1
+            }
+            None => {
+                counted.push((place.clone(), 1));
+                0
+            }
+        };
     let mut found = Vec::new();
     for page in reading::pages(lines) {
         let address = Rc::as_ptr(&page.parts) as usize;
         for (number, link) in page.parts.links().iter().enumerate() {
             let at = (page.lines.start + page.parts.link_row(number)).min(page.lines.end - 1);
             let place = places.get(at).cloned().flatten();
-            let nth = match counted.iter_mut().find(|(kept, _)| *kept == place) {
-                Some((_, count)) => {
-                    *count += 1;
-                    *count - 1
-                }
-                None => {
-                    counted.push((place.clone(), 1));
-                    0
-                }
-            };
+            let nth = number_in(&place);
             // Where to scroll its band to, to show the first piece of it.
             let band_at = link.band.and(link.pieces.first()).map(|piece| {
                 let (start, end) = (piece.x.floor().max(0.0), (piece.x + piece.width).ceil());
@@ -156,14 +172,95 @@ fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
             });
             found.push(Found {
                 id: (place, nth),
-                link: (address, number),
+                link: Some((address, number)),
                 url: link.url.to_string(),
                 lines: cells.remove(&(address, number)).unwrap_or_default(),
+                runs: Vec::new(),
                 band_at,
             });
         }
     }
+    let in_pages = !found.is_empty();
+    for (url, runs) in text_links(lines) {
+        let first = runs[0].0;
+        let place = places.get(first).cloned().flatten();
+        let mut on: Vec<usize> = runs.iter().map(|(line, _)| *line).collect();
+        on.dedup();
+        found.push(Found {
+            id: (place.clone(), number_in(&place)),
+            link: None,
+            url: url.to_string(),
+            lines: on,
+            runs,
+            band_at: None,
+        });
+    }
+    // Pages and text are not mixed in a layout as a rule; when they are,
+    // the links follow the lines.
+    if in_pages && found.iter().any(|found| found.link.is_none()) {
+        found.sort_by_key(Found::first);
+    }
     found
+}
+
+/// The bars a quote or an alert puts in front of each of its lines
+/// (`src/render/layout/quote.rs`), which are an indent too.
+const BARS: [char; 2] = ['│', '▎'];
+
+/// Whether `span` only indents the line: blanks, or the bar of a quote.
+fn is_indent(span: &Span) -> bool {
+    (span.text.chars()).all(|c| c.is_whitespace() || BARS.contains(&c))
+}
+
+/// A link in text: its address and the spans of each line it is on.
+type TextLink = (Rc<str>, Vec<(usize, Range<usize>)>);
+
+/// The links in the spans of `lines`, each by its address and the spans of
+/// each line it is on. A link continues from the line before when that
+/// ends with it, and this one starts with it and is of the same block:
+/// nothing but blanks come after it there, and before it here only an
+/// indent, as in a list or a quote.
+fn text_links(lines: &[Line]) -> Vec<TextLink> {
+    let blank = |spans: &[Span]| spans.iter().all(|span| span.text.trim().is_empty());
+    let mut links: Vec<TextLink> = Vec::new();
+    // The link the line before ends with.
+    let mut open: Option<usize> = None;
+    for (index, line) in lines.iter().enumerate() {
+        let carried = open.take();
+        // The runs of spans that share an address.
+        let mut runs: Vec<(Rc<str>, Range<usize>)> = Vec::new();
+        if line.image.is_none() {
+            for (at, span) in line.spans.iter().enumerate() {
+                let Some(url) = &span.style.link else {
+                    continue;
+                };
+                match runs.last_mut() {
+                    Some((last, range)) if range.end == at && last == url => range.end = at + 1,
+                    _ => runs.push((Rc::clone(url), at..at + 1)),
+                }
+            }
+        }
+        let count = runs.len();
+        for (n, (url, range)) in runs.into_iter().enumerate() {
+            let goes_on = (carried.filter(|_| n == 0)).filter(|&link| {
+                links[link].0 == url
+                    && lines[index - 1].block == line.block
+                    && line.spans[..range.start].iter().all(is_indent)
+            });
+            let link = match goes_on {
+                Some(link) => link,
+                None => {
+                    links.push((url, Vec::new()));
+                    links.len() - 1
+                }
+            };
+            if n + 1 == count && blank(&line.spans[range.end..]) {
+                open = Some(link);
+            }
+            links[link].1.push((index, range));
+        }
+    }
+    links
 }
 
 #[cfg(test)]
@@ -252,10 +349,121 @@ mod tests {
         assert_eq!(found.url, "u2");
         // The page of the new layout, not the old one.
         let old = links.selected(&lines, &places).unwrap();
-        assert_ne!(found.link.0, old.link.0);
+        assert_ne!(found.link.unwrap().0, old.link.unwrap().0);
         // A document without it has no selection to show.
         let (other, places_other) = laid_out("Nothing here.\n");
         assert_eq!(links.selected(&other, &places_other), None);
+    }
+
+    /// `source` laid out as text in 40 columns, with the blocks of its
+    /// lines.
+    fn text(source: &str) -> (Vec<Line>, Vec<Option<BlockInfo>>) {
+        let document = crate::parse::parse(source);
+        let inputs = Inputs::new(Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(40)
+        });
+        let Stream { lines, blocks } = content(Content::Document(&document), &inputs);
+        let places = (lines.iter())
+            .map(|line| line.block.map(|id| blocks.get(id).clone()))
+            .collect();
+        (lines, places)
+    }
+
+    const TEXT: &str = "First [one](u1) and [two](u2)[three](u3) then [a long link text that wraps over lines](u4) end.\n\n> A quote with [a link that wraps over two lines in a quote](u5).\n\n- Item [six](u6)\n- Item [six](u6) again\n\nNo links.\n";
+
+    #[test]
+    fn links_in_text_are_found_in_order_a_wrapped_one_once_and_adjacent_ones_apart() {
+        let (lines, places) = text(TEXT);
+        let found = identify(&lines, &places);
+        let urls: Vec<&str> = found.iter().map(|found| found.url.as_str()).collect();
+        assert_eq!(urls, ["u1", "u2", "u3", "u4", "u5", "u6", "u6"]);
+        // A wrapped link has cells on each of its lines, one after the
+        // other, and the others on one.
+        let lines_of = |found: &Found| found.lines.len();
+        assert_eq!(
+            found.iter().map(lines_of).collect::<Vec<_>>(),
+            [1, 1, 1, 2, 2, 1, 1]
+        );
+        assert_eq!(found[3].lines[1], found[3].lines[0] + 1);
+        // Each has an id of its own, which a new layout of the same
+        // document gives it again.
+        let (again, places_again) = text(TEXT);
+        let ids = |found: &[Found]| {
+            found
+                .iter()
+                .map(|found| found.id.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids(&identify(&again, &places_again)), ids(&found));
+        let all = ids(&found);
+        for (at, id) in all.iter().enumerate() {
+            assert!(!all[at + 1..].contains(id), "{id:?} twice");
+        }
+    }
+
+    #[test]
+    fn tab_cycles_through_the_links_of_the_text_on_the_screen() {
+        let (lines, places) = text(TEXT);
+        let found = identify(&lines, &places);
+        let mut links = Links::default();
+        let selected = |links: &Links| urls(links.selected(&lines, &places));
+        let all = 0..lines.len();
+        for expected in ["u1", "u2", "u3", "u4", "u5", "u6", "u6", "u1"] {
+            assert!(links.select_next(&lines, &places, all.clone(), false) || expected == "u1");
+            assert_eq!(selected(&links).as_deref(), Some(expected));
+        }
+        assert!(links.select_next(&lines, &places, all.clone(), true));
+        assert_eq!(selected(&links).as_deref(), Some("u6"));
+        // A screen with the wrapped link's second line, and a link before
+        // and after it: the cycle is over those three alone.
+        let screen = found[3].lines[1]..found[4].lines[0] + 1;
+        let mut links = Links::default();
+        for expected in ["u4", "u5", "u4"] {
+            assert!(links.select_next(&lines, &places, screen.clone(), false));
+            assert_eq!(selected(&links).as_deref(), Some(expected));
+        }
+        // None on a screen without a link.
+        let last = lines.len() - 1;
+        assert!(!Links::default().select_next(&lines, &places, last..last + 1, false));
+    }
+
+    #[test]
+    fn a_link_in_a_heading_drawn_as_an_image_cannot_be_selected() {
+        use crate::images::{ImageKey, Source, heading_words};
+        use crate::model::Block;
+        let document = crate::parse::parse("# A [link](u1) here\n\nBody [other](u2)\n");
+        let Block::Heading {
+            level,
+            content: words,
+        } = &document.blocks[0]
+        else {
+            panic!("a heading");
+        };
+        let words = heading_words(words);
+        let count = u16::try_from(words.len()).unwrap();
+        let mut inputs = Inputs::new(Capabilities {
+            text_sizing: false,
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(40)
+        });
+        let key = ImageKey::heading_of(*level, words, (10, 20)).in_document(0);
+        let image = image::RgbaImage::from_pixel(u32::from(count) * 40, 20, image::Rgba([9; 4]));
+        let text = Source::Text {
+            image,
+            breaks: (1..count).map(|word| word * 40).collect(),
+            ends: (1..=count).map(|word| word * 40 - 10).collect(),
+        };
+        inputs.images.insert(key, Ok(text));
+        let Stream { lines, blocks } = content(Content::Document(&document), &inputs);
+        let heading = lines.iter().filter(|line| line.image.is_some()).count();
+        assert!(heading > 0, "the heading is drawn as an image");
+        let places: Vec<_> = (lines.iter())
+            .map(|line| line.block.map(|id| blocks.get(id).clone()))
+            .collect();
+        let found = identify(&lines, &places);
+        let urls: Vec<&str> = found.iter().map(|found| found.url.as_str()).collect();
+        assert_eq!(urls, ["u2"]);
     }
 
     /// A document whose first link is long enough to wrap, a tail after it.

@@ -1482,7 +1482,7 @@ impl State {
         marks: &Marks,
         fade: Option<Fade>,
         tint: Option<Tint>,
-        link: Option<(usize, usize)>,
+        link: Option<&links::Found>,
     ) -> Vec<Line> {
         let search = self.search.as_ref().filter(|_| self.shown);
         let mut marked: Vec<Line> = (first..)
@@ -1496,9 +1496,16 @@ impl State {
                     }
                     _ => line,
                 };
-                match search {
-                    Some(search) => search::mark(line, &search.on(index), marks, fade),
-                    None => line.clone(),
+                // The selected link's spans on the line, when it has some.
+                let selected = (link.iter().flat_map(|link| &link.runs))
+                    .find(|(at, _)| *at == index)
+                    .map(|(_, spans)| spans.clone());
+                match (search, selected) {
+                    (Some(search), selected) => {
+                        search::mark(line, &search.on(index), marks, fade, selected)
+                    }
+                    (None, Some(selected)) => search::mark(line, &[], marks, fade, Some(selected)),
+                    (None, None) => line.clone(),
                 }
             })
             .collect();
@@ -1507,7 +1514,9 @@ impl State {
         for page in crate::render::reading::pages(&marked) {
             let address = std::rc::Rc::as_ptr(&page.parts) as usize;
             let marks = search.map_or_else(Vec::new, |search| search.in_page(address));
-            let link = link.filter(|link| link.0 == address).map(|link| link.1);
+            let link = (link.and_then(|link| link.link))
+                .filter(|link| link.0 == address)
+                .map(|link| link.1);
             if let Some(overlay) = page.parts.overlay(marks, link) {
                 crate::render::reading::set_overlay(&mut marked[page.lines], Some(&overlay));
             }
@@ -1606,7 +1615,7 @@ impl Layout<'_> {
                 self.marks,
                 fade,
                 self.rgb.and_then(|rgb| state.tint(now, rgb, self.columns)),
-                link.as_ref().map(|link| link.link),
+                link.as_ref(),
             ),
             status: self.status.spans(
                 self.view,

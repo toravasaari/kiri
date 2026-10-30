@@ -206,18 +206,29 @@ impl Marks {
 /// match starts or ends in is split there. In text at a fraction the split
 /// moves out to the ends of the packed groups, so that the groups and the
 /// cells they take stay as they are; a group in two matches takes the
-/// first one's style.
+/// first one's style. The spans `selected` names, the selected link's, are in
+/// reverse video where no match marks them.
 pub fn mark(
     line: &Line,
     matches: &[(Range<usize>, bool)],
     marks: &Marks,
     fade: Option<Fade>,
+    selected: Option<Range<usize>>,
 ) -> Line {
     let mut spans = Vec::new();
     // Where the span starts in the line's text.
     let mut start = 0;
-    for span in &line.spans {
+    for (at, span) in line.spans.iter().enumerate() {
         let end = start + span.text.len();
+        // What the span looks like where no match marks it: in reverse
+        // video when it is of the selected link.
+        let plain = match &selected {
+            Some(link) if link.contains(&at) => Style {
+                reverse: true,
+                ..span.style.clone()
+            },
+            _ => span.style.clone(),
+        };
         // Where the span may be cut, from its start: found once a match
         // is in it.
         let mut edges = None;
@@ -249,11 +260,11 @@ pub fn mark(
                     fade.step(&span.style, &laid_over(&span.style, &marks.current))
                 }
             };
-            spans.extend(pieces(span, cut - start..from - start, &span.style));
+            spans.extend(pieces(span, cut - start..from - start, &plain));
             spans.extend(pieces(span, from - start..to - start, &style));
             cut = to;
         }
-        spans.extend(pieces(span, cut - start..end - start, &span.style));
+        spans.extend(pieces(span, cut - start..end - start, &plain));
         start = end;
     }
     spans.retain(|span| !span.text.is_empty());
@@ -589,11 +600,11 @@ mod tests {
     fn search_highlight_skips_an_image_match() {
         let marks = Marks::new(&Theme::default(), &Capabilities::kitty(80));
         let row = heading_row("Kiri heading", 0);
-        assert_eq!(mark(&row, &[(0..4, true)], &marks, None), row);
+        assert_eq!(mark(&row, &[(0..4, true)], &marks, None, None), row);
         // Beside text before the image, such as a quote's bar.
         let mut row = heading_row("Kiri", 0);
         row.spans = vec![Span::new("> ", Style::default())];
-        assert_eq!(mark(&row, &[(2..6, false)], &marks, None), row);
+        assert_eq!(mark(&row, &[(2..6, false)], &marks, None, None), row);
     }
 
     #[test]
@@ -794,7 +805,7 @@ mod tests {
             Span::new("a ki", Style::default()),
             Span::new("ri b", bold.clone()),
         ]);
-        let marked = mark(&source, &[(2..6, false)], &marks(), None);
+        let marked = mark(&source, &[(2..6, false)], &marks(), None, None);
         let reverse = |style: &Style| Style {
             reverse: true,
             ..style.clone()
@@ -811,6 +822,53 @@ mod tests {
     }
 
     #[test]
+    fn the_selected_link_is_reversed_except_where_a_match_marks_it() {
+        let link = Style {
+            link: Some("https://example.com".into()),
+            ..Style::default()
+        };
+        let reversed = Style {
+            reverse: true,
+            ..link.clone()
+        };
+        let source = Line::new(vec![
+            Span::new("a ", Style::default()),
+            Span::new("kiri link", link.clone()),
+            Span::new(" b", Style::default()),
+        ]);
+        // Matches in yellow, not in reverse video.
+        let marks = Marks {
+            found: Style {
+                bg: Some(Color::Palette(3)),
+                ..Style::default()
+            },
+            current: Style::default(),
+        };
+        let marked = mark(&source, &[(2..6, false)], &marks, None, Some(1..2));
+        let found = laid_over(&link, &marks.found);
+        assert!(!found.reverse);
+        assert_eq!(
+            marked.spans,
+            [
+                Span::new("a ", Style::default()),
+                Span::new("kiri", found),
+                Span::new(" link", reversed.clone()),
+                Span::new(" b", Style::default()),
+            ]
+        );
+        // Without a match the whole link is reversed, and only it.
+        let marked = mark(&source, &[], &marks, None, Some(1..2));
+        assert_eq!(
+            marked.spans,
+            [
+                Span::new("a ", Style::default()),
+                Span::new("kiri link", reversed),
+                Span::new(" b", Style::default()),
+            ]
+        );
+    }
+
+    #[test]
     fn the_current_match_is_marked_apart_and_keeps_the_text_s_style() {
         let link = Style {
             italic: true,
@@ -819,7 +877,13 @@ mod tests {
             ..Style::default()
         };
         let source = Line::new(vec![Span::new("kiri, kiri", link.clone())]);
-        let marked = mark(&source, &[(0..4, false), (6..10, true)], &marks(), None);
+        let marked = mark(
+            &source,
+            &[(0..4, false), (6..10, true)],
+            &marks(),
+            None,
+            None,
+        );
         assert_eq!(
             marked.spans,
             [
@@ -863,7 +927,7 @@ mod tests {
         };
         for start in 0..text.len() {
             for end in start + 1..=text.len() {
-                let marked = mark(&source, &[(start..end, false)], &marks(), None);
+                let marked = mark(&source, &[(start..end, false)], &marks(), None, None);
                 assert_eq!(groups(&marked), groups(&source), "{start}..{end}");
             }
         }
@@ -881,7 +945,7 @@ mod tests {
         };
         let text = "abcdefghijklmnopqrstuvwxyzabcdefgh";
         let source = Line::new(vec![Span::new(text, style.clone())]);
-        let marked = mark(&source, &[(16..17, false)], &marks(), None);
+        let marked = mark(&source, &[(16..17, false)], &marks(), None, None);
         let found: Vec<(&str, bool)> = (marked.spans.iter())
             .map(|span| (span.text.as_str(), span.style.reverse))
             .collect();
@@ -899,7 +963,13 @@ mod tests {
         );
         // Two matches in one group mark it once; one across groups marks
         // both.
-        let marked = mark(&source, &[(0..1, true), (1..15, false)], &marks(), None);
+        let marked = mark(
+            &source,
+            &[(0..1, true), (1..15, false)],
+            &marks(),
+            None,
+            None,
+        );
         let texts: Vec<&str> = marked.spans.iter().map(|span| span.text.as_str()).collect();
         assert_eq!(texts, ["abcdefghijklmn", "opqrst", "uvwxyzabcdefgh"]);
         assert!(marked.spans[0].style.bold && marked.spans[1].style.reverse);
@@ -918,7 +988,7 @@ mod tests {
                 },
             )])
         };
-        let marked = mark(&source, &[(3..7, true)], &marks(), None);
+        let marked = mark(&source, &[(3..7, true)], &marks(), None, None);
         assert_eq!(
             Line {
                 spans: Vec::new(),
@@ -931,7 +1001,7 @@ mod tests {
         );
         let texts: Vec<&str> = marked.spans.iter().map(|span| span.text.as_str()).collect();
         assert_eq!(texts, ["Ä ", "kiri"]);
-        assert_eq!(mark(&line("kiri"), &[], &marks(), None), line("kiri"));
+        assert_eq!(mark(&line("kiri"), &[], &marks(), None, None), line("kiri"));
     }
 
     #[test]
@@ -971,7 +1041,7 @@ mod tests {
                 elapsed: std::time::Duration::from_millis(millis),
                 rgb,
             };
-            let marked = mark(&source, &[(0..4, true)], &marks(), Some(fade));
+            let marked = mark(&source, &[(0..4, true)], &marks(), Some(fade), None);
             let style = &marked.spans[0].style;
             (style.fg, style.bg)
         };
@@ -987,7 +1057,7 @@ mod tests {
             elapsed: std::time::Duration::ZERO,
             rgb: Some(&known),
         };
-        let other = mark(&source, &[(0..4, false)], &marks(), Some(fade));
+        let other = mark(&source, &[(0..4, false)], &marks(), Some(fade), None);
         assert!(other.spans[0].style.reverse);
     }
 
