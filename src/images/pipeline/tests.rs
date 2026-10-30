@@ -181,6 +181,43 @@ fn a_reload_in_reading_mode_loads_an_image_in_the_text_again_when_its_file_chang
 }
 
 #[test]
+fn a_reload_after_reading_mode_came_on_keeps_an_image_in_the_text_whose_file_did_not_change() {
+    let scratch = Scratch::new("pipeline-stamps-inline-m");
+    write_png(&scratch.join("a.png"), 4, 2, 1000);
+    let settings = settings(&["/bin/false"]);
+    let loading = Loading {
+        env: &Environment::default(),
+        settings: &settings,
+        max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
+        theme: Theme::Light,
+        formula: FormulaColors::default(),
+        largest: None,
+        headings: None,
+    };
+    let document = crate::parse::parse("Words ![x](a.png) in a line.\n");
+    // Opened as text, then `M` loads what reading mode shows in the text.
+    let text = alone(&document, &scratch);
+    let mut stamps = Stamps::of(&text);
+    let mut images = load_documents(&text, &loading, None).unwrap().images;
+    let mut loads = Loads::new();
+    load_inline_in_background(&text, &loading, &mut images, &mut loads);
+    let came = until(&mut loads, &"a.png".into());
+    images.came(
+        "a.png".into(),
+        Ok(came.into_iter().next().unwrap().1.unwrap()),
+    );
+
+    // `r` in reading mode: the file is as it was, so nothing loads again.
+    let reading = [Part {
+        inline_images: true,
+        ..text[0]
+    }];
+    reload_in_background(&reading, &loading, &mut images, &mut stamps, &mut loads);
+    assert!(loads.is_empty(), "{:?}", loads.keys().collect::<Vec<_>>());
+    assert_eq!(size_of(&images, "a.png"), (4, 2));
+}
+
+#[test]
 fn a_reload_loads_an_image_whose_file_was_missing_when_it_appears() {
     let scratch = Scratch::new("pipeline-stamps-missing");
     let settings = settings(&["/bin/false"]);
