@@ -369,8 +369,8 @@ impl Default for Theme {
             foreground: None,
             muted: None,
             text_margin: 2,
-            // Size alone carries the hierarchy, a quarter of the normal
-            // size from one level to the next.
+            // Size alone carries the hierarchy: half a size from level 1
+            // to 2, then a quarter from one level to the next.
             headings: [
                 HeadingTheme::new(2.5, BLUE),
                 HeadingTheme::new(2.0, BLUE),
