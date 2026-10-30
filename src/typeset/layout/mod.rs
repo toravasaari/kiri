@@ -22,6 +22,8 @@ mod code;
 mod front_matter;
 mod list;
 mod quote;
+#[cfg(test)]
+pub(crate) mod summary;
 
 pub use code::CodeColors;
 pub(crate) use code::{expand_tabs, inline_code_background};
