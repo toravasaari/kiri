@@ -3,10 +3,10 @@
 //! each row of the page a line that shows one row of a part through
 //! kitty's Unicode placeholders.
 //!
-//! This file is the reading engine's driver for the terminal: it turns a
-//! document's runs of text blocks into pages from `reading::page`, keeps
-//! the cache of drawn parts, and gives the rows of a page as styled lines.
-//! It is the bridge between the pixel engine and the pager's lines.
+//! This file is the typesetting engine's page driver for reading mode: it
+//! turns a document's runs of text blocks into pages from `reading::page`,
+//! keeps the cache of drawn parts, and gives the rows of a page as styled
+//! lines. What the pager does with those lines belongs to the state engine.
 //!
 //! The layout of a page does not belong here, nor the painting of text,
 //! nor anything about escape sequences, files or fonts as I/O. The pixel

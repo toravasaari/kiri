@@ -17,8 +17,9 @@
 //!
 //! A new language goes to the typesetting engine (`src/typeset/diagrams/`)
 //! when kiri draws it itself. Running a program, finding one and the
-//! threads belong to the platform's work runner (`src/diagrams/` stays
-//! with them). The placement map in docs/architecture.md has the paths.
+//! threads belong to the platform's work runner, as `src/diagrams/external.rs`
+//! and `src/diagrams/find.rs` do. The placement map in
+//! docs/architecture.md has the paths.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;

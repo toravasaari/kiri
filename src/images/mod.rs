@@ -16,10 +16,10 @@
 //! image, which is work for threads and programs, and nothing that decodes
 //! a format, which has a file of its own in this directory.
 //!
-//! Reading and fetching go to the platform's work runner (`src/main.rs`
-//! and the rest of `src/`, as the loads in `background.rs` and
-//! `pipeline.rs` do), and decoding and drawing from given data to the
-//! typesetting engine (`src/typeset/images/`).
+//! Reading and fetching go to the platform's work runner, as the loads in
+//! `src/images/background.rs` and `src/images/pipeline.rs` do, and
+//! decoding and drawing from given data to the typesetting engine
+//! (`src/typeset/images/`).
 
 mod background;
 mod decode;

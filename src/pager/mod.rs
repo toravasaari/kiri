@@ -4,7 +4,7 @@
 //! This is the hub of the pager: the state of a pager run and the loop
 //! that reads keys, applies reloads and loads, and draws. The features
 //! live in the files beside it (search, links, bands, status, files and
-//! the rest); this file only routes between them.
+//! the rest); this file ties them together and should not grow with them.
 //!
 //! A new feature does not go in here, and nor does a new key, a new
 //! overlay or a new piece of state of one feature. Neither does file,
