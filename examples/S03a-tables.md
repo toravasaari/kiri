@@ -47,6 +47,11 @@ room.
 |:--------|:------:|------:|
 | Headings | done | Scaled with OSC 66 in kitty, bold and coloured elsewhere, with a rule or a band from the theme |
 | Tables | `new` | Wrapped inside their columns when the window is narrow, keeping *inline* styles and [links](https://example.com) |
+| Links | `new` | [A link with a long text wraps over the lines of its cell in a narrow window](https://example.com/cell) |
+
+In the pager, Tab selects the link in the last row as one link: when its
+text wraps, every line of it shows in reverse video at once, and the status
+line says where it goes.
 
 ## Inline code in tables
 

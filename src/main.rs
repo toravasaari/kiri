@@ -1093,7 +1093,7 @@ fn page_files(
         reading: Some(context.reading_mode()),
         // What reading mode shows in the middle of text loads when `M`
         // turns it on, unless `--reading` had it loaded at the start.
-        inline: Some(Box::new(|images, loads, caps| {
+        inline: Some(Box::new(|_, images, loads, caps| {
             if !(settings.images && caps.draws_images()) {
                 return;
             }
@@ -2043,8 +2043,12 @@ fn print_document(
             reload: reload.as_mut().map(|reload| reload as &mut dyn Reload),
             reading: Some(context.reading_mode()),
             // What reading mode shows in the middle of text loads when `M`
-            // turns it on, unless `--reading` had it loaded at the start.
-            inline: Some(Box::new(|images, loads, caps| {
+            // turns it on, unless `--reading` had it loaded at the start,
+            // for the document as the last reload read it.
+            inline: Some(Box::new(|shown, images, loads, caps| {
+                let kiri::render::layout::Content::Document(document) = shown else {
+                    return;
+                };
                 if !(settings.images && caps.draws_images()) {
                     return;
                 }
@@ -2139,11 +2143,6 @@ fn page(
         }
         return None;
     };
-    // Inside tmux the window's pixels may be tmux's guess; the cells tmux
-    // knows of the terminal outside follow a new font size.
-    if inputs.caps.tmux_passthrough {
-        screen.follow_client_cells(kiri::term::tmux::ClientCells::new(context.env));
-    }
     // The images that still load when the pager quits, which it stops;
     // their programs may take a moment to end.
     let mut loads = Loads::new();

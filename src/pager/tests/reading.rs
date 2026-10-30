@@ -335,7 +335,7 @@ fn asked_for_inline_pictures(keys: &[&[u8]]) -> usize {
     let mut inputs = Inputs::new(kitty());
     let options = Options {
         reading: Some(reading()),
-        inline: Some(Box::new(|_, _, _| asked.set(asked.get() + 1))),
+        inline: Some(Box::new(|_, _, _, _| asked.set(asked.get() + 1))),
         ..Options::new(SearchCase::Smart)
     };
     run_document(&numbers(3), &mut inputs, options, &mut terminal);
@@ -350,6 +350,62 @@ fn m_starts_the_inline_pictures_loading_only_when_it_turns_reading_mode_on() {
     // starts only what is missing.
     assert_eq!(asked_for_inline_pictures(&[b"M", b"M"]), 1);
     assert_eq!(asked_for_inline_pictures(&[b"M", b"M", b"M"]), 2);
+}
+
+#[test]
+fn m_starts_the_inline_pictures_loading_for_the_document_as_it_was_last_reloaded() {
+    // The blocks of the document each call of the loader was given.
+    let seen = std::cell::RefCell::new(Vec::new());
+    let mut terminal = Fake::new(80, 10, &[b"r", b"M"]);
+    let mut inputs = Inputs::new(kitty());
+    let mut then = Then::new([Reloaded::Document(numbers(5))]);
+    let options = Options {
+        reading: Some(reading()),
+        reload: Some(&mut then),
+        inline: Some(Box::new(|content, _, _, _| match content {
+            Content::Document(document) => seen.borrow_mut().push(document.blocks.len()),
+            Content::Files(_) => unreachable!("a document is shown"),
+        })),
+        ..Options::new(SearchCase::Smart)
+    };
+    run_document(&numbers(3), &mut inputs, options, &mut terminal);
+    assert_eq!(*seen.borrow(), [5]);
+}
+
+#[test]
+fn m_after_a_cell_size_answer_starts_the_inline_pictures_for_the_new_cells() {
+    // The answer and `M` come in one read: the loads start for the cells
+    // the answer tells.
+    let cells = std::cell::RefCell::new(Vec::new());
+    let mut terminal = Fake::new(80, 10, &[b"\x1b[6;24;10t\x1b[6;32;16tM"]);
+    let mut inputs = Inputs::new(kitty());
+    let options = Options {
+        reading: Some(reading()),
+        inline: Some(Box::new(|_, _, _, caps| {
+            cells.borrow_mut().push(caps.cell_pixels)
+        })),
+        ..Options::new(SearchCase::Smart)
+    };
+    run_document(&numbers(3), &mut inputs, options, &mut terminal);
+    assert_eq!(*cells.borrow(), [Some((16, 32))]);
+}
+
+#[test]
+fn an_answer_after_m_in_one_read_starts_the_inline_pictures_for_the_new_cells() {
+    // `M` ends the read's keys at once, but the answer behind it in the
+    // same read still tells the cells the loads start for.
+    let cells = std::cell::RefCell::new(Vec::new());
+    let mut terminal = Fake::new(80, 10, &[b"M\x1b[6;32;16t"]);
+    let mut inputs = Inputs::new(kitty());
+    let options = Options {
+        reading: Some(reading()),
+        inline: Some(Box::new(|_, _, _, caps| {
+            cells.borrow_mut().push(caps.cell_pixels)
+        })),
+        ..Options::new(SearchCase::Smart)
+    };
+    run_document(&numbers(3), &mut inputs, options, &mut terminal);
+    assert_eq!(*cells.borrow(), [Some((16, 32))]);
 }
 
 #[test]
@@ -517,4 +573,195 @@ fn tab_selects_a_link_without_hyperlinks_and_none_are_written() {
         frames.iter().all(|frame| !frame.contains("\x1b]8;")),
         "{frames:?}"
     );
+}
+
+/// Everything written to a terminal of 80 × 10 cells for `document` in
+/// reading mode with `caps`, when it gives `keys`.
+fn written(document: &Document, caps: Capabilities, keys: &[&[u8]]) -> String {
+    let mut terminal = Fake::new(80, 10, keys);
+    let mut inputs = Inputs {
+        reading: Some(reading()),
+        ..Inputs::new(caps)
+    };
+    run_document(
+        document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    String::from_utf8(terminal.out).unwrap()
+}
+
+/// OSC 52 for the clipboard, with `https://one.example/` in base64.
+const COPY_ONE: &str = "\x1b]52;c;aHR0cHM6Ly9vbmUuZXhhbXBsZS8=\x1b\\";
+
+#[test]
+fn enter_copies_the_selected_link_s_url_and_the_status_line_says_so() {
+    let document = crate::parse::parse("A [first](https://one.example/) link.\n");
+    let out = written(&document, kitty(), &[b"\t", b"\r", b""]);
+    assert_eq!(out.matches(COPY_ONE).count(), 1, "OSC 52 sequences written");
+    // The sequence comes before the frame that tells it was copied.
+    let copied = out.find(COPY_ONE).unwrap();
+    let told = out.rfind("link copied").expect("the status line says so");
+    assert!(copied < told, "in what was written");
+}
+
+#[test]
+fn enter_without_a_selected_link_scrolls_down_a_line_and_copies_nothing() {
+    let filler = "A paragraph of filler.\n\n".repeat(30);
+    let document = crate::parse::parse(&format!(
+        "A [first](https://one.example/) link.\n\n{filler}"
+    ));
+    let mut terminal = Fake::new(80, 10, &[b"\r"]);
+    let mut inputs = Inputs {
+        reading: Some(reading()),
+        ..Inputs::new(kitty())
+    };
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    assert!(terminal.frames().len() >= 2, "the view did not move");
+    let out = String::from_utf8(terminal.out).unwrap();
+    assert!(!out.contains("\x1b]52;"), "in what was written");
+    assert!(!out.contains("link copied"), "in what was written");
+}
+
+#[test]
+fn enter_with_a_selected_link_that_has_no_address_copies_nothing() {
+    let document = crate::parse::parse("A [first]() link.\n");
+    let out = written(&document, kitty(), &[b"\t", b"\r", b""]);
+    assert!(!out.contains("\x1b]52;"), "in what was written");
+    assert!(!out.contains("link copied"), "in what was written");
+}
+
+#[test]
+fn enter_with_the_selected_link_off_the_screen_scrolls_and_copies_nothing() {
+    let filler = "A paragraph of filler.\n\n".repeat(30);
+    let document = crate::parse::parse(&format!(
+        "A [first](https://one.example/) link.\n\n{filler}"
+    ));
+    // Tab selects the link, and three pages down it is off the screen.
+    let keys: [&[u8]; 6] = [b"\t", b"\x06", b"\x06", b"\x06", b"\r", b""];
+    let mut terminal = Fake::new(80, 10, &keys);
+    let mut inputs = Inputs {
+        reading: Some(reading()),
+        ..Inputs::new(kitty())
+    };
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let frames = terminal.frames();
+    let before = frames[frames.len() - 2].clone();
+    let last = frames.last().unwrap();
+    assert_ne!(*last, before, "the view did not move");
+    let out = String::from_utf8(terminal.out).unwrap();
+    assert!(!out.contains("\x1b]52;"), "in what was written");
+}
+
+#[test]
+fn the_status_line_tells_a_selected_link_s_address_only_while_it_is_on_the_screen() {
+    let filler = "A paragraph of filler.\n\n".repeat(30);
+    let document = crate::parse::parse(&format!(
+        "A [first](https://one.example/) link.\n\n{filler}"
+    ));
+    // Tab selects the link, three pages down it is off the screen, and
+    // three pages back it is there again, still selected.
+    let keys: [&[u8]; 8] = [
+        b"\t", b"\x06", b"\x06", b"\x06", b"\x02", b"\x02", b"\x02", b"",
+    ];
+    let mut terminal = Fake::new(80, 10, &keys);
+    let mut inputs = Inputs {
+        reading: Some(reading()),
+        ..Inputs::new(kitty())
+    };
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let told: Vec<bool> = (terminal.frames().iter())
+        .map(|frame| {
+            let bar = frame.rsplit("\x1b[10;1H").next().unwrap_or("");
+            bar.contains("https://one.example/")
+        })
+        .collect();
+    // At the start none is selected; then it is, then it is off the screen
+    // for three pages down and two back, and then it is there again.
+    assert_eq!(
+        told,
+        [false, true, false, false, false, false, false, true],
+        "{told:?}"
+    );
+}
+
+#[test]
+fn in_tmux_with_passthrough_the_copy_goes_through_to_kitty() {
+    let document = crate::parse::parse("A [first](https://one.example/) link.\n");
+    let caps = Capabilities {
+        tmux_passthrough: true,
+        ..kitty()
+    };
+    let out = written(&document, caps, &[b"\t", b"\r", b""]);
+    let wrapped = format!("\x1bPtmux;{}\x1b\\", COPY_ONE.replace('\x1b', "\x1b\x1b"));
+    assert_eq!(
+        out.matches(&wrapped).count(),
+        1,
+        "wrapped OSC 52 sequences written"
+    );
+    assert!(!out.contains(COPY_ONE), "in what was written");
+}
+
+#[test]
+fn tab_selects_a_link_in_a_band_scrolled_out_of_view_and_scrolls_the_band_to_it() {
+    let long = "x".repeat(150);
+    let document = crate::parse::parse(&format!(
+        "| a | b |\n|---|---|\n| [near](https://one.example/) | {long}[far](https://two.example/) |\n"
+    ));
+    let frames = reading_frames(
+        &document,
+        crate::reading::page::Wide::Scroll,
+        &[b"\t", b"\t", b"\t", b""],
+    );
+    // The status line is the last row, after the placeholders.
+    let told = |frame: &String| {
+        let bar = frame.rsplit("\x1b[10;1H").next().unwrap_or("");
+        ["https://one.example/", "https://two.example/"]
+            .iter()
+            .find(|url| bar.contains(**url))
+            .map(|url| url.to_string())
+    };
+    let told: Vec<Option<String>> = frames.iter().map(told).collect();
+    assert_eq!(told.get(1), Some(&Some("https://one.example/".to_owned())));
+    assert_eq!(told.get(2), Some(&Some("https://two.example/".to_owned())));
+    // On round, the band scrolled back to the first.
+    assert_eq!(told.get(3), Some(&Some("https://one.example/".to_owned())));
+}
+
+#[test]
+fn the_status_line_cuts_a_long_link_in_the_middle() {
+    let url = "https://example.org/a/very/long/path/that/goes/on/and/on/to/the/page.html";
+    let document = crate::parse::parse(&format!("A [link]({url}) in a line.\n"));
+    let mut terminal = Fake::new(60, 10, &[b"\t", b""]);
+    let mut inputs = Inputs {
+        reading: Some(reading()),
+        ..Inputs::new(kitty())
+    };
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let frames = terminal.frames();
+    let bar = frames[1].rsplit("\x1b[10;1H").next().unwrap_or("");
+    assert!(bar.contains("https://example.org/"), "{bar:?}");
+    assert!(bar.contains("…"), "{bar:?}");
+    assert!(bar.contains("/page.html"), "{bar:?}");
 }

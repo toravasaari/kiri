@@ -961,11 +961,8 @@ pub fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities
         Color::Palette(_) => None,
     };
     let known = exact(theme.background.or(caps.background));
-    let page = (rgb(theme.background).or_else(|| rgb(caps.background))).unwrap_or(if dark {
-        [0; 3]
-    } else {
-        [0xff; 3]
-    });
+    let page =
+        rgb(theme.background.or(caps.background)).unwrap_or(if dark { [0; 3] } else { [0xff; 3] });
     let muted = rgb(theme.muted).unwrap_or_else(|| mix(text, page, 0.6));
     let border = mix(text, page, 0.25);
     let headings = [1, 2, 3, 4, 5, 6].map(|level| rgb(theme.heading(level).color).unwrap_or(text));

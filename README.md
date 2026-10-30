@@ -224,7 +224,11 @@ matches exactly, unless `search_case = "literal"` in the
 [configuration file](docs/config.md#search-case) makes every search exact.
 The search looks at the lines as they are laid out, so a phrase broken
 over two lines is not found, and neither is the alt text of an image that
-is shown. Link navigation is planned.
+is shown. Where the terminal shows links as hyperlinks (inside tmux, only
+with its hyperlinks feature, see above), Tab and Shift+Tab select a link on
+the screen, in reverse video, and the status line says where it goes; Enter
+copies its address to the clipboard, and Escape lets it go. Following a link
+in kiri is planned.
 
 `r` reads the file again, such as after an editor saved it. The view stays
 at the same block, or goes to the new end when it was at the end, and only
@@ -266,8 +270,8 @@ cannot be selected or copied there. A long code line or a wide table
 wraps; with `--wide scroll`, or `W` in the pager, it keeps its lines
 whole and scrolls sideways with the arrow keys. In the pager `/` marks
 the matches in the page, and Tab selects a link, which kitty opens as
-it does any link. Reading mode is experimental, and its options' names
-may still change.
+it does any link; Enter copies the selected link's address. Reading mode
+is experimental, and its options' names may still change.
 
 Front matter that does not parse shows as `⚠ 1` on the status line,
 with the message above it for a few seconds.

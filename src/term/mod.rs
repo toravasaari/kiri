@@ -10,7 +10,9 @@ use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use crate::caps::Capabilities;
 
 mod answers;
+pub mod cell_query;
 mod check;
+pub mod clipboard;
 mod detect;
 mod interrupt;
 mod keys;

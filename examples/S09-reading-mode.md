@@ -165,7 +165,7 @@ long words where it must, so that it still fits the area:
 
 | Path | Another path |
 |------|--------------|
-| `src/render/reading/a_very_long_module_name_that_does_not_fit.rs` | `src/reading/page/another_very_long_name_that_cannot_fit_either.rs`findme |
+| `src/render/reading/a_very_long_module_name_that_does_not_fit.rs` | `src/reading/page/another_very_long_name_that_cannot_fit_either.rs`findme and then a few more words that push the next one far to the right [link](https://example.com/band) |
 
 ## Scrolling sideways
 
@@ -214,7 +214,28 @@ line, and alone on its line:
 
 Tab selects the first link on the screen, and again the next, the badges
 among them, Shift+Tab the one before: the selected link has a box round it
-and the status line says where it goes. Escape lets it go.
+and the status line says where it goes. Enter copies the selected link's
+address to the clipboard, also in tmux when it passes images through, and
+the status line says `link copied` for a moment; paste it somewhere to
+check. A link counts as on the screen while any line of it is, so the
+wrapped one above is still selected and copied when you scroll its first
+line away. With no link selected, or none of the selected one on the
+screen, the status line does not name it and Enter scrolls down a line;
+scrolled back, the link is selected again. Escape lets the link go.
+
+An address too long for the status line is cut in the middle, with `…`
+where the cut is, so that both its start and its end show, as that of
+[a link with a long address](https://example.com/a/very/long/address/that/does/not/fit/on/the/status/line/of/a/window/of/usual/width/index.html?with=a&query=string)
+does when Tab selects it: the address on the status line begins with
+`https://example.com/` and ends with `query=string`.
+
+With `--wide scroll`, Tab reaches the links in a band too, also while the
+band is scrolled so that the link is out of its view: the last cell of
+the table too wide has one, "link", beyond the band's right edge at
+first in a window of usual width. Tab, with the table on the screen,
+selects it after the links above it, and the band scrolls until the link
+is in view, with its box round it; Tab on from there goes on to the link
+after it, and Shift+Tab back.
 
 ## Images, diagrams and formulas
 
@@ -244,6 +265,11 @@ An image in the middle of a line, such as this one of 24 pixels
 row <img src="S06b-pattern.png" width="16" alt="one"> <img
 src="S06b-pattern.png" width="16" alt="two">, stands in the line on its
 baseline, and makes the line taller than the text if it is taller.
+After `r`, or when the pager reloads the file by itself, such an image
+is loaded again if its file changed meanwhile, as an image on a line of
+its own is: replace `S06b-pattern.png` with another picture, press `r`,
+and the badge in the line shows the new one. Put the file back afterwards
+with `git checkout examples/S06b-pattern.png` in the repository.
 
 A formula in the middle of a line, such as $\frac{a}{b}$ or $x^2 + y^2$,
 is drawn in the line in the colour of the text, as large as the text

@@ -299,6 +299,127 @@ fn a_new_cell_size_loads_the_heading_images_for_it() {
 }
 
 #[test]
+fn a_cell_size_answer_loads_the_heading_images_for_it() {
+    let key = |cell| crate::images::ImageKey::heading(1, "Kiri", cell);
+    // Inside tmux the window tells tmux's guess of 16 x 32 pixels a cell
+    // before and after the font changes, and kitty's answer tells 8 × 16
+    // instead of the 10 × 20 detection found.
+    let pixels = |columns: u16| WindowSize {
+        columns,
+        rows: 6,
+        width: columns * 16,
+        height: 6 * 32,
+    };
+    let mut terminal = Fake::new(60, 6, &[b"", b"\x1b[6;16;8t", b"q"]);
+    terminal.size = pixels(60);
+    terminal.sizes = [pixels(70)].into();
+    let mut inputs = Inputs::new(Capabilities {
+        text_sizing: false,
+        cell_pixels: Some((10, 20)),
+        tmux_passthrough: true,
+        ..Capabilities::kitty(60)
+    });
+    let image = image::RgbaImage::from_pixel(100, 40, image::Rgba([200, 30, 30, 255]));
+    let text = crate::images::Source::Text {
+        image,
+        breaks: Vec::new(),
+        ends: vec![10],
+    };
+    inputs.images.insert(key((10, 20)), Ok(text));
+    inputs.headings = crate::render::Headings::Auto;
+    let mut background = Loads::new();
+    run_document(
+        &crate::parse::parse("# Kiri\n\nText\n"),
+        &mut inputs,
+        Options {
+            loads: Some(&mut background),
+            ..Options::new(SearchCase::Smart)
+        },
+        &mut terminal,
+    );
+    let wanted = key((8, 16));
+    let asked = background.loading(&wanted)
+        || inputs.images.placeholder(&wanted).is_some()
+        || inputs.images.get(&wanted).is_some();
+    let keys: Vec<_> = inputs.images.iter().map(|(key, _)| key.clone()).collect();
+    assert!(asked, "{keys:?}");
+    background.halt();
+}
+
+/// Reloads `document` and notes the cell size the terminal had then.
+struct NoteCells<'a> {
+    document: Document,
+    cells: &'a std::cell::RefCell<Vec<Option<(u16, u16)>>>,
+}
+
+impl Reload for NoteCells<'_> {
+    fn reload(&mut self, _: &mut Images, _: &mut Loads, caps: &Capabilities, _: bool) -> Reloaded {
+        self.cells.borrow_mut().push(caps.cell_pixels);
+        Reloaded::Document(self.document.clone())
+    }
+
+    fn change(&mut self) -> Change {
+        Change::Unchanged
+    }
+}
+
+#[test]
+fn r_after_a_cell_size_answer_reloads_for_the_new_cells() {
+    // The answer and `r` come in one read: the reload starts its loads
+    // for the cells the answer tells.
+    let cells = std::cell::RefCell::new(Vec::new());
+    let document = crate::parse::parse("Text\n");
+    let mut then = NoteCells {
+        document: document.clone(),
+        cells: &cells,
+    };
+    let mut terminal = Fake::new(60, 6, &[b"\x1b[6;16;8tr", b"q"]);
+    let mut inputs = Inputs::new(Capabilities {
+        cell_pixels: Some((10, 20)),
+        ..Capabilities::kitty(60)
+    });
+    run_document(
+        &document,
+        &mut inputs,
+        Options {
+            reload: Some(&mut then),
+            ..Options::new(SearchCase::Smart)
+        },
+        &mut terminal,
+    );
+    assert_eq!(*cells.borrow(), [Some((8, 16))]);
+}
+
+#[test]
+fn an_answer_after_r_in_one_read_reloads_for_the_new_cells() {
+    // `r` ends the read's keys at once, but the answer behind it in the
+    // same read still tells the cells the reload starts its loads for.
+    let cells = std::cell::RefCell::new(Vec::new());
+    let document = crate::parse::parse("Text\n");
+    let mut then = NoteCells {
+        document: document.clone(),
+        cells: &cells,
+    };
+    let mut terminal = Fake::new(60, 6, &[b"r\x1b[6;16;8t", b"q"]);
+    let mut inputs = Inputs::new(Capabilities {
+        cell_pixels: Some((10, 20)),
+        ..Capabilities::kitty(60)
+    });
+    run_document(
+        &document,
+        &mut inputs,
+        Options {
+            reload: Some(&mut then),
+            ..Options::new(SearchCase::Smart)
+        },
+        &mut terminal,
+    );
+    assert_eq!(*cells.borrow(), [Some((8, 16))]);
+    // The answer is not lost for the layouts after the reload.
+    assert_eq!(inputs.caps.cell_pixels, Some((8, 16)));
+}
+
+#[test]
 fn the_terminal_s_cell_size_stays_until_the_window_s_changes() {
     // Inside tmux in a container the window tells tmux's guess of 16 x 32
     // pixels a cell, and kitty's answer of 10 x 20 came first. A window
@@ -328,6 +449,115 @@ fn the_terminal_s_cell_size_stays_until_the_window_s_changes() {
     };
     assert_eq!(sent((16, 32)), [20]);
     assert_eq!(sent((8, 16)), [20, 16]);
+}
+
+/// The size in pixels of each square the pager sends when the window
+/// goes from 60 to 72 columns, with the cells of `cells` pixels before and
+/// after as the window tells them, where detection found 10 × 20, and
+/// `answer` comes after that: the terminal's answer to the query for its
+/// cell size, if any. Also all that was written.
+fn squares_after_a_new_font(
+    tmux: bool,
+    cells: [(u16, u16); 2],
+    answer: &[u8],
+) -> (Vec<u16>, String) {
+    let pixels = |columns: u16, cell: (u16, u16)| WindowSize {
+        columns,
+        rows: 6,
+        width: columns * cell.0,
+        height: 6 * cell.1,
+    };
+    let (document, mut inputs) = pictured([255, 0, 0, 255]);
+    inputs.caps.cell_pixels = Some((10, 20));
+    inputs.caps.tmux_passthrough = tmux;
+    let mut terminal = Fake::new(60, 6, &[b"", answer, b"q"]);
+    terminal.size = pixels(60, cells[0]);
+    terminal.sizes = [pixels(72, cells[1])].into();
+    let out = written(&document, inputs, &mut terminal, None);
+    // The square's size in pixels, as many as a row's height.
+    let sent = (out.split("\x1b_Ga=T,").skip(1))
+        .map(|rest| {
+            let at = rest.find(",s=").unwrap() + 3;
+            let digits = rest[at..].chars().take_while(char::is_ascii_digit);
+            digits.collect::<String>().parse::<u16>().unwrap()
+        })
+        .collect();
+    (sent, out)
+}
+
+/// kitty's answer to the cell size query for cells of 10 × 24 pixels, which
+/// make a 20 × 20 square 30 × 24 (whole cells).
+const TEN_BY_24: &[u8] = b"\x1b[6;24;10t";
+
+#[test]
+fn in_tmux_a_new_font_is_followed_by_the_cell_size_kitty_answers() {
+    // The window tells tmux's guess of 16 x 32 pixels a cell before and
+    // after the font changes. The page is laid out at once for the cells
+    // known, and again when the answer tells others.
+    let (sent, out) = squares_after_a_new_font(true, [(16, 32); 2], TEN_BY_24);
+    assert_eq!(sent, [20, 30], "{out:?}");
+    let query = "\x1bPtmux;\x1b\x1b[16t\x1b\\";
+    assert_eq!(out.matches(query).count(), 1, "{out:?}");
+    assert_eq!(out.matches("\x1b[16t").count(), 1, "wrapped: {out:?}");
+}
+
+#[test]
+fn outside_tmux_a_window_without_pixels_is_asked_for_the_cell_size_too() {
+    let (sent, out) = squares_after_a_new_font(false, [(0, 0); 2], TEN_BY_24);
+    assert_eq!(sent, [20, 30], "{out:?}");
+    assert_eq!(out.matches("\x1b[16t").count(), 1, "{out:?}");
+    assert!(!out.contains("\x1bPtmux;"), "{out:?}");
+}
+
+#[test]
+fn a_window_that_tells_its_pixels_outside_tmux_is_not_asked() {
+    // As in kitty on the host: the window's cells are the terminal's.
+    let (sent, out) = squares_after_a_new_font(false, [(10, 20), (10, 24)], b"");
+    assert_eq!(sent, [20, 30], "{out:?}");
+    assert!(!out.contains("\x1b[16t"), "{out:?}");
+}
+
+#[test]
+fn an_answer_that_is_the_cell_size_in_use_does_not_lay_the_page_out_again() {
+    let (sent, out) = squares_after_a_new_font(true, [(16, 32); 2], b"\x1b[6;20;10t");
+    assert_eq!(sent, [20], "{out:?}");
+    let drawn = out.matches("\x1b[?2026h").count();
+    assert_eq!(drawn, 2, "the first frame and the one after the resize");
+}
+
+#[test]
+fn of_several_answers_in_one_read_the_last_one_counts() {
+    // Two font changes before the pager reads: 20 × 40 pixels a cell and
+    // then 10 × 24, which makes the square 30 × 24.
+    let both = b"\x1b[6;40;20t\x1b[6;24;10t";
+    let (sent, out) = squares_after_a_new_font(true, [(16, 32); 2], both);
+    assert_eq!(sent, [20, 30], "{out:?}");
+    // The last one is the cells in use: nothing is laid out again.
+    let both = b"\x1b[6;40;20t\x1b[6;20;10t";
+    let (sent, out) = squares_after_a_new_font(true, [(16, 32); 2], both);
+    assert_eq!(sent, [20], "{out:?}");
+}
+
+#[test]
+fn a_key_after_an_answer_in_the_same_read_counts() {
+    let (sent, out) = squares_after_a_new_font(true, [(16, 32); 2], b"\x1b[6;24;10t?");
+    assert_eq!(sent, [20, 30], "{out:?}");
+    assert!(out.contains(" Keys "), "{out:?}");
+}
+
+#[test]
+fn an_answer_kept_across_a_key_that_ends_the_frame_counts() {
+    // `W` lays the page out again, and the answer before it in the read
+    // is applied to that layout.
+    let (sent, out) = squares_after_a_new_font(true, [(16, 32); 2], b"\x1b[6;24;10tW");
+    assert_eq!(sent, [20, 30], "{out:?}");
+}
+
+#[test]
+fn without_an_answer_the_pager_keeps_the_cell_size_it_has() {
+    let (sent, out) = squares_after_a_new_font(true, [(16, 32); 2], b"");
+    assert_eq!(sent, [20], "{out:?}");
+    assert_eq!(out.matches("\x1b[16t").count(), 1, "{out:?}");
 }
 
 #[test]

@@ -36,7 +36,7 @@ use crate::render::output::{self, Page, Writer};
 use crate::render::reading::Reading;
 use crate::render::style::{self, Line, Span, Style};
 use crate::render::wrap;
-use crate::term::{Screen, WindowSize};
+use crate::term::{Screen, WindowSize, cell_query, clipboard};
 use fade::{
     FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY, WARNING_STAY,
 };
@@ -214,14 +214,16 @@ pub struct Options<'a, 'l> {
     pub reading: Option<Reading>,
     /// Starts loading what reading mode shows that the document does not
     /// without it, such as the images in the middle of text, when `M`
-    /// turns it on: it is given the images, where the loads go and the
+    /// turns it on: it is given the content shown, which is the document
+    /// as it was last reloaded, the images, where the loads go and the
     /// terminal's capabilities, and starts only what is not held or
     /// loading already.
     pub inline: Option<InlineLoader<'a>>,
 }
 
 /// See [`Options::inline`].
-pub type InlineLoader<'a> = Box<dyn FnMut(&mut Images, &mut Loads, &Capabilities) + 'a>;
+pub type InlineLoader<'a> =
+    Box<dyn FnMut(Content<'_>, &mut Images, &mut Loads, &Capabilities) + 'a>;
 
 impl Options<'_, '_> {
     /// A window's width to decide the layout, searches that treat case as
@@ -332,10 +334,12 @@ fn page_through(
         Content::Document(_) => &[],
         Content::Files(files) => files,
     };
+    // The cells the heading images were last loaded for.
+    let mut headed = cell_size(&inputs.caps);
     loop {
-        let cell = cell_size(&inputs.caps);
         fit(&mut inputs.caps, size, width, &mut window_cell);
-        if cell_size(&inputs.caps) != cell {
+        if cell_size(&inputs.caps) != headed {
+            headed = cell_size(&inputs.caps);
             let content = match &reloaded {
                 Some(document) => Content::Document(document),
                 None => content,
@@ -474,8 +478,16 @@ fn page_through(
             &mut writer,
             terminal,
             size,
+            inputs.caps.cell_pixels,
             &mut source,
         )?;
+        // An answer that came in the same read as a key that ended the frame
+        // is applied first, so the outcome that key asks for uses the new
+        // cells.
+        if let Some(cell) = state.cell.take() {
+            state.changed = None;
+            inputs.caps.cell_pixels = Some(cell);
+        }
         match outcome {
             Outcome::Quit => {
                 // The caller waits for the programs, once the screen is
@@ -503,6 +515,22 @@ fn page_through(
                 // The lines laid out for the new size are others.
                 state.changed = None;
                 size = new;
+                view = Some(shown);
+                // A new font size changes the cells, which the window does
+                // not always tell: it tells none, or inside tmux it may
+                // tell tmux's guess. The terminal's answer comes among the
+                // keys; until then the cells known are used.
+                let tells_pixels = new.is_some_and(|new| new.cell_pixels().is_some());
+                if new.is_some() && (inputs.caps.tmux_passthrough || !tells_pixels) {
+                    cell_query::ask(inputs.caps.tmux_passthrough, terminal)?;
+                    terminal.flush()?;
+                }
+            }
+            // Laid out again for the cells the terminal answered, as after
+            // a resize.
+            Outcome::Cell(cell) => {
+                state.changed = None;
+                inputs.caps.cell_pixels = Some(cell);
                 view = Some(shown);
             }
             // Laid out again with wide blocks the other way, in reading
@@ -534,7 +562,7 @@ fn page_through(
                     // starts loading, and lays the page out again as it
                     // comes.
                     if let (Some(_), Some(start)) = (&inputs.reading, inline.as_mut()) {
-                        start(&mut inputs.images, source.loads, &inputs.caps);
+                        start(content, &mut inputs.images, source.loads, &inputs.caps);
                     }
                 } else {
                     state.told = Some(Told::new(NEEDS_IMAGES));
@@ -635,6 +663,9 @@ enum Outcome {
     Quit,
     /// The window is now of this size.
     Resized(Option<WindowSize>),
+    /// The terminal answered that its cells are of this size, width and
+    /// height in pixels, which are not the ones in use.
+    Cell((u16, u16)),
     /// The document is to be read again: the reader asked for it, and the
     /// status line says it is being read, or it changed while followed.
     Reload,
@@ -679,6 +710,8 @@ enum Pressed {
     Bands,
     /// The reader switched wide blocks between wrapping and scrolling.
     Wide,
+    /// The reader asked for this to go on the clipboard.
+    Copy(String),
 }
 
 /// What the status line and the help panel show and how, apart from the
@@ -932,6 +965,9 @@ struct State {
     decoder: keys::Decoder,
     /// How far reading mode's bands are scrolled, and which is selected.
     bands: bands::Bands,
+    /// The cells the terminal last answered, until `page_through` applies
+    /// them when `show` returns.
+    cell: Option<(u16, u16)>,
 }
 
 /// Where the focus is, as the terminal tells with focus reporting: under
@@ -1091,6 +1127,7 @@ impl State {
             focus: Focus::Unknown,
             decoder: keys::Decoder::default(),
             bands: bands::Bands::default(),
+            cell: None,
         }
     }
 
@@ -1202,6 +1239,15 @@ impl State {
         };
         match keys::action(key) {
             Some(Action::Quit) => return Pressed::Quit,
+            // Enter copies the link selected on the screen, and otherwise
+            // goes down a line.
+            Some(Action::Move(_))
+                if key == Key::Enter
+                    && let Some(link) = self.link_on_screen(layout) =>
+            {
+                self.told = Some(Told::fading("link copied", now));
+                return Pressed::Copy(link.url);
+            }
             Some(Action::Move(motion)) => layout.view.scroll(motion),
             // The help and the prompt need a row besides the status line's.
             Some(Action::Help) => self.help = layout.status.bar,
@@ -1247,10 +1293,27 @@ impl State {
                 let visible = layout.view.visible();
                 let back = key == Key::BackTab;
                 (self.links).select_next(layout.lines, layout.places, visible, back);
+                // A link in a band that shows none of its cells scrolls
+                // the band to it, as a search match does.
+                let target = self.links.target(layout.lines, layout.places);
+                if let Some(found) = target.filter(|found| found.is_scrolled_out())
+                    && let Some((line, x)) = found.band_at
+                    && (self.bands).reveal(layout.lines, layout.places, line, x) == Some(true)
+                {
+                    self.bands_moved = true;
+                }
             }
             None => {}
         }
         Pressed::Nothing
+    }
+
+    /// The selected link, when it is on the screen and has an address to
+    /// copy.
+    fn link_on_screen(&self, layout: &Layout) -> Option<links::Found> {
+        let visible = layout.view.visible();
+        (self.links.selected_on(layout.lines, layout.places, visible))
+            .filter(|link| !link.url.is_empty())
     }
 
     /// Selects the band on row `row` of the window, counted from 1:
@@ -1430,7 +1493,7 @@ impl State {
         marks: &Marks,
         fade: Option<Fade>,
         tint: Option<Tint>,
-        link: Option<(usize, usize)>,
+        link: Option<&links::Found>,
     ) -> Vec<Line> {
         let search = self.search.as_ref().filter(|_| self.shown);
         let mut marked: Vec<Line> = (first..)
@@ -1444,9 +1507,16 @@ impl State {
                     }
                     _ => line,
                 };
-                match search {
-                    Some(search) => search::mark(line, &search.on(index), marks, fade),
-                    None => line.clone(),
+                // The selected link's spans on the line, when it has some.
+                let selected = (link.iter().flat_map(|link| &link.runs))
+                    .find(|(at, _)| *at == index)
+                    .map(|(_, spans)| spans.clone());
+                match (search, selected) {
+                    (Some(search), selected) => {
+                        search::mark(line, &search.on(index), marks, fade, selected)
+                    }
+                    (None, Some(selected)) => search::mark(line, &[], marks, fade, Some(selected)),
+                    (None, None) => line.clone(),
                 }
             })
             .collect();
@@ -1455,7 +1525,9 @@ impl State {
         for page in crate::render::reading::pages(&marked) {
             let address = std::rc::Rc::as_ptr(&page.parts) as usize;
             let marks = search.map_or_else(Vec::new, |search| search.in_page(address));
-            let link = link.filter(|link| link.0 == address).map(|link| link.1);
+            let link = (link.and_then(|link| link.link))
+                .filter(|link| link.0 == address)
+                .map(|link| link.1);
             if let Some(overlay) = page.parts.overlay(marks, link) {
                 crate::render::reading::set_overlay(&mut marked[page.lines], Some(&overlay));
             }
@@ -1480,10 +1552,7 @@ impl State {
         }
         // Where the selected link goes.
         if let Some(url) = link {
-            return Some(status::Found::Told {
-                message: url,
-                fading: None,
-            });
+            return Some(status::Found::Link(url));
         }
         let search = self.search.as_ref()?;
         if self.nowhere {
@@ -1549,7 +1618,7 @@ impl Layout<'_> {
         let visible = self.view.visible();
         let fade = state.fade(now, self.rgb);
         let out = state.fade_out(now, self.rgb);
-        let link = state.links.selected(self.lines, self.places);
+        let link = (state.links).selected_on(self.lines, self.places, visible.clone());
         Frame {
             lines: state.marked(
                 &self.lines[visible.clone()],
@@ -1557,7 +1626,7 @@ impl Layout<'_> {
                 self.marks,
                 fade,
                 self.rgb.and_then(|rgb| state.tint(now, rgb, self.columns)),
-                link.as_ref().map(|link| link.link),
+                link.as_ref(),
             ),
             status: self.status.spans(
                 self.view,
@@ -1587,6 +1656,17 @@ impl Layout<'_> {
     }
 }
 
+/// Keeps the last cell size answer among the keys a read still has behind
+/// a key that ends the frame. The other keys behind it are dropped, but the
+/// answer says what the terminal is, so the next layout applies it.
+fn keep_last_answer(state: &mut State, rest: &[Key]) {
+    let last = rest.iter().rev().find_map(|key| match key {
+        Key::CellSize(width, height) => Some((*width, *height)),
+        _ => None,
+    });
+    state.cell = last.or(state.cell);
+}
+
 /// Shows `layout` in `state` on `terminal`, whose window is of `size`, and
 /// scrolls it until the reader quits or the window changes size, until
 /// the document is to be read again from `source`, if there is one to
@@ -1597,6 +1677,7 @@ fn show(
     writer: &mut Writer,
     terminal: &mut impl Terminal,
     size: Option<WindowSize>,
+    cell: Option<(u16, u16)>,
     source: &mut Origin,
 ) -> io::Result<Outcome> {
     let reload = &mut source.reload;
@@ -1630,7 +1711,8 @@ fn show(
         let mut written = false;
         // Whether a key scrolled a band or selected another.
         let mut bands = false;
-        for key in keys {
+        let mut keys = keys.into_iter();
+        while let Some(key) = keys.next() {
             match key {
                 // tmux passed no images while the pane was not shown:
                 // those sent since the focus went, or any when it is not
@@ -1653,6 +1735,12 @@ fn show(
                     continue;
                 }
                 Key::FocusIn | Key::Checked(_, true) => continue,
+                // The last answer of the read is the cells now; the keys
+                // after it still count.
+                Key::CellSize(width, height) => {
+                    state.cell = Some((width, height));
+                    continue;
+                }
                 // tmux dropped it: its placeholders are on the screen.
                 Key::Checked(id, false) => {
                     writer.send_again(id, terminal)?;
@@ -1663,7 +1751,10 @@ fn show(
             }
             match state.press(key, now, layout) {
                 Pressed::Nothing => {}
-                Pressed::Quit => return Ok(Outcome::Quit),
+                Pressed::Quit => {
+                    keep_last_answer(state, keys.as_slice());
+                    return Ok(Outcome::Quit);
+                }
                 Pressed::Reload if reload.is_none() => {
                     state.told = Some(Told::new("nothing to reload"));
                 }
@@ -1675,6 +1766,7 @@ fn show(
                         .draw(layout.view.rows(), writer, terminal)?;
                     state.sent(writer.check(terminal)?);
                     terminal.flush()?;
+                    keep_last_answer(state, keys.as_slice());
                     return Ok(Outcome::Reload);
                 }
                 // As `less` repaints, also the images, which the
@@ -1683,11 +1775,21 @@ fn show(
                     writer.lost();
                     again = true;
                 }
-                Pressed::Reading => return Ok(Outcome::Reading),
+                Pressed::Reading => {
+                    keep_last_answer(state, keys.as_slice());
+                    return Ok(Outcome::Reading);
+                }
                 // The keys after it in the same read still count, as
                 // they would read one by one.
                 Pressed::Bands => bands = true,
-                Pressed::Wide => return Ok(Outcome::Wide),
+                Pressed::Wide => {
+                    keep_last_answer(state, keys.as_slice());
+                    return Ok(Outcome::Wide);
+                }
+                Pressed::Copy(text) => {
+                    clipboard::copy(&text, writer.through_tmux(), terminal)?;
+                    terminal.flush()?;
+                }
                 Pressed::Follow if reload.is_none() => {
                     state.told = Some(Told::new(NOTHING_TO_FOLLOW));
                 }
@@ -1703,6 +1805,11 @@ fn show(
                 }
             }
             state.moved(layout.view.top());
+        }
+        if let Some(new) = state.cell.take()
+            && Some(new) != cell
+        {
+            return Ok(Outcome::Cell(new));
         }
         if state.follow.on()
             && let Some(source) = reload.as_deref_mut()

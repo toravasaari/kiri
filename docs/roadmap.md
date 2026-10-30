@@ -330,7 +330,11 @@ own and leaves the shell's scrollback as it was, as `bat` does through
 #### 4.6.6 Link selection
 
 - Choosing a link with the keyboard and following it; a Markdown target
-  opens in an overlay window, as in 4.5.
+  opens in an overlay window, as in 4.5. Choosing is done, and so is
+  copying the address with Enter: Tab and Shift+Tab select a link on the
+  screen in the text as in reading mode (4.15.5), in reverse video, and
+  a link in a heading drawn as an image cannot be selected. Following it
+  is open.
 
 #### 4.6.7 Copying
 
@@ -775,7 +779,11 @@ layout is kiri's own, on parley, with the fonts resvg already loads.
   match in a band scrolls it into view.
 - Links are OSC 8 hyperlinks over the placeholders, which kitty opens.
   Tab and Shift+Tab select a link on the screen, and the status line
-  tells where it goes. Still open: what Enter does with it.
+  tells where it goes; a link in a band scrolled out of view is reached
+  too, and the band scrolls to it. Enter copies the URL of the selected
+  link to the clipboard with OSC 52, also in tmux, and the status line
+  says so; without a link selected on the screen it scrolls a line as
+  before.
 
 ## Phase 5 – Beyond kitty
 
@@ -1166,8 +1174,9 @@ go.
   several files (4.9.2), heading anchors (4.10.1), the table of contents
   (4.6.5) and resolving links across a vault (4.13).
 - Enter on a link selected with Tab in reading mode (4.15.5) opens it in
-  the browser, as a click on the link does in kitty. kiri would need a
-  program to open it with, such as `xdg-open` from a setting.
+  the browser, as a click on the link does in kitty, instead of copying
+  its URL. kiri would need a program to open it with, such as
+  `xdg-open` from a setting.
 - The current search match fading in reading mode as it does in the
   text layout. The marks are drawn into the page's images, so each step
   of the fade would draw and send the page again.
@@ -1295,22 +1304,73 @@ display with either tmux. That tmux client's features were
 the image ids in the placeholders' 24-bit colour depend on. A row on
 the edge of two 30-row parts of a page is another suspect.
 
-#### B12 The pager blank after a resize under load
+#### B13 Wrong cell size after a font change in a container's tmux (fixed)
 
-Seen once on a virtual display with the machine under heavy load: after
-the window was resized in reading mode, the pager stayed blank.
+Fixed: when the window changes size, the pager asks the terminal for its
+cell size with `CSI 16 t`, through passthrough inside tmux, and lays the
+page out again if kitty's answer differs from the cells it has. Where
+the window tells real pixels outside tmux, as kitty on the host does, it
+asks nothing.
 
-Seen again while checking B11, without load: in reading mode in tmux,
-after kitty's font size changed, the first frame showed only the status
-line, twice in a row. The page came back with the next key. In tmux on
-a terminal that does not tell its pixels, the first frame at start was
-blank too, in 5 of 11 starts, also before the B11 fix; it stayed blank
-for 24 seconds without a key.
+Right after kitty's font size changed, tmux often still answered its own
+guess of 16 × 32 pixels a cell, when the pager asked tmux for its
+client's cell size, in 5 of 8 tries on a virtual display. The pager kept
+the cells it had or took tmux's guess, so the page stayed at its old
+scale with the bottom of the window empty, and a key did not mend it.
+Outside tmux, in a container whose window tells no pixels, the pager
+never followed a font change at all. The terminal itself always knows
+its cells, and its answer comes among the keys. The pager lays the page
+out for the cells it has at once and again when the answer differs, so a
+frame for the old cells may show for a moment; waiting for the answer
+first would delay every resize by a terminal that never answers.
+
+#### B14 Two touching links to one address split at a line break
+
+In the pager's text layout, two links to one address that touch, with a
+style change between them, such as `[aaaa](u)**[bbbb](u)**`, are one
+link for Tab on one line but two when a line break falls between them.
+Without the style change they stay one. Reading mode keeps them one. A
+mark that the layout kept for touching parts across a break would mend
+it.
+
+#### B15 Tab stops at a link without an address
+
+`[text]()` is a Tab stop in the pager, in both layouts, though the
+terminal shows no link there: an empty address in OSC 8 closes a link.
+Enter already scrolls past it instead of copying, and Tab could skip it
+too.
+
+#### B16 A bar in a table cell's text splits a wrapped link
+
+To keep a link wrapped inside a table cell one link, the pager's text
+layout finds the cells by their borders, `│` and `▎`. A bar in a cell's
+own text counts as a border too, such as a bold `│` before the link or
+`` `│` `` in the cell beside it, and the link splits in two there.
+Comparing the column of the last border instead of counting borders
+would mend the cell beside it; a bar in the same cell needs the layout
+to mark its borders.
 
 ### Upstream bugs
 
-Bugs in projects kiri uses, which kiri works around until they are fixed
-there.
+Bugs in projects kiri uses. kiri works around most of them until they
+are fixed there; an entry says when it does not.
+
+#### kitty on a virtual display leaves images undrawn
+
+kitty 0.47.1 on Xvfb, drawing with llvmpipe, often leaves the images of
+a large first frame undrawn: the placeholders are on the screen, kitty
+answers that it holds the images, and they show as soon as something
+wakes kitty, such as `kitty @ ls` or `kitty @ get-text`. A write to the
+terminal does not wake it. It happens without tmux and with
+`kitten icat` too, so it is kitty's, and it has not been seen in the
+maintainer's own kitty. Reading mode in the pager, whose first frame sends
+two large images, came up blank in more than half of its starts.
+
+This was B12, a blank pager after a resize under load, after a font
+change and at start in tmux, all seen on a virtual display. kiri does
+not work around it. The render-check skill waits for the pager by
+asking kitty for its text, which wakes kitty, so its screenshots are
+not blank.
 
 #### resvg and the SVG that mmdc writes
 

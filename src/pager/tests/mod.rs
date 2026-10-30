@@ -7,6 +7,7 @@ use crate::model::{Document, File};
 mod files;
 mod following;
 mod images;
+mod links;
 mod loading;
 mod paging;
 mod reading;

@@ -5,12 +5,14 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 
 use super::url::local_file;
-use super::{ImageError, ImageKey, Images, Part, Source, lone_urls};
+use super::{ImageError, ImageKey, Images, Part, Source, shown_urls};
 
 /// The modification time of the file behind each image of the documents
-/// shown, when the image was last loaded: `None` for a file that could not
-/// be looked at. An image that does not come from a local file, such as a
-/// diagram or a `data:` URL, has no stamp and stays as it is.
+/// shown, when the image was last loaded: `None` for a file that could
+/// not be looked at. Images in the middle of text are stamped whatever
+/// the mode is, so that turning reading mode on does not make a reload
+/// take them for new. An image that does not come from a local file, such
+/// as a diagram or a `data:` URL, has no stamp and stays as it is.
 #[derive(Debug, Default)]
 pub struct Stamps {
     by_key: HashMap<ImageKey, Option<SystemTime>>,
@@ -47,11 +49,11 @@ impl Stamps {
 }
 
 /// The modification time of the file behind each image of `parts` that
-/// comes from a local file.
+/// comes from a local file, those in the middle of text too.
 fn modified_times(parts: &[Part<'_>]) -> HashMap<ImageKey, Option<SystemTime>> {
     let mut times = HashMap::new();
     for part in parts {
-        for url in lone_urls(part.document) {
+        for url in shown_urls(part.document) {
             let Some(path) = local_file(url, part.base) else {
                 continue;
             };

@@ -225,7 +225,18 @@ Content of a block that has no summary.
 
 The link at the end of this sentence is long enough to wrap onto the next
 line: [a link whose text goes on long enough to span two lines in most windows](https://example.com/visual-check).
-Every line of it is underlined and opens the same page.
+Every line of it is underlined and opens the same page. In the pager, where
+the terminal shows links as hyperlinks (inside tmux, with its hyperlinks
+feature, set up in the next paragraph), Tab selects a link on the screen:
+this one shows in reverse video on both its lines, and the status line says
+where it goes. Enter copies its address to the clipboard, Shift+Tab selects
+the one before, and Escape lets it go. The link stays selected while either
+of its lines is on the screen.
+
+Two links to one address that touch, with no space between them, are one
+link on one line, even when the style changes between them:
+[plain part](https://example.com/parts)**[bold part](https://example.com/parts)**
+is underlined as one link, and Tab selects both parts in one step.
 
 Inside tmux the link opens just as it does outside, once tmux.conf has
 the line `set -as terminal-features ',xterm-kitty:hyperlinks'` (for
