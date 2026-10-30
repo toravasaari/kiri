@@ -132,8 +132,8 @@ impl Links {
 /// numbered from the pages' own lists for the pages, so that a link keeps
 /// its id whether or not a band shows it now; `lines` are where its cells
 /// are, none while it has none, and `band_at` where to scroll its band to.
-/// A link in text is the run of spans with one address, and one that
-/// wraps is one link.
+/// A link in text is the run of spans sharing one link (one `Rc`, so two
+/// links to one address stay apart), and one that wraps is one link.
 fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
     // The lines that have cells of each link of a page.
     let mut cells: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
@@ -204,7 +204,8 @@ fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
 }
 
 /// The bars a quote or an alert puts in front of each of its lines
-/// (`src/render/layout/quote.rs`), which are an indent too.
+/// (`src/render/layout/quote.rs`), which are an indent too, and the
+/// borders of a table, which are the edges of its cells.
 const BARS: [char; 2] = ['│', '▎'];
 
 /// Whether `span` is the edge of a cell: the border of a table, or the bar
