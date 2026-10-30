@@ -720,8 +720,8 @@ debug.
 Once the move is done, a module's tests, its snapshots and its `tests/`
 directory go with it, and the table's paths are the final ones.
 
-The move creates these files; they are not in the table above, because they do
-not exist yet. Each declares the modules that moved into its directory and
+The move created these files; they are not in the table above, because they had
+no path before it. Each declares the modules that moved into its directory and
 exports the public surface of its part.
 
 | New file | What it is |
@@ -731,11 +731,6 @@ exports the public surface of its part.
 | `src/session/mod.rs` | new: the root of the state engine |
 | `src/typeset/images/mod.rs` | new: declares `decode`, `drawn`, `heading` and `size`; the pure pieces of `images/mod.rs` arrive in it with loading and sessions |
 | `src/typeset/diagrams/mod.rs` | new: declares `language`, `math` and `mermaid`; the pure pieces of `diagrams/mod.rs` arrive in it with loading and sessions |
-
-The move also changes the paths that name moved files elsewhere: `AGENTS.md`
-says that kitty's sequences live under `src/present/kitty/`, which becomes
-`src/present/kitty/`, and the sections of this document above name today's
-paths.
 
 ### Exceptions to the direction
 
