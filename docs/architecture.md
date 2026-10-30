@@ -720,9 +720,10 @@ debug.
 Once the move is done, a module's tests, its snapshots and its `tests/`
 directory go with it, and the table's paths are the final ones.
 
-The move created these files; they are not in the table above, because they had
-no path before it. Each declares the modules that moved into its directory and
-exports the public surface of its part.
+The move created the first five of these files; they are not in the table above,
+because they had no path before it. Each declares the modules that moved into
+its directory and exports the public surface of its part. The last three came
+later and are test only.
 
 | New file | What it is |
 |---|---|
@@ -731,6 +732,9 @@ exports the public surface of its part.
 | `src/session/mod.rs` | new: the root of the state engine |
 | `src/typeset/images/mod.rs` | new: declares `decode`, `drawn`, `heading` and `size`; the pure pieces of `images/mod.rs` arrive in it with loading and sessions |
 | `src/typeset/diagrams/mod.rs` | new: declares `language`, `math` and `mermaid`; the pure pieces of `diagrams/mod.rs` arrive in it with loading and sessions |
+| `src/typeset/parity.rs` | new, test only: lays out blocks in both layouts and compares what each decided, against the list of known differences |
+| `src/typeset/layout/summary.rs` | new, test only: the cell layout's view of a block, for the parity test |
+| `src/typeset/reading/page/summary.rs` | new, test only: the pixel layout's view of a block, for the parity test |
 
 ### Exceptions to the direction
 
