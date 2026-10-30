@@ -5,7 +5,7 @@ use std::path::Path;
 
 use image::error::{ImageFormatHint, UnsupportedErrorKind};
 use image::{ImageFormat, RgbaImage};
-use kiri_image_utils::DecodeError;
+use kiri_tr_image_utils::DecodeError;
 
 use super::svg::{Fonts, Svg, decode_svg, looks_like_svg};
 use super::{ImageError, url};
@@ -115,7 +115,7 @@ impl Source {
 pub(super) fn scale(image: &RgbaImage, width: u32, height: u32) -> RgbaImage {
     let (from_width, from_height) = image.dimensions();
     let bytes =
-        kiri_image_utils::scale_rgba8(image.as_raw(), from_width, from_height, width, height);
+        kiri_tr_image_utils::scale_rgba8(image.as_raw(), from_width, from_height, width, height);
     RgbaImage::from_raw(width, height, bytes).expect("width × height pixels")
 }
 
@@ -152,7 +152,7 @@ pub fn read_image(
     match format {
         Format::Detect => decode(&bytes, max_file_size, fonts),
         Format::Svg => decode_svg(&bytes, max_file_size, fonts).map(Source::Svg),
-        Format::Raster(format) => decoded(kiri_image_utils::decode_rgba8_as(
+        Format::Raster(format) => decoded(kiri_tr_image_utils::decode_rgba8_as(
             &bytes, format, MAX_PIXELS, MAX_ALLOC,
         ))
         .map(Source::Raster),
@@ -190,12 +190,12 @@ pub(super) fn decode_raster(
     // Only TGA has no signature; for other formats a wrong name must not
     // turn data that is no image into a broken image.
     let fallback = named.filter(|&format| format == ImageFormat::Tga);
-    decoded(kiri_image_utils::decode_rgba8(
+    decoded(kiri_tr_image_utils::decode_rgba8(
         bytes, fallback, MAX_PIXELS, MAX_ALLOC,
     ))
 }
 
-/// The image `kiri_image_utils` decoded, or why it gave none.
+/// The image `kiri_tr_image_utils` decoded, or why it gave none.
 fn decoded(result: Result<RgbaImage, DecodeError>) -> Result<RgbaImage, ImageError> {
     match result {
         Ok(image) => Ok(image),

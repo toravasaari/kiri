@@ -8,7 +8,7 @@ license = "MIT"
 publish = false
 
 [workspace]
-members = ["crates/kiri-image-utils"]
+members = ["crates/kiri-tr-image-utils"]
 
 [lib]
 name = "kiri"
@@ -48,7 +48,7 @@ csv = "1.4.0"
 emojis = "0.9.1"
 flate2 = "1.1.10"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
-kiri-image-utils = { version = "0.1.0", path = "crates/kiri-image-utils" }
+kiri-tr-image-utils = { version = "0.1.0", path = "crates/kiri-tr-image-utils" }
 libc = "0.2.190"
 merman = { version = "0.9.1", optional = true }
 # Reading mode's text layout. Without its `system` feature, which would
@@ -91,7 +91,7 @@ rustix = { version = "1.1.5", features = ["pty", "process"] }
 # SVG with 400 lines of text takes 0.7 s instead of 1.2 s. The fern as an LZW TIFF takes 0.36 s instead of
 # 0.64 s. flate2, moxcms and the TIFF decoder's fax and half made no
 # measurable difference.
-# Generic code is compiled in the crate that uses it. kiri-image-utils is
+# Generic code is compiled in the crate that uses it. kiri-tr-image-utils is
 # optimised for that reason: it decodes raster images, whose BMP, TGA and
 # QOI decoders are generic, and scales them with fast_image_resize, most
 # of which is generic. The fern as a BMP takes 0.23 s instead of 1.8 s.
@@ -126,4 +126,4 @@ parley_engine.opt-level = 3
 fontique.opt-level = 3
 icu_segmenter.opt-level = 3
 fast_image_resize.opt-level = 3
-kiri-image-utils.opt-level = 3
+kiri-tr-image-utils.opt-level = 3
