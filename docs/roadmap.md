@@ -1324,6 +1324,32 @@ out for the cells it has at once and again when the answer differs, so a
 frame for the old cells may show for a moment; waiting for the answer
 first would delay every resize by a terminal that never answers.
 
+#### B14 Two touching links to one address split at a line break
+
+In the pager's text layout, two links to one address with nothing
+between them, such as `[aaaa](u)**[bbbb](u)**`, are one link for Tab on
+one line, but two when a line break falls between them. The layout drops
+the space at a break, so they then look like two links with a space
+between them, which stay two. Reading mode keeps them one. A mark that
+the layout kept for touching parts across a break would mend it.
+
+#### B15 Tab stops at a link without an address
+
+`[text]()` is a Tab stop in the pager, in both layouts, though the
+terminal shows no link there: an empty address in OSC 8 closes a link.
+Enter already scrolls past it instead of copying, and Tab could skip it
+too.
+
+#### B16 A bar in a table cell's text splits a wrapped link
+
+To keep a link wrapped inside a table cell one link, the pager's text
+layout finds the cells by their borders, `│` and `▎`. A bar in a cell's
+own text counts as a border too, such as a bold `│` before the link or
+`` `│` `` in the cell beside it, and the link splits in two there.
+Comparing the column of the last border instead of counting borders
+would mend the cell beside it; a bar in the same cell needs the layout
+to mark its borders.
+
 ### Upstream bugs
 
 Bugs in projects kiri uses, which kiri works around until they are fixed
