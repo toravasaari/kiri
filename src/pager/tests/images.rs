@@ -330,6 +330,87 @@ fn the_terminal_s_cell_size_stays_until_the_window_s_changes() {
     assert_eq!(sent((8, 16)), [20, 16]);
 }
 
+/// The size in pixels of each square the pager sends when the window
+/// goes from 60 to 72 columns, with the cells of `cells` pixels before and
+/// after as the window tells them, where detection found 10 × 20, and
+/// `answer` comes after that: the terminal's answer to the query for its
+/// cell size, if any. Also all that was written.
+fn squares_after_a_new_font(
+    tmux: bool,
+    cells: [(u16, u16); 2],
+    answer: &[u8],
+) -> (Vec<u16>, String) {
+    let pixels = |columns: u16, cell: (u16, u16)| WindowSize {
+        columns,
+        rows: 6,
+        width: columns * cell.0,
+        height: 6 * cell.1,
+    };
+    let (document, mut inputs) = pictured([255, 0, 0, 255]);
+    inputs.caps.cell_pixels = Some((10, 20));
+    inputs.caps.tmux_passthrough = tmux;
+    let mut terminal = Fake::new(60, 6, &[b"", answer, b"q"]);
+    terminal.size = pixels(60, cells[0]);
+    terminal.sizes = [pixels(72, cells[1])].into();
+    let out = written(&document, inputs, &mut terminal, None);
+    // The square's size in pixels, as many as a row's height.
+    let sent = (out.split("\x1b_Ga=T,").skip(1))
+        .map(|rest| {
+            let at = rest.find(",s=").unwrap() + 3;
+            let digits = rest[at..].chars().take_while(char::is_ascii_digit);
+            digits.collect::<String>().parse::<u16>().unwrap()
+        })
+        .collect();
+    (sent, out)
+}
+
+/// kitty's answer to the cell size query for cells of 10 × 24 pixels, which
+/// make a 20 × 20 square 30 × 24 (whole cells).
+const TEN_BY_24: &[u8] = b"\x1b[6;24;10t";
+
+#[test]
+fn in_tmux_a_new_font_is_followed_by_the_cell_size_kitty_answers() {
+    // The window tells tmux's guess of 16 x 32 pixels a cell before and
+    // after the font changes. The page is laid out at once for the cells
+    // known, and again when the answer tells others.
+    let (sent, out) = squares_after_a_new_font(true, [(16, 32); 2], TEN_BY_24);
+    assert_eq!(sent, [20, 30], "{out:?}");
+    let query = "\x1bPtmux;\x1b\x1b[16t\x1b\\";
+    assert_eq!(out.matches(query).count(), 1, "{out:?}");
+    assert_eq!(out.matches("\x1b[16t").count(), 1, "wrapped: {out:?}");
+}
+
+#[test]
+fn outside_tmux_a_window_without_pixels_is_asked_for_the_cell_size_too() {
+    let (sent, out) = squares_after_a_new_font(false, [(0, 0); 2], TEN_BY_24);
+    assert_eq!(sent, [20, 30], "{out:?}");
+    assert_eq!(out.matches("\x1b[16t").count(), 1, "{out:?}");
+    assert!(!out.contains("\x1bPtmux;"), "{out:?}");
+}
+
+#[test]
+fn a_window_that_tells_its_pixels_outside_tmux_is_not_asked() {
+    // As in kitty on the host: the window's cells are the terminal's.
+    let (sent, out) = squares_after_a_new_font(false, [(10, 20), (10, 24)], b"");
+    assert_eq!(sent, [20, 30], "{out:?}");
+    assert!(!out.contains("\x1b[16t"), "{out:?}");
+}
+
+#[test]
+fn an_answer_that_is_the_cell_size_in_use_does_not_lay_the_page_out_again() {
+    let (sent, out) = squares_after_a_new_font(true, [(16, 32); 2], b"\x1b[6;20;10t");
+    assert_eq!(sent, [20], "{out:?}");
+    let drawn = out.matches("\x1b[?2026h").count();
+    assert_eq!(drawn, 2, "the first frame and the one after the resize");
+}
+
+#[test]
+fn without_an_answer_the_pager_keeps_the_cell_size_it_has() {
+    let (sent, out) = squares_after_a_new_font(true, [(16, 32); 2], b"");
+    assert_eq!(sent, [20], "{out:?}");
+    assert_eq!(out.matches("\x1b[16t").count(), 1, "{out:?}");
+}
+
 #[test]
 fn a_narrower_window_rewraps_a_heading_image_without_a_new_image() {
     let mut terminal = Fake::new(100, 12, &[b"", b"", b"q"]);

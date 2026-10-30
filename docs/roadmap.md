@@ -1300,6 +1300,26 @@ display with either tmux. That tmux client's features were
 the image ids in the placeholders' 24-bit colour depend on. A row on
 the edge of two 30-row parts of a page is another suspect.
 
+#### B13 Wrong cell size after a font change in a container's tmux (fixed)
+
+Fixed: when the window changes size, the pager asks the terminal for its
+cell size with `CSI 16 t`, through passthrough inside tmux, and lays the
+page out again if kitty's answer differs from the cells it has. Where
+the window tells real pixels outside tmux, as kitty on the host does, it
+asks nothing.
+
+Right after kitty's font size changed, tmux often still answered its own
+guess of 16 × 32 pixels a cell, when the pager asked tmux for its
+client's cell size, in 5 of 8 tries on a virtual display. The pager kept
+the cells it had or took tmux's guess, so the page stayed at its old
+scale with the bottom of the window empty, and a key did not mend it.
+Outside tmux, in a container whose window tells no pixels, the pager
+never followed a font change at all. The terminal itself always knows
+its cells, and its answer comes among the keys. The pager lays the page
+out for the cells it has at once and again when the answer differs, so a
+frame for the old cells may show for a moment; waiting for the answer
+first would delay every resize by a terminal that never answers.
+
 ### Upstream bugs
 
 Bugs in projects kiri uses, which kiri works around until they are fixed

@@ -36,7 +36,7 @@ use crate::render::output::{self, Page, Writer};
 use crate::render::reading::Reading;
 use crate::render::style::{self, Line, Span, Style};
 use crate::render::wrap;
-use crate::term::{Screen, WindowSize, clipboard};
+use crate::term::{Screen, WindowSize, cell_query, clipboard};
 use fade::{
     FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY, WARNING_STAY,
 };
@@ -332,10 +332,12 @@ fn page_through(
         Content::Document(_) => &[],
         Content::Files(files) => files,
     };
+    // The cells the heading images were last loaded for.
+    let mut headed = cell_size(&inputs.caps);
     loop {
-        let cell = cell_size(&inputs.caps);
         fit(&mut inputs.caps, size, width, &mut window_cell);
-        if cell_size(&inputs.caps) != cell {
+        if cell_size(&inputs.caps) != headed {
+            headed = cell_size(&inputs.caps);
             let content = match &reloaded {
                 Some(document) => Content::Document(document),
                 None => content,
@@ -474,6 +476,7 @@ fn page_through(
             &mut writer,
             terminal,
             size,
+            inputs.caps.cell_pixels,
             &mut source,
         )?;
         match outcome {
@@ -503,6 +506,22 @@ fn page_through(
                 // The lines laid out for the new size are others.
                 state.changed = None;
                 size = new;
+                view = Some(shown);
+                // A new font size changes the cells, which the window does
+                // not always tell: it tells none, or inside tmux it may
+                // tell tmux's guess. The terminal's answer comes among the
+                // keys; until then the cells known are used.
+                let tells_pixels = new.is_some_and(|new| new.cell_pixels().is_some());
+                if new.is_some() && (inputs.caps.tmux_passthrough || !tells_pixels) {
+                    cell_query::ask(inputs.caps.tmux_passthrough, terminal)?;
+                    terminal.flush()?;
+                }
+            }
+            // Laid out again for the cells the terminal answered, as after
+            // a resize.
+            Outcome::Cell(cell) => {
+                state.changed = None;
+                inputs.caps.cell_pixels = Some(cell);
                 view = Some(shown);
             }
             // Laid out again with wide blocks the other way, in reading
@@ -635,6 +654,9 @@ enum Outcome {
     Quit,
     /// The window is now of this size.
     Resized(Option<WindowSize>),
+    /// The terminal answered that its cells are of this size, width and
+    /// height in pixels, which are not the ones in use.
+    Cell((u16, u16)),
     /// The document is to be read again: the reader asked for it, and the
     /// status line says it is being read, or it changed while followed.
     Reload,
@@ -1622,6 +1644,7 @@ fn show(
     writer: &mut Writer,
     terminal: &mut impl Terminal,
     size: Option<WindowSize>,
+    cell: Option<(u16, u16)>,
     source: &mut Origin,
 ) -> io::Result<Outcome> {
     let reload = &mut source.reload;
@@ -1678,6 +1701,10 @@ fn show(
                     continue;
                 }
                 Key::FocusIn | Key::Checked(_, true) => continue,
+                Key::CellSize(width, height) => match (width, height) {
+                    new if Some(new) == cell => continue,
+                    new => return Ok(Outcome::Cell(new)),
+                },
                 // tmux dropped it: its placeholders are on the screen.
                 Key::Checked(id, false) => {
                     writer.send_again(id, terminal)?;

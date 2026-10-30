@@ -3,6 +3,7 @@
 
 use super::view::Motion;
 use crate::kitty::graphics::{self, ImageId};
+use crate::kitty::query;
 
 /// A key as the terminal sends it without kitty's keyboard protocol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +43,9 @@ pub enum Key {
     /// kitty's answer to a check of image `.0`: whether it holds it.
     /// Not a key either.
     Checked(ImageId, bool),
+    /// The terminal's answer to the query for its cell size: a cell's
+    /// width and height in pixels. Not a key either.
+    CellSize(u16, u16),
     /// The mouse wheel turned a notch up.
     WheelUp,
     /// The mouse wheel turned a notch down.
@@ -255,6 +259,10 @@ fn csi(parameters: &[u8], last: u8) -> Key {
         (b"6;2", b'~') => Key::ShiftPageDown,
         (b"", b'I') => Key::FocusIn,
         (b"", b'O') => Key::FocusOut,
+        // The terminal's answer to the cell size query, `6;height;width`.
+        ([b'6', b';', rest @ ..], b't') => (std::str::from_utf8(rest).ok())
+            .and_then(query::cell_size_answer)
+            .map_or(Key::Other, |(width, height)| Key::CellSize(width, height)),
         // A mouse event in SGR encoding, `<` and the button, the column
         // and the row, pressed with `M` and released with `m`.
         ([b'<', rest @ ..], b'M' | b'm') => {
@@ -595,6 +603,36 @@ mod tests {
         let mut decoder = Decoder::default();
         assert_eq!(decoder.keys(&lost[..20]), []);
         assert_eq!(decoder.keys(&lost[20..]), [Key::Checked(eight, false)]);
+    }
+
+    #[test]
+    fn decodes_the_terminal_s_answer_to_the_cell_size_query() {
+        // The answer has the height first, as the query's does.
+        assert_eq!(
+            decode(b"\x1b[6;24;10tj"),
+            [Key::CellSize(10, 24), Key::Char('j')]
+        );
+        let mut decoder = Decoder::default();
+        assert_eq!(decoder.keys(b"\x1b[6;24"), []);
+        assert_eq!(decoder.keys(b";10t"), [Key::CellSize(10, 24)]);
+        assert_eq!(action(Key::CellSize(10, 24)), None);
+    }
+
+    #[test]
+    fn other_sequences_that_end_in_t_or_start_with_6_are_not_a_cell_size() {
+        // The window size in characters and the query itself, an answer
+        // of no size, and keys that have a 6.
+        assert_eq!(
+            decode(b"\x1b[8;24;80t\x1b[16t\x1b[6;0;0t\x1b[6;24t\x1b[6~\x1b[6;2~"),
+            [
+                Key::Other,
+                Key::Other,
+                Key::Other,
+                Key::Other,
+                Key::PageDown,
+                Key::ShiftPageDown
+            ]
+        );
     }
 
     #[test]

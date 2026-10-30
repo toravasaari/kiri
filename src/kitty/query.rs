@@ -51,12 +51,18 @@ pub const CELL_SIZE: &str = "\x1b[16t";
 /// [`CELL_SIZE`] in `text`: `ESC [ 6 ; height ; width t`. `None` without an
 /// answer or for a size of 0.
 pub fn cell_size(text: &str) -> Option<(u16, u16)> {
-    text.split("\x1b[6;").skip(1).find_map(|part| {
-        let (height, rest) = part.split_once(';')?;
-        let width = &rest[..rest.find('t')?];
-        let size = (width.parse().ok()?, height.parse().ok()?);
-        (size.0 > 0 && size.1 > 0).then_some(size)
-    })
+    text.split("\x1b[6;")
+        .skip(1)
+        .find_map(|part| cell_size_answer(&part[..part.find('t')?]))
+}
+
+/// The cell size as width and height in pixels from the parameters of an
+/// answer to [`CELL_SIZE`] after the 6: `height ; width`. `None` for a size
+/// of 0 or for others than two numbers.
+pub fn cell_size_answer(parameters: &str) -> Option<(u16, u16)> {
+    let (height, width) = parameters.split_once(';')?;
+    let size = (width.parse().ok()?, height.parse().ok()?);
+    (size.0 > 0 && size.1 > 0).then_some(size)
 }
 
 /// The first kitty release with the graphics protocol's Unicode

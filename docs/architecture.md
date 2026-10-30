@@ -490,9 +490,9 @@ writes as it is into a pipe.
 | Focus reporting | CSI ?1004h/l; CSI I, CSI O | `src/term/screen.rs`, `src/pager/keys.rs` | Telling the pager that its tmux pane is shown again |
 | Mouse reporting | CSI ?1000h/l, CSI ?1006h/l; CSI < … M/m, CSI M | `src/term/screen.rs`, `src/pager/keys.rs` | The wheel scrolling the pager, also inside tmux; in reading mode, a click selecting a band and the sideways wheel scrolling it |
 | Synchronized output | CSI ?2026h/l | `src/render/output.rs` | Pager frames without flicker |
-| Cell size query | CSI 16 t | `src/kitty/query.rs` | The cell size in pixels where the window size has none, and inside tmux, where the window's may be tmux's guess |
+| Cell size query | CSI 16 t; the answer CSI 6 ; height ; width t | `src/kitty/query.rs`, `src/term/cell_query.rs`, `src/pager/keys.rs` | The cell size in pixels where the window size has none, and inside tmux, where the window's may be tmux's guess: asked at start, and by the pager when the window changes size, so that it follows a new font size |
 | Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI c | `src/term/probe.rs` | Cursor position, foreground, background and palette colours, terminal version, end of the answers |
-| tmux passthrough | DCS `tmux;` … ST, with each ESC doubled | `src/term/tmux.rs` | kitty's graphics, and the probe's graphics and cell size queries, through tmux to the terminal outside |
+| tmux passthrough | DCS `tmux;` … ST, with each ESC doubled | `src/term/tmux.rs` | kitty's graphics, the probe's graphics query, and the probe's and the pager's cell size queries, through tmux to the terminal outside |
 | Image checks | APC `_G` `a=p,U=1` and `a=d,d=i` with a placement id | `src/kitty/graphics.rs`, `src/term/check.rs` | Whether kitty behind tmux holds the images kiri sent |
 
 Sequences that only kitty's protocols define live under `src/kitty/`: text
