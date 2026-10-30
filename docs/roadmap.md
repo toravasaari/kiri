@@ -775,7 +775,8 @@ layout is kiri's own, on parley, with the fonts resvg already loads.
   match in a band scrolls it into view.
 - Links are OSC 8 hyperlinks over the placeholders, which kitty opens.
   Tab and Shift+Tab select a link on the screen, and the status line
-  tells where it goes. Enter copies the URL of the selected link to the
+  tells where it goes; a link in a band scrolled out of view is reached
+  too, and the band scrolls to it. Enter copies the URL of the selected link to the
   clipboard with OSC 52, also in tmux, and the status line says so;
   without a link selected on the screen it scrolls a line as before.
 

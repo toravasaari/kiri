@@ -1258,6 +1258,15 @@ impl State {
                 let visible = layout.view.visible();
                 let back = key == Key::BackTab;
                 (self.links).select_next(layout.lines, layout.places, visible, back);
+                // A link in a band that shows none of its cells scrolls
+                // the band to it, as a search match does.
+                let target = self.links.target(layout.lines, layout.places);
+                if let Some(found) = target.filter(|found| found.is_scrolled_out())
+                    && let Some((line, x)) = found.band_at
+                    && (self.bands).reveal(layout.lines, layout.places, line, x) == Some(true)
+                {
+                    self.bands_moved = true;
+                }
             }
             None => {}
         }

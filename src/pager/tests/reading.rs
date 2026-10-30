@@ -616,3 +616,29 @@ fn in_tmux_with_passthrough_the_copy_goes_through_to_kitty() {
     );
     assert!(!out.contains(COPY_ONE), "in what was written");
 }
+
+#[test]
+fn tab_selects_a_link_in_a_band_scrolled_out_of_view_and_scrolls_the_band_to_it() {
+    let long = "x".repeat(150);
+    let document = crate::parse::parse(&format!(
+        "| a | b |\n|---|---|\n| [near](https://one.example/) | {long}[far](https://two.example/) |\n"
+    ));
+    let frames = reading_frames(
+        &document,
+        crate::reading::page::Wide::Scroll,
+        &[b"\t", b"\t", b"\t", b""],
+    );
+    // The status line is the last row, after the placeholders.
+    let told = |frame: &String| {
+        let bar = frame.rsplit("\x1b[10;1H").next().unwrap_or("");
+        ["https://one.example/", "https://two.example/"]
+            .iter()
+            .find(|url| bar.contains(**url))
+            .map(|url| url.to_string())
+    };
+    let told: Vec<Option<String>> = frames.iter().map(told).collect();
+    assert_eq!(told.get(1), Some(&Some("https://one.example/".to_owned())));
+    assert_eq!(told.get(2), Some(&Some("https://two.example/".to_owned())));
+    // On round, the band scrolled back to the first.
+    assert_eq!(told.get(3), Some(&Some("https://one.example/".to_owned())));
+}

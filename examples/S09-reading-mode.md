@@ -165,7 +165,7 @@ long words where it must, so that it still fits the area:
 
 | Path | Another path |
 |------|--------------|
-| `src/render/reading/a_very_long_module_name_that_does_not_fit.rs` | `src/reading/page/another_very_long_name_that_cannot_fit_either.rs`findme |
+| `src/render/reading/a_very_long_module_name_that_does_not_fit.rs` | `src/reading/page/another_very_long_name_that_cannot_fit_either.rs`findme and then a few more words that push the next one far to the right [link](https://example.com/band) |
 
 ## Scrolling sideways
 
@@ -219,6 +219,14 @@ address to the clipboard, also in tmux when it passes images through, and
 the status line says `link copied` for a moment; paste it somewhere to
 check. With no link selected, or the selected one off the screen, Enter
 scrolls down a line. Escape lets the link go.
+
+With `--wide scroll`, Tab reaches the links in a band too, also while the
+band is scrolled so that the link is out of its view: the last cell of
+the table too wide has one, "link", beyond the band's right edge at
+first in a window of usual width. Tab, with the table on the screen, selects it after the
+links above it, and the band scrolls until the link is in view, with its
+box round it; Tab on from there goes on to the link after it, and
+Shift+Tab back.
 
 ## Images, diagrams and formulas
 
