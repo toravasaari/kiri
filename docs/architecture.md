@@ -591,7 +591,7 @@ The later work that the rows name, in words:
   names, for the places that do not exist yet.
 
 A few files arrive with the branch `fix/reading-leftovers`, which is not
-merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
+merged yet: `present/cell_query.rs`, `present/clipboard.rs` and
 `pager/tests/links.rs`. They have rows too.
 
 | Module | Part | After the move |
@@ -757,25 +757,25 @@ in its row.
 
 | Edge | Removed by |
 |---|---|
-| `caps.rs` (typesetting) uses `kitty::graphics::MAX_CELLS` (terminal layer) | giving `caps.rs` the constant, a small change of its own |
-| `diagrams/language.rs` and `diagrams/mermaid/mod.rs` (typesetting) use `diagrams::external::Output` (platform) | loading and sessions, which moves `Output` to the typesetting side |
+| `typeset/caps.rs` (typesetting) uses `present::kitty::graphics::MAX_CELLS` (terminal layer) | giving `caps.rs` the constant, a small change of its own |
+| `typeset/diagrams/language.rs` and `typeset/diagrams/mermaid/mod.rs` (typesetting) use `diagrams::external::Output` (platform) | loading and sessions, which moves `Output` to the typesetting side |
 | `Ink::new` in `render/loading.rs` (typesetting's `Ink`) takes the terminal layer's `output::Page` | the terminal layer split, which moves `Ink::new` to the terminal layer |
-| `term/clipboard.rs` and `term/cell_query.rs` (terminal layer) import `passthrough` from `term/tmux.rs`, which is at a platform path until the split | the terminal layer split, which moves `passthrough` |
+| `present/clipboard.rs` and `present/cell_query.rs` (terminal layer) import `passthrough` from `term/tmux.rs`, which is at a platform path until the split | the terminal layer split, which moves `passthrough` |
 | `pages_alone` and `may_load_later` (state engine) call `term::stdout_is_terminal` (platform) | the startup plan, which takes the answer as a value |
 | `surely_paged` (state engine) calls `images::measure_in_background` and `term::window_size` (platform) | the startup plan, which takes the measured layout (or the window rows) and the window size as values |
 | `detect` in `term/detect.rs` (terminal layer) calls `tmux::run_id` (platform) | the terminal layer split, which passes the run id in |
 | `term/detect.rs` and `term/tmux.rs` (terminal layer) take `config::Environment` (platform) and `config::Passthrough` (a setting type) | the terminal layer split, which passes the variables and the `Passthrough` value as arguments |
-| `reading/fonts.rs` (typesetting) loads and memory-maps system fonts | the font database |
-| `theme/file.rs` (typesetting) has `load`, which reads a file | the config split |
+| `typeset/reading/fonts.rs` (typesetting) loads and memory-maps system fonts | the font database |
+| `typeset/theme/file.rs` (typesetting) has `load`, which reads a file | the config split |
 
 ### Where a new thing goes
 
 New code goes where this map puts it. When the map has no place for it,
 that is a question for the maintainer, not a reason to add it to a hub
 file (`main.rs`, `pager/mod.rs`, `config.rs`, `render/mod.rs`,
-`render/layout/mod.rs`, `render/reading.rs`, `reading/page.rs`,
-`images/mod.rs` and `diagrams/mod.rs`). **No path yet** means that the
-work named creates the place; until then, ask.
+`typeset/layout/mod.rs`, `typeset/reading/engine.rs`,
+`typeset/reading/page.rs`, `images/mod.rs` and `diagrams/mod.rs`).
+**No path yet** means that the work named creates the place; until then, ask.
 
 | A new… | Goes in |
 |---|---|
