@@ -13,7 +13,7 @@ use base64::Engine;
 use image::{Rgba, RgbaImage};
 use kiri::diagrams::{Drawn, Renderer, Request};
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, Images, LoadOptions, Source};
-use kiri::kitty::graphics::{DIACRITICS, PLACEHOLDER};
+use kiri::present::kitty::graphics::{DIACRITICS, PLACEHOLDER};
 use kiri::render::Inputs;
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::theme::Theme;

@@ -6,7 +6,7 @@ use std::io::{self, Write};
 use std::process::{Command, Stdio};
 
 use crate::config::Environment;
-use crate::kitty::graphics;
+use crate::present::kitty::graphics;
 
 /// The start of tmux's passthrough: a DCS for tmux.
 const OPEN: &str = "\x1bPtmux;";

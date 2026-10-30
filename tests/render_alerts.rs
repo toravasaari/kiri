@@ -344,7 +344,7 @@ fn no_color_leaves_the_bar_and_the_title_without_colours() {
 /// `None` for the terminal's own.
 fn background_at_image(out: &str) -> Option<[u8; 3]> {
     let image = out
-        .find(kiri::kitty::graphics::PLACEHOLDER)
+        .find(kiri::present::kitty::graphics::PLACEHOLDER)
         .expect("an image row");
     let mut background = None;
     for sequence in out[..image].split("\x1b[").skip(1) {

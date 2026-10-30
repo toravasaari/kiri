@@ -6,11 +6,11 @@ use std::io::{self, Write};
 use std::ops::Range;
 use std::time::Duration;
 
-use super::encoder::Encoder;
-use super::loading::{self, Ink};
 use crate::images::Images;
-use crate::kitty;
-use crate::kitty::graphics;
+use crate::present::encoder::Encoder;
+use crate::present::kitty;
+use crate::present::kitty::graphics;
+use crate::render::loading::{self, Ink};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::{Color, Underline};
 use crate::typeset::images::size::cell_size;

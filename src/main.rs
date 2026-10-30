@@ -33,8 +33,8 @@ use kiri::images::{
     Placeholder, Source, Stamps, reload_in_background,
 };
 use kiri::pager::{Change, Look, Reload, Reloaded, Warning};
-use kiri::render::encoder::Encoder;
-use kiri::render::output::Page;
+use kiri::present::encoder::Encoder;
+use kiri::present::output::Page;
 use kiri::render::{Headings, Inputs, RenderErrors, TableRows};
 use kiri::term::{Interrupt, Mode};
 use kiri::typeset::caps::Capabilities;
@@ -1303,7 +1303,7 @@ fn held(
     out: &mut impl Write,
 ) -> io::Result<()> {
     out.flush()?;
-    for _ in 0..kiri::render::encoder::AGAIN {
+    for _ in 0..kiri::present::encoder::AGAIN {
         let sent = encoder.take_sent();
         if sent.is_empty() || silent.get() {
             break;

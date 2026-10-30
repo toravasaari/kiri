@@ -1,7 +1,7 @@
 //! What the output terminal can do, as plain data: the renderer and the
 //! pager take it as input, and `term` finds it out.
 
-use crate::kitty::graphics;
+use crate::present::kitty::graphics;
 use crate::typeset::color::Color;
 
 /// Terminal features the renderer may use. Built once at start-up and passed

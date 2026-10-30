@@ -1106,7 +1106,8 @@ fn mix(color: Brush, page: Brush, share: f32) -> Brush {
 mod tests {
     use super::*;
     use crate::images::ImageError;
-    use crate::render::{Inputs, RenderErrors, output};
+    use crate::present::output;
+    use crate::render::{Inputs, RenderErrors};
     use crate::typeset::layout;
     use crate::typeset::parse::parse;
 

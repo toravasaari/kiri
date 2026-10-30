@@ -13,18 +13,17 @@
 //! `kitty/`), and loading to the platform. The placement map in
 //! docs/architecture.md has the paths.
 
-pub mod encoder;
 pub mod loading;
-pub mod output;
 
 use std::io::{self, Write};
 
 use crate::images::{CodeLook, HeadingLook, ImageKey, Images, LevelLook, Source};
+use crate::present::encoder::Encoder;
+use crate::present::output;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
 use crate::typeset::model::{Block, Document, File, FrontMatter, FrontMatterError};
 use crate::typeset::theme::Theme;
-use encoder::Encoder;
 
 use crate::typeset::images::size as image;
 use crate::typeset::layout;

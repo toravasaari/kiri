@@ -14,9 +14,9 @@ use std::time::Duration;
 use image::RgbaImage;
 use image::imageops;
 
-use super::loading::{self, Ink};
 use crate::images::{ImageKey, Images, Placeholder, Source};
-use crate::kitty::graphics::{self, ImageId};
+use crate::present::kitty::graphics::{self, ImageId};
+use crate::render::loading::{self, Ink};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::images::size::{Placement, Shows, Size, cell_size};
 use crate::typeset::reading::engine::Parts;

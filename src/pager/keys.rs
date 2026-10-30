@@ -2,8 +2,8 @@
 //! bindings follow `less` for now.
 
 use super::view::Motion;
-use crate::kitty::graphics::{self, ImageId};
-use crate::kitty::query;
+use crate::present::kitty::graphics::{self, ImageId};
+use crate::present::kitty::query;
 
 /// A key as the terminal sends it without kitty's keyboard protocol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -584,7 +584,7 @@ mod tests {
 
     #[test]
     fn decodes_kittys_answers_to_checks() {
-        use crate::kitty::graphics::checked;
+        use crate::present::kitty::graphics::checked;
 
         let held = b"\x1b_Gi=7,p=1263096393;OK\x1b\\";
         let lost = b"\x1b_Gi=8,p=1263096393;ENOENT:Put command refers to non-existent image\x1b\\";

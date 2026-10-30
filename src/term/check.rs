@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 use super::probe::{self, TIMEOUT};
 use super::screen::RawMode;
 use super::tmux::Wrapping;
-use crate::kitty::graphics::{self, Cells, ImageId};
-use crate::kitty::query;
+use crate::present::kitty::graphics::{self, Cells, ImageId};
+use crate::present::kitty::query;
 
 /// The images of `sent` that kitty, behind tmux, does not hold, asked on
 /// the controlling terminal. kiri waits for kitty's answers as the probe

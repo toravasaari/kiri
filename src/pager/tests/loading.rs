@@ -248,7 +248,7 @@ fn a_new_image_without_an_old_one_shows_its_alt_text_with_the_band_below_it() {
     let (_, blank) = below.split_once("\x1b[6;1H").unwrap();
     let (blank, _) = blank.split_once("\x1b[7;1H").unwrap();
     assert!(blank.contains("\x1b7\x1b[2C\x1b_Ga=p,"), "{reloaded:?}");
-    assert!(!reloaded.contains(crate::kitty::graphics::PLACEHOLDER));
+    assert!(!reloaded.contains(crate::present::kitty::graphics::PLACEHOLDER));
 }
 
 #[test]
@@ -385,7 +385,7 @@ fn the_tint_stays_on_its_lines_when_an_image_above_comes_taller() {
     };
     let mut caps = known_colours();
     caps.graphics = true;
-    caps.max_image_cells = crate::kitty::graphics::MAX_CELLS;
+    caps.max_image_cells = crate::present::kitty::graphics::MAX_CELLS;
     let terminal = loading_with(
         caps,
         21,
@@ -462,7 +462,11 @@ fn a_reload_that_fails_while_images_load_keeps_their_placeholders() {
     // The first, reloading, reloaded, reloading, failed, and it drawn
     // anew as the band moves.
     assert_eq!(frames.len(), 6, "{frames:#?}");
-    let placeholders = |frame: &str| frame.matches(crate::kitty::graphics::PLACEHOLDER).count();
+    let placeholders = |frame: &str| {
+        frame
+            .matches(crate::present::kitty::graphics::PLACEHOLDER)
+            .count()
+    };
     // The dimmed image, and the band below it.
     for frame in [&frames[2], &frames[4]] {
         assert_eq!(placeholders(frame), 2, "{frames:#?}");
@@ -493,7 +497,7 @@ fn an_image_that_fails_to_load_shows_as_a_missing_image_does() {
     let last = frames.last().unwrap();
     assert!(unstyled(last).contains("an image"), "{last:?}");
     assert!(
-        !last.contains(crate::kitty::graphics::PLACEHOLDER),
+        !last.contains(crate::present::kitty::graphics::PLACEHOLDER),
         "{last:?}"
     );
     assert!(status_text(last, 12).contains("notes.md"), "{last:?}");

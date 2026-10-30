@@ -37,11 +37,12 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::config::{self, FollowJump, Paging, SearchCase};
 use crate::images::{ImageError, ImageKey, Images, Loads, Part, Source};
-use crate::kitty::graphics::ImageId;
+use crate::present::encoder::Encoder;
+use crate::present::kitty::graphics::ImageId;
+use crate::present::output::{self, Page, Writer};
+use crate::present::{cell_query, clipboard};
 use crate::render::Inputs;
-use crate::render::encoder::Encoder;
-use crate::render::output::{self, Page, Writer};
-use crate::term::{Screen, WindowSize, cell_query, clipboard};
+use crate::term::{Screen, WindowSize};
 use crate::typeset::block::BlockInfo;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::compare::{Comparison, Fate, compare};
@@ -99,7 +100,7 @@ pub fn for_files(paging: Paging, images_only: bool) -> Paging {
 pub fn rows(lines: &[Line], caps: &Capabilities) -> usize {
     lines
         .iter()
-        .map(|line| usize::from(crate::render::output::rows(line, caps)))
+        .map(|line| usize::from(crate::present::output::rows(line, caps)))
         .sum()
 }
 
@@ -378,7 +379,7 @@ fn page_through(
         // The text sizing protocol cannot draw part of a line, so a line
         // taller than the window is drawn at normal size.
         for line in &mut lines {
-            if usize::from(crate::render::output::rows(line, &inputs.caps)) > rows {
+            if usize::from(crate::present::output::rows(line, &inputs.caps)) > rows {
                 line.to_normal_size();
             }
         }

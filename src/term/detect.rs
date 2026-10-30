@@ -4,12 +4,13 @@
 use std::ffi::OsStr;
 use std::fs::File;
 
+use super::probe;
 use super::probe::GraphicsQuery;
 use super::tmux::{self, Pane, Run};
 use super::window::{WindowSize, window_size};
-use super::{answers, probe};
 use crate::config::{Environment, Passthrough};
-use crate::kitty::{graphics, query};
+use crate::present::answers;
+use crate::present::kitty::{graphics, query};
 use crate::typeset::caps::Capabilities;
 
 /// Which terminal features to use.

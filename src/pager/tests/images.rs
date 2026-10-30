@@ -32,7 +32,9 @@ fn an_image_is_sent_before_its_first_row() {
     let out = written(&document, inputs, &mut terminal, None);
     assert_eq!(transmits(&out), 1, "{out:?}");
     let sent = out.find("\x1b_Ga=T,").unwrap();
-    let shown = out.find(crate::kitty::graphics::PLACEHOLDER).unwrap();
+    let shown = out
+        .find(crate::present::kitty::graphics::PLACEHOLDER)
+        .unwrap();
     assert!(sent < shown, "{out:?}");
 }
 
@@ -89,7 +91,11 @@ fn an_image_the_terminal_holds_is_not_sent_again_after_a_resize() {
     terminal.sizes.push_back(window(70, 6));
     let out = written(&document, inputs, &mut terminal, None);
     assert_eq!(terminal.frames().len(), 2, "{out:?}");
-    assert_eq!(out.matches(crate::kitty::graphics::PLACEHOLDER).count(), 4);
+    assert_eq!(
+        out.matches(crate::present::kitty::graphics::PLACEHOLDER)
+            .count(),
+        4
+    );
     assert_eq!(transmits(&out), 1, "{out:?}");
 }
 
@@ -589,7 +595,7 @@ fn a_narrower_window_rewraps_a_heading_image_without_a_new_image() {
     // column 60: the colour of the id, then that column's placeholder.
     assert_eq!(out.matches("a=T").count(), 1, "{frames:#?}");
     let column = |at: usize| {
-        let diacritic = crate::kitty::graphics::DIACRITICS[at];
+        let diacritic = crate::present::kitty::graphics::DIACRITICS[at];
         format!("m\u{10EEEE}\u{0305}{diacritic}")
     };
     assert!(frames[0].contains(&column(0)), "{frames:#?}");
@@ -617,7 +623,9 @@ fn under_tmux_the_images_are_sent_again_when_the_pane_comes_back() {
     assert_eq!(sent.len(), 2, "{out:?}");
     assert_eq!(sent[0], sent[1]);
     let again = frames[1].find("\x1b_Ga=T,").unwrap();
-    let shown = frames[1].find(crate::kitty::graphics::PLACEHOLDER).unwrap();
+    let shown = frames[1]
+        .find(crate::present::kitty::graphics::PLACEHOLDER)
+        .unwrap();
     assert!(again < shown, "{out:?}");
 }
 
@@ -647,7 +655,7 @@ fn ctrl_l_draws_the_screen_and_sends_its_images_again() {
         assert_eq!(sent[0], sent[1]);
         assert_eq!(
             frames[1]
-                .matches(crate::kitty::graphics::PLACEHOLDER)
+                .matches(crate::present::kitty::graphics::PLACEHOLDER)
                 .count(),
             2
         );
@@ -683,7 +691,7 @@ fn under_tmux_an_image_kitty_lost_is_sent_again_without_a_frame() {
     let again = after.find("\x1b_Ga=T,").unwrap();
     assert!(after[again..].contains(CHECK), "{out:?}");
     assert!(
-        !after.contains(crate::kitty::graphics::PLACEHOLDER),
+        !after.contains(crate::present::kitty::graphics::PLACEHOLDER),
         "{out:?}"
     );
 }

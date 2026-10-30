@@ -1,11 +1,11 @@
 //! The terminal's answers to the probe's queries, read without I/O.
 
-use crate::kitty::query;
+use crate::present::kitty::query;
 use crate::typeset::color::Color;
 
 /// Start of an answer to `probe::palette`:
 /// `ESC ] 4 ; index ; rgb:…`.
-pub(super) const PALETTE_ANSWER: &str = "\x1b]4;";
+pub(crate) const PALETTE_ANSWER: &str = "\x1b]4;";
 
 /// Start of the answer to `probe::VERSION`:
 /// `ESC P > | name(version) ST`.
@@ -27,7 +27,7 @@ pub struct Probe {
 /// How many primary device attributes answers, `ESC [ ? digits and
 /// semicolons c`, there are in `answers`: behind tmux, both tmux and the
 /// terminal outside it answer.
-pub(super) fn device_attributes(answers: &[u8]) -> usize {
+pub(crate) fn device_attributes(answers: &[u8]) -> usize {
     (0..answers.len())
         .filter(|&start| {
             let Some(rest) = answers[start..].strip_prefix(b"\x1b[?") else {

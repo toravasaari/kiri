@@ -258,7 +258,7 @@ mod tests {
             .map(|line| line.block.map(|id| blocks.get(id).clone()))
             .collect();
         let heights: Vec<usize> = (lines.iter())
-            .map(|line| usize::from(crate::render::output::rows(line, &caps)))
+            .map(|line| usize::from(crate::present::output::rows(line, &caps)))
             .collect();
         let text = |line: usize| match lines.get(line) {
             Some(line) => style::text(&line.spans).trim().to_owned(),

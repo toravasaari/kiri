@@ -5,7 +5,7 @@ use std::io::{self, Write};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 
-use super::tmux;
+use crate::term::tmux;
 
 /// Writes the sequence that puts `text` on the clipboard, `ESC ] 52 ; c ;
 /// <base64> ESC \`, to `out`. In tmux with passthrough, `through_tmux`,

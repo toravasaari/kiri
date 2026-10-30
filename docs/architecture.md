@@ -191,7 +191,7 @@ among several files load before, as they have nothing else to show.
 Should the screen not open, the images load before the documents are
 printed.
 
-The pager keeps one image encoder, `src/render/encoder.rs`, for as long
+The pager keeps one image encoder, `src/present/encoder.rs`, for as long
 as it runs. An image the terminal holds is not sent again: after a
 resize that leaves it at the same size, or a reload that leaves its
 pixels as they were. An image that the lines of a new layout no longer
@@ -276,7 +276,7 @@ a hash of the marks and the link in that part alone, in the key of the
 rows it is on, and kept by the encoder under its page and that hash, so
 that the terminal keeps the part with it and the part without and moving
 the current match draws only the parts it leaves and enters. A link is an
-OSC 8 hyperlink round the placeholders it covers (`src/kitty/graphics.rs`),
+OSC 8 hyperlink round the placeholders it covers (`src/present/kitty/graphics.rs`),
 which kitty opens as it does a link in text; in a band the cells move with
 the scrolling.
 `src/pager/links.rs` selects one of the links on the screen with Tab and
@@ -289,7 +289,7 @@ selected one is drawn in reverse video by `search::mark`; a link in a
 heading drawn as an image has no spans, so it is not there to select. Tab
 also reaches a link whose band is scrolled so that it is out of view, and
 scrolls the band to it as a search match does. Enter copies the selected
-link's URL with OSC 52 (`src/term/clipboard.rs`), wrapped in tmux's
+link's URL with OSC 52 (`src/present/clipboard.rs`), wrapped in tmux's
 passthrough where the images are.
 `Reading` also holds a cache of the pictures scaled for the last layout,
 by image, its pixels and size, so that a layout scales only what is new
@@ -337,7 +337,7 @@ placeholders allow from any column, and the image stays one whatever the
 width. A heading whose image did not come is laid out as text, without a
 warning.
 
-Renderers live in `src/diagrams/`, outside `src/kitty/` and the parser.
+Renderers live in `src/diagrams/`, outside `src/present/kitty/` and the parser.
 A renderer implements the `Renderer` trait: whether it draws a language,
 and a diagram's source and a `Theme`, for a light or a dark page, with
 the colour of the page's text for a formula, turned into an image file, SVG or raster, and the page its colours are for. It
@@ -482,32 +482,32 @@ writes as it is into a pipe.
 
 | Feature | Escape sequence | Written by | Used for |
 |---|---|---|---|
-| Text sizing | OSC 66 (kitty 0.40+) | `src/kitty/text.rs` | Headings in a larger font; without it, headings as images |
-| Graphics | APC `_G` | `src/kitty/graphics.rs` | Images and diagrams, later formulas |
-| Unicode placeholders | U+10EEEE with graphics | `src/kitty/graphics.rs` | Images that scroll with text, work in pagers and tmux |
-| Protocol queries | OSC 66 tests, APC `_G` query | `src/kitty/query.rs` | Telling whether kitty's protocols work |
-| Hyperlinks | OSC 8 | `src/render/output.rs` | Clickable links |
-| Text attributes and colours | SGR | `src/render/output.rs` | Bold, italic, colours |
-| Styled underlines | SGR 4:x, SGR 58 | `src/render/output.rs` | Heading underline styles; the dashed underline between table rows in the border colour |
-| Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J | `src/render/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows |
-| Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/kitty/query.rs` | Wiping the progress line; erasing the rows the text sizing tests drew |
+| Text sizing | OSC 66 (kitty 0.40+) | `src/present/kitty/text.rs` | Headings in a larger font; without it, headings as images |
+| Graphics | APC `_G` | `src/present/kitty/graphics.rs` | Images and diagrams, later formulas |
+| Unicode placeholders | U+10EEEE with graphics | `src/present/kitty/graphics.rs` | Images that scroll with text, work in pagers and tmux |
+| Protocol queries | OSC 66 tests, APC `_G` query | `src/present/kitty/query.rs` | Telling whether kitty's protocols work |
+| Hyperlinks | OSC 8 | `src/present/output.rs` | Clickable links |
+| Text attributes and colours | SGR | `src/present/output.rs` | Bold, italic, colours |
+| Styled underlines | SGR 4:x, SGR 58 | `src/present/output.rs` | Heading underline styles; the dashed underline between table rows in the border colour |
+| Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J | `src/present/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows |
+| Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/present/kitty/query.rs` | Wiping the progress line; erasing the rows the text sizing tests drew |
 | Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term/screen.rs` | The pager's screen of its own |
 | Focus reporting | CSI ?1004h/l; CSI I, CSI O | `src/term/screen.rs`, `src/pager/keys.rs` | Telling the pager that its tmux pane is shown again |
 | Mouse reporting | CSI ?1000h/l, CSI ?1006h/l; CSI < … M/m, CSI M | `src/term/screen.rs`, `src/pager/keys.rs` | The wheel scrolling the pager, also inside tmux; in reading mode, a click selecting a band and the sideways wheel scrolling it |
-| Synchronized output | CSI ?2026h/l | `src/render/output.rs` | Pager frames without flicker |
-| Cell size query | CSI 16 t; the answer CSI 6 ; height ; width t | `src/kitty/query.rs`, `src/term/cell_query.rs`, `src/pager/keys.rs` | The cell size in pixels where the window size has none, and inside tmux, where the window's may be tmux's guess: asked at start, and by the pager when the window changes size, so that it follows a new font size |
+| Synchronized output | CSI ?2026h/l | `src/present/output.rs` | Pager frames without flicker |
+| Cell size query | CSI 16 t; the answer CSI 6 ; height ; width t | `src/present/kitty/query.rs`, `src/present/cell_query.rs`, `src/pager/keys.rs` | The cell size in pixels where the window size has none, and inside tmux, where the window's may be tmux's guess: asked at start, and by the pager when the window changes size, so that it follows a new font size |
 | Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI c | `src/term/probe.rs` | Cursor position, foreground, background and palette colours, terminal version, end of the answers |
 | tmux passthrough | DCS `tmux;` … ST, with each ESC doubled | `src/term/tmux.rs` | kitty's graphics, the probe's graphics query, and the probe's and the pager's cell size queries, through tmux to the terminal outside |
-| Image checks | APC `_G` `a=p,U=1` and `a=d,d=i` with a placement id | `src/kitty/graphics.rs`, `src/term/check.rs` | Whether kitty behind tmux holds the images kiri sent |
+| Image checks | APC `_G` `a=p,U=1` and `a=d,d=i` with a placement id | `src/present/kitty/graphics.rs`, `src/term/check.rs` | Whether kitty behind tmux holds the images kiri sent |
 
-Sequences that only kitty's protocols define live under `src/kitty/`: text
+Sequences that only kitty's protocols define live under `src/present/kitty/`: text
 sizing, graphics, Unicode placeholders and the queries that detect them;
 `src/term/probe.rs` sends those along with the generic queries it spells
 out itself. OSC 8 hyperlinks, SGR attributes, underline styles and cursor
-movement are general terminal features that `src/render/output.rs` writes
-itself; for scaled text it calls `src/kitty/text.rs`, and for images
-`src/render/encoder.rs`, which sends and deletes them, and
-`src/kitty/graphics.rs`, which writes those sequences and the
+movement are general terminal features that `src/present/output.rs` writes
+itself; for scaled text it calls `src/present/kitty/text.rs`, and for images
+`src/present/encoder.rs`, which sends and deletes them, and
+`src/present/kitty/graphics.rs`, which writes those sequences and the
 placeholders.
 Underline styles began in kitty but are now common; kiri uses them only
 when the probe finds kitty's protocols or `--mode kitty` asks for them.
@@ -620,10 +620,10 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | `src/theme/mod.rs` | typesetting | moved |
 | `src/theme/paper.rs` | typesetting | moved |
 | `src/theme/file.rs` | mixed | moved. Typesetting: parsing the theme file's text. Platform: `load`, which reads the file; the config split moves `load` out |
-| `src/kitty/mod.rs` | terminal layer | `src/present/kitty/mod.rs` |
-| `src/kitty/graphics.rs` | terminal layer | `src/present/kitty/graphics.rs` |
-| `src/kitty/query.rs` | terminal layer | `src/present/kitty/query.rs` |
-| `src/kitty/text.rs` | terminal layer | `src/present/kitty/text.rs` |
+| `src/kitty/mod.rs` | terminal layer | moved |
+| `src/kitty/graphics.rs` | terminal layer | moved |
+| `src/kitty/query.rs` | terminal layer | moved |
+| `src/kitty/text.rs` | terminal layer | moved |
 | `src/render/mod.rs` | mixed | stays. Typesetting: `Inputs`, the render options (`FrontMatterStyle`, `Headings`, `TableRows`, `RenderErrors`) and `heading_look`, the front matter helpers. Terminal layer: `render`, `render_files`, `render_file`, `render_image` and `render_image_on`, which lay out and write in one call. The terminal layer split |
 | `src/render/block.rs` | typesetting | moved |
 | `src/render/style.rs` | typesetting | moved |
@@ -639,8 +639,8 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | `src/render/script.rs` | typesetting | moved |
 | `src/render/highlight.rs` | typesetting | moved |
 | `src/render/reading.rs` | typesetting | moved |
-| `src/render/output.rs` | terminal layer | `src/present/output.rs` |
-| `src/render/encoder.rs` | terminal layer | `src/present/encoder.rs` |
+| `src/render/output.rs` | terminal layer | moved |
+| `src/render/encoder.rs` | terminal layer | moved |
 | `src/render/loading.rs` | mixed | stays. Typesetting: `Ink` (the struct), `dimmed` and `band`, which draw pixels. Terminal layer: `Ink::new`, the one function that takes the output's `Page`, and `band_offset`. The terminal layer split |
 | `src/reading/mod.rs` | typesetting | moved |
 | `src/reading/colr.rs` | typesetting | moved |
@@ -696,9 +696,9 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | `src/pager/view.rs` | state engine | `src/session/view.rs` |
 | `src/pager/warnings.rs` | state engine | `src/session/warnings.rs` |
 | `src/term/mod.rs` | platform | stays |
-| `src/term/answers.rs` | terminal layer | `src/present/answers.rs` |
-| `src/term/cell_query.rs` | terminal layer | `src/present/cell_query.rs` (arrives with `fix/reading-leftovers`). It uses `tmux::passthrough`, which stays in `term/tmux.rs` until the terminal layer split |
-| `src/term/clipboard.rs` | terminal layer | `src/present/clipboard.rs` (arrives with `fix/reading-leftovers`; it builds the OSC 52 bytes and writes them to an `impl Write`). It uses `tmux::passthrough`, which stays in `term/tmux.rs` until the terminal layer split |
+| `src/term/answers.rs` | terminal layer | moved |
+| `src/term/cell_query.rs` | terminal layer | moved (arrives with `fix/reading-leftovers`). It uses `tmux::passthrough`, which stays in `term/tmux.rs` until the terminal layer split |
+| `src/term/clipboard.rs` | terminal layer | moved (arrives with `fix/reading-leftovers`; it builds the OSC 52 bytes and writes them to an `impl Write`). It uses `tmux::passthrough`, which stays in `term/tmux.rs` until the terminal layer split |
 | `src/term/check.rs` | mixed | stays. Platform: asking kitty behind tmux, on the terminal. Terminal layer: reading what it answered, `lost` and `sequences`. The terminal layer split |
 | `src/term/detect.rs` | mixed | stays. Platform: `capabilities` and `examine`, which read the window, the environment and the probe's answer. Terminal layer: turning those into `Capabilities` (`with_probe`, `with_window`, `through_tmux`). The terminal layer split |
 | `src/term/probe.rs` | mixed | stays. Platform: sending the probe and reading the answer on the controlling terminal. Terminal layer: the text of the queries. The terminal layer split |
@@ -737,7 +737,7 @@ exports the public surface of its part.
 | `src/typeset/diagrams/mod.rs` | new: declares `language`, `math` and `mermaid`; the pure pieces of `diagrams/mod.rs` arrive in it with loading and sessions |
 
 The move also changes the paths that name moved files elsewhere: `AGENTS.md`
-says that kitty's sequences live under `src/kitty/`, which becomes
+says that kitty's sequences live under `src/present/kitty/`, which becomes
 `src/present/kitty/`, and the sections of this document above name today's
 paths.
 
