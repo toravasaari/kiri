@@ -489,10 +489,44 @@ mod tests {
         assert_eq!(shown, "aaaabbbb");
         // Also where it wraps over lines, at any width.
         let source = "A [aaaa bbbb cccc](u)**[dddd eeee](u)** end.\n";
-        for columns in [10, 14, 80] {
+        for columns in 4..=80 {
             let (lines, places) = text_in(source, columns);
             let found = identify(&lines, &places);
             assert_eq!(found.len(), 1, "{columns}");
+        }
+    }
+
+    #[test]
+    fn spans_of_one_address_side_by_side_are_one_link_also_in_a_quote() {
+        let source = "> A [aaaa bbbb cccc](u)**[dddd eeee](u)** end.\n";
+        for columns in [14, 20, 80] {
+            let (lines, places) = text_in(source, columns);
+            let found = identify(&lines, &places);
+            assert_eq!(found.len(), 1, "{columns}");
+        }
+        // It does wrap there, so the check covers a link over lines.
+        let (lines, places) = text_in(source, 14);
+        assert!(identify(&lines, &places)[0].lines.len() >= 2);
+    }
+
+    #[test]
+    fn a_link_split_by_a_style_change_in_a_table_cell_is_one_link() {
+        // The same address in the cell below is another link.
+        let source = "| a | b |\n|---|---|\n| [x](u)**[y](u)** | z |\n| [x](u)**[y](u)** | z |\n";
+        for columns in [30, 80] {
+            let (lines, places) = text_in(source, columns);
+            let found = identify(&lines, &places);
+            assert_eq!(found.len(), 2, "{columns}");
+            for one in &found {
+                let [(line, range)] = one.runs.as_slice() else {
+                    panic!("one run: {:?}", one.runs);
+                };
+                let shown: String = lines[*line].spans[range.clone()]
+                    .iter()
+                    .map(|span| span.text.as_str())
+                    .collect();
+                assert_eq!(shown, "xy", "{columns}");
+            }
         }
     }
 
