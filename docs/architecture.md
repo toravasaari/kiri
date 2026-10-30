@@ -544,13 +544,13 @@ the table.
 The table has a row for each file of `src/`. **Part** is the part the
 module's code belongs to; **mixed** means that its non-test code does the
 work of two parts, usually I/O inside what would otherwise be pure. **After
-the move** says where the file goes when the code is moved
-into the parts, a move of whole modules and nothing else; no re-export is left at the old
-path. The rules for the move:
+the move** says where the file goes when the code is moved into the parts.
+That move is of whole modules and nothing else, and leaves no re-export at
+the old path. The rules for the move:
 
 - A whole module moves to the path in its row. Its `mod` line goes from the
-  old parent to the new one: when the old parent stays (it is mixed), it
-  drops the line, and the new parent declares the module.
+  old parent to the new one: when the old parent stays, it drops the
+  line, and the new parent declares the module.
 - A mixed file under a parent that moves moves with it, and its row says
   which work splits it. Its I/O is on the list of exceptions until then.
 - A mixed module whose parent does not move stays at its path, and the row
@@ -579,7 +579,7 @@ The later work that the rows name, in words:
   gathered in the terminal layer.
 - **Commands as data, layers, panels as documents, diagnostics, the trust
   policy, reading mode's block modules:** later work that the map below
-  names where a row has no path yet.
+  names, for the places that do not exist yet.
 
 A few files arrive with the branch `fix/reading-leftovers`, which is not
 merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
@@ -610,12 +610,12 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | `src/parse/tests.rs` | typesetting | `src/typeset/parse/tests.rs` |
 | `src/theme/mod.rs` | typesetting | `src/typeset/theme/mod.rs` |
 | `src/theme/paper.rs` | typesetting | `src/typeset/theme/paper.rs` |
-| `src/theme/file.rs` | mixed | `src/typeset/theme/file.rs`. Typesetting: parsing the theme file's text. Platform: `load`, which reads the file; the config split moves it |
+| `src/theme/file.rs` | mixed | `src/typeset/theme/file.rs`. Typesetting: parsing the theme file's text. Platform: `load`, which reads the file; the config split moves `load` out |
 | `src/kitty/mod.rs` | terminal layer | `src/present/kitty/mod.rs` |
 | `src/kitty/graphics.rs` | terminal layer | `src/present/kitty/graphics.rs` |
 | `src/kitty/query.rs` | terminal layer | `src/present/kitty/query.rs` |
 | `src/kitty/text.rs` | terminal layer | `src/present/kitty/text.rs` |
-| `src/render/mod.rs` | mixed | stays. Typesetting: `Inputs`, the render options and `heading_look`, the front matter helpers. Terminal layer: `render`, `render_files`, `render_file`, `render_image` and `render_image_on`, which lay out and write in one call. The terminal layer split |
+| `src/render/mod.rs` | mixed | stays. Typesetting: `Inputs`, the render options (`FrontMatterStyle`, `Headings`, `TableRows`, `RenderErrors`) and `heading_look`, the front matter helpers. Terminal layer: `render`, `render_files`, `render_file`, `render_image` and `render_image_on`, which lay out and write in one call. The terminal layer split |
 | `src/render/block.rs` | typesetting | `src/typeset/block.rs` |
 | `src/render/style.rs` | typesetting | `src/typeset/style.rs` |
 | `src/render/image.rs` | typesetting | `src/typeset/images/size.rs` |
@@ -632,26 +632,26 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | `src/render/reading.rs` | typesetting | `src/typeset/reading/engine.rs` |
 | `src/render/output.rs` | terminal layer | `src/present/output.rs` |
 | `src/render/encoder.rs` | terminal layer | `src/present/encoder.rs` |
-| `src/render/loading.rs` | mixed | stays. Typesetting: `dimmed` and `band`, which draw pixels. Terminal layer: `Ink`, built from the output's `Page`, and `band_offset`. The terminal layer split |
+| `src/render/loading.rs` | mixed | stays. Typesetting: `Ink` (the struct), `dimmed` and `band`, which draw pixels. Terminal layer: `Ink::new`, the one function that takes the output's `Page`, and `band_offset`. The terminal layer split |
 | `src/reading/mod.rs` | typesetting | `src/typeset/reading/mod.rs` |
 | `src/reading/colr.rs` | typesetting | `src/typeset/reading/colr.rs` |
 | `src/reading/octicons.rs` | typesetting | `src/typeset/reading/octicons.rs` |
 | `src/reading/page.rs` | typesetting | `src/typeset/reading/page.rs` |
 | `src/reading/paint.rs` | typesetting | `src/typeset/reading/paint.rs` |
 | `src/reading/text.rs` | typesetting | `src/typeset/reading/text.rs` |
-| `src/reading/fonts.rs` | mixed | `src/typeset/reading/fonts.rs`. Typesetting: the fonts handed to parley, with the fallbacks. Platform: loading the system fonts and memory-mapping the font files, lazily, on the first layout; the font database moves it |
-| `src/images/mod.rs` | mixed | stays. Typesetting: `ImageKey`, `Images` and the plan of which images a document wants. Platform: `load`, `load_with` and `load_parts`, which read files and run the renderers. Loading and sessions |
+| `src/reading/fonts.rs` | mixed | `src/typeset/reading/fonts.rs`. Typesetting: `Fonts`, the fonts handed to parley, with the fallbacks. Platform: loading the system fonts and memory-mapping the font files, lazily, on the first layout; the font database moves that loading out |
+| `src/images/mod.rs` | mixed | stays. Typesetting: `ImageKey`, `ImageError`, `Images` and the plan of which images a document wants. Platform: `load`, `load_with` and `load_parts`, which read files and run the renderers. Loading and sessions |
 | `src/images/decode.rs` | typesetting | `src/typeset/images/decode.rs` |
 | `src/images/drawn.rs` | typesetting | `src/typeset/images/drawn.rs` |
 | `src/images/drawn/tests.rs` | typesetting | `src/typeset/images/drawn/tests.rs` |
 | `src/images/heading.rs` | typesetting | `src/typeset/images/heading.rs` |
-| `src/images/svg.rs` | mixed | stays. Typesetting: `Svg`, parsing and drawing. Platform: `Fonts::system`, which scans the system's fonts. The font database |
+| `src/images/svg.rs` | mixed | stays. Typesetting: `Svg`, parsing and drawing, and `Fonts`, the database handed in. Platform: `Fonts::system`, which scans the system's fonts. The font database |
 | `src/images/url.rs` | mixed | stays. Typesetting: `data:` URLs and the reading of a URL's parts. Platform: `read_file`, which opens files. Loading and sessions |
 | `src/images/background.rs` | platform | stays |
 | `src/images/pipeline.rs` | platform | stays |
 | `src/images/pipeline/tests.rs` | platform | stays |
 | `src/images/stamps.rs` | platform | stays |
-| `src/diagrams/mod.rs` | mixed | stays. Typesetting: `Request`, `Drawn`, the `Renderer` trait and the choice among renderers. Platform: `render_in_parallel`, which draws on threads. Loading and sessions |
+| `src/diagrams/mod.rs` | mixed | stays. Typesetting: `Request`, `Drawn`, `Theme`, `FormulaColors`, `INLINE_FORMULA`, `centred`, `BuiltIn` and the `Renderer` trait. Platform: the external choice, which is `Renderers` with its `External` and `chosen`, and `render_all`'s parallel run through `render_in_parallel`, on threads. Loading and sessions |
 | `src/diagrams/language.rs` | typesetting | `src/typeset/diagrams/language.rs` |
 | `src/diagrams/math.rs` | typesetting | `src/typeset/diagrams/math.rs` |
 | `src/diagrams/mermaid/mod.rs` | typesetting | `src/typeset/diagrams/mermaid/mod.rs` |
@@ -659,7 +659,7 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | `src/diagrams/external.rs` | platform | stays |
 | `src/diagrams/external/tests.rs` | platform | stays |
 | `src/diagrams/find.rs` | platform | stays |
-| `src/pager/mod.rs` | mixed | stays. State engine: `State`, the key and tick handling, the frame. Platform: `page_through` and `show`, the loop, with the `Reload`, `InlineLoader`, `Loads` and `Terminal` it does its I/O through. The pager's loop |
+| `src/pager/mod.rs` | mixed | stays. State engine: `State`, `Warning`, the key and tick handling, the frame. Platform: `page_through` and `show`, the loop, with the `Reload`, `InlineLoader`, `Loads` and `Terminal` it does its I/O through, and the load scheduling, `load_headings` and `prefer`, which use `Loads`; the order from `loading::nearest` goes in as values. The pager's loop |
 | `src/pager/tests/mod.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/files.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/following.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
@@ -693,7 +693,7 @@ merged yet: `term/cell_query.rs`, `term/clipboard.rs` and
 | `src/term/check.rs` | mixed | stays. Platform: asking kitty behind tmux, on the terminal. Terminal layer: reading what it answered, `lost` and `sequences`. The terminal layer split |
 | `src/term/detect.rs` | mixed | stays. Platform: `capabilities` and `examine`, which read the window, the environment and the probe's answer. Terminal layer: turning those into `Capabilities` (`with_probe`, `with_window`, `through_tmux`). The terminal layer split |
 | `src/term/probe.rs` | mixed | stays. Platform: sending the probe and reading the answer on the controlling terminal. Terminal layer: the text of the queries. The terminal layer split |
-| `src/term/tmux.rs` | mixed | stays. Platform: running `tmux` and reading its answer. Terminal layer: `Wrapping` and `passthrough`, which wrap kitty's sequences for tmux. The terminal layer split |
+| `src/term/tmux.rs` | mixed | stays. Platform: running `tmux` and reading its answer. Terminal layer: `Wrapping` and `passthrough`, which wrap kitty's sequences for tmux, and `Pane`, `prepare` and `ClientCells`, which take the run as a value. The terminal layer split |
 | `src/term/window.rs` | mixed | stays. Platform: `window_size`, the ioctl. Terminal layer: `WindowSize`. The terminal layer split |
 | `src/term/screen.rs` | platform | stays |
 | `src/term/screen/tests.rs` | platform | stays |
@@ -735,22 +735,27 @@ paths.
 ### Exceptions to the direction
 
 An exception is code that uses a part below its own in the list of parts,
-or that does the work of another part. These are all of them today; each
-goes when the work named removes it. A script resolved every `crate::` and
-`super::` path in the non-test code of every file that the table puts
-wholly in a part, and found no other edge that points the wrong way. Edges
-into a mixed module go to its pieces in the right part (`images::ImageKey`,
-`diagrams::Drawn`, `config::SearchCase` and the like), which were checked by
-name.
+or that does the work of another part. Three kinds of place were checked:
+a script resolved every `crate::` and `super::` path in the non-test code of
+every file that the table puts wholly in a part, and found three wrong-way
+edges (the first two rows below); the pieces of the mixed modules were read
+by hand, which found the rest; and test code was not scanned, though one
+test edge is listed. The list is complete for what was checked, and a
+direction test that scans more must be checked against it. Edges from whole
+files into a mixed module go to the pieces named in its row.
 
 | Edge | Removed by |
 |---|---|
 | `caps.rs` (typesetting) uses `kitty::graphics::MAX_CELLS` (terminal layer) | giving `caps.rs` the constant, a small change of its own |
 | `diagrams/language.rs` and `diagrams/mermaid/mod.rs` (typesetting) use `diagrams::external::Output` (platform) | loading and sessions, which moves `Output` to the typesetting side |
-| `render/reading.rs` (typesetting) uses `render/loading.rs::dimmed`, which is in a mixed module | the terminal layer split, which keeps `dimmed` in typesetting |
-| `term/clipboard.rs` and `term/cell_query.rs` (terminal layer) use `term/tmux.rs::passthrough`, in a mixed module | the terminal layer split, which moves `passthrough` |
+| `render/reading.rs` (typesetting) uses `dimmed` from `render/loading.rs`, a mixed module | the terminal layer split, which moves `Ink::new` out and leaves `dimmed` in typesetting |
+| `render/loading.rs`: `Ink::new` (terminal layer) is built into the typesetting `Ink`, and `band` (typesetting) takes that `Ink` | the terminal layer split |
+| `term/clipboard.rs` and `term/cell_query.rs` (terminal layer) use `passthrough` from `term/tmux.rs`, a mixed module | the terminal layer split, which moves `passthrough` |
+| `Renderers` in `diagrams/mod.rs` (typesetting) holds `External`, which runs programs (platform) | loading and sessions, which splits the external choice from the built-in one |
+| `prefer` and `load_headings` in `pager/mod.rs` (state engine) use `Loads` (platform) | the pager's loop |
 | `reading/fonts.rs` (typesetting) loads and memory-maps system fonts | the font database |
 | `theme/file.rs` (typesetting) has `load`, which reads a file | the config split |
+| the tests of `render/reading.rs` (typesetting) use `render/output.rs` (terminal layer) | the terminal layer split, or moving the tests |
 
 ### Where a new thing goes
 
@@ -768,7 +773,7 @@ work named creates the place; until then, ask.
 | key or action | `src/session/commands.rs`, new, made by commands as data; until then `BINDINGS` in `src/pager/keys.rs` |
 | setting | no path yet, the config split makes the registry of setting keys, each with its owner, its effect and its medium; until then `src/config.rs`, named after its owner |
 | use of a file, the network or a program | no path yet, loading and sessions makes the platform's work runner, and the trust policy a `Policy`; until then `src/images/background.rs`, `src/images/pipeline.rs` or `src/diagrams/external.rs` |
-| block type or input format | the typesetting engine's registry of block types and formats, no path yet (today `src/typeset/model.rs`, `src/typeset/parse/` and `src/typeset/layout/`); in reading mode a module per block type in `src/typeset/reading/`, new, made by reading mode's block modules |
+| block type or input format | the typesetting engine's registry of block types and formats, no path yet (today `src/model.rs`, `src/parse/` and `src/render/layout/`); in reading mode a module per block type in `src/typeset/reading/`, new, made by reading mode's block modules |
 | diagram language | `src/typeset/diagrams/`: a file and one entry in `language.rs`; a program that draws it is run by the platform |
 | image format | the decoder in `src/typeset/images/decode.rs` |
 | theme or look setting | `src/typeset/theme/` |
