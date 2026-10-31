@@ -56,9 +56,11 @@ fn the_visual_check_documents_fit_every_mode() {
                     "S06a-images.md" => 5 + left_out,
                     _ => 0,
                 };
-                let source = std::fs::read_to_string(examples.join(name)).unwrap();
+                let source = std::fs::read_to_string(examples.join(name))
+                    .unwrap_or_else(|error| panic!("{name}: {error:?}"));
                 let document = if name.ends_with(".csv") {
-                    kiri::typeset::parse::csv::parse(&source, Separator::Comma).unwrap()
+                    kiri::typeset::parse::csv::parse(&source, Separator::Comma)
+                        .unwrap_or_else(|error| panic!("{name}: {error:?}"))
                 } else {
                     kiri::typeset::parse::parse(&source)
                 };
@@ -88,7 +90,8 @@ fn the_visual_check_documents_fit_every_mode() {
                             without_images.caps = caps.clone();
                             without_images.theme = theme.clone();
                             let mut out = Vec::new();
-                            kiri::render::render(&document, &without_images, &mut out).unwrap();
+                            kiri::render::render(&document, &without_images, &mut out)
+                                .unwrap_or_else(|error| panic!("{name}: {error:?}"));
                             assert!(!out.is_empty());
                             with_images.caps = caps.clone();
                             with_images.theme = theme.clone();
