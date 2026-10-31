@@ -13,7 +13,7 @@ use std::path::Path;
 /// instead (docs/architecture.md, "Where a new thing goes").
 const CAPS: &[(&str, usize)] = &[
     ("src/main.rs", 2493),
-    ("src/pager/mod.rs", 1918),
+    ("src/pager/mod.rs", 1885),
     ("src/config.rs", 1189),
     ("src/render/mod.rs", 345),
     ("src/typeset/layout/mod.rs", 1368),

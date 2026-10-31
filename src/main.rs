@@ -459,7 +459,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     }
     let mut settings = settings?;
     if file.is_none() {
-        settings.paging = kiri::pager::only_always(settings.paging);
+        settings.paging = kiri::session::plan::only_always(settings.paging);
     }
     let passthrough = settings.passthrough;
     let caps = kiri::term::capabilities(context.mode, context.width, &env, passthrough);
@@ -706,7 +706,7 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
     };
     let documents = settings.is_some();
     let mut settings = settings.unwrap_or_else(|| without_config(cli, &env));
-    settings.paging = kiri::pager::for_files(settings.paging, alone);
+    settings.paging = kiri::session::plan::for_files(settings.paging, alone);
     let passthrough = settings.passthrough;
     let caps = on_page(
         kiri::term::capabilities(context.mode, context.width, &env, passthrough),
@@ -734,7 +734,7 @@ fn printing(inputs: &mut Inputs) {
 /// diagram file, goes to the pager for `settings` on a terminal with
 /// `caps`: only when paging is `always`, as for several such files.
 fn pages_alone(settings: &Settings, caps: &Capabilities) -> bool {
-    kiri::pager::for_files(settings.paging, true) == Paging::Always
+    kiri::session::plan::for_files(settings.paging, true) == Paging::Always
         && kiri::term::stdout_is_terminal()
         && caps.styling
 }
@@ -1638,7 +1638,7 @@ fn surely_paged(
     let stream = kiri::typeset::layout::content(content, inputs);
     let rows = kiri::pager::rows(&stream.lines, &inputs.caps);
     let height = kiri::term::window_size(io::stdout()).map(|window| window.rows);
-    let longer = kiri::pager::pages(Paging::Auto, true, rows, height);
+    let longer = kiri::session::plan::pages(Paging::Auto, true, rows, height);
     if !longer {
         inputs.images.take_placeholders();
     }
@@ -2144,7 +2144,7 @@ fn page(
     let stream = kiri::typeset::layout::content(content, inputs);
     let rows = kiri::pager::rows(&stream.lines, &inputs.caps);
     let height = kiri::term::window_size(io::stdout()).map(|window| window.rows);
-    if !kiri::pager::pages(paging, terminal, rows, height) {
+    if !kiri::session::plan::pages(paging, terminal, rows, height) {
         return None;
     }
     // The screen catches the signals before the terminal is raw; the
@@ -2382,7 +2382,7 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), Failure> {
     }
     let document = kiri::typeset::parse::parse(&markdown);
     let mut settings = choices.with_theme(theme);
-    settings.paging = kiri::pager::only_always(settings.paging);
+    settings.paging = kiri::session::plan::only_always(settings.paging);
     show_document(
         &Context::new(cli, &env),
         &document,

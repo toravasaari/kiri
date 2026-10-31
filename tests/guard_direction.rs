@@ -59,6 +59,7 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[
     ("src/session/changes.rs", "config", "the config split"),
     ("src/session/help.rs", "pager::keys", "commands as data"),
     ("src/session/loading.rs", "images", "loading and sessions"),
+    ("src/session/plan.rs", "config", "the config split"),
     (
         "src/session/prompt.rs",
         "pager::keys",

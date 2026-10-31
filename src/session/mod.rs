@@ -10,6 +10,7 @@ pub mod files;
 pub mod help;
 pub(crate) mod links;
 pub mod loading;
+pub mod plan;
 pub mod prompt;
 pub mod search;
 pub mod status;
