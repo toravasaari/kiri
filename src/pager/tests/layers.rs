@@ -1,0 +1,301 @@
+//! What the highlights over the document look like together: the colouring
+//! after a reload, the search's matches and the selected link, in the text
+//! layout and in reading mode, and what the status line tells of them.
+
+use std::io::Read;
+use std::rc::Rc;
+
+use super::*;
+use crate::session::status::Found;
+use crate::typeset::style::{Line, Span};
+
+/// Matches in yellow and the current one in orange, as text colours and
+/// not as reverse video.
+fn coloured() -> crate::typeset::theme::Theme {
+    crate::typeset::theme::parse(
+        "[search]\nmatch_foreground = \"#101010\"\nmatch_background = \"#e0e000\"\n\
+         current_foreground = \"#101010\"\ncurrent_background = \"#d04000\"\n",
+    )
+    .unwrap()
+}
+
+const YELLOW: &str = "224;224;0";
+const ORANGE: &str = "208;64;0";
+
+/// The tint of the colouring after a reload on `known_colours`.
+const TINT: &str = "30;30;30";
+
+/// The frames drawn for `old`, reloaded to `new` by `r` while following on
+/// auto, and then given `keys`, in a window of 60 × 21.
+fn followed(old: &Document, new: Document, keys: &[&[u8]]) -> Vec<String> {
+    let mut then = Then::new([Reloaded::Document(new)]);
+    let mut reads = vec![b"r".as_slice()];
+    reads.extend(keys);
+    let mut terminal = Fake::new(60, 21, &reads);
+    let mut inputs = Inputs {
+        theme: coloured(),
+        ..Inputs::new(known_colours())
+    };
+    run_document(
+        old,
+        &mut inputs,
+        Options {
+            reload: Some(&mut then),
+            follow: settings::Follow::Auto,
+            jump: FollowJump::First,
+            ..Options::new(SearchCase::Smart)
+        },
+        &mut terminal,
+    );
+    terminal.frames()
+}
+
+#[test]
+fn a_match_on_a_line_with_the_colouring_of_a_reload_has_the_match_s_background() {
+    let new = super::following::numbers_changed(40, &[30, 31, 32]);
+    // "Line 3" is found in each of the changed lines, and the first of them
+    // is the current match, which fades in; the next ones are not.
+    let frames = followed(&numbers(40), new, &[b"/Line 3\r"]);
+    // The background before `text` on screen row `row`.
+    let colour = |frame: &String, row: usize, text: &str| {
+        let from = frame.find(&format!("\x1b[{row};1H")).unwrap();
+        background(&style_before(
+            document_part(&frame[from..], row as u16 + 1),
+            text,
+        ))
+    };
+    // Before the search the lines of the change have the tint.
+    let tinted = &frames[2];
+    assert_eq!(colour(tinted, 6, "Line 31 changed"), Some(TINT.into()));
+    // After it the match is in the match's colours, and what follows it on
+    // the line is still tinted.
+    let last = frames.last().unwrap();
+    assert_eq!(colour(last, 6, "Line 3"), Some(YELLOW.into()), "{last:?}");
+    assert_eq!(colour(last, 8, "Line 3"), Some(YELLOW.into()), "{last:?}");
+    assert_eq!(colour(last, 6, "1 changed"), Some(TINT.into()), "{last:?}");
+    assert_eq!(colour(last, 8, "2 changed"), Some(TINT.into()), "{last:?}");
+}
+
+/// The frames drawn for `document` in text, in a window of 60 × 6, when
+/// the terminal gives `keys`.
+fn text_frames(document: &Document, keys: &[&[u8]]) -> Vec<String> {
+    let mut terminal = Fake::new(60, 6, keys);
+    // Kitty, for the hyperlinks that the links are of.
+    let caps = Capabilities {
+        truecolor: true,
+        foreground: known_colours().foreground,
+        background: known_colours().background,
+        ..Capabilities::kitty(80)
+    };
+    let mut inputs = Inputs {
+        theme: coloured(),
+        ..Inputs::new(caps)
+    };
+    run_document(
+        document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    terminal.frames()
+}
+
+/// A link of which the match is the first word, and a second match.
+const LINKED: &str = "See [kiri link](https://one.example/) and kiri.\n";
+
+/// The keys that search for `kiri`, wait out the fade of the jump and
+/// select the link.
+fn search_and_select() -> Vec<&'static [u8]> {
+    let mut keys: Vec<&[u8]> = vec![b"/kiri\r"];
+    keys.extend([b"".as_slice(); 30]);
+    keys.push(b"\t");
+    keys
+}
+
+#[test]
+fn a_match_in_the_selected_link_in_text_keeps_the_match_s_colours() {
+    let document = crate::typeset::parse::parse(LINKED);
+    let mut keys = search_and_select();
+    keys.push(b"");
+    let frames = text_frames(&document, &keys);
+    let frame = document_part(frames.last().unwrap(), 6);
+    let style = |text: &str| style_before(frame, text);
+    // The match is in its own colours, not in reverse video; the rest of
+    // the link is in reverse video, and the text outside it is plain.
+    let kiri = style("kiri\x1b");
+    assert_eq!(background(&kiri), Some(ORANGE.into()), "{frame:?}");
+    assert!(!kiri.contains(&"7".into()), "{frame:?}");
+    assert!(style(" link").contains(&"7".into()), "{frame:?}");
+    assert!(!style(" and ").contains(&"7".into()), "{frame:?}");
+    // The other match is in the match colour, as before.
+    assert_eq!(
+        background(&style("kiri\x1b[0m.")),
+        Some(YELLOW.into()),
+        "{frame:?}"
+    );
+}
+
+#[test]
+fn escape_takes_the_matches_and_the_selected_link_away_in_text() {
+    let document = crate::typeset::parse::parse(LINKED);
+    let mut keys = search_and_select();
+    keys.extend([b"\x1b".as_slice(), b""]);
+    let frames = text_frames(&document, &keys);
+    let before = &frames[frames.len() - 2];
+    let after = frames.last().unwrap();
+    assert!(before.contains("https://one.example/"), "{before:?}");
+    assert!(document_part(before, 6).contains(";7"), "{before:?}");
+    let shown = document_part(after, 6);
+    assert!(
+        !shown.contains(";7") && !shown.contains("[0;7"),
+        "{shown:?}"
+    );
+    assert!(!shown.contains("48;2"), "{shown:?}");
+    // Neither the link nor the search is told, and the status line has the
+    // name again.
+    let status = status_row(after, 6);
+    assert!(!status.contains("https://one.example/"), "{status:?}");
+    assert!(!status.contains("/kiri"), "{status:?}");
+    assert!(status.contains("notes.md"), "{status:?}");
+}
+
+/// The pixels of each image `frame` sends, as RGBA.
+fn pixels(frame: &str) -> Vec<Vec<u8>> {
+    use base64::Engine;
+    let mut images = Vec::new();
+    let mut data = String::new();
+    let mut rest = frame;
+    while let Some(start) = rest.find("\x1b_G") {
+        let body = &rest[start + 3..];
+        let end = body.find("\x1b\\").unwrap();
+        let (keys, chunk) = body[..end].split_once(';').unwrap_or((&body[..end], ""));
+        data.push_str(chunk);
+        if keys.split(',').any(|key| key == "m=0") {
+            let compressed = base64::engine::general_purpose::STANDARD
+                .decode(&data)
+                .unwrap();
+            let mut rgba = Vec::new();
+            flate2::read::ZlibDecoder::new(&compressed[..])
+                .read_to_end(&mut rgba)
+                .unwrap();
+            images.push(rgba);
+            data.clear();
+        }
+        rest = &body[end + 2..];
+    }
+    images
+}
+
+/// How many pixels of the images `frame` sends are `rgb`, give or take 3
+/// a channel.
+fn count(frame: &str, rgb: [u8; 3]) -> usize {
+    (pixels(frame).iter())
+        .flat_map(|image| image.chunks(4))
+        .filter(|pixel| (0..3).all(|at| pixel[at].abs_diff(rgb[at]) <= 3))
+        .count()
+}
+
+/// The match colours of reading mode on a theme that sets none.
+const BROWSER_CURRENT: [u8; 3] = [0xff, 0x96, 0x32];
+const BROWSER_FOUND: [u8; 3] = [0xff, 0xff, 0x00];
+
+/// The frames drawn in reading mode for a page with a link and a word
+/// that is a match twice, the second one in the link.
+fn reading_page(keys: &[&[u8]]) -> Vec<String> {
+    let document = crate::typeset::parse::parse(
+        "A needle, then [a link](https://one.example/) with a needle in it.\n",
+    );
+    let mut terminal = Fake::new(80, 10, keys);
+    let mut inputs = Inputs {
+        reading: Some(Reading {
+            pictures: Default::default(),
+            fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
+            wide: crate::typeset::reading::page::Wide::Wrap,
+        }),
+        ..Inputs::new(Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(80)
+        })
+    };
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    terminal.frames()
+}
+
+#[test]
+fn a_match_and_the_selected_link_are_drawn_on_one_page_in_reading_mode() {
+    let frames = reading_page(&[b"/needle\r", b"\t", b""]);
+    assert_eq!(frames.len(), 3, "{} frames", frames.len());
+    // The search draws the page with both matches, the first one current.
+    assert!(count(&frames[1], BROWSER_CURRENT) > 100);
+    assert!(count(&frames[1], BROWSER_FOUND) > 100);
+    // Selecting the link draws it again, with the current match still in
+    // the colours of a match, and the link's box over the other.
+    assert!(count(&frames[2], BROWSER_CURRENT) > 100);
+    assert!(frames[2].contains("https://one.example/"), "{frames:#?}");
+    assert_ne!(pixels(&frames[1]), pixels(&frames[2]));
+}
+
+#[test]
+fn escape_takes_the_matches_and_the_selected_link_away_in_reading_mode() {
+    let frames = reading_page(&[b"/needle\r", b"\t", b"\x1b", b""]);
+    let last = frames.last().unwrap();
+    assert_eq!(frames.len(), 4, "{} frames", frames.len());
+    assert!(frames[2].contains("https://one.example/"), "{frames:#?}");
+    // The page was drawn with its marks before; what is sent now has
+    // neither them nor the box.
+    assert!(count(&frames[1], BROWSER_CURRENT) > 100);
+    assert_eq!(count(last, BROWSER_CURRENT), 0);
+    assert_eq!(count(last, BROWSER_FOUND), 0);
+    let bar = last.rsplit("\x1b[10;1H").next().unwrap_or("");
+    assert!(!bar.contains("https://one.example/"), "{bar:?}");
+    assert!(!bar.contains("needle"), "{bar:?}");
+}
+
+#[test]
+fn the_status_line_tells_a_message_before_a_link_before_nowhere_before_a_place() {
+    let lines = [Line::new(vec![Span::new("a needle", Default::default())])];
+    let mut state = State::new(SearchCase::Smart);
+    state.search = Some(Search::new(&lines, "needle", SearchCase::Smart, 0));
+    state.shown = true;
+    state.nowhere = true;
+    state.told = Some(Told::new("link copied"));
+    let url = Some("https://one.example/");
+    fn found<'a>(state: &'a State, url: Option<&'a str>) -> Option<Found<'a>> {
+        state.found(None, None, url)
+    }
+    assert_eq!(
+        found(&state, url),
+        Some(Found::Told {
+            message: "link copied",
+            fading: None,
+        })
+    );
+    state.told = None;
+    assert_eq!(
+        found(&state, url),
+        Some(Found::Link("https://one.example/"))
+    );
+    assert_eq!(found(&state, None), Some(Found::Nowhere("needle")));
+    state.nowhere = false;
+    assert_eq!(
+        found(&state, None),
+        Some(Found::At {
+            term: "needle",
+            current: 1,
+            total: 1,
+            flash: None,
+        })
+    );
+    // A search that is not shown tells nothing, but a link still is.
+    state.shown = false;
+    assert_eq!(found(&state, None), None);
+    assert_eq!(
+        found(&state, url),
+        Some(Found::Link("https://one.example/"))
+    );
+}
