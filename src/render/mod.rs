@@ -339,7 +339,6 @@ pub fn render_image_on(
 
 #[cfg(test)]
 mod tests {
-    #[cfg(test)]
     impl Inputs {
         /// `key` as the layout of these inputs makes it: a diagram's key
         /// with the fingerprint of how diagrams are drawn for them, and a

@@ -52,11 +52,17 @@ pub fn inputs(caps: &Capabilities, theme: &Theme) -> Inputs {
     }
 }
 
-/// `key` as the layout for `caps` and `theme` makes it: a diagram's key
-/// with the fingerprint of how diagrams are drawn there. The images of
-/// these tests are loaded with the default options, whatever the caps.
+/// A diagram's `key` as the layout for `caps` and `theme` makes it: with
+/// the fingerprint of how diagrams are drawn there. Any other key stays.
+/// The images of these tests are loaded with the default options,
+/// whatever the caps.
 pub fn laid_out_key(key: ImageKey, caps: &Capabilities, theme: &Theme) -> ImageKey {
-    key.with_look(kiri::typeset::images::diagram_look_for(theme, caps, true))
+    match key {
+        ImageKey::Block { .. } => {
+            key.with_look(kiri::typeset::images::diagram_look_for(theme, caps, true))
+        }
+        other => other,
+    }
 }
 
 /// The heading `key` as the layout for `caps`, with headings shown as
