@@ -331,3 +331,16 @@ fn a_formula_in_a_line_is_text_as_written_in_every_terminal_layout() {
         assert_eq!(render(formulas, &inputs), render(escaped, &inputs));
     }
 }
+
+#[test]
+fn bullets_stop_at_the_square_from_the_third_level_on() {
+    let source = "- a\n  - b\n    - c\n      - d\n        - e\n          - f\n";
+    let output = render(
+        source,
+        &inputs(&Capabilities::kitty(WIDTH), &Theme::default()),
+    );
+    let bullets: String = (output.lines())
+        .filter_map(|line| line.chars().find(|c| "•◦▪".contains(*c)))
+        .collect();
+    assert_eq!(bullets, "•◦▪▪▪▪");
+}

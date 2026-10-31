@@ -331,42 +331,6 @@ pub struct Difference {
 /// The differences the layouts have today, each shown by at least one block.
 const DIFFERENCES: &[Difference] = &[
     Difference {
-        field: Field::ListMarker,
-        at: "depth 3 bullet item",
-        cell: "•",
-        pixel: "▪",
-        status: Status::Drift,
-        cell_where: "layout/list.rs:22: BULLETS[list_depth % 3], so the fourth level starts over at •",
-        pixel_where: "reading/page.rs:2097: the three glyphs indexed by depth.min(2), so every level from the third is ▪",
-    },
-    Difference {
-        field: Field::ListMarker,
-        at: "depth 4 bullet item",
-        cell: "◦",
-        pixel: "▪",
-        status: Status::Drift,
-        cell_where: "layout/list.rs:22: BULLETS[list_depth % 3], so the fourth level starts over at •",
-        pixel_where: "reading/page.rs:2097: the three glyphs indexed by depth.min(2), so every level from the third is ▪",
-    },
-    Difference {
-        field: Field::ListMarker,
-        at: "depth 6 bullet item",
-        cell: "•",
-        pixel: "▪",
-        status: Status::Drift,
-        cell_where: "layout/list.rs:22: BULLETS[list_depth % 3], so a level past the third starts the cycle over",
-        pixel_where: "reading/page.rs:2097: the three glyphs indexed by depth.min(2), so every level from the third is ▪",
-    },
-    Difference {
-        field: Field::ListMarker,
-        at: "depth 7 bullet item",
-        cell: "◦",
-        pixel: "▪",
-        status: Status::Drift,
-        cell_where: "layout/list.rs:22: BULLETS[list_depth % 3], so a level past the third starts the cycle over",
-        pixel_where: "reading/page.rs:2097: the three glyphs indexed by depth.min(2), so every level from the third is ▪",
-    },
-    Difference {
         field: Field::HeadingRule,
         at: "level 1",
         cell: "false",
@@ -752,7 +716,6 @@ mod tests {
                 .any(|d| d.field == field && d.at.starts_with(at) && d.status == Status::Drift)
         };
         for (field, at) in [
-            (Field::ListMarker, "depth 3 bullet"),
             (Field::HeadingRule, "level 1"),
             (Field::HeadingSize, "level 1"),
             (Field::ListMarker, "depth 0 numbered task"),

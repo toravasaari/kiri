@@ -111,24 +111,17 @@ pub struct CellTable {
     pub bullets: Bullets,
 }
 
-/// The bullets of a list by its depth, outermost first.
+/// The bullets of a list by its depth, outermost first; a list deeper than
+/// the glyphs keeps the last, as GitHub does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Bullets {
     pub glyphs: [&'static str; 3],
-    /// Whether a list deeper than the glyphs start over with the first.
-    pub cycle: bool,
 }
 
 impl Bullets {
     /// The bullet of a list `depth` lists deep, the outermost being 0.
     pub fn at(&self, depth: usize) -> &'static str {
-        let last = self.glyphs.len() - 1;
-        let at = if self.cycle {
-            depth % self.glyphs.len()
-        } else {
-            depth.min(last)
-        };
-        self.glyphs[at]
+        self.glyphs[depth.min(self.glyphs.len() - 1)]
     }
 }
 
@@ -193,10 +186,7 @@ pub const GITHUB: PixelTable = PixelTable {
     list_indent: 2.0,
     item_gap: 0.5,
     marker_gap: 0.5,
-    bullets: Bullets {
-        glyphs: GLYPHS,
-        cycle: false,
-    },
+    bullets: Bullets { glyphs: GLYPHS },
     quote_indent: 1.0,
     quote_bar: 0.25,
     alert_padding: 0.5,
@@ -264,10 +254,7 @@ impl Look {
                 stripe: 0.06,
                 band_dark: 0.3,
                 band_light: 0.12,
-                bullets: Bullets {
-                    glyphs: GLYPHS,
-                    cycle: true,
-                },
+                bullets: Bullets { glyphs: GLYPHS },
             },
             pixels: GITHUB,
         }
