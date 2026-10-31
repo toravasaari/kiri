@@ -857,6 +857,7 @@ fn page_files(
             let loading = loading(context, settings, caps);
             kiri::images::load_inline_in_background(&parts, &loading, images, loads);
         })),
+        background_offset: settings.background_offset,
         ..kiri::pager::Options::new(settings.search_case)
     };
     let start = |inputs: &mut Inputs, loads: &mut Loads| {

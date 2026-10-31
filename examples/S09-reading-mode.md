@@ -36,11 +36,13 @@ area, and so are images, diagrams, formulas and alerts, in the column.
 The front matter above is a table of its keys and values, as wide as the
 column and a line below the top, in the proportional font, every second
 row from the second shaded; `S03a-tables.md` has nested tables in it. The
-text cannot be selected or copied, as it is drawn as images. With a theme
-or terminal that gives the background's colour, the page is an opaque area
-in that colour, so bold text in a shaded row looks as heavy as in an
-unshaded one; with `background_opacity` below 1 in kitty it does not show
-the window behind it.
+text cannot be selected or copied, as it is drawn as images. The page is
+transparent unless the theme has a background colour, so a translucent
+kitty window or a background image shows through it and beside it alike.
+`B` in the pager paints the terminal's background colour across the whole
+window, page and all, and `B` again takes it away; with `--dark`, `B`
+takes the theme's background away. On a painted page bold text in a shaded
+row looks as heavy as in an unshaded one.
 
 ## Text
 

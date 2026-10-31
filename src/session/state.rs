@@ -22,6 +22,7 @@ use crate::session::step::{Effect, Run};
 use crate::session::view::{Motion, View};
 use crate::session::{bands, changes, links, status};
 use crate::typeset::block::BlockInfo;
+use crate::typeset::color::Color;
 use crate::typeset::compare::{Comparison, Fate};
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::style::{Line, Style};
@@ -40,6 +41,9 @@ pub const NOTHING_TO_FOLLOW: &str = "nothing to follow";
 
 /// Why `M` does not turn reading mode on.
 pub const NEEDS_IMAGES: &str = "reading mode needs a terminal that draws images";
+
+/// Why `B` does nothing: neither the theme nor the terminal gave a colour.
+pub const NO_BACKGROUND: &str = "background colour not known";
 
 /// Whether the document changed since it was last read.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,6 +122,52 @@ pub(crate) struct State {
     pub(crate) next: Next,
     /// Which change following on auto moves the view to.
     pub(crate) jump: FollowJump,
+    /// The page's background in use, and the one `B` turns to.
+    pub(crate) background: Backgrounds,
+}
+
+/// The page's background as `B` turns it on and off. kitty shows its own
+/// background, which may be translucent or an image, in a cell painted in
+/// the very same colour, so the terminal's is painted one shade off.
+#[derive(Debug, Default)]
+pub(crate) struct Backgrounds {
+    shown: Option<Color>,
+    other: Option<Color>,
+}
+
+impl Backgrounds {
+    /// For a theme whose background is `theme`, on a terminal whose
+    /// background is `terminal`: `B` takes the theme's away, and gives a
+    /// theme without one the terminal's, one shade off when `offset`.
+    pub(crate) fn new(theme: Option<Color>, terminal: Option<Color>, offset: bool) -> Self {
+        let shade = |color| match color {
+            Color::Rgb(red, green, blue) if offset => {
+                let off = |c: u8| if c < 128 { c + 1 } else { c - 1 };
+                Color::Rgb(off(red), off(green), off(blue))
+            }
+            color => color,
+        };
+        let other = if theme.is_some() {
+            None
+        } else {
+            terminal.map(shade)
+        };
+        Self {
+            shown: theme,
+            other,
+        }
+    }
+
+    /// Whether there is a background to turn to.
+    fn known(&self) -> bool {
+        self.shown.is_some() || self.other.is_some()
+    }
+
+    /// Turns to the other background, and gives it.
+    fn flip(&mut self) -> Option<Color> {
+        std::mem::swap(&mut self.shown, &mut self.other);
+        self.shown
+    }
 }
 
 /// What the next layout keeps from the one before it.
@@ -285,6 +335,7 @@ impl State {
             cell: None,
             next: Next::default(),
             jump: FollowJump::First,
+            background: Backgrounds::default(),
         }
     }
 
@@ -471,6 +522,17 @@ impl State {
             Some(Action::Wide) => {
                 self.changed = None;
                 return vec![Effect::FlipWide, Effect::Relayout { reuse: false }];
+            }
+            Some(Action::Background) if !self.background.known() => {
+                self.told = Some(Told::new(NO_BACKGROUND));
+            }
+            Some(Action::Background) => {
+                self.changed = None;
+                let background = self.background.flip();
+                return vec![
+                    Effect::SetBackground(background),
+                    Effect::Relayout { reuse: false },
+                ];
             }
             Some(Action::Sideways(step)) => {
                 self.bands_moved |= self.bands.scroll(layout.lines, layout.places, step);
@@ -825,4 +887,35 @@ fn follows(changes: &Comparison, old: &BlockInfo, new: &BlockInfo) -> bool {
             changes.fate(new.path()),
             Some(Fate::Stayed { was } | Fate::Changed { was }) if was == old.path()
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn b_gives_the_terminal_s_background_one_shade_off_when_asked() {
+        let black = Some(Color::Rgb(0, 0, 0));
+        assert_eq!(
+            Backgrounds::new(None, black, true).flip(),
+            Some(Color::Rgb(1, 1, 1))
+        );
+        assert_eq!(Backgrounds::new(None, black, false).flip(), black);
+        // Towards the middle, so that white stays in range.
+        let light = Some(Color::Rgb(255, 128, 127));
+        let shifted = Some(Color::Rgb(254, 127, 128));
+        assert_eq!(Backgrounds::new(None, light, true).flip(), shifted);
+    }
+
+    #[test]
+    fn b_turns_back_and_forth_and_leaves_a_theme_s_background_as_it_is() {
+        let mut theme =
+            Backgrounds::new(Some(Color::Rgb(0, 0, 0)), Some(Color::Rgb(9, 9, 9)), true);
+        assert_eq!(theme.flip(), None);
+        assert_eq!(theme.flip(), Some(Color::Rgb(0, 0, 0)));
+        let mut none = Backgrounds::new(None, Some(Color::Rgb(0, 0, 0)), true);
+        assert_eq!(none.flip(), Some(Color::Rgb(1, 1, 1)));
+        assert_eq!(none.flip(), None);
+        assert_eq!(none.flip(), Some(Color::Rgb(1, 1, 1)));
+    }
 }

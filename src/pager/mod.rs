@@ -31,7 +31,7 @@ use crate::session::frame::{Frame, Layout, Status};
 use crate::session::help::Placed;
 use crate::session::search::Marks;
 use crate::session::settings::{self, FollowJump, SearchCase};
-use crate::session::state::{Change, NOTHING_TO_FOLLOW, State, Told};
+use crate::session::state::{Backgrounds, Change, NOTHING_TO_FOLLOW, State, Told};
 use crate::session::step::{Effect, Msg, Pager, Reply, Resized, Run, step};
 use crate::session::view::View;
 use crate::session::{loading, status};
@@ -119,6 +119,8 @@ pub struct Options<'a, 'l> {
     pub width: Option<u16>,
     /// How a search treats case.
     pub case: SearchCase,
+    /// Whether `B` paints the terminal's background one shade off.
+    pub background_offset: bool,
     /// Where `r` gets the document again from; `None` when it cannot.
     pub reload: Option<&'a mut dyn Reload>,
     /// Whether the pager follows the document from the start: reads it
@@ -159,6 +161,7 @@ impl Options<'_, '_> {
         Options {
             width: None,
             case,
+            background_offset: true,
             reload: None,
             follow: settings::Follow::Off,
             jump: FollowJump::First,
@@ -210,6 +213,7 @@ fn page_through(
     let Options {
         width,
         case,
+        background_offset,
         reload,
         follow,
         jump,
@@ -220,6 +224,8 @@ fn page_through(
     } = options;
     let mut state = State::new(case);
     state.jump = jump;
+    let (theme, reported) = (inputs.theme.background, inputs.caps.background);
+    state.background = Backgrounds::new(theme, reported, background_offset);
     state.warn(warnings, terminal.now());
     if reload.is_some() {
         state.follow.mode = follow;
@@ -270,7 +276,9 @@ struct Shell<'a, 'r, 'l, T> {
     terminal: &'a mut T,
     source: Origin<'r, 'l>,
     encoder: Encoder,
-    /// The reading mode that `M` turns to, on or off.
+    /// The reading mode that `M` turns to, on or off. An exception, not a
+    /// model: a key's state goes in the state engine, which sends what to
+    /// set as an effect, as `B` does with `Effect::SetBackground`.
     other: Option<Reading>,
     inline: Option<InlineLoader<'r>>,
 }
@@ -511,6 +519,7 @@ impl<T: Terminal> Shell<'_, '_, '_, T> {
                 }
             }
             Effect::SwapReading => std::mem::swap(&mut inputs.reading, &mut self.other),
+            Effect::SetBackground(background) => inputs.theme.background = background,
             Effect::StartInline => {
                 if let Some(start) = self.inline.as_mut() {
                     start(content, &mut inputs.images, self.source.loads, &inputs.caps);

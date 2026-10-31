@@ -796,8 +796,10 @@ layout is kiri's own, on parley, with the fonts resvg already loads.
   baseline. Colour emoji and a fallback font for each script.
 - Inline code without padding spaces, on a background lower than the
   line, breaking only at spaces.
-- The page is opaque in the page's colour when the theme or the
-  terminal tells it, so text is blended the same way everywhere.
+- The page is opaque in the page's colour when the theme gives one, so
+  text is blended the same way everywhere, and transparent otherwise, so
+  that a translucent window or a background image shows through it. `B`
+  in the pager turns the background on and off.
 
 #### 4.15.2 Tables and code (done)
 

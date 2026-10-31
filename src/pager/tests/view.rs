@@ -229,3 +229,59 @@ fn a_given_width_stays_when_the_window_changes() {
         assert!(!frame.contains("A paragraph of"), "{frame:?}");
     }
 }
+
+/// The terminal of [`known_colours`] with a background that shows as
+/// `17;33;49`, one shade off, in an SGR code.
+fn reported_background() -> Capabilities {
+    let mut caps = known_colours();
+    caps.background = Some(Color::Rgb(16, 32, 48));
+    caps
+}
+
+#[test]
+fn b_paints_the_terminal_s_background_and_takes_it_away() {
+    let inputs = Inputs::new(reported_background());
+    let frames = frames_of(&numbers(3), inputs, &[b"B", b"B"], 0);
+    assert_eq!(frames.len(), 3, "{frames:?}");
+    let painted = |frame: &str| frame.contains("48;2;17;33;49");
+    assert!(!painted(&frames[0]), "{frames:?}");
+    assert!(painted(&frames[1]), "{frames:?}");
+    assert!(!painted(&frames[2]), "{frames:?}");
+}
+
+#[test]
+fn b_takes_away_the_theme_s_background_and_brings_it_back() {
+    let mut inputs = Inputs::new(reported_background());
+    inputs.theme.background = Some(Color::Rgb(1, 2, 3));
+    let frames = frames_of(&numbers(3), inputs, &[b"B", b"B"], 0);
+    assert_eq!(frames.len(), 3, "{frames:?}");
+    let painted = |frame: &str| frame.contains("48;2;1;2;3");
+    assert!(painted(&frames[0]), "{frames:?}");
+    assert!(!painted(&frames[1]), "{frames:?}");
+    assert!(!frames[1].contains("48;2;17;33;49"), "{frames:?}");
+    assert!(painted(&frames[2]), "{frames:?}");
+}
+
+#[test]
+fn without_the_offset_b_paints_the_terminal_s_very_background() {
+    let mut terminal = Fake::new(60, 6, &[b"B"]);
+    let mut inputs = Inputs::new(reported_background());
+    let options = Options {
+        background_offset: false,
+        ..Options::new(SearchCase::Smart)
+    };
+    run_document(&numbers(3), &mut inputs, options, &mut terminal);
+    let frames = terminal.frames();
+    assert_eq!(frames.len(), 2, "{frames:?}");
+    assert!(frames[1].contains("48;2;16;32;48"), "{frames:?}");
+    assert!(!frames[1].contains("48;2;17;33;49"), "{frames:?}");
+}
+
+#[test]
+fn b_says_so_when_no_background_colour_is_known() {
+    // The terminal did not tell its background, and the theme has none.
+    let frames = frames_of(&numbers(3), Inputs::new(Capabilities::ansi(60)), &[b"B"], 0);
+    assert_eq!(frames.len(), 2, "{frames:?}");
+    let status = status_row(&frames[1], 6);
+    assert!(status.contains("background colour not known"), "{status:?}");
+}

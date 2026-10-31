@@ -114,6 +114,7 @@ fn kinds(effects: &[Effect]) -> Vec<&'static str> {
             Effect::AskCells => "ask cells",
             Effect::SwapReading => "swap reading",
             Effect::FlipWide => "flip wide",
+            Effect::SetBackground(_) => "set background",
             Effect::StartInline => "start inline",
             Effect::Install => "install",
             Effect::Reload => "reload",
