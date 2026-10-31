@@ -12,9 +12,9 @@
 //! traits and handles it is given.
 //!
 //! A feature is a file of its own in the state engine (`src/session/`); a
-//! key is a command there, in `src/session/commands.rs`. Work on files and programs belongs to the
-//! platform (`src/main.rs` and the rest of `src/`), and bytes for the
-//! terminal to the terminal layer (`src/present/`).
+//! key is a command there, in `src/session/commands.rs`. Work on files and
+//! programs belongs to the platform (`src/main.rs` and the rest of `src/`),
+//! and bytes for the terminal to the terminal layer (`src/present/`).
 
 use std::io::{self, Write};
 use std::ops::Range;
