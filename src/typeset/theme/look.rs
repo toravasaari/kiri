@@ -159,6 +159,8 @@ pub struct PixelTable {
     /// How far a quote's text is indented, and how wide its bar is.
     pub quote_indent: f32,
     pub quote_bar: f32,
+    /// How high a thematic break is.
+    pub rule_height: f32,
     /// An alert's room above its title and below its text, the gap between
     /// its title and text, and the one between its icon and its title.
     pub alert_padding: f32,
@@ -197,6 +199,7 @@ pub const GITHUB: PixelTable = PixelTable {
     bullets: Bullets { glyphs: GLYPHS },
     quote_indent: 1.0,
     quote_bar: 0.25,
+    rule_height: 0.25,
     alert_padding: 0.5,
     alert_title_gap: 0.25,
     icon_gap: 0.5,

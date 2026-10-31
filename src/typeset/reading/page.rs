@@ -1187,7 +1187,7 @@ impl<'a> Flow<'a> {
                 }
             },
             Block::ThematicBreak => {
-                let height = (look.spacing.quote_bar * size).round().max(1.0);
+                let height = (look.spacing.rule_height * size).round().max(1.0);
                 self.rect(x, self.y, width, height, look.border);
                 self.y += height;
             }
