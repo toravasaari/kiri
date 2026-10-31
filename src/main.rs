@@ -1597,15 +1597,14 @@ fn surely_paged(
     settings: &Settings,
     inputs: &mut Inputs,
 ) -> bool {
-    if settings.paging == Paging::Always {
-        return true;
-    }
-    let loading = loading(context, settings, &inputs.caps);
-    kiri::images::measure_in_background(parts, &loading, &mut inputs.images, ROWS_UNLOADED);
-    let stream = kiri::typeset::layout::content(content, inputs);
-    let rows = kiri::pager::rows(&stream.lines, &inputs.caps);
-    let height = kiri::term::window_size(io::stdout()).map(|window| window.rows);
-    let longer = plan::pages(Paging::Auto, true, rows, height);
+    let longer = plan::surely_paged(settings.paging, || {
+        let loading = loading(context, settings, &inputs.caps);
+        kiri::images::measure_in_background(parts, &loading, &mut inputs.images, ROWS_UNLOADED);
+        let stream = kiri::typeset::layout::content(content, inputs);
+        let rows = kiri::pager::rows(&stream.lines, &inputs.caps);
+        let height = kiri::term::window_size(io::stdout()).map(|window| window.rows);
+        plan::Measured { rows, height }
+    });
     if !longer {
         inputs.images.take_placeholders();
     }

@@ -94,6 +94,26 @@ pub fn may_load_later(paging: Paging, images: bool, terminal: bool, caps: &Capab
         && caps.draws_images()
 }
 
+/// What the layout of a document comes to, for [`surely_paged`]: its rows,
+/// and the window's height when it is known.
+pub struct Measured {
+    pub rows: usize,
+    pub height: Option<u16>,
+}
+
+/// Whether a document surely goes to the pager with `paging`: always with
+/// `always`, and with `auto` when it is longer than the window. `measure`
+/// is called only for `auto`, as measuring takes time.
+pub fn surely_paged(paging: Paging, measure: impl FnOnce() -> Measured) -> bool {
+    match paging {
+        Paging::Always => true,
+        _ => {
+            let Measured { rows, height } = measure();
+            pages(Paging::Auto, true, rows, height)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,5 +243,18 @@ mod tests {
             true,
             &Capabilities::ansi(80)
         ));
+    }
+
+    #[test]
+    fn always_pages_without_measuring() {
+        assert!(surely_paged(Paging::Always, || panic!("measured")));
+    }
+
+    #[test]
+    fn auto_pages_when_the_measured_document_is_longer_than_the_window() {
+        let measured = |rows, height| move || Measured { rows, height };
+        assert!(surely_paged(Paging::Auto, measured(25, Some(24))));
+        assert!(!surely_paged(Paging::Auto, measured(24, Some(24))));
+        assert!(!surely_paged(Paging::Auto, measured(1000, None)));
     }
 }
