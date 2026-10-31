@@ -4,16 +4,17 @@ use std::fmt;
 use std::time::Duration;
 
 /// Why a diagram could not be drawn. Each variant is a failure that kiri
-/// itself detects, apart from `Message`, which carries what a renderer
-/// says. `Display` gives the text a warning and the line below the code
-/// block show.
+/// itself detects, apart from `Message`, which carries a reason as text.
+/// `Display` gives the text a warning and the line below the code block
+/// show.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiagramError {
-    /// What a renderer says of its own, such as RaTeX's or merman's
-    /// message.
+    /// A reason given as text: what a renderer says of its own, such as
+    /// RaTeX's or merman's message, or another reason, such as a drawn
+    /// image that does not decode, a renderer that crashed, or a heading
+    /// that no font draws.
     Message(String),
-    /// No program is set for the language; `language` is as the info
-    /// string gives it.
+    /// No program is set for the language, as the info string gives it.
     NoCommand(String),
     /// kiri has no renderer of its own for the language in this build.
     NotInBuild(String),
@@ -21,7 +22,7 @@ pub enum DiagramError {
     NoRenderer(String),
     /// The diagram was never drawn: no thread was left to draw it.
     NotDrawn,
-    /// Kiri was told to stop before `program` started.
+    /// kiri was told to stop before `program` started.
     NotStarted { program: String },
     /// The directory for the program's files could not be made; `error`
     /// is the system's reason.

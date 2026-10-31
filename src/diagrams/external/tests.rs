@@ -908,6 +908,13 @@ fn a_program_stopped_by_a_signal_says_so() {
 }
 
 #[test]
+fn a_program_stopped_by_a_signal_after_saying_something_says_both() {
+    let scratch = scratch("signal-said");
+    let renderer = script_renderer(&scratch, "echo oops >&2\nkill -KILL $$\n");
+    assert_eq!(failure(&renderer), "sh was stopped by a signal: oops");
+}
+
+#[test]
 fn a_directory_that_cannot_be_made_says_so() {
     let scratch = scratch("no-directory");
     let settings = ExternalSettings {
