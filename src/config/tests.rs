@@ -1985,7 +1985,7 @@ fn a_theme_name_in_the_file_is_not_made_relative_to_the_file() {
 #[test]
 fn a_width_of_0_is_the_terminals_width_at_every_level() {
     // The flag is read by `main`, which asks `is_unset`; the tests in
-    // tests/cli_config.rs run it.
+    // tests/it/cli_config.rs run it.
     let width = |text: &str, env: &[(&str, &str)]| chosen(text, env, Options::default()).width;
     // The origin stays, so that `--doctor` says where the 0 came from.
     let none = |origin| Setting::new(None, origin);

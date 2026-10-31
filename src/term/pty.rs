@@ -1,5 +1,5 @@
 //! A pseudo-terminal for the tests. The integration tests cannot see the
-//! library's test code, so `tests/common` compiles this file too.
+//! library's test code, so `tests/it/common` compiles this file too.
 
 use std::ffi::OsStr;
 use std::fs::File;

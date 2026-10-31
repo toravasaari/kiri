@@ -1,0 +1,13 @@
+---
+source: tests/it/render_blocks.rs
+expression: "render_for(\"basic.md\", Capabilities::plain(WIDTH))"
+---
+# kiri
+
+  A paragraph with emphasis, strong text and
+  `inline code`, continued on a second source
+  line.
+
+## Second level
+
+  Another paragraph.

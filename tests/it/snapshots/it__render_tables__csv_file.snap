@@ -1,0 +1,16 @@
+---
+source: tests/it/render_tables.rs
+expression: "render_table_file(\"table.csv\", Separator::Comma, Capabilities::plain(64))"
+---
+  ╭─────────┬──────────┬─────────────────────────────┬───────╮
+  │ Tool    │ Language │ Notes                       │ Stars │
+  ├─────────┼──────────┼─────────────────────────────┼───────┤
+  │ kiri    │ Rust     │ Renders Markdown, CSV and   │ 120   │
+  │         │          │ TSV in kitty                │       │
+  │ bat     │ Rust     │ A "cat" clone with wings    │ 50000 │
+  │ glow    │ Go       │ Markdown on the command     │ 16000 │
+  │         │          │ line                        │       │
+  │ *mdcat* │ Rust     │ Plain text: `code` stays as │       │
+  │         │          │ it is                       │       │
+  │ less    │ C        │                             │       │
+  ╰─────────┴──────────┴─────────────────────────────┴───────╯

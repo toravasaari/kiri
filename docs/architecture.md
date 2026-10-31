@@ -769,7 +769,7 @@ later and are test only.
 ### Exceptions to the direction
 
 An exception is code that uses a part below its own in the list of parts,
-or that does the work of another part. `tests/guard_direction.rs` holds
+or that does the work of another part. `tests/it/guard_direction.rs` holds
 the complete list of the crossings between files, each with the work that
 removes it, and `make check` fails on a crossing that is not on the list
 or on a listed one that is gone. A file's part is its directory's, and a

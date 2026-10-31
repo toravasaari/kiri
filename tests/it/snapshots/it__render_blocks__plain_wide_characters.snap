@@ -1,0 +1,18 @@
+---
+source: tests/it/render_blocks.rs
+expression: "render_for(\"wide.md\", Capabilities::plain(WIDTH))"
+---
+# 日本語の見出し 🦀
+
+  Mixed text 日本語のテキストと漢字 with an
+  emoji 🦀 and more words to wrap at the
+  narrow width.
+
+  ╭──────┬───────╮
+  │ 名前 │ Emoji │
+  ├──────┼───────┤
+  │ 東京 │ 🦀    │
+  │ Oslo │ 🌲🌲  │
+  ╰──────┴───────╯
+
+    let 名前 = "東京"; // 🦀

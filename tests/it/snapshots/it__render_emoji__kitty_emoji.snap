@@ -1,0 +1,32 @@
+---
+source: tests/it/render_emoji.rs
+expression: "visible(&render_for(\"emoji.md\", Capabilities::kitty(WIDTH)))"
+---
+␛[0;1;34m␛]66;s=3:n=5:d=6:v=1:w=5;Launch␛\␛]66;s=3:n=5:d=6:v=1:w=6; day 🚀␛\␛[0m
+
+
+
+  We ❤️ shipping, and the tests are green ✅.
+
+  ␛[0;90m• ␛[0mCoffee ☕ first
+  ␛[0;90m• ␛[0mThen 🎉 when it works
+
+  Unknown codes stay as written:
+  :not_a_real_code:. GitHub's own image emoji
+  are not standard emoji either, so :octocat:
+  stays as text.
+
+  Code is left alone: ␛[0;35;48;2;43;48;59m⍽:rocket:⍽␛[0m in a span,
+  and in a block:
+
+  ␛[0;48;2;43;48;59m                                            ␛[0m
+  ␛[0;48;2;43;48;59m ␛[0;38;2;192;197;206;48;2;43;48;59mecho ":rocket:"␛[0;48;2;43;48;59m                            ␛[0m
+  ␛[0;48;2;43;48;59m                                            ␛[0m
+
+  ␛[0;90m╭──────┬───────┬────────────╮␛[0m
+  ␛[0;90m│␛[0m ␛[0;1mMood␛[0m ␛[0;90m│␛[0m ␛[0;1mEmoji␛[0m ␛[0;90m│␛[0m ␛[0;1mNote␛[0m       ␛[0;90m│␛[0m
+  ␛[0;90m├──────┼───────┼────────────┤␛[0m
+  ␛[0;90m│␛[0m Love ␛[0;90m│␛[0m  ❤️   ␛[0;90m│␛[0m text after ␛[0;90m│␛[0m
+  ␛[0;90m│␛[0m Fire ␛[0;90m│␛[0m  🔥   ␛[0;90m│␛[0m text after ␛[0;90m│␛[0m
+  ␛[0;90m│␛[0m Star ␛[0;90m│␛[0m  ⭐   ␛[0;90m│␛[0m text after ␛[0;90m│␛[0m
+  ␛[0;90m╰──────┴───────┴────────────╯␛[0m

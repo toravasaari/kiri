@@ -1,0 +1,28 @@
+---
+source: tests/it/render_emoji.rs
+expression: "render_for(\"emoji.md\", Capabilities::plain(WIDTH))"
+---
+# Launch day 🚀
+
+  We ❤️ shipping, and the tests are green ✅.
+
+  - Coffee ☕ first
+  - Then 🎉 when it works
+
+  Unknown codes stay as written:
+  :not_a_real_code:. GitHub's own image emoji
+  are not standard emoji either, so :octocat:
+  stays as text.
+
+  Code is left alone: `:rocket:` in a span,
+  and in a block:
+
+    echo ":rocket:"
+
+  ╭──────┬───────┬────────────╮
+  │ Mood │ Emoji │ Note       │
+  ├──────┼───────┼────────────┤
+  │ Love │  ❤️   │ text after │
+  │ Fire │  🔥   │ text after │
+  │ Star │  ⭐   │ text after │
+  ╰──────┴───────┴────────────╯
