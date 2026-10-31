@@ -2,9 +2,10 @@ use std::io;
 
 use image::ImageFormat;
 
-use crate::diagrams::{Renderer, Request};
 use crate::load::load_with;
 use crate::load::tests::{Stub, fixtures, load_source, rgba, with_stub};
+use crate::typeset::diagrams::renderer::Renderer;
+use crate::typeset::diagrams::request::Request;
 use crate::typeset::images::drawn::*;
 use crate::typeset::images::{DEFAULT_MAX_FILE_SIZE, ImageKey, decode};
 

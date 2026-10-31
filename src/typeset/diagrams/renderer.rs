@@ -62,7 +62,7 @@ impl BuiltIn {
 
 /// How far below its baseline the diagram `source` in `language` reaches,
 /// as a fraction of its image's height, when it has a baseline: the
-/// inline formula that [`INLINE_FORMULA`] names.
+/// inline formula that [`INLINE_FORMULA`](crate::typeset::diagrams::request::INLINE_FORMULA) names.
 pub fn baseline_depth(language: &str, source: &str) -> Option<f64> {
     (BuiltIn::of(language)?.baseline)(source)
 }

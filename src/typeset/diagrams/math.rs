@@ -128,8 +128,9 @@ fn on_background(svg: &str, [red, green, blue]: [u8; 3]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::images::{DEFAULT_MAX_FILE_SIZE, Fonts, decode};
+    use crate::images::Fonts;
     use crate::typeset::diagrams::request::FormulaColors;
+    use crate::typeset::images::{DEFAULT_MAX_FILE_SIZE, decode};
 
     fn drawn(source: &str, theme: Theme, color: Option<[u8; 3]>) -> Result<String, DiagramError> {
         let colors = FormulaColors {

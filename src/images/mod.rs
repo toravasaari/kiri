@@ -46,8 +46,6 @@ pub use stamps::Stamps;
 pub use svg::{EMOJI, Fonts, SCRIPTS, Svg, installed};
 
 pub(crate) use crate::typeset::images::decode::{MAX_PIXELS, png_size};
-#[cfg(all(test, feature = "mermaid"))]
-pub(crate) use crate::typeset::images::drawn::decode_diagram;
 pub(crate) use crate::typeset::images::url::read_at_most;
 
 pub(crate) use crate::typeset::images::error::size;
