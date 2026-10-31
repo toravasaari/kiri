@@ -19,7 +19,10 @@ use crate::typeset::images::drawn::finish_diagram;
 use crate::typeset::model::Document;
 use url::load_url;
 
+mod renderers;
 pub(crate) mod url;
+
+pub use renderers::Renderers;
 
 #[cfg(test)]
 pub(crate) mod tests;

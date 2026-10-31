@@ -399,9 +399,10 @@ panel colour.
   Mermaid, when nothing is configured, the configuration file does not
   turn the search off and the build has no renderer of its own for the
   language; `--doctor` reports the same choice.
-- **Together:** `Renderers` draws each language with its external
-  command when it has one and with the built-in renderer otherwise. An
-  external command that fails does not fall back to the built-in one.
+- **Together:** `Renderers`, in `src/load/renderers.rs`, draws each
+  language with its external command when it has one and with the
+  built-in renderer otherwise. An external command that fails does not
+  fall back to the built-in one.
 
 A reload, `r` in the pager, loads only the images the document does not
 have yet: a diagram is kept by its key, which holds its source, so one
@@ -610,6 +611,7 @@ The later work that the rows name, in words:
 | `src/load/mod.rs` | platform | new. The platform's loading for the engines: `load`, `load_with` and `load_parts`, which load the images a document wants, read their files and have the renderers draw its diagrams. A module of the library, not the binary's `src/loading.rs` |
 | `src/load/url.rs` | platform | new. `load_url`, which reads the file a URL names or decodes a `data:` URL, with `decode_file` and `read_file`, which open the file |
 | `src/load/tests.rs` | follows `load/mod.rs` | new. The tests of loading, and the helpers (`fixtures`, `load_source`, `open`, `Stub`) that the other tests of images load with |
+| `src/load/renderers.rs` | platform | new. `Renderers`, which draws each language with its external command when it has one and with the built-in renderer otherwise, and `render_in_parallel`, which draws several diagrams at once on threads |
 | `src/reports.rs` | platform | new. The reports kiri writes itself: `--doctor` and `--list-emojis`, rendered for a terminal or written as text, and `show_report`, which shows one through the same route as a file. Their content is made by `src/doctor.rs` and `src/list.rs` |
 | `src/cli.rs` | platform | new. The command line: the clap `Cli`, whose flags take their help from the settings registry, and `options()`, which turns the flags into settings |
 | `src/config/mod.rs` | platform | stays (was `src/config.rs`); the module's description and its public surface |
@@ -687,7 +689,7 @@ The later work that the rows name, in words:
 | `src/images/pipeline/tests.rs` | platform | stays |
 | `src/images/stamps.rs` | platform | stays |
 | `src/images/warnings.rs` | typesetting | new. Makes the `Diagnostic`s for the images and diagrams that did not load, from `ImageKey` and `ImageError`. It stays in `src/images/` while those two do, and moves to `src/typeset/images/` with them |
-| `src/diagrams/mod.rs` | mixed | stays. Typesetting: `Request`, `Drawn`, `Theme`, `FormulaColors`, `INLINE_FORMULA`, `centred`, `dark_background`, `baseline_depth`, `noun`, `name`, `BuiltIn` and the `Renderer` trait. Platform: the external choice, which is `Renderers` with its `External` and `chosen`, and `render_all`'s parallel run through `render_in_parallel`, on threads. Loading and sessions |
+| `src/diagrams/mod.rs` | mixed | stays. Typesetting: `Request`, `Drawn`, `Theme`, `FormulaColors`, `INLINE_FORMULA`, `centred`, `dark_background`, `baseline_depth`, `noun`, `name`, `BuiltIn` and the `Renderer` trait. Platform: the external choice, which is `Renderers` with its `External` and `chosen`, and `render_all`'s parallel run through `render_in_parallel`, on threads, moved to `src/load/renderers.rs`. Loading and sessions |
 | `src/typeset/diagrams/error.rs` | typesetting | new. `DiagramError`, why a diagram could not be drawn, such as `no output file` or a renderer's own message; `src/diagrams/mod.rs` re-exports it, as it does `Language` |
 | `src/diagrams/language.rs` | typesetting | moved to `src/typeset/diagrams/language.rs` |
 | `src/diagrams/math.rs` | typesetting | moved to `src/typeset/diagrams/math.rs` |
