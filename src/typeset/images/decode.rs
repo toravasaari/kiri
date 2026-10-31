@@ -247,7 +247,7 @@ fn format_name(format: ImageFormat) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::images::tests::{fixture, fixtures, rgba};
+    use crate::load::tests::{fixture, fixtures, rgba};
 
     fn raster(name: &str) -> RgbaImage {
         match fixture(name) {

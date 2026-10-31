@@ -5,6 +5,7 @@ pub mod diagrams;
 pub mod doctor;
 pub mod images;
 pub mod list;
+pub mod load;
 pub mod pager;
 pub mod panics;
 pub mod present;

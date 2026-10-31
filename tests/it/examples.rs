@@ -96,7 +96,7 @@ fn the_visual_check_documents_fit_every_mode() {
                 // in SVGs does not change their size, so no fonts are loaded.
                 // Diagrams are drawn wider than any window, and the one that
                 // fails shows its reason below its code.
-                let images = kiri::images::load_with(
+                let images = kiri::load::load_with(
                     &document,
                     examples,
                     DEFAULT_MAX_FILE_SIZE,

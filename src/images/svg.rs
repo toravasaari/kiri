@@ -481,8 +481,10 @@ mod tests {
     use base64::Engine;
     use base64::engine::general_purpose::STANDARD;
 
-    use crate::images::tests::{fixture, fixtures, open, rgba};
-    use crate::images::{DEFAULT_MAX_FILE_SIZE, LoadOptions, Source, decode, load_url, load_with};
+    use crate::images::{DEFAULT_MAX_FILE_SIZE, LoadOptions, Source, decode};
+    use crate::load::load_with;
+    use crate::load::tests::{fixture, fixtures, open, rgba};
+    use crate::load::url::load_url;
 
     /// `bytes` decoded, which must give an SVG.
     fn svg(bytes: &[u8], fonts: &Fonts) -> Source {

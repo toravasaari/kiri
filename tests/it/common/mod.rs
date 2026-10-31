@@ -190,7 +190,7 @@ pub fn fixture_images(name: &str) -> Images {
 /// diagrams.
 pub fn fixture_images_with(name: &str, options: &LoadOptions<'_>) -> Images {
     let document = kiri::typeset::parse::parse(&fixture(name));
-    let loaded = kiri::images::load_with(
+    let loaded = kiri::load::load_with(
         &document,
         &fixtures(),
         DEFAULT_MAX_FILE_SIZE,
@@ -251,7 +251,7 @@ pub fn stub_diagrams() -> LoadOptions<'static> {
 /// The images of `source`, a Markdown document, with its diagrams drawn
 /// by `StubDiagrams`.
 pub fn stub_diagram_images(source: &str) -> Images {
-    kiri::images::load_with(
+    kiri::load::load_with(
         &kiri::typeset::parse::parse(source),
         &fixtures(),
         DEFAULT_MAX_FILE_SIZE,

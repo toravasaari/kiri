@@ -607,6 +607,9 @@ The later work that the rows name, in words:
 | `src/lib.rs` | platform | stays; declares the three parts |
 | `src/main.rs` | mixed | stays. Platform: opening files and standard input, the shells, and the calls into `src/loading.rs`. State engine: the startup decisions, such as whether a run pages, are in `src/session/plan.rs`; `main.rs` reads the terminal and the files and passes the answers in. One route: `run` shows one file as the special case of several, with no header, and with reloading, following and the unnamed warnings for it alone |
 | `src/loading.rs` | platform | new. Loading a document's images and diagrams in the foreground, on threads and in the background, and reloading its file for the pager: the loads, `FileReload` and `look`. `main.rs` calls them. Its seed is the work runner that roadmap item G7.3.3 fills in |
+| `src/load/mod.rs` | platform | new. The platform's loading for the engines: `load`, `load_with` and `load_parts`, which load the images a document wants, read their files and have the renderers draw its diagrams. A module of the library, not the binary's `src/loading.rs` |
+| `src/load/url.rs` | platform | new. `load_url`, which reads the file a URL names or decodes a `data:` URL, with `decode_file` and `read_file`, which open the file |
+| `src/load/tests.rs` | follows `load/mod.rs` | new. The tests of loading, and the helpers (`fixtures`, `load_source`, `open`, `Stub`) that the other tests of images load with |
 | `src/reports.rs` | platform | new. The reports kiri writes itself: `--doctor` and `--list-emojis`, rendered for a terminal or written as text, and `show_report`, which shows one through the same route as a file. Their content is made by `src/doctor.rs` and `src/list.rs` |
 | `src/cli.rs` | platform | new. The command line: the clap `Cli`, whose flags take their help from the settings registry, and `options()`, which turns the flags into settings |
 | `src/config/mod.rs` | platform | stays (was `src/config.rs`); the module's description and its public surface |
@@ -672,13 +675,13 @@ The later work that the rows name, in words:
 | `src/reading/paint.rs` | typesetting | moved to `src/typeset/reading/paint.rs` |
 | `src/reading/text.rs` | typesetting | moved to `src/typeset/reading/text.rs` |
 | `src/reading/fonts.rs` | mixed | moved to `src/typeset/reading/fonts.rs`. Typesetting: `Fonts`, the fonts handed to parley, with the fallbacks. Platform: loading the system fonts and memory-mapping the font files, lazily, on the first layout; the font database moves that loading out |
-| `src/images/mod.rs` | mixed | stays. Typesetting: `ImageKey`, `ImageError`, `Images`, the plan of which images a document wants, and `LoadOptions`, the drawing options, which carry `progress`, a callback that `load_parts` in `src/load.rs` calls. Platform: `load`, `load_with` and `load_parts`, which read files and run the renderers. Loading and sessions |
+| `src/images/mod.rs` | mixed | stays. Typesetting: `ImageKey`, `ImageError`, `Images`, the plan of which images a document wants, and `LoadOptions`, the drawing options, which carry `progress`, a callback that `load_parts` in `src/load/mod.rs` calls. Platform: `load`, `load_with` and `load_parts`, which read files and run the renderers, moved to `src/load/mod.rs`. Loading and sessions |
 | `src/images/decode.rs` | typesetting | moved to `src/typeset/images/decode.rs` |
 | `src/images/drawn.rs` | typesetting | moved to `src/typeset/images/drawn.rs` |
 | `src/images/drawn/tests.rs` | typesetting | moved to `src/typeset/images/drawn/tests.rs` |
 | `src/images/heading.rs` | typesetting | moved to `src/typeset/images/heading.rs` |
 | `src/images/svg.rs` | mixed | stays. Typesetting: `Svg`, parsing and drawing, and `Fonts`, the database handed in. Platform: `Fonts::system`, which scans the system's fonts. The font database |
-| `src/images/url.rs` | mixed | stays. Typesetting: `data:` URLs and the reading of a URL's parts. Platform: `read_file`, which opens files. Loading and sessions |
+| `src/images/url.rs` | mixed | stays. Typesetting: `data:` URLs and the reading of a URL's parts. Platform: `read_file`, `decode_file` and `load_url`, which open files, moved to `src/load/url.rs`. Loading and sessions |
 | `src/images/background.rs` | platform | stays |
 | `src/images/pipeline.rs` | platform | stays |
 | `src/images/pipeline/tests.rs` | platform | stays |
