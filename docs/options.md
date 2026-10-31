@@ -23,6 +23,7 @@ These are the options kiri takes on the command line.
 | `--passthrough detect\|none\|tmux` | Whether kitty's images pass through tmux: wrapped inside tmux, with the pane's `allow-passthrough` turned on as `kitten icat` does (`detect`), always (`tmux`) or never (`none`); `detect` unless set |
 | `--mouse`, `--no-mouse` | Whether the pager takes the mouse, so that the wheel scrolls it inside tmux too; on unless set; see [Mouse](config.md#mouse) |
 | `--front-matter table\|code\|hide\|off` | Front matter render style; `table` unless set |
+| `--reading` | Experimental: headings, paragraphs, lists and quotes drawn as images, in the system's fonts; off unless set; see [Reading](config.md#reading) |
 | `--headings auto\|sized\|images\|plain` | How headings show: large with text sizing, as images, or in one row; `auto` unless set; see [Headings](config.md#headings) |
 | `--table-rows zebra\|lines\|indent\|underline\|off` | Table row style; `zebra` unless set |
 | `--diagrams on\|off` | Diagrams in code blocks, such as Mermaid, and formulas, drawn or shown as code; `on` unless set |

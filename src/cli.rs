@@ -179,13 +179,7 @@ pub struct Cli {
     #[arg(help = help_text("--mouse"), long_help = long_help_text("--mouse"), long, conflicts_with = "no_mouse")]
     pub mouse: bool,
 
-    /// Experimental: the text in a proportional font, as a browser shows it
-    ///
-    /// Headings, paragraphs, lists and quotes are drawn as images, so their
-    /// text cannot be selected or copied. It needs a terminal that draws
-    /// images, such as kitty; elsewhere the document shows as text. The
-    /// option's name may still change.
-    #[arg(long)]
+    #[arg(help = help_text("--reading"), long_help = long_help_text("--reading"), long)]
     pub reading: bool,
 
     /// Experimental: wide code and tables wrap or scroll in reading mode
@@ -264,6 +258,7 @@ pub fn options(cli: &Cli) -> Options {
         render_errors: flag(cli.render_errors, "--render-errors"),
         mouse: (flag(cli.mouse.then_some(true), "--mouse"))
             .or(flag(cli.no_mouse.then_some(false), "--no-mouse")),
+        reading: flag(cli.reading.then_some(true), "--reading"),
         ..Options::default()
     }
 }

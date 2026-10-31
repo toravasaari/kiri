@@ -68,6 +68,10 @@ passthrough = "detect"
 # false leaves the mouse to the terminal in the pager; see Mouse below.
 mouse = true
 
+# true turns reading mode on, which draws the text as images; see Reading
+# below.
+reading = false
+
 # Front matter render style: "table", "code", "hide" or "off".
 front_matter = "table"
 
@@ -407,6 +411,28 @@ the wheel does not scroll the pager: tmux 3.6 drops it, and older tmux
 may go into its copy mode. A printed document leaves the mouse alone
 either way.
 
+## Reading
+
+Reading mode is experimental. It draws headings, paragraphs, lists and
+quotes as images, in the system's fonts, so the text looks as a browser
+shows it. It needs a terminal that draws images, such as kitty; elsewhere
+the document is shown as text, with a warning. The text cannot be selected
+or copied, as it is drawn as images.
+
+The first of these that is given decides whether it is on:
+
+1. `--reading`, which only turns it on
+2. `KIRI_READING`, `1` or `on` to turn it on, `0` or `off` to leave it off
+3. `reading` in the configuration file, `true` or `false`
+4. off
+
+A configuration file with `reading = true` shows every document in reading
+mode, and `KIRI_READING=0` turns it off again for one run:
+
+```sh
+KIRI_READING=0 kiri notes.md   # plain, whatever the file says
+```
+
 ## Search case
 
 A search in the pager ignores case when its term has no upper-case letter,
@@ -564,6 +590,7 @@ once.
 | `KIRI_INITIAL_LOAD` | Whether the pager waits for the images; see [Initial load](#initial-load) |
 | `KIRI_PASSTHROUGH` | Whether kitty's images pass through tmux; see [Passthrough](#passthrough) |
 | `KIRI_MOUSE` | Whether the pager takes the mouse; see [Mouse](#mouse) |
+| `KIRI_READING` | Whether reading mode is on; see [Reading](#reading) |
 | `KIRI_MODE` | Which terminal features to use; see [Mode](#mode) |
 | `KIRI_WIDTH` | Width in cells; see [Width](#width) |
 | `KIRI_MARGINS` | Whether the theme keeps its margins; see [Margins](#margins) |

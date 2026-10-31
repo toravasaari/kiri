@@ -432,6 +432,17 @@ settings! {
         key "mouse", owner "term", effect Display, medium Cells, scope Pager,
         flag Some("--mouse"), help Some("Let the pager take the mouse\n\n\
         Whatever KIRI_MOUSE and the configuration say."), env Env::is("KIRI_MOUSE");
+
+        /// Whether reading mode is on: headings, paragraphs, lists and quotes
+        /// are drawn as images, in the system's fonts.
+        reading: bool = false;
+        key "reading", owner "typeset::reading", effect Layout, medium Pixels, scope General,
+        flag Some("--reading"), help Some("Experimental: the text in a proportional font, as a browser shows it\n\n\
+        Headings, paragraphs, lists and quotes are drawn as images, so their \
+        text cannot be selected or copied. It needs a terminal that draws \
+        images, such as kitty; elsewhere the document shows as text. The \
+        option's name may still change. Off unless set; KIRI_READING and the \
+        configuration file set it too."), env Env::is("KIRI_READING");
     }
     diagrams {
         /// Whether diagrams in code blocks are drawn, or shown as code:

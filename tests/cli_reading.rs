@@ -2,7 +2,9 @@
 
 mod common;
 
-use common::{Scratch, assert_succeeded, kiri, text};
+use std::process::Command;
+
+use common::{Scratch, assert_succeeded, command, kiri, text, write};
 
 const DOCUMENT: &str = "# Title\n\nSome *text*.\n\n> [!NOTE]\n> A note.\n";
 
@@ -62,4 +64,42 @@ fn several_files_warn_once() {
         .unwrap();
     assert!(out.status.success());
     assert_eq!(text(&out.stderr), NEEDS_IMAGES);
+}
+
+/// Reading mode is off unless the flag, the variable or the file sets it,
+/// and the flag comes before the variable, which comes before the file.
+#[test]
+fn reading_comes_from_the_flag_the_variable_or_the_file() {
+    let dir = Scratch::new("reading-levels");
+    let document = dir.join("document.md");
+    std::fs::write(&document, "# Title\n\nSome text.\n").unwrap();
+    // Reading mode draws the heading as an image; without it there is none.
+    let draws_images = |command: &mut Command| {
+        let out = command
+            .args(["--mode", "kitty", "--width", "80"])
+            .arg(&document)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        text(&out.stdout).contains("\x1b_Ga=T")
+    };
+    assert!(!draws_images(&mut command(&dir)), "off unless set");
+    assert!(
+        draws_images(command(&dir).env("KIRI_READING", "1")),
+        "KIRI_READING=1"
+    );
+    assert!(draws_images(command(&dir).arg("--reading")), "--reading");
+    write(&dir.join("config/kiri/config.toml"), "reading = true\n");
+    assert!(
+        draws_images(&mut command(&dir)),
+        "reading = true in the file"
+    );
+    assert!(
+        !draws_images(command(&dir).env("KIRI_READING", "0")),
+        "KIRI_READING=0 comes before the file"
+    );
+    assert!(
+        draws_images(command(&dir).env("KIRI_READING", "0").arg("--reading")),
+        "--reading comes before KIRI_READING"
+    );
 }

@@ -214,7 +214,8 @@ Options:
           
           Headings, paragraphs, lists and quotes are drawn as images, so their text cannot be
           selected or copied. It needs a terminal that draws images, such as kitty; elsewhere the
-          document shows as text. The option's name may still change.
+          document shows as text. The option's name may still change. Off unless set; KIRI_READING
+          and the configuration file set it too.
 
       --wide <HOW>
           Experimental: wide code and tables wrap or scroll in reading mode
