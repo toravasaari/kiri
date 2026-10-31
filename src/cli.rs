@@ -180,8 +180,12 @@ pub struct Cli {
     #[arg(help = help_text("--mouse"), long_help = long_help_text("--mouse"), long, conflicts_with = "no_mouse")]
     pub mouse: bool,
 
-    #[arg(help = help_text("--reading"), long_help = long_help_text("--reading"), long)]
+    #[arg(help = help_text("--reading"), long_help = long_help_text("--reading"), long, conflicts_with = "no_reading")]
     pub reading: bool,
+
+    /// Reading mode off, whatever KIRI_READING and the configuration say
+    #[arg(long, conflicts_with = "reading")]
+    pub no_reading: bool,
 
     #[arg(help = help_text("--wide"), long_help = long_help_text("--wide"), long, value_name = "HOW", value_parser = named::<Wide>())]
     pub wide: Option<Wide>,
@@ -252,7 +256,8 @@ pub fn options(cli: &Cli) -> Options {
         render_errors: flag(cli.render_errors, "--render-errors"),
         mouse: (flag(cli.mouse.then_some(true), "--mouse"))
             .or(flag(cli.no_mouse.then_some(false), "--no-mouse")),
-        reading: flag(cli.reading.then_some(true), "--reading"),
+        reading: (flag(cli.reading.then_some(true), "--reading"))
+            .or(flag(cli.no_reading.then_some(false), "--no-reading")),
         wide: flag(cli.wide, "--wide"),
         ..Options::default()
     }

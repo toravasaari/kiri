@@ -425,16 +425,17 @@ or copied, as it is drawn as images.
 
 The first of these that is given decides whether it is on:
 
-1. `--reading`, which only turns it on
+1. `--reading` turns it on, `--no-reading` turns it off; they cannot be
+   given together
 2. `KIRI_READING`, `1` or `on` to turn it on, `0` or `off` to leave it off
 3. `reading` in the configuration file, `true` or `false`
 4. off
 
 A configuration file with `reading = true` shows every document in reading
-mode, and `KIRI_READING=0` turns it off again for one run:
+mode, and `--no-reading` turns it off again for one run:
 
 ```sh
-KIRI_READING=0 kiri notes.md   # plain, whatever the file says
+kiri --no-reading notes.md   # plain, whatever the file says
 ```
 
 ## Wide

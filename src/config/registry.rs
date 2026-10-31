@@ -443,7 +443,7 @@ settings! {
         text cannot be selected or copied. It needs a terminal that draws \
         images, such as kitty; elsewhere the document shows as text. The \
         option's name may still change. Off unless set; KIRI_READING and the \
-        configuration file set it too."), env Env::is("KIRI_READING");
+        configuration file set it too, and --no-reading turns it off."), env Env::is("KIRI_READING");
 
         /// What becomes of code blocks and tables wider than reading mode's
         /// area in the pager: wrapped to fit it, or scrolled sideways.

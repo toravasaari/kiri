@@ -66,6 +66,39 @@ fn several_files_warn_once() {
     assert_eq!(text(&out.stderr), NEEDS_IMAGES);
 }
 
+/// `--no-reading` turns reading mode off whatever the variable and the file
+/// say, and it cannot be given with `--reading`.
+#[test]
+fn no_reading_turns_it_off_whatever_the_variable_and_the_file_say() {
+    let dir = Scratch::new("reading-no");
+    let document = dir.join("document.md");
+    std::fs::write(&document, "# Title\n\nSome text.\n").unwrap();
+    write(&dir.join("config/kiri/config.toml"), "reading = true\n");
+    let draws_images = |command: &mut Command| {
+        let out = command
+            .args(["--mode", "kitty", "--width", "80"])
+            .arg(&document)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        text(&out.stdout).contains("\x1b_Ga=T")
+    };
+    assert!(
+        draws_images(&mut command(&dir)),
+        "reading = true in the file"
+    );
+    assert!(
+        !draws_images(command(&dir).env("KIRI_READING", "1").arg("--no-reading")),
+        "--no-reading comes before KIRI_READING and the file"
+    );
+    let out = command(&dir)
+        .args(["--reading", "--no-reading"])
+        .arg(&document)
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "--reading and --no-reading conflict");
+}
+
 /// Reading mode is off unless the flag, the variable or the file sets it,
 /// and the flag comes before the variable, which comes before the file.
 #[test]

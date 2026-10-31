@@ -283,6 +283,8 @@ fn reading_tells_where_it_comes_from() {
     write_config(&dir, "reading = true\n");
     let row = "| Reading | on | configuration file |";
     check_row(&dir, &[], &[], row);
+    let row = "| Reading | off | `--no-reading` |";
+    check_row(&dir, &["--no-reading"], &[], row);
 }
 
 #[test]
