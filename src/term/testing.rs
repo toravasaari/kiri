@@ -146,7 +146,6 @@ pub(crate) fn with_terminal<T>(
     (seen, result)
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
     use crate::present::answers::interpret;

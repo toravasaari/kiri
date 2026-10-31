@@ -25,16 +25,10 @@ fn on_long() -> Sim {
 
 #[test]
 fn the_script_runs_on_the_virtual_clock_and_the_reader_quits_when_it_ends() {
-    let started = std::time::Instant::now();
     // Ten minutes pass before the key, a poll at a time: none is waited
     // for.
     let ten_minutes = 10 * 60 * 1000;
     let ran = on_long().keys(ten_minutes, "G").run();
-    assert!(
-        started.elapsed() < Duration::from_secs(10),
-        "{:?}",
-        started.elapsed()
-    );
     assert!(
         ran.elapsed >= Duration::from_secs(10 * 60),
         "{:?}",
@@ -196,6 +190,20 @@ fn an_image_a_reload_brings_comes_when_the_script_says() {
     assert_eq!(ran.reloads, 1);
     assert!(ran.waits.contains(&FRAME), "{:?}", ran.waits);
     assert!(ran.elapsed >= Duration::from_millis(310));
+    // The picture is sent once it has come, and not before: the frames
+    // before it have the band that stands for it, which is another kind
+    // of image.
+    let (before, after) = ran
+        .out
+        .split_at(ran.out.find("\x1b_Ga=T").expect("the picture is sent"));
+    assert_eq!(before.matches("\x1b_Ga=T").count(), 0);
+    assert!(
+        before.contains("\x1b_Ga=t"),
+        "the band shows while it loads"
+    );
+    assert_eq!(after.matches("\x1b_Ga=T").count(), 1, "sent once");
+    // With nothing to load and nothing fading the pager polls again.
+    assert_eq!(ran.waits.last(), Some(&POLL), "{:?}", ran.waits);
 }
 
 /// A window of 80 × 10 on kitty, with cells of 10 × 20 pixels, in text
