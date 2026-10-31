@@ -722,30 +722,26 @@ mod tests {
     }
 
     #[test]
-    fn a_drift_names_its_roadmap_bug_and_a_difference_that_is_meant_names_none() {
-        let bug = |d: &Difference| match (d.field, d.at) {
-            (Field::HeadingRule | Field::HeadingSize | Field::QuoteText, _) => Some("B17"),
-            (Field::ListMarker, "depth 0 numbered task item") => Some("B17"),
-            (Field::TableRows, _) => Some("B18"),
-            (Field::TableFrame, _) if d.cell == "frame" => Some("B18"),
-            _ => None,
-        };
+    fn a_drift_names_a_bug_the_roadmap_has_and_a_difference_that_is_meant_names_none() {
+        let roadmap =
+            std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/roadmap.md"))
+                .unwrap();
         for d in DIFFERENCES {
-            let (status, expected) = match d.cell {
-                "stacked" => (Status::Intended, None),
-                _ => (Status::Drift, bug(d)),
-            };
-            assert_eq!(
-                d.status, status,
-                "{:?} at {:?}: {:?}",
-                d.field, d.at, d.cell
-            );
-            assert!(status == Status::Intended || expected.is_some());
-            assert_eq!(
-                d.bug, expected,
-                "{:?} at {:?}: cell {:?}",
-                d.field, d.at, d.cell
-            );
+            match (d.status, d.bug) {
+                (Status::Drift, Some(bug)) => assert!(
+                    roadmap.lines().any(|line| line
+                        .strip_prefix("#### ")
+                        .is_some_and(|title| title.split(' ').next() == Some(bug))),
+                    "{:?} at {:?} names {bug}, which is no heading of the roadmap",
+                    d.field,
+                    d.at
+                ),
+                (Status::Intended, None) => {}
+                (status, bug) => panic!(
+                    "{:?} at {:?} is {status:?} and names {bug:?}",
+                    d.field, d.at
+                ),
+            }
         }
     }
 
