@@ -11,8 +11,8 @@
 //! for the variables of the settings.
 //!
 //! A setting that the command line sets also needs its flag in the clap
-//! definition in `src/cli.rs`, and a line in the function that fills
-//! `Options` from it.
+//! definition in `src/cli.rs`, with the help of the flag taken from its
+//! entry here, and a line in the function that fills `Options` from it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -81,6 +81,10 @@ pub struct Entry {
     pub scope: Scope,
     /// The command-line flag, in its long form.
     pub flag: Option<&'static str>,
+    /// The help of the flag, as clap shows it: the first paragraph, which
+    /// `-h` shows, then a blank line and the rest, which `--help` shows
+    /// too. `None` where the setting has no flag.
+    pub help: Option<&'static str>,
     /// The environment variable.
     pub env: Env,
 }
@@ -93,19 +97,19 @@ macro_rules! settings {
             $(#[$tdoc:meta])*
             $tfield:ident: $ttype:ty = $tdefault:expr;
             key $tkey:literal, owner $towner:literal, effect $teffect:ident,
-            medium $tmedium:ident, scope $tscope:ident, flag $tflag:expr, env $tenv:expr;
+            medium $tmedium:ident, scope $tscope:ident, flag $tflag:expr, help $thelp:expr, env $tenv:expr;
         )*}
         // The keys of the `[diagrams]` table.
         diagrams {$(
             $(#[$ddoc:meta])*
             $dfield:ident in $dkey:ident: $dtype:ty = $ddefault:expr;
             key $dfull:literal, owner $downer:literal, effect $deffect:ident,
-            medium $dmedium:ident, scope $dscope:ident, flag $dflag:expr, env $denv:expr;
+            medium $dmedium:ident, scope $dscope:ident, flag $dflag:expr, help $dhelp:expr, env $denv:expr;
         )*}
         // The settings that are resolved by hand.
         special {$(
             $sfield:ident, key $skey:expr, owner $sowner:literal, effect $seffect:ident,
-            medium $smedium:ident, scope $sscope:ident, flag $sflag:expr, env $senv:expr;
+            medium $smedium:ident, scope $sscope:ident, flag $sflag:expr, help $shelp:expr, env $senv:expr;
         )*}
     ) => {
         /// Every setting, in the order they are declared below.
@@ -118,6 +122,7 @@ macro_rules! settings {
                 medium: Medium::$tmedium,
                 scope: Scope::$tscope,
                 flag: $tflag,
+                help: $thelp,
                 env: $tenv,
             },)*
             $(Entry {
@@ -128,6 +133,7 @@ macro_rules! settings {
                 medium: Medium::$dmedium,
                 scope: Scope::$dscope,
                 flag: $dflag,
+                help: $dhelp,
                 env: $denv,
             },)*
             $(Entry {
@@ -138,6 +144,7 @@ macro_rules! settings {
                 medium: Medium::$smedium,
                 scope: Scope::$sscope,
                 flag: $sflag,
+                help: $shelp,
                 env: $senv,
             },)*
         ];
@@ -316,108 +323,167 @@ settings! {
         /// Which terminal features to use.
         mode: Mode = Mode::Auto;
         key "mode", owner "term", effect Display, medium Both, scope General,
-        flag Some("--mode"), env Env::is("KIRI_MODE");
+        flag Some("--mode"), help Some("Which terminal features to use [default: auto]\n\n\
+        Colours stay off when NO_COLOR is set."), env Env::is("KIRI_MODE");
 
         /// The width in cells, when not the terminal's.
         width: Option<u16> = None;
         key "width", owner "term", effect Layout, medium Cells, scope General,
-        flag Some("--width"), env Env::is("KIRI_WIDTH");
+        flag Some("--width"), help Some("Width in cells; defaults to the terminal width"), env Env::is("KIRI_WIDTH");
 
         /// The largest image file to read, in megabytes.
         max_image_size: Megabytes = Megabytes(10);
         key "max_image_size", owner "images", effect Images, medium Pixels, scope General,
-        flag Some("--max-image-size"), env Env::is("KIRI_MAX_IMAGE_SIZE");
+        flag Some("--max-image-size"), help Some("Largest image file to read, in megabytes [default: 10]\n\n\
+        At most 100; larger images show their alt text."), env Env::is("KIRI_MAX_IMAGE_SIZE");
 
         /// Whether the theme keeps its margins.
         margins: bool = true;
         key "margins", owner "typeset::theme", effect Layout, medium Cells, scope General,
-        flag Some("--margins"), env Env::is("KIRI_MARGINS");
+        flag Some("--margins"), help Some("Keep the margins, whatever KIRI_MARGINS and the configuration say"), env Env::is("KIRI_MARGINS");
 
         /// Whether images are shown, or only their alt text.
         images: bool = true;
         key "images", owner "images", effect Images, medium Pixels, scope General,
-        flag Some("--images"), env Env::not("KIRI_NO_IMAGES");
+        flag Some("--images"), help Some("Show images, whatever KIRI_NO_IMAGES and the configuration say\n\n\
+        Diagrams are shown too, unless they are off."), env Env::not("KIRI_NO_IMAGES");
 
         /// When the document is shown in the pager.
         paging: Paging = Paging::default();
         key "paging", owner "session::plan", effect Restart, medium Cells, scope General,
-        flag Some("--paging"), env Env::is("KIRI_PAGING");
+        flag Some("--paging"), help Some("When to show the document in the pager\n\n\
+        With auto, the pager opens when the document is longer than the \
+        window and the output is a terminal."), env Env::is("KIRI_PAGING");
 
         /// How a search in the pager treats case.
         search_case: SearchCase = SearchCase::default();
         key "search_case", owner "session::search", effect Paint, medium Cells, scope Pager,
-        flag None, env Env::NONE;
+        flag None, help None, env Env::NONE;
 
         /// Whether the pager follows a file, reading it again whenever it
         /// changes.
         follow: Follow = Follow::default();
         key "follow", owner "pager", effect Paint, medium Cells, scope Pager,
-        flag Some("--follow"), env Env::is("KIRI_FOLLOW");
+        flag Some("--follow"), help Some("Follow a lone file in the pager\n\n\
+        With on, kiri reads the file again whenever it changes, with the \
+        view kept where it is; with auto it also moves the view to a change; \
+        off unless set. Following pages the file, however short, unless \
+        paging is never. F goes from off to on to auto in the pager."), env Env::is("KIRI_FOLLOW");
 
         /// Which change auto-follow moves the view to.
         follow_jump: FollowJump = FollowJump::default();
         key "follow_jump", owner "session::changes", effect Paint, medium Cells, scope Pager,
-        flag Some("--follow-jump"), env Env::is("KIRI_FOLLOW_JUMP");
+        flag Some("--follow-jump"), help Some("Which change auto-follow moves the view to\n\n\
+        When a reload changed the document in more than one place: first, \
+        last or most (the one that takes the most rows); first unless set."), env Env::is("KIRI_FOLLOW_JUMP");
 
         /// Whether the pager waits for the images before it opens.
         initial_load: InitialLoad = InitialLoad::default();
         key "initial_load", owner "session::plan", effect Restart, medium Pixels, scope Pager,
-        flag Some("--initial-load"), env Env::is("KIRI_INITIAL_LOAD");
+        flag Some("--initial-load"), help Some("Whether the pager waits for images before it shows the document\n\n\
+        With wait, the document is shown once its images and diagrams have \
+        loaded; with background, at once, with each image as it comes; wait \
+        unless set. Only where the pager surely opens: with -p or -f, or \
+        with paging on auto for a document longer than the window, each \
+        image counted at three rows; otherwise kiri waits."), env Env::is("KIRI_INITIAL_LOAD");
 
         /// Whether kitty's graphics are wrapped for tmux.
         passthrough: super::types::Passthrough = super::types::Passthrough::default();
         key "passthrough", owner "term", effect Display, medium Pixels, scope General,
-        flag Some("--passthrough"), env Env::is("KIRI_PASSTHROUGH");
+        flag Some("--passthrough"), help Some("Whether kitty's images pass through tmux\n\n\
+        With detect, kiri wraps them for tmux when it runs inside tmux and \
+        turns on the pane's allow-passthrough, as `kitten icat` does; with \
+        tmux, it wraps them always; with none, never; detect unless set."), env Env::is("KIRI_PASSTHROUGH");
 
         /// How front matter shows.
         front_matter: FrontMatter = FrontMatter::default();
         key "front_matter", owner "render", effect Layout, medium Cells, scope General,
-        flag Some("--front-matter"), env Env::is("KIRI_FRONT_MATTER");
+        flag Some("--front-matter"), help Some("How to show the front matter\n\n\
+        Front matter is the metadata block at the start of a Markdown file. \
+        The styles are table, code (a code block), hide, or off (read as \
+        Markdown); table unless set."), env Env::is("KIRI_FRONT_MATTER");
 
         /// How top-level headings show.
         headings: Headings = Headings::default();
         key "headings", owner "render", effect Layout, medium Both, scope General,
-        flag Some("--headings"), env Env::is("KIRI_HEADINGS");
+        flag Some("--headings"), help Some("How headings show\n\n\
+        auto draws them large with text sizing, or as images where the \
+        terminal has no text sizing; sized only with text sizing; images \
+        always where images can be drawn; plain in one row; auto unless set."), env Env::is("KIRI_HEADINGS");
 
         /// How the rows of a table are told apart.
         table_rows: TableRows = TableRows::default();
         key "table_rows", owner "render", effect Layout, medium Cells, scope General,
-        flag Some("--table-rows"), env Env::is("KIRI_TABLE_ROWS");
+        flag Some("--table-rows"), help Some("Table row style\n\n\
+        The styles are zebra (every second row shaded where the terminal's \
+        colours are known), lines, indent (the lines after the first of a \
+        wrapped value start two cells in), underline (each row's last line \
+        underlined), or off; zebra unless set."), env Env::is("KIRI_TABLE_ROWS");
 
         /// Where kiri tells why a diagram could not be drawn.
         render_errors: RenderErrors = RenderErrors::default();
         key "render_errors", owner "render", effect Images, medium Both, scope General,
-        flag Some("--render-errors"), env Env::is("KIRI_RENDER_ERRORS");
+        flag Some("--render-errors"), help Some("Where to tell why a diagram could not be drawn\n\n\
+        The places are inline (in the document, below its code), stderr (a \
+        warning) or both; both unless set."), env Env::is("KIRI_RENDER_ERRORS");
 
         /// Whether the pager takes the mouse, to scroll on the wheel.
         mouse: bool = true;
         key "mouse", owner "term", effect Display, medium Cells, scope Pager,
-        flag Some("--mouse"), env Env::is("KIRI_MOUSE");
+        flag Some("--mouse"), help Some("Let the pager take the mouse\n\n\
+        Whatever KIRI_MOUSE and the configuration say."), env Env::is("KIRI_MOUSE");
     }
     diagrams {
         /// Whether diagrams in code blocks are drawn, or shown as code:
         /// `enabled` in the `[diagrams]` table, or `diagrams` on its own.
         diagrams in enabled: bool = true;
         key "diagrams", owner "images::pipeline", effect Images, medium Pixels, scope General,
-        flag Some("--diagrams"), env Env::is("KIRI_DIAGRAMS");
+        flag Some("--diagrams"), help Some("Whether to draw diagrams and formulas\n\n\
+        Diagrams in code blocks, such as Mermaid, and formulas: on (drawn as \
+        images) or off (shown as code); on unless set."), env Env::is("KIRI_DIAGRAMS");
 
         /// How long an external command may take to draw one diagram.
         diagram_timeout in timeout: Duration = crate::diagrams::external::TIME_LIMIT;
         key "diagrams.timeout", owner "diagrams::external", effect Images, medium Pixels,
-        scope General, flag Some("--diagram-timeout"), env Env::is("KIRI_DIAGRAM_TIMEOUT");
+        scope General, flag Some("--diagram-timeout"), help Some("How long a program may take to draw one diagram, in seconds"), env Env::is("KIRI_DIAGRAM_TIMEOUT");
 
         /// Whether a diagram in colours for the other page, light or dark,
         /// lies on a panel.
         diagram_background_panel in background_panel: bool = true;
         key "diagrams.background_panel", owner "images::pipeline", effect Images,
-        medium Pixels, scope General, flag Some("--diagram-panel"), env Env::is("KIRI_DIAGRAM_BACKGROUND_PANEL");
+        medium Pixels, scope General, flag Some("--diagram-panel"), help Some("Whether a diagram in the other page's colours lies on a panel\n\n\
+        on or off; on unless set."), env Env::is("KIRI_DIAGRAM_BACKGROUND_PANEL");
     }
     special {
         theme, key Some("theme"), owner "typeset::theme", effect Layout, medium Both,
-        scope General, flag Some("--theme"), env Env::is("KIRI_THEME");
+        scope General, flag Some("--theme"), help Some("Theme file, or a theme's name\n\n\
+        A name, such as dark, is NAME.toml in the themes directory, or the \
+        built-in light or dark paper. It overrides KIRI_THEME and the \
+        configuration file."), env Env::is("KIRI_THEME");
         diagram_commands, key Some("diagrams.<language>.command"), owner "diagrams::external",
-        effect Images, medium Pixels, scope General, flag None, env Env::NONE;
+        effect Images, medium Pixels, scope General, flag None, help None, env Env::NONE;
         diagram_no_search, key Some("diagrams.<language>.auto_detect"), owner "diagrams::find",
-        effect Images, medium Pixels, scope General, flag None, env Env::NONE;
+        effect Images, medium Pixels, scope General, flag None, help None, env Env::NONE;
     }
+}
+
+/// The text of the flag `flag`, from the setting that has it.
+fn flag_text(flag: &str) -> &'static str {
+    let entry = SETTINGS.iter().find(|entry| entry.flag == Some(flag));
+    entry
+        .and_then(|entry| entry.help)
+        .unwrap_or_else(|| panic!("the registry has no help for {flag}"))
+}
+
+/// The summary of the help of `flag`, which `-h` shows.
+pub fn help_text(flag: &str) -> &'static str {
+    let text = flag_text(flag);
+    text.split_once("\n\n").map_or(text, |(summary, _)| summary)
+}
+
+/// The whole help of `flag`, which `--help` shows, or `None` when the
+/// summary is all of it.
+pub fn long_help_text(flag: &str) -> Option<&'static str> {
+    let text = flag_text(flag);
+    text.contains("\n\n").then_some(text)
 }

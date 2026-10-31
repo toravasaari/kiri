@@ -9,7 +9,8 @@ use std::time::Duration;
 use clap::Parser;
 use clap::builder::{PossibleValue, PossibleValuesParser, TypedValueParser};
 use kiri::config::{
-    FrontMatter, Megabytes, Named, Options, Origin, Passthrough, Setting, Value, text,
+    FrontMatter, Megabytes, Named, Options, Origin, Passthrough, Setting, Value, help_text,
+    long_help_text, text,
 };
 use kiri::render::{Headings, RenderErrors, TableRows};
 use kiri::session::settings::{Follow, FollowJump, InitialLoad, Paging};
@@ -71,22 +72,13 @@ pub struct Cli {
     #[arg(long, value_parser = format)]
     pub format: Option<Input>,
 
-    /// Width in cells; defaults to the terminal width
-    #[arg(long, value_parser = text::<u16>)]
+    #[arg(help = help_text("--width"), long_help = long_help_text("--width"), long, value_parser = text::<u16>)]
     pub width: Option<u16>,
 
-    /// Which terminal features to use [default: auto]
-    ///
-    /// Colours stay off when NO_COLOR is set.
-    #[arg(long, value_parser = named_with_help(mode_help))]
+    #[arg(help = help_text("--mode"), long_help = long_help_text("--mode"), long, value_parser = named_with_help(mode_help))]
     pub mode: Option<Mode>,
 
-    /// Theme file, or a theme's name
-    ///
-    /// A name, such as dark, is NAME.toml in the themes directory, or the
-    /// built-in light or dark paper. It overrides KIRI_THEME and the
-    /// configuration file.
-    #[arg(long, conflicts_with_all = ["light", "dark"])]
+    #[arg(help = help_text("--theme"), long_help = long_help_text("--theme"), long, conflicts_with_all = ["light", "dark"])]
     pub theme: Option<PathBuf>,
 
     /// A light page in greys, as --theme light
@@ -107,8 +99,7 @@ pub struct Cli {
     #[arg(short = 'M', long)]
     pub no_margins: bool,
 
-    /// Keep the margins, whatever KIRI_MARGINS and the configuration say
-    #[arg(long, conflicts_with = "no_margins")]
+    #[arg(help = help_text("--margins"), long_help = long_help_text("--margins"), long, conflicts_with = "no_margins")]
     pub margins: bool,
 
     /// Show images as their alt text and diagrams as code
@@ -118,17 +109,10 @@ pub struct Cli {
     #[arg(short = 'I', long)]
     pub no_images: bool,
 
-    /// Show images, whatever KIRI_NO_IMAGES and the configuration say
-    ///
-    /// Diagrams are shown too, unless they are off.
-    #[arg(long, conflicts_with = "no_images")]
+    #[arg(help = help_text("--images"), long_help = long_help_text("--images"), long, conflicts_with = "no_images")]
     pub images: bool,
 
-    /// When to show the document in the pager
-    ///
-    /// With auto, the pager opens when the document is longer than the
-    /// window and the output is a terminal.
-    #[arg(long, value_parser = named::<Paging>(), value_name = "WHEN", conflicts_with_all = ["pager", "no_pager"])]
+    #[arg(help = help_text("--paging"), long_help = long_help_text("--paging"), long, value_parser = named::<Paging>(), value_name = "WHEN", conflicts_with_all = ["pager", "no_pager"])]
     pub paging: Option<Paging>,
 
     /// Show the document in the pager: --paging=always.
@@ -139,13 +123,7 @@ pub struct Cli {
     #[arg(short = 'P')]
     pub no_pager: bool,
 
-    /// Follow a lone file in the pager
-    ///
-    /// With on, kiri reads the file again whenever it changes, with the view
-    /// kept where it is; with auto it also moves the view to a change; off
-    /// unless set. Following pages the file, however short, unless paging is
-    /// never. F goes from off to on to auto in the pager.
-    #[arg(long, value_parser = named::<Follow>(), value_name = "WHEN", conflicts_with_all = ["follow_on", "follow_auto", "follow_off"])]
+    #[arg(help = help_text("--follow"), long_help = long_help_text("--follow"), long, value_parser = named::<Follow>(), value_name = "WHEN", conflicts_with_all = ["follow_on", "follow_auto", "follow_off"])]
     pub follow: Option<Follow>,
 
     /// Follow the file, in the pager: --follow=on.
@@ -160,80 +138,34 @@ pub struct Cli {
     #[arg(short = 'F')]
     pub follow_off: bool,
 
-    /// Which change auto-follow moves the view to
-    ///
-    /// When a reload changed the document in more than one place: first,
-    /// last or most (the one that takes the most rows); first unless set.
-    #[arg(long, value_parser = named::<FollowJump>(), value_name = "WHICH")]
+    #[arg(help = help_text("--follow-jump"), long_help = long_help_text("--follow-jump"), long, value_parser = named::<FollowJump>(), value_name = "WHICH")]
     pub follow_jump: Option<FollowJump>,
 
-    /// Whether the pager waits for images before it shows the document
-    ///
-    /// With wait, the document is shown once its images and diagrams have
-    /// loaded; with background, at once, with each image as it comes; wait
-    /// unless set.
-    /// Only where the pager surely opens: with -p or -f, or with paging on
-    /// auto for a document longer than the window, each image counted at
-    /// three rows; otherwise kiri waits.
-    #[arg(long, value_parser = named::<InitialLoad>(), value_name = "HOW")]
+    #[arg(help = help_text("--initial-load"), long_help = long_help_text("--initial-load"), long, value_parser = named::<InitialLoad>(), value_name = "HOW")]
     pub initial_load: Option<InitialLoad>,
 
-    /// Whether kitty's images pass through tmux
-    ///
-    /// With detect, kiri wraps them for tmux when it runs inside tmux and
-    /// turns on the pane's allow-passthrough, as `kitten icat` does; with
-    /// tmux, it wraps them always; with none, never; detect unless set.
-    #[arg(long, value_parser = named::<Passthrough>(), value_name = "HOW")]
+    #[arg(help = help_text("--passthrough"), long_help = long_help_text("--passthrough"), long, value_parser = named::<Passthrough>(), value_name = "HOW")]
     pub passthrough: Option<Passthrough>,
 
-    /// How to show the front matter
-    ///
-    /// Front matter is the metadata block at the start of a Markdown file.
-    /// The styles are table, code (a code block), hide, or off (read as
-    /// Markdown); table unless set.
-    #[arg(long, value_parser = named::<FrontMatter>(), value_name = "STYLE")]
+    #[arg(help = help_text("--front-matter"), long_help = long_help_text("--front-matter"), long, value_parser = named::<FrontMatter>(), value_name = "STYLE")]
     pub front_matter: Option<FrontMatter>,
 
-    /// How headings show
-    ///
-    /// auto draws them large with text sizing, or as images where the
-    /// terminal has no text sizing; sized only with text sizing; images
-    /// always where images can be drawn; plain in one row; auto unless
-    /// set.
-    #[arg(long, value_parser = named::<Headings>(), value_name = "HOW")]
+    #[arg(help = help_text("--headings"), long_help = long_help_text("--headings"), long, value_parser = named::<Headings>(), value_name = "HOW")]
     pub headings: Option<Headings>,
 
-    /// Table row style
-    ///
-    /// The styles are zebra (every second row shaded where the terminal's
-    /// colours are known), lines, indent (the lines after the first of a
-    /// wrapped value start two cells in), underline (each row's last line
-    /// underlined), or off; zebra unless set.
-    #[arg(long, value_parser = named::<TableRows>(), value_name = "STYLE")]
+    #[arg(help = help_text("--table-rows"), long_help = long_help_text("--table-rows"), long, value_parser = named::<TableRows>(), value_name = "STYLE")]
     pub table_rows: Option<TableRows>,
 
-    /// Whether to draw diagrams and formulas
-    ///
-    /// Diagrams in code blocks, such as Mermaid, and formulas: on (drawn as
-    /// images) or off (shown as code); on unless set.
-    #[arg(long, value_parser = named::<bool>(), value_name = "SWITCH")]
+    #[arg(help = help_text("--diagrams"), long_help = long_help_text("--diagrams"), long, value_parser = named::<bool>(), value_name = "SWITCH")]
     pub diagrams: Option<bool>,
 
-    /// How long a program may take to draw one diagram, in seconds
-    #[arg(long, value_parser = text::<Duration>, value_name = "SECS")]
+    #[arg(help = help_text("--diagram-timeout"), long_help = long_help_text("--diagram-timeout"), long, value_parser = text::<Duration>, value_name = "SECS")]
     pub diagram_timeout: Option<Duration>,
 
-    /// Whether a diagram in the other page's colours lies on a panel
-    ///
-    /// on or off; on unless set.
-    #[arg(long, value_parser = named::<bool>(), value_name = "SWITCH")]
+    #[arg(help = help_text("--diagram-panel"), long_help = long_help_text("--diagram-panel"), long, value_parser = named::<bool>(), value_name = "SWITCH")]
     pub diagram_panel: Option<bool>,
 
-    /// Where to tell why a diagram could not be drawn
-    ///
-    /// The places are inline (in the document, below its code), stderr (a
-    /// warning) or both; both unless set.
-    #[arg(long, value_parser = named::<RenderErrors>(), value_name = "WHERE")]
+    #[arg(help = help_text("--render-errors"), long_help = long_help_text("--render-errors"), long, value_parser = named::<RenderErrors>(), value_name = "WHERE")]
     pub render_errors: Option<RenderErrors>,
 
     /// Leave the mouse to the terminal in the pager
@@ -244,10 +176,7 @@ pub struct Cli {
     #[arg(long)]
     pub no_mouse: bool,
 
-    /// Let the pager take the mouse
-    ///
-    /// Whatever KIRI_MOUSE and the configuration say.
-    #[arg(long, conflicts_with = "no_mouse")]
+    #[arg(help = help_text("--mouse"), long_help = long_help_text("--mouse"), long, conflicts_with = "no_mouse")]
     pub mouse: bool,
 
     /// Experimental: the text in a proportional font, as a browser shows it
@@ -269,10 +198,7 @@ pub struct Cli {
     #[arg(long, value_name = "HOW", value_parser = ["wrap", "scroll"])]
     pub wide: Option<String>,
 
-    /// Largest image file to read, in megabytes [default: 10]
-    ///
-    /// At most 100; larger images show their alt text.
-    #[arg(long, value_name = "MB", value_parser = text::<Megabytes>)]
+    #[arg(help = help_text("--max-image-size"), long_help = long_help_text("--max-image-size"), long, value_name = "MB", value_parser = text::<Megabytes>)]
     pub max_image_size: Option<Megabytes>,
 }
 
