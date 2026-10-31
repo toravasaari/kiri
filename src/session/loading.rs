@@ -82,9 +82,11 @@ impl Reloaded<'_> {
         &self,
         keys: impl Iterator<Item = ImageKey>,
     ) -> Vec<(ImageKey, Placeholder)> {
-        (keys.map(|key| (self.placeholder(&key), key)))
-            .map(|(placeholder, key)| (key, placeholder))
-            .collect()
+        (keys.map(|key| {
+            let placeholder = self.placeholder(&key);
+            (key, placeholder)
+        }))
+        .collect()
     }
 
     /// What stands in for the image `key` while it loads: what stood in
