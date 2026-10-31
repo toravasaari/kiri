@@ -1014,10 +1014,13 @@ fn a_diagram_file_on_its_own_is_paged_only_when_paging_is_always() {
 fn drawn_on_cue(dir: &std::path::Path) {
     let script = dir.join("render.sh");
     let go = dir.join("go");
+    let started = dir.join("started");
     let draw = format!(
-        "i=0\n\
+        "echo started > '{}'\n\
+         i=0\n\
          while [ ! -f '{}' ] && [ $i -lt 160 ]; do sleep 0.05; i=$((i + 1)); done\n\
          echo '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\"/>' > \"$2\"\n",
+        started.display(),
         go.display()
     );
     std::fs::write(&script, draw).unwrap();
@@ -1497,9 +1500,11 @@ fn a_diagram_that_fails_after_a_skipped_wait_is_told_after_the_pager() {
 fn without_standard_error_on_a_terminal_space_does_not_skip_the_wait() {
     // Space while the diagram is drawn, which nothing then shows.
     let meanwhile = |terminal: &mut std::fs::File, dir: &std::path::Path| {
-        std::thread::sleep(Duration::from_secs(1));
+        common::wait_until(Duration::from_secs(5), || dir.join("started").exists());
         let _ = terminal.write_all(b" ");
-        std::thread::sleep(Duration::from_secs(1));
+        // Nothing should happen for this space: half a second is ample
+        // for kiri to act on a key, so the diagram is let go after it.
+        std::thread::sleep(Duration::from_millis(500));
         let _ = std::fs::write(dir.join("go"), "");
     };
     let mut quit = false;
@@ -1532,6 +1537,8 @@ fn another_key_does_nothing_while_the_images_load_and_is_not_kept() {
         if !typed && seen.contains(HINT) {
             // To the end, were it kept for the pager.
             terminal.write_all(b"G").unwrap();
+            // Nothing should happen for this key. Gives kiri time to read it
+            // before the diagram is let go, so a key that is kept would show.
             std::thread::sleep(Duration::from_millis(200));
             std::fs::write(dir.join("go"), "").unwrap();
             typed = true;
@@ -2330,30 +2337,42 @@ fn m_loads_the_pictures_in_the_middle_of_text_that_reading_mode_shows() {
             "A line with a badge <img src=\"p.png\" width=\"24\" alt=\"badge\"> in it.\n";
         std::fs::write(dir.join("document.md"), document).unwrap();
     };
-    let mut typed = false;
-    let (status, seen) = in_terminal_after(
+    let (mut typed, mut quit) = (false, false);
+    let (status, seen, stderr) = in_terminal_seeing(
         "pager-m-inline",
         prepare,
         &["-p", "--mode", "kitty", "--width", "80", "document.md"],
         10,
         None,
-        |frames, terminal, _| {
-            if frames > 0 && !typed {
+        Setup::default(),
+        |seen, terminal, _| {
+            let shown = text(seen);
+            if !typed && shown.contains("\x1b[?2026l") {
                 typed = true;
                 terminal.write_all(b"M").unwrap();
-                // Long enough for the picture to load and the page to be
-                // laid out again.
-                std::thread::sleep(Duration::from_secs(3));
+            }
+            // Quit once the page with the picture is sent, which is when the
+            // picture has loaded and the page is laid out again.
+            if typed && !quit && shown.matches("\x1b_Ga=T,U=1").count() >= 2 {
                 terminal.write_all(b"q").unwrap();
+                quit = true;
             }
         },
     );
     assert!(status.success());
+    assert_eq!(stderr, "");
     // The page without the picture when `M` turns reading mode on, and
     // again with it when it has come: sent as two images, as it is two
     // different pages.
     let pages = seen.matches("\x1b_Ga=T,U=1").count();
     assert_eq!(pages, 2, "{seen:?}");
+}
+
+/// Whether the synchronized update that carries the last picture in `shown`
+/// has ended, which is when its frame is complete.
+fn frame_closed_after_last_picture(shown: &str) -> bool {
+    let after = shown.rsplit("\x1b_Ga=T,U=1").next().unwrap_or("");
+    after.contains("\x1b[?2026l")
 }
 
 /// The ids of the images sent in `seen`, in order.
@@ -2375,25 +2394,42 @@ fn a_reload_after_m_keeps_the_pictures_m_loaded() {
             "A line with a badge <img src=\"p.png\" width=\"24\" alt=\"badge\"> in it.\n";
         std::fs::write(dir.join("document.md"), document).unwrap();
     };
-    let mut step = 0;
-    let (status, seen) = in_terminal_after(
+    // Steps: `M`, once the first page is drawn; `r`, once the page with
+    // the picture is sent; `q`, once the reload has drawn again.
+    let (mut step, mut frames_at_r) = (0, 0);
+    let (status, seen, stderr) = in_terminal_seeing(
         "pager-m-reload",
         prepare,
         &["-p", "--mode", "kitty", "--width", "80", "document.md"],
         10,
         None,
-        |frames, terminal, _| {
-            if frames > 0 && step == 0 {
-                step = 1;
-                terminal.write_all(b"M").unwrap();
-                std::thread::sleep(Duration::from_secs(3));
-                terminal.write_all(b"r").unwrap();
-                std::thread::sleep(Duration::from_secs(3));
-                terminal.write_all(b"q").unwrap();
+        Setup::default(),
+        |seen, terminal, _| {
+            let shown = text(seen);
+            let frames = shown.matches("\x1b[?2026l").count();
+            let sent = shown.matches("\x1b_Ga=T,U=1").count();
+            match step {
+                0 if frames > 0 => {
+                    terminal.write_all(b"M").unwrap();
+                    step = 1;
+                }
+                // The picture's frame must have closed before `r`, or the frame
+                // count would miss it and the next chunk would count as a
+                // reload's frame.
+                1 if sent >= 2 && frame_closed_after_last_picture(&shown) => {
+                    terminal.write_all(b"r").unwrap();
+                    (step, frames_at_r) = (2, frames);
+                }
+                2 if frames > frames_at_r => {
+                    terminal.write_all(b"q").unwrap();
+                    step = 3;
+                }
+                _ => {}
             }
         },
     );
     assert!(status.success());
+    assert_eq!(stderr, "");
     // The page without the picture, then with it; a reload leaves the
     // page with the picture, as it is when `--reading` asked for it.
     let ids = sent_ids(&seen);
@@ -2428,7 +2464,9 @@ fn m_loads_no_images_when_images_are_off() {
             if frames > 0 && step == 0 {
                 step = 1;
                 terminal.write_all(b"M").unwrap();
-                std::thread::sleep(Duration::from_secs(3));
+                // Nothing should load, so nothing is waited for. A picture of
+                // eight pixels loads well within a second, if it were loaded.
+                std::thread::sleep(Duration::from_secs(1));
                 terminal.write_all(b"q").unwrap();
             }
         },

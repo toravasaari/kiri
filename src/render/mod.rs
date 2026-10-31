@@ -243,13 +243,6 @@ pub fn front_matter_error(
     }
 }
 
-/// The warning for `document`'s front matter shown as `style`: the
-/// parser's message when its YAML, TOML or JSON does not parse and it is
-/// to be a table.
-pub fn front_matter_warning(document: &Document, style: FrontMatterStyle) -> Option<String> {
-    front_matter_error(document, style).map(ToString::to_string)
-}
-
 impl Inputs {
     /// For a terminal with `caps`: the built-in theme and no images.
     pub fn new(caps: Capabilities) -> Self {

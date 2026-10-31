@@ -17,6 +17,9 @@ name = "kiri"
 name = "kiri"
 path = "src/main.rs"
 
+[lints.clippy]
+too_many_lines = "warn"
+
 # Optional parts of kiri; `full` turns them all on. Without them, kiri
 # shows PNG, JPEG, GIF, WebP and SVG images, draws formulas, and draws
 # Mermaid diagrams only with an external program such as mermaid-cli's

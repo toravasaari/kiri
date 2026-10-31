@@ -1788,6 +1788,7 @@ impl<'a> Flow<'a> {
     /// Lays `grid` out at `x` and the current top, its columns `widths`
     /// wide, and moves below it. On a shaded row of another table (the flow
     /// is `shaded`) it paints its unshaded rows in the page's colour too.
+    #[expect(clippy::too_many_lines)]
     fn grid(&mut self, grid: &Grid, x: f32, widths: &[f32], wrap: text::Wrap) {
         let look = *self.look;
         let (across, down) = (CELL_ACROSS * look.size, CELL_DOWN * look.size);

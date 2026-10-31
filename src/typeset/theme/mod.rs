@@ -590,6 +590,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::too_many_lines)]
     fn without_colors_leaves_not_one_colour() {
         // Every field is named, so a new one does not compile until it is
         // sorted here into the colours, which must go, and the rest.

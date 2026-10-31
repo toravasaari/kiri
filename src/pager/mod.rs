@@ -275,6 +275,7 @@ pub fn run(
 
 /// [`run`], with the images of reloads loading in `loads`, which `q`
 /// stops without waiting for their programs.
+#[expect(clippy::too_many_lines)]
 fn page_through(
     content: Content,
     laid_out: Option<Stream>,
@@ -1162,6 +1163,7 @@ impl State {
         }
     }
 
+    #[expect(clippy::too_many_lines)]
     fn pressed(&mut self, key: Key, now: Instant, layout: &mut Layout) -> Pressed {
         // A click selects the band under it, and the sideways wheel, or
         // the wheel with Shift, scrolls it; away from a band, the wheel
@@ -1678,6 +1680,7 @@ fn keep_last_answer(state: &mut State, rest: &[Key]) {
 /// scrolls it until the reader quits or the window changes size, until
 /// the document is to be read again from `source`, if there is one to
 /// read it from, or until images loading there come.
+#[expect(clippy::too_many_lines)]
 fn show(
     layout: &mut Layout,
     state: &mut State,

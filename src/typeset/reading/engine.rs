@@ -536,6 +536,7 @@ impl Eq for Parts {}
 /// matter shown as `front_matter` says, with the pictures in `images`, of the document
 /// numbered `document` among those shown, and diagrams telling why they
 /// failed when `inline_errors`.
+#[expect(clippy::too_many_lines)]
 pub fn lines(
     blocks: &[&Block],
     ids: &[BlockId],

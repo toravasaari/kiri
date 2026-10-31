@@ -23,6 +23,7 @@ pub fn load(path: &Path) -> Result<Theme, String> {
     })
 }
 
+#[expect(clippy::too_many_lines)]
 pub fn parse(text: &str) -> Result<Theme, String> {
     let file: ThemeFile = toml::from_str(text).map_err(|error| error.to_string())?;
     let mut theme = Theme::default();

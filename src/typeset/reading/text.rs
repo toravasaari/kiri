@@ -171,6 +171,7 @@ pub struct Paragraph {
 
 /// `runs` laid out in `fonts`, set as `look` says, in lines at most `width`
 /// pixels wide. A line breaks where the text has a newline.
+#[expect(clippy::too_many_lines)]
 pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragraph {
     let mut text = String::new();
     let mut ranges = Vec::new();
