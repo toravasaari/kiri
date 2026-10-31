@@ -1299,7 +1299,7 @@ Needs G7.2.1.
 
 #### G7.3 Control
 
-- G7.3.1 The pager's loop as messages and effects: one step from a
+- G7.3.1 (done) The pager's loop as messages and effects: one step from a
   message to the effects it asks for, and the loop waits, steps and
   draws.
 - G7.3.2 A simulated terminal for the pager's tests, with a virtual
