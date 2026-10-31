@@ -732,6 +732,15 @@ later and are test only.
 | `src/session/mod.rs` | new: the root of the state engine |
 | `src/typeset/images/mod.rs` | new: declares `decode`, `drawn`, `heading` and `size`; the pure pieces of `images/mod.rs` arrive in it with loading and sessions |
 | `src/typeset/diagrams/mod.rs` | new: declares `language`, `math` and `mermaid`; the pure pieces of `diagrams/mod.rs` arrive in it with loading and sessions |
+| `src/typeset/reading/page/table.rs` | new: the tables of reading mode's flow, their columns, cells and nested grids |
+| `src/typeset/reading/page/code.rs` | new: code blocks, diagrams and the bands that a long one is cut into |
+| `src/typeset/reading/page/picture.rs` | new: images, diagrams and formulas placed in the flow |
+| `src/typeset/reading/page/quote.rs` | new: block quotes and GitHub alerts |
+| `src/typeset/reading/page/list.rs` | new: lists and their task boxes |
+| `src/typeset/reading/page/front_matter.rs` | new: front matter, as a grid of its keys and values |
+| `src/typeset/reading/page/details.rs` | new: `<details>` blocks and their summary |
+| `src/typeset/reading/page/heading.rs` | new: headings |
+| `src/typeset/reading/page/html.rs` | new: raw HTML, shown as its source |
 | `src/typeset/parity.rs` | new, test only: lays out blocks in both layouts and compares what each decided, against the list of known differences |
 | `src/typeset/layout/summary.rs` | new, test only: the cell layout's view of a block, for the parity test |
 | `src/typeset/reading/page/summary.rs` | new, test only: the pixel layout's view of a block, for the parity test |
@@ -790,7 +799,7 @@ file (`main.rs`, `pager/mod.rs`, `config.rs`, `render/mod.rs`,
 | key or action | `src/session/commands.rs`, new, made by commands as data; until then `BINDINGS` in `src/pager/keys.rs` |
 | setting | no path yet, the config split makes the registry of setting keys, each with its owner, its effect and its medium; until then `src/config.rs`, named after its owner |
 | use of a file, the network or a program | no path yet, loading and sessions makes the platform's work runner, and the trust policy a `Policy`; until then `src/images/background.rs`, `src/images/pipeline.rs` or `src/diagrams/external.rs` |
-| block type or input format | the typesetting engine's registry of block types and formats, no path yet (today `src/typeset/model.rs`, `src/typeset/parse/` and `src/typeset/layout/`); in reading mode a module per block type in `src/typeset/reading/`, new, made by reading mode's block modules |
+| block type or input format | the typesetting engine's registry of block types and formats, no path yet (today `src/typeset/model.rs`, `src/typeset/parse/` and `src/typeset/layout/`); in reading mode a module per block type in `src/typeset/reading/page/`, made by reading mode's block modules; the blocks without one yet, such as paragraphs, stay in `page.rs` |
 | diagram language | `src/typeset/diagrams/`: a file and one entry in `language.rs`; a program that draws it is run by the platform |
 | image format | the decoder in `src/typeset/images/decode.rs` |
 | theme or look setting | `src/typeset/theme/` |
