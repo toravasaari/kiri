@@ -28,6 +28,7 @@ use crate::present::kitty::graphics::ImageId;
 use crate::present::output::{self, Page, Writer};
 use crate::present::{cell_query, clipboard};
 use crate::render::Inputs;
+use crate::session::commands::{self, Action};
 use crate::session::fade::{
     FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY, WARNING_STAY,
 };
@@ -36,7 +37,7 @@ use crate::session::help::Placed;
 use crate::session::prompt::{Edit, Prompt};
 use crate::session::search::{Marks, Search};
 use crate::session::settings::{self, FollowJump, SearchCase};
-use crate::session::view::View;
+use crate::session::view::{Motion, View};
 use crate::session::{bands, changes, help, links, loading, search, status, tint, warnings};
 use crate::term::{Screen, WindowSize};
 use crate::typeset::block::BlockInfo;
@@ -49,7 +50,7 @@ use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page::Wide;
 use crate::typeset::style::{self, Line, Span, Style};
 use crate::typeset::wrap;
-use keys::{Action, Key};
+use keys::Key;
 
 /// The rows `lines` take on a terminal with `caps`.
 pub fn rows(lines: &[Line], caps: &Capabilities) -> usize {
@@ -1130,48 +1131,26 @@ impl State {
         }
     }
 
-    #[expect(clippy::too_many_lines)]
     fn pressed(&mut self, key: Key, now: Instant, layout: &mut Layout) -> Pressed {
-        // A click selects the band under it, and the sideways wheel, or
-        // the wheel with Shift, scrolls it; away from a band, the wheel
-        // with Shift scrolls as the wheel does.
-        // While the help or the prompt is open, the mouse does nothing.
-        let open = self.help || self.prompt.is_some();
-        let key = match key {
-            Key::Click { .. } | Key::Sideways { .. } if open => return Pressed::Nothing,
-            Key::Click { row, .. } => {
-                return match self.band_at(row, layout) {
-                    Some(true) => Pressed::Bands,
-                    _ => Pressed::Nothing,
-                };
+        let mut action = keys::action(key);
+        // A click and the sideways wheel act on the band under them, and
+        // never reach the help, the prompt or the colon.
+        if let Some(pointer) = action.filter(|action| action.is_pointer()) {
+            match self.pointed(pointer, layout) {
+                Ok(pressed) => return pressed,
+                Err(fallback) => action = Some(fallback),
             }
-            Key::Sideways {
-                right, shift, row, ..
-            } => match self.band_at(row, layout) {
-                Some(selected) => {
-                    let step = if right {
-                        bands::Step::Right
-                    } else {
-                        bands::Step::Left
-                    };
-                    let moved = self.bands.scroll(layout.lines, layout.places, step);
-                    return match moved || selected {
-                        true => Pressed::Bands,
-                        false => Pressed::Nothing,
-                    };
-                }
-                None if shift && right => Key::WheelDown,
-                None if shift => Key::WheelUp,
-                None => return Pressed::Nothing,
-            },
-            key => key,
-        };
+        }
         // Any other mouse event does nothing at all.
         if key == Key::Mouse {
             return Pressed::Nothing;
         }
         self.nowhere = false;
         self.told = None;
+        if action == Some(Action::Dismiss) {
+            self.dismiss();
+            return Pressed::Nothing;
+        }
         // Any key closes the help and does nothing else, but Ctrl+C
         // still quits.
         if self.help && key != Key::Ctrl('c') {
@@ -1199,86 +1178,108 @@ impl State {
         // The key after a colon is a command's, and any other closes it.
         // The commands move between files, so a lone document has none
         // and its colon does nothing.
-        let key = match key {
-            _ if std::mem::take(&mut self.colon) => match key {
-                Key::Char(c) => Key::Command(c),
+        if std::mem::take(&mut self.colon) {
+            action = match key {
+                Key::Char(c) => keys::action(Key::Command(c)),
                 _ => return Pressed::Nothing,
-            },
-            keys::COMMAND if layout.status.files.several() => {
-                self.colon = true;
-                return Pressed::Nothing;
-            }
-            key => key,
-        };
-        match keys::action(key) {
+            };
+        } else if key == keys::COMMAND && layout.status.files.several() {
+            self.colon = true;
+            return Pressed::Nothing;
+        }
+        match action {
             Some(Action::Quit) => return Pressed::Quit,
             // Enter copies the link selected on the screen, and otherwise
             // goes down a line.
-            Some(Action::Move(_))
-                if key == Key::Enter
-                    && let Some(link) = self.link_on_screen(layout) =>
-            {
-                self.told = Some(Told::fading("link copied", now));
-                return Pressed::Copy(link.url);
-            }
+            Some(Action::Enter) => match self.link_on_screen(layout) {
+                Some(link) => {
+                    self.told = Some(Told::fading("link copied", now));
+                    return Pressed::Copy(link.url);
+                }
+                None => layout.view.scroll(Motion::Down(1)),
+            },
             Some(Action::Move(motion)) => layout.view.scroll(motion),
             // The help and the prompt need a row besides the status line's.
             Some(Action::Help) => self.help = layout.status.bar,
-            Some(Action::Search) => {
-                self.prompt = layout.status.bar.then(Prompt::default);
-            }
+            Some(Action::Search) => self.prompt = layout.status.bar.then(Prompt::default),
             Some(Action::Next) => self.step(Search::forward, now, layout),
             Some(Action::Previous) => self.step(Search::backward, now, layout),
-            Some(Action::Clear) => {
-                self.shown = false;
-                self.links.clear();
-            }
-            Some(Action::NextFile) => {
-                let files = layout.status.files;
-                if let Some(file) = self.file(&files, layout.view.top()) {
-                    self.go_to(files.next(file), "no next file", layout);
-                }
-            }
-            Some(Action::PreviousFile) => {
-                let files = layout.status.files;
-                let top = layout.view.top();
-                if let Some(file) = self.file(&files, top) {
-                    self.go_to(files.previous(file, top), "no previous file", layout);
-                }
-            }
+            Some(Action::NextFile) => self.step_file(true, layout),
+            Some(Action::PreviousFile) => self.step_file(false, layout),
             Some(Action::Reload) => return Pressed::Reload,
             Some(Action::Redraw) => return Pressed::Redraw,
             Some(Action::Follow) => return Pressed::Follow,
             Some(Action::Reading) => return Pressed::Reading,
             Some(Action::Wide) => return Pressed::Wide,
-            Some(Action::Sideways | Action::SidewaysFar) => {
-                let step = match key {
-                    Key::Left => bands::Step::Left,
-                    Key::Right => bands::Step::Right,
-                    Key::Char('H') => bands::Step::PageLeft,
-                    _ => bands::Step::PageRight,
-                };
-                if self.bands.scroll(layout.lines, layout.places, step) {
-                    return Pressed::Bands;
-                }
+            Some(Action::Sideways(step))
+                if self.bands.scroll(layout.lines, layout.places, step) =>
+            {
+                return Pressed::Bands;
             }
-            Some(Action::SelectLink) => {
+            Some(Action::SelectLink { back }) => {
                 let visible = layout.view.visible();
-                let back = key == Key::BackTab;
-                (self.links).select_next(layout.lines, layout.places, visible, back);
-                // A link in a band that shows none of its cells scrolls
-                // the band to it, as a search match does.
-                let target = self.links.target(layout.lines, layout.places);
-                if let Some(found) = target.filter(|found| found.is_scrolled_out())
-                    && let Some((line, x)) = found.band_at
-                    && (self.bands).reveal(layout.lines, layout.places, line, x) == Some(true)
-                {
-                    self.bands_moved = true;
-                }
+                let (lines, places) = (layout.lines, layout.places);
+                let scrolled =
+                    (self.links).select_scrolling(&mut self.bands, lines, places, visible, back);
+                self.bands_moved |= scrolled;
             }
-            None => {}
+            _ => {}
         }
         Pressed::Nothing
+    }
+
+    /// Answers Escape: closes what is open, the innermost first, and when
+    /// nothing is open takes away the search's marks and the selected link.
+    /// The jump mark, the colouring after a reload and `went` stay.
+    fn dismiss(&mut self) {
+        if self.help {
+            self.help = false;
+        } else if self.prompt.take().is_none() && !std::mem::take(&mut self.colon) {
+            self.shown = false;
+            self.links.clear();
+        }
+    }
+
+    /// A click or a notch of the sideways wheel: the answer, or for the
+    /// wheel with Shift away from a band the wheel's action. While the
+    /// help or the prompt is open the mouse does nothing.
+    fn pointed(&mut self, action: Action, layout: &Layout) -> Result<Pressed, Action> {
+        let bands = |moved| match moved {
+            true => Pressed::Bands,
+            false => Pressed::Nothing,
+        };
+        match action {
+            _ if self.help || self.prompt.is_some() => Ok(Pressed::Nothing),
+            Action::Click { row } => {
+                let line = Self::row_line(row, layout);
+                Ok(bands(self.bands.click(layout.lines, layout.places, line)))
+            }
+            Action::Wheel { right, shift, row } => match self.bands.wheel(
+                layout.lines,
+                layout.places,
+                Self::row_line(row, layout),
+                right,
+            ) {
+                Some(moved) => Ok(bands(moved)),
+                None if shift && right => Err(Action::Move(Motion::Down(commands::WHEEL))),
+                None if shift => Err(Action::Move(Motion::Up(commands::WHEEL))),
+                None => Ok(Pressed::Nothing),
+            },
+            action => Err(action),
+        }
+    }
+
+    /// Moves to the start of the next file, or of the previous one.
+    fn step_file(&mut self, next: bool, layout: &mut Layout) {
+        let files = layout.status.files;
+        let top = layout.view.top();
+        let Some(file) = self.file(&files, top) else {
+            return;
+        };
+        match next {
+            true => self.go_to(files.next(file), "no next file", layout),
+            false => self.go_to(files.previous(file, top), "no previous file", layout),
+        }
     }
 
     /// The selected link, when it is on the screen and has an address to
@@ -1289,12 +1290,9 @@ impl State {
             .filter(|link| !link.url.is_empty())
     }
 
-    /// Selects the band on row `row` of the window, counted from 1:
-    /// whether that changed the selection, or `None` when no band is
-    /// there.
-    fn band_at(&mut self, row: u16, layout: &Layout) -> Option<bool> {
-        let line = layout.view.line_at(usize::from(row).checked_sub(1)?)?;
-        self.bands.select_at(layout.lines, layout.places, line)
+    /// The line of the document on row `row` of the window, counted from 1.
+    fn row_line(row: u16, layout: &Layout) -> Option<usize> {
+        layout.view.line_at(usize::from(row).checked_sub(1)?)
     }
 
     /// The file the reader is in, of `files`, with the view's top on the

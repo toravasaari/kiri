@@ -1,9 +1,9 @@
 //! The help panel: a box over the middle of the document that lists the
-//! pager's keys.
+//! pager's commands.
 
 use unicode_width::UnicodeWidthStr;
 
-use crate::pager::keys::{BINDINGS, Binding};
+use crate::session::commands::{COMMANDS, Command, Topic};
 use crate::typeset::style::{Span, Style};
 use crate::typeset::wrap;
 
@@ -32,13 +32,14 @@ pub fn panel(
         bold: true,
         ..style.clone()
     };
-    let listed: Vec<&Binding> = BINDINGS
+    let listed: Vec<&Command> = COMMANDS
         .iter()
-        .filter(|binding| several || !binding.action.between_files())
+        .filter(|command| command.listed())
+        .filter(|command| several || command.topic != Topic::Files)
         .collect();
-    let names = listed.iter().map(|binding| binding.names.width());
+    let names = listed.iter().map(|command| command.names.width());
     let names = names.max().unwrap_or(0);
-    let whats = listed.iter().map(|binding| binding.what.width());
+    let whats = listed.iter().map(|command| command.what.width());
     let whats = whats.max().unwrap_or(0);
     // The keys, a gap of three and what they do.
     let inner = (names + 3 + whats).max(FOOTER.width());
@@ -57,11 +58,11 @@ pub fn panel(
         span(&"─".repeat(inner + 1 - TITLE.width()), style),
         span("┐", style),
     ]];
-    for binding in listed {
-        let gap = names - binding.names.width() + 3;
+    for command in listed {
+        let gap = names - command.names.width() + 3;
         lines.push(line(vec![
-            span(binding.names, &bold),
-            span(&format!("{}{}", " ".repeat(gap), binding.what), style),
+            span(command.names, &bold),
+            span(&format!("{}{}", " ".repeat(gap), command.what), style),
         ]));
     }
     // A blank line above the footer, where the window has room for it.
@@ -103,7 +104,11 @@ mod tests {
     fn lists_every_binding_in_a_box() {
         let panel = panel(80, 40, &Style::default(), &Style::default(), true);
         let rows: Vec<String> = panel.iter().map(text).collect();
-        assert_eq!(rows.len(), BINDINGS.len() + 4, "{rows:#?}");
+        assert_eq!(
+            rows.len(),
+            COMMANDS.iter().filter(|command| command.listed()).count() + 4,
+            "{rows:#?}"
+        );
         assert!(rows[0].starts_with("┌─ Keys ─"), "{rows:#?}");
         assert!(rows[0].ends_with('┐'), "{rows:#?}");
         assert!(rows[1].starts_with("│ j ↓ Enter "), "{rows:#?}");
@@ -273,7 +278,10 @@ mod tests {
         assert_eq!(panel.len(), rows);
         assert!(panel[0].row >= 1 && panel[panel.len() - 1].row <= rows);
         let tall = super::panel(80, 40, &Style::default(), &Style::default(), true);
-        assert_eq!(tall.len(), BINDINGS.len() + 4);
+        assert_eq!(
+            tall.len(),
+            COMMANDS.iter().filter(|command| command.listed()).count() + 4
+        );
     }
 
     #[test]

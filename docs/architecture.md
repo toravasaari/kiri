@@ -115,7 +115,9 @@ The pager shows the same styled lines on the terminal's alternate screen.
 `src/session/view.rs` chooses the lines that fit in the window, a scaled
 line whole or not at all, and moves them, and when the window changes size
 it keeps the same block at the top; `src/pager/keys.rs` turns the bytes
-the terminal sends into keys and keys into moves; `src/session/prompt.rs`
+the terminal sends into keys, and `src/session/commands.rs` holds the
+commands, each with its topic, keys, help text and action, that the
+keys are looked up in and `src/session/help.rs` is built from; `src/session/prompt.rs`
 keeps the search term as it is typed, and `src/session/search.rs` finds it
 in the laid-out lines and splits a line where a match starts and ends, so
 the matches can be highlighted without a change to the writer;
@@ -684,7 +686,8 @@ The later work that the rows name, in words:
 | `src/pager/tests/reload.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/search.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/view.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
-| `src/pager/keys.rs` | mixed | stays. Terminal layer: `Key` and the `Decoder` that turns bytes into keys. State engine: `Action`, `BINDINGS` and `action`. The terminal layer split for the decoding, the pager's loop for the actions |
+| `src/pager/keys.rs` | mixed | stays. Terminal layer: `Key` and the `Decoder` that turns bytes into keys. `action`, which looks a key up in `src/session/commands.rs`. The terminal layer split for the decoding, the pager's loop for the lookup |
+| `src/session/commands.rs` | state engine | stays. `Action`, `COMMANDS` (topic, keys, help text, action and the settings that change it) and `action`; it reads `Key` from `pager::keys` until the terminal layer split |
 | `src/pager/bands.rs` | state engine | moved to `src/session/bands.rs` |
 | `src/pager/changes.rs` | state engine | moved to `src/session/changes.rs` |
 | `src/pager/fade.rs` | state engine | moved to `src/session/fade.rs` |
@@ -772,7 +775,7 @@ The crossings in the list fall into these kinds:
 | typesetting uses the font loading in `images/svg.rs` | the font database |
 | typesetting uses `present::kitty::graphics` | a small change of its own, giving `caps.rs` the constant |
 | the terminal layer uses `term::tmux`, `render::loading`, `pager::keys` or `images` | the terminal layer split; loading and sessions |
-| the state engine uses `pager::keys` or `pager::Warning` | commands as data; the pager's loop |
+| the state engine uses `pager::keys` or `pager::Warning` | the terminal layer split, for `Key`; the pager's loop |
 
 The test reads files by directory, so it does not see the crossings inside
 a mixed module, which are the pieces of a file such as `main.rs` or
@@ -801,7 +804,7 @@ file (`main.rs`, `pager/mod.rs`, `render/mod.rs`,
 |---|---|
 | command-line option | `src/cli.rs`, new, made by one route; until then `Cli` in `src/main.rs` |
 | startup decision, such as whether a run pages | `src/session/plan.rs`, made by the startup plan; take what it needs from the terminal as values |
-| key or action | `src/session/commands.rs`, new, made by commands as data; until then `BINDINGS` in `src/pager/keys.rs` |
+| key or action | an entry in `COMMANDS` in `src/session/commands.rs`, and the pager's answer to its action |
 | setting | its entry in `src/config/registry.rs`, which names its key, its owner, its effect and its medium, and the code of its owner |
 | use of a file, the network or a program | no path yet, loading and sessions makes the platform's work runner, and the trust policy a `Policy`; until then `src/images/background.rs`, `src/images/pipeline.rs` or `src/diagrams/external.rs` |
 | block type or input format | the typesetting engine's registry of block types and formats, no path yet (today `src/typeset/model.rs`, `src/typeset/parse/` and `src/typeset/layout/`); in reading mode a module per block type in `src/typeset/reading/page/`, made by reading mode's block modules; the blocks without one yet, such as paragraphs, stay in `page.rs` |
