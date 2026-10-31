@@ -1452,7 +1452,7 @@ go.
   layer for search, as PDF (4.12.2) shows pages as images; Kindle
   formats through Calibre's `ebook-convert`. Some EPUB 3 books, such as
   children's books, carry sound, which could play with the sentence
-  being read marked. Where this belongs is open.
+  being read marked.
 
 ## Bugs
 
