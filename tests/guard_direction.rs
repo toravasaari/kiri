@@ -8,11 +8,14 @@
 //! start with `crate::`, `super::`, `self::` or `kiri::`. It does not see
 //! names that reach a module by another route, such as a macro that expands
 //! to a path, or a name a module re-exports under another path. Comments and
-//! string literals are blanked first, and items marked `#[cfg(test)]` are
-//! removed, including the statements and fields so marked. Files named
+//! string literals are blanked first, and the item that a `#[cfg(test)]`
+//! attribute marks is removed. The item ends at its first `;` or at the
+//! `}` that closes its block, so a field or a statement with an `else`
+//! branch is cut short; no such item is marked in `src/` today. Only the
+//! exact attribute `#[cfg(test)]` is recognised: `cfg(all(test, ..))` and
+//! `cfg(not(test))` are not, and none is used in `src/`. Files named
 //! `tests.rs` or `testing.rs`, and files under a `tests/` directory, are test
-//! code and are not read. A statement whose `#[cfg(test)]` item has an
-//! `else` branch is cut at the first `}`; none in `src/` has one today.
+//! code and are not read.
 //!
 //! The crossings that exist are listed in `EXCEPTIONS`, with the work that
 //! removes each. The list is complete: a crossing that is not listed fails
