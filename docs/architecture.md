@@ -785,7 +785,6 @@ The crossings in the list fall into these kinds:
 | typesetting uses the font loading in `images/svg.rs` | the font database |
 | typesetting uses `present::kitty::graphics` | a small change of its own, giving `caps.rs` the constant |
 | the terminal layer uses `term::tmux`, `render::loading` or `images` | the terminal layer split; loading and sessions |
-| the state engine uses `pager::Warning` | the pager's loop |
 
 The test reads files by directory, so it does not see the crossings inside
 a mixed module, which are the pieces of a file such as `main.rs` or
