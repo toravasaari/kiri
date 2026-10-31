@@ -36,6 +36,7 @@ use kiri::pager::{Change, Look, Reload, Reloaded, Warning};
 use kiri::present::encoder::Encoder;
 use kiri::present::output::Page;
 use kiri::render::{Headings, Inputs, RenderErrors, TableRows};
+use kiri::session::plan;
 use kiri::term::{Interrupt, Mode};
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::input::Input;
@@ -436,7 +437,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
                     input,
                     content: Content::Image { format, head, rest },
                 };
-                let caps = on_page(caps, &settings);
+                let caps = plan::on_page(caps, settings.paper);
                 let failed = Cell::new(false);
                 return show_files(
                     &context,
@@ -459,7 +460,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     }
     let mut settings = settings?;
     if file.is_none() {
-        settings.paging = kiri::session::plan::only_always(settings.paging);
+        settings.paging = plan::only_always(settings.paging);
     }
     let passthrough = settings.passthrough;
     let caps = kiri::term::capabilities(context.mode, context.width, &env, passthrough);
@@ -471,7 +472,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
             input,
             content: Content::Text(source),
         };
-        let caps = on_page(caps, &settings);
+        let caps = plan::on_page(caps, settings.paper);
         let failed = Cell::new(false);
         return show_files(&context, vec![Ok(opened)], settings, true, caps, &failed);
     }
@@ -490,7 +491,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     let Some(document) = document(input, &source, path, &settings, &caps, warn)? else {
         return Ok(write_as_is(&source)?);
     };
-    if let Some(warning) = context.reading_warning(&caps) {
+    if let Some(warning) = plan::reading_warning(context.reading, &caps) {
         eprintln!("kiri: {warning}");
         warnings.push(Warning {
             line: None,
@@ -706,11 +707,11 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
     };
     let documents = settings.is_some();
     let mut settings = settings.unwrap_or_else(|| without_config(cli, &env));
-    settings.paging = kiri::session::plan::for_files(settings.paging, alone);
+    settings.paging = plan::for_files(settings.paging, alone);
     let passthrough = settings.passthrough;
-    let caps = on_page(
+    let caps = plan::on_page(
         kiri::term::capabilities(context.mode, context.width, &env, passthrough),
-        &settings,
+        settings.paper,
     );
     show_files(&context, opened, settings, documents, caps, &failed)
 }
@@ -722,19 +723,11 @@ fn without_config(cli: &Cli, env: &Environment) -> Settings {
     choices.with_theme(Theme::default())
 }
 
-/// Sets `inputs` up for printing: reading mode's wide code and tables
-/// wrap, as nothing can scroll them.
-fn printing(inputs: &mut Inputs) {
-    if let Some(reading) = &mut inputs.reading {
-        reading.wide = Wide::Wrap;
-    }
-}
-
 /// Whether a file shown on its own as an image is, an image file or a
 /// diagram file, goes to the pager for `settings` on a terminal with
 /// `caps`: only when paging is `always`, as for several such files.
 fn pages_alone(settings: &Settings, caps: &Capabilities) -> bool {
-    kiri::session::plan::for_files(settings.paging, true) == Paging::Always
+    plan::for_files(settings.paging, true) == Paging::Always
         && kiri::term::stdout_is_terminal()
         && caps.styling
 }
@@ -825,7 +818,7 @@ fn show_files(
         file.drawn = self::drawn(number, file, &mut images, &settings, &caps);
     }
     // Once for all the files, before the pager opens, and in the pager.
-    let reading_warning = context.reading_warning(&caps);
+    let reading_warning = plan::reading_warning(context.reading, &caps);
     if let Some(warning) = &reading_warning {
         eprintln!("kiri: {warning}");
     }
@@ -1161,7 +1154,7 @@ fn page_files(
         }
         (true, None) => (vec![Vec::new(); files.len()], None),
     };
-    printing(inputs);
+    plan::printing(inputs.reading.as_mut().map(|reading| &mut reading.wide));
     let mut out = kiri::term::output(&inputs.caps);
     let mut apart = false;
     // Whether kitty did not answer the check of a file's images.
@@ -1203,7 +1196,7 @@ fn print_files(
     settings: &Settings,
     failed: &Cell<bool>,
 ) -> io::Result<()> {
-    printing(inputs);
+    plan::printing(inputs.reading.as_mut().map(|reading| &mut reading.wide));
     let mut out = kiri::term::output(&inputs.caps);
     let mut apart = false;
     // Whether kitty did not answer the check of a file's images.
@@ -1531,7 +1524,7 @@ impl<'a> Context<'a> {
     /// Reading mode, when it is asked for and a terminal with `caps` draws
     /// images.
     fn reading(&self, caps: &Capabilities) -> Option<Reading> {
-        (self.reading && caps.draws_images()).then(|| self.reading_mode())
+        plan::reading(self.reading, caps).then(|| self.reading_mode())
     }
 
     /// Reading mode in the system's fonts, which load when text is first
@@ -1542,15 +1535,6 @@ impl<'a> Context<'a> {
             fonts: Rc::new(kiri::typeset::reading::Fonts::system()),
             wide: self.wide,
         }
-    }
-
-    /// Why reading mode is not shown, when it is asked for and a terminal
-    /// with `caps` cannot draw it.
-    fn reading_warning(&self, caps: &Capabilities) -> Option<String> {
-        (self.reading && !caps.draws_images()).then(|| {
-            "reading mode needs a terminal that draws images; showing the document as text"
-                .to_owned()
-        })
     }
 }
 
@@ -1579,7 +1563,7 @@ fn show_document(
     settings: Settings,
     caps: Capabilities,
 ) -> Result<(), Failure> {
-    let caps = on_page(caps, &settings);
+    let caps = plan::on_page(caps, settings.paper);
     let parts = [part(document, from.map(|from| from.path), context.reading)];
     // Before the images are read, so that a file changed meanwhile counts
     // as changed.
@@ -1638,7 +1622,7 @@ fn surely_paged(
     let stream = kiri::typeset::layout::content(content, inputs);
     let rows = kiri::pager::rows(&stream.lines, &inputs.caps);
     let height = kiri::term::window_size(io::stdout()).map(|window| window.rows);
-    let longer = kiri::session::plan::pages(Paging::Auto, true, rows, height);
+    let longer = plan::pages(Paging::Auto, true, rows, height);
     if !longer {
         inputs.images.take_placeholders();
     }
@@ -1793,7 +1777,7 @@ fn show_diagram(
     mut settings: Settings,
     caps: Capabilities,
 ) -> Result<(), Failure> {
-    let caps = on_page(caps, &settings);
+    let caps = plan::on_page(caps, settings.paper);
     let document = kiri::typeset::parse::code(source, Some(language));
     settings.images = true;
     let mut loaded = load_images(
@@ -1853,15 +1837,6 @@ fn show_diagram(
         Some(_) => Err(Failure::Told),
         None => Ok(()),
     }
-}
-
-/// `caps` for the page `settings` choose: a light or dark page decides
-/// whatever the terminal's background is.
-fn on_page(mut caps: Capabilities, settings: &Settings) -> Capabilities {
-    if let Some(paper) = settings.paper {
-        caps.dark_background = Some(paper == Paper::Dark);
-    }
-    caps
 }
 
 /// The images of the documents in `parts`, loaded and drawn when
@@ -2105,7 +2080,7 @@ fn print_document(
         }
         None => None,
     };
-    printing(&mut inputs);
+    plan::printing(inputs.reading.as_mut().map(|reading| &mut reading.wide));
     let mut out = kiri::term::output(&inputs.caps);
     Ok(finish(
         kiri::render::render(document, &inputs, &mut out).and_then(|sent| {
@@ -2144,7 +2119,7 @@ fn page(
     let stream = kiri::typeset::layout::content(content, inputs);
     let rows = kiri::pager::rows(&stream.lines, &inputs.caps);
     let height = kiri::term::window_size(io::stdout()).map(|window| window.rows);
-    if !kiri::session::plan::pages(paging, terminal, rows, height) {
+    if !plan::pages(paging, terminal, rows, height) {
         return None;
     }
     // The screen catches the signals before the terminal is raw; the
@@ -2382,7 +2357,7 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), Failure> {
     }
     let document = kiri::typeset::parse::parse(&markdown);
     let mut settings = choices.with_theme(theme);
-    settings.paging = kiri::session::plan::only_always(settings.paging);
+    settings.paging = plan::only_always(settings.paging);
     show_document(
         &Context::new(cli, &env),
         &document,

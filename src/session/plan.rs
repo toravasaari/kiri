@@ -4,6 +4,9 @@
 //! files and passes the answers in as values.
 
 use crate::config::Paging;
+use crate::typeset::caps::Capabilities;
+use crate::typeset::reading::page::Wide;
+use crate::typeset::theme::Paper;
 
 /// Whether a document of `rows` rows is paged: never when the output is not
 /// a terminal, and with `Auto` only when it is longer than the window's
@@ -36,6 +39,37 @@ pub fn for_files(paging: Paging, images_only: bool) -> Paging {
         true => only_always(paging),
         false => paging,
     }
+}
+
+/// Sets reading mode's wide code and tables, when reading mode is on, for
+/// printing: they wrap, as nothing can scroll them.
+pub fn printing(wide: Option<&mut Wide>) {
+    if let Some(wide) = wide {
+        *wide = Wide::Wrap;
+    }
+}
+
+/// `caps` for a page: the paper from `--light` or `--dark` says whether
+/// the background is dark.
+pub fn on_page(mut caps: Capabilities, paper: Option<Paper>) -> Capabilities {
+    if let Some(paper) = paper {
+        caps.dark_background = Some(paper == Paper::Dark);
+    }
+    caps
+}
+
+/// Whether reading mode is shown: when it is asked for and the terminal
+/// draws images.
+pub fn reading(asked: bool, caps: &Capabilities) -> bool {
+    asked && caps.draws_images()
+}
+
+/// Why reading mode is not shown, when it is asked for and the terminal
+/// cannot draw images.
+pub fn reading_warning(asked: bool, caps: &Capabilities) -> Option<String> {
+    (asked && !caps.draws_images()).then(|| {
+        "reading mode needs a terminal that draws images; showing the document as text".to_owned()
+    })
 }
 
 #[cfg(test)]
@@ -83,5 +117,54 @@ mod tests {
         for paging in [Paging::Always, Paging::Auto, Paging::Never] {
             assert_eq!(for_files(paging, false), paging);
         }
+    }
+
+    #[test]
+    fn printing_wraps_the_wide_code_and_tables_of_reading_mode() {
+        let mut wide = Wide::Scroll;
+        printing(Some(&mut wide));
+        assert_eq!(wide, Wide::Wrap);
+        // Without reading mode, there is nothing to change.
+        printing(None);
+    }
+
+    #[test]
+    fn paper_says_whether_the_background_is_dark() {
+        let dark = on_page(Capabilities::kitty(80), Some(Paper::Dark));
+        assert_eq!(dark.dark_background, Some(true));
+        let light = on_page(Capabilities::kitty(80), Some(Paper::Light));
+        assert_eq!(light.dark_background, Some(false));
+    }
+
+    #[test]
+    fn without_paper_the_background_is_left_as_the_terminal_has_it() {
+        let caps = Capabilities {
+            dark_background: Some(true),
+            ..Capabilities::kitty(80)
+        };
+        assert_eq!(on_page(caps.clone(), None).dark_background, Some(true));
+        let unknown = Capabilities {
+            dark_background: None,
+            ..caps
+        };
+        assert_eq!(on_page(unknown, None).dark_background, None);
+    }
+
+    #[test]
+    fn reading_mode_is_shown_when_asked_and_images_are_drawn() {
+        assert!(reading(true, &Capabilities::kitty(80)));
+        assert!(!reading(true, &Capabilities::ansi(80)));
+        assert!(!reading(false, &Capabilities::kitty(80)));
+    }
+
+    #[test]
+    fn reading_mode_that_is_asked_for_but_not_drawn_is_warned_of() {
+        let warning = reading_warning(true, &Capabilities::ansi(80)).unwrap();
+        assert!(
+            warning.starts_with("reading mode needs a terminal"),
+            "{warning}"
+        );
+        assert_eq!(reading_warning(true, &Capabilities::kitty(80)), None);
+        assert_eq!(reading_warning(false, &Capabilities::ansi(80)), None);
     }
 }
