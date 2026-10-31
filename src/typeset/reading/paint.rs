@@ -266,8 +266,21 @@ impl Canvas {
                 if glyphs.style().strikethrough.is_some() {
                     let metrics = run.font_metrics();
                     let thickness = metrics.strikethrough_size.max(1.0);
-                    let top = y + drop_of(0) + glyphs.baseline() - metrics.strikethrough_offset;
-                    self.rect(x + glyphs.offset(), top, glyphs.advance(), thickness, color);
+                    // One line for each stretch of equal drop.
+                    let mut stretches: Vec<(f32, f32)> = Vec::new();
+                    for cluster in run.visual_clusters() {
+                        let drop = paragraph.drop_at(&cluster.text_range());
+                        match stretches.last_mut() {
+                            Some((last, width)) if *last == drop => *width += cluster.advance(),
+                            _ => stretches.push((drop, cluster.advance())),
+                        }
+                    }
+                    let mut left = x + glyphs.offset();
+                    for (drop, width) in stretches {
+                        let top = y + drop + glyphs.baseline() - metrics.strikethrough_offset;
+                        self.rect(left, top, width, thickness, color);
+                        left += width;
+                    }
                 }
             }
         }
@@ -732,11 +745,48 @@ mod tests {
             ],
             None,
         );
-        let (high, low) = (
-            ink_bottom_in(&both, 12, edge),
+        // The leading `x` ends where the superscript starts.
+        let lone = drawn(&[Run::new("x")], None);
+        let start = (0..lone.width())
+            .rev()
+            .find(|&x| (0..lone.height()).any(|y| lone.get_pixel(x, y).0[3] > 0))
+            .unwrap()
+            + 2;
+        let (plain, high, low) = (
+            ink_bottom_in(&both, 0, start),
+            ink_bottom_in(&both, start, edge),
             ink_bottom_in(&both, edge, both.width()),
         );
-        assert!(low > high, "sub ends at {low}, sup beside it at {high}");
+        assert!(high < plain, "sup ends at {high}, text at {plain}");
+        assert!(low > plain, "sub ends at {low}, text at {plain}");
+    }
+
+    #[test]
+    fn the_strike_of_a_subscript_beside_a_superscript_is_at_the_subscripts_height() {
+        let struck = |text: &str, drop| Run {
+            strike: true,
+            script: Some(Script { size: 0.8, drop }),
+            ..Run::new(text)
+        };
+        // After the `a`, the `x` and its strike are drawn as they are alone.
+        let rows = |image: &RgbaImage, from: u32| -> Vec<u32> {
+            (0..image.height())
+                .filter(|&y| (from..image.width()).any(|x| image.get_pixel(x, y).0[3] > 0))
+                .collect()
+        };
+        let alone = drawn(&[struck("x", 0.2)], None);
+        let first = drawn(&[struck("a", -0.33)], None);
+        let edge = (0..first.width())
+            .rev()
+            .find(|&x| (0..first.height()).any(|y| first.get_pixel(x, y).0[3] > 0))
+            .unwrap()
+            + 2;
+        let both = drawn(&[struck("a", -0.33), struck("x", 0.2)], None);
+        assert_eq!(
+            rows(&both, edge),
+            rows(&alone, 0),
+            "the subscript and its strike beside a superscript"
+        );
     }
 
     #[test]
