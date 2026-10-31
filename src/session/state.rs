@@ -17,12 +17,15 @@ use crate::session::layers::{self, Highlights, Tint};
 use crate::session::prompt::{Edit, Prompt};
 use crate::session::search::{Marks, Search};
 use crate::session::settings;
-use crate::session::settings::SearchCase;
+use crate::session::settings::{FollowJump, SearchCase};
 use crate::session::step::{Effect, Run};
-use crate::session::view::Motion;
-use crate::session::{bands, links, status};
+use crate::session::view::{Motion, View};
+use crate::session::{bands, changes, links, status};
+use crate::typeset::block::BlockInfo;
+use crate::typeset::compare::{Comparison, Fate};
 use crate::typeset::model::FrontMatterError;
 use crate::typeset::style::{Line, Style};
+use std::rc::Rc;
 
 /// How long the pager waits for a key before it looks at the window size
 /// again.
@@ -131,6 +134,24 @@ pub(crate) struct State {
     /// The cells the terminal last answered, until `page_through` applies
     /// them when `show` returns.
     pub(crate) cell: Option<(u16, u16)>,
+    /// What the next layout keeps from this one.
+    pub(crate) next: Next,
+    /// Which change following on auto moves the view to.
+    pub(crate) jump: FollowJump,
+}
+
+/// What the next layout keeps from the one before it.
+#[derive(Debug, Default)]
+pub(crate) struct Next {
+    /// Whether the next layout keeps the view's top line, as when an image
+    /// came in its placeholder's place.
+    pub(crate) keep_top: bool,
+    /// The blocks of the lines auto-follow tinted, and when, to find them
+    /// again in the next layout.
+    pub(crate) tinted: Option<(Instant, Vec<BlockInfo>)>,
+    /// How the reloaded document differs from the one before it, until the
+    /// view has found its place in the new lines.
+    pub(crate) changes: Option<Comparison>,
 }
 
 /// Where the focus is, as the terminal tells with focus reporting: under
@@ -282,7 +303,70 @@ impl State {
             decoder: Decoder::default(),
             bands: bands::Bands::default(),
             cell: None,
+            next: Next::default(),
+            jump: FollowJump::First,
         }
+    }
+
+    /// Finds the lines that auto-follow tinted again in the lines of the
+    /// new layout, whose blocks are `places`.
+    pub(crate) fn retint(&mut self, places: &[Option<BlockInfo>]) {
+        let Some((at, tinted)) = self.next.tinted.take() else {
+            return;
+        };
+        let tinted = |place: &Option<BlockInfo>| {
+            (place.as_ref()).is_some_and(|place| tinted.iter().any(|t| t.same_place(place)))
+        };
+        if let (Some(first), Some(last)) = (
+            places.iter().position(tinted),
+            places.iter().rposition(tinted),
+        ) {
+            let lines = first..last + 1;
+            self.changed = Some(Changed { at, lines });
+        }
+    }
+
+    /// The view of a new layout, of lines with these `heights` from these
+    /// blocks, in a window of `rows`: `view` as it was, kept in its place,
+    /// or a new one when there was none. After a reload the view stays on
+    /// the block it was on, and following on auto moves on from there to a
+    /// change, whose lines are tinted at `now` when the colours allow it.
+    pub(crate) fn view_for(
+        &mut self,
+        view: Option<View>,
+        heights: Vec<usize>,
+        places: Vec<Option<BlockInfo>>,
+        rows: usize,
+        (tintable, now): (bool, Instant),
+    ) -> View {
+        let Some(mut view) = view else {
+            return View::new(heights, rows).with_blocks(places);
+        };
+        match self.next.changes.take() {
+            Some(changes) => {
+                // Following on auto moves on from the place kept to a
+                // change.
+                let change = (self.follow.mode == settings::Follow::Auto)
+                    .then(|| changes::groups(&changes, &places, &heights))
+                    .and_then(|groups| changes::choose(&groups, self.jump).cloned());
+                view.resize_by(heights, places, rows, |old, new| {
+                    follows(&changes, old, new)
+                });
+                if let Some(change) = change {
+                    view.show_change(change.lines.clone());
+                    // A removal has no lines to tint.
+                    if tintable && !change.lines.is_empty() {
+                        self.changed = Some(Changed {
+                            at: now,
+                            lines: change.lines,
+                        });
+                    }
+                }
+            }
+            None if std::mem::take(&mut self.next.keep_top) => view.keep(heights, places, rows),
+            None => view.resize(heights, places, rows),
+        }
+        view
     }
 
     /// Keeps the last cell size answer among the keys a read still has
@@ -323,17 +407,11 @@ impl State {
         now: Instant,
         layout: &mut Layout,
         run: &Run,
-    ) -> Option<Effect> {
+    ) -> Vec<Effect> {
         self.pressed(key, now, layout, run)
     }
 
-    fn pressed(
-        &mut self,
-        key: Key,
-        now: Instant,
-        layout: &mut Layout,
-        run: &Run,
-    ) -> Option<Effect> {
+    fn pressed(&mut self, key: Key, now: Instant, layout: &mut Layout, run: &Run) -> Vec<Effect> {
         let mut action = commands::action(key);
         // A click and the sideways wheel act on the band under them, and
         // never reach the help, the prompt or the colon.
@@ -345,19 +423,19 @@ impl State {
         }
         // Any other mouse event does nothing at all.
         if key == Key::Mouse {
-            return None;
+            return Vec::new();
         }
         self.nowhere = false;
         self.told = None;
         if action == Some(Action::Dismiss) {
             self.dismiss();
-            return None;
+            return Vec::new();
         }
         // Any key closes the help and does nothing else, but Ctrl+C
         // still quits.
         if self.help && key != Key::Ctrl('c') {
             self.help = false;
-            return None;
+            return Vec::new();
         }
         // While the prompt is open, keys edit it.
         if let Some(prompt) = &mut self.prompt {
@@ -375,7 +453,7 @@ impl State {
                     self.step(Search::forward, now, layout);
                 }
             }
-            return None;
+            return Vec::new();
         }
         // The key after a colon is a command's, and any other closes it.
         // The commands move between files, so a lone document has none
@@ -383,20 +461,20 @@ impl State {
         if std::mem::take(&mut self.colon) {
             action = match key {
                 Key::Char(c) => commands::action(Key::Command(c)),
-                _ => return None,
+                _ => return Vec::new(),
             };
         } else if key == commands::COMMAND && layout.status.files.several() {
             self.colon = true;
-            return None;
+            return Vec::new();
         }
         match action {
-            Some(Action::Quit) => return Some(Effect::Quit),
+            Some(Action::Quit) => return vec![Effect::Quit],
             // Enter copies the link selected on the screen, and otherwise
             // goes down a line.
             Some(Action::Enter) => match self.link_on_screen(layout) {
                 Some(link) => {
                     self.told = Some(Told::fading("link copied", now));
-                    return Some(Effect::Copy(link.url));
+                    return vec![Effect::Copy(link.url)];
                 }
                 None => layout.view.scroll(Motion::Down(1)),
             },
@@ -408,13 +486,16 @@ impl State {
             Some(Action::Previous) => self.step(Search::backward, now, layout),
             Some(Action::NextFile) => self.step_file(true, layout),
             Some(Action::PreviousFile) => self.step_file(false, layout),
-            Some(Action::Reload) => return self.reload(run),
+            Some(Action::Reload) => return self.reload(layout, run, now),
             // As `less` repaints, also the images, which the terminal may
             // have lost.
-            Some(Action::Redraw) => return Some(Effect::Redraw),
+            Some(Action::Redraw) => return vec![Effect::Lose],
             Some(Action::Follow) => self.cycle_follow(run),
-            Some(Action::Reading) => return Some(Effect::Reading),
-            Some(Action::Wide) => return Some(Effect::Wide),
+            Some(Action::Reading) => return self.reading(layout, run),
+            Some(Action::Wide) => {
+                self.changed = None;
+                return vec![Effect::FlipWide, Effect::Relayout { reuse: false }];
+            }
             Some(Action::Sideways(step)) => {
                 self.bands_moved |= self.bands.scroll(layout.lines, layout.places, step);
             }
@@ -428,17 +509,35 @@ impl State {
             // Answered above, or in `pointed`.
             Some(Action::Dismiss | Action::Click { .. } | Action::Wheel { .. }) | None => {}
         }
-        None
+        Vec::new()
     }
 
-    /// Answers `r`: the reader sees that the pager is busy before it is.
-    fn reload(&mut self, run: &Run) -> Option<Effect> {
+    /// Answers `r`: the reader sees that the pager is busy before it is,
+    /// as the frame says it is reading.
+    fn reload(&mut self, layout: &Layout, run: &Run, now: Instant) -> Vec<Effect> {
         if !run.can_reload {
             self.told = Some(Told::new("nothing to reload"));
-            return None;
+            return Vec::new();
         }
         self.told = Some(Told::new("reloading…"));
-        Some(Effect::Reload)
+        let frame = layout.frame(self, now);
+        vec![Effect::Draw(Rc::new(frame), None), Effect::Reload]
+    }
+
+    /// Answers `M`: reading mode goes on or off, and when on, what it
+    /// shows that the text does not starts loading.
+    fn reading(&mut self, layout: &Layout, run: &Run) -> Vec<Effect> {
+        if !run.draws_images {
+            self.told = Some(Told::new(NEEDS_IMAGES));
+            return vec![Effect::Relayout { reuse: false }];
+        }
+        self.changed = None;
+        let mut effects = vec![Effect::SwapReading];
+        if run.reading && !layout.status.reading && run.inline {
+            effects.push(Effect::StartInline);
+        }
+        effects.push(Effect::Relayout { reuse: false });
+        effects
     }
 
     /// Answers `f`: the next way of following the document, or nothing to
@@ -473,7 +572,7 @@ impl State {
     /// A click or a notch of the sideways wheel: the answer, or for the
     /// wheel with Shift away from a band the wheel's action. While the
     /// help or the prompt is open the mouse does nothing.
-    fn pointed(&mut self, action: Action, layout: &Layout) -> Result<Option<Effect>, Action> {
+    fn pointed(&mut self, action: Action, layout: &Layout) -> Result<Vec<Effect>, Action> {
         let moved = match action {
             _ if self.help || self.prompt.is_some() => false,
             Action::Click { row } => {
@@ -494,7 +593,7 @@ impl State {
             action => return Err(action),
         };
         self.bands_moved |= moved;
-        Ok(None)
+        Ok(Vec::new())
     }
 
     /// Moves to the start of the next file, or of the previous one.
@@ -739,4 +838,15 @@ impl State {
             flash,
         })
     }
+}
+
+/// Whether the block `new` of the reloaded document is the block `old` of
+/// the one before it, as `changes` found: the block that stayed or changed
+/// from where `old` was.
+fn follows(changes: &Comparison, old: &BlockInfo, new: &BlockInfo) -> bool {
+    old.file() == new.file()
+        && matches!(
+            changes.fate(new.path()),
+            Some(Fate::Stayed { was } | Fate::Changed { was }) if was == old.path()
+        )
 }

@@ -31,16 +31,14 @@ use crate::session::frame::{Frame, Layout, Status};
 use crate::session::help::Placed;
 use crate::session::search::Marks;
 use crate::session::settings::{self, FollowJump, SearchCase};
-use crate::session::state::{
-    Change, Changed, FRAME, NEEDS_IMAGES, NOTHING_TO_FOLLOW, POLL, State, Told, Warning,
-};
-use crate::session::step::{Effect, Msg, Pager, Run, step};
+use crate::session::state::{Change, FRAME, NOTHING_TO_FOLLOW, POLL, State, Told, Warning};
+use crate::session::step::{Effect, Msg, Pager, Reply, Resized, Run, step};
 use crate::session::view::View;
-use crate::session::{changes, loading, status};
+use crate::session::{loading, status};
 use crate::term::{Screen, WindowSize};
 use crate::typeset::block::BlockInfo;
 use crate::typeset::caps::Capabilities;
-use crate::typeset::compare::{Comparison, Fate, compare};
+use crate::typeset::compare::compare;
 use crate::typeset::images::size::cell_size;
 use crate::typeset::layout::{Content, Stream};
 use crate::typeset::model::{Document, File};
@@ -200,7 +198,6 @@ pub fn run(
 
 /// [`run`], with the images of reloads loading in `loads`, which `q`
 /// stops without waiting for their programs.
-#[expect(clippy::too_many_lines)]
 fn page_through(
     content: Content,
     laid_out: Option<Stream>,
@@ -221,178 +218,156 @@ fn page_through(
         reading,
         inline,
     } = options;
-    let mut inline = inline;
-    // The reading mode that `M` turns to, on or off.
-    let mut other = reading.filter(|_| inputs.reading.is_none());
-    let mut source = Origin {
-        reload,
-        loads,
-        started: terminal.now(),
-        arrived: Vec::new(),
-        window: None,
-    };
-    let page = Page {
-        background: inputs.theme.background,
-        foreground: inputs.theme.foreground,
-    };
-    let mut laid_out = laid_out.map(|lines| (inputs.caps.clone(), lines));
-    let mut size = terminal.size();
-    // The cells the window told last; only a change in them replaces the
-    // cell size detection found.
-    let mut window_cell = size.and_then(|size| size.cell_pixels());
-    let mut view: Option<View> = None;
     let mut state = State::new(case);
+    state.jump = jump;
     state.warn(warnings, terminal.now());
-    if source.reload.is_some() {
+    if reload.is_some() {
         state.follow.mode = follow;
     } else if follow != settings::Follow::Off {
         state.told = Some(Told::new(NOTHING_TO_FOLLOW));
     }
-    // The document as reloaded, once it has been.
-    let mut reloaded: Option<Document> = None;
-    // How the reloaded document differs from the one before it, until the
-    // view has found its place in the new lines.
-    let mut changes: Option<Comparison> = None;
-    // What the terminal holds of the images, kept from one layout to the
-    // next.
-    let mut encoder = Encoder::new();
-    // Whether the next layout keeps the view's top line, as when an image
-    // came in its placeholder's place.
-    let mut keep_top = false;
-    // The blocks of the lines auto-follow tinted, and when, to find them
-    // again in the next layout.
-    let mut tinted: Option<(Instant, Vec<BlockInfo>)> = None;
-    let shown_files: &[File] = match content {
-        Content::Document(_) => &[],
-        Content::Files(files) => files,
+    let size = terminal.size();
+    let mut driver = Driver {
+        content,
+        reloaded: None,
+        laid_out: laid_out.map(|lines| (inputs.caps.clone(), lines)),
+        state,
+        view: None,
+        size,
+        // The cells the window told last; only a change in them replaces
+        // the cell size detection found.
+        window_cell: size.and_then(|size| size.cell_pixels()),
+        // The cells the heading images were last loaded for.
+        headed: cell_size(&inputs.caps),
+        width,
+        name,
+        shell: Shell {
+            // The reading mode that `M` turns to, on or off.
+            other: reading.filter(|_| inputs.reading.is_none()),
+            inputs,
+            source: Origin {
+                reload,
+                loads,
+                started: terminal.now(),
+                arrived: Vec::new(),
+                window: None,
+            },
+            inline,
+            // What the terminal holds of the images, kept from one layout
+            // to the next.
+            encoder: Encoder::new(),
+            terminal,
+        },
     };
-    // The cells the heading images were last loaded for.
-    let mut headed = cell_size(&inputs.caps);
-    loop {
-        fit(&mut inputs.caps, size, width, &mut window_cell);
-        if cell_size(&inputs.caps) != headed {
-            headed = cell_size(&inputs.caps);
-            let content = match &reloaded {
-                Some(document) => Content::Document(document),
-                None => content,
-            };
-            load_headings(content, inputs, source.loads);
-        }
-        let window = usize::from(inputs.caps.height.unwrap_or(DEFAULT_ROWS));
+    while driver.round()? {}
+    Ok(())
+}
+
+/// What the loop reaches to carry out effects: the terminal, the inputs of
+/// the layout, the document's source and the loads.
+struct Shell<'a, 'r, 'l, T> {
+    inputs: &'a mut Inputs,
+    terminal: &'a mut T,
+    source: Origin<'r, 'l>,
+    encoder: Encoder,
+    /// The reading mode that `M` turns to, on or off.
+    other: Option<Reading>,
+    inline: Option<InlineLoader<'r>>,
+}
+
+/// The loop: layouts of the document, one after the other, each shown until
+/// an effect ends it.
+struct Driver<'a, 'r, 'l, T> {
+    shell: Shell<'a, 'r, 'l, T>,
+    content: Content<'a>,
+    /// The document as reloaded, once it has been.
+    reloaded: Option<Document>,
+    /// A layout of the content that is still good, for the caps it was
+    /// made for.
+    laid_out: Option<(Capabilities, Stream)>,
+    state: State,
+    view: Option<View>,
+    /// The window's size as last found.
+    size: Option<WindowSize>,
+    /// The cells the window told last.
+    window_cell: Option<(u16, u16)>,
+    headed: (u16, u16),
+    width: Option<u16>,
+    name: &'a str,
+}
+
+/// How a layout ended.
+#[derive(Default)]
+struct Closed {
+    quit: bool,
+    /// Whether the next layout has the same lines.
+    reuse: bool,
+    /// The document read again, if it was.
+    document: Option<Document>,
+}
+
+/// What is laid out: the document as reloaded when it has been, and
+/// otherwise `content`.
+fn shown_content<'a>(content: Content<'a>, reloaded: &'a Option<Document>) -> Content<'a> {
+    match reloaded {
+        Some(document) => Content::Document(document),
+        None => content,
+    }
+}
+
+impl<T: Terminal> Driver<'_, '_, '_, T> {
+    /// Lays the document out and shows it until it ends; whether to go on
+    /// with another layout.
+    fn round(&mut self) -> io::Result<bool> {
+        self.refit();
+        let window = usize::from(self.shell.inputs.caps.height.unwrap_or(DEFAULT_ROWS));
         // The bottom row is the status line's, unless the document would
         // have no row left.
         let bar = window > 1;
         let rows = if bar { window - 1 } else { window };
-        let content = match &reloaded {
-            Some(document) => Content::Document(document),
-            None => content,
-        };
-        let stream = match laid_out.take() {
-            Some((caps, stream)) if caps == inputs.caps => stream,
-            _ => crate::typeset::layout::content(content, inputs),
-        };
-        let Stream { mut lines, blocks } = stream;
-        // The text sizing protocol cannot draw part of a line, so a line
-        // taller than the window is drawn at normal size.
-        for line in &mut lines {
-            if usize::from(crate::present::output::rows(line, &inputs.caps)) > rows {
-                line.to_normal_size();
-            }
-        }
+        let Stream { mut lines, blocks } = self.stream(rows);
+        let content = shown_content(self.content, &self.reloaded);
+        let inputs = &mut *self.shell.inputs;
         let places: Vec<Option<BlockInfo>> = lines
             .iter()
             .map(|line| line.block.map(|id| blocks.get(id).clone()))
             .collect();
         // Reading mode's bands scrolled and selected as they were.
-        state.bands.apply(&mut lines, &places);
+        self.state.bands.apply(&mut lines, &places);
         let band_places = places.clone();
         // The images the new lines do not place go with their first frame.
-        encoder.keep(&lines, &inputs.caps);
-        let mut writer = Writer::new(&inputs.images, &inputs.caps, page, &mut encoder);
+        self.shell.encoder.keep(&lines, &inputs.caps);
+        let page = Page {
+            background: inputs.theme.background,
+            foreground: inputs.theme.foreground,
+        };
+        let mut writer = Writer::new(&inputs.images, &inputs.caps, page, &mut self.shell.encoder);
         let heights: Vec<usize> = lines
             .iter()
             .map(|line| usize::from(writer.rows(line)))
             .collect();
-        if let Some((at, tinted)) = tinted.take() {
-            let tinted = |place: &Option<BlockInfo>| {
-                (place.as_ref()).is_some_and(|place| tinted.iter().any(|t| t.same_place(place)))
-            };
-            if let (Some(first), Some(last)) = (
-                places.iter().position(tinted),
-                places.iter().rposition(tinted),
-            ) {
-                let lines = first..last + 1;
-                state.changed = Some(Changed { at, lines });
-            }
-        }
-        let mut shown = match view.take() {
-            Some(mut view) => {
-                match changes.take() {
-                    Some(changes) => {
-                        // Following on auto moves on from the place kept to
-                        // a change.
-                        let change = (state.follow.mode == settings::Follow::Auto)
-                            .then(|| changes::groups(&changes, &places, &heights))
-                            .and_then(|groups| changes::choose(&groups, jump).cloned());
-                        view.resize_by(heights, places, rows, |old, new| {
-                            follows(&changes, old, new)
-                        });
-                        if let Some(change) = change {
-                            view.show_change(change.lines.clone());
-                            // A removal has no lines to tint.
-                            let tintable = Rgb::new(&inputs.theme, &inputs.caps)
-                                .is_some_and(|rgb| rgb.tinted(None, 0.0).is_some())
-                                && inputs.caps.styling
-                                && inputs.caps.truecolor;
-                            if tintable && !change.lines.is_empty() {
-                                state.changed = Some(Changed {
-                                    at: terminal.now(),
-                                    lines: change.lines,
-                                });
-                            }
-                        }
-                    }
-                    None if std::mem::take(&mut keep_top) => view.keep(heights, places, rows),
-                    None => view.resize(heights, places, rows),
-                }
-                view
-            }
-            None => View::new(heights, rows).with_blocks(places),
-        };
+        self.state.retint(&places);
+        let tintable = Rgb::new(&inputs.theme, &inputs.caps)
+            .is_some_and(|rgb| rgb.tinted(None, 0.0).is_some())
+            && inputs.caps.styling
+            && inputs.caps.truecolor;
+        let now = self.shell.terminal.now();
+        let mut shown =
+            (self.state).view_for(self.view.take(), heights, places, rows, (tintable, now));
         // The topmost band on the screen is selected before the first
         // frame, which then shows it so.
-        if (state.bands).refresh(&lines, &band_places, shown.visible()) {
-            state.bands.apply(&mut lines, &band_places);
+        if (self.state.bands).refresh(&lines, &band_places, shown.visible()) {
+            self.state.bands.apply(&mut lines, &band_places);
         }
-        state.lay_out(&lines, shown.top(), bar);
-        let status = Status {
-            name,
-            loading: (source.loads.progress())
-                .map(|(done, total)| format!("[rendering: {done}/{total}]")),
-            files: Files::new(shown_files, &lines, &blocks),
-            styles: status::Styles::new(&inputs.theme, &inputs.caps),
-            width: size.map_or(inputs.caps.width, |size| size.columns),
-            bar,
-            panel: Style {
-                fg: inputs.theme.foreground,
-                bg: inputs.theme.background,
-                ..Style::default()
-            },
-            muted: style::muted(
-                &inputs.theme,
-                Style {
-                    fg: inputs.theme.foreground,
-                    bg: inputs.theme.background,
-                    ..Style::default()
-                },
-            ),
-            red: Style {
-                fg: inputs.theme.error,
-                bg: inputs.theme.background,
-                ..Style::default()
-            },
-            reading: inputs.reading.is_some(),
+        self.state.lay_out(&lines, shown.top(), bar);
+        let shown_files: &[File] = match self.content {
+            Content::Document(_) => &[],
+            Content::Files(files) => files,
         };
+        let loading = (self.shell.source.loads.progress())
+            .map(|(done, total)| format!("[rendering: {done}/{total}]"));
+        let files = Files::new(shown_files, &lines, &blocks);
+        let status = status_for(self.name, loading, files, inputs, (self.size, bar));
         let marks = Marks::new(&inputs.theme, &inputs.caps);
         let rgb = Rgb::new(&inputs.theme, &inputs.caps);
         let mut frame_layout = Layout {
@@ -405,178 +380,239 @@ fn page_through(
             view: &mut shown,
         };
         let run = Run {
-            can_reload: source.reload.is_some(),
+            can_reload: self.shell.source.reload.is_some(),
             tmux: writer.through_tmux(),
-            started: source.started,
+            started: self.shell.source.started,
+            draws_images: inputs.caps.draws_images(),
+            reading: self.shell.other.is_some() || inputs.reading.is_some(),
+            inline: self.shell.inline.is_some(),
         };
         let cells = inputs.caps.cell_pixels;
-        let ended = {
-            let mut pager = Pager::new(&mut state, &mut frame_layout, run, cells, terminal.now());
-            show(&mut pager, &mut writer, terminal, size, &mut source)?
-        };
-        // An answer that came in the same read as a key that ended the frame
-        // is applied first, so the outcome that key asks for uses the new
-        // cells.
-        if let Some(cell) = state.cell.take() {
-            state.changed = None;
-            inputs.caps.cell_pixels = Some(cell);
+        let mut pager = Pager::new(&mut self.state, &mut frame_layout, run, cells, now);
+        let ended = show(
+            &mut pager,
+            &mut writer,
+            self.shell.terminal,
+            self.size,
+            &mut self.shell.source,
+        )?;
+        let closed = self.shell.close(&mut pager, content, ended)?;
+        if closed.quit {
+            return Ok(false);
         }
-        match ended {
-            Effect::Quit => {
-                // The caller waits for the programs, once the screen is
-                // left.
-                source.loads.halt();
-                encoder.delete_all(terminal)?;
-                terminal.flush()?;
-                return Ok(());
+        if let Some(document) = closed.document {
+            self.reloaded = Some(document);
+        }
+        if closed.reuse {
+            self.laid_out = Some((self.shell.inputs.caps.clone(), Stream { lines, blocks }));
+        }
+        if let Some(new) = self.shell.source.window.take() {
+            self.size = new;
+        }
+        self.view = Some(shown);
+        Ok(true)
+    }
+
+    /// The lines of the document for a window with `rows` for them: the
+    /// layout kept when it is still good, and otherwise a new one.
+    fn stream(&mut self, rows: usize) -> Stream {
+        let inputs = &*self.shell.inputs;
+        let content = shown_content(self.content, &self.reloaded);
+        let mut stream = match self.laid_out.take() {
+            Some((caps, stream)) if caps == inputs.caps => stream,
+            _ => crate::typeset::layout::content(content, inputs),
+        };
+        // The text sizing protocol cannot draw part of a line, so a line
+        // taller than the window is drawn at normal size.
+        for line in &mut stream.lines {
+            if usize::from(crate::present::output::rows(line, &inputs.caps)) > rows {
+                line.to_normal_size();
             }
-            Effect::Loaded => {
-                // The tinted lines move with the image that came.
-                if let Some(changed) = state.changed.take() {
-                    let blocks = (lines.get(changed.lines).unwrap_or_default().iter())
-                        .filter_map(|line| line.block.map(|id| blocks.get(id).clone()))
-                        .collect();
-                    tinted = Some((changed.at, blocks));
+        }
+        stream
+    }
+
+    /// Fits the caps to the window, and loads the heading images again
+    /// when the cells they were drawn for are not the ones now.
+    fn refit(&mut self) {
+        let inputs = &mut *self.shell.inputs;
+        fit(
+            &mut inputs.caps,
+            self.size,
+            self.width,
+            &mut self.window_cell,
+        );
+        if cell_size(&inputs.caps) != self.headed {
+            self.headed = cell_size(&inputs.caps);
+            let content = shown_content(self.content, &self.reloaded);
+            load_headings(content, inputs, self.shell.source.loads);
+        }
+    }
+}
+
+impl<T: Terminal> Shell<'_, '_, '_, T> {
+    /// Carries out the effects that end a layout of `content`, which is
+    /// what it showed, and those that follow what they find out.
+    fn close(
+        &mut self,
+        pager: &mut Pager,
+        content: Content,
+        mut effects: Vec<Effect>,
+    ) -> io::Result<Closed> {
+        let mut closed = Closed::default();
+        loop {
+            let mut onward = None;
+            for effect in effects {
+                match effect {
+                    Effect::Quit => {
+                        // The caller waits for the programs, once the
+                        // screen is left.
+                        self.source.loads.halt();
+                        self.encoder.delete_all(self.terminal)?;
+                        self.terminal.flush()?;
+                        closed.quit = true;
+                        return Ok(closed);
+                    }
+                    Effect::Relayout { reuse } => {
+                        closed.reuse = reuse;
+                        return Ok(closed);
+                    }
+                    Effect::Reload => {
+                        let (reply, now, document) = self.reload(content);
+                        closed.document = document.or(closed.document);
+                        onward = Some(step(pager, Msg::Reloaded(reply, now)));
+                        break;
+                    }
+                    effect => self.close_with(effect, content)?,
                 }
-                for (key, image) in source.arrived.drain(..) {
-                    inputs.images.came(key, image);
-                }
-                keep_top = true;
-                view = Some(shown);
             }
-            Effect::Resized => {
-                let new = source.window;
-                // The lines laid out for the new size are others.
-                state.changed = None;
-                size = new;
-                view = Some(shown);
-                // A new font size changes the cells, which the window does
-                // not always tell: it tells none, or inside tmux it may
-                // tell tmux's guess. The terminal's answer comes among the
-                // keys; until then the cells known are used.
-                let tells_pixels = new.is_some_and(|new| new.cell_pixels().is_some());
-                if new.is_some() && (inputs.caps.tmux_passthrough || !tells_pixels) {
-                    cell_query::ask(inputs.caps.tmux_passthrough, terminal)?;
-                    terminal.flush()?;
-                }
-            }
-            // Laid out again for the cells the terminal answered, as after
-            // a resize.
-            Effect::Cells(cell) => {
-                state.changed = None;
-                inputs.caps.cell_pixels = Some(cell);
-                view = Some(shown);
+            effects = onward.expect("an effect that ends the layout");
+        }
+    }
+
+    /// Carries out `effect`, one of those that end a layout, which needs
+    /// nothing of the document's source.
+    fn close_with(&mut self, effect: Effect, content: Content) -> io::Result<()> {
+        let inputs = &mut *self.inputs;
+        match effect {
+            Effect::SetCells(cell) => inputs.caps.cell_pixels = Some(cell),
+            Effect::AskCells => {
+                cell_query::ask(inputs.caps.tmux_passthrough, self.terminal)?;
+                self.terminal.flush()?;
             }
             // Laid out again with wide blocks the other way, in reading
-            // mode as it is and as `M` would turn it on, keeping the
-            // block at the top as a resize does.
-            Effect::Wide => {
-                for reading in [&mut inputs.reading, &mut other].into_iter().flatten() {
+            // mode as it is and as `M` would turn it on.
+            Effect::FlipWide => {
+                for reading in [&mut inputs.reading, &mut self.other].into_iter().flatten() {
                     reading.wide = match reading.wide {
                         Wide::Wrap => Wide::Scroll,
                         Wide::Scroll => Wide::Wrap,
                     };
                 }
-                state.changed = None;
-                view = Some(shown);
             }
-            // The same lines, with the band shown anew.
-            Effect::Bands => {
-                laid_out = Some((inputs.caps.clone(), Stream { lines, blocks }));
-                keep_top = true;
-                view = Some(shown);
-            }
-            // Laid out again as after a resize, which keeps the block at
-            // the top.
-            Effect::Reading => {
-                if inputs.caps.draws_images() {
-                    std::mem::swap(&mut inputs.reading, &mut other);
-                    state.changed = None;
-                    // Turned on: what it shows that the text does not
-                    // starts loading, and lays the page out again as it
-                    // comes.
-                    if let (Some(_), Some(start)) = (&inputs.reading, inline.as_mut()) {
-                        start(content, &mut inputs.images, source.loads, &inputs.caps);
-                    }
-                } else {
-                    state.told = Some(Told::new(NEEDS_IMAGES));
+            Effect::SwapReading => std::mem::swap(&mut inputs.reading, &mut self.other),
+            Effect::StartInline => {
+                if let Some(start) = self.inline.as_mut() {
+                    start(content, &mut inputs.images, self.source.loads, &inputs.caps);
                 }
-                view = Some(shown);
             }
-            Effect::Reload => {
-                state.changed = None;
-                view = Some(shown);
-                state.follow.seen = None;
-                // The reload may change the pixels of the images.
-                encoder.changed();
-                let reload = source
-                    .reload
-                    .as_deref_mut()
-                    .expect("a source to reload from");
-                let now = terminal.now();
-                let before = inputs.images.take_placeholders();
-                // The images in view start first, once the view is known.
-                source.loads.hold();
-                let reloaded_now = reload.reload(
-                    &mut inputs.images,
-                    source.loads,
-                    &inputs.caps,
-                    inputs.reading.is_some(),
-                );
-                let replaced = inputs.images.take_replaced();
-                let (document, warnings) = match reloaded_now {
-                    Reloaded::Document(document) => (document, Vec::new()),
-                    Reloaded::Warned(document, warnings) => (document, warnings),
-                    Reloaded::Failed(why) => {
-                        for (key, placeholder) in before {
-                            if source.loads.loading(&key) {
-                                inputs.images.wait(key, placeholder);
-                            }
-                        }
-                        state.told = Some(Told::new(why));
-                        continue;
-                    }
-                };
-                if let Content::Document(old) = content {
-                    let comparison = compare(old, &document);
-                    let left = loading::Reloaded {
-                        old,
-                        new: &document,
-                        changes: &comparison,
-                        before: &before,
-                        replaced: &replaced,
-                        images: &inputs.images,
-                    };
-                    let keys: Vec<ImageKey> = source.loads.keys().cloned().collect();
-                    let placeholders: Vec<_> = (keys.into_iter())
-                        .map(|key| {
-                            let placeholder = left.placeholder(&key);
-                            (key, placeholder)
-                        })
-                        .collect();
-                    for (key, placeholder) in placeholders {
+            Effect::Install => {
+                for (key, image) in self.source.arrived.drain(..) {
+                    inputs.images.came(key, image);
+                }
+            }
+            _ => unreachable!("an effect that is not one of those that end a layout"),
+        }
+        Ok(())
+    }
+
+    /// Reads the document again, and brings the images up to date for it:
+    /// what came of it, when, and the document if it was read.
+    fn reload(&mut self, content: Content) -> (Reply, Instant, Option<Document>) {
+        // The reload may change the pixels of the images.
+        self.encoder.changed();
+        let inputs = &mut *self.inputs;
+        let reload = (self.source.reload.as_deref_mut()).expect("a source to reload from");
+        let now = self.terminal.now();
+        let before = inputs.images.take_placeholders();
+        // The images in view start first, once the view is known.
+        self.source.loads.hold();
+        let reloaded_now = reload.reload(
+            &mut inputs.images,
+            self.source.loads,
+            &inputs.caps,
+            inputs.reading.is_some(),
+        );
+        let replaced = inputs.images.take_replaced();
+        let (document, warnings) = match reloaded_now {
+            Reloaded::Document(document) => (document, Vec::new()),
+            Reloaded::Warned(document, warnings) => (document, warnings),
+            Reloaded::Failed(why) => {
+                for (key, placeholder) in before {
+                    if self.source.loads.loading(&key) {
                         inputs.images.wait(key, placeholder);
                     }
-                    changes = Some(comparison);
                 }
-                reloaded = Some(document);
-                state.warn(warnings, now);
-                state.told = Some(Told::fading("reloaded", now));
+                return (Reply::Failed(why), now, None);
             }
-            _ => unreachable!("a layout ends with the effects that end it"),
+        };
+        let mut changes = None;
+        if let Content::Document(old) = content {
+            let comparison = compare(old, &document);
+            let left = loading::Reloaded {
+                old,
+                new: &document,
+                changes: &comparison,
+                before: &before,
+                replaced: &replaced,
+                images: &inputs.images,
+            };
+            let keys: Vec<ImageKey> = self.source.loads.keys().cloned().collect();
+            let placeholders: Vec<_> = (keys.into_iter())
+                .map(|key| {
+                    let placeholder = left.placeholder(&key);
+                    (key, placeholder)
+                })
+                .collect();
+            for (key, placeholder) in placeholders {
+                inputs.images.wait(key, placeholder);
+            }
+            changes = Some(comparison);
         }
+        (Reply::Read { warnings, changes }, now, Some(document))
     }
 }
 
-/// Whether the block `new` of the reloaded document is the block `old` of
-/// the one before it, as `changes` found: the block that stayed or changed
-/// from where `old` was.
-fn follows(changes: &Comparison, old: &BlockInfo, new: &BlockInfo) -> bool {
-    old.file() == new.file()
-        && matches!(
-            changes.fate(new.path()),
-            Some(Fate::Stayed { was } | Fate::Changed { was }) if was == old.path()
-        )
+/// The status line and the panels' look for `inputs`, in a window of `size`
+/// that has a row for the status line when `bar`, calling a lone document
+/// `name`; `loading` stands in place of the name while images load.
+fn status_for<'a>(
+    name: &'a str,
+    loading: Option<String>,
+    files: Files<'a>,
+    inputs: &Inputs,
+    (size, bar): (Option<WindowSize>, bool),
+) -> Status<'a> {
+    let panel = Style {
+        fg: inputs.theme.foreground,
+        bg: inputs.theme.background,
+        ..Style::default()
+    };
+    Status {
+        name,
+        loading,
+        files,
+        styles: status::Styles::new(&inputs.theme, &inputs.caps),
+        width: size.map_or(inputs.caps.width, |size| size.columns),
+        bar,
+        muted: style::muted(&inputs.theme, panel.clone()),
+        red: Style {
+            fg: inputs.theme.error,
+            ..panel.clone()
+        },
+        panel,
+        reading: inputs.reading.is_some(),
+    }
 }
 
 /// The rows of a window whose size the terminal does not tell.
@@ -594,8 +630,8 @@ struct Origin<'r, 'l> {
     /// The loads that came and wait for the layout to end, as the images
     /// are in use until then.
     arrived: Vec<(ImageKey, Result<Source, ImageError>)>,
-    /// The size the window was last found to be of.
-    window: Option<WindowSize>,
+    /// The size the window was found to be of, when it changed.
+    window: Option<Option<WindowSize>>,
 }
 
 /// Starts loading the heading images of `content` for the cells `inputs`
@@ -674,23 +710,24 @@ fn draw_frame(
 
 /// Shows `pager`'s layout on `terminal`, whose window is of `size`, until
 /// the layout ends: it waits for a message, steps the pager with it and
-/// carries out the effects, one after the other, and tells the effect that
-/// ended it.
+/// carries out the effects, one after the other. It gives the effects that
+/// end the layout, which the caller carries out.
 fn show(
     pager: &mut Pager,
     writer: &mut Writer,
     terminal: &mut impl Terminal,
     size: Option<WindowSize>,
     source: &mut Origin,
-) -> io::Result<Effect> {
+) -> io::Result<Vec<Effect>> {
     let mut msg = Msg::Shown(terminal.now());
     loop {
         let mut next = None;
-        for effect in step(pager, msg) {
+        let mut effects = step(pager, msg).into_iter();
+        while let Some(effect) = effects.next() {
             if effect.ends() {
-                return Ok(effect);
+                return Ok(std::iter::once(effect).chain(effects).collect());
             }
-            if let Some(reply) = carry(effect, pager, writer, terminal, size, source)? {
+            if let Some(reply) = carry(effect, pager, writer, terminal, (size, &mut *source))? {
                 next = Some(reply);
             }
         }
@@ -698,15 +735,14 @@ fn show(
     }
 }
 
-/// Carries out `effect` for `pager` on `terminal`, and gives the message
-/// it asks for, if it does.
+/// Carries out `effect` for `pager` on `terminal`, where the window is of
+/// `size`, and gives the message it asks for, if it does.
 fn carry(
     effect: Effect,
     pager: &mut Pager,
     writer: &mut Writer,
     terminal: &mut impl Terminal,
-    size: Option<WindowSize>,
-    source: &mut Origin,
+    (size, source): (Option<WindowSize>, &mut Origin),
 ) -> io::Result<Option<Msg>> {
     match effect {
         Effect::Read { fading } => {
@@ -729,10 +765,16 @@ fn carry(
             return Ok(Some(Msg::Loads { came }));
         }
         Effect::PollWindow => {
-            source.window = terminal.size();
-            let changed = source.window != size;
+            let window = terminal.size();
+            let resized = (window != size).then(|| Resized {
+                known: window.is_some(),
+                tells_cells: window.is_some_and(|window| window.cell_pixels().is_some()),
+            });
+            if resized.is_some() {
+                source.window = Some(window);
+            }
             let bands = writer.has_bands();
-            return Ok(Some(Msg::Window { changed, bands }));
+            return Ok(Some(Msg::Window { resized, bands }));
         }
         Effect::Prefer(visible) => prefer(source.loads, pager.layout.lines, visible),
         Effect::Draw(frame, at) => {
@@ -754,15 +796,7 @@ fn carry(
             clipboard::copy(&text, writer.through_tmux(), terminal)?;
             terminal.flush()?;
         }
-        Effect::Redraw
-        | Effect::Quit
-        | Effect::Reload
-        | Effect::Reading
-        | Effect::Wide
-        | Effect::Cells(_)
-        | Effect::Bands
-        | Effect::Loaded
-        | Effect::Resized => unreachable!("an effect that ends the layout, or one a key makes"),
+        _ => unreachable!("an effect that ends the layout"),
     }
     Ok(None)
 }

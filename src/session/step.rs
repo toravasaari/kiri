@@ -14,7 +14,8 @@ use std::time::{Duration, Instant};
 use crate::present::keys::Key;
 use crate::present::kitty::graphics::ImageId;
 use crate::session::frame::{Frame, Layout};
-use crate::session::state::{Change, Focus, Polled, State, Told};
+use crate::session::state::{Change, Focus, Polled, State, Told, Warning};
+use crate::typeset::compare::Comparison;
 
 /// What the pager knows of the run that does not change while it shows a
 /// document.
@@ -29,6 +30,13 @@ pub(crate) struct Run {
     /// When the pager started, from when the bands below the images that
     /// load move.
     pub(crate) started: Instant,
+    /// Whether the terminal draws images, which reading mode needs.
+    pub(crate) draws_images: bool,
+    /// Whether there is a reading mode to turn on or off.
+    pub(crate) reading: bool,
+    /// Whether turning reading mode on starts loading what it shows that
+    /// the text does not.
+    pub(crate) inline: bool,
 }
 
 /// A pager showing one layout of the document: the state that stays from
@@ -100,11 +108,40 @@ pub(crate) enum Msg {
     Loads { came: bool },
     /// Whether the window changed size, which [`Effect::PollWindow`] asked
     /// for, and whether the frame has bands, which move with each draw.
-    Window { changed: bool, bands: bool },
+    Window {
+        resized: Option<Resized>,
+        bands: bool,
+    },
+    /// What reading the document again came to, which [`Effect::Reload`]
+    /// asked for, at `now`.
+    Reloaded(Reply, Instant),
 }
 
-/// What goes out. The loop carries the effects out in order; the last
-/// one either asks for the next message or ends the layout.
+/// The window is of another size.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Resized {
+    /// Whether the window has a size at all.
+    pub(crate) known: bool,
+    /// Whether it tells the pixels of its cells.
+    pub(crate) tells_cells: bool,
+}
+
+/// What reading the document again came to.
+pub(crate) enum Reply {
+    /// The document could not be read again: why, as the status line says
+    /// it.
+    Failed(String),
+    /// It was read, with these warnings about it, and how it differs from
+    /// the one before when that is known. The loop keeps the document.
+    Read {
+        warnings: Vec<Warning>,
+        changes: Option<Comparison>,
+    },
+}
+
+/// What goes out. The loop carries the effects out in order. The last one
+/// either asks for the next message, or ends the layout, which the loop
+/// then makes again: the ones that end it are those [`Effect::ends`] tells.
 pub(crate) enum Effect {
     /// Wait for keys, at most [`FRAME`](crate::session::state::FRAME) when
     /// `fading` or the frame has bands, and otherwise
@@ -127,46 +164,49 @@ pub(crate) enum Effect {
     /// The terminal dropped this image, whose placeholders are on the
     /// screen: send it again.
     Resend(ImageId),
-    /// The terminal lost the images it was sent.
+    /// The terminal lost the images it was sent, as when the reader asked
+    /// for them again, as `less` repaints.
     Lose,
     /// The terminal lost these images, sent while its pane was away.
     LoseSome(Vec<ImageId>),
     /// Put this on the clipboard.
     Copy(String),
-    /// The screen and its images are to be sent again, as `less` repaints.
-    Redraw,
-    /// Quit: the loop stops the loads and leaves the screen.
+    /// Stop the loads, take the images off the screen, and quit.
     Quit,
-    /// The document is to be read again.
+    /// The terminal answered that its cells are of this size: use it.
+    SetCells((u16, u16)),
+    /// Ask the terminal for the size of its cells, as the window changed.
+    AskCells,
+    /// Turn reading mode on or off.
+    SwapReading,
+    /// Switch wide blocks between wrapping and scrolling, in reading mode
+    /// as it is and as `M` would turn it on.
+    FlipWide,
+    /// Start loading what reading mode shows that the text does not.
+    StartInline,
+    /// Take in the images that loads brought.
+    Install,
+    /// Read the document again; what it came to is [`Msg::Reloaded`].
     Reload,
-    /// Reading mode is to be turned on or off.
-    Reading,
-    /// Wide blocks are to switch between wrapping and scrolling.
-    Wide,
-    /// The terminal answered that its cells are of this size.
-    Cells((u16, u16)),
-    /// A band is scrolled or selected otherwise: the same lines show it
-    /// anew.
-    Bands,
-    /// Loads came.
-    Loaded,
-    /// The window is of another size.
-    Resized,
+    /// Make the layout again, with the same lines when `reuse`.
+    Relayout { reuse: bool },
 }
 
 impl Effect {
-    /// Whether the effect ends the layout.
+    /// Whether the effect ends the layout: it is carried out when nothing
+    /// is drawn any more.
     pub(crate) fn ends(&self) -> bool {
         matches!(
             self,
             Self::Quit
+                | Self::SetCells(_)
+                | Self::AskCells
+                | Self::SwapReading
+                | Self::FlipWide
+                | Self::StartInline
+                | Self::Install
                 | Self::Reload
-                | Self::Reading
-                | Self::Wide
-                | Self::Cells(_)
-                | Self::Bands
-                | Self::Loaded
-                | Self::Resized
+                | Self::Relayout { .. }
         )
     }
 }
@@ -178,10 +218,11 @@ pub(crate) fn step(pager: &mut Pager, msg: Msg) -> Vec<Effect> {
         Msg::Input(bytes, now) => input(pager, &bytes, now),
         Msg::Changed(change) => changed(pager, change),
         Msg::Loads { came } => match came {
-            true => vec![Effect::Loaded],
+            true => loaded(pager),
             false => vec![Effect::PollWindow],
         },
-        Msg::Window { changed, bands } => window(pager, changed, bands),
+        Msg::Window { resized, bands } => window(pager, resized, bands),
+        Msg::Reloaded(reply, now) => reloaded(pager, reply, now),
     }
 }
 
@@ -207,6 +248,28 @@ fn wait(pager: &Pager) -> Effect {
     }
 }
 
+/// Ends the layout with `effects`: what the pending cell size answer asks
+/// goes first among the ones that end it, so that they use the new cells,
+/// and a reload starts from a view that shows no tint.
+fn finish(pager: &mut Pager, mut effects: Vec<Effect>) -> Vec<Effect> {
+    if effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::Reload))
+    {
+        pager.state.changed = None;
+        pager.state.follow.seen = None;
+    }
+    if let Some(cell) = pager.state.cell.take() {
+        pager.state.changed = None;
+        let at = effects
+            .iter()
+            .position(Effect::ends)
+            .unwrap_or(effects.len());
+        effects.insert(at, Effect::SetCells(cell));
+    }
+    effects
+}
+
 /// A read's turn: its keys, then the cells the terminal answered, and on
 /// to the poll of the document.
 fn input(pager: &mut Pager, bytes: &[u8], now: Instant) -> Vec<Effect> {
@@ -225,7 +288,9 @@ fn input(pager: &mut Pager, bytes: &[u8], now: Instant) -> Vec<Effect> {
     if let Some(new) = pager.state.cell.take()
         && Some(new) != pager.cells
     {
-        effects.push(Effect::Cells(new));
+        pager.state.changed = None;
+        effects.push(Effect::SetCells(new));
+        effects.push(Effect::Relayout { reuse: false });
     } else if pager.state.follow.on() && pager.run.can_reload {
         effects.push(Effect::PollChange);
     } else {
@@ -239,7 +304,7 @@ fn changed(pager: &mut Pager, change: Change) -> Vec<Effect> {
     let mut effects = Vec::new();
     match pager.state.follow.poll(change, pager.now) {
         Polled::Nothing => settle(pager, &mut effects),
-        Polled::Reload => effects.push(Effect::Reload),
+        Polled::Reload => return finish(pager, vec![Effect::Reload]),
         Polled::Gone(why) => {
             pager.state.told = Some(Told::new(why));
             settle(pager, &mut effects);
@@ -260,18 +325,47 @@ fn settle(pager: &mut Pager, effects: &mut Vec<Effect>) {
     // place.
     let layout = &*pager.layout;
     let refreshed = (pager.state.bands).refresh(layout.lines, layout.places, layout.view.visible());
-    match pager.pending.bands || refreshed {
-        true => effects.push(Effect::Bands),
-        false => effects.push(Effect::PollLoads),
+    if pager.pending.bands || refreshed {
+        // The same lines, with the band shown anew.
+        pager.state.next.keep_top = true;
+        effects.extend(finish(pager, vec![Effect::Relayout { reuse: true }]));
+    } else {
+        effects.push(Effect::PollLoads);
     }
+}
+
+/// Images that were loading came: the tinted lines move with them, and the
+/// next layout keeps its top line.
+fn loaded(pager: &mut Pager) -> Vec<Effect> {
+    if let Some(changed) = pager.state.changed.take() {
+        let places = pager.layout.places.get(changed.lines).unwrap_or_default();
+        let blocks = places.iter().flatten().cloned().collect();
+        pager.state.next.tinted = Some((changed.at, blocks));
+    }
+    pager.state.next.keep_top = true;
+    finish(
+        pager,
+        vec![Effect::Install, Effect::Relayout { reuse: false }],
+    )
 }
 
 /// The last turn: if the window changed size the layout ends, and
 /// otherwise the frame is drawn, if it differs from the one shown or has
 /// bands.
-fn window(pager: &mut Pager, changed: bool, bands: bool) -> Vec<Effect> {
-    if changed {
-        return vec![Effect::Resized];
+fn window(pager: &mut Pager, resized: Option<Resized>, bands: bool) -> Vec<Effect> {
+    if let Some(resized) = resized {
+        // The lines laid out for the new size are others.
+        pager.state.changed = None;
+        let mut effects = Vec::new();
+        // A new font size changes the cells, which the window does not
+        // always tell: it tells none, or inside tmux it may tell tmux's
+        // guess. The terminal's answer comes among the keys; until then
+        // the cells known are used.
+        if resized.known && (pager.run.tmux || !resized.tells_cells) {
+            effects.push(Effect::AskCells);
+        }
+        effects.push(Effect::Relayout { reuse: false });
+        return finish(pager, effects);
     }
     let now = pager.now;
     let frame = pager.layout.frame(pager.state, now);
@@ -289,6 +383,19 @@ fn window(pager: &mut Pager, changed: bool, bands: bool) -> Vec<Effect> {
     effects
 }
 
+/// The document was read again, or could not be, at `now`.
+fn reloaded(pager: &mut Pager, reply: Reply, now: Instant) -> Vec<Effect> {
+    match reply {
+        Reply::Failed(why) => pager.state.told = Some(Told::new(why)),
+        Reply::Read { warnings, changes } => {
+            pager.state.next.changes = changes;
+            pager.state.warn(warnings, now);
+            pager.state.told = Some(Told::fading("reloaded", now));
+        }
+    }
+    vec![Effect::Relayout { reuse: false }]
+}
+
 /// The effects of `keys`, read at `now`, in the order of the keys. A key
 /// that ends the layout ends them: the keys after it are dropped, but the
 /// last cell size answer among them is kept.
@@ -303,24 +410,17 @@ fn keys_in(pager: &mut Pager, keys: Vec<Key>, now: Instant) -> Vec<Effect> {
         if std::mem::take(&mut pager.state.bands_moved) {
             pager.pending.bands = true;
         }
-        match pressed {
-            None => {}
-            Some(Effect::Redraw) => {
-                effects.push(Effect::Lose);
-                pager.pending.again = true;
-            }
-            Some(effect @ Effect::Copy(_)) => effects.push(effect),
-            Some(effect) => {
-                // The keys after it in the same read are dropped.
-                pager.state.keep_answer(keys.as_slice());
-                if matches!(effect, Effect::Reload) {
-                    // The reader sees that the pager is busy before it is.
-                    let frame = pager.layout.frame(pager.state, now);
-                    effects.push(Effect::Draw(Rc::new(frame), None));
-                }
-                effects.push(effect);
-                return effects;
-            }
+        pager.pending.again |= pressed.iter().any(|effect| matches!(effect, Effect::Lose));
+        effects.extend(pressed);
+        if effects.last().is_some_and(Effect::ends) {
+            // The keys after it in the same read are dropped.
+            pager.state.keep_answer(keys.as_slice());
+            let quit = matches!(effects.last(), Some(Effect::Quit));
+            return if quit {
+                effects
+            } else {
+                finish(pager, effects)
+            };
         }
         pager.state.moved(pager.layout.view.top());
     }
