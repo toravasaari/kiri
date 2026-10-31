@@ -1305,7 +1305,9 @@ Needs G7.2.1.
 - G7.3.2 A simulated terminal for the pager's tests, with a virtual
   clock and files in memory, instead of most pseudo-terminal tests;
   with it, a fixed test theme and real terminals' probe answers as
-  fixtures.
+  fixtures. Done but for moving the tests: 7 of the pager's 85
+  pseudo-terminal tests run in the simulated shell, and the rest need
+  `main.rs`'s wiring, so they move with G7.3.3.
 - G7.3.3 A session that holds the sources, their versions and the views;
   the images it wants and what it watches replace the background loads'
   six entries and follow mode's polling, with one watcher for the
