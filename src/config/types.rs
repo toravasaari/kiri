@@ -13,6 +13,7 @@ use serde::de::{self, DeserializeSeed, Deserializer, EnumAccess, VariantAccess};
 
 use crate::render::{FrontMatterStyle, Headings, RenderErrors, TableRows};
 use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase};
+use crate::typeset::reading::page::Wide;
 use crate::typeset::theme::Paper;
 
 /// How the front matter at the start of a Markdown document shows.
@@ -196,6 +197,11 @@ impl Named for RenderErrors {
     const NAMES: &'static [&'static str] = &["inline", "stderr", "both"];
 }
 
+impl Named for Wide {
+    const ALL: &'static [Self] = &[Self::Wrap, Self::Scroll];
+    const NAMES: &'static [&'static str] = &["wrap", "scroll"];
+}
+
 impl Named for crate::term::Mode {
     const ALL: &'static [Self] = &[Self::Auto, Self::Plain, Self::Ansi, Self::Kitty];
     const NAMES: &'static [&'static str] = &["auto", "plain", "ansi", "kitty"];
@@ -311,6 +317,7 @@ named_values!(
     Headings,
     TableRows,
     RenderErrors,
+    Wide,
     crate::term::Mode,
 );
 

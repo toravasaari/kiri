@@ -72,6 +72,10 @@ mouse = true
 # below.
 reading = false
 
+# How wide code and tables show in reading mode: "wrap" or "scroll"; see
+# Wide below.
+wide = "wrap"
+
 # Front matter render style: "table", "code", "hide" or "off".
 front_matter = "table"
 
@@ -433,6 +437,26 @@ mode, and `KIRI_READING=0` turns it off again for one run:
 KIRI_READING=0 kiri notes.md   # plain, whatever the file says
 ```
 
+## Wide
+
+In reading mode, a code block or table wider than the area it is drawn in
+either wraps to fit it, or keeps its lines and words whole and scrolls
+sideways in the pager. The first of these that is given decides:
+
+1. `--wide wrap|scroll`
+2. `KIRI_WIDE` with the same values
+3. `wide` in the configuration file
+4. `wrap`
+
+Printing always wraps, since a printed page cannot scroll. In the pager,
+`W` switches between the two. A configuration file with both of these
+shows a wide code block as a band that scrolls sideways:
+
+```toml
+reading = true
+wide = "scroll"
+```
+
 ## Search case
 
 A search in the pager ignores case when its term has no upper-case letter,
@@ -591,6 +615,7 @@ once.
 | `KIRI_PASSTHROUGH` | Whether kitty's images pass through tmux; see [Passthrough](#passthrough) |
 | `KIRI_MOUSE` | Whether the pager takes the mouse; see [Mouse](#mouse) |
 | `KIRI_READING` | Whether reading mode is on; see [Reading](#reading) |
+| `KIRI_WIDE` | How wide code and tables show in reading mode: `wrap` or `scroll`; see [Wide](#wide) |
 | `KIRI_MODE` | Which terminal features to use; see [Mode](#mode) |
 | `KIRI_WIDTH` | Width in cells; see [Width](#width) |
 | `KIRI_MARGINS` | Whether the theme keeps its margins; see [Margins](#margins) |

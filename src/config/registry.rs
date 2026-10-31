@@ -27,6 +27,7 @@ use super::types::{Env, File, FrontMatter, Megabytes, Setting, ThemeSource, file
 use crate::render::{Headings, RenderErrors, TableRows};
 use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase};
 use crate::term::Mode;
+use crate::typeset::reading::page::Wide;
 use crate::typeset::theme::{Paper, Theme};
 
 /// What a change of a setting needs, while kiri runs. The pager does not
@@ -443,6 +444,17 @@ settings! {
         images, such as kitty; elsewhere the document shows as text. The \
         option's name may still change. Off unless set; KIRI_READING and the \
         configuration file set it too."), env Env::is("KIRI_READING");
+
+        /// What becomes of code blocks and tables wider than reading mode's
+        /// area in the pager: wrapped to fit it, or scrolled sideways.
+        wide: Wide = Wide::default();
+        key "wide", owner "typeset::reading", effect Layout, medium Pixels, scope General,
+        flag Some("--wide"), help Some("Experimental: wide code and tables wrap or scroll in reading mode\n\n\
+        With wrap, a code block or table wider than reading mode's area \
+        wraps to fit it; with scroll, it keeps its lines and words whole and \
+        scrolls sideways in the pager, where W switches between the two. \
+        Printing always wraps. wrap unless set; KIRI_WIDE and the \
+        configuration file set it too. The option's name may still change."), env Env::is("KIRI_WIDE");
     }
     diagrams {
         /// Whether diagrams in code blocks are drawn, or shown as code:

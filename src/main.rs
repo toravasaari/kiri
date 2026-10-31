@@ -1320,10 +1320,7 @@ impl<'a> Context<'a> {
             max_file_size: settings.max_image_size.0 * kiri::images::MB,
             follow: follow(cli).map_or(Follow::Off, |follow| follow.value),
             reading: settings.reading,
-            wide: match cli.wide.as_deref() {
-                Some("scroll") => Wide::Scroll,
-                _ => Wide::Wrap,
-            },
+            wide: settings.wide,
         }
     }
 

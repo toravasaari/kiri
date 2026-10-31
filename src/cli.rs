@@ -16,6 +16,7 @@ use kiri::render::{Headings, RenderErrors, TableRows};
 use kiri::session::settings::{Follow, FollowJump, InitialLoad, Paging};
 use kiri::term::Mode;
 use kiri::typeset::input::Input;
+use kiri::typeset::reading::page::Wide;
 
 /// Render a Markdown document, or show an image, in the terminal.
 #[derive(Parser)]
@@ -182,15 +183,8 @@ pub struct Cli {
     #[arg(help = help_text("--reading"), long_help = long_help_text("--reading"), long)]
     pub reading: bool,
 
-    /// Experimental: wide code and tables wrap or scroll in reading mode
-    ///
-    /// With wrap, a code block or table wider than reading mode's area
-    /// wraps to fit it; with scroll, it keeps its lines and words whole and
-    /// scrolls sideways in the pager, where W switches between the two.
-    /// Printing always wraps. wrap unless set. The option's name may still
-    /// change.
-    #[arg(long, value_name = "HOW", value_parser = ["wrap", "scroll"])]
-    pub wide: Option<String>,
+    #[arg(help = help_text("--wide"), long_help = long_help_text("--wide"), long, value_name = "HOW", value_parser = named::<Wide>())]
+    pub wide: Option<Wide>,
 
     #[arg(help = help_text("--max-image-size"), long_help = long_help_text("--max-image-size"), long, value_name = "MB", value_parser = text::<Megabytes>)]
     pub max_image_size: Option<Megabytes>,
@@ -259,6 +253,7 @@ pub fn options(cli: &Cli) -> Options {
         mouse: (flag(cli.mouse.then_some(true), "--mouse"))
             .or(flag(cli.no_mouse.then_some(false), "--no-mouse")),
         reading: flag(cli.reading.then_some(true), "--reading"),
+        wide: flag(cli.wide, "--wide"),
         ..Options::default()
     }
 }
