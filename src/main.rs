@@ -33,11 +33,12 @@ use kiri::present::output::Page;
 use kiri::render::Inputs;
 use kiri::session::plan::{self, Load, Route};
 use kiri::session::settings::{Follow, Paging};
-use kiri::session::state::{Change, Look, Warning};
+use kiri::session::state::{Change, Look};
 use kiri::term::Interrupt;
 use kiri::typeset::caps::Capabilities;
+use kiri::typeset::diagnostic::Diagnostic;
 use kiri::typeset::input::Input;
-use kiri::typeset::model::{Block, Document, FrontMatterError};
+use kiri::typeset::model::{Block, Document};
 use kiri::typeset::reading::engine::Reading;
 use kiri::typeset::reading::page::Wide;
 use kiri::typeset::theme::Theme;
@@ -329,7 +330,7 @@ fn document(
     path: &Path,
     settings: &Settings,
     caps: &Capabilities,
-    warn: impl FnOnce(&FrontMatterError),
+    warn: impl FnOnce(Diagnostic),
 ) -> Result<Option<Document>, String> {
     Ok(Some(match input {
         Input::Table(separator) => kiri::typeset::parse::csv::parse(source, separator)
@@ -343,7 +344,7 @@ fn document(
             let document = kiri::typeset::parse::parse_with(source, style.is_some());
             let error = style.and_then(|style| kiri::render::front_matter_error(&document, style));
             if let Some(error) = error {
-                warn(error);
+                warn(Diagnostic::from(error));
             }
             document
         }
@@ -394,12 +395,12 @@ fn given_from(run: &Run, opened: Opened) -> Option<Given> {
     let file = (opened.file).filter(|file| alone || !lone || file.is_file());
     let name = opened.path.display().to_string();
     let mut warnings = Vec::new();
-    let warn = |warning: &FrontMatterError| {
+    let warn = |warning: Diagnostic| {
         // On standard error at once for a file alone, and in the pager too.
         if lone {
             eprintln!("kiri: {warning}");
         }
-        warnings.push(warning.clone());
+        warnings.push(warning);
     };
     let shown = match opened.content {
         Content::Image { format, head, rest } => Shown::Image { format, head, rest },
@@ -584,7 +585,7 @@ fn reloading<'a>(
 struct Opening<'a> {
     /// Whether the documents' images load once the pager has opened.
     later: bool,
-    reading_warning: Option<String>,
+    reading_warning: Option<Diagnostic>,
     /// Where the pager reads the document again from.
     reload: Option<FileReload<'a>>,
 }
@@ -717,8 +718,8 @@ fn page_files(
         let mut warned = Vec::new();
         for warning in &given.warnings {
             match lone {
-                true => warned_of.push(Warning::from(warning)),
-                false => warned.push(format!("{name}: {warning}")),
+                true => warned_of.push(warning.clone()),
+                false => warned.push(warning.clone().in_file(&name).to_string()),
             }
         }
         let document = match given.shown {
@@ -837,12 +838,7 @@ fn page_files(
             None => context.follow,
         },
         jump: settings.follow_jump,
-        warnings: (warned_of.into_iter())
-            .chain(reading_warning.map(|message| Warning {
-                line: None,
-                message,
-            }))
-            .collect(),
+        warnings: (warned_of.into_iter()).chain(reading_warning).collect(),
         reload: reloader.as_mut().map(|reload| reload as &mut dyn Reload),
         reading: Some(context.reading_mode()),
         // What reading mode shows in the middle of text loads when `M`
@@ -952,7 +948,7 @@ fn print_files(show: &Show, given: Vec<Given>, inputs: &mut Inputs) -> io::Resul
         let name = given.name;
         let drawn = given.drawn;
         for warning in given.warnings.iter().filter(|_| !lone) {
-            eprintln!("kiri: {name}: {warning}");
+            eprintln!("kiri: {}", warning.clone().in_file(&name));
         }
         let image = |image: Source, name: String, inputs: &mut Inputs, out: &mut _| match lone {
             true => print_alone(image, Page::default(), inputs, &silent, out),
@@ -1120,7 +1116,7 @@ struct Given {
     shown: Shown,
     /// What is told about it before it is shown, besides its images. A
     /// file alone has told them already, and the pager tells them too.
-    warnings: Vec<FrontMatterError>,
+    warnings: Vec<Diagnostic>,
     /// What is told after it is shown: why its diagram was not drawn, for
     /// a diagram file.
     drawn: Option<Drawn>,
@@ -1653,7 +1649,7 @@ impl Reload for FileReload<'_> {
             Err(error) => return Reloaded::Failed(error),
         };
         let mut warnings = Vec::new();
-        let warn = |error: &FrontMatterError| warnings.push(Warning::from(error));
+        let warn = |warning| warnings.push(warning);
         let document = match document(input, &source, path, self.settings, caps, warn) {
             Ok(Some(document)) => document,
             Ok(None) => return Reloaded::Failed("cannot be shown".to_owned()),

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::session::settings::{Follow, InitialLoad, Paging};
 use crate::typeset::caps::Capabilities;
+use crate::typeset::diagnostic::{Code, Diagnostic};
 use crate::typeset::input::Input;
 use crate::typeset::reading::page::Wide;
 use crate::typeset::theme::Paper;
@@ -69,9 +70,12 @@ pub fn reading(asked: bool, caps: &Capabilities) -> bool {
 
 /// Why reading mode is not shown, when it is asked for and the terminal
 /// cannot draw images.
-pub fn reading_warning(asked: bool, caps: &Capabilities) -> Option<String> {
+pub fn reading_warning(asked: bool, caps: &Capabilities) -> Option<Diagnostic> {
     (asked && !caps.draws_images()).then(|| {
-        "reading mode needs a terminal that draws images; showing the document as text".to_owned()
+        Diagnostic::new(
+            Code::ReadingMode,
+            "reading mode needs a terminal that draws images; showing the document as text",
+        )
     })
 }
 
@@ -349,7 +353,9 @@ mod tests {
 
     #[test]
     fn reading_mode_that_is_asked_for_but_not_drawn_is_warned_of() {
-        let warning = reading_warning(true, &Capabilities::ansi(80)).unwrap();
+        let warning = reading_warning(true, &Capabilities::ansi(80))
+            .unwrap()
+            .to_string();
         assert!(
             warning.starts_with("reading mode needs a terminal"),
             "{warning}"

@@ -31,7 +31,7 @@ use crate::session::frame::{Frame, Layout, Status};
 use crate::session::help::Placed;
 use crate::session::search::Marks;
 use crate::session::settings::{self, FollowJump, SearchCase};
-use crate::session::state::{Change, FRAME, NOTHING_TO_FOLLOW, POLL, State, Told, Warning};
+use crate::session::state::{Change, FRAME, NOTHING_TO_FOLLOW, POLL, State, Told};
 use crate::session::step::{Effect, Msg, Pager, Reply, Resized, Run, step};
 use crate::session::view::View;
 use crate::session::{loading, status};
@@ -106,7 +106,7 @@ pub enum Reloaded {
     Document(Document),
     /// As `Document`, with warnings about it, the first of which the
     /// pager shows.
-    Warned(Document, Vec<Warning>),
+    Warned(Document, Vec<crate::typeset::diagnostic::Diagnostic>),
     /// The document could not be read again: why, as the status line says
     /// it.
     Failed(String),
@@ -128,7 +128,7 @@ pub struct Options<'a, 'l> {
     pub jump: FollowJump,
     /// The warnings about the document as first read, which the pager
     /// tells as it does those of a reload.
-    pub warnings: Vec<Warning>,
+    pub warnings: Vec<crate::typeset::diagnostic::Diagnostic>,
     /// Where the images of a reload load in the background, when the
     /// caller keeps them, so that it can wait for their programs once
     /// the pager has left its screen; the pager only stops them.

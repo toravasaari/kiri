@@ -1,4 +1,5 @@
 use super::*;
+use crate::typeset::diagnostic::{Code, Diagnostic};
 
 /// `document` shown with `then` to reload it, in a window of 60 × 6.
 fn show_reloading(document: &Document, then: &mut Then, keys: &[&[u8]]) -> Vec<String> {
@@ -68,10 +69,10 @@ fn a_reload_that_fails_keeps_the_old_document_and_tells_why_until_the_next_key()
 }
 
 /// A warning at line `line` of the file.
-fn warning(line: usize, message: &str) -> Warning {
-    Warning {
+fn warning(line: usize, message: &str) -> Diagnostic {
+    Diagnostic {
         line: Some(line),
-        message: message.to_owned(),
+        ..Diagnostic::new(Code::Image, message)
     }
 }
 
@@ -154,7 +155,7 @@ fn fade_red(frame: &str) -> Option<u8> {
     rgb.split(';').next()?.parse().ok()
 }
 
-fn warned_with(warnings: Vec<Warning>) -> Reloaded {
+fn warned_with(warnings: Vec<Diagnostic>) -> Reloaded {
     Reloaded::Warned(rows(10), warnings)
 }
 
@@ -181,10 +182,7 @@ fn a_reload_with_warnings_shows_the_first_above_the_status_line_at_the_right_edg
 
 #[test]
 fn the_warning_line_leaves_out_the_line_when_it_is_not_known() {
-    let warning = Warning {
-        line: None,
-        message: "no line".to_owned(),
-    };
+    let warning = Diagnostic::new(Code::Image, "no line");
     let mut then = Then::new([warned_with(vec![warning])]);
     let frames = show_reloading(&numbers(10), &mut then, &[b"r"]);
     let (_, text) = warning_line(&frames[2]).unwrap_or_default();

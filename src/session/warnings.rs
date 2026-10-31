@@ -6,12 +6,12 @@ use unicode_width::UnicodeWidthStr;
 use crate::typeset::style::{self, Span, Style};
 use crate::typeset::wrap;
 
-use crate::session::state::Warning;
+use crate::typeset::diagnostic::Diagnostic;
 
 /// The spans of the warning line for `warnings` in a window `columns`
 /// wide, with the first warning in `red` and how many more there are in
 /// `dim`; empty when there are none.
-pub fn spans(warnings: &[Warning], columns: usize, red: &Style, dim: &Style) -> Vec<Span> {
+pub fn spans(warnings: &[Diagnostic], columns: usize, red: &Style, dim: &Style) -> Vec<Span> {
     let Some(first) = warnings.first() else {
         return Vec::new();
     };
@@ -19,7 +19,7 @@ pub fn spans(warnings: &[Warning], columns: usize, red: &Style, dim: &Style) -> 
         Some(line) => format!(" [:{line}]"),
         None => String::new(),
     };
-    let message = format!("\u{26a0}{place} {}", first.message);
+    let message = format!("\u{26a0}{place} {}", first.pager_message());
     let more = warnings.len() - 1;
     let tail = match more {
         0 => String::new(),
@@ -56,12 +56,13 @@ fn head(text: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::typeset::diagnostic::Code;
     use crate::typeset::style::text;
 
-    fn warning(line: Option<usize>, message: &str) -> Warning {
-        Warning {
+    fn warning(line: Option<usize>, message: &str) -> Diagnostic {
+        Diagnostic {
             line,
-            message: message.to_owned(),
+            ..Diagnostic::new(Code::Image, message)
         }
     }
 
@@ -74,7 +75,7 @@ mod tests {
         (red, dim)
     }
 
-    fn shown(warnings: &[Warning], columns: usize) -> Vec<Span> {
+    fn shown(warnings: &[Diagnostic], columns: usize) -> Vec<Span> {
         let (red, dim) = styles();
         spans(warnings, columns, &red, &dim)
     }

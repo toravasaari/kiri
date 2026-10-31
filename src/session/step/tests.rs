@@ -234,9 +234,12 @@ fn a_reload_that_worked_keeps_what_it_found_for_the_next_layout() {
     let now = Instant::now();
     let mut state = State::new(SearchCase::Smart);
     with_pager(30, 5, &mut state, run(now), now, |pager| {
-        let warning = crate::session::state::Warning {
+        let warning = crate::typeset::diagnostic::Diagnostic {
             line: Some(2),
-            message: "front matter: odd".into(),
+            ..crate::typeset::diagnostic::Diagnostic::new(
+                crate::typeset::diagnostic::Code::FrontMatter,
+                "odd",
+            )
         };
         let reply = Reply::Read {
             warnings: vec![warning],

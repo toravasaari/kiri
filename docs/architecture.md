@@ -820,7 +820,7 @@ file (`main.rs`, `pager/mod.rs`, `render/mod.rs`,
 | diagram language | `src/typeset/diagrams/`: a file and one entry in `language.rs`; a program that draws it is run by the platform |
 | image format | the decoder in `src/typeset/images/decode.rs` |
 | theme or look setting | `src/typeset/theme/` |
-| warning | a `Diagnostic` with a code of its own, no path yet, made by diagnostics; until then a `Warning` in `src/session/state.rs` |
+| warning | a `Diagnostic` in `src/typeset/diagnostic.rs`, with a code of its own: where it came from, its kind and its text |
 | highlight, or anything else that changes from frame to frame | a layer in the list that `stack` makes in `src/session/layers.rs`: a paint and an address, and nothing new in `marked` |
 | panel, such as help or a file list | a document in the panel's look, no path yet, made by panels as documents, built in `src/session/` |
 | feature of the pager | a file of its own in `src/session/`, never a new branch in `src/pager/mod.rs` |
