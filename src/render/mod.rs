@@ -263,10 +263,7 @@ impl Inputs {
 /// its images, to check that they came.
 pub fn render(document: &Document, inputs: &Inputs, out: &mut impl Write) -> io::Result<Encoder> {
     let lines = layout::layout(document, inputs);
-    let page = output::Page {
-        background: inputs.theme.background,
-        foreground: inputs.theme.foreground,
-    };
+    let page = output::Page::of(&inputs.theme);
     output::write(&lines, &inputs.images, &inputs.caps, page, out)
 }
 
@@ -274,10 +271,7 @@ pub fn render(document: &Document, inputs: &Inputs, out: &mut impl Write) -> io:
 /// that names it, as [`render`] renders a document.
 pub fn render_files(files: &[File], inputs: &Inputs, out: &mut impl Write) -> io::Result<Encoder> {
     let stream = layout::files(files, inputs);
-    let page = output::Page {
-        background: inputs.theme.background,
-        foreground: inputs.theme.foreground,
-    };
+    let page = output::Page::of(&inputs.theme);
     output::write(&stream.lines, &inputs.images, &inputs.caps, page, out)
 }
 
@@ -297,10 +291,7 @@ pub fn render_file(
         lines.push(style::Line::blank());
     }
     lines.extend(layout::file(file, number, inputs));
-    let page = output::Page {
-        background: inputs.theme.background,
-        foreground: inputs.theme.foreground,
-    };
+    let page = output::Page::of(&inputs.theme);
     output::write(&lines, &inputs.images, &inputs.caps, page, out)
 }
 
