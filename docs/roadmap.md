@@ -1287,7 +1287,6 @@ Needs G3.4.1.
 - One light or dark page type for diagrams and themes.
 - Diagram errors as a type of their own rather than strings, as images
   have.
-- Status line key hints written once with the keys they name.
 
 #### G6.2 Shorter help texts (done)
 
