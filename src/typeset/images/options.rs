@@ -10,7 +10,6 @@ use crate::typeset::color::Color;
 use crate::typeset::diagrams::renderer::{NoRenderer, Renderer};
 use crate::typeset::diagrams::request::{FormulaColors, Theme};
 use crate::typeset::images::heading::{HeadingLook, LevelLook};
-use crate::typeset::images::size::largest;
 use crate::typeset::model::Document;
 use crate::typeset::theme::Theme as PageTheme;
 
@@ -93,43 +92,37 @@ impl LoadOptions<'_> {
     /// What the keys of the images these options draw name.
     pub fn looks(&self) -> Looks {
         Looks {
-            diagram: diagram_look(self.theme, self.formula, self.panel, self.largest),
+            diagram: diagram_look(self.theme, self.formula, self.panel),
             headings: self.headings,
         }
     }
 }
 
 /// A fingerprint of how a diagram or formula is drawn: the page it is
-/// drawn for, the colours of formulas, whether it lies on a panel and the
-/// most pixels it is shown at, which reduce it. It holds for a run only.
-/// The defaults, a light page, no formula colours, a panel and no limit,
-/// are 0, which is also the fingerprint of a key built without options.
-pub fn diagram_look(
-    theme: Theme,
-    formula: FormulaColors,
-    panel: bool,
-    largest: Option<(u32, u32)>,
-) -> u64 {
-    if (theme, formula, panel, largest) == (Theme::Light, FormulaColors::default(), true, None) {
+/// drawn for, the colours of formulas and whether it lies on a panel. It
+/// holds for a run only. The defaults, a light page, no formula colours
+/// and a panel, are 0, which is also the fingerprint of a key built
+/// without options.
+///
+/// The most pixels an image is shown at, which reduces a raster diagram
+/// as it loads, is not in it yet: a new cell size would then make every
+/// diagram a new key, and nothing reloads diagrams for one. That comes
+/// with reconciling the wanted keys, which starts the loads a key asks for.
+pub fn diagram_look(theme: Theme, formula: FormulaColors, panel: bool) -> u64 {
+    if (theme, formula, panel) == (Theme::Light, FormulaColors::default(), true) {
         return 0;
     }
     let mut hasher = DefaultHasher::new();
-    (theme, formula, panel, largest).hash(&mut hasher);
+    (theme, formula, panel).hash(&mut hasher);
     hasher.finish().max(1)
 }
 
 /// [`diagram_look`] for a page in `theme` on a terminal with `caps`, as
 /// the loader and the layout both have it: the diagrams are drawn for the
-/// terminal's page, with formulas in the colours of [`formula_colors`], as
-/// large as the terminal shows an image.
+/// terminal's page, with formulas in the colours of [`formula_colors`].
 pub fn diagram_look_for(theme: &PageTheme, caps: &Capabilities, panel: bool) -> u64 {
     let page = Theme::for_page(caps.dark_background);
-    diagram_look(
-        page,
-        formula_colors(theme, caps),
-        panel,
-        Some(largest(caps)),
-    )
+    diagram_look(page, formula_colors(theme, caps), panel)
 }
 
 /// The colours formulas are drawn in, as RGB: the theme's for formulas,
@@ -173,47 +166,59 @@ mod tests {
 
     const NAVY: Option<[u8; 3]> = Some([0x12, 0x34, 0x56]);
 
-    fn look(theme: Theme, text: Option<[u8; 3]>, panel: bool, most: Option<(u32, u32)>) -> u64 {
+    fn look(theme: Theme, text: Option<[u8; 3]>, panel: bool) -> u64 {
         let formula = FormulaColors {
             text,
             background: None,
         };
-        diagram_look(theme, formula, panel, most)
+        diagram_look(theme, formula, panel)
     }
 
     #[test]
     fn the_look_of_the_default_options_is_0() {
-        assert_eq!(look(Theme::Light, None, true, None), 0);
+        assert_eq!(look(Theme::Light, None, true), 0);
         assert_eq!(LoadOptions::default().looks().diagram, 0);
     }
 
     #[test]
     fn the_page_a_diagram_is_drawn_for_is_in_its_look() {
-        let light = look(Theme::Light, NAVY, true, None);
-        assert_eq!(light, look(Theme::Light, NAVY, true, None));
-        assert_ne!(light, look(Theme::Dark, NAVY, true, None));
+        let light = look(Theme::Light, NAVY, true);
+        assert_eq!(light, look(Theme::Light, NAVY, true));
+        assert_ne!(light, look(Theme::Dark, NAVY, true));
     }
 
     #[test]
     fn the_colours_of_a_formula_are_in_the_look() {
-        let navy = look(Theme::Dark, NAVY, true, None);
-        assert_eq!(navy, look(Theme::Dark, NAVY, true, None));
-        assert_ne!(navy, look(Theme::Dark, Some([0, 0, 0]), true, None));
-        assert_ne!(navy, look(Theme::Dark, None, true, None));
+        let navy = look(Theme::Dark, NAVY, true);
+        assert_eq!(navy, look(Theme::Dark, NAVY, true));
+        assert_ne!(navy, look(Theme::Dark, Some([0, 0, 0]), true));
+        assert_ne!(navy, look(Theme::Dark, None, true));
         let on_white = FormulaColors {
             text: NAVY,
             background: Some([255; 3]),
         };
-        assert_ne!(navy, diagram_look(Theme::Dark, on_white, true, None));
+        assert_ne!(navy, diagram_look(Theme::Dark, on_white, true));
     }
 
     #[test]
-    fn the_panel_and_the_largest_size_are_in_the_look() {
-        let panel = look(Theme::Dark, None, true, Some((100, 50)));
-        assert_eq!(panel, look(Theme::Dark, None, true, Some((100, 50))));
-        assert_ne!(panel, look(Theme::Dark, None, false, Some((100, 50))));
-        assert_ne!(panel, look(Theme::Dark, None, true, Some((100, 51))));
-        assert_ne!(panel, look(Theme::Dark, None, true, None));
+    fn the_panel_is_in_the_look() {
+        let panel = look(Theme::Dark, None, true);
+        assert_eq!(panel, look(Theme::Dark, None, true));
+        assert_ne!(panel, look(Theme::Dark, None, false));
+    }
+
+    #[test]
+    fn the_largest_size_is_not_in_the_look_yet() {
+        // A new cell size would make every diagram a new key, and nothing
+        // reloads diagrams for one.
+        let options = |largest| LoadOptions {
+            largest,
+            ..LoadOptions::default()
+        };
+        assert_eq!(
+            options(None).looks().diagram,
+            options(Some((100, 50))).looks().diagram
+        );
     }
 
     #[test]
@@ -247,7 +252,7 @@ mod tests {
             theme: Theme::for_page(caps.dark_background),
             formula: formula_colors(&theme, &caps),
             panel: false,
-            largest: Some(largest(&caps)),
+            largest: Some(crate::typeset::images::size::largest(&caps)),
             ..LoadOptions::default()
         };
         assert_ne!(options.looks().diagram, 0);

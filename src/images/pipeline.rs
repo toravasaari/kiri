@@ -49,7 +49,6 @@ impl Loading<'_> {
                 self.theme,
                 self.formula,
                 self.settings.diagram_background_panel,
-                self.largest,
             ),
             headings: self.headings,
         }

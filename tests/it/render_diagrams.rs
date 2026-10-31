@@ -402,3 +402,15 @@ fn a_diagram_drawn_for_the_other_page_is_not_the_one_shown() {
     assert_eq!(sent(&out).len(), 0, "{out:?}");
     assert!(out.contains("flowchart"), "{out:?}");
 }
+
+#[test]
+fn a_diagram_stays_drawn_when_the_cells_change_after_it_loaded() {
+    let dark = |cell| Capabilities {
+        dark_background: Some(true),
+        cell_pixels: Some(cell),
+        ..Capabilities::kitty(WIDTH)
+    };
+    let out = loaded_for_shown_in(&dark((10, 20)), &dark((9, 18)));
+    assert_eq!(sent(&out).len(), 1, "{out:?}");
+    assert!(!out.contains("flowchart"), "{out:?}");
+}
