@@ -317,7 +317,7 @@ fn an_error_of_several_lines_keeps_them_apart() {
         ImageKey::block("mermaid", "flowchart TD\n  A[open --> B\n"),
         Err(ImageError::Diagram {
             name: "mermaid diagram on line 1".to_owned(),
-            reason: "Parse error on line 2:\n...A[open --> B\n-----^\n  Expecting SQE".to_owned(),
+            reason: "Parse error on line 2:\n...A[open --> B\n-----^\n  Expecting SQE".into(),
         }),
     );
     let inputs = Inputs {

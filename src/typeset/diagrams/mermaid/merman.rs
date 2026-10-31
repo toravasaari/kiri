@@ -9,6 +9,7 @@ use merman::{
 };
 
 use crate::diagrams::{Drawn, Theme};
+use crate::typeset::diagrams::error::DiagramError;
 use crate::typeset::diagrams::mermaid::{Colours, MERMAID, MERMAID_SITE, page};
 
 /// merman's version. Cargo tells a crate only its own version, so a test
@@ -25,7 +26,7 @@ pub fn version() -> String {
 
 /// The diagram `source` as an SVG document, in `theme` unless the diagram
 /// chooses its own, or merman's message saying why it could not be drawn.
-pub fn render(source: &str, theme: Theme) -> Result<Drawn, String> {
+pub fn render(source: &str, theme: Theme) -> Result<Drawn, DiagramError> {
     // GitHub's themes, look and layout. The site configuration is what a
     // diagram's own directive or front matter overrides.
     let mut site = serde_json::json!({ "theme": MERMAID.theme_names.of(theme) });
@@ -39,9 +40,9 @@ pub fn render(source: &str, theme: Theme) -> Result<Drawn, String> {
         pipeline: Some(SvgPipeline::resvg_safe()),
         ..SvgRequest::default()
     };
-    let no_diagram = || "no Mermaid diagram".to_owned();
+    let no_diagram = || DiagramError::from("no Mermaid diagram");
     let diagram = (renderer.prepare_semantic(source, OperationControl::new()))
-        .map_err(|error| error.to_string())?
+        .map_err(|error| DiagramError::from(error.to_string()))?
         .ok_or_else(no_diagram)?;
     // The diagram's own configuration over the site's.
     let config = diagram.metadata().effective_config.as_value();
@@ -53,7 +54,7 @@ pub fn render(source: &str, theme: Theme) -> Result<Drawn, String> {
             Ok(Drawn::svg(with_labels_unclipped(&svg), theme, background))
         }
         Ok(_) => Err(no_diagram()),
-        Err(error) => Err(error.to_string()),
+        Err(error) => Err(error.to_string().into()),
     }
 }
 
@@ -395,9 +396,13 @@ mod tests {
 
     #[test]
     fn a_syntax_error_is_merman_s_message() {
-        let error = render("flowchart TD\n    A[Unclosed --> B\n", Theme::Light).unwrap_err();
+        let error = render("flowchart TD\n    A[Unclosed --> B\n", Theme::Light)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("missing `]`"), "{error}");
-        let error = render("not a diagram\n", Theme::Light).unwrap_err();
+        let error = render("not a diagram\n", Theme::Light)
+            .unwrap_err()
+            .to_string();
         assert!(
             error.contains("No Mermaid diagram type detected"),
             "{error}"

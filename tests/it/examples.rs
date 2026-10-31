@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use kiri::diagrams::{Drawn, Renderer, Request};
+use kiri::diagrams::{DiagramError, Drawn, Renderer, Request};
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, LoadOptions};
 use kiri::render::Inputs;
 use kiri::typeset::caps::Capabilities;
@@ -28,7 +28,7 @@ impl Renderer for WideDiagrams {
         language.eq_ignore_ascii_case("mermaid")
     }
 
-    fn render(&self, request: &Request) -> Result<Drawn, String> {
+    fn render(&self, request: &Request) -> Result<Drawn, DiagramError> {
         let &Request { source, theme, .. } = request;
         if source.trim_end().ends_with("-->") {
             return Err("the last arrow of the diagram leads nowhere: \

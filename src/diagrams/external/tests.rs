@@ -1,5 +1,5 @@
 use super::*;
-use crate::diagrams::Theme;
+use crate::diagrams::{DiagramError, Theme};
 use crate::testing::Scratch;
 use crate::typeset::diagrams::mermaid;
 
@@ -74,7 +74,7 @@ fn render_stopped_after(
     stop: &AtomicBool,
     marker: &Path,
     start: Instant,
-) -> Result<Drawn, String> {
+) -> Result<Drawn, DiagramError> {
     std::thread::scope(|scope| {
         let drawing =
             scope.spawn(|| renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)));
@@ -242,7 +242,7 @@ fn a_command_that_fails_tells_why_in_its_first_lines() {
              exit 1\n",
     );
     assert_eq!(
-        renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)),
+        shown(renderer.render(&Request::new("mermaid", SOURCE, Theme::Light))),
         Err("sh exited with status 1: Error: Parse error on line 2:\n\
                  ...A[Unclosed\n\
                  -----^\n\
@@ -251,7 +251,7 @@ fn a_command_that_fails_tells_why_in_its_first_lines() {
     );
     let renderer = script_renderer(&scratch, "exit 2\n");
     assert_eq!(
-        renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)),
+        shown(renderer.render(&Request::new("mermaid", SOURCE, Theme::Light))),
         Err("sh exited with status 2".to_owned())
     );
     assert_eq!(left(&scratch), Vec::<PathBuf>::new());
@@ -272,7 +272,7 @@ fn an_image_larger_than_the_limit_is_not_read() {
     assert_eq!(drawn.map(|drawn| drawn.image.len()), Ok(100));
     let renderer = limited("printf '%0101d' 0 > \"$2\"\n");
     assert_eq!(
-        renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)),
+        shown(renderer.render(&Request::new("mermaid", SOURCE, Theme::Light))),
         Err("sh wrote an image larger than the 100-byte limit".to_owned())
     );
     assert_eq!(left(&scratch), Vec::<PathBuf>::new());
@@ -287,7 +287,7 @@ fn what_a_command_says_is_read_only_as_far_as_its_first_lines() {
         "echo 'Error: it failed' >&2\nyes 'more' | head -c 2000000 >&2\nexit 1\n",
     );
     assert_eq!(
-        renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)),
+        shown(renderer.render(&Request::new("mermaid", SOURCE, Theme::Light))),
         Err("sh exited with status 1: Error: it failed\nmore\nmore\nmore\nmore".to_owned())
     );
 }
@@ -297,7 +297,7 @@ fn a_command_that_writes_nothing_fails() {
     let scratch = scratch("writes-nothing");
     let renderer = script_renderer(&scratch, "exit 0\n");
     assert_eq!(
-        renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)),
+        shown(renderer.render(&Request::new("mermaid", SOURCE, Theme::Light))),
         Err("sh wrote no output file".to_owned())
     );
     assert_eq!(left(&scratch), Vec::<PathBuf>::new());
@@ -330,7 +330,8 @@ fn a_program_that_is_not_there_fails() {
     );
     let error = renderer
         .render(&Request::new("mermaid", SOURCE, Theme::Light))
-        .unwrap_err();
+        .unwrap_err()
+        .to_string();
     assert!(error.starts_with("/no/such/mmdc: "), "{error}");
     assert_eq!(left(&scratch), Vec::<PathBuf>::new());
 }
@@ -354,7 +355,7 @@ fn a_command_that_takes_too_long_is_stopped_with_what_it_started() {
         let renderer = script_renderer_with(&scratch, &script, settings);
         let start = Instant::now();
         assert_eq!(
-            renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)),
+            shown(renderer.render(&Request::new("mermaid", SOURCE, Theme::Light))),
             Err(format!("sh did not finish in {} s", limit.as_secs_f32()))
         );
         assert!(
@@ -412,7 +413,7 @@ fn a_program_that_is_stopped_may_clean_up_first() {
     let start = Instant::now();
     // Stopped once the trap is set, however long sh takes to start.
     let drawn = render_stopped_after(&renderer, &stop, &ready, start);
-    assert_eq!(drawn, Err("sh was stopped: interrupted".to_owned()));
+    assert_eq!(shown(drawn), Err("sh was stopped: interrupted".to_owned()));
     assert!(
         start.elapsed() < Duration::from_secs(5),
         "{:?}",
@@ -438,7 +439,7 @@ fn a_stop_kills_the_program_with_what_it_started_and_starts_no_more() {
     let renderer = script_renderer_with(&scratch, &script, settings);
     let start = Instant::now();
     let drawn = render_stopped_after(&renderer, &stop, &started, start);
-    assert_eq!(drawn, Err("sh was stopped: interrupted".to_owned()));
+    assert_eq!(shown(drawn), Err("sh was stopped: interrupted".to_owned()));
     assert!(
         start.elapsed() < Duration::from_secs(5),
         "{:?}",
@@ -450,7 +451,7 @@ fn a_stop_kills_the_program_with_what_it_started_and_starts_no_more() {
     // Once stopped, nothing more starts.
     fs::remove_file(&started).unwrap();
     assert_eq!(
-        renderer.render(&Request::new("mermaid", SOURCE, Theme::Light)),
+        shown(renderer.render(&Request::new("mermaid", SOURCE, Theme::Light))),
         Err("sh was not started: interrupted".to_owned())
     );
     assert!(!started.exists());
@@ -480,7 +481,7 @@ fn a_request_s_own_stop_ends_its_program_and_leaves_the_others() {
         let other = renderer.render(&Request::new("mermaid", SOURCE, Theme::Light));
         (drawing.join().unwrap(), other)
     });
-    assert_eq!(slow, Err("sh was stopped: interrupted".to_owned()));
+    assert_eq!(shown(slow), Err("sh was stopped: interrupted".to_owned()));
     assert!(
         start.elapsed() < Duration::from_secs(5),
         "{:?}",
@@ -490,7 +491,7 @@ fn a_request_s_own_stop_ends_its_program_and_leaves_the_others() {
     // A request stopped before its program starts does not start it.
     fs::remove_file(&started).unwrap();
     assert_eq!(
-        renderer.render(&request),
+        shown(renderer.render(&request)),
         Err("sh was not started: interrupted".to_owned())
     );
     assert!(!started.exists());
@@ -754,7 +755,7 @@ fn png_header(width: u32, height: u32) -> Vec<u8> {
 
 /// What a command that takes `{scale}` draws of a diagram as large as
 /// `sizes` gives for each scale, and the scales it was asked for.
-fn drawn_at_scales(name: &str, sizes: &[(u32, Vec<u8>)]) -> (Result<Drawn, String>, String) {
+fn drawn_at_scales(name: &str, sizes: &[(u32, Vec<u8>)]) -> (Result<Drawn, DiagramError>, String) {
     let scratch = scratch(&format!("scales-{name}"));
     let calls = scratch.join("calls");
     let mut script = format!("echo \"$3\" >> '{}'\ncase \"$3\" in\n", calls.display());
@@ -821,7 +822,7 @@ fn a_png_too_large_to_load_is_drawn_again_at_a_scale_that_fits() {
     assert_eq!(calls, "3");
     // A program that fails the second time fails.
     let (drawn, calls) = drawn_at_scales("fails", &[(3, png_header(9000, 9000))]);
-    assert_eq!(drawn, Err("sh exited with status 9".to_owned()));
+    assert_eq!(shown(drawn), Err("sh exited with status 9".to_owned()));
     assert_eq!(calls, "3 2");
 }
 
@@ -861,6 +862,11 @@ fn at_most_five_lines_tell_why() {
         first_lines(said),
         Some("one\ntwo\n  three\nfour\nfive".to_owned())
     );
+}
+
+/// `drawn` with its failure as the text a warning shows.
+fn shown(drawn: Result<Drawn, DiagramError>) -> Result<Drawn, String> {
+    drawn.map_err(|error| error.to_string())
 }
 
 /// What `renderer` says when it cannot draw the diagram, as text.

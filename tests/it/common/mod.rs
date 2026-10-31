@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use image::{Rgba, RgbaImage};
-use kiri::diagrams::{Drawn, Renderer, Request};
+use kiri::diagrams::{DiagramError, Drawn, Renderer, Request};
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, Images, LoadOptions, Source};
 use kiri::present::kitty::graphics::{DIACRITICS, PLACEHOLDER};
 use kiri::render::Inputs;
@@ -225,7 +225,7 @@ impl Renderer for StubDiagrams {
         language.eq_ignore_ascii_case("mermaid")
     }
 
-    fn render(&self, request: &Request) -> Result<Drawn, String> {
+    fn render(&self, request: &Request) -> Result<Drawn, DiagramError> {
         let &Request { source, theme, .. } = request;
         let unclosed = |line: &str| line.matches('[').count() > line.matches(']').count();
         if source.lines().any(unclosed) {
