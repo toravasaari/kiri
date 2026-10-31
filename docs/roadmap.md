@@ -1050,7 +1050,7 @@ Covered by G1.10.1.
 
 #### G1.8 One look and layers
 
-- G1.8.1 One look, resolved from the theme in one place and read by both
+- G1.8.1 (done) One look, resolved from the theme in one place and read by both
   layouts, instead of decisions spread over the theme, the text layout
   and reading mode; spacing as a table for each medium, with reading
   mode's GitHub values as the pixel table. Carries out the decisions on
