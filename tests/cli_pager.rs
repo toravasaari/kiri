@@ -2704,3 +2704,22 @@ fn a_diagram_in_text_stays_source_after_m_and_after_a_reload() {
     let (status, seen) = in_steps_with("pager-text-diagram", calls_when_drawing, &args, &steps);
     assert!(status.success(), "{seen:?}");
 }
+
+#[test]
+fn reading_mode_is_told_for_a_diagram_alone_only_when_it_is_paged() {
+    let reading =
+        "kiri: reading mode needs a terminal that draws images; showing the document as text\n";
+    let mut typed = false;
+    let args = ["--mode", "ansi", "--reading", "-p", "flow.mmd"];
+    let (status, seen, stderr) = in_terminal_told(
+        "pager-reading-diagram",
+        calls_when_drawing,
+        &args,
+        8,
+        None,
+        quit_at_first(&mut typed),
+    );
+    assert!(status.success(), "{seen:?}");
+    assert_eq!(stderr, reading);
+    assert!(text_of(&seen).contains("\u{26a0} reading mode"), "{seen:?}");
+}

@@ -240,6 +240,20 @@ pub fn paging(paging: Paging, files: &Files, follow: Follow) -> Paging {
     }
 }
 
+/// Whether the files of a run are `paged` after a file `alone` that is a
+/// diagram that was `drawn` is counted for: it is an image alone, paged only when `paging` is
+/// `always`.
+pub fn paged_when_drawn(paged: bool, alone: bool, drawn: bool, paging: Paging) -> bool {
+    paged && !(alone && drawn && paging != Paging::Always)
+}
+
+/// Whether to tell that reading mode is not shown, when it is `asked` for:
+/// not for a file `alone` that is `bare`, an image, a diagram or text written
+/// as it is, and printed, which has no document for reading mode to show.
+pub fn tells_reading(asked: bool, alone: bool, bare: bool, paged: bool) -> bool {
+    asked && !(alone && bare && !paged)
+}
+
 /// Whether the warnings about the settings are told, given whether `files`
 /// are `paged`: always, but for an image alone that is printed, which is
 /// shown without them.
@@ -468,6 +482,24 @@ mod tests {
             reloadable,
             text: false,
         }
+    }
+
+    #[test]
+    fn a_diagram_alone_that_is_drawn_is_paged_only_when_paging_is_always() {
+        assert!(!paged_when_drawn(true, true, true, Paging::Auto));
+        assert!(paged_when_drawn(true, true, true, Paging::Always));
+        assert!(paged_when_drawn(true, true, false, Paging::Auto));
+        assert!(paged_when_drawn(true, false, true, Paging::Auto));
+        assert!(!paged_when_drawn(false, true, false, Paging::Always));
+    }
+
+    #[test]
+    fn reading_mode_is_told_unless_a_bare_file_alone_is_printed() {
+        assert!(tells_reading(true, true, false, false));
+        assert!(tells_reading(true, true, true, true));
+        assert!(tells_reading(true, false, true, false));
+        assert!(!tells_reading(true, true, true, false));
+        assert!(!tells_reading(false, true, false, true));
     }
 
     #[test]

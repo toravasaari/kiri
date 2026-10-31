@@ -442,7 +442,6 @@ fn run(cli: &Cli, route: Route) -> Result<(), Failure> {
     let files = plan::Files {
         route,
         images_only: shown().all(|file| matches!(file.content, Content::Image { .. })),
-        // Each of them shown on its own, as an image is.
         alone: shown().all(|file| plan::shown_alone(file.input)),
         reloadable: shown().any(Opened::reloadable),
         text: shown().any(|file| file.input == Input::Text),
@@ -762,17 +761,18 @@ fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure> {
     for (number, file) in given.iter_mut().enumerate() {
         file.drawn = self::drawn(number, file, &mut images, &settings, &caps);
     }
-    // A diagram alone that is drawn is an image alone: paged only when
-    // paging is always.
     let drawn = given
         .first()
         .is_some_and(|given| matches!(given.drawn, Some(Drawn::Done)));
-    paged &= !(lone && drawn && settings.paging != Paging::Always);
+    paged = plan::paged_when_drawn(paged, lone, drawn, settings.paging);
+    let bare = given.first().is_some_and(|given| {
+        matches!(
+            given.shown,
+            Shown::AsIs(_) | Shown::Image { .. } | Shown::Diagram { .. }
+        )
+    });
+    let asked = plan::tells_reading(context.reading && reading, lone, bare, paged);
     // Once for all the files, before the pager opens, and in the pager.
-    let as_is = given
-        .first()
-        .is_some_and(|given| matches!(given.shown, Shown::AsIs(_)));
-    let asked = context.reading && reading && !(lone && as_is);
     let reading_warning = plan::reading_warning(asked, &caps);
     if let Some(warning) = &reading_warning {
         eprintln!("kiri: {warning}");
@@ -1232,7 +1232,6 @@ fn print_files(show: &Show, given: Vec<Given>, inputs: &mut Inputs) -> io::Resul
     for (number, given) in given.into_iter().enumerate() {
         let name = given.name;
         let drawn = given.drawn;
-        // A file alone has told its own, as it was read.
         for warning in given.warnings.iter().filter(|_| !lone) {
             eprintln!("kiri: {name}: {warning}");
         }

@@ -242,3 +242,20 @@ fn the_images_of_a_pipe_alone_are_relative_to_the_current_directory_and_among_se
         assert_eq!(sent(&text(&out.stdout)).len(), images, "{files:?}");
     }
 }
+
+#[test]
+fn reading_mode_is_not_told_for_an_image_or_a_diagram_alone_that_is_printed() {
+    let dir = scratch("routes-reading-alone");
+    draws_mermaid(&dir);
+    let args = ["--mode", "ansi", "--reading"];
+    let out = kiri_with(&dir, &[], &[&args[..], &["icon.png"]].concat());
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        text(&out.stderr),
+        "kiri: icon.png: the terminal cannot show images\n"
+    );
+    let out = kiri_with(&dir, &[], &[&args[..], &["flow.mmd"]].concat());
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert_eq!(text(&out.stderr), "");
+    assert!(text(&out.stdout).contains("flowchart"));
+}
