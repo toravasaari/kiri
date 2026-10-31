@@ -332,6 +332,14 @@ mod tests {
     }
 
     #[test]
+    fn never_is_measured_as_auto() {
+        // The callers pass no `never` here; this pins what it would do.
+        let measured = |rows, height| move || Measured { rows, height };
+        assert!(surely_paged(Paging::Never, measured(25, Some(24))));
+        assert!(!surely_paged(Paging::Never, measured(24, Some(24))));
+    }
+
+    #[test]
     fn images_load_now_unless_the_document_surely_goes_to_the_pager() {
         for initial_load in [InitialLoad::Wait, InitialLoad::Background] {
             assert_eq!(load(false, initial_load), Load::Now, "{initial_load:?}");
