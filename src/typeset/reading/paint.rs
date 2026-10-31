@@ -279,7 +279,8 @@ impl Canvas {
                     let mut left = x + glyphs.offset();
                     for (drop, width) in stretches {
                         let top = y + drop + glyphs.baseline() - metrics.strikethrough_offset;
-                        self.rect(left, top, width, thickness, color);
+                        let mask = over.map(|(_, mask)| mask);
+                        self.rect_masked((left, top, width, thickness), color, mask);
                         left += width;
                     }
                 }
@@ -329,6 +330,18 @@ impl Canvas {
     pub fn rect(&mut self, x: f32, y: f32, width: f32, height: f32, color: Brush) {
         if let Some(rect) = Rect::from_xywh(x, y, width, height) {
             (self.pixmap).fill_rect(rect, &paint(color, 255), Transform::identity(), None);
+        }
+    }
+
+    /// Fills a rectangle, `(x, y, width, height)`, where `mask` lets it.
+    fn rect_masked(
+        &mut self,
+        (x, y, width, height): (f32, f32, f32, f32),
+        color: Brush,
+        mask: Option<&tiny_skia::Mask>,
+    ) {
+        if let Some(rect) = Rect::from_xywh(x, y, width, height) {
+            (self.pixmap).fill_rect(rect, &paint(color, 255), Transform::identity(), mask);
         }
     }
 
@@ -862,6 +875,44 @@ mod tests {
         };
         let (sup, sub) = (bottom_of(INK), bottom_of(other));
         assert!(sub > sup, "sub ends at {sub}, sup at {sup}");
+    }
+
+    #[test]
+    fn a_mark_does_not_change_the_struck_text_outside_it() {
+        const RED: Brush = [0xc0, 0x20, 0x20];
+        const YELLOW: Brush = [0xff, 0xff, 0];
+        let struck = |text: &str| Run {
+            strike: true,
+            ..Run::new(text)
+        };
+        // Both words are struck, in one glyph run; the mark is on the second.
+        let runs = [struck("ss mm")];
+        let paragraph = lay_out(&Fonts::fixture(), &runs, &LOOK, 400.0);
+        let mark_left = paragraph.boxes(3..5)[0].left;
+        let draw = |marks: &[TextMark]| {
+            let mut canvas = Canvas::new(420, 30);
+            canvas.text_marked(&paragraph, 10.0, 3.0, None, marks);
+            canvas.into_image()
+        };
+        let plain = draw(&[]);
+        let mark = TextMark {
+            range: 3..5,
+            foreground: Some(RED),
+            background: Some(YELLOW),
+        };
+        let marked = draw(&[mark]);
+        let left_of_mark = (10.0 + mark_left).floor() as u32;
+        let differing = (0..left_of_mark)
+            .flat_map(|x| (0..30).map(move |y| (x, y)))
+            .filter(|&(x, y)| plain.get_pixel(x, y) != marked.get_pixel(x, y))
+            .count();
+        assert_eq!(differing, 0, "a mark changes the struck text outside it");
+        // Inside the mark the strike has the mark's colour.
+        assert!(
+            count(&marked, RED) > 20,
+            "{} pixels of red",
+            count(&marked, RED)
+        );
     }
 
     #[test]
