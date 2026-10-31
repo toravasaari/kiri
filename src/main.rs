@@ -36,7 +36,7 @@ use kiri::session::settings::{Follow, Paging};
 use kiri::session::state::{Change, Look};
 use kiri::term::Interrupt;
 use kiri::typeset::caps::Capabilities;
-use kiri::typeset::diagnostic::Diagnostic;
+use kiri::typeset::diagnostic::{Code, Diagnostic};
 use kiri::typeset::input::Input;
 use kiri::typeset::model::{Block, Document};
 use kiri::typeset::reading::engine::Reading;
@@ -656,7 +656,7 @@ fn told(failed: &Cell<bool>, error: String) {
 /// whether kiri is to fail for it.
 fn tell_drawn(drawn: &Drawn, failed: &Cell<bool>) {
     match drawn {
-        Drawn::Failed(error) => told(failed, error.clone()),
+        Drawn::Failed(error) => told(failed, error.to_string()),
         Drawn::Told => failed.set(true),
         Drawn::Hint(hint) => eprintln!("kiri: {hint}"),
         Drawn::Done => {}
@@ -1181,11 +1181,11 @@ enum Drawn {
     /// It was drawn: the file is its image, and there is nothing to tell.
     Done,
     /// It could not be drawn: why, told as an error.
-    Failed(String),
+    Failed(Diagnostic),
     /// It could not be drawn, and the document tells why.
     Told,
     /// Nothing could draw it.
-    Hint(String),
+    Hint(Diagnostic),
 }
 
 /// The images of the documents among `given`, loaded and drawn as
@@ -1252,22 +1252,27 @@ fn drawn(
             Some(Drawn::Done)
         }
         Some(Err(error)) => {
-            let reason = match &error {
-                ImageError::Diagram { reason, .. } => reason.clone(),
-                error => error.to_string(),
+            let (code, reason) = match &error {
+                ImageError::Diagram { reason, .. } => (Code::Diagram, reason.clone()),
+                error => (Code::Image, error.to_string()),
             };
             // Back in, so that the document tells it below the source.
             images.insert(key, Err(error));
             Some(match settings.render_errors.stderr() {
-                true => Drawn::Failed(format!("{path}: {reason}")),
+                true => Drawn::Failed(Diagnostic::new(code, reason).in_file(path.to_string())),
                 false => Drawn::Told,
             })
         }
         // Not drawn, though it could have been shown: no renderer for it.
-        None if settings.diagrams && caps.draws_images() => Some(Drawn::Hint(format!(
-            "{path}: no program to draw {} diagrams; see --doctor",
-            kiri::diagrams::display_name(language)
-        ))),
+        None if settings.diagrams && caps.draws_images() => {
+            let hint = format!(
+                "no program to draw {} diagrams; see --doctor",
+                kiri::diagrams::display_name(language)
+            );
+            Some(Drawn::Hint(
+                Diagnostic::new(Code::NoDiagramProgram, hint).in_file(path.to_string()),
+            ))
+        }
         None => None,
     }
 }
