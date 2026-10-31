@@ -580,7 +580,6 @@ The later work that the rows name, in words:
 - **The startup plan:** the decisions of `main.rs` are in
   `session/plan.rs`, with what they ask of the terminal and the files
   passed in as values.
-- **One route:** the routes for one file and for several become one.
 - **The pager's loop:** the pager's state and its loop are split, the state
   into the state engine and the loop into the platform, as messages in and
   effects out.
@@ -809,8 +808,8 @@ The paths marked new are for the maintainer to confirm.
 command line: it is some 2,150 lines with no unit tests. Besides `Cli` and
 its clap definitions it opens files and standard input; has one route, in
 which a single file is the special case of several; prints documents;
-starts the pager; loads images and diagrams, in the foreground, on threads and in the
-background; reloads files for the pager (`FileReload`); and runs
+starts the pager; loads images and diagrams, in the foreground, on threads
+and in the background; reloads files for the pager (`FileReload`); and runs
 `--doctor` and `--list-emojis`. The decisions it makes at start need no I/O,
 and they are in `src/session/plan.rs`. It does not belong to any one part,
 and is meant to shrink to wiring the others together.

@@ -457,8 +457,8 @@ fn run(cli: &Cli, route: Route) -> Result<(), Failure> {
     settings.diagrams = plan::diagrams(settings.diagrams, &files);
     let caps = kiri::term::capabilities(context.mode, context.width, &env, settings.passthrough);
     let caps = plan::on_page(caps, settings.paper);
-    let paged = plan::pages_alone(settings.paging, kiri::term::stdout_is_terminal(), &caps);
-    if plan::tells_warnings(&files, paged) {
+    let would_page = plan::pages_alone(settings.paging, kiri::term::stdout_is_terminal(), &caps);
+    if plan::tells_warnings(&files, would_page) {
         for warning in &warnings {
             eprintln!("kiri: {warning}");
         }
@@ -966,7 +966,7 @@ fn page_files(
     let Show {
         context,
         settings,
-        lone: single,
+        lone,
         failed,
     } = *show;
     let Opening {
@@ -997,7 +997,7 @@ fn page_files(
         let mut error = None;
         let mut warned = Vec::new();
         for warning in &given.warnings {
-            match single {
+            match lone {
                 true => warned_of.push(Warning::from(warning)),
                 false => warned.push(format!("{name}: {warning}")),
             }
@@ -1017,7 +1017,7 @@ fn page_files(
             Shown::Document { document, .. } => {
                 let stderr = settings.render_errors.stderr();
                 for warning in inputs.images.warnings_in(number, stderr) {
-                    warned.push(told_line(single, &name, &warning));
+                    warned.push(told_line(lone, &name, &warning));
                 }
                 document
             }
@@ -1031,8 +1031,8 @@ fn page_files(
         warnings.push(warned);
         files.push(kiri::typeset::model::File { name, document });
     }
-    let lone = files.len() == 1;
-    let (content, name) = match lone {
+    let one = files.len() == 1;
+    let (content, name) = match one {
         true => (
             kiri::typeset::layout::Content::Document(&files[0].document),
             files[0].name.as_str(),
@@ -1134,7 +1134,7 @@ fn page_files(
                 return;
             }
             let parts: Vec<Part> = match shown {
-                kiri::typeset::layout::Content::Document(document) if single => {
+                kiri::typeset::layout::Content::Document(document) if lone => {
                     vec![part(document, reloaded.as_deref(), true)]
                 }
                 _ => parts_of(true),
@@ -1197,7 +1197,7 @@ fn page_files(
         if errors[number].is_some() {
             continue;
         }
-        let rendered = match lone {
+        let rendered = match one {
             true => kiri::render::render(&file.document, inputs, &mut out),
             false => kiri::render::render_file(file, number, apart, inputs, &mut out),
         };
@@ -1810,8 +1810,8 @@ fn formula_colors(theme: &Theme, caps: &Capabilities) -> kiri::diagrams::Formula
     }
 }
 
-/// `document`, the first and only one shown, from `file` or not as for
-/// `show_document`, as a part whose images are loaded.
+/// `document`, from `file` or not, whose images are looked for beside the
+/// file, as a part whose images are loaded.
 fn part<'a>(document: &'a Document, file: Option<&'a Path>, inline_images: bool) -> Part<'a> {
     Part {
         document,

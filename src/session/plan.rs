@@ -33,12 +33,12 @@ pub fn only_always(paging: Paging) -> Paging {
     }
 }
 
-/// `paging` for several files: when `images_only`, each of them is shown
+/// `paging` for several files: when `alone`, each of them is shown
 /// on its own as an image is, such as an image file or a diagram file, and
 /// they are paged only when paging is `always`; with a document among
 /// them, the files follow `paging` as one document does.
-pub fn for_files(paging: Paging, images_only: bool) -> Paging {
-    match images_only {
+pub fn for_files(paging: Paging, alone: bool) -> Paging {
+    match alone {
         true => only_always(paging),
         false => paging,
     }
@@ -227,9 +227,9 @@ pub fn diagrams(diagrams: bool, files: &Files) -> bool {
 }
 
 /// `paging` for `files`, with `follow` for a file that is followed. Several
-/// files follow [`for_files`]. A file alone is paged by its kind: an image or
-/// anything from standard input only with `always`, a diagram as the
-/// setting says until it is drawn, a document as [`for_follow`] says.
+/// files follow [`for_files`]. Standard input is paged only with `always`.
+/// Of one file, so is an image, a diagram follows the setting until it is
+/// drawn, and a document is paged as [`for_follow`] says.
 pub fn paging(paging: Paging, files: &Files, follow: Follow) -> Paging {
     match files.route {
         Route::Several => for_files(paging, files.alone),
