@@ -273,6 +273,34 @@ fn the_mouse_tells_where_it_comes_from() {
 }
 
 #[test]
+fn reading_tells_where_it_comes_from() {
+    let dir = Scratch::new("doctor-reading");
+    check_row(&dir, &[], &[], "| Reading | off | default |");
+    let row = "| Reading | on | `--reading` |";
+    check_row(&dir, &["--reading"], &[], row);
+    let row = "| Reading | on | `KIRI_READING=1` |";
+    check_row(&dir, &[], &[("KIRI_READING", "1")], row);
+    write_config(&dir, "reading = true\n");
+    let row = "| Reading | on | configuration file |";
+    check_row(&dir, &[], &[], row);
+    let row = "| Reading | off | `--no-reading` |";
+    check_row(&dir, &["--no-reading"], &[], row);
+}
+
+#[test]
+fn wide_tells_where_it_comes_from() {
+    let dir = Scratch::new("doctor-wide");
+    check_row(&dir, &[], &[], "| Wide | wrap | default |");
+    let row = "| Wide | scroll | `--wide` |";
+    check_row(&dir, &["--wide", "scroll"], &[], row);
+    let row = "| Wide | scroll | `KIRI_WIDE=scroll` |";
+    check_row(&dir, &[], &[("KIRI_WIDE", "scroll")], row);
+    write_config(&dir, "wide = \"scroll\"\n");
+    let row = "| Wide | scroll | configuration file |";
+    check_row(&dir, &[], &[], row);
+}
+
+#[test]
 fn render_errors_tell_where_they_come_from() {
     let dir = Scratch::new("doctor-render-errors");
     check_row(&dir, &[], &[], "| Render errors | both | default |");

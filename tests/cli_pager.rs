@@ -2303,6 +2303,67 @@ fn wide_scroll_scrolls_a_wide_code_block_in_the_pager_and_wrap_wraps_it() {
     assert_eq!(images(&again).len(), 1, "{:?}", images(&again));
 }
 
+/// [`wide_code`], with the environment `env`, the configuration file
+/// `config` and `args` besides `--mode kitty --reading -p`.
+fn wide_code_set(name: &str, env: &[(&str, &str)], config: Option<&str>, args: &[&str]) -> String {
+    let prepare = |dir: &std::path::Path| {
+        let code = format!("Text.\n\n```\n{}\n```\n", "a".repeat(200));
+        std::fs::write(dir.join("wide.md"), code).unwrap();
+        if let Some(config) = config {
+            std::fs::create_dir_all(dir.join("config/kiri")).unwrap();
+            std::fs::write(dir.join("config/kiri/config.toml"), config).unwrap();
+        }
+    };
+    let mut quit = false;
+    let mut all = vec!["--mode", "kitty", "--reading", "-p"];
+    all.extend(args);
+    all.push("wide.md");
+    let setup = Setup {
+        env,
+        ..Setup::default()
+    };
+    let act = |frames: usize, terminal: &mut std::fs::File, _: &std::process::Child| {
+        if frames > 0 && !quit {
+            terminal.write_all(b"q").unwrap();
+            quit = true;
+        }
+    };
+    let (status, seen, stderr) = in_terminal_run(name, prepare, &all, 10, None, setup, act);
+    assert!(status.success(), "{stderr}");
+    seen
+}
+
+/// The variable and the file set the wide setting as the flag does, and
+/// the flag comes first, then the variable, then the file.
+#[test]
+fn wide_comes_from_the_flag_the_variable_or_the_file() {
+    let scrolls = |seen: String| images(&seen).len() == 2;
+    assert!(!scrolls(wide_code_set(
+        "pager-wide-default",
+        &[],
+        None,
+        &[]
+    )));
+    let variable = wide_code_set("pager-wide-variable", &[("KIRI_WIDE", "scroll")], None, &[]);
+    assert!(scrolls(variable), "KIRI_WIDE=scroll");
+    let file = wide_code_set("pager-wide-file", &[], Some("wide = \"scroll\"\n"), &[]);
+    assert!(scrolls(file), "wide = \"scroll\" in the file");
+    let beaten = wide_code_set(
+        "pager-wide-variable-first",
+        &[("KIRI_WIDE", "wrap")],
+        Some("wide = \"scroll\"\n"),
+        &[],
+    );
+    assert!(!scrolls(beaten), "KIRI_WIDE=wrap comes before the file");
+    let flagged = wide_code_set(
+        "pager-wide-flag-first",
+        &[("KIRI_WIDE", "wrap")],
+        None,
+        &["--wide", "scroll"],
+    );
+    assert!(scrolls(flagged), "--wide scroll comes before KIRI_WIDE");
+}
+
 #[test]
 fn printing_always_wraps() {
     let dir = Scratch::new("print-wide-scroll");

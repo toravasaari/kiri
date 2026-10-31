@@ -214,15 +214,19 @@ Options:
           
           Headings, paragraphs, lists and quotes are drawn as images, so their text cannot be
           selected or copied. It needs a terminal that draws images, such as kitty; elsewhere the
-          document shows as text. The option's name may still change.
+          document shows as text. The option's name may still change. Off unless set; KIRI_READING
+          and the configuration file set it too, and --no-reading turns it off.
+
+      --no-reading
+          Reading mode off, whatever KIRI_READING and the configuration say
 
       --wide <HOW>
           Experimental: wide code and tables wrap or scroll in reading mode
           
           With wrap, a code block or table wider than reading mode's area wraps to fit it; with
           scroll, it keeps its lines and words whole and scrolls sideways in the pager, where W
-          switches between the two. Printing always wraps. wrap unless set. The option's name may
-          still change.
+          switches between the two. Printing always wraps. wrap unless set; KIRI_WIDE and the
+          configuration file set it too. The option's name may still change.
           
           [possible values: wrap, scroll]
 

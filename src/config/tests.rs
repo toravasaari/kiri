@@ -1660,6 +1660,16 @@ fn a_general_setting_has_a_flag_a_variable_and_a_key() {
 }
 
 #[test]
+fn each_flag_has_its_help_in_the_registry() {
+    for entry in SETTINGS {
+        if let Some(flag) = entry.flag {
+            assert!(entry.help.is_some(), "{flag}");
+            assert!(!help_text(flag).is_empty(), "{flag}");
+        }
+    }
+}
+
+#[test]
 fn a_flag_and_a_variable_are_named_after_their_setting() {
     // The older names stay: `--no-images` and `KIRI_NO_IMAGES` say the
     // opposite of their setting.
