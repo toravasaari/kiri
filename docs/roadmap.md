@@ -1446,6 +1446,13 @@ go.
 - A small animation while a page, an image or anything else loads: the
   `kiri` badge at the left end of the status line moves its capital
   letter along the name, `Kiri`, `kIri`, `kiRi`, `kirI`.
+- Books without DRM. Some ideas: EPUB with its chapters as the table of
+  contents, the reading place kept for each book and footnotes in a
+  panel; DjVu as scanned pages, perhaps drawn by `ddjvu` with its text
+  layer for search, as PDF (4.12.2) shows pages as images; Kindle
+  formats through Calibre's `ebook-convert`. Some EPUB 3 books, such as
+  children's books, carry sound, which could play with the sentence
+  being read marked. Where this belongs is open.
 
 ## Bugs
 
