@@ -2368,6 +2368,13 @@ fn m_loads_the_pictures_in_the_middle_of_text_that_reading_mode_shows() {
     assert_eq!(pages, 2, "{seen:?}");
 }
 
+/// Whether the synchronized update that carries the last picture in `shown`
+/// has ended, which is when its frame is complete.
+fn frame_closed_after_last_picture(shown: &str) -> bool {
+    let after = shown.rsplit("\x1b_Ga=T,U=1").next().unwrap_or("");
+    after.contains("\x1b[?2026l")
+}
+
 /// The ids of the images sent in `seen`, in order.
 fn sent_ids(seen: &str) -> Vec<String> {
     seen.split("\x1b_Ga=T,U=1,")
@@ -2406,7 +2413,10 @@ fn a_reload_after_m_keeps_the_pictures_m_loaded() {
                     terminal.write_all(b"M").unwrap();
                     step = 1;
                 }
-                1 if sent >= 2 => {
+                // The picture's frame must have closed before `r`, or the frame
+                // count would miss it and the next chunk would count as a
+                // reload's frame.
+                1 if sent >= 2 && frame_closed_after_last_picture(&shown) => {
                     terminal.write_all(b"r").unwrap();
                     (step, frames_at_r) = (2, frames);
                 }
