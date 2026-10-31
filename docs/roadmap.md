@@ -1051,7 +1051,7 @@ Covered by G1.10.1.
   meant. Seven differences nobody chose come first: list bullets from
   the third level, the heading rule, heading sizes, numbered task lists,
   dimmed quotes, table rows and table style, and `mark`, `sub` and `sup`.
-- G1.9.2 Reading mode's layout split into modules by block type, as the
+- G1.9.2 (done) Reading mode's layout split into modules by block type, as the
   text layout's is (G1.1), with every snapshot byte for byte the same.
 - G1.9.3 The grid builders and the sharing out of widths written once,
   for cells and pixels alike.
