@@ -105,11 +105,12 @@ pub struct Measured {
 
 /// Whether a document surely goes to the pager with `paging`: always with
 /// `always`, and with `auto` when it is longer than the window. `measure`
-/// is called only for `auto`, as measuring takes time.
+/// is called only for `auto`, as measuring takes time. The callers pass
+/// no other paging here, so `never` counts as `auto`.
 pub fn surely_paged(paging: Paging, measure: impl FnOnce() -> Measured) -> bool {
     match paging {
         Paging::Always => true,
-        _ => {
+        Paging::Auto | Paging::Never => {
             let Measured { rows, height } = measure();
             pages(Paging::Auto, true, rows, height)
         }
@@ -119,12 +120,12 @@ pub fn surely_paged(paging: Paging, measure: impl FnOnce() -> Measured) -> bool 
 /// When the images of a document load, against the pager.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Load {
-    /// Before the document is shown, as it is printed or the pager is not
-    /// sure to open.
+    /// Before the document is shown: the pager is not sure to open, so the
+    /// images load first.
     Now,
-    /// Before the pager opens, unless the reader skips the wait, and
-    /// otherwise in the background. Where no keys can be read, the images
-    /// load now.
+    /// Before the pager opens, while the reader may skip the wait and let
+    /// the rest load in the background. Where no keys can be read, the
+    /// images load now, as with `Now`.
     Wait,
     /// In the background, once the pager has opened.
     Later,
