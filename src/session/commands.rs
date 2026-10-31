@@ -303,10 +303,27 @@ pub(crate) fn action(key: Key) -> Option<Action> {
     }
 }
 
+/// The key the status line shows for `action`: the first of the names
+/// in the help panel's row for its command.
+pub(crate) fn hint(action: Action) -> &'static str {
+    (COMMANDS.iter())
+        .find(|command| command.action == action && command.listed())
+        .and_then(|command| command.names.split(' ').next())
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::SETTINGS;
+
+    #[test]
+    fn the_status_line_hints_are_the_first_names_of_their_commands() {
+        assert_eq!(hint(Action::Help), "?");
+        assert_eq!(hint(Action::Quit), "q");
+        assert_eq!(hint(Action::Follow), "F");
+        assert_eq!(hint(Action::Reading), "M");
+    }
 
     #[test]
     fn a_key_is_in_one_command_only() {

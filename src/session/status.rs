@@ -4,6 +4,7 @@
 
 use unicode_width::UnicodeWidthStr;
 
+use crate::session::commands::{Action, hint};
 use crate::session::fade::{FADE_OUT, FLASH, Fade};
 use crate::session::settings::Follow;
 use crate::session::view::Position;
@@ -221,7 +222,7 @@ pub fn spans(
     }
     let name = name.as_str();
     let percent = format!("{}%", position.percent);
-    let keys = [("?", " help"), ("q", " quit")];
+    let keys = [(hint(Action::Help), " help"), (hint(Action::Quit), " quit")];
     let keys_width: usize = keys
         .iter()
         .map(|(key, what)| 3 + key.width() + what.width())
@@ -254,7 +255,7 @@ pub fn spans(
     // Reading mode's word comes after it, and goes with it.
     let words: Vec<(&str, &str)> = follow_word(follow)
         .into_iter()
-        .chain(reading.then_some(("M", " reading")))
+        .chain(reading.then_some((hint(Action::Reading), " reading")))
         .collect();
     let mark: usize = (words.iter())
         .map(|(key, what)| key.width() + what.width() + 3)
@@ -416,8 +417,8 @@ const BADGE: &str = " kiri ";
 fn follow_word(follow: Follow) -> Option<(&'static str, &'static str)> {
     match follow {
         Follow::Off => None,
-        Follow::On => Some(("F", " follow")),
-        Follow::Auto => Some(("F", " auto")),
+        Follow::On => Some((hint(Action::Follow), " follow")),
+        Follow::Auto => Some((hint(Action::Follow), " auto")),
     }
 }
 
