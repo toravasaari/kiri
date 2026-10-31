@@ -53,8 +53,8 @@ lines and text show: one in light colours on a dark page on a
 white panel, and one in dark colours on a light page on a panel of its
 theme's background. When kiri cannot tell that background, as with an
 external program, the panel is Mermaid's dark grey, `#333333`.
-`background_panel = false` in the `[diagrams]` table leaves the panels
-out.
+`background_panel = false` in the `[diagrams]` table, `--diagram-panel off`
+or `KIRI_DIAGRAM_BACKGROUND_PANEL=off` leaves the panels out.
 
 A diagram that does not draw, such as one with a syntax error, stays
 code. Below the code, in the theme's `error` colour, kiri tells why, as
@@ -158,7 +158,8 @@ directory: write the path in full. A program named without a path is
 looked for on `PATH`.
 
 Each diagram may take 20 seconds, or as long as `timeout` in the
-`[diagrams]` table says, such as `timeout = 60` or `timeout = 2.5`; up
+`[diagrams]` table says, such as `timeout = 60` or `timeout = 2.5`, or
+`--diagram-timeout` or `KIRI_DIAGRAM_TIMEOUT`; up
 to four are drawn at once. When drawing takes longer than half a second,
 a line such as `kiri: loading images 2/5…` on the terminal tells how
 far it has got, and is wiped before the document is shown. Ctrl-C,

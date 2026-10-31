@@ -9,7 +9,7 @@ use std::time::Duration;
 use kiri::config::{Environment, Options, Origin, Passthrough, Setting, choose};
 use kiri::doctor::{Facts, report};
 use kiri::term::tmux::Pane;
-use kiri::term::{Detection, Mode, WindowSize};
+use kiri::term::{Detection, WindowSize};
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::theme::Theme;
 
@@ -816,9 +816,6 @@ fn the_report_on_kitty() {
     let choices = choose(&Options::default(), &env, &Default::default());
     let facts = Facts {
         env: &env,
-        mode: Setting::new(Mode::Auto, Origin::Default),
-        width: None,
-        max_image_size: Setting::new(10, Origin::Default),
         detection: &detection,
         choices: &choices,
         theme: &Theme::default(),
@@ -862,9 +859,6 @@ fn tmux_terminal(pane: Option<Pane>, passthrough: Passthrough, hyperlinks: bool)
     let choices = choose(&options, &env, &Default::default());
     let facts = Facts {
         env: &env,
-        mode: Setting::new(Mode::Auto, Origin::Default),
-        width: None,
-        max_image_size: Setting::new(10, Origin::Default),
         detection: &detection,
         choices: &choices,
         theme: &Theme::default(),
@@ -1046,9 +1040,6 @@ fn the_terminal_name_is_shown_as_code() {
     let choices = choose(&Options::default(), &env, &Default::default());
     let facts = Facts {
         env: &env,
-        mode: Setting::new(Mode::Auto, Origin::Default),
-        width: None,
-        max_image_size: Setting::new(10, Origin::Default),
         detection: &detection,
         choices: &choices,
         theme: &Theme::default(),
@@ -1077,9 +1068,6 @@ fn in_the_background_the_terminal_is_not_asked() {
     let choices = choose(&Options::default(), &env, &Default::default());
     let facts = Facts {
         env: &env,
-        mode: Setting::new(Mode::Auto, Origin::Default),
-        width: None,
-        max_image_size: Setting::new(10, Origin::Default),
         detection: &detection,
         choices: &choices,
         theme: &Theme::default(),
@@ -1110,9 +1098,6 @@ fn heading_sizes_show_their_rounding() {
     let theme = kiri::typeset::theme::parse("[h1]\nscale = 3\n[h5]\nscale = 1.3\n").unwrap();
     let facts = Facts {
         env: &env,
-        mode: Setting::new(Mode::Auto, Origin::Default),
-        width: None,
-        max_image_size: Setting::new(10, Origin::Default),
         detection: &detection,
         choices: &choices,
         theme: &theme,

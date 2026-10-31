@@ -18,13 +18,14 @@ use std::io::{self, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::rc::Rc;
+use std::time::Duration;
 
 use clap::builder::{PossibleValue, PossibleValuesParser, TypedValueParser};
 use clap::error::ErrorKind;
-use clap::parser::ValueSource;
-use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser};
+use clap::{CommandFactory, FromArgMatches, Parser};
 use kiri::config::{
-    Environment, FrontMatter, Named, Options, Origin, Passthrough, Setting, Settings,
+    Environment, FrontMatter, Megabytes, Named, Options, Origin, Passthrough, Setting, Settings,
+    text,
 };
 use kiri::doctor::{Facts, Output};
 use kiri::images::{
@@ -100,15 +101,15 @@ struct Cli {
     #[arg(long, value_parser = format)]
     format: Option<Input>,
 
-    /// Width in cells; defaults to the terminal width.
-    #[arg(long)]
+    /// Width in cells; defaults to the terminal width
+    #[arg(long, value_parser = text::<u16>)]
     width: Option<u16>,
 
-    /// Which terminal features to use
+    /// Which terminal features to use [default: auto]
     ///
     /// Colours stay off when NO_COLOR is set.
-    #[arg(long, value_parser = named_with_help(mode_help), default_value = Mode::Auto.name())]
-    mode: Mode,
+    #[arg(long, value_parser = named_with_help(mode_help))]
+    mode: Option<Mode>,
 
     /// Theme file
     ///
@@ -133,6 +134,10 @@ struct Cli {
     /// Leaves out the margins, heading indents and code block padding.
     #[arg(short = 'M', long)]
     no_margins: bool,
+
+    /// Keep the margins, whatever KIRI_MARGINS and the configuration say
+    #[arg(long, conflicts_with = "no_margins")]
+    margins: bool,
 
     /// Show images as their alt text and diagrams as code
     ///
@@ -242,6 +247,16 @@ struct Cli {
     #[arg(long, value_parser = named::<bool>(), value_name = "SWITCH")]
     diagrams: Option<bool>,
 
+    /// How long a program may take to draw one diagram, in seconds
+    #[arg(long, value_parser = text::<Duration>, value_name = "SECS")]
+    diagram_timeout: Option<Duration>,
+
+    /// Whether a diagram in the other page's colours lies on a panel
+    ///
+    /// on or off; on unless set.
+    #[arg(long, value_parser = named::<bool>(), value_name = "SWITCH")]
+    diagram_panel: Option<bool>,
+
     /// Where to tell why a diagram could not be drawn
     ///
     /// The places are inline (in the document, below its code), stderr (a
@@ -282,19 +297,11 @@ struct Cli {
     #[arg(long, value_name = "HOW", value_parser = ["wrap", "scroll"])]
     wide: Option<String>,
 
-    /// Largest image file to read, in megabytes
+    /// Largest image file to read, in megabytes [default: 10]
     ///
     /// At most 100; larger images show their alt text.
-    #[arg(long, value_name = "MB", default_value_t = 10, value_parser = max_image_size)]
-    max_image_size: u64,
-}
-
-/// The `--max-image-size` value: whole megabytes, from 1 to 100.
-fn max_image_size(value: &str) -> Result<u64, String> {
-    match value.parse() {
-        Ok(megabytes @ 1..=100) => Ok(megabytes),
-        _ => Err("give a whole number of MB from 1 to 100".to_owned()),
-    }
+    #[arg(long, value_name = "MB", value_parser = text::<Megabytes>)]
+    max_image_size: Option<Megabytes>,
 }
 
 /// The `--format` value.
@@ -341,7 +348,7 @@ fn main() -> ExitCode {
             .exit();
     }
     let result = if cli.doctor {
-        doctor(&cli, &matches)
+        doctor(&cli)
     } else if cli.list_emojis {
         list_emojis(&cli)
     } else {
@@ -437,7 +444,6 @@ fn run(cli: &Cli, route: Route) -> Result<(), Failure> {
         });
     }
     let env = Environment::from_process();
-    let context = Context::new(cli, &env);
     let shown = || opened.iter().flatten();
     let files = plan::Files {
         route,
@@ -455,6 +461,7 @@ fn run(cli: &Cli, route: Route) -> Result<(), Failure> {
     };
     settings.paging = plan::paging(settings.paging, &files, settings.follow);
     settings.diagrams = plan::diagrams(settings.diagrams, &files);
+    let context = Context::new(cli, &env, &settings);
     let caps = kiri::term::capabilities(context.mode, context.width, &env, settings.passthrough);
     let caps = plan::on_page(caps, settings.paper);
     let would_page = plan::pages_alone(settings.paging, kiri::term::stdout_is_terminal(), &caps);
@@ -828,7 +835,7 @@ fn show_report(
         images: true,
     };
     let given = Given::new(name.to_owned(), PathBuf::from(name), shown);
-    let context = Context::new(cli, env);
+    let context = Context::new(cli, env, &settings);
     let failed = Cell::new(false);
     let run = Run {
         context: &context,
@@ -1597,12 +1604,12 @@ struct Context<'a> {
 }
 
 impl<'a> Context<'a> {
-    fn new(cli: &Cli, env: &'a Environment) -> Self {
+    fn new(cli: &Cli, env: &'a Environment, settings: &Settings) -> Self {
         Context {
             env,
-            mode: cli.mode,
-            width: cli.width,
-            max_file_size: cli.max_image_size * kiri::images::MB,
+            mode: settings.mode,
+            width: settings.width,
+            max_file_size: settings.max_image_size.0 * kiri::images::MB,
             follow: follow(cli).map_or(Follow::Off, |follow| follow.value),
             reading: cli.reading,
             wide: match cli.wide.as_deref() {
@@ -2021,7 +2028,7 @@ fn read_image_file(
 /// otherwise or with `--raw`.
 /// Problems with the configuration file and the theme are part of the
 /// report instead of errors, and kiri goes on without them.
-fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), Failure> {
+fn doctor(cli: &Cli) -> Result<(), Failure> {
     let env = Environment::from_process();
     let (config, config_error) = match kiri::config::load(&env) {
         Ok(config) => (config, None),
@@ -2033,7 +2040,7 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), Failure> {
         Err(error) => (Theme::default(), Some(error)),
     };
     let passthrough = choices.passthrough.value;
-    let detection = kiri::term::examine(cli.mode, cli.width, &env, passthrough);
+    let detection = kiri::term::examine(choices.mode.value, choices.width.value, &env, passthrough);
     let output = match (cli.raw, kiri::term::stdout_is_terminal()) {
         (true, _) => Output::Raw,
         (false, true) => Output::Rendered,
@@ -2041,14 +2048,6 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), Failure> {
     };
     let markdown = kiri::doctor::report(&Facts {
         env: &env,
-        mode: or_default(matches, "mode", "--mode", cli.mode),
-        width: flag(cli.width, "--width"),
-        max_image_size: or_default(
-            matches,
-            "max_image_size",
-            "--max-image-size",
-            cli.max_image_size,
-        ),
         detection: &detection,
         choices: &choices,
         theme: &theme,
@@ -2090,7 +2089,7 @@ fn list_emojis(cli: &Cli) -> Result<(), Failure> {
         eprintln!("kiri: {warning}");
     }
     let settings = settings?;
-    let caps = kiri::term::capabilities(cli.mode, cli.width, &env, settings.passthrough);
+    let caps = kiri::term::capabilities(settings.mode, settings.width, &env, settings.passthrough);
     let document = kiri::typeset::parse::parse(&kiri::list::emoji_document());
     show_report(cli, &env, "kiri --list-emojis", document, settings, caps)
 }
@@ -2098,10 +2097,16 @@ fn list_emojis(cli: &Cli) -> Result<(), Failure> {
 /// What the command line asks for, each with the flag it comes from.
 fn options(cli: &Cli) -> Options {
     Options {
+        width: flag(cli.width.map(Some), "--width"),
+        mode: flag(cli.mode, "--mode"),
+        max_image_size: flag(cli.max_image_size, "--max-image-size"),
+        diagram_timeout: flag(cli.diagram_timeout, "--diagram-timeout"),
+        diagram_background_panel: flag(cli.diagram_panel, "--diagram-panel"),
         theme: flag(cli.theme.clone(), "--theme"),
         paper: (flag(cli.light.then_some(Paper::Light), "--light"))
             .or(flag(cli.dark.then_some(Paper::Dark), "--dark")),
-        margins: flag(cli.no_margins.then_some(false), "--no-margins"),
+        margins: (flag(cli.margins.then_some(true), "--margins"))
+            .or(flag(cli.no_margins.then_some(false), "--no-margins")),
         images: (flag(cli.images.then_some(true), "--images"))
             .or(flag(cli.no_images.then_some(false), "--no-images")),
         paging: (flag(cli.paging, "--paging"))
@@ -2136,13 +2141,4 @@ fn follow(cli: &Cli) -> Option<Setting<Follow>> {
 /// does not tell which of them the user gave.
 fn flag<T>(value: Option<T>, name: &'static str) -> Option<Setting<T>> {
     value.map(|value| Setting::new(value, Origin::Flag(name)))
-}
-
-/// `value` of the argument `id`: from the flag `name`, else clap's default.
-fn or_default<T>(matches: &ArgMatches, id: &str, name: &'static str, value: T) -> Setting<T> {
-    let given = matches.value_source(id) == Some(ValueSource::CommandLine);
-    match given {
-        true => Setting::new(value, Origin::Flag(name)),
-        false => Setting::new(value, Origin::Default),
-    }
 }

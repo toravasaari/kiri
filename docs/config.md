@@ -4,6 +4,13 @@ kiri takes its settings from the command line, from environment variables
 and from a configuration file. The command line is the strongest, then the
 environment, then the file.
 
+A setting that matters without the pager too, such as the width or
+whether images show, can be given at all three: as a flag, as a variable
+and as a key in the file. A setting about how the pager works, such as
+`search_case`, is a key in the file only. The sections below give each
+setting's flag, variable and key, and [Options](options.md) lists the
+flags.
+
 ## Configuration file
 
 kiri reads `$XDG_CONFIG_HOME/kiri/config.toml`, or
@@ -16,9 +23,22 @@ not silently ignored.
 Every key is optional:
 
 ```toml
+# Which terminal features to use: "auto", "plain", "ansi" or "kitty";
+# see Mode below.
+mode = "auto"
+
+# Width in cells, instead of the terminal's; see Width below.
+width = 100
+
 # A theme file. A relative path is relative to the directory of this
 # file, and a leading ~/ is your home directory.
 theme = "themes/mine.toml"
+
+# false leaves out the margins, indents and padding, for copying text.
+margins = true
+
+# The largest image file to read, in whole megabytes, from 1 to 100.
+max_image_size = 10
 
 # false shows every image as its alt text, without reading it.
 images = true
@@ -83,6 +103,54 @@ auto_detect = true
 for `enabled = false` in the `[diagrams]` table. A file that has it
 cannot have the `[diagrams]` table or a table under it, such as
 `[diagrams.mermaid]`.
+
+## Mode
+
+The first of these that is given decides which terminal features kiri
+uses:
+
+1. `--mode auto|plain|ansi|kitty`
+2. `KIRI_MODE` with the same values; an empty value counts as unset, and
+   any other value is left out with a warning
+3. `mode` in the configuration file, such as `mode = "ansi"`
+4. `auto`, which asks the terminal, and gives plain text in a pipe
+
+## Width
+
+kiri renders for the width of the terminal. The first of these that is
+given decides instead:
+
+1. `--width 80`
+2. `KIRI_WIDTH`, a whole number of cells: `KIRI_WIDTH=80 kiri doc.md`; an
+   empty value counts as unset, and any other value is left out with a
+   warning
+3. `width` in the configuration file, such as `width = 80`
+4. the terminal's width
+
+## Margins
+
+The theme's margins, heading indents and code block padding are kept
+unless one of these, the first that is given, leaves them out:
+
+1. `--no-margins` or `-M` leaves them out, `--margins` keeps them; the two
+   cannot be given together
+2. `KIRI_MARGINS`: `on` or `off`, `1` or `0`; an empty value counts as
+   unset, and any other value is left out with a warning
+3. `margins` in the configuration file, such as `margins = false`
+4. on
+
+## Largest image
+
+kiri reads image files up to 10 MB. The first of these that is given
+decides the limit, in whole megabytes from 1 to 100; larger images show
+their alt text:
+
+1. `--max-image-size 20`
+2. `KIRI_MAX_IMAGE_SIZE`, such as `KIRI_MAX_IMAGE_SIZE=20`; an empty
+   value counts as unset, and any other value is left out with a warning
+3. `max_image_size` in the configuration file, such as
+   `max_image_size = 20`
+4. 10
 
 ## Theme
 
@@ -424,6 +492,19 @@ keeps that layout whatever this says. In plain output only `lines` and
 Which diagrams kiri draws, and with what, is in [Diagrams](diagrams.md),
 and how it draws formulas in [Formulas](formulas.md).
 
+Two more settings of the `[diagrams]` table can also be given as a flag
+and a variable, the flag first:
+
+| Key | Flag | Variable | Example |
+|---|---|---|---|
+| `timeout` | `--diagram-timeout SECS` | `KIRI_DIAGRAM_TIMEOUT` | `KIRI_DIAGRAM_TIMEOUT=60 kiri doc.md` |
+| `background_panel` | `--diagram-panel on\|off` | `KIRI_DIAGRAM_BACKGROUND_PANEL` | `kiri --diagram-panel off doc.md` |
+
+The variables take what the flags take (for the panel `on` or `off`, `1`
+or `0`), an empty value counts as unset, and any other value is left out
+with a warning. `diagrams.mermaid.command` and `auto_detect` are tables
+per language and stay in the file.
+
 ## Render errors
 
 The first of these that is given decides where kiri tells why a diagram
@@ -450,13 +531,19 @@ once.
 |---|---|
 | `KIRI_CONFIG` | The configuration file to read instead of the default |
 | `KIRI_THEME` | A theme file; see [Theme](#theme) |
-| `KIRI_NO_IMAGES` | Images as alt text; see [Images](#images) |
+| `KIRI_NO_IMAGES` | `1` turns images off, `0` on; see [Images](#images) |
 | `KIRI_PAGING` | When to page; see [Paging](#paging) |
 | `KIRI_FOLLOW` | Whether the pager follows a file; see [Follow](#follow) |
 | `KIRI_FOLLOW_JUMP` | Which change auto-follow moves the view to; see [Follow jump](#follow-jump) |
 | `KIRI_INITIAL_LOAD` | Whether the pager waits for the images; see [Initial load](#initial-load) |
 | `KIRI_PASSTHROUGH` | Whether kitty's images pass through tmux; see [Passthrough](#passthrough) |
 | `KIRI_MOUSE` | Whether the pager takes the mouse; see [Mouse](#mouse) |
+| `KIRI_MODE` | Which terminal features to use; see [Mode](#mode) |
+| `KIRI_WIDTH` | Width in cells; see [Width](#width) |
+| `KIRI_MARGINS` | Whether the theme keeps its margins; see [Margins](#margins) |
+| `KIRI_MAX_IMAGE_SIZE` | The largest image file to read, in MB; see [Largest image](#largest-image) |
+| `KIRI_DIAGRAM_TIMEOUT` | How long a program may take to draw one diagram; see [Diagrams](#diagrams) |
+| `KIRI_DIAGRAM_BACKGROUND_PANEL` | Whether a diagram in the other page's colours lies on a panel; see [Diagrams](#diagrams) |
 | `KIRI_FRONT_MATTER` | Front matter render style; see [Front matter](#front-matter) |
 | `KIRI_HEADINGS` | How headings show; see [Headings](#headings) |
 | `KIRI_TABLE_ROWS` | Table row style; see [Table rows](#table-rows) |

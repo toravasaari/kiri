@@ -50,11 +50,6 @@ pub(super) fn resolve<T>(
         .unwrap_or_else(|| Setting::new(default, Origin::Default))
 }
 
-/// No environment variable, for `resolve`.
-pub(super) fn unset<T>(_: &mut Vec<String>) -> Option<Setting<T>> {
-    None
-}
-
 /// The environment variable `var`, for `resolve`, which takes the names
 /// and the aliases of `T`'s values; empty is unset. Any other value is
 /// left out with a warning.

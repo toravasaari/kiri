@@ -9,9 +9,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use image::ImageFormat;
 
-use crate::config::{
-    AUTO_DETECT, Choices, Environment, Named, Origin, Passthrough, Setting, ThemeSource,
-};
+use crate::config::{AUTO_DETECT, Choices, Environment, Named, Origin, Passthrough, ThemeSource};
 use crate::diagrams::find::{self, Choice, Search};
 use crate::diagrams::{BuiltIn, Command, LANGUAGES};
 use crate::term::tmux::Pane;
@@ -24,11 +22,6 @@ use crate::typeset::theme::{Paper, Theme};
 #[derive(Debug)]
 pub struct Facts<'a> {
     pub env: &'a Environment,
-    pub mode: Setting<Mode>,
-    /// `--width`, when given.
-    pub width: Option<Setting<u16>>,
-    /// The largest image file kiri reads, in megabytes.
-    pub max_image_size: Setting<u64>,
     pub detection: &'a Detection,
     pub choices: &'a Choices,
     /// The theme kiri uses: the default one when it could not be loaded.
@@ -139,7 +132,7 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
     let yes_no = |yes| if yes { "yes" } else { "no" };
     writeln!(out, "## Terminal\n")?;
     writeln!(out, "| What | Found |\n|---|---|")?;
-    let mut terminal = match (&detection.answers, facts.mode.value) {
+    let mut terminal = match (&detection.answers, facts.choices.mode.value) {
         (Some(_), _) => detection
             .terminal()
             .map_or_else(|| "unknown".into(), |name| code(&name)),
@@ -210,7 +203,7 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     let from = |origin| origin_text(origin, facts.env, home);
     writeln!(out, "## Settings\n")?;
     writeln!(out, "| Setting | Value | From |\n|---|---|---|")?;
-    let mode = &facts.mode;
+    let mode = &choices.mode;
     row(out, &["Mode", mode.value.name(), &from(mode.origin)])?;
     let theme = match &choices.theme.value {
         ThemeSource::File(path) | ThemeSource::DefaultFile(path) => home.path(path),
@@ -273,11 +266,11 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     row(out, &["Render errors", name, &from(errors.origin)])?;
     let mouse = &choices.mouse;
     row(out, &["Mouse", mouse.value.name(), &from(mouse.origin)])?;
-    let size = &facts.max_image_size;
-    let mb = format!("{} MB", size.value);
+    let size = &choices.max_image_size;
+    let mb = format!("{} MB", size.value.0);
     row(out, &["Largest image", &mb, &from(size.origin)])?;
-    let width = match (&facts.width, facts.detection.window) {
-        (Some(width), _) => from(width.origin),
+    let width = match (choices.width.value, facts.detection.window) {
+        (Some(_), _) => from(choices.width.origin),
         (None, Some(_)) => "terminal".to_owned(),
         (None, None) => from(Origin::Default),
     };

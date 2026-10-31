@@ -251,6 +251,12 @@ pub trait Value: Sized + Clone + PartialEq + 'static {
     }
 }
 
+/// The value of a setting that takes text, such as `--width`, for the
+/// command line's parser.
+pub fn text<T: Value>(value: &str) -> Result<T, String> {
+    T::from_text(value).ok_or_else(|| format!("give {}", T::expected()))
+}
+
 /// `Value` for a type with names, by its `Named` impl.
 macro_rules! named_values {
     ($($type:ty),* $(,)?) => {
@@ -320,6 +326,60 @@ impl Value for bool {
 
     fn inverted(self) -> Self {
         !self
+    }
+}
+
+/// A setting that may stay unset, such as the width, which is the
+/// terminal's unless given.
+impl<T: Value> Value for Option<T> {
+    fn from_text(text: &str) -> Option<Self> {
+        T::from_text(text).map(Some)
+    }
+
+    fn expected() -> String {
+        T::expected()
+    }
+
+    fn from_file<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        T::from_file(deserializer).map(Some)
+    }
+}
+
+/// A width in cells.
+impl Value for u16 {
+    fn from_text(text: &str) -> Option<Self> {
+        text.parse().ok()
+    }
+
+    fn expected() -> String {
+        "a whole number of cells".to_owned()
+    }
+
+    fn from_file<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        u16::deserialize(deserializer)
+    }
+}
+
+/// The largest image file kiri reads, in whole megabytes, from 1 to 100.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Megabytes(pub u64);
+
+impl Value for Megabytes {
+    fn from_text(text: &str) -> Option<Self> {
+        match text.parse() {
+            Ok(megabytes @ 1..=100) => Some(Self(megabytes)),
+            _ => None,
+        }
+    }
+
+    fn expected() -> String {
+        "a whole number of MB from 1 to 100".to_owned()
+    }
+
+    fn from_file<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let megabytes = u64::deserialize(deserializer)?;
+        Self::from_text(&megabytes.to_string())
+            .ok_or_else(|| de::Error::custom(format!("max_image_size: give {}", Self::expected())))
     }
 }
 

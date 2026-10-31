@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::render::{FrontMatterStyle, Headings, RenderErrors, TableRows};
+use crate::term::Mode;
 use crate::typeset::theme::{Paper, Theme};
 
 fn env(home: Option<&str>, xdg: Option<&str>) -> Environment {
@@ -319,6 +320,11 @@ fn rejects_unknown_keys_and_wrong_types() {
     assert!(error.contains("unknown field `colour`"), "{error}");
     let error = parse("theme = 1\n", Path::new("/c"), &Environment::default()).unwrap_err();
     assert!(error.contains("invalid type"), "{error}");
+}
+
+/// No environment variable, for `resolve`.
+fn unset<T>(_: &mut Vec<String>) -> Option<Setting<T>> {
+    None
 }
 
 /// `value` from the flag `name`, as the command line gives it.
@@ -1608,4 +1614,253 @@ fn only_the_built_in_theme_is_marked_built_in() {
     ] {
         assert!(!load_theme(&source).unwrap().built_in);
     }
+}
+
+/// The general settings, which matter without the pager too, are on every
+/// level: a flag, an environment variable and a key in the file. A theme
+/// from a paper (`--light`, `--dark`) and the per-language diagram tables
+/// are not one value a flag or a variable can take, so they are left as
+/// they are.
+#[test]
+fn a_general_setting_has_a_flag_a_variable_and_a_key() {
+    let exempt = ["paper", "diagram_commands", "diagram_no_search"];
+    let mut missing = Vec::new();
+    for entry in SETTINGS
+        .iter()
+        .filter(|entry| entry.scope == Scope::General)
+    {
+        if exempt.contains(&entry.field) {
+            continue;
+        }
+        let levels = [
+            ("flag", entry.flag.is_some()),
+            ("variable", entry.env.name().is_some()),
+            ("key", entry.key.is_some()),
+        ];
+        for (level, has) in levels {
+            if !has {
+                missing.push(format!("{}: no {level}", entry.field));
+            }
+        }
+    }
+    assert!(missing.is_empty(), "{missing:#?}");
+}
+
+#[test]
+fn a_flag_and_a_variable_are_named_after_their_setting() {
+    // The older names stay: `--no-images` and `KIRI_NO_IMAGES` say the
+    // opposite of their setting, and `--light` and `--dark` are its values.
+    // `--diagram-panel` is shorter than its setting, so that `-h` keeps
+    // its two columns.
+    let short = [
+        ("paper", "--light"),
+        ("diagram_background_panel", "--diagram-panel"),
+    ];
+    for entry in SETTINGS {
+        let flag = format!("--{}", entry.field.replace('_', "-"));
+        let flag = short
+            .iter()
+            .find(|(field, _)| *field == entry.field)
+            .map_or(flag, |s| s.1.to_owned());
+        if let Some(name) = entry.flag {
+            assert_eq!(name, flag, "{}", entry.field);
+        }
+        let variable = format!("KIRI_{}", entry.field.to_uppercase());
+        if let Some(name) = entry.env.name().filter(|_| entry.field != "images") {
+            assert_eq!(name, variable, "{}", entry.field);
+        }
+    }
+}
+
+/// Parses `text`, a configuration file, and chooses with `env` and `flag`.
+fn chosen(text: &str, env: &[(&str, &str)], options: Options) -> Choices {
+    let config = parse(text, Path::new("/c"), &Environment::default()).unwrap();
+    choose(&options, &vars(env), &config)
+}
+
+#[test]
+fn the_width_comes_from_the_flag_the_variable_or_the_file() {
+    let width = |value, origin| Setting::new(Some(value), origin);
+    let file = "width = 70\n";
+    let env = [("KIRI_WIDTH", "80")];
+    let options = Options {
+        width: flag(Some(90), "--width"),
+        ..Options::default()
+    };
+    let origin = Origin::Environment("KIRI_WIDTH");
+    assert_eq!(
+        chosen(file, &env, options).width,
+        width(90, Origin::Flag("--width"))
+    );
+    assert_eq!(
+        chosen(file, &env, Options::default()).width,
+        width(80, origin)
+    );
+    assert_eq!(
+        chosen(file, &[], Options::default()).width,
+        width(70, Origin::File)
+    );
+    let none = Setting::new(None, Origin::Default);
+    assert_eq!(chosen("", &[], Options::default()).width, none);
+    let wrong = chosen("", &[("KIRI_WIDTH", "wide")], Options::default());
+    assert_eq!(wrong.width, none);
+    assert_eq!(
+        wrong.warnings,
+        ["KIRI_WIDTH: `wide` is not a whole number of cells; left out"]
+    );
+}
+
+#[test]
+fn the_mode_comes_from_the_flag_the_variable_or_the_file() {
+    let file = "mode = \"ansi\"\n";
+    let env = [("KIRI_MODE", "plain")];
+    let options = Options {
+        mode: flag(Mode::Kitty, "--mode"),
+        ..Options::default()
+    };
+    let mode = |choices: Choices| (choices.mode.value, choices.mode.origin);
+    assert_eq!(
+        mode(chosen(file, &env, options)),
+        (Mode::Kitty, Origin::Flag("--mode"))
+    );
+    let origin = Origin::Environment("KIRI_MODE");
+    assert_eq!(
+        mode(chosen(file, &env, Options::default())),
+        (Mode::Plain, origin)
+    );
+    assert_eq!(
+        mode(chosen(file, &[], Options::default())),
+        (Mode::Ansi, Origin::File)
+    );
+    assert_eq!(
+        mode(chosen("", &[], Options::default())),
+        (Mode::Auto, Origin::Default)
+    );
+    let wrong = chosen("", &[("KIRI_MODE", "fancy")], Options::default());
+    assert_eq!(
+        wrong.warnings,
+        ["KIRI_MODE: `fancy` is not auto, plain, ansi or kitty; left out"]
+    );
+}
+
+#[test]
+fn the_largest_image_comes_from_the_variable_or_the_file_within_1_to_100() {
+    let size = |text, env: &[(&str, &str)]| chosen(text, env, Options::default()).max_image_size;
+    assert_eq!(size("", &[]), Setting::new(Megabytes(10), Origin::Default));
+    assert_eq!(
+        size("max_image_size = 20\n", &[]),
+        Setting::new(Megabytes(20), Origin::File)
+    );
+    let origin = Origin::Environment("KIRI_MAX_IMAGE_SIZE");
+    let env = [("KIRI_MAX_IMAGE_SIZE", "30")];
+    assert_eq!(
+        size("max_image_size = 20\n", &env),
+        Setting::new(Megabytes(30), origin)
+    );
+    let wrong = chosen("", &[("KIRI_MAX_IMAGE_SIZE", "500")], Options::default());
+    assert_eq!(wrong.max_image_size.origin, Origin::Default);
+    let warning = "KIRI_MAX_IMAGE_SIZE: `500` is not a whole number of MB from 1 to 100; left out";
+    assert_eq!(wrong.warnings, [warning]);
+    let error = parse(
+        "max_image_size = 500\n",
+        Path::new("/c"),
+        &Environment::default(),
+    );
+    assert!(
+        error
+            .unwrap_err()
+            .contains("give a whole number of MB from 1 to 100")
+    );
+}
+
+#[test]
+fn the_margins_come_from_the_flag_the_variable_or_the_file() {
+    let margins = |text, env: &[(&str, &str)], options| chosen(text, env, options).margins;
+    let flagged = Options {
+        margins: flag(false, "--no-margins"),
+        ..Options::default()
+    };
+    let origin = Origin::Environment("KIRI_MARGINS");
+    let env = [("KIRI_MARGINS", "off")];
+    assert_eq!(
+        margins("margins = true\n", &env, flagged),
+        Setting::new(false, Origin::Flag("--no-margins"))
+    );
+    assert_eq!(
+        margins("margins = true\n", &env, Options::default()),
+        Setting::new(false, origin)
+    );
+    assert_eq!(
+        margins("margins = false\n", &[], Options::default()),
+        Setting::new(false, Origin::File)
+    );
+    assert_eq!(
+        margins("", &[], Options::default()),
+        Setting::new(true, Origin::Default)
+    );
+}
+
+#[test]
+fn the_diagram_timeout_and_panel_come_from_a_flag_or_a_variable() {
+    let env = [
+        ("KIRI_DIAGRAM_TIMEOUT", "2.5"),
+        ("KIRI_DIAGRAM_BACKGROUND_PANEL", "off"),
+    ];
+    let file = "[diagrams]\ntimeout = 9\nbackground_panel = true\n";
+    let choices = chosen(file, &env, Options::default());
+    let timeout = Origin::Environment("KIRI_DIAGRAM_TIMEOUT");
+    let panel = Origin::Environment("KIRI_DIAGRAM_BACKGROUND_PANEL");
+    assert_eq!(
+        choices.diagram_timeout,
+        Setting::new(Duration::from_secs_f64(2.5), timeout)
+    );
+    assert_eq!(choices.diagram_background_panel, Setting::new(false, panel));
+    let options = Options {
+        diagram_timeout: flag(Duration::from_secs(4), "--diagram-timeout"),
+        diagram_background_panel: flag(true, "--diagram-panel"),
+        ..Options::default()
+    };
+    let choices = chosen(file, &env, options);
+    assert_eq!(
+        choices.diagram_timeout.origin,
+        Origin::Flag("--diagram-timeout")
+    );
+    assert!(choices.diagram_background_panel.value);
+    let wrong = chosen("", &[("KIRI_DIAGRAM_TIMEOUT", "-1")], Options::default());
+    let warning = "KIRI_DIAGRAM_TIMEOUT: `-1` is not a positive number of seconds; left out";
+    assert_eq!(wrong.warnings, [warning]);
+}
+
+#[test]
+fn the_docs_name_every_variable_flag_and_key_of_the_settings() {
+    let config = include_str!("../../docs/config.md");
+    let options = include_str!("../../docs/options.md");
+    let mut missing = Vec::new();
+    for entry in SETTINGS {
+        let variable = entry.env.name();
+        if variable.is_some_and(|name| !config.contains(&format!("`{name}`"))) {
+            missing.push(format!(
+                "{}: the variable is not in docs/config.md",
+                entry.field
+            ));
+        }
+        let flag = |flag: &str| {
+            options.contains(&format!("`{flag}")) || options.contains(&format!(", `{flag}"))
+        };
+        if entry.flag.is_some_and(|name| !flag(name)) {
+            missing.push(format!(
+                "{}: the flag is not in docs/options.md",
+                entry.field
+            ));
+        }
+        let key = entry.key.filter(|key| !key.contains('<'));
+        let key = key.and_then(|key| key.rsplit('.').next());
+        let listed = |key: &str| {
+            config.contains(&format!("\n{key} = ")) || config.contains(&format!("`{key} = "))
+        };
+        if key.is_some_and(|key| !listed(key)) {
+            missing.push(format!("{}: the key is not in docs/config.md", entry.field));
+        }
+    }
+    assert!(missing.is_empty(), "{missing:#?}");
 }

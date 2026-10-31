@@ -22,10 +22,11 @@ use serde::Deserialize;
 use serde::de::MapAccess;
 
 use super::environment::Environment;
-use super::resolve::{resolve, theme_source, unset, variable};
-use super::types::{Env, File, FrontMatter, Setting, ThemeSource, file_value};
+use super::resolve::{resolve, theme_source, variable};
+use super::types::{Env, File, FrontMatter, Megabytes, Setting, ThemeSource, file_value};
 use crate::render::{Headings, RenderErrors, TableRows};
 use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase};
+use crate::term::Mode;
 use crate::typeset::theme::{Paper, Theme};
 
 /// What a change of a setting needs, while kiri runs. The pager does not
@@ -206,8 +207,6 @@ macro_rules! settings {
             pub theme: Option<Setting<PathBuf>>,
             /// A paper theme.
             pub paper: Option<Setting<Paper>>,
-            /// Whether the theme keeps its margins.
-            pub margins: Option<Setting<bool>>,
             $(
                 $(#[$tdoc])*
                 pub $tfield: Option<Setting<$ttype>>,
@@ -226,8 +225,6 @@ macro_rules! settings {
             pub theme: Setting<ThemeSource>,
             /// The paper from `--light` or `--dark`.
             pub paper: Option<Paper>,
-            /// Whether the theme keeps its margins.
-            pub margins: Setting<bool>,
             $(
                 $(#[$tdoc])*
                 pub $tfield: Setting<$ttype>,
@@ -295,7 +292,6 @@ macro_rules! settings {
             Choices {
                 theme: theme_source(options, env, config),
                 paper: options.paper.as_ref().map(|paper| paper.value),
-                margins: resolve(options.margins.clone(), unset, None, true, w),
                 $($tfield: resolve(
                     options.$tfield.clone(),
                     variable(env, $tenv),
@@ -320,6 +316,26 @@ macro_rules! settings {
 
 settings! {
     top {
+        /// Which terminal features to use.
+        mode: Mode = Mode::Auto;
+        key "mode", owner "term", effect Display, medium Both, scope General,
+        flag Some("--mode"), env Env::is("KIRI_MODE");
+
+        /// The width in cells, when not the terminal's.
+        width: Option<u16> = None;
+        key "width", owner "term", effect Layout, medium Cells, scope General,
+        flag Some("--width"), env Env::is("KIRI_WIDTH");
+
+        /// The largest image file to read, in megabytes.
+        max_image_size: Megabytes = Megabytes(10);
+        key "max_image_size", owner "images", effect Images, medium Pixels, scope General,
+        flag Some("--max-image-size"), env Env::is("KIRI_MAX_IMAGE_SIZE");
+
+        /// Whether the theme keeps its margins.
+        margins: bool = true;
+        key "margins", owner "typeset::theme", effect Layout, medium Cells, scope General,
+        flag Some("--margins"), env Env::is("KIRI_MARGINS");
+
         /// Whether images are shown, or only their alt text.
         images: bool = true;
         key "images", owner "images", effect Images, medium Pixels, scope General,
@@ -391,21 +407,19 @@ settings! {
         /// How long an external command may take to draw one diagram.
         diagram_timeout in timeout: Duration = crate::diagrams::external::TIME_LIMIT;
         key "diagrams.timeout", owner "diagrams::external", effect Images, medium Pixels,
-        scope General, flag None, env Env::NONE;
+        scope General, flag Some("--diagram-timeout"), env Env::is("KIRI_DIAGRAM_TIMEOUT");
 
         /// Whether a diagram in colours for the other page, light or dark,
         /// lies on a panel.
         diagram_background_panel in background_panel: bool = true;
         key "diagrams.background_panel", owner "images::pipeline", effect Images,
-        medium Pixels, scope General, flag None, env Env::NONE;
+        medium Pixels, scope General, flag Some("--diagram-panel"), env Env::is("KIRI_DIAGRAM_BACKGROUND_PANEL");
     }
     special {
         theme, key Some("theme"), owner "typeset::theme", effect Layout, medium Both,
         scope General, flag Some("--theme"), env Env::is("KIRI_THEME");
         paper, key None, owner "typeset::theme", effect Layout, medium Both,
         scope General, flag Some("--light"), env Env::NONE;
-        margins, key None, owner "typeset::theme", effect Layout, medium Cells,
-        scope General, flag Some("--no-margins"), env Env::NONE;
         diagram_commands, key Some("diagrams.<language>.command"), owner "diagrams::external",
         effect Images, medium Pixels, scope General, flag None, env Env::NONE;
         diagram_no_search, key Some("diagrams.<language>.auto_detect"), owner "diagrams::find",

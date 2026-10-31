@@ -233,6 +233,93 @@ fn no_margins_puts_the_text_at_the_edge() {
     }
 }
 
+/// The general settings are on every level: a flag, a variable and a key in
+/// the configuration file, each beaten by the one before it.
+#[test]
+fn the_margins_come_from_the_flag_the_environment_and_the_configuration_file() {
+    let dir = Scratch::new("margins-levels");
+    let shown = |command: &mut std::process::Command| {
+        let document = dir.join("document.md");
+        std::fs::write(&document, "Text\n").unwrap();
+        let out = command
+            .args(["--mode", "plain"])
+            .arg(&document)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        text(&out.stdout)
+    };
+    assert_eq!(shown(&mut command(&dir)), "  Text\n");
+    assert_eq!(shown(command(&dir).arg("--no-margins")), "Text\n");
+    assert_eq!(shown(command(&dir).env("KIRI_MARGINS", "off")), "Text\n");
+    write(&dir.join("config/kiri/config.toml"), "margins = false\n");
+    assert_eq!(shown(&mut command(&dir)), "Text\n");
+    assert_eq!(shown(command(&dir).env("KIRI_MARGINS", "on")), "  Text\n");
+    assert_eq!(
+        shown(command(&dir).env("KIRI_MARGINS", "off").arg("--margins")),
+        "  Text\n"
+    );
+    assert_eq!(shown(command(&dir).arg("--margins")), "  Text\n");
+}
+
+#[test]
+fn the_width_comes_from_the_flag_the_environment_and_the_configuration_file() {
+    let dir = Scratch::new("width-levels");
+    let words = "aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj\n";
+    let widest = |command: &mut std::process::Command| {
+        let document = dir.join("document.md");
+        std::fs::write(&document, words).unwrap();
+        let out = command
+            .args(["--mode", "plain"])
+            .arg(&document)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        let shown = text(&out.stdout);
+        shown
+            .lines()
+            .map(|line| line.chars().count())
+            .max()
+            .unwrap()
+    };
+    assert!(widest(&mut command(&dir)) > 30);
+    assert!(widest(command(&dir).args(["--width", "30"])) <= 30);
+    assert!(widest(command(&dir).env("KIRI_WIDTH", "30")) <= 30);
+    write(&dir.join("config/kiri/config.toml"), "width = 30\n");
+    assert!(widest(&mut command(&dir)) <= 30);
+    assert!(widest(command(&dir).args(["--width", "60"])) > 30);
+    let out = kiri(&dir, words, &["--mode", "plain"]);
+    assert!(out.status.success());
+    let out = command(&dir)
+        .env("KIRI_WIDTH", "wide")
+        .args(["--mode", "plain"])
+        .arg(dir.join("document.md"))
+        .output()
+        .unwrap();
+    assert!(
+        text(&out.stderr).contains("KIRI_WIDTH: `wide` is not a whole number of cells; left out")
+    );
+}
+
+#[test]
+fn the_mode_comes_from_the_environment_and_the_configuration_file() {
+    let dir = Scratch::new("mode-levels");
+    let colours = |command: &mut std::process::Command| {
+        let document = dir.join("document.md");
+        std::fs::write(&document, "**Bold**\n").unwrap();
+        let out = command.arg(&document).output().unwrap();
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        text(&out.stdout).contains('\x1b')
+    };
+    // Piped, the mode is plain unless something says otherwise.
+    assert!(!colours(&mut command(&dir)));
+    assert!(colours(command(&dir).env("KIRI_MODE", "ansi")));
+    write(&dir.join("config/kiri/config.toml"), "mode = \"ansi\"\n");
+    assert!(colours(&mut command(&dir)));
+    assert!(!colours(command(&dir).env("KIRI_MODE", "plain")));
+    assert!(!colours(command(&dir).args(["--mode", "plain"])));
+}
+
 #[test]
 fn an_unknown_kiri_paging_is_a_warning() {
     let dir = Scratch::new("paging-unknown");
