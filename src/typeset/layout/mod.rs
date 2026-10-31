@@ -26,7 +26,7 @@ mod quote;
 pub(crate) mod summary;
 
 pub use code::CodeColors;
-pub(crate) use code::{expand_tabs, inline_code_background};
+pub(crate) use code::expand_tabs;
 
 use std::borrow::Cow;
 use std::ops::Range;

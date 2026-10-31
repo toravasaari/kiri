@@ -2,12 +2,11 @@
 
 use unicode_width::UnicodeWidthStr;
 
-use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
 use crate::typeset::layout::Layout;
 use crate::typeset::layout::highlight;
 use crate::typeset::style::{Line, Span, Style, push};
-use crate::typeset::theme::{CodeBackground, LabelColor, Theme};
+use crate::typeset::theme::LabelColor;
 use crate::typeset::wrap;
 
 impl Layout<'_> {
@@ -190,20 +189,6 @@ pub struct CodeColors {
     pub background: Option<Color>,
     pub text: Option<Color>,
     pub label: Option<Color>,
-}
-
-/// The background of inline code in `theme` on a terminal with `caps`:
-/// the theme's colour, or the background of the code block colour theme
-/// for the page, dark unless the terminal tells otherwise.
-pub(crate) fn inline_code_background(theme: &Theme, caps: &Capabilities) -> Option<Color> {
-    let code_theme = match caps.dark_background.unwrap_or(true) {
-        true => &theme.code_theme_dark,
-        false => &theme.code_theme_light,
-    };
-    match theme.inline_code_background {
-        CodeBackground::CodeBlock => highlight::background(code_theme).flatten(),
-        CodeBackground::Color(color) => color,
-    }
 }
 
 /// The colour halfway between two RGB colours, rounded up; `a` when

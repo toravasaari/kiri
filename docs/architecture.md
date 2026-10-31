@@ -743,6 +743,7 @@ later and are test only.
 | `src/typeset/reading/page/heading.rs` | new: headings |
 | `src/typeset/reading/page/html.rs` | new: raw HTML, shown as its source |
 | `src/typeset/theme/look.rs` | new: the one look, resolved from the theme and the capabilities, which both layouts read: colours, heading styles, and a spacing table for each medium, in cells for the text layout and in pixels (GitHub's values) for reading mode |
+| `src/typeset/reading/look.rs` | new: reading mode's brushes, the one look resolved into the colours its page is drawn with (`page_look`). The path is for the maintainer to confirm |
 | `src/typeset/parity.rs` | new, test only: lays out blocks in both layouts and compares what each decided, against the list of known differences |
 | `src/typeset/layout/summary.rs` | new, test only: the cell layout's view of a block, for the parity test |
 | `src/typeset/reading/page/summary.rs` | new, test only: the pixel layout's view of a block, for the parity test |

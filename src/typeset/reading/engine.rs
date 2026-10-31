@@ -38,12 +38,12 @@ use crate::typeset::images::size::{self as sizes, Placement, Shows, Size, Wanted
 use crate::typeset::layout::highlight;
 use crate::typeset::layout::{CodeColors, expand_tabs};
 use crate::typeset::model::{self, Block};
-use crate::typeset::reading::Fonts;
 use crate::typeset::reading::page::{
     self, Frame, FrontMatterShown, Highlight, Hit, ItemRef, LinkPlace, Look, MarkColors, Overlay,
     Page, Picture, Pictures, Plain, Wide,
 };
 use crate::typeset::reading::text::{Brush, Run};
+use crate::typeset::reading::{Fonts, page_look};
 use crate::typeset::style::{Band, ImageRow, Line, Span, Style};
 use crate::typeset::theme::{Look as Resolved, SearchColor};
 
@@ -542,7 +542,7 @@ pub fn lines(
 ) -> Vec<Line> {
     let cell = cell_size(caps);
     let (cell_width, cell_height) = (f32::from(cell.0), f32::from(cell.1));
-    let look = one.page(code, stripes, caps);
+    let look = page_look(one, code, stripes, caps);
     let Area {
         left, area, text, ..
     } = Area::of(one, caps, width);
@@ -1000,7 +1000,7 @@ mod tests {
 
     /// A page's look for a theme alone.
     fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities) -> Look {
-        Resolved::new(theme, caps).page(code, stripes, caps)
+        page_look(&Resolved::new(theme, caps), code, stripes, caps)
     }
 
     /// A terminal with cells of 10 by 20 pixels, as the tests assume.
