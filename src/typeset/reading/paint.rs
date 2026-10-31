@@ -100,6 +100,20 @@ impl Canvas {
                 }
             }
         }
+        for (range, background) in paragraph.backgrounds() {
+            let size = paragraph.look.size;
+            let lines = paragraph.lines();
+            for part in paragraph.boxes(range.clone()) {
+                let baseline = y + lines[part.line].baseline;
+                self.rect(
+                    x + part.left,
+                    baseline - CHIP_ABOVE * size,
+                    part.right - part.left,
+                    CHIP_HEIGHT * size,
+                    *background,
+                );
+            }
+        }
         self.glyphs_over(paragraph, x, y, None);
         self.marks(paragraph, x, y, marks);
     }
@@ -189,6 +203,8 @@ impl Canvas {
                     }
                 };
                 let run = glyphs.run();
+                // A subscript or superscript sits off the baseline.
+                let y = y + paragraph.drop_at(&run.text_range());
                 let font = run.font();
                 let Ok(face) = FontRef::from_index(font.data.data(), font.index) else {
                     continue;
@@ -563,7 +579,7 @@ mod tests {
 
     use super::*;
     use crate::typeset::reading::Fonts;
-    use crate::typeset::reading::text::{Look, Run, lay_out};
+    use crate::typeset::reading::text::{Look, Run, Script, lay_out};
 
     const INK: Brush = [0x20, 0xc0, 0x40];
     const CHIP: Brush = [0x40, 0x40, 0xa0];
@@ -624,6 +640,59 @@ mod tests {
         );
         // Text without code gets no chip.
         assert_eq!(count(&drawn(&[Run::new("Run")], Some(CHIP)), CHIP), 0);
+    }
+
+    /// The first and last row of `image` that have ink.
+    fn ink_rows(image: &RgbaImage) -> (u32, u32) {
+        let rows: Vec<u32> = (0..image.height())
+            .filter(|&y| {
+                (0..image.width()).any(|x| image.get_pixel(x, y).0 == [0x20, 0xc0, 0x40, 255])
+            })
+            .collect();
+        (rows[0], rows[rows.len() - 1])
+    }
+
+    #[test]
+    fn marked_text_is_drawn_on_its_background() {
+        let marked = Run {
+            background: Some(CHIP),
+            ..Run::new("found")
+        };
+        let image = drawn(&[Run::new("a "), marked], None);
+        assert!(
+            count(&image, CHIP) > 300,
+            "{} pixels of background",
+            count(&image, CHIP)
+        );
+        // The text over the box, not under it.
+        assert!(count(&image, INK) > 50);
+        assert_eq!(count(&drawn(&[Run::new("a found")], None), CHIP), 0);
+    }
+
+    #[test]
+    fn a_subscript_is_lowered_and_a_superscript_raised_and_both_are_smaller() {
+        let script = |drop| Run {
+            script: Some(Script { size: 0.8, drop }),
+            ..Run::new("xx")
+        };
+        let (top, bottom) = ink_rows(&drawn(&[Run::new("xx")], None));
+        let (sub_top, sub_bottom) = ink_rows(&drawn(&[script(0.2)], None));
+        let (sup_top, sup_bottom) = ink_rows(&drawn(&[script(-0.33)], None));
+        assert!(
+            sub_bottom > bottom,
+            "sub ends at {sub_bottom}, text at {bottom}"
+        );
+        assert!(
+            sup_bottom < bottom,
+            "sup ends at {sup_bottom}, text at {bottom}"
+        );
+        assert!(sup_top < top, "sup starts at {sup_top}, text at {top}");
+        assert!(
+            sub_bottom - sub_top < bottom - top,
+            "sub is {} high, text {}",
+            sub_bottom - sub_top,
+            bottom - top
+        );
     }
 
     #[test]

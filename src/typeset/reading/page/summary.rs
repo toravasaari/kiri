@@ -6,7 +6,7 @@ use crate::typeset::images::size::cell_size;
 use crate::typeset::layout::CodeColors;
 use crate::typeset::model::{Block, Inline};
 use crate::typeset::parity::{self, Fact, Field, Setup};
-use crate::typeset::reading::engine::{self, Area};
+use crate::typeset::reading::engine::Area;
 use crate::typeset::reading::fonts::Fonts;
 use crate::typeset::reading::page::{
     Frame, FrontMatterShown, Ink, Look, Page, Plain, Shape, TableStyle, Wide, lay_out, runs,
@@ -17,8 +17,7 @@ use crate::typeset::theme::Look as Resolved;
 pub(crate) fn summary(block: &Block, setup: &Setup) -> Vec<Fact> {
     let caps = setup.caps();
     let one = Resolved::new(&setup.theme(), &caps);
-    let look = engine::page_look(
-        &one,
+    let look = one.page(
         &CodeColors::default(),
         setup.table_rows != TableRows::Off,
         &caps,
