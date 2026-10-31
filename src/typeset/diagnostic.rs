@@ -33,14 +33,18 @@ pub enum Code {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     pub code: Code,
-    /// The file it is about, when it is told among several files or on
-    /// its own as a file's trouble; `None` when the text says it or the
-    /// trouble is not in a file.
+    /// The document it belongs to: set when it is told among several
+    /// files, and for a diagram file shown on its own; `None` for a
+    /// document alone and for trouble that is not in a file.
     pub file: Option<String>,
-    /// The line of the file it is at, counting from 1, when known.
+    /// The image or diagram it is about, as the text names it: a path, a
+    /// URL, `mermaid diagram on line 3`; `None` when there is none.
+    pub subject: Option<String>,
+    /// The line of the document it is at, counting from 1, when known.
     pub line: Option<usize>,
-    /// What is wrong, as one line of text, without the file's name. For
-    /// front matter it is the parser's message, without a position.
+    /// What is wrong, as one line of text, without the file's name and
+    /// the subject. For front matter it is the parser's message, without
+    /// a position.
     pub message: String,
 }
 
@@ -51,9 +55,17 @@ impl Diagnostic {
         Self {
             code,
             file: None,
+            subject: None,
             line: None,
             message: message.into(),
         }
+    }
+
+    /// The same diagnostic, about the image or diagram `subject`.
+    #[must_use]
+    pub fn about(mut self, subject: impl Into<String>) -> Self {
+        self.subject = Some(subject.into());
+        self
     }
 
     /// The same diagnostic, about the file `file`.
@@ -72,11 +84,20 @@ impl Diagnostic {
     }
 
     /// The text of the pager's warning line, which puts the line before
-    /// it: front matter says what it is, and the rest is its message.
+    /// it: front matter says what it is, and the rest is its subject and
+    /// message. It leaves the file out; the pager names the file itself.
     pub fn pager_message(&self) -> String {
         match self.code {
             Code::FrontMatter => format!("front matter: {}", self.message),
-            _ => self.message.clone(),
+            _ => self.about_text(),
+        }
+    }
+
+    /// The subject and the message, without the file's name.
+    fn about_text(&self) -> String {
+        match &self.subject {
+            Some(subject) => format!("{subject}: {}", self.message),
+            None => self.message.clone(),
         }
     }
 
@@ -87,7 +108,7 @@ impl Diagnostic {
                 format!("front matter, line {line}: {}", self.message)
             }
             (Code::FrontMatter, None) => format!("front matter: {}", self.message),
-            _ => self.message.clone(),
+            _ => self.about_text(),
         }
     }
 }
@@ -136,6 +157,17 @@ mod tests {
     fn other_diagnostics_say_their_message_as_it_is() {
         let error = Diagnostic::new(Code::Image, "a.png: file not found");
         assert_eq!(error.to_string(), "a.png: file not found");
+        assert_eq!(error.pager_message(), "a.png: file not found");
+    }
+
+    #[test]
+    fn a_subject_comes_before_the_message_and_after_the_file() {
+        let error = Diagnostic::new(Code::Image, "file not found").about("a.png");
+        assert_eq!(error.to_string(), "a.png: file not found");
+        assert_eq!(error.pager_message(), "a.png: file not found");
+        let error = error.in_file("c.md");
+        assert_eq!(error.to_string(), "c.md: a.png: file not found");
+        // The pager names the file itself, so its text has none.
         assert_eq!(error.pager_message(), "a.png: file not found");
     }
 

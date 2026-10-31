@@ -909,6 +909,8 @@ fn inline_images<'a>(content: &'a [Inline], renderer: &dyn Renderer, wanted: &mu
 
 #[cfg(test)]
 pub(super) mod tests {
+    use crate::typeset::diagnostic::Code;
+
     /// The text of each of `diagnostics`, as standard error tells them.
     fn texts(diagnostics: Vec<Diagnostic>) -> Vec<String> {
         diagnostics.iter().map(ToString::to_string).collect()
@@ -1598,6 +1600,44 @@ fn main() {}
                 "mermaid block: not an image format kiri knows",
             ]
         );
+    }
+
+    #[test]
+    fn a_warning_has_the_kind_and_the_subject_it_is_about() {
+        let mut images = Images::new();
+        images.insert("gone.png", Err(ImageError::Missing("/doc/gone.png".into())));
+        images.insert(
+            ImageKey::block("mermaid", "x"),
+            Err(ImageError::Diagram {
+                name: "mermaid diagram on line 3".into(),
+                reason: "parse error".into(),
+            }),
+        );
+        images.insert("https://example.com/a.png", Err(ImageError::Remote));
+        images.insert("", Err(ImageError::NoPath));
+        let told = images.warnings();
+        let seen: Vec<_> = told
+            .iter()
+            .map(|d| (d.code, d.subject.as_deref(), d.message.as_str()))
+            .collect();
+        assert_eq!(
+            seen,
+            [
+                (Code::Image, Some("/doc/gone.png"), "file not found"),
+                (
+                    Code::Diagram,
+                    Some("mermaid diagram on line 3"),
+                    "parse error"
+                ),
+                (
+                    Code::Image,
+                    Some("https://example.com/a.png"),
+                    "remote images are not loaded"
+                ),
+                (Code::Image, None, "an image URL is empty"),
+            ]
+        );
+        assert!(told.iter().all(|d| d.file.is_none()));
     }
 
     #[test]

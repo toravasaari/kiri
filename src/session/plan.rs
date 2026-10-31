@@ -353,9 +353,9 @@ mod tests {
 
     #[test]
     fn reading_mode_that_is_asked_for_but_not_drawn_is_warned_of() {
-        let warning = reading_warning(true, &Capabilities::ansi(80))
-            .unwrap()
-            .to_string();
+        let warning = reading_warning(true, &Capabilities::ansi(80)).unwrap();
+        assert_eq!(warning.code, Code::ReadingMode);
+        let warning = warning.to_string();
         assert!(
             warning.starts_with("reading mode needs a terminal"),
             "{warning}"
