@@ -36,7 +36,7 @@ use kiri::pager::{Change, Look, Reload, Reloaded, Warning};
 use kiri::present::encoder::Encoder;
 use kiri::present::output::Page;
 use kiri::render::{Headings, Inputs, RenderErrors, TableRows};
-use kiri::session::plan::{self, Load};
+use kiri::session::plan::{self, Load, Route};
 use kiri::term::{Interrupt, Mode};
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::input::Input;
@@ -345,26 +345,24 @@ fn main() -> ExitCode {
     } else if cli.list_emojis {
         list_emojis(&cli)
     } else {
-        let stdin = Path::new("-");
-        match cli.files.as_slice() {
-            [path] if path != stdin => run(&cli, Some(path)),
-            [_] => run(&cli, None),
-            [] if !kiri::term::stdin_is_terminal() => run(&cli, None),
+        match plan::route(&cli.files, kiri::term::stdin_is_terminal()) {
+            Route::One => run(&cli, cli.files.first().map(PathBuf::as_path)),
+            Route::Stdin => run(&cli, None),
             // clap cannot require the file only when stdin is a terminal,
             // so this is its own error for a missing argument.
-            [] => command
+            Route::Missing => command
                 .error(
                     ErrorKind::MissingRequiredArgument,
                     "the following required arguments were not provided:\n  <FILE>...",
                 )
                 .exit(),
-            paths if paths.iter().filter(|path| *path == stdin).count() > 1 => command
+            Route::RepeatedStdin => command
                 .error(
                     ErrorKind::ArgumentConflict,
                     "- (standard input) can be given only once",
                 )
                 .exit(),
-            paths => run_files(&cli, paths),
+            Route::Several => run_files(&cli, &cli.files),
         }
     };
     match result {
@@ -460,7 +458,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     }
     let mut settings = settings?;
     if file.is_none() {
-        settings.paging = plan::only_always(settings.paging);
+        settings.paging = plan::for_standard_input(settings.paging);
     }
     let passthrough = settings.passthrough;
     let caps = kiri::term::capabilities(context.mode, context.width, &env, passthrough);
@@ -502,11 +500,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     // Only a document read from a regular file can be read again: a pipe
     // given by its path, such as <(cmd), is read to its end already.
     let from = (file.filter(|path| path.is_file())).map(|path| FromFile { path, input, look });
-    // Following pages the file however short it is, as -p does, unless
-    // paging is never.
-    if from.is_some() && settings.follow != Follow::Off && settings.paging == Paging::Auto {
-        settings.paging = Paging::Always;
-    }
+    settings.paging = plan::for_follow(settings.paging, settings.follow, from.is_some());
     show_document(
         &context,
         &document,

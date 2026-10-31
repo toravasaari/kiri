@@ -3,7 +3,9 @@
 //! need no I/O. The platform, `src/main.rs`, reads the terminal and the
 //! files and passes the answers in as values.
 
-use crate::config::{InitialLoad, Paging};
+use std::path::{Path, PathBuf};
+
+use crate::config::{Follow, InitialLoad, Paging};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::reading::page::Wide;
 use crate::typeset::theme::Paper;
@@ -135,6 +137,52 @@ pub fn load(surely: bool, initial_load: InitialLoad) -> Load {
         (false, _) => Load::Now,
         (true, InitialLoad::Wait) => Load::Wait,
         (true, InitialLoad::Background) => Load::Later,
+    }
+}
+
+/// `paging` for a document read from standard input, which is often the
+/// output of another command: only `always` pages it.
+pub fn for_standard_input(paging: Paging) -> Paging {
+    only_always(paging)
+}
+
+/// `paging` for a file that is followed, which is read again when it
+/// changes. Following pages a file, however short, as `-p` does, unless
+/// paging is never; a file that cannot be read again is not followed.
+pub fn for_follow(paging: Paging, follow: Follow, reloadable: bool) -> Paging {
+    match paging {
+        Paging::Auto if reloadable && follow != Follow::Off => Paging::Always,
+        _ => paging,
+    }
+}
+
+/// What the files on the command line make a run show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Route {
+    /// One file, shown on its own.
+    One,
+    /// Standard input: the one file `-`, or none given while standard input
+    /// is not a terminal.
+    Stdin,
+    /// Several files, one after another.
+    Several,
+    /// None given, while standard input is a terminal.
+    Missing,
+    /// Standard input, `-`, given more than once.
+    RepeatedStdin,
+}
+
+/// The route for `paths`, the files given on the command line, with
+/// `stdin_is_terminal` telling whether standard input is one.
+pub fn route(paths: &[PathBuf], stdin_is_terminal: bool) -> Route {
+    let stdin = Path::new("-");
+    match paths {
+        [path] if path != stdin => Route::One,
+        [_] => Route::Stdin,
+        [] if !stdin_is_terminal => Route::Stdin,
+        [] => Route::Missing,
+        paths if paths.iter().filter(|path| *path == stdin).count() > 1 => Route::RepeatedStdin,
+        _ => Route::Several,
     }
 }
 
@@ -293,5 +341,53 @@ mod tests {
     fn images_of_a_surely_paged_document_wait_or_load_later() {
         assert_eq!(load(true, InitialLoad::Wait), Load::Wait);
         assert_eq!(load(true, InitialLoad::Background), Load::Later);
+    }
+
+    fn paths(names: &[&str]) -> Vec<PathBuf> {
+        names.iter().map(PathBuf::from).collect()
+    }
+
+    #[test]
+    fn one_file_is_shown_alone_and_standard_input_is_its_own_route() {
+        assert_eq!(route(&paths(&["a.md"]), false), Route::One);
+        assert_eq!(route(&paths(&["-"]), false), Route::Stdin);
+        assert_eq!(route(&paths(&["-"]), true), Route::Stdin);
+    }
+
+    #[test]
+    fn no_file_reads_standard_input_unless_it_is_a_terminal() {
+        assert_eq!(route(&[], false), Route::Stdin);
+        assert_eq!(route(&[], true), Route::Missing);
+    }
+
+    #[test]
+    fn several_files_are_shown_one_after_another() {
+        assert_eq!(route(&paths(&["a.md", "b.md"]), true), Route::Several);
+        assert_eq!(route(&paths(&["a.md", "-"]), false), Route::Several);
+    }
+
+    #[test]
+    fn standard_input_can_be_given_only_once() {
+        assert_eq!(route(&paths(&["-", "-"]), false), Route::RepeatedStdin);
+        assert_eq!(
+            route(&paths(&["-", "a.md", "-"]), false),
+            Route::RepeatedStdin
+        );
+    }
+
+    #[test]
+    fn a_followed_file_is_paged_when_paging_is_auto() {
+        for follow in [Follow::On, Follow::Auto] {
+            assert_eq!(for_follow(Paging::Auto, follow, true), Paging::Always);
+        }
+        assert_eq!(for_follow(Paging::Auto, Follow::Off, true), Paging::Auto);
+        assert_eq!(for_follow(Paging::Auto, Follow::On, false), Paging::Auto);
+    }
+
+    #[test]
+    fn following_leaves_other_paging_as_it_is() {
+        for paging in [Paging::Always, Paging::Never] {
+            assert_eq!(for_follow(paging, Follow::On, true), paging, "{paging:?}");
+        }
     }
 }
