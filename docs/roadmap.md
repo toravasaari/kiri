@@ -1608,12 +1608,15 @@ Without the style change they stay one. Reading mode keeps them one. A
 mark that the layout kept for touching parts across a break would mend
 it.
 
-#### B15 Tab stops at a link without an address
+#### B15 Tab stops at a link without an address (fixed)
 
 `[text]()` is a Tab stop in the pager, in both layouts, though the
 terminal shows no link there: an empty address in OSC 8 closes a link.
 Enter already scrolls past it instead of copying, and Tab could skip it
 too.
+
+Fixed: Tab and Shift+Tab skip a link without an address in both
+layouts.
 
 #### B16 A bar in a table cell's text splits a wrapped link
 

@@ -153,7 +153,8 @@ impl Links {
 /// its id whether or not a band shows it now; `lines` are where its cells
 /// are, none while it has none, and `band_at` where to scroll its band to.
 /// A link in text is what `text_links` finds: spans side by side on a line
-/// with one address, and one that wraps is one link.
+/// with one address, and one that wraps is one link. A link without an
+/// address is left out, as the terminal shows no link there.
 fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
     // The lines that have cells of each link of a page.
     let mut cells: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
@@ -182,6 +183,9 @@ fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
     for page in engine::pages(lines) {
         let address = Rc::as_ptr(&page.parts) as usize;
         for (number, link) in page.parts.links().iter().enumerate() {
+            if link.url.is_empty() {
+                continue;
+            }
             let at = (page.lines.start + page.parts.link_row(number)).min(page.lines.end - 1);
             let place = places.get(at).cloned().flatten();
             let nth = number_in(&place);
@@ -202,6 +206,9 @@ fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
     }
     let in_pages = !found.is_empty();
     for (url, runs) in text_links(lines) {
+        if url.is_empty() {
+            continue;
+        }
         let first = runs[0].0;
         let place = places.get(first).cloned().flatten();
         let mut on: Vec<usize> = runs.iter().map(|(line, _)| *line).collect();
@@ -717,5 +724,17 @@ mod tests {
         let (line, x) = found.band_at.expect("in a band");
         assert!(engine::bands(&lines)[0].lines.contains(&line));
         assert!(x.start > 1000, "{x:?}");
+    }
+
+    #[test]
+    fn a_link_without_an_address_is_no_stop_for_tab() {
+        // The terminal shows no link there: an empty address in OSC 8
+        // closes one.
+        let source = "A [one](u1), [none]() and [two](u2).\n";
+        for (lines, places) in [laid_out(source), text(source)] {
+            let found = identify(&lines, &places);
+            let urls: Vec<&str> = found.iter().map(|found| found.url.as_str()).collect();
+            assert_eq!(urls, ["u1", "u2"]);
+        }
     }
 }
