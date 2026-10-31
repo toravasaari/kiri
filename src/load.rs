@@ -1,16 +1,36 @@
-use std::io;
-use std::path::Path;
+//! The loading of a document's images and diagrams, and the reloading of its
+//! file for the pager. Images load in the foreground while the reader waits
+//! for the pager, on threads while the pager shows, and in the background
+//! when a reload finds images it does not have yet. A reload reads the file
+//! again and tells the pager whether the file has changed since it was read.
+//!
+//! What does not belong here is the choice of what to show and when, which
+//! `main.rs` makes from the command line and the settings, and the state of
+//! a session. The functions here do the I/O and run the programs that draw
+//! diagrams; they take the settings and the terminal's capabilities as input.
+//!
+//! This is the seed of the platform's work runner. The session that roadmap
+//! item G7.3.3 adds will fill it in and replace the parts that do not fit it.
+
+use std::io::{self, Read};
+use std::path::{Path, PathBuf};
 
 use kiri::config::Settings;
-use kiri::images::{Images, Interrupted, Loaded, Loading, Loads, Part};
+use kiri::images::{
+    Fonts, Format, Images, Interrupted, Loaded, Loading, Loads, Part, Source, Stamps,
+    reload_in_background,
+};
+use kiri::pager::{Reload, Reloaded};
 use kiri::render::Inputs;
 use kiri::session::plan;
+use kiri::session::state::{Change, Look};
 use kiri::term::Interrupt;
 use kiri::typeset::caps::Capabilities;
+use kiri::typeset::input::Input;
 use kiri::typeset::model::Document;
 use kiri::typeset::theme::Theme;
 
-use crate::{Context, Failure};
+use crate::{Context, Failure, document};
 
 /// The rows an image or diagram that has not loaded yet counts as, to
 /// tell whether a document is longer than the window before it loads.
@@ -228,4 +248,113 @@ pub(crate) fn close_programs(loads: &Loads) {
     let text = "kiri: closing background programs…";
     let second = std::time::Duration::from_secs(1);
     kiri::term::progress::while_waiting(io::stderr(), second, limit, text, wait);
+}
+
+/// Reads the document from its file again for the pager, and loads the
+/// images it does not have yet.
+pub(crate) struct FileReload<'a> {
+    pub(crate) context: &'a Context<'a>,
+    pub(crate) settings: &'a Settings,
+    /// The regular file the document was read from, as `input`.
+    pub(crate) path: PathBuf,
+    pub(crate) input: Input,
+    /// When the files behind the images were last changed.
+    pub(crate) stamps: Stamps,
+    /// How the file looked when it was last read, when it could be
+    /// looked at.
+    pub(crate) read: Option<Look>,
+}
+
+impl Reload for FileReload<'_> {
+    fn reload(
+        &mut self,
+        images: &mut Images,
+        loads: &mut Loads,
+        caps: &Capabilities,
+        reading: bool,
+    ) -> Reloaded {
+        let (path, input) = (self.path.as_path(), self.input);
+        // Before the file is read, so that a change meanwhile counts.
+        self.read = look(path).ok();
+        // The status line names the file already, so the reasons do not.
+        let source = match read_text(path) {
+            Ok(source) => source,
+            Err(error) => return Reloaded::Failed(error),
+        };
+        let mut warnings = Vec::new();
+        let warn = |warning| warnings.push(warning);
+        let document = match document(input, &source, path, self.settings, caps, warn) {
+            Ok(Some(document)) => document,
+            Ok(None) => return Reloaded::Failed("cannot be shown".to_owned()),
+            Err(error) => return Reloaded::Failed(without_path(error, path)),
+        };
+        if self.settings.images && caps.draws_images() {
+            let parts = [part(&document, Some(path), reading)];
+            let loading = loading(self.context, self.settings, caps);
+            reload_in_background(&parts, &loading, images, &mut self.stamps, loads);
+        }
+        match warnings.is_empty() {
+            true => Reloaded::Document(document),
+            false => Reloaded::Warned(document, warnings),
+        }
+    }
+
+    fn change(&mut self) -> Change {
+        match look(&self.path) {
+            Ok(look) if Some(look) == self.read => Change::Unchanged,
+            Ok(look) => Change::Changed(look),
+            Err(why) => Change::Gone(why),
+        }
+    }
+}
+
+/// How the file at `path` looks now, looked up by its path, so that a file
+/// replaced by another, as an editor saves through a rename, counts as
+/// changed; why it cannot be looked at otherwise.
+pub(crate) fn look(path: &Path) -> Result<Look, String> {
+    let metadata = std::fs::metadata(path).map_err(|error| error.to_string())?;
+    Ok(Look {
+        modified: metadata.modified().ok(),
+        length: metadata.len(),
+    })
+}
+
+/// The text of the file at `path`, read whole; why it cannot be read
+/// otherwise.
+fn read_text(path: &Path) -> Result<String, String> {
+    let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
+    String::from_utf8(bytes).map_err(|_| "not UTF-8 text".to_owned())
+}
+
+/// `error` without the `path: ` it starts with, if it does.
+pub(crate) fn without_path(error: String, path: &Path) -> String {
+    let prefix = format!("{}: ", path.display());
+    match error.strip_prefix(&prefix) {
+        Some(reason) => reason.to_owned(),
+        None => error,
+    }
+}
+
+/// The image file `path`, in `format`, read from `reader` up to the size
+/// limit, for a terminal with `caps`, which must draw images.
+pub(crate) fn read_image_file(
+    context: &Context,
+    caps: &Capabilities,
+    path: &Path,
+    format: Format,
+    reader: impl Read,
+) -> Result<Source, String> {
+    if !caps.draws_images() {
+        return Err(format!(
+            "{}: the terminal cannot show images",
+            path.display()
+        ));
+    }
+    let max_file_size = context.max_file_size;
+    kiri::images::read_image(reader, path, format, max_file_size, &Fonts::system()).map_err(
+        |error| match error {
+            error if error.names_file() => error.to_string(),
+            error => format!("{}: {error}", path.display()),
+        },
+    )
 }

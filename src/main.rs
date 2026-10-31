@@ -24,16 +24,15 @@ use clap::{CommandFactory, FromArgMatches};
 use kiri::config::{Environment, Settings};
 use kiri::doctor::{Facts, Output};
 use kiri::images::{
-    Fonts, Format, ImageError, ImageKey, Images, Loaded, Loads, Part, Placeholder, Source, Stamps,
-    reload_in_background,
+    Format, ImageError, ImageKey, Images, Loaded, Loads, Part, Placeholder, Source, Stamps,
 };
-use kiri::pager::{Reload, Reloaded};
+use kiri::pager::Reload;
 use kiri::present::encoder::Encoder;
 use kiri::present::output::Page;
 use kiri::render::Inputs;
 use kiri::session::plan::{self, Load, Route};
 use kiri::session::settings::{Follow, Paging};
-use kiri::session::state::{Change, Look};
+use kiri::session::state::Look;
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::diagnostic::{Code, Diagnostic};
 use kiri::typeset::input::Input;
@@ -47,8 +46,8 @@ mod load;
 
 use cli::{Cli, follow, options};
 use load::{
-    ROWS_UNLOADED, close_programs, finish_loading, load_in_background, load_parts, loading, part,
-    surely_paged, wait_or_skip,
+    FileReload, ROWS_UNLOADED, close_programs, finish_loading, load_in_background, load_parts,
+    loading, look, part, read_image_file, surely_paged, wait_or_skip, without_path,
 };
 
 fn main() -> ExitCode {
@@ -1414,115 +1413,6 @@ fn page(
         eprintln!("kiri: {warning}");
     }
     Some(result)
-}
-
-/// Reads the document from its file again for the pager, and loads the
-/// images it does not have yet.
-struct FileReload<'a> {
-    context: &'a Context<'a>,
-    settings: &'a Settings,
-    /// The regular file the document was read from, as `input`.
-    path: PathBuf,
-    input: Input,
-    /// When the files behind the images were last changed.
-    stamps: Stamps,
-    /// How the file looked when it was last read, when it could be
-    /// looked at.
-    read: Option<Look>,
-}
-
-impl Reload for FileReload<'_> {
-    fn reload(
-        &mut self,
-        images: &mut Images,
-        loads: &mut Loads,
-        caps: &Capabilities,
-        reading: bool,
-    ) -> Reloaded {
-        let (path, input) = (self.path.as_path(), self.input);
-        // Before the file is read, so that a change meanwhile counts.
-        self.read = look(path).ok();
-        // The status line names the file already, so the reasons do not.
-        let source = match read_text(path) {
-            Ok(source) => source,
-            Err(error) => return Reloaded::Failed(error),
-        };
-        let mut warnings = Vec::new();
-        let warn = |warning| warnings.push(warning);
-        let document = match document(input, &source, path, self.settings, caps, warn) {
-            Ok(Some(document)) => document,
-            Ok(None) => return Reloaded::Failed("cannot be shown".to_owned()),
-            Err(error) => return Reloaded::Failed(without_path(error, path)),
-        };
-        if self.settings.images && caps.draws_images() {
-            let parts = [part(&document, Some(path), reading)];
-            let loading = loading(self.context, self.settings, caps);
-            reload_in_background(&parts, &loading, images, &mut self.stamps, loads);
-        }
-        match warnings.is_empty() {
-            true => Reloaded::Document(document),
-            false => Reloaded::Warned(document, warnings),
-        }
-    }
-
-    fn change(&mut self) -> Change {
-        match look(&self.path) {
-            Ok(look) if Some(look) == self.read => Change::Unchanged,
-            Ok(look) => Change::Changed(look),
-            Err(why) => Change::Gone(why),
-        }
-    }
-}
-
-/// How the file at `path` looks now, looked up by its path, so that a file
-/// replaced by another, as an editor saves through a rename, counts as
-/// changed; why it cannot be looked at otherwise.
-fn look(path: &Path) -> Result<Look, String> {
-    let metadata = std::fs::metadata(path).map_err(|error| error.to_string())?;
-    Ok(Look {
-        modified: metadata.modified().ok(),
-        length: metadata.len(),
-    })
-}
-
-/// The text of the file at `path`, read whole; why it cannot be read
-/// otherwise.
-fn read_text(path: &Path) -> Result<String, String> {
-    let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
-    String::from_utf8(bytes).map_err(|_| "not UTF-8 text".to_owned())
-}
-
-/// `error` without the `path: ` it starts with, if it does.
-fn without_path(error: String, path: &Path) -> String {
-    let prefix = format!("{}: ", path.display());
-    match error.strip_prefix(&prefix) {
-        Some(reason) => reason.to_owned(),
-        None => error,
-    }
-}
-
-/// The image file `path`, in `format`, read from `reader` up to the size
-/// limit, for a terminal with `caps`, which must draw images.
-fn read_image_file(
-    context: &Context,
-    caps: &Capabilities,
-    path: &Path,
-    format: Format,
-    reader: impl Read,
-) -> Result<Source, String> {
-    if !caps.draws_images() {
-        return Err(format!(
-            "{}: the terminal cannot show images",
-            path.display()
-        ));
-    }
-    let max_file_size = context.max_file_size;
-    kiri::images::read_image(reader, path, format, max_file_size, &Fonts::system()).map_err(
-        |error| match error {
-            error if error.names_file() => error.to_string(),
-            error => format!("{}: {error}", path.display()),
-        },
-    )
 }
 
 /// Writes the `--doctor` report: rendered for a terminal, as Markdown
