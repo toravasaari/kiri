@@ -45,61 +45,74 @@ fn the_visual_check_documents_fit_every_mode() {
     }
     names.sort();
     assert!(names.iter().any(|name| name.ends_with(".csv")));
-    for name in &names {
-        let warnings = match name.as_str() {
-            "S06a-images.md" => 5 + left_out,
-            _ => 0,
-        };
-        let source = std::fs::read_to_string(examples.join(name)).unwrap();
-        let document = if name.ends_with(".csv") {
-            kiri::typeset::parse::csv::parse(&source, Separator::Comma).unwrap()
-        } else {
-            kiri::typeset::parse::parse(&source)
-        };
-        // Layout needs only the sizes of the images, so it gets the real
-        // ones; rendering them at every width would only take longer. Text
-        // in SVGs does not change their size, so no fonts are loaded.
-        let images = kiri::images::load_with(
-            &document,
-            &examples,
-            DEFAULT_MAX_FILE_SIZE,
-            &Fonts::none(),
-            &LoadOptions::default(),
-        );
-        assert_eq!(images.warnings().len(), warnings, "{name}: {images:?}");
-        let mut without_images = Inputs::new(Capabilities::plain(16));
-        let mut with_images = Inputs {
-            images,
-            ..Inputs::new(Capabilities::plain(16))
-        };
-        for terminal_width in [16, 24, 40, 80, 120] {
-            for caps in [
-                Capabilities::plain(terminal_width),
-                Capabilities::ansi(terminal_width),
-                Capabilities::kitty(terminal_width),
-            ] {
-                for theme in &themes {
-                    without_images.caps = caps.clone();
-                    without_images.theme = theme.clone();
-                    let mut out = Vec::new();
-                    kiri::render::render(&document, &without_images, &mut out).unwrap();
-                    assert!(!out.is_empty());
-                    with_images.caps = caps.clone();
-                    with_images.theme = theme.clone();
-                    for line in kiri::typeset::layout::layout(&document, &with_images) {
-                        let image = (line.image.as_ref())
-                            .map_or(0, |image| usize::from(image.placement.size.columns));
-                        let cells =
-                            width(&line.lead) + width(&line.spans) + image + width(&line.trail);
-                        assert!(
-                            cells <= usize::from(terminal_width),
-                            "{name}, {caps:?}: {cells} cells in {line:?}"
-                        );
+    // One thread per document, so the slowest documents overlap. A failed
+    // assertion panics in its thread; the scope then fails the test, and the
+    // message still names the document.
+    std::thread::scope(|scope| {
+        for name in &names {
+            let (examples, themes) = (&examples, &themes);
+            scope.spawn(move || {
+                let warnings = match name.as_str() {
+                    "S06a-images.md" => 5 + left_out,
+                    _ => 0,
+                };
+                let source = std::fs::read_to_string(examples.join(name))
+                    .unwrap_or_else(|error| panic!("{name}: {error:?}"));
+                let document = if name.ends_with(".csv") {
+                    kiri::typeset::parse::csv::parse(&source, Separator::Comma)
+                        .unwrap_or_else(|error| panic!("{name}: {error:?}"))
+                } else {
+                    kiri::typeset::parse::parse(&source)
+                };
+                // Layout needs only the sizes of the images, so it gets the real
+                // ones; rendering them at every width would only take longer. Text
+                // in SVGs does not change their size, so no fonts are loaded.
+                let images = kiri::images::load_with(
+                    &document,
+                    examples,
+                    DEFAULT_MAX_FILE_SIZE,
+                    &Fonts::none(),
+                    &LoadOptions::default(),
+                );
+                assert_eq!(images.warnings().len(), warnings, "{name}: {images:?}");
+                let mut without_images = Inputs::new(Capabilities::plain(16));
+                let mut with_images = Inputs {
+                    images,
+                    ..Inputs::new(Capabilities::plain(16))
+                };
+                for terminal_width in [16, 24, 40, 80, 120] {
+                    for caps in [
+                        Capabilities::plain(terminal_width),
+                        Capabilities::ansi(terminal_width),
+                        Capabilities::kitty(terminal_width),
+                    ] {
+                        for theme in themes {
+                            without_images.caps = caps.clone();
+                            without_images.theme = theme.clone();
+                            let mut out = Vec::new();
+                            kiri::render::render(&document, &without_images, &mut out)
+                                .unwrap_or_else(|error| panic!("{name}: {error:?}"));
+                            assert!(!out.is_empty());
+                            with_images.caps = caps.clone();
+                            with_images.theme = theme.clone();
+                            for line in kiri::typeset::layout::layout(&document, &with_images) {
+                                let image = (line.image.as_ref())
+                                    .map_or(0, |image| usize::from(image.placement.size.columns));
+                                let cells = width(&line.lead)
+                                    + width(&line.spans)
+                                    + image
+                                    + width(&line.trail);
+                                assert!(
+                                    cells <= usize::from(terminal_width),
+                                    "{name}, {caps:?}: {cells} cells in {line:?}"
+                                );
+                            }
+                        }
                     }
                 }
-            }
+            });
         }
-    }
+    });
 }
 
 #[test]
