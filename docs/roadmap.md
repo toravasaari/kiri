@@ -1423,6 +1423,9 @@ go.
   could be made ready in the background while the text is shown.
 - A setting that keeps tables and code blocks in reading mode to the
   column's width instead of the wider area (4.15.2).
+- A small animation while a page, an image or anything else loads: the
+  `kiri` badge at the left end of the status line moves its capital
+  letter along the name, `Kiri`, `kIri`, `kiRi`, `kirI`.
 
 ## Bugs
 
