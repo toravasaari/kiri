@@ -1,20 +1,20 @@
 //! The interactive pager: the document on a screen of its own, scrolled
 //! with keys.
 //!
-//! This is the hub of the pager: the state of a pager run and the loop
-//! that reads keys, applies reloads and loads, and draws. The features
-//! live in the files beside it (search, links, bands, status, files and
-//! the rest); this file ties them together and should not grow with them.
+//! This is the platform's side of the pager: the loop. It waits for what
+//! comes in, such as keys, the answer of a poll or a reload's result, hands
+//! it to the state engine's step (`src/session/step.rs`) as a message, and
+//! carries out the effects the step asks for: it reads the terminal,
+//! draws, polls the document, the loads and the window, reads the
+//! document again and makes the layout again.
 //!
-//! A new feature does not go in here, and nor does a new key, a new
-//! overlay or a new piece of state of one feature. Neither does file,
-//! network or program access, which the pager reaches only through the
+//! A decision does not go in here, nor a new key, overlay or piece of
+//! state of a feature: what a message asks for is decided in the step.
+//! File, network or program access the pager reaches only through the
 //! traits and handles it is given.
 //!
-//! A feature is a file of its own in the state engine (`src/session/`); a
-//! key is a command there, in `src/session/commands.rs`. Work on files and
-//! programs belongs to the platform (`src/main.rs` and the rest of `src/`),
-//! and bytes for the terminal to the terminal layer (`src/present/`).
+//! Features and keys are in the state engine (`src/session/`), and bytes
+//! for the terminal in the terminal layer (`src/present/`).
 
 use std::io::{self, Write};
 use std::ops::Range;

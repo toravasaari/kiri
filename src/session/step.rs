@@ -461,3 +461,6 @@ fn report(pager: &mut Pager, key: Key, effects: &mut Vec<Effect>) -> bool {
     }
     true
 }
+
+#[cfg(test)]
+mod tests;
