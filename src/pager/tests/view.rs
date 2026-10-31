@@ -276,3 +276,12 @@ fn without_the_offset_b_paints_the_terminal_s_very_background() {
     assert!(frames[1].contains("48;2;16;32;48"), "{frames:?}");
     assert!(!frames[1].contains("48;2;17;33;49"), "{frames:?}");
 }
+
+#[test]
+fn b_says_so_when_no_background_colour_is_known() {
+    // The terminal did not tell its background, and the theme has none.
+    let frames = frames_of(&numbers(3), Inputs::new(Capabilities::ansi(60)), &[b"B"], 0);
+    assert_eq!(frames.len(), 2, "{frames:?}");
+    let status = status_row(&frames[1], 6);
+    assert!(status.contains("background colour not known"), "{status:?}");
+}

@@ -42,6 +42,9 @@ pub const NOTHING_TO_FOLLOW: &str = "nothing to follow";
 /// Why `M` does not turn reading mode on.
 pub const NEEDS_IMAGES: &str = "reading mode needs a terminal that draws images";
 
+/// Why `B` does nothing: neither the theme nor the terminal gave a colour.
+pub const NO_BACKGROUND: &str = "background colour not known";
+
 /// Whether the document changed since it was last read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Change {
@@ -153,6 +156,11 @@ impl Backgrounds {
             shown: theme,
             other,
         }
+    }
+
+    /// Whether there is a background to turn to.
+    fn known(&self) -> bool {
+        self.shown.is_some() || self.other.is_some()
     }
 
     /// Turns to the other background, and gives it.
@@ -514,6 +522,9 @@ impl State {
             Some(Action::Wide) => {
                 self.changed = None;
                 return vec![Effect::FlipWide, Effect::Relayout { reuse: false }];
+            }
+            Some(Action::Background) if !self.background.known() => {
+                self.told = Some(Told::new(NO_BACKGROUND));
             }
             Some(Action::Background) => {
                 self.changed = None;
