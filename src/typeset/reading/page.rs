@@ -17,6 +17,7 @@
 //! does with a page is the state engine's (`src/session/`).
 
 mod code;
+mod details;
 mod front_matter;
 mod list;
 mod picture;
@@ -1252,10 +1253,7 @@ impl<'a> Flow<'a> {
                 let paragraph = self.paragraph(&content, look.quote, width);
                 self.y += self.text(paragraph, x);
             }
-            Block::Details { summary, blocks } => {
-                self.summary(summary, x, width);
-                self.blocks(blocks, x, width, depth);
-            }
+            Block::Details { summary, blocks } => self.details(summary, blocks, x, width, depth),
             Block::FrontMatter(front_matter) => self.front_matter(front_matter, x, width),
             Block::Alert {
                 kind,
@@ -1275,24 +1273,6 @@ impl<'a> Flow<'a> {
             self.top(block_margins(block, self.look).0);
             self.block(block, x, width, depth);
         }
-    }
-
-    /// Lays the summary of a `<details>` out in bold after a triangle, as
-    /// a browser shows an open one.
-    fn summary(&mut self, summary: &[Inline], x: f32, width: f32) {
-        let mut content = vec![Inline::Text("▼ ".to_owned())];
-        content.extend_from_slice(summary);
-        let style = text::Look {
-            size: self.look.size,
-            line_height: LINE_HEIGHT,
-            weight: BOLD,
-            color: self.look.text,
-            ..text::Look::PLAIN
-        };
-        let ink = self.ink(width);
-        let paragraph = text::lay_out(self.fonts, &runs(&content, self.look, ink), &style, width);
-        self.y += self.text(paragraph, x);
-        self.margin = Some(self.look.size);
     }
 
     fn paragraph(&self, content: &[Inline], color: Brush, width: f32) -> Paragraph {
