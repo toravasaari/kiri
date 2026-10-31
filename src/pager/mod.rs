@@ -850,4 +850,6 @@ pub fn draw(
 }
 
 #[cfg(test)]
+mod sim;
+#[cfg(test)]
 mod tests;
