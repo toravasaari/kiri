@@ -52,6 +52,8 @@ Run everything through `make` so local runs match CI:
 
 - `make check` runs formatting check, clippy with warnings as errors, and the
   test suite. This is the definition of done.
+- `make test` runs the suite with cargo-nextest when it is installed, and
+  with `cargo test` otherwise.
 - `make build` compiles everything `make check` needs without running
   it. A new jailbee container runs it in the background, so the first
   `make check` there finds most of the build done.
