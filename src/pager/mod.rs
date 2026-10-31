@@ -575,15 +575,14 @@ impl<T: Terminal> Shell<'_, '_, '_, T> {
                 before: &before,
                 replaced: &replaced,
                 images: &inputs.images,
+                diagram_look: crate::typeset::images::diagram_look_for(
+                    &inputs.theme,
+                    &inputs.caps,
+                    inputs.diagram_panel,
+                ),
             };
-            let keys: Vec<ImageKey> = self.source.loads.keys().cloned().collect();
-            let placeholders: Vec<_> = (keys.into_iter())
-                .map(|key| {
-                    let placeholder = left.placeholder(&key);
-                    (key, placeholder)
-                })
-                .collect();
-            for (key, placeholder) in placeholders {
+            let keys = self.source.loads.keys().cloned();
+            for (key, placeholder) in left.placeholders(keys) {
                 inputs.images.wait(key, placeholder);
             }
             changes = Some(comparison);
