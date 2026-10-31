@@ -28,6 +28,22 @@ pub(crate) use testing::Scratch;
 
 pub const WIDTH: u16 = 48;
 
+/// The theme the snapshots of features are drawn with, from
+/// `tests/fixtures/test-theme.toml`: the defaults as they were when the
+/// file was made, so that a change to the built-in theme does not move
+/// those snapshots.
+pub fn fixed_theme() -> Theme {
+    kiri::typeset::theme::load(&fixtures().join("test-theme.toml")).expect("the test theme loads")
+}
+
+/// Inputs with `caps`, the [`fixed_theme`] and no images.
+pub fn fixed_inputs(caps: Capabilities) -> Inputs {
+    Inputs {
+        theme: fixed_theme(),
+        ..Inputs::new(caps)
+    }
+}
+
 /// Inputs with `caps` and `theme`, and no images.
 pub fn inputs(caps: &Capabilities, theme: &Theme) -> Inputs {
     Inputs {
@@ -36,11 +52,11 @@ pub fn inputs(caps: &Capabilities, theme: &Theme) -> Inputs {
     }
 }
 
-/// Inputs with `caps` and `images`, and the built-in theme.
+/// Inputs with `caps` and `images`, and the [`fixed_theme`].
 pub fn with_images(caps: &Capabilities, images: Images) -> Inputs {
     Inputs {
         images,
-        ..Inputs::new(caps.clone())
+        ..fixed_inputs(caps.clone())
     }
 }
 
@@ -58,9 +74,9 @@ pub fn render_fixture(name: &str, inputs: &Inputs) -> String {
 }
 
 /// The fixture document `name` rendered for `caps`, with the built-in
-/// theme and no images.
+/// [`fixed_theme`] and no images.
 pub fn render_for(name: &str, caps: Capabilities) -> String {
-    render_fixture(name, &Inputs::new(caps))
+    render_fixture(name, &fixed_inputs(caps))
 }
 
 /// The source of the fixture document `name`.

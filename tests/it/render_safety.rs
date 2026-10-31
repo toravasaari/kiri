@@ -1,15 +1,14 @@
 //! What the document cannot do to the terminal.
 
-use kiri::render::Inputs;
 use kiri::typeset::caps::Capabilities;
 
-use crate::common::{WIDTH, render, strip_own_sequences};
+use crate::common::{WIDTH, fixed_inputs, render, strip_own_sequences};
 
 #[test]
 fn escape_sequences_in_the_document_are_neutralised() {
     let out = render(
         "text \x1b]0;evil\x07 here\n",
-        &Inputs::new(Capabilities::kitty(WIDTH)),
+        &fixed_inputs(Capabilities::kitty(WIDTH)),
     );
     assert!(!out.contains("\x1b]0;"), "{out:?}");
 }
@@ -33,7 +32,7 @@ fn control_characters_in_the_document_do_not_reach_the_terminal() {
         Capabilities::ansi(WIDTH),
         Capabilities::kitty(WIDTH),
     ] {
-        let inputs = Inputs::new(caps.clone());
+        let inputs = fixed_inputs(caps.clone());
         let mut out = Vec::new();
         kiri::render::render(&document, &inputs, &mut out).unwrap();
         let out = String::from_utf8(out).unwrap();

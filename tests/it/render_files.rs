@@ -9,7 +9,7 @@ use kiri::typeset::color::Color;
 use kiri::typeset::model::{Block, Document, File};
 use kiri::typeset::style::Line;
 
-use crate::common::{WIDTH, quadrants, readable, sent, visible, with_images};
+use crate::common::{WIDTH, fixed_inputs, quadrants, readable, sent, visible, with_images};
 
 /// A file called `name` of the Markdown `source`.
 fn markdown(name: &str, source: &str) -> File {
@@ -46,24 +46,24 @@ fn two() -> [File; 2] {
 fn ansi_files() {
     insta::assert_snapshot!(visible(&render(
         &two(),
-        &Inputs::new(Capabilities::ansi(WIDTH))
+        &fixed_inputs(Capabilities::ansi(WIDTH))
     )));
 }
 
 #[test]
 fn kitty_files_on_a_known_page() {
-    insta::assert_snapshot!(visible(&render(&two(), &Inputs::new(known_colours()))));
+    insta::assert_snapshot!(visible(&render(&two(), &fixed_inputs(known_colours()))));
 }
 
 #[test]
 fn plain_files() {
-    insta::assert_snapshot!(render(&two(), &Inputs::new(Capabilities::plain(WIDTH))));
+    insta::assert_snapshot!(render(&two(), &fixed_inputs(Capabilities::plain(WIDTH))));
 }
 
 #[test]
 fn each_file_starts_with_a_header_that_names_it() {
     // Plain text names each file between arrows, as head does.
-    let inputs = Inputs::new(Capabilities::plain(WIDTH));
+    let inputs = fixed_inputs(Capabilities::plain(WIDTH));
     let stream = kiri::typeset::layout::files(&two(), &inputs);
     let starts = starts(&stream);
     assert_eq!(starts.len(), 2);
@@ -116,7 +116,7 @@ fn known_colours() -> Capabilities {
 
 #[test]
 fn the_header_is_a_band_with_a_bar_that_markdown_cannot_draw() {
-    let inputs = Inputs::new(known_colours());
+    let inputs = fixed_inputs(known_colours());
     let stream = kiri::typeset::layout::files(&two(), &inputs);
     let start = starts(&stream)[1];
     let header = &stream.lines[start..start + 3];
@@ -153,7 +153,7 @@ fn the_header_is_a_band_with_a_bar_that_markdown_cannot_draw() {
 #[test]
 fn the_band_is_lighter_on_a_light_page_and_gone_without_colours() {
     let band = |caps: Capabilities| {
-        let stream = kiri::typeset::layout::files(&two(), &Inputs::new(caps));
+        let stream = kiri::typeset::layout::files(&two(), &fixed_inputs(caps));
         let header = &stream.lines[..3];
         (
             header.iter().map(line_text).collect::<Vec<_>>(),
@@ -187,7 +187,7 @@ fn a_file_that_failed_shows_why_in_the_error_colour() {
         name: "missing.md".to_owned(),
         document: Document::new(vec![Block::Error("No such file or directory".to_owned())]),
     };
-    let stream = kiri::typeset::layout::files(&[failed], &Inputs::new(known_colours()));
+    let stream = kiri::typeset::layout::files(&[failed], &fixed_inputs(known_colours()));
     let line = &stream.lines[4];
     assert_eq!(line_text(line), "  ✗ No such file or directory");
     let message = line
@@ -201,7 +201,7 @@ fn a_file_that_failed_shows_why_in_the_error_colour() {
 #[test]
 fn a_long_name_wraps_in_the_header() {
     let name = "a/very/long/directory/name/with/a/document/in/it/README.md";
-    let inputs = Inputs::new(Capabilities {
+    let inputs = fixed_inputs(Capabilities {
         width: 30,
         ..known_colours()
     });
@@ -271,7 +271,7 @@ fn an_image_file_fits_the_window_with_a_header_of_a_long_name() {
 fn an_image_file_that_cannot_be_drawn_shows_its_name() {
     let out = render(
         &[image_file("photo.jpg")],
-        &Inputs::new(Capabilities::plain(WIDTH)),
+        &fixed_inputs(Capabilities::plain(WIDTH)),
     );
     assert!(out.contains("[image: photo.jpg]"), "{out:?}");
 }
