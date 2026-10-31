@@ -754,10 +754,21 @@ The crossings in the list fall into these kinds:
 | the state engine uses `config` | the config split |
 | the state engine uses `pager::keys` or `pager::Warning` | commands as data; the pager's loop |
 
-The test reads files by directory, so it does not see a crossing inside a
-mixed module that goes to another part, such as `Ink::new` in
-`render/loading.rs` or `pages_alone` in `main.rs`. Those are named in the
-rows of the table above, with the work that removes them.
+The test reads files by directory, so it does not see the crossings inside
+a mixed module, which are the pieces of a file such as `main.rs` or
+`render/loading.rs` that reach another part. They are in the table below,
+with the work that removes each. The test does not hold them, so this table
+is the record of them.
+
+| Crossing inside a mixed module, not seen by the test | Removed by |
+|---|---|
+| `Ink::new` in `render/loading.rs` (typesetting's `Ink`) takes the terminal layer's `output::Page` | the terminal layer split, which moves `Ink::new` to the terminal layer |
+| `pages_alone` and `may_load_later` in `main.rs` (state engine) call `term::stdout_is_terminal` (platform) | the startup plan, which takes the answer as a value |
+| `surely_paged` in `main.rs` (state engine) calls `images::measure_in_background` and `term::window_size` (platform) | the startup plan, which takes the measured layout (or the window rows) and the window size as values |
+| `detect` in `term/detect.rs` (terminal layer) calls `tmux::run_id` (platform) | the terminal layer split, which passes the run id in |
+| `term/detect.rs` and `term/tmux.rs` (terminal layer) take `config::Environment` (platform) and `config::Passthrough` (a setting type) | the terminal layer split, which passes the variables and the `Passthrough` value as arguments |
+| `typeset/reading/fonts.rs` (typesetting) loads and memory-maps system fonts | the font database |
+| `typeset/theme/file.rs` (typesetting) has `load`, which reads a file | the config split |
 
 ### Where a new thing goes
 
