@@ -191,8 +191,9 @@ impl Canvas {
             {
                 continue;
             }
-            // The run and the glyphs of it the glyph runs so far took.
-            let mut shown = (usize::MAX, 0);
+            // The shaped run last drawn on this line, and how many of its
+            // glyphs the glyph runs so far took.
+            let mut taken = (usize::MAX, 0);
             for item in line.items() {
                 let glyphs = match item {
                     PositionedLayoutItem::GlyphRun(glyphs) => glyphs,
@@ -205,14 +206,15 @@ impl Canvas {
                     }
                 };
                 let run = glyphs.run();
+                // A glyph run is the part of a shaped run in one style: it
+                // skips the glyphs that earlier glyph runs of this shaped run
+                // took on the line, and takes the next `wanted`.
+                let wanted = glyphs.positioned_glyphs().count();
+                let skip = if taken.0 == run.index() { taken.1 } else { 0 };
+                taken = (run.index(), skip + wanted);
+                let clusters = clusters_after(run, skip, wanted);
                 // A subscript or superscript sits off the baseline, each
                 // glyph by its own text: a glyph run may hold both.
-                // The glyph run is the part of the shaped run in one style:
-                // its clusters are the next glyphs' worth of the run's.
-                let wanted = glyphs.positioned_glyphs().count();
-                let skip = if shown.0 == run.index() { shown.1 } else { 0 };
-                shown = (run.index(), skip + wanted);
-                let clusters = clusters_after(run, skip, wanted);
                 let drops: Vec<f32> = (clusters.iter())
                     .flat_map(|cluster| {
                         let drop = paragraph.drop_at(&cluster.text_range());
