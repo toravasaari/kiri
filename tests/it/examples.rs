@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
+use kiri::diagrams::{Drawn, Renderer, Request};
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, LoadOptions};
 use kiri::render::Inputs;
 use kiri::typeset::caps::Capabilities;
@@ -13,6 +14,32 @@ use crate::common::example_theme;
 /// The `examples/` directory.
 fn examples() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("examples")
+}
+
+/// Draws Mermaid without merman, too wide for any window so the layout must
+/// fit it: an empty SVG 1500 CSS pixels wide, wider than the widest window
+/// the fit test tries, and 20 CSS pixels high for each line of source. A
+/// diagram whose last arrow leads nowhere fails, as it does in merman, with
+/// a reason long enough to wrap.
+struct WideDiagrams;
+
+impl Renderer for WideDiagrams {
+    fn draws(&self, language: &str) -> bool {
+        language.eq_ignore_ascii_case("mermaid")
+    }
+
+    fn render(&self, request: &Request) -> Result<Drawn, String> {
+        let &Request { source, theme, .. } = request;
+        if source.trim_end().ends_with("-->") {
+            return Err("the last arrow of the diagram leads nowhere: \
+                 expected the name of a node after `-->` at the end of the input"
+                .into());
+        }
+        let height = 20 * source.lines().count();
+        let svg =
+            format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="{height}"/>"#);
+        Ok(Drawn::svg(svg, theme, None))
+    }
 }
 
 #[test]
@@ -32,7 +59,8 @@ fn the_visual_check_documents_fit_every_mode() {
     // which of its images kiri warns about: the baseline none, the images
     // document the five in its last section, and a build without the full
     // set of image formats also warns about the six images in the formats
-    // it leaves out.
+    // it leaves out. The diagrams document warns about its diagram that
+    // fails to draw.
     let left_out = if cfg!(feature = "full") { 0 } else { 6 };
     let mut names = vec!["README.md".to_owned()];
     for entry in std::fs::read_dir(&examples).unwrap() {
@@ -52,6 +80,7 @@ fn the_visual_check_documents_fit_every_mode() {
             scope.spawn(move || {
                 let warnings = match name.as_str() {
                     "S06a-images.md" => 5 + left_out,
+                    "S07a-diagrams.md" => 1,
                     _ => 0,
                 };
                 let source = std::fs::read_to_string(examples.join(name))
@@ -65,12 +94,17 @@ fn the_visual_check_documents_fit_every_mode() {
                 // Layout needs only the sizes of the images, so it gets the real
                 // ones; rendering them at every width would only take longer. Text
                 // in SVGs does not change their size, so no fonts are loaded.
+                // Diagrams are drawn wider than any window, and the one that
+                // fails shows its reason below its code.
                 let images = kiri::images::load_with(
                     &document,
                     examples,
                     DEFAULT_MAX_FILE_SIZE,
                     &Fonts::none(),
-                    &LoadOptions::default(),
+                    &LoadOptions {
+                        renderer: &WideDiagrams,
+                        ..LoadOptions::default()
+                    },
                 );
                 assert_eq!(images.warnings().len(), warnings, "{name}: {images:?}");
                 let mut without_images = Inputs::new(Capabilities::plain(16));
