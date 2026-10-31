@@ -8,6 +8,7 @@
 pub mod cell_query;
 pub mod clipboard;
 pub mod encoder;
+pub mod keys;
 pub mod kitty;
 pub mod output;
 

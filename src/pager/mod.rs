@@ -16,14 +16,13 @@
 //! platform (`src/main.rs` and the rest of `src/`), and bytes for the
 //! terminal to the terminal layer (`src/present/`).
 
-pub mod keys;
-
 use std::io::{self, Write};
 use std::ops::Range;
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::images::{ImageError, ImageKey, Images, Loads, Part, Source};
 use crate::present::encoder::Encoder;
+use crate::present::keys::{Decoder, Key};
 use crate::present::kitty::graphics::ImageId;
 use crate::present::output::{self, Page, Writer};
 use crate::present::{cell_query, clipboard};
@@ -50,7 +49,6 @@ use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page::Wide;
 use crate::typeset::style::{self, Line, Span, Style};
 use crate::typeset::wrap;
-use keys::Key;
 
 /// The rows `lines` take on a terminal with `caps`.
 pub fn rows(lines: &[Line], caps: &Capabilities) -> usize {
@@ -935,7 +933,7 @@ struct State {
     focus: Focus,
     /// The keys read, with what a read cut off waiting for the rest,
     /// also when a layout ends between the two reads.
-    decoder: keys::Decoder,
+    decoder: Decoder,
     /// How far reading mode's bands are scrolled, and which is selected.
     bands: bands::Bands,
     /// The cells the terminal last answered, until `page_through` applies
@@ -1098,7 +1096,7 @@ impl State {
             noticed: None,
             counted: None,
             focus: Focus::Unknown,
-            decoder: keys::Decoder::default(),
+            decoder: Decoder::default(),
             bands: bands::Bands::default(),
             cell: None,
         }
@@ -1132,7 +1130,7 @@ impl State {
     }
 
     fn pressed(&mut self, key: Key, now: Instant, layout: &mut Layout) -> Pressed {
-        let mut action = keys::action(key);
+        let mut action = commands::action(key);
         // A click and the sideways wheel act on the band under them, and
         // never reach the help, the prompt or the colon.
         if let Some(pointer) = action.filter(|action| action.is_pointer()) {
@@ -1180,10 +1178,10 @@ impl State {
         // and its colon does nothing.
         if std::mem::take(&mut self.colon) {
             action = match key {
-                Key::Char(c) => keys::action(Key::Command(c)),
+                Key::Char(c) => commands::action(Key::Command(c)),
                 _ => return Pressed::Nothing,
             };
-        } else if key == keys::COMMAND && layout.status.files.several() {
+        } else if key == commands::COMMAND && layout.status.files.several() {
             self.colon = true;
             return Pressed::Nothing;
         }

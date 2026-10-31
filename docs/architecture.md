@@ -114,7 +114,7 @@ it; the layout's table has to use them too once it marks those blocks.
 The pager shows the same styled lines on the terminal's alternate screen.
 `src/session/view.rs` chooses the lines that fit in the window, a scaled
 line whole or not at all, and moves them, and when the window changes size
-it keeps the same block at the top; `src/pager/keys.rs` turns the bytes
+it keeps the same block at the top; `src/present/keys.rs` turns the bytes
 the terminal sends into keys, and `src/session/commands.rs` holds the
 commands, each with its topic, keys, help text and action, that the
 keys are looked up in and `src/session/help.rs` is built from; `src/session/prompt.rs`
@@ -497,10 +497,10 @@ writes as it is into a pipe.
 | Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J | `src/present/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows |
 | Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/present/kitty/query.rs` | Wiping the progress line; erasing the rows the text sizing tests drew |
 | Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term/screen.rs` | The pager's screen of its own |
-| Focus reporting | CSI ?1004h/l; CSI I, CSI O | `src/term/screen.rs`, `src/pager/keys.rs` | Telling the pager that its tmux pane is shown again |
-| Mouse reporting | CSI ?1000h/l, CSI ?1006h/l; CSI < … M/m, CSI M | `src/term/screen.rs`, `src/pager/keys.rs` | The wheel scrolling the pager, also inside tmux; in reading mode, a click selecting a band and the sideways wheel scrolling it |
+| Focus reporting | CSI ?1004h/l; CSI I, CSI O | `src/term/screen.rs`, `src/present/keys.rs` | Telling the pager that its tmux pane is shown again |
+| Mouse reporting | CSI ?1000h/l, CSI ?1006h/l; CSI < … M/m, CSI M | `src/term/screen.rs`, `src/present/keys.rs` | The wheel scrolling the pager, also inside tmux; in reading mode, a click selecting a band and the sideways wheel scrolling it |
 | Synchronized output | CSI ?2026h/l | `src/present/output.rs` | Pager frames without flicker |
-| Cell size query | CSI 16 t; the answer CSI 6 ; height ; width t | `src/present/kitty/query.rs`, `src/present/cell_query.rs`, `src/pager/keys.rs` | The cell size in pixels where the window size has none, and inside tmux, where the window's may be tmux's guess: asked at start, and by the pager when the window changes size, so that it follows a new font size |
+| Cell size query | CSI 16 t; the answer CSI 6 ; height ; width t | `src/present/kitty/query.rs`, `src/present/cell_query.rs`, `src/present/keys.rs` | The cell size in pixels where the window size has none, and inside tmux, where the window's may be tmux's guess: asked at start, and by the pager when the window changes size, so that it follows a new font size |
 | Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI c | `src/term/probe.rs` | Cursor position, foreground, background and palette colours, terminal version, end of the answers |
 | tmux passthrough | DCS `tmux;` … ST, with each ESC doubled | `src/term/tmux.rs` | kitty's graphics, the probe's graphics query, and the probe's and the pager's cell size queries, through tmux to the terminal outside |
 | Image checks | APC `_G` `a=p,U=1` and `a=d,d=i` with a placement id | `src/present/kitty/graphics.rs`, `src/term/check.rs` | Whether kitty behind tmux holds the images kiri sent |
@@ -686,8 +686,8 @@ The later work that the rows name, in words:
 | `src/pager/tests/reload.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/search.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/view.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
-| `src/pager/keys.rs` | mixed | stays. Terminal layer: `Key` and the `Decoder` that turns bytes into keys. `action`, which looks a key up in `src/session/commands.rs`. The terminal layer split for the decoding, the pager's loop for the lookup |
-| `src/session/commands.rs` | state engine | stays. `Action`, `COMMANDS` (topic, keys, help text, action and the settings that change it) and `action`; it reads `Key` from `pager::keys` until the terminal layer split |
+| `src/pager/keys.rs` | terminal layer | moved to `src/present/keys.rs`: `Key` and the `Decoder` that turns bytes into keys. The lookup of a key's action is in `src/session/commands.rs` |
+| `src/session/commands.rs` | state engine | stays. `Action`, `COMMANDS` (topic, keys, help text, action and the settings that change it) and `action`; it reads `Key` from `src/present/keys.rs` |
 | `src/pager/bands.rs` | state engine | moved to `src/session/bands.rs` |
 | `src/pager/changes.rs` | state engine | moved to `src/session/changes.rs` |
 | `src/pager/fade.rs` | state engine | moved to `src/session/fade.rs` |
@@ -774,8 +774,8 @@ The crossings in the list fall into these kinds:
 | typesetting uses `images`, `diagrams`, or the platform parts of `render` | loading and sessions; the terminal layer split for `render` |
 | typesetting uses the font loading in `images/svg.rs` | the font database |
 | typesetting uses `present::kitty::graphics` | a small change of its own, giving `caps.rs` the constant |
-| the terminal layer uses `term::tmux`, `render::loading`, `pager::keys` or `images` | the terminal layer split; loading and sessions |
-| the state engine uses `pager::keys` or `pager::Warning` | the terminal layer split, for `Key`; the pager's loop |
+| the terminal layer uses `term::tmux`, `render::loading` or `images` | the terminal layer split; loading and sessions |
+| the state engine uses `pager::Warning` | the pager's loop |
 
 The test reads files by directory, so it does not see the crossings inside
 a mixed module, which are the pieces of a file such as `main.rs` or

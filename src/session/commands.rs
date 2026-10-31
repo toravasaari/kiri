@@ -3,7 +3,7 @@
 //! [`COMMANDS`] and the pager's answer to its action; the help panel and
 //! the lookup of keys read the same table.
 
-use crate::pager::keys::Key;
+use crate::present::keys::Key;
 use crate::session::bands::Step;
 use crate::session::view::Motion;
 
@@ -135,6 +135,10 @@ impl Command {
         !self.names.is_empty()
     }
 }
+
+/// The key that starts a command, as in `less`, with several files: the
+/// key after it is the command's, as [`Key::Command`].
+pub const COMMAND: Key = Key::Char(':');
 
 /// How many lines a notch of the mouse wheel moves.
 pub const WHEEL: usize = 3;
@@ -349,5 +353,173 @@ mod tests {
         );
         assert!(action(click).is_some_and(Action::is_pointer));
         assert!(!action(Key::Char('j')).is_some_and(Action::is_pointer));
+    }
+
+    #[test]
+    fn keys_move_as_in_less() {
+        let moves = |keys: &[Key], motion| {
+            for &key in keys {
+                assert_eq!(action(key), Some(Action::Move(motion)), "{key:?}");
+            }
+        };
+        let down = [
+            Key::Char('j'),
+            Key::Char('e'),
+            Key::Ctrl('e'),
+            Key::Ctrl('n'),
+            Key::Down,
+        ];
+        moves(&down, Motion::Down(1));
+        let up = [
+            Key::Char('k'),
+            Key::Char('y'),
+            Key::Ctrl('y'),
+            Key::Ctrl('p'),
+            Key::Ctrl('k'),
+            Key::Up,
+        ];
+        moves(&up, Motion::Up(1));
+        let page_down = [
+            Key::Char(' '),
+            Key::Char('f'),
+            Key::Ctrl('f'),
+            Key::Ctrl('v'),
+            Key::PageDown,
+        ];
+        moves(&page_down, Motion::PageDown);
+        moves(
+            &[Key::Char('b'), Key::Ctrl('b'), Key::PageUp],
+            Motion::PageUp,
+        );
+        moves(&[Key::Char('d'), Key::Ctrl('d')], Motion::HalfPageDown);
+        moves(&[Key::Char('u'), Key::Ctrl('u')], Motion::HalfPageUp);
+        moves(&[Key::Char('g'), Key::Char('<'), Key::Home], Motion::Start);
+        moves(&[Key::Char('G'), Key::Char('>'), Key::End], Motion::End);
+    }
+
+    #[test]
+    fn question_mark_and_h_open_the_help() {
+        for key in [Key::Char('?'), Key::Char('h')] {
+            assert_eq!(action(key), Some(Action::Help), "{key:?}");
+        }
+    }
+
+    #[test]
+    fn the_help_names_keys_of_their_own_binding() {
+        for (at, command) in COMMANDS.iter().enumerate().filter(|(_, c)| c.listed()) {
+            // The row also holds the keys of the commands after it that
+            // have no row of their own.
+            let row: Vec<Key> = COMMANDS[at..]
+                .iter()
+                .enumerate()
+                .take_while(|&(i, c)| i == 0 || !c.listed())
+                .flat_map(|(_, c)| c.keys.iter().copied())
+                .collect();
+            for name in command.names.split(' ') {
+                let key = match name {
+                    "↓" => Key::Down,
+                    "↑" => Key::Up,
+                    "←" => Key::Left,
+                    "→" => Key::Right,
+                    "Tab" => Key::Ctrl('i'),
+                    "Shift+Tab" => Key::BackTab,
+                    "Enter" => Key::Enter,
+                    "Esc" => Key::Escape,
+                    "Space" => Key::Char(' '),
+                    "PgDn" => Key::PageDown,
+                    "PgUp" => Key::PageUp,
+                    "Home" => Key::Home,
+                    "End" => Key::End,
+                    ":n" => Key::Command('n'),
+                    ":p" => Key::Command('p'),
+                    "Shift+PgDn" => Key::ShiftPageDown,
+                    "Shift+PgUp" => Key::ShiftPageUp,
+                    "Ctrl+L" => Key::Ctrl('l'),
+                    name if name.chars().count() == 1 => Key::Char(name.chars().next().unwrap()),
+                    name => panic!("unknown key name {name}"),
+                };
+                assert!(row.contains(&key), "{name} in {}", command.names);
+            }
+        }
+        assert!(
+            COMMANDS
+                .iter()
+                .any(|command| command.action == Action::Help)
+        );
+        assert!(
+            COMMANDS
+                .iter()
+                .any(|command| command.action == Action::Quit)
+        );
+    }
+
+    #[test]
+    fn enter_and_the_wheel_have_actions_of_their_own() {
+        assert_eq!(action(Key::Enter), Some(Action::Enter));
+    }
+
+    #[test]
+    fn a_slash_searches_and_n_moves_between_matches() {
+        assert_eq!(action(Key::Char('/')), Some(Action::Search));
+        assert_eq!(action(Key::Char('n')), Some(Action::Next));
+        assert_eq!(action(Key::Char('N')), Some(Action::Previous));
+        assert_eq!(action(Key::Escape), Some(Action::Dismiss));
+    }
+
+    #[test]
+    fn colon_n_and_colon_p_move_between_files() {
+        assert_eq!(action(Key::Command('n')), Some(Action::NextFile));
+        assert_eq!(action(Key::Command('p')), Some(Action::PreviousFile));
+        // On their own, n and p are no commands.
+        assert_eq!(action(Key::Char('p')), None);
+        assert_eq!(action(COMMAND), None);
+        assert_eq!(action(Key::Command('x')), None);
+    }
+
+    #[test]
+    fn shift_page_down_and_shift_page_up_move_between_files() {
+        assert_eq!(action(Key::ShiftPageDown), Some(Action::NextFile));
+        assert_eq!(action(Key::ShiftPageUp), Some(Action::PreviousFile));
+    }
+
+    #[test]
+    fn r_reloads_and_capital_f_follows() {
+        assert_eq!(action(Key::Char('r')), Some(Action::Reload));
+        assert_eq!(action(Key::Char('F')), Some(Action::Follow));
+    }
+
+    #[test]
+    fn q_and_ctrl_c_quit() {
+        for key in [Key::Char('q'), Key::Char('Q'), Key::Ctrl('c')] {
+            assert_eq!(action(key), Some(Action::Quit), "{key:?}");
+        }
+    }
+
+    #[test]
+    fn other_keys_do_nothing() {
+        for key in [Key::Char('x'), Key::Other, Key::Ctrl('z')] {
+            assert_eq!(action(key), None, "{key:?}");
+        }
+    }
+
+    #[test]
+    fn ctrl_l_redraws_and_the_wheel_moves_three_lines() {
+        assert_eq!(action(Key::Ctrl('l')), Some(Action::Redraw));
+        assert_eq!(action(Key::WheelDown), Some(Action::Move(Motion::Down(3))));
+        assert_eq!(action(Key::WheelUp), Some(Action::Move(Motion::Up(3))));
+    }
+
+    #[test]
+    fn what_the_terminal_sends_besides_keys_is_no_command() {
+        for key in [
+            Key::CellSize(10, 24),
+            Key::FocusIn,
+            Key::FocusOut,
+            Key::Mouse,
+            Key::Alt('q'),
+            Key::Alt('j'),
+        ] {
+            assert_eq!(action(key), None, "{key:?}");
+        }
     }
 }
