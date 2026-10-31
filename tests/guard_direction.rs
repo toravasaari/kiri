@@ -56,13 +56,7 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[
         "render::loading",
         "the terminal layer split",
     ),
-    ("src/session/help.rs", "pager::keys", "commands as data"),
     ("src/session/loading.rs", "images", "loading and sessions"),
-    (
-        "src/session/prompt.rs",
-        "pager::keys",
-        "the terminal layer split",
-    ),
     ("src/session/warnings.rs", "pager", "the pager's loop"),
     (
         "src/typeset/caps.rs",

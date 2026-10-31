@@ -1,6 +1,6 @@
 //! The search prompt: the term as the reader types it on the status line.
 
-use crate::pager::keys::Key;
+use crate::present::keys::Key;
 
 /// A term being typed.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

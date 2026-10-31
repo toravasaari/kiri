@@ -5,6 +5,7 @@
 
 pub(crate) mod bands;
 pub mod changes;
+pub(crate) mod commands;
 pub mod fade;
 pub mod files;
 pub mod help;
