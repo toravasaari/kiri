@@ -134,7 +134,8 @@ kiri-tr-image-utils.opt-level = 3
 # Dependencies get line tables only: a backtrace still shows their file and
 # line, but a debugger cannot show their variables. Debugging them has been
 # rare; when it is needed, a rebuild with this line removed is worth its
-# price. With a faster linker, a rebuild after a library change took about
-# 40 % less time, and target/ was about 40 % smaller.
+# price. Measured with mold on the maintainer's host, a rebuild after a
+# library change took 17 to 31 s instead of 29 to 53 s, and target/ was
+# 12 GB instead of 21 GB.
 [profile.dev.package."*"]
 debug = "line-tables-only"
