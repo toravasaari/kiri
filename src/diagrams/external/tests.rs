@@ -862,3 +862,65 @@ fn at_most_five_lines_tell_why() {
         Some("one\ntwo\n  three\nfour\nfive".to_owned())
     );
 }
+
+/// What `renderer` says when it cannot draw the diagram, as text.
+fn failure(renderer: &External) -> String {
+    let drawn = renderer.render(&Request::new("mermaid", SOURCE, Theme::Light));
+    drawn
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+        .unwrap_err()
+}
+
+#[test]
+fn a_language_without_a_command_says_so() {
+    let scratch = scratch("no-command");
+    let renderer = script_renderer(&scratch, "exit 0\n");
+    let drawn = renderer.render(&Request::new("dot", "digraph {}\n", Theme::Light));
+    let text = drawn.map(|_| ()).map_err(|error| error.to_string());
+    assert_eq!(text, Err("dot diagrams have no command".to_owned()));
+}
+
+#[test]
+fn a_program_that_cannot_start_says_why() {
+    let scratch = scratch("no-program");
+    let command = Command::new(vec!["/nonexistent/kiri-program".to_owned()]);
+    let commands = BTreeMap::from([("mermaid".to_owned(), command)]);
+    let renderer = External::new(commands, settings(&scratch));
+    assert_eq!(
+        failure(&renderer),
+        "/nonexistent/kiri-program: No such file or directory (os error 2)"
+    );
+    assert_eq!(left(&scratch), Vec::<PathBuf>::new());
+}
+
+#[test]
+fn a_program_stopped_by_a_signal_says_so() {
+    let scratch = scratch("signal");
+    let renderer = script_renderer(&scratch, "kill -KILL $$\n");
+    assert_eq!(failure(&renderer), "sh was stopped by a signal");
+}
+
+#[test]
+fn a_directory_that_cannot_be_made_says_so() {
+    let scratch = scratch("no-directory");
+    let settings = ExternalSettings {
+        work_dir: None,
+        ..ExternalSettings::new(scratch.join("missing"))
+    };
+    let renderer = script_renderer_with(&scratch, "exit 0\n", settings);
+    assert_eq!(
+        failure(&renderer),
+        "cannot make a directory for sh: No such file or directory (os error 2)"
+    );
+}
+
+#[test]
+fn an_output_that_cannot_be_read_says_so() {
+    let scratch = scratch("unreadable");
+    let renderer = script_renderer(&scratch, "mkdir \"$2\"\n");
+    assert_eq!(
+        failure(&renderer),
+        "cannot read what sh wrote: Is a directory (os error 21)"
+    );
+}

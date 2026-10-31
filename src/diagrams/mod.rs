@@ -521,6 +521,22 @@ mod tests {
     }
 
     #[test]
+    fn a_language_that_is_not_drawn_says_so() {
+        let request = Request::new("dot", "digraph {}\n", Theme::Light);
+        fn text<E: ToString>(drawn: Result<Drawn, E>) -> Result<(), String> {
+            drawn.map(|_| ()).map_err(|error| error.to_string())
+        }
+        assert_eq!(
+            text(BuiltIn.render(&request)),
+            Err("dot diagrams are not drawn in this build".to_owned())
+        );
+        assert_eq!(
+            text(NoRenderer.render(&request)),
+            Err("dot diagrams are not drawn".to_owned())
+        );
+    }
+
+    #[test]
     fn the_theme_has_mermaid_names_for_mermaid() {
         assert_eq!(theme_name("mermaid", Theme::Light), "default");
         assert_eq!(theme_name("Mermaid", Theme::Dark), "dark");
