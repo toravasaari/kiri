@@ -1624,9 +1624,10 @@ To keep a link wrapped inside a table cell one link, the pager's text
 layout finds the cells by their borders, `│` and `▎`. A bar in a cell's
 own text counts as a border too, such as a bold `│` before the link or
 `` `│` `` in the cell beside it, and the link splits in two there.
-Comparing the column of the last border instead of counting borders
-would mend the cell beside it; a bar in the same cell needs the layout
-to mark its borders.
+A bar in the cell beside it is fixed: the pager compares the column of
+the last border instead of counting borders. A bar in the same cell
+before the link still splits it, and needs the layout to mark its
+borders.
 
 #### B17 Headings, quotes and task lists look different in the two layouts
 

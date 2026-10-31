@@ -12,6 +12,7 @@ use crate::session::bands::Bands;
 use crate::typeset::block::BlockInfo;
 use crate::typeset::reading::engine;
 use crate::typeset::style::{Line, Span};
+use crate::typeset::wrap::width;
 
 /// A link, by the block its first line is in and its number among the
 /// links of that block, so that it is found again in a new layout.
@@ -253,8 +254,9 @@ type TextLink = (Rc<str>, Vec<(usize, Range<usize>)>);
 /// a table do), of the same block: nothing but blanks come after it there
 /// up to the cell's edge (a table's border or the end of the line), and
 /// before it here back to the cell's edge, such as an indent in a list or
-/// a quote. A cell is the same one when as many edges come before the link
-/// on both lines.
+/// a quote. A cell is the same one when the last edge before the link ends
+/// in the same column on both lines, so a bar in the text of a cell to the
+/// left does not count.
 fn text_links(lines: &[Line]) -> Vec<TextLink> {
     let blank = |spans: &[Span]| spans.iter().all(|span| span.text.trim().is_empty());
     let mut links: Vec<TextLink> = Vec::new();
@@ -282,8 +284,8 @@ fn text_links(lines: &[Line]) -> Vec<TextLink> {
         }
         for (url, last, range) in runs {
             let (before, after) = (&line.spans[..range.start], &line.spans[range.end..]);
-            let cell = before.iter().filter(|span| is_edge(span)).count();
             let edge = before.iter().rposition(is_edge).map_or(0, |at| at + 1);
+            let cell = width(&before[..edge]);
             let goes_on = carried
                 .iter()
                 .find(|(_, kept, above)| *kept == cell && Rc::ptr_eq(above, &url))
@@ -486,6 +488,16 @@ mod tests {
         let source = "| a | b |\n|---|---|\n| [x](u) | [y](u) |\n| [x](u) | [y](u) |\n";
         let (lines, places) = text_in(source, 30);
         assert_eq!(identify(&lines, &places).len(), 4);
+    }
+
+    #[test]
+    fn a_bar_in_the_cell_beside_does_not_split_a_wrapped_link() {
+        // The bar is in the first line of the cell on the left only.
+        let source = "| a | b |\n|---|---|\n| `│` x | [one two three four five six seven eight nine ten](u1) |\n";
+        let (lines, places) = text_in(source, 30);
+        let found = identify(&lines, &places);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].lines.len() >= 3, "{:?}", found[0].lines);
     }
 
     #[test]
