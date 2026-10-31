@@ -671,7 +671,7 @@ The later work that the rows name, in words:
 | `src/pager/tests/images.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/links.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/loading.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
-| `src/pager/tests/paging.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
+| `src/pager/tests/paging.rs` | state engine | moved to `src/session/plan.rs`, its tests with it |
 | `src/pager/tests/reading.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/reload.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/search.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
