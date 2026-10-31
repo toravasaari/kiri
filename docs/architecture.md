@@ -269,8 +269,10 @@ is known. Then all of its text is blended by kiri over the same ground,
 shaded rows or not. Otherwise the page stays transparent, so that the
 terminal's background, also a translucent one or an image, shows through
 it as it does around it, and the terminal blends the text. `B` in the
-pager gives the theme the background the terminal reported, or takes the
-theme's away, for as long as the pager runs.
+pager gives the theme the background the terminal reported, one shade off
+unless `background_offset` is false, as kitty shows its own background
+through a cell of exactly that colour; or it takes the theme's away. Either
+lasts as long as the pager runs.
 
 Search and links in a page work from the positions the layout knows: it
 records, in pixels and a piece for each line, where each link and each
