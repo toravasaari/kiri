@@ -1,12 +1,18 @@
 //! How the images of a document are loaded, and its diagrams drawn, and the
 //! documents shown together whose images are loaded with each other's.
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
 
+use crate::typeset::caps::Capabilities;
+use crate::typeset::color::Color;
 use crate::typeset::diagrams::renderer::{NoRenderer, Renderer};
 use crate::typeset::diagrams::request::{FormulaColors, Theme};
 use crate::typeset::images::heading::HeadingLook;
+use crate::typeset::images::size::largest;
 use crate::typeset::model::Document;
+use crate::typeset::theme::Theme as PageTheme;
 
 /// How the images of a document are loaded, and its diagrams drawn.
 #[derive(Clone, Copy)]
@@ -53,6 +59,76 @@ impl Default for LoadOptions<'_> {
     }
 }
 
+/// What keys name of how images are drawn, beyond what the images are
+/// made from: the creators of a key, the loader and the layout, take them
+/// from here, so that a key changes whenever its picture does.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Looks {
+    /// The fingerprint of how diagrams and formulas are drawn, as
+    /// [`diagram_look`] has it.
+    pub diagram: u64,
+    /// How headings are drawn as images; `None` draws none.
+    pub headings: Option<HeadingLook>,
+}
+
+impl LoadOptions<'_> {
+    /// What the keys of the images these options draw name.
+    pub fn looks(&self) -> Looks {
+        Looks {
+            diagram: diagram_look(self.theme, self.formula, self.panel, self.largest),
+            headings: self.headings,
+        }
+    }
+}
+
+/// A fingerprint of how a diagram or formula is drawn: the page it is
+/// drawn for, the colours of formulas, whether it lies on a panel and the
+/// most pixels it is shown at, which reduce it. It holds for a run only.
+/// The defaults, a light page, no formula colours, a panel and no limit,
+/// are 0, which is also the fingerprint of a key built without options.
+pub fn diagram_look(
+    theme: Theme,
+    formula: FormulaColors,
+    panel: bool,
+    largest: Option<(u32, u32)>,
+) -> u64 {
+    if (theme, formula, panel, largest) == (Theme::Light, FormulaColors::default(), true, None) {
+        return 0;
+    }
+    let mut hasher = DefaultHasher::new();
+    (theme, formula, panel, largest).hash(&mut hasher);
+    hasher.finish().max(1)
+}
+
+/// [`diagram_look`] for a page in `theme` on a terminal with `caps`, as
+/// the loader and the layout both have it: the diagrams are drawn for the
+/// terminal's page, with formulas in the colours of [`formula_colors`], as
+/// large as the terminal shows an image.
+pub fn diagram_look_for(theme: &PageTheme, caps: &Capabilities, panel: bool) -> u64 {
+    let page = Theme::for_page(caps.dark_background);
+    diagram_look(
+        page,
+        formula_colors(theme, caps),
+        panel,
+        Some(largest(caps)),
+    )
+}
+
+/// The colours formulas are drawn in, as RGB: the theme's for formulas,
+/// and otherwise the text's, the theme's or else the terminal's; the
+/// first of them known as RGB.
+pub fn formula_colors(theme: &PageTheme, caps: &Capabilities) -> FormulaColors {
+    let rgb = |color: Option<Color>| match color?.rgb(&caps.palette)? {
+        Color::Rgb(red, green, blue) => Some([red, green, blue]),
+        Color::Palette(_) => None,
+    };
+    let text = [theme.formula.text, theme.foreground, caps.foreground];
+    FormulaColors {
+        text: text.into_iter().find_map(rgb),
+        background: rgb(theme.formula.background),
+    }
+}
+
 /// One of several documents shown together, whose images are loaded with
 /// the others'.
 #[derive(Clone, Copy)]
@@ -70,4 +146,96 @@ pub struct Part<'a> {
     /// mode draws them; otherwise only an image that is a block of its
     /// own is, as the others show as their alt text.
     pub inline_images: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::typeset::images::plan::Wanted;
+
+    const NAVY: Option<[u8; 3]> = Some([0x12, 0x34, 0x56]);
+
+    fn look(theme: Theme, text: Option<[u8; 3]>, panel: bool, most: Option<(u32, u32)>) -> u64 {
+        let formula = FormulaColors {
+            text,
+            background: None,
+        };
+        diagram_look(theme, formula, panel, most)
+    }
+
+    #[test]
+    fn the_look_of_the_default_options_is_0() {
+        assert_eq!(look(Theme::Light, None, true, None), 0);
+        assert_eq!(LoadOptions::default().looks().diagram, 0);
+    }
+
+    #[test]
+    fn the_page_a_diagram_is_drawn_for_is_in_its_look() {
+        let light = look(Theme::Light, NAVY, true, None);
+        assert_eq!(light, look(Theme::Light, NAVY, true, None));
+        assert_ne!(light, look(Theme::Dark, NAVY, true, None));
+    }
+
+    #[test]
+    fn the_colours_of_a_formula_are_in_the_look() {
+        let navy = look(Theme::Dark, NAVY, true, None);
+        assert_eq!(navy, look(Theme::Dark, NAVY, true, None));
+        assert_ne!(navy, look(Theme::Dark, Some([0, 0, 0]), true, None));
+        assert_ne!(navy, look(Theme::Dark, None, true, None));
+        let on_white = FormulaColors {
+            text: NAVY,
+            background: Some([255; 3]),
+        };
+        assert_ne!(navy, diagram_look(Theme::Dark, on_white, true, None));
+    }
+
+    #[test]
+    fn the_panel_and_the_largest_size_are_in_the_look() {
+        let panel = look(Theme::Dark, None, true, Some((100, 50)));
+        assert_eq!(panel, look(Theme::Dark, None, true, Some((100, 50))));
+        assert_ne!(panel, look(Theme::Dark, None, false, Some((100, 50))));
+        assert_ne!(panel, look(Theme::Dark, None, true, Some((100, 51))));
+        assert_ne!(panel, look(Theme::Dark, None, true, None));
+    }
+
+    #[test]
+    fn the_keys_of_one_diagram_differ_where_its_look_does() {
+        let key = |options: LoadOptions<'_>| {
+            let looks = options.looks();
+            let wanted = Wanted::Diagram {
+                language: "mermaid",
+                source: "a\n".into(),
+                line: 1,
+            };
+            wanted.key(&looks)
+        };
+        let dark = LoadOptions {
+            theme: Theme::Dark,
+            ..LoadOptions::default()
+        };
+        assert_eq!(key(LoadOptions::default()), key(LoadOptions::default()));
+        assert_ne!(key(LoadOptions::default()), key(dark));
+    }
+
+    #[test]
+    fn the_loader_and_the_layout_have_the_same_look() {
+        let caps = Capabilities {
+            dark_background: Some(true),
+            foreground: Some(Color::Rgb(1, 2, 3)),
+            ..Capabilities::kitty(80)
+        };
+        let theme = PageTheme::default();
+        let options = LoadOptions {
+            theme: Theme::for_page(caps.dark_background),
+            formula: formula_colors(&theme, &caps),
+            panel: false,
+            largest: Some(largest(&caps)),
+            ..LoadOptions::default()
+        };
+        assert_ne!(options.looks().diagram, 0);
+        assert_eq!(
+            options.looks().diagram,
+            diagram_look_for(&theme, &caps, false)
+        );
+    }
 }

@@ -36,6 +36,7 @@ use crate::render::{FrontMatterStyle, Headings, Inputs, RenderErrors, TableRows}
 use crate::typeset::block::{BlockId, Blocks};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::{Color, Underline};
+use crate::typeset::images::diagram_look_for;
 use crate::typeset::images::size::{self, Placement, Shows};
 use crate::typeset::images::{ImageError, ImageKey, Images, Placeholder, Source, heading_words};
 use crate::typeset::layout::script::Script;
@@ -213,11 +214,13 @@ fn with_layout<T>(
         table_rows,
         render_errors,
         reading,
+        diagram_panel,
     } = inputs;
     // Without colours, the layout leaves out what only shows a colour, such
     // as heading fills and the padding around inline code. The built-in
     // theme's greys follow the terminal's palette, which may hide them.
     let adjusted;
+    let diagrams = diagram_look_for(theme, caps, *diagram_panel);
     let theme = if !caps.color {
         adjusted = theme.clone().without_colors();
         &adjusted
@@ -247,6 +250,7 @@ fn with_layout<T>(
         // is.
         reading: reading.as_ref().filter(|_| caps.draws_images()),
         document: number,
+        diagrams,
         // The row below for the shell's prompt or the pager's status line.
         reserved: 1,
     };
@@ -314,6 +318,8 @@ struct Layout<'a> {
     /// The number of the document laid out among those shown together,
     /// which the keys of its images carry.
     document: usize,
+    /// The fingerprint of how diagrams are drawn, which their keys carry.
+    diagrams: u64,
     /// The rows of the window that an image file shown on its own leaves
     /// to others: the shell's prompt or the pager's status line below it,
     /// and the header above it.
@@ -471,6 +477,7 @@ impl Layout<'_> {
         // Reading mode sets its own width: the theme's widest text is for
         // text in the terminal's font.
         let window = usize::from(self.caps.width).max(width);
+        let shown = (self.document, self.diagrams);
         let page = super::reading::engine::lines(
             &blocks,
             &ids,
@@ -480,7 +487,7 @@ impl Layout<'_> {
                 &self.code_colors(),
                 (self.table_rows != TableRows::Off, self.front_matter),
             ),
-            (self.images, self.render_errors.inline(), self.document),
+            (self.images, self.render_errors.inline(), shown),
             self.caps,
             window,
         );
@@ -512,7 +519,7 @@ impl Layout<'_> {
                 let mut lines = self.code_block(language, code, width);
                 lines.extend(self.render_error(language, code, width));
                 if let Some(language) = language {
-                    let key = ImageKey::block(language, code).in_document(self.document);
+                    let key = ImageKey::diagram(language, code, self.diagrams, self.document);
                     self.loading_band(&key, width, &mut lines);
                 }
                 lines
@@ -924,7 +931,7 @@ impl Layout<'_> {
             return None;
         }
         let language = language?;
-        let key = ImageKey::block(language, code).in_document(self.document);
+        let key = ImageKey::diagram(language, code, self.diagrams, self.document);
         let align = match crate::typeset::diagrams::names::centred(language) {
             true => Align::Centre,
             false => Align::Left,
@@ -941,7 +948,7 @@ impl Layout<'_> {
             Some(language) if self.render_errors.inline() && !self.images.is_empty() => language,
             _ => return Vec::new(),
         };
-        let key = ImageKey::block(language, code).in_document(self.document);
+        let key = ImageKey::diagram(language, code, self.diagrams, self.document);
         let Some(Err(ImageError::Diagram { reason, .. })) = self.images.get(&key) else {
             return Vec::new();
         };
@@ -1440,7 +1447,8 @@ mod tests {
             cell_pixels: Some((10, 20)),
             ..Capabilities::kitty(60)
         });
-        inputs.images.wait(key.into(), placeholder);
+        let key = inputs.drawn(key);
+        inputs.images.wait(key, placeholder);
         inputs
     }
 
@@ -1814,6 +1822,7 @@ mod tests {
             cell_pixels: Some((10, 20)),
             ..Capabilities::kitty(60)
         });
+        let key = inputs.drawn(key);
         inputs.images.insert(key, Ok(image));
         inputs
     }

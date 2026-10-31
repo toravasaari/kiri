@@ -56,7 +56,8 @@ fn a_program_s_diagram_is_reduced_to_the_largest_size_it_can_be_shown_at() {
     };
     let loaded = load_documents(&alone(&document, &scratch), &loading, None).unwrap();
     assert!(loaded.interrupt.is_some());
-    let key = crate::images::ImageKey::block("mermaid", "flowchart TD\n");
+    let key = crate::images::ImageKey::block("mermaid", "flowchart TD\n")
+        .with_look(loading.looks().diagram);
     match loaded.images.get(&key) {
         Some(Ok(Source::Dense { image, css })) => {
             assert_eq!((image.dimensions(), *css), ((15, 8), (20, 10)));

@@ -53,6 +53,8 @@ pub struct Inputs {
     /// Reading mode, where the terminal draws images: the document's text
     /// in a proportional font. `None` for the text layout.
     pub reading: Option<engine::Reading>,
+    /// Whether a diagram for the other page lies on a panel.
+    pub diagram_panel: bool,
 }
 
 /// Where kiri tells why something it draws from source, such as a
@@ -255,6 +257,7 @@ impl Inputs {
             table_rows: TableRows::default(),
             render_errors: RenderErrors::default(),
             reading: None,
+            diagram_panel: true,
         }
     }
 }
@@ -336,6 +339,20 @@ pub fn render_image_on(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(test)]
+    impl Inputs {
+        /// `key` as the layout of these inputs makes it: a diagram's key with
+        /// the fingerprint of how diagrams are drawn for them.
+        pub(crate) fn drawn(&self, key: impl Into<ImageKey>) -> ImageKey {
+            let look = crate::typeset::images::diagram_look_for(
+                &self.theme,
+                &self.caps,
+                self.diagram_panel,
+            );
+            key.into().with_look(look)
+        }
+    }
+
     use super::*;
 
     /// Kitty without text sizing, as inside tmux, with cells of 8 × 16

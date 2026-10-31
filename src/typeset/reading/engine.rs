@@ -493,7 +493,7 @@ pub fn lines(
     ids: &[BlockId],
     reading: &Reading,
     (one, code, (stripes, front_matter)): (&Resolved, &CodeColors, (bool, FrontMatterStyle)),
-    (images, inline_errors, document): (&Images, bool, usize),
+    (images, inline_errors, (document, diagrams)): (&Images, bool, (usize, u64)),
     caps: &Capabilities,
     width: usize,
 ) -> Vec<Line> {
@@ -512,6 +512,7 @@ pub fn lines(
     let gallery = Gallery {
         images,
         document,
+        diagrams,
         cell,
         inline_errors,
         keys: RefCell::new(Vec::new()),
@@ -669,6 +670,8 @@ struct Gallery<'a> {
     /// The number of the document among those shown together, which the
     /// keys of its images carry.
     document: usize,
+    /// The fingerprint of how diagrams are drawn, which their keys carry.
+    diagrams: u64,
     cell: (u16, u16),
     /// Whether a diagram that could not be drawn tells why below its code.
     inline_errors: bool,
@@ -762,7 +765,7 @@ fn ready(pixels: RgbaImage, loading: Option<usize>) -> Picture {
 
 impl Pictures for Gallery<'_> {
     fn formula(&self, source: &str, room: (f32, f32)) -> Picture {
-        let key = ImageKey::block(INLINE_FORMULA, source).in_document(self.document);
+        let key = ImageKey::diagram(INLINE_FORMULA, source, self.diagrams, self.document);
         let picture = self.picture(key, Wanted::default(), room, Some(INLINE_FORMULA));
         match picture {
             Picture::Ready {
@@ -801,7 +804,7 @@ impl Pictures for Gallery<'_> {
         if self.images.is_empty() && !self.images.loading() {
             return Picture::None;
         }
-        let key = ImageKey::block(language, code).in_document(self.document);
+        let key = ImageKey::diagram(language, code, self.diagrams, self.document);
         self.picture(key, Wanted::default(), room, Some(language))
     }
 }
@@ -1167,10 +1170,8 @@ mod tests {
     #[test]
     fn a_formula_in_the_middle_of_text_is_a_box_in_its_line() {
         let mut inputs = inputs(kitty(80));
-        inputs.images.insert(
-            ImageKey::block("math-inline", "x^2\n"),
-            Ok(raster(20, 10, [0, 255, 0])),
-        );
+        let key = inputs.drawn(ImageKey::block("math-inline", "x^2\n"));
+        inputs.images.insert(key, Ok(raster(20, 10, [0, 255, 0])));
         let lines = layout::layout(&parse("Let $x^2$ be one.\n"), &inputs);
         let greens = first_part(&lines)
             .pixels()
@@ -1192,6 +1193,7 @@ mod tests {
         // own baseline reaches below it.
         let lowest = |source: &str, key: ImageKey| {
             let mut inputs = inputs(kitty(80));
+            let key = inputs.drawn(key);
             inputs.images.insert(key, Ok(raster(20, 20, [0, 255, 0])));
             let lines = layout::layout(&parse(source), &inputs);
             let part = first_part(&lines);
@@ -1644,10 +1646,10 @@ mod tests {
     #[test]
     fn a_formula_is_centred_in_the_column_and_a_failed_diagram_says_why() {
         let mut inputs = inputs(kitty(80));
-        inputs.images.insert(
-            ImageKey::block("math", "x\n"),
-            Ok(raster(100, 40, [255, 255, 255])),
-        );
+        let key = inputs.drawn(ImageKey::block("math", "x\n"));
+        inputs
+            .images
+            .insert(key, Ok(raster(100, 40, [255, 255, 255])));
         let lines = layout::layout(&parse("```math\nx\n```\n"), &inputs);
         let part = first_part(&lines);
         // (672 - 100) / 2 = 286.
@@ -1665,9 +1667,8 @@ mod tests {
                 name: "diagram".into(),
                 reason: "no program".into(),
             };
-            inputs
-                .images
-                .insert(ImageKey::block("mermaid", "graph\n"), Err(error));
+            let key = inputs.drawn(ImageKey::block("mermaid", "graph\n"));
+            inputs.images.insert(key, Err(error));
             layout::layout(&parse("```mermaid\ngraph\n```\n"), &inputs).len()
         };
         assert!(failed(RenderErrors::Both) > failed(RenderErrors::Stderr));
@@ -1762,7 +1763,7 @@ mod tests {
                 &code,
                 (true, FrontMatterStyle::Code),
             ),
-            (&Images::new(), true, 0),
+            (&Images::new(), true, (0, 0)),
             &caps,
             80,
         )

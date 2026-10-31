@@ -508,6 +508,7 @@ fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure> {
         headings: settings.headings.with_images(settings.images),
         table_rows: settings.table_rows,
         render_errors: settings.render_errors,
+        diagram_panel: settings.diagram_background_panel,
         reading: plan::reading(context.reading, &caps).then(|| context.reading_mode()),
         ..Inputs::new(caps)
     };
@@ -1215,7 +1216,14 @@ fn drawn(
         return None;
     };
     let language = *language;
-    let key = ImageKey::block(language, source).in_document(number);
+    let look = kiri::typeset::images::diagram_look_for(
+        &settings.theme,
+        caps,
+        settings.diagram_background_panel,
+    );
+    let key = ImageKey::block(language, source)
+        .with_look(look)
+        .in_document(number);
     let path = given.path.display();
     match images.remove(&key) {
         Some(Ok(image)) => {

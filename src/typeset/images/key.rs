@@ -13,11 +13,14 @@ pub enum ImageKey {
     /// An image file or `data:` URL, as the document gives it.
     Url { document: usize, url: String },
     /// A code block drawn as an image, such as a diagram: its language, in
-    /// lower case as code blocks match it in any case, and its source.
+    /// lower case as code blocks match it in any case, its source, and a
+    /// fingerprint of how it is drawn, as `diagram_look` has it; 0 for
+    /// the default options.
     Block {
         document: usize,
         language: String,
         source: String,
+        look: u64,
     },
     /// A heading drawn as an image: its level, its words with the inline
     /// code they are in, and the size in pixels of the cells it is drawn
@@ -64,6 +67,34 @@ impl ImageKey {
             document: 0,
             language: language.to_ascii_lowercase(),
             source: source.to_owned(),
+            look: 0,
+        }
+    }
+
+    /// The key of the diagram `source` in `language` in the document
+    /// numbered `document`, drawn as the fingerprint `look` says.
+    pub fn diagram(language: &str, source: &str, look: u64, document: usize) -> Self {
+        ImageKey::block(language, source)
+            .with_look(look)
+            .in_document(document)
+    }
+
+    /// The same image drawn as the fingerprint `look` says: of how a
+    /// diagram is drawn, for a block. Other keys are as they were.
+    pub fn with_look(self, look: u64) -> Self {
+        match self {
+            ImageKey::Block {
+                document,
+                language,
+                source,
+                ..
+            } => ImageKey::Block {
+                document,
+                language,
+                source,
+                look,
+            },
+            other => other,
         }
     }
 
@@ -90,11 +121,15 @@ impl ImageKey {
         match self {
             ImageKey::Url { url, .. } => ImageKey::Url { document, url },
             ImageKey::Block {
-                language, source, ..
+                language,
+                source,
+                look,
+                ..
             } => ImageKey::Block {
                 document,
                 language,
                 source,
+                look,
             },
             ImageKey::Heading {
                 level, words, cell, ..

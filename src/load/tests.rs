@@ -7,7 +7,7 @@ use image::RgbaImage;
 use crate::diagrams::{DiagramError, Drawn, Renderer, Request, Theme};
 use crate::images::{
     CodeLook, DEFAULT_MAX_FILE_SIZE, Fonts, HeadingLook, ImageError, ImageKey, Images, LevelLook,
-    LoadOptions, Part, Source, plain_words, plan,
+    LoadOptions, Looks, Part, Source, plain_words, plan,
 };
 use crate::load::url::load_url;
 use crate::load::{load, load_parts, load_with};
@@ -304,8 +304,10 @@ fn a_reload_draws_only_the_diagrams_it_does_not_have() {
     };
     assert_eq!(calls(&stub), ["a\n", "b\n"]);
     let parts = [part(&after)];
-    let (wanted, have) = plan(&parts, &stub, None, Some(&mut images));
-    let keys: Vec<_> = (wanted.iter()).map(|(_, image)| image.key()).collect();
+    let (wanted, have) = plan(&parts, &stub, &Looks::default(), Some(&mut images));
+    let keys: Vec<_> = (wanted.iter())
+        .map(|(_, image)| image.key(&Looks::default()))
+        .collect();
     assert_eq!(
         keys,
         [
@@ -334,7 +336,7 @@ fn a_reload_draws_again_a_diagram_that_failed() {
     let key = ImageKey::block("mermaid", "flaky\n");
     let mut images = load_parts(&parts, DEFAULT_MAX_FILE_SIZE, &Fonts::none(), &options);
     assert!(matches!(images.get(&key), Some(Err(_))), "{images:?}");
-    let (wanted, have) = plan(&parts, &stub, None, Some(&mut images));
+    let (wanted, have) = plan(&parts, &stub, &Looks::default(), Some(&mut images));
     assert_eq!(wanted.len(), 1);
     assert!(matches!(have[..], [None]), "{have:?}");
 }
@@ -379,15 +381,17 @@ fn main() {}
 |---|
 ";
     let stub = Stub::default();
-    let images = load_source(source, &with_stub(&stub, Theme::Dark, true));
+    let options = with_stub(&stub, Theme::Dark, true);
+    let images = load_source(source, &options);
+    let look = options.looks().diagram;
     let calls = stub.calls.into_inner();
     let sources: Vec<&str> = calls.iter().map(|(source, _)| source.as_str()).collect();
     assert_eq!(sources, ["a\n", "b\n", "c\n", "d\n", "e\n"]);
     assert!(calls.iter().all(|(_, theme)| *theme == Theme::Dark));
     assert_eq!(images.len(), 5);
     for key in [
-        ImageKey::block("mermaid", "a\n"),
-        ImageKey::block("Mermaid", "c\n"),
+        ImageKey::block("mermaid", "a\n").with_look(look),
+        ImageKey::block("Mermaid", "c\n").with_look(look),
     ] {
         match images.get(&key) {
             Some(Ok(Source::Svg(svg))) => assert_eq!(svg.size, (200, 20)),
@@ -439,7 +443,7 @@ fn draws_a_formula_block_in_the_text_colour() {
         ..LoadOptions::default()
     };
     let images = load_source("Square:\n\n$$\\rule{1em}{1em}$$\n", &options);
-    let key = ImageKey::block("math", "\\rule{1em}{1em}\n");
+    let key = ImageKey::block("math", "\\rule{1em}{1em}\n").with_look(options.looks().diagram);
     let Some(Ok(image)) = images.get(&key) else {
         panic!("{images:?}");
     };

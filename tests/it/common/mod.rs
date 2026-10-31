@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use image::{Rgba, RgbaImage};
 use kiri::diagrams::{DiagramError, Drawn, Renderer, Request};
-use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, Images, LoadOptions, Source};
+use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, ImageKey, Images, LoadOptions, Source};
 use kiri::present::kitty::graphics::{DIACRITICS, PLACEHOLDER};
 use kiri::render::Inputs;
 use kiri::typeset::caps::Capabilities;
@@ -52,10 +52,26 @@ pub fn inputs(caps: &Capabilities, theme: &Theme) -> Inputs {
     }
 }
 
+/// `key` as the layout for `caps` and `theme` makes it: a diagram's key
+/// with the fingerprint of how diagrams are drawn there. The images of
+/// these tests are loaded with the default options, whatever the caps.
+pub fn laid_out_key(key: ImageKey, caps: &Capabilities, theme: &Theme) -> ImageKey {
+    key.with_look(kiri::typeset::images::diagram_look_for(theme, caps, true))
+}
+
+/// `images` keyed as the layout for `caps` and `theme` looks them up.
+pub fn laid_out(images: Images, caps: &Capabilities, theme: &Theme) -> Images {
+    let mut keyed = Images::new();
+    for (key, image) in images.iter() {
+        keyed.insert(laid_out_key(key.clone(), caps, theme), image.clone());
+    }
+    keyed
+}
+
 /// Inputs with `caps` and `images`, and the [`fixed_theme`].
 pub fn with_images(caps: &Capabilities, images: Images) -> Inputs {
     Inputs {
-        images,
+        images: laid_out(images, caps, &fixed_theme()),
         ..fixed_inputs(caps.clone())
     }
 }

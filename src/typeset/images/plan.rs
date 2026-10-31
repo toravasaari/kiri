@@ -11,7 +11,7 @@ use crate::typeset::images::decode::Source;
 use crate::typeset::images::error::ImageError;
 use crate::typeset::images::heading::{HeadingWord, heading_words};
 use crate::typeset::images::key::ImageKey;
-use crate::typeset::images::options::Part;
+use crate::typeset::images::options::{Looks, Part};
 use crate::typeset::images::store::Images;
 use crate::typeset::model::{Block, Document, Inline};
 
@@ -23,13 +23,15 @@ type Outcome = Result<Source, ImageError>;
 /// taken out of `kept`; `None` for one to load. A diagram that failed is
 /// to be drawn again, as what made it fail, such as a time limit or a
 /// missing program, may have passed. The headings are wanted as images,
-/// drawn for cells of `headings` pixels, only when it is given.
+/// drawn as `looks` says, only when it has a look for them; the keys carry
+/// what `looks` fingerprints.
 pub(crate) fn plan<'p>(
     parts: &[Part<'p>],
     renderer: &dyn Renderer,
-    headings: Option<(u16, u16)>,
+    looks: &Looks,
     mut kept: Option<&mut Images>,
 ) -> (Vec<(usize, Wanted<'p>)>, Vec<Option<Outcome>>) {
+    let headings = looks.headings.map(|look| look.cell);
     let mut wanted = Vec::new();
     for (index, part) in parts.iter().enumerate() {
         let mut blocks = Vec::new();
@@ -42,7 +44,8 @@ pub(crate) fn plan<'p>(
         );
         wanted.extend(blocks.into_iter().map(|image| (index, image)));
     }
-    let key = |&(index, ref image): &(usize, Wanted)| image.key().in_document(parts[index].number);
+    let key =
+        |&(index, ref image): &(usize, Wanted)| image.key(looks).in_document(parts[index].number);
     let mut keys = HashSet::new();
     wanted.retain(|image| keys.insert(key(image)));
     let have = (wanted.iter())
@@ -102,7 +105,7 @@ pub(crate) enum Wanted<'a> {
 }
 
 impl Wanted<'_> {
-    pub(crate) fn key(&self) -> ImageKey {
+    pub(crate) fn key(&self, looks: &Looks) -> ImageKey {
         match *self {
             Wanted::Url(url) => ImageKey::from(url),
             Wanted::Heading {
@@ -114,7 +117,7 @@ impl Wanted<'_> {
                 language,
                 ref source,
                 ..
-            } => ImageKey::block(language, source),
+            } => ImageKey::block(language, source).with_look(looks.diagram),
         }
     }
 }
@@ -254,9 +257,9 @@ Text ![a](a.png) and *![b](b.png)* in a paragraph.
                 by_line: true,
                 inline_images,
             }];
-            let (wanted, _) = plan(&parts, &NoRenderer, None, None);
+            let (wanted, _) = plan(&parts, &NoRenderer, &Looks::default(), None);
             let urls: Vec<String> = (wanted.iter())
-                .map(|(_, image)| image.key().to_string())
+                .map(|(_, image)| image.key(&Looks::default()).to_string())
                 .collect();
             urls
         };
@@ -282,9 +285,9 @@ Text ![a](a.png) and *![b](b.png)* in a paragraph.
                 by_line: true,
                 inline_images,
             }];
-            let (wanted, _) = plan(&parts, &NoRenderer, None, None);
+            let (wanted, _) = plan(&parts, &NoRenderer, &Looks::default(), None);
             let urls: Vec<String> = (wanted.iter())
-                .map(|(_, image)| image.key().to_string())
+                .map(|(_, image)| image.key(&Looks::default()).to_string())
                 .collect();
             urls
         };
@@ -326,9 +329,9 @@ x^2
                 by_line: true,
                 inline_images,
             }];
-            let (wanted, _) = plan(&parts, renderer, None, None);
+            let (wanted, _) = plan(&parts, renderer, &Looks::default(), None);
             let keys: Vec<String> = (wanted.iter())
-                .map(|(_, image)| image.key().to_string())
+                .map(|(_, image)| image.key(&Looks::default()).to_string())
                 .collect();
             keys
         };

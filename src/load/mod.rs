@@ -69,9 +69,10 @@ pub fn load_parts(
     fonts: &Fonts,
     options: &LoadOptions<'_>,
 ) -> Images {
-    let cell = options.headings.map(|look| look.cell);
-    let (wanted, mut have) = plan(parts, options.renderer, cell, None);
-    let key = |&(index, ref image): &(usize, Wanted)| image.key().in_document(parts[index].number);
+    let looks = options.looks();
+    let (wanted, mut have) = plan(parts, options.renderer, &looks, None);
+    let key =
+        |&(index, ref image): &(usize, Wanted)| image.key(&looks).in_document(parts[index].number);
     // The diagrams first, all together, so a renderer can draw several
     // at once.
     let requests: Vec<Request> = (wanted.iter().zip(&have))

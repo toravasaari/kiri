@@ -8,8 +8,8 @@ use kiri::typeset::caps::Capabilities;
 use kiri::typeset::theme::{Paper, Theme};
 
 use crate::common::{
-    WIDTH, drawn, fixed_inputs, fixed_theme, fixture_images_with, readable, render, render_fixture,
-    sent, stub_diagram_images, stub_diagrams, visible, with_images,
+    WIDTH, drawn, fixed_inputs, fixed_theme, fixture_images_with, laid_out, laid_out_key, readable,
+    render, render_fixture, sent, stub_diagram_images, stub_diagrams, visible, with_images,
 };
 
 const FLOWCHART: &str = "Before.\n\n```mermaid\nflowchart TD\n  A --> B\n```\n\nAfter.\n";
@@ -109,7 +109,11 @@ fn a_raster_diagram_is_placed_at_the_size_of_its_css_pixels() {
         ..Capabilities::kitty(WIDTH)
     };
     let source = "```mermaid\nflowchart TD\n```\n";
-    let key = ImageKey::block("mermaid", "flowchart TD\n");
+    let key = laid_out_key(
+        ImageKey::block("mermaid", "flowchart TD\n"),
+        &caps,
+        &fixed_theme(),
+    );
     let in_document = |image: &Source| {
         let mut images = Images::new();
         images.insert(key.clone(), Ok(image.clone()));
@@ -144,7 +148,7 @@ const BROKEN_COUNT: usize = 5;
 /// says.
 fn broken(caps: &Capabilities, theme: Theme, errors: RenderErrors) -> String {
     let inputs = Inputs {
-        images: stub_diagram_images(BROKEN),
+        images: laid_out(stub_diagram_images(BROKEN), caps, &theme),
         theme,
         render_errors: errors,
         ..fixed_inputs(caps.clone())
@@ -247,7 +251,7 @@ const ONE_BROKEN: &str = "```mermaid\nflowchart TD\n  A[open --> B\n```\n";
 /// sequences: its code's lines and then its error's lines.
 fn one_broken(caps: Capabilities, theme: Theme) -> (Vec<String>, Vec<String>) {
     let inputs = Inputs {
-        images: stub_diagram_images(ONE_BROKEN),
+        images: laid_out(stub_diagram_images(ONE_BROKEN), &caps, &theme),
         theme,
         ..fixed_inputs(caps)
     };
@@ -314,7 +318,11 @@ fn an_error_of_several_lines_keeps_them_apart() {
     // line above it, so the two stay lines of their own, side by side.
     let mut images = Images::new();
     images.insert(
-        ImageKey::block("mermaid", "flowchart TD\n  A[open --> B\n"),
+        laid_out_key(
+            ImageKey::block("mermaid", "flowchart TD\n  A[open --> B\n"),
+            &Capabilities::plain(100),
+            &fixed_theme(),
+        ),
         Err(ImageError::Diagram {
             name: "mermaid diagram on line 1".to_owned(),
             reason: "Parse error on line 2:\n...A[open --> B\n-----^\n  Expecting SQE".into(),
@@ -342,4 +350,55 @@ fn an_error_of_several_lines_keeps_them_apart() {
         lines[error + 3],
         format!("{}  Expecting SQE", " ".repeat(indent))
     );
+}
+
+/// The diagram of `FLOWCHART`, loaded as a run for `caps` loads it, and
+/// shown with the layout for `shown`.
+fn loaded_for_shown_in(caps: &Capabilities, shown: &Capabilities) -> String {
+    let theme = fixed_theme();
+    let options = kiri::images::LoadOptions {
+        theme: kiri::diagrams::Theme::for_page(caps.dark_background),
+        formula: kiri::typeset::images::formula_colors(&theme, caps),
+        largest: Some(kiri::typeset::images::size::largest(caps)),
+        ..stub_diagrams()
+    };
+    let document = kiri::typeset::parse::parse(FLOWCHART);
+    let images = kiri::load::load_with(
+        &document,
+        &crate::common::fixtures(),
+        DEFAULT_MAX_FILE_SIZE,
+        &Fonts::none(),
+        &options,
+    );
+    let inputs = Inputs {
+        images,
+        ..fixed_inputs(shown.clone())
+    };
+    render(FLOWCHART, &inputs)
+}
+
+#[test]
+fn a_diagram_is_found_where_it_was_drawn_for_the_page_it_is_shown_on() {
+    let dark = Capabilities {
+        dark_background: Some(true),
+        ..Capabilities::kitty(WIDTH)
+    };
+    let out = loaded_for_shown_in(&dark, &dark);
+    assert_eq!(sent(&out).len(), 1, "{out:?}");
+    assert!(!out.contains("flowchart"), "{out:?}");
+}
+
+#[test]
+fn a_diagram_drawn_for_the_other_page_is_not_the_one_shown() {
+    let dark = Capabilities {
+        dark_background: Some(true),
+        ..Capabilities::kitty(WIDTH)
+    };
+    let light = Capabilities {
+        dark_background: Some(false),
+        ..dark.clone()
+    };
+    let out = loaded_for_shown_in(&dark, &light);
+    assert_eq!(sent(&out).len(), 0, "{out:?}");
+    assert!(out.contains("flowchart"), "{out:?}");
 }

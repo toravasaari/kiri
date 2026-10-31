@@ -673,8 +673,19 @@ fn no_band_is_placed_under_the_help_panel() {
 struct Gating(Document, Vec<&'static str>, crate::images::Gated);
 
 impl Reload for Gating {
-    fn reload(&mut self, _: &mut Images, loads: &mut Loads, _: &Capabilities, _: bool) -> Reloaded {
-        loads.gated(&self.1, &self.2);
+    fn reload(
+        &mut self,
+        _: &mut Images,
+        loads: &mut Loads,
+        caps: &Capabilities,
+        _: bool,
+    ) -> Reloaded {
+        let look = crate::typeset::images::diagram_look_for(
+            &crate::typeset::theme::Theme::default(),
+            caps,
+            true,
+        );
+        loads.gated(&self.1, &self.2, look);
         Reloaded::Document(self.0.clone())
     }
 
