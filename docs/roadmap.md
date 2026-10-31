@@ -1550,6 +1550,31 @@ Comparing the column of the last border instead of counting borders
 would mend the cell beside it; a bar in the same cell needs the layout
 to mark its borders.
 
+#### B17 Headings, quotes and task lists look different in the two layouts
+
+The text layout and reading mode decide some styles on their own, and
+the parity test (G1.9.1) lists them as drifts. The aim is to bring the
+two together, moving either one; reading mode may also keep styles of
+its own, which is not decided yet.
+- The heading rule: reading mode draws it under levels 1 and 2 always
+  and ignores the theme's `rule`; the text layout draws none with the
+  built-in theme. The text layout could move toward reading mode.
+- Heading sizes: reading mode has GitHub's sizes and ignores a theme's;
+  the text layout's are larger. Its sizes could move closer to reading
+  mode's.
+- A numbered task list: reading mode drops the number, as GitHub does;
+  the text layout keeps it. Kept for now.
+- Quote text: reading mode dims it, as GitHub does; the text layout
+  keeps the body colour. Kept for now.
+
+#### B18 Table rows in reading mode
+
+Reading mode knows only stripes, on or off: the text layout's `lines`,
+`indent` and `underline` styles of `table_rows` all become stripes
+there. `indent` and `underline` are about the text layout's wrapped
+lines and can stay its own; `lines` could draw lines between the rows
+in reading mode too. `table_style` works only in reading mode.
+
 ### Upstream bugs
 
 Bugs in projects kiri uses. kiri works around most of them until they
