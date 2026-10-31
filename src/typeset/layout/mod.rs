@@ -44,7 +44,7 @@ use crate::typeset::model::{Block, Document, File, Image, Inline, SourceLines, T
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page;
 use crate::typeset::size::{TextSize, VerticalAlign};
-use crate::typeset::style::{Band, Line, Spaces, Span, Style, push};
+use crate::typeset::style::{Band, Line, Spaces, Span, Style, link_to, push};
 use crate::typeset::theme::{BandColor, Look};
 use crate::typeset::wrap::{width, wrap};
 
@@ -1303,11 +1303,11 @@ impl Layout<'_> {
     fn link(&self, url: &str, content: &[Inline], style: &Style, out: &mut Vec<Span>) {
         // The pager joins a link that wraps over lines by its `Rc`, so all
         // the spans of one link have to share this one, also when the link
-        // wraps.
+        // wraps, and touching links to one address share one (`link_to`).
         let link_style = self.style(Style {
             fg: self.look.link.or(style.fg),
             underline: Underline::Single,
-            link: self.caps.hyperlinks.then(|| Rc::from(url)),
+            link: self.caps.hyperlinks.then(|| link_to(out, url)),
             ..style.clone()
         });
         self.inlines(content, &link_style, out);

@@ -1603,7 +1603,7 @@ out for the cells it has at once and again when the answer differs, so a
 frame for the old cells may show for a moment; waiting for the answer
 first would delay every resize by a terminal that never answers.
 
-#### B14 Two touching links to one address split at a line break
+#### B14 Two touching links to one address split at a line break (fixed)
 
 In the pager's text layout, two links to one address that touch, with a
 style change between them, such as `[aaaa](u)**[bbbb](u)**`, are one
@@ -1611,6 +1611,10 @@ link for Tab on one line but two when a line break falls between them.
 Without the style change they stay one. Reading mode keeps them one. A
 mark that the layout kept for touching parts across a break would mend
 it.
+
+Fixed: the layout gives a link that touches one to the same address the
+same address value, so the pager joins them across a break as it joins
+a link that wraps.
 
 #### B15 Tab stops at a link without an address (fixed)
 

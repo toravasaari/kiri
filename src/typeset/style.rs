@@ -241,6 +241,17 @@ pub fn text(spans: &[Span]) -> String {
     spans.iter().map(|span| span.text.as_str()).collect()
 }
 
+/// The address for a link to `url` that comes after `spans`: the last
+/// span's, when that is a link to the same address, as in
+/// `[a](u)**[b](u)**`, so that the two stay one where a line breaks
+/// between them, as the terminal shows them as one; else a new one.
+pub fn link_to(spans: &[Span], url: &str) -> Rc<str> {
+    let before = spans.last().and_then(|span| span.style.link.clone());
+    before
+        .filter(|before| **before == *url)
+        .unwrap_or_else(|| Rc::from(url))
+}
+
 /// Appends text, merging it into the last span when the style matches.
 pub fn push(spans: &mut Vec<Span>, text: &str, style: &Style) {
     if text.is_empty() {
