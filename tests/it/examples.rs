@@ -153,7 +153,7 @@ fn all_example_themes_load() {
     for entry in std::fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
         if path.extension().is_some_and(|ext| ext == "toml") {
-            kiri::typeset::theme::load(&path).unwrap_or_else(|error| panic!("{error}"));
+            kiri::load::theme::load(&path).unwrap_or_else(|error| panic!("{error}"));
         }
     }
 }

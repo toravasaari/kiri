@@ -612,6 +612,7 @@ The later work that the rows name, in words:
 | `src/load/url.rs` | platform | new. `load_url`, which reads the file a URL names or decodes a `data:` URL, with `decode_file` and `read_file`, which open the file |
 | `src/load/tests.rs` | follows `load/mod.rs` | new. The tests of loading, and the helpers (`fixtures`, `load_source`, `open`, `Stub`) that the other tests of images load with |
 | `src/load/renderers.rs` | platform | new. `Renderers`, which draws each language with its external command when it has one and with the built-in renderer otherwise, and `render_in_parallel`, which draws several diagrams at once on threads |
+| `src/load/theme.rs` | platform | new. `load`, which reads a theme file and has `typeset::theme::parse` turn its text into a theme; `config::load_theme` calls it |
 | `src/reports.rs` | platform | new. The reports kiri writes itself: `--doctor` and `--list-emojis`, rendered for a terminal or written as text, and `show_report`, which shows one through the same route as a file. Their content is made by `src/doctor.rs` and `src/list.rs` |
 | `src/cli.rs` | platform | new. The command line: the clap `Cli`, whose flags take their help from the settings registry, and `options()`, which turns the flags into settings |
 | `src/config/mod.rs` | platform | stays (was `src/config.rs`); the module's description and its public surface |
@@ -647,7 +648,7 @@ The later work that the rows name, in words:
 | `src/parse/tests.rs` | typesetting | moved to `src/typeset/parse/tests.rs` |
 | `src/theme/mod.rs` | typesetting | moved to `src/typeset/theme/mod.rs` |
 | `src/theme/paper.rs` | typesetting | moved to `src/typeset/theme/paper.rs` |
-| `src/theme/file.rs` | mixed | moved to `src/typeset/theme/file.rs`. Typesetting: parsing the theme file's text. Platform: `load`, which reads the file; loading and sessions moves `load` out, and `config::load_theme` calls it until then |
+| `src/theme/file.rs` | typesetting | moved to `src/typeset/theme/file.rs`: parsing the theme file's text. Its `load`, which read the file, moved to `src/load/theme.rs`, and `config::load_theme` calls it |
 | `src/kitty/mod.rs` | terminal layer | moved to `src/present/kitty/mod.rs` |
 | `src/kitty/graphics.rs` | terminal layer | moved to `src/present/kitty/graphics.rs` |
 | `src/kitty/query.rs` | terminal layer | moved to `src/present/kitty/query.rs` |
@@ -818,7 +819,6 @@ is the record of them.
 | `detect` in `term/detect.rs` (terminal layer) calls `tmux::run_id` (platform) | the terminal layer split, which passes the run id in |
 | `term/detect.rs` and `term/tmux.rs` (terminal layer) take `config::Environment` (platform) and `config::Passthrough` (a setting type) | the terminal layer split, which passes the variables and the `Passthrough` value as arguments |
 | `typeset/reading/fonts.rs` (typesetting) loads and memory-maps system fonts | the font database |
-| `typeset/theme/file.rs` (typesetting) has `load`, which reads a file | loading and sessions |
 
 ### Where a new thing goes
 

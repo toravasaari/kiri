@@ -20,6 +20,7 @@ use crate::typeset::model::Document;
 use url::load_url;
 
 mod renderers;
+pub mod theme;
 pub(crate) mod url;
 
 pub use renderers::Renderers;
