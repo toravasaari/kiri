@@ -312,12 +312,13 @@ and lets go of what it did not show.
 A diagram stays a code block in the document model, `Block::CodeBlock`
 with its language, so the parser knows nothing about renderers and a
 diagram that cannot be drawn is shown as the code it already is. Whether
-it is drawn is decided when images are loaded. `src/images/mod.rs` keys
-each image by an `ImageKey`, a URL or a block (its language, in lower
+it is drawn is decided when images are loaded. `src/typeset/images/key.rs`
+keys each image by an `ImageKey`, a URL or a block (its language, in lower
 case, and its source), with the number of the document it is in, so
-that documents shown together keep their own images, and collects the
-code blocks whose language a renderer draws besides the lone images. It
-hands all of a document's diagrams to the renderer at once, then
+that documents shown together keep their own images, and
+`src/typeset/images/plan.rs` collects the code blocks whose language a
+renderer draws besides the lone images. `src/load/mod.rs` hands all of a
+document's diagrams to the renderer at once, then
 `src/typeset/images/drawn.rs` decodes each image it gets back by its content,
 as it decodes an image file, so sizing, the width limit and redrawing
 after a window resize work as for any image. An SVG is decoded as an
@@ -341,7 +342,7 @@ keys in its monospace font on the background of inline code, at the size
 and in the colours that `render::heading_look` takes from the one look
 (`src/typeset/theme/look.rs`), which is resolved from the theme and the
 terminal, as the text layout's inline code takes them, so
-`src/images/` knows nothing of themes. Other inline styles are drawn as
+`src/typeset/images/` knows nothing of themes. Other inline styles are drawn as
 the heading's text. Each word starts on a whole cell,
 and `Source::Text` tells the columns each word covers, so layout wraps a
 heading too long for the window as the sized one wraps: each line writes
@@ -359,8 +360,8 @@ the colour of the page's text for a formula, turned into an image file, SVG or r
 knows nothing about terminals, so an HTML backend could use the same
 image.
 
-The dependency between `src/diagrams/` and `src/images/` is not yet one
-way. `External` takes the image loader's pixel limit `MAX_PIXELS`, its
+`src/diagrams/external.rs` leans on the image engine
+(`src/typeset/images/`). `External` takes its pixel limit `MAX_PIXELS`, its
 unit `MB`, its `png_size`, `read_at_most` and the wording of a size
 limit, `size`, and merman's tests decode its SVG with the loader. These
 move to a module of their own when a second language, in
@@ -597,7 +598,10 @@ The later work that the rows name, in words:
   into the state engine and the loop into the platform, as messages in and
   effects out.
 - **Loading and sessions:** the platform reads, fetches and runs, and the
-  engines draw from the data it gives them.
+  engines draw from the data it gives them. Its first step is done: the
+  mixed modules are split into pure pieces in the typesetting engine and
+  the platform's pieces in `src/load/`. The work runner and the sessions
+  are left.
 - **The terminal layer split:** the presenter, the encoders, and the key and
   probe decoding that today sit in `term/`, `render/` and `pager/` are
   gathered in the terminal layer.
@@ -680,18 +684,18 @@ The later work that the rows name, in words:
 | `src/reading/paint.rs` | typesetting | moved to `src/typeset/reading/paint.rs` |
 | `src/reading/text.rs` | typesetting | moved to `src/typeset/reading/text.rs` |
 | `src/reading/fonts.rs` | mixed | moved to `src/typeset/reading/fonts.rs`. Typesetting: `Fonts`, the fonts handed to parley, with the fallbacks. Platform: loading the system fonts and memory-mapping the font files, lazily, on the first layout; the font database moves that loading out |
-| `src/images/mod.rs` | mixed | stays. Typesetting: `ImageKey` and `ImageError`, moved to `src/typeset/images/key.rs` and `error.rs`; `Images`, the plan of which images a document wants, and `LoadOptions`, the drawing options, which carry `progress`, a callback that `load_parts` in `src/load/mod.rs` calls. Platform: `load`, `load_with` and `load_parts`, which read files and run the renderers, moved to `src/load/mod.rs`. Loading and sessions |
+| `src/images/mod.rs` | platform | stays. Its typesetting pieces moved to `src/typeset/images/`: `ImageKey` to `key.rs`, `ImageError` and `size` to `error.rs`, `Images` and `Placeholder` to `store.rs`, `LoadOptions` and `Part` to `options.rs`, and the plan of which images a document wants (`plan`, `Wanted`, `collect_blocks`, `diagram_languages`) to `plan.rs`, each with its tests. Its platform pieces, `load`, `load_with` and `load_parts`, moved to `src/load/mod.rs`. What is left declares the loads on threads and the stamps, and re-exports those items as `kiri::images::…` |
 | `src/images/decode.rs` | typesetting | moved to `src/typeset/images/decode.rs` |
 | `src/images/drawn.rs` | typesetting | moved to `src/typeset/images/drawn.rs` |
 | `src/images/drawn/tests.rs` | typesetting | moved to `src/typeset/images/drawn/tests.rs` |
 | `src/images/heading.rs` | typesetting | moved to `src/typeset/images/heading.rs` |
 | `src/images/svg.rs` | mixed | stays. Typesetting: `Svg`, parsing and drawing, and `Fonts`, the database handed in. Platform: `Fonts::system`, which scans the system's fonts. The font database |
-| `src/images/url.rs` | mixed | moved to `src/typeset/images/url.rs`: `data:` URLs and the reading of a URL's parts, which do no I/O. `read_file`, `decode_file` and `load_url`, which open files, moved to `src/load/url.rs`. Loading and sessions |
+| `src/images/url.rs` | typesetting | moved to `src/typeset/images/url.rs`: `data:` URLs and the reading of a URL's parts, which do no I/O. `read_file`, `decode_file` and `load_url`, which open files, moved to `src/load/url.rs` |
 | `src/images/background.rs` | platform | stays |
 | `src/images/pipeline.rs` | platform | stays |
 | `src/images/pipeline/tests.rs` | platform | stays |
 | `src/images/stamps.rs` | platform | stays |
-| `src/images/warnings.rs` | typesetting | new. Makes the `Diagnostic`s for the images and diagrams that did not load, from `ImageKey` and `ImageError`. It stays in `src/images/` while those two do, and moves to `src/typeset/images/` with them |
+| `src/images/warnings.rs` | typesetting | moved to `src/typeset/images/warnings.rs`. Makes the `Diagnostic`s for the images and diagrams that did not load, from `ImageKey` and `ImageError` |
 | `src/diagrams/mod.rs` | platform | stays. What it held for the typesetting engine moved to `src/typeset/diagrams/`: `Theme`, `FormulaColors`, `INLINE_FORMULA`, `Drawn` and `Request` to `request.rs`; the `Renderer` trait, `BuiltIn`, `NoRenderer` and `baseline_depth` to `renderer.rs`; `theme_name`, `display_name`, `extension`, `chosen_theme`, `dark_background`, `noun`, `name` and `centred` to `names.rs`. `Renderers` and `render_in_parallel` moved to `src/load/renderers.rs`. It declares `external` and `find`, and re-exports those items as `kiri::diagrams::…` |
 | `src/typeset/diagrams/error.rs` | typesetting | new. `DiagramError`, why a diagram could not be drawn, such as `no output file` or a renderer's own message; `src/diagrams/mod.rs` re-exports it, as it does `Language` |
 | `src/diagrams/language.rs` | typesetting | moved to `src/typeset/diagrams/language.rs` |
@@ -772,9 +776,12 @@ later and are test only.
 | `src/typeset/mod.rs` | new: the root of the typesetting engine |
 | `src/present/mod.rs` | new: the root of the terminal layer |
 | `src/session/mod.rs` | new: the root of the state engine |
-| `src/typeset/images/mod.rs` | new: declares `decode`, `drawn`, `error`, `heading`, `key` and `size`; the rest of the pure pieces of `images/mod.rs` arrive in it with loading and sessions |
+| `src/typeset/images/mod.rs` | new: declares `decode`, `drawn`, `error`, `heading`, `key`, `options`, `plan`, `size`, `store`, `url` and `warnings`, and exports the types of images: `ImageKey`, `ImageError`, `Images`, `Placeholder`, `LoadOptions` and `Part` |
 | `src/typeset/images/key.rs` | new: `ImageKey`, what an image is made from, the key into `Images` |
 | `src/typeset/images/error.rs` | new: `ImageError`, why an image could not be loaded, and `size`, a size limit in words |
+| `src/typeset/images/store.rs` | new: `Images`, every image of a document by its key, loaded or not, and `Placeholder`, what stands in for one that is loading |
+| `src/typeset/images/options.rs` | new: `LoadOptions`, how a document's images are loaded and its diagrams drawn, and `Part`, one of the documents shown together |
+| `src/typeset/images/plan.rs` | new: the plan of which images a document wants: `plan`, `Wanted`, `collect_blocks`, `inline_images`, `shown_urls` and `diagram_languages` |
 | `src/typeset/diagrams/mod.rs` | new: declares `error`, `language`, `math`, `mermaid`, `names`, `output`, `renderer` and `request` |
 | `src/typeset/diagrams/request.rs` | new: `Theme`, `FormulaColors`, `INLINE_FORMULA`, `Drawn` and `Request`, what a renderer is spoken to in |
 | `src/typeset/diagrams/renderer.rs` | new: the `Renderer` trait with `render_one_by_one`, `BuiltIn`, `NoRenderer` and `baseline_depth` |
@@ -810,10 +817,10 @@ The crossings in the list fall into these kinds:
 
 | Kind | Removed by |
 |---|---|
-| typesetting uses `images`, `diagrams`, or the platform parts of `render` | loading and sessions; the terminal layer split for `render` |
+| typesetting uses the platform parts of `render` | the terminal layer split |
 | typesetting uses the font loading in `images/svg.rs` | the font database |
 | typesetting uses `present::kitty::graphics` | a small change of its own, giving `caps.rs` the constant |
-| the terminal layer uses `term::tmux`, `render::loading` or `images` | the terminal layer split; loading and sessions |
+| the terminal layer uses `term::tmux` or `render::loading` | the terminal layer split |
 
 The test reads files by directory, so it does not see the crossings inside
 a mixed module, which are the pieces of a file such as `main.rs` or
@@ -843,12 +850,12 @@ file (`main.rs`, `pager/mod.rs`, `render/mod.rs`,
 | startup decision, such as whether a run pages | `src/session/plan.rs`, made by the startup plan; take what it needs from the terminal as values |
 | key or action | an entry in `COMMANDS` in `src/session/commands.rs`, and the pager's answer to its action |
 | setting | its entry in `src/config/registry.rs`, which names its key, its owner, its effect and its medium, and the code of its owner |
-| use of a file, the network or a program | no path yet, loading and sessions makes the platform's work runner, and the trust policy a `Policy`; until then `src/loading.rs`, `src/images/background.rs`, `src/images/pipeline.rs` or `src/diagrams/external.rs` |
+| use of a file, the network or a program | no path yet, loading and sessions makes the platform's work runner, and the trust policy a `Policy`; until then `src/load/`, `src/loading.rs`, `src/images/background.rs`, `src/images/pipeline.rs` or `src/diagrams/external.rs` |
 | block type or input format | the typesetting engine's registry of block types and formats, no path yet (today `src/typeset/model.rs`, `src/typeset/parse/` and `src/typeset/layout/`); in reading mode a module per block type in `src/typeset/reading/page/`, made by reading mode's block modules; the blocks without one yet, such as paragraphs, stay in `page.rs` |
 | diagram language | `src/typeset/diagrams/`: a file and one entry in `language.rs`; a program that draws it is run by the platform |
 | image format | the decoder in `src/typeset/images/decode.rs` |
 | theme or look setting | `src/typeset/theme/` |
-| warning | a `Diagnostic` in `src/typeset/diagnostic.rs`, with a code of its own: where it came from, its kind and its text; one about an image or diagram is made in `src/images/warnings.rs` |
+| warning | a `Diagnostic` in `src/typeset/diagnostic.rs`, with a code of its own: where it came from, its kind and its text; one about an image or diagram is made in `src/typeset/images/warnings.rs` |
 | highlight, or anything else that changes from frame to frame | a layer in the list that `stack` makes in `src/session/layers.rs`: a paint and an address, and nothing new in `marked` |
 | panel, such as help or a file list | a document in the panel's look, no path yet, made by panels as documents, built in `src/session/` |
 | feature of the pager | a file of its own in `src/session/`, never a new branch in `src/pager/mod.rs` |

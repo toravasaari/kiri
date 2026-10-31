@@ -700,7 +700,7 @@ mod tests {
     /// Row `row` of a heading `text` shown as an image of two rows.
     fn heading_row(text: &str, row: u16) -> Line {
         let placement = crate::typeset::images::size::Placement {
-            key: crate::images::ImageKey::heading(1, text, (10, 20)),
+            key: crate::typeset::images::ImageKey::heading(1, text, (10, 20)),
             size: crate::typeset::images::size::Size {
                 width: 100,
                 height: 40,

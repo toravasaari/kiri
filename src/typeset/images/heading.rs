@@ -4,7 +4,7 @@
 //! image, up to the last word that fits.
 
 use crate::images::svg::{Fonts, Svg, decode_svg};
-use crate::images::{ImageError, Source};
+use crate::typeset::images::{ImageError, Source};
 use crate::typeset::model::{Image, Inline};
 
 /// How the headings of each level are drawn, resolved from the theme and
@@ -397,7 +397,7 @@ fn no_font() -> ImageError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::images::ImageKey;
+    use crate::typeset::images::ImageKey;
 
     const CELL: (u16, u16) = (10, 20);
 

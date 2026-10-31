@@ -7,8 +7,8 @@ use image::error::{ImageFormatHint, UnsupportedErrorKind};
 use image::{ImageFormat, RgbaImage};
 use kiri_tr_image_utils::DecodeError;
 
-use crate::images::ImageError;
 use crate::images::svg::{Fonts, Svg, decode_svg, looks_like_svg};
+use crate::typeset::images::ImageError;
 use crate::typeset::images::url;
 
 /// The most pixels kiri decodes in one image: 64 megapixels, 256 MiB as

@@ -6,13 +6,13 @@ use std::io::{self, Write};
 use std::ops::Range;
 use std::time::Duration;
 
-use crate::images::Images;
 use crate::present::encoder::Encoder;
 use crate::present::kitty;
 use crate::present::kitty::graphics;
 use crate::render::loading::{self, Ink};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::{Color, Underline};
+use crate::typeset::images::Images;
 use crate::typeset::images::size::cell_size;
 use crate::typeset::reading::engine::RowLink;
 use crate::typeset::size::TextSize;

@@ -14,11 +14,11 @@ use std::time::Duration;
 use image::RgbaImage;
 use image::imageops;
 
-use crate::images::{ImageKey, Images, Placeholder, Source};
 use crate::present::kitty::graphics::{self, ImageId};
 use crate::render::loading::{self, Ink};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::images::size::{Placement, Shows, Size, cell_size};
+use crate::typeset::images::{ImageKey, Images, Placeholder, Source};
 use crate::typeset::reading::engine::Parts;
 use crate::typeset::reading::page::Overlay;
 use crate::typeset::style::Line;
@@ -473,7 +473,7 @@ fn fit(source: &Source, size: Size, cell: (u16, u16)) -> RgbaImage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::images::ImageKey;
+    use crate::typeset::images::ImageKey;
 
     const INK: Ink = Ink {
         rgb: [200, 200, 200],

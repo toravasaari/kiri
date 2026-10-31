@@ -6,9 +6,9 @@ use std::rc::Rc;
 use crate::typeset::reading::engine::RowLink;
 use crate::typeset::reading::page::Overlay;
 
-use crate::images::ImageKey;
 use crate::typeset::block::BlockId;
 use crate::typeset::color::{Color, Underline};
+use crate::typeset::images::ImageKey;
 use crate::typeset::images::size::Placement;
 use crate::typeset::reading::engine::Parts;
 use crate::typeset::size::TextSize;

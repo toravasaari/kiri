@@ -27,7 +27,6 @@ use std::rc::Rc;
 
 use image::RgbaImage;
 
-use crate::images::{ImageError, ImageKey, Images, Placeholder, Source};
 use crate::render::FrontMatterStyle;
 use crate::render::loading;
 use crate::typeset::block::BlockId;
@@ -35,6 +34,7 @@ use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
 use crate::typeset::diagrams::{names, renderer, request::INLINE_FORMULA};
 use crate::typeset::images::size::{self as sizes, Placement, Shows, Size, Wanted, cell_size};
+use crate::typeset::images::{ImageError, ImageKey, Images, Placeholder, Source};
 use crate::typeset::layout::highlight;
 use crate::typeset::layout::{CodeColors, expand_tabs};
 use crate::typeset::model::{self, Block};
@@ -990,9 +990,9 @@ fn rgb(color: Color, caps: &Capabilities) -> Option<Brush> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::images::ImageError;
     use crate::present::output;
     use crate::render::{Inputs, RenderErrors};
+    use crate::typeset::images::ImageError;
     use crate::typeset::layout;
     use crate::typeset::model::AlertKind;
     use crate::typeset::parse::parse;

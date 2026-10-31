@@ -7,8 +7,8 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
-use crate::images::{ImageKey, Images, Placeholder, Source};
 use crate::typeset::compare::{self, Comparison, Fate};
+use crate::typeset::images::{ImageKey, Images, Placeholder, Source};
 use crate::typeset::model::{Block, Document, Inline};
 use crate::typeset::style::Line;
 

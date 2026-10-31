@@ -7,7 +7,7 @@ use std::path::Path;
 
 use image::ImageFormat;
 
-use crate::images::Format;
+use crate::typeset::images::Format;
 use crate::typeset::parse::csv::Separator;
 
 /// How many bytes from the start of a file `detect` looks at.

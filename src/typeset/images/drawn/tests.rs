@@ -3,10 +3,10 @@ use std::io;
 use image::ImageFormat;
 
 use crate::diagrams::{Renderer, Request};
-use crate::images::{DEFAULT_MAX_FILE_SIZE, ImageKey, decode};
 use crate::load::load_with;
 use crate::load::tests::{Stub, fixtures, load_source, rgba, with_stub};
 use crate::typeset::images::drawn::*;
+use crate::typeset::images::{DEFAULT_MAX_FILE_SIZE, ImageKey, decode};
 
 #[test]
 fn a_diagram_that_fails_is_a_warning_naming_it() {
