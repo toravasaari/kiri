@@ -12,9 +12,9 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use image::{Rgba, RgbaImage};
 use kiri::diagrams::{DiagramError, Drawn, Renderer, Request};
-use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, Images, LoadOptions, Source};
+use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, ImageKey, Images, LoadOptions, Looks, Source};
 use kiri::present::kitty::graphics::{DIACRITICS, PLACEHOLDER};
-use kiri::render::Inputs;
+use kiri::render::{Headings, Inputs};
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::theme::Theme;
 
@@ -52,10 +52,49 @@ pub fn inputs(caps: &Capabilities, theme: &Theme) -> Inputs {
     }
 }
 
+/// A diagram's `key` as the layout for `caps` and `theme` makes it: with
+/// the fingerprint of how diagrams are drawn there. Any other key stays.
+/// The images of these tests are loaded with the default options,
+/// whatever the caps.
+pub fn laid_out_key(key: ImageKey, caps: &Capabilities, theme: &Theme) -> ImageKey {
+    match key {
+        ImageKey::Block { .. } => {
+            key.with_look(kiri::typeset::images::diagram_look_for(theme, caps, true))
+        }
+        other => other,
+    }
+}
+
+/// The heading `key` as the layout for `caps`, with headings shown as
+/// `headings` says, looks it up: with the fingerprint of the look of its
+/// level.
+pub fn laid_out_heading(key: ImageKey, caps: &Capabilities, headings: Headings) -> ImageKey {
+    let ImageKey::Heading { level, .. } = key else {
+        panic!("a heading's key: {key:?}");
+    };
+    let look = kiri::render::heading_look(headings, false, &fixed_theme(), caps);
+    key.with_look(
+        Looks {
+            headings: look,
+            ..Looks::default()
+        }
+        .heading(level),
+    )
+}
+
+/// `images` keyed as the layout for `caps` and `theme` looks them up.
+pub fn laid_out(images: Images, caps: &Capabilities, theme: &Theme) -> Images {
+    let mut keyed = Images::new();
+    for (key, image) in images.iter() {
+        keyed.insert(laid_out_key(key.clone(), caps, theme), image.clone());
+    }
+    keyed
+}
+
 /// Inputs with `caps` and `images`, and the [`fixed_theme`].
 pub fn with_images(caps: &Capabilities, images: Images) -> Inputs {
     Inputs {
-        images,
+        images: laid_out(images, caps, &fixed_theme()),
         ..fixed_inputs(caps.clone())
     }
 }

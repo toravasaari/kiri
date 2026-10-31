@@ -28,7 +28,6 @@ use kiri::term::Interrupt;
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::input::Input;
 use kiri::typeset::model::Document;
-use kiri::typeset::theme::Theme;
 
 use crate::{Context, Failure, document};
 
@@ -194,7 +193,7 @@ pub(crate) fn loading<'a>(
         settings,
         max_file_size: context.max_file_size,
         theme: kiri::diagrams::Theme::for_page(caps.dark_background),
-        formula: formula_colors(&settings.theme, caps),
+        formula: kiri::typeset::images::formula_colors(&settings.theme, caps),
         largest: Some(kiri::typeset::images::size::largest(caps)),
         headings: kiri::render::heading_look(
             settings.headings,
@@ -202,21 +201,6 @@ pub(crate) fn loading<'a>(
             &settings.theme,
             caps,
         ),
-    }
-}
-
-/// The colours formulas are drawn in, as RGB: the theme's for formulas,
-/// and otherwise the text's, the theme's or else the terminal's; the
-/// first of them known as RGB.
-fn formula_colors(theme: &Theme, caps: &Capabilities) -> kiri::diagrams::FormulaColors {
-    let rgb = |color: Option<kiri::typeset::color::Color>| match color?.rgb(&caps.palette)? {
-        kiri::typeset::color::Color::Rgb(red, green, blue) => Some([red, green, blue]),
-        kiri::typeset::color::Color::Palette(_) => None,
-    };
-    let text = [theme.formula.text, theme.foreground, caps.foreground];
-    kiri::diagrams::FormulaColors {
-        text: text.into_iter().find_map(rgb),
-        background: rgb(theme.formula.background),
     }
 }
 

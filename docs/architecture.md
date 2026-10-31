@@ -309,47 +309,48 @@ and lets go of what it did not show.
 
 ## Diagrams
 
-A diagram stays a code block in the document model, `Block::CodeBlock`
-with its language, so the parser knows nothing about renderers and a
-diagram that cannot be drawn is shown as the code it already is. Whether
-it is drawn is decided when images are loaded. `src/typeset/images/key.rs`
-keys each image by an `ImageKey`, a URL or a block (its language, in lower
-case, and its source), with the number of the document it is in, so
-that documents shown together keep their own images, and
-`src/typeset/images/plan.rs` collects the code blocks whose language a
-renderer draws besides the lone images. `src/load/mod.rs` hands all of a
-document's diagrams to the renderer at once, then
-`src/typeset/images/drawn.rs` decodes each image it gets back by its content,
-as it decodes an image file, so sizing, the width limit and redrawing
-after a window resize work as for any image. An SVG is decoded as an
-SVG file is; a raster image, such as the PNG of a browser's drawing,
-becomes `Source::Dense`, pixels with their size in CSS pixels, so that
-it is sized in CSS pixels as an SVG is. Its pixels are reduced there to
-the most an image can be shown at, as many cells as one image covers
-each way, so that a large diagram holds no more memory than showing
-it needs; its size in CSS pixels stays. There it also grows an SVG
-diagram whose text runs past its edges, and lays one drawn in colours
-for the other page, light or dark, on a panel of its own background,
-after the reduction, so the panel's copy is small too.
+A diagram stays a code block in the document model, `Block::CodeBlock` with
+its language, so the parser knows nothing about renderers and a diagram that
+cannot be drawn is shown as the code it already is. Whether it is drawn is
+decided when images are loaded. `src/typeset/images/key.rs` keys each image by
+an `ImageKey`, a URL or a block (its language, in lower case, its source, and
+a fingerprint of how it is drawn: the page it is for, the formula colours and
+the panel, so that a diagram drawn for a dark page is not the one a light page
+asks for), with the number of the document it is in, so that documents shown
+together keep their own images, and `src/typeset/images/plan.rs` collects the
+code blocks whose language a renderer draws besides the lone images.
+`src/load/mod.rs` hands all of a document's diagrams to the renderer at once,
+then `src/typeset/images/drawn.rs` decodes each image it gets back by its
+content, as it decodes an image file, so sizing, the width limit and redrawing
+after a window resize work as for any image. An SVG is decoded as an SVG file
+is; a raster image, such as the PNG of a browser's drawing, becomes
+`Source::Dense`, pixels with their size in CSS pixels, so that it is sized in
+CSS pixels as an SVG is. Its pixels are reduced there to the most an image can
+be shown at, as many cells as one image covers each way, so that a large
+diagram holds no more memory than showing it needs; its size in CSS pixels
+stays. That size is not in the key yet: a resize would have to load the
+diagrams again, which reconciling the wanted keys will do. There it also grows
+an SVG diagram whose text runs past its edges, and lays one drawn in colours
+for the other page, light or dark, on a panel of its own background, after the
+reduction, so the panel's copy is small too.
 
-A heading is drawn as an image the same way, where the terminal draws
-images but not large text, as kitty inside tmux: `ImageKey::Heading`
-holds its level, its words, each marked with the inline code or key it
-is in and whether it is emphasised, and the cell size it is drawn for,
-and `src/typeset/images/heading.rs` draws the text through the SVG renderer in
-the system's sans-serif font, emphasis in italics, and inline code and
-keys in its monospace font on the background of inline code, at the size
+A heading is drawn as an image the same way, where the terminal draws images
+but not large text, as kitty inside tmux: `ImageKey::Heading` holds its level,
+its words, each marked with the inline code or key it is in and whether it is
+emphasised, the cell size it is drawn for and a fingerprint of the look of its
+level, and `src/typeset/images/heading.rs` draws the text through the SVG
+renderer in the system's sans-serif font, emphasis in italics, and inline code
+and keys in its monospace font on the background of inline code, at the size
 and in the colours that `render::heading_look` takes from the one look
 (`src/typeset/theme/look.rs`), which is resolved from the theme and the
 terminal, as the text layout's inline code takes them, so
-`src/typeset/images/` knows nothing of themes. Other inline styles are drawn as
-the heading's text. Each word starts on a whole cell,
-and `Source::Text` tells the columns each word covers, so layout wraps a
-heading too long for the window as the sized one wraps: each line writes
-the placeholders of the image's columns its words cover, which kitty's
-placeholders allow from any column, and the image stays one whatever the
-width. A heading whose image did not come is laid out as text, without a
-warning.
+`src/typeset/images/` knows nothing of themes. Other inline styles are drawn
+as the heading's text. Each word starts on a whole cell, and `Source::Text`
+tells the columns each word covers, so layout wraps a heading too long for the
+window as the sized one wraps: each line writes the placeholders of the
+image's columns its words cover, which kitty's placeholders allow from any
+column, and the image stays one whatever the width. A heading whose image did
+not come is laid out as text, without a warning.
 
 Renderers live in `src/typeset/diagrams/` (the trait and those built in) and
 `src/diagrams/` (the programs that draw: `external.rs` and `find.rs`). The

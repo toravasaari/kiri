@@ -9,8 +9,8 @@ use std::collections::{BTreeMap, HashSet};
 use super::background::{Context, Job, What};
 use super::plan;
 use super::{
-    Fonts, HeadingLook, ImageKey, Images, LoadOptions, Loads, Part, Placeholder, Stamps, Wanted,
-    diagram_languages,
+    Fonts, HeadingLook, ImageKey, Images, LoadOptions, Loads, Looks, Part, Placeholder, Stamps,
+    Wanted, diagram_languages, diagram_look,
 };
 use crate::config::{self, Environment, Settings};
 use crate::diagrams::find::{self, Search};
@@ -38,6 +38,21 @@ pub struct Loading<'a> {
     pub largest: Option<(u32, u32)>,
     /// How headings are drawn as images; `None` draws none.
     pub headings: Option<HeadingLook>,
+}
+
+impl Loading<'_> {
+    /// What the keys of the images loaded this way name of how they are
+    /// drawn.
+    fn looks(&self) -> Looks {
+        Looks {
+            diagram: diagram_look(
+                self.theme,
+                self.formula,
+                self.settings.diagram_background_panel,
+            ),
+            headings: self.headings,
+        }
+    }
 }
 
 /// A document's images, and the guard that caught the signals while
@@ -100,10 +115,10 @@ pub fn reload_in_background(
     };
     // Whether a failure came in the background stays with what is kept.
     let late = std::mem::take(&mut images.late);
-    let headings = loading.headings.map(|look| look.cell);
-    let (wanted, have) = plan(parts, renderer, headings, Some(images));
+    let looks = loading.looks();
+    let (wanted, have) = plan(parts, renderer, &looks, Some(images));
     let shown: Vec<ImageKey> = (wanted.iter())
-        .map(|(index, image)| image.key().in_document(parts[*index].number))
+        .map(|(index, image)| image.key(&looks).in_document(parts[*index].number))
         .collect();
     let keys: HashSet<&ImageKey> = shown.iter().collect();
     loads.keep(|key| keys.contains(key));
@@ -111,7 +126,7 @@ pub fn reload_in_background(
     let mut jobs = Vec::new();
     for ((index, image), have) in wanted.into_iter().zip(have) {
         let part = &parts[index];
-        let key = image.key().in_document(part.number);
+        let key = image.key(&looks).in_document(part.number);
         if let Some(have) = have {
             match late.contains(&key) {
                 true => kept.came(key, have),
@@ -154,16 +169,12 @@ pub fn load_in_background(
         Some(renderers) => renderers,
         None => &NoRenderer,
     };
-    let (wanted, _) = plan(
-        parts,
-        renderer,
-        loading.headings.map(|look| look.cell),
-        None,
-    );
+    let looks = loading.looks();
+    let (wanted, _) = plan(parts, renderer, &looks, None);
     let mut jobs = Vec::new();
     for (index, image) in wanted {
         let part = &parts[index];
-        let key = image.key().in_document(part.number);
+        let key = image.key(&looks).in_document(part.number);
         images.wait(key.clone(), Placeholder::Unsized);
         images.shown.push(key.clone());
         jobs.push(job(part, key, image, renderers.as_ref(), loading));
@@ -181,10 +192,14 @@ pub fn load_headings_in_background(
     images: &mut Images,
     loads: &mut Loads,
 ) {
-    let (wanted, _) = plan(parts, &NoRenderer, Some(look.cell), None);
+    let looks = Looks {
+        headings: Some(*look),
+        ..Looks::default()
+    };
+    let (wanted, _) = plan(parts, &NoRenderer, &looks, None);
     let mut jobs = Vec::new();
     for (index, image) in wanted {
-        let key = image.key().in_document(parts[index].number);
+        let key = image.key(&looks).in_document(parts[index].number);
         let Wanted::Heading { level, words, cell } = image else {
             continue;
         };
@@ -242,16 +257,12 @@ pub fn load_inline_in_background(
         Some(renderers) => renderers,
         None => &NoRenderer,
     };
-    let (wanted, _) = plan(
-        &parts,
-        renderer,
-        loading.headings.map(|look| look.cell),
-        None,
-    );
+    let looks = loading.looks();
+    let (wanted, _) = plan(&parts, renderer, &looks, None);
     let mut jobs = Vec::new();
     for (index, image) in wanted {
         let part = &parts[index];
-        let key = image.key().in_document(part.number);
+        let key = image.key(&looks).in_document(part.number);
         if images.get(&key).is_some() || loads.loading(&key) {
             continue;
         }
@@ -277,14 +288,10 @@ pub fn measure_in_background(
         Some(renderers) => renderers,
         None => &NoRenderer,
     };
-    let (wanted, _) = plan(
-        parts,
-        renderer,
-        loading.headings.map(|look| look.cell),
-        None,
-    );
+    let looks = loading.looks();
+    let (wanted, _) = plan(parts, renderer, &looks, None);
     for (index, image) in wanted {
-        let key = image.key().in_document(parts[index].number);
+        let key = image.key(&looks).in_document(parts[index].number);
         images.wait(key, Placeholder::Rows(rows));
     }
 }

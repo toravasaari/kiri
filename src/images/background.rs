@@ -394,10 +394,19 @@ impl Loads {
     }
 
     /// Loads the diagrams `names`, each a Mermaid diagram of one line,
-    /// with `gated`, one at a time, as no program draws them.
+    /// with `gated`, one at a time, as no program draws them, keyed as
+    /// diagrams drawn as `look` says are.
     #[cfg(test)]
-    pub(crate) fn gated(&mut self, names: &[&str], gated: &Gated) {
-        let jobs = names.iter().map(|name| diagram(name, false)).collect();
+    pub(crate) fn gated(&mut self, names: &[&str], gated: &Gated, look: u64) {
+        let jobs = (names.iter())
+            .map(|name| {
+                let job = diagram(name, false);
+                Job {
+                    key: job.key.with_look(look),
+                    ..job
+                }
+            })
+            .collect();
         self.start(jobs, context(gated.clone()));
     }
 
@@ -737,7 +746,7 @@ mod tests {
     /// holds them, one at a time as no program draws them.
     fn held(loads: &mut Loads, gated: &Gated, names: &[&str]) {
         loads.hold();
-        loads.gated(names, gated);
+        loads.gated(names, gated, 0);
     }
 
     fn keys(names: &[&str]) -> Vec<ImageKey> {
@@ -773,7 +782,7 @@ mod tests {
         let gated = Gated::default();
         let mut loads = Loads::new();
         // One draws, and one waits for the thread.
-        loads.gated(&["a", "b"], &gated);
+        loads.gated(&["a", "b"], &gated, 0);
         assert_eq!(gated.until(1), ["a"]);
         // A reload that starts nothing.
         loads.hold();
@@ -804,7 +813,7 @@ mod tests {
         assert!(loads.wait(Duration::ZERO));
         // Nothing is left held: a later load starts at once.
         gated.open.store(true, Ordering::SeqCst);
-        loads.gated(&["c"], &gated);
+        loads.gated(&["c"], &gated, 0);
         assert!(came(&mut loads, &keys(&["c"])[0]));
         assert_eq!(gated.started(), ["c"]);
     }

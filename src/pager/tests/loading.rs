@@ -673,8 +673,19 @@ fn no_band_is_placed_under_the_help_panel() {
 struct Gating(Document, Vec<&'static str>, crate::images::Gated);
 
 impl Reload for Gating {
-    fn reload(&mut self, _: &mut Images, loads: &mut Loads, _: &Capabilities, _: bool) -> Reloaded {
-        loads.gated(&self.1, &self.2);
+    fn reload(
+        &mut self,
+        _: &mut Images,
+        loads: &mut Loads,
+        caps: &Capabilities,
+        _: bool,
+    ) -> Reloaded {
+        let look = crate::typeset::images::diagram_look_for(
+            &crate::typeset::theme::Theme::default(),
+            caps,
+            true,
+        );
+        loads.gated(&self.1, &self.2, look);
         Reloaded::Document(self.0.clone())
     }
 
@@ -768,7 +779,11 @@ fn a_heading_image_comes_after_its_text_and_keeps_the_top_line() {
         let mut reload = Background {
             document: document("Kiri"),
             wanted: vec![(
-                crate::images::ImageKey::heading(1, "Kiri", (10, 20)),
+                Inputs::new(caps.clone()).drawn(crate::images::ImageKey::heading(
+                    1,
+                    "Kiri",
+                    (10, 20),
+                )),
                 text.clone(),
             )],
             aside: Vec::new(),
@@ -798,4 +813,40 @@ fn a_heading_image_comes_after_its_text_and_keeps_the_top_line() {
             assert_eq!(top_row(after), top, "{frames:#?}");
         }
     }
+}
+
+#[test]
+fn a_changed_diagram_loads_with_its_old_drawing_dimmed_under_the_layouts_look() {
+    let caps = Capabilities::kitty(60);
+    let key = |code: &str| Inputs::new(caps.clone()).drawn(ImageKey::block("mermaid", code));
+    let diagram = |code: &str| format!("Before\n\n```mermaid\n{code}```\n\nAfter\n");
+    let (old, new) = (key("flowchart TD\n"), key("flowchart LR\n"));
+    let mut inputs = Inputs::new(caps.clone());
+    inputs
+        .images
+        .insert(old.clone(), Ok(filled(40, 20, [255, 0, 0, 255])));
+    let mut reload = Background {
+        document: crate::typeset::parse::parse(&diagram("flowchart LR\n")),
+        wanted: vec![(new.clone(), filled(40, 20, [0, 0, 255, 255]))],
+        aside: vec![old],
+        coming: Default::default(),
+        fails: Vec::new(),
+        afterwards: None,
+        asked: 0,
+    };
+    let mut terminal = Fake::new(60, 12, &[b"r", b"", b"q"]);
+    run_document(
+        &crate::typeset::parse::parse(&diagram("flowchart TD\n")),
+        &mut inputs,
+        Options {
+            reload: Some(&mut reload),
+            ..Options::new(SearchCase::Smart)
+        },
+        &mut terminal,
+    );
+    let shown = inputs.images.placeholder(&new);
+    assert!(
+        matches!(shown, Some(crate::images::Placeholder::Dimmed(_))),
+        "{shown:?}"
+    );
 }

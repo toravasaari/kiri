@@ -139,16 +139,15 @@ fn a_diagram_for_the_other_page_lies_on_a_panel_of_its_background() {
         }
     }
     let drawn = |page, own, background, panel| {
-        let images = load_source(
-            "```dot\ndigraph {}\n```\n",
-            &LoadOptions {
-                renderer: &Themed(own, background),
-                theme: page,
-                panel,
-                ..LoadOptions::default()
-            },
-        );
-        match images.get(&ImageKey::block("dot", "digraph {}\n")) {
+        let options = LoadOptions {
+            renderer: &Themed(own, background),
+            theme: page,
+            panel,
+            ..LoadOptions::default()
+        };
+        let images = load_source("```dot\ndigraph {}\n```\n", &options);
+        match images.get(&ImageKey::block("dot", "digraph {}\n").with_look(options.looks().diagram))
+        {
             Some(Ok(Source::Svg(svg))) => svg.clone(),
             other => panic!("{other:?}"),
         }
@@ -225,16 +224,15 @@ fn drawn_within(
     page: Theme,
     largest: Option<(u32, u32)>,
 ) -> Result<Source, ImageError> {
-    let images = load_source(
-        "```dot\ndigraph {}\n```\n",
-        &LoadOptions {
-            renderer,
-            theme: page,
-            largest,
-            ..LoadOptions::default()
-        },
-    );
-    (images.get(&ImageKey::block("dot", "digraph {}\n")).cloned()).expect("the diagram")
+    let options = LoadOptions {
+        renderer,
+        theme: page,
+        largest,
+        ..LoadOptions::default()
+    };
+    let images = load_source("```dot\ndigraph {}\n```\n", &options);
+    let key = ImageKey::block("dot", "digraph {}\n").with_look(options.looks().diagram);
+    (images.get(&key).cloned()).expect("the diagram")
 }
 
 #[test]

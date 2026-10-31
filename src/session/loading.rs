@@ -14,8 +14,9 @@ use crate::typeset::style::Line;
 
 /// The key of the image `block` shows, when it may show one: the image of
 /// a paragraph of only an image, or the diagram a code block may be drawn
-/// as. Only a lone document is reloaded, so the key is of the first.
-fn key_of(block: &Block) -> Option<ImageKey> {
+/// as, drawn as the fingerprint `look` says. Only a lone document is
+/// reloaded, so the key is of the first.
+fn key_of(block: &Block, look: u64) -> Option<ImageKey> {
     match block {
         Block::Paragraph(content) => {
             Inline::lone_image(content).map(|image| ImageKey::from(image.url.as_str()))
@@ -24,7 +25,7 @@ fn key_of(block: &Block) -> Option<ImageKey> {
             language: Some(language),
             code,
             ..
-        } => Some(ImageKey::block(language, code)),
+        } => Some(ImageKey::block(language, code).with_look(look)),
         _ => None,
     }
 }
@@ -69,9 +70,25 @@ pub struct Reloaded<'a> {
     pub replaced: &'a HashMap<ImageKey, Source>,
     /// The images the new document has at once.
     pub images: &'a Images,
+    /// The fingerprint of how its diagrams are drawn, which their keys
+    /// carry.
+    pub diagram_look: u64,
 }
 
 impl Reloaded<'_> {
+    /// What stands in for each of the images `keys` while it loads, as
+    /// [`Self::placeholder`] has it.
+    pub fn placeholders(
+        &self,
+        keys: impl Iterator<Item = ImageKey>,
+    ) -> Vec<(ImageKey, Placeholder)> {
+        (keys.map(|key| {
+            let placeholder = self.placeholder(&key);
+            (key, placeholder)
+        }))
+        .collect()
+    }
+
     /// What stands in for the image `key` while it loads: what stood in
     /// for it before, if it was loading then; the old image of the block
     /// it changed from, dimmed; and otherwise nothing that tells a size,
@@ -82,7 +99,8 @@ impl Reloaded<'_> {
             return before.clone();
         }
         let new = compare::blocks(self.new);
-        let Some((path, _)) = (new.iter()).find(|(_, block)| key_of(block).as_ref() == Some(key))
+        let Some((path, _)) =
+            (new.iter()).find(|(_, block)| key_of(block, self.diagram_look).as_ref() == Some(key))
         else {
             return Placeholder::Unsized;
         };
@@ -91,7 +109,7 @@ impl Reloaded<'_> {
                 let old = compare::blocks(self.old);
                 let old_key = (old.iter())
                     .find(|(path, _)| path == was)
-                    .and_then(|(_, block)| key_of(block));
+                    .and_then(|(_, block)| key_of(block, self.diagram_look));
                 (old_key.and_then(|old| self.old_image(&old))).unwrap_or(Placeholder::Unsized)
             }
             Some(Fate::Stayed { .. } | Fate::Added) | None => Placeholder::Unsized,
@@ -145,6 +163,7 @@ mod tests {
             before: &before,
             replaced: &replaced,
             images: &Images::new(),
+            diagram_look: 0,
         };
         reloaded.placeholder(&key.into())
     }
@@ -208,9 +227,35 @@ mod tests {
             before: &HashMap::new(),
             replaced: &replaced,
             images: &Images::new(),
+            diagram_look: 0,
         };
         let shown = reloaded.placeholder(&ImageKey::block("mermaid", "flowchart LR\n"));
         assert!(matches!(shown, Placeholder::Dimmed(image) if image.size() == (6, 6)));
+    }
+
+    #[test]
+    fn a_diagram_with_a_look_shows_its_old_drawing_dimmed() {
+        let key = |code| ImageKey::block("mermaid", code).with_look(42);
+        let (old_doc, new_doc) = (
+            parse("```mermaid\nflowchart TD\n```\n"),
+            parse("```mermaid\nflowchart LR\n```\n"),
+        );
+        let changes = compare(&old_doc, &new_doc);
+        let replaced = HashMap::from([(key("flowchart TD\n"), square(6))]);
+        let reloaded = Reloaded {
+            old: &old_doc,
+            new: &new_doc,
+            changes: &changes,
+            before: &HashMap::new(),
+            replaced: &replaced,
+            images: &Images::new(),
+            diagram_look: 42,
+        };
+        let shown = reloaded.placeholder(&key("flowchart LR\n"));
+        assert!(
+            matches!(&shown, Placeholder::Dimmed(image) if image.size() == (6, 6)),
+            "{shown:?}"
+        );
     }
 
     #[test]

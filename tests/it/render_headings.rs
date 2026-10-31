@@ -1,13 +1,13 @@
 //! Headings: sizes, rules, backgrounds and indentation.
 
 use image::{Rgba, RgbaImage};
-use kiri::images::{HeadingWord, ImageError, ImageKey, Images, Source};
+use kiri::images::{HeadingWord, ImageError, ImageKey, Images, Looks, Source};
 use kiri::render::{Headings, Inputs};
 use kiri::typeset::caps::Capabilities;
 
 use crate::common::{
     WIDTH, drawn, example_theme, fixed_inputs, fixed_theme, fixture, graphics_commands, inputs,
-    readable, render, render_fixture, strip_own_sequences, visible,
+    laid_out_heading, readable, render, render_fixture, strip_own_sequences, visible,
 };
 
 #[test]
@@ -158,7 +158,8 @@ fn text_image(columns: u32, rows: u32, words: &[(u16, u16)]) -> Source {
 /// headings shown as `headings` says.
 fn heading_inputs(caps: Capabilities, text: &str, image: Source, headings: Headings) -> Inputs {
     let mut images = Images::new();
-    images.insert(ImageKey::heading(1, text, (10, 20)), Ok(image));
+    let key = ImageKey::heading(1, text, (10, 20));
+    images.insert(laid_out_heading(key, &caps, headings), Ok(image));
     Inputs {
         images,
         headings,
@@ -334,8 +335,9 @@ fn a_heading_without_its_image_is_text() {
         name: "heading".into(),
         reason: "no font draws it".into(),
     };
+    let key = ImageKey::heading(1, "Heading level one", (10, 20));
     images.insert(
-        ImageKey::heading(1, "Heading level one", (10, 20)),
+        laid_out_heading(key, &caps, Headings::default()),
         Err(failed),
     );
     let inputs = Inputs {
@@ -435,6 +437,29 @@ fn a_nested_heading_stays_text_with_its_image_loaded() {
 }
 
 #[test]
+fn a_heading_image_drawn_in_another_look_is_not_used() {
+    let caps = no_text_sizing(80);
+    let mut look = kiri::render::heading_look(Headings::Auto, false, &fixed_theme(), &caps)
+        .expect("headings drawn as images");
+    look.levels[0].color = [1, 2, 3];
+    let looks = Looks {
+        headings: Some(look),
+        ..Looks::default()
+    };
+    let key = ImageKey::heading(1, "Kiri", (10, 20)).with_look(looks.heading(1));
+    let mut images = Images::new();
+    images.insert(key, Ok(text_image(20, 2, &[(0, 20)])));
+    let inputs = Inputs {
+        images,
+        headings: Headings::Auto,
+        ..fixed_inputs(caps)
+    };
+    let out = render("# Kiri\n", &inputs);
+    assert_eq!(drawn(&out), Vec::<String>::new());
+    assert!(visible(&out).contains("Kiri"), "{out:?}");
+}
+
+#[test]
 fn a_heading_image_drawn_for_other_cells_is_not_used() {
     // Drawn for cells of 10 × 20 pixels, shown with cells of 8 × 16.
     let caps = Capabilities {
@@ -465,6 +490,7 @@ fn a_heading_with_code_shows_the_image_with_its_code() {
     ];
     let mut images = Images::new();
     let key = ImageKey::heading_of(1, words, (10, 20));
+    let key = laid_out_heading(key, &no_text_sizing(80), Headings::default());
     images.insert(key, Ok(text_image(20, 2, &[(0, 8), (10, 20)])));
     let inputs = Inputs {
         images,
@@ -492,6 +518,7 @@ fn a_heading_wraps_inside_a_code_span() {
     ];
     let mut images = Images::new();
     let key = ImageKey::heading_of(1, words, (10, 20));
+    let key = laid_out_heading(key, &no_text_sizing(25), Headings::default());
     // The span's background runs from column 10 to 40, across the gap.
     images.insert(key, Ok(text_image(40, 2, &[(0, 8), (10, 25), (27, 40)])));
     let inputs = Inputs {
@@ -523,6 +550,7 @@ fn text_glued_to_code_stays_on_its_line() {
     ];
     let mut images = Images::new();
     let key = ImageKey::heading_of(1, words, (10, 20));
+    let key = laid_out_heading(key, &no_text_sizing(20), Headings::default());
     // The code fits on the first line, but not with the comma after it.
     images.insert(key, Ok(text_image(21, 2, &[(0, 8), (9, 20), (20, 21)])));
     let inputs = Inputs {

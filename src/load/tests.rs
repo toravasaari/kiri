@@ -7,7 +7,7 @@ use image::RgbaImage;
 use crate::diagrams::{DiagramError, Drawn, Renderer, Request, Theme};
 use crate::images::{
     CodeLook, DEFAULT_MAX_FILE_SIZE, Fonts, HeadingLook, ImageError, ImageKey, Images, LevelLook,
-    LoadOptions, Part, Source, plain_words, plan,
+    LoadOptions, Looks, Part, Source, plain_words, plan,
 };
 use crate::load::url::load_url;
 use crate::load::{load, load_parts, load_with};
@@ -67,6 +67,15 @@ fn heading_look() -> HeadingLook {
     }
 }
 
+/// `key`, a heading's, as a load with [`heading_look`] names it.
+fn looked(key: ImageKey) -> ImageKey {
+    let looks = Looks {
+        headings: Some(heading_look()),
+        ..Looks::default()
+    };
+    key.with_look(looks.heading(1))
+}
+
 /// The images of the Markdown `source`, with headings drawn as
 /// `heading_look` says in `fonts`.
 fn with_headings(source: &str, fonts: &Fonts) -> Images {
@@ -87,14 +96,14 @@ fn with_headings(source: &str, fonts: &Fonts) -> Images {
 #[test]
 fn heading_images_load_when_asked() {
     let images = with_headings("# Kiri\n\n## Kiri *is* `here`\n", &Fonts::fixture());
-    let one = images.get(&ImageKey::heading(1, "Kiri", (10, 20)));
+    let one = images.get(&looked(ImageKey::heading(1, "Kiri", (10, 20))));
     assert!(matches!(one, Some(Ok(Source::Text { .. }))), "{images:?}");
     // Emphasis in italics, inline code as code, and apart from the
     // same text at another level.
     let mut words = plain_words("Kiri is here");
     words[1].italic = true;
     words[2].code = Some(0);
-    let two = images.get(&ImageKey::heading_of(2, words, (10, 20)));
+    let two = images.get(&looked(ImageKey::heading_of(2, words, (10, 20))));
     assert!(matches!(two, Some(Ok(Source::Text { .. }))), "{images:?}");
     assert_eq!(images.len(), 2);
 }
@@ -112,7 +121,7 @@ fn the_same_words_with_and_without_code_are_two_images() {
 fn heading_images_inside_details_load() {
     let source = "<details>\n<summary>S</summary>\n\n# Inside\n\n</details>\n";
     let images = with_headings(source, &Fonts::fixture());
-    let inside = images.get(&ImageKey::heading(1, "Inside", (10, 20)));
+    let inside = images.get(&looked(ImageKey::heading(1, "Inside", (10, 20))));
     assert!(matches!(inside, Some(Ok(_))), "{images:?}");
 }
 
@@ -133,7 +142,7 @@ fn headings_in_a_quote_are_not_loaded() {
 #[test]
 fn a_failed_heading_image_warns_of_nothing() {
     let images = with_headings("# Kiri\n", &Fonts::none());
-    let image = images.get(&ImageKey::heading(1, "Kiri", (10, 20)));
+    let image = images.get(&looked(ImageKey::heading(1, "Kiri", (10, 20))));
     assert!(matches!(image, Some(Err(_))), "{images:?}");
     assert_eq!(texts(images.warnings()), Vec::<String>::new());
     assert_eq!(texts(images.warnings_in(0, true)), Vec::<String>::new());
@@ -161,10 +170,10 @@ fn the_same_heading_in_two_documents_has_two_images() {
     );
     assert!(
         images
-            .get(&ImageKey::heading(1, "Kiri", (10, 20)))
+            .get(&looked(ImageKey::heading(1, "Kiri", (10, 20))))
             .is_some()
     );
-    let second = ImageKey::heading(1, "Kiri", (10, 20)).in_document(1);
+    let second = looked(ImageKey::heading(1, "Kiri", (10, 20))).in_document(1);
     assert!(images.get(&second).is_some(), "{images:?}");
 }
 
@@ -304,8 +313,10 @@ fn a_reload_draws_only_the_diagrams_it_does_not_have() {
     };
     assert_eq!(calls(&stub), ["a\n", "b\n"]);
     let parts = [part(&after)];
-    let (wanted, have) = plan(&parts, &stub, None, Some(&mut images));
-    let keys: Vec<_> = (wanted.iter()).map(|(_, image)| image.key()).collect();
+    let (wanted, have) = plan(&parts, &stub, &Looks::default(), Some(&mut images));
+    let keys: Vec<_> = (wanted.iter())
+        .map(|(_, image)| image.key(&Looks::default()))
+        .collect();
     assert_eq!(
         keys,
         [
@@ -334,7 +345,7 @@ fn a_reload_draws_again_a_diagram_that_failed() {
     let key = ImageKey::block("mermaid", "flaky\n");
     let mut images = load_parts(&parts, DEFAULT_MAX_FILE_SIZE, &Fonts::none(), &options);
     assert!(matches!(images.get(&key), Some(Err(_))), "{images:?}");
-    let (wanted, have) = plan(&parts, &stub, None, Some(&mut images));
+    let (wanted, have) = plan(&parts, &stub, &Looks::default(), Some(&mut images));
     assert_eq!(wanted.len(), 1);
     assert!(matches!(have[..], [None]), "{have:?}");
 }
@@ -379,15 +390,17 @@ fn main() {}
 |---|
 ";
     let stub = Stub::default();
-    let images = load_source(source, &with_stub(&stub, Theme::Dark, true));
+    let options = with_stub(&stub, Theme::Dark, true);
+    let images = load_source(source, &options);
+    let look = options.looks().diagram;
     let calls = stub.calls.into_inner();
     let sources: Vec<&str> = calls.iter().map(|(source, _)| source.as_str()).collect();
     assert_eq!(sources, ["a\n", "b\n", "c\n", "d\n", "e\n"]);
     assert!(calls.iter().all(|(_, theme)| *theme == Theme::Dark));
     assert_eq!(images.len(), 5);
     for key in [
-        ImageKey::block("mermaid", "a\n"),
-        ImageKey::block("Mermaid", "c\n"),
+        ImageKey::block("mermaid", "a\n").with_look(look),
+        ImageKey::block("Mermaid", "c\n").with_look(look),
     ] {
         match images.get(&key) {
             Some(Ok(Source::Svg(svg))) => assert_eq!(svg.size, (200, 20)),
@@ -439,7 +452,7 @@ fn draws_a_formula_block_in_the_text_colour() {
         ..LoadOptions::default()
     };
     let images = load_source("Square:\n\n$$\\rule{1em}{1em}$$\n", &options);
-    let key = ImageKey::block("math", "\\rule{1em}{1em}\n");
+    let key = ImageKey::block("math", "\\rule{1em}{1em}\n").with_look(options.looks().diagram);
     let Some(Ok(image)) = images.get(&key) else {
         panic!("{images:?}");
     };

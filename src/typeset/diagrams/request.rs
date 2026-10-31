@@ -4,7 +4,7 @@
 use std::sync::atomic::AtomicBool;
 
 /// The colours a diagram is drawn in when it does not choose its own.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum Theme {
     /// For a light page.
     #[default]
@@ -25,7 +25,7 @@ impl Theme {
 }
 
 /// The colours a formula is drawn in, as RGB.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct FormulaColors {
     /// Its letters and lines: the colour of the text around it, unless
     /// the theme gives formulas their own; `None` when it is not known.

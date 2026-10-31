@@ -31,8 +31,8 @@ pub(crate) mod svg;
 
 pub use crate::typeset::images::{
     CodeLook, DEFAULT_MAX_FILE_SIZE, Format, HeadingLook, HeadingWord, ImageError, ImageKey,
-    Images, LevelLook, LoadOptions, MB, Part, Placeholder, Source, decode, diagram_languages,
-    draw_heading, heading_words, plain_words, read_image,
+    Images, LevelLook, LoadOptions, Looks, MB, Part, Placeholder, Source, decode,
+    diagram_languages, diagram_look, draw_heading, heading_words, plain_words, read_image,
 };
 pub(crate) use crate::typeset::images::{Wanted, plan};
 #[cfg(test)]

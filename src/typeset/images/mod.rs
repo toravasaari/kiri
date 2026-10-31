@@ -23,7 +23,7 @@ pub use heading::{
     CodeLook, HeadingLook, HeadingWord, LevelLook, draw_heading, heading_words, plain_words,
 };
 pub use key::ImageKey;
-pub use options::{LoadOptions, Part};
+pub use options::{LoadOptions, Looks, Part, diagram_look, diagram_look_for, formula_colors};
 pub use plan::diagram_languages;
 pub(crate) use plan::{Wanted, plan};
 pub use store::{Images, Placeholder};
