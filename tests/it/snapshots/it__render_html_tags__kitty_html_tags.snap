@@ -1,0 +1,97 @@
+---
+source: tests/it/render_html_tags.rs
+expression: "visible(&render_for(\"html-tags.md\", Capabilities::kitty(WIDTH)))"
+---
+␛[0;1;34m␛]66;s=3:n=5:d=6:v=1:w=4;HTML␛\␛]66;s=3:n=5:d=6:v=1:w=5; tags␛\␛[0m
+
+
+
+␛[0;1;34m␛]66;s=2;Line breaks␛\␛[0m
+
+
+  First line
+  second line
+  third line
+  fourth line
+  fifth.
+
+␛[0;1;34m␛]66;s=2;Keys and marks␛\␛[0m
+
+
+  Press ␛[0;35;48;2;43;48;59m⍽Ctrl⍽␛[0m+␛[0;35;48;2;43;48;59m⍽C⍽␛[0m to copy, or ␛[0;35;48;2;43;48;59m⍽Page Down⍽␛[0m to
+  move on.
+
+  Some text is ␛[0;30;43mmarked as found␛[0m, even ␛[0;1;30;43min bold␛[0m.
+
+  A ␛[0;2m<kbd>␛[0mkey that never closes stays as
+  source.
+
+␛[0;1;34m␛]66;s=2;Scripts: x␛\␛]66;s=2:n=2:d=3:w=1;2␛\␛]66;s=2; and H␛\␛]66;s=2:n=2:d=3:v=1:w=1;2␛\␛]66;s=2;O␛\␛[0m
+
+
+  Water is H␛]66;s=1:n=2:d=3:v=1:w=1;2␛\O, x␛]66;s=1:n=2:d=3:w=1;2␛\ + y␛]66;s=1:n=2:d=3:w=1;2␛\ = r␛]66;s=1:n=2:d=3:w=2;n+1␛\ on the 2␛]66;s=1:n=2:d=3:w=2;nd␛\ try,
+  and x␛]66;s=1:n=2:d=3:w=2;ai␛\ keeps one size. Unicode has no
+  script characters for π or for code, so e␛]66;s=1:n=2:d=3:w=2;iπ␛\
+  and a␛[0;35;48;2;43;48;59m␛]66;s=1:n=2:d=3:v=1:h=2:w=2;⍽b⍽␛\␛[0m have none.
+
+␛[0;1;34m␛]66;s=2;Details␛\␛[0m
+
+
+  ␛[0;1m▼ A summary with ␛[0;1;35;48;2;43;48;59m⍽Esc⍽␛[0m
+
+  The content is ␛[0;3mMarkdown␛[0m, as GitHub shows it:
+
+  ␛[0;90m• ␛[0mone
+  ␛[0;90m• ␛[0mtwo
+
+  ␛[0;1m▼ Written on one line␛[0m
+
+  The content & its tags are plain text.
+
+  ␛[0;1m▼ Details␛[0m
+
+  Without a summary, the block is called
+  Details.
+
+  ␛[0;90m• ␛[0mA list item
+
+    ␛[0;1m▼ Inside a list␛[0m
+
+    Content in the list.
+
+  ␛[0;90m│ ␛[0;1m▼ Inside a quote␛[0m
+  ␛[0;90m│␛[0m
+  ␛[0;90m│ ␛[0mContent in the quote.
+
+  ␛[0;1m▼ Outer, no blank line before the inner␛[0m
+
+  ␛[0;1m▼ Inner␛[0m
+
+  Content of the inner one.
+
+  Content of the outer one.
+
+  ␛[0;1m▼ With an HTML paragraph␛[0m
+
+  The paragraph's text, read as plain text.
+
+  ␛[0;1m▼ Text right after the end␛[0m
+
+  Content.
+
+  Text after the details, in the same HTML
+  block.
+
+␛[0;1;34m␛]66;s=2;Other tags␛\␛[0m
+
+
+  Text with ␛[0;2m<b>␛[0mbold␛[0;2m</b>␛[0m and ␛[0;2m<span>␛[0ma
+  span␛[0;2m</span>␛[0m stays as source.
+
+  ␛[0;2m<div>␛[0m
+  ␛[0;2mA div block stays as source.␛[0m
+  ␛[0;2m</div>␛[0m
+
+  ␛[0;1m▼ Never closed␛[0m
+
+  Runs to the end of the document.

@@ -1,0 +1,68 @@
+---
+source: tests/it/render_themes.rs
+expression: "visible(&render_for(\"elements.md\", caps))"
+---
+␛[0;1m␛]66;s=3:n=5:d=6:v=1:w=5;Every ␛\␛]66;s=3:n=5:d=6:v=1:w=6;element␛\␛[0m
+
+
+
+  Body text with ␛[0;3memphasis␛[0m, ␛[0;1mstrong␛[0m, ␛[0;9mstruck␛[0m and
+  `inline code`, long enough to wrap at the
+  narrow test width. A ␛]8;;https://example.com␛\␛[0;4mlink␛]8;;␛\␛[0m and an autolink:
+  ␛]8;;https://example.com/path␛\␛[0;4mhttps://example.com/path␛]8;;␛\␛[0m.
+
+␛[0;1m␛]66;s=2;Lists␛\␛[0m
+
+
+  • First bullet
+  • Second bullet with text that is long
+    enough to wrap onto the next line
+    ◦ Nested bullet
+      1. Ordered inside
+      2. Second ordered
+
+  3. Starts at three
+  4. Four
+
+  ☑ Done task
+  ☐ Open task
+
+␛[0;1m␛]66;s=2:n=7:d=8:v=1:w=6;Quotes␛\␛]66;s=2:n=7:d=8:v=1:h=1:w=7; and bre␛\␛]66;s=2:n=7:d=8:v=1:w=3;aks␛\␛[0m
+
+
+  │ A quote with ␛[0;1mbold␛[0m text.
+  │
+  │ │ Nested quote.
+
+  Hard
+  break.
+
+────────────────────────────────────────────────
+
+␛[0;1m␛]66;s=2:n=3:d=4:v=1:w=3;Code␛\␛[0m
+
+
+    fn main() {
+        println!("tab-indented");
+    }
+
+␛[0;1m␛]66;s=2:n=3:d=4:v=1:w=5;Tables␛\␛[0m
+
+
+  ╭──────────┬────────┬──────────────────────╮
+  │ ␛[0;1mElement␛[0m  │ ␛[0;1mStatus␛[0m │                ␛[0;1mNotes␛[0m │
+  ├──────────┼────────┼──────────────────────┤
+  │ Headings │  done  │   Scaled with OSC 66 │
+  │          │        │   in kitty, bold and │
+  │          │        │   coloured elsewhere │
+  │ Tables   │ `new`  │                right │
+  ╰──────────┴────────┴──────────────────────╯
+
+␛[0;1m␛]66;s=2:n=5:d=8:v=1:w=7;Images and ␛\␛]66;s=2:n=5:d=8:v=1:w=3;HTML␛\␛[0m
+
+
+  ␛[0;2;3m[image: A diagram]␛[0m
+
+  ␛[0;2m<div>raw html</div>␛[0m
+
+␛[0;1mSmallest heading␛[0m

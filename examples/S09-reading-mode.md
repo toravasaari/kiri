@@ -18,7 +18,10 @@ kiri --reading --dark examples/S09-reading-mode.md
 kiri --reading --wide scroll examples/S09-reading-mode.md
 ```
 
-In the pager, `M` turns reading mode on and off, also without
+`KIRI_READING=1` or `reading = true` in the configuration file does the same
+as `--reading`, and `--no-reading` turns it off for one run. `KIRI_WIDE`
+and `wide` in the configuration file do the same as `--wide`. In the pager,
+`M` turns reading mode on and off, also without
 `--reading`, and the same block stays at the top of the window. While
 reading mode is on, the status line says `M reading` after the position;
 the images and formulas in the middle of a line, such as those below,

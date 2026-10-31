@@ -22,8 +22,14 @@ kiri --theme examples/themes/rules.toml examples
 kiri --theme examples/themes/opaque.toml examples
 kiri --light examples
 kiri --dark examples
+kiri --theme dark examples
 NO_COLOR=1 kiri examples
 ```
+
+`--theme dark` looks the same as `--dark`, and `--theme light` as `--light`:
+a theme given by name is a paper theme, or `NAME.toml` in
+`~/.config/kiri/themes/`, so `kiri --theme mine examples` reads
+`~/.config/kiri/themes/mine.toml`.
 
 To page through it with each example theme in turn, where `q` moves on to
 the next theme:
@@ -62,6 +68,17 @@ document has none.
 Try a wide window and a narrow one (about 40 columns), where the commands
 above wrap like any long code line. No line reaches past the right edge of
 the window.
+
+The width and the margins can come from a flag, an environment variable
+or the configuration file. These three commands show the same narrow
+document, which wraps at 40 cells with no margin on its left:
+
+```sh
+kiri --width 40 --no-margins examples
+KIRI_WIDTH=40 KIRI_MARGINS=off kiri examples
+printf 'width = 40\nmargins = false\n' > /tmp/kiri-narrow.toml
+KIRI_CONFIG=/tmp/kiri-narrow.toml kiri examples
+```
 
 ## Headings
 

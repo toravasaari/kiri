@@ -1,4 +1,5 @@
 use super::*;
+use crate::typeset::diagnostic::{Code, Diagnostic};
 
 /// `document` shown with `then` to reload it, in a window of 60 × 6.
 fn show_reloading(document: &Document, then: &mut Then, keys: &[&[u8]]) -> Vec<String> {
@@ -68,11 +69,19 @@ fn a_reload_that_fails_keeps_the_old_document_and_tells_why_until_the_next_key()
 }
 
 /// A warning at line `line` of the file.
-fn warning(line: usize, message: &str) -> Warning {
-    Warning {
+fn warning(line: usize, message: &str) -> Diagnostic {
+    Diagnostic {
+        line: Some(line),
+        ..Diagnostic::new(Code::Image, message)
+    }
+}
+
+/// A front matter warning at line `line`, as the parser's error makes it.
+fn front_matter(line: usize, message: &str) -> Diagnostic {
+    Diagnostic::from(&crate::typeset::model::FrontMatterError {
         line: Some(line),
         message: message.to_owned(),
-    }
+    })
 }
 
 #[test]
@@ -154,13 +163,13 @@ fn fade_red(frame: &str) -> Option<u8> {
     rgb.split(';').next()?.parse().ok()
 }
 
-fn warned_with(warnings: Vec<Warning>) -> Reloaded {
+fn warned_with(warnings: Vec<Diagnostic>) -> Reloaded {
     Reloaded::Warned(rows(10), warnings)
 }
 
 #[test]
 fn a_reload_with_warnings_shows_the_first_above_the_status_line_at_the_right_edge() {
-    let mut then = Then::new([warned_with(vec![warning(3, "front matter: bad")])]);
+    let mut then = Then::new([warned_with(vec![front_matter(3, "bad")])]);
     let frames = show_reloading(&numbers(10), &mut then, &[b"r"]);
     let (column, text) = warning_line(&frames[2]).unwrap_or_default();
     assert_eq!(text, "\u{26a0} [:3] front matter: bad", "{frames:#?}");
@@ -181,10 +190,7 @@ fn a_reload_with_warnings_shows_the_first_above_the_status_line_at_the_right_edg
 
 #[test]
 fn the_warning_line_leaves_out_the_line_when_it_is_not_known() {
-    let warning = Warning {
-        line: None,
-        message: "no line".to_owned(),
-    };
+    let warning = Diagnostic::new(Code::Image, "no line");
     let mut then = Then::new([warned_with(vec![warning])]);
     let frames = show_reloading(&numbers(10), &mut then, &[b"r"]);
     let (_, text) = warning_line(&frames[2]).unwrap_or_default();
@@ -317,7 +323,7 @@ fn warnings_given_at_the_start_show_the_mark_and_the_line_at_once() {
     let mut inputs = Inputs::new(Capabilities::ansi(80));
     let document = numbers(10);
     let options = Options {
-        warnings: vec![warning(3, "front matter: bad")],
+        warnings: vec![front_matter(3, "bad")],
         ..Options::new(SearchCase::Smart)
     };
     let content = Content::Document(&document);
@@ -497,7 +503,7 @@ fn a_reload_finds_the_search_again_in_the_new_lines() {
 #[test]
 fn a_reload_keeps_the_place_when_a_block_is_added_above_it() {
     // Ten lines, scrolled to Line 4; then a block before all of them.
-    let mut then = Then::new([Reloaded::Document(crate::parse::parse(&format!(
+    let mut then = Then::new([Reloaded::Document(crate::typeset::parse::parse(&format!(
         "Added\n\n{}",
         (1..=10)
             .map(|n| format!("Line {n}\n\n"))
@@ -510,7 +516,7 @@ fn a_reload_keeps_the_place_when_a_block_is_added_above_it() {
 
 /// A document of `blocks`, one after the other.
 fn blocks(blocks: &[&str]) -> Document {
-    crate::parse::parse(&blocks.join("\n\n"))
+    crate::typeset::parse::parse(&blocks.join("\n\n"))
 }
 
 #[test]
@@ -549,8 +555,8 @@ fn a_reload_keeps_the_place_in_a_details_block() {
         let inner: String = (1..=6).map(|n| format!("Inner {n}\n\n")).collect();
         format!("{added}<details>\n<summary>More</summary>\n\n{inner}</details>\n\nEnd")
     };
-    let old = crate::parse::parse(&details(""));
-    let new = crate::parse::parse(&details("Added\n\n"));
+    let old = crate::typeset::parse::parse(&details(""));
+    let new = crate::typeset::parse::parse(&details("Added\n\n"));
     let mut then = Then::new([Reloaded::Document(new)]);
     let frames = show_reloading(&old, &mut then, &[b"jjjjjj", b"r"]);
     assert_eq!(frames.len(), 4, "{frames:#?}");
@@ -578,7 +584,7 @@ fn a_reload_goes_to_the_next_block_from_a_blank_top_line() {
 fn a_reload_goes_to_the_next_block_when_the_top_block_in_a_details_is_removed() {
     let details = |inner: &[&str]| {
         let inner: String = inner.iter().map(|line| format!("{line}\n\n")).collect();
-        crate::parse::parse(&format!(
+        crate::typeset::parse::parse(&format!(
             "<details>\n<summary>More</summary>\n\n{inner}</details>\n\nEnd"
         ))
     };

@@ -1,0 +1,582 @@
+//! Keys read from the terminal, and the decoder that turns the bytes the
+//! terminal sends into them. What each key does is data in
+//! `src/session/commands.rs`.
+
+use crate::present::kitty::graphics::{self, ImageId};
+use crate::present::kitty::query;
+
+/// A key as the terminal sends it without kitty's keyboard protocol.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Key {
+    Char(char),
+    /// A letter with Ctrl, as its lower-case letter.
+    Ctrl(char),
+    Enter,
+    Escape,
+    /// Backspace, which terminals send as DEL or as Ctrl+H.
+    Backspace,
+    Up,
+    Down,
+    Left,
+    Right,
+    /// Shift+Tab; Tab itself arrives as Ctrl+I.
+    BackTab,
+    PageUp,
+    PageDown,
+    /// Page Up and Page Down with Shift, which move between files. Other
+    /// keys with a modifier are [`Key::Other`].
+    ShiftPageUp,
+    ShiftPageDown,
+    Home,
+    End,
+    /// A character with Alt, which arrives after an escape character.
+    Alt(char),
+    /// A character typed after the colon that starts a command, as `n`
+    /// in `:n`, which the pager takes as one key with it. The terminal
+    /// sends no such key.
+    Command(char),
+    /// The terminal tells that the window, or the tmux pane, has the
+    /// focus again, `CSI I`, or lost it, `CSI O`, with focus reporting
+    /// on. Not keys, so they leave the help and the prompt open.
+    FocusIn,
+    FocusOut,
+    /// kitty's answer to a check of image `.0`: whether it holds it.
+    /// Not a key either.
+    Checked(ImageId, bool),
+    /// The terminal's answer to the query for its cell size: a cell's
+    /// width and height in pixels. Not a key either.
+    CellSize(u16, u16),
+    /// The mouse wheel turned a notch up.
+    WheelUp,
+    /// The mouse wheel turned a notch down.
+    WheelDown,
+    /// The left button pressed at a column and a row, counted from 1.
+    Click {
+        column: u16,
+        row: u16,
+    },
+    /// A notch of the sideways wheel, to the right or to the left, or of
+    /// the wheel with Shift, down or up, at a column and a row.
+    Sideways {
+        right: bool,
+        shift: bool,
+        column: u16,
+        row: u16,
+    },
+    /// Any other mouse event, such as a click, which the pager ignores.
+    Mouse,
+    /// A sequence the pager does not use.
+    Other,
+}
+
+/// The keys in `input`, all of it: a sequence cut off at the end is taken
+/// as it is. A lone escape character is the Escape key, and one before a
+/// character is Alt with it.
+fn decode(input: &[u8]) -> Vec<Key> {
+    let mut keys = Vec::new();
+    let mut rest = input;
+    while !rest.is_empty() {
+        let (key, length) = key(rest).unwrap_or_else(|| cut_off(rest));
+        keys.push(key);
+        rest = &rest[length..];
+    }
+    keys
+}
+
+/// The most bytes kept for a sequence that a read cut off; a longer one is
+/// taken as it is, so that keys pressed after an answer that never ends
+/// are not lost for good.
+const PENDING: usize = 64;
+
+/// Keys from reads of the terminal, which may cut a key's sequence in
+/// two: the part at the end of one read waits for the rest in the next.
+#[derive(Debug, Default)]
+pub struct Decoder {
+    pending: Vec<u8>,
+}
+
+impl Decoder {
+    /// The keys in `input`, after what the last read left cut off.
+    pub fn keys(&mut self, input: &[u8]) -> Vec<Key> {
+        let mut bytes = std::mem::take(&mut self.pending);
+        bytes.extend_from_slice(input);
+        let mut keys = Vec::new();
+        let mut rest = &bytes[..];
+        while !rest.is_empty() {
+            let Some((key, length)) =
+                key(rest).or_else(|| (rest.len() > PENDING).then(|| cut_off(rest)))
+            else {
+                self.pending = rest.to_vec();
+                break;
+            };
+            keys.push(key);
+            rest = &rest[length..];
+        }
+        keys
+    }
+
+    /// What the last read left cut off, taken as it is, when no more came.
+    pub fn flush(&mut self) -> Vec<Key> {
+        decode(&std::mem::take(&mut self.pending))
+    }
+}
+
+/// The key at the start of `input` and its length, or `None` when `input`
+/// ends before the key does.
+fn key(input: &[u8]) -> Option<(Key, usize)> {
+    let byte = input[0];
+    match byte {
+        0x1b => escape(input),
+        b'\r' | b'\n' => Some((Key::Enter, 1)),
+        0x7f | 0x08 => Some((Key::Backspace, 1)),
+        0x01..=0x1a => Some((Key::Ctrl(char::from(byte - 1 + b'a')), 1)),
+        0x00..=0x1f => Some((Key::Other, 1)),
+        _ => character(input),
+    }
+}
+
+/// The key of a sequence that `input` cuts off, and its length.
+fn cut_off(input: &[u8]) -> (Key, usize) {
+    match input {
+        [0x1b, b'[' | b']' | b'P' | b'_' | b'^' | b'X', ..] | [0x1b, b'O'] => {
+            (Key::Other, input.len())
+        }
+        [0x1b, ..] => (Key::Escape, 1),
+        _ => (Key::Other, 1),
+    }
+}
+
+/// The key that starts with the escape character at the start of `input`,
+/// and its length.
+fn escape(input: &[u8]) -> Option<(Key, usize)> {
+    let key = match input.get(1)? {
+        // A mouse event without SGR encoding: the button, the column and
+        // the row follow, a byte each, 32 more than their value.
+        b'[' if input.get(2) == Some(&b'M') => {
+            let bytes = input.get(3..6)?;
+            let [button, column, row] = [0, 1, 2].map(|i| bytes[i].wrapping_sub(32));
+            let at = (u16::from(column), u16::from(row));
+            (mouse(Some(button.into()), true, at), 6)
+        }
+        b'[' => {
+            // Parameters and intermediates up to the final byte.
+            let body = &input[2..];
+            let end = body.iter().position(|byte| (0x40..=0x7e).contains(byte))?;
+            (csi(&body[..end], body[end]), end + 3)
+        }
+        b'O' => (csi(b"", *input.get(2)?), 3),
+        // Strings the terminal sends as answers, such as a late answer to
+        // the probe: OSC, DCS, APC, PM and SOS. They end with ST, or BEL
+        // for OSC.
+        b']' | b'P' | b'_' | b'^' | b'X' => {
+            let body = &input[2..];
+            let end = (0..body.len()).find_map(|i| match body[i..] {
+                [0x07, ..] => Some(i + 1),
+                [0x1b, b'\\', ..] => Some(i + 2),
+                // Another sequence starts: this one was cut off.
+                [0x1b, _, ..] => Some(i),
+                _ => None,
+            })?;
+            let key = match graphics::checked(&input[..end + 2]) {
+                Some((id, held)) => Key::Checked(id, held),
+                None => Key::Other,
+            };
+            (key, end + 2)
+        }
+        0x20..=0x7e | 0x80.. => match character(&input[1..])? {
+            (Key::Char(c), length) => (Key::Alt(c), length + 1),
+            _ => (Key::Escape, 1),
+        },
+        _ => (Key::Escape, 1),
+    };
+    Some(key)
+}
+
+/// The key of a control sequence with `parameters` and the final byte
+/// `last`.
+fn csi(parameters: &[u8], last: u8) -> Key {
+    match (parameters, last) {
+        (b"", b'A') => Key::Up,
+        (b"", b'B') => Key::Down,
+        (b"", b'C') => Key::Right,
+        (b"", b'D') => Key::Left,
+        (b"", b'Z') => Key::BackTab,
+        (b"" | b"1", b'H') | (b"1" | b"7", b'~') => Key::Home,
+        (b"" | b"1", b'F') | (b"4" | b"8", b'~') => Key::End,
+        (b"5", b'~') => Key::PageUp,
+        (b"6", b'~') => Key::PageDown,
+        // The modifier 2 is Shift.
+        (b"5;2", b'~') => Key::ShiftPageUp,
+        (b"6;2", b'~') => Key::ShiftPageDown,
+        (b"", b'I') => Key::FocusIn,
+        (b"", b'O') => Key::FocusOut,
+        // The terminal's answer to the cell size query, `6;height;width`.
+        ([b'6', b';', rest @ ..], b't') => (std::str::from_utf8(rest).ok())
+            .and_then(query::cell_size_answer)
+            .map_or(Key::Other, |(width, height)| Key::CellSize(width, height)),
+        // A mouse event in SGR encoding, `<` and the button, the column
+        // and the row, pressed with `M` and released with `m`.
+        ([b'<', rest @ ..], b'M' | b'm') => {
+            let fields: Vec<u32> = (std::str::from_utf8(rest).unwrap_or(""))
+                .split(';')
+                .map(|field| field.parse().unwrap_or(0))
+                .collect();
+            let button = fields.first().copied();
+            let at = |index: usize| {
+                let value = fields.get(index).copied().unwrap_or(0);
+                u16::try_from(value).unwrap_or(u16::MAX)
+            };
+            mouse(button, last == b'M', (at(1), at(2)))
+        }
+        _ => Key::Other,
+    }
+}
+
+/// The key of a mouse event with the button code `button`, `pressed` or
+/// released, at the column and row `at`: a notch of the wheel up or down,
+/// with or without Alt or Ctrl, of the sideways wheel or of the wheel with
+/// Shift, a press of the left button, or else [`Key::Mouse`].
+fn mouse(button: Option<u32>, pressed: bool, (column, row): (u16, u16)) -> Key {
+    let sideways = |right, shift| Key::Sideways {
+        right,
+        shift,
+        column,
+        row,
+    };
+    // Shift, Alt and Ctrl add 4, 8 and 16; the wheel's buttons are 64
+    // and up.
+    let shift = button.is_some_and(|button| button & 4 != 0);
+    match button.map(|button| button & !(4 | 8 | 16)) {
+        Some(64) if pressed && shift => sideways(false, true),
+        Some(65) if pressed && shift => sideways(true, true),
+        Some(64) if pressed => Key::WheelUp,
+        Some(65) if pressed => Key::WheelDown,
+        Some(66) if pressed => sideways(false, false),
+        Some(67) if pressed => sideways(true, false),
+        Some(0) if pressed => Key::Click { column, row },
+        _ => Key::Mouse,
+    }
+}
+
+/// The character at the start of `input`, and its length in bytes.
+fn character(input: &[u8]) -> Option<(Key, usize)> {
+    let length = match input[0] {
+        0xc0..=0xdf => 2,
+        0xe0..=0xef => 3,
+        0xf0..=0xf7 => 4,
+        _ => 1,
+    };
+    let bytes = input.get(..length)?;
+    let key = match std::str::from_utf8(bytes)
+        .ok()
+        .and_then(|text| text.chars().next())
+    {
+        Some(c) => (Key::Char(c), length),
+        None => (Key::Other, 1),
+    };
+    Some(key)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decodes_characters_and_control_keys() {
+        assert_eq!(
+            decode("jä\r\n\x06\x01".as_bytes()),
+            [
+                Key::Char('j'),
+                Key::Char('ä'),
+                Key::Enter,
+                Key::Enter,
+                Key::Ctrl('f'),
+                Key::Ctrl('a'),
+            ]
+        );
+        assert_eq!(decode(b"\x00\x1f"), [Key::Other, Key::Other]);
+    }
+
+    #[test]
+    fn decodes_backspace_in_both_forms() {
+        assert_eq!(decode(b"\x7f\x08"), [Key::Backspace, Key::Backspace]);
+    }
+
+    #[test]
+    fn decodes_cursor_and_editing_keys_in_both_forms() {
+        let keys = decode(b"\x1b[A\x1b[B\x1bOA\x1bOB\x1b[5~\x1b[6~\x1b[H\x1b[F\x1b[1~\x1b[4~");
+        assert_eq!(
+            keys,
+            [
+                Key::Up,
+                Key::Down,
+                Key::Up,
+                Key::Down,
+                Key::PageUp,
+                Key::PageDown,
+                Key::Home,
+                Key::End,
+                Key::Home,
+                Key::End,
+            ]
+        );
+        assert_eq!(decode(b"\x1b[7~\x1b[8~"), [Key::Home, Key::End]);
+    }
+
+    #[test]
+    fn decodes_page_up_and_page_down_with_shift() {
+        assert_eq!(
+            decode(b"\x1b[5;2~\x1b[6;2~"),
+            [Key::ShiftPageUp, Key::ShiftPageDown]
+        );
+        // With Ctrl, or Alt, they are still no keys of the pager's.
+        assert_eq!(decode(b"\x1b[5;5~\x1b[6;3~"), [Key::Other, Key::Other]);
+    }
+
+    #[test]
+    fn decodes_ctrl_l() {
+        assert_eq!(decode(b"\x0c"), [Key::Ctrl('l')]);
+    }
+
+    #[test]
+    fn decodes_kittys_answers_to_checks() {
+        use crate::present::kitty::graphics::checked;
+
+        let held = b"\x1b_Gi=7,p=1263096393;OK\x1b\\";
+        let lost = b"\x1b_Gi=8,p=1263096393;ENOENT:Put command refers to non-existent image\x1b\\";
+        let (seven, eight) = (checked(held).unwrap().0, checked(lost).unwrap().0);
+        let input = [&held[..], b"j", lost, b"\x1b_Gi=31;OK\x1b\\"].concat();
+        assert_eq!(
+            decode(&input),
+            [
+                Key::Checked(seven, true),
+                Key::Char('j'),
+                Key::Checked(eight, false),
+                Key::Other,
+            ]
+        );
+        // Cut in two by the reads.
+        let mut decoder = Decoder::default();
+        assert_eq!(decoder.keys(&lost[..20]), []);
+        assert_eq!(decoder.keys(&lost[20..]), [Key::Checked(eight, false)]);
+    }
+
+    #[test]
+    fn decodes_the_terminal_s_answer_to_the_cell_size_query() {
+        // The answer has the height first, as the query's does.
+        assert_eq!(
+            decode(b"\x1b[6;24;10tj"),
+            [Key::CellSize(10, 24), Key::Char('j')]
+        );
+        let mut decoder = Decoder::default();
+        assert_eq!(decoder.keys(b"\x1b[6;24"), []);
+        assert_eq!(decoder.keys(b";10t"), [Key::CellSize(10, 24)]);
+    }
+
+    #[test]
+    fn other_sequences_that_end_in_t_or_start_with_6_are_not_a_cell_size() {
+        // The window size in characters and the query itself, an answer
+        // of no size, and keys that have a 6.
+        assert_eq!(
+            decode(b"\x1b[8;24;80t\x1b[16t\x1b[6;0;0t\x1b[6;24t\x1b[6~\x1b[6;2~"),
+            [
+                Key::Other,
+                Key::Other,
+                Key::Other,
+                Key::Other,
+                Key::PageDown,
+                Key::ShiftPageDown
+            ]
+        );
+    }
+
+    #[test]
+    fn decodes_the_focus_coming_back() {
+        assert_eq!(decode(b"\x1b[I\x1b[O"), [Key::FocusIn, Key::FocusOut]);
+    }
+
+    #[test]
+    fn decodes_the_sideways_arrows_and_shift_tab() {
+        assert_eq!(
+            decode(b"\x1b[D\x1b[C\x1b[Z\t"),
+            [Key::Left, Key::Right, Key::BackTab, Key::Ctrl('i')]
+        );
+    }
+
+    #[test]
+    fn unknown_sequences_are_one_key_each() {
+        // F5, Shift+Up and Ctrl+Right, each followed by a letter.
+        assert_eq!(
+            decode(b"\x1b[15~q\x1b[1;2Aq\x1b[1;5Cq"),
+            [
+                Key::Other,
+                Key::Char('q'),
+                Key::Other,
+                Key::Char('q'),
+                Key::Other,
+                Key::Char('q'),
+            ]
+        );
+    }
+
+    #[test]
+    fn decodes_the_mouse_wheel() {
+        // Up and down at a column and a row, then with Ctrl.
+        assert_eq!(
+            decode(b"\x1b[<64;10;5M\x1b[<65;10;5M\x1b[<80;1;1M"),
+            [Key::WheelUp, Key::WheelDown, Key::WheelUp]
+        );
+        // Without SGR encoding: three bytes after the sequence, the
+        // button and the column and row, each 32 more than their value.
+        assert_eq!(
+            decode(b"\x1b[M`*%\x1b[Ma*%"),
+            [Key::WheelUp, Key::WheelDown]
+        );
+    }
+
+    #[test]
+    fn decodes_a_click_and_the_sideways_wheel_with_where_they_are() {
+        let keys = decode(b"\x1b[<0;10;5M\x1b[<66;3;4M\x1b[<67;3;4M\x1b[<69;7;8M\x1b[M -%");
+        let sideways = |right, shift, column, row| Key::Sideways {
+            right,
+            shift,
+            column,
+            row,
+        };
+        assert_eq!(
+            keys,
+            [
+                Key::Click { column: 10, row: 5 },
+                sideways(false, false, 3, 4),
+                sideways(true, false, 3, 4),
+                sideways(true, true, 7, 8),
+                Key::Click { column: 13, row: 5 },
+            ]
+        );
+    }
+
+    #[test]
+    fn other_mouse_events_are_no_keys() {
+        // A release, a drag and a right click, each followed by a letter.
+        let keys = decode(b"\x1b[<0;10;5mq\x1b[<32;11;5Mq\x1b[<2;200;99Mq");
+        assert_eq!(
+            keys,
+            [
+                Key::Mouse,
+                Key::Char('q'),
+                Key::Mouse,
+                Key::Char('q'),
+                Key::Mouse,
+                Key::Char('q'),
+            ]
+        );
+        // Without SGR encoding the column and row could be read as
+        // keys, as a space and a q here.
+        assert_eq!(decode(b"\x1b[M#qq"), [Key::Mouse]);
+    }
+
+    #[test]
+    fn a_mouse_event_split_over_two_reads_is_one_key() {
+        let mut decoder = Decoder::default();
+        assert_eq!(decoder.keys(b"\x1b[<64;1"), []);
+        assert_eq!(decoder.keys(b"0;5M"), [Key::WheelUp]);
+        assert_eq!(decoder.keys(b"\x1b[M "), []);
+        // A press of the left button, at column and row 81.
+        let click = Key::Click {
+            column: 81,
+            row: 81,
+        };
+        assert_eq!(decoder.keys(b"qqj"), [click, Key::Char('j')]);
+    }
+
+    #[test]
+    fn a_lone_escape_is_the_escape_key() {
+        assert_eq!(decode(b"\x1b"), [Key::Escape]);
+    }
+
+    #[test]
+    fn escape_before_a_character_is_alt() {
+        assert_eq!(decode(b"\x1bj"), [Key::Alt('j')]);
+        assert_eq!(decode("\x1bä".as_bytes()), [Key::Alt('ä')]);
+    }
+
+    #[test]
+    fn terminal_answers_are_no_keys() {
+        // A late answer to the probe, ended by ST or BEL, then a key.
+        let keys = decode(b"\x1b]11;rgb:1e1e/1e1e/2e2e\x1b\\q\x1b]4;1;rgb:cc/00/00\x07q");
+        assert_eq!(
+            keys,
+            [Key::Other, Key::Char('q'), Key::Other, Key::Char('q')]
+        );
+        assert_eq!(
+            decode(b"\x1bP>|kitty(0.47.1)\x1b\\j"),
+            [Key::Other, Key::Char('j')]
+        );
+        // Cut off at the end of the read.
+        assert_eq!(decode(b"\x1b]11;rgb:1e"), [Key::Other]);
+    }
+
+    #[test]
+    fn a_sequence_cut_off_at_the_end_is_one_key() {
+        assert_eq!(decode(b"\x1b[1;"), [Key::Other]);
+        assert_eq!(decode(b"\x1bO"), [Key::Other]);
+    }
+
+    #[test]
+    fn a_sequence_split_over_two_reads_is_one_key() {
+        let mut decoder = Decoder::default();
+        assert_eq!(decoder.keys(b"j\x1b["), [Key::Char('j')]);
+        assert_eq!(decoder.keys(b"6~k"), [Key::PageDown, Key::Char('k')]);
+        assert_eq!(decoder.keys(b"\x1b"), []);
+        assert_eq!(decoder.keys(b"OA"), [Key::Up]);
+        assert_eq!(decoder.keys(&"ä".as_bytes()[..1]), []);
+        assert_eq!(decoder.keys(&"ä".as_bytes()[1..]), [Key::Char('ä')]);
+        // A terminal answer in three reads.
+        assert_eq!(decoder.keys(b"\x1b]11;rgb:1e"), []);
+        assert_eq!(decoder.keys(b"1e/1e1e"), []);
+        assert_eq!(decoder.keys(b"/2e2e\x1b\\q"), [Key::Other, Key::Char('q')]);
+        assert_eq!(decoder.flush(), []);
+    }
+
+    #[test]
+    fn a_new_sequence_ends_a_cut_off_answer() {
+        let mut decoder = Decoder::default();
+        assert_eq!(decoder.keys(b"\x1b]11;"), []);
+        assert_eq!(
+            decoder.keys(b"\x1b[Aq"),
+            [Key::Other, Key::Up, Key::Char('q')]
+        );
+    }
+
+    #[test]
+    fn a_cut_off_answer_waits_for_its_end_only_so_long() {
+        let mut decoder = Decoder::default();
+        assert_eq!(decoder.keys(b"\x1b]"), []);
+        let mut keys = Vec::new();
+        for _ in 0..PENDING {
+            keys.extend(decoder.keys(b"q"));
+        }
+        // The answer is given up, and the keys after it are keys again.
+        assert_eq!(keys.first(), Some(&Key::Other), "{keys:?}");
+        assert!(
+            keys[1..].iter().all(|&key| key == Key::Char('q')),
+            "{keys:?}"
+        );
+        assert_eq!(decoder.keys(b"j"), [Key::Char('j')]);
+    }
+
+    #[test]
+    fn a_cut_off_sequence_without_a_rest_is_taken_as_it_is() {
+        let mut decoder = Decoder::default();
+        assert_eq!(decoder.keys(b"\x1b"), []);
+        assert_eq!(decoder.flush(), [Key::Escape]);
+        assert_eq!(decoder.keys(b"\x1b[1;"), []);
+        assert_eq!(decoder.flush(), [Key::Other]);
+        assert_eq!(decoder.flush(), []);
+    }
+
+    #[test]
+    fn invalid_utf_8_is_skipped() {
+        assert_eq!(decode(b"\xffj"), [Key::Other, Key::Char('j')]);
+    }
+}

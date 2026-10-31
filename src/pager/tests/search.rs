@@ -253,11 +253,11 @@ fn matches_are_marked_in_large_headings_and_in_tables() {
     let source = "# Kiri title\n\n| a | b |\n|---|---|\n| c | kiri |\n";
     let mut inputs = Inputs {
         // A whole scale; fractions have a test of their own.
-        theme: crate::theme::parse("[h1]\nscale = 3\n").unwrap(),
+        theme: crate::typeset::theme::parse("[h1]\nscale = 3\n").unwrap(),
         ..Inputs::new(Capabilities::kitty(80))
     };
     run_document(
-        &crate::parse::parse(source),
+        &crate::typeset::parse::parse(source),
         &mut inputs,
         Options::new(SearchCase::Smart),
         &mut terminal,
@@ -282,7 +282,7 @@ fn a_match_in_a_fractional_heading_marks_whole_groups() {
     // The default h1 is 2 1/2, packed in two groups: `Kiri` and ` title`.
     let mut inputs = Inputs::new(Capabilities::kitty(80));
     run_document(
-        &crate::parse::parse("# Kiri title\n"),
+        &crate::typeset::parse::parse("# Kiri title\n"),
         &mut inputs,
         Options::new(SearchCase::Smart),
         &mut terminal,
@@ -308,7 +308,7 @@ fn a_match_in_a_sup_marks_whole_groups() {
     // A sup is packed three cells in two, at most seven to a group.
     let mut inputs = Inputs::new(Capabilities::kitty(80));
     run_document(
-        &crate::parse::parse("x<sup>abcdefghijkl</sup>\n"),
+        &crate::typeset::parse::parse("x<sup>abcdefghijkl</sup>\n"),
         &mut inputs,
         Options::new(SearchCase::Smart),
         &mut terminal,
@@ -360,8 +360,8 @@ fn a_jump_fades_the_match_from_its_own_colours_into_reverse_video() {
 fn a_match_in_yellow_text_fades_into_its_reverse() {
     // The title of a warning is in palette colour 3, a yellow.
     let mut inputs = Inputs::new(known_colours());
-    inputs.theme.alerts.colors = crate::theme::AlertColors::Terminal;
-    let document = crate::parse::parse("> [!WARNING]\n> Mind the step.\n");
+    inputs.theme.alerts.colors = crate::typeset::theme::AlertColors::Terminal;
+    let document = crate::typeset::parse::parse("> [!WARNING]\n> Mind the step.\n");
     let frames = frames_of(&document, inputs, &[b"/warning\r"], 40);
     assert_eq!(frames.len(), 17, "{frames:#?}");
     let current = |frame: &str| style_before(document_part(frame, 6), "Warning\x1b");
@@ -453,7 +453,7 @@ fn search_moves_to_a_heading_shown_as_an_image() {
     let mut source: String = (1..=30).map(|n| format!("Line {n}\n\n")).collect();
     source.push_str("# Findme\n\nAfter\n");
     run_document(
-        &crate::parse::parse(&source),
+        &crate::typeset::parse::parse(&source),
         &mut inputs,
         Options::new(SearchCase::Smart),
         &mut terminal,

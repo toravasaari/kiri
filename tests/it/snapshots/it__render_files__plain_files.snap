@@ -1,0 +1,14 @@
+---
+source: tests/it/render_files.rs
+expression: "render(&two(), &Inputs::new(Capabilities::plain(WIDTH)))"
+---
+==> notes.md <==
+
+# Notes
+
+  First file.
+
+==> docs/todo.md <==
+
+  - one
+  - two

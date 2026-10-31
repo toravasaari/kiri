@@ -1,0 +1,90 @@
+---
+source: tests/it/render_html_tags.rs
+expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
+---
+# HTML tags
+
+## Line breaks
+
+  First line
+  second line
+  third line
+  fourth line
+  fifth.
+
+## Keys and marks
+
+  Press `Ctrl`+`C` to copy, or `Page Down` to
+  move on.
+
+  Some text is marked as found, even in bold.
+
+  A <kbd>key that never closes stays as
+  source.
+
+## Scripts: x² and H₂O
+
+  Water is H₂O, x² + y² = rⁿ⁺¹ on the 2ⁿᵈ try,
+  and xᵃⁱ keeps one size. Unicode has no
+  script characters for π or for code, so eiπ
+  and a`b` have none.
+
+## Details
+
+  ▼ A summary with `Esc`
+
+  The content is Markdown, as GitHub shows it:
+
+  - one
+  - two
+
+  ▼ Written on one line
+
+  The content & its tags are plain text.
+
+  ▼ Details
+
+  Without a summary, the block is called
+  Details.
+
+  - A list item
+
+    ▼ Inside a list
+
+    Content in the list.
+
+  > ▼ Inside a quote
+  >
+  > Content in the quote.
+
+  ▼ Outer, no blank line before the inner
+
+  ▼ Inner
+
+  Content of the inner one.
+
+  Content of the outer one.
+
+  ▼ With an HTML paragraph
+
+  The paragraph's text, read as plain text.
+
+  ▼ Text right after the end
+
+  Content.
+
+  Text after the details, in the same HTML
+  block.
+
+## Other tags
+
+  Text with <b>bold</b> and <span>a
+  span</span> stays as source.
+
+  <div>
+  A div block stays as source.
+  </div>
+
+  ▼ Never closed
+
+  Runs to the end of the document.

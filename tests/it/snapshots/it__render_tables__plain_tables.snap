@@ -1,0 +1,64 @@
+---
+source: tests/it/render_tables.rs
+expression: "render_for(\"tables.md\", Capabilities::plain(WIDTH))"
+---
+# Tables
+
+  A table that fits:
+
+  ╭─────┬───────╮
+  │ Key │ Value │
+  ├─────┼───────┤
+  │ a   │     1 │
+  ╰─────┴───────╯
+
+  A table too wide to fit, its columns
+  narrowed in proportion to their text:
+
+  ╭──────────┬────────────────────┬──────────╮
+  │ Topic    │ Summary            │ Status   │
+  ├──────────┼────────────────────┼──────────┤
+  │ Parser   │ Turns Markdown     │ done     │
+  │          │ into the document  │          │
+  │          │ model and knows    │          │
+  │          │ nothing about      │          │
+  │          │ terminals or their │          │
+  │          │ escape sequences   │          │
+  │ Kitty    │ Draws headings,    │ in       │
+  │ backend  │ images and links   │ progress │
+  │          │ with kitty's       │          │
+  │          │ protocols          │          │
+  ╰──────────┴────────────────────┴──────────╯
+
+  A table too wide to fit, stacked:
+
+  City: Helsinki
+  Country: Finland
+  Population: 674500
+  Notes: Capital, on the coast, see the city
+  <https://www.hel.fi>
+  ────────────────────────────────────────────
+  City: Tampere
+  Country: Finland
+  Population: 255000
+  Notes: `inland`
+  ────────────────────────────────────────────
+  City: Oulu
+  Country:
+  Population: 215000
+  Notes:
+
+  > Description: sunny
+  > Temperature: 21 °C
+  > Measurement: thermometer
+  > Observation: clear
+  > ──────────────────────────────────────────
+  > Description: rain
+  > Temperature: 14 °C
+  > Measurement: thermometer
+  > Observation: cloudy
+
+  - Description: snow
+    Temperature: −5 °C
+    Measurement: thermometer
+    Observation: white

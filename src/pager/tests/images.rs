@@ -32,7 +32,9 @@ fn an_image_is_sent_before_its_first_row() {
     let out = written(&document, inputs, &mut terminal, None);
     assert_eq!(transmits(&out), 1, "{out:?}");
     let sent = out.find("\x1b_Ga=T,").unwrap();
-    let shown = out.find(crate::kitty::graphics::PLACEHOLDER).unwrap();
+    let shown = out
+        .find(crate::present::kitty::graphics::PLACEHOLDER)
+        .unwrap();
     assert!(sent < shown, "{out:?}");
 }
 
@@ -89,7 +91,11 @@ fn an_image_the_terminal_holds_is_not_sent_again_after_a_resize() {
     terminal.sizes.push_back(window(70, 6));
     let out = written(&document, inputs, &mut terminal, None);
     assert_eq!(terminal.frames().len(), 2, "{out:?}");
-    assert_eq!(out.matches(crate::kitty::graphics::PLACEHOLDER).count(), 4);
+    assert_eq!(
+        out.matches(crate::present::kitty::graphics::PLACEHOLDER)
+            .count(),
+        4
+    );
     assert_eq!(transmits(&out), 1, "{out:?}");
 }
 
@@ -117,7 +123,7 @@ fn a_changed_image_is_sent_anew_and_the_old_one_deleted() {
 #[test]
 fn a_layout_without_the_image_deletes_it_as_its_frame_is_drawn() {
     let (document, inputs) = pictured([255, 0, 0, 255]);
-    let without = crate::parse::parse("Above\n\nBelow\n");
+    let without = crate::typeset::parse::parse("Above\n\nBelow\n");
     let mut then = Then::new([Reloaded::Document(without)]);
     let mut terminal = Fake::new(60, 6, &[b"r"]);
     let out = written(&document, inputs, &mut terminal, Some(&mut then));
@@ -173,11 +179,11 @@ fn quitting_deletes_every_image_the_terminal_holds() {
 /// when `r` reloads it as `after` with `square.png` in `rgba`.
 fn twins_reloaded(after: &str, rgba: [u8; 4]) -> String {
     let red = [255, 0, 0, 255];
-    let document = crate::parse::parse("![a](square.png)\n\n![b](twin.png)\n");
+    let document = crate::typeset::parse::parse("![a](square.png)\n\n![b](twin.png)\n");
     let (_, mut inputs) = pictured(red);
     inputs.images.insert("twin.png", Ok(square(red)));
     let mut repaint = Repaint {
-        document: crate::parse::parse(after),
+        document: crate::typeset::parse::parse(after),
         rgba,
     };
     let reload: &mut dyn Reload = &mut repaint;
@@ -279,7 +285,7 @@ fn a_new_cell_size_loads_the_heading_images_for_it() {
         inputs.headings = headings;
         let mut background = Loads::new();
         run_document(
-            &crate::parse::parse("# Kiri\n\nText\n"),
+            &crate::typeset::parse::parse("# Kiri\n\nText\n"),
             &mut inputs,
             Options {
                 loads: Some(&mut background),
@@ -329,7 +335,7 @@ fn a_cell_size_answer_loads_the_heading_images_for_it() {
     inputs.headings = crate::render::Headings::Auto;
     let mut background = Loads::new();
     run_document(
-        &crate::parse::parse("# Kiri\n\nText\n"),
+        &crate::typeset::parse::parse("# Kiri\n\nText\n"),
         &mut inputs,
         Options {
             loads: Some(&mut background),
@@ -368,7 +374,7 @@ fn r_after_a_cell_size_answer_reloads_for_the_new_cells() {
     // The answer and `r` come in one read: the reload starts its loads
     // for the cells the answer tells.
     let cells = std::cell::RefCell::new(Vec::new());
-    let document = crate::parse::parse("Text\n");
+    let document = crate::typeset::parse::parse("Text\n");
     let mut then = NoteCells {
         document: document.clone(),
         cells: &cells,
@@ -395,7 +401,7 @@ fn an_answer_after_r_in_one_read_reloads_for_the_new_cells() {
     // `r` ends the read's keys at once, but the answer behind it in the
     // same read still tells the cells the reload starts its loads for.
     let cells = std::cell::RefCell::new(Vec::new());
-    let document = crate::parse::parse("Text\n");
+    let document = crate::typeset::parse::parse("Text\n");
     let mut then = NoteCells {
         document: document.clone(),
         cells: &cells,
@@ -578,7 +584,7 @@ fn a_narrower_window_rewraps_a_heading_image_without_a_new_image() {
     let key = crate::images::ImageKey::heading(1, "One two three", (10, 20));
     inputs.images.insert(key, Ok(text));
     run_document(
-        &crate::parse::parse("# One two three\n\nText\n"),
+        &crate::typeset::parse::parse("# One two three\n\nText\n"),
         &mut inputs,
         Options::new(SearchCase::Smart),
         &mut terminal,
@@ -589,7 +595,7 @@ fn a_narrower_window_rewraps_a_heading_image_without_a_new_image() {
     // column 60: the colour of the id, then that column's placeholder.
     assert_eq!(out.matches("a=T").count(), 1, "{frames:#?}");
     let column = |at: usize| {
-        let diacritic = crate::kitty::graphics::DIACRITICS[at];
+        let diacritic = crate::present::kitty::graphics::DIACRITICS[at];
         format!("m\u{10EEEE}\u{0305}{diacritic}")
     };
     assert!(frames[0].contains(&column(0)), "{frames:#?}");
@@ -617,7 +623,9 @@ fn under_tmux_the_images_are_sent_again_when_the_pane_comes_back() {
     assert_eq!(sent.len(), 2, "{out:?}");
     assert_eq!(sent[0], sent[1]);
     let again = frames[1].find("\x1b_Ga=T,").unwrap();
-    let shown = frames[1].find(crate::kitty::graphics::PLACEHOLDER).unwrap();
+    let shown = frames[1]
+        .find(crate::present::kitty::graphics::PLACEHOLDER)
+        .unwrap();
     assert!(again < shown, "{out:?}");
 }
 
@@ -647,7 +655,7 @@ fn ctrl_l_draws_the_screen_and_sends_its_images_again() {
         assert_eq!(sent[0], sent[1]);
         assert_eq!(
             frames[1]
-                .matches(crate::kitty::graphics::PLACEHOLDER)
+                .matches(crate::present::kitty::graphics::PLACEHOLDER)
                 .count(),
             2
         );
@@ -683,7 +691,7 @@ fn under_tmux_an_image_kitty_lost_is_sent_again_without_a_frame() {
     let again = after.find("\x1b_Ga=T,").unwrap();
     assert!(after[again..].contains(CHECK), "{out:?}");
     assert!(
-        !after.contains(crate::kitty::graphics::PLACEHOLDER),
+        !after.contains(crate::present::kitty::graphics::PLACEHOLDER),
         "{out:?}"
     );
 }
@@ -740,7 +748,7 @@ fn a_second_focus_out_keeps_what_was_sent_while_away() {
 /// anew in blue.
 fn repainted_while_away(keys: &[&[u8]]) -> (String, Vec<u32>) {
     let red = [255, 0, 0, 255];
-    let document = crate::parse::parse("![a](square.png)\n\n![b](other.png)\n");
+    let document = crate::typeset::parse::parse("![a](square.png)\n\n![b](other.png)\n");
     let (_, mut inputs) = pictured(red);
     inputs.caps.tmux_passthrough = true;
     inputs

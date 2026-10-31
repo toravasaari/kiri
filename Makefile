@@ -42,10 +42,17 @@ clippy:
 	cargo clippy --workspace --all-targets --no-default-features -- -D warnings
 
 # Also without the default features, so a build with only some of them
-# keeps working.
+# keeps working. Runs with cargo-nextest when it is installed, which runs
+# each test in its own process and in one pool, and with cargo test otherwise.
 test:
-	cargo test --workspace
-	cargo test --workspace --no-default-features
+	@if command -v cargo-nextest >/dev/null; then \
+		cargo nextest run --workspace \
+			&& cargo nextest run --workspace --no-default-features; \
+	else \
+		echo "test: cargo-nextest not installed, using cargo test (cargo install --locked cargo-nextest)"; \
+		cargo test --workspace \
+			&& cargo test --workspace --no-default-features; \
+	fi
 
 # Optimised binary in target/release/kiri.
 release:

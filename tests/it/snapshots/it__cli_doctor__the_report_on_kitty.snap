@@ -1,0 +1,96 @@
+---
+source: tests/it/cli_doctor.rs
+expression: stable(&report(&facts))
+---
+# kiri doctor
+
+kiri [version]: terminal features and settings.
+
+## Terminal
+
+| What | Found |
+|---|---|
+| Terminal | `kitty(0.47.1)`, `TERM=xterm-kitty` |
+| Window | 120 × 40 cells, 0 × 0 pixels |
+| Cell size | 9 × 19 pixels, from the terminal |
+| Graphics | yes, with Unicode placeholders |
+| Text sizing | yes |
+| Colours | 24-bit |
+| Background | dark |
+| Hyperlinks | yes |
+| Underline styles | yes |
+
+## Settings
+
+| Setting | Value | From |
+|---|---|---|
+| Mode | auto | default |
+| Theme | built-in | default |
+| Heading sizes | 2.5, 2, 1.75, 1.5, 1.25, 1 | default |
+| Margins | on | default |
+| Images | on | default |
+| Paging | auto | default |
+| Follow | off | default |
+| Follow jump | first | default |
+| Initial load | wait | default |
+| Passthrough | detect | default |
+| Search case | smart | default |
+| Front matter | table | default |
+| Headings | auto | default |
+| Table rows | zebra | default |
+| Diagrams | on | default |
+| Diagram time limit | 20 s | default |
+| Diagram panels | on | default |
+| Render errors | both | default |
+| Mouse | on | default |
+| Reading | off | default |
+| Wide | wrap | default |
+| Largest image | 10 MB | default |
+| Width | 120 cells | terminal |
+
+## Files
+
+| File | Path | From | Status |
+|---|---|---|---|
+| Configuration file | `~/.config/kiri/config.toml` | default | not found |
+| Theme file | `~/.config/kiri/theme.toml` | default | not found |
+[diagram work files]
+
+## Image formats
+
+[image formats]
+
+## Diagrams
+
+| Language | Renderer | Status |
+|---|---|---|
+[built-in mermaid renderer]
+[mermaid command]
+| `math` | built-in: RaTeX 0.1.15 | used |
+| `math` | command: none configured | not used |
+
+## Sample
+
+### A third-level heading
+
+Text in **bold**, *italics* and `code`, with a [link](https://example.com/).
+
+| Left | Centre | Right |
+|:-----|:------:|------:|
+| one | two | three |
+
+```rust
+fn main() {
+    println!("kiri");
+}
+```
+
+![A test image: four coloured squares](data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiBmaWxsPSIjZDMzIi8+PHJlY3QgeD0iMzIiIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgZmlsbD0iIzNhMyIvPjxyZWN0IHk9IjMyIiB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIGZpbGw9IiMzNmQiLz48cmVjdCB4PSIzMiIgeT0iMzIiIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgZmlsbD0iI2ViMyIvPjwvc3ZnPg==)
+
+## Probe answers
+
+```text
+\e[5;1R\e[5;3R\e[5;5R\e_Gi=31;OK\e\\\e]11;rgb:1e1e/1e1e/2e2e\e\\\eP>|kitty(0.47.1)\e\\\e[6;19;9t\e[?62;c
+```
+
+Run `kiri --doctor --raw` to get this report as text for a bug report.

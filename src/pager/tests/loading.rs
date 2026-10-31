@@ -76,7 +76,7 @@ fn loading_in(
     reload: &mut Background,
     reads: &[&[u8]],
     comes: &[usize],
-    follow: config::Follow,
+    follow: settings::Follow,
 ) -> Fake {
     let caps = Capabilities::kitty(80);
     loading_with(caps, rows, before, images, reload, reads, comes, follow)
@@ -92,7 +92,7 @@ fn loading_with(
     reload: &mut Background,
     reads: &[&[u8]],
     comes: &[usize],
-    follow: config::Follow,
+    follow: settings::Follow,
 ) -> Fake {
     let mut inputs = Inputs::new(caps);
     for (url, image) in images {
@@ -127,7 +127,7 @@ fn around(above: usize, url: &str) -> Document {
     source.push_str(&format!(
         "![an image]({url})\n\nAfter 1\n\nAfter 2\n\nAfter 3\n"
     ));
-    crate::parse::parse(&source)
+    crate::typeset::parse::parse(&source)
 }
 
 /// Reloads `around(2, "a.png")`, whose image is a red square, as
@@ -160,7 +160,7 @@ fn a_reload_shows_the_new_text_at_once_and_the_image_when_it_comes() {
         &mut reload,
         &[b"r", b"", b"", b""],
         &[3],
-        config::Follow::Off,
+        settings::Follow::Off,
     );
     let frames = terminal.frames();
     // The first frame, the one that says it reloads, the reload's,
@@ -204,7 +204,7 @@ fn the_band_moves_on_at_each_frame_while_an_image_loads() {
         &mut reload,
         &[b"r", b"", b"", b"", b"", b""],
         &[5],
-        config::Follow::Off,
+        settings::Follow::Off,
     );
     // Waits a frame's time while the image loads, and a poll's after.
     assert_eq!(terminal.waits[1..6], [FRAME; 5], "{:?}", terminal.waits);
@@ -238,7 +238,7 @@ fn a_new_image_without_an_old_one_shows_its_alt_text_with_the_band_below_it() {
         &mut reload,
         &[b"r"],
         &[],
-        config::Follow::Off,
+        settings::Follow::Off,
     );
     let frames = terminal.frames();
     let reloaded = unstyled(&frames[2]);
@@ -248,13 +248,13 @@ fn a_new_image_without_an_old_one_shows_its_alt_text_with_the_band_below_it() {
     let (_, blank) = below.split_once("\x1b[6;1H").unwrap();
     let (blank, _) = blank.split_once("\x1b[7;1H").unwrap();
     assert!(blank.contains("\x1b7\x1b[2C\x1b_Ga=p,"), "{reloaded:?}");
-    assert!(!reloaded.contains(crate::kitty::graphics::PLACEHOLDER));
+    assert!(!reloaded.contains(crate::present::kitty::graphics::PLACEHOLDER));
 }
 
 #[test]
 fn an_image_that_comes_keeps_the_top_line_in_place() {
     // Ten rows for one: below the top line, and above it.
-    let short = crate::parse::parse("Line 1\n\nLine 2\n\n![an image](b.png)\n\nAfter\n");
+    let short = crate::typeset::parse::parse("Line 1\n\nLine 2\n\n![an image](b.png)\n\nAfter\n");
     for (document, rows, keys, top) in [
         // At the end, which the view would follow down otherwise.
         (short, 6, b"G".as_slice(), "Line 2"),
@@ -270,7 +270,7 @@ fn an_image_that_comes_keeps_the_top_line_in_place() {
             &mut reload,
             &[keys, b"r", b"", b""],
             &[3],
-            config::Follow::Off,
+            settings::Follow::Off,
         );
         let frames = terminal.frames();
         let (before, after) = (&frames[frames.len() - 2], frames.last().unwrap());
@@ -293,7 +293,7 @@ fn auto_following_jumps_when_the_text_comes_and_not_when_the_image_does() {
     let mut changed: String = (1..=30).map(|n| format!("Line {n}\n\n")).collect();
     changed = changed.replace("Line 20\n", "![changed](b.png)\n");
     let mut reload = Background {
-        document: crate::parse::parse(&changed),
+        document: crate::typeset::parse::parse(&changed),
         wanted: vec![(ImageKey::from("b.png"), filled(20, 200, [0, 0, 255, 255]))],
         aside: Vec::new(),
         coming: Default::default(),
@@ -308,7 +308,7 @@ fn auto_following_jumps_when_the_text_comes_and_not_when_the_image_does() {
         &mut reload,
         &[b"r", b"", b""],
         &[2],
-        config::Follow::Auto,
+        settings::Follow::Auto,
     );
     let frames = terminal.frames();
     let top = |frame: &str| top_row(frame);
@@ -320,7 +320,7 @@ fn auto_following_jumps_when_the_text_comes_and_not_when_the_image_does() {
 #[test]
 fn the_status_line_counts_the_images_that_came_until_all_have() {
     let mut reload = Background {
-        document: crate::parse::parse("![a](a.png)\n\n![b](b.png)\n"),
+        document: crate::typeset::parse::parse("![a](a.png)\n\n![b](b.png)\n"),
         wanted: vec![
             (ImageKey::from("a.png"), filled(20, 20, [0, 0, 255, 255])),
             (ImageKey::from("b.png"), filled(20, 20, [0, 255, 0, 255])),
@@ -338,7 +338,7 @@ fn the_status_line_counts_the_images_that_came_until_all_have() {
         &mut reload,
         &[b"r", b"", b"", b""],
         &[2, 3],
-        config::Follow::Off,
+        settings::Follow::Off,
     );
     let statuses: Vec<String> = (terminal.frames().iter())
         .map(|frame| status_text(frame, 12))
@@ -371,7 +371,7 @@ fn the_tint_stays_on_its_lines_when_an_image_above_comes_taller() {
                 false => source.push_str(&format!("Line {n}\n\n")),
             }
         }
-        crate::parse::parse(&source)
+        crate::typeset::parse::parse(&source)
     };
     // The file of the image changed too, and loads again, taller.
     let mut reload = Background {
@@ -385,7 +385,7 @@ fn the_tint_stays_on_its_lines_when_an_image_above_comes_taller() {
     };
     let mut caps = known_colours();
     caps.graphics = true;
-    caps.max_image_cells = crate::kitty::graphics::MAX_CELLS;
+    caps.max_image_cells = crate::present::kitty::graphics::MAX_CELLS;
     let terminal = loading_with(
         caps,
         21,
@@ -394,7 +394,7 @@ fn the_tint_stays_on_its_lines_when_an_image_above_comes_taller() {
         &mut reload,
         &[b"r", b""],
         &[1],
-        config::Follow::Auto,
+        settings::Follow::Auto,
     );
     let frames = terminal.frames();
     let tint = |frame: &str, text: &str| background(&row_style(frame, text));
@@ -456,13 +456,17 @@ fn a_reload_that_fails_while_images_load_keeps_their_placeholders() {
         &mut reload,
         &[b"r", b"r", b""],
         &[],
-        config::Follow::Off,
+        settings::Follow::Off,
     );
     let frames = terminal.frames();
     // The first, reloading, reloaded, reloading, failed, and it drawn
     // anew as the band moves.
     assert_eq!(frames.len(), 6, "{frames:#?}");
-    let placeholders = |frame: &str| frame.matches(crate::kitty::graphics::PLACEHOLDER).count();
+    let placeholders = |frame: &str| {
+        frame
+            .matches(crate::present::kitty::graphics::PLACEHOLDER)
+            .count()
+    };
     // The dimmed image, and the band below it.
     for frame in [&frames[2], &frames[4]] {
         assert_eq!(placeholders(frame), 2, "{frames:#?}");
@@ -487,13 +491,13 @@ fn an_image_that_fails_to_load_shows_as_a_missing_image_does() {
         &mut reload,
         &[b"r", b"", b""],
         &[2],
-        config::Follow::Off,
+        settings::Follow::Off,
     );
     let frames = terminal.frames();
     let last = frames.last().unwrap();
     assert!(unstyled(last).contains("an image"), "{last:?}");
     assert!(
-        !last.contains(crate::kitty::graphics::PLACEHOLDER),
+        !last.contains(crate::present::kitty::graphics::PLACEHOLDER),
         "{last:?}"
     );
     assert!(status_text(last, 12).contains("notes.md"), "{last:?}");
@@ -531,7 +535,7 @@ fn a_band_scrolled_out_of_view_does_not_move_on() {
         // The band on the second row, then below the view, past it.
         &[b"jjj", b"r", b"", b"jjjj", b"", b""],
         &[],
-        config::Follow::Off,
+        settings::Follow::Off,
     );
     let waits = &terminal.waits;
     assert_eq!(waits[2], FRAME, "{waits:?}");
@@ -622,7 +626,7 @@ fn an_image_that_comes_at_its_placeholder_s_size_moves_nothing() {
         &mut reload,
         &[b"r", b"", b""],
         &[2],
-        config::Follow::Off,
+        settings::Follow::Off,
     );
     let frames = terminal.frames();
     let (before, after) = (&frames[frames.len() - 2], frames.last().unwrap());
@@ -649,7 +653,7 @@ fn no_band_is_placed_under_the_help_panel() {
         &mut reload,
         &[b"r", b"", b"?", b"", b""],
         &[],
-        config::Follow::Off,
+        settings::Follow::Off,
     );
     let frames = terminal.frames();
     let help = |frame: &str| frame.contains("down a line");
@@ -694,7 +698,7 @@ fn diagrammed() -> Document {
             _ => format!("Line {}\n\n```mermaid\n{diagram}\n```\n\n", at + 1),
         })
         .collect();
-    crate::parse::parse(&source)
+    crate::typeset::parse::parse(&source)
 }
 
 /// The diagrams of [`diagrammed`] in the order they start when the
@@ -757,7 +761,7 @@ fn a_heading_image_comes_after_its_text_and_keeps_the_top_line() {
     let document = |heading: &str| {
         let mut source = format!("# {heading}\n\n");
         source.extend((1..=12).map(|n| format!("Line {n}\n\n")));
-        crate::parse::parse(&source)
+        crate::typeset::parse::parse(&source)
     };
     for (keys, top) in [(b"".as_slice(), "Kiri"), (b"jjjj", "Line 2")] {
         let mut reload = Background {
@@ -780,7 +784,7 @@ fn a_heading_image_comes_after_its_text_and_keeps_the_top_line() {
             &mut reload,
             &[keys, b"r", b"", b""],
             &[3],
-            config::Follow::Off,
+            settings::Follow::Off,
         );
         let frames = terminal.frames();
         let (before, after) = (&frames[frames.len() - 2], frames.last().unwrap());

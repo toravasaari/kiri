@@ -5,14 +5,15 @@ These are the options kiri takes on the command line.
 | Option | Meaning |
 |---|---|
 | `--format FORMAT` | What the file is: `markdown`, `csv`, `tsv`, `mermaid`, `text` (shown as it is), `image`, or an image format such as `png` |
-| `--mode auto\|plain\|ansi\|kitty` | Override what kiri detects |
-| `--width N` | Render for `N` cells instead of the terminal width |
-| `--theme FILE` | Colours and heading sizes; see [Theme](theme.md) |
-| `--light`, `--dark` | A light or dark page in greys; see [Paper themes](theme.md#paper-themes) |
+| `--mode auto\|plain\|ansi\|kitty` | Override what kiri detects; `auto` unless set; see [Mode](config.md#mode) |
+| `--width N` | Render for `N` cells instead of the terminal width; 0 is the terminal's width; see [Width](config.md#width) |
+| `--theme FILE-OR-NAME` | Colours and heading sizes, from a file or from a theme's name; see [Theme](theme.md) and [Theme](config.md#theme) |
+| `--light`, `--dark` | Short for `--theme light` and `--theme dark`: a light or dark page in greys; see [Paper themes](theme.md#paper-themes) |
 | `-M`, `--no-margins` | No margins or padding, so text and code copy cleanly |
+| `--margins` | Keep the margins, whatever the environment and configuration say; see [Margins](config.md#margins) |
 | `-I`, `--no-images` | Show images as their alt text, without reading them, and diagrams as code |
 | `--images` | Show images, whatever the environment and configuration say |
-| `--max-image-size MB` | Largest image file to read: 10 MB unless set, at most 100 |
+| `--max-image-size MB` | Largest image file to read: 10 MB unless set, at most 100; see [Largest image](config.md#largest-image) |
 | `--paging always\|auto\|never` | When to show the document in the pager; `auto` unless set |
 | `-p`, `-P` | The pager always (`--paging always`) or never (`--paging never`) |
 | `--follow on\|off\|auto` | Follow a lone file in the pager: read it again whenever it changes, with the view kept where it is (`on`) or moved to a change (`auto`); pages the file unless paging is `never`; `off` unless set |
@@ -22,9 +23,13 @@ These are the options kiri takes on the command line.
 | `--passthrough detect\|none\|tmux` | Whether kitty's images pass through tmux: wrapped inside tmux, with the pane's `allow-passthrough` turned on as `kitten icat` does (`detect`), always (`tmux`) or never (`none`); `detect` unless set |
 | `--mouse`, `--no-mouse` | Whether the pager takes the mouse, so that the wheel scrolls it inside tmux too; on unless set; see [Mouse](config.md#mouse) |
 | `--front-matter table\|code\|hide\|off` | Front matter render style; `table` unless set |
+| `--reading`, `--no-reading` | Experimental: headings, paragraphs, lists and quotes drawn as images, in the system's fonts; off unless set; `--no-reading` turns it off whatever the variable and the file say; see [Reading](config.md#reading) |
+| `--wide wrap\|scroll` | Experimental: in reading mode, a code block or table wider than its area wraps to fit it, or scrolls sideways in the pager; `wrap` unless set; see [Wide](config.md#wide) |
 | `--headings auto\|sized\|images\|plain` | How headings show: large with text sizing, as images, or in one row; `auto` unless set; see [Headings](config.md#headings) |
 | `--table-rows zebra\|lines\|indent\|underline\|off` | Table row style; `zebra` unless set |
 | `--diagrams on\|off` | Diagrams in code blocks, such as Mermaid, and formulas, drawn or shown as code; `on` unless set |
+| `--diagram-timeout SECS` | How long a program may take to draw one diagram, in seconds; 20 unless set |
+| `--diagram-panel on\|off` | Whether a diagram in the other page's colours lies on a panel; `on` unless set |
 | `--render-errors inline\|stderr\|both` | Why a diagram was not drawn: below its code, in a warning, or both; `both` unless set |
 | `--doctor` | Show what kiri finds out about the terminal and which settings it uses; see [The doctor report](doctor.md) |
 | `--raw` | With `--doctor`: the report as Markdown text, for a bug report |

@@ -5,20 +5,34 @@
 //! drawing. It knows nothing about terminals: the image loader decodes it
 //! as it does an image file, and another backend could use the same
 //! image.
+//!
+//! This file owns the types a diagram renderer is spoken to in, a
+//! request, a drawing and the `Renderer` trait, and the choice among the
+//! renderers kiri has. Today it also holds `Renderers`, which owns the
+//! program renderer `External`, and the parallel run on threads.
+//!
+//! A diagram language does not belong here, nor a new renderer, nor a new
+//! way to find or run a program. The languages are files of their own
+//! beside this one, with one entry each in `language.rs`.
+//!
+//! A new language goes to the typesetting engine (`src/typeset/diagrams/`)
+//! when kiri draws it itself. Running a program and finding one belong to
+//! the platform, as `external.rs` and `find.rs` do; so do the threads that
+//! `render_in_parallel` starts here today. The placement map in
+//! docs/architecture.md has the paths.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+use crate::typeset::diagrams::language;
+
 pub mod external;
 pub mod find;
-mod language;
-mod math;
-mod mermaid;
 
+pub use crate::typeset::diagrams::language::{LANGUAGES, Language, ThemeNames, language};
+pub use crate::typeset::diagrams::mermaid::MMDC;
 pub use external::{Command, External, ExternalSettings};
-pub use language::{LANGUAGES, Language, ThemeNames, language};
-pub use mermaid::MMDC;
 
 /// The colours a diagram is drawn in when it does not choose its own.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

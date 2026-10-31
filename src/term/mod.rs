@@ -7,12 +7,9 @@ use std::time::Duration;
 
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
-use crate::caps::Capabilities;
+use crate::typeset::caps::Capabilities;
 
-mod answers;
-pub mod cell_query;
 mod check;
-pub mod clipboard;
 mod detect;
 mod interrupt;
 mod keys;

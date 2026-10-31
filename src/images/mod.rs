@@ -6,15 +6,27 @@
 //! work on pixels and never touch the file system. A failure is a value,
 //! not an error for the whole document, because the renderer still shows
 //! the alt text in place of an image it could not load.
+//!
+//! This file owns the key of an image, the store of loaded images that
+//! layout reads, the plan of which images a document wants, and for now
+//! the functions that load them. The loading reads files and runs the
+//! renderers, and is the part of it that is not pure.
+//!
+//! What does not belong here is any new way to read, fetch or draw an
+//! image, which is work for threads and programs, and nothing that decodes
+//! a format, which has a file of its own in this directory.
+//!
+//! Reading and fetching go to the platform's work runner, as the loads in
+//! `src/images/background.rs` and `src/images/pipeline.rs` do, and
+//! decoding and drawing from given data to the typesetting engine
+//! (`src/typeset/images/`).
 
 mod background;
-mod decode;
-mod drawn;
-mod heading;
 mod pipeline;
 mod stamps;
-mod svg;
-mod url;
+pub(crate) mod svg;
+pub(crate) mod url;
+mod warnings;
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -23,15 +35,18 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::diagrams::{FormulaColors, INLINE_FORMULA, NoRenderer, Renderer, Request, Theme};
-use crate::model::{Block, Document, Inline};
+use crate::typeset::diagnostic::Diagnostic;
+use crate::typeset::model::{Block, Document, Inline};
 
+pub use crate::typeset::images::decode::{
+    DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image,
+};
+pub use crate::typeset::images::heading::{
+    CodeLook, HeadingLook, HeadingWord, LevelLook, draw_heading, heading_words, plain_words,
+};
 #[cfg(test)]
 pub(crate) use background::{Arrival, Gated};
 pub use background::{Loads, STOPPING};
-pub use decode::{DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image};
-pub use heading::{
-    CodeLook, HeadingLook, HeadingWord, LevelLook, draw_heading, heading_words, plain_words,
-};
 pub use pipeline::{
     Interrupted, Loaded, Loading, load_documents, load_headings_in_background, load_in_background,
     load_inline_in_background, measure_in_background, reload_in_background,
@@ -39,14 +54,14 @@ pub use pipeline::{
 pub use stamps::Stamps;
 pub use svg::{EMOJI, Fonts, SCRIPTS, Svg, installed};
 
-pub(crate) use decode::{MAX_PIXELS, png_size};
+pub(crate) use crate::typeset::images::decode::{MAX_PIXELS, png_size};
 #[cfg(all(test, feature = "mermaid"))]
-pub(crate) use drawn::decode_diagram;
+pub(crate) use crate::typeset::images::drawn::decode_diagram;
 pub(crate) use url::read_at_most;
 
-use decode::decode_named;
-use drawn::finish_diagram;
-use url::{load_url, scheme};
+use crate::typeset::images::decode::decode_named;
+use crate::typeset::images::drawn::finish_diagram;
+use url::load_url;
 
 /// Why an image could not be loaded.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -519,26 +534,26 @@ impl Images {
     }
 
     /// One message for each image that did not load, in document order.
-    pub fn warnings(&self) -> Vec<String> {
+    pub fn warnings(&self) -> Vec<Diagnostic> {
         self.warnings_with(true)
     }
 
     /// `warnings`, with one for each diagram that could not be drawn only
     /// when `render_errors`.
-    pub fn warnings_with(&self, render_errors: bool) -> Vec<String> {
-        warnings(self.iter(), render_errors)
+    pub fn warnings_with(&self, render_errors: bool) -> Vec<Diagnostic> {
+        warnings::warnings(self.iter(), render_errors)
     }
 
     /// `warnings_with` for the images that came from loading in the
     /// background and are still shown, in the documents' order, each with
     /// the number of its document.
-    pub fn late_warnings(&self, render_errors: bool) -> Vec<(usize, String)> {
+    pub fn late_warnings(&self, render_errors: bool) -> Vec<(usize, Diagnostic)> {
         let mut told = HashSet::new();
         (self.shown.iter())
             .filter(|key| self.late.contains(*key) && told.insert(*key))
             .filter_map(|key| Some((key, self.by_key.get(key)?)))
             .flat_map(|(key, image)| {
-                let warnings = warnings(std::iter::once((key, image)), render_errors);
+                let warnings = warnings::warnings(std::iter::once((key, image)), render_errors);
                 warnings
                     .into_iter()
                     .map(|warning| (key.document(), warning))
@@ -548,37 +563,10 @@ impl Images {
 
     /// `warnings_with` for the images of the document numbered
     /// `document` alone.
-    pub fn warnings_in(&self, document: usize, render_errors: bool) -> Vec<String> {
+    pub fn warnings_in(&self, document: usize, render_errors: bool) -> Vec<Diagnostic> {
         let images = self.iter().filter(|(key, _)| key.document() == document);
-        warnings(images, render_errors)
+        warnings::warnings(images, render_errors)
     }
-}
-
-/// The warnings about `images`, as `Images::warnings_with` makes them.
-fn warnings<'a>(
-    images: impl Iterator<Item = (&'a ImageKey, &'a Result<Source, ImageError>)>,
-    render_errors: bool,
-) -> Vec<String> {
-    images
-        .filter_map(|(key, image)| match (key, image) {
-            (_, Ok(_)) => None,
-            // A heading without its image shows as text, which is enough.
-            (ImageKey::Heading { .. }, Err(_)) => None,
-            (_, Err(ImageError::Diagram { .. })) if !render_errors => None,
-            // These name the file, resolved against the document.
-            (_, Err(error)) if error.names_file() => Some(error.to_string()),
-            (ImageKey::Url { url, .. }, Err(ImageError::NoPath)) if url.is_empty() => {
-                Some("an image URL is empty".to_owned())
-            }
-            // A data: URL is the image itself, too long for a message.
-            (ImageKey::Url { url, .. }, Err(error))
-                if scheme(url).is_some_and(|s| s.eq_ignore_ascii_case("data")) =>
-            {
-                Some(format!("data: URL: {error}"))
-            }
-            (key, Err(error)) => Some(format!("{key}: {error}")),
-        })
-        .collect()
 }
 
 /// Loads every image that `document` shows as an image block once,
@@ -920,21 +908,28 @@ fn inline_images<'a>(content: &'a [Inline], renderer: &dyn Renderer, wanted: &mu
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
+    use crate::typeset::diagnostic::Code;
+
+    /// The text of each of `diagnostics`, as standard error tells them.
+    fn texts(diagnostics: Vec<Diagnostic>) -> Vec<String> {
+        diagnostics.iter().map(ToString::to_string).collect()
+    }
+
     use image::RgbaImage;
 
     use super::*;
     use crate::diagrams::{Drawn, Renderer, Theme};
 
-    pub(super) fn fixtures() -> PathBuf {
+    pub(crate) fn fixtures() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
     }
 
     /// The images of the Markdown `source` with the default size limit, no
     /// fonts and the fixtures directory as the base.
-    pub(super) fn load_source(source: &str, options: &LoadOptions<'_>) -> Images {
+    pub(crate) fn load_source(source: &str, options: &LoadOptions<'_>) -> Images {
         load_with(
-            &crate::parse::parse(source),
+            &crate::typeset::parse::parse(source),
             &fixtures(),
             DEFAULT_MAX_FILE_SIZE,
             &Fonts::none(),
@@ -947,11 +942,11 @@ mod tests {
         load_url(url, base, DEFAULT_MAX_FILE_SIZE, &Fonts::none())
     }
 
-    pub(super) fn fixture(name: &str) -> Result<Source, ImageError> {
+    pub(crate) fn fixture(name: &str) -> Result<Source, ImageError> {
         open(name, &fixtures().join("images"))
     }
 
-    pub(super) fn rgba(image: &RgbaImage, x: u32, y: u32) -> [u8; 4] {
+    pub(crate) fn rgba(image: &RgbaImage, x: u32, y: u32) -> [u8; 4] {
         image.get_pixel(x, y).0
     }
 
@@ -972,7 +967,7 @@ mod tests {
         let told: Vec<_> = images
             .late_warnings(true)
             .into_iter()
-            .map(|(_, w)| w)
+            .map(|(_, w)| w.to_string())
             .collect();
         assert_eq!(told, [missing_text("a.png"), missing_text("b.png")]);
         // Loaded at last.
@@ -1007,7 +1002,7 @@ mod tests {
             headings: Some(heading_look()),
             ..LoadOptions::default()
         };
-        let document = crate::parse::parse(source);
+        let document = crate::typeset::parse::parse(source);
         load_with(
             &document,
             &fixtures(),
@@ -1068,8 +1063,8 @@ mod tests {
         let images = with_headings("# Kiri\n", &Fonts::none());
         let image = images.get(&ImageKey::heading(1, "Kiri", (10, 20)));
         assert!(matches!(image, Some(Err(_))), "{images:?}");
-        assert_eq!(images.warnings(), Vec::<String>::new());
-        assert_eq!(images.warnings_in(0, true), Vec::<String>::new());
+        assert_eq!(texts(images.warnings()), Vec::<String>::new());
+        assert_eq!(texts(images.warnings_in(0, true)), Vec::<String>::new());
     }
 
     #[test]
@@ -1078,7 +1073,7 @@ mod tests {
             headings: Some(heading_look()),
             ..LoadOptions::default()
         };
-        let document = crate::parse::parse("# Kiri\n");
+        let document = crate::typeset::parse::parse("# Kiri\n");
         let part = |number| Part {
             document: &document,
             number,
@@ -1108,7 +1103,7 @@ mod tests {
 
     #[test]
     fn loads_the_images_inside_details() {
-        let document = crate::parse::parse(
+        let document = crate::typeset::parse::parse(
             "<details>\n<summary>S</summary>\n\n![x](pattern.png)\n\n</details>\n",
         );
         let images = load(
@@ -1174,7 +1169,7 @@ Text ![inline](images/pattern.png) and words.
     /// says `flaky` the first time it is asked to draw it. Remembers what
     /// it was asked to draw.
     #[derive(Default)]
-    pub(super) struct Stub {
+    pub(crate) struct Stub {
         pub(super) calls: std::cell::RefCell<Vec<(String, Theme)>>,
     }
 
@@ -1206,7 +1201,7 @@ Text ![inline](images/pattern.png) and words.
         }
     }
 
-    pub(super) fn with_stub(stub: &Stub, theme: Theme, by_line: bool) -> LoadOptions<'_> {
+    pub(crate) fn with_stub(stub: &Stub, theme: Theme, by_line: bool) -> LoadOptions<'_> {
         LoadOptions {
             renderer: stub,
             theme,
@@ -1226,8 +1221,8 @@ Text ![inline](images/pattern.png) and words.
             by_line: true,
             inline_images: false,
         };
-        let before = crate::parse::parse("```mermaid\na\n```\n\n```mermaid\nb\n```\n");
-        let after = crate::parse::parse("```mermaid\na\n```\n\n```mermaid\nc\n```\n");
+        let before = crate::typeset::parse::parse("```mermaid\na\n```\n\n```mermaid\nb\n```\n");
+        let after = crate::typeset::parse::parse("```mermaid\na\n```\n\n```mermaid\nc\n```\n");
         let mut images = load_parts(
             &[part(&before)],
             DEFAULT_MAX_FILE_SIZE,
@@ -1262,7 +1257,7 @@ Text ![inline](images/pattern.png) and words.
     fn a_reload_draws_again_a_diagram_that_failed() {
         let stub = Stub::default();
         let options = with_stub(&stub, Theme::Light, true);
-        let document = crate::parse::parse("```mermaid\nflaky\n```\n");
+        let document = crate::typeset::parse::parse("```mermaid\nflaky\n```\n");
         let parts = [Part {
             document: &document,
             number: 0,
@@ -1293,7 +1288,7 @@ Text ![a](a.png) and *![b](b.png)* in a paragraph.
 
 ![alone](f.png)
 ";
-        let document = crate::parse::parse(source);
+        let document = crate::typeset::parse::parse(source);
         let urls = |inline_images| {
             let parts = [Part {
                 document: &document,
@@ -1342,7 +1337,7 @@ Text ![a](a.png) and *![b](b.png)* in a paragraph.
         // Markdown image or a formula there stays text.
         let source = "<details>\n<summary>Open <img src=\"s.png\" alt=\"s\"></summary>\n\n\
                       Inside <img src=\"i.png\" alt=\"i\">.\n\n</details>\n";
-        let document = crate::parse::parse(source);
+        let document = crate::typeset::parse::parse(source);
         let urls = |inline_images| {
             let parts = [Part {
                 document: &document,
@@ -1386,7 +1381,7 @@ Let $x^2$ be, and $x^2$ again, and cost $5 and $6.
 x^2
 ```
 ";
-        let document = crate::parse::parse(source);
+        let document = crate::typeset::parse::parse(source);
         let keys = |inline_images, renderer: &dyn Renderer| {
             let parts = [Part {
                 document: &document,
@@ -1532,8 +1527,9 @@ fn main() {}
             let image = RgbaImage::new(width, 1);
             image.save(scratch.join(dir).join("fig.png")).unwrap();
         }
-        let first = crate::parse::parse("![a](fig.png)\n\n```mermaid\nbroken\n```\n");
-        let second = crate::parse::parse("Text.\n\n![b](fig.png)\n\n```mermaid\nbroken\n```\n");
+        let first = crate::typeset::parse::parse("![a](fig.png)\n\n```mermaid\nbroken\n```\n");
+        let second =
+            crate::typeset::parse::parse("Text.\n\n![b](fig.png)\n\n```mermaid\nbroken\n```\n");
         let (a, b) = (scratch.join("a"), scratch.join("b"));
         let parts = [
             Part {
@@ -1565,11 +1561,11 @@ fn main() {}
         assert_eq!((width(0), width(1)), (3, 5));
         // Each document is told about its own diagram, by its own line.
         assert_eq!(
-            images.warnings_in(0, true),
+            texts(images.warnings_in(0, true)),
             ["mermaid diagram on line 3: parse error"]
         );
         assert_eq!(
-            images.warnings_in(1, true),
+            texts(images.warnings_in(1, true)),
             ["mermaid diagram on line 5: parse error"]
         );
     }
@@ -1598,12 +1594,50 @@ fn main() {}
         assert_eq!(images.len(), 2);
         assert_eq!(images.get(&block), Some(&Err(ImageError::UnknownFormat)));
         assert_eq!(
-            images.warnings(),
+            texts(images.warnings()),
             [
                 "a.png: remote images are not loaded",
                 "mermaid block: not an image format kiri knows",
             ]
         );
+    }
+
+    #[test]
+    fn a_warning_has_the_kind_and_the_subject_it_is_about() {
+        let mut images = Images::new();
+        images.insert("gone.png", Err(ImageError::Missing("/doc/gone.png".into())));
+        images.insert(
+            ImageKey::block("mermaid", "x"),
+            Err(ImageError::Diagram {
+                name: "mermaid diagram on line 3".into(),
+                reason: "parse error".into(),
+            }),
+        );
+        images.insert("https://example.com/a.png", Err(ImageError::Remote));
+        images.insert("", Err(ImageError::NoPath));
+        let told = images.warnings();
+        let seen: Vec<_> = told
+            .iter()
+            .map(|d| (d.code, d.subject.as_deref(), d.message.as_str()))
+            .collect();
+        assert_eq!(
+            seen,
+            [
+                (Code::Image, Some("/doc/gone.png"), "file not found"),
+                (
+                    Code::Diagram,
+                    Some("mermaid diagram on line 3"),
+                    "parse error"
+                ),
+                (
+                    Code::Image,
+                    Some("https://example.com/a.png"),
+                    "remote images are not loaded"
+                ),
+                (Code::Image, None, "an image URL is empty"),
+            ]
+        );
+        assert!(told.iter().all(|d| d.file.is_none()));
     }
 
     #[test]
@@ -1616,7 +1650,7 @@ fn main() {}
         images.insert("file://?x", Err(ImageError::NoPath));
         images.insert("", Err(ImageError::NoPath));
         assert_eq!(
-            images.warnings(),
+            texts(images.warnings()),
             [
                 "https://example.com/a.png: remote images are not loaded",
                 "/doc/gone.png: file not found",

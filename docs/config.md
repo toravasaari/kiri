@@ -4,6 +4,13 @@ kiri takes its settings from the command line, from environment variables
 and from a configuration file. The command line is the strongest, then the
 environment, then the file.
 
+A setting that matters without the pager too, such as the width or
+whether images show, can be given at all three: as a flag, as a variable
+and as a key in the file. A setting about how the pager works, such as
+`search_case`, is a key in the file only. The sections below give each
+setting's flag, variable and key, and [Options](options.md) lists the
+flags.
+
 ## Configuration file
 
 kiri reads `$XDG_CONFIG_HOME/kiri/config.toml`, or
@@ -16,9 +23,23 @@ not silently ignored.
 Every key is optional:
 
 ```toml
-# A theme file. A relative path is relative to the directory of this
-# file, and a leading ~/ is your home directory.
+# Which terminal features to use: "auto", "plain", "ansi" or "kitty";
+# see Mode below.
+mode = "auto"
+
+# Width in cells, instead of the terminal's; see Width below.
+width = 100
+
+# A theme file, or a theme's name: "dark", or "mine" for mine.toml in
+# the themes directory; see Theme below. A relative path is relative to
+# the directory of this file, and a leading ~/ is your home directory.
 theme = "themes/mine.toml"
+
+# false leaves out the margins, indents and padding, for copying text.
+margins = true
+
+# The largest image file to read, in whole megabytes, from 1 to 100.
+max_image_size = 10
 
 # false shows every image as its alt text, without reading it.
 images = true
@@ -46,6 +67,14 @@ passthrough = "detect"
 
 # false leaves the mouse to the terminal in the pager; see Mouse below.
 mouse = true
+
+# true turns reading mode on, which draws the text as images; see Reading
+# below.
+reading = false
+
+# How wide code and tables show in reading mode: "wrap" or "scroll"; see
+# Wide below.
+wide = "wrap"
 
 # Front matter render style: "table", "code", "hide" or "off".
 front_matter = "table"
@@ -84,22 +113,94 @@ for `enabled = false` in the `[diagrams]` table. A file that has it
 cannot have the `[diagrams]` table or a table under it, such as
 `[diagrams.mermaid]`.
 
+## Mode
+
+The first of these that is given decides which terminal features kiri
+uses:
+
+1. `--mode auto|plain|ansi|kitty`
+2. `KIRI_MODE` with the same values; an empty value counts as unset, and
+   any other value is left out with a warning
+3. `mode` in the configuration file, such as `mode = "ansi"`
+4. `auto`, which asks the terminal, and gives plain text in a pipe
+
+## Width
+
+kiri renders for the width of the terminal. The first of these that is
+given decides instead:
+
+1. `--width 80`
+2. `KIRI_WIDTH`, a whole number of cells: `KIRI_WIDTH=80 kiri doc.md`; an
+   empty value counts as unset, and any other value is left out with a
+   warning
+3. `width` in the configuration file, such as `width = 80`
+4. the terminal's width
+
+A width of 0 means the terminal's own width, as `max_width = 0` does in a
+theme. It is a choice like any other, so `width = 0` in the file beats
+nothing but a flag or a variable, and `KIRI_WIDTH=0 kiri doc.md` uses the
+terminal's width whatever the file says.
+
+## Margins
+
+The theme's margins, heading indents and code block padding are kept
+unless one of these, the first that is given, leaves them out:
+
+1. `--no-margins` or `-M` leaves them out, `--margins` keeps them; the two
+   cannot be given together
+2. `KIRI_MARGINS`: `on` or `off`, `1` or `0`; an empty value counts as
+   unset, and any other value is left out with a warning
+3. `margins` in the configuration file, such as `margins = false`
+4. on
+
+## Largest image
+
+kiri reads image files up to 10 MB. The first of these that is given
+decides the limit, in whole megabytes from 1 to 100; larger images show
+their alt text:
+
+1. `--max-image-size 20`
+2. `KIRI_MAX_IMAGE_SIZE`, such as `KIRI_MAX_IMAGE_SIZE=20`; an empty
+   value counts as unset, and any other value is left out with a warning
+3. `max_image_size` in the configuration file, such as
+   `max_image_size = 20`
+4. 10
+
 ## Theme
 
 The first of these that is given chooses the [theme](theme.md):
 
-1. `--theme FILE`
-2. `--light` or `--dark`, the [paper themes](theme.md#paper-themes)
-3. `KIRI_THEME`, when it is not empty
-4. `theme` in the configuration file
-5. `theme.toml` in the configuration directory
+1. `--theme FILE-OR-NAME`; `--light` and `--dark` are short for `--theme
+   light` and `--theme dark`, the [paper themes](theme.md#paper-themes)
+2. `KIRI_THEME`, when it is not empty
+3. `theme` in the configuration file
+4. `theme.toml` in the configuration directory
    (`$XDG_CONFIG_HOME/kiri/theme.toml` or `~/.config/kiri/theme.toml`),
    when it exists
-6. the built-in theme
+5. the built-in theme
+
+`--theme`, `KIRI_THEME` and `theme` take a path or a name. A value with no
+path separator and no `.toml` ending is a name: `mine` is `mine.toml` in
+the themes directory (`$XDG_CONFIG_HOME/kiri/themes/` or
+`~/.config/kiri/themes/`), and `light` and `dark` are the built-in paper
+themes unless a `light.toml` or `dark.toml` is in that directory. Anything else is a path, as
+`~/themes/mine.toml` or `./mine`. An unknown name is an error that lists
+the names kiri knows, and says how to write a file:
+
+```sh
+kiri --theme mine doc.md        # ~/.config/kiri/themes/mine.toml
+KIRI_THEME=dark kiri doc.md     # the dark paper theme
+kiri --theme mien doc.md
+# kiri: theme `mien` is not one of the themes: dark, light, mine
+# (for a file in this directory, write ./mien)
+```
+
+A name in the configuration file is not relative to the file; a path is,
+as before: `theme = "dark"` against `theme = "themes/mine.toml"`.
 
 A file named by `--theme`, `KIRI_THEME` or the configuration file must
-exist. `--light` and `--dark` cannot be given together. Even when another
-theme wins, they choose the code colours for a light or a dark background
+exist. `--light`, `--dark` and `--theme` cannot be given together. The
+paper themes choose the code colours for a light or a dark background
 instead of the terminal's background.
 
 ## Images
@@ -109,8 +210,12 @@ instead:
 
 1. `--images` turns them on, `-I` or `--no-images` off; the two cannot be
    given together
-2. `KIRI_NO_IMAGES`: any value but `0` turns images off, and `0` turns them
-   on whatever the configuration file says; an empty value counts as unset
+2. `KIRI_NO_IMAGES`, a switch like `KIRI_MOUSE`, but for the thing turned
+   off: `1` (or `on`) turns images off, and `0` (or `off`) turns them on
+   whatever the configuration file says; an empty value counts as unset,
+   and any other value, such as `yes`, is left out with a warning:
+   `KIRI_NO_IMAGES=yes kiri doc.md` says
+   ``KIRI_NO_IMAGES: `yes` is not on, off, 1 or 0; left out``
 3. `images` in the configuration file
 
 With images off, kiri reads no image files and shows every image as its
@@ -310,6 +415,49 @@ the wheel does not scroll the pager: tmux 3.6 drops it, and older tmux
 may go into its copy mode. A printed document leaves the mouse alone
 either way.
 
+## Reading
+
+Reading mode is experimental. It draws headings, paragraphs, lists and
+quotes as images, in the system's fonts, so the text looks as a browser
+shows it. It needs a terminal that draws images, such as kitty; elsewhere
+the document is shown as text, with a warning. The text cannot be selected
+or copied, as it is drawn as images.
+
+The first of these that is given decides whether it is on:
+
+1. `--reading` turns it on, `--no-reading` turns it off; they cannot be
+   given together
+2. `KIRI_READING`, `1` or `on` to turn it on, `0` or `off` to leave it off
+3. `reading` in the configuration file, `true` or `false`
+4. off
+
+A configuration file with `reading = true` shows every document in reading
+mode, and `--no-reading` turns it off again for one run:
+
+```sh
+kiri --no-reading notes.md   # plain, whatever the file says
+```
+
+## Wide
+
+In reading mode, a code block or table wider than the area it is drawn in
+either wraps to fit it, or keeps its lines and words whole and scrolls
+sideways in the pager. The first of these that is given decides:
+
+1. `--wide wrap|scroll`
+2. `KIRI_WIDE` with the same values
+3. `wide` in the configuration file
+4. `wrap`
+
+Printing always wraps, since a printed page cannot scroll. In the pager,
+`W` switches between the two. A configuration file with both of these
+shows a wide code block as a band that scrolls sideways:
+
+```toml
+reading = true
+wide = "scroll"
+```
+
 ## Search case
 
 A search in the pager ignores case when its term has no upper-case letter,
@@ -421,6 +569,19 @@ keeps that layout whatever this says. In plain output only `lines` and
 Which diagrams kiri draws, and with what, is in [Diagrams](diagrams.md),
 and how it draws formulas in [Formulas](formulas.md).
 
+Two more settings of the `[diagrams]` table can also be given as a flag
+and a variable, the flag first:
+
+| Key | Flag | Variable | Example |
+|---|---|---|---|
+| `timeout` | `--diagram-timeout SECS` | `KIRI_DIAGRAM_TIMEOUT` | `KIRI_DIAGRAM_TIMEOUT=60 kiri doc.md` |
+| `background_panel` | `--diagram-panel on\|off` | `KIRI_DIAGRAM_BACKGROUND_PANEL` | `kiri --diagram-panel off doc.md` |
+
+The flags take the names, `on` or `off` for the panel; the variables
+also take `1` and `0`. An empty variable counts as unset, and any other
+value is left out with a warning. `diagrams.mermaid.command` and
+`auto_detect` are tables per language and stay in the file.
+
 ## Render errors
 
 The first of these that is given decides where kiri tells why a diagram
@@ -447,13 +608,21 @@ once.
 |---|---|
 | `KIRI_CONFIG` | The configuration file to read instead of the default |
 | `KIRI_THEME` | A theme file; see [Theme](#theme) |
-| `KIRI_NO_IMAGES` | Images as alt text; see [Images](#images) |
+| `KIRI_NO_IMAGES` | `1` turns images off, `0` on; see [Images](#images) |
 | `KIRI_PAGING` | When to page; see [Paging](#paging) |
 | `KIRI_FOLLOW` | Whether the pager follows a file; see [Follow](#follow) |
 | `KIRI_FOLLOW_JUMP` | Which change auto-follow moves the view to; see [Follow jump](#follow-jump) |
 | `KIRI_INITIAL_LOAD` | Whether the pager waits for the images; see [Initial load](#initial-load) |
 | `KIRI_PASSTHROUGH` | Whether kitty's images pass through tmux; see [Passthrough](#passthrough) |
 | `KIRI_MOUSE` | Whether the pager takes the mouse; see [Mouse](#mouse) |
+| `KIRI_READING` | Whether reading mode is on; see [Reading](#reading) |
+| `KIRI_WIDE` | How wide code and tables show in reading mode: `wrap` or `scroll`; see [Wide](#wide) |
+| `KIRI_MODE` | Which terminal features to use; see [Mode](#mode) |
+| `KIRI_WIDTH` | Width in cells; see [Width](#width) |
+| `KIRI_MARGINS` | Whether the theme keeps its margins; see [Margins](#margins) |
+| `KIRI_MAX_IMAGE_SIZE` | The largest image file to read, in MB; see [Largest image](#largest-image) |
+| `KIRI_DIAGRAM_TIMEOUT` | How long a program may take to draw one diagram; see [Diagrams](#diagrams) |
+| `KIRI_DIAGRAM_BACKGROUND_PANEL` | Whether a diagram in the other page's colours lies on a panel; see [Diagrams](#diagrams) |
 | `KIRI_FRONT_MATTER` | Front matter render style; see [Front matter](#front-matter) |
 | `KIRI_HEADINGS` | How headings show; see [Headings](#headings) |
 | `KIRI_TABLE_ROWS` | Table row style; see [Table rows](#table-rows) |

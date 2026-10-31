@@ -4,13 +4,14 @@
 use std::ffi::OsStr;
 use std::fs::File;
 
+use super::probe;
 use super::probe::GraphicsQuery;
 use super::tmux::{self, Pane, Run};
 use super::window::{WindowSize, window_size};
-use super::{answers, probe};
-use crate::caps::Capabilities;
 use crate::config::{Environment, Passthrough};
-use crate::kitty::{graphics, query};
+use crate::present::answers;
+use crate::present::kitty::{graphics, query};
+use crate::typeset::caps::Capabilities;
 
 /// Which terminal features to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -346,8 +347,8 @@ fn hyperlinks_by_environment(env: &Environment) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::color::Color;
-    use crate::term::testing::{size, with_kitty};
+    use crate::term::testing::{ghostty_1_1_3, size, with_kitty};
+    use crate::typeset::color::Color;
 
     /// A tmux runner for tests where tmux must not run.
     const NO_TMUX: Run = &|args| panic!("tmux was run: {args:?}");
@@ -704,9 +705,7 @@ mod tests {
     fn a_probed_ghostty_draws_images_without_text_sizing() {
         // Ghostty 1.1.3's answers, the palette left out: it ignores the
         // text sizing tests and answers the graphics query.
-        let answers = "\x1b[1;1R\x1b[1;1R\x1b[1;1R\x1b_Gi=31;OK\x1b\\\
-                       \x1b]10;rgb:ffff/ffff/ffff\x1b\\\x1b]11;rgb:2828/2c2c/3434\x1b\\\
-                       \x1bP>|ghostty 1.1.3-1.fc43\x1b\\\x1b[6;20;9t\x1b[?62;22c";
+        let answers = ghostty_1_1_3(true);
         let caps = with_probe(
             Capabilities::ansi(80),
             &answers::interpret(answers.as_bytes()),

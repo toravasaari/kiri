@@ -9,26 +9,19 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use image::ImageFormat;
 
-use crate::config::{
-    AUTO_DETECT, Choices, Environment, Named, Origin, Passthrough, Setting, ThemeSource,
-};
+use crate::config::{AUTO_DETECT, Choices, Environment, Named, Origin, Passthrough, ThemeSource};
 use crate::diagrams::find::{self, Choice, Search};
 use crate::diagrams::{BuiltIn, Command, LANGUAGES};
-use crate::render::image::DEFAULT_CELL;
-use crate::size::TextSize;
 use crate::term::tmux::Pane;
 use crate::term::{CellSize, Detection, Mode};
-use crate::theme::{Paper, Theme};
+use crate::typeset::images::size::DEFAULT_CELL;
+use crate::typeset::size::TextSize;
+use crate::typeset::theme::{Paper, Theme};
 
 /// What the report tells.
 #[derive(Debug)]
 pub struct Facts<'a> {
     pub env: &'a Environment,
-    pub mode: Setting<Mode>,
-    /// `--width`, when given.
-    pub width: Option<Setting<u16>>,
-    /// The largest image file kiri reads, in megabytes.
-    pub max_image_size: Setting<u64>,
     pub detection: &'a Detection,
     pub choices: &'a Choices,
     /// The theme kiri uses: the default one when it could not be loaded.
@@ -103,16 +96,17 @@ fn write_report(facts: &Facts, out: &mut String) -> std::fmt::Result {
 }
 
 fn write_problems(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result {
-    let problems: Vec<_> = [&facts.config_error, &facts.theme_error]
+    let problems: Vec<String> = [&facts.config_error, &facts.theme_error]
         .into_iter()
         .flatten()
-        .chain(&facts.choices.warnings)
+        .cloned()
+        .chain(facts.choices.warnings.iter().map(ToString::to_string))
         .collect();
     if problems.is_empty() {
         return Ok(());
     }
     writeln!(out, "## Problems\n")?;
-    for problem in problems {
+    for problem in &problems {
         // A problem starts with what it is about: the path of a file, or
         // the name of an environment variable. A longer error, such as one
         // that shows the line in the file, goes in a code block of its own.
@@ -139,7 +133,7 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
     let yes_no = |yes| if yes { "yes" } else { "no" };
     writeln!(out, "## Terminal\n")?;
     writeln!(out, "| What | Found |\n|---|---|")?;
-    let mut terminal = match (&detection.answers, facts.mode.value) {
+    let mut terminal = match (&detection.answers, facts.choices.mode.value) {
         (Some(_), _) => detection
             .terminal()
             .map_or_else(|| "unknown".into(), |name| code(&name)),
@@ -210,10 +204,12 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     let from = |origin| origin_text(origin, facts.env, home);
     writeln!(out, "## Settings\n")?;
     writeln!(out, "| Setting | Value | From |\n|---|---|---|")?;
-    let mode = &facts.mode;
+    let mode = &choices.mode;
     row(out, &["Mode", mode.value.name(), &from(mode.origin)])?;
     let theme = match &choices.theme.value {
         ThemeSource::File(path) | ThemeSource::DefaultFile(path) => home.path(path),
+        ThemeSource::Named { name, path } => format!("{} ({})", code(name), home.path(path)),
+        ThemeSource::Unknown { name, .. } => format!("{} (unknown)", code(name)),
         ThemeSource::BuiltIn => "built-in".into(),
         ThemeSource::Paper(Paper::Light) => "light paper".into(),
         ThemeSource::Paper(Paper::Dark) => "dark paper".into(),
@@ -265,7 +261,7 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     let limit = &choices.diagram_timeout;
     let seconds = format!("{} s", limit.value.as_secs_f64());
     row(out, &["Diagram time limit", &seconds, &from(limit.origin)])?;
-    let panel = &choices.diagram_panel;
+    let panel = &choices.diagram_background_panel;
     let on = panel.value.name();
     row(out, &["Diagram panels", on, &from(panel.origin)])?;
     let errors = &choices.render_errors;
@@ -273,13 +269,21 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     row(out, &["Render errors", name, &from(errors.origin)])?;
     let mouse = &choices.mouse;
     row(out, &["Mouse", mouse.value.name(), &from(mouse.origin)])?;
-    let size = &facts.max_image_size;
-    let mb = format!("{} MB", size.value);
+    let reading = &choices.reading;
+    row(
+        out,
+        &["Reading", reading.value.name(), &from(reading.origin)],
+    )?;
+    let wide = &choices.wide;
+    row(out, &["Wide", wide.value.name(), &from(wide.origin)])?;
+    let size = &choices.max_image_size;
+    let mb = format!("{} MB", size.value.0);
     row(out, &["Largest image", &mb, &from(size.origin)])?;
-    let width = match (&facts.width, facts.detection.window) {
-        (Some(width), _) => from(width.origin),
-        (None, Some(_)) => "terminal".to_owned(),
-        (None, None) => from(Origin::Default),
+    let given = choices.width.value.is_some() || choices.width.origin != Origin::Default;
+    let width = match (given, facts.detection.window) {
+        (true, _) => from(choices.width.origin),
+        (false, Some(_)) => "terminal".to_owned(),
+        (false, None) => from(Origin::Default),
     };
     let cells = format!("{} cells", facts.detection.caps.width);
     row(out, &["Width", &cells, &width])?;

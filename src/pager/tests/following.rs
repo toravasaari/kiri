@@ -1,4 +1,5 @@
 use super::*;
+use crate::session::state::Look;
 
 /// The look of a version of a document, told apart by `length`.
 fn look(length: u64) -> Change {
@@ -11,7 +12,7 @@ fn look(length: u64) -> Change {
 /// `document` followed with `then` to reload it, in a window of
 /// 60 × 6, with `reads` and then `empty` polls without keys.
 fn following(document: &Document, then: &mut Then, reads: &[&[u8]], empty: usize) -> Vec<String> {
-    let how = (config::Follow::On, FollowJump::First);
+    let how = (settings::Follow::On, FollowJump::First);
     following_in(6, how, document, then, reads, empty)
 }
 
@@ -36,7 +37,7 @@ fn following_reloads_a_change_without_a_key_and_keeps_the_block_at_the_top() {
 /// `reads` and then `empty` polls without keys.
 fn following_in(
     rows: u16,
-    how: (config::Follow, FollowJump),
+    how: (settings::Follow, FollowJump),
     document: &Document,
     then: &mut Then,
     reads: &[&[u8]],
@@ -51,7 +52,7 @@ fn following_in(
 fn following_on(
     caps: Capabilities,
     rows: u16,
-    (follow, jump): (config::Follow, FollowJump),
+    (follow, jump): (settings::Follow, FollowJump),
     document: &Document,
     then: &mut Then,
     reads: &[&[u8]],
@@ -76,17 +77,17 @@ fn following_on(
 }
 
 /// Following on auto, jumping to the first change.
-const AUTO: (config::Follow, FollowJump) = (config::Follow::Auto, FollowJump::First);
+const AUTO: (settings::Follow, FollowJump) = (settings::Follow::Auto, FollowJump::First);
 
 /// `numbers(count)` with each line of `changed` written anew.
-fn numbers_changed(count: usize, changed: &[usize]) -> Document {
+pub(super) fn numbers_changed(count: usize, changed: &[usize]) -> Document {
     let source: String = (1..=count)
         .map(|n| match changed.contains(&n) {
             true => format!("Line {n} changed\n\n"),
             false => format!("Line {n}\n\n"),
         })
         .collect();
-    crate::parse::parse(&source)
+    crate::typeset::parse::parse(&source)
 }
 
 #[test]
@@ -164,7 +165,7 @@ fn auto_following_tints_the_change_it_went_to_and_fades_the_tint_out() {
 /// `new` by `r`, on a terminal with `caps`, with `empty` polls after it.
 fn reloaded_to(
     caps: Capabilities,
-    how: (config::Follow, FollowJump),
+    how: (settings::Follow, FollowJump),
     (old, new): (&Document, Document),
     reads: &[&[u8]],
     empty: usize,
@@ -205,7 +206,7 @@ fn a_removal_is_not_tinted_and_nothing_fades() {
 
 #[test]
 fn only_auto_following_tints_a_change() {
-    let on = (config::Follow::On, FollowJump::First);
+    let on = (settings::Follow::On, FollowJump::First);
     let new = numbers_changed(40, &[8]);
     let terminal = reloaded_to(known_colours(), on, (&numbers(40), new), &[b"r"], 3);
     for frame in terminal.frames() {
@@ -290,8 +291,8 @@ fn a_new_reload_replaces_the_tint_still_fading() {
 
 #[test]
 fn a_tint_is_mixed_over_the_background_a_line_has() {
-    let old = crate::parse::parse("Text.\n\n```\ncode\n```\n");
-    let new = crate::parse::parse("Text.\n\n```\ncode changed\n```\n");
+    let old = crate::typeset::parse::parse("Text.\n\n```\ncode\n```\n");
+    let new = crate::typeset::parse::parse("Text.\n\n```\ncode changed\n```\n");
     let terminal = reloaded_to(known_colours(), AUTO, (&old, new), &[b"r"], 3);
     let frames = terminal.frames();
     let before = background(&row_style(&frames[0], "code"));
@@ -319,7 +320,7 @@ fn r_moves_to_a_change_while_following_is_auto() {
 fn r_keeps_the_place_while_following_is_on() {
     let new = numbers_changed(40, &[30]);
     let mut then = Then::new([Reloaded::Document(new)]);
-    let on = (config::Follow::On, FollowJump::First);
+    let on = (settings::Follow::On, FollowJump::First);
     let frames = following_in(21, on, &numbers(40), &mut then, &[b"r"], 1);
     assert_eq!(then.asked, 1, "{frames:#?}");
     assert!(at_top(frames.last().unwrap(), "Line 1"), "{frames:#?}");
@@ -385,9 +386,9 @@ fn auto_following_moves_to_the_change_the_setting_chooses() {
         (FollowJump::Last, "Line 30 changed"),
         (FollowJump::Most, "Line 30 changed"),
     ] {
-        let new = crate::parse::parse(&source);
+        let new = crate::typeset::parse::parse(&source);
         let mut then = Then::new([Reloaded::Document(new)]);
-        let auto = (config::Follow::Auto, jump);
+        let auto = (settings::Follow::Auto, jump);
         let frames = following_in(21, auto, &numbers(40), &mut then, &[b"r"], 1);
         let last = frames.last().unwrap();
         assert_eq!(row_of(last, 21, shown), Some(4), "{jump:?}: {frames:#?}");
@@ -395,7 +396,7 @@ fn auto_following_moves_to_the_change_the_setting_chooses() {
     // Most is the first of changes that take as many rows.
     let new = numbers_changed(40, &[15, 30]);
     let mut then = Then::new([Reloaded::Document(new)]);
-    let most = (config::Follow::Auto, FollowJump::Most);
+    let most = (settings::Follow::Auto, FollowJump::Most);
     let frames = following_in(21, most, &numbers(40), &mut then, &[b"r"], 1);
     let last = frames.last().unwrap();
     assert_eq!(row_of(last, 21, "Line 15 changed"), Some(4), "{frames:#?}");
@@ -417,9 +418,9 @@ fn auto_following_moves_to_a_removal_as_the_setting_chooses() {
         // A removal counts as no rows.
         (FollowJump::Most, "Line 15 changed"),
     ] {
-        let new = crate::parse::parse(&source);
+        let new = crate::typeset::parse::parse(&source);
         let mut then = Then::new([Reloaded::Document(new)]);
-        let auto = (config::Follow::Auto, jump);
+        let auto = (settings::Follow::Auto, jump);
         let frames = following_in(21, auto, &numbers(40), &mut then, &[b"r"], 1);
         let last = frames.last().unwrap();
         assert_eq!(row_of(last, 21, shown), Some(4), "{jump:?}: {frames:#?}");
@@ -429,8 +430,8 @@ fn auto_following_moves_to_a_removal_as_the_setting_chooses() {
         .filter(|&n| n != 30)
         .map(|n| format!("Line {n}\n\n"))
         .collect();
-    let mut then = Then::new([Reloaded::Document(crate::parse::parse(&source))]);
-    let most = (config::Follow::Auto, FollowJump::Most);
+    let mut then = Then::new([Reloaded::Document(crate::typeset::parse::parse(&source))]);
+    let most = (settings::Follow::Auto, FollowJump::Most);
     let frames = following_in(21, most, &numbers(40), &mut then, &[b"r"], 1);
     let last = frames.last().unwrap();
     assert_eq!(row_of(last, 21, "Line 31"), Some(4), "{frames:#?}");
@@ -505,7 +506,7 @@ fn following_from_the_start_without_a_file_says_there_is_nothing_to_follow() {
     let mut terminal = Fake::new(60, 6, &[b"j"]);
     let mut inputs = Inputs::new(Capabilities::ansi(80));
     let options = Options {
-        follow: config::Follow::On,
+        follow: settings::Follow::On,
         ..Options::new(SearchCase::Smart)
     };
     let document = numbers(10);
@@ -528,7 +529,7 @@ fn following_waits_a_poll_s_time_for_a_change_to_look_the_same_while_keys_come_f
     let document = numbers(10);
     let options = Options {
         reload: Some(&mut then),
-        follow: config::Follow::On,
+        follow: settings::Follow::On,
         ..Options::new(SearchCase::Smart)
     };
     run_document(&document, &mut inputs, options, &mut terminal);

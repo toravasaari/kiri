@@ -1,0 +1,883 @@
+//! The kiri binary end to end: the configuration file and choosing a
+//! theme.
+
+use std::path::{Path, PathBuf};
+use std::process::Output;
+
+use crate::common::{Scratch, command, kiri, text, write};
+
+#[test]
+fn reads_the_theme_from_the_configuration_directory() {
+    let dir = Scratch::new("theme");
+    let theme = dir.join("config/kiri/theme.toml");
+    std::fs::create_dir_all(theme.parent().unwrap()).unwrap();
+    std::fs::write(&theme, "not a theme").unwrap();
+    let out = kiri(&dir, "Text\n", &[]);
+    assert!(!out.status.success());
+    let stderr = text(&out.stderr);
+    assert!(stderr.contains(&theme.display().to_string()), "{stderr}");
+}
+
+#[test]
+fn reads_the_theme_from_home_without_a_configuration_directory() {
+    let dir = Scratch::new("theme-home");
+    let theme = dir.join("home/.config/kiri/theme.toml");
+    std::fs::create_dir_all(theme.parent().unwrap()).unwrap();
+    std::fs::write(&theme, "not a theme").unwrap();
+    for xdg in [None, Some("")] {
+        let document = dir.join("document.md");
+        std::fs::write(&document, "Text\n").unwrap();
+        let mut command = command(&dir);
+        match xdg {
+            Some(value) => command.env("XDG_CONFIG_HOME", value),
+            None => command.env_remove("XDG_CONFIG_HOME"),
+        };
+        let out = command.arg(&document).output().unwrap();
+        assert!(!out.status.success(), "{xdg:?}");
+        let stderr = text(&out.stderr);
+        assert!(stderr.contains(&theme.display().to_string()), "{stderr}");
+    }
+}
+
+/// A theme file at `path` that kiri refuses, so its error message tells
+/// which theme kiri chose.
+fn broken_theme(path: &Path) -> PathBuf {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, "not a theme").unwrap();
+    path.to_owned()
+}
+
+/// Fails unless kiri failed with an error that names `path`.
+fn assert_fails_naming(out: &Output, path: &Path) {
+    assert!(!out.status.success());
+    let stderr = text(&out.stderr);
+    assert!(
+        stderr.starts_with(&format!("kiri: {}: ", path.display())),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn the_configuration_file_chooses_the_theme_relative_to_itself() {
+    let dir = Scratch::new("config-theme");
+    let theme = broken_theme(&dir.join("config/kiri/themes/mine.toml"));
+    write(
+        &dir.join("config/kiri/config.toml"),
+        "theme = \"themes/mine.toml\"\n",
+    );
+    assert_fails_naming(&kiri(&dir, "Text\n", &[]), &theme);
+}
+
+#[test]
+fn the_configuration_file_theme_comes_before_theme_toml() {
+    let dir = Scratch::new("config-before-theme-toml");
+    broken_theme(&dir.join("config/kiri/theme.toml"));
+    let theme = broken_theme(&dir.join("mine.toml"));
+    write(
+        &dir.join("config/kiri/config.toml"),
+        &format!("theme = \"{}\"\n", theme.display()),
+    );
+    assert_fails_naming(&kiri(&dir, "Text\n", &[]), &theme);
+}
+
+#[test]
+fn the_theme_option_comes_before_the_configuration_file() {
+    let dir = Scratch::new("option-before-config");
+    broken_theme(&dir.join("config/kiri/mine.toml"));
+    write(
+        &dir.join("config/kiri/config.toml"),
+        "theme = \"mine.toml\"\n",
+    );
+    let theme = broken_theme(&dir.join("option.toml"));
+    let out = kiri(&dir, "Text\n", &["--theme", theme.to_str().unwrap()]);
+    assert_fails_naming(&out, &theme);
+}
+
+#[test]
+fn kiri_config_names_another_configuration_file() {
+    let dir = Scratch::new("kiri-config");
+    broken_theme(&dir.join("config/kiri/default.toml"));
+    write(
+        &dir.join("config/kiri/config.toml"),
+        "theme = \"default.toml\"\n",
+    );
+    let theme = broken_theme(&dir.join("other/theme.toml"));
+    let config = dir.join("other/kiri.toml");
+    write(&config, "theme = \"theme.toml\"\n");
+    let document = dir.join("document.md");
+    std::fs::write(&document, "Text\n").unwrap();
+    let out = command(&dir)
+        .env("KIRI_CONFIG", &config)
+        .arg(&document)
+        .output()
+        .unwrap();
+    assert_fails_naming(&out, &theme);
+}
+
+#[test]
+fn a_configuration_file_that_kiri_config_names_must_exist() {
+    let dir = Scratch::new("kiri-config-missing");
+    let config = dir.join("missing.toml");
+    let document = dir.join("document.md");
+    std::fs::write(&document, "Text\n").unwrap();
+    let out = command(&dir)
+        .env("KIRI_CONFIG", &config)
+        .arg(&document)
+        .output()
+        .unwrap();
+    assert_fails_naming(&out, &config);
+}
+
+#[test]
+fn a_mistake_in_the_configuration_file_is_an_error() {
+    let dir = Scratch::new("config-mistake");
+    let config = dir.join("config/kiri/config.toml");
+    write(&config, "colour = \"blue\"\n");
+    let out = kiri(&dir, "Text\n", &[]);
+    assert_fails_naming(&out, &config);
+    assert!(text(&out.stderr).contains("unknown field `colour`"));
+}
+
+#[test]
+fn renders_with_an_empty_configuration_file() {
+    let dir = Scratch::new("config-empty");
+    write(&dir.join("config/kiri/config.toml"), "");
+    let out = kiri(&dir, "Text\n", &["--mode", "plain"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert_eq!(text(&out.stdout).trim(), "Text");
+}
+
+#[test]
+fn kiri_theme_comes_between_the_option_and_the_configuration_file() {
+    let dir = Scratch::new("kiri-theme");
+    broken_theme(&dir.join("config/kiri/mine.toml"));
+    write(
+        &dir.join("config/kiri/config.toml"),
+        "theme = \"mine.toml\"\n",
+    );
+    let env_theme = broken_theme(&dir.join("env.toml"));
+    let option_theme = broken_theme(&dir.join("option.toml"));
+    let document = dir.join("document.md");
+    std::fs::write(&document, "Text\n").unwrap();
+    let run = |args: &[&std::ffi::OsStr]| {
+        command(&dir)
+            .env("KIRI_THEME", &env_theme)
+            .args(args)
+            .arg(&document)
+            .output()
+            .unwrap()
+    };
+    assert_fails_naming(&run(&[]), &env_theme);
+    let out = run(&["--theme".as_ref(), option_theme.as_os_str()]);
+    assert_fails_naming(&out, &option_theme);
+}
+
+/// The background colour code of the light and the dark paper theme.
+const LIGHT_PAGE: &str = "48;2;255;255;255m";
+
+const DARK_PAGE: &str = "48;2;30;30;30m";
+
+#[test]
+fn light_and_dark_draw_the_document_on_a_page() {
+    let dir = Scratch::new("paper");
+    for (option, page) in [("--light", LIGHT_PAGE), ("--dark", DARK_PAGE)] {
+        let out = kiri(&dir, "Text\n", &["--mode", "kitty", option]);
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        let stdout = text(&out.stdout);
+        assert!(stdout.contains(page), "{option}: {stdout:?}");
+    }
+}
+
+#[test]
+fn light_and_dark_cannot_be_given_together() {
+    let dir = Scratch::new("paper-both");
+    let out = kiri(&dir, "Text\n", &["--light", "--dark"]);
+    assert!(!out.status.success());
+    let stderr = text(&out.stderr);
+    assert!(stderr.contains("cannot be used with"), "{stderr}");
+}
+
+#[test]
+fn light_and_dark_cannot_be_given_with_theme() {
+    let dir = Scratch::new("paper-theme");
+    for paper in ["--light", "--dark"] {
+        let out = kiri(&dir, "Text\n", &[paper, "--theme", "mine.toml"]);
+        assert!(!out.status.success(), "{paper}");
+        let stderr = text(&out.stderr);
+        assert!(stderr.contains("cannot be used with"), "{stderr}");
+    }
+}
+
+#[test]
+fn a_theme_name_comes_from_the_flag_the_environment_and_the_configuration_file() {
+    let dir = Scratch::new("theme-names");
+    let page = |command: &mut std::process::Command| {
+        let document = dir.join("document.md");
+        std::fs::write(&document, "Text\n").unwrap();
+        let out = command
+            .args(["--mode", "kitty"])
+            .arg(&document)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        let stdout = text(&out.stdout);
+        (stdout.contains(LIGHT_PAGE), stdout.contains(DARK_PAGE))
+    };
+    assert_eq!(
+        page(command(&dir).args(["--theme", "light"])),
+        (true, false)
+    );
+    assert_eq!(page(command(&dir).args(["--theme", "dark"])), (false, true));
+    assert_eq!(
+        page(command(&dir).env("KIRI_THEME", "light")),
+        (true, false)
+    );
+    write(&dir.join("config/kiri/config.toml"), "theme = \"dark\"\n");
+    assert_eq!(page(&mut command(&dir)), (false, true));
+    assert_eq!(
+        page(command(&dir).env("KIRI_THEME", "light")),
+        (true, false)
+    );
+    assert_eq!(page(command(&dir).arg("--light")), (true, false));
+}
+
+#[test]
+fn a_theme_name_is_a_file_in_the_themes_directory() {
+    let dir = Scratch::new("theme-named-file");
+    let themes = dir.join("config/kiri/themes");
+    let mine = broken_theme(&themes.join("mine.toml"));
+    // The name takes the file, which is broken so that its error says so.
+    assert_fails_naming(&kiri(&dir, "Text\n", &["--theme", "mine"]), &mine);
+    // A name with no such file is an error that lists the names it knows.
+    let out = kiri(&dir, "Text\n", &["--theme", "other"]);
+    assert!(!out.status.success());
+    assert_eq!(
+        text(&out.stderr),
+        "kiri: theme `other` is not one of the themes: dark, light, mine \
+         (for a file in this directory, write ./other)\n"
+    );
+    // A file called `dark.toml` there comes before the built-in dark.
+    let dark = broken_theme(&themes.join("dark.toml"));
+    assert_fails_naming(&kiri(&dir, "Text\n", &["--dark"]), &dark);
+}
+
+#[test]
+fn the_doctor_shows_the_theme_by_name_or_path() {
+    let dir = Scratch::new("theme-doctor");
+    let row = |args: &[&str]| {
+        let out = command(&dir)
+            .arg("--doctor")
+            .arg("--raw")
+            .args(args)
+            .output()
+            .unwrap();
+        let report = text(&out.stdout);
+        report
+            .lines()
+            .find(|line| line.starts_with("| Theme |"))
+            .unwrap()
+            .to_owned()
+    };
+    assert_eq!(
+        row(&["--theme", "dark"]),
+        "| Theme | dark paper | `--theme` |"
+    );
+    assert_eq!(row(&["--light"]), "| Theme | light paper | `--light` |");
+    write(&dir.join("config/kiri/themes/mine.toml"), "");
+    let row = row(&["--theme", "mine"]);
+    assert!(row.starts_with("| Theme | `mine` (`"), "{row}");
+    assert!(row.contains("themes/mine.toml`) | `--theme` |"), "{row}");
+}
+
+#[test]
+fn no_margins_puts_the_text_at_the_edge() {
+    let dir = Scratch::new("no-margins");
+    let out = kiri(&dir, "Text\n", &["--mode", "plain"]);
+    assert_eq!(text(&out.stdout), "  Text\n");
+    for option in ["-M", "--no-margins"] {
+        let out = kiri(&dir, "Text\n", &["--mode", "plain", option]);
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        assert_eq!(text(&out.stdout), "Text\n", "{option}");
+    }
+}
+
+/// The general settings are on every level: a flag, a variable and a key in
+/// the configuration file, each beaten by the one before it.
+#[test]
+fn the_margins_come_from_the_flag_the_environment_and_the_configuration_file() {
+    let dir = Scratch::new("margins-levels");
+    let shown = |command: &mut std::process::Command| {
+        let document = dir.join("document.md");
+        std::fs::write(&document, "Text\n").unwrap();
+        let out = command
+            .args(["--mode", "plain"])
+            .arg(&document)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        text(&out.stdout)
+    };
+    assert_eq!(shown(&mut command(&dir)), "  Text\n");
+    assert_eq!(shown(command(&dir).arg("--no-margins")), "Text\n");
+    assert_eq!(shown(command(&dir).env("KIRI_MARGINS", "off")), "Text\n");
+    write(&dir.join("config/kiri/config.toml"), "margins = false\n");
+    assert_eq!(shown(&mut command(&dir)), "Text\n");
+    assert_eq!(shown(command(&dir).env("KIRI_MARGINS", "on")), "  Text\n");
+    assert_eq!(
+        shown(command(&dir).env("KIRI_MARGINS", "off").arg("--margins")),
+        "  Text\n"
+    );
+    assert_eq!(shown(command(&dir).arg("--margins")), "  Text\n");
+}
+
+#[test]
+fn the_width_comes_from_the_flag_the_environment_and_the_configuration_file() {
+    let dir = Scratch::new("width-levels");
+    let words = "aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj\n";
+    let widest = |command: &mut std::process::Command| {
+        let document = dir.join("document.md");
+        std::fs::write(&document, words).unwrap();
+        let out = command
+            .args(["--mode", "plain"])
+            .arg(&document)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        let shown = text(&out.stdout);
+        shown
+            .lines()
+            .map(|line| line.chars().count())
+            .max()
+            .unwrap()
+    };
+    assert!(widest(&mut command(&dir)) > 30);
+    assert!(widest(command(&dir).args(["--width", "30"])) <= 30);
+    assert!(widest(command(&dir).env("KIRI_WIDTH", "30")) <= 30);
+    write(&dir.join("config/kiri/config.toml"), "width = 30\n");
+    assert!(widest(&mut command(&dir)) <= 30);
+    assert!(widest(command(&dir).args(["--width", "60"])) > 30);
+    let out = kiri(&dir, words, &["--mode", "plain"]);
+    assert!(out.status.success());
+    let out = command(&dir)
+        .env("KIRI_WIDTH", "wide")
+        .args(["--mode", "plain"])
+        .arg(dir.join("document.md"))
+        .output()
+        .unwrap();
+    assert!(
+        text(&out.stderr).contains("KIRI_WIDTH: `wide` is not a whole number of cells; left out")
+    );
+}
+
+#[test]
+fn the_mode_comes_from_the_environment_and_the_configuration_file() {
+    let dir = Scratch::new("mode-levels");
+    let colours = |command: &mut std::process::Command| {
+        let document = dir.join("document.md");
+        std::fs::write(&document, "**Bold**\n").unwrap();
+        let out = command.arg(&document).output().unwrap();
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        text(&out.stdout).contains('\x1b')
+    };
+    // Piped, the mode is plain unless something says otherwise.
+    assert!(!colours(&mut command(&dir)));
+    assert!(colours(command(&dir).env("KIRI_MODE", "ansi")));
+    write(&dir.join("config/kiri/config.toml"), "mode = \"ansi\"\n");
+    assert!(colours(&mut command(&dir)));
+    assert!(!colours(command(&dir).env("KIRI_MODE", "plain")));
+    assert!(!colours(command(&dir).args(["--mode", "plain"])));
+}
+
+#[test]
+fn an_unknown_kiri_paging_is_a_warning() {
+    let dir = Scratch::new("paging-unknown");
+    let document = dir.join("document.md");
+    std::fs::write(&document, "Text\n").unwrap();
+    let out = command(&dir)
+        .env("KIRI_PAGING", "joo")
+        .arg(&document)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert_eq!(text(&out.stdout).trim(), "Text");
+    assert_eq!(
+        text(&out.stderr),
+        "kiri: KIRI_PAGING: `joo` is not always, auto, never, 1 or 0; left out\n"
+    );
+}
+
+#[test]
+fn the_warnings_come_before_the_error_of_a_theme_that_does_not_load() {
+    let dir = Scratch::new("warnings-before-theme");
+    let theme = broken_theme(&dir.join("broken.toml"));
+    let document = dir.join("document.md");
+    std::fs::write(&document, "Text\n").unwrap();
+    let out = command(&dir)
+        .env("KIRI_PAGING", "joo")
+        .env("KIRI_TABLE_ROWS", "stripes")
+        .args(["--theme".as_ref(), theme.as_os_str()])
+        .arg(&document)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = text(&out.stderr);
+    let warnings = "kiri: KIRI_PAGING: `joo` is not always, auto, never, 1 or 0; left out\n\
+         kiri: KIRI_TABLE_ROWS: `stripes` is not off, zebra, lines, indent or underline; \
+         left out\n";
+    let error = stderr.strip_prefix(warnings);
+    assert!(
+        error.is_some_and(|error| error.starts_with(&format!("kiri: {}: ", theme.display()))),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn mouse_and_no_mouse_cannot_be_given_together() {
+    let dir = Scratch::new("mouse-both");
+    let out = kiri(&dir, "Text\n", &["--mouse", "--no-mouse"]);
+    assert!(!out.status.success());
+    let stderr = text(&out.stderr);
+    assert!(stderr.contains("cannot be used with"), "{stderr}");
+}
+
+#[test]
+fn the_paging_flags_exclude_each_other() {
+    let dir = Scratch::new("paging-flags");
+    let document = dir.join("document.md");
+    std::fs::write(&document, "Text\n").unwrap();
+    for args in [&["-p", "-P"][..], &["-p", "--paging", "never"][..]] {
+        let out = command(&dir).args(args).arg(&document).output().unwrap();
+        assert!(!out.status.success(), "{args:?}");
+        assert!(
+            text(&out.stderr).contains("cannot be used with"),
+            "{args:?}"
+        );
+    }
+}
+
+/// A document with front matter, and the Markdown after it.
+const FRONT_MATTER: &str = "---\ntitle: A\n---\nBody\n";
+
+#[test]
+fn front_matter_is_a_table_unless_the_flag_says_otherwise() {
+    let dir = Scratch::new("front-matter-flag");
+    let shown = |args: &[&str]| {
+        let out = kiri(&dir, FRONT_MATTER, &[&["--mode", "plain"], args].concat());
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        text(&out.stdout)
+    };
+    let table = "  ╭───────┬───╮\n  │ title │ A │\n  ╰───────┴───╯\n\n  Body\n";
+    assert_eq!(shown(&[]), table);
+    assert_eq!(shown(&["--front-matter", "table"]), table);
+    assert_eq!(
+        shown(&["--front-matter", "code"]),
+        "    title: A\n\n  Body\n"
+    );
+    assert_eq!(shown(&["--front-matter", "hide"]), "  Body\n");
+    // Off, the text is Markdown: a thematic break and a heading.
+    let off = shown(&["--front-matter", "off"]);
+    assert!(off.contains("## title: A\n"), "{off}");
+    let out = kiri(&dir, FRONT_MATTER, &["--front-matter", "list"]);
+    assert!(!out.status.success());
+    assert!(text(&out.stderr).contains("invalid value 'list'"));
+}
+
+#[test]
+fn front_matter_comes_from_the_environment_and_the_configuration_file() {
+    let dir = Scratch::new("front-matter-setting");
+    let document = dir.join("document.md");
+    std::fs::write(&document, FRONT_MATTER).unwrap();
+    let shown = |command: &mut std::process::Command| {
+        let out = command
+            .args(["--mode", "plain"])
+            .arg(&document)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        (text(&out.stdout), text(&out.stderr))
+    };
+    write(
+        &dir.join("config/kiri/config.toml"),
+        "front_matter = \"hide\"\n",
+    );
+    assert_eq!(shown(&mut command(&dir)).0, "  Body\n");
+    let (out, _) = shown(command(&dir).env("KIRI_FRONT_MATTER", "code"));
+    assert_eq!(out, "    title: A\n\n  Body\n");
+    let (out, _) = shown(
+        command(&dir)
+            .env("KIRI_FRONT_MATTER", "code")
+            .args(["--front-matter", "table"]),
+    );
+    assert!(out.contains("│ title │ A │"), "{out}");
+    let (out, warning) = shown(command(&dir).env("KIRI_FRONT_MATTER", "joo"));
+    assert_eq!(out, "  Body\n");
+    assert_eq!(
+        warning,
+        "kiri: KIRI_FRONT_MATTER: `joo` is not table, code, hide or off; left out\n"
+    );
+}
+
+#[test]
+fn front_matter_that_does_not_parse_is_a_warning_only_as_a_table() {
+    let dir = Scratch::new("front-matter-invalid");
+    let source = "---\ntags: [unclosed\n---\nBody\n";
+    let warning = |args: &[&str]| text(&kiri(&dir, source, args).stderr);
+    assert!(warning(&[]).starts_with("kiri: front matter, line 3: "));
+    for style in ["code", "hide", "off"] {
+        assert_eq!(warning(&["--front-matter", style]), "", "{style}");
+    }
+}
+
+/// A table of two body rows.
+const TABLE: &str = "| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n";
+
+#[test]
+fn table_rows_come_from_the_flag_the_environment_and_the_configuration_file() {
+    let dir = Scratch::new("table-rows");
+    let document = dir.join("document.md");
+    std::fs::write(&document, TABLE).unwrap();
+    let shown = |command: &mut std::process::Command| {
+        let out = command
+            .args(["--mode", "plain"])
+            .arg(&document)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        (text(&out.stdout), text(&out.stderr))
+    };
+    let lined = "  │ 1 │ 2 │\n  ├───┼───┤\n  │ 3 │ 4 │\n";
+    let plain = "  │ 1 │ 2 │\n  │ 3 │ 4 │\n";
+    // Zebra by default, which draws nothing without colours.
+    assert!(shown(&mut command(&dir)).0.contains(plain));
+    let (out, _) = shown(command(&dir).args(["--table-rows", "off"]));
+    assert!(out.contains(plain), "{out}");
+    write(
+        &dir.join("config/kiri/config.toml"),
+        "table_rows = \"off\"\n",
+    );
+    assert!(shown(&mut command(&dir)).0.contains(plain));
+    let (out, _) = shown(command(&dir).env("KIRI_TABLE_ROWS", "lines"));
+    assert!(out.contains(lined), "{out}");
+    let (out, _) = shown(
+        command(&dir)
+            .env("KIRI_TABLE_ROWS", "lines")
+            .args(["--table-rows", "off"]),
+    );
+    assert!(out.contains(plain), "{out}");
+    let (out, warning) = shown(command(&dir).env("KIRI_TABLE_ROWS", "stripes"));
+    assert!(out.contains(plain), "{out}");
+    assert_eq!(
+        warning,
+        "kiri: KIRI_TABLE_ROWS: `stripes` is not off, zebra, lines, indent or underline; left out\n"
+    );
+    let out = kiri(&dir, TABLE, &["--table-rows", "stripes"]);
+    assert!(!out.status.success());
+    assert!(text(&out.stderr).contains("invalid value 'stripes'"));
+}
+
+#[test]
+fn the_help_lists_the_values_of_each_setting() {
+    let dir = Scratch::new("help-values");
+    for flag in ["--help", "-h"] {
+        let out = command(&dir).arg(flag).output().unwrap();
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        insta::assert_snapshot!(flag.trim_start_matches('-'), text(&out.stdout));
+    }
+}
+
+#[test]
+fn the_help_wraps_to_the_terminal_width_up_to_100() {
+    let dir = Scratch::new("help-width");
+    for (columns, width) in [("60", 60), ("200", 100)] {
+        for flag in ["--help", "-h"] {
+            let out = command(&dir)
+                .arg(flag)
+                .env("COLUMNS", columns)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{}", text(&out.stderr));
+            let help = text(&out.stdout);
+            let widest = help.lines().map(|line| line.chars().count()).max();
+            assert!(
+                widest <= Some(width),
+                "{flag} {columns}: {widest:?} in {help}"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_short_help_gives_each_argument_one_line() {
+    let dir = Scratch::new("help-short");
+    let out = command(&dir)
+        .arg("-h")
+        .env("COLUMNS", "100")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let help = text(&out.stdout);
+    assert!(help.contains("--max-image-size"), "{help}");
+    // A line that goes on from the one above is indented past the names,
+    // which start at most six cells in;
+    // only clap's list of values, in brackets, may go on.
+    let mut longer = Vec::new();
+    let mut in_values = false;
+    for line in help.lines() {
+        let goes_on = line.starts_with(&" ".repeat(12)) && !line.trim().is_empty();
+        if goes_on && !in_values && !line.trim_start().starts_with('[') {
+            longer.push(line);
+        }
+        if let Some(open) = line.rfind('[') {
+            in_values = !line[open..].contains(']');
+        } else if line.contains(']') {
+            in_values = false;
+        }
+    }
+    assert!(longer.is_empty(), "{longer:#?}");
+}
+
+#[test]
+fn a_flag_takes_only_the_names_of_its_values() {
+    let dir = Scratch::new("flag-values");
+    let error = |args: &[&str]| {
+        let out = command(&dir).args(args).output().unwrap();
+        assert!(!out.status.success(), "{args:?}");
+        text(&out.stderr)
+    };
+    let errors: Vec<String> = [
+        &["--mode", "Kitty"][..],
+        &["--paging", "1"][..],
+        &["--front-matter", "yaml"][..],
+        &["--table-rows", "zebras"][..],
+        &["--diagrams", "1"][..],
+        &["--render-errors", "never"][..],
+    ]
+    .iter()
+    .map(|args| error(args))
+    .collect();
+    insta::assert_snapshot!(errors.join("\n---\n"));
+}
+
+#[test]
+fn headings_as_images_stay_text_in_a_pipe_and_without_kitty() {
+    let dir = Scratch::new("headings-images-text");
+    for mode in [None, Some("plain"), Some("ansi")] {
+        let mut args = vec!["--headings", "images"];
+        args.extend(mode.map(|mode| ["--mode", mode]).into_iter().flatten());
+        let out = kiri(&dir, "# Heading\n\nText\n", &args);
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        let stdout = text(&out.stdout);
+        assert!(!stdout.contains("\x1b_G"), "{mode:?}: {stdout:?}");
+        assert!(!stdout.contains('\u{10EEEE}'), "{mode:?}: {stdout:?}");
+        match mode {
+            Some("ansi") => assert!(stdout.contains("Heading"), "{stdout:?}"),
+            _ => assert!(stdout.starts_with("# Heading\n"), "{stdout:?}"),
+        }
+    }
+}
+
+/// The `--doctor` row called `name`, for kiri run with `args` and `env`.
+fn doctor_row(dir: &Scratch, name: &str, args: &[&str], env: &[(&str, &str)]) -> String {
+    let mut command = command(dir);
+    command
+        .args(["--doctor", "--raw"])
+        .args(args)
+        .envs(env.iter().copied());
+    let out = command.output().unwrap();
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let prefix = format!("| {name} |");
+    let report = text(&out.stdout);
+    report
+        .lines()
+        .find(|line| line.starts_with(&prefix))
+        .unwrap()
+        .to_owned()
+}
+
+/// A `--doctor` row: its name, the flags and variables given, and the
+/// row expected.
+type Case<'a> = (&'a str, &'a [&'a str], &'a [(&'a str, &'a str)], &'a str);
+
+fn check_rows(dir: &str, cases: &[Case]) {
+    let dir = Scratch::new(dir);
+    for &(name, args, env, expected) in cases {
+        assert_eq!(
+            doctor_row(&dir, name, args, env),
+            expected,
+            "{args:?} {env:?}"
+        );
+    }
+}
+
+/// Each general setting reaches the settings from its flag, with the
+/// flag as the origin.
+#[test]
+fn every_flag_of_a_general_setting_is_read() {
+    check_rows(
+        "flags-doctor",
+        &[
+            (
+                "Width",
+                &["--width", "50"],
+                &[],
+                "| Width | 50 cells | `--width` |",
+            ),
+            (
+                "Mode",
+                &["--mode", "ansi"],
+                &[],
+                "| Mode | ansi | `--mode` |",
+            ),
+            (
+                "Largest image",
+                &["--max-image-size", "20"],
+                &[],
+                "| Largest image | 20 MB | `--max-image-size` |",
+            ),
+            (
+                "Margins",
+                &["--no-margins"],
+                &[],
+                "| Margins | off | `--no-margins` |",
+            ),
+            (
+                "Margins",
+                &["--margins"],
+                &[("KIRI_MARGINS", "off")],
+                "| Margins | on | `--margins` |",
+            ),
+            (
+                "Diagram time limit",
+                &["--diagram-timeout", "4"],
+                &[],
+                "| Diagram time limit | 4 s | `--diagram-timeout` |",
+            ),
+            (
+                "Diagram panels",
+                &["--diagram-panel", "off"],
+                &[],
+                "| Diagram panels | off | `--diagram-panel` |",
+            ),
+            (
+                "Theme",
+                &["--light"],
+                &[],
+                "| Theme | light paper | `--light` |",
+            ),
+            (
+                "Diagrams",
+                &["--diagrams", "off"],
+                &[],
+                "| Diagrams | off | `--diagrams` |",
+            ),
+        ],
+    );
+}
+
+/// Each general setting reaches the settings from its variable, with the
+/// variable as the origin.
+#[test]
+fn every_variable_of_a_general_setting_is_read() {
+    check_rows(
+        "variables-doctor",
+        &[
+            (
+                "Width",
+                &[],
+                &[("KIRI_WIDTH", "50")],
+                "| Width | 50 cells | `KIRI_WIDTH=50` |",
+            ),
+            (
+                "Mode",
+                &[],
+                &[("KIRI_MODE", "plain")],
+                "| Mode | plain | `KIRI_MODE=plain` |",
+            ),
+            (
+                "Largest image",
+                &[],
+                &[("KIRI_MAX_IMAGE_SIZE", "30")],
+                "| Largest image | 30 MB | `KIRI_MAX_IMAGE_SIZE=30` |",
+            ),
+            (
+                "Margins",
+                &[],
+                &[("KIRI_MARGINS", "off")],
+                "| Margins | off | `KIRI_MARGINS=off` |",
+            ),
+            (
+                "Diagram time limit",
+                &[],
+                &[("KIRI_DIAGRAM_TIMEOUT", "2.5")],
+                "| Diagram time limit | 2.5 s | `KIRI_DIAGRAM_TIMEOUT=2.5` |",
+            ),
+            (
+                "Diagram panels",
+                &[],
+                &[("KIRI_DIAGRAM_BACKGROUND_PANEL", "0")],
+                "| Diagram panels | off | `KIRI_DIAGRAM_BACKGROUND_PANEL=0` |",
+            ),
+            (
+                "Theme",
+                &[],
+                &[("KIRI_THEME", "dark")],
+                "| Theme | dark paper | `KIRI_THEME=dark` |",
+            ),
+        ],
+    );
+}
+
+/// The defaults that the help and the options table write by hand are the
+/// ones the settings have.
+#[test]
+fn the_defaults_in_the_help_and_the_docs_are_the_settings_defaults() {
+    let dir = Scratch::new("help-defaults");
+    let row = |name| doctor_row(&dir, name, &[], &[]);
+    assert_eq!(row("Mode"), "| Mode | auto | default |");
+    assert_eq!(row("Largest image"), "| Largest image | 10 MB | default |");
+    assert_eq!(
+        row("Diagram time limit"),
+        "| Diagram time limit | 20 s | default |"
+    );
+    assert_eq!(row("Diagram panels"), "| Diagram panels | on | default |");
+    let help = text(&command(&dir).arg("--help").output().unwrap().stdout);
+    let flat = help.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        flat.contains("Which terminal features to use [default: auto]"),
+        "{flat}"
+    );
+    assert!(
+        flat.contains("Largest image file to read, in megabytes [default: 10]"),
+        "{flat}"
+    );
+    assert!(flat.contains("on or off; on unless set."), "{flat}");
+    let options =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/options.md"))
+            .unwrap();
+    assert!(options.contains("`auto` unless set"));
+    assert!(options.contains("10 MB unless set"));
+    assert!(options.contains("in seconds; 20 unless set"));
+    assert!(options.contains("lies on a panel; `on` unless set"));
+}
+
+/// A width of 0 is the terminal's own width, here the 80 cells of a pipe.
+#[test]
+fn a_width_of_0_is_the_terminals_width() {
+    let dir = Scratch::new("width-0");
+    let row = "| Width | 80 cells |";
+    let rows = [
+        doctor_row(&dir, "Width", &["--width", "0"], &[]),
+        doctor_row(&dir, "Width", &[], &[("KIRI_WIDTH", "0")]),
+    ];
+    assert!(
+        rows[0].starts_with(row) && rows[0].ends_with("| `--width` |"),
+        "{rows:?}"
+    );
+    assert!(
+        rows[1].starts_with(row) && rows[1].ends_with("| `KIRI_WIDTH=0` |"),
+        "{rows:?}"
+    );
+    write(&dir.join("config/kiri/config.toml"), "width = 0\n");
+    let file = doctor_row(&dir, "Width", &[], &[]);
+    assert!(file.starts_with(row), "{file}");
+}

@@ -1,4 +1,14 @@
 use super::*;
+use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase};
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use crate::render::{FrontMatterStyle, Headings, RenderErrors, TableRows};
+use crate::term::Mode;
+use crate::typeset::diagnostic::{Code, Diagnostic};
+use crate::typeset::theme::{Paper, Theme};
 
 fn env(home: Option<&str>, xdg: Option<&str>) -> Environment {
     Environment {
@@ -15,7 +25,6 @@ fn each_variable_is_read_and_got_by_its_name() {
         ("HOME", &env.home),
         ("XDG_CONFIG_HOME", &env.xdg_config_home),
         ("TMPDIR", &env.tmpdir),
-        ("KIRI_PAGING", &env.kiri_paging),
         ("NPM_CONFIG_PREFIX", &env.npm_config_prefix),
         ("VTE_VERSION", &env.vte_version),
     ] {
@@ -24,6 +33,48 @@ fn each_variable_is_read_and_got_by_its_name() {
         assert_eq!(env.get(name), Some(value.as_os_str()), "{name}");
     }
     assert_eq!(env.get("SHELL"), None);
+}
+
+#[test]
+fn the_variables_of_the_settings_come_from_the_registry() {
+    let env = Environment::read(|name| Some(OsString::from(format!("<{name}>"))));
+    let names: Vec<&str> = SETTINGS
+        .iter()
+        .filter_map(|entry| entry.env.name())
+        .collect();
+    assert!(names.contains(&"KIRI_PAGING") && names.contains(&"KIRI_NO_IMAGES"));
+    for name in names {
+        let value = OsString::from(format!("<{name}>"));
+        assert_eq!(env.get(name), Some(value.as_os_str()), "{name}");
+    }
+}
+
+#[test]
+fn a_setting_is_named_after_its_key() {
+    // `diagrams.timeout` is `diagram_timeout`, and the key `diagrams` alone
+    // is `diagrams`. A key with a `<language>` in it is a table of
+    // languages, whose settings are maps.
+    for entry in SETTINGS {
+        let Some(key) = entry.key.filter(|key| !key.contains('<')) else {
+            continue;
+        };
+        let name = key.replace("diagrams.", "diagram_");
+        assert_eq!(entry.field, name, "{key}");
+    }
+}
+
+#[test]
+fn the_registry_has_each_setting_once() {
+    let mut fields: Vec<&str> = SETTINGS.iter().map(|entry| entry.field).collect();
+    fields.sort_unstable();
+    let count = fields.len();
+    fields.dedup();
+    assert_eq!(fields.len(), count);
+    let mut flags: Vec<&str> = SETTINGS.iter().filter_map(|entry| entry.flag).collect();
+    flags.sort_unstable();
+    let count = flags.len();
+    flags.dedup();
+    assert_eq!(flags.len(), count);
 }
 
 #[test]
@@ -272,25 +323,38 @@ fn rejects_unknown_keys_and_wrong_types() {
     assert!(error.contains("invalid type"), "{error}");
 }
 
+/// The text of each of `warnings`, as standard error tells them.
+fn texts(warnings: &[Diagnostic]) -> Vec<String> {
+    warnings.iter().map(ToString::to_string).collect()
+}
+
+/// No environment variable, for `resolve`.
+fn unset<T>(_: &mut Vec<Diagnostic>) -> Option<Setting<T>> {
+    None
+}
+
 /// `value` from the flag `name`, as the command line gives it.
 fn flag<T>(value: T, name: &'static str) -> Option<Setting<T>> {
     Some(Setting::new(value, Origin::Flag(name)))
 }
 
-/// The theme from `--theme` with `cli`, the paper flag for `paper`,
-/// `env` and `config`.
+/// The theme from `--theme` with `cli` or else the flag for `paper`, `env`
+/// and `config`.
 fn theme_source(
     cli: Option<&Path>,
     paper: Option<Paper>,
     env: &Environment,
     config: &Config,
 ) -> Setting<ThemeSource> {
+    // `--light` and `--dark` are `--theme light` and `--theme dark`, and
+    // clap does not take them with `--theme`.
+    let theme = match paper {
+        Some(Paper::Light) => flag(PathBuf::from("light"), "--light"),
+        Some(Paper::Dark) => flag(PathBuf::from("dark"), "--dark"),
+        None => cli.and_then(|path| flag(path.to_owned(), "--theme")),
+    };
     let options = Options {
-        theme: cli.and_then(|path| flag(path.to_owned(), "--theme")),
-        paper: paper.and_then(|paper| match paper {
-            Paper::Light => flag(paper, "--light"),
-            Paper::Dark => flag(paper, "--dark"),
-        }),
+        theme,
         ..Options::default()
     };
     super::theme_source(&options, env, config)
@@ -330,7 +394,7 @@ fn the_configuration_file_theme_comes_before_theme_toml() {
 #[test]
 fn the_command_line_theme_comes_before_kiri_theme() {
     let mut env = env(Some("/home/u"), None);
-    env.kiri_theme = Some("env.toml".into());
+    env.variables.insert("KIRI_THEME", "env.toml".into());
     assert_eq!(
         theme_source(Some(Path::new("cli.toml")), None, &env, &Config::default()).value,
         ThemeSource::File(PathBuf::from("cli.toml"))
@@ -340,7 +404,7 @@ fn the_command_line_theme_comes_before_kiri_theme() {
 #[test]
 fn kiri_theme_comes_before_the_configuration_file() {
     let mut env = env(Some("/home/u"), None);
-    env.kiri_theme = Some("env.toml".into());
+    env.variables.insert("KIRI_THEME", "env.toml".into());
     assert_eq!(
         theme_source(None, None, &env, &with_theme("/c/t.toml")).value,
         ThemeSource::File(PathBuf::from("env.toml"))
@@ -350,7 +414,7 @@ fn kiri_theme_comes_before_the_configuration_file() {
 #[test]
 fn an_empty_kiri_theme_is_unset() {
     let mut env = env(Some("/home/u"), None);
-    env.kiri_theme = Some("".into());
+    env.variables.insert("KIRI_THEME", "".into());
     assert_eq!(
         theme_source(None, None, &env, &with_theme("/c/t.toml")).value,
         ThemeSource::File(PathBuf::from("/c/t.toml"))
@@ -358,19 +422,9 @@ fn an_empty_kiri_theme_is_unset() {
 }
 
 #[test]
-fn a_paper_theme_comes_after_the_command_line_theme() {
+fn a_paper_flag_chooses_the_paper_theme() {
     let env = env(Some("/home/u"), None);
     let config = Config::default();
-    assert_eq!(
-        theme_source(
-            Some(Path::new("cli.toml")),
-            Some(Paper::Light),
-            &env,
-            &config
-        )
-        .value,
-        ThemeSource::File(PathBuf::from("cli.toml"))
-    );
     assert_eq!(
         theme_source(None, Some(Paper::Dark), &env, &config).value,
         ThemeSource::Paper(Paper::Dark)
@@ -380,7 +434,7 @@ fn a_paper_theme_comes_after_the_command_line_theme() {
 #[test]
 fn a_paper_theme_comes_before_kiri_theme_and_the_configuration_file() {
     let mut env = env(Some("/home/u"), None);
-    env.kiri_theme = Some("env.toml".into());
+    env.variables.insert("KIRI_THEME", "env.toml".into());
     assert_eq!(
         theme_source(None, Some(Paper::Light), &env, &with_theme("/c/t.toml")).value,
         ThemeSource::Paper(Paper::Light)
@@ -642,7 +696,7 @@ fn the_mouse_key_turns_the_mouse_on_or_off() {
 #[test]
 fn the_diagrams_key_turns_diagrams_on_or_off() {
     check_key(
-        |config| config.diagrams,
+        |config| config.diagrams.enabled,
         &[("diagrams = false\n", false), ("diagrams = true\n", true)],
         &[],
     );
@@ -651,13 +705,13 @@ fn the_diagrams_key_turns_diagrams_on_or_off() {
 #[test]
 fn the_diagrams_table_turns_diagrams_on_or_off_beside_a_language_table() {
     let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
-    let enabled = |text| parsed(text).map(|config| config.diagrams);
+    let enabled = |text| parsed(text).map(|config| config.diagrams.enabled);
     assert_eq!(enabled("[diagrams]\nenabled = false\n"), Ok(Some(false)));
     assert_eq!(enabled("[diagrams]\nenabled = true\n"), Ok(Some(true)));
     assert_eq!(enabled("[diagrams]\n"), Ok(None));
     let both = "[diagrams]\nenabled = false\n\n\
                     [diagrams.mermaid]\ncommand = [\"mmdc\", \"{input}\", \"{output}\"]\n";
-    let config = parsed(both).map(|config| (config.diagrams, config.diagram_commands));
+    let config = parsed(both).map(|config| (config.diagrams.enabled, config.diagrams.commands));
     let command = ["mmdc", "{input}", "{output}"].map(String::from).to_vec();
     assert_eq!(
         config,
@@ -673,7 +727,7 @@ fn the_diagrams_table_turns_diagrams_on_or_off_beside_a_language_table() {
 #[test]
 fn the_diagrams_table_gives_the_time_limit_in_seconds() {
     let parsed = |text: &str| parse(text, Path::new("/c"), &Environment::default());
-    let timeout = |text: &str| parsed(text).map(|config| config.diagram_timeout);
+    let timeout = |text: &str| parsed(text).map(|config| config.diagrams.timeout);
     let seconds = |seconds| Ok(Some(Duration::from_secs_f64(seconds)));
     assert_eq!(timeout("[diagrams]\ntimeout = 5\n"), seconds(5.0));
     assert_eq!(timeout("[diagrams]\ntimeout = 2.5\n"), seconds(2.5));
@@ -699,7 +753,7 @@ fn the_diagrams_table_gives_the_time_limit_in_seconds() {
 #[test]
 fn the_diagrams_table_turns_the_background_panel_off() {
     let parsed = |text: &str| parse(text, Path::new("/c"), &Environment::default());
-    let panel = |text: &str| parsed(text).map(|config| config.diagram_panel);
+    let panel = |text: &str| parsed(text).map(|config| config.diagrams.background_panel);
     assert_eq!(
         panel("[diagrams]\nbackground_panel = false\n"),
         Ok(Some(false))
@@ -711,22 +765,27 @@ fn the_diagrams_table_turns_the_background_panel_off() {
     assert_eq!(panel("[diagrams]\n"), Ok(None));
     let choices = |config: &Config| choose(&Options::default(), &Environment::default(), config);
     assert_eq!(
-        choices(&Config::default()).diagram_panel,
+        choices(&Config::default()).diagram_background_panel,
         Setting::new(true, Origin::Default)
     );
     let config = parsed("[diagrams]\nbackground_panel = false\n").unwrap();
     assert_eq!(
-        choices(&config).diagram_panel,
+        choices(&config).diagram_background_panel,
         Setting::new(false, Origin::File)
     );
-    assert!(!choices(&config).with_theme(Theme::default()).diagram_panel);
+    assert!(
+        !choices(&config)
+            .with_theme(Theme::default())
+            .diagram_background_panel
+    );
 }
 
 #[test]
 fn a_diagram_language_table_turns_the_search_for_its_program_off() {
     let parsed = |text: &str| parse(text, Path::new("/c"), &Environment::default());
-    let off =
-        |text: &str| parsed(text).map(|config| (config.diagram_no_search, config.diagram_commands));
+    let off = |text: &str| {
+        parsed(text).map(|config| (config.diagrams.no_search, config.diagrams.commands))
+    };
     let mermaid = BTreeSet::from(["mermaid".to_owned()]);
     assert_eq!(
         off("[diagrams.mermaid]\nauto_detect = false\n"),
@@ -772,7 +831,7 @@ fn a_diagram_language_table_is_named_in_any_case() {
     );
     let command = ["m", "{input}", "{output}"].map(String::from).to_vec();
     assert_eq!(
-        config.map(|config| (config.diagram_commands, config.diagram_no_search)),
+        config.map(|config| (config.diagrams.commands, config.diagrams.no_search)),
         Ok((
             BTreeMap::from([("mermaid".to_owned(), command)]),
             BTreeSet::from(["mermaid".to_owned()])
@@ -804,19 +863,20 @@ fn a_diagram_language_table_gives_its_external_command() {
         .unwrap();
     let command = ["mmdc", "-i", "{input}", "-o", "{output}", "-t", "{theme}"];
     assert_eq!(
-        config.diagram_commands,
+        config.diagrams.commands,
         BTreeMap::from([("mermaid".to_owned(), command.map(String::from).to_vec())])
     );
     // Without a switch of its own.
-    assert_eq!(config.diagrams, None);
+    assert_eq!(config.diagrams.enabled, None);
     let choices = choose(&Options::default(), &Environment::default(), &config);
-    assert_eq!(choices.diagram_commands, config.diagram_commands);
+    assert_eq!(choices.diagram_commands, config.diagrams.commands);
     let settings = choices.with_theme(Theme::default());
-    assert_eq!(settings.diagram_commands, config.diagram_commands);
+    assert_eq!(settings.diagram_commands, config.diagrams.commands);
     assert!(
         parsed("diagrams = true\n")
             .unwrap()
-            .diagram_commands
+            .diagrams
+            .commands
             .is_empty()
     );
 }
@@ -904,8 +964,8 @@ fn vars(vars: &[(&str, &str)]) -> Environment {
 #[test]
 fn a_setting_comes_from_the_flag_the_variable_the_file_or_the_default() {
     let flag = || Some(Setting::new(1, Origin::Flag("--n")));
-    let variable = |warnings: &mut Vec<String>| {
-        warnings.push("read".to_owned());
+    let variable = |warnings: &mut Vec<Diagnostic>| {
+        warnings.push(Diagnostic::new(Code::Config, "read"));
         Some(Setting::new(2, Origin::Environment("N")))
     };
     let mut warnings = Vec::new();
@@ -915,12 +975,12 @@ fn a_setting_comes_from_the_flag_the_variable_the_file_or_the_default() {
     assert!(warnings.is_empty(), "{warnings:?}");
     let chosen = resolve(None, variable, Some(3), 4, &mut warnings);
     assert_eq!(chosen, Setting::new(2, Origin::Environment("N")));
-    assert_eq!(warnings, ["read"]);
+    assert_eq!(texts(&warnings), ["read"]);
     let chosen = resolve(None, unset, Some(3), 4, &mut warnings);
     assert_eq!(chosen, Setting::new(3, Origin::File));
     let chosen = resolve(None, unset, None, 4, &mut warnings);
     assert_eq!(chosen, Setting::new(4, Origin::Default));
-    assert_eq!(warnings, ["read"]);
+    assert_eq!(texts(&warnings), ["read"]);
 }
 
 #[test]
@@ -928,7 +988,7 @@ fn a_variable_takes_the_names_and_the_aliases_of_the_values() {
     let read = |value: &str| {
         let env = vars(&[("KIRI_PAGING", value)]);
         let mut warnings = Vec::new();
-        let chosen = variable::<Paging>(&env, "KIRI_PAGING")(&mut warnings);
+        let chosen = variable::<Paging>(&env, Env::is("KIRI_PAGING"))(&mut warnings);
         (chosen, warnings)
     };
     let origin = Origin::Environment("KIRI_PAGING");
@@ -945,9 +1005,15 @@ fn a_variable_takes_the_names_and_the_aliases_of_the_values() {
     // Empty is unset, and so is a variable that is not there.
     assert_eq!(read(""), (None, vec![]));
     let env = Environment::default();
-    assert_eq!(variable::<Paging>(&env, "KIRI_PAGING")(&mut vec![]), None);
+    assert_eq!(
+        variable::<Paging>(&env, Env::is("KIRI_PAGING"))(&mut vec![]),
+        None
+    );
     let warning = "KIRI_PAGING: `Auto` is not always, auto, never, 1 or 0; left out";
-    assert_eq!(read("Auto"), (None, vec![warning.to_owned()]));
+    assert_eq!(
+        read("Auto"),
+        (None, vec![Diagnostic::new(Code::Config, warning)])
+    );
 }
 
 #[test]
@@ -1009,7 +1075,7 @@ fn check_variable<T: Named + std::fmt::Debug>(
     assert_eq!(field(&choices("", &file)).origin, Origin::File);
     let chosen = choices(wrong, &file);
     assert_eq!(field(&chosen).origin, Origin::File);
-    assert_eq!(chosen.warnings, [warning]);
+    assert_eq!(texts(&chosen.warnings), [warning]);
     let chosen = choices(wrong, &Config::default());
     assert_eq!(field(&chosen).origin, Origin::Default);
 }
@@ -1234,7 +1300,10 @@ fn kiri_diagrams_turns_diagrams_on_or_off() {
         "KIRI_DIAGRAMS",
         &[("on", true), ("off", false), ("1", true), ("0", false)],
         Config {
-            diagrams: Some(false),
+            diagrams: DiagramsFile {
+                enabled: Some(false),
+                ..DiagramsFile::default()
+            },
             ..Config::default()
         },
         (
@@ -1266,26 +1335,41 @@ fn kiri_render_errors_chooses_where_render_errors_go() {
 }
 
 #[test]
-fn kiri_no_images_turns_images_off_with_any_value_but_empty_or_0() {
-    let images = |value: &str, file: Option<bool>| {
+fn kiri_no_images_takes_a_switch_and_warns_about_any_other_value() {
+    let choose = |value: &str, file: Option<bool>| {
         let config = Config {
             images: file,
             ..Config::default()
         };
-        choose(
-            &Options::default(),
-            &vars(&[("KIRI_NO_IMAGES", value)]),
-            &config,
-        )
-        .images
+        let env = vars(&[("KIRI_NO_IMAGES", value)]);
+        choose(&Options::default(), &env, &config)
     };
     let variable = Origin::Environment("KIRI_NO_IMAGES");
-    for value in ["1", "yes", "false"] {
-        assert_eq!(images(value, Some(true)), Setting::new(false, variable));
+    // 1 and on turn images off, 0 and off turn them on, whatever the file
+    // says.
+    for value in ["1", "on"] {
+        let choices = choose(value, Some(true));
+        assert_eq!(choices.images, Setting::new(false, variable), "{value}");
+        assert!(choices.warnings.is_empty(), "{value}");
     }
-    assert_eq!(images("0", Some(false)), Setting::new(true, variable));
-    assert_eq!(images("", Some(false)), Setting::new(false, Origin::File));
-    assert_eq!(images("", None), Setting::new(true, Origin::Default));
+    for value in ["0", "off"] {
+        let choices = choose(value, Some(false));
+        assert_eq!(choices.images, Setting::new(true, variable), "{value}");
+        assert!(choices.warnings.is_empty(), "{value}");
+    }
+    // Empty is unset.
+    let choices = choose("", Some(false));
+    assert_eq!(choices.images, Setting::new(false, Origin::File));
+    assert!(choices.warnings.is_empty());
+    assert_eq!(choose("", None).images, Setting::new(true, Origin::Default));
+    // Any other value is left out, with a warning.
+    for value in ["yes", "false"] {
+        let choices = choose(value, Some(false));
+        assert_eq!(choices.images, Setting::new(false, Origin::File), "{value}");
+        let warning = format!("KIRI_NO_IMAGES: `{value}` is not on, off, 1 or 0; left out");
+        assert_eq!(texts(&choices.warnings), [warning], "{value}");
+    }
+    assert_eq!(choose("yes", None).images.origin, Origin::Default);
 }
 
 #[test]
@@ -1355,7 +1439,10 @@ fn the_settings_carry_the_values_of_the_choices() {
     let config = Config {
         front_matter: Some(FrontMatter::Off),
         table_rows: Some(TableRows::Lines),
-        diagrams: Some(false),
+        diagrams: DiagramsFile {
+            enabled: Some(false),
+            ..DiagramsFile::default()
+        },
         render_errors: Some(RenderErrors::Stderr),
         ..Config::default()
     };
@@ -1383,7 +1470,7 @@ fn settings_take_the_built_in_theme_without_a_theme_file() {
 #[test]
 fn settings_keep_the_paper_and_its_theme() {
     let options = Options {
-        paper: flag(Paper::Dark, "--dark"),
+        theme: flag(PathBuf::from("dark"), "--dark"),
         ..no_options()
     };
     let settings = settings(&options, &env(None, None), &Config::default())
@@ -1394,10 +1481,31 @@ fn settings_keep_the_paper_and_its_theme() {
 }
 
 #[test]
+fn the_paper_comes_from_a_paper_theme_chosen_at_any_level() {
+    let (_scratch, mut env) = home_with_themes("paper-levels", &["mine"]);
+    let paper = |env: &Environment, theme: Option<&str>, config: &Config| {
+        let options = Options {
+            theme: theme.and_then(|name| flag(PathBuf::from(name), "--theme")),
+            ..no_options()
+        };
+        settings(&options, env, config).1.unwrap().paper
+    };
+    let none = Config::default();
+    assert_eq!(paper(&env, Some("dark"), &none), Some(Paper::Dark));
+    assert_eq!(paper(&env, None, &with_theme("light")), Some(Paper::Light));
+    assert_eq!(paper(&env, None, &none), None);
+    assert_eq!(paper(&env, Some("mine"), &none), None);
+    env.variables.insert("KIRI_THEME", "dark".into());
+    assert_eq!(paper(&env, None, &none), Some(Paper::Dark));
+    env.variables.insert("KIRI_THEME", "mine".into());
+    assert_eq!(paper(&env, None, &with_theme("dark")), None);
+}
+
+#[test]
 fn no_margins_applies_to_whichever_theme_is_chosen() {
     for paper in [None, Some(Paper::Light)] {
         let options = Options {
-            paper: paper.and_then(|paper| flag(paper, "--light")),
+            theme: paper.and_then(|_| flag(PathBuf::from("light"), "--light")),
             margins: flag(false, "--no-margins"),
             ..no_options()
         };
@@ -1433,7 +1541,7 @@ fn the_theme_tells_where_it_comes_from() {
         Origin::Default
     );
     assert_eq!(origin(None, None, &env, &config), Origin::File);
-    env.kiri_theme = Some("env.toml".into());
+    env.variables.insert("KIRI_THEME", "env.toml".into());
     assert_eq!(
         origin(None, None, &env, &config),
         Origin::Environment("KIRI_THEME")
@@ -1447,7 +1555,7 @@ fn the_theme_tells_where_it_comes_from() {
         Origin::Flag("--dark")
     );
     assert_eq!(
-        origin(Some("cli.toml"), Some(Paper::Dark), &env, &config),
+        origin(Some("cli.toml"), None, &env, &config),
         Origin::Flag("--theme")
     );
     assert_eq!(
@@ -1529,4 +1637,373 @@ fn only_the_built_in_theme_is_marked_built_in() {
     ] {
         assert!(!load_theme(&source).unwrap().built_in);
     }
+}
+
+/// The general settings, which matter without the pager too, are on every
+/// level: a flag, an environment variable and a key in the file. The
+/// per-language diagram tables are not one value a flag or a variable can
+/// take, so they are left as they are.
+#[test]
+fn a_general_setting_has_a_flag_a_variable_and_a_key() {
+    let exempt = ["diagram_commands", "diagram_no_search"];
+    let mut missing = Vec::new();
+    for entry in SETTINGS
+        .iter()
+        .filter(|entry| entry.scope == Scope::General)
+    {
+        if exempt.contains(&entry.field) {
+            continue;
+        }
+        let levels = [
+            ("flag", entry.flag.is_some()),
+            ("variable", entry.env.name().is_some()),
+            ("key", entry.key.is_some()),
+        ];
+        for (level, has) in levels {
+            if !has {
+                missing.push(format!("{}: no {level}", entry.field));
+            }
+        }
+    }
+    assert!(missing.is_empty(), "{missing:#?}");
+}
+
+#[test]
+fn each_flag_has_its_help_in_the_registry() {
+    for entry in SETTINGS {
+        if let Some(flag) = entry.flag {
+            assert!(entry.help.is_some(), "{flag}");
+            assert!(!help_text(flag).is_empty(), "{flag}");
+        }
+    }
+}
+
+#[test]
+fn a_flag_and_a_variable_are_named_after_their_setting() {
+    // The older names stay: `--no-images` and `KIRI_NO_IMAGES` say the
+    // opposite of their setting.
+    // `--diagram-panel` is shorter than its setting, so that `-h` keeps
+    // its two columns.
+    let short = [("diagram_background_panel", "--diagram-panel")];
+    for entry in SETTINGS {
+        let flag = format!("--{}", entry.field.replace('_', "-"));
+        let flag = short
+            .iter()
+            .find(|(field, _)| *field == entry.field)
+            .map_or(flag, |s| s.1.to_owned());
+        if let Some(name) = entry.flag {
+            assert_eq!(name, flag, "{}", entry.field);
+        }
+        let variable = format!("KIRI_{}", entry.field.to_uppercase());
+        if let Some(name) = entry.env.name().filter(|_| entry.field != "images") {
+            assert_eq!(name, variable, "{}", entry.field);
+        }
+    }
+}
+
+/// Parses `text`, a configuration file, and chooses with `env` and `flag`.
+fn chosen(text: &str, env: &[(&str, &str)], options: Options) -> Choices {
+    let config = parse(text, Path::new("/c"), &Environment::default()).unwrap();
+    choose(&options, &vars(env), &config)
+}
+
+#[test]
+fn the_width_comes_from_the_flag_the_variable_or_the_file() {
+    let width = |value, origin| Setting::new(Some(value), origin);
+    let file = "width = 70\n";
+    let env = [("KIRI_WIDTH", "80")];
+    let options = Options {
+        width: flag(Some(90), "--width"),
+        ..Options::default()
+    };
+    let origin = Origin::Environment("KIRI_WIDTH");
+    assert_eq!(
+        chosen(file, &env, options).width,
+        width(90, Origin::Flag("--width"))
+    );
+    assert_eq!(
+        chosen(file, &env, Options::default()).width,
+        width(80, origin)
+    );
+    assert_eq!(
+        chosen(file, &[], Options::default()).width,
+        width(70, Origin::File)
+    );
+    let none = Setting::new(None, Origin::Default);
+    assert_eq!(chosen("", &[], Options::default()).width, none);
+    let wrong = chosen("", &[("KIRI_WIDTH", "wide")], Options::default());
+    assert_eq!(wrong.width, none);
+    assert_eq!(
+        texts(&wrong.warnings),
+        ["KIRI_WIDTH: `wide` is not a whole number of cells; left out"]
+    );
+}
+
+#[test]
+fn the_mode_comes_from_the_flag_the_variable_or_the_file() {
+    let file = "mode = \"ansi\"\n";
+    let env = [("KIRI_MODE", "plain")];
+    let options = Options {
+        mode: flag(Mode::Kitty, "--mode"),
+        ..Options::default()
+    };
+    let mode = |choices: Choices| (choices.mode.value, choices.mode.origin);
+    assert_eq!(
+        mode(chosen(file, &env, options)),
+        (Mode::Kitty, Origin::Flag("--mode"))
+    );
+    let origin = Origin::Environment("KIRI_MODE");
+    assert_eq!(
+        mode(chosen(file, &env, Options::default())),
+        (Mode::Plain, origin)
+    );
+    assert_eq!(
+        mode(chosen(file, &[], Options::default())),
+        (Mode::Ansi, Origin::File)
+    );
+    assert_eq!(
+        mode(chosen("", &[], Options::default())),
+        (Mode::Auto, Origin::Default)
+    );
+    let wrong = chosen("", &[("KIRI_MODE", "fancy")], Options::default());
+    assert_eq!(
+        texts(&wrong.warnings),
+        ["KIRI_MODE: `fancy` is not auto, plain, ansi or kitty; left out"]
+    );
+}
+
+#[test]
+fn the_largest_image_comes_from_the_variable_or_the_file_within_1_to_100() {
+    let size = |text, env: &[(&str, &str)]| chosen(text, env, Options::default()).max_image_size;
+    assert_eq!(size("", &[]), Setting::new(Megabytes(10), Origin::Default));
+    assert_eq!(
+        size("max_image_size = 20\n", &[]),
+        Setting::new(Megabytes(20), Origin::File)
+    );
+    let origin = Origin::Environment("KIRI_MAX_IMAGE_SIZE");
+    let env = [("KIRI_MAX_IMAGE_SIZE", "30")];
+    assert_eq!(
+        size("max_image_size = 20\n", &env),
+        Setting::new(Megabytes(30), origin)
+    );
+    let wrong = chosen("", &[("KIRI_MAX_IMAGE_SIZE", "500")], Options::default());
+    assert_eq!(wrong.max_image_size.origin, Origin::Default);
+    let warning = "KIRI_MAX_IMAGE_SIZE: `500` is not a whole number of MB from 1 to 100; left out";
+    assert_eq!(texts(&wrong.warnings), [warning]);
+    let error = parse(
+        "max_image_size = 500\n",
+        Path::new("/c"),
+        &Environment::default(),
+    );
+    assert!(
+        error
+            .unwrap_err()
+            .contains("give a whole number of MB from 1 to 100")
+    );
+}
+
+#[test]
+fn the_margins_come_from_the_flag_the_variable_or_the_file() {
+    let margins = |text, env: &[(&str, &str)], options| chosen(text, env, options).margins;
+    let flagged = Options {
+        margins: flag(false, "--no-margins"),
+        ..Options::default()
+    };
+    let origin = Origin::Environment("KIRI_MARGINS");
+    let env = [("KIRI_MARGINS", "off")];
+    assert_eq!(
+        margins("margins = true\n", &env, flagged),
+        Setting::new(false, Origin::Flag("--no-margins"))
+    );
+    assert_eq!(
+        margins("margins = true\n", &env, Options::default()),
+        Setting::new(false, origin)
+    );
+    assert_eq!(
+        margins("margins = false\n", &[], Options::default()),
+        Setting::new(false, Origin::File)
+    );
+    assert_eq!(
+        margins("", &[], Options::default()),
+        Setting::new(true, Origin::Default)
+    );
+}
+
+#[test]
+fn the_diagram_timeout_and_panel_come_from_a_flag_or_a_variable() {
+    let env = [
+        ("KIRI_DIAGRAM_TIMEOUT", "2.5"),
+        ("KIRI_DIAGRAM_BACKGROUND_PANEL", "off"),
+    ];
+    let file = "[diagrams]\ntimeout = 9\nbackground_panel = true\n";
+    let choices = chosen(file, &env, Options::default());
+    let timeout = Origin::Environment("KIRI_DIAGRAM_TIMEOUT");
+    let panel = Origin::Environment("KIRI_DIAGRAM_BACKGROUND_PANEL");
+    assert_eq!(
+        choices.diagram_timeout,
+        Setting::new(Duration::from_secs_f64(2.5), timeout)
+    );
+    assert_eq!(choices.diagram_background_panel, Setting::new(false, panel));
+    let options = Options {
+        diagram_timeout: flag(Duration::from_secs(4), "--diagram-timeout"),
+        diagram_background_panel: flag(true, "--diagram-panel"),
+        ..Options::default()
+    };
+    let choices = chosen(file, &env, options);
+    assert_eq!(
+        choices.diagram_timeout.origin,
+        Origin::Flag("--diagram-timeout")
+    );
+    assert!(choices.diagram_background_panel.value);
+    let wrong = chosen("", &[("KIRI_DIAGRAM_TIMEOUT", "-1")], Options::default());
+    let warning = "KIRI_DIAGRAM_TIMEOUT: `-1` is not a positive number of seconds; left out";
+    assert_eq!(texts(&wrong.warnings), [warning]);
+}
+
+#[test]
+fn the_docs_name_every_variable_flag_and_key_of_the_settings() {
+    let config = include_str!("../../docs/config.md");
+    let options = include_str!("../../docs/options.md");
+    let mut missing = Vec::new();
+    for entry in SETTINGS {
+        let variable = entry.env.name();
+        if variable.is_some_and(|name| !config.contains(&format!("`{name}`"))) {
+            missing.push(format!(
+                "{}: the variable is not in docs/config.md",
+                entry.field
+            ));
+        }
+        let flag = |flag: &str| {
+            options.contains(&format!("`{flag}")) || options.contains(&format!(", `{flag}"))
+        };
+        if entry.flag.is_some_and(|name| !flag(name)) {
+            missing.push(format!(
+                "{}: the flag is not in docs/options.md",
+                entry.field
+            ));
+        }
+        let key = entry.key.filter(|key| !key.contains('<'));
+        let key = key.and_then(|key| key.rsplit('.').next());
+        let listed = |key: &str| {
+            config.contains(&format!("\n{key} = ")) || config.contains(&format!("`{key} = "))
+        };
+        if key.is_some_and(|key| !listed(key)) {
+            missing.push(format!("{}: the key is not in docs/config.md", entry.field));
+        }
+    }
+    assert!(missing.is_empty(), "{missing:#?}");
+}
+
+/// A home directory with the themes `names` in its themes directory, for
+/// `theme_source` to look in.
+fn home_with_themes(label: &str, names: &[&str]) -> (crate::testing::Scratch, Environment) {
+    let scratch = crate::testing::Scratch::new(label);
+    let themes = scratch.join(".config/kiri/themes");
+    std::fs::create_dir_all(&themes).unwrap();
+    for name in names {
+        std::fs::write(themes.join(format!("{name}.toml")), "").unwrap();
+    }
+    let env = env(Some(scratch.to_str().unwrap()), None);
+    (scratch, env)
+}
+
+#[test]
+fn a_theme_name_is_a_file_in_the_themes_directory() {
+    let (scratch, env) = home_with_themes("theme-name", &["mine"]);
+    let path = scratch.join(".config/kiri/themes/mine.toml");
+    let named = ThemeSource::Named {
+        name: "mine".to_owned(),
+        path,
+    };
+    let flag = |name: &str| {
+        let options = Options {
+            theme: flag(PathBuf::from(name), "--theme"),
+            ..Options::default()
+        };
+        super::theme_source(&options, &env, &Config::default())
+    };
+    assert_eq!(
+        flag("mine"),
+        Setting::new(named.clone(), Origin::Flag("--theme"))
+    );
+    // A separator or a .toml ending makes it a path, as before.
+    let path = ThemeSource::File(PathBuf::from("./mine"));
+    assert_eq!(flag("./mine").value, path);
+    let path = ThemeSource::File(PathBuf::from("mine.toml"));
+    assert_eq!(flag("mine.toml").value, path);
+    // The variable and the file take names too.
+    let mut with_variable = env.clone();
+    with_variable.variables.insert("KIRI_THEME", "mine".into());
+    let source = theme_source(None, None, &with_variable, &Config::default());
+    assert_eq!(
+        source,
+        Setting::new(named.clone(), Origin::Environment("KIRI_THEME"))
+    );
+    let source = theme_source(None, None, &env, &with_theme("mine"));
+    assert_eq!(source, Setting::new(named, Origin::File));
+}
+
+#[test]
+fn light_and_dark_are_the_paper_themes_unless_a_file_has_the_name() {
+    let (scratch, env) = home_with_themes("theme-paper-names", &[]);
+    let name =
+        |name: &str| theme_source(Some(Path::new(name)), None, &env, &Config::default()).value;
+    assert_eq!(name("light"), ThemeSource::Paper(Paper::Light));
+    assert_eq!(name("dark"), ThemeSource::Paper(Paper::Dark));
+    let path = scratch.join(".config/kiri/themes/dark.toml");
+    std::fs::write(&path, "").unwrap();
+    assert_eq!(
+        name("dark"),
+        ThemeSource::Named {
+            name: "dark".to_owned(),
+            path
+        }
+    );
+    assert_eq!(name("light"), ThemeSource::Paper(Paper::Light));
+}
+
+#[test]
+fn an_unknown_theme_name_is_an_error_listing_the_names() {
+    let (_scratch, env) = home_with_themes("theme-unknown", &["mine", "yours"]);
+    let source = theme_source(Some(Path::new("minee")), None, &env, &Config::default()).value;
+    let ThemeSource::Unknown { name, message } = &source else {
+        panic!("{source:?}");
+    };
+    assert_eq!(name, "minee");
+    assert_eq!(
+        message,
+        "theme `minee` is not one of the themes: dark, light, mine, yours \
+         (for a file in this directory, write ./minee)"
+    );
+    assert_eq!(load_theme(&source), Err(message.clone()));
+}
+
+#[test]
+fn a_theme_name_in_the_file_is_not_made_relative_to_the_file() {
+    let parsed = |text| parse(text, Path::new("/c"), &Environment::default()).unwrap();
+    assert_eq!(
+        parsed("theme = \"dark\"\n").theme,
+        Some(PathBuf::from("dark"))
+    );
+    assert_eq!(
+        parsed("theme = \"t.toml\"\n").theme,
+        Some(PathBuf::from("/c/t.toml"))
+    );
+}
+
+#[test]
+fn a_width_of_0_is_the_terminals_width_at_every_level() {
+    // The flag is read by `main`, which asks `is_unset`; the tests in
+    // tests/it/cli_config.rs run it.
+    let width = |text: &str, env: &[(&str, &str)]| chosen(text, env, Options::default()).width;
+    // The origin stays, so that `--doctor` says where the 0 came from.
+    let none = |origin| Setting::new(None, origin);
+    let origin = Origin::Environment("KIRI_WIDTH");
+    assert_eq!(width("", &[("KIRI_WIDTH", "0")]), none(origin));
+    assert_eq!(width("width = 0\n", &[]), none(Origin::File));
+    // 0 in the file is a value, so a variable still beats it.
+    assert_eq!(
+        width("width = 0\n", &[("KIRI_WIDTH", "60")]).value,
+        Some(60)
+    );
 }

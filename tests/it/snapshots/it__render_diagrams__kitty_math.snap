@@ -1,0 +1,64 @@
+---
+source: tests/it/render_diagrams.rs
+expression: "readable(&render_fixture(\"math.md\",\n&with_images(&Capabilities::kitty(WIDTH), images)))"
+---
+␛[0;1;34m␛]66;s=3:n=5:d=6:v=1:w=7;Formulas␛\␛[0m
+
+
+
+  A fraction in a math block:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=9948484,s=80,v=60,c=8,r=3,m=0;<156 bytes>␛\                    ␛[38;2;151;205;68m⟦row 0: 8 cells⟧␛[39m
+                    ␛[38;2;151;205;68m⟦row 1: 8 cells⟧␛[39m
+                    ␛[38;2;151;205;68m⟦row 2: 8 cells⟧␛[39m
+
+  A sum with limits, in dollars:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=8354027,s=230,v=80,c=23,r=4,m=0;<564 bytes>␛\            ␛[38;2;127;120;235m⟦row 0: 23 cells⟧␛[39m
+            ␛[38;2;127;120;235m⟦row 1: 23 cells⟧␛[39m
+            ␛[38;2;127;120;235m⟦row 2: 23 cells⟧␛[39m
+            ␛[38;2;127;120;235m⟦row 3: 23 cells⟧␛[39m
+
+  A matrix:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=15250591,s=120,v=60,c=12,r=3,m=0;<240 bytes>␛\                  ␛[38;2;232;180;159m⟦row 0: 12 cells⟧␛[39m
+                  ␛[38;2;232;180;159m⟦row 1: 12 cells⟧␛[39m
+                  ␛[38;2;232;180;159m⟦row 2: 12 cells⟧␛[39m
+
+  Aligned lines with text:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=4929222,s=250,v=60,c=25,r=3,m=0;<480 bytes>␛\           ␛[38;2;75;54;198m⟦row 0: 25 cells⟧␛[39m
+           ␛[38;2;75;54;198m⟦row 1: 25 cells⟧␛[39m
+           ␛[38;2;75;54;198m⟦row 2: 25 cells⟧␛[39m
+
+  A paragraph with
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=5628548,s=100,v=40,c=10,r=2,m=0;<144 bytes>␛\                   ␛[38;2;85;226;132m⟦row 0: 10 cells⟧␛[39m
+                   ␛[38;2;85;226;132m⟦row 1: 10 cells⟧␛[39m
+
+  in the middle of it, split around the
+  formula.
+
+  ␛[0;90m• ␛[0mIn a list:
+
+␛_Ga=T,U=1,q=2,f=32,o=z,i=239600,s=110,v=40,c=11,r=2,m=0;<144 bytes>␛\                   ␛[38;2;3;167;240m⟦row 0: 11 cells⟧␛[39m
+                   ␛[38;2;3;167;240m⟦row 1: 11 cells⟧␛[39m
+
+  ␛[0;90m│ ␛[0mIn a quote:
+  ␛[0;90m│␛[0m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=15839339,s=110,v=60,c=11,r=3,m=0;<252 bytes>␛\  ␛[0;90m│ ␛[0m               ␛[38;2;241;176;107m⟦row 0: 11 cells⟧␛[39m
+  ␛[0;90m│ ␛[0m               ␛[38;2;241;176;107m⟦row 1: 11 cells⟧␛[39m
+  ␛[0;90m│ ␛[0m               ␛[38;2;241;176;107m⟦row 2: 11 cells⟧␛[39m
+
+  A formula that does not draw stays code:
+
+  ␛[0;48;2;43;48;59m                                       ␛[0;38;2;118;123;133;48;2;43;48;59mmath␛[0;48;2;43;48;59m ␛[0m
+  ␛[0;48;2;43;48;59m ␛[0;38;2;192;197;206;48;2;43;48;59m\frac{a␛[0;48;2;43;48;59m                                    ␛[0m
+  ␛[0;48;2;43;48;59m                                            ␛[0m
+  ␛[0;31m✗ formula could not be drawn: ParseError␛[0m
+  ␛[0;31mat position 7: Unexpected end of input in␛[0m
+  ␛[0;31ma macro argument␛[0m
+
+  Inline formulas stay text: $x^2$, $␛[0;35;48;2;43;48;59m⍽y_1⍽␛[0m$,
+  and prices such as $5 and $6. A lone $$ that
+  never closes stays text too.

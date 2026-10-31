@@ -67,7 +67,7 @@ Refactoring and small fixes that are not bugs go there too.
   with `cargo-about`; the syntax definitions and themes syntect bundles
   need a check of their own, as their licences are not in Cargo metadata.
   So do the five Octicons of reading mode's alerts
-  (`src/reading/octicons.rs`, MIT, Copyright (c) 2026 GitHub Inc.), whose
+  (`src/typeset/reading/octicons.rs`, MIT, Copyright (c) 2026 GitHub Inc.), whose
   outlines come from the Nerd Fonts symbols font that kitty bundles.
 
 ### 3.4 Render check (done)
@@ -1091,12 +1091,12 @@ Covered by G1.10.1.
 
 #### G1.8 One look and layers
 
-- G1.8.1 One look, resolved from the theme in one place and read by both
+- G1.8.1 (done) One look, resolved from the theme in one place and read by both
   layouts, instead of decisions spread over the theme, the text layout
   and reading mode; spacing as a table for each medium, with reading
   mode's GitHub values as the pixel table. Carries out the decisions on
   the differences G1.9.1 finds.
-- G1.8.2 Highlights as layers: one list of layers with a paint
+- G1.8.2 (done) Highlights as layers: one list of layers with a paint
   vocabulary and an order, which each layout paints in its own way, for
   the colouring after a reload, search matches, the selected link and
   the selected band. First tests for the cases that meet: a match on a
@@ -1105,12 +1105,12 @@ Covered by G1.10.1.
 
 #### G1.9 Layouts side by side
 
-- G1.9.1 A test that lays out documents in both layouts and compares
+- G1.9.1 (done) A test that lays out documents in both layouts and compares
   what each decided per block, with a list of the differences that are
   meant. Seven differences nobody chose come first: list bullets from
   the third level, the heading rule, heading sizes, numbered task lists,
   dimmed quotes, table rows and table style, and `mark`, `sub` and `sup`.
-- G1.9.2 Reading mode's layout split into modules by block type, as the
+- G1.9.2 (done) Reading mode's layout split into modules by block type, as the
   text layout's is (G1.1), with every snapshot byte for byte the same.
 - G1.9.3 The grid builders and the sharing out of widths written once,
   for cells and pixels alike.
@@ -1240,13 +1240,13 @@ Needs G3.4.1.
 
 ### G5 Settings
 
-#### G5.1 config.rs split
+#### G5.1 config.rs split (done)
 
 - `config.rs` split into environment, file and resolving, with the
   leftovers of the settings refactor: `ConfigToml` and `Config`, and
   `Choices` and `Settings`, copy each other.
 
-#### G5.2 Names and levels of settings
+#### G5.2 Names and levels of settings (done)
 
 - Internal names match the keys, such as `diagram_panel` for
   `background_panel`, and environment values are read the same way
@@ -1284,7 +1284,7 @@ Needs G3.4.1.
 
 #### G6.3 Purity by types
 
-- G6.3.1 The decisions kiri makes at start, taken out of `main.rs` into a
+- G6.3.1 (done) The decisions kiri makes at start, taken out of `main.rs` into a
   module of their own with unit tests; the answers that need I/O come in
   as values.
 - G6.3.2 What layout gives is `Send + Sync`: no `Rc`, caches owned by
@@ -1295,19 +1295,19 @@ Needs G3.4.1.
 
 #### G6.4 Map, move and guards
 
-- G6.4.1 A placement map in `docs/architecture.md`: four parts, each
+- G6.4.1 (done) A placement map in `docs/architecture.md`: four parts, each
   module's place, and where a new thing goes; module docs at the top of
   the large files; rules on placement in `AGENTS.md`.
-- G6.4.2 The modules that belong wholly to one part moved into it, with
+- G6.4.2 (done) The modules that belong wholly to one part moved into it, with
   paths and nothing else changed.
-- G6.4.3 Guards in `make check`: Clippy's limit on function length, line
+- G6.4.3 (done) Guards in `make check`: Clippy's limit on function length, line
   caps for the large files, and a test of which part may refer to which.
   With them, the pseudo-terminal tests wait on a condition instead of a
   fixed time.
 
 #### G6.5 One route
 
-- G6.5.1 One file shown as the special case of several, so that
+- G6.5.1 (done) One file shown as the special case of several, so that
   `main.rs`'s pairs of functions for one file and for several become
   one; the differences between the two are tested first and kept.
 
@@ -1329,9 +1329,9 @@ Needs G7.2.1.
 
 #### G7.2 The pager's vocabulary
 
-- G7.2.1 One type for warnings, with where each came from, instead of
+- G7.2.1 (done) One type for warnings, with where each came from, instead of
   the five ways warnings travel now.
-- G7.2.2 Commands and keys as data, each with its topic; the help panel
+- G7.2.2 (done) Commands and keys as data, each with its topic; the help panel
   built from them; Esc as one message that what is open answers.
 - G7.2.3 The help as a document in a panel that scrolls, by topic,
   opening at the topic of what is in view (4.14.1).
@@ -1340,13 +1340,15 @@ Needs G7.2.1.
 
 #### G7.3 Control
 
-- G7.3.1 The pager's loop as messages and effects: one step from a
+- G7.3.1 (done) The pager's loop as messages and effects: one step from a
   message to the effects it asks for, and the loop waits, steps and
   draws.
 - G7.3.2 A simulated terminal for the pager's tests, with a virtual
   clock and files in memory, instead of most pseudo-terminal tests;
   with it, a fixed test theme and real terminals' probe answers as
-  fixtures.
+  fixtures. Done but for moving the tests: 7 of the pager's 85
+  pseudo-terminal tests run in the simulated shell, and the rest need
+  `main.rs`'s wiring, so they move with G7.3.3.
 - G7.3.3 A session that holds the sources, their versions and the views;
   the images it wants and what it watches replace the background loads'
   six entries and follow mode's polling, with one watcher for the
@@ -1551,7 +1553,7 @@ reading away what arrives just before exiting, would fix it.
 
 #### B10 Text at a fraction cut too early
 
-Found in review. `cut` in `src/render/wrap.rs` measures text one
+Found in review. `cut` in `src/typeset/wrap.rs` measures text one
 grapheme at a time, and at a fraction each grapheme rounds up to a whole
 cell, so a heading or a sup cut to fit takes fewer letters than fit.
 Measuring the text kept, as `width` does, would fix it.

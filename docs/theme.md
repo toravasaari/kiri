@@ -1,10 +1,14 @@
 # Theme
 
 kiri takes its colours and heading sizes from a theme: a file given with
-`--theme`, `KIRI_THEME` or the [configuration file](config.md), a built-in
-[paper theme](#paper-themes) chosen with `--light` or `--dark`, or else
-`~/.config/kiri/theme.toml` (or `$XDG_CONFIG_HOME/kiri/theme.toml`) when it
-exists. [Configuration](config.md#theme) gives the order. Every key is
+`--theme`, `KIRI_THEME` or the [configuration file](config.md), or a name
+for one: `--theme mine` is `~/.config/kiri/themes/mine.toml` (or under
+`$XDG_CONFIG_HOME`), and `--theme light` and `--theme dark`, also written
+`--light` and `--dark`, are the built-in [paper themes](#paper-themes) unless
+a `light.toml` or `dark.toml` is in that directory. With
+none given, it is `~/.config/kiri/theme.toml` (or
+`$XDG_CONFIG_HOME/kiri/theme.toml`) when it exists.
+[Configuration](config.md#theme) gives the order. Every key is
 optional; the ones you leave out keep the defaults below. If the file has
 a mistake, kiri stops and tells which key is wrong, for example
 `unknown colour "pink" for h2.background`.
@@ -41,8 +45,8 @@ theme.
 Some colour schemes make `bright-black` the background colour, such as
 Solarized Dark and Ghostty's Bright Lights, and the built-in theme draws
 quote bars, rules, list markers and table borders in it, and mixes the
-pager's status line from it. When you use no theme file and neither
-`--light` nor `--dark`, kiri then lightens that grey until it shows, when
+pager's status line from it. When you use no theme file and no paper
+theme, kiri then lightens that grey until it shows, when
 the terminal tells it its colours. A theme file keeps the colours it
 gives, even the same `bright-black`.
 
@@ -96,8 +100,8 @@ error = "red"
 # wide. Without it, code starts at the margin and copies cleanly.
 code_padding = true
 
-# Code block colours, chosen by the terminal's background, or by --light
-# and --dark. A token whose colour is hard to read on the code background
+# Code block colours, chosen by the terminal's background, or by a paper
+# theme. A token whose colour is hard to read on the code background
 # is made darker or lighter, in its own hue, to WCAG's 4.5:1 contrast.
 # Available: base16-eighties.dark, base16-mocha.dark, base16-ocean.dark,
 # base16-ocean.light, InspiredGitHub, Solarized (dark), Solarized (light).
@@ -261,8 +265,8 @@ background = "none"
 
 ## Paper themes
 
-`--light` and `--dark` choose a built-in theme that draws the document on a
-page of fixed colours, as a browser does, whatever your terminal's colour
+`--light` and `--dark`, or `--theme light` and `--theme dark`, choose a
+built-in theme that draws the document on a page of fixed colours, as a browser does, whatever your terminal's colour
 scheme. The page is in greys only: headings, links, quotes, rules, tables,
 inline code, marked text and the headers of several files differ in shade,
 weight and underline, not in colour. Code blocks keep their colours, from a
