@@ -30,10 +30,8 @@ mod warnings;
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use crate::diagrams::DiagramError;
 use crate::diagrams::{FormulaColors, INLINE_FORMULA, NoRenderer, Renderer, Theme};
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::model::{Block, Document, Inline};
@@ -59,282 +57,8 @@ pub(crate) use crate::typeset::images::decode::{MAX_PIXELS, png_size};
 pub(crate) use crate::typeset::images::drawn::decode_diagram;
 pub(crate) use url::read_at_most;
 
-/// Why an image could not be loaded.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ImageError {
-    /// No file at this path.
-    Missing(PathBuf),
-    /// The file exists but reading it failed.
-    Unreadable { path: PathBuf, reason: String },
-    /// A directory, device, pipe or anything else that is not a regular
-    /// file.
-    NotAFile(PathBuf),
-    /// The file is larger than the limit, in bytes.
-    FileTooLarge { path: PathBuf, limit: u64 },
-    /// A compressed SVG that grows past the limit, in bytes, when it is
-    /// decompressed.
-    DecompressedTooLarge { limit: u64 },
-    /// The URL is empty or only a query or fragment, or a `file:` URL
-    /// without a path.
-    NoPath,
-    /// `http:` and `https:` images are not fetched.
-    Remote,
-    /// A URL scheme other than `http`, `https`, `data` or `file`.
-    UnsupportedScheme(String),
-    /// A `data:` URL without a comma or with broken base64.
-    InvalidData,
-    /// The bytes are not in any image format kiri knows.
-    UnknownFormat,
-    /// A known image format that this build cannot decode, by name.
-    UnsupportedFormat(String),
-    /// The data ends before the image does.
-    Truncated,
-    /// Too many pixels to decode safely.
-    TooLarge { width: u32, height: u32 },
-    /// The decoder rejected the data.
-    Corrupt(String),
-    /// A diagram that could not be drawn: how warnings name it, and why.
-    Diagram { name: String, reason: DiagramError },
-}
-
-impl fmt::Display for ImageError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ImageError::Missing(path) => write!(f, "{}: file not found", path.display()),
-            ImageError::Unreadable { path, reason } => write!(f, "{}: {reason}", path.display()),
-            ImageError::NotAFile(path) => write!(f, "{}: not a regular file", path.display()),
-            ImageError::FileTooLarge { path, limit } => {
-                write!(
-                    f,
-                    "{}: larger than the {} limit; see --max-image-size",
-                    path.display(),
-                    size(*limit)
-                )
-            }
-            ImageError::DecompressedTooLarge { limit } => {
-                write!(
-                    f,
-                    "decompresses to more than the {} limit; see --max-image-size",
-                    size(*limit)
-                )
-            }
-            ImageError::NoPath => f.write_str("the URL names no file"),
-            ImageError::Remote => f.write_str("remote images are not loaded"),
-            ImageError::UnsupportedScheme(scheme) => write!(f, "{scheme}: URLs are not loaded"),
-            ImageError::InvalidData => f.write_str("invalid data: URL"),
-            ImageError::UnknownFormat => f.write_str("not an image format kiri knows"),
-            ImageError::UnsupportedFormat(format) => {
-                write!(f, "{format} images are not supported in this build")
-            }
-            ImageError::Truncated => f.write_str("the image data is cut short"),
-            ImageError::TooLarge { width, height } => {
-                write!(f, "{width} × {height} pixels is too large to load")
-            }
-            ImageError::Corrupt(reason) => write!(f, "broken image: {reason}"),
-            ImageError::Diagram { name, reason } => write!(f, "{name}: {reason}"),
-        }
-    }
-}
-
-impl ImageError {
-    /// Whether the message names the file or the diagram, so that it
-    /// needs no other name in front.
-    pub fn names_file(&self) -> bool {
-        matches!(
-            self,
-            ImageError::Missing(_)
-                | ImageError::Unreadable { .. }
-                | ImageError::NotAFile(_)
-                | ImageError::FileTooLarge { .. }
-                | ImageError::Diagram { .. }
-        )
-    }
-}
-
-impl std::error::Error for ImageError {}
-
-/// A size limit in bytes for people, to go before a noun: whole megabytes
-/// when it is that, as in "the 10 MB limit", and otherwise "the 1500-byte
-/// limit".
-pub(crate) fn size(bytes: u64) -> String {
-    if bytes >= MB && bytes.is_multiple_of(MB) {
-        format!("{} MB", bytes / MB)
-    } else {
-        format!("{bytes}-byte")
-    }
-}
-
-/// What an image is made from, the key into `Images`. Each key also
-/// names the document it belongs to, by its number among the documents
-/// shown together, counting from 0: the same URL in two documents can
-/// name two files, each relative to its own document's directory.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ImageKey {
-    /// An image file or `data:` URL, as the document gives it.
-    Url { document: usize, url: String },
-    /// A code block drawn as an image, such as a diagram: its language, in
-    /// lower case as code blocks match it in any case, and its source.
-    Block {
-        document: usize,
-        language: String,
-        source: String,
-    },
-    /// A heading drawn as an image: its level, its words with the inline
-    /// code they are in, and the size in pixels of the cells it is drawn
-    /// for, as its words start on whole cells.
-    Heading {
-        document: usize,
-        level: u8,
-        words: Vec<HeadingWord>,
-        cell: (u16, u16),
-    },
-    /// A part of a page of reading mode's text, drawn when it is shown:
-    /// the page, by a hash of what it shows and how, and the part's number
-    /// from its top.
-    Page {
-        document: usize,
-        page: u64,
-        slice: u32,
-        /// A hash of what is drawn over the part, such as a search's
-        /// marks; 0 for nothing.
-        overlay: u64,
-    },
-    /// A band of a page of reading mode, a code block or table that
-    /// scrolls sideways, drawn when it is shown: the page, the band's
-    /// number on it, the part of its rows, at most 30, which the key
-    /// stands for, how many pixels it is scrolled, and whether it is the
-    /// one selected.
-    Band {
-        document: usize,
-        page: u64,
-        band: u32,
-        slice: u32,
-        offset: u32,
-        selected: bool,
-        /// As for a part of a page.
-        overlay: u64,
-    },
-}
-
-impl ImageKey {
-    /// The key of the code block `source` in `language`, drawn as an
-    /// image, in the first document: the same for a language in any case.
-    pub fn block(language: &str, source: &str) -> Self {
-        ImageKey::Block {
-            document: 0,
-            language: language.to_ascii_lowercase(),
-            source: source.to_owned(),
-        }
-    }
-
-    /// The key of the heading of `level` with the text `text`, without
-    /// inline code, drawn as an image for cells of `cell` pixels, in the
-    /// first document.
-    pub fn heading(level: u8, text: &str, cell: (u16, u16)) -> Self {
-        ImageKey::heading_of(level, plain_words(text), cell)
-    }
-
-    /// The key of the heading of `level` with `words`, drawn as an image
-    /// for cells of `cell` pixels, in the first document.
-    pub fn heading_of(level: u8, words: Vec<HeadingWord>, cell: (u16, u16)) -> Self {
-        ImageKey::Heading {
-            document: 0,
-            level,
-            words,
-            cell,
-        }
-    }
-
-    /// The same image in the document numbered `document`.
-    pub fn in_document(self, document: usize) -> Self {
-        match self {
-            ImageKey::Url { url, .. } => ImageKey::Url { document, url },
-            ImageKey::Block {
-                language, source, ..
-            } => ImageKey::Block {
-                document,
-                language,
-                source,
-            },
-            ImageKey::Heading {
-                level, words, cell, ..
-            } => ImageKey::Heading {
-                document,
-                level,
-                words,
-                cell,
-            },
-            ImageKey::Page {
-                page,
-                slice,
-                overlay,
-                ..
-            } => ImageKey::Page {
-                document,
-                page,
-                slice,
-                overlay,
-            },
-            ImageKey::Band {
-                page,
-                band,
-                slice,
-                offset,
-                selected,
-                overlay,
-                ..
-            } => ImageKey::Band {
-                document,
-                page,
-                band,
-                slice,
-                offset,
-                selected,
-                overlay,
-            },
-        }
-    }
-
-    /// The number of the document the image belongs to.
-    pub fn document(&self) -> usize {
-        match *self {
-            ImageKey::Url { document, .. }
-            | ImageKey::Block { document, .. }
-            | ImageKey::Heading { document, .. }
-            | ImageKey::Page { document, .. }
-            | ImageKey::Band { document, .. } => document,
-        }
-    }
-}
-
-impl From<&str> for ImageKey {
-    /// The key of the image at `url` in the first document.
-    fn from(url: &str) -> Self {
-        ImageKey::from(url.to_owned())
-    }
-}
-
-impl From<String> for ImageKey {
-    /// The key of the image at `url` in the first document.
-    fn from(url: String) -> Self {
-        ImageKey::Url { document: 0, url }
-    }
-}
-
-impl fmt::Display for ImageKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ImageKey::Url { url, .. } => f.write_str(url),
-            ImageKey::Block { language, .. } => write!(f, "{language} block"),
-            ImageKey::Heading { words, .. } => {
-                let text: Vec<&str> = words.iter().map(|word| word.text.as_str()).collect();
-                write!(f, "heading {:?}", text.join(" "))
-            }
-            ImageKey::Page { slice, .. } => write!(f, "part {slice} of a page of text"),
-            ImageKey::Band { band, .. } => write!(f, "band {band} of a page of text"),
-        }
-    }
-}
+pub(crate) use crate::typeset::images::error::size;
+pub use crate::typeset::images::{ImageError, ImageKey};
 
 /// How the images of a document are loaded, and its diagrams drawn.
 #[derive(Clone, Copy)]
@@ -793,6 +517,10 @@ fn inline_images<'a>(content: &'a [Inline], renderer: &dyn Renderer, wanted: &mu
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
+    use crate::typeset::diagrams::error::DiagramError;
+
     use crate::typeset::diagnostic::Code;
 
     /// The text of each of `diagnostics`, as standard error tells them.
@@ -1052,43 +780,6 @@ x^2
                 "data: URL: not an image format kiri knows",
                 "file://?x: the URL names no file",
                 "an image URL is empty",
-            ]
-        );
-    }
-
-    #[test]
-    fn explains_errors_in_words() {
-        let messages = [
-            ImageError::Missing("a/b.png".into()).to_string(),
-            ImageError::Remote.to_string(),
-            ImageError::NotAFile("/dev/zero".into()).to_string(),
-            ImageError::FileTooLarge {
-                path: "big.png".into(),
-                limit: 10 * MB,
-            }
-            .to_string(),
-            ImageError::FileTooLarge {
-                path: "big.png".into(),
-                limit: 1500,
-            }
-            .to_string(),
-            ImageError::DecompressedTooLarge { limit: 10 * MB }.to_string(),
-            ImageError::TooLarge {
-                width: 20000,
-                height: 20000,
-            }
-            .to_string(),
-        ];
-        assert_eq!(
-            messages,
-            [
-                "a/b.png: file not found",
-                "remote images are not loaded",
-                "/dev/zero: not a regular file",
-                "big.png: larger than the 10 MB limit; see --max-image-size",
-                "big.png: larger than the 1500-byte limit; see --max-image-size",
-                "decompresses to more than the 10 MB limit; see --max-image-size",
-                "20000 × 20000 pixels is too large to load",
             ]
         );
     }

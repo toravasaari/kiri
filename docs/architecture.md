@@ -680,7 +680,7 @@ The later work that the rows name, in words:
 | `src/reading/paint.rs` | typesetting | moved to `src/typeset/reading/paint.rs` |
 | `src/reading/text.rs` | typesetting | moved to `src/typeset/reading/text.rs` |
 | `src/reading/fonts.rs` | mixed | moved to `src/typeset/reading/fonts.rs`. Typesetting: `Fonts`, the fonts handed to parley, with the fallbacks. Platform: loading the system fonts and memory-mapping the font files, lazily, on the first layout; the font database moves that loading out |
-| `src/images/mod.rs` | mixed | stays. Typesetting: `ImageKey`, `ImageError`, `Images`, the plan of which images a document wants, and `LoadOptions`, the drawing options, which carry `progress`, a callback that `load_parts` in `src/load/mod.rs` calls. Platform: `load`, `load_with` and `load_parts`, which read files and run the renderers, moved to `src/load/mod.rs`. Loading and sessions |
+| `src/images/mod.rs` | mixed | stays. Typesetting: `ImageKey` and `ImageError`, moved to `src/typeset/images/key.rs` and `error.rs`; `Images`, the plan of which images a document wants, and `LoadOptions`, the drawing options, which carry `progress`, a callback that `load_parts` in `src/load/mod.rs` calls. Platform: `load`, `load_with` and `load_parts`, which read files and run the renderers, moved to `src/load/mod.rs`. Loading and sessions |
 | `src/images/decode.rs` | typesetting | moved to `src/typeset/images/decode.rs` |
 | `src/images/drawn.rs` | typesetting | moved to `src/typeset/images/drawn.rs` |
 | `src/images/drawn/tests.rs` | typesetting | moved to `src/typeset/images/drawn/tests.rs` |
@@ -772,7 +772,9 @@ later and are test only.
 | `src/typeset/mod.rs` | new: the root of the typesetting engine |
 | `src/present/mod.rs` | new: the root of the terminal layer |
 | `src/session/mod.rs` | new: the root of the state engine |
-| `src/typeset/images/mod.rs` | new: declares `decode`, `drawn`, `heading` and `size`; the pure pieces of `images/mod.rs` arrive in it with loading and sessions |
+| `src/typeset/images/mod.rs` | new: declares `decode`, `drawn`, `error`, `heading`, `key` and `size`; the rest of the pure pieces of `images/mod.rs` arrive in it with loading and sessions |
+| `src/typeset/images/key.rs` | new: `ImageKey`, what an image is made from, the key into `Images` |
+| `src/typeset/images/error.rs` | new: `ImageError`, why an image could not be loaded, and `size`, a size limit in words |
 | `src/typeset/diagrams/mod.rs` | new: declares `error`, `language`, `math`, `mermaid`, `names`, `output`, `renderer` and `request` |
 | `src/typeset/diagrams/request.rs` | new: `Theme`, `FormulaColors`, `INLINE_FORMULA`, `Drawn` and `Request`, what a renderer is spoken to in |
 | `src/typeset/diagrams/renderer.rs` | new: the `Renderer` trait with `render_one_by_one`, `BuiltIn`, `NoRenderer` and `baseline_depth` |

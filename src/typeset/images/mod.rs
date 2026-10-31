@@ -6,5 +6,10 @@
 
 pub(crate) mod decode;
 pub(crate) mod drawn;
+pub(crate) mod error;
 pub(crate) mod heading;
+pub(crate) mod key;
 pub mod size;
+
+pub use error::ImageError;
+pub use key::ImageKey;
