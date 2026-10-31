@@ -346,8 +346,6 @@ fn main() -> ExitCode {
         list_emojis(&cli)
     } else {
         match plan::route(&cli.files, kiri::term::stdin_is_terminal()) {
-            Route::One => run(&cli, cli.files.first().map(PathBuf::as_path)),
-            Route::Stdin => run(&cli, None),
             // clap cannot require the file only when stdin is a terminal,
             // so this is its own error for a missing argument.
             Route::Missing => command
@@ -362,7 +360,7 @@ fn main() -> ExitCode {
                     "- (standard input) can be given only once",
                 )
                 .exit(),
-            Route::Several => run_files(&cli, &cli.files),
+            route => run(&cli, route),
         }
     };
     match result {
@@ -403,113 +401,87 @@ impl From<String> for Failure {
 /// that the content tells what standard input is, as for such a file.
 const STDIN: &str = "<stdin>";
 
-/// Shows the file at `path`, the README of a directory there, or standard
-/// input without one.
-fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
-    let Opened {
-        path,
-        file,
-        look,
-        input,
-        content,
-    } = open(cli, file)?;
-    let env = Environment::from_process();
-    let context = Context::new(cli, &env);
-    let source = match content {
-        Content::Image { format, head, rest } => {
-            let (warnings, settings) = settings(cli, &env);
-            let documents = settings.is_ok();
-            // As for several image files, a broken configuration file does
-            // not stop the image.
-            let settings = settings.unwrap_or_else(|_| without_config(cli, &env));
-            let passthrough = settings.passthrough;
-            let caps = kiri::term::capabilities(context.mode, context.width, &env, passthrough);
-            if plan::pages_alone(settings.paging, kiri::term::stdout_is_terminal(), &caps) {
-                for warning in &warnings {
-                    eprintln!("kiri: {warning}");
+/// Shows the files that `route` names: one file, the README of a directory,
+/// standard input, or several files, one after another, each under a header
+/// that names it. A file that cannot be shown is told about at its place
+/// among the others, which are still shown; kiri then fails. One file has
+/// no header, and the pager reads it again when it changes.
+fn run(cli: &Cli, route: Route) -> Result<(), Failure> {
+    let lone = route.is_alone();
+    let paths: Vec<Option<&Path>> = match route {
+        Route::Stdin => vec![None],
+        _ => (cli.files.iter())
+            .map(|path| Some(path.as_path()).filter(|path| *path != Path::new("-")))
+            .collect(),
+    };
+    let mut opened = Vec::new();
+    for path in paths {
+        opened.push(match open(cli, path) {
+            // Nothing else is shown, so nothing is told before it.
+            Err(error) if lone => return Err(error.into()),
+            Ok(mut file) => {
+                // Many image files may be given, more than kiri can keep
+                // open, so a regular file is closed until it is shown.
+                if let Content::Image { rest, .. } = &mut file.content
+                    && !lone
+                    && (file.file.as_deref()).is_some_and(Path::is_file)
+                {
+                    *rest = None;
                 }
-                let opened = Opened {
-                    path,
-                    file,
-                    look,
-                    input,
-                    content: Content::Image { format, head, rest },
-                };
-                let caps = plan::on_page(caps, settings.paper);
-                let failed = Cell::new(false);
-                return show_files(
-                    &context,
-                    vec![Ok(opened)],
-                    settings,
-                    documents,
-                    caps,
-                    &failed,
-                );
+                Ok(file)
             }
-            let reader = image_reader(file.as_deref(), head, rest)
-                .map_err(|error| format!("{}: {error}", path.display()))?;
-            return Ok(show_image(&context, &caps, &path, format, reader)?);
-        }
-        Content::Text(source) => source,
-    };
-    let (warnings, settings) = settings(cli, &env);
-    for warning in &warnings {
-        eprintln!("kiri: {warning}");
-    }
-    let mut settings = settings?;
-    if file.is_none() {
-        settings.paging = plan::for_standard_input(settings.paging);
-    }
-    let passthrough = settings.passthrough;
-    let caps = kiri::term::capabilities(context.mode, context.width, &env, passthrough);
-    let terminal = kiri::term::stdout_is_terminal();
-    if matches!(input, Input::Diagram(_)) && plan::pages_alone(settings.paging, terminal, &caps) {
-        let opened = Opened {
-            path,
-            file,
-            look,
-            input,
-            content: Content::Text(source),
-        };
-        let caps = plan::on_page(caps, settings.paper);
-        let failed = Cell::new(false);
-        return show_files(&context, vec![Ok(opened)], settings, true, caps, &failed);
-    }
-    let (path, file) = (path.as_path(), file.as_deref());
-    if let Input::Diagram(language) = input {
-        return show_diagram(&context, language, &source, path, file, settings, caps);
-    }
-    // The source of a diagram in text stays source.
-    settings.diagrams &= input != Input::Text;
-    // On standard error before the pager opens, and in the pager too.
-    let mut warnings = Vec::new();
-    let warn = |error: &FrontMatterError| {
-        eprintln!("kiri: {error}");
-        warnings.push(Warning::from(error));
-    };
-    let Some(document) = document(input, &source, path, &settings, &caps, warn)? else {
-        return Ok(write_as_is(&source)?);
-    };
-    if let Some(warning) = plan::reading_warning(context.reading, &caps) {
-        eprintln!("kiri: {warning}");
-        warnings.push(Warning {
-            line: None,
-            message: warning,
+            Err(error) => Err((
+                path.map_or_else(|| PathBuf::from(STDIN), Path::to_owned),
+                error,
+            )),
         });
     }
-    // Only a document read from a regular file can be read again: a pipe
-    // given by its path, such as <(cmd), is read to its end already.
-    let from = (file.filter(|path| path.is_file())).map(|path| FromFile { path, input, look });
-    settings.paging = plan::for_follow(settings.paging, settings.follow, from.is_some());
-    show_document(
-        &context,
-        &document,
-        &path.to_string_lossy(),
-        from,
-        warnings,
+    let env = Environment::from_process();
+    let context = Context::new(cli, &env);
+    let shown = || opened.iter().flatten();
+    let files = plan::Files {
+        route,
+        images_only: shown().all(|file| matches!(file.content, Content::Image { .. })),
+        // Each of them shown on its own, as an image is.
+        alone: shown().all(|file| plan::shown_alone(file.input)),
+        reloadable: shown().any(Opened::reloadable),
+    };
+    let (warnings, settings) = self::settings(cli, &env);
+    // A broken configuration file does not stop images; the documents are
+    // not shown without it.
+    let (documents, mut settings, broken) = match settings {
+        Ok(settings) => (true, settings, None),
+        Err(error) => (false, without_config(cli, &env), Some(error)),
+    };
+    settings.paging = plan::paging(settings.paging, &files, settings.follow);
+    let caps = kiri::term::capabilities(context.mode, context.width, &env, settings.passthrough);
+    let caps = plan::on_page(caps, settings.paper);
+    let paged = plan::pages_alone(settings.paging, kiri::term::stdout_is_terminal(), &caps);
+    if plan::tells_warnings(&files, paged) {
+        for warning in &warnings {
+            eprintln!("kiri: {warning}");
+        }
+    }
+    let failed = Cell::new(false);
+    if let Some(error) = broken.filter(|_| !files.images_only) {
+        told(&failed, error);
+    }
+    let run = Run {
+        context: &context,
         settings,
         caps,
-    )
+        documents,
+        lone,
+        reading: true,
+        failed: &failed,
+    };
+    let given = (opened.into_iter())
+        .filter_map(|opened| match opened {
+            Ok(opened) => given_from(&run, opened),
+            Err((path, error)) => Some(Given::failed(path, error)),
+        })
+        .collect();
+    show_given(run, given)
 }
 
 /// A file opened and read far enough to tell what it is.
@@ -523,6 +495,14 @@ struct Opened {
     look: Option<Look>,
     input: Input,
     content: Content,
+}
+
+impl Opened {
+    /// Whether it is a document read from a regular file, which can be read
+    /// again: not an image or a diagram, nor a pipe given by its path.
+    fn reloadable(&self) -> bool {
+        !plan::shown_alone(self.input) && (self.file.as_deref()).is_some_and(Path::is_file)
+    }
 }
 
 /// What a file opened holds.
@@ -653,64 +633,6 @@ fn document(
     }))
 }
 
-/// Shows the files at `paths`, `-` for standard input, one after another,
-/// each under a header that names it, as `run` shows each of them. A file
-/// that cannot be shown is told about at its place among the others, which
-/// are still shown; kiri then fails.
-fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
-    let failed = Cell::new(false);
-    let tell = |error: String| told(&failed, error);
-    let mut opened = Vec::new();
-    for path in paths {
-        let path = Some(path.as_path()).filter(|path| *path != Path::new("-"));
-        opened.push(match open(cli, path) {
-            Ok(mut opened_file) => {
-                // Many image files may be given, more than kiri can keep
-                // open, so a regular file is closed until it is shown.
-                if let Content::Image { rest, .. } = &mut opened_file.content
-                    && (opened_file.file.as_deref()).is_some_and(Path::is_file)
-                {
-                    *rest = None;
-                }
-                Ok(opened_file)
-            }
-            Err(error) => Err((
-                path.map_or_else(|| PathBuf::from(STDIN), Path::to_owned),
-                error,
-            )),
-        });
-    }
-    let env = Environment::from_process();
-    let context = Context::new(cli, &env);
-    let shown = || opened.iter().flatten();
-    let images_only = shown().all(|file| matches!(file.content, Content::Image { .. }));
-    // Each of them shown on its own, as an image is.
-    let alone = shown().all(|file| matches!(file.input, Input::Image(_) | Input::Diagram(_)));
-    let (warnings, settings) = self::settings(cli, &env);
-    for warning in &warnings {
-        eprintln!("kiri: {warning}");
-    }
-    // As for an image on its own, a broken configuration file does not
-    // stop images; the documents are not shown without it.
-    let settings = match settings {
-        Ok(settings) => Some(settings),
-        Err(_) if images_only => None,
-        Err(error) => {
-            tell(error);
-            None
-        }
-    };
-    let documents = settings.is_some();
-    let mut settings = settings.unwrap_or_else(|| without_config(cli, &env));
-    settings.paging = plan::for_files(settings.paging, alone);
-    let passthrough = settings.passthrough;
-    let caps = plan::on_page(
-        kiri::term::capabilities(context.mode, context.width, &env, passthrough),
-        settings.paper,
-    );
-    show_files(&context, opened, settings, documents, caps, &failed)
-}
-
 /// The settings from the command line and the environment alone, for a
 /// configuration file that cannot be read, with the default theme.
 fn without_config(cli: &Cli, env: &Environment) -> Settings {
@@ -718,66 +640,97 @@ fn without_config(cli: &Cli, env: &Environment) -> Settings {
     choices.with_theme(Theme::default())
 }
 
-/// Shows the files `opened`, or why each could not be opened, as
-/// `run_files` shows them, with `settings`, whose paging is that for these
-/// files, and for a terminal with `caps`; documents are shown only when
-/// `documents`, as the configuration file could be read. One file alone
-/// is shown in the pager as a document on its own is, without a header.
-/// A file that cannot be shown is noted in `failed`, and kiri then fails.
-fn show_files(
-    context: &Context,
-    opened: Vec<Result<Opened, (PathBuf, String)>>,
+/// What shows the files, as `run` decides it.
+struct Run<'a> {
+    context: &'a Context<'a>,
+    /// With the paging for these files.
     settings: Settings,
-    documents: bool,
+    /// For the terminal, with the paper that was asked for.
     caps: Capabilities,
-    failed: &Cell<bool>,
-) -> Result<(), Failure> {
-    let tell = |error: String| told(failed, error);
-    let mut given = Vec::new();
-    for opened in opened {
-        let opened = match opened {
-            Ok(opened) => opened,
-            Err((path, error)) => {
-                given.push(Given::failed(path, error));
-                continue;
-            }
-        };
-        let name = opened.path.display().to_string();
-        let mut warnings = Vec::new();
-        let warn = |warning: &FrontMatterError| warnings.push(warning.to_string());
-        let shown = match opened.content {
-            Content::Image { format, head, rest } => Shown::Image { format, head, rest },
-            // The configuration file's error tells why.
-            Content::Text(_) if !documents => continue,
-            Content::Text(source) => match opened.input {
-                Input::Diagram(_) if !caps.styling => Shown::AsIs(source),
-                Input::Diagram(language) => Shown::Diagram {
-                    document: kiri::typeset::parse::code(&source, Some(language)),
-                    language,
-                    source,
-                },
-                input => match document(input, &source, &opened.path, &settings, &caps, warn) {
-                    Ok(Some(document)) => Shown::Document {
-                        document,
-                        images: input != Input::Text,
-                    },
-                    Ok(None) => Shown::AsIs(source),
-                    Err(error) => Shown::Failed(error),
-                },
+    /// Whether documents are shown: the configuration file could be read.
+    documents: bool,
+    /// Whether it is one file, shown on its own.
+    lone: bool,
+    /// Whether to tell that reading mode is not shown.
+    reading: bool,
+    /// A file that cannot be shown is noted here, and kiri then fails.
+    failed: &'a Cell<bool>,
+}
+
+/// How the files are shown, once their paging is set.
+#[derive(Clone, Copy)]
+struct Show<'a> {
+    context: &'a Context<'a>,
+    settings: &'a Settings,
+    lone: bool,
+    failed: &'a Cell<bool>,
+}
+
+/// The file `opened`, ready to show; `None` for text that is not shown, as
+/// the configuration file could not be read.
+fn given_from(run: &Run, opened: Opened) -> Option<Given> {
+    let (settings, caps, lone) = (&run.settings, &run.caps, run.lone);
+    let reload = (lone && opened.reloadable()).then_some((opened.input, opened.look));
+    // A pipe given by its path is read to its end already, so the images
+    // of a document alone from one are relative to the current directory.
+    let alone = plan::shown_alone(opened.input);
+    let file = (opened.file).filter(|file| alone || !lone || file.is_file());
+    let name = opened.path.display().to_string();
+    let mut warnings = Vec::new();
+    let warn = |warning: &FrontMatterError| {
+        // On standard error at once for a file alone, and in the pager too.
+        if lone {
+            eprintln!("kiri: {warning}");
+        }
+        warnings.push(warning.clone());
+    };
+    let shown = match opened.content {
+        Content::Image { format, head, rest } => Shown::Image { format, head, rest },
+        // The configuration file's error tells why.
+        Content::Text(_) if !run.documents => return None,
+        Content::Text(source) => match opened.input {
+            Input::Diagram(_) if !caps.styling => Shown::AsIs(source),
+            Input::Diagram(language) => Shown::Diagram {
+                document: kiri::typeset::parse::code(&source, Some(language)),
+                language,
+                source,
             },
-        };
-        given.push(Given {
-            name,
-            path: opened.path,
-            file: opened.file,
-            shown,
-            warnings,
-            drawn: None,
-        });
-    }
+            input => match document(input, &source, &opened.path, settings, caps, warn) {
+                Ok(Some(document)) => Shown::Document {
+                    document,
+                    images: input != Input::Text,
+                },
+                Ok(None) => Shown::AsIs(source),
+                Err(error) => Shown::Failed(error),
+            },
+        },
+    };
+    Some(Given {
+        name,
+        path: opened.path,
+        file,
+        shown,
+        warnings,
+        drawn: None,
+        reload,
+    })
+}
+
+/// Shows `given` as `run` says: in the pager as one stream when the paging
+/// asks for it, and otherwise printed.
+fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure> {
+    let Run {
+        context,
+        settings,
+        caps,
+        lone,
+        reading,
+        failed,
+        ..
+    } = run;
     let terminal = kiri::term::stdout_is_terminal() && caps.styling;
     // In the pager, the files are one stream, read whole before it opens.
-    let paged = terminal && settings.paging != Paging::Never;
+    let mut paged = terminal && settings.paging != Paging::Never;
     if paged {
         given = (given.into_iter())
             .map(|given| read_whole(context, &caps, given))
@@ -787,13 +740,17 @@ fn show_files(
     if given.iter().all(Given::is_failed) {
         for given in &given {
             if let Shown::Failed(error) = &given.shown {
-                tell(error.clone());
+                told(failed, error.clone());
             }
         }
         if failed.get() {
             return Err(Failure::Told);
         }
     }
+    // Before the images are read, so that a file changed meanwhile counts
+    // as changed.
+    let reload =
+        (given.first().filter(|_| lone)).and_then(|given| reloading(given, context, &settings));
     // The documents' images load once the pager has opened.
     let later = paged && plan::may_load_later(settings.paging, settings.images, terminal, &caps);
     let Loaded {
@@ -803,8 +760,19 @@ fn show_files(
     for (number, file) in given.iter_mut().enumerate() {
         file.drawn = self::drawn(number, file, &mut images, &settings, &caps);
     }
-    // Once for all the files, before the pager opens, and in the pager.
-    let reading_warning = plan::reading_warning(context.reading, &caps);
+    // A diagram alone that is drawn is an image alone: paged only when
+    // paging is always.
+    let drawn = given
+        .first()
+        .is_some_and(|given| matches!(given.drawn, Some(Drawn::Done)));
+    paged &= !(lone && drawn && settings.paging != Paging::Always);
+    // Once for all the files, before the pager opens, and in the pager. A
+    // file alone that is written as it is says nothing of it.
+    let as_is = given
+        .first()
+        .is_some_and(|given| matches!(given.shown, Shown::AsIs(_)));
+    let asked = context.reading && reading && !(lone && as_is);
+    let reading_warning = plan::reading_warning(asked, &caps);
     if let Some(warning) = &reading_warning {
         eprintln!("kiri: {warning}");
     }
@@ -818,19 +786,22 @@ fn show_files(
         reading: context.reading(&caps),
         ..Inputs::new(caps)
     };
+    let show = Show {
+        context,
+        settings: &settings,
+        lone,
+        failed,
+    };
     if paged {
         let caught = || drop(interrupt.take());
-        page_files(
-            context,
-            given,
-            &mut inputs,
-            &settings,
-            (later, reading_warning),
-            failed,
-            caught,
-        )?;
+        let opening = Opening {
+            later,
+            reading_warning,
+            reload,
+        };
+        page_files(&show, given, &mut inputs, opening, caught)?;
     } else {
-        shown(print_files(context, given, &mut inputs, &settings, failed))?;
+        shown(print_files(&show, given, &mut inputs))?;
     }
     match failed.get() {
         true => Err(Failure::Told),
@@ -838,19 +809,72 @@ fn show_files(
     }
 }
 
-/// The images of `parts`, documents among `files`, loaded now as
-/// `load_parts` loads them, and the warnings about them under each
-/// file's name, by the file's number among `files`.
-fn load_files_now(
-    context: &Context,
-    parts: &[Part],
-    files: &[kiri::typeset::model::File],
-    settings: &Settings,
-    caps: &Capabilities,
-) -> Result<(Loaded, Vec<Vec<String>>), Failure> {
-    let loaded = load_parts(context, parts, settings, caps)?;
-    let told = told_files(&loaded.images, parts, files, settings);
-    Ok((loaded, told))
+/// Shows `document`, called `name`, as a report that kiri writes itself
+/// is shown, not a file: on its own, with nothing to read again.
+fn show_report(
+    cli: &Cli,
+    env: &Environment,
+    name: &str,
+    document: Document,
+    settings: Settings,
+    caps: Capabilities,
+) -> Result<(), Failure> {
+    let shown = Shown::Document {
+        document,
+        images: true,
+    };
+    let given = Given::new(name.to_owned(), PathBuf::from(name), shown);
+    let context = Context::new(cli, env);
+    let failed = Cell::new(false);
+    let run = Run {
+        context: &context,
+        caps: plan::on_page(caps, settings.paper),
+        settings,
+        documents: true,
+        lone: true,
+        reading: false,
+        failed: &failed,
+    };
+    show_given(run, vec![given])
+}
+
+/// The reading of `given` again from its file, when it is a document alone
+/// read from a regular file; its images' stamps are taken now.
+fn reloading<'a>(
+    given: &Given,
+    context: &'a Context<'a>,
+    settings: &'a Settings,
+) -> Option<FileReload<'a>> {
+    let (input, look) = given.reload?;
+    let (Shown::Document { document, .. }, Some(path)) = (&given.shown, given.file.clone()) else {
+        return None;
+    };
+    let stamps = Stamps::of(&[part(document, Some(&path), context.reading)]);
+    Some(FileReload {
+        context,
+        settings,
+        path,
+        input,
+        stamps,
+        read: look,
+    })
+}
+
+/// What is left to decide when the pager opens.
+struct Opening<'a> {
+    /// Whether the documents' images load once the pager has opened.
+    later: bool,
+    reading_warning: Option<String>,
+    /// Where the pager reads the document again from.
+    reload: Option<FileReload<'a>>,
+}
+
+/// `warning` about the file `name`, as told: named among several files.
+fn told_line(lone: bool, name: &str, warning: &str) -> String {
+    match lone {
+        true => warning.to_owned(),
+        false => format!("{name}: {warning}"),
+    }
 }
 
 /// The warnings about `images` of `parts`, documents among `files`, under
@@ -859,21 +883,21 @@ fn told_files(
     images: &Images,
     parts: &[Part],
     files: &[kiri::typeset::model::File],
-    settings: &Settings,
+    show: &Show,
 ) -> Vec<Vec<String>> {
-    let stderr = settings.render_errors.stderr();
+    let stderr = show.settings.render_errors.stderr();
     let mut told = vec![Vec::new(); files.len()];
     for part in parts {
         let name = &files[part.number].name;
         told[part.number] = (images.warnings_in(part.number, stderr).iter())
-            .map(|warning| format!("{name}: {warning}"))
+            .map(|warning| told_line(show.lone, name, warning))
             .collect();
     }
     told
 }
 
-/// What showing files came to: a closed pipe (kiri *.md | head) takes no
-/// more, which is no failure.
+/// What writing the output came to: a closed pipe (kiri *.md | head) takes
+/// no more, which is no failure.
 fn shown(result: io::Result<()>) -> Result<(), Failure> {
     match result {
         Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
@@ -885,20 +909,12 @@ fn shown(result: io::Result<()>) -> Result<(), Failure> {
 /// `given`, an image file read whole, to be shown in a stream of files
 /// that its reader cannot wait for, such as the pager's, or failed with why
 /// it cannot be read; any other file as it is.
-fn read_whole(context: &Context, caps: &Capabilities, given: Given) -> Given {
-    let Given {
-        name,
-        path,
-        file,
-        shown,
-        warnings,
-        drawn,
-    } = given;
-    let shown = match shown {
+fn read_whole(context: &Context, caps: &Capabilities, mut given: Given) -> Given {
+    given.shown = match std::mem::replace(&mut given.shown, Shown::AsIs(String::new())) {
         Shown::Image { format, head, rest } => {
-            let image = image_reader(file.as_deref(), head, rest)
-                .map_err(|error| format!("{}: {error}", path.display()))
-                .and_then(|reader| read_image_file(context, caps, &path, format, reader));
+            let image = image_reader(given.file.as_deref(), head, rest)
+                .map_err(|error| format!("{}: {error}", given.path.display()))
+                .and_then(|reader| read_image_file(context, caps, &given.path, format, reader));
             match image {
                 Ok(image) => Shown::Read(image),
                 Err(error) => Shown::Failed(error),
@@ -906,14 +922,7 @@ fn read_whole(context: &Context, caps: &Capabilities, given: Given) -> Given {
         }
         shown => shown,
     };
-    Given {
-        name,
-        path,
-        file,
-        shown,
-        warnings,
-        drawn,
-    }
+    given
 }
 
 /// Tells `error`, with which kiri is to fail, as `failed` then holds.
@@ -929,36 +938,48 @@ fn tell_drawn(drawn: &Drawn, failed: &Cell<bool>) {
         Drawn::Failed(error) => told(failed, error.clone()),
         Drawn::Told => failed.set(true),
         Drawn::Hint(hint) => eprintln!("kiri: {hint}"),
+        Drawn::Done => {}
     }
 }
 
-/// Shows `given`, the files read whole, in the pager as one stream when
-/// the paging of `settings` asks for it, and otherwise prints them as
-/// `print_files` does, with the images `inputs` holds and those of the
-/// image files among them. One file alone is shown as a document on its
-/// own is, without a header, and the status line names it without its
-/// place among files.
+/// Shows `given`, the files read whole, in the pager as one stream, and
+/// prints them as `print_files` does should it not open, with the images
+/// `inputs` holds and those of the image files among them. One file alone
+/// is shown as a document on its own is, without a header, and the status
+/// line names it without its place among files.
 /// A file that failed is in the pager's stream under its header, with why.
 /// Why a file failed, and a warning about a file, are told before the
 /// pager opens, and why the diagram of a diagram file was not drawn after
 /// it closes; all of them are noted in `failed`. `caught` runs once the
-/// pager's screen catches the signals. With `later`, the images of the
-/// documents load in the background once the pager has opened; should it
-/// not open, they load before the files are printed.
+/// pager's screen catches the signals. With `opening.later`, the images of
+/// the documents load in the background once the pager has opened; should
+/// it not open, they load before the files are printed.
 #[expect(clippy::too_many_lines)]
 fn page_files(
-    context: &Context,
+    show: &Show,
     given: Vec<Given>,
     inputs: &mut Inputs,
-    settings: &Settings,
-    (later, reading_warning): (bool, Option<String>),
-    failed: &Cell<bool>,
+    opening: Opening,
     caught: impl FnOnce(),
 ) -> Result<(), Failure> {
+    let Show {
+        context,
+        settings,
+        lone: single,
+        failed,
+    } = *show;
+    let Opening {
+        later,
+        reading_warning,
+        reload: mut reloader,
+    } = opening;
+    let reloaded = reloader.as_ref().map(|reload| reload.path.clone());
     let mut files = Vec::new();
     // What is told about each file before it is shown.
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
+    // What the pager tells of a file alone, as it was read.
+    let mut warned_of = Vec::new();
     // What is told about each file after it is shown.
     let mut drawn = Vec::new();
     // The documents whose images load later, by number, and their files.
@@ -973,14 +994,17 @@ fn page_files(
         }
         let name = given.name;
         let mut error = None;
-        let mut warned: Vec<_> = (given.warnings.iter())
-            .map(|warning| format!("{name}: {warning}"))
-            .collect();
+        let mut warned = Vec::new();
+        for warning in &given.warnings {
+            match single {
+                true => warned_of.push(Warning::from(warning)),
+                false => warned.push(format!("{name}: {warning}")),
+            }
+        }
         let document = match given.shown {
             Shown::Failed(why) => {
                 // The header names the file already.
-                let prefix = format!("{}: ", given.path.display());
-                let reason = why.strip_prefix(&prefix).unwrap_or(&why).to_owned();
+                let reason = without_path(why.clone(), &given.path);
                 error = Some(why);
                 Document::new(vec![Block::Error(reason)])
             }
@@ -992,7 +1016,7 @@ fn page_files(
             Shown::Document { document, .. } => {
                 let stderr = settings.render_errors.stderr();
                 for warning in inputs.images.warnings_in(number, stderr) {
-                    warned.push(format!("{name}: {warning}"));
+                    warned.push(told_line(single, &name, &warning));
                 }
                 document
             }
@@ -1015,12 +1039,17 @@ fn page_files(
         // The pager's status line names each file after itself.
         false => (kiri::typeset::layout::Content::Files(&files), ""),
     };
-    let mut parts: Vec<Part> = (documents.iter())
-        .map(|(number, file)| Part {
-            number: *number,
-            ..part(&files[*number].document, file.as_deref(), context.reading)
-        })
-        .collect();
+    // The documents whose images load later, as parts that read images as
+    // `inline_images` says.
+    let parts_of = |inline_images| -> Vec<Part> {
+        (documents.iter())
+            .map(|(number, file)| Part {
+                number: *number,
+                ..part(&files[*number].document, file.as_deref(), inline_images)
+            })
+            .collect()
+    };
+    let mut parts = parts_of(context.reading);
     // With paging on auto, the images load first unless the files are
     // longer than the window without them; the guard then goes once the
     // pager's screen catches the signals.
@@ -1040,7 +1069,7 @@ fn page_files(
             _ => None,
         };
     if let Some(waited) = waited {
-        let told = told_files(&inputs.images, &parts, &files, settings);
+        let told = told_files(&inputs.images, &parts, &files, show);
         for (warned, told) in warnings.iter_mut().zip(told) {
             warned.extend(told);
         }
@@ -1055,7 +1084,8 @@ fn page_files(
         still = waited.loads;
         parts.clear();
     } else if matches!(load, Some(Load::Now | Load::Wait)) {
-        let (loaded, told) = load_files_now(context, &parts, &files, settings, &inputs.caps)?;
+        let loaded = load_parts(context, &parts, settings, &inputs.caps)?;
+        let told = told_files(&loaded.images, &parts, &files, show);
         for (warned, told) in warnings.iter_mut().zip(told) {
             warned.extend(told);
         }
@@ -1078,30 +1108,36 @@ fn page_files(
         caught();
         drop(guard.take());
     };
-    // Nothing to reload: an image file is not read again. Nothing to
-    // follow either, which the pager says only when the command line asked
-    // to follow.
+    // Several files, and an image file, are not read again, and there is
+    // nothing to follow, which the pager says only when the command line
+    // asked to follow.
     let options = kiri::pager::Options {
-        follow: context.follow,
-        warnings: (reading_warning.into_iter())
-            .map(|message| Warning {
+        follow: match reloader {
+            Some(_) => settings.follow,
+            None => context.follow,
+        },
+        jump: settings.follow_jump,
+        warnings: (warned_of.into_iter())
+            .chain(reading_warning.map(|message| Warning {
                 line: None,
                 message,
-            })
+            }))
             .collect(),
+        reload: reloader.as_mut().map(|reload| reload as &mut dyn Reload),
         reading: Some(context.reading_mode()),
         // What reading mode shows in the middle of text loads when `M`
-        // turns it on, unless `--reading` had it loaded at the start.
-        inline: Some(Box::new(|_, images, loads, caps| {
+        // turns it on, unless `--reading` had it loaded at the start. A
+        // file alone loads that of the document as the last reload read it.
+        inline: Some(Box::new(|shown, images, loads, caps| {
             if !(settings.images && caps.draws_images()) {
                 return;
             }
-            let parts: Vec<Part> = (documents.iter())
-                .map(|(number, file)| Part {
-                    number: *number,
-                    ..part(&files[*number].document, file.as_deref(), true)
-                })
-                .collect();
+            let parts: Vec<Part> = match shown {
+                kiri::typeset::layout::Content::Document(document) if single => {
+                    vec![part(document, reloaded.as_deref(), true)]
+                }
+                _ => parts_of(true),
+            };
             let loading = loading(context, settings, caps);
             kiri::images::load_inline_in_background(&parts, &loading, images, loads);
         })),
@@ -1111,8 +1147,12 @@ fn page_files(
         if !parts.is_empty() {
             load_in_background(context, &parts, settings, inputs, loads);
         }
+        // Each image shows as one that loads in the background does.
         if let Some(still) = still.take() {
-            carry_on(still, inputs, loads);
+            *loads = still;
+            for key in loads.keys() {
+                inputs.images.wait(key.clone(), Placeholder::Unsized);
+            }
         }
     };
     let opening = (opening, start);
@@ -1126,20 +1166,18 @@ fn page_files(
     // they loaded before.
     let (images_told, _interrupt) = match (parts.is_empty(), still.take()) {
         (false, _) => {
-            let (loaded, told) = load_files_now(context, &parts, &files, settings, &inputs.caps)?;
+            let loaded = load_parts(context, &parts, settings, &inputs.caps)?;
+            let told = told_files(&loaded.images, &parts, &files, show);
             inputs.images.extend(loaded.images);
             (told, loaded.interrupt)
         }
         // What the reader skipped comes first.
         (true, Some(still)) => {
             let came = finish_loading(still, &mut inputs.images, guard.as_ref())?;
-            let documents: Vec<Part> = (documents.iter())
-                .map(|(number, file)| Part {
-                    number: *number,
-                    ..part(&files[*number].document, file.as_deref(), context.reading)
-                })
-                .collect();
-            (told_files(&came, &documents, &files, settings), None)
+            (
+                told_files(&came, &parts_of(context.reading), &files, show),
+                None,
+            )
         }
         (true, None) => (vec![Vec::new(); files.len()], None),
     };
@@ -1174,17 +1212,17 @@ fn page_files(
 }
 
 /// Prints `given`, each file under its header, as it comes: an image file
-/// is read only then, so that no more than one is held at once. A warning
-/// about a file is told before it, and why the diagram of a diagram file
-/// was not drawn after it; a file that cannot be shown is told about at its
-/// place and noted in `failed`.
-fn print_files(
-    context: &Context,
-    given: Vec<Given>,
-    inputs: &mut Inputs,
-    settings: &Settings,
-    failed: &Cell<bool>,
-) -> io::Result<()> {
+/// is read only then, so that no more than one is held at once. A file
+/// alone has no header. A warning about a file is told before it, and why
+/// the diagram of a diagram file was not drawn after it; a file that cannot
+/// be shown is told about at its place and noted in `failed`.
+fn print_files(show: &Show, given: Vec<Given>, inputs: &mut Inputs) -> io::Result<()> {
+    let Show {
+        context,
+        settings,
+        lone,
+        failed,
+    } = *show;
     plan::printing(inputs.reading.as_mut().map(|reading| &mut reading.wide));
     let mut out = kiri::term::output(&inputs.caps);
     let mut apart = false;
@@ -1193,53 +1231,70 @@ fn print_files(
     for (number, given) in given.into_iter().enumerate() {
         let name = given.name;
         let drawn = given.drawn;
-        for warning in &given.warnings {
+        // A file alone has told its own, as it was read.
+        for warning in given.warnings.iter().filter(|_| !lone) {
             eprintln!("kiri: {name}: {warning}");
         }
+        let image = |image: Source, name: String, inputs: &mut Inputs, out: &mut _| match lone {
+            true => print_alone(image, Page::default(), inputs, &silent, out),
+            false => print_image(image, name, number, apart, inputs, &silent, out),
+        };
         let shown = match given.shown {
             Shown::Failed(error) => {
                 told(failed, error);
                 continue;
             }
             Shown::Image { format, head, rest } => {
-                let image = image_reader(given.file.as_deref(), head, rest)
-                    .map_err(|error| format!("{name}: {error}"))
-                    .and_then(|reader| {
-                        read_image_file(context, &inputs.caps, &given.path, format, reader)
-                    });
-                match image {
-                    Ok(image) => print_image(image, name, number, apart, inputs, &silent, &mut out),
+                let reader = image_reader(given.file.as_deref(), head, rest)
+                    .map_err(|error| format!("{name}: {error}"));
+                match reader.and_then(|reader| {
+                    read_image_file(context, &inputs.caps, &given.path, format, reader)
+                }) {
+                    Ok(read) => image(read, name, inputs, &mut out),
                     Err(error) => {
                         told(failed, error);
                         continue;
                     }
                 }
             }
-            Shown::Read(image) => {
-                print_image(image, name, number, apart, inputs, &silent, &mut out)
+            Shown::Read(read) => image(read, name, inputs, &mut out),
+            // The diagram that was drawn, on the page of the theme.
+            Shown::Document { .. } if lone && matches!(drawn, Some(Drawn::Done)) => {
+                let key = ImageKey::from(name.as_str()).in_document(number);
+                let drawn = inputs.images.remove(&key);
+                let (background, foreground) = (inputs.theme.background, inputs.theme.foreground);
+                let page = Page {
+                    background,
+                    foreground,
+                };
+                match drawn {
+                    Some(Ok(image)) => print_alone(image, page, inputs, &silent, &mut out),
+                    _ => Ok(()),
+                }
             }
             Shown::Document { document, .. } => {
                 let stderr = settings.render_errors.stderr();
                 for warning in inputs.images.warnings_in(number, stderr) {
-                    eprintln!("kiri: {name}: {warning}");
+                    eprintln!("kiri: {}", told_line(lone, &name, &warning));
                 }
                 let file = kiri::typeset::model::File { name, document };
-                kiri::render::render_file(&file, number, apart, inputs, &mut out)
-                    .and_then(|sent| held(sent, &inputs.images, &inputs.caps, &silent, &mut out))
+                print_file(&file, number, (apart, lone), inputs, &silent, &mut out)
             }
             // What could not be drawn is told after it.
             Shown::Diagram { document, .. } => {
                 let file = kiri::typeset::model::File { name, document };
-                kiri::render::render_file(&file, number, apart, inputs, &mut out)
-                    .and_then(|sent| held(sent, &inputs.images, &inputs.caps, &silent, &mut out))
+                print_file(&file, number, (apart, lone), inputs, &silent, &mut out)
             }
             Shown::AsIs(text) => {
                 let file = kiri::typeset::model::File {
                     name,
                     document: Document::default(),
                 };
-                kiri::render::render_file(&file, number, apart, inputs, &mut out)
-                    .and_then(|_| out.write_all(text.as_bytes()))
+                match lone {
+                    true => io::stdout().lock().write_all(text.as_bytes()),
+                    false => kiri::render::render_file(&file, number, apart, inputs, &mut out)
+                        .and_then(|_| out.write_all(text.as_bytes())),
+                }
             }
         };
         apart = true;
@@ -1249,6 +1304,38 @@ fn print_files(
         }
     }
     Ok(())
+}
+
+/// Prints `file`, numbered `number` among the files shown, under its
+/// header, or without one when it is `lone`, after the blank line that
+/// comes between two files when `apart`, and checks its images as [`held`]
+/// does with `silent`.
+fn print_file(
+    file: &kiri::typeset::model::File,
+    number: usize,
+    (apart, lone): (bool, bool),
+    inputs: &Inputs,
+    silent: &Cell<bool>,
+    out: &mut impl Write,
+) -> io::Result<()> {
+    let sent = match lone {
+        true => kiri::render::render(&file.document, inputs, out),
+        false => kiri::render::render_file(file, number, apart, inputs, out),
+    }?;
+    held(sent, &inputs.images, &inputs.caps, silent, out)
+}
+
+/// Prints `image`, a file alone, as large as fits the window and without a
+/// header, on `page`, and checks it as [`held`] does with `silent`.
+fn print_alone(
+    image: Source,
+    page: Page,
+    inputs: &Inputs,
+    silent: &Cell<bool>,
+    out: &mut impl Write,
+) -> io::Result<()> {
+    kiri::render::render_image_on(image, &inputs.caps, page, out)
+        .and_then(|(sent, images)| held(sent, &images, &inputs.caps, silent, out))
 }
 
 /// Prints `image`, the image file `name` numbered `number` among the files
@@ -1312,11 +1399,15 @@ struct Given {
     /// The file, or `None` for standard input.
     file: Option<PathBuf>,
     shown: Shown,
-    /// What is told about it before it is shown, besides its images.
-    warnings: Vec<String>,
+    /// What is told about it before it is shown, besides its images. A
+    /// file alone has told them already, and the pager tells them too.
+    warnings: Vec<FrontMatterError>,
     /// What is told after it is shown: why its diagram was not drawn, for
     /// a diagram file.
     drawn: Option<Drawn>,
+    /// For a document alone read from a regular file: how it was read, so
+    /// that the pager can read it again.
+    reload: Option<(Input, Option<Look>)>,
 }
 
 /// What a file among several is shown as.
@@ -1346,16 +1437,22 @@ enum Shown {
 }
 
 impl Given {
-    /// The file at `path`, which cannot be shown for `error`.
-    fn failed(path: PathBuf, error: String) -> Self {
+    /// The file called `name` that is `shown`, with nothing told about it.
+    fn new(name: String, path: PathBuf, shown: Shown) -> Self {
         Given {
-            name: path.display().to_string(),
+            name,
             path,
             file: None,
-            shown: Shown::Failed(error),
+            shown,
             warnings: Vec::new(),
             drawn: None,
+            reload: None,
         }
+    }
+
+    /// The file at `path`, which cannot be shown for `error`.
+    fn failed(path: PathBuf, error: String) -> Self {
+        Self::new(path.display().to_string(), path, Shown::Failed(error))
     }
 
     /// Whether the file cannot be shown.
@@ -1366,6 +1463,8 @@ impl Given {
 
 /// What is told after a diagram file is shown.
 enum Drawn {
+    /// It was drawn: the file is its image, and there is nothing to tell.
+    Done,
     /// It could not be drawn: why, told as an error.
     Failed(String),
     /// It could not be drawn, and the document tells why.
@@ -1435,7 +1534,7 @@ fn drawn(
                 document: Document::new(vec![Block::ImageFile(name)]),
                 images: true,
             };
-            None
+            Some(Drawn::Done)
         }
         Some(Err(error)) => {
             let reason = match &error {
@@ -1527,56 +1626,6 @@ impl<'a> Context<'a> {
     }
 }
 
-/// A document read from a regular file, as `input`, which the pager can read
-/// again.
-#[derive(Clone, Copy)]
-struct FromFile<'a> {
-    path: &'a Path,
-    input: Input,
-    /// How the file looked before it was read.
-    look: Option<Look>,
-}
-
-/// Renders `document`, called `name`, on stdout. When it comes from a
-/// file, its images are relative to the file's directory, warnings name a
-/// diagram by its line and the pager reloads it with `r`; otherwise images
-/// are relative to the current directory, a diagram is named by its first
-/// line and there is nothing to reload. The pager tells `warnings`, about
-/// the document as read.
-fn show_document(
-    context: &Context,
-    document: &Document,
-    name: &str,
-    from: Option<FromFile>,
-    warnings: Vec<Warning>,
-    settings: Settings,
-    caps: Capabilities,
-) -> Result<(), Failure> {
-    let caps = plan::on_page(caps, settings.paper);
-    let parts = [part(document, from.map(|from| from.path), context.reading)];
-    // Before the images are read, so that a file changed meanwhile counts
-    // as changed.
-    let stamps = Stamps::of(&parts);
-    let later = plan::may_load_later(
-        settings.paging,
-        settings.images,
-        kiri::term::stdout_is_terminal(),
-        &caps,
-    );
-    let loaded = match later {
-        true => Loaded::default(),
-        false => load_told(context, &parts, &settings, &caps)?,
-    };
-    let reading = from.map(|from| (from, stamps));
-    let shown = ToShow {
-        document,
-        name,
-        warnings,
-        later: later.then_some(&parts),
-    };
-    print_document(context, shown, loaded, settings, caps, reading)
-}
-
 /// The rows an image or diagram that has not loaded yet counts as, to
 /// tell whether a document is longer than the window before it loads.
 const ROWS_UNLOADED: u16 = 3;
@@ -1664,16 +1713,6 @@ fn wait_or_skip(
     Some(Ok(Waited { interrupt, loads }))
 }
 
-/// Hands `still`, the loads the reader did not wait for, to the pager's
-/// `loads`, each image shown in `inputs` as one that loads in the
-/// background is until it comes.
-fn carry_on(still: Loads, inputs: &mut Inputs, loads: &mut Loads) {
-    *loads = still;
-    for key in loads.keys() {
-        inputs.images.wait(key.clone(), Placeholder::Unsized);
-    }
-}
-
 /// Waits for what `loads` load to come into `images`, and gives what
 /// came. A signal that `interrupt` caught meanwhile stops them, and is
 /// the failure.
@@ -1701,30 +1740,6 @@ fn finish_loading(
     }
 }
 
-/// Tells on standard error what did not load of `images`, as
-/// [`load_told`] does.
-fn tell_loaded(images: &Images, settings: &Settings) {
-    for warning in images.warnings_with(settings.render_errors.stderr()) {
-        eprintln!("kiri: {warning}");
-    }
-}
-
-/// [`load_images`], with a warning on standard error for each image
-/// that did not load, and for each diagram that could not be drawn
-/// where `settings` want those there.
-fn load_told(
-    context: &Context,
-    parts: &[Part],
-    settings: &Settings,
-    caps: &Capabilities,
-) -> Result<Loaded, Failure> {
-    let loaded = load_images(context, parts, settings, caps)?;
-    for warning in loaded.images.warnings_with(settings.render_errors.stderr()) {
-        eprintln!("kiri: {warning}");
-    }
-    Ok(loaded)
-}
-
 /// Starts loading the images of `parts` in `loads`, as a reload loads a
 /// new image: each shows as it does without its image, its code or alt
 /// text, with nothing to tell its size, until it comes.
@@ -1737,103 +1752,6 @@ fn load_in_background(
 ) {
     let loading = loading(context, settings, &inputs.caps);
     kiri::images::load_in_background(parts, &loading, &mut inputs.images, loads);
-}
-
-/// Shows the diagram `source`, in `language`, from the file at `path` or
-/// from standard input, on its own and as large as fits the window, as an
-/// image file is shown: drawn as in a document, also with images off.
-/// Where it is not drawn, its source is shown as `--format text` shows
-/// it, and a diagram that fails to draw is an error after that, told
-/// below the source, on standard error or both, as the settings say. One
-/// that nothing could draw, where diagrams are on and the terminal shows
-/// them, gets a hint after it.
-fn show_diagram(
-    context: &Context,
-    language: &str,
-    source: &str,
-    path: &Path,
-    file: Option<&Path>,
-    mut settings: Settings,
-    caps: Capabilities,
-) -> Result<(), Failure> {
-    let caps = plan::on_page(caps, settings.paper);
-    let document = kiri::typeset::parse::code(source, Some(language));
-    settings.images = true;
-    let mut loaded = load_images(
-        context,
-        &[part(&document, file, context.reading)],
-        &settings,
-        &caps,
-    )?;
-    let key = ImageKey::block(language, source);
-    let error = match loaded.images.remove(&key) {
-        Some(Ok(image)) => {
-            let page = Page {
-                background: settings.theme.background,
-                foreground: settings.theme.foreground,
-            };
-            let mut out = kiri::term::output(&caps);
-            let shown = kiri::render::render_image_on(image, &caps, page, &mut out);
-            let held = shown
-                .and_then(|(sent, images)| held(sent, &images, &caps, &Cell::new(false), &mut out));
-            return Ok(finish(held)?);
-        }
-        Some(Err(error)) => {
-            let reason = match &error {
-                ImageError::Diagram { reason, .. } => reason.clone(),
-                error => error.to_string(),
-            };
-            // Back in, so that the document tells it below the source.
-            loaded.images.insert(key, Err(error));
-            Some(reason)
-        }
-        None => None,
-    };
-    let stderr = settings.render_errors.stderr();
-    // Not drawn, though it could have been shown: no renderer for it.
-    let no_renderer = settings.diagrams && caps.draws_images() && error.is_none();
-    if caps.styling {
-        let name = path.to_string_lossy();
-        let shown = ToShow {
-            document: &document,
-            name: &name,
-            warnings: Vec::new(),
-            later: None,
-        };
-        print_document(context, shown, loaded, settings, caps, None)?;
-    } else {
-        write_as_is(source)?;
-    }
-    if no_renderer {
-        eprintln!(
-            "kiri: {}: no program to draw {} diagrams; see --doctor",
-            path.display(),
-            kiri::diagrams::display_name(language)
-        );
-    }
-    match error {
-        Some(error) if stderr => Err(Failure::Error(format!("{}: {error}", path.display()))),
-        Some(_) => Err(Failure::Told),
-        None => Ok(()),
-    }
-}
-
-/// The images of the documents in `parts`, loaded and drawn when
-/// `settings` want them and `caps` can show them; otherwise none, as they
-/// are alt text, without warnings. While programs draw any of their
-/// diagrams, Ctrl-C, SIGTERM, SIGHUP and Ctrl-\ stop them; such a
-/// signal is the failure. On a terminal, a line tells how far drawing has
-/// got when it takes long.
-fn load_images(
-    context: &Context,
-    parts: &[Part],
-    settings: &Settings,
-    caps: &Capabilities,
-) -> Result<Loaded, Failure> {
-    if !settings.images || !caps.draws_images() {
-        return Ok(Loaded::default());
-    }
-    load_parts(context, parts, settings, caps)
 }
 
 /// The images of the documents in `parts`, loaded and drawn as
@@ -1902,184 +1820,6 @@ fn part<'a>(document: &'a Document, file: Option<&'a Path>, inline_images: bool)
         by_line: file.is_some(),
         inline_images,
     }
-}
-
-/// A document to show, what the status line calls it, and the warnings
-/// about it as read, which the pager tells.
-struct ToShow<'a> {
-    document: &'a Document,
-    name: &'a str,
-    warnings: Vec<Warning>,
-    /// The parts whose images load in the background once the pager has
-    /// opened; should it not open, they load before the document is
-    /// printed.
-    later: Option<&'a [Part<'a>]>,
-}
-
-/// Renders `shown`, with the images `loaded` on
-/// stdout: in the pager when `settings` ask for it, and otherwise
-/// printed. The pager catches the signals itself, so the guard against
-/// them that came with the images goes once its screen catches them. With
-/// `reading`, the file the document is from and when its images' files
-/// were last changed, the pager can read it again.
-#[expect(clippy::too_many_lines)]
-fn print_document(
-    context: &Context,
-    shown: ToShow,
-    loaded: Loaded,
-    settings: Settings,
-    caps: Capabilities,
-    reading: Option<(FromFile, Stamps)>,
-) -> Result<(), Failure> {
-    let ToShow {
-        document,
-        name,
-        warnings,
-        later,
-    } = shown;
-    let Loaded {
-        images,
-        mut interrupt,
-    } = loaded;
-    let mut inputs = Inputs {
-        images,
-        theme: settings.theme.clone(),
-        front_matter: settings.front_matter.style().unwrap_or_default(),
-        headings: settings.headings.with_images(settings.images),
-        table_rows: settings.table_rows,
-        render_errors: settings.render_errors,
-        reading: context.reading(&caps),
-        ..Inputs::new(caps)
-    };
-    // With paging on auto, the images load first unless the document is
-    // longer than the window without them.
-    // Waiting, the reader can open the pager before they have all come,
-    // and the rest then load in the background.
-    let content = kiri::typeset::layout::Content::Document(document);
-    let mut still = None;
-    let later = match later {
-        Some(parts) => {
-            let load = plan::load(
-                surely_paged(context, content, parts, &settings, &mut inputs),
-                settings.initial_load,
-            );
-            match load {
-                Load::Later => Some(parts),
-                Load::Wait => match wait_or_skip(context, parts, &settings, &mut inputs) {
-                    Some(waited) => {
-                        let waited = waited?;
-                        tell_loaded(&inputs.images, &settings);
-                        interrupt = waited.interrupt;
-                        // The pager decides as it was told: with three rows
-                        // for each image that has not come.
-                        for key in waited.loads.iter().flat_map(Loads::keys) {
-                            inputs
-                                .images
-                                .wait(key.clone(), Placeholder::Rows(ROWS_UNLOADED));
-                        }
-                        still = waited.loads;
-                        None
-                    }
-                    None => {
-                        let loaded = load_told(context, parts, &settings, &inputs.caps)?;
-                        inputs.images = loaded.images;
-                        interrupt = loaded.interrupt;
-                        None
-                    }
-                },
-                Load::Now => {
-                    let loaded = load_told(context, parts, &settings, &inputs.caps)?;
-                    inputs.images = loaded.images;
-                    interrupt = loaded.interrupt;
-                    None
-                }
-            }
-        }
-        None => None,
-    };
-    let file = reading.as_ref().map(|(from, _)| from.path);
-    let mut reload = reading.map(|(from, stamps)| FileReload {
-        context,
-        settings: &settings,
-        from,
-        stamps,
-        read: from.look,
-    });
-    if let Some(result) = page(
-        context,
-        kiri::typeset::layout::Content::Document(document),
-        name,
-        &mut inputs,
-        &settings,
-        kiri::pager::Options {
-            // Without a file to follow, the pager says so only when the
-            // command line asked to follow.
-            follow: match reload {
-                Some(_) => settings.follow,
-                None => context.follow,
-            },
-            jump: settings.follow_jump,
-            warnings,
-            reload: reload.as_mut().map(|reload| reload as &mut dyn Reload),
-            reading: Some(context.reading_mode()),
-            // What reading mode shows in the middle of text loads when `M`
-            // turns it on, unless `--reading` had it loaded at the start,
-            // for the document as the last reload read it.
-            inline: Some(Box::new(|shown, images, loads, caps| {
-                let kiri::typeset::layout::Content::Document(document) = shown else {
-                    return;
-                };
-                if !(settings.images && caps.draws_images()) {
-                    return;
-                }
-                let parts = [part(document, file, true)];
-                let loading = loading(context, &settings, caps);
-                kiri::images::load_inline_in_background(&parts, &loading, images, loads);
-            })),
-            ..kiri::pager::Options::new(settings.search_case)
-        },
-        (
-            || drop(interrupt.take()),
-            |inputs: &mut Inputs, loads: &mut Loads| {
-                if let Some(parts) = later {
-                    load_in_background(context, parts, &settings, inputs, loads);
-                }
-                if let Some(still) = still.take() {
-                    carry_on(still, inputs, loads);
-                }
-            },
-        ),
-    ) {
-        return Ok(finish(result)?);
-    }
-    // Printed after all, so what the reader skipped comes first.
-    if let Some(still) = still.take() {
-        let came = finish_loading(still, &mut inputs.images, interrupt.as_ref())?;
-        tell_loaded(&came, &settings);
-    }
-    // Printed after all, so the images load first; the guard lives on
-    // as it does when they loaded before.
-    let _interrupt = match later {
-        Some(parts) => {
-            let loaded = load_told(context, parts, &settings, &inputs.caps)?;
-            inputs.images = loaded.images;
-            loaded.interrupt
-        }
-        None => None,
-    };
-    plan::printing(inputs.reading.as_mut().map(|reading| &mut reading.wide));
-    let mut out = kiri::term::output(&inputs.caps);
-    Ok(finish(
-        kiri::render::render(document, &inputs, &mut out).and_then(|sent| {
-            held(
-                sent,
-                &inputs.images,
-                &inputs.caps,
-                &Cell::new(false),
-                &mut out,
-            )
-        }),
-    )?)
 }
 
 /// Shows `content` in the pager when the paging of `settings` asks for it
@@ -2176,7 +1916,9 @@ fn close_programs(loads: &Loads) {
 struct FileReload<'a> {
     context: &'a Context<'a>,
     settings: &'a Settings,
-    from: FromFile<'a>,
+    /// The regular file the document was read from, as `input`.
+    path: PathBuf,
+    input: Input,
     /// When the files behind the images were last changed.
     stamps: Stamps,
     /// How the file looked when it was last read, when it could be
@@ -2192,7 +1934,7 @@ impl Reload for FileReload<'_> {
         caps: &Capabilities,
         reading: bool,
     ) -> Reloaded {
-        let FromFile { path, input, .. } = self.from;
+        let (path, input) = (self.path.as_path(), self.input);
         // Before the file is read, so that a change meanwhile counts.
         self.read = look(path).ok();
         // The status line names the file already, so the reasons do not.
@@ -2219,7 +1961,7 @@ impl Reload for FileReload<'_> {
     }
 
     fn change(&mut self) -> Change {
-        match look(self.from.path) {
+        match look(&self.path) {
             Ok(look) if Some(look) == self.read => Change::Unchanged,
             Ok(look) => Change::Changed(look),
             Err(why) => Change::Gone(why),
@@ -2252,24 +1994,6 @@ fn without_path(error: String, path: &Path) -> String {
         Some(reason) => reason.to_owned(),
         None => error,
     }
-}
-
-/// Prints the image file `path`, in `format`, read from `reader`, for a
-/// terminal with `caps`. It is shown whatever the settings say about
-/// images in documents, but only up to the size limit.
-fn show_image(
-    context: &Context,
-    caps: &Capabilities,
-    path: &Path,
-    format: Format,
-    reader: impl Read,
-) -> Result<(), String> {
-    let image = read_image_file(context, caps, path, format, reader)?;
-    let mut out = kiri::term::output(caps);
-    finish(
-        kiri::render::render_image(image, caps, &mut out)
-            .and_then(|(sent, images)| held(sent, &images, caps, &Cell::new(false), &mut out)),
-    )
 }
 
 /// The image file `path`, in `format`, read from `reader` up to the size
@@ -2337,20 +2061,19 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), Failure> {
     });
     if output != Output::Rendered {
         let mut out = io::stdout().lock();
-        return Ok(finish(
+        return shown(
             out.write_all(markdown.as_bytes())
                 .and_then(|()| out.flush()),
-        )?);
+        );
     }
     let document = kiri::typeset::parse::parse(&markdown);
     let mut settings = choices.with_theme(theme);
     settings.paging = plan::only_always(settings.paging);
-    show_document(
-        &Context::new(cli, &env),
-        &document,
+    show_report(
+        cli,
+        &env,
         "kiri --doctor",
-        None,
-        Vec::new(),
+        document,
         settings,
         detection.caps,
     )
@@ -2361,45 +2084,18 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), Failure> {
 fn list_emojis(cli: &Cli) -> Result<(), Failure> {
     if !kiri::term::stdout_is_terminal() {
         let mut out = io::stdout().lock();
-        return Ok(finish(
-            out.write_all(kiri::list::emoji_lines().as_bytes())
-                .and_then(|()| out.flush()),
-        )?);
+        let lines = kiri::list::emoji_lines();
+        return shown(out.write_all(lines.as_bytes()).and_then(|()| out.flush()));
     }
     let env = Environment::from_process();
-    let config = kiri::config::load(&env)?;
-    let (warnings, settings) = kiri::config::settings(&options(cli), &env, &config);
+    let (warnings, settings) = settings(cli, &env);
     for warning in &warnings {
         eprintln!("kiri: {warning}");
     }
     let settings = settings?;
     let caps = kiri::term::capabilities(cli.mode, cli.width, &env, settings.passthrough);
     let document = kiri::typeset::parse::parse(&kiri::list::emoji_document());
-    show_document(
-        &Context::new(cli, &env),
-        &document,
-        "kiri --list-emojis",
-        None,
-        Vec::new(),
-        settings,
-        caps,
-    )
-}
-
-/// Writes `text` on stdout as it is, as cat would, without rendering it:
-/// for `--format text` in plain output.
-fn write_as_is(text: &str) -> Result<(), String> {
-    let mut out = io::stdout().lock();
-    finish(out.write_all(text.as_bytes()).and_then(|()| out.flush()))
-}
-
-/// The outcome of writing the output.
-fn finish(result: io::Result<()>) -> Result<(), String> {
-    match result {
-        // A closed pipe (kiri file.md | head) is not an error.
-        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
-        result => result.map_err(|error| error.to_string()),
-    }
+    show_report(cli, &env, "kiri --list-emojis", document, settings, caps)
 }
 
 /// What the command line asks for, each with the flag it comes from.
