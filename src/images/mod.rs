@@ -26,6 +26,7 @@ mod pipeline;
 mod stamps;
 pub(crate) mod svg;
 pub(crate) mod url;
+mod warnings;
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -34,6 +35,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::diagrams::{FormulaColors, INLINE_FORMULA, NoRenderer, Renderer, Request, Theme};
+use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::model::{Block, Document, Inline};
 
 pub use crate::typeset::images::decode::{
@@ -59,7 +61,7 @@ pub(crate) use url::read_at_most;
 
 use crate::typeset::images::decode::decode_named;
 use crate::typeset::images::drawn::finish_diagram;
-use url::{load_url, scheme};
+use url::load_url;
 
 /// Why an image could not be loaded.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -532,26 +534,26 @@ impl Images {
     }
 
     /// One message for each image that did not load, in document order.
-    pub fn warnings(&self) -> Vec<String> {
+    pub fn warnings(&self) -> Vec<Diagnostic> {
         self.warnings_with(true)
     }
 
     /// `warnings`, with one for each diagram that could not be drawn only
     /// when `render_errors`.
-    pub fn warnings_with(&self, render_errors: bool) -> Vec<String> {
-        warnings(self.iter(), render_errors)
+    pub fn warnings_with(&self, render_errors: bool) -> Vec<Diagnostic> {
+        warnings::warnings(self.iter(), render_errors)
     }
 
     /// `warnings_with` for the images that came from loading in the
     /// background and are still shown, in the documents' order, each with
     /// the number of its document.
-    pub fn late_warnings(&self, render_errors: bool) -> Vec<(usize, String)> {
+    pub fn late_warnings(&self, render_errors: bool) -> Vec<(usize, Diagnostic)> {
         let mut told = HashSet::new();
         (self.shown.iter())
             .filter(|key| self.late.contains(*key) && told.insert(*key))
             .filter_map(|key| Some((key, self.by_key.get(key)?)))
             .flat_map(|(key, image)| {
-                let warnings = warnings(std::iter::once((key, image)), render_errors);
+                let warnings = warnings::warnings(std::iter::once((key, image)), render_errors);
                 warnings
                     .into_iter()
                     .map(|warning| (key.document(), warning))
@@ -561,37 +563,10 @@ impl Images {
 
     /// `warnings_with` for the images of the document numbered
     /// `document` alone.
-    pub fn warnings_in(&self, document: usize, render_errors: bool) -> Vec<String> {
+    pub fn warnings_in(&self, document: usize, render_errors: bool) -> Vec<Diagnostic> {
         let images = self.iter().filter(|(key, _)| key.document() == document);
-        warnings(images, render_errors)
+        warnings::warnings(images, render_errors)
     }
-}
-
-/// The warnings about `images`, as `Images::warnings_with` makes them.
-fn warnings<'a>(
-    images: impl Iterator<Item = (&'a ImageKey, &'a Result<Source, ImageError>)>,
-    render_errors: bool,
-) -> Vec<String> {
-    images
-        .filter_map(|(key, image)| match (key, image) {
-            (_, Ok(_)) => None,
-            // A heading without its image shows as text, which is enough.
-            (ImageKey::Heading { .. }, Err(_)) => None,
-            (_, Err(ImageError::Diagram { .. })) if !render_errors => None,
-            // These name the file, resolved against the document.
-            (_, Err(error)) if error.names_file() => Some(error.to_string()),
-            (ImageKey::Url { url, .. }, Err(ImageError::NoPath)) if url.is_empty() => {
-                Some("an image URL is empty".to_owned())
-            }
-            // A data: URL is the image itself, too long for a message.
-            (ImageKey::Url { url, .. }, Err(error))
-                if scheme(url).is_some_and(|s| s.eq_ignore_ascii_case("data")) =>
-            {
-                Some(format!("data: URL: {error}"))
-            }
-            (key, Err(error)) => Some(format!("{key}: {error}")),
-        })
-        .collect()
 }
 
 /// Loads every image that `document` shows as an image block once,
@@ -934,6 +909,13 @@ fn inline_images<'a>(content: &'a [Inline], renderer: &dyn Renderer, wanted: &mu
 
 #[cfg(test)]
 pub(super) mod tests {
+    use crate::typeset::diagnostic::Code;
+
+    /// The text of each of `diagnostics`, as standard error tells them.
+    fn texts(diagnostics: Vec<Diagnostic>) -> Vec<String> {
+        diagnostics.iter().map(ToString::to_string).collect()
+    }
+
     use image::RgbaImage;
 
     use super::*;
@@ -985,7 +967,7 @@ pub(super) mod tests {
         let told: Vec<_> = images
             .late_warnings(true)
             .into_iter()
-            .map(|(_, w)| w)
+            .map(|(_, w)| w.to_string())
             .collect();
         assert_eq!(told, [missing_text("a.png"), missing_text("b.png")]);
         // Loaded at last.
@@ -1081,8 +1063,8 @@ pub(super) mod tests {
         let images = with_headings("# Kiri\n", &Fonts::none());
         let image = images.get(&ImageKey::heading(1, "Kiri", (10, 20)));
         assert!(matches!(image, Some(Err(_))), "{images:?}");
-        assert_eq!(images.warnings(), Vec::<String>::new());
-        assert_eq!(images.warnings_in(0, true), Vec::<String>::new());
+        assert_eq!(texts(images.warnings()), Vec::<String>::new());
+        assert_eq!(texts(images.warnings_in(0, true)), Vec::<String>::new());
     }
 
     #[test]
@@ -1579,11 +1561,11 @@ fn main() {}
         assert_eq!((width(0), width(1)), (3, 5));
         // Each document is told about its own diagram, by its own line.
         assert_eq!(
-            images.warnings_in(0, true),
+            texts(images.warnings_in(0, true)),
             ["mermaid diagram on line 3: parse error"]
         );
         assert_eq!(
-            images.warnings_in(1, true),
+            texts(images.warnings_in(1, true)),
             ["mermaid diagram on line 5: parse error"]
         );
     }
@@ -1612,12 +1594,50 @@ fn main() {}
         assert_eq!(images.len(), 2);
         assert_eq!(images.get(&block), Some(&Err(ImageError::UnknownFormat)));
         assert_eq!(
-            images.warnings(),
+            texts(images.warnings()),
             [
                 "a.png: remote images are not loaded",
                 "mermaid block: not an image format kiri knows",
             ]
         );
+    }
+
+    #[test]
+    fn a_warning_has_the_kind_and_the_subject_it_is_about() {
+        let mut images = Images::new();
+        images.insert("gone.png", Err(ImageError::Missing("/doc/gone.png".into())));
+        images.insert(
+            ImageKey::block("mermaid", "x"),
+            Err(ImageError::Diagram {
+                name: "mermaid diagram on line 3".into(),
+                reason: "parse error".into(),
+            }),
+        );
+        images.insert("https://example.com/a.png", Err(ImageError::Remote));
+        images.insert("", Err(ImageError::NoPath));
+        let told = images.warnings();
+        let seen: Vec<_> = told
+            .iter()
+            .map(|d| (d.code, d.subject.as_deref(), d.message.as_str()))
+            .collect();
+        assert_eq!(
+            seen,
+            [
+                (Code::Image, Some("/doc/gone.png"), "file not found"),
+                (
+                    Code::Diagram,
+                    Some("mermaid diagram on line 3"),
+                    "parse error"
+                ),
+                (
+                    Code::Image,
+                    Some("https://example.com/a.png"),
+                    "remote images are not loaded"
+                ),
+                (Code::Image, None, "an image URL is empty"),
+            ]
+        );
+        assert!(told.iter().all(|d| d.file.is_none()));
     }
 
     #[test]
@@ -1630,7 +1650,7 @@ fn main() {}
         images.insert("file://?x", Err(ImageError::NoPath));
         images.insert("", Err(ImageError::NoPath));
         assert_eq!(
-            images.warnings(),
+            texts(images.warnings()),
             [
                 "https://example.com/a.png: remote images are not loaded",
                 "/doc/gone.png: file not found",

@@ -33,11 +33,12 @@ use kiri::present::output::Page;
 use kiri::render::Inputs;
 use kiri::session::plan::{self, Load, Route};
 use kiri::session::settings::{Follow, Paging};
-use kiri::session::state::{Change, Look, Warning};
+use kiri::session::state::{Change, Look};
 use kiri::term::Interrupt;
 use kiri::typeset::caps::Capabilities;
+use kiri::typeset::diagnostic::{Code, Diagnostic};
 use kiri::typeset::input::Input;
-use kiri::typeset::model::{Block, Document, FrontMatterError};
+use kiri::typeset::model::{Block, Document};
 use kiri::typeset::reading::engine::Reading;
 use kiri::typeset::reading::page::Wide;
 use kiri::typeset::theme::Theme;
@@ -312,7 +313,7 @@ fn image_reader(
 
 /// The settings for documents, from the command line, the environment and
 /// the configuration file, and warnings about them.
-fn settings(cli: &Cli, env: &Environment) -> (Vec<String>, Result<Settings, String>) {
+fn settings(cli: &Cli, env: &Environment) -> (Vec<Diagnostic>, Result<Settings, String>) {
     match kiri::config::load(env) {
         Ok(config) => kiri::config::settings(&options(cli), env, &config),
         Err(error) => (Vec::new(), Err(error)),
@@ -329,7 +330,7 @@ fn document(
     path: &Path,
     settings: &Settings,
     caps: &Capabilities,
-    warn: impl FnOnce(&FrontMatterError),
+    warn: impl FnOnce(Diagnostic),
 ) -> Result<Option<Document>, String> {
     Ok(Some(match input {
         Input::Table(separator) => kiri::typeset::parse::csv::parse(source, separator)
@@ -343,7 +344,7 @@ fn document(
             let document = kiri::typeset::parse::parse_with(source, style.is_some());
             let error = style.and_then(|style| kiri::render::front_matter_error(&document, style));
             if let Some(error) = error {
-                warn(error);
+                warn(Diagnostic::from(error));
             }
             document
         }
@@ -394,12 +395,12 @@ fn given_from(run: &Run, opened: Opened) -> Option<Given> {
     let file = (opened.file).filter(|file| alone || !lone || file.is_file());
     let name = opened.path.display().to_string();
     let mut warnings = Vec::new();
-    let warn = |warning: &FrontMatterError| {
+    let warn = |warning: Diagnostic| {
         // On standard error at once for a file alone, and in the pager too.
         if lone {
             eprintln!("kiri: {warning}");
         }
-        warnings.push(warning.clone());
+        warnings.push(warning);
     };
     let shown = match opened.content {
         Content::Image { format, head, rest } => Shown::Image { format, head, rest },
@@ -584,16 +585,16 @@ fn reloading<'a>(
 struct Opening<'a> {
     /// Whether the documents' images load once the pager has opened.
     later: bool,
-    reading_warning: Option<String>,
+    reading_warning: Option<Diagnostic>,
     /// Where the pager reads the document again from.
     reload: Option<FileReload<'a>>,
 }
 
 /// `warning` about the file `name`, as told: named among several files.
-fn told_line(lone: bool, name: &str, warning: &str) -> String {
+fn told_line(lone: bool, name: &str, warning: Diagnostic) -> Diagnostic {
     match lone {
-        true => warning.to_owned(),
-        false => format!("{name}: {warning}"),
+        true => warning,
+        false => warning.in_file(name),
     }
 }
 
@@ -604,12 +605,12 @@ fn told_files(
     parts: &[Part],
     files: &[kiri::typeset::model::File],
     show: &Show,
-) -> Vec<Vec<String>> {
+) -> Vec<Vec<Diagnostic>> {
     let stderr = show.settings.render_errors.stderr();
     let mut told = vec![Vec::new(); files.len()];
     for part in parts {
         let name = &files[part.number].name;
-        told[part.number] = (images.warnings_in(part.number, stderr).iter())
+        told[part.number] = (images.warnings_in(part.number, stderr).into_iter())
             .map(|warning| told_line(show.lone, name, warning))
             .collect();
     }
@@ -655,7 +656,7 @@ fn told(failed: &Cell<bool>, error: String) {
 /// whether kiri is to fail for it.
 fn tell_drawn(drawn: &Drawn, failed: &Cell<bool>) {
     match drawn {
-        Drawn::Failed(error) => told(failed, error.clone()),
+        Drawn::Failed(error) => told(failed, error.to_string()),
         Drawn::Told => failed.set(true),
         Drawn::Hint(hint) => eprintln!("kiri: {hint}"),
         Drawn::Done => {}
@@ -717,8 +718,8 @@ fn page_files(
         let mut warned = Vec::new();
         for warning in &given.warnings {
             match lone {
-                true => warned_of.push(Warning::from(warning)),
-                false => warned.push(format!("{name}: {warning}")),
+                true => warned_of.push(warning.clone()),
+                false => warned.push(warning.clone().in_file(&name)),
             }
         }
         let document = match given.shown {
@@ -736,7 +737,7 @@ fn page_files(
             Shown::Document { document, .. } => {
                 let stderr = settings.render_errors.stderr();
                 for warning in inputs.images.warnings_in(number, stderr) {
-                    warned.push(told_line(lone, &name, &warning));
+                    warned.push(told_line(lone, &name, warning));
                 }
                 document
             }
@@ -837,12 +838,7 @@ fn page_files(
             None => context.follow,
         },
         jump: settings.follow_jump,
-        warnings: (warned_of.into_iter())
-            .chain(reading_warning.map(|message| Warning {
-                line: None,
-                message,
-            }))
-            .collect(),
+        warnings: (warned_of.into_iter()).chain(reading_warning).collect(),
         reload: reloader.as_mut().map(|reload| reload as &mut dyn Reload),
         reading: Some(context.reading_mode()),
         // What reading mode shows in the middle of text loads when `M`
@@ -952,7 +948,7 @@ fn print_files(show: &Show, given: Vec<Given>, inputs: &mut Inputs) -> io::Resul
         let name = given.name;
         let drawn = given.drawn;
         for warning in given.warnings.iter().filter(|_| !lone) {
-            eprintln!("kiri: {name}: {warning}");
+            eprintln!("kiri: {}", warning.clone().in_file(&name));
         }
         let image = |image: Source, name: String, inputs: &mut Inputs, out: &mut _| match lone {
             true => print_alone(image, Page::default(), inputs, &silent, out),
@@ -994,7 +990,7 @@ fn print_files(show: &Show, given: Vec<Given>, inputs: &mut Inputs) -> io::Resul
             Shown::Document { document, .. } => {
                 let stderr = settings.render_errors.stderr();
                 for warning in inputs.images.warnings_in(number, stderr) {
-                    eprintln!("kiri: {}", told_line(lone, &name, &warning));
+                    eprintln!("kiri: {}", told_line(lone, &name, warning));
                 }
                 let file = kiri::typeset::model::File { name, document };
                 print_file(&file, number, (apart, lone), inputs, &silent, &mut out)
@@ -1120,7 +1116,7 @@ struct Given {
     shown: Shown,
     /// What is told about it before it is shown, besides its images. A
     /// file alone has told them already, and the pager tells them too.
-    warnings: Vec<FrontMatterError>,
+    warnings: Vec<Diagnostic>,
     /// What is told after it is shown: why its diagram was not drawn, for
     /// a diagram file.
     drawn: Option<Drawn>,
@@ -1185,11 +1181,11 @@ enum Drawn {
     /// It was drawn: the file is its image, and there is nothing to tell.
     Done,
     /// It could not be drawn: why, told as an error.
-    Failed(String),
+    Failed(Diagnostic),
     /// It could not be drawn, and the document tells why.
     Told,
     /// Nothing could draw it.
-    Hint(String),
+    Hint(Diagnostic),
 }
 
 /// The images of the documents among `given`, loaded and drawn as
@@ -1256,22 +1252,27 @@ fn drawn(
             Some(Drawn::Done)
         }
         Some(Err(error)) => {
-            let reason = match &error {
-                ImageError::Diagram { reason, .. } => reason.clone(),
-                error => error.to_string(),
+            let (code, reason) = match &error {
+                ImageError::Diagram { reason, .. } => (Code::Diagram, reason.clone()),
+                error => (Code::Image, error.to_string()),
             };
             // Back in, so that the document tells it below the source.
             images.insert(key, Err(error));
             Some(match settings.render_errors.stderr() {
-                true => Drawn::Failed(format!("{path}: {reason}")),
+                true => Drawn::Failed(Diagnostic::new(code, reason).in_file(path.to_string())),
                 false => Drawn::Told,
             })
         }
         // Not drawn, though it could have been shown: no renderer for it.
-        None if settings.diagrams && caps.draws_images() => Some(Drawn::Hint(format!(
-            "{path}: no program to draw {} diagrams; see --doctor",
-            kiri::diagrams::display_name(language)
-        ))),
+        None if settings.diagrams && caps.draws_images() => {
+            let hint = format!(
+                "no program to draw {} diagrams; see --doctor",
+                kiri::diagrams::display_name(language)
+            );
+            Some(Drawn::Hint(
+                Diagnostic::new(Code::NoDiagramProgram, hint).in_file(path.to_string()),
+            ))
+        }
         None => None,
     }
 }
@@ -1597,12 +1598,11 @@ fn page(
     // images load first: under each file's name among several.
     let stderr = inputs.render_errors.stderr();
     for (number, warning) in inputs.images.late_warnings(stderr) {
-        match content {
-            kiri::typeset::layout::Content::Files(files) => {
-                eprintln!("kiri: {}: {warning}", files[number].name)
-            }
-            kiri::typeset::layout::Content::Document(_) => eprintln!("kiri: {warning}"),
-        }
+        let warning = match content {
+            kiri::typeset::layout::Content::Files(files) => warning.in_file(&files[number].name),
+            kiri::typeset::layout::Content::Document(_) => warning,
+        };
+        eprintln!("kiri: {warning}");
     }
     Some(result)
 }
@@ -1653,7 +1653,7 @@ impl Reload for FileReload<'_> {
             Err(error) => return Reloaded::Failed(error),
         };
         let mut warnings = Vec::new();
-        let warn = |error: &FrontMatterError| warnings.push(Warning::from(error));
+        let warn = |warning| warnings.push(warning);
         let document = match document(input, &source, path, self.settings, caps, warn) {
             Ok(Some(document)) => document,
             Ok(None) => return Reloaded::Failed("cannot be shown".to_owned()),

@@ -52,7 +52,7 @@ fn the_fixture_loads_the_images_its_blocks_show() {
             "images/transparent.png",
         ]
     );
-    let warnings = images.warnings();
+    let warnings: Vec<String> = images.warnings().iter().map(ToString::to_string).collect();
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert!(
         warnings[0].ends_with("images/no-such-file.png: file not found"),

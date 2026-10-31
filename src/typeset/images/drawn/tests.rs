@@ -13,7 +13,8 @@ fn a_diagram_that_fails_is_a_warning_naming_it() {
     let warnings = |by_line| {
         let stub = Stub::default();
         let images = load_source(source, &with_stub(&stub, Theme::Light, by_line));
-        images.warnings()
+        let told: Vec<String> = images.warnings().iter().map(ToString::to_string).collect();
+        told
     };
     assert_eq!(warnings(true), ["mermaid diagram on line 3: parse error"]);
     assert_eq!(
@@ -41,7 +42,7 @@ fn a_diagram_that_is_no_svg_is_a_warning_naming_it() {
             ..LoadOptions::default()
         },
     );
-    let warnings = images.warnings();
+    let warnings: Vec<String> = images.warnings().iter().map(ToString::to_string).collect();
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert!(
         warnings[0].starts_with("dot diagram on line 1: "),
