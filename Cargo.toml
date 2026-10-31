@@ -130,3 +130,11 @@ fontique.opt-level = 3
 icu_segmenter.opt-level = 3
 fast_image_resize.opt-level = 3
 kiri-tr-image-utils.opt-level = 3
+
+# Dependencies get line tables only: a backtrace still shows their file and
+# line, but a debugger cannot show their variables. Debugging them has been
+# rare; when it is needed, a rebuild with this line removed is worth its
+# price. With a faster linker, a rebuild after a library change took about
+# 40 % less time, and target/ was about 40 % smaller.
+[profile.dev.package."*"]
+debug = "line-tables-only"
