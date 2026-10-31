@@ -180,7 +180,7 @@ the view does not move, and the tint of auto-follow's change stays on
 its blocks; auto-follow jumped already when the text came. A newer
 reload stops the loads whose images the new document no longer shows,
 and `q`, or a signal, stops the programs that draw. `close_programs` in
-`src/load.rs` waits for them to end once the pager has left its screen,
+`src/loading.rs` waits for them to end once the pager has left its screen,
 with `kiri: closing background programs…` on standard error while that
 takes more than a second, but not for merman, which cannot stop. `Images`
 notes which outcomes came in the background; once the pager has left its
@@ -188,7 +188,7 @@ screen, `src/main.rs` writes the warnings of those that failed and are
 still shown, as it does before the pager opens for images loaded first.
 
 With `initial_load = "background"`, the initial load goes the same way when
-the pager surely opens. With paging on `auto`, `src/load.rs` tells that
+the pager surely opens. With paging on `auto`, `src/loading.rs` tells that
 by laying the documents out with a box of three rows,
 `Placeholder::Rows`, for each image not loaded yet; a document that fits
 loads its images first, as with `wait`. Otherwise it opens the screen and
@@ -417,7 +417,7 @@ besides the one for signals.
 
 `src/images/pipeline.rs` builds the renderers from the settings and the
 environment, given as values, and loads a document's images with them;
-`src/load.rs` hands it `src/term/progress.rs`, which tells on the
+`src/loading.rs` hands it `src/term/progress.rs`, which tells on the
 terminal how far loading has got when it takes long, and another caller
 may tell it elsewhere. Where the pager surely opens and standard error
 is a terminal, the wait loads in the background instead, while
@@ -605,8 +605,8 @@ The later work that the rows name, in words:
 | Module | Part | After the move |
 |---|---|---|
 | `src/lib.rs` | platform | stays; declares the three parts |
-| `src/main.rs` | mixed | stays. Platform: opening files and standard input, the shells, and the calls into `src/load.rs`. State engine: the startup decisions, such as whether a run pages, are in `src/session/plan.rs`; `main.rs` reads the terminal and the files and passes the answers in. One route: `run` shows one file as the special case of several, with no header, and with reloading, following and the unnamed warnings for it alone |
-| `src/load.rs` | platform | new. Loading a document's images and diagrams in the foreground, on threads and in the background, and reloading its file for the pager: the loads, `FileReload` and `look`. `main.rs` calls them. Its seed is the work runner that roadmap item G7.3.3 fills in |
+| `src/main.rs` | mixed | stays. Platform: opening files and standard input, the shells, and the calls into `src/loading.rs`. State engine: the startup decisions, such as whether a run pages, are in `src/session/plan.rs`; `main.rs` reads the terminal and the files and passes the answers in. One route: `run` shows one file as the special case of several, with no header, and with reloading, following and the unnamed warnings for it alone |
+| `src/loading.rs` | platform | new. Loading a document's images and diagrams in the foreground, on threads and in the background, and reloading its file for the pager: the loads, `FileReload` and `look`. `main.rs` calls them. Its seed is the work runner that roadmap item G7.3.3 fills in |
 | `src/reports.rs` | platform | new. The reports kiri writes itself: `--doctor` and `--list-emojis`, rendered for a terminal or written as text, and `show_report`, which shows one through the same route as a file. Their content is made by `src/doctor.rs` and `src/list.rs` |
 | `src/cli.rs` | platform | new. The command line: the clap `Cli`, whose flags take their help from the settings registry, and `options()`, which turns the flags into settings |
 | `src/config/mod.rs` | platform | stays (was `src/config.rs`); the module's description and its public surface |
@@ -830,7 +830,7 @@ file (`main.rs`, `pager/mod.rs`, `render/mod.rs`,
 | startup decision, such as whether a run pages | `src/session/plan.rs`, made by the startup plan; take what it needs from the terminal as values |
 | key or action | an entry in `COMMANDS` in `src/session/commands.rs`, and the pager's answer to its action |
 | setting | its entry in `src/config/registry.rs`, which names its key, its owner, its effect and its medium, and the code of its owner |
-| use of a file, the network or a program | no path yet, loading and sessions makes the platform's work runner, and the trust policy a `Policy`; until then `src/load.rs`, `src/images/background.rs`, `src/images/pipeline.rs` or `src/diagrams/external.rs` |
+| use of a file, the network or a program | no path yet, loading and sessions makes the platform's work runner, and the trust policy a `Policy`; until then `src/loading.rs`, `src/images/background.rs`, `src/images/pipeline.rs` or `src/diagrams/external.rs` |
 | block type or input format | the typesetting engine's registry of block types and formats, no path yet (today `src/typeset/model.rs`, `src/typeset/parse/` and `src/typeset/layout/`); in reading mode a module per block type in `src/typeset/reading/page/`, made by reading mode's block modules; the blocks without one yet, such as paragraphs, stay in `page.rs` |
 | diagram language | `src/typeset/diagrams/`: a file and one entry in `language.rs`; a program that draws it is run by the platform |
 | image format | the decoder in `src/typeset/images/decode.rs` |
@@ -850,7 +850,7 @@ command line, which is `src/cli.rs`: it is some 1,400 lines with no unit
 tests. Besides the command line it opens files and standard input; has one
 route, in which a single file is the special case of several; prints
 documents; starts the pager; hands the loading of images and diagrams and
-the reloading of files for the pager to `src/load.rs`; and calls
+the reloading of files for the pager to `src/loading.rs`; and calls
 `src/reports.rs` for `--doctor` and `--list-emojis`. The decisions it
 makes at start need no I/O, and they are in `src/session/plan.rs`. It does
 not belong to any one part, and is meant to shrink to wiring the others

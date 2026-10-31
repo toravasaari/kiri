@@ -41,11 +41,11 @@ use kiri::typeset::reading::page::Wide;
 use kiri::typeset::theme::Theme;
 
 mod cli;
-mod load;
+mod loading;
 mod reports;
 
 use cli::{Cli, follow, options};
-use load::{
+use loading::{
     FileReload, ROWS_UNLOADED, close_programs, finish_loading, load_in_background, load_parts,
     loading, look, part, read_image_file, surely_paged, wait_or_skip, without_path,
 };
