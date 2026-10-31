@@ -203,8 +203,15 @@ impl Canvas {
                     }
                 };
                 let run = glyphs.run();
-                // A subscript or superscript sits off the baseline.
-                let y = y + paragraph.drop_at(&run.text_range());
+                // A subscript or superscript sits off the baseline, each
+                // glyph by its own text: a glyph run may hold both.
+                let drops: Vec<f32> = (run.visual_clusters())
+                    .flat_map(|cluster| {
+                        let drop = paragraph.drop_at(&cluster.text_range());
+                        cluster.glyphs().map(move |_| drop)
+                    })
+                    .collect();
+                let drop_of = |at: usize| drops.get(at).copied().unwrap_or(0.0);
                 let font = run.font();
                 let Ok(face) = FontRef::from_index(font.data.data(), font.index) else {
                     continue;
@@ -221,7 +228,8 @@ impl Canvas {
                 let mut path = PathBuilder::new();
                 let outlines = face.outline_glyphs();
                 let size = Size::new(run.font_size());
-                for glyph in glyphs.positioned_glyphs() {
+                for (at, glyph) in glyphs.positioned_glyphs().enumerate() {
+                    let y = y + drop_of(at);
                     let origin = (x + glyph.x, y + glyph.y);
                     if colr::draw(
                         &mut self.pixmap,
@@ -258,7 +266,7 @@ impl Canvas {
                 if glyphs.style().strikethrough.is_some() {
                     let metrics = run.font_metrics();
                     let thickness = metrics.strikethrough_size.max(1.0);
-                    let top = y + glyphs.baseline() - metrics.strikethrough_offset;
+                    let top = y + drop_of(0) + glyphs.baseline() - metrics.strikethrough_offset;
                     self.rect(x + glyphs.offset(), top, glyphs.advance(), thickness, color);
                 }
             }
@@ -693,6 +701,42 @@ mod tests {
             sub_bottom - sub_top,
             bottom - top
         );
+    }
+
+    /// The last row of `image` with ink in the columns `from..to`.
+    fn ink_bottom_in(image: &RgbaImage, from: u32, to: u32) -> u32 {
+        (0..image.height())
+            .rev()
+            .find(|&y| (from..to).any(|x| image.get_pixel(x, y).0 == [0x20, 0xc0, 0x40, 255]))
+            .expect("ink in the columns")
+    }
+
+    #[test]
+    fn a_superscript_beside_a_subscript_keeps_its_own_shift() {
+        let script = |text: &str, drop| Run {
+            script: Some(Script { size: 0.8, drop }),
+            ..Run::new(text)
+        };
+        let sup = drawn(&[Run::new("x"), script("ab", -0.33)], None);
+        let edge = (0..sup.width())
+            .rev()
+            .find(|&x| (0..sup.height()).any(|y| sup.get_pixel(x, y).0[3] > 0))
+            .unwrap()
+            + 2;
+        let both = drawn(
+            &[
+                Run::new("x"),
+                script("ab", -0.33),
+                script("cd", 0.2),
+                Run::new("x"),
+            ],
+            None,
+        );
+        let (high, low) = (
+            ink_bottom_in(&both, 12, edge),
+            ink_bottom_in(&both, edge, both.width()),
+        );
+        assert!(low > high, "sub ends at {low}, sup beside it at {high}");
     }
 
     #[test]
