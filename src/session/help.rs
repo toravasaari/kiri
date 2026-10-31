@@ -119,6 +119,80 @@ mod tests {
         assert!(panel.iter().all(|placed| width(&placed.spans) == first));
     }
 
+    /// The rows of the panel as plain text, for a window of 80 × 40.
+    fn rows_for(several: bool) -> Vec<String> {
+        let panel = panel(80, 40, &Style::default(), &Style::default(), several);
+        panel.iter().map(text).collect()
+    }
+
+    #[test]
+    fn the_panel_for_several_files_reads_as_it_always_has() {
+        let expected = [
+            "┌─ Keys ─────────────────────────────────────────┐",
+            "│ j ↓ Enter       down a line                    │",
+            "│ k ↑             up a line                      │",
+            "│ Space f PgDn    down a page                    │",
+            "│ b PgUp          up a page                      │",
+            "│ d               down half a page               │",
+            "│ u               up half a page                 │",
+            "│ g Home          top                            │",
+            "│ G End           bottom                         │",
+            "│ :n Shift+PgDn   next file                      │",
+            "│ :p Shift+PgUp   previous file                  │",
+            "│ /               search                         │",
+            "│ n               next match                     │",
+            "│ N               previous match                 │",
+            "│ Esc             hide the search                │",
+            "│ r               reload the file                │",
+            "│ Ctrl+L          redraw the screen              │",
+            "│ F               follow: on, auto, off          │",
+            "│ M               reading mode: on, off          │",
+            "│ ← →             scroll a wide block            │",
+            "│ H L             scroll it by its width         │",
+            "│ Tab Shift+Tab   select a link, Enter copies it │",
+            "│ W               wide blocks: wrap, scroll      │",
+            "│ ? h             this help                      │",
+            "│ q               quit                           │",
+            "│                                                │",
+            "│ Any key closes this.                           │",
+            "└────────────────────────────────────────────────┘",
+        ];
+        assert_eq!(rows_for(true), expected);
+    }
+
+    #[test]
+    fn the_panel_for_one_file_reads_as_it_always_has() {
+        let expected = [
+            "┌─ Keys ─────────────────────────────────────────┐",
+            "│ j ↓ Enter       down a line                    │",
+            "│ k ↑             up a line                      │",
+            "│ Space f PgDn    down a page                    │",
+            "│ b PgUp          up a page                      │",
+            "│ d               down half a page               │",
+            "│ u               up half a page                 │",
+            "│ g Home          top                            │",
+            "│ G End           bottom                         │",
+            "│ /               search                         │",
+            "│ n               next match                     │",
+            "│ N               previous match                 │",
+            "│ Esc             hide the search                │",
+            "│ r               reload the file                │",
+            "│ Ctrl+L          redraw the screen              │",
+            "│ F               follow: on, auto, off          │",
+            "│ M               reading mode: on, off          │",
+            "│ ← →             scroll a wide block            │",
+            "│ H L             scroll it by its width         │",
+            "│ Tab Shift+Tab   select a link, Enter copies it │",
+            "│ W               wide blocks: wrap, scroll      │",
+            "│ ? h             this help                      │",
+            "│ q               quit                           │",
+            "│                                                │",
+            "│ Any key closes this.                           │",
+            "└────────────────────────────────────────────────┘",
+        ];
+        assert_eq!(rows_for(false), expected);
+    }
+
     #[test]
     fn lists_the_reload_key() {
         let panel = panel(80, 24, &Style::default(), &Style::default(), false);

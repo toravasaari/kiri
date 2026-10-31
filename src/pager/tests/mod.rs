@@ -4,6 +4,7 @@ use super::*;
 use crate::typeset::color::Color;
 use crate::typeset::model::{Document, File};
 
+mod commands;
 mod files;
 mod following;
 mod images;
