@@ -623,7 +623,7 @@ The later work that the rows name, in words:
 | `src/parse/tests.rs` | typesetting | moved to `src/typeset/parse/tests.rs` |
 | `src/theme/mod.rs` | typesetting | moved to `src/typeset/theme/mod.rs` |
 | `src/theme/paper.rs` | typesetting | moved to `src/typeset/theme/paper.rs` |
-| `src/theme/file.rs` | mixed | moved to `src/typeset/theme/file.rs`. Typesetting: parsing the theme file's text. Platform: `load`, which reads the file; the config split moves `load` out |
+| `src/theme/file.rs` | mixed | moved to `src/typeset/theme/file.rs`. Typesetting: parsing the theme file's text. Platform: `load`, which reads the file; loading and sessions moves `load` out, and `config::load_theme` calls it until then |
 | `src/kitty/mod.rs` | terminal layer | moved to `src/present/kitty/mod.rs` |
 | `src/kitty/graphics.rs` | terminal layer | moved to `src/present/kitty/graphics.rs` |
 | `src/kitty/query.rs` | terminal layer | moved to `src/present/kitty/query.rs` |
@@ -786,7 +786,7 @@ is the record of them.
 | `detect` in `term/detect.rs` (terminal layer) calls `tmux::run_id` (platform) | the terminal layer split, which passes the run id in |
 | `term/detect.rs` and `term/tmux.rs` (terminal layer) take `config::Environment` (platform) and `config::Passthrough` (a setting type) | the terminal layer split, which passes the variables and the `Passthrough` value as arguments |
 | `typeset/reading/fonts.rs` (typesetting) loads and memory-maps system fonts | the font database |
-| `typeset/theme/file.rs` (typesetting) has `load`, which reads a file | the config split |
+| `typeset/theme/file.rs` (typesetting) has `load`, which reads a file | loading and sessions |
 
 ### Where a new thing goes
 

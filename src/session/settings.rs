@@ -1,7 +1,8 @@
 //! The types of the settings that decide how the pager works: when it
 //! opens, whether it waits for the images, how a search treats case, and
-//! whether and where it follows a file. The platform's `src/config/` reads them from the flags, the
-//! environment and the file; the state engine only uses the values.
+//! whether and where it follows a file. The platform's `src/config/`
+//! reads them from the flags, the environment and the file; the state
+//! engine only uses the values.
 
 /// When the document is shown in the pager rather than printed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

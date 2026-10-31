@@ -181,7 +181,7 @@ fn no_images_shows_alt_text_without_reading_images() {
 }
 
 #[test]
-fn kiri_no_images_turns_images_off_unless_empty_or_0() {
+fn kiri_no_images_is_a_switch() {
     let dir = Scratch::new("kiri-no-images");
     let document = images_document(&dir);
     let run = |value: &str| {
@@ -193,8 +193,10 @@ fn kiri_no_images_turns_images_off_unless_empty_or_0() {
             .unwrap()
     };
     assert_images_off(&run("1"));
+    assert_images_off(&run("on"));
     assert_images_on(&run(""));
     assert_images_on(&run("0"));
+    assert_images_on(&run("off"));
 }
 
 #[test]

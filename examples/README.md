@@ -63,8 +63,8 @@ Try a wide window and a narrow one (about 40 columns), where the commands
 above wrap like any long code line. No line reaches past the right edge of
 the window.
 
-The width, the margins and the mode can come from a flag, an environment
-variable or the configuration file. These three commands show the same
+The width and the margins can come from a flag, an environment variable
+or the configuration file (so can the mode, as `KIRI_MODE=plain`). These three commands show the same
 narrow document, which wraps at 40 cells with no margin on its left:
 
 ```sh
