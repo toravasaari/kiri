@@ -594,9 +594,9 @@ The later work that the rows name, in words:
 - **The terminal layer split:** the presenter, the encoders, and the key and
   probe decoding that today sit in `term/`, `render/` and `pager/` are
   gathered in the terminal layer.
-- **Commands as data, layers, panels as documents, diagnostics, the trust
-  policy, reading mode's block modules:** later work that the map below
-  names, for the places that do not exist yet.
+- **Commands as data, the selected band as a layer, panels as documents,
+  diagnostics, the trust policy, reading mode's block modules:** later work
+  that the map below names, for the places that do not exist yet.
 
 | Module | Part | After the move |
 |---|---|---|
@@ -608,7 +608,7 @@ The later work that the rows name, in words:
 | `src/config/registry.rs` | platform | new. The registry of settings: each setting once, with its key, the module that reads it, what a change of it needs, its medium and its scope. It generates `Config` (what the file sets), `Options`, `Choices`, `Settings` and `choose` |
 | `src/config/resolve.rs` | platform | stays. Resolving a setting from the flags, the environment, the file and its default: `resolve`, `variable`, the theme's source, `settings` and loading the theme |
 | `src/config/types.rs` | platform | stays. The setting types: `Setting`, `Origin`, `Named`, `ThemeSource`, and the types of the settings that are not the pager's, `Passthrough` among them: capability detection, the command line and `--doctor` read it, and capability detection takes its value, not `Environment` |
-| `src/session/layers.rs` | state engine | new. The highlights over the document as one list of layers, each a paint (a lighter background, colours, reverse video, a box, a frame) at an address in its layout's own terms: `Layer`, `Paint`, `At`, `stack`, which makes the list from the tint, the search and the selected link, and `paint`, which paints the text layout's lines and reading mode's pages with it. A highlight is a layer here, not a branch in the pager |
+| `src/session/layers.rs` | state engine | new. The highlights over the document as one list of layers, each a paint (a background mixed toward the text colour, colours, reverse video, a box, a frame) at an address in its layout's own terms: `Layer`, `Paint`, `At`, `stack`, which makes the list from the tint, the search and the selected link, and `paint`, which paints the text layout's lines and reading mode's pages with it. A highlight is a layer here, not a branch in the pager |
 | `src/session/settings.rs` | state engine | new. The setting types the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump` and `InitialLoad`), without the code that reads them from the flags, the environment and the file |
 | `src/config/tests.rs` | follows `config/` | stays |
 | `src/doctor.rs` | platform | stays (it searches `PATH` through `diagrams::find`) |
