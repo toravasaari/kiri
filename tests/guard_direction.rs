@@ -195,7 +195,7 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[
         "the font database",
     ),
     (
-        "src/typeset/reading/page.rs",
+        "src/typeset/reading/page/code.rs",
         "diagrams",
         "loading and sessions",
     ),
