@@ -865,16 +865,25 @@ mod tests {
             color: Some(color),
             ..Run::new(text)
         };
-        let other: Brush = [0xc0, 0x20, 0x40];
-        let image = drawn(&[script("ab", -0.33, INK), script("cd", 0.2, other)], None);
+        let (high, low): (Brush, Brush) = ([0xc0, 0xc0, 0x20], [0xc0, 0x20, 0x40]);
+        // The plain `x` in the ink colour is the line the scripts are measured by.
+        let image = drawn(
+            &[
+                Run::new("x"),
+                script("ab", -0.33, high),
+                script("cd", 0.2, low),
+            ],
+            None,
+        );
         let bottom_of = |color: Brush| {
             (0..image.height())
                 .rev()
                 .find(|&y| (0..image.width()).any(|x| image.get_pixel(x, y).0[..3] == color))
                 .unwrap()
         };
-        let (sup, sub) = (bottom_of(INK), bottom_of(other));
-        assert!(sub > sup, "sub ends at {sub}, sup at {sup}");
+        let (plain, sup, sub) = (bottom_of(INK), bottom_of(high), bottom_of(low));
+        assert!(sup < plain, "sup ends at {sup}, text at {plain}");
+        assert!(sub > plain, "sub ends at {sub}, text at {plain}");
     }
 
     #[test]
