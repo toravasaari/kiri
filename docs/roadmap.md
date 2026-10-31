@@ -1225,7 +1225,7 @@ Needs G3.4.1.
 
 #### G6.3 Purity by types
 
-- G6.3.1 The decisions kiri makes at start, taken out of `main.rs` into a
+- G6.3.1 (done) The decisions kiri makes at start, taken out of `main.rs` into a
   module of their own with unit tests; the answers that need I/O come in
   as values.
 - G6.3.2 What layout gives is `Send + Sync`: no `Rc`, caches owned by
