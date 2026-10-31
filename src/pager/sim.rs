@@ -44,10 +44,15 @@ use crate::typeset::theme::Theme;
 
 /// The theme the simulated pager draws with: the one the snapshots of
 /// features use, `tests/fixtures/test-theme.toml`, which stays as it is
-/// when the built-in theme changes.
+/// when the built-in theme changes. Like a theme loaded from a file, as
+/// the snapshots load it, it is not the built-in one (`built_in` is
+/// false), so the greys are not lightened for the terminal's colours.
 pub(crate) fn fixed_theme() -> Theme {
-    crate::typeset::theme::parse(include_str!("../../tests/fixtures/test-theme.toml"))
-        .expect("the test theme parses")
+    let mut theme =
+        crate::typeset::theme::parse(include_str!("../../tests/fixtures/test-theme.toml"))
+            .expect("the test theme parses");
+    theme.built_in = false;
+    theme
 }
 
 /// What a file looks like to `stat`, as the virtual clock saw it.
@@ -372,20 +377,33 @@ impl Ran {
     }
 }
 
-/// `text` without its escape sequences: a CSI sequence ends at a letter,
-/// and the graphics ones at the string terminator.
+/// `text` without its escape sequences: a CSI sequence ends at its final
+/// byte, and an OSC, DCS, APC, SOS or PM string at BEL or the string
+/// terminator, with everything in it.
 fn plain(text: &str) -> String {
     let mut plain = String::new();
-    let mut chars = text.chars();
+    let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
         if c != '\x1b' {
             plain.push(c);
             continue;
         }
-        for c in chars.by_ref() {
-            if c.is_ascii_alphabetic() || c == '\\' {
-                break;
+        match chars.next() {
+            Some('[') => {
+                for c in chars.by_ref() {
+                    if ('\u{40}'..='\u{7e}').contains(&c) {
+                        break;
+                    }
+                }
             }
+            Some(']' | 'P' | '_' | 'X' | '^') => {
+                while let Some(c) = chars.next() {
+                    if c == '\x07' || c == '\x1b' && chars.next_if_eq(&'\\').is_some() {
+                        break;
+                    }
+                }
+            }
+            _ => {}
         }
     }
     plain
@@ -465,13 +483,17 @@ impl SimTerminal {
                 disk.files.insert(path, stored);
             }
             Act::Remove(path) => {
-                disk.files.remove(&path);
+                let removed = disk.files.remove(&path);
+                assert!(
+                    removed.is_some(),
+                    "the script removes {path}, which is not there"
+                );
             }
             Act::Rename(from, to) => {
-                if let Some(mut file) = disk.files.remove(&from) {
-                    file.written = elapsed;
-                    disk.files.insert(to, file);
-                }
+                let mut file = (disk.files.remove(&from))
+                    .unwrap_or_else(|| panic!("the script moves {from}, which is not there"));
+                file.written = elapsed;
+                disk.files.insert(to, file);
             }
             Act::Resize(columns, rows) => {
                 self.size = WindowSize {
@@ -546,5 +568,28 @@ impl Terminal for SimTerminal {
 
     fn now(&self) -> Instant {
         self.world.start + self.world.elapsed.get()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_link_is_its_text_and_not_its_target() {
+        let text = plain("\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\");
+        assert_eq!(text, "link");
+    }
+
+    #[test]
+    fn a_graphics_sequence_and_a_bell_ended_string_leave_no_text() {
+        assert_eq!(plain("a\x1b_Gi=31;OK\x1b\\b"), "ab");
+        assert_eq!(plain("a\x1b]0;title\x07b"), "ab");
+        assert_eq!(plain("a\x1bP>|kitty(0.47.1)\x1b\\b"), "ab");
+    }
+
+    #[test]
+    fn a_csi_sequence_ends_at_its_final_byte() {
+        assert_eq!(plain("a\x1b[0;1mb\x1b[5;1Hc\x1b[?2026hd"), "abcd");
     }
 }
