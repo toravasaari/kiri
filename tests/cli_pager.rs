@@ -2723,3 +2723,29 @@ fn reading_mode_is_told_for_a_diagram_alone_only_when_it_is_paged() {
     assert_eq!(stderr, reading);
     assert!(text_of(&seen).contains("\u{26a0} reading mode"), "{seen:?}");
 }
+
+#[test]
+fn one_image_left_by_a_broken_configuration_is_paged_as_a_file_alone() {
+    let prepare = |dir: &std::path::Path| {
+        std::fs::write(dir.join("a.md"), "Alpha\n").unwrap();
+        std::fs::copy(fixtures().join("images/icon.png"), dir.join("pic.png")).unwrap();
+        common::write(&dir.join("config/kiri/config.toml"), "images = [\n");
+    };
+    let mut typed = false;
+    let args = ["--mode", "kitty", "-p", "a.md", "pic.png"];
+    let (status, seen, stderr) = in_terminal_told(
+        "pager-broken-one-left",
+        prepare,
+        &args,
+        5,
+        None,
+        quit_at_first(&mut typed),
+    );
+    assert_eq!(status.code(), Some(1), "{seen:?}");
+    assert!(stderr.contains("config.toml"), "{stderr}");
+    // As a document on its own: named by the status line, without its place
+    // among files.
+    let first = seen.split("\x1b[?2026h").nth(1).map(text_of).unwrap();
+    assert!(first.contains(" pic.png "), "{seen:?}");
+    assert!(!first.contains("1/1"), "{seen:?}");
+}

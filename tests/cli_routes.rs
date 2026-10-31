@@ -259,3 +259,15 @@ fn reading_mode_is_not_told_for_an_image_or_a_diagram_alone_that_is_printed() {
     assert_eq!(text(&out.stderr), "");
     assert!(text(&out.stdout).contains("flowchart"));
 }
+
+#[test]
+fn a_broken_configuration_leaves_one_image_that_is_printed_under_its_header() {
+    let dir = scratch("routes-broken-one-left");
+    write(&dir.join("config/kiri/config.toml"), "images = [\n");
+    let out = kiri_with(&dir, &[], &["--mode", "kitty", "a.md", "icon.png"]);
+    assert_eq!(out.status.code(), Some(1));
+    let stdout = text(&out.stdout);
+    assert!(!stdout.contains("Alpha"), "{stdout:?}");
+    assert_eq!(sent(&stdout).len(), 1, "{stdout:?}");
+    assert!(stdout.contains("icon.png"), "{stdout:?}");
+}
