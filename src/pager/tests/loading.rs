@@ -814,3 +814,39 @@ fn a_heading_image_comes_after_its_text_and_keeps_the_top_line() {
         }
     }
 }
+
+#[test]
+fn a_changed_diagram_loads_with_its_old_drawing_dimmed_under_the_layouts_look() {
+    let caps = Capabilities::kitty(60);
+    let key = |code: &str| Inputs::new(caps.clone()).drawn(ImageKey::block("mermaid", code));
+    let diagram = |code: &str| format!("Before\n\n```mermaid\n{code}```\n\nAfter\n");
+    let (old, new) = (key("flowchart TD\n"), key("flowchart LR\n"));
+    let mut inputs = Inputs::new(caps.clone());
+    inputs
+        .images
+        .insert(old.clone(), Ok(filled(40, 20, [255, 0, 0, 255])));
+    let mut reload = Background {
+        document: crate::typeset::parse::parse(&diagram("flowchart LR\n")),
+        wanted: vec![(new.clone(), filled(40, 20, [0, 0, 255, 255]))],
+        aside: vec![old],
+        coming: Default::default(),
+        fails: Vec::new(),
+        afterwards: None,
+        asked: 0,
+    };
+    let mut terminal = Fake::new(60, 12, &[b"r", b"", b"q"]);
+    run_document(
+        &crate::typeset::parse::parse(&diagram("flowchart TD\n")),
+        &mut inputs,
+        Options {
+            reload: Some(&mut reload),
+            ..Options::new(SearchCase::Smart)
+        },
+        &mut terminal,
+    );
+    let shown = inputs.images.placeholder(&new);
+    assert!(
+        matches!(shown, Some(crate::images::Placeholder::Dimmed(_))),
+        "{shown:?}"
+    );
+}
