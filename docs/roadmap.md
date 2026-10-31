@@ -1306,6 +1306,8 @@ Needs G3.4.1.
   caps for the large files, and a test of which part may refer to which.
   With them, the pseudo-terminal tests wait on a condition instead of a
   fixed time.
+- G6.4.4 Loading and the file reload moved out of `main.rs` into a module
+  of their own, the seed of the work runner, with no change in behaviour.
 
 #### G6.5 One route
 
