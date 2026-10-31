@@ -33,11 +33,12 @@ use crate::session::fade::{
 };
 use crate::session::files::Files;
 use crate::session::help::Placed;
+use crate::session::layers::{self, Highlights, Tint};
 use crate::session::prompt::{Edit, Prompt};
 use crate::session::search::{Marks, Search};
 use crate::session::settings::{self, FollowJump, SearchCase};
 use crate::session::view::{Motion, View};
-use crate::session::{bands, changes, help, links, loading, search, status, tint, warnings};
+use crate::session::{bands, changes, help, links, loading, status, warnings};
 use crate::term::{Screen, WindowSize};
 use crate::typeset::block::BlockInfo;
 use crate::typeset::caps::Capabilities;
@@ -952,15 +953,6 @@ enum Focus {
     Out(Vec<ImageId>),
 }
 
-/// How much to tint which lines, over how many cells, in what colours.
-struct Tint<'a> {
-    lines: Range<usize>,
-    /// The share of the text colour mixed into the background.
-    amount: f32,
-    rgb: &'a Rgb,
-    columns: usize,
-}
-
 /// The change auto-follow moved the view to.
 #[derive(Debug, Clone)]
 struct Changed {
@@ -1453,9 +1445,10 @@ impl State {
         })
     }
 
-    /// `lines`, from line `first` of the document on, with the matches of
-    /// the last search marked with `marks` while it is shown, the current
-    /// one faded by `fade`, and the lines of `tint` tinted.
+    /// `lines`, from line `first` of the document on, with the highlights
+    /// over them: the matches of the last search marked with `marks` while
+    /// it is shown, the current one faded by `fade`, the lines of `tint`
+    /// tinted and the selected `link`.
     fn marked(
         &self,
         lines: &[Line],
@@ -1465,47 +1458,14 @@ impl State {
         tint: Option<Tint>,
         link: Option<&links::Found>,
     ) -> Vec<Line> {
-        let search = self.search.as_ref().filter(|_| self.shown);
-        let mut marked: Vec<Line> = (first..)
-            .zip(lines)
-            .map(|(index, line)| {
-                let tinted;
-                let line = match &tint {
-                    Some(tint) if tint.lines.contains(&index) => {
-                        tinted = tint::tint(line, tint.rgb, tint.amount, tint.columns);
-                        &tinted
-                    }
-                    _ => line,
-                };
-                // The selected link's spans on the line, when it has some.
-                let selected = (link.iter().flat_map(|link| &link.runs))
-                    .find(|(at, _)| *at == index)
-                    .map(|(_, spans)| spans.clone());
-                match (search, selected) {
-                    (Some(search), selected) => {
-                        search::mark(line, &search.on(index), marks, fade, selected)
-                    }
-                    (None, Some(selected)) => search::mark(line, &[], marks, fade, Some(selected)),
-                    (None, None) => line.clone(),
-                }
-            })
-            .collect();
-        // The matches in a page of reading mode and the selected link are
-        // drawn into its image.
-        for page in crate::typeset::reading::engine::pages(&marked) {
-            let address = std::rc::Rc::as_ptr(&page.parts) as usize;
-            let marks = search.map_or_else(Vec::new, |search| search.in_page(address));
-            let link = (link.and_then(|link| link.link))
-                .filter(|link| link.0 == address)
-                .map(|link| link.1);
-            if let Some(overlay) = page.parts.overlay(marks, link) {
-                crate::typeset::reading::engine::set_overlay(
-                    &mut marked[page.lines],
-                    Some(&overlay),
-                );
-            }
-        }
-        marked
+        let highlights = Highlights {
+            tint,
+            search: self.search.as_ref().filter(|_| self.shown),
+            marks,
+            fade,
+            link,
+        };
+        layers::paint(lines, first, &layers::stack(&highlights, lines, first))
     }
 
     /// What the status line tells about the last key, in `fading` when
