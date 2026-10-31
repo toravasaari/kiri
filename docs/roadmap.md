@@ -1297,8 +1297,6 @@ Needs G3.4.1.
 
 - The parser drops Markdown elements it does not know without a word.
 - One light or dark page type for diagrams and themes.
-- Diagram errors as a type of their own rather than strings, as images
-  have.
 
 #### G6.2 Shorter help texts (done)
 
