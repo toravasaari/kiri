@@ -1,7 +1,7 @@
 //! Loading the image at a URL: the local file a path or a `file:` URL
 //! names, opened and read up to a size limit, and a `data:` URL decoded.
 //!
-//! What a URL means is worked out in `src/images/url.rs`, which does no I/O.
+//! What a URL means is worked out in `src/typeset/images/url.rs`, which does no I/O.
 
 use std::io;
 use std::path::Path;

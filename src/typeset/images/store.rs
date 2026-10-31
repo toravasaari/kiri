@@ -143,7 +143,7 @@ impl Images {
         std::mem::take(&mut self.loading)
     }
 
-    /// Sets the image `key` aside, as [`reload_in_background`](crate::images::reload_in_background) does with
+    /// Sets the image `key` aside, as `reload_in_background` does with
     /// one that is no longer shown or that loads anew.
     #[cfg(test)]
     pub(crate) fn set_aside(&mut self, key: &ImageKey) {
@@ -152,7 +152,7 @@ impl Images {
         }
     }
 
-    /// Takes the images [`reload_in_background`](crate::images::reload_in_background) replaced.
+    /// Takes the images `reload_in_background` replaced.
     pub fn take_replaced(&mut self) -> HashMap<ImageKey, Source> {
         std::mem::take(&mut self.replaced)
     }

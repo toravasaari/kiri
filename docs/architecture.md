@@ -351,9 +351,10 @@ placeholders allow from any column, and the image stays one whatever the
 width. A heading whose image did not come is laid out as text, without a
 warning.
 
-Renderers live in `src/typeset/diagrams/`, the trait and those built in, and
-`src/diagrams/`, the one that runs a program, outside `src/present/kitty/` and
-the parser.
+Renderers live in `src/typeset/diagrams/` (the trait and those built in) and
+`src/diagrams/` (the programs that draw: `external.rs` and `find.rs`). The
+choice between them, `Renderers`, is in `src/load/renderers.rs`. None of them
+is under `src/present/kitty/` or in the parser.
 A renderer implements the `Renderer` trait: whether it draws a language,
 and a diagram's source and a `Theme`, for a light or a dark page, with
 the colour of the page's text for a formula, turned into an image file, SVG or raster, and the page its colours are for. It
