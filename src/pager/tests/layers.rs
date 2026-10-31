@@ -195,15 +195,24 @@ fn count(frame: &str, rgb: [u8; 3]) -> usize {
         .count()
 }
 
+/// How many pixels of the images `frame` sends are yellow with some of
+/// another colour mixed in: red and green high, blue low.
+fn yellowish(frame: &str) -> usize {
+    (pixels(frame).iter())
+        .flat_map(|image| image.chunks(4))
+        .filter(|pixel| pixel[0] > 180 && pixel[1] > 180 && pixel[2] < 130)
+        .count()
+}
+
 /// The match colours of reading mode on a theme that sets none.
 const BROWSER_CURRENT: [u8; 3] = [0xff, 0x96, 0x32];
 const BROWSER_FOUND: [u8; 3] = [0xff, 0xff, 0x00];
 
 /// The frames drawn in reading mode for a page with a link and a word
-/// that is a match twice, the second one in the link.
+/// that is a match twice, the second one in the link's text.
 fn reading_page(keys: &[&[u8]]) -> Vec<String> {
     let document = crate::typeset::parse::parse(
-        "A needle, then [a link](https://one.example/) with a needle in it.\n",
+        "A needle, then [a needle link](https://one.example/) and more.\n",
     );
     let mut terminal = Fake::new(80, 10, keys);
     let mut inputs = Inputs {
@@ -234,8 +243,14 @@ fn a_match_and_the_selected_link_are_drawn_on_one_page_in_reading_mode() {
     assert!(count(&frames[1], BROWSER_CURRENT) > 100);
     assert!(count(&frames[1], BROWSER_FOUND) > 100);
     // Selecting the link draws it again, with the current match still in
-    // the colours of a match, and the link's box over the other.
+    // the colours of a match, and the match in the link still yellow
+    // under the link's frame.
     assert!(count(&frames[2], BROWSER_CURRENT) > 100);
+    // The link's translucent box is drawn over the box of the match in
+    // it, so that it is no longer the exact yellow, but still yellowish.
+    assert_eq!(count(&frames[2], BROWSER_FOUND), 0);
+    assert!(yellowish(&frames[2]) > 100, "{}", yellowish(&frames[2]));
+    assert_eq!(yellowish(&frames[0]), 0);
     assert!(frames[2].contains("https://one.example/"), "{frames:#?}");
     assert_ne!(pixels(&frames[1]), pixels(&frames[2]));
 }
@@ -248,7 +263,7 @@ fn escape_takes_the_matches_and_the_selected_link_away_in_reading_mode() {
     assert!(frames[2].contains("https://one.example/"), "{frames:#?}");
     // The page was drawn with its marks before; what is sent now has
     // neither them nor the box.
-    assert!(count(&frames[1], BROWSER_CURRENT) > 100);
+    assert!(count(&frames[2], BROWSER_CURRENT) > 100);
     assert_eq!(count(last, BROWSER_CURRENT), 0);
     assert_eq!(count(last, BROWSER_FOUND), 0);
     let bar = last.rsplit("\x1b[10;1H").next().unwrap_or("");
