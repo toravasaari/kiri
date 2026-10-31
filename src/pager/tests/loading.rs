@@ -76,7 +76,7 @@ fn loading_in(
     reload: &mut Background,
     reads: &[&[u8]],
     comes: &[usize],
-    follow: config::Follow,
+    follow: settings::Follow,
 ) -> Fake {
     let caps = Capabilities::kitty(80);
     loading_with(caps, rows, before, images, reload, reads, comes, follow)
@@ -92,7 +92,7 @@ fn loading_with(
     reload: &mut Background,
     reads: &[&[u8]],
     comes: &[usize],
-    follow: config::Follow,
+    follow: settings::Follow,
 ) -> Fake {
     let mut inputs = Inputs::new(caps);
     for (url, image) in images {
@@ -160,7 +160,7 @@ fn a_reload_shows_the_new_text_at_once_and_the_image_when_it_comes() {
         &mut reload,
         &[b"r", b"", b"", b""],
         &[3],
-        config::Follow::Off,
+        settings::Follow::Off,
     );
     let frames = terminal.frames();
     // The first frame, the one that says it reloads, the reload's,
@@ -204,7 +204,7 @@ fn the_band_moves_on_at_each_frame_while_an_image_loads() {
         &mut reload,
         &[b"r", b"", b"", b"", b"", b""],
         &[5],
-        config::Follow::Off,
+        settings::Follow::Off,
     );
     // Waits a frame's time while the image loads, and a poll's after.
     assert_eq!(terminal.waits[1..6], [FRAME; 5], "{:?}", terminal.waits);
@@ -238,7 +238,7 @@ fn a_new_image_without_an_old_one_shows_its_alt_text_with_the_band_below_it() {
         &mut reload,
         &[b"r"],
         &[],
-        config::Follow::Off,
+        settings::Follow::Off,
     );
     let frames = terminal.frames();
     let reloaded = unstyled(&frames[2]);
@@ -270,7 +270,7 @@ fn an_image_that_comes_keeps_the_top_line_in_place() {
             &mut reload,
             &[keys, b"r", b"", b""],
             &[3],
-            config::Follow::Off,
+            settings::Follow::Off,
         );
         let frames = terminal.frames();
         let (before, after) = (&frames[frames.len() - 2], frames.last().unwrap());
@@ -308,7 +308,7 @@ fn auto_following_jumps_when_the_text_comes_and_not_when_the_image_does() {
         &mut reload,
         &[b"r", b"", b""],
         &[2],
-        config::Follow::Auto,
+        settings::Follow::Auto,
     );
     let frames = terminal.frames();
     let top = |frame: &str| top_row(frame);
@@ -338,7 +338,7 @@ fn the_status_line_counts_the_images_that_came_until_all_have() {
         &mut reload,
         &[b"r", b"", b"", b""],
         &[2, 3],
-        config::Follow::Off,
+        settings::Follow::Off,
     );
     let statuses: Vec<String> = (terminal.frames().iter())
         .map(|frame| status_text(frame, 12))
@@ -394,7 +394,7 @@ fn the_tint_stays_on_its_lines_when_an_image_above_comes_taller() {
         &mut reload,
         &[b"r", b""],
         &[1],
-        config::Follow::Auto,
+        settings::Follow::Auto,
     );
     let frames = terminal.frames();
     let tint = |frame: &str, text: &str| background(&row_style(frame, text));
@@ -456,7 +456,7 @@ fn a_reload_that_fails_while_images_load_keeps_their_placeholders() {
         &mut reload,
         &[b"r", b"r", b""],
         &[],
-        config::Follow::Off,
+        settings::Follow::Off,
     );
     let frames = terminal.frames();
     // The first, reloading, reloaded, reloading, failed, and it drawn
@@ -491,7 +491,7 @@ fn an_image_that_fails_to_load_shows_as_a_missing_image_does() {
         &mut reload,
         &[b"r", b"", b""],
         &[2],
-        config::Follow::Off,
+        settings::Follow::Off,
     );
     let frames = terminal.frames();
     let last = frames.last().unwrap();
@@ -535,7 +535,7 @@ fn a_band_scrolled_out_of_view_does_not_move_on() {
         // The band on the second row, then below the view, past it.
         &[b"jjj", b"r", b"", b"jjjj", b"", b""],
         &[],
-        config::Follow::Off,
+        settings::Follow::Off,
     );
     let waits = &terminal.waits;
     assert_eq!(waits[2], FRAME, "{waits:?}");
@@ -626,7 +626,7 @@ fn an_image_that_comes_at_its_placeholder_s_size_moves_nothing() {
         &mut reload,
         &[b"r", b"", b""],
         &[2],
-        config::Follow::Off,
+        settings::Follow::Off,
     );
     let frames = terminal.frames();
     let (before, after) = (&frames[frames.len() - 2], frames.last().unwrap());
@@ -653,7 +653,7 @@ fn no_band_is_placed_under_the_help_panel() {
         &mut reload,
         &[b"r", b"", b"?", b"", b""],
         &[],
-        config::Follow::Off,
+        settings::Follow::Off,
     );
     let frames = terminal.frames();
     let help = |frame: &str| frame.contains("down a line");
@@ -784,7 +784,7 @@ fn a_heading_image_comes_after_its_text_and_keeps_the_top_line() {
             &mut reload,
             &[keys, b"r", b"", b""],
             &[3],
-            config::Follow::Off,
+            settings::Follow::Off,
         );
         let frames = terminal.frames();
         let (before, after) = (&frames[frames.len() - 2], frames.last().unwrap());

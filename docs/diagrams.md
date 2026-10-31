@@ -41,8 +41,10 @@ What draws a Mermaid diagram:
 A diagram that sets its own theme, in a `%%{init: {"theme": …}}%%`
 directive or under `config:` in its front matter, keeps it. Otherwise it
 takes Mermaid's `default` theme on a light page and `dark` on a dark one.
-The page is light with `--light`, dark with `--dark`, and otherwise as
-the terminal's background is; an unknown background counts as dark.
+The page is light or dark when the theme is the light or dark paper
+theme, however it is chosen (`--light`, `--dark`, `--theme`, `KIRI_THEME` or
+the configuration file); otherwise it is as the terminal's background is, and
+an unknown background counts as dark.
 
 A diagram's own colours are for a dark page in Mermaid's dark mode,
 `darkMode: true` among its theme variables, and otherwise when its
@@ -53,8 +55,8 @@ lines and text show: one in light colours on a dark page on a
 white panel, and one in dark colours on a light page on a panel of its
 theme's background. When kiri cannot tell that background, as with an
 external program, the panel is Mermaid's dark grey, `#333333`.
-`background_panel = false` in the `[diagrams]` table leaves the panels
-out.
+`background_panel = false` in the `[diagrams]` table, `--diagram-panel off`
+or `KIRI_DIAGRAM_BACKGROUND_PANEL=off` leaves the panels out.
 
 A diagram that does not draw, such as one with a syntax error, stays
 code. Below the code, in the theme's `error` colour, kiri tells why, as
@@ -158,7 +160,8 @@ directory: write the path in full. A program named without a path is
 looked for on `PATH`.
 
 Each diagram may take 20 seconds, or as long as `timeout` in the
-`[diagrams]` table says, such as `timeout = 60` or `timeout = 2.5`; up
+`[diagrams]` table says, such as `timeout = 60` or `timeout = 2.5`, or
+`--diagram-timeout` or `KIRI_DIAGRAM_TIMEOUT`; up
 to four are drawn at once. When drawing takes longer than half a second,
 a line such as `kiri: loading images 2/5…` on the terminal tells how
 far it has got, and is wiped before the document is shown. Ctrl-C,

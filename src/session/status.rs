@@ -4,8 +4,8 @@
 
 use unicode_width::UnicodeWidthStr;
 
-use crate::config::Follow;
 use crate::session::fade::{FADE_OUT, FLASH, Fade};
+use crate::session::settings::Follow;
 use crate::session::view::Position;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;

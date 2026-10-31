@@ -13,6 +13,7 @@ pub mod loading;
 pub mod plan;
 pub mod prompt;
 pub mod search;
+pub mod settings;
 pub mod status;
 pub mod tint;
 pub mod view;

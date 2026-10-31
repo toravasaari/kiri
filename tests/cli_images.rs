@@ -181,7 +181,7 @@ fn no_images_shows_alt_text_without_reading_images() {
 }
 
 #[test]
-fn kiri_no_images_turns_images_off_unless_empty_or_0() {
+fn kiri_no_images_is_a_switch() {
     let dir = Scratch::new("kiri-no-images");
     let document = images_document(&dir);
     let run = |value: &str| {
@@ -193,8 +193,28 @@ fn kiri_no_images_turns_images_off_unless_empty_or_0() {
             .unwrap()
     };
     assert_images_off(&run("1"));
+    assert_images_off(&run("on"));
     assert_images_on(&run(""));
     assert_images_on(&run("0"));
+    assert_images_on(&run("off"));
+}
+
+#[test]
+fn kiri_no_images_warns_about_a_value_that_is_not_a_switch() {
+    let dir = Scratch::new("kiri-no-images-wrong");
+    let document = images_document(&dir);
+    let out = command(&dir)
+        .env("KIRI_NO_IMAGES", "yes")
+        .args(["--mode", "kitty"])
+        .arg(&document)
+        .output()
+        .unwrap();
+    assert_images_on(&out);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("KIRI_NO_IMAGES: `yes` is not on, off, 1 or 0; left out"),
+        "{stderr}"
+    );
 }
 
 #[test]

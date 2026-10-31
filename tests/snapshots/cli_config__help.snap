@@ -43,7 +43,7 @@ Options:
           Width in cells; defaults to the terminal width
 
       --mode <MODE>
-          Which terminal features to use
+          Which terminal features to use [default: auto]
           
           Colours stay off when NO_COLOR is set.
 
@@ -52,28 +52,30 @@ Options:
           - plain: Text only, no escape sequences
           - ansi:  Colours and attributes, no kitty extensions
           - kitty: All kitty features, without asking the terminal
-          
-          [default: auto]
 
       --theme <THEME>
-          Theme file
+          Theme file, or a theme's name
           
-          It overrides --light, --dark, KIRI_THEME and the configuration file.
+          A name, such as dark, is NAME.toml in the themes directory, or the built-in light or dark
+          paper. It overrides KIRI_THEME and the configuration file.
 
       --light
-          A light page in greys, whatever the terminal's colours
+          A light page in greys, as --theme light
           
-          Code gets colours for a light background.
+          Whatever the terminal's colours. Code gets colours for a light background.
 
       --dark
-          A dark page in greys, whatever the terminal's colours
+          A dark page in greys, as --theme dark
           
-          Code gets colours for a dark background.
+          Whatever the terminal's colours. Code gets colours for a dark background.
 
   -M, --no-margins
           No margins, indents or padding, for copying text
           
           Leaves out the margins, heading indents and code block padding.
+
+      --margins
+          Keep the margins, whatever KIRI_MARGINS and the configuration say
 
   -I, --no-images
           Show images as their alt text and diagrams as code
@@ -178,6 +180,16 @@ Options:
           
           [possible values: on, off]
 
+      --diagram-timeout <SECS>
+          How long a program may take to draw one diagram, in seconds
+
+      --diagram-panel <SWITCH>
+          Whether a diagram in the other page's colours lies on a panel
+          
+          on or off; on unless set.
+          
+          [possible values: on, off]
+
       --render-errors <WHERE>
           Where to tell why a diagram could not be drawn
           
@@ -215,11 +227,9 @@ Options:
           [possible values: wrap, scroll]
 
       --max-image-size <MB>
-          Largest image file to read, in megabytes
+          Largest image file to read, in megabytes [default: 10]
           
           At most 100; larger images show their alt text.
-          
-          [default: 10]
 
   -h, --help
           Print help (see a summary with '-h')

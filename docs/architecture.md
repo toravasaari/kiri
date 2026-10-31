@@ -476,7 +476,7 @@ few times at most. The pager writes the same checks after each frame that
 sent images, and the terminal's answers come among the keys.
 
 `kiri --doctor` reports what detection found and where each setting came
-from. `src/term/` and `src/config.rs` hand it the detection, the
+from. `src/term/` and `src/config/` hand it the detection, the
 settings and the file paths; `src/doctor.rs` checks which files exist and
 writes it all as a Markdown document, which kiri renders like any other or
 writes as it is into a pipe.
@@ -573,8 +573,8 @@ the old path. The rules for the move:
 
 The later work that the rows name, in words:
 
-- **The config split:** `config.rs` is divided, and each setting gets an
-  owner.
+- **The config split (done):** `config.rs` is divided, and each setting is
+  declared once, with its owner, in `src/config/registry.rs`.
 - **The font database:** one font database, loaded by the platform and
   handed to the engines.
 - **The startup plan:** the decisions of `main.rs` are in
@@ -596,8 +596,14 @@ The later work that the rows name, in words:
 |---|---|---|
 | `src/lib.rs` | platform | stays; declares the three parts |
 | `src/main.rs` | mixed | stays. Platform: the command line, opening files and standard input, the shells, loading, the file reload. State engine: the startup decisions, such as whether a run pages, are in `src/session/plan.rs`; `main.rs` reads the terminal and the files and passes the answers in. One route: `run` shows one file as the special case of several, with no header, and with reloading, following and the unnamed warnings for it alone |
-| `src/config.rs` | mixed | stays. Platform: `Environment`, which reads the process's variables, the file, and resolving a setting from the flags, the environment, the file and its default. State engine: the setting types the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump`). `Passthrough` stays a setting type with the others, though it is read by capability detection, the command line and `--doctor`; capability detection takes its value, and the variables it reads (`TMUX`, `TMUX_PANE`, `NO_COLOR`, `COLORTERM`, `TERM_PROGRAM` and `VTE_VERSION`), as arguments, not `Environment`. The config split |
-| `src/config/tests.rs` | follows `config.rs` | stays; goes with its pieces in the config split |
+| `src/config/mod.rs` | platform | stays (was `src/config.rs`); the module's description and its public surface |
+| `src/config/environment.rs` | platform | stays. `Environment`, the table of the variables kiri reads, reading the process's variables, and the directories that `HOME` and the XDG variables give. Capability detection takes its variables (`TMUX`, `TMUX_PANE`, `NO_COLOR`, `COLORTERM`, `TERM_PROGRAM` and `VTE_VERSION`) as arguments, not `Environment`, in the terminal layer split |
+| `src/config/file.rs` | platform | stays. The configuration file: where it is, reading it (`load`) and the deserialiser of the `[diagrams]` tables |
+| `src/config/registry.rs` | platform | new. The registry of settings: each setting once, with its key, the module that reads it, what a change of it needs, its medium and its scope. It generates `Config` (what the file sets), `Options`, `Choices`, `Settings` and `choose` |
+| `src/config/resolve.rs` | platform | stays. Resolving a setting from the flags, the environment, the file and its default: `resolve`, `variable`, the theme's source, `settings` and loading the theme |
+| `src/config/types.rs` | platform | stays. The setting types: `Setting`, `Origin`, `Named`, `ThemeSource`, and the types of the settings that are not the pager's, `Passthrough` among them: capability detection, the command line and `--doctor` read it, and capability detection takes its value, not `Environment` |
+| `src/session/settings.rs` | state engine | new. The setting types the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump` and `InitialLoad`), without the code that reads them from the flags, the environment and the file |
+| `src/config/tests.rs` | follows `config/` | stays |
 | `src/doctor.rs` | platform | stays (it searches `PATH` through `diagrams::find`) |
 | `src/list.rs` | platform | stays (the `--list-emojis` shell) |
 | `src/panics.rs` | platform | stays |
@@ -617,7 +623,7 @@ The later work that the rows name, in words:
 | `src/parse/tests.rs` | typesetting | moved to `src/typeset/parse/tests.rs` |
 | `src/theme/mod.rs` | typesetting | moved to `src/typeset/theme/mod.rs` |
 | `src/theme/paper.rs` | typesetting | moved to `src/typeset/theme/paper.rs` |
-| `src/theme/file.rs` | mixed | moved to `src/typeset/theme/file.rs`. Typesetting: parsing the theme file's text. Platform: `load`, which reads the file; the config split moves `load` out |
+| `src/theme/file.rs` | mixed | moved to `src/typeset/theme/file.rs`. Typesetting: parsing the theme file's text. Platform: `load`, which reads the file; loading and sessions moves `load` out, and `config::load_theme` calls it until then |
 | `src/kitty/mod.rs` | terminal layer | moved to `src/present/kitty/mod.rs` |
 | `src/kitty/graphics.rs` | terminal layer | moved to `src/present/kitty/graphics.rs` |
 | `src/kitty/query.rs` | terminal layer | moved to `src/present/kitty/query.rs` |
@@ -766,7 +772,6 @@ The crossings in the list fall into these kinds:
 | typesetting uses the font loading in `images/svg.rs` | the font database |
 | typesetting uses `present::kitty::graphics` | a small change of its own, giving `caps.rs` the constant |
 | the terminal layer uses `term::tmux`, `render::loading`, `pager::keys` or `images` | the terminal layer split; loading and sessions |
-| the state engine uses `config` | the config split |
 | the state engine uses `pager::keys` or `pager::Warning` | commands as data; the pager's loop |
 
 The test reads files by directory, so it does not see the crossings inside
@@ -781,13 +786,13 @@ is the record of them.
 | `detect` in `term/detect.rs` (terminal layer) calls `tmux::run_id` (platform) | the terminal layer split, which passes the run id in |
 | `term/detect.rs` and `term/tmux.rs` (terminal layer) take `config::Environment` (platform) and `config::Passthrough` (a setting type) | the terminal layer split, which passes the variables and the `Passthrough` value as arguments |
 | `typeset/reading/fonts.rs` (typesetting) loads and memory-maps system fonts | the font database |
-| `typeset/theme/file.rs` (typesetting) has `load`, which reads a file | the config split |
+| `typeset/theme/file.rs` (typesetting) has `load`, which reads a file | loading and sessions |
 
 ### Where a new thing goes
 
 New code goes where this map puts it. When the map has no place for it,
 that is a question for the maintainer, not a reason to add it to a hub
-file (`main.rs`, `pager/mod.rs`, `config.rs`, `render/mod.rs`,
+file (`main.rs`, `pager/mod.rs`, `render/mod.rs`,
 `typeset/layout/mod.rs`, `typeset/reading/engine.rs`,
 `typeset/reading/page.rs`, `images/mod.rs` and `diagrams/mod.rs`).
 **No path yet** means that the work named creates the place; until then, ask.
@@ -797,7 +802,7 @@ file (`main.rs`, `pager/mod.rs`, `config.rs`, `render/mod.rs`,
 | command-line option | `src/cli.rs`, new, made by one route; until then `Cli` in `src/main.rs` |
 | startup decision, such as whether a run pages | `src/session/plan.rs`, made by the startup plan; take what it needs from the terminal as values |
 | key or action | `src/session/commands.rs`, new, made by commands as data; until then `BINDINGS` in `src/pager/keys.rs` |
-| setting | no path yet, the config split makes the registry of setting keys, each with its owner, its effect and its medium; until then `src/config.rs`, named after its owner |
+| setting | its entry in `src/config/registry.rs`, which names its key, its owner, its effect and its medium, and the code of its owner |
 | use of a file, the network or a program | no path yet, loading and sessions makes the platform's work runner, and the trust policy a `Policy`; until then `src/images/background.rs`, `src/images/pipeline.rs` or `src/diagrams/external.rs` |
 | block type or input format | the typesetting engine's registry of block types and formats, no path yet (today `src/typeset/model.rs`, `src/typeset/parse/` and `src/typeset/layout/`); in reading mode a module per block type in `src/typeset/reading/page/`, made by reading mode's block modules; the blocks without one yet, such as paragraphs, stay in `page.rs` |
 | diagram language | `src/typeset/diagrams/`: a file and one entry in `language.rs`; a program that draws it is run by the platform |

@@ -9,7 +9,7 @@ use std::time::Duration;
 use kiri::config::{Environment, Options, Origin, Passthrough, Setting, choose};
 use kiri::doctor::{Facts, report};
 use kiri::term::tmux::Pane;
-use kiri::term::{Detection, Mode, WindowSize};
+use kiri::term::{Detection, WindowSize};
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::theme::Theme;
 
@@ -132,7 +132,7 @@ fn flags_tell_where_they_come_from() {
         (&["-M"][..], "| Margins | off | `--no-margins` |"),
         (&["--light"][..], "| Theme | light paper | `--light` |"),
         (&["--dark"][..], "| Theme | dark paper | `--dark` |"),
-        (&["--dark", "--theme", theme][..], "| `--theme` |"),
+        (&["--theme", theme][..], "| `--theme` |"),
         (&["-P"][..], "| Paging | never | `-P` |"),
         (&["--mode", "plain"][..], "| Mode | plain | `--mode` |"),
         (&["--mode=auto"][..], "| Mode | auto | `--mode` |"),
@@ -545,9 +545,7 @@ fn the_files_tell_where_diagram_programs_work() {
 fn values_with_pipes_backticks_and_control_characters_stay_in_their_cells() {
     let dir = Scratch::new("doctor-escapes");
     let mut command = doctor(&dir, &[]);
-    command
-        .env("TERM", "x|y`z")
-        .env("KIRI_NO_IMAGES", "a|b``c\td");
+    command.env("TERM", "x|y`z").env("KIRI_THEME", "a|b``c\td");
     let out = command.output().unwrap();
     assert_succeeded(&out);
     let report = text(&out.stdout);
@@ -567,12 +565,9 @@ fn values_with_pipes_backticks_and_control_characters_stay_in_their_cells() {
     let terminal = line("Terminal ");
     assert!(terminal.contains("none, `TERM=x|y`z` "), "{terminal}");
     assert_eq!(terminal.matches('│').count(), 3, "{terminal}");
-    let images = line("Images ");
-    assert!(
-        images.contains("`KIRI_NO_IMAGES=a|b``c\\x09d` "),
-        "{images}"
-    );
-    assert_eq!(images.matches('│').count(), 4, "{images}");
+    let theme = line("Theme ");
+    assert!(theme.contains("`KIRI_THEME=a|b``c\\x09d` "), "{theme}");
+    assert_eq!(theme.matches('│').count(), 4, "{theme}");
 }
 
 #[test]
@@ -821,9 +816,6 @@ fn the_report_on_kitty() {
     let choices = choose(&Options::default(), &env, &Default::default());
     let facts = Facts {
         env: &env,
-        mode: Setting::new(Mode::Auto, Origin::Default),
-        width: None,
-        max_image_size: Setting::new(10, Origin::Default),
         detection: &detection,
         choices: &choices,
         theme: &Theme::default(),
@@ -867,9 +859,6 @@ fn tmux_terminal(pane: Option<Pane>, passthrough: Passthrough, hyperlinks: bool)
     let choices = choose(&options, &env, &Default::default());
     let facts = Facts {
         env: &env,
-        mode: Setting::new(Mode::Auto, Origin::Default),
-        width: None,
-        max_image_size: Setting::new(10, Origin::Default),
         detection: &detection,
         choices: &choices,
         theme: &Theme::default(),
@@ -1051,9 +1040,6 @@ fn the_terminal_name_is_shown_as_code() {
     let choices = choose(&Options::default(), &env, &Default::default());
     let facts = Facts {
         env: &env,
-        mode: Setting::new(Mode::Auto, Origin::Default),
-        width: None,
-        max_image_size: Setting::new(10, Origin::Default),
         detection: &detection,
         choices: &choices,
         theme: &Theme::default(),
@@ -1082,9 +1068,6 @@ fn in_the_background_the_terminal_is_not_asked() {
     let choices = choose(&Options::default(), &env, &Default::default());
     let facts = Facts {
         env: &env,
-        mode: Setting::new(Mode::Auto, Origin::Default),
-        width: None,
-        max_image_size: Setting::new(10, Origin::Default),
         detection: &detection,
         choices: &choices,
         theme: &Theme::default(),
@@ -1115,9 +1098,6 @@ fn heading_sizes_show_their_rounding() {
     let theme = kiri::typeset::theme::parse("[h1]\nscale = 3\n[h5]\nscale = 1.3\n").unwrap();
     let facts = Facts {
         env: &env,
-        mode: Setting::new(Mode::Auto, Origin::Default),
-        width: None,
-        max_image_size: Setting::new(10, Origin::Default),
         detection: &detection,
         choices: &choices,
         theme: &theme,

@@ -18,7 +18,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::{Bound, Range};
 
-use crate::config::FollowJump;
+use crate::session::settings::FollowJump;
 use crate::typeset::block::BlockInfo;
 use crate::typeset::compare::{Comparison, Fate, Path};
 
