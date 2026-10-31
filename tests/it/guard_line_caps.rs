@@ -12,7 +12,7 @@ use std::path::Path;
 /// collects code of several parts, so new code goes to the part's own file
 /// instead (docs/architecture.md, "Where a new thing goes").
 const CAPS: &[(&str, usize)] = &[
-    ("src/main.rs", 1800),
+    ("src/main.rs", 1484),
     ("src/pager/mod.rs", 860),
     ("src/render/mod.rs", 345),
     ("src/typeset/layout/mod.rs", 1366),
