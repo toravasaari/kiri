@@ -147,7 +147,7 @@ pub fn heading_look(
         Some(true) | None => [0xff; 3],
         Some(false) => [0; 3],
     };
-    let text = rgb(look.foreground, caps)
+    let text = rgb(look.foreground.filter(|_| caps.color), caps)
         .or_else(|| rgb(caps.foreground, caps))
         .unwrap_or(contrast);
     let level = |level: u8| {
@@ -387,6 +387,20 @@ mod tests {
             ..Theme::default()
         };
         assert_eq!(bullet_on_hidden_grey(theme), Some(Color::Palette(8)));
+    }
+
+    #[test]
+    fn heading_images_keep_no_colour_of_the_theme_without_colours() {
+        let theme = Theme::paper(crate::typeset::theme::Paper::Light);
+        assert!(theme.foreground.is_some());
+        let caps = Capabilities {
+            color: false,
+            ..no_text_sizing()
+        };
+        let look = heading_look(Headings::Images, false, &theme, &caps).expect("images");
+        // Without a colour of its own the text is the terminal's: light on
+        // a dark page, as the layouts take it.
+        assert_eq!(look.levels[0].color, [0xff; 3]);
     }
 
     #[test]
