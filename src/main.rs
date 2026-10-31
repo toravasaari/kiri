@@ -591,10 +591,10 @@ struct Opening<'a> {
 }
 
 /// `warning` about the file `name`, as told: named among several files.
-fn told_line(lone: bool, name: &str, warning: &str) -> String {
+fn told_line(lone: bool, name: &str, warning: Diagnostic) -> Diagnostic {
     match lone {
-        true => warning.to_owned(),
-        false => format!("{name}: {warning}"),
+        true => warning,
+        false => warning.in_file(name),
     }
 }
 
@@ -605,12 +605,12 @@ fn told_files(
     parts: &[Part],
     files: &[kiri::typeset::model::File],
     show: &Show,
-) -> Vec<Vec<String>> {
+) -> Vec<Vec<Diagnostic>> {
     let stderr = show.settings.render_errors.stderr();
     let mut told = vec![Vec::new(); files.len()];
     for part in parts {
         let name = &files[part.number].name;
-        told[part.number] = (images.warnings_in(part.number, stderr).iter())
+        told[part.number] = (images.warnings_in(part.number, stderr).into_iter())
             .map(|warning| told_line(show.lone, name, warning))
             .collect();
     }
@@ -719,7 +719,7 @@ fn page_files(
         for warning in &given.warnings {
             match lone {
                 true => warned_of.push(warning.clone()),
-                false => warned.push(warning.clone().in_file(&name).to_string()),
+                false => warned.push(warning.clone().in_file(&name)),
             }
         }
         let document = match given.shown {
@@ -737,7 +737,7 @@ fn page_files(
             Shown::Document { document, .. } => {
                 let stderr = settings.render_errors.stderr();
                 for warning in inputs.images.warnings_in(number, stderr) {
-                    warned.push(told_line(lone, &name, &warning));
+                    warned.push(told_line(lone, &name, warning));
                 }
                 document
             }
@@ -990,7 +990,7 @@ fn print_files(show: &Show, given: Vec<Given>, inputs: &mut Inputs) -> io::Resul
             Shown::Document { document, .. } => {
                 let stderr = settings.render_errors.stderr();
                 for warning in inputs.images.warnings_in(number, stderr) {
-                    eprintln!("kiri: {}", told_line(lone, &name, &warning));
+                    eprintln!("kiri: {}", told_line(lone, &name, warning));
                 }
                 let file = kiri::typeset::model::File { name, document };
                 print_file(&file, number, (apart, lone), inputs, &silent, &mut out)
@@ -1593,12 +1593,11 @@ fn page(
     // images load first: under each file's name among several.
     let stderr = inputs.render_errors.stderr();
     for (number, warning) in inputs.images.late_warnings(stderr) {
-        match content {
-            kiri::typeset::layout::Content::Files(files) => {
-                eprintln!("kiri: {}: {warning}", files[number].name)
-            }
-            kiri::typeset::layout::Content::Document(_) => eprintln!("kiri: {warning}"),
-        }
+        let warning = match content {
+            kiri::typeset::layout::Content::Files(files) => warning.in_file(&files[number].name),
+            kiri::typeset::layout::Content::Document(_) => warning,
+        };
+        eprintln!("kiri: {warning}");
     }
     Some(result)
 }
