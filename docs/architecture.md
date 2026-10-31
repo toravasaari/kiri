@@ -595,7 +595,7 @@ The later work that the rows name, in words:
 | Module | Part | After the move |
 |---|---|---|
 | `src/lib.rs` | platform | stays; declares the three parts |
-| `src/main.rs` | mixed | stays. Platform: the command line, opening files and standard input, the shells, loading, the file reload. State engine: the startup decisions, such as whether a run pages, are in `src/session/plan.rs`; `main.rs` reads the terminal and the files and passes the answers in. One route: `run` shows one file as the special case of several, with no header, and with reloading, following and the unnamed warnings for it alone |
+| `src/main.rs` | mixed | stays. Platform: opening files and standard input, the shells, loading, the file reload. State engine: the startup decisions, such as whether a run pages, are in `src/session/plan.rs`; `main.rs` reads the terminal and the files and passes the answers in. One route: `run` shows one file as the special case of several, with no header, and with reloading, following and the unnamed warnings for it alone |
 | `src/config/mod.rs` | platform | stays (was `src/config.rs`); the module's description and its public surface |
 | `src/config/environment.rs` | platform | stays. `Environment`, the table of the variables kiri reads, reading the process's variables, and the directories that `HOME` and the XDG variables give. Capability detection takes its variables (`TMUX`, `TMUX_PANE`, `NO_COLOR`, `COLORTERM`, `TERM_PROGRAM` and `VTE_VERSION`) as arguments, not `Environment`, in the terminal layer split |
 | `src/config/file.rs` | platform | stays. The configuration file: where it is, reading it (`load`) and the deserialiser of the `[diagrams]` tables |
@@ -799,7 +799,7 @@ file (`main.rs`, `pager/mod.rs`, `render/mod.rs`,
 
 | A new… | Goes in |
 |---|---|
-| command-line option | `src/cli.rs`, new, made by one route; until then `Cli` in `src/main.rs` |
+| command-line option | `src/cli.rs`, made by one route |
 | startup decision, such as whether a run pages | `src/session/plan.rs`, made by the startup plan; take what it needs from the terminal as values |
 | key or action | `src/session/commands.rs`, new, made by commands as data; until then `BINDINGS` in `src/pager/keys.rs` |
 | setting | its entry in `src/config/registry.rs`, which names its key, its owner, its effect and its medium, and the code of its owner |
@@ -819,9 +819,10 @@ The paths marked new are for the maintainer to confirm.
 ### What `main.rs` is
 
 `src/main.rs` is the binary's entry point and, today, far more than the
-command line: it is some 2,150 lines with no unit tests. Besides `Cli` and
-its clap definitions it opens files and standard input; has one route, in
-which a single file is the special case of several; prints documents;
+command line, which is `src/cli.rs`: it is some 1,800 lines with no unit
+tests. Besides the command line it opens files and standard input; has one
+route, in which a single file is the special case of several; prints
+documents;
 starts the pager; loads images and diagrams, in the foreground, on threads
 and in the background; reloads files for the pager (`FileReload`); and runs
 `--doctor` and `--list-emojis`. The decisions it makes at start need no I/O,
