@@ -38,14 +38,15 @@ use crate::typeset::images::{ImageError, ImageKey, Images, Placeholder, Source};
 use crate::typeset::layout::highlight;
 use crate::typeset::layout::{CodeColors, expand_tabs};
 use crate::typeset::model::{self, Block};
+use crate::typeset::reading::look::mark_colors;
 use crate::typeset::reading::page::{
-    self, Frame, FrontMatterShown, Highlight, Hit, ItemRef, LinkPlace, Look, MarkColors, Overlay,
-    Page, Picture, Pictures, Plain, Wide,
+    self, Frame, FrontMatterShown, Highlight, Hit, ItemRef, LinkPlace, MarkColors, Overlay, Page,
+    Picture, Pictures, Plain, Wide,
 };
 use crate::typeset::reading::text::{Brush, Run};
 use crate::typeset::reading::{Fonts, page_look};
 use crate::typeset::style::{Band, ImageRow, Line, Span, Style};
-use crate::typeset::theme::{Look as Resolved, SearchColor};
+use crate::typeset::theme::Look as Resolved;
 
 /// The widest the text is, in font sizes.
 const TEXT_WIDTH: f32 = 42.0;
@@ -313,50 +314,6 @@ impl Parts {
                 link_rows: link.map(|number| self.page.link_rows(number)),
             })
         })
-    }
-}
-
-/// The colours a search's marks have in reading mode: those the theme
-/// gives a match, as the text layout lays them over its text; where the
-/// theme gives none, or there is no colour, the reverse, a box in the
-/// text's colour with the text in the page's.
-fn mark_colors(one: &Resolved, caps: &Capabilities, look: &Look) -> MarkColors {
-    let dark = caps.dark_background != Some(false);
-    let rgb_of = |color: Option<Color>| match color?.rgb_or_xterm(&caps.palette) {
-        Color::Rgb(red, green, blue) => Some([red, green, blue]),
-        Color::Palette(_) => None,
-    };
-    let page = (rgb_of(one.background).or_else(|| rgb_of(caps.background))).unwrap_or(if dark {
-        [0; 3]
-    } else {
-        [0xff; 3]
-    });
-    let reverse = (Some(page), Some(look.text));
-    // `auto` is what a browser's find gives where the text layout has
-    // reverse video: black on yellow, and black on orange for the current.
-    let colors = |foreground, background, browser: (Brush, Brush)| match (foreground, background) {
-        _ if !caps.color => reverse,
-        (SearchColor::Auto, SearchColor::Auto) => (Some(browser.0), Some(browser.1)),
-        (foreground, background) => {
-            let pick = |color| match color {
-                SearchColor::Color(color) => rgb_of(color),
-                SearchColor::Auto => None,
-            };
-            (pick(foreground), pick(background))
-        }
-    };
-    let search = &one.search;
-    MarkColors {
-        found: colors(
-            search.match_foreground,
-            search.match_background,
-            ([0, 0, 0], [0xff, 0xff, 0x00]),
-        ),
-        current: colors(
-            search.current_foreground,
-            search.current_background,
-            ([0, 0, 0], [0xff, 0x96, 0x32]),
-        ),
     }
 }
 
@@ -996,6 +953,7 @@ mod tests {
     use crate::typeset::layout;
     use crate::typeset::model::AlertKind;
     use crate::typeset::parse::parse;
+    use crate::typeset::reading::page::Look;
     use crate::typeset::theme::{TableStyle, Theme};
 
     /// A page's look for a theme alone.

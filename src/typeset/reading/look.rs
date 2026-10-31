@@ -7,10 +7,10 @@ use crate::typeset::images::size::cell_size;
 use crate::typeset::layout::CodeColors;
 use crate::typeset::model::AlertKind;
 use crate::typeset::reading::page::{
-    AlertLook, Look as PageLook, Marked, TableStyle as PageTableStyle,
+    AlertLook, Look as PageLook, MarkColors, Marked, TableStyle as PageTableStyle,
 };
 use crate::typeset::reading::text::Brush;
-use crate::typeset::theme::{Look, TableStyle};
+use crate::typeset::theme::{Look, SearchColor, TableStyle};
 
 /// How reading mode draws text in the look `one` on a terminal with `caps`: its
 /// size from the cell height, and its colours from the theme, or from the
@@ -136,4 +136,48 @@ fn mix(color: Brush, page: Brush, share: f32) -> Brush {
         (b + (a - b) * share).round() as u8
     };
     [channel(0), channel(1), channel(2)]
+}
+
+/// The colours a search's marks have in reading mode: those the theme
+/// gives a match, as the text layout lays them over its text; where the
+/// theme gives none, or there is no colour, the reverse, a box in the
+/// text's colour with the text in the page's.
+pub(crate) fn mark_colors(one: &Look, caps: &Capabilities, look: &PageLook) -> MarkColors {
+    let dark = caps.dark_background != Some(false);
+    let rgb_of = |color: Option<Color>| match color?.rgb_or_xterm(&caps.palette) {
+        Color::Rgb(red, green, blue) => Some([red, green, blue]),
+        Color::Palette(_) => None,
+    };
+    let page = (rgb_of(one.background).or_else(|| rgb_of(caps.background))).unwrap_or(if dark {
+        [0; 3]
+    } else {
+        [0xff; 3]
+    });
+    let reverse = (Some(page), Some(look.text));
+    // `auto` is what a browser's find gives where the text layout has
+    // reverse video: black on yellow, and black on orange for the current.
+    let colors = |foreground, background, browser: (Brush, Brush)| match (foreground, background) {
+        _ if !caps.color => reverse,
+        (SearchColor::Auto, SearchColor::Auto) => (Some(browser.0), Some(browser.1)),
+        (foreground, background) => {
+            let pick = |color| match color {
+                SearchColor::Color(color) => rgb_of(color),
+                SearchColor::Auto => None,
+            };
+            (pick(foreground), pick(background))
+        }
+    };
+    let search = &one.search;
+    MarkColors {
+        found: colors(
+            search.match_foreground,
+            search.match_background,
+            ([0, 0, 0], [0xff, 0xff, 0x00]),
+        ),
+        current: colors(
+            search.current_foreground,
+            search.current_background,
+            ([0, 0, 0], [0xff, 0x96, 0x32]),
+        ),
+    }
 }
