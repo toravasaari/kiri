@@ -492,6 +492,24 @@ fn the_search_case_key_takes_smart_or_literal() {
 }
 
 #[test]
+fn the_background_offset_key_turns_the_shade_off_on_or_off() {
+    check_key(
+        |config| config.background_offset,
+        &[
+            ("background_offset = false\n", false),
+            ("background_offset = true\n", true),
+        ],
+        &["background_offset = \"off\"\n"],
+    );
+    let choices = choose(
+        &Options::default(),
+        &Environment::default(),
+        &Config::default(),
+    );
+    assert!(choices.with_theme(Theme::default()).background_offset);
+}
+
+#[test]
 fn the_search_case_is_smart_unless_the_configuration_file_says_otherwise() {
     let env = Environment::default();
     let choices = choose(&Options::default(), &env, &Config::default());

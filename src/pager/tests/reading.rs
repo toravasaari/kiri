@@ -793,4 +793,9 @@ fn b_paints_the_rows_around_the_page_too() {
     assert!(!frames[0].contains("48;2;17;33;49"), "{:?}", frames[0]);
     // The whole screen, beside and below the page too.
     assert!(frames[1].contains(painted), "{:?}", frames[1]);
+    // The page is laid out on that background, which makes it opaque.
+    let shade = crate::typeset::color::Color::Rgb(17, 33, 49);
+    assert_eq!(inputs.theme.background, Some(shade));
+    let page = |frame: &str| sent_ids(frame);
+    assert_ne!(page(&frames[0]), page(&frames[1]), "a new page image");
 }

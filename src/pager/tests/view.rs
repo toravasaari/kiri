@@ -261,3 +261,18 @@ fn b_takes_away_the_theme_s_background_and_brings_it_back() {
     assert!(!frames[1].contains("48;2;17;33;49"), "{frames:?}");
     assert!(painted(&frames[2]), "{frames:?}");
 }
+
+#[test]
+fn without_the_offset_b_paints_the_terminal_s_very_background() {
+    let mut terminal = Fake::new(60, 6, &[b"B"]);
+    let mut inputs = Inputs::new(reported_background());
+    let options = Options {
+        background_offset: false,
+        ..Options::new(SearchCase::Smart)
+    };
+    run_document(&numbers(3), &mut inputs, options, &mut terminal);
+    let frames = terminal.frames();
+    assert_eq!(frames.len(), 2, "{frames:?}");
+    assert!(frames[1].contains("48;2;16;32;48"), "{frames:?}");
+    assert!(!frames[1].contains("48;2;17;33;49"), "{frames:?}");
+}
