@@ -1234,7 +1234,7 @@ impl Layout<'_> {
     /// plain text and every character has one, or else as it is. A script
     /// inside it is drawn as part of it.
     fn script(&self, script: Script, content: &[Inline], style: &Style, out: &mut Vec<Span>) {
-        let content = without_scripts(content);
+        let content = script::without_scripts(content);
         if self.caps.text_sizing {
             let align = match script {
                 Script::Sup => VerticalAlign::Top,
@@ -1340,31 +1340,6 @@ pub(crate) fn image_rows(placement: Placement) -> Vec<Line> {
     (0..rows)
         .map(|row| Line::image(Rc::clone(&placement), row))
         .collect()
-}
-
-/// `content` with every sub- and superscript in it replaced by its own
-/// content.
-fn without_scripts(content: &[Inline]) -> Vec<Inline> {
-    let mut out = Vec::new();
-    for inline in content {
-        out.push(match inline {
-            Inline::Subscript(inner) | Inline::Superscript(inner) => {
-                out.extend(without_scripts(inner));
-                continue;
-            }
-            Inline::Emphasis(inner) => Inline::Emphasis(without_scripts(inner)),
-            Inline::Strong(inner) => Inline::Strong(without_scripts(inner)),
-            Inline::Strikethrough(inner) => Inline::Strikethrough(without_scripts(inner)),
-            Inline::Kbd(inner) => Inline::Kbd(without_scripts(inner)),
-            Inline::Mark(inner) => Inline::Mark(without_scripts(inner)),
-            Inline::Link { url, content } => Inline::Link {
-                url: url.clone(),
-                content: without_scripts(content),
-            },
-            inline => inline.clone(),
-        });
-    }
-    out
 }
 
 #[cfg(test)]

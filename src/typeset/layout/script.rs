@@ -1,6 +1,8 @@
 //! Unicode's superscript and subscript characters, for `<sup>` and `<sub>`
 //! where text cannot be drawn smaller.
 
+use crate::typeset::model::Inline;
+
 /// Which way a script goes from the line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Script {
@@ -121,6 +123,31 @@ fn subscript(c: char) -> Option<char> {
         'x' => 'ₓ',
         _ => return None,
     })
+}
+
+/// `content` with every sub- and superscript in it replaced by its own
+/// content.
+pub(super) fn without_scripts(content: &[Inline]) -> Vec<Inline> {
+    let mut out = Vec::new();
+    for inline in content {
+        out.push(match inline {
+            Inline::Subscript(inner) | Inline::Superscript(inner) => {
+                out.extend(without_scripts(inner));
+                continue;
+            }
+            Inline::Emphasis(inner) => Inline::Emphasis(without_scripts(inner)),
+            Inline::Strong(inner) => Inline::Strong(without_scripts(inner)),
+            Inline::Strikethrough(inner) => Inline::Strikethrough(without_scripts(inner)),
+            Inline::Kbd(inner) => Inline::Kbd(without_scripts(inner)),
+            Inline::Mark(inner) => Inline::Mark(without_scripts(inner)),
+            Inline::Link { url, content } => Inline::Link {
+                url: url.clone(),
+                content: without_scripts(content),
+            },
+            inline => inline.clone(),
+        });
+    }
+    out
 }
 
 #[cfg(test)]
