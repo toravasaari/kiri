@@ -251,7 +251,7 @@ Needs G5.1, G5.2 and G5.3.
 
 ### 4.4 Animation and video
 
-Needs G2.2, G7.3.2 for time and G7.3.3 for what it watches.
+Needs G2.2, G7.3.2 for time and G7.3.3 for watching.
 
 - Animated GIF, WebP and APNG, played by kitty itself.
 - Video (WebM, MP4, AVI and others) through ffmpeg when it is installed.
@@ -840,7 +840,7 @@ layout is kiri's own, on parley, with the fonts resvg already loads.
 
 ### 4.16 Audio
 
-Needs G7.3.2 for time and G7.3.3 for what it watches.
+Needs G7.3.2 for time and G7.3.3 for watching.
 
 - An audio file (MP3, Ogg, FLAC, WAV and others) shown as a document:
   its title, artist, length, format, chapters and cover art, read with
