@@ -100,7 +100,10 @@ fn split_onto(
 }
 
 /// `spans` cut to at most `max` cells, between graphemes, measured as the
-/// wrapper measures them.
+/// wrapper measures them. The text kept is measured whole, as text at a
+/// fraction is packed and a grapheme of it alone would round up to a cell;
+/// packed, a letter more can take a cell less, so the longest start that
+/// fits is kept.
 pub fn cut(spans: Vec<Span>, max: usize) -> Vec<Span> {
     let mut left = max;
     let mut kept = Vec::new();
@@ -108,13 +111,11 @@ pub fn cut(spans: Vec<Span>, max: usize) -> Vec<Span> {
         let size = span.style.size;
         if size.width(&span.text) > left {
             let mut end = 0;
-            let mut used = 0;
             for (start, grapheme) in span.text.grapheme_indices(true) {
-                used += size.width(grapheme);
-                if used > left {
-                    break;
+                let after = start + grapheme.len();
+                if size.width(&span.text[..after]) <= left {
+                    end = after;
                 }
-                end = start + grapheme.len();
             }
             span.text.truncate(end);
         }
@@ -656,6 +657,15 @@ mod tests {
         assert_eq!(cut_to("a❤️b", 3), "a❤️");
         // An e with a combining acute accent, one cell.
         assert_eq!(cut_to("ée", 1), "é");
+    }
+
+    #[test]
+    fn cuts_text_at_a_fraction_as_it_is_measured_packed() {
+        let half = fraction(1, 1, 2);
+        // Four letters at half size take two cells, not four.
+        let kept = cut(vec![sized("abcdefg", half)], 2);
+        assert_eq!(style::text(&kept), "abcd");
+        assert_eq!(width(&kept), 2);
     }
 
     #[test]

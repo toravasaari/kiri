@@ -1550,12 +1550,16 @@ once kiri has exited, and shows there as text such as
 `^[_Gi=…;OK^[\`. Waiting longer when part of the answers came, or
 reading away what arrives just before exiting, would fix it.
 
-#### B10 Text at a fraction cut too early
+#### B10 Text at a fraction cut too early (fixed)
 
 Found in review. `cut` in `src/typeset/wrap.rs` measures text one
 grapheme at a time, and at a fraction each grapheme rounds up to a whole
 cell, so a heading or a sup cut to fit takes fewer letters than fit.
 Measuring the text kept, as `width` does, would fix it.
+
+Fixed: `cut` measures the text it keeps as a whole. No text at a
+fraction was cut yet, as only the status line, warnings and the help
+panel cut text, so nothing changes on the screen today.
 
 #### B11 Rows of reading mode broken in a container's tmux (fixed)
 
