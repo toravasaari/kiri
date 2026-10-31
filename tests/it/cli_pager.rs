@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use rustix::process::Resource;
 
-use crate::common::{Scratch, command, fixtures, read_terminal, text};
+use crate::common::{Scratch, command, fixtures, read_terminal, read_terminal_quiet, text};
 
 /// The alternate screen, which the pager draws on.
 const ENTER: &str = "\x1b[?1049h";
@@ -137,6 +137,9 @@ struct Setup<'a> {
     /// terminal side and the scratch directory, whether or not kiri
     /// writes anything.
     meanwhile: Option<fn(&mut std::fs::File, &std::path::Path)>,
+    /// How long the terminal stays silent before `act` is called again
+    /// with nothing new, for a test that waits for nothing to happen.
+    quiet: Option<Duration>,
 }
 
 /// [`in_terminal_told`], set up as `setup` says.
@@ -223,7 +226,8 @@ fn in_terminal_seeing(
         input.write_all(document.as_bytes()).unwrap();
     }
     // kiri gets 10 s at most.
-    let seen = read_terminal(&mut terminal, &mut child, Duration::from_secs(10), act);
+    let limit = Duration::from_secs(10);
+    let seen = read_terminal_quiet(&mut terminal, &mut child, limit, setup.quiet, act);
     let status = child.wait().unwrap();
     let mut stderr = String::new();
     if let Some(mut told) = child.stderr.take() {
@@ -2000,6 +2004,23 @@ fn follow_reads_the_file_again_when_it_changes_without_a_key() {
 }
 
 #[test]
+fn the_fa_flag_follows_on_auto_and_moves_the_view_to_a_change_in_the_file() {
+    // The simulated shell tests the view moving with `Follow::Auto`; this
+    // is that the flags mean it.
+    let rewrite = |dir: &std::path::Path| {
+        let text = long().replace("Line 9\n", "Line 9 changed\n");
+        std::fs::write(dir.join("long.md"), text).unwrap();
+    };
+    for args in [&["--follow", "auto", "long.md"][..], &["--fa", "long.md"]] {
+        let frames = following("pager-follow-auto", args, &rewrite);
+        let last = frames.last().unwrap();
+        assert!(last.contains("Line 9 changed"), "{args:?}: {frames:?}");
+        assert!(!last.contains("Line 1 "), "{args:?}: {frames:?}");
+        assert!(last.contains(" auto "), "{args:?}: {frames:?}");
+    }
+}
+
+#[test]
 fn standard_input_and_several_files_have_nothing_to_follow() {
     let steps = [quit_after(1)];
     let args = ["-p", "--follow", "on"];
@@ -2339,32 +2360,43 @@ fn m_loads_no_images_when_images_are_off() {
         let document = "![block](p.png)\n\nA line with a badge <img src=\"p.png\" width=\"24\" alt=\"badge\"> in it.\n";
         std::fs::write(dir.join("document.md"), document).unwrap();
     };
-    let mut step = 0;
-    let (status, seen) = in_terminal_after(
-        "pager-m-no-images",
-        prepare,
-        &[
-            "-p",
-            "--no-images",
-            "--mode",
-            "kitty",
-            "--width",
-            "80",
-            "document.md",
-        ],
-        10,
-        None,
-        |frames, terminal, _| {
-            if frames > 0 && step == 0 {
-                step = 1;
+    // `M` once the first frame is drawn; `q` once its frame is drawn and
+    // the terminal has been silent for a moment, which is when a picture
+    // that was loading would have come: nothing loads, so nothing comes.
+    let (mut step, mut length) = (0, 0);
+    let act = |seen: &[u8], terminal: &mut std::fs::File, _: &std::process::Child| {
+        let shown = text(seen);
+        let frames = shown.matches("\x1b[?2026l").count();
+        let silent = seen.len() == length;
+        length = seen.len();
+        match step {
+            0 if frames > 0 => {
                 terminal.write_all(b"M").unwrap();
-                // Nothing should load, so nothing is waited for. A picture of
-                // eight pixels loads well within a second, if it were loaded.
-                std::thread::sleep(Duration::from_secs(1));
-                terminal.write_all(b"q").unwrap();
+                step = 1;
             }
-        },
-    );
+            1 if frames > 1 && silent => {
+                terminal.write_all(b"q").unwrap();
+                step = 2;
+            }
+            _ => {}
+        }
+    };
+    let args = [
+        "-p",
+        "--no-images",
+        "--mode",
+        "kitty",
+        "--width",
+        "80",
+        "document.md",
+    ];
+    let setup = Setup {
+        quiet: Some(Duration::from_millis(300)),
+        ..Setup::default()
+    };
+    let (status, seen, stderr) =
+        in_terminal_seeing("pager-m-no-images", prepare, &args, 10, None, setup, act);
+    assert_eq!(stderr, "");
     assert!(status.success());
     // Only the page of text, as it is with `--reading` and no images: the
     // pictures never load.
