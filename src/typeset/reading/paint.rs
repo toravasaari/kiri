@@ -191,6 +191,8 @@ impl Canvas {
             {
                 continue;
             }
+            // The run and the glyphs of it the glyph runs so far took.
+            let mut shown = (usize::MAX, 0);
             for item in line.items() {
                 let glyphs = match item {
                     PositionedLayoutItem::GlyphRun(glyphs) => glyphs,
@@ -205,7 +207,13 @@ impl Canvas {
                 let run = glyphs.run();
                 // A subscript or superscript sits off the baseline, each
                 // glyph by its own text: a glyph run may hold both.
-                let drops: Vec<f32> = (run.visual_clusters())
+                // The glyph run is the part of the shaped run in one style:
+                // its clusters are the next glyphs' worth of the run's.
+                let wanted = glyphs.positioned_glyphs().count();
+                let skip = if shown.0 == run.index() { shown.1 } else { 0 };
+                shown = (run.index(), skip + wanted);
+                let clusters = clusters_after(run, skip, wanted);
+                let drops: Vec<f32> = (clusters.iter())
                     .flat_map(|cluster| {
                         let drop = paragraph.drop_at(&cluster.text_range());
                         cluster.glyphs().map(move |_| drop)
@@ -267,14 +275,7 @@ impl Canvas {
                     let metrics = run.font_metrics();
                     let thickness = metrics.strikethrough_size.max(1.0);
                     // One line for each stretch of equal drop.
-                    let mut stretches: Vec<(f32, f32)> = Vec::new();
-                    for cluster in run.visual_clusters() {
-                        let drop = paragraph.drop_at(&cluster.text_range());
-                        match stretches.last_mut() {
-                            Some((last, width)) if *last == drop => *width += cluster.advance(),
-                            _ => stretches.push((drop, cluster.advance())),
-                        }
-                    }
+                    let stretches = stretches(paragraph, &clusters);
                     let mut left = x + glyphs.offset();
                     for (drop, width) in stretches {
                         let top = y + drop + glyphs.baseline() - metrics.strikethrough_offset;
@@ -594,6 +595,40 @@ impl OutlinePen for Pen<'_> {
     }
 }
 
+/// The stretches of `clusters` with the same drop, each with its drop and
+/// its width.
+fn stretches<B: parley::Brush>(
+    paragraph: &Paragraph,
+    clusters: &[parley::Cluster<'_, B>],
+) -> Vec<(f32, f32)> {
+    let mut stretches: Vec<(f32, f32)> = Vec::new();
+    for cluster in clusters {
+        let drop = paragraph.drop_at(&cluster.text_range());
+        match stretches.last_mut() {
+            Some((last, width)) if *last == drop => *width += cluster.advance(),
+            _ => stretches.push((drop, cluster.advance())),
+        }
+    }
+    stretches
+}
+
+/// The clusters of `run` that hold the `wanted` glyphs after its first `skip`.
+fn clusters_after<'a, B: parley::Brush>(
+    run: &parley::Run<'a, B>,
+    skip: usize,
+    wanted: usize,
+) -> Vec<parley::Cluster<'a, B>> {
+    let mut passed = 0;
+    let mut clusters = Vec::new();
+    for cluster in run.visual_clusters() {
+        if passed >= skip && passed < skip + wanted {
+            clusters.push(cluster);
+        }
+        passed += cluster.glyphs().count();
+    }
+    clusters
+}
+
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
@@ -787,6 +822,46 @@ mod tests {
             rows(&alone, 0),
             "the subscript and its strike beside a superscript"
         );
+    }
+
+    #[test]
+    fn the_strike_stops_at_the_end_of_its_own_text_in_a_run_of_other_styles() {
+        let struck = Run {
+            strike: true,
+            ..Run::new("bbbb")
+        };
+        let runs = [Run::new("aa "), struck, Run::new(" cccc dddd")];
+        // Wide enough for "aa bbbb " and no more: the line ends in a space.
+        let paragraph = lay_out(&Fonts::fixture(), &runs, &LOOK, 70.0);
+        let mut canvas = Canvas::new(420, 60);
+        canvas.text(&paragraph, 10.0, 3.0, None);
+        let image = canvas.into_image();
+        let right = (0..image.width())
+            .rev()
+            .find(|&x| (0..28).any(|y| image.get_pixel(x, y).0[3] > 0))
+            .unwrap();
+        // "aa " is 24.7 pixels and "bbbb" 40.6, from the text's left edge, 10.
+        assert!(right <= 76, "ink on the first line reaches column {right}");
+    }
+
+    #[test]
+    fn a_script_keeps_its_shift_beside_another_of_a_different_colour() {
+        // One glyph run for the shaping, two for the colours.
+        let script = |text: &str, drop, color| Run {
+            script: Some(Script { size: 0.8, drop }),
+            color: Some(color),
+            ..Run::new(text)
+        };
+        let other: Brush = [0xc0, 0x20, 0x40];
+        let image = drawn(&[script("ab", -0.33, INK), script("cd", 0.2, other)], None);
+        let bottom_of = |color: Brush| {
+            (0..image.height())
+                .rev()
+                .find(|&y| (0..image.width()).any(|x| image.get_pixel(x, y).0[..3] == color))
+                .unwrap()
+        };
+        let (sup, sub) = (bottom_of(INK), bottom_of(other));
+        assert!(sub > sup, "sub ends at {sub}, sup at {sup}");
     }
 
     #[test]
