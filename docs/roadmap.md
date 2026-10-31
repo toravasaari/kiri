@@ -1266,7 +1266,7 @@ Needs G3.4.1.
 
 #### G6.5 One route
 
-- G6.5.1 One file shown as the special case of several, so that
+- G6.5.1 (done) One file shown as the special case of several, so that
   `main.rs`'s pairs of functions for one file and for several become
   one; the differences between the two are tested first and kept.
 
