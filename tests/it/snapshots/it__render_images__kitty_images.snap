@@ -1,5 +1,5 @@
 ---
-source: tests/render_images.rs
+source: tests/it/render_images.rs
 expression: "readable(&render_fixture(\"images.md\",\n&with_images(&Capabilities::kitty(WIDTH), fixture_images(\"images.md\"))))"
 ---
 ␛[0;1;34m␛]66;s=3:n=5:d=6:v=1:w=5;Images␛\␛[0m

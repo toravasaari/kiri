@@ -1,5 +1,5 @@
 ---
-source: tests/render_themes.rs
+source: tests/it/render_themes.rs
 expression: "visible(&render_for(\"elements.md\", caps))"
 ---
 ␛[0;1m␛]66;s=3:n=5:d=6:v=1:w=5;Every ␛\␛]66;s=3:n=5:d=6:v=1:w=6;element␛\␛[0m

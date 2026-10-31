@@ -1,5 +1,5 @@
 ---
-source: tests/render_themes.rs
+source: tests/it/render_themes.rs
 expression: "visible(&render_fixture(\"elements.md\",\n&inputs(&Capabilities::kitty(WIDTH), &theme)))"
 ---
 ␛[0;1;38;2;0;0;0;48;2;255;255;255m␛]66;s=3:n=5:d=6:v=1:w=5;Every ␛\␛]66;s=3:n=5:d=6:v=1:w=6;element␛\␛[0;48;2;255;255;255m␛[K␛[0m

@@ -1,5 +1,5 @@
 ---
-source: tests/render_files.rs
+source: tests/it/render_files.rs
 expression: "visible(&render(&two(), &Inputs::new(Capabilities::ansi(WIDTH))))"
 ---
 ␛[0;34m▌␛[0m

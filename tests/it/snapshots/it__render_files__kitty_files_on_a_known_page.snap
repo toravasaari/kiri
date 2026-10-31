@@ -1,5 +1,5 @@
 ---
-source: tests/render_files.rs
+source: tests/it/render_files.rs
 expression: "visible(&render(&two(), &Inputs::new(known_colours())))"
 ---
 ␛[0;34;48;2;66;66;66m▌␛[0;48;2;66;66;66m                                               ␛[0m

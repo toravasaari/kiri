@@ -1,5 +1,5 @@
 ---
-source: tests/render_tables.rs
+source: tests/it/render_tables.rs
 expression: "render_table_file(\"table.csv\", Separator::Comma, Capabilities::plain(64))"
 ---
   ╭─────────┬──────────┬─────────────────────────────┬───────╮

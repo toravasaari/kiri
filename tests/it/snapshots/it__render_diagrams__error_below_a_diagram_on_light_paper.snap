@@ -1,5 +1,5 @@
 ---
-source: tests/render_diagrams.rs
+source: tests/it/render_diagrams.rs
 assertion_line: 178
 expression: visible(&out)
 ---

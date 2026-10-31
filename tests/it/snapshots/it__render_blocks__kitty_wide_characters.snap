@@ -1,5 +1,5 @@
 ---
-source: tests/render_blocks.rs
+source: tests/it/render_blocks.rs
 expression: "visible(&render_for(\"wide.md\", Capabilities::kitty(WIDTH)))"
 ---
 ␛[0;1;34m␛]66;s=3:n=5:d=6:v=1:h=1:w=5;日本語␛\␛]66;s=3:n=5:d=6:v=1:w=7;の見出し␛\␛]66;s=3:n=5:d=6:v=1:w=3; 🦀␛\␛[0m

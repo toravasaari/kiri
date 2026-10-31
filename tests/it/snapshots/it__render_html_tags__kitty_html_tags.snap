@@ -1,5 +1,5 @@
 ---
-source: tests/render_html_tags.rs
+source: tests/it/render_html_tags.rs
 expression: "visible(&render_for(\"html-tags.md\", Capabilities::kitty(WIDTH)))"
 ---
 ␛[0;1;34m␛]66;s=3:n=5:d=6:v=1:w=4;HTML␛\␛]66;s=3:n=5:d=6:v=1:w=5; tags␛\␛[0m

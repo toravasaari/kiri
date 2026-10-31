@@ -1,5 +1,5 @@
 ---
-source: tests/render_images_html.rs
+source: tests/it/render_images_html.rs
 expression: "render_fixture(\"images-html.md\",\n&with_images(&Capabilities::plain(WIDTH), fixture_images(\"images-html.md\")))"
 ---
 # HTML images

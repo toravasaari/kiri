@@ -1,5 +1,5 @@
 ---
-source: tests/render_headings.rs
+source: tests/it/render_headings.rs
 expression: visible(&out)
 ---
  ␛[0;1;34mTop␛[0m

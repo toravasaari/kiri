@@ -1,5 +1,5 @@
 ---
-source: tests/render_files.rs
+source: tests/it/render_files.rs
 expression: "readable(&render(&files, &with_images(&window(24), images)))"
 ---
 ␛[0;34m▌␛[0m

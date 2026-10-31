@@ -1,5 +1,5 @@
 ---
-source: tests/render_front_matter.rs
+source: tests/it/render_front_matter.rs
 expression: "render_with(\"front-matter-toml.md\", Capabilities::plain(WIDTH),\nFrontMatterStyle::Table)"
 ---
   ╭────────┬─────────────────────────────────╮

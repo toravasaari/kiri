@@ -1,5 +1,5 @@
 ---
-source: tests/render_blocks.rs
+source: tests/it/render_blocks.rs
 expression: "render_for(\"elements.md\", Capabilities::plain(WIDTH))"
 ---
 # Every element

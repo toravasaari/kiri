@@ -1,5 +1,5 @@
 ---
-source: tests/render_alerts.rs
+source: tests/it/render_alerts.rs
 assertion_line: 214
 expression: "visible(&render_fixture(\"alerts.md\", &Inputs::new(kitty())))"
 ---

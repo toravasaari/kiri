@@ -1,5 +1,5 @@
 ---
-source: tests/cli_config.rs
+source: tests/it/cli_config.rs
 expression: text(&out.stdout)
 ---
 Render a Markdown document, or show an image, in the terminal

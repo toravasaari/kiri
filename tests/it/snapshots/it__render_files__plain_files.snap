@@ -1,5 +1,5 @@
 ---
-source: tests/render_files.rs
+source: tests/it/render_files.rs
 expression: "render(&two(), &Inputs::new(Capabilities::plain(WIDTH)))"
 ---
 ==> notes.md <==

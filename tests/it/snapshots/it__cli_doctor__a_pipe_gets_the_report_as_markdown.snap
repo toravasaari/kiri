@@ -1,5 +1,5 @@
 ---
-source: tests/cli_doctor.rs
+source: tests/it/cli_doctor.rs
 expression: stable(&report)
 ---
 # kiri doctor

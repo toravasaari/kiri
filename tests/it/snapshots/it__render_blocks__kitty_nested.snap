@@ -1,5 +1,5 @@
 ---
-source: tests/render_blocks.rs
+source: tests/it/render_blocks.rs
 expression: "visible(&render_for(\"nested.md\", Capabilities::kitty(WIDTH)))"
 ---
 ␛[0;1;34m␛]66;s=3:n=5:d=6:v=1:w=5;Nested␛\␛]66;s=3:n=5:d=6:v=1:w=6; blocks␛\␛[0m

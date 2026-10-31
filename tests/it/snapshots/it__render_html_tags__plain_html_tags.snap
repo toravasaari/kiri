@@ -1,5 +1,5 @@
 ---
-source: tests/render_html_tags.rs
+source: tests/it/render_html_tags.rs
 expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
 ---
 # HTML tags

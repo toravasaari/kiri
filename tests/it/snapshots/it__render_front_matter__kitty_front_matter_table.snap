@@ -1,5 +1,5 @@
 ---
-source: tests/render_front_matter.rs
+source: tests/it/render_front_matter.rs
 expression: "visible(&render_with(\"front-matter.md\", Capabilities::kitty(WIDTH),\nFrontMatterStyle::Table))"
 ---
   ␛[0;90m╭─────────────┬────────────────────────────╮␛[0m

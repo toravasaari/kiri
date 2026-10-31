@@ -1,5 +1,5 @@
 ---
-source: tests/cli_config.rs
+source: tests/it/cli_config.rs
 assertion_line: 476
 expression: "errors.join(\"\\n---\\n\")"
 ---

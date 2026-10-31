@@ -1,5 +1,5 @@
 ---
-source: tests/render_tables.rs
+source: tests/it/render_tables.rs
 expression: "visible(&render_table_file(\"table.tsv\", Separator::Tab,\nCapabilities::kitty(WIDTH)))"
 ---
   ␛[0;1mCity:␛[0m Helsinki

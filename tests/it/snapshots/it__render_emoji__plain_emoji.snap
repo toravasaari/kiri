@@ -1,5 +1,5 @@
 ---
-source: tests/render_emoji.rs
+source: tests/it/render_emoji.rs
 expression: "render_for(\"emoji.md\", Capabilities::plain(WIDTH))"
 ---
 # Launch day 🚀
