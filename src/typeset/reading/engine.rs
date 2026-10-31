@@ -1777,8 +1777,15 @@ mod tests {
     /// The page id of a code block that `theme` highlights, in a page
     /// whose colours are the same for every theme.
     fn page_of_code_in(theme: Option<&str>) -> u64 {
+        page_id(&code_lines_in(theme, Wide::Wrap))
+    }
+
+    /// The lines of a code block that `theme` highlights, which a line
+    /// wider than the area makes a band when `wide` scrolls.
+    fn code_lines_in(theme: Option<&str>, wide: Wide) -> Vec<Line> {
         let caps = kitty(80);
-        let document = parse("```rust\nfn main() { let x = 1; }\n```\n");
+        let long = "a".repeat(200);
+        let document = parse(&format!("```rust\nfn main() {{ let {long} = 1; }}\n```\n"));
         let blocks: Vec<&Block> = document.blocks.iter().collect();
         let code = CodeColors {
             theme: theme.map(str::to_owned),
@@ -1786,8 +1793,9 @@ mod tests {
             text: Some(Color::Rgb(0xe0, 0xe0, 0xe0)),
             label: None,
         };
-        let reading = inputs(caps.clone()).reading.expect("reading mode");
-        let lines = lines(
+        let mut reading = inputs(caps.clone()).reading.expect("reading mode");
+        reading.wide = wide;
+        lines(
             &blocks,
             &[],
             &reading,
@@ -1799,8 +1807,7 @@ mod tests {
             (&Images::new(), true, 0),
             &caps,
             80,
-        );
-        page_id(&lines)
+        )
     }
 
     #[test]
@@ -1809,6 +1816,22 @@ mod tests {
         assert_eq!(ocean, page_of_code_in(Some("base16-ocean.dark")));
         assert_ne!(ocean, page_of_code_in(Some("InspiredGitHub")));
         assert_ne!(ocean, page_of_code_in(None));
+    }
+
+    #[test]
+    fn the_code_theme_is_in_a_band_s_key() {
+        let band = |theme| {
+            let lines = code_lines_in(theme, Wide::Scroll);
+            (lines.iter())
+                .find_map(|line| match line.image.as_ref()?.placement.key {
+                    ImageKey::Band { page, .. } => Some(page),
+                    _ => None,
+                })
+                .expect("a band")
+        };
+        let ocean = band(Some("base16-ocean.dark"));
+        assert_eq!(ocean, band(Some("base16-ocean.dark")));
+        assert_ne!(ocean, band(Some("InspiredGitHub")));
     }
 
     #[test]
