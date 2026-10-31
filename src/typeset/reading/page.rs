@@ -18,10 +18,10 @@
 
 mod code;
 mod picture;
+mod quote;
 mod table;
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use std::ops::Range;
 
 use std::rc::Rc;
@@ -30,7 +30,6 @@ use image::RgbaImage;
 
 use crate::typeset::model::{AlertKind, Alignment, Block, FrontMatter, Image, Inline, List, Value};
 use crate::typeset::reading::fonts::Fonts;
-use crate::typeset::reading::octicons;
 use crate::typeset::reading::paint::{Canvas, TextMark};
 use crate::typeset::reading::text::{self, Brush, InlinePicture, Paragraph, Run};
 
@@ -1224,20 +1223,7 @@ impl<'a> Flow<'a> {
                 self.rect(x, self.y, width, height, look.border);
                 self.y += height;
             }
-            Block::BlockQuote(blocks) => {
-                let top = self.y;
-                let quoted = Look {
-                    text: look.quote,
-                    ..look
-                };
-                let indent = QUOTE_INDENT * size;
-                let mut inner = self.child(&quoted, top);
-                inner.blocks(blocks, x + indent, width - indent, depth);
-                self.take(&mut inner);
-                self.y = inner.y;
-                let bar = (QUOTE_BAR * size).round().max(1.0);
-                self.rect(x, top, bar, self.y - top, look.border);
-            }
+            Block::BlockQuote(blocks) => self.quote(blocks, x, width, depth),
             Block::List(list) => self.list(list, x, width, depth),
             Block::CodeBlock { language, code, .. } => {
                 self.code_or_diagram(language.as_deref(), code, x, width);
@@ -1277,71 +1263,6 @@ impl<'a> Flow<'a> {
             Block::Error(_) | Block::ImageFile(_) => {}
         }
         self.margin = Some(block_margins(block, &look).1);
-    }
-
-    /// Lays an alert out: a tint over the room, a bar down its left edge,
-    /// the title in the kind's colour after the kind's icon, and the blocks
-    /// inside, in the room that is left.
-    fn alert(
-        &mut self,
-        kind: AlertKind,
-        title: Option<&str>,
-        blocks: &[Block],
-        x: f32,
-        width: f32,
-        depth: usize,
-    ) {
-        let look = *self.look;
-        let size = look.size;
-        let alert = look.alert(kind);
-        let bar = (QUOTE_BAR * size).round().max(1.0);
-        let pad = ALERT_PADDING * size;
-        let top = self.y;
-        let (inner_x, inner_width) = (x + bar + size, width - bar - 2.0 * size);
-        // Inline code in it has a chip of its own, if it has one at all.
-        let inside = Look {
-            chip: look.chip.and(alert.chip),
-            ..look
-        };
-        let mut inner = self.child(&inside, top + pad);
-        // The icon is a font size wide and tall, before the title.
-        let icon_size = size.round();
-        let icon_room = icon_size + ICON_GAP * size;
-        let style = text::Look {
-            size,
-            line_height: LINE_HEIGHT,
-            weight: BOLD,
-            color: alert.color,
-            ..text::Look::PLAIN
-        };
-        let name = title.unwrap_or(kind.name());
-        let name = Run::new(name);
-        let title = text::lay_out(self.fonts, &[name], &style, inner_width - icon_room);
-        let line = title.lines().first().map_or(0.0, |line| line.height);
-        let pixels = Rc::new(octicons::icon(kind, icon_size as u32, alert.color));
-        let mut hasher = DefaultHasher::new();
-        (kind as u8, alert.color, icon_size as u32).hash(&mut hasher);
-        let id = hasher.finish();
-        inner.ids.push(id);
-        let y = inner.y + ((line - icon_size) / 2.0).max(0.0);
-        inner.push(
-            y..y + icon_size,
-            Shape::Picture {
-                x: inner_x,
-                y,
-                pixels,
-            },
-        );
-        inner.y += inner.text(title, inner_x + icon_room);
-        inner.y += ALERT_TITLE_GAP * size;
-        inner.blocks(blocks, inner_x, inner_width, depth);
-        let bottom = inner.y + pad;
-        if let Some(tint) = alert.tint {
-            self.rect(x, top, width, bottom - top, tint);
-        }
-        self.rect(x, top, bar, bottom - top, alert.bar);
-        self.take(&mut inner);
-        self.y = bottom;
     }
 
     /// Lays `blocks` out one below another from the current top.
