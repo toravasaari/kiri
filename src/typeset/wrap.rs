@@ -100,21 +100,26 @@ fn split_onto(
 }
 
 /// `spans` cut to at most `max` cells, between graphemes, measured as the
-/// wrapper measures them.
+/// wrapper measures them. The text kept is measured whole, as text at a
+/// fraction is packed and a grapheme of it alone would round up to a cell;
+/// packed, a letter more can take a cell less, so the longest beginning
+/// that fits is kept. At a whole size it only grows, and the search stops
+/// at the first grapheme that does not fit.
 pub fn cut(spans: Vec<Span>, max: usize) -> Vec<Span> {
     let mut left = max;
     let mut kept = Vec::new();
     for mut span in spans {
         let size = span.style.size;
         if size.width(&span.text) > left {
+            let packed = size.fraction().is_some();
             let mut end = 0;
-            let mut used = 0;
             for (start, grapheme) in span.text.grapheme_indices(true) {
-                used += size.width(grapheme);
-                if used > left {
+                let after = start + grapheme.len();
+                if size.width(&span.text[..after]) <= left {
+                    end = after;
+                } else if !packed {
                     break;
                 }
-                end = start + grapheme.len();
             }
             span.text.truncate(end);
         }
@@ -656,6 +661,30 @@ mod tests {
         assert_eq!(cut_to("a❤️b", 3), "a❤️");
         // An e with a combining acute accent, one cell.
         assert_eq!(cut_to("ée", 1), "é");
+    }
+
+    #[test]
+    fn cuts_text_at_a_fraction_as_it_is_measured_packed() {
+        let half = fraction(1, 1, 2);
+        // Four letters at half size take two cells, not four.
+        let kept = cut(vec![sized("abcdefg", half)], 2);
+        assert_eq!(style::text(&kept), "abcd");
+        assert_eq!(width(&kept), 2);
+        // Where a letter more can take a cell less, the longest beginning
+        // that fits is kept, and no longer one fits.
+        let size = fraction(1, 5, 7);
+        let text = "at educavj日k日日cmbtga日h日f";
+        for max in 2..=25 {
+            let kept = cut(vec![sized(text, size)], max);
+            assert!(width(&kept) <= max, "{max}");
+            let end = style::text(&kept).len();
+            for (start, grapheme) in text.grapheme_indices(true) {
+                let after = start + grapheme.len();
+                if after > end {
+                    assert!(size.width(&text[..after]) > max, "{max} {after}");
+                }
+            }
+        }
     }
 
     #[test]
