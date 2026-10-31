@@ -63,6 +63,17 @@ Try a wide window and a narrow one (about 40 columns), where the commands
 above wrap like any long code line. No line reaches past the right edge of
 the window.
 
+The width, the margins and the mode can come from a flag, an environment
+variable or the configuration file. These three commands show the same
+narrow document, which wraps at 40 cells with no margin on its left:
+
+```sh
+kiri --width 40 --no-margins examples
+KIRI_WIDTH=40 KIRI_MARGINS=off kiri examples
+printf 'width = 40\nmargins = false\n' > /tmp/kiri-narrow.toml
+KIRI_CONFIG=/tmp/kiri-narrow.toml kiri examples
+```
+
 ## Headings
 
 Level one is two and a half times the normal size, and each level after it

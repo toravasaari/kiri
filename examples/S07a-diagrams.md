@@ -75,7 +75,10 @@ kiri --dark examples/S07a-diagrams.md
 ```
 
 `background_panel = false` in the `[diagrams]` table of the configuration
-file leaves the panels out; see [Diagrams](../docs/diagrams.md).
+file, `--diagram-panel off` or `KIRI_DIAGRAM_BACKGROUND_PANEL=off` leaves the
+panels out: run `kiri --diagram-panel off examples/S07a-diagrams.md` and the
+diagram for the other page loses its panel, so its lines and text may be
+hard to see. See [Diagrams](../docs/diagrams.md).
 
 ## A diagram that fails to draw
 
