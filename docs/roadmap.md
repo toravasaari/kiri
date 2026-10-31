@@ -265,6 +265,9 @@ Needs G2.2, G7.3.2 for time and G7.3.3 for watching.
   where they were.
 - Links to local files or sections that do not exist are drawn in a
   colour of their own, so broken links stand out.
+- A setting that turns links on or off whatever the terminal seems to
+  support, such as `KIRI_HYPERLINKS`, for terminals and multiplexers
+  where kiri guesses wrong. Inside tmux only tmux's answer counts (5.2.4).
 
 ### 4.6 Pager
 
@@ -1377,9 +1380,6 @@ go.
   Ghostty's built-in font has only ☐, so ☑ comes from another font,
   larger than ☐. ☐ and ☒ are the same size in Ghostty and kitty, but some
   fonts lack ☒.
-- A setting that turns links on or off whatever the terminal seems to
-  support, such as `KIRI_HYPERLINKS`, for terminals and multiplexers
-  where kiri guesses wrong. Inside tmux only tmux's answer counts (5.2.4).
 - A side-by-side view: the Markdown source beside the rendered document,
   each part across from the other, so the source and what it becomes can
   be compared.
