@@ -215,6 +215,15 @@ pub struct Files {
     /// The one file is a document read from a regular file, which can be
     /// read again.
     pub reloadable: bool,
+    /// The one file is shown as text, whatever its extension says.
+    pub text: bool,
+}
+
+/// Whether diagrams are drawn, as `diagrams` says, for `files`: not in
+/// a file alone that is shown as text, whose diagram stays source, though
+/// it is reloaded or its pictures loaded later.
+pub fn diagrams(diagrams: bool, files: &Files) -> bool {
+    diagrams && !(files.route.is_alone() && files.text)
 }
 
 /// `paging` for `files`, with `follow` for a file that is followed. Several
@@ -457,7 +466,25 @@ mod tests {
             images_only,
             alone,
             reloadable,
+            text: false,
         }
+    }
+
+    #[test]
+    fn a_file_alone_shown_as_text_draws_no_diagrams() {
+        let text = Files {
+            text: true,
+            ..files(Route::One, false, false, true)
+        };
+        assert!(!diagrams(true, &text));
+        assert!(!diagrams(false, &text));
+        // Among several files, there is nothing to load again.
+        let several = Files {
+            route: Route::Several,
+            ..text
+        };
+        assert!(diagrams(true, &several));
+        assert!(diagrams(true, &files(Route::One, false, false, true)));
     }
 
     #[test]

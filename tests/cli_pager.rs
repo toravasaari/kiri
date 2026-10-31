@@ -2663,3 +2663,44 @@ fn following_pages_neither_an_image_alone_nor_a_diagram_alone() {
         assert_eq!(seen.matches("\x1b_Ga=T,").count(), 1, "{file}: {seen:?}");
     }
 }
+
+/// A configuration whose Mermaid command writes `called` in the scratch
+/// directory before it draws, and `flow.mmd`.
+fn calls_when_drawing(dir: &std::path::Path) {
+    drawn_diagram(dir);
+    let script = dir.join("render.sh");
+    let draw = std::fs::read_to_string(&script).unwrap();
+    let called = format!("touch '{}'\n{draw}", dir.join("called").display());
+    std::fs::write(&script, called).unwrap();
+    std::fs::rename(dir.join("diagram.mmd"), dir.join("flow.mmd")).unwrap();
+}
+
+/// Waits for a background load that would come, checks that the program
+/// that draws diagrams was not called, and quits.
+fn wait_and_quit(dir: &std::path::Path) -> &'static [u8] {
+    std::thread::sleep(Duration::from_millis(600));
+    // Reading mode sends pages as images, so the program is what shows it.
+    assert!(!dir.join("called").exists(), "the program was called");
+    b"q"
+}
+
+#[test]
+fn a_diagram_in_text_stays_source_after_m_and_after_a_reload() {
+    let args = ["--mode", "kitty", "--format", "text", "-p", "flow.mmd"];
+    let steps = [
+        Step {
+            frames: 1,
+            keys: &|_| b"M",
+        },
+        Step {
+            frames: 2,
+            keys: &|_| b"r",
+        },
+        Step {
+            frames: 4,
+            keys: &wait_and_quit,
+        },
+    ];
+    let (status, seen) = in_steps_with("pager-text-diagram", calls_when_drawing, &args, &steps);
+    assert!(status.success(), "{seen:?}");
+}

@@ -445,6 +445,7 @@ fn run(cli: &Cli, route: Route) -> Result<(), Failure> {
         // Each of them shown on its own, as an image is.
         alone: shown().all(|file| plan::shown_alone(file.input)),
         reloadable: shown().any(Opened::reloadable),
+        text: shown().any(|file| file.input == Input::Text),
     };
     let (warnings, settings) = self::settings(cli, &env);
     // A broken configuration file does not stop images; the documents are
@@ -454,6 +455,7 @@ fn run(cli: &Cli, route: Route) -> Result<(), Failure> {
         Err(error) => (false, without_config(cli, &env), Some(error)),
     };
     settings.paging = plan::paging(settings.paging, &files, settings.follow);
+    settings.diagrams = plan::diagrams(settings.diagrams, &files);
     let caps = kiri::term::capabilities(context.mode, context.width, &env, settings.passthrough);
     let caps = plan::on_page(caps, settings.paper);
     let paged = plan::pages_alone(settings.paging, kiri::term::stdout_is_terminal(), &caps);
@@ -766,8 +768,7 @@ fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure> {
         .first()
         .is_some_and(|given| matches!(given.drawn, Some(Drawn::Done)));
     paged &= !(lone && drawn && settings.paging != Paging::Always);
-    // Once for all the files, before the pager opens, and in the pager. A
-    // file alone that is written as it is says nothing of it.
+    // Once for all the files, before the pager opens, and in the pager.
     let as_is = given
         .first()
         .is_some_and(|given| matches!(given.shown, Shown::AsIs(_)));
