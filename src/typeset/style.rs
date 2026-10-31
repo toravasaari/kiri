@@ -241,6 +241,18 @@ pub fn text(spans: &[Span]) -> String {
     spans.iter().map(|span| span.text.as_str()).collect()
 }
 
+/// The `Rc` for a link to `url` that comes right after `spans`. When the
+/// last span is a link to `url` too, as in `[a](u)**[b](u)**`, it is that
+/// span's `Rc`: the pager joins a link across lines by its `Rc`
+/// (`text_links`), so the two stay one link where a line breaks between
+/// them, as the terminal shows them as one. Otherwise it is a new `Rc`.
+pub fn link_to(spans: &[Span], url: &str) -> Rc<str> {
+    let before = spans.last().and_then(|span| span.style.link.clone());
+    before
+        .filter(|before| **before == *url)
+        .unwrap_or_else(|| Rc::from(url))
+}
+
 /// Appends text, merging it into the last span when the style matches.
 pub fn push(spans: &mut Vec<Span>, text: &str, style: &Style) {
     if text.is_empty() {

@@ -241,9 +241,11 @@ the one before, and Escape lets it go. The link stays selected while either
 of its lines is on the screen.
 
 Two links to one address that touch, with no space between them, are one
-link on one line, even when the style changes between them:
+link, even when the style changes between them:
 [plain part](https://example.com/parts)**[bold part](https://example.com/parts)**
-is underlined as one link, and Tab selects both parts in one step.
+is underlined as one link, and Tab selects both parts in one step. Narrow
+the window until a line breaks between the two parts, and Tab still
+selects both.
 
 Inside tmux the link opens just as it does outside, once tmux.conf has
 the line `set -as terminal-features ',xterm-kitty:hyperlinks'` (for

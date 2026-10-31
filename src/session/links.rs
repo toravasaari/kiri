@@ -536,6 +536,23 @@ mod tests {
     }
 
     #[test]
+    fn touching_links_of_one_address_stay_one_where_a_line_breaks_between() {
+        // The last source breaks between the two at 4 to 6 columns.
+        for source in [
+            "Text [aaaa](u)**[bbbb](u)** end.\n",
+            "A line to fill [aaaa](u)**[bbbb](u)** end.\n",
+            "[aaaaaa](u)**[bbbbbb](u)**\n",
+        ] {
+            for columns in 4..=40 {
+                let (lines, places) = text_in(source, columns);
+                let found = identify(&lines, &places);
+                let urls: Vec<&str> = found.iter().map(|found| found.url.as_str()).collect();
+                assert_eq!(urls, ["u"], "{source:?} at {columns}");
+            }
+        }
+    }
+
+    #[test]
     fn spans_of_one_address_side_by_side_are_one_link_also_in_a_quote() {
         let source = "> A [aaaa bbbb cccc](u)**[dddd eeee](u)** end.\n";
         for columns in [14, 20, 80] {
