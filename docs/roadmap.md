@@ -835,6 +835,24 @@ layout is kiri's own, on parley, with the fonts resvg already loads.
   says so; without a link selected on the screen it scrolls a line as
   before.
 
+### 4.16 Audio
+
+Needs G7.3.2 for time and G7.3.3 for what it watches.
+
+- An audio file (MP3, Ogg, FLAC, WAV and others) shown as a document:
+  its title, artist, length, format, chapters and cover art, read with
+  ffprobe when it is installed. It reads the same in the text layout.
+- A waveform of the whole file drawn as an image, with the playing
+  position marked on it.
+- Playback through mpv when it is installed, started, paused and moved
+  from the pager.
+- Lyrics or a transcript from an `.lrc` file of the same name shown
+  beside it: the line being played is marked and kept in view, and Enter
+  on a line moves playback there.
+- A live visualizer while it plays, such as spectrum bars or a level
+  meter, drawn with block characters in the text layout and in pixels
+  where the terminal shows images.
+
 ## Phase 5 – Beyond kitty
 
 kiri outside a plain kitty window: other terminals, kitty inside tmux, and
