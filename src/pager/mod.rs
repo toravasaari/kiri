@@ -31,7 +31,7 @@ use crate::session::frame::{Frame, Layout, Status};
 use crate::session::help::Placed;
 use crate::session::search::Marks;
 use crate::session::settings::{self, FollowJump, SearchCase};
-use crate::session::state::{Change, FRAME, NOTHING_TO_FOLLOW, POLL, State, Told, Warning};
+use crate::session::state::{Change, NOTHING_TO_FOLLOW, State, Told, Warning};
 use crate::session::step::{Effect, Msg, Pager, Reply, Resized, Run, step};
 use crate::session::view::View;
 use crate::session::{loading, status};
@@ -745,13 +745,8 @@ fn carry(
     (size, source): (Option<WindowSize>, &mut Origin),
 ) -> io::Result<Option<Msg>> {
     match effect {
-        Effect::Read { fading } => {
-            let wait = if fading || writer.has_bands() {
-                FRAME
-            } else {
-                POLL
-            };
-            let bytes = terminal.read(wait)?;
+        Effect::Read => {
+            let bytes = terminal.read(pager.wait(writer.has_bands()))?;
             return Ok(Some(Msg::Input(bytes, terminal.now())));
         }
         Effect::PollChange => {

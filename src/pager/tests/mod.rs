@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use super::*;
+use crate::session::state::{FRAME, POLL};
 use crate::typeset::color::Color;
 use crate::typeset::model::{Document, File};
 

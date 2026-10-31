@@ -98,7 +98,7 @@ fn kinds(effects: &[Effect]) -> Vec<&'static str> {
     effects
         .iter()
         .map(|effect| match effect {
-            Effect::Read { .. } => "read",
+            Effect::Read => "read",
             Effect::PollChange => "poll change",
             Effect::PollLoads => "poll loads",
             Effect::PollWindow => "poll window",
@@ -126,6 +126,25 @@ fn kinds(effects: &[Effect]) -> Vec<&'static str> {
 /// `text` typed at `now`, stepped.
 fn typed(pager: &mut Pager, text: &str, now: Instant) -> Vec<Effect> {
     step(pager, Msg::Input(text.as_bytes().to_vec(), now))
+}
+
+#[test]
+fn the_pager_waits_a_poll_when_idle_and_a_frame_while_something_fades() {
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    with_pager(30, 5, &mut state, run(now), now, |pager| {
+        step(pager, Msg::Shown(now));
+        assert_eq!(pager.wait(false), POLL);
+        // The bands of an image that loads move with each frame.
+        assert_eq!(pager.wait(true), FRAME);
+        // The match of a search fades after the jump to it.
+        typed(pager, "/Line 12\r", now);
+        assert_eq!(pager.wait(false), FRAME);
+        // And not any more once it has faded.
+        let later = now + Duration::from_secs(10);
+        step(pager, Msg::Input(Vec::new(), later));
+        assert_eq!(pager.wait(false), POLL);
+    });
 }
 
 #[test]
