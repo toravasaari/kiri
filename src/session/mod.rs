@@ -19,6 +19,7 @@ pub mod search;
 pub mod settings;
 pub mod state;
 pub mod status;
+pub(crate) mod step;
 pub mod tint;
 pub mod view;
 pub mod warnings;

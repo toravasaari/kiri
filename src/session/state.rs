@@ -18,6 +18,7 @@ use crate::session::prompt::{Edit, Prompt};
 use crate::session::search::{Marks, Search};
 use crate::session::settings;
 use crate::session::settings::SearchCase;
+use crate::session::step::{Effect, Run};
 use crate::session::view::Motion;
 use crate::session::{bands, links, status};
 use crate::typeset::model::FrontMatterError;
@@ -74,26 +75,6 @@ impl From<&FrontMatterError> for Warning {
             message: format!("front matter: {}", error.message),
         }
     }
-}
-
-/// What a key did, besides what the pager does itself.
-pub(crate) enum Pressed {
-    Nothing,
-    Quit,
-    /// The reader asked for the document again.
-    Reload,
-    /// The reader changed how the document is followed.
-    Follow,
-    /// The reader asked for the screen and its images again.
-    Redraw,
-    /// The reader turned reading mode on or off.
-    Reading,
-    /// The reader scrolled a band sideways or selected another.
-    Bands,
-    /// The reader switched wide blocks between wrapping and scrolling.
-    Wide,
-    /// The reader asked for this to go on the clipboard.
-    Copy(String),
 }
 
 /// What the reader does in the pager besides scrolling, which stays when
@@ -334,40 +315,49 @@ impl State {
         self.warnings = warnings;
     }
 
-    /// Does what `key`, pressed at `now`, asks in `layout`, and tells what
-    /// is left for the pager to do.
-    pub(crate) fn press(&mut self, key: Key, now: Instant, layout: &mut Layout) -> Pressed {
-        match self.pressed(key, now, layout) {
-            Pressed::Nothing if std::mem::take(&mut self.bands_moved) => Pressed::Bands,
-            pressed => pressed,
-        }
+    /// Does what `key`, pressed at `now`, asks in `layout` of a pager that
+    /// is `run`, and tells what is left for the loop to do, if anything.
+    pub(crate) fn press(
+        &mut self,
+        key: Key,
+        now: Instant,
+        layout: &mut Layout,
+        run: &Run,
+    ) -> Option<Effect> {
+        self.pressed(key, now, layout, run)
     }
 
-    pub(crate) fn pressed(&mut self, key: Key, now: Instant, layout: &mut Layout) -> Pressed {
+    fn pressed(
+        &mut self,
+        key: Key,
+        now: Instant,
+        layout: &mut Layout,
+        run: &Run,
+    ) -> Option<Effect> {
         let mut action = commands::action(key);
         // A click and the sideways wheel act on the band under them, and
         // never reach the help, the prompt or the colon.
         if let Some(pointer) = action.filter(|action| action.is_pointer()) {
             match self.pointed(pointer, layout) {
-                Ok(pressed) => return pressed,
+                Ok(effect) => return effect,
                 Err(fallback) => action = Some(fallback),
             }
         }
         // Any other mouse event does nothing at all.
         if key == Key::Mouse {
-            return Pressed::Nothing;
+            return None;
         }
         self.nowhere = false;
         self.told = None;
         if action == Some(Action::Dismiss) {
             self.dismiss();
-            return Pressed::Nothing;
+            return None;
         }
         // Any key closes the help and does nothing else, but Ctrl+C
         // still quits.
         if self.help && key != Key::Ctrl('c') {
             self.help = false;
-            return Pressed::Nothing;
+            return None;
         }
         // While the prompt is open, keys edit it.
         if let Some(prompt) = &mut self.prompt {
@@ -385,7 +375,7 @@ impl State {
                     self.step(Search::forward, now, layout);
                 }
             }
-            return Pressed::Nothing;
+            return None;
         }
         // The key after a colon is a command's, and any other closes it.
         // The commands move between files, so a lone document has none
@@ -393,20 +383,20 @@ impl State {
         if std::mem::take(&mut self.colon) {
             action = match key {
                 Key::Char(c) => commands::action(Key::Command(c)),
-                _ => return Pressed::Nothing,
+                _ => return None,
             };
         } else if key == commands::COMMAND && layout.status.files.several() {
             self.colon = true;
-            return Pressed::Nothing;
+            return None;
         }
         match action {
-            Some(Action::Quit) => return Pressed::Quit,
+            Some(Action::Quit) => return Some(Effect::Quit),
             // Enter copies the link selected on the screen, and otherwise
             // goes down a line.
             Some(Action::Enter) => match self.link_on_screen(layout) {
                 Some(link) => {
                     self.told = Some(Told::fading("link copied", now));
-                    return Pressed::Copy(link.url);
+                    return Some(Effect::Copy(link.url));
                 }
                 None => layout.view.scroll(Motion::Down(1)),
             },
@@ -418,15 +408,15 @@ impl State {
             Some(Action::Previous) => self.step(Search::backward, now, layout),
             Some(Action::NextFile) => self.step_file(true, layout),
             Some(Action::PreviousFile) => self.step_file(false, layout),
-            Some(Action::Reload) => return Pressed::Reload,
-            Some(Action::Redraw) => return Pressed::Redraw,
-            Some(Action::Follow) => return Pressed::Follow,
-            Some(Action::Reading) => return Pressed::Reading,
-            Some(Action::Wide) => return Pressed::Wide,
+            Some(Action::Reload) => return self.reload(run),
+            // As `less` repaints, also the images, which the terminal may
+            // have lost.
+            Some(Action::Redraw) => return Some(Effect::Redraw),
+            Some(Action::Follow) => self.cycle_follow(run),
+            Some(Action::Reading) => return Some(Effect::Reading),
+            Some(Action::Wide) => return Some(Effect::Wide),
             Some(Action::Sideways(step)) => {
-                if self.bands.scroll(layout.lines, layout.places, step) {
-                    return Pressed::Bands;
-                }
+                self.bands_moved |= self.bands.scroll(layout.lines, layout.places, step);
             }
             Some(Action::SelectLink { back }) => {
                 let visible = layout.view.visible();
@@ -438,7 +428,34 @@ impl State {
             // Answered above, or in `pointed`.
             Some(Action::Dismiss | Action::Click { .. } | Action::Wheel { .. }) | None => {}
         }
-        Pressed::Nothing
+        None
+    }
+
+    /// Answers `r`: the reader sees that the pager is busy before it is.
+    fn reload(&mut self, run: &Run) -> Option<Effect> {
+        if !run.can_reload {
+            self.told = Some(Told::new("nothing to reload"));
+            return None;
+        }
+        self.told = Some(Told::new("reloading…"));
+        Some(Effect::Reload)
+    }
+
+    /// Answers `f`: the next way of following the document, or nothing to
+    /// follow when there is no file to read again.
+    fn cycle_follow(&mut self, run: &Run) {
+        if !run.can_reload {
+            self.told = Some(Told::new(NOTHING_TO_FOLLOW));
+            return;
+        }
+        self.follow = Follow {
+            mode: match self.follow.mode {
+                settings::Follow::Off => settings::Follow::On,
+                settings::Follow::On => settings::Follow::Auto,
+                settings::Follow::Auto => settings::Follow::Off,
+            },
+            ..Follow::default()
+        };
     }
 
     /// Answers Escape: closes what is open, the innermost first, and when
@@ -456,16 +473,12 @@ impl State {
     /// A click or a notch of the sideways wheel: the answer, or for the
     /// wheel with Shift away from a band the wheel's action. While the
     /// help or the prompt is open the mouse does nothing.
-    pub(crate) fn pointed(&mut self, action: Action, layout: &Layout) -> Result<Pressed, Action> {
-        let bands = |moved| match moved {
-            true => Pressed::Bands,
-            false => Pressed::Nothing,
-        };
-        match action {
-            _ if self.help || self.prompt.is_some() => Ok(Pressed::Nothing),
+    fn pointed(&mut self, action: Action, layout: &Layout) -> Result<Option<Effect>, Action> {
+        let moved = match action {
+            _ if self.help || self.prompt.is_some() => false,
             Action::Click { row } => {
                 let line = Self::row_line(row, layout);
-                Ok(bands(self.bands.click(layout.lines, layout.places, line)))
+                self.bands.click(layout.lines, layout.places, line)
             }
             Action::Wheel { right, shift, row } => match self.bands.wheel(
                 layout.lines,
@@ -473,13 +486,15 @@ impl State {
                 Self::row_line(row, layout),
                 right,
             ) {
-                Some(moved) => Ok(bands(moved)),
-                None if shift && right => Err(Action::Move(Motion::Down(commands::WHEEL))),
-                None if shift => Err(Action::Move(Motion::Up(commands::WHEEL))),
-                None => Ok(Pressed::Nothing),
+                Some(moved) => moved,
+                None if shift && right => return Err(Action::Move(Motion::Down(commands::WHEEL))),
+                None if shift => return Err(Action::Move(Motion::Up(commands::WHEEL))),
+                None => false,
             },
-            action => Err(action),
-        }
+            action => return Err(action),
+        };
+        self.bands_moved |= moved;
+        Ok(None)
     }
 
     /// Moves to the start of the next file, or of the previous one.

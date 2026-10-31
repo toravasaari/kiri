@@ -22,7 +22,6 @@ use std::time::{Duration, Instant};
 
 use crate::images::{ImageError, ImageKey, Images, Loads, Part, Source};
 use crate::present::encoder::Encoder;
-use crate::present::keys::Key;
 use crate::present::output::{self, Page, Writer};
 use crate::present::{cell_query, clipboard};
 use crate::render::Inputs;
@@ -33,9 +32,9 @@ use crate::session::help::Placed;
 use crate::session::search::Marks;
 use crate::session::settings::{self, FollowJump, SearchCase};
 use crate::session::state::{
-    Change, Changed, FRAME, Focus, Follow, NEEDS_IMAGES, NOTHING_TO_FOLLOW, POLL, Polled, Pressed,
-    State, Told, Warning,
+    Change, Changed, FRAME, NEEDS_IMAGES, NOTHING_TO_FOLLOW, POLL, Polled, State, Told, Warning,
 };
+use crate::session::step::{Effect, Msg, Pager, Pending, Run, step};
 use crate::session::view::View;
 use crate::session::{changes, loading, status};
 use crate::term::{Screen, WindowSize};
@@ -700,6 +699,10 @@ fn show(
     source: &mut Origin,
 ) -> io::Result<Outcome> {
     let reload = &mut source.reload;
+    let run = Run {
+        can_reload: reload.is_some(),
+        tmux: writer.through_tmux(),
+    };
     // The images loading start nearest to the lines in view.
     let mut told = layout.view.visible();
     prefer(source.loads, layout.lines, told.clone());
@@ -723,111 +726,39 @@ fn show(
         };
         now = terminal.now();
         state.tick(now);
-        // Whether the frame is drawn again even if it has not changed.
-        let mut again = false;
-        // Whether a frame was drawn or images sent again, which goes out
-        // with a check of the images it sent.
-        let mut written = false;
-        // Whether a key scrolled a band or selected another.
-        let mut bands = false;
-        let mut keys = keys.into_iter();
-        while let Some(key) = keys.next() {
-            match key {
-                // tmux passed no images while the pane was not shown:
-                // those sent since the focus went, or any when it is not
-                // known when that was.
-                Key::FocusIn if writer.through_tmux() => {
-                    match std::mem::replace(&mut state.focus, Focus::In) {
-                        Focus::Unknown => writer.lost(),
-                        Focus::Out(sent) if !sent.is_empty() => writer.lost_some(&sent),
-                        Focus::Out(_) | Focus::In => continue,
-                    }
-                    again = true;
-                    continue;
-                }
-                // A second one, as from kitty and then tmux, keeps the
-                // images sent while away.
-                Key::FocusOut => {
-                    if !matches!(state.focus, Focus::Out(_)) {
-                        state.focus = Focus::Out(Vec::new());
-                    }
-                    continue;
-                }
-                Key::FocusIn | Key::Checked(_, true) => continue,
-                // The last answer of the read is the cells now; the keys
-                // after it still count.
-                Key::CellSize(width, height) => {
-                    state.cell = Some((width, height));
-                    continue;
-                }
-                // tmux dropped it: its placeholders are on the screen.
-                Key::Checked(id, false) => {
-                    writer.send_again(id, terminal)?;
-                    written = true;
-                    continue;
-                }
-                _ => {}
-            }
-            match state.press(key, now, layout) {
-                Pressed::Nothing => {}
-                Pressed::Quit => {
-                    state.keep_answer(keys.as_slice());
-                    return Ok(Outcome::Quit);
-                }
-                Pressed::Reload if reload.is_none() => {
-                    state.told = Some(Told::new("nothing to reload"));
-                }
-                // The reader sees that the pager is busy before it is.
-                Pressed::Reload => {
-                    state.told = Some(Told::new("reloading…"));
-                    draw_frame(
-                        &layout.frame(state, now),
-                        layout.view.rows(),
-                        writer,
-                        terminal,
-                    )?;
-                    state.sent(writer.check(terminal)?);
-                    terminal.flush()?;
-                    state.keep_answer(keys.as_slice());
-                    return Ok(Outcome::Reload);
-                }
-                // As `less` repaints, also the images, which the
-                // terminal may have lost.
-                Pressed::Redraw => {
-                    writer.lost();
-                    again = true;
-                }
-                Pressed::Reading => {
-                    state.keep_answer(keys.as_slice());
-                    return Ok(Outcome::Reading);
-                }
-                // The keys after it in the same read still count, as
-                // they would read one by one.
-                Pressed::Bands => bands = true,
-                Pressed::Wide => {
-                    state.keep_answer(keys.as_slice());
-                    return Ok(Outcome::Wide);
-                }
-                Pressed::Copy(text) => {
+        let mut pager = Pager {
+            state: &mut *state,
+            layout: &mut *layout,
+            run,
+            pending: Pending::default(),
+        };
+        for effect in step(&mut pager, Msg::Keys(keys, now)) {
+            match effect {
+                Effect::Quit => return Ok(Outcome::Quit),
+                Effect::Reload => return Ok(Outcome::Reload),
+                Effect::Reading => return Ok(Outcome::Reading),
+                Effect::Wide => return Ok(Outcome::Wide),
+                Effect::Redraw => {}
+                Effect::Lose => writer.lost(),
+                Effect::LoseSome(sent) => writer.lost_some(&sent),
+                Effect::Resend(id) => writer.send_again(id, terminal)?,
+                Effect::Copy(text) => {
                     clipboard::copy(&text, writer.through_tmux(), terminal)?;
                     terminal.flush()?;
                 }
-                Pressed::Follow if reload.is_none() => {
-                    state.told = Some(Told::new(NOTHING_TO_FOLLOW));
-                }
-                Pressed::Follow => {
-                    state.follow = Follow {
-                        mode: match state.follow.mode {
-                            settings::Follow::Off => settings::Follow::On,
-                            settings::Follow::On => settings::Follow::Auto,
-                            settings::Follow::Auto => settings::Follow::Off,
-                        },
-                        ..Follow::default()
-                    }
+                Effect::Present(frame) => {
+                    draw_frame(&frame, pager.layout.view.rows(), writer, terminal)?;
+                    pager.state.sent(writer.check(terminal)?);
+                    terminal.flush()?;
                 }
             }
-            state.moved(layout.view.top());
         }
+        let Pending {
+            again,
+            written,
+            bands,
+        } = pager.pending;
+        let mut written = written;
         if let Some(new) = state.cell.take()
             && Some(new) != cell
         {
