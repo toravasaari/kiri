@@ -102,19 +102,23 @@ fn split_onto(
 /// `spans` cut to at most `max` cells, between graphemes, measured as the
 /// wrapper measures them. The text kept is measured whole, as text at a
 /// fraction is packed and a grapheme of it alone would round up to a cell;
-/// packed, a letter more can take a cell less, so the longest start that
-/// fits is kept.
+/// packed, a letter more can take a cell less, so the longest beginning
+/// that fits is kept. At a whole size it only grows, and the search stops
+/// at the first grapheme that does not fit.
 pub fn cut(spans: Vec<Span>, max: usize) -> Vec<Span> {
     let mut left = max;
     let mut kept = Vec::new();
     for mut span in spans {
         let size = span.style.size;
         if size.width(&span.text) > left {
+            let packed = size.fraction().is_some();
             let mut end = 0;
             for (start, grapheme) in span.text.grapheme_indices(true) {
                 let after = start + grapheme.len();
                 if size.width(&span.text[..after]) <= left {
                     end = after;
+                } else if !packed {
+                    break;
                 }
             }
             span.text.truncate(end);
@@ -666,6 +670,21 @@ mod tests {
         let kept = cut(vec![sized("abcdefg", half)], 2);
         assert_eq!(style::text(&kept), "abcd");
         assert_eq!(width(&kept), 2);
+        // Where a letter more can take a cell less, the longest beginning
+        // that fits is kept, and no longer one fits.
+        let size = fraction(1, 5, 7);
+        let text = "at educavj日k日日cmbtga日h日f";
+        for max in 2..=25 {
+            let kept = cut(vec![sized(text, size)], max);
+            assert!(width(&kept) <= max, "{max}");
+            let end = style::text(&kept).len();
+            for (start, grapheme) in text.grapheme_indices(true) {
+                let after = start + grapheme.len();
+                if after > end {
+                    assert!(size.width(&text[..after]) > max, "{max} {after}");
+                }
+            }
+        }
     }
 
     #[test]

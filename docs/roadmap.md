@@ -1557,9 +1557,9 @@ grapheme at a time, and at a fraction each grapheme rounds up to a whole
 cell, so a heading or a sup cut to fit takes fewer letters than fit.
 Measuring the text kept, as `width` does, would fix it.
 
-Fixed: `cut` measures the text it keeps as a whole. No text at a
-fraction was cut yet, as only the status line, warnings and the help
-panel cut text, so nothing changes on the screen today.
+Fixed: `cut` measures the text it keeps as a whole. Only the status
+line, the warnings and the help panel cut text so far, and none of it is
+at a fraction, so nothing changes on the screen today.
 
 #### B11 Rows of reading mode broken in a container's tmux (fixed)
 
