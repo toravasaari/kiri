@@ -3,19 +3,26 @@
 use std::time::Duration;
 
 use super::*;
+use crate::render::Inputs;
 use crate::session::fade::Rgb;
 use crate::session::files::Files;
 use crate::session::frame::{Layout, Status};
 use crate::session::search::Marks;
 use crate::session::settings::{self, SearchCase};
+use crate::session::state::Changed;
 use crate::session::state::Look;
 use crate::session::status;
 use crate::session::view::View;
-use crate::typeset::block::Blocks;
+use crate::typeset::block::{BlockInfo, Blocks};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::compare::Comparison;
+use crate::typeset::layout::{Content, Stream, content};
+use crate::typeset::reading::Fonts;
+use crate::typeset::reading::engine::Reading;
+use crate::typeset::reading::page::Wide;
 use crate::typeset::style::{Line, Span, Style};
 use crate::typeset::theme::Theme;
+use std::rc::Rc;
 
 /// What a run is like when a test does not say.
 fn run(now: Instant) -> Run {
@@ -39,19 +46,31 @@ fn with_pager(
     now: Instant,
     test: impl FnOnce(&mut Pager),
 ) {
-    let theme = Theme::default();
-    let caps = Capabilities::kitty(60);
     let lines: Vec<Line> = (0..count)
         .map(|n| Line::new(vec![Span::new(&format!("Line {n}"), Style::default())]))
         .collect();
     let places = vec![None; count];
+    with_lines(&lines, &places, rows, (state, run, now), test);
+}
+
+/// Runs `test` on a pager that shows `lines`, from the blocks `places`, of
+/// one row each, in a window of `rows` rows above the status line.
+fn with_lines(
+    lines: &[Line],
+    places: &[Option<BlockInfo>],
+    rows: usize,
+    (state, run, now): (&mut State, Run, Instant),
+    test: impl FnOnce(&mut Pager),
+) {
+    let theme = Theme::default();
+    let caps = Capabilities::kitty(60);
     let blocks = Blocks::default();
     let marks = Marks::new(&theme, &caps);
     let rgb = Rgb::new(&theme, &caps);
     let status = Status {
         name: "notes.md",
         loading: None,
-        files: Files::new(&[], &lines, &blocks),
+        files: Files::new(&[], lines, &blocks),
         styles: status::Styles::new(&theme, &caps),
         width: 60,
         bar: true,
@@ -60,10 +79,10 @@ fn with_pager(
         red: Style::default(),
         reading: false,
     };
-    let mut view = View::new(vec![1; count], rows);
+    let mut view = View::new(vec![1; lines.len()], rows).with_blocks(places.to_vec());
     let mut layout = Layout {
-        lines: &lines,
-        places: &places,
+        lines,
+        places,
         marks: &marks,
         rgb: rgb.as_ref(),
         columns: 60,
@@ -383,4 +402,76 @@ fn the_effects_that_end_a_layout_are_the_last_of_their_list() {
             assert!(effects.last().unwrap().ends(), "{keys}");
         }
     });
+}
+
+#[test]
+fn a_resize_takes_the_tint_off_the_lines_of_the_old_layout() {
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    state.changed = Some(Changed {
+        at: now,
+        lines: 2..4,
+    });
+    with_pager(30, 5, &mut state, run(now), now, |pager| {
+        step(pager, Msg::Shown(now));
+        let resized = Resized {
+            known: true,
+            tells_cells: true,
+        };
+        let msg = Msg::Window {
+            resized: Some(resized),
+            bands: false,
+        };
+        assert_eq!(kinds(&step(pager, msg)), ["relayout"]);
+    });
+    assert!(state.changed.is_none());
+}
+
+/// Two code blocks too wide for the area, laid out to scroll, as reading
+/// mode lays them out, with the blocks of their lines.
+fn two_bands() -> (Vec<Line>, Vec<Option<BlockInfo>>) {
+    let long = "a".repeat(200);
+    let document =
+        crate::typeset::parse::parse(&format!("```\n{long}\n```\n\nText.\n\n```\n{long}\n```\n"));
+    let inputs = Inputs {
+        reading: Some(Reading {
+            pictures: Default::default(),
+            fonts: Rc::new(Fonts::fixture()),
+            wide: Wide::Scroll,
+        }),
+        ..Inputs::new(Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(80)
+        })
+    };
+    let Stream { lines, blocks } = content(Content::Document(&document), &inputs);
+    let places = (lines.iter())
+        .map(|line| line.block.map(|id| blocks.get(id).clone()))
+        .collect();
+    (lines, places)
+}
+
+#[test]
+fn a_selected_band_that_scrolls_off_the_screen_gives_its_selection_to_the_next() {
+    let now = Instant::now();
+    let (lines, places) = two_bands();
+    let first = crate::typeset::reading::engine::bands(&lines)[0]
+        .lines
+        .clone();
+    let mut state = State::new(SearchCase::Smart);
+    let rows = first.len();
+    with_lines(
+        &lines,
+        &places,
+        rows,
+        (&mut state, run(now), now),
+        |pager| {
+            // The first band is on the screen and selected.
+            let visible = pager.layout.view.visible();
+            assert!(pager.state.bands.refresh(&lines, &places, visible));
+            step(pager, Msg::Shown(now));
+            let effects = typed(pager, &"j".repeat(lines.len()), now);
+            assert_eq!(kinds(&effects).last(), Some(&"relayout, same lines"));
+        },
+    );
 }
