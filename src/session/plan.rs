@@ -3,7 +3,7 @@
 //! need no I/O. The platform, `src/main.rs`, reads the terminal and the
 //! files and passes the answers in as values.
 
-use crate::config::Paging;
+use crate::config::{InitialLoad, Paging};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::reading::page::Wide;
 use crate::typeset::theme::Paper;
@@ -111,6 +111,30 @@ pub fn surely_paged(paging: Paging, measure: impl FnOnce() -> Measured) -> bool 
             let Measured { rows, height } = measure();
             pages(Paging::Auto, true, rows, height)
         }
+    }
+}
+
+/// When the images of a document load, against the pager.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Load {
+    /// Before the document is shown, as it is printed or the pager is not
+    /// sure to open.
+    Now,
+    /// Before the pager opens, unless the reader skips the wait, and
+    /// otherwise in the background. Where no keys can be read, the images
+    /// load now.
+    Wait,
+    /// In the background, once the pager has opened.
+    Later,
+}
+
+/// When the images load, for a document that `surely` goes to the pager
+/// or not, as `initial_load` says.
+pub fn load(surely: bool, initial_load: InitialLoad) -> Load {
+    match (surely, initial_load) {
+        (false, _) => Load::Now,
+        (true, InitialLoad::Wait) => Load::Wait,
+        (true, InitialLoad::Background) => Load::Later,
     }
 }
 
@@ -256,5 +280,18 @@ mod tests {
         assert!(surely_paged(Paging::Auto, measured(25, Some(24))));
         assert!(!surely_paged(Paging::Auto, measured(24, Some(24))));
         assert!(!surely_paged(Paging::Auto, measured(1000, None)));
+    }
+
+    #[test]
+    fn images_load_now_unless_the_document_surely_goes_to_the_pager() {
+        for initial_load in [InitialLoad::Wait, InitialLoad::Background] {
+            assert_eq!(load(false, initial_load), Load::Now, "{initial_load:?}");
+        }
+    }
+
+    #[test]
+    fn images_of_a_surely_paged_document_wait_or_load_later() {
+        assert_eq!(load(true, InitialLoad::Wait), Load::Wait);
+        assert_eq!(load(true, InitialLoad::Background), Load::Later);
     }
 }

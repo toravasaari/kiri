@@ -36,7 +36,7 @@ use kiri::pager::{Change, Look, Reload, Reloaded, Warning};
 use kiri::present::encoder::Encoder;
 use kiri::present::output::Page;
 use kiri::render::{Headings, Inputs, RenderErrors, TableRows};
-use kiri::session::plan;
+use kiri::session::plan::{self, Load};
 use kiri::term::{Interrupt, Mode};
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::input::Input;
@@ -1034,14 +1034,17 @@ fn page_files(
     // Waiting, the reader can open the pager before they have all come,
     // and the rest then load in the background.
     let mut still = None;
-    let waits = settings.initial_load == InitialLoad::Wait;
-    let surely = !parts.is_empty() && surely_paged(context, content, &parts, settings, inputs);
-    let waited = match (!parts.is_empty() && surely && waits)
-        .then(|| wait_or_skip(context, &parts, settings, inputs))
-    {
-        Some(Some(waited)) => Some(waited?),
-        _ => None,
-    };
+    let load = (!parts.is_empty()).then(|| {
+        plan::load(
+            surely_paged(context, content, &parts, settings, inputs),
+            settings.initial_load,
+        )
+    });
+    let waited =
+        match (load == Some(Load::Wait)).then(|| wait_or_skip(context, &parts, settings, inputs)) {
+            Some(Some(waited)) => Some(waited?),
+            _ => None,
+        };
     if let Some(waited) = waited {
         let told = told_files(&inputs.images, &parts, &files, settings);
         for (warned, told) in warnings.iter_mut().zip(told) {
@@ -1057,7 +1060,7 @@ fn page_files(
         }
         still = waited.loads;
         parts.clear();
-    } else if !parts.is_empty() && (!surely || waits) {
+    } else if matches!(load, Some(Load::Now | Load::Wait)) {
         let (loaded, told) = load_files_now(context, &parts, &files, settings, &inputs.caps)?;
         for (warned, told) in warnings.iter_mut().zip(told) {
             warned.extend(told);
@@ -1961,36 +1964,44 @@ fn print_document(
     let content = kiri::typeset::layout::Content::Document(document);
     let mut still = None;
     let later = match later {
-        Some(parts) if !surely_paged(context, content, parts, &settings, &mut inputs) => {
-            let loaded = load_told(context, parts, &settings, &inputs.caps)?;
-            inputs.images = loaded.images;
-            interrupt = loaded.interrupt;
-            None
-        }
-        Some(parts) if settings.initial_load == InitialLoad::Wait => {
-            match wait_or_skip(context, parts, &settings, &mut inputs) {
-                Some(waited) => {
-                    let waited = waited?;
-                    tell_loaded(&inputs.images, &settings);
-                    interrupt = waited.interrupt;
-                    // The pager decides as it was told: with three rows
-                    // for each image that has not come.
-                    for key in waited.loads.iter().flat_map(Loads::keys) {
-                        inputs
-                            .images
-                            .wait(key.clone(), Placeholder::Rows(ROWS_UNLOADED));
+        Some(parts) => {
+            let load = plan::load(
+                surely_paged(context, content, parts, &settings, &mut inputs),
+                settings.initial_load,
+            );
+            match load {
+                Load::Later => Some(parts),
+                Load::Wait => match wait_or_skip(context, parts, &settings, &mut inputs) {
+                    Some(waited) => {
+                        let waited = waited?;
+                        tell_loaded(&inputs.images, &settings);
+                        interrupt = waited.interrupt;
+                        // The pager decides as it was told: with three rows
+                        // for each image that has not come.
+                        for key in waited.loads.iter().flat_map(Loads::keys) {
+                            inputs
+                                .images
+                                .wait(key.clone(), Placeholder::Rows(ROWS_UNLOADED));
+                        }
+                        still = waited.loads;
+                        None
                     }
-                    still = waited.loads;
-                }
-                None => {
+                    None => {
+                        let loaded = load_told(context, parts, &settings, &inputs.caps)?;
+                        inputs.images = loaded.images;
+                        interrupt = loaded.interrupt;
+                        None
+                    }
+                },
+                Load::Now => {
                     let loaded = load_told(context, parts, &settings, &inputs.caps)?;
                     inputs.images = loaded.images;
                     interrupt = loaded.interrupt;
+                    None
                 }
             }
-            None
         }
-        later => later,
+        None => None,
     };
     let file = reading.as_ref().map(|(from, _)| from.path);
     let mut reload = reading.map(|(from, stamps)| FileReload {
