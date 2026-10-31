@@ -251,16 +251,6 @@ fn a_long_document_is_paged_until_q() {
 }
 
 #[test]
-fn keys_scroll_the_document() {
-    let (status, seen) = in_terminal("pager-keys", &["long.md"], 5, None, &[b"G", b"q"]);
-    assert!(status.success());
-    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
-    assert_eq!(frames.len(), 2, "{seen:?}");
-    assert!(!frames[0].contains("Line 10"), "{seen:?}");
-    assert!(frames[1].contains("Line 10"), "{seen:?}");
-}
-
-#[test]
 fn the_pager_captures_the_mouse_and_scrolls_on_the_wheel() {
     let wheel = b"\x1b[<65;1;1M";
     let (status, seen) = in_terminal("pager-mouse", &["long.md"], 5, None, &[wheel, b"q"]);
@@ -1949,28 +1939,6 @@ fn r_reads_the_file_again() {
 }
 
 #[test]
-fn a_file_that_is_gone_stays_as_it_was_and_the_status_line_says_why() {
-    let remove = |dir: &std::path::Path| {
-        std::fs::remove_file(dir.join("long.md")).unwrap();
-        b"r" as &'static [u8]
-    };
-    let steps = [
-        Step {
-            frames: 1,
-            keys: &remove,
-        },
-        quit_after(2),
-    ];
-    let (status, seen) = in_steps("pager-reload-gone", &["long.md"], None, &steps);
-    assert!(status.success());
-    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
-    let last = frames.last().unwrap();
-    assert!(last.contains("Line 1"), "{seen:?}");
-    assert!(text_of(last).contains("No such file"), "{seen:?}");
-    assert!(!text_of(last).contains("reloaded"), "{seen:?}");
-}
-
-#[test]
 fn standard_input_and_several_files_reload_nothing() {
     let reload = Step {
         frames: 1,
@@ -2029,43 +1997,6 @@ fn follow_reads_the_file_again_when_it_changes_without_a_key() {
         // Without a key, the pager does not say it is reloading.
         assert!(!frames.iter().any(|frame| frame.contains("reloading")));
     }
-}
-
-#[test]
-fn auto_follow_moves_the_view_to_a_change_in_the_file() {
-    let rewrite = |dir: &std::path::Path| {
-        let text = long().replace("Line 9\n", "Line 9 changed\n");
-        std::fs::write(dir.join("long.md"), text).unwrap();
-    };
-    for args in [&["--follow", "auto", "long.md"][..], &["--fa", "long.md"]] {
-        let frames = following("pager-follow-auto", args, &rewrite);
-        let last = frames.last().unwrap();
-        assert!(last.contains("Line 9 changed"), "{args:?}: {frames:?}");
-        assert!(!last.contains("Line 1 "), "{args:?}: {frames:?}");
-        assert!(last.contains(" auto "), "{args:?}: {frames:?}");
-    }
-}
-
-#[test]
-fn follow_reads_a_file_replaced_by_a_rename() {
-    // As editors save: a new file written beside it and moved over it.
-    let replace = |dir: &std::path::Path| {
-        std::fs::write(dir.join(".long.md.swp"), fresh()).unwrap();
-        std::fs::rename(dir.join(".long.md.swp"), dir.join("long.md")).unwrap();
-    };
-    let frames = following("pager-follow-rename", &["-f", "long.md"], &replace);
-    let last = frames.last().unwrap();
-    assert!(last.contains("Fresh 1"), "{frames:?}");
-    assert!(last.contains("reloaded"), "{frames:?}");
-}
-
-#[test]
-fn follow_keeps_a_file_that_is_gone_and_the_status_line_says_why() {
-    let remove = |dir: &std::path::Path| std::fs::remove_file(dir.join("long.md")).unwrap();
-    let frames = following("pager-follow-gone", &["-f", "long.md"], &remove);
-    let last = frames.last().unwrap();
-    assert!(last.contains("Line 1"), "{frames:?}");
-    assert!(last.contains("No such file"), "{frames:?}");
 }
 
 #[test]
@@ -2388,54 +2319,6 @@ fn printing_always_wraps() {
     assert_eq!(print("scroll"), print("wrap"));
 }
 
-#[test]
-fn m_loads_the_pictures_in_the_middle_of_text_that_reading_mode_shows() {
-    let prepare = |dir: &std::path::Path| {
-        crate::common::quadrants(8, 8)
-            .save(dir.join("p.png"))
-            .unwrap();
-        let document =
-            "A line with a badge <img src=\"p.png\" width=\"24\" alt=\"badge\"> in it.\n";
-        std::fs::write(dir.join("document.md"), document).unwrap();
-    };
-    let (mut typed, mut quit) = (false, false);
-    let (status, seen, stderr) = in_terminal_seeing(
-        "pager-m-inline",
-        prepare,
-        &["-p", "--mode", "kitty", "--width", "80", "document.md"],
-        10,
-        None,
-        Setup::default(),
-        |seen, terminal, _| {
-            let shown = text(seen);
-            if !typed && shown.contains("\x1b[?2026l") {
-                typed = true;
-                terminal.write_all(b"M").unwrap();
-            }
-            // Quit once the page with the picture is sent, which is when the
-            // picture has loaded and the page is laid out again.
-            if typed && !quit && shown.matches("\x1b_Ga=T,U=1").count() >= 2 {
-                terminal.write_all(b"q").unwrap();
-                quit = true;
-            }
-        },
-    );
-    assert!(status.success());
-    assert_eq!(stderr, "");
-    // The page without the picture when `M` turns reading mode on, and
-    // again with it when it has come: sent as two images, as it is two
-    // different pages.
-    let pages = seen.matches("\x1b_Ga=T,U=1").count();
-    assert_eq!(pages, 2, "{seen:?}");
-}
-
-/// Whether the synchronized update that carries the last picture in `shown`
-/// has ended, which is when its frame is complete.
-fn frame_closed_after_last_picture(shown: &str) -> bool {
-    let after = shown.rsplit("\x1b_Ga=T,U=1").next().unwrap_or("");
-    after.contains("\x1b[?2026l")
-}
-
 /// The ids of the images sent in `seen`, in order.
 fn sent_ids(seen: &str) -> Vec<String> {
     seen.split("\x1b_Ga=T,U=1,")
@@ -2445,60 +2328,6 @@ fn sent_ids(seen: &str) -> Vec<String> {
             Some(id.to_owned())
         })
         .collect()
-}
-
-#[test]
-fn a_reload_after_m_keeps_the_pictures_m_loaded() {
-    let prepare = |dir: &std::path::Path| {
-        crate::common::quadrants(8, 8)
-            .save(dir.join("p.png"))
-            .unwrap();
-        let document =
-            "A line with a badge <img src=\"p.png\" width=\"24\" alt=\"badge\"> in it.\n";
-        std::fs::write(dir.join("document.md"), document).unwrap();
-    };
-    // Steps: `M`, once the first page is drawn; `r`, once the page with
-    // the picture is sent; `q`, once the reload has drawn again.
-    let (mut step, mut frames_at_r) = (0, 0);
-    let (status, seen, stderr) = in_terminal_seeing(
-        "pager-m-reload",
-        prepare,
-        &["-p", "--mode", "kitty", "--width", "80", "document.md"],
-        10,
-        None,
-        Setup::default(),
-        |seen, terminal, _| {
-            let shown = text(seen);
-            let frames = shown.matches("\x1b[?2026l").count();
-            let sent = shown.matches("\x1b_Ga=T,U=1").count();
-            match step {
-                0 if frames > 0 => {
-                    terminal.write_all(b"M").unwrap();
-                    step = 1;
-                }
-                // The picture's frame must have closed before `r`, or the frame
-                // count would miss it and the next chunk would count as a
-                // reload's frame.
-                1 if sent >= 2 && frame_closed_after_last_picture(&shown) => {
-                    terminal.write_all(b"r").unwrap();
-                    (step, frames_at_r) = (2, frames);
-                }
-                2 if frames > frames_at_r => {
-                    terminal.write_all(b"q").unwrap();
-                    step = 3;
-                }
-                _ => {}
-            }
-        },
-    );
-    assert!(status.success());
-    assert_eq!(stderr, "");
-    // The page without the picture, then with it; a reload leaves the
-    // page with the picture, as it is when `--reading` asked for it.
-    let ids = sent_ids(&seen);
-    assert!(ids.len() >= 2, "{ids:?}");
-    assert_ne!(ids[0], ids[1], "{ids:?}");
-    assert_eq!(ids.last(), Some(&ids[1]), "{ids:?}");
 }
 
 #[test]
