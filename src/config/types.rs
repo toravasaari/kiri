@@ -5,7 +5,7 @@
 
 use std::fmt;
 use std::marker::PhantomData;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -88,6 +88,14 @@ impl<T> Setting<T> {
     }
 }
 
+/// Whether a theme value is a name, such as `dark`: it has no path
+/// separator, no `.toml` ending and no leading `~`.
+pub(super) fn is_name(value: &Path) -> bool {
+    let text = value.to_string_lossy();
+    let path = text.contains(std::path::is_separator) || text.ends_with(".toml");
+    !(text.is_empty() || path || text.starts_with('~'))
+}
+
 /// Where the theme comes from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ThemeSource {
@@ -97,8 +105,12 @@ pub enum ThemeSource {
     DefaultFile(PathBuf),
     /// The built-in theme, without a theme file.
     BuiltIn,
-    /// A built-in paper theme, from `--light` or `--dark`.
+    /// A theme the user chose by name: `NAME.toml` in the themes directory.
+    Named { name: String, path: PathBuf },
+    /// A built-in paper theme, `light` or `dark`, chosen by name.
     Paper(Paper),
+    /// A name that is no theme; `message` tells which names are.
+    Unknown { name: String, message: String },
 }
 
 /// A setting whose values have names, such as `table`: the names that the

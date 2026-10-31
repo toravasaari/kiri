@@ -108,7 +108,7 @@ macro_rules! settings {
             medium $smedium:ident, scope $sscope:ident, flag $sflag:expr, env $senv:expr;
         )*}
     ) => {
-        /// Every setting, in the order of the help.
+        /// Every setting, in the order they are declared below.
         pub const SETTINGS: &[Entry] = &[
             $(Entry {
                 field: stringify!($tfield),
@@ -190,7 +190,6 @@ macro_rules! settings {
                     self.$dkey = Some(map.next_value::<File<$dtype>>()?.0);
                     return Ok(true);
                 })*
-                let _ = (key, &map);
                 Ok(false)
             }
         }
@@ -203,10 +202,8 @@ macro_rules! settings {
         /// the configuration file.
         #[derive(Debug, Clone, Default, PartialEq, Eq)]
         pub struct Options {
-            /// A theme file.
+            /// A theme: a file, or a name in the themes directory.
             pub theme: Option<Setting<PathBuf>>,
-            /// A paper theme.
-            pub paper: Option<Setting<Paper>>,
             $(
                 $(#[$tdoc])*
                 pub $tfield: Option<Setting<$ttype>>,
@@ -223,8 +220,6 @@ macro_rules! settings {
         #[derive(Debug, Clone, PartialEq, Eq)]
         pub struct Choices {
             pub theme: Setting<ThemeSource>,
-            /// The paper from `--light` or `--dark`.
-            pub paper: Option<Paper>,
             $(
                 $(#[$tdoc])*
                 pub $tfield: Setting<$ttype>,
@@ -249,8 +244,8 @@ macro_rules! settings {
         pub struct Settings {
             /// The theme, loaded, without margins if the options say so.
             pub theme: Theme,
-            /// The paper from `--light` or `--dark`, which also decides
-            /// whether the background counts as dark.
+            /// The paper, when the theme is `light` or `dark`, which also
+            /// decides whether the background counts as dark.
             pub paper: Option<Paper>,
             $(
                 $(#[$tdoc])*
@@ -276,7 +271,10 @@ macro_rules! settings {
                     } else {
                         theme.without_margins()
                     },
-                    paper: self.paper,
+                    paper: match self.theme.value {
+                        ThemeSource::Paper(paper) => Some(paper),
+                        _ => None,
+                    },
                     $($tfield: self.$tfield.value.clone(),)*
                     $($dfield: self.$dfield.value.clone(),)*
                     diagram_commands: self.diagram_commands.clone(),
@@ -291,7 +289,6 @@ macro_rules! settings {
             let w = &mut warnings;
             Choices {
                 theme: theme_source(options, env, config),
-                paper: options.paper.as_ref().map(|paper| paper.value),
                 $($tfield: resolve(
                     options.$tfield.clone(),
                     variable(env, $tenv),
@@ -418,8 +415,6 @@ settings! {
     special {
         theme, key Some("theme"), owner "typeset::theme", effect Layout, medium Both,
         scope General, flag Some("--theme"), env Env::is("KIRI_THEME");
-        paper, key None, owner "typeset::theme", effect Layout, medium Both,
-        scope General, flag Some("--light"), env Env::NONE;
         diagram_commands, key Some("diagrams.<language>.command"), owner "diagrams::external",
         effect Images, medium Pixels, scope General, flag None, env Env::NONE;
         diagram_no_search, key Some("diagrams.<language>.auto_detect"), owner "diagrams::find",

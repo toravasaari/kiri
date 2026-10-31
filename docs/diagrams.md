@@ -41,7 +41,7 @@ What draws a Mermaid diagram:
 A diagram that sets its own theme, in a `%%{init: {"theme": …}}%%`
 directive or under `config:` in its front matter, keeps it. Otherwise it
 takes Mermaid's `default` theme on a light page and `dark` on a dark one.
-The page is light with `--light`, dark with `--dark`, and otherwise as
+The page is light with `--light` (the light paper theme), dark with `--dark`, and otherwise as
 the terminal's background is; an unknown background counts as dark.
 
 A diagram's own colours are for a dark page in Mermaid's dark mode,

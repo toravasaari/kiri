@@ -44,7 +44,7 @@ use kiri::typeset::input::Input;
 use kiri::typeset::model::{Block, Document, FrontMatterError};
 use kiri::typeset::reading::engine::Reading;
 use kiri::typeset::reading::page::Wide;
-use kiri::typeset::theme::{Paper, Theme};
+use kiri::typeset::theme::Theme;
 
 /// Render a Markdown document, or show an image, in the terminal.
 #[derive(Parser)]
@@ -111,21 +111,23 @@ struct Cli {
     #[arg(long, value_parser = named_with_help(mode_help))]
     mode: Option<Mode>,
 
-    /// Theme file
+    /// Theme file, or a theme's name
     ///
-    /// It overrides --light, --dark, KIRI_THEME and the configuration file.
-    #[arg(long)]
+    /// A name, such as dark, is NAME.toml in the themes directory, or the
+    /// built-in light or dark paper. It overrides KIRI_THEME and the
+    /// configuration file.
+    #[arg(long, conflicts_with_all = ["light", "dark"])]
     theme: Option<PathBuf>,
 
-    /// A light page in greys, whatever the terminal's colours
+    /// A light page in greys, as --theme light
     ///
-    /// Code gets colours for a light background.
+    /// Whatever the terminal's colours. Code gets colours for a light background.
     #[arg(long, conflicts_with = "dark")]
     light: bool,
 
-    /// A dark page in greys, whatever the terminal's colours
+    /// A dark page in greys, as --theme dark
     ///
-    /// Code gets colours for a dark background.
+    /// Whatever the terminal's colours. Code gets colours for a dark background.
     #[arg(long)]
     dark: bool,
 
@@ -2102,9 +2104,9 @@ fn options(cli: &Cli) -> Options {
         max_image_size: flag(cli.max_image_size, "--max-image-size"),
         diagram_timeout: flag(cli.diagram_timeout, "--diagram-timeout"),
         diagram_background_panel: flag(cli.diagram_panel, "--diagram-panel"),
-        theme: flag(cli.theme.clone(), "--theme"),
-        paper: (flag(cli.light.then_some(Paper::Light), "--light"))
-            .or(flag(cli.dark.then_some(Paper::Dark), "--dark")),
+        theme: (flag(cli.theme.clone(), "--theme"))
+            .or(flag(cli.light.then(|| PathBuf::from("light")), "--light"))
+            .or(flag(cli.dark.then(|| PathBuf::from("dark")), "--dark")),
         margins: (flag(cli.margins.then_some(true), "--margins"))
             .or(flag(cli.no_margins.then_some(false), "--no-margins")),
         images: (flag(cli.images.then_some(true), "--images"))

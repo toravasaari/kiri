@@ -1,10 +1,13 @@
 # Theme
 
 kiri takes its colours and heading sizes from a theme: a file given with
-`--theme`, `KIRI_THEME` or the [configuration file](config.md), a built-in
-[paper theme](#paper-themes) chosen with `--light` or `--dark`, or else
-`~/.config/kiri/theme.toml` (or `$XDG_CONFIG_HOME/kiri/theme.toml`) when it
-exists. [Configuration](config.md#theme) gives the order. Every key is
+`--theme`, `KIRI_THEME` or the [configuration file](config.md), or a name
+for one: `--theme mine` is `~/.config/kiri/themes/mine.toml` (or under
+`$XDG_CONFIG_HOME`), and `--theme light` and `--theme dark`, also written
+`--light` and `--dark`, are the built-in [paper themes](#paper-themes). With
+none given, it is `~/.config/kiri/theme.toml` (or
+`$XDG_CONFIG_HOME/kiri/theme.toml`) when it exists.
+[Configuration](config.md#theme) gives the order. Every key is
 optional; the ones you leave out keep the defaults below. If the file has
 a mistake, kiri stops and tells which key is wrong, for example
 `unknown colour "pink" for h2.background`.
@@ -261,7 +264,7 @@ background = "none"
 
 ## Paper themes
 
-`--light` and `--dark` choose a built-in theme that draws the document on a
+`--light` and `--dark`, or `--theme light` and `--theme dark`, choose a built-in theme that draws the document on a
 page of fixed colours, as a browser does, whatever your terminal's colour
 scheme. The page is in greys only: headings, links, quotes, rules, tables,
 inline code, marked text and the headers of several files differ in shade,

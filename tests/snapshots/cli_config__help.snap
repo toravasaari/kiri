@@ -54,19 +54,20 @@ Options:
           - kitty: All kitty features, without asking the terminal
 
       --theme <THEME>
-          Theme file
+          Theme file, or a theme's name
           
-          It overrides --light, --dark, KIRI_THEME and the configuration file.
+          A name, such as dark, is NAME.toml in the themes directory, or the built-in light or dark
+          paper. It overrides KIRI_THEME and the configuration file.
 
       --light
-          A light page in greys, whatever the terminal's colours
+          A light page in greys, as --theme light
           
-          Code gets colours for a light background.
+          Whatever the terminal's colours. Code gets colours for a light background.
 
       --dark
-          A dark page in greys, whatever the terminal's colours
+          A dark page in greys, as --theme dark
           
-          Code gets colours for a dark background.
+          Whatever the terminal's colours. Code gets colours for a dark background.
 
   -M, --no-margins
           No margins, indents or padding, for copying text

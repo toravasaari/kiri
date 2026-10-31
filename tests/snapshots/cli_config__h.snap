@@ -17,9 +17,9 @@ Options:
       --width <WIDTH>           Width in cells; defaults to the terminal width
       --mode <MODE>             Which terminal features to use [default: auto] [possible values:
                                 auto, plain, ansi, kitty]
-      --theme <THEME>           Theme file
-      --light                   A light page in greys, whatever the terminal's colours
-      --dark                    A dark page in greys, whatever the terminal's colours
+      --theme <THEME>           Theme file, or a theme's name
+      --light                   A light page in greys, as --theme light
+      --dark                    A dark page in greys, as --theme dark
   -M, --no-margins              No margins, indents or padding, for copying text
       --margins                 Keep the margins, whatever KIRI_MARGINS and the configuration say
   -I, --no-images               Show images as their alt text and diagrams as code

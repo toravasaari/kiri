@@ -332,20 +332,23 @@ fn flag<T>(value: T, name: &'static str) -> Option<Setting<T>> {
     Some(Setting::new(value, Origin::Flag(name)))
 }
 
-/// The theme from `--theme` with `cli`, the paper flag for `paper`,
-/// `env` and `config`.
+/// The theme from `--theme` with `cli` or else the flag for `paper`, `env`
+/// and `config`.
 fn theme_source(
     cli: Option<&Path>,
     paper: Option<Paper>,
     env: &Environment,
     config: &Config,
 ) -> Setting<ThemeSource> {
+    // `--light` and `--dark` are `--theme light` and `--theme dark`, and
+    // clap does not take them with `--theme`.
+    let theme = match paper {
+        Some(Paper::Light) => flag(PathBuf::from("light"), "--light"),
+        Some(Paper::Dark) => flag(PathBuf::from("dark"), "--dark"),
+        None => cli.and_then(|path| flag(path.to_owned(), "--theme")),
+    };
     let options = Options {
-        theme: cli.and_then(|path| flag(path.to_owned(), "--theme")),
-        paper: paper.and_then(|paper| match paper {
-            Paper::Light => flag(paper, "--light"),
-            Paper::Dark => flag(paper, "--dark"),
-        }),
+        theme,
         ..Options::default()
     };
     super::theme_source(&options, env, config)
@@ -413,19 +416,9 @@ fn an_empty_kiri_theme_is_unset() {
 }
 
 #[test]
-fn a_paper_theme_comes_after_the_command_line_theme() {
+fn a_paper_flag_chooses_the_paper_theme() {
     let env = env(Some("/home/u"), None);
     let config = Config::default();
-    assert_eq!(
-        theme_source(
-            Some(Path::new("cli.toml")),
-            Some(Paper::Light),
-            &env,
-            &config
-        )
-        .value,
-        ThemeSource::File(PathBuf::from("cli.toml"))
-    );
     assert_eq!(
         theme_source(None, Some(Paper::Dark), &env, &config).value,
         ThemeSource::Paper(Paper::Dark)
@@ -1468,7 +1461,7 @@ fn settings_take_the_built_in_theme_without_a_theme_file() {
 #[test]
 fn settings_keep_the_paper_and_its_theme() {
     let options = Options {
-        paper: flag(Paper::Dark, "--dark"),
+        theme: flag(PathBuf::from("dark"), "--dark"),
         ..no_options()
     };
     let settings = settings(&options, &env(None, None), &Config::default())
@@ -1482,7 +1475,7 @@ fn settings_keep_the_paper_and_its_theme() {
 fn no_margins_applies_to_whichever_theme_is_chosen() {
     for paper in [None, Some(Paper::Light)] {
         let options = Options {
-            paper: paper.and_then(|paper| flag(paper, "--light")),
+            theme: paper.and_then(|_| flag(PathBuf::from("light"), "--light")),
             margins: flag(false, "--no-margins"),
             ..no_options()
         };
@@ -1532,7 +1525,7 @@ fn the_theme_tells_where_it_comes_from() {
         Origin::Flag("--dark")
     );
     assert_eq!(
-        origin(Some("cli.toml"), Some(Paper::Dark), &env, &config),
+        origin(Some("cli.toml"), None, &env, &config),
         Origin::Flag("--theme")
     );
     assert_eq!(
@@ -1617,13 +1610,12 @@ fn only_the_built_in_theme_is_marked_built_in() {
 }
 
 /// The general settings, which matter without the pager too, are on every
-/// level: a flag, an environment variable and a key in the file. A theme
-/// from a paper (`--light`, `--dark`) and the per-language diagram tables
-/// are not one value a flag or a variable can take, so they are left as
-/// they are.
+/// level: a flag, an environment variable and a key in the file. The
+/// per-language diagram tables are not one value a flag or a variable can
+/// take, so they are left as they are.
 #[test]
 fn a_general_setting_has_a_flag_a_variable_and_a_key() {
-    let exempt = ["paper", "diagram_commands", "diagram_no_search"];
+    let exempt = ["diagram_commands", "diagram_no_search"];
     let mut missing = Vec::new();
     for entry in SETTINGS
         .iter()
@@ -1649,13 +1641,10 @@ fn a_general_setting_has_a_flag_a_variable_and_a_key() {
 #[test]
 fn a_flag_and_a_variable_are_named_after_their_setting() {
     // The older names stay: `--no-images` and `KIRI_NO_IMAGES` say the
-    // opposite of their setting, and `--light` and `--dark` are its values.
+    // opposite of their setting.
     // `--diagram-panel` is shorter than its setting, so that `-h` keeps
     // its two columns.
-    let short = [
-        ("paper", "--light"),
-        ("diagram_background_panel", "--diagram-panel"),
-    ];
+    let short = [("diagram_background_panel", "--diagram-panel")];
     for entry in SETTINGS {
         let flag = format!("--{}", entry.field.replace('_', "-"));
         let flag = short
@@ -1863,4 +1852,100 @@ fn the_docs_name_every_variable_flag_and_key_of_the_settings() {
         }
     }
     assert!(missing.is_empty(), "{missing:#?}");
+}
+
+/// A home directory with the themes `names` in its themes directory, for
+/// `theme_source` to look in.
+fn home_with_themes(label: &str, names: &[&str]) -> (crate::testing::Scratch, Environment) {
+    let scratch = crate::testing::Scratch::new(label);
+    let themes = scratch.join(".config/kiri/themes");
+    std::fs::create_dir_all(&themes).unwrap();
+    for name in names {
+        std::fs::write(themes.join(format!("{name}.toml")), "").unwrap();
+    }
+    let env = env(Some(scratch.to_str().unwrap()), None);
+    (scratch, env)
+}
+
+#[test]
+fn a_theme_name_is_a_file_in_the_themes_directory() {
+    let (scratch, env) = home_with_themes("theme-name", &["mine"]);
+    let path = scratch.join(".config/kiri/themes/mine.toml");
+    let named = ThemeSource::Named {
+        name: "mine".to_owned(),
+        path,
+    };
+    let flag = |name: &str| {
+        let options = Options {
+            theme: flag(PathBuf::from(name), "--theme"),
+            ..Options::default()
+        };
+        super::theme_source(&options, &env, &Config::default())
+    };
+    assert_eq!(
+        flag("mine"),
+        Setting::new(named.clone(), Origin::Flag("--theme"))
+    );
+    // A separator or a .toml ending makes it a path, as before.
+    let path = ThemeSource::File(PathBuf::from("./mine"));
+    assert_eq!(flag("./mine").value, path);
+    let path = ThemeSource::File(PathBuf::from("mine.toml"));
+    assert_eq!(flag("mine.toml").value, path);
+    // The variable and the file take names too.
+    let mut with_variable = env.clone();
+    with_variable.variables.insert("KIRI_THEME", "mine".into());
+    let source = theme_source(None, None, &with_variable, &Config::default());
+    assert_eq!(
+        source,
+        Setting::new(named.clone(), Origin::Environment("KIRI_THEME"))
+    );
+    let source = theme_source(None, None, &env, &with_theme("mine"));
+    assert_eq!(source, Setting::new(named, Origin::File));
+}
+
+#[test]
+fn light_and_dark_are_the_paper_themes_unless_a_file_has_the_name() {
+    let (scratch, env) = home_with_themes("theme-paper-names", &[]);
+    let name =
+        |name: &str| theme_source(Some(Path::new(name)), None, &env, &Config::default()).value;
+    assert_eq!(name("light"), ThemeSource::Paper(Paper::Light));
+    assert_eq!(name("dark"), ThemeSource::Paper(Paper::Dark));
+    let path = scratch.join(".config/kiri/themes/dark.toml");
+    std::fs::write(&path, "").unwrap();
+    assert_eq!(
+        name("dark"),
+        ThemeSource::Named {
+            name: "dark".to_owned(),
+            path
+        }
+    );
+    assert_eq!(name("light"), ThemeSource::Paper(Paper::Light));
+}
+
+#[test]
+fn an_unknown_theme_name_is_an_error_listing_the_names() {
+    let (_scratch, env) = home_with_themes("theme-unknown", &["mine", "yours"]);
+    let source = theme_source(Some(Path::new("minee")), None, &env, &Config::default()).value;
+    let ThemeSource::Unknown { name, message } = &source else {
+        panic!("{source:?}");
+    };
+    assert_eq!(name, "minee");
+    assert_eq!(
+        message,
+        "theme `minee` is not one of the themes: dark, light, mine, yours"
+    );
+    assert_eq!(load_theme(&source), Err(message.clone()));
+}
+
+#[test]
+fn a_theme_name_in_the_file_is_not_made_relative_to_the_file() {
+    let parsed = |text| parse(text, Path::new("/c"), &Environment::default()).unwrap();
+    assert_eq!(
+        parsed("theme = \"dark\"\n").theme,
+        Some(PathBuf::from("dark"))
+    );
+    assert_eq!(
+        parsed("theme = \"t.toml\"\n").theme,
+        Some(PathBuf::from("/c/t.toml"))
+    );
 }

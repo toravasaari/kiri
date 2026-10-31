@@ -132,7 +132,7 @@ fn flags_tell_where_they_come_from() {
         (&["-M"][..], "| Margins | off | `--no-margins` |"),
         (&["--light"][..], "| Theme | light paper | `--light` |"),
         (&["--dark"][..], "| Theme | dark paper | `--dark` |"),
-        (&["--dark", "--theme", theme][..], "| `--theme` |"),
+        (&["--theme", theme][..], "| `--theme` |"),
         (&["-P"][..], "| Paging | never | `-P` |"),
         (&["--mode", "plain"][..], "| Mode | plain | `--mode` |"),
         (&["--mode=auto"][..], "| Mode | auto | `--mode` |"),

@@ -10,7 +10,7 @@ use serde::de::{self, Deserializer, MapAccess};
 
 use super::environment::{Environment, directory, home_directory};
 use super::registry::{Config, DIAGRAMS_KEYS, DiagramsFile};
-use super::types::Origin;
+use super::types::{Origin, is_name};
 
 /// Where the configuration file is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +63,8 @@ pub fn load(env: &Environment) -> Result<Config, String> {
 pub(super) fn parse(text: &str, dir: &Path, env: &Environment) -> Result<Config, String> {
     let mut config: Config = toml::from_str(text).map_err(|error| error.to_string())?;
     config.theme = match config.theme {
+        // A name is not a place in the file's directory.
+        Some(theme) if is_name(&theme) => Some(theme),
         Some(theme) => Some(match theme.strip_prefix("~") {
             Ok(rest) if !rest.as_os_str().is_empty() => match home_directory(env) {
                 Some(home) => home.join(rest),

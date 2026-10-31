@@ -30,8 +30,9 @@ mode = "auto"
 # Width in cells, instead of the terminal's; see Width below.
 width = 100
 
-# A theme file. A relative path is relative to the directory of this
-# file, and a leading ~/ is your home directory.
+# A theme file, or a theme's name: "dark", or "mine" for mine.toml in
+# the themes directory; see Theme below. A relative path is relative to
+# the directory of this file, and a leading ~/ is your home directory.
 theme = "themes/mine.toml"
 
 # false leaves out the margins, indents and padding, for copying text.
@@ -156,18 +157,36 @@ their alt text:
 
 The first of these that is given chooses the [theme](theme.md):
 
-1. `--theme FILE`
-2. `--light` or `--dark`, the [paper themes](theme.md#paper-themes)
-3. `KIRI_THEME`, when it is not empty
-4. `theme` in the configuration file
-5. `theme.toml` in the configuration directory
+1. `--theme FILE-OR-NAME`; `--light` and `--dark` are short for `--theme
+   light` and `--theme dark`, the [paper themes](theme.md#paper-themes)
+2. `KIRI_THEME`, when it is not empty
+3. `theme` in the configuration file
+4. `theme.toml` in the configuration directory
    (`$XDG_CONFIG_HOME/kiri/theme.toml` or `~/.config/kiri/theme.toml`),
    when it exists
-6. the built-in theme
+5. the built-in theme
+
+`--theme`, `KIRI_THEME` and `theme` take a path or a name. A value with no
+path separator and no `.toml` ending is a name: `mine` is `mine.toml` in
+the themes directory (`$XDG_CONFIG_HOME/kiri/themes/` or
+`~/.config/kiri/themes/`), and `light` and `dark` are the built-in paper
+themes when no such file is there. Anything else is a path, as
+`~/themes/mine.toml` or `./mine`. An unknown name is an error that lists
+the names kiri knows:
+
+```sh
+kiri --theme mine doc.md        # ~/.config/kiri/themes/mine.toml
+KIRI_THEME=dark kiri doc.md     # the dark paper theme
+kiri --theme mien doc.md
+# kiri: theme `mien` is not one of the themes: dark, light, mine
+```
+
+A name in the configuration file is not relative to the file; a path is,
+as before: `theme = "dark"` against `theme = "themes/mine.toml"`.
 
 A file named by `--theme`, `KIRI_THEME` or the configuration file must
-exist. `--light` and `--dark` cannot be given together. Even when another
-theme wins, they choose the code colours for a light or a dark background
+exist. `--light`, `--dark` and `--theme` cannot be given together. The
+paper themes choose the code colours for a light or a dark background
 instead of the terminal's background.
 
 ## Images
@@ -177,11 +196,14 @@ instead:
 
 1. `--images` turns them on, `-I` or `--no-images` off; the two cannot be
    given together
-2. `KIRI_NO_IMAGES`: `1` (or `on`) turns images off, and `0` (or `off`)
-   turns them on whatever the configuration file says; an empty value
-   counts as unset, and any other value, such as `yes`, is left out with a
-   warning: `KIRI_NO_IMAGES=yes kiri doc.md` says
-   ``KIRI_NO_IMAGES: `yes` is not on, off, 1 or 0; left out``
+2. `KIRI_NO_IMAGES`, a switch like `KIRI_MOUSE`, but for the thing turned
+   off: `1` (or `on`) turns images off, and `0` (or `off`) turns them on
+   whatever the configuration file says; an empty value counts as unset,
+   and any other value, such as `yes`, is left out with a warning:
+   `KIRI_NO_IMAGES=yes kiri doc.md` says
+   ``KIRI_NO_IMAGES: `yes` is not on, off, 1 or 0; left out``. Before this,
+   every value but `0` turned images off, so `off` meant images off; now
+   it means images on
 3. `images` in the configuration file
 
 With images off, kiri reads no image files and shows every image as its
@@ -500,9 +522,9 @@ and a variable, the flag first:
 | `timeout` | `--diagram-timeout SECS` | `KIRI_DIAGRAM_TIMEOUT` | `KIRI_DIAGRAM_TIMEOUT=60 kiri doc.md` |
 | `background_panel` | `--diagram-panel on\|off` | `KIRI_DIAGRAM_BACKGROUND_PANEL` | `kiri --diagram-panel off doc.md` |
 
-The variables take what the flags take (for the panel `on` or `off`, `1`
-or `0`), an empty value counts as unset, and any other value is left out
-with a warning. `diagrams.mermaid.command` and `auto_detect` are tables
+The flags take the names, `on` or `off` for the panel; the variables
+also take `1` and `0`. An empty variable counts as unset, and any other
+value is left out with a warning. `diagrams.mermaid.command` and `auto_detect` are tables
 per language and stay in the file.
 
 ## Render errors
