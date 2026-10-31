@@ -663,6 +663,9 @@ scale, built once for all of these:
   configuration file replaces today's `--theme FILE`. The file changes
   only the keys it gives on top of the named theme, so `theme = "nord"`
   and a small file of your own work together.
+- A way to force the light or dark side of kiri's own theme, as
+  `--light` and `--dark` did before they became names of themes, such
+  as `--dark --theme -`, where `-` names the built-in theme.
 
 ### 4.12 More images
 
@@ -1452,9 +1455,6 @@ go.
   layer for search, as PDF (4.12.2) shows pages as images; Kindle
   formats through Calibre's `ebook-convert`. Some EPUB 3 books, such as
   children's books, carry sound.
-- A way to force the light or dark side of kiri's own theme, as
-  `--light` and `--dark` did before they became names of themes, such
-  as `--dark --theme -`, where `-` names the built-in theme.
 
 ## Bugs
 
