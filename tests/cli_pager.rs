@@ -2476,3 +2476,190 @@ fn m_loads_no_images_when_images_are_off() {
     // pictures never load.
     assert_eq!(sent_ids(&seen).len(), 1, "{seen:?}");
 }
+
+/// kiri with `args` in a terminal of 12 rows, quitting once the images
+/// have come, in a scratch directory with `missing.md`, which shows an
+/// image that is not there, and `plain.md`. Returns what it wrote on
+/// standard error.
+fn told_for_missing(name: &str, args: &[&str]) -> String {
+    let prepare = |dir: &std::path::Path| {
+        std::fs::write(dir.join("missing.md"), "![gone](missing.png)\n").unwrap();
+        std::fs::write(dir.join("plain.md"), "Plain\n").unwrap();
+    };
+    let (_, stderr) = quit_when(name, prepare, args, None, &[], loaded);
+    stderr
+}
+
+#[test]
+fn a_warning_of_images_that_came_in_the_background_names_its_file_only_among_several() {
+    let alone = [&BACKGROUND[..], &["missing.md"]].concat();
+    let stderr = told_for_missing("pager-late-alone", &alone);
+    assert!(stderr.starts_with("kiri: missing.png: "), "{stderr}");
+    assert_eq!(stderr.lines().count(), 1, "{stderr}");
+    let several = [&BACKGROUND[..], &["plain.md", "missing.md"]].concat();
+    let stderr = told_for_missing("pager-late-several", &several);
+    assert!(
+        stderr.starts_with("kiri: missing.md: missing.png: "),
+        "{stderr}"
+    );
+    assert_eq!(stderr.lines().count(), 1, "{stderr}");
+}
+
+#[test]
+fn a_warning_of_images_waited_for_names_its_file_only_among_several() {
+    let prepare = |dir: &std::path::Path| {
+        std::fs::write(dir.join("missing.md"), "![gone](missing.png)\n").unwrap();
+        std::fs::write(dir.join("plain.md"), "Plain\n").unwrap();
+    };
+    let stderr = told_waiting("pager-wait-alone", prepare, &["missing.md"]);
+    assert!(stderr.starts_with("kiri: missing.png: "), "{stderr}");
+    let stderr = told_waiting("pager-wait-several", prepare, &["plain.md", "missing.md"]);
+    assert!(
+        stderr.starts_with("kiri: missing.md: missing.png: "),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn the_settings_warnings_are_told_before_the_pager_opens_for_an_image_alone() {
+    let prepare = |dir: &std::path::Path| {
+        std::fs::copy(fixtures().join("images/icon.png"), dir.join("a.png")).unwrap();
+    };
+    let setup = Setup {
+        env: &[("KIRI_TABLE_ROWS", "stripes")],
+        ..Setup::default()
+    };
+    let mut typed = false;
+    let act = |frames: usize, terminal: &mut std::fs::File, _: &std::process::Child| {
+        if frames >= 1 && !typed {
+            terminal.write_all(b"q").unwrap();
+            typed = true;
+        }
+    };
+    let args = ["--mode", "kitty", "-p", "a.png"];
+    let (status, seen, stderr) =
+        in_terminal_run("pager-image-warning", prepare, &args, 5, None, setup, act);
+    assert!(status.success(), "{seen:?}");
+    assert!(seen.starts_with(ENTER), "{seen:?}");
+    assert_eq!(
+        stderr,
+        "kiri: KIRI_TABLE_ROWS: `stripes` is not off, zebra, lines, indent or underline; \
+         left out\n"
+    );
+}
+
+/// A diagram file of `lines` lines, which a window of 5 rows cannot show
+/// whole, and a second one, `second.mmd`.
+fn long_diagrams(dir: &std::path::Path) {
+    let source: String = (1..=10).map(|n| format!("    A{n} --> B{n}\n")).collect();
+    std::fs::write(dir.join("diagram.mmd"), format!("flowchart TD\n{source}")).unwrap();
+    std::fs::write(dir.join("second.mmd"), format!("flowchart TD\n{source}")).unwrap();
+}
+
+#[test]
+fn a_diagram_file_alone_that_is_not_drawn_is_paged_when_it_is_long_unlike_several() {
+    let quit = |frames: usize, terminal: &mut std::fs::File, _: &std::process::Child| {
+        if frames == 1 {
+            terminal.write_all(b"q").unwrap();
+        }
+    };
+    let args = ["--diagrams", "off", "diagram.mmd"];
+    let (status, seen) =
+        in_terminal_after("pager-diagram-long", long_diagrams, &args, 5, None, quit);
+    assert!(status.success(), "{seen:?}");
+    assert!(seen.starts_with(ENTER), "{seen:?}");
+    assert!(seen.contains("A1 --> B1"), "{seen:?}");
+    // Several of them are each shown on their own: paged only with `always`.
+    let args = ["--diagrams", "off", "diagram.mmd", "second.mmd"];
+    let (status, seen) =
+        in_terminal_after("pager-diagrams-long", long_diagrams, &args, 5, None, quit);
+    assert!(status.success(), "{seen:?}");
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert_eq!(seen.matches("A1 --> B1").count(), 2, "{seen:?}");
+}
+
+/// Types `q` once the first frame is drawn.
+fn quit_at_first(typed: &mut bool) -> impl FnMut(usize, &mut std::fs::File, &std::process::Child) {
+    move |frames, terminal, _| {
+        if frames >= 1 && !*typed {
+            terminal.write_all(b"q").unwrap();
+            *typed = true;
+        }
+    }
+}
+
+#[test]
+fn a_front_matter_warning_is_in_the_pager_for_a_file_alone_but_not_among_several() {
+    let invalid = std::fs::read_to_string(fixtures().join("front-matter-invalid.md")).unwrap();
+    let prepare = |dir: &std::path::Path| std::fs::write(dir.join("invalid.md"), &invalid).unwrap();
+    let (mut alone, mut several) = (false, false);
+    let args = ["-p", "invalid.md"];
+    let (_, seen, stderr) = in_terminal_told(
+        "pager-warning-alone",
+        prepare,
+        &args,
+        8,
+        None,
+        quit_at_first(&mut alone),
+    );
+    assert!(
+        stderr.starts_with("kiri: front matter, line 4:"),
+        "{stderr:?}"
+    );
+    assert!(
+        text_of(&seen).contains("\u{26a0} [:4] front matter"),
+        "{seen:?}"
+    );
+    let args = ["-p", "invalid.md", "document.md"];
+    let (_, seen, stderr) = in_terminal_told(
+        "pager-warning-several",
+        prepare,
+        &args,
+        8,
+        None,
+        quit_at_first(&mut several),
+    );
+    assert!(
+        stderr.starts_with("kiri: invalid.md: front matter, line 4:"),
+        "{stderr:?}"
+    );
+    assert!(!seen.contains('\u{26a0}'), "{seen:?}");
+}
+
+#[test]
+fn the_pager_tells_that_reading_mode_is_not_shown_for_a_file_alone_and_for_several() {
+    let reading =
+        "kiri: reading mode needs a terminal that draws images; showing the document as text\n";
+    let all: [&[&str]; 2] = [&["long.md"], &["long.md", "document.md"]];
+    for (files, name) in all
+        .into_iter()
+        .zip(["pager-reading-alone", "pager-reading-several"])
+    {
+        let args = [&["--reading", "-p"][..], files].concat();
+        let mut typed = false;
+        let (status, seen, stderr) =
+            in_terminal_told(name, |_| {}, &args, 8, None, quit_at_first(&mut typed));
+        assert!(status.success(), "{seen:?}");
+        assert_eq!(stderr, reading, "{files:?}");
+        let first: Vec<_> = seen.split("\x1b[?2026h").skip(1).map(text_of).collect();
+        assert!(first[0].contains("\u{26a0} reading mode"), "{seen:?}");
+    }
+}
+
+#[test]
+fn following_pages_neither_an_image_alone_nor_a_diagram_alone() {
+    let prepare = |dir: &std::path::Path| {
+        drawn_diagram(dir);
+        std::fs::copy(fixtures().join("images/icon.png"), dir.join("a.png")).unwrap();
+    };
+    for (name, file) in [
+        ("pager-follow-image", "a.png"),
+        ("pager-follow-diagram", "diagram.mmd"),
+    ] {
+        let args = ["--mode", "kitty", "-f", file];
+        let (status, seen) = in_terminal_after(name, prepare, &args, 5, None, |_, _, _| {});
+        assert!(status.success(), "{seen:?}");
+        assert!(!seen.contains(ENTER), "{file}: {seen:?}");
+        assert_eq!(seen.matches("\x1b_Ga=T,").count(), 1, "{file}: {seen:?}");
+    }
+}
