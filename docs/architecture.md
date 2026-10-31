@@ -574,7 +574,7 @@ The later work that the rows name, in words:
   owner.
 - **The font database:** one font database, loaded by the platform and
   handed to the engines.
-- **The startup plan:** the decisions of `main.rs` move into
+- **The startup plan:** the decisions of `main.rs` are in
   `session/plan.rs`, with what they ask of the terminal and the files
   passed in as values.
 - **One route:** the routes for one file and for several become one.
@@ -593,7 +593,7 @@ The later work that the rows name, in words:
 | Module | Part | After the move |
 |---|---|---|
 | `src/lib.rs` | platform | stays; declares the three parts |
-| `src/main.rs` | mixed | stays. Platform: the command line, opening files and standard input, the shells, loading, the file reload. State engine: the decisions `printing`, `pages_alone`, `surely_paged` and `may_load_later`, in the startup plan. Only `printing` is free of I/O: `pages_alone` and `may_load_later` ask whether stdout is a terminal, and `surely_paged` measures images and reads the window size. The plan takes the answers in as values read by `main.rs`. One route makes the one-file and many-files routes one |
+| `src/main.rs` | mixed | stays. Platform: the command line, opening files and standard input, the shells, loading, the file reload. State engine: the startup decisions, such as whether a run pages, are in `src/session/plan.rs`; `main.rs` reads the terminal and the files and passes the answers in. One route still to make: the one-file and many-files routes are two |
 | `src/config.rs` | mixed | stays. Platform: `Environment`, which reads the process's variables, the file, and resolving a setting from the flags, the environment, the file and its default. State engine: the setting types the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump`). `Passthrough` stays a setting type with the others, though it is read by capability detection, the command line and `--doctor`; capability detection takes its value, and the variables it reads (`TMUX`, `TMUX_PANE`, `NO_COLOR`, `COLORTERM`, `TERM_PROGRAM` and `VTE_VERSION`), as arguments, not `Environment`. The config split |
 | `src/config/tests.rs` | follows `config.rs` | stays; goes with its pieces in the config split |
 | `src/doctor.rs` | platform | stays (it searches `PATH` through `diagrams::find`) |
@@ -671,7 +671,7 @@ The later work that the rows name, in words:
 | `src/pager/tests/images.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/links.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/loading.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
-| `src/pager/tests/paging.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
+| `src/pager/tests/paging.rs` | state engine | moved to `src/session/plan.rs`, its tests with it |
 | `src/pager/tests/reading.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/reload.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/search.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
@@ -767,8 +767,6 @@ is the record of them.
 | Crossing inside a mixed module, not seen by the test | Removed by |
 |---|---|
 | `Ink::new` in `render/loading.rs` (typesetting's `Ink`) takes the terminal layer's `output::Page` | the terminal layer split, which moves `Ink::new` to the terminal layer |
-| `pages_alone` and `may_load_later` in `main.rs` (state engine) call `term::stdout_is_terminal` (platform) | the startup plan, which takes the answer as a value |
-| `surely_paged` in `main.rs` (state engine) calls `images::measure_in_background` and `term::window_size` (platform) | the startup plan, which takes the measured layout (or the window rows) and the window size as values |
 | `detect` in `term/detect.rs` (terminal layer) calls `tmux::run_id` (platform) | the terminal layer split, which passes the run id in |
 | `term/detect.rs` and `term/tmux.rs` (terminal layer) take `config::Environment` (platform) and `config::Passthrough` (a setting type) | the terminal layer split, which passes the variables and the `Passthrough` value as arguments |
 | `typeset/reading/fonts.rs` (typesetting) loads and memory-maps system fonts | the font database |
@@ -786,7 +784,7 @@ file (`main.rs`, `pager/mod.rs`, `config.rs`, `render/mod.rs`,
 | A new… | Goes in |
 |---|---|
 | command-line option | `src/cli.rs`, new, made by one route; until then `Cli` in `src/main.rs` |
-| startup decision, such as whether a run pages | `src/session/plan.rs`, new, made by the startup plan; take what it needs from the terminal as values |
+| startup decision, such as whether a run pages | `src/session/plan.rs`, made by the startup plan; take what it needs from the terminal as values |
 | key or action | `src/session/commands.rs`, new, made by commands as data; until then `BINDINGS` in `src/pager/keys.rs` |
 | setting | no path yet, the config split makes the registry of setting keys, each with its owner, its effect and its medium; until then `src/config.rs`, named after its owner |
 | use of a file, the network or a program | no path yet, loading and sessions makes the platform's work runner, and the trust policy a `Policy`; until then `src/images/background.rs`, `src/images/pipeline.rs` or `src/diagrams/external.rs` |
@@ -810,9 +808,9 @@ its clap definitions it opens files and standard input; has two routes, one
 for a single file and one for several; prints documents; starts the pager;
 loads images and diagrams, in the foreground, on threads and in the
 background; reloads files for the pager (`FileReload`); and runs
-`--doctor` and `--list-emojis`. Some of it is decisions that need no I/O,
-and the table says where they go. It does not belong to any one part, and
-is meant to shrink to wiring the others together.
+`--doctor` and `--list-emojis`. The decisions it makes at start need no I/O,
+and they are in `src/session/plan.rs`. It does not belong to any one part,
+and is meant to shrink to wiring the others together.
 
 ## Builds
 

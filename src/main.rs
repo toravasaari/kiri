@@ -36,6 +36,7 @@ use kiri::pager::{Change, Look, Reload, Reloaded, Warning};
 use kiri::present::encoder::Encoder;
 use kiri::present::output::Page;
 use kiri::render::{Headings, Inputs, RenderErrors, TableRows};
+use kiri::session::plan::{self, Load, Route};
 use kiri::term::{Interrupt, Mode};
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::input::Input;
@@ -344,26 +345,24 @@ fn main() -> ExitCode {
     } else if cli.list_emojis {
         list_emojis(&cli)
     } else {
-        let stdin = Path::new("-");
-        match cli.files.as_slice() {
-            [path] if path != stdin => run(&cli, Some(path)),
-            [_] => run(&cli, None),
-            [] if !kiri::term::stdin_is_terminal() => run(&cli, None),
+        match plan::route(&cli.files, kiri::term::stdin_is_terminal()) {
+            Route::One => run(&cli, cli.files.first().map(PathBuf::as_path)),
+            Route::Stdin => run(&cli, None),
             // clap cannot require the file only when stdin is a terminal,
             // so this is its own error for a missing argument.
-            [] => command
+            Route::Missing => command
                 .error(
                     ErrorKind::MissingRequiredArgument,
                     "the following required arguments were not provided:\n  <FILE>...",
                 )
                 .exit(),
-            paths if paths.iter().filter(|path| *path == stdin).count() > 1 => command
+            Route::RepeatedStdin => command
                 .error(
                     ErrorKind::ArgumentConflict,
                     "- (standard input) can be given only once",
                 )
                 .exit(),
-            paths => run_files(&cli, paths),
+            Route::Several => run_files(&cli, &cli.files),
         }
     };
     match result {
@@ -425,7 +424,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
             let settings = settings.unwrap_or_else(|_| without_config(cli, &env));
             let passthrough = settings.passthrough;
             let caps = kiri::term::capabilities(context.mode, context.width, &env, passthrough);
-            if pages_alone(&settings, &caps) {
+            if plan::pages_alone(settings.paging, kiri::term::stdout_is_terminal(), &caps) {
                 for warning in &warnings {
                     eprintln!("kiri: {warning}");
                 }
@@ -436,7 +435,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
                     input,
                     content: Content::Image { format, head, rest },
                 };
-                let caps = on_page(caps, &settings);
+                let caps = plan::on_page(caps, settings.paper);
                 let failed = Cell::new(false);
                 return show_files(
                     &context,
@@ -459,11 +458,12 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     }
     let mut settings = settings?;
     if file.is_none() {
-        settings.paging = kiri::pager::only_always(settings.paging);
+        settings.paging = plan::for_standard_input(settings.paging);
     }
     let passthrough = settings.passthrough;
     let caps = kiri::term::capabilities(context.mode, context.width, &env, passthrough);
-    if matches!(input, Input::Diagram(_)) && pages_alone(&settings, &caps) {
+    let terminal = kiri::term::stdout_is_terminal();
+    if matches!(input, Input::Diagram(_)) && plan::pages_alone(settings.paging, terminal, &caps) {
         let opened = Opened {
             path,
             file,
@@ -471,7 +471,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
             input,
             content: Content::Text(source),
         };
-        let caps = on_page(caps, &settings);
+        let caps = plan::on_page(caps, settings.paper);
         let failed = Cell::new(false);
         return show_files(&context, vec![Ok(opened)], settings, true, caps, &failed);
     }
@@ -490,7 +490,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     let Some(document) = document(input, &source, path, &settings, &caps, warn)? else {
         return Ok(write_as_is(&source)?);
     };
-    if let Some(warning) = context.reading_warning(&caps) {
+    if let Some(warning) = plan::reading_warning(context.reading, &caps) {
         eprintln!("kiri: {warning}");
         warnings.push(Warning {
             line: None,
@@ -500,11 +500,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     // Only a document read from a regular file can be read again: a pipe
     // given by its path, such as <(cmd), is read to its end already.
     let from = (file.filter(|path| path.is_file())).map(|path| FromFile { path, input, look });
-    // Following pages the file however short it is, as -p does, unless
-    // paging is never.
-    if from.is_some() && settings.follow != Follow::Off && settings.paging == Paging::Auto {
-        settings.paging = Paging::Always;
-    }
+    settings.paging = plan::for_follow(settings.paging, settings.follow, from.is_some());
     show_document(
         &context,
         &document,
@@ -706,11 +702,11 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
     };
     let documents = settings.is_some();
     let mut settings = settings.unwrap_or_else(|| without_config(cli, &env));
-    settings.paging = kiri::pager::for_files(settings.paging, alone);
+    settings.paging = plan::for_files(settings.paging, alone);
     let passthrough = settings.passthrough;
-    let caps = on_page(
+    let caps = plan::on_page(
         kiri::term::capabilities(context.mode, context.width, &env, passthrough),
-        &settings,
+        settings.paper,
     );
     show_files(&context, opened, settings, documents, caps, &failed)
 }
@@ -720,23 +716,6 @@ fn run_files(cli: &Cli, paths: &[PathBuf]) -> Result<(), Failure> {
 fn without_config(cli: &Cli, env: &Environment) -> Settings {
     let choices = kiri::config::choose(&options(cli), env, &Default::default());
     choices.with_theme(Theme::default())
-}
-
-/// Sets `inputs` up for printing: reading mode's wide code and tables
-/// wrap, as nothing can scroll them.
-fn printing(inputs: &mut Inputs) {
-    if let Some(reading) = &mut inputs.reading {
-        reading.wide = Wide::Wrap;
-    }
-}
-
-/// Whether a file shown on its own as an image is, an image file or a
-/// diagram file, goes to the pager for `settings` on a terminal with
-/// `caps`: only when paging is `always`, as for several such files.
-fn pages_alone(settings: &Settings, caps: &Capabilities) -> bool {
-    kiri::pager::for_files(settings.paging, true) == Paging::Always
-        && kiri::term::stdout_is_terminal()
-        && caps.styling
 }
 
 /// Shows the files `opened`, or why each could not be opened, as
@@ -816,7 +795,7 @@ fn show_files(
         }
     }
     // The documents' images load once the pager has opened.
-    let later = paged && may_load_later(&settings, &caps);
+    let later = paged && plan::may_load_later(settings.paging, settings.images, terminal, &caps);
     let Loaded {
         mut images,
         mut interrupt,
@@ -825,7 +804,7 @@ fn show_files(
         file.drawn = self::drawn(number, file, &mut images, &settings, &caps);
     }
     // Once for all the files, before the pager opens, and in the pager.
-    let reading_warning = context.reading_warning(&caps);
+    let reading_warning = plan::reading_warning(context.reading, &caps);
     if let Some(warning) = &reading_warning {
         eprintln!("kiri: {warning}");
     }
@@ -1049,14 +1028,17 @@ fn page_files(
     // Waiting, the reader can open the pager before they have all come,
     // and the rest then load in the background.
     let mut still = None;
-    let waits = settings.initial_load == InitialLoad::Wait;
-    let surely = !parts.is_empty() && surely_paged(context, content, &parts, settings, inputs);
-    let waited = match (!parts.is_empty() && surely && waits)
-        .then(|| wait_or_skip(context, &parts, settings, inputs))
-    {
-        Some(Some(waited)) => Some(waited?),
-        _ => None,
-    };
+    let load = (!parts.is_empty()).then(|| {
+        plan::load(
+            surely_paged(context, content, &parts, settings, inputs),
+            settings.initial_load,
+        )
+    });
+    let waited =
+        match (load == Some(Load::Wait)).then(|| wait_or_skip(context, &parts, settings, inputs)) {
+            Some(Some(waited)) => Some(waited?),
+            _ => None,
+        };
     if let Some(waited) = waited {
         let told = told_files(&inputs.images, &parts, &files, settings);
         for (warned, told) in warnings.iter_mut().zip(told) {
@@ -1072,7 +1054,7 @@ fn page_files(
         }
         still = waited.loads;
         parts.clear();
-    } else if !parts.is_empty() && (!surely || waits) {
+    } else if matches!(load, Some(Load::Now | Load::Wait)) {
         let (loaded, told) = load_files_now(context, &parts, &files, settings, &inputs.caps)?;
         for (warned, told) in warnings.iter_mut().zip(told) {
             warned.extend(told);
@@ -1161,7 +1143,7 @@ fn page_files(
         }
         (true, None) => (vec![Vec::new(); files.len()], None),
     };
-    printing(inputs);
+    plan::printing(inputs.reading.as_mut().map(|reading| &mut reading.wide));
     let mut out = kiri::term::output(&inputs.caps);
     let mut apart = false;
     // Whether kitty did not answer the check of a file's images.
@@ -1203,7 +1185,7 @@ fn print_files(
     settings: &Settings,
     failed: &Cell<bool>,
 ) -> io::Result<()> {
-    printing(inputs);
+    plan::printing(inputs.reading.as_mut().map(|reading| &mut reading.wide));
     let mut out = kiri::term::output(&inputs.caps);
     let mut apart = false;
     // Whether kitty did not answer the check of a file's images.
@@ -1531,7 +1513,7 @@ impl<'a> Context<'a> {
     /// Reading mode, when it is asked for and a terminal with `caps` draws
     /// images.
     fn reading(&self, caps: &Capabilities) -> Option<Reading> {
-        (self.reading && caps.draws_images()).then(|| self.reading_mode())
+        plan::reading(self.reading, caps).then(|| self.reading_mode())
     }
 
     /// Reading mode in the system's fonts, which load when text is first
@@ -1542,15 +1524,6 @@ impl<'a> Context<'a> {
             fonts: Rc::new(kiri::typeset::reading::Fonts::system()),
             wide: self.wide,
         }
-    }
-
-    /// Why reading mode is not shown, when it is asked for and a terminal
-    /// with `caps` cannot draw it.
-    fn reading_warning(&self, caps: &Capabilities) -> Option<String> {
-        (self.reading && !caps.draws_images()).then(|| {
-            "reading mode needs a terminal that draws images; showing the document as text"
-                .to_owned()
-        })
     }
 }
 
@@ -1579,12 +1552,17 @@ fn show_document(
     settings: Settings,
     caps: Capabilities,
 ) -> Result<(), Failure> {
-    let caps = on_page(caps, &settings);
+    let caps = plan::on_page(caps, settings.paper);
     let parts = [part(document, from.map(|from| from.path), context.reading)];
     // Before the images are read, so that a file changed meanwhile counts
     // as changed.
     let stamps = Stamps::of(&parts);
-    let later = may_load_later(&settings, &caps);
+    let later = plan::may_load_later(
+        settings.paging,
+        settings.images,
+        kiri::term::stdout_is_terminal(),
+        &caps,
+    );
     let loaded = match later {
         true => Loaded::default(),
         false => load_told(context, &parts, &settings, &caps)?,
@@ -1597,20 +1575,6 @@ fn show_document(
         later: later.then_some(&parts),
     };
     print_document(context, shown, loaded, settings, caps, reading)
-}
-
-/// Whether the images of a document may still load once the pager has
-/// opened, rather than before: in the background, or when the reader
-/// skips the wait for them. That is when `settings` show images that
-/// `caps` can show and may page the document, as paging is `always` or
-/// `auto` and the output a terminal that takes escape sequences;
-/// [`surely_paged`] tells for `auto`.
-fn may_load_later(settings: &Settings, caps: &Capabilities) -> bool {
-    matches!(settings.paging, Paging::Always | Paging::Auto)
-        && kiri::term::stdout_is_terminal()
-        && caps.styling
-        && settings.images
-        && caps.draws_images()
 }
 
 /// The rows an image or diagram that has not loaded yet counts as, to
@@ -1630,15 +1594,14 @@ fn surely_paged(
     settings: &Settings,
     inputs: &mut Inputs,
 ) -> bool {
-    if settings.paging == Paging::Always {
-        return true;
-    }
-    let loading = loading(context, settings, &inputs.caps);
-    kiri::images::measure_in_background(parts, &loading, &mut inputs.images, ROWS_UNLOADED);
-    let stream = kiri::typeset::layout::content(content, inputs);
-    let rows = kiri::pager::rows(&stream.lines, &inputs.caps);
-    let height = kiri::term::window_size(io::stdout()).map(|window| window.rows);
-    let longer = kiri::pager::pages(Paging::Auto, true, rows, height);
+    let longer = plan::surely_paged(settings.paging, || {
+        let loading = loading(context, settings, &inputs.caps);
+        kiri::images::measure_in_background(parts, &loading, &mut inputs.images, ROWS_UNLOADED);
+        let stream = kiri::typeset::layout::content(content, inputs);
+        let rows = kiri::pager::rows(&stream.lines, &inputs.caps);
+        let height = kiri::term::window_size(io::stdout()).map(|window| window.rows);
+        plan::Measured { rows, height }
+    });
     if !longer {
         inputs.images.take_placeholders();
     }
@@ -1793,7 +1756,7 @@ fn show_diagram(
     mut settings: Settings,
     caps: Capabilities,
 ) -> Result<(), Failure> {
-    let caps = on_page(caps, &settings);
+    let caps = plan::on_page(caps, settings.paper);
     let document = kiri::typeset::parse::code(source, Some(language));
     settings.images = true;
     let mut loaded = load_images(
@@ -1853,15 +1816,6 @@ fn show_diagram(
         Some(_) => Err(Failure::Told),
         None => Ok(()),
     }
-}
-
-/// `caps` for the page `settings` choose: a light or dark page decides
-/// whatever the terminal's background is.
-fn on_page(mut caps: Capabilities, settings: &Settings) -> Capabilities {
-    if let Some(paper) = settings.paper {
-        caps.dark_background = Some(paper == Paper::Dark);
-    }
-    caps
 }
 
 /// The images of the documents in `parts`, loaded and drawn when
@@ -2004,36 +1958,44 @@ fn print_document(
     let content = kiri::typeset::layout::Content::Document(document);
     let mut still = None;
     let later = match later {
-        Some(parts) if !surely_paged(context, content, parts, &settings, &mut inputs) => {
-            let loaded = load_told(context, parts, &settings, &inputs.caps)?;
-            inputs.images = loaded.images;
-            interrupt = loaded.interrupt;
-            None
-        }
-        Some(parts) if settings.initial_load == InitialLoad::Wait => {
-            match wait_or_skip(context, parts, &settings, &mut inputs) {
-                Some(waited) => {
-                    let waited = waited?;
-                    tell_loaded(&inputs.images, &settings);
-                    interrupt = waited.interrupt;
-                    // The pager decides as it was told: with three rows
-                    // for each image that has not come.
-                    for key in waited.loads.iter().flat_map(Loads::keys) {
-                        inputs
-                            .images
-                            .wait(key.clone(), Placeholder::Rows(ROWS_UNLOADED));
+        Some(parts) => {
+            let load = plan::load(
+                surely_paged(context, content, parts, &settings, &mut inputs),
+                settings.initial_load,
+            );
+            match load {
+                Load::Later => Some(parts),
+                Load::Wait => match wait_or_skip(context, parts, &settings, &mut inputs) {
+                    Some(waited) => {
+                        let waited = waited?;
+                        tell_loaded(&inputs.images, &settings);
+                        interrupt = waited.interrupt;
+                        // The pager decides as it was told: with three rows
+                        // for each image that has not come.
+                        for key in waited.loads.iter().flat_map(Loads::keys) {
+                            inputs
+                                .images
+                                .wait(key.clone(), Placeholder::Rows(ROWS_UNLOADED));
+                        }
+                        still = waited.loads;
+                        None
                     }
-                    still = waited.loads;
-                }
-                None => {
+                    None => {
+                        let loaded = load_told(context, parts, &settings, &inputs.caps)?;
+                        inputs.images = loaded.images;
+                        interrupt = loaded.interrupt;
+                        None
+                    }
+                },
+                Load::Now => {
                     let loaded = load_told(context, parts, &settings, &inputs.caps)?;
                     inputs.images = loaded.images;
                     interrupt = loaded.interrupt;
+                    None
                 }
             }
-            None
         }
-        later => later,
+        None => None,
     };
     let file = reading.as_ref().map(|(from, _)| from.path);
     let mut reload = reading.map(|(from, stamps)| FileReload {
@@ -2105,7 +2067,7 @@ fn print_document(
         }
         None => None,
     };
-    printing(&mut inputs);
+    plan::printing(inputs.reading.as_mut().map(|reading| &mut reading.wide));
     let mut out = kiri::term::output(&inputs.caps);
     Ok(finish(
         kiri::render::render(document, &inputs, &mut out).and_then(|sent| {
@@ -2144,7 +2106,7 @@ fn page(
     let stream = kiri::typeset::layout::content(content, inputs);
     let rows = kiri::pager::rows(&stream.lines, &inputs.caps);
     let height = kiri::term::window_size(io::stdout()).map(|window| window.rows);
-    if !kiri::pager::pages(paging, terminal, rows, height) {
+    if !plan::pages(paging, terminal, rows, height) {
         return None;
     }
     // The screen catches the signals before the terminal is raw; the
@@ -2382,7 +2344,7 @@ fn doctor(cli: &Cli, matches: &ArgMatches) -> Result<(), Failure> {
     }
     let document = kiri::typeset::parse::parse(&markdown);
     let mut settings = choices.with_theme(theme);
-    settings.paging = kiri::pager::only_always(settings.paging);
+    settings.paging = plan::only_always(settings.paging);
     show_document(
         &Context::new(cli, &env),
         &document,

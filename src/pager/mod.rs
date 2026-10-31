@@ -22,7 +22,7 @@ use std::io::{self, Write};
 use std::ops::Range;
 use std::time::{Duration, Instant, SystemTime};
 
-use crate::config::{self, FollowJump, Paging, SearchCase};
+use crate::config::{self, FollowJump, SearchCase};
 use crate::images::{ImageError, ImageKey, Images, Loads, Part, Source};
 use crate::present::encoder::Encoder;
 use crate::present::kitty::graphics::ImageId;
@@ -50,39 +50,6 @@ use crate::typeset::reading::page::Wide;
 use crate::typeset::style::{self, Line, Span, Style};
 use crate::typeset::wrap;
 use keys::{Action, Key};
-
-/// Whether a document of `rows` rows is paged: never when the output is not
-/// a terminal, and with `Auto` only when it is longer than the window's
-/// `height`, when that is known.
-pub fn pages(paging: Paging, terminal: bool, rows: usize, height: Option<u16>) -> bool {
-    match paging {
-        _ if !terminal => false,
-        Paging::Always => true,
-        Paging::Auto => height.is_some_and(|height| rows > usize::from(height)),
-        Paging::Never => false,
-    }
-}
-
-/// `paging` for what is paged only when paging is `always`: a document
-/// read from standard input, often the output of another command, the
-/// `--doctor` report, and images shown on their own.
-pub fn only_always(paging: Paging) -> Paging {
-    match paging {
-        Paging::Always => Paging::Always,
-        Paging::Auto | Paging::Never => Paging::Never,
-    }
-}
-
-/// `paging` for several files: when `images_only`, each of them is shown
-/// on its own as an image is, such as an image file or a diagram file, and
-/// they are paged only when paging is `always`; with a document among
-/// them, the files follow `paging` as one document does.
-pub fn for_files(paging: Paging, images_only: bool) -> Paging {
-    match images_only {
-        true => only_always(paging),
-        false => paging,
-    }
-}
 
 /// The rows `lines` take on a terminal with `caps`.
 pub fn rows(lines: &[Line], caps: &Capabilities) -> usize {
