@@ -4,7 +4,7 @@
 
 use image::RgbaImage;
 
-use crate::diagrams::{Drawn, Theme};
+use crate::diagrams::{DiagramError, Drawn, Theme};
 use crate::images::LoadOptions;
 use crate::images::svg::{Fonts, decode_svg, looks_like_svg};
 use crate::images::{ImageError, Source};
@@ -16,12 +16,12 @@ pub(crate) fn finish_diagram(
     language: &str,
     source: &str,
     line: usize,
-    drawn: Result<Drawn, String>,
+    drawn: Result<Drawn, DiagramError>,
     max_size: u64,
     fonts: &Fonts,
     options: &LoadOptions<'_>,
 ) -> Result<Source, ImageError> {
-    let failed = |reason: String| ImageError::Diagram {
+    let failed = |reason: DiagramError| ImageError::Diagram {
         name: crate::diagrams::name(language, source, line, options.by_line),
         reason,
     };
@@ -31,7 +31,7 @@ pub(crate) fn finish_diagram(
         false => decode_raster(&drawn.image, None)
             .map(|image| dense(image, drawn.scale, options.largest)),
     }
-    .map_err(|error| failed(error.to_string()))?;
+    .map_err(|error| failed(error.to_string().into()))?;
     // A diagram that chose colours of its own for the other page would
     // be dark lines and text on a dark page, or light ones on a light page.
     let panel = match (options.theme, drawn.theme) {

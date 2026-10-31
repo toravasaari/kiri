@@ -1229,7 +1229,7 @@ fn drawn(
         }
         Some(Err(error)) => {
             let (code, reason) = match &error {
-                ImageError::Diagram { reason, .. } => (Code::Diagram, reason.clone()),
+                ImageError::Diagram { reason, .. } => (Code::Diagram, reason.to_string()),
                 error => (Code::Image, error.to_string()),
             };
             // Back in, so that the document tells it below the source.

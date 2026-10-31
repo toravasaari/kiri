@@ -30,7 +30,7 @@ fn a_diagram_that_is_no_svg_is_a_warning_naming_it() {
         fn draws(&self, _language: &str) -> bool {
             true
         }
-        fn render(&self, request: &Request) -> Result<Drawn, String> {
+        fn render(&self, request: &Request) -> Result<Drawn, DiagramError> {
             let theme = request.theme;
             Ok(Drawn::svg("not svg", theme, None))
         }
@@ -58,7 +58,7 @@ fn a_diagram_may_be_a_compressed_svg() {
         fn draws(&self, _language: &str) -> bool {
             true
         }
-        fn render(&self, request: &Request) -> Result<Drawn, String> {
+        fn render(&self, request: &Request) -> Result<Drawn, DiagramError> {
             let theme = request.theme;
             use std::io::Write;
             let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="70" height="30"/>"#;
@@ -89,7 +89,7 @@ fn a_diagram_grows_to_show_text_that_reaches_past_its_edges() {
         fn draws(&self, _language: &str) -> bool {
             true
         }
-        fn render(&self, request: &Request) -> Result<Drawn, String> {
+        fn render(&self, request: &Request) -> Result<Drawn, DiagramError> {
             let theme = request.theme;
             Ok(Drawn::svg(SVG, theme, None))
         }
@@ -131,7 +131,7 @@ fn a_diagram_for_the_other_page_lies_on_a_panel_of_its_background() {
         fn draws(&self, _language: &str) -> bool {
             true
         }
-        fn render(&self, _: &Request) -> Result<Drawn, String> {
+        fn render(&self, _: &Request) -> Result<Drawn, DiagramError> {
             let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="40"/>"#;
             Ok(Drawn::svg(svg, self.0, self.1))
         }
@@ -200,7 +200,7 @@ impl Renderer for Png {
         true
     }
 
-    fn render(&self, _: &Request) -> Result<Drawn, String> {
+    fn render(&self, _: &Request) -> Result<Drawn, DiagramError> {
         let image = RgbaImage::from_pixel(60, 30, image::Rgba([255, 0, 0, 128]));
         Ok(Drawn {
             image: png(&image),

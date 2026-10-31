@@ -30,6 +30,7 @@ use crate::typeset::diagrams::language;
 pub mod external;
 pub mod find;
 
+pub use crate::typeset::diagrams::error::DiagramError;
 pub use crate::typeset::diagrams::language::{LANGUAGES, Language, ThemeNames, language};
 pub use crate::typeset::diagrams::mermaid::MMDC;
 pub use external::{Command, External, ExternalSettings};
@@ -150,7 +151,7 @@ pub trait Renderer {
 
     /// The diagram that `request` asks for as an image, or why it could
     /// not be drawn.
-    fn render(&self, request: &Request) -> Result<Drawn, String>;
+    fn render(&self, request: &Request) -> Result<Drawn, DiagramError>;
 
     /// Each of `requests` drawn as `render` draws it, in order; `done` is
     /// called as each one is finished.
@@ -158,7 +159,7 @@ pub trait Renderer {
         &self,
         requests: &[Request],
         done: &(dyn Fn() + Sync),
-    ) -> Vec<Result<Drawn, String>> {
+    ) -> Vec<Result<Drawn, DiagramError>> {
         render_one_by_one(self, requests, done)
     }
 }
@@ -168,7 +169,7 @@ fn render_one_by_one<R: Renderer + ?Sized>(
     renderer: &R,
     requests: &[Request],
     done: &(dyn Fn() + Sync),
-) -> Vec<Result<Drawn, String>> {
+) -> Vec<Result<Drawn, DiagramError>> {
     (requests.iter())
         .map(|request| {
             let drawn = renderer.render(request);
@@ -184,9 +185,9 @@ fn render_in_parallel<R: Renderer + Sync + ?Sized>(
     requests: &[Request],
     at_once: usize,
     done: &(dyn Fn() + Sync),
-) -> Vec<Result<Drawn, String>> {
+) -> Vec<Result<Drawn, DiagramError>> {
     let next = AtomicUsize::new(0);
-    let results: Vec<Mutex<Option<Result<Drawn, String>>>> =
+    let results: Vec<Mutex<Option<Result<Drawn, DiagramError>>>> =
         requests.iter().map(|_| Mutex::new(None)).collect();
     std::thread::scope(|scope| {
         for _ in 0..at_once.max(1).min(requests.len()) {
@@ -214,7 +215,7 @@ fn render_in_parallel<R: Renderer + Sync + ?Sized>(
     (results.into_iter())
         .map(|result| {
             let result = result.into_inner().unwrap_or_else(|e| e.into_inner());
-            result.unwrap_or_else(|| Err("not drawn".to_owned()))
+            result.unwrap_or(Err(DiagramError::NotDrawn))
         })
         .collect()
 }
@@ -302,13 +303,10 @@ impl Renderer for BuiltIn {
         Self::of(language).is_some()
     }
 
-    fn render(&self, request: &Request) -> Result<Drawn, String> {
+    fn render(&self, request: &Request) -> Result<Drawn, DiagramError> {
         match Self::of(request.language) {
             Some(built_in) => (built_in.render)(request),
-            None => Err(format!(
-                "{} diagrams are not drawn in this build",
-                request.language
-            )),
+            None => Err(DiagramError::NotInBuild(request.language.to_owned())),
         }
     }
 }
@@ -354,7 +352,7 @@ impl Renderer for Renderers {
         self.external.draws(language) || BuiltIn.draws(language)
     }
 
-    fn render(&self, request: &Request) -> Result<Drawn, String> {
+    fn render(&self, request: &Request) -> Result<Drawn, DiagramError> {
         match self.external.draws(request.language) {
             true => self.external.render(request),
             false => BuiltIn.render(request),
@@ -367,7 +365,7 @@ impl Renderer for Renderers {
         &self,
         requests: &[Request],
         done: &(dyn Fn() + Sync),
-    ) -> Vec<Result<Drawn, String>> {
+    ) -> Vec<Result<Drawn, DiagramError>> {
         if (requests.iter()).any(|request| self.external.draws(request.language)) {
             render_in_parallel(self, requests, external::AT_ONCE, done)
         } else {
@@ -386,8 +384,8 @@ impl Renderer for NoRenderer {
         false
     }
 
-    fn render(&self, request: &Request) -> Result<Drawn, String> {
-        Err(format!("{} diagrams are not drawn", request.language))
+    fn render(&self, request: &Request) -> Result<Drawn, DiagramError> {
+        Err(DiagramError::NoRenderer(request.language.to_owned()))
     }
 }
 
@@ -455,10 +453,12 @@ mod tests {
             "flowchart TD\n  A --> B\n",
             Theme::Light,
         ));
-        assert_eq!(drawn, Err("sh exited with status 4".to_owned()));
+        let text = |drawn: Result<Drawn, DiagramError>| drawn.map_err(|error| error.to_string());
+        assert_eq!(text(drawn), Err("sh exited with status 4".to_owned()));
         let request = Request::new("mermaid", "flowchart TD\n", Theme::Dark);
         let drawn = renderers.render_all(&[request], &|| {});
-        assert_eq!(drawn, [Err("sh exited with status 4".to_owned())]);
+        let texts: Vec<_> = drawn.into_iter().map(text).collect();
+        assert_eq!(texts, ["sh exited with status 4".to_owned()].map(Err));
         let none = Renderers::new(BTreeMap::new(), settings());
         assert_eq!(none.draws("mermaid"), cfg!(feature = "mermaid"));
         assert!(!none.draws("dot"));
@@ -476,13 +476,13 @@ mod tests {
             true
         }
 
-        fn render(&self, request: &Request) -> Result<Drawn, String> {
+        fn render(&self, request: &Request) -> Result<Drawn, DiagramError> {
             let now = self.now.fetch_add(1, Ordering::SeqCst) + 1;
             self.most.fetch_max(now, Ordering::SeqCst);
             std::thread::sleep(Duration::from_millis(50));
             self.now.fetch_sub(1, Ordering::SeqCst);
             match request.source {
-                "bad" => Err(format!("{}: bad", request.language)),
+                "bad" => Err(format!("{}: bad", request.language).into()),
                 source => Ok(Drawn::svg(source, request.theme, None)),
             }
         }
@@ -502,12 +502,12 @@ mod tests {
             done.fetch_add(1, Ordering::SeqCst);
         };
         let drawn = render_in_parallel(&slow, &diagrams, external::AT_ONCE, &count);
-        let svgs: Vec<Result<String, String>> = (drawn.into_iter())
+        let svgs: Vec<Result<String, DiagramError>> = (drawn.into_iter())
             .map(|drawn| drawn.map(|drawn| drawn.text()))
             .collect();
-        let expected: Vec<Result<String, String>> = (0..10)
+        let expected: Vec<Result<String, DiagramError>> = (0..10)
             .map(|n| match n {
-                3 => Err("mermaid: bad".to_owned()),
+                3 => Err("mermaid: bad".into()),
                 n => Ok(n.to_string()),
             })
             .collect();
@@ -518,6 +518,22 @@ mod tests {
         assert!((2..=4).contains(&most), "{most} at once");
         assert_eq!(done.load(Ordering::SeqCst), 10);
         assert!(render_in_parallel(&slow, &[], 4, &count).is_empty());
+    }
+
+    #[test]
+    fn a_language_that_is_not_drawn_says_so() {
+        let request = Request::new("dot", "digraph {}\n", Theme::Light);
+        fn text<E: ToString>(drawn: Result<Drawn, E>) -> Result<(), String> {
+            drawn.map(|_| ()).map_err(|error| error.to_string())
+        }
+        assert_eq!(
+            text(BuiltIn.render(&request)),
+            Err("dot diagrams are not drawn in this build".to_owned())
+        );
+        assert_eq!(
+            text(NoRenderer.render(&request)),
+            Err("dot diagrams are not drawn".to_owned())
+        );
     }
 
     #[test]

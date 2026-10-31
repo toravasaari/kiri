@@ -4,6 +4,7 @@
 
 use crate::diagrams::external::Output;
 use crate::diagrams::{Drawn, Request, Theme};
+use crate::typeset::diagrams::error::DiagramError;
 use crate::typeset::diagrams::{math, mermaid};
 
 /// A language kiri draws diagrams in.
@@ -93,7 +94,7 @@ pub struct BuiltInRenderer {
     /// The diagram a request asks for as an image in a theme for its
     /// page, unless it chooses its own colours, or why it could not be
     /// drawn.
-    pub render: fn(&Request) -> Result<Drawn, String>,
+    pub render: fn(&Request) -> Result<Drawn, DiagramError>,
     /// How far below its baseline a drawn diagram reaches, as a fraction
     /// of the image's height, for a diagram that has a baseline to sit on
     /// in a line of text, such as an inline formula; `None` for the rest.

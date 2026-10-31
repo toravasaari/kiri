@@ -34,6 +34,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::diagrams::DiagramError;
 use crate::diagrams::{FormulaColors, INLINE_FORMULA, NoRenderer, Renderer, Request, Theme};
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::model::{Block, Document, Inline};
@@ -59,8 +60,7 @@ pub(crate) use crate::typeset::images::decode::{MAX_PIXELS, png_size};
 pub(crate) use crate::typeset::images::drawn::decode_diagram;
 pub(crate) use url::read_at_most;
 
-use crate::typeset::images::decode::decode_named;
-use crate::typeset::images::drawn::finish_diagram;
+use crate::typeset::images::{decode::decode_named, drawn::finish_diagram};
 use url::load_url;
 
 /// Why an image could not be loaded.
@@ -98,7 +98,7 @@ pub enum ImageError {
     /// The decoder rejected the data.
     Corrupt(String),
     /// A diagram that could not be drawn: how warnings name it, and why.
-    Diagram { name: String, reason: String },
+    Diagram { name: String, reason: DiagramError },
 }
 
 impl fmt::Display for ImageError {
@@ -1178,7 +1178,7 @@ Text ![inline](images/pattern.png) and words.
             language.eq_ignore_ascii_case("mermaid")
         }
 
-        fn render(&self, request: &Request) -> Result<Drawn, String> {
+        fn render(&self, request: &Request) -> Result<Drawn, DiagramError> {
             let &Request { source, theme, .. } = request;
             self.calls.borrow_mut().push((source.to_owned(), theme));
             if source.contains("broken") {
@@ -1364,7 +1364,7 @@ Text ![a](a.png) and *![b](b.png)* in a paragraph.
                 language == INLINE_FORMULA || language == "math"
             }
 
-            fn render(&self, _: &Request) -> Result<Drawn, String> {
+            fn render(&self, _: &Request) -> Result<Drawn, DiagramError> {
                 unreachable!("nothing is drawn")
             }
         }

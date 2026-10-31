@@ -6,6 +6,7 @@ use ratex_svg::{SvgOptions, render_to_svg};
 use ratex_types::{Color, MathStyle};
 
 use crate::diagrams::{Drawn, Request, Theme};
+use crate::typeset::diagrams::error::DiagramError;
 use crate::typeset::diagrams::language::{self, BuiltInRenderer, Language, ThemeNames};
 
 /// Formulas.
@@ -78,8 +79,9 @@ fn version() -> String {
 /// paths, in the colours of the request, on a transparent background
 /// unless they have one; or RaTeX's message saying why it could not be
 /// drawn.
-fn render(request: &Request) -> Result<Drawn, String> {
-    let nodes = ratex_parser::parse(request.source).map_err(|error| error.to_string())?;
+fn render(request: &Request) -> Result<Drawn, DiagramError> {
+    let nodes = ratex_parser::parse(request.source)
+        .map_err(|error| DiagramError::from(error.to_string()))?;
     let [red, green, blue] = request.formula.text.unwrap_or(match request.theme {
         Theme::Dark => [0xff, 0xff, 0xff],
         Theme::Light => [0x00, 0x00, 0x00],
@@ -95,7 +97,7 @@ fn render(request: &Request) -> Result<Drawn, String> {
         .with_style(style)
         .with_color(Color::rgb(channel(red), channel(green), channel(blue)));
     let tree = layout(&nodes, &options);
-    validate_layout(&tree)?;
+    validate_layout(&tree).map_err(DiagramError::from)?;
     let svg = render_to_svg(
         &to_display_list(&tree),
         &SvgOptions {
@@ -128,7 +130,7 @@ mod tests {
     use crate::diagrams::FormulaColors;
     use crate::images::{DEFAULT_MAX_FILE_SIZE, Fonts, decode};
 
-    fn drawn(source: &str, theme: Theme, color: Option<[u8; 3]>) -> Result<String, String> {
+    fn drawn(source: &str, theme: Theme, color: Option<[u8; 3]>) -> Result<String, DiagramError> {
         let colors = FormulaColors {
             text: color,
             background: None,
@@ -238,9 +240,13 @@ mod tests {
 
     #[test]
     fn a_formula_with_a_mistake_is_ratex_s_message() {
-        let error = drawn("\\frac{", Theme::Light, None).unwrap_err();
+        let error = drawn("\\frac{", Theme::Light, None)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("ParseError"), "{error}");
-        let error = drawn("\\nosuchcommand", Theme::Light, None).unwrap_err();
+        let error = drawn("\\nosuchcommand", Theme::Light, None)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("nosuchcommand"), "{error}");
     }
 }

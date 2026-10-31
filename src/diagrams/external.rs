@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Once};
 use std::time::{Duration, Instant};
 
-use super::{Drawn, Renderer, Request};
+use super::{DiagramError, Drawn, Renderer, Request};
 
 /// How long a program may take to draw one diagram before kiri stops it,
 /// unless the configuration file says otherwise.
@@ -275,16 +275,20 @@ impl External {
         writes: Output,
         request: &Request,
         scale: u32,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<Vec<u8>, DiagramError> {
         let program = command.program();
         if self.stopped(request) {
-            return Err(format!("{program} was not started: interrupted"));
+            return Err(DiagramError::NotStarted { program });
         }
-        let dir = self
-            .temp_dir()
-            .map_err(|error| format!("cannot make a directory for {program}: {error}"))?;
-        let (files, errors) = Files::write(&dir.0, request, writes)
-            .map_err(|error| format!("cannot write the files for {program}: {error}"))?;
+        let dir = self.temp_dir().map_err(|error| DiagramError::NoDirectory {
+            program: program.clone(),
+            error: error.to_string(),
+        })?;
+        let (files, errors) =
+            Files::write(&dir.0, request, writes).map_err(|error| DiagramError::NoFiles {
+                program: program.clone(),
+                error: error.to_string(),
+            })?;
         let theme = super::theme_name(request.language, request.theme);
         let argv = files.arguments(&command.argv, theme, scale);
         let mut child = process::Command::new(&argv[0]);
@@ -303,9 +307,10 @@ impl External {
         if let Some(path) = &command.path {
             child.env("PATH", path);
         }
-        let child = child
-            .spawn()
-            .map_err(|error| format!("{}: {error}", argv[0]))?;
+        let child = child.spawn().map_err(|error| DiagramError::CannotStart {
+            program: argv[0].clone(),
+            error: error.to_string(),
+        })?;
         self.finish(child, &program, &files, request)?;
         self.read_output(&program, &files.output)
     }
@@ -320,42 +325,57 @@ impl External {
         program: &str,
         files: &Files,
         request: &Request,
-    ) -> Result<(), String> {
+    ) -> Result<(), DiagramError> {
         let limit = self.settings.time_limit;
         let stop = || self.stopped(request);
+        let named = program.to_owned();
         let status = wait(child, limit, &stop).map_err(|error| match error {
-            Waited::TimedOut => format!("{program} did not finish in {} s", limit.as_secs_f32()),
-            Waited::Stopped => format!("{program} was stopped: interrupted"),
-            Waited::Failed(error) => format!("{program}: {error}"),
+            Waited::TimedOut => DiagramError::TimedOut {
+                program: named,
+                limit,
+            },
+            Waited::Stopped => DiagramError::Interrupted { program: named },
+            Waited::Failed(error) => DiagramError::WaitFailed {
+                program: named,
+                error: error.to_string(),
+            },
         })?;
         if status.success() {
             return Ok(());
         }
         let said = read_start(&files.errors, SAID);
-        let ended = match status.code() {
-            Some(code) => format!("{program} exited with status {code}"),
-            None => format!("{program} was stopped by a signal"),
-        };
-        Err(match first_lines(&String::from_utf8_lossy(&said)) {
-            Some(line) => format!("{ended}: {line}"),
-            None => ended,
+        let said = first_lines(&String::from_utf8_lossy(&said));
+        Err(match status.code() {
+            Some(code) => DiagramError::Exited {
+                program: program.to_owned(),
+                code,
+                said,
+            },
+            None => DiagramError::Signalled {
+                program: program.to_owned(),
+                said,
+            },
         })
     }
 
     /// The image file at `output` that `program` wrote, up to the size
     /// limit.
-    fn read_output(&self, program: &str, output: &Path) -> Result<Vec<u8>, String> {
+    fn read_output(&self, program: &str, output: &Path) -> Result<Vec<u8>, DiagramError> {
+        let program = program.to_owned();
         let limit = self.settings.max_size;
         match File::open(output).and_then(|file| crate::images::read_at_most(file, limit)) {
             Ok(Some(bytes)) => Ok(bytes),
-            Ok(None) => Err(format!(
-                "{program} wrote an image larger than the {} limit",
-                crate::images::size(limit)
-            )),
+            Ok(None) => Err(DiagramError::TooLarge {
+                program,
+                limit: crate::images::size(limit),
+            }),
             Err(error) if error.kind() == ErrorKind::NotFound => {
-                Err(format!("{program} wrote no output file"))
+                Err(DiagramError::NoOutput { program })
             }
-            Err(error) => Err(format!("cannot read what {program} wrote: {error}")),
+            Err(error) => Err(DiagramError::Unreadable {
+                program,
+                error: error.to_string(),
+            }),
         }
     }
 }
@@ -426,9 +446,9 @@ impl Renderer for External {
         self.command(language).is_some()
     }
 
-    fn render(&self, request: &Request) -> Result<Drawn, String> {
+    fn render(&self, request: &Request) -> Result<Drawn, DiagramError> {
         let Some(command) = self.command(request.language) else {
-            return Err(format!("{} diagrams have no command", request.language));
+            return Err(DiagramError::NoCommand(request.language.to_owned()));
         };
         let writes = command.writes();
         let mut scale = match writes {

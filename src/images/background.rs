@@ -492,7 +492,10 @@ impl Renderer for Gated {
         true
     }
 
-    fn render(&self, request: &Request) -> Result<crate::diagrams::Drawn, String> {
+    fn render(
+        &self,
+        request: &Request,
+    ) -> Result<crate::diagrams::Drawn, crate::diagrams::DiagramError> {
         let stop = request.stop.expect("a stop flag");
         self.started
             .lock()
@@ -501,7 +504,7 @@ impl Renderer for Gated {
         while !self.open.load(Ordering::SeqCst) && !stop.load(Ordering::SeqCst) {
             std::thread::sleep(Duration::from_millis(5));
         }
-        Err("drawn".to_owned())
+        Err("drawn".into())
     }
 }
 
@@ -660,7 +663,7 @@ fn crashed(what: &What, panic: &(dyn Any + Send)) -> ImageError {
             by_line,
         } => ImageError::Diagram {
             name: crate::diagrams::name(language, source, *line, *by_line),
-            reason: with("the renderer crashed"),
+            reason: with("the renderer crashed").into(),
         },
         What::Url { .. } | What::Heading { .. } => ImageError::Corrupt(with("the decoder crashed")),
     }
@@ -679,13 +682,16 @@ mod tests {
             true
         }
 
-        fn render(&self, request: &Request) -> Result<crate::diagrams::Drawn, String> {
+        fn render(
+            &self,
+            request: &Request,
+        ) -> Result<crate::diagrams::Drawn, crate::diagrams::DiagramError> {
             let stop = request.stop.expect("a stop flag");
             while !stop.load(Ordering::SeqCst) {
                 std::thread::sleep(Duration::from_millis(5));
             }
             std::thread::sleep(self.0);
-            Err("stopped".to_owned())
+            Err("stopped".into())
         }
     }
 
@@ -893,7 +899,10 @@ mod tests {
             true
         }
 
-        fn render(&self, _: &Request) -> Result<crate::diagrams::Drawn, String> {
+        fn render(
+            &self,
+            _: &Request,
+        ) -> Result<crate::diagrams::Drawn, crate::diagrams::DiagramError> {
             self.0.store(true, Ordering::SeqCst);
             panic!("a renderer that panics");
         }
@@ -951,7 +960,10 @@ mod tests {
             true
         }
 
-        fn render(&self, request: &Request) -> Result<crate::diagrams::Drawn, String> {
+        fn render(
+            &self,
+            request: &Request,
+        ) -> Result<crate::diagrams::Drawn, crate::diagrams::DiagramError> {
             if request.source.starts_with("boom") {
                 panic!("boom");
             }
@@ -1009,7 +1021,7 @@ mod tests {
         match &came[0].1 {
             Err(ImageError::Diagram { name, reason }) => {
                 assert_eq!(name, "mermaid diagram on line 3");
-                assert_eq!(reason, "the renderer crashed: boom");
+                assert_eq!(reason.to_string(), "the renderer crashed: boom");
             }
             other => panic!("{other:?}"),
         }
