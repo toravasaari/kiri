@@ -219,8 +219,8 @@ pub struct Files {
     pub text: bool,
 }
 
-/// Whether diagrams are drawn, as `diagrams` says, for `files`: not in
-/// a file alone that is shown as text, whose diagram stays source, though
+/// Whether diagrams are drawn for `files`, given the setting `diagrams`: not
+/// in a file alone that is shown as text, whose diagram stays source, though
 /// it is reloaded or its pictures loaded later.
 pub fn diagrams(diagrams: bool, files: &Files) -> bool {
     diagrams && !(files.route.is_alone() && files.text)
@@ -228,8 +228,8 @@ pub fn diagrams(diagrams: bool, files: &Files) -> bool {
 
 /// `paging` for `files`, with `follow` for a file that is followed. Several
 /// files follow [`for_files`]. Standard input is paged only with `always`.
-/// Of one file, so is an image, a diagram follows the setting until it is
-/// drawn, and a document is paged as [`for_follow`] says.
+/// For one file, an image is paged only with `always`, a diagram follows the
+/// setting until it is drawn, and a document is paged as [`for_follow`] says.
 pub fn paging(paging: Paging, files: &Files, follow: Follow) -> Paging {
     match files.route {
         Route::Several => for_files(paging, files.alone),
@@ -240,9 +240,9 @@ pub fn paging(paging: Paging, files: &Files, follow: Follow) -> Paging {
     }
 }
 
-/// Whether the files of a run are `paged` after a file `alone` that is a
-/// diagram that was `drawn` is counted for: it is an image alone, paged only when `paging` is
-/// `always`.
+/// Whether the files of a run stay `paged` once a file `alone` is `drawn`: a
+/// drawn diagram alone is paged only when `paging` is `always`, as an image
+/// is.
 pub fn paged_when_drawn(paged: bool, alone: bool, drawn: bool, paging: Paging) -> bool {
     paged && !(alone && drawn && paging != Paging::Always)
 }

@@ -765,6 +765,9 @@ fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure> {
         .first()
         .is_some_and(|given| matches!(given.drawn, Some(Drawn::Done)));
     paged = plan::paged_when_drawn(paged, lone, drawn, settings.paging);
+    // Only the shape of what is shown decides this, so it stays a mapping.
+    // A diagram drawn is a document by now, and not bare; as it needs a
+    // terminal that draws images, nothing is told for it either way.
     let bare = given.first().is_some_and(|given| {
         matches!(
             given.shown,
@@ -784,7 +787,7 @@ fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure> {
         headings: settings.headings.with_images(settings.images),
         table_rows: settings.table_rows,
         render_errors: settings.render_errors,
-        reading: context.reading(&caps),
+        reading: plan::reading(context.reading, &caps).then(|| context.reading_mode()),
         ..Inputs::new(caps)
     };
     let show = Show {
@@ -1607,12 +1610,6 @@ impl<'a> Context<'a> {
                 _ => Wide::Wrap,
             },
         }
-    }
-
-    /// Reading mode, when it is asked for and a terminal with `caps` draws
-    /// images.
-    fn reading(&self, caps: &Capabilities) -> Option<Reading> {
-        plan::reading(self.reading, caps).then(|| self.reading_mode())
     }
 
     /// Reading mode in the system's fonts, which load when text is first
