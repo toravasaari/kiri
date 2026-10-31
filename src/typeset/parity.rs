@@ -581,35 +581,51 @@ mod tests {
     }
 
     fn compare(paths: &[PathBuf]) -> Vec<Found> {
+        // One thread per document, and the findings joined in the order of
+        // the documents, so the report reads as it did one document at a time.
+        std::thread::scope(|scope| {
+            let threads: Vec<_> = paths
+                .iter()
+                .map(|path| scope.spawn(move || compare_document(path)))
+                .collect();
+            threads
+                .into_iter()
+                .flat_map(|thread| {
+                    // A panic keeps its message, as it did with no threads.
+                    thread
+                        .join()
+                        .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+                })
+                .collect()
+        })
+    }
+
+    fn compare_document(path: &Path) -> Vec<Found> {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut found = Vec::new();
-        for path in paths {
-            let source = std::fs::read_to_string(path).unwrap();
-            let name = path.strip_prefix(root).unwrap().display().to_string();
-            let Document { blocks, .. } = parse(&source);
-            for (number, block) in blocks.iter().enumerate() {
-                for setup in Setup::TABLES {
-                    let (cell, pixel) =
-                        (cell::summary(block, &setup), pixel::summary(block, &setup));
-                    // Only a table's facts change with the setup.
-                    let kept = |fact: &Fact| {
-                        setup.is_default()
-                            || matches!(fact.field, Field::TableRows | Field::TableFrame)
-                    };
-                    let (cell, pixel): (Vec<_>, Vec<_>) = (
-                        cell.into_iter().filter(kept).collect(),
-                        pixel.into_iter().filter(kept).collect(),
-                    );
-                    let label = format!("{name}#{number} ({})", kind(block));
-                    for (field, at, cell, pixel) in pair(&cell, &pixel) {
-                        found.push(Found {
-                            block: label.clone(),
-                            field,
-                            at,
-                            cell,
-                            pixel,
-                        });
-                    }
+        let source = std::fs::read_to_string(path).unwrap();
+        let name = path.strip_prefix(root).unwrap().display().to_string();
+        let Document { blocks, .. } = parse(&source);
+        for (number, block) in blocks.iter().enumerate() {
+            for setup in Setup::TABLES {
+                let (cell, pixel) = (cell::summary(block, &setup), pixel::summary(block, &setup));
+                // Only a table's facts change with the setup.
+                let kept = |fact: &Fact| {
+                    setup.is_default() || matches!(fact.field, Field::TableRows | Field::TableFrame)
+                };
+                let (cell, pixel): (Vec<_>, Vec<_>) = (
+                    cell.into_iter().filter(kept).collect(),
+                    pixel.into_iter().filter(kept).collect(),
+                );
+                let label = format!("{name}#{number} ({})", kind(block));
+                for (field, at, cell, pixel) in pair(&cell, &pixel) {
+                    found.push(Found {
+                        block: label.clone(),
+                        field,
+                        at,
+                        cell,
+                        pixel,
+                    });
                 }
             }
         }
