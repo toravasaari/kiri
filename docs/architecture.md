@@ -476,7 +476,7 @@ few times at most. The pager writes the same checks after each frame that
 sent images, and the terminal's answers come among the keys.
 
 `kiri --doctor` reports what detection found and where each setting came
-from. `src/term/` and `src/config.rs` hand it the detection, the
+from. `src/term/` and `src/config/` hand it the detection, the
 settings and the file paths; `src/doctor.rs` checks which files exist and
 writes it all as a Markdown document, which kiri renders like any other or
 writes as it is into a pipe.
@@ -596,8 +596,13 @@ The later work that the rows name, in words:
 |---|---|---|
 | `src/lib.rs` | platform | stays; declares the three parts |
 | `src/main.rs` | mixed | stays. Platform: the command line, opening files and standard input, the shells, loading, the file reload. State engine: the startup decisions, such as whether a run pages, are in `src/session/plan.rs`; `main.rs` reads the terminal and the files and passes the answers in. One route: `run` shows one file as the special case of several, with no header, and with reloading, following and the unnamed warnings for it alone |
-| `src/config.rs` | mixed | stays. Platform: `Environment`, which reads the process's variables, the file, and resolving a setting from the flags, the environment, the file and its default. State engine: the setting types the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump`). `Passthrough` stays a setting type with the others, though it is read by capability detection, the command line and `--doctor`; capability detection takes its value, and the variables it reads (`TMUX`, `TMUX_PANE`, `NO_COLOR`, `COLORTERM`, `TERM_PROGRAM` and `VTE_VERSION`), as arguments, not `Environment`. The config split |
-| `src/config/tests.rs` | follows `config.rs` | stays; goes with its pieces in the config split |
+| `src/config/mod.rs` | platform | stays (was `src/config.rs`); the module's description and its public surface |
+| `src/config/environment.rs` | platform | stays. `Environment`, the table of the variables kiri reads, reading the process's variables, and the directories that `HOME` and the XDG variables give. Capability detection takes its variables (`TMUX`, `TMUX_PANE`, `NO_COLOR`, `COLORTERM`, `TERM_PROGRAM` and `VTE_VERSION`) as arguments, not `Environment`, in the terminal layer split |
+| `src/config/file.rs` | platform | stays. The configuration file: where it is, what it may set (`Config`, including the `[diagrams]` tables and their deserialisers) and `load` |
+| `src/config/resolve.rs` | platform | stays. Resolving a setting from the flags, the environment, the file and its default: `resolve`, `variable`, `choose`, `settings`, and loading the theme |
+| `src/config/types.rs` | platform | stays. The setting types: `Setting`, `Origin`, `Named`, `ThemeSource`, and the types of the settings that are not the pager's, `Passthrough` among them: capability detection, the command line and `--doctor` read it, and capability detection takes its value, not `Environment` |
+| `src/session/settings.rs` | state engine | new. The setting types the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump` and `InitialLoad`), without the code that reads them from the flags, the environment and the file |
+| `src/config/tests.rs` | follows `config/` | stays |
 | `src/doctor.rs` | platform | stays (it searches `PATH` through `diagrams::find`) |
 | `src/list.rs` | platform | stays (the `--list-emojis` shell) |
 | `src/panics.rs` | platform | stays |
@@ -766,7 +771,6 @@ The crossings in the list fall into these kinds:
 | typesetting uses the font loading in `images/svg.rs` | the font database |
 | typesetting uses `present::kitty::graphics` | a small change of its own, giving `caps.rs` the constant |
 | the terminal layer uses `term::tmux`, `render::loading`, `pager::keys` or `images` | the terminal layer split; loading and sessions |
-| the state engine uses `config` | the config split |
 | the state engine uses `pager::keys` or `pager::Warning` | commands as data; the pager's loop |
 
 The test reads files by directory, so it does not see the crossings inside
@@ -787,7 +791,7 @@ is the record of them.
 
 New code goes where this map puts it. When the map has no place for it,
 that is a question for the maintainer, not a reason to add it to a hub
-file (`main.rs`, `pager/mod.rs`, `config.rs`, `render/mod.rs`,
+file (`main.rs`, `pager/mod.rs`, `render/mod.rs`,
 `typeset/layout/mod.rs`, `typeset/reading/engine.rs`,
 `typeset/reading/page.rs`, `images/mod.rs` and `diagrams/mod.rs`).
 **No path yet** means that the work named creates the place; until then, ask.

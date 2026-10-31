@@ -22,7 +22,6 @@ use std::io::{self, Write};
 use std::ops::Range;
 use std::time::{Duration, Instant, SystemTime};
 
-use crate::config::{self, FollowJump, SearchCase};
 use crate::images::{ImageError, ImageKey, Images, Loads, Part, Source};
 use crate::present::encoder::Encoder;
 use crate::present::kitty::graphics::ImageId;
@@ -36,6 +35,7 @@ use crate::session::files::Files;
 use crate::session::help::Placed;
 use crate::session::prompt::{Edit, Prompt};
 use crate::session::search::{Marks, Search};
+use crate::session::settings::{self, FollowJump, SearchCase};
 use crate::session::view::View;
 use crate::session::{bands, changes, help, links, loading, search, status, tint, warnings};
 use crate::term::{Screen, WindowSize};
@@ -167,7 +167,7 @@ pub struct Options<'a, 'l> {
     pub reload: Option<&'a mut dyn Reload>,
     /// Whether the pager follows the document from the start: reads it
     /// again whenever it changes.
-    pub follow: config::Follow,
+    pub follow: settings::Follow,
     /// Which change following on auto moves the view to.
     pub jump: FollowJump,
     /// The warnings about the document as first read, which the pager
@@ -204,7 +204,7 @@ impl Options<'_, '_> {
             width: None,
             case,
             reload: None,
-            follow: config::Follow::Off,
+            follow: settings::Follow::Off,
             jump: FollowJump::First,
             warnings: Vec::new(),
             loads: None,
@@ -285,7 +285,7 @@ fn page_through(
     state.warn(warnings, terminal.now());
     if source.reload.is_some() {
         state.follow.mode = follow;
-    } else if follow != config::Follow::Off {
+    } else if follow != settings::Follow::Off {
         state.told = Some(Told::new(NOTHING_TO_FOLLOW));
     }
     // The document as reloaded, once it has been.
@@ -371,7 +371,7 @@ fn page_through(
                     Some(changes) => {
                         // Following on auto moves on from the place kept to
                         // a change.
-                        let change = (state.follow.mode == config::Follow::Auto)
+                        let change = (state.follow.mode == settings::Follow::Auto)
                             .then(|| changes::groups(&changes, &places, &heights))
                             .and_then(|groups| changes::choose(&groups, jump).cloned());
                         view.resize_by(heights, places, rows, |old, new| {
@@ -973,7 +973,7 @@ struct Changed {
 /// Following the document: reading it again whenever it changes.
 #[derive(Debug, Default)]
 struct Follow {
-    mode: config::Follow,
+    mode: settings::Follow,
     /// How a change looked on the last poll, and when it was first seen
     /// looking so. It is read once a poll at least [`POLL`] later finds it
     /// looking the same, so that a file caught half written is not shown.
@@ -995,7 +995,7 @@ enum Polled {
 impl Follow {
     /// Whether the document is followed, on or auto.
     fn on(&self) -> bool {
-        self.mode != config::Follow::Off
+        self.mode != settings::Follow::Off
     }
 
     /// What `change`, found on a poll at `now`, calls for.
@@ -1773,9 +1773,9 @@ fn show(
                 Pressed::Follow => {
                     state.follow = Follow {
                         mode: match state.follow.mode {
-                            config::Follow::Off => config::Follow::On,
-                            config::Follow::On => config::Follow::Auto,
-                            config::Follow::Auto => config::Follow::Off,
+                            settings::Follow::Off => settings::Follow::On,
+                            settings::Follow::On => settings::Follow::Auto,
+                            settings::Follow::Auto => settings::Follow::Off,
                         },
                         ..Follow::default()
                     }

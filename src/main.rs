@@ -9,7 +9,7 @@
 //! A new function is a sign that the code has no place yet, not a place.
 //!
 //! Such decisions go to the state engine (`src/session/`), settings to
-//! `config.rs`, and bytes for the terminal to the terminal layer
+//! `src/config/`, and bytes for the terminal to the terminal layer
 //! (`src/present/`). The placement map in docs/architecture.md says which.
 
 use std::cell::Cell;
@@ -24,8 +24,7 @@ use clap::error::ErrorKind;
 use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser};
 use kiri::config::{
-    Environment, Follow, FollowJump, FrontMatter, InitialLoad, Named, Options, Origin, Paging,
-    Passthrough, Setting, Settings,
+    Environment, FrontMatter, Named, Options, Origin, Passthrough, Setting, Settings,
 };
 use kiri::doctor::{Facts, Output};
 use kiri::images::{
@@ -37,6 +36,7 @@ use kiri::present::encoder::Encoder;
 use kiri::present::output::Page;
 use kiri::render::{Headings, Inputs, RenderErrors, TableRows};
 use kiri::session::plan::{self, Load, Route};
+use kiri::session::settings::{Follow, FollowJump, InitialLoad, Paging};
 use kiri::term::{Interrupt, Mode};
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::input::Input;
@@ -1837,7 +1837,7 @@ fn page(
 ) -> Option<io::Result<()>> {
     let paging = settings.paging;
     let terminal = kiri::term::stdout_is_terminal() && inputs.caps.styling;
-    if !terminal || paging == kiri::config::Paging::Never {
+    if !terminal || paging == Paging::Never {
         return None;
     }
     let stream = kiri::typeset::layout::content(content, inputs);
@@ -1855,7 +1855,7 @@ fn page(
         // Without a terminal to read keys from, as in the background, the
         // document is printed, and the signals still end kiri; only a
         // reader who asked for the pager is told.
-        if paging == kiri::config::Paging::Always {
+        if paging == Paging::Always {
             eprintln!("kiri: no terminal to read keys from, so the document is printed");
         }
         return None;

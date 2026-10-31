@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::config::{Follow, InitialLoad, Paging};
+use crate::session::settings::{Follow, InitialLoad, Paging};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::input::Input;
 use crate::typeset::reading::page::Wide;

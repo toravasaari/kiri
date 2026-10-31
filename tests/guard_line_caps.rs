@@ -14,7 +14,6 @@ use std::path::Path;
 const CAPS: &[(&str, usize)] = &[
     ("src/main.rs", 2148),
     ("src/pager/mod.rs", 1885),
-    ("src/config.rs", 1189),
     ("src/render/mod.rs", 345),
     ("src/typeset/layout/mod.rs", 1368),
     ("src/typeset/reading/engine.rs", 1105),

@@ -1,4 +1,12 @@
 use super::*;
+use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase};
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use crate::render::{FrontMatterStyle, Headings, RenderErrors, TableRows};
+use crate::typeset::theme::{Paper, Theme};
 
 fn env(home: Option<&str>, xdg: Option<&str>) -> Environment {
     Environment {

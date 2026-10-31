@@ -5,8 +5,8 @@
 use std::ops::Range;
 use std::rc::Rc;
 
-use crate::config::SearchCase;
 use crate::session::fade::Fade;
+use crate::session::settings::SearchCase;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Underline;
 use crate::typeset::reading::engine;
