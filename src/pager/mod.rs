@@ -12,7 +12,7 @@
 //! traits and handles it is given.
 //!
 //! A feature is a file of its own in the state engine (`src/session/`); a
-//! key is a binding there. Work on files and programs belongs to the
+//! key is a command there, in `src/session/commands.rs`. Work on files and programs belongs to the
 //! platform (`src/main.rs` and the rest of `src/`), and bytes for the
 //! terminal to the terminal layer (`src/present/`).
 
@@ -1209,10 +1209,10 @@ impl State {
             Some(Action::Follow) => return Pressed::Follow,
             Some(Action::Reading) => return Pressed::Reading,
             Some(Action::Wide) => return Pressed::Wide,
-            Some(Action::Sideways(step))
-                if self.bands.scroll(layout.lines, layout.places, step) =>
-            {
-                return Pressed::Bands;
+            Some(Action::Sideways(step)) => {
+                if self.bands.scroll(layout.lines, layout.places, step) {
+                    return Pressed::Bands;
+                }
             }
             Some(Action::SelectLink { back }) => {
                 let visible = layout.view.visible();
@@ -1221,7 +1221,8 @@ impl State {
                     (self.links).select_scrolling(&mut self.bands, lines, places, visible, back);
                 self.bands_moved |= scrolled;
             }
-            _ => {}
+            // Answered above, or in `pointed`.
+            Some(Action::Dismiss | Action::Click { .. } | Action::Wheel { .. }) | None => {}
         }
         Pressed::Nothing
     }
