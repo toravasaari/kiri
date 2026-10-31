@@ -155,7 +155,7 @@ terminals other than kitty and in kitty before 0.40.
 
 **Code colours are hard to read.** Read **Background**. With `unknown`,
 the terminal did not answer `\e]11;`, and kiri does not know whether the
-page is light or dark; `--light` or `--dark` decides. With the wrong
+page is light or dark; a paper theme (`--light` or `--dark`) decides. With the wrong
 value, compare the `rgb:` value in the answer with the terminal's
 background.
 

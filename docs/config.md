@@ -128,6 +128,11 @@ given decides instead:
 3. `width` in the configuration file, such as `width = 80`
 4. the terminal's width
 
+A width of 0 means the terminal's own width, as `max_width = 0` does in a
+theme. It is a choice like any other, so `width = 0` in the file beats
+nothing but a flag or a variable, and `KIRI_WIDTH=0 kiri doc.md` uses the
+terminal's width whatever the file says.
+
 ## Margins
 
 The theme's margins, heading indents and code block padding are kept
@@ -170,15 +175,16 @@ The first of these that is given chooses the [theme](theme.md):
 path separator and no `.toml` ending is a name: `mine` is `mine.toml` in
 the themes directory (`$XDG_CONFIG_HOME/kiri/themes/` or
 `~/.config/kiri/themes/`), and `light` and `dark` are the built-in paper
-themes when no such file is there. Anything else is a path, as
+themes unless a `light.toml` or `dark.toml` is in that directory. Anything else is a path, as
 `~/themes/mine.toml` or `./mine`. An unknown name is an error that lists
-the names kiri knows:
+the names kiri knows, and says how to write a file:
 
 ```sh
 kiri --theme mine doc.md        # ~/.config/kiri/themes/mine.toml
 KIRI_THEME=dark kiri doc.md     # the dark paper theme
 kiri --theme mien doc.md
 # kiri: theme `mien` is not one of the themes: dark, light, mine
+# (a file in this directory is ./mien)
 ```
 
 A name in the configuration file is not relative to the file; a path is,
@@ -201,9 +207,7 @@ instead:
    whatever the configuration file says; an empty value counts as unset,
    and any other value, such as `yes`, is left out with a warning:
    `KIRI_NO_IMAGES=yes kiri doc.md` says
-   ``KIRI_NO_IMAGES: `yes` is not on, off, 1 or 0; left out``. Before this,
-   every value but `0` turned images off, so `off` meant images off; now
-   it means images on
+   ``KIRI_NO_IMAGES: `yes` is not on, off, 1 or 0; left out``
 3. `images` in the configuration file
 
 With images off, kiri reads no image files and shows every image as its
@@ -524,8 +528,8 @@ and a variable, the flag first:
 
 The flags take the names, `on` or `off` for the panel; the variables
 also take `1` and `0`. An empty variable counts as unset, and any other
-value is left out with a warning. `diagrams.mermaid.command` and `auto_detect` are tables
-per language and stay in the file.
+value is left out with a warning. `diagrams.mermaid.command` and
+`auto_detect` are tables per language and stay in the file.
 
 ## Render errors
 
