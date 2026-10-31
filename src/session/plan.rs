@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::config::{Follow, InitialLoad, Paging};
 use crate::typeset::caps::Capabilities;
+use crate::typeset::input::Input;
 use crate::typeset::reading::page::Wide;
 use crate::typeset::theme::Paper;
 
@@ -32,12 +33,12 @@ pub fn only_always(paging: Paging) -> Paging {
     }
 }
 
-/// `paging` for several files: when `images_only`, each of them is shown
+/// `paging` for several files: when `alone`, each of them is shown
 /// on its own as an image is, such as an image file or a diagram file, and
 /// they are paged only when paging is `always`; with a document among
 /// them, the files follow `paging` as one document does.
-pub fn for_files(paging: Paging, images_only: bool) -> Paging {
-    match images_only {
+pub fn for_files(paging: Paging, alone: bool) -> Paging {
+    match alone {
         true => only_always(paging),
         false => paging,
     }
@@ -185,6 +186,80 @@ pub fn route(paths: &[PathBuf], stdin_is_terminal: bool) -> Route {
         paths if paths.iter().filter(|path| *path == stdin).count() > 1 => Route::RepeatedStdin,
         _ => Route::Several,
     }
+}
+
+/// Whether a file of `input` is shown on its own, as an image is: an image
+/// or a diagram, which are paged only as an image is, and read again by
+/// nobody.
+pub fn shown_alone(input: Input) -> bool {
+    matches!(input, Input::Image(_) | Input::Diagram(_))
+}
+
+impl Route {
+    /// Whether the run shows one file, or standard input, on its own,
+    /// without a header.
+    pub fn is_alone(self) -> bool {
+        matches!(self, Route::One | Route::Stdin)
+    }
+}
+
+/// What the files of a run are, for choosing their paging and what is told.
+#[derive(Debug, Clone, Copy)]
+pub struct Files {
+    pub route: Route,
+    /// Every file is an image.
+    pub images_only: bool,
+    /// Every file is shown on its own, as an image is: an image or a
+    /// diagram.
+    pub alone: bool,
+    /// The one file is a document read from a regular file, which can be
+    /// read again.
+    pub reloadable: bool,
+    /// The one file is shown as text, whatever its extension says.
+    pub text: bool,
+}
+
+/// Whether diagrams are drawn for `files`, given the setting `diagrams`: not
+/// in a file alone that is shown as text, whose diagram stays source, though
+/// it is reloaded or its pictures loaded later.
+pub fn diagrams(diagrams: bool, files: &Files) -> bool {
+    diagrams && !(files.route.is_alone() && files.text)
+}
+
+/// `paging` for `files`, with `follow` for a file that is followed. Several
+/// files follow [`for_files`]. Standard input is paged only with `always`.
+/// For one file, an image is paged only with `always`, a diagram follows the
+/// setting until it is drawn, and a document is paged as [`for_follow`] says.
+pub fn paging(paging: Paging, files: &Files, follow: Follow) -> Paging {
+    match files.route {
+        Route::Several => for_files(paging, files.alone),
+        Route::Stdin => for_standard_input(paging),
+        _ if files.images_only => only_always(paging),
+        _ if files.alone => paging,
+        _ => for_follow(paging, follow, files.reloadable),
+    }
+}
+
+/// Whether the files of a run stay `paged` once a file `alone` is `drawn`: a
+/// drawn diagram alone is paged only when `paging` is `always`, as an image
+/// is.
+pub fn paged_when_drawn(paged: bool, alone: bool, drawn: bool, paging: Paging) -> bool {
+    paged && !(alone && drawn && paging != Paging::Always)
+}
+
+/// Whether to tell that reading mode is not shown, when it is `asked` for:
+/// not for a file `alone` that is `bare`, an image, a diagram or text written
+/// as it is, unless it is paged as an image is (see [`pages_alone`]): such a
+/// file is shown on its own, and reading mode is no part of showing it.
+pub fn tells_reading(asked: bool, alone: bool, bare: bool, as_image: bool) -> bool {
+    asked && !(alone && bare && !as_image)
+}
+
+/// Whether the warnings about the settings are told, given whether `files`
+/// are `paged`: always, but for an image alone that is printed, which is
+/// shown without them.
+pub fn tells_warnings(files: &Files, paged: bool) -> bool {
+    paged || !(files.route.is_alone() && files.images_only)
 }
 
 #[cfg(test)]
@@ -398,5 +473,111 @@ mod tests {
         for paging in [Paging::Always, Paging::Never] {
             assert_eq!(for_follow(paging, Follow::On, true), paging, "{paging:?}");
         }
+    }
+
+    fn files(route: Route, images_only: bool, alone: bool, reloadable: bool) -> Files {
+        Files {
+            route,
+            images_only,
+            alone,
+            reloadable,
+            text: false,
+        }
+    }
+
+    #[test]
+    fn a_diagram_alone_that_is_drawn_is_paged_only_when_paging_is_always() {
+        assert!(!paged_when_drawn(true, true, true, Paging::Auto));
+        assert!(paged_when_drawn(true, true, true, Paging::Always));
+        assert!(paged_when_drawn(true, true, false, Paging::Auto));
+        assert!(paged_when_drawn(true, false, true, Paging::Auto));
+        assert!(!paged_when_drawn(false, true, false, Paging::Always));
+    }
+
+    #[test]
+    fn reading_mode_is_told_unless_a_bare_file_alone_is_printed() {
+        assert!(tells_reading(true, true, false, false));
+        assert!(tells_reading(true, true, true, true));
+        assert!(tells_reading(true, false, true, false));
+        assert!(!tells_reading(true, true, true, false));
+        assert!(!tells_reading(false, true, false, true));
+    }
+
+    #[test]
+    fn a_file_alone_shown_as_text_draws_no_diagrams() {
+        let text = Files {
+            text: true,
+            ..files(Route::One, false, false, true)
+        };
+        assert!(!diagrams(true, &text));
+        assert!(!diagrams(false, &text));
+        // Among several files, there is nothing to load again.
+        let several = Files {
+            route: Route::Several,
+            ..text
+        };
+        assert!(diagrams(true, &several));
+        assert!(diagrams(true, &files(Route::One, false, false, true)));
+    }
+
+    #[test]
+    fn several_files_are_paged_as_for_files() {
+        let images = files(Route::Several, true, true, false);
+        assert_eq!(paging(Paging::Auto, &images, Follow::Off), Paging::Never);
+        assert_eq!(paging(Paging::Always, &images, Follow::Off), Paging::Always);
+        let documents = files(Route::Several, false, false, false);
+        assert_eq!(paging(Paging::Auto, &documents, Follow::On), Paging::Auto);
+    }
+
+    #[test]
+    fn standard_input_and_an_image_alone_are_paged_only_when_paging_is_always() {
+        let stdin = files(Route::Stdin, false, false, false);
+        let image = files(Route::One, true, true, false);
+        for files in [stdin, image] {
+            assert_eq!(paging(Paging::Auto, &files, Follow::On), Paging::Never);
+            assert_eq!(paging(Paging::Always, &files, Follow::On), Paging::Always);
+        }
+    }
+
+    #[test]
+    fn a_diagram_alone_is_paged_as_the_setting_says() {
+        let diagram = files(Route::One, false, true, false);
+        for setting in [Paging::Always, Paging::Auto, Paging::Never] {
+            assert_eq!(paging(setting, &diagram, Follow::On), setting);
+        }
+    }
+
+    #[test]
+    fn a_document_alone_is_paged_when_it_is_followed() {
+        let file = files(Route::One, false, false, true);
+        assert_eq!(paging(Paging::Auto, &file, Follow::Auto), Paging::Always);
+        assert_eq!(paging(Paging::Auto, &file, Follow::Off), Paging::Auto);
+        let pipe = files(Route::One, false, false, false);
+        assert_eq!(paging(Paging::Auto, &pipe, Follow::On), Paging::Auto);
+    }
+
+    #[test]
+    fn the_settings_warnings_are_left_out_only_for_an_image_alone_that_is_printed() {
+        let image = files(Route::One, true, true, false);
+        assert!(!tells_warnings(&image, false));
+        assert!(tells_warnings(&image, true));
+        let images = files(Route::Several, true, true, false);
+        assert!(tells_warnings(&images, false));
+        let document = files(Route::One, false, false, true);
+        assert!(tells_warnings(&document, false));
+    }
+
+    #[test]
+    fn images_and_diagrams_are_shown_on_their_own() {
+        assert!(shown_alone(Input::Diagram("mermaid")));
+        assert!(!shown_alone(Input::Markdown));
+        assert!(!shown_alone(Input::Text));
+    }
+
+    #[test]
+    fn a_file_or_standard_input_is_alone_and_several_files_are_not() {
+        assert!(Route::One.is_alone());
+        assert!(Route::Stdin.is_alone());
+        assert!(!Route::Several.is_alone());
     }
 }

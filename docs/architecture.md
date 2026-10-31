@@ -73,7 +73,10 @@ finds a term in any of them, and reads every image file before it opens;
 when they are printed, an image file is read only as it is shown. An
 image file or a diagram file given alone takes the same way to the pager
 when paging is `always`, as one file among one: the pager shows it as a
-document on its own, without a header, and has nothing to reload.
+document on its own, without a header, and has nothing to reload. A
+document given alone goes the same way, with a few differences from
+several files: the pager reads it again when it changes, if it is a
+regular file, and the warnings about it are told without its name.
 
 There is one terminal backend, not one per terminal. It lays the model out
 as styled lines of a fixed width, then writes those as bytes. What it may
@@ -577,7 +580,6 @@ The later work that the rows name, in words:
 - **The startup plan:** the decisions of `main.rs` are in
   `session/plan.rs`, with what they ask of the terminal and the files
   passed in as values.
-- **One route:** the routes for one file and for several become one.
 - **The pager's loop:** the pager's state and its loop are split, the state
   into the state engine and the loop into the platform, as messages in and
   effects out.
@@ -593,7 +595,7 @@ The later work that the rows name, in words:
 | Module | Part | After the move |
 |---|---|---|
 | `src/lib.rs` | platform | stays; declares the three parts |
-| `src/main.rs` | mixed | stays. Platform: the command line, opening files and standard input, the shells, loading, the file reload. State engine: the startup decisions, such as whether a run pages, are in `src/session/plan.rs`; `main.rs` reads the terminal and the files and passes the answers in. One route still to make: the one-file and many-files routes are two |
+| `src/main.rs` | mixed | stays. Platform: the command line, opening files and standard input, the shells, loading, the file reload. State engine: the startup decisions, such as whether a run pages, are in `src/session/plan.rs`; `main.rs` reads the terminal and the files and passes the answers in. One route: `run` shows one file as the special case of several, with no header, and with reloading, following and the unnamed warnings for it alone |
 | `src/config.rs` | mixed | stays. Platform: `Environment`, which reads the process's variables, the file, and resolving a setting from the flags, the environment, the file and its default. State engine: the setting types the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump`). `Passthrough` stays a setting type with the others, though it is read by capability detection, the command line and `--doctor`; capability detection takes its value, and the variables it reads (`TMUX`, `TMUX_PANE`, `NO_COLOR`, `COLORTERM`, `TERM_PROGRAM` and `VTE_VERSION`), as arguments, not `Environment`. The config split |
 | `src/config/tests.rs` | follows `config.rs` | stays; goes with its pieces in the config split |
 | `src/doctor.rs` | platform | stays (it searches `PATH` through `diagrams::find`) |
@@ -812,11 +814,11 @@ The paths marked new are for the maintainer to confirm.
 ### What `main.rs` is
 
 `src/main.rs` is the binary's entry point and, today, far more than the
-command line: it is some 2,500 lines with no unit tests. Besides `Cli` and
-its clap definitions it opens files and standard input; has two routes, one
-for a single file and one for several; prints documents; starts the pager;
-loads images and diagrams, in the foreground, on threads and in the
-background; reloads files for the pager (`FileReload`); and runs
+command line: it is some 2,150 lines with no unit tests. Besides `Cli` and
+its clap definitions it opens files and standard input; has one route, in
+which a single file is the special case of several; prints documents;
+starts the pager; loads images and diagrams, in the foreground, on threads
+and in the background; reloads files for the pager (`FileReload`); and runs
 `--doctor` and `--list-emojis`. The decisions it makes at start need no I/O,
 and they are in `src/session/plan.rs`. It does not belong to any one part,
 and is meant to shrink to wiring the others together.
