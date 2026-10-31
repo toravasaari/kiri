@@ -671,7 +671,7 @@ fn the_pager_shows_why_a_diagram_was_not_drawn_and_finds_it() {
         "pager-render-error",
         prepare,
         &["--mode", "kitty", "diagram.md"],
-        5,
+        7,
         None,
         |frames, terminal, _| {
             if typed < frames.min(keys.len()) {

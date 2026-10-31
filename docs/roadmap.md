@@ -1454,9 +1454,6 @@ go.
   layer for search, as PDF (4.12.2) shows pages as images; Kindle
   formats through Calibre's `ebook-convert`. Some EPUB 3 books, such as
   children's books, carry sound.
-- A margin at the end of a document in the pager: two empty rows after
-  the last block, so that a paragraph or a code block at the end does
-  not touch the status line.
 - A way to force the light or dark side of kiri's own theme, as
   `--light` and `--dark` did before they became names of themes, such
   as `--dark --theme -`, where `-` names the built-in theme.

@@ -106,8 +106,13 @@ impl View {
     }
 
     /// The top of the last page: the first line from which the rest of
-    /// the document fits in the window.
+    /// the document fits in the window above [`BOTTOM_MARGIN`] empty rows.
+    /// A document that fits in the window has no other page.
     fn last_top(&self) -> usize {
+        if self.heights.iter().sum::<usize>() <= self.rows {
+            return 0;
+        }
+        let room = self.rows.saturating_sub(BOTTOM_MARGIN);
         let mut used = 0;
         let fitting = self
             .heights
@@ -115,11 +120,12 @@ impl View {
             .rev()
             .take_while(|&&height| {
                 used += height;
-                used <= self.rows
+                used <= room
             })
             .count();
-        // When not even the last line fits, the last page starts at it and
-        // shows nothing; the pager gives no line taller than the window.
+        // When not even the last line fits above the margin, the last page
+        // starts at it, with less margin or none; the pager gives no line
+        // taller than the window.
         (self.heights.len() - fitting).min(self.heights.len().saturating_sub(1))
     }
 
@@ -334,6 +340,10 @@ impl View {
     }
 }
 
+/// The empty rows at the end of the last page, so that the end of the
+/// document does not touch the status line below the window.
+const BOTTOM_MARGIN: usize = 2;
+
 /// The rows of the lines before a change that [`View::show_change`] shows
 /// above it, in a window of at least four times as many rows.
 const ABOVE_CHANGE: usize = 3;
@@ -382,9 +392,9 @@ mod tests {
         let view = scrolled(plain(10, 4), &[Motion::Down(1)]);
         assert_eq!(view.visible(), 1..5);
         let view = scrolled(view, &[Motion::Down(100)]);
-        assert_eq!(view.visible(), 6..10);
+        assert_eq!(view.visible(), 8..10);
         let view = scrolled(view, &[Motion::Up(2)]);
-        assert_eq!(view.visible(), 4..8);
+        assert_eq!(view.visible(), 6..10);
         let view = scrolled(view, &[Motion::Up(100)]);
         assert_eq!(view.visible(), 0..4);
     }
@@ -393,6 +403,26 @@ mod tests {
     fn a_document_that_fits_does_not_scroll() {
         let view = scrolled(plain(3, 4), &[Motion::Down(1), Motion::End]);
         assert_eq!(view.top(), 0);
+        // Not even to make room for the margin at the end.
+        let view = scrolled(plain(4, 4), &[Motion::Down(1), Motion::End]);
+        assert_eq!(view.top(), 0);
+    }
+
+    #[test]
+    fn the_last_page_ends_in_two_empty_rows() {
+        let view = scrolled(plain(10, 6), &[Motion::End]);
+        assert_eq!(view.visible(), 6..10);
+        assert_eq!(view.line_at(3), Some(9));
+        assert_eq!(view.line_at(4), None);
+        assert_eq!(view.position().percent, 100);
+    }
+
+    #[test]
+    fn a_last_line_too_tall_for_the_margin_gets_less_of_it() {
+        let view = scrolled(View::new(vec![1, 1, 1, 1, 1, 3], 4), &[Motion::End]);
+        assert_eq!(view.visible(), 5..6);
+        assert_eq!(view.line_at(2), Some(5));
+        assert_eq!(view.line_at(3), None);
     }
 
     #[test]
@@ -400,9 +430,9 @@ mod tests {
         let view = scrolled(plain(10, 4), &[Motion::PageDown]);
         assert_eq!(view.visible(), 4..8);
         let view = scrolled(view, &[Motion::PageDown]);
-        assert_eq!(view.visible(), 6..10);
+        assert_eq!(view.visible(), 8..10);
         let view = scrolled(view, &[Motion::PageUp]);
-        assert_eq!(view.visible(), 2..6);
+        assert_eq!(view.visible(), 4..8);
         let view = scrolled(view, &[Motion::PageUp]);
         assert_eq!(view.visible(), 0..4);
     }
@@ -420,7 +450,7 @@ mod tests {
     #[test]
     fn start_and_end_jump_to_the_first_and_the_last_page() {
         let view = scrolled(plain(10, 4), &[Motion::End]);
-        assert_eq!(view.visible(), 6..10);
+        assert_eq!(view.visible(), 8..10);
         let view = scrolled(view, &[Motion::Start]);
         assert_eq!(view.visible(), 0..4);
     }
@@ -446,8 +476,8 @@ mod tests {
 
     #[test]
     fn the_last_page_shows_the_last_line_whole() {
-        let view = scrolled(View::new(vec![1, 1, 1, 1, 2], 3), &[Motion::End]);
-        assert_eq!(view.visible(), 3..5);
+        let view = scrolled(View::new(vec![1, 1, 1, 1, 2], 4), &[Motion::End]);
+        assert_eq!(view.visible(), 4..5);
         let view = scrolled(View::new(vec![1, 1, 1, 3, 1], 3), &[Motion::End]);
         assert_eq!(view.visible(), 4..5);
     }
@@ -506,7 +536,7 @@ mod tests {
         view.reveal(5);
         assert_eq!(view.top(), 5);
         view.reveal(9);
-        assert_eq!(view.top(), 6);
+        assert_eq!(view.top(), 8);
         view.reveal(1);
         assert_eq!(view.top(), 1);
         // A heading of two rows is shown whole.
@@ -523,8 +553,8 @@ mod tests {
         view.go_to(0);
         assert_eq!(view.top(), 0);
         // No further than the last page.
-        view.go_to(8);
-        assert_eq!(view.top(), 6);
+        view.go_to(9);
+        assert_eq!(view.top(), 8);
     }
 
     #[test]
@@ -536,9 +566,9 @@ mod tests {
         // At the end, the view stays on the last page.
         let mut view = scrolled(plain(100, 10), &[Motion::End]);
         view.resize(vec![1; 100], Vec::new(), 20);
-        assert_eq!(view.visible(), 80..100);
+        assert_eq!(view.visible(), 82..100);
         view.resize(vec![1; 100], Vec::new(), 5);
-        assert_eq!(view.visible(), 95..100);
+        assert_eq!(view.visible(), 97..100);
     }
 
     /// The heights and blocks of lines.
@@ -584,7 +614,7 @@ mod tests {
         let mut view = View::new(heights, 5).with_blocks(blocks);
         view.scroll(Motion::End);
         view.resize(new_heights, new_blocks, 5);
-        assert_eq!(view.visible(), 21..26);
+        assert_eq!(view.visible(), 23..26);
     }
 
     #[test]
@@ -743,10 +773,10 @@ mod tests {
     fn a_change_at_the_end_shows_the_last_page() {
         let mut view = plain(40, 10);
         view.show_change(38..40);
-        assert_eq!(view.visible(), 30..40);
+        assert_eq!(view.visible(), 32..40);
         view = plain(40, 10);
         view.show_change(40..40);
-        assert_eq!(view.visible(), 30..40);
+        assert_eq!(view.visible(), 32..40);
     }
 
     #[test]

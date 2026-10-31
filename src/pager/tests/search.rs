@@ -137,9 +137,9 @@ fn n_after_scrolling_away_goes_on_from_the_view() {
     // At the first match, then to the end and back: n takes the first
     // match in the view, not the one after the match left behind.
     let reads: &[&[u8]] = &[b"/line 2\r", b"G", b"n"];
-    let frames = shown(&numbers(30), 60, 6, reads);
+    let frames = shown(&numbers(30), 60, 8, reads);
     assert_eq!(frames.len(), 4, "{frames:#?}");
-    let status = status_row(&frames[3], 6);
+    let status = status_row(&frames[3], 8);
     assert!(status.contains("/line 2 10/11"), "{frames:#?}");
     assert!(unstyled(&frames[3]).contains("Line 29"), "{frames:#?}");
 }
