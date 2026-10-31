@@ -16,11 +16,11 @@ fn examples() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("examples")
 }
 
-/// Draws Mermaid without merman, as wide as possible so the layout must fit
-/// it: an empty SVG 1500 CSS pixels wide, wider than the widest window the
-/// fit test tries, and a text row high for each line. A diagram whose last
-/// arrow leads nowhere fails, as it does in merman, with a reason long
-/// enough to wrap.
+/// Draws Mermaid without merman, too wide for any window so the layout must
+/// fit it: an empty SVG 1500 CSS pixels wide, wider than the widest window
+/// the fit test tries, and 20 CSS pixels high for each line of source. A
+/// diagram whose last arrow leads nowhere fails, as it does in merman, with
+/// a reason long enough to wrap.
 struct WideDiagrams;
 
 impl Renderer for WideDiagrams {
