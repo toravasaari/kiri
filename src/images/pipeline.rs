@@ -360,7 +360,7 @@ fn context(loading: &Loading, renderers: Option<Renderers>) -> Context {
         renderer,
         theme: loading.theme,
         formula: loading.formula,
-        panel: loading.settings.diagram_panel,
+        panel: loading.settings.diagram_background_panel,
         largest: loading.largest,
         max_file_size: loading.max_file_size,
     }
@@ -389,7 +389,7 @@ fn load_kept(
         theme: loading.theme,
         formula: loading.formula,
         progress,
-        panel: loading.settings.diagram_panel,
+        panel: loading.settings.diagram_background_panel,
         largest: loading.largest,
         headings: loading.headings,
         ..LoadOptions::default()

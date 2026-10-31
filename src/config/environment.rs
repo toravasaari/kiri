@@ -1,9 +1,11 @@
 //! The process's environment: the variables kiri reads, from one table, and
 //! the directories that `HOME` and the XDG variables give.
 
+use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
+use super::registry::SETTINGS;
 use super::types::{Origin, Setting};
 
 /// `Environment`, with a field for each variable, from one table, so that
@@ -14,13 +16,20 @@ macro_rules! environment {
         #[derive(Debug, Clone, Default, PartialEq, Eq)]
         pub struct Environment {
             $($(#[$doc])* pub $field: Option<OsString>,)*
+            /// The variables that the settings read, from the registry of
+            /// settings, by name.
+            pub variables: BTreeMap<&'static str, OsString>,
         }
 
         impl Environment {
             /// The environment with each variable from `var`.
             pub(super) fn read(var: impl Fn(&'static str) -> Option<OsString>) -> Self {
+                let names = SETTINGS.iter().filter_map(|setting| setting.env.name());
                 Self {
                     $($field: var($name),)*
+                    variables: names
+                        .filter_map(|name| Some((name, var(name)?)))
+                        .collect(),
                 }
             }
 
@@ -28,7 +37,7 @@ macro_rules! environment {
             pub fn get(&self, name: &str) -> Option<&OsStr> {
                 match name {
                     $($name => self.$field.as_deref(),)*
-                    _ => None,
+                    _ => self.variables.get(name).map(OsString::as_os_str),
                 }
             }
         }
@@ -48,32 +57,6 @@ environment! {
     tmpdir: "TMPDIR",
     /// `KIRI_CONFIG`: the configuration file to read instead of the default.
     kiri_config: "KIRI_CONFIG",
-    /// `KIRI_THEME`: a theme file.
-    kiri_theme: "KIRI_THEME",
-    /// `KIRI_NO_IMAGES`: images off unless empty or `0`.
-    kiri_no_images: "KIRI_NO_IMAGES",
-    /// `KIRI_PAGING`: `always`, `auto` or `never`, or `1` or `0`.
-    kiri_paging: "KIRI_PAGING",
-    /// `KIRI_FOLLOW`: `on`, `off` or `auto`, or `1` or `0`.
-    kiri_follow: "KIRI_FOLLOW",
-    /// `KIRI_FOLLOW_JUMP`: `first`, `last` or `most`.
-    kiri_follow_jump: "KIRI_FOLLOW_JUMP",
-    /// `KIRI_INITIAL_LOAD`: `wait` or `background`.
-    kiri_initial_load: "KIRI_INITIAL_LOAD",
-    /// `KIRI_PASSTHROUGH`: `detect`, `none` or `tmux`.
-    kiri_passthrough: "KIRI_PASSTHROUGH",
-    /// `KIRI_FRONT_MATTER`: `table`, `code`, `hide` or `off`.
-    kiri_front_matter: "KIRI_FRONT_MATTER",
-    /// `KIRI_HEADINGS`: `auto`, `sized`, `images` or `plain`.
-    kiri_headings: "KIRI_HEADINGS",
-    /// `KIRI_TABLE_ROWS`: `off`, `zebra`, `lines`, `indent` or `underline`.
-    kiri_table_rows: "KIRI_TABLE_ROWS",
-    /// `KIRI_DIAGRAMS`: `on` or `off`, or `1` or `0`.
-    kiri_diagrams: "KIRI_DIAGRAMS",
-    /// `KIRI_RENDER_ERRORS`: `inline`, `stderr` or `both`.
-    kiri_render_errors: "KIRI_RENDER_ERRORS",
-    /// `KIRI_MOUSE`: `on` or `off`, or `1` or `0`.
-    kiri_mouse: "KIRI_MOUSE",
     /// `PATH`, where kiri looks for a program that draws diagrams.
     path: "PATH",
     /// `NVM_DIR`: where nvm keeps the Node versions it installs.

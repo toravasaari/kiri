@@ -2118,6 +2118,7 @@ fn options(cli: &Cli) -> Options {
         render_errors: flag(cli.render_errors, "--render-errors"),
         mouse: (flag(cli.mouse.then_some(true), "--mouse"))
             .or(flag(cli.no_mouse.then_some(false), "--no-mouse")),
+        ..Options::default()
     }
 }
 
@@ -2137,8 +2138,7 @@ fn flag<T>(value: Option<T>, name: &'static str) -> Option<Setting<T>> {
     value.map(|value| Setting::new(value, Origin::Flag(name)))
 }
 
-/// The value of the argument `id`, `value`, from the flag `name` when the
-/// command line gives it, and otherwise clap's default.
+/// `value` of the argument `id`: from the flag `name`, else clap's default.
 fn or_default<T>(matches: &ArgMatches, id: &str, name: &'static str, value: T) -> Setting<T> {
     let given = matches.value_source(id) == Some(ValueSource::CommandLine);
     match given {

@@ -23,7 +23,6 @@ fn each_variable_is_read_and_got_by_its_name() {
         ("HOME", &env.home),
         ("XDG_CONFIG_HOME", &env.xdg_config_home),
         ("TMPDIR", &env.tmpdir),
-        ("KIRI_PAGING", &env.kiri_paging),
         ("NPM_CONFIG_PREFIX", &env.npm_config_prefix),
         ("VTE_VERSION", &env.vte_version),
     ] {
@@ -32,6 +31,48 @@ fn each_variable_is_read_and_got_by_its_name() {
         assert_eq!(env.get(name), Some(value.as_os_str()), "{name}");
     }
     assert_eq!(env.get("SHELL"), None);
+}
+
+#[test]
+fn the_variables_of_the_settings_come_from_the_registry() {
+    let env = Environment::read(|name| Some(OsString::from(format!("<{name}>"))));
+    let names: Vec<&str> = SETTINGS
+        .iter()
+        .filter_map(|entry| entry.env.name())
+        .collect();
+    assert!(names.contains(&"KIRI_PAGING") && names.contains(&"KIRI_NO_IMAGES"));
+    for name in names {
+        let value = OsString::from(format!("<{name}>"));
+        assert_eq!(env.get(name), Some(value.as_os_str()), "{name}");
+    }
+}
+
+#[test]
+fn a_setting_is_named_after_its_key() {
+    // `diagrams.timeout` is `diagram_timeout`, and the key `diagrams` alone
+    // is `diagrams`. A key with a `<language>` in it is a table of
+    // languages, whose settings are maps.
+    for entry in SETTINGS {
+        let Some(key) = entry.key.filter(|key| !key.contains('<')) else {
+            continue;
+        };
+        let name = key.replace("diagrams.", "diagram_");
+        assert_eq!(entry.field, name, "{key}");
+    }
+}
+
+#[test]
+fn the_registry_has_each_setting_once() {
+    let mut fields: Vec<&str> = SETTINGS.iter().map(|entry| entry.field).collect();
+    fields.sort_unstable();
+    let count = fields.len();
+    fields.dedup();
+    assert_eq!(fields.len(), count);
+    let mut flags: Vec<&str> = SETTINGS.iter().filter_map(|entry| entry.flag).collect();
+    flags.sort_unstable();
+    let count = flags.len();
+    flags.dedup();
+    assert_eq!(flags.len(), count);
 }
 
 #[test]
@@ -338,7 +379,7 @@ fn the_configuration_file_theme_comes_before_theme_toml() {
 #[test]
 fn the_command_line_theme_comes_before_kiri_theme() {
     let mut env = env(Some("/home/u"), None);
-    env.kiri_theme = Some("env.toml".into());
+    env.variables.insert("KIRI_THEME", "env.toml".into());
     assert_eq!(
         theme_source(Some(Path::new("cli.toml")), None, &env, &Config::default()).value,
         ThemeSource::File(PathBuf::from("cli.toml"))
@@ -348,7 +389,7 @@ fn the_command_line_theme_comes_before_kiri_theme() {
 #[test]
 fn kiri_theme_comes_before_the_configuration_file() {
     let mut env = env(Some("/home/u"), None);
-    env.kiri_theme = Some("env.toml".into());
+    env.variables.insert("KIRI_THEME", "env.toml".into());
     assert_eq!(
         theme_source(None, None, &env, &with_theme("/c/t.toml")).value,
         ThemeSource::File(PathBuf::from("env.toml"))
@@ -358,7 +399,7 @@ fn kiri_theme_comes_before_the_configuration_file() {
 #[test]
 fn an_empty_kiri_theme_is_unset() {
     let mut env = env(Some("/home/u"), None);
-    env.kiri_theme = Some("".into());
+    env.variables.insert("KIRI_THEME", "".into());
     assert_eq!(
         theme_source(None, None, &env, &with_theme("/c/t.toml")).value,
         ThemeSource::File(PathBuf::from("/c/t.toml"))
@@ -388,7 +429,7 @@ fn a_paper_theme_comes_after_the_command_line_theme() {
 #[test]
 fn a_paper_theme_comes_before_kiri_theme_and_the_configuration_file() {
     let mut env = env(Some("/home/u"), None);
-    env.kiri_theme = Some("env.toml".into());
+    env.variables.insert("KIRI_THEME", "env.toml".into());
     assert_eq!(
         theme_source(None, Some(Paper::Light), &env, &with_theme("/c/t.toml")).value,
         ThemeSource::Paper(Paper::Light)
@@ -650,7 +691,7 @@ fn the_mouse_key_turns_the_mouse_on_or_off() {
 #[test]
 fn the_diagrams_key_turns_diagrams_on_or_off() {
     check_key(
-        |config| config.diagrams,
+        |config| config.diagrams.enabled,
         &[("diagrams = false\n", false), ("diagrams = true\n", true)],
         &[],
     );
@@ -659,13 +700,13 @@ fn the_diagrams_key_turns_diagrams_on_or_off() {
 #[test]
 fn the_diagrams_table_turns_diagrams_on_or_off_beside_a_language_table() {
     let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
-    let enabled = |text| parsed(text).map(|config| config.diagrams);
+    let enabled = |text| parsed(text).map(|config| config.diagrams.enabled);
     assert_eq!(enabled("[diagrams]\nenabled = false\n"), Ok(Some(false)));
     assert_eq!(enabled("[diagrams]\nenabled = true\n"), Ok(Some(true)));
     assert_eq!(enabled("[diagrams]\n"), Ok(None));
     let both = "[diagrams]\nenabled = false\n\n\
                     [diagrams.mermaid]\ncommand = [\"mmdc\", \"{input}\", \"{output}\"]\n";
-    let config = parsed(both).map(|config| (config.diagrams, config.diagram_commands));
+    let config = parsed(both).map(|config| (config.diagrams.enabled, config.diagrams.commands));
     let command = ["mmdc", "{input}", "{output}"].map(String::from).to_vec();
     assert_eq!(
         config,
@@ -681,7 +722,7 @@ fn the_diagrams_table_turns_diagrams_on_or_off_beside_a_language_table() {
 #[test]
 fn the_diagrams_table_gives_the_time_limit_in_seconds() {
     let parsed = |text: &str| parse(text, Path::new("/c"), &Environment::default());
-    let timeout = |text: &str| parsed(text).map(|config| config.diagram_timeout);
+    let timeout = |text: &str| parsed(text).map(|config| config.diagrams.timeout);
     let seconds = |seconds| Ok(Some(Duration::from_secs_f64(seconds)));
     assert_eq!(timeout("[diagrams]\ntimeout = 5\n"), seconds(5.0));
     assert_eq!(timeout("[diagrams]\ntimeout = 2.5\n"), seconds(2.5));
@@ -707,7 +748,7 @@ fn the_diagrams_table_gives_the_time_limit_in_seconds() {
 #[test]
 fn the_diagrams_table_turns_the_background_panel_off() {
     let parsed = |text: &str| parse(text, Path::new("/c"), &Environment::default());
-    let panel = |text: &str| parsed(text).map(|config| config.diagram_panel);
+    let panel = |text: &str| parsed(text).map(|config| config.diagrams.background_panel);
     assert_eq!(
         panel("[diagrams]\nbackground_panel = false\n"),
         Ok(Some(false))
@@ -719,22 +760,27 @@ fn the_diagrams_table_turns_the_background_panel_off() {
     assert_eq!(panel("[diagrams]\n"), Ok(None));
     let choices = |config: &Config| choose(&Options::default(), &Environment::default(), config);
     assert_eq!(
-        choices(&Config::default()).diagram_panel,
+        choices(&Config::default()).diagram_background_panel,
         Setting::new(true, Origin::Default)
     );
     let config = parsed("[diagrams]\nbackground_panel = false\n").unwrap();
     assert_eq!(
-        choices(&config).diagram_panel,
+        choices(&config).diagram_background_panel,
         Setting::new(false, Origin::File)
     );
-    assert!(!choices(&config).with_theme(Theme::default()).diagram_panel);
+    assert!(
+        !choices(&config)
+            .with_theme(Theme::default())
+            .diagram_background_panel
+    );
 }
 
 #[test]
 fn a_diagram_language_table_turns_the_search_for_its_program_off() {
     let parsed = |text: &str| parse(text, Path::new("/c"), &Environment::default());
-    let off =
-        |text: &str| parsed(text).map(|config| (config.diagram_no_search, config.diagram_commands));
+    let off = |text: &str| {
+        parsed(text).map(|config| (config.diagrams.no_search, config.diagrams.commands))
+    };
     let mermaid = BTreeSet::from(["mermaid".to_owned()]);
     assert_eq!(
         off("[diagrams.mermaid]\nauto_detect = false\n"),
@@ -780,7 +826,7 @@ fn a_diagram_language_table_is_named_in_any_case() {
     );
     let command = ["m", "{input}", "{output}"].map(String::from).to_vec();
     assert_eq!(
-        config.map(|config| (config.diagram_commands, config.diagram_no_search)),
+        config.map(|config| (config.diagrams.commands, config.diagrams.no_search)),
         Ok((
             BTreeMap::from([("mermaid".to_owned(), command)]),
             BTreeSet::from(["mermaid".to_owned()])
@@ -812,19 +858,20 @@ fn a_diagram_language_table_gives_its_external_command() {
         .unwrap();
     let command = ["mmdc", "-i", "{input}", "-o", "{output}", "-t", "{theme}"];
     assert_eq!(
-        config.diagram_commands,
+        config.diagrams.commands,
         BTreeMap::from([("mermaid".to_owned(), command.map(String::from).to_vec())])
     );
     // Without a switch of its own.
-    assert_eq!(config.diagrams, None);
+    assert_eq!(config.diagrams.enabled, None);
     let choices = choose(&Options::default(), &Environment::default(), &config);
-    assert_eq!(choices.diagram_commands, config.diagram_commands);
+    assert_eq!(choices.diagram_commands, config.diagrams.commands);
     let settings = choices.with_theme(Theme::default());
-    assert_eq!(settings.diagram_commands, config.diagram_commands);
+    assert_eq!(settings.diagram_commands, config.diagrams.commands);
     assert!(
         parsed("diagrams = true\n")
             .unwrap()
-            .diagram_commands
+            .diagrams
+            .commands
             .is_empty()
     );
 }
@@ -936,7 +983,7 @@ fn a_variable_takes_the_names_and_the_aliases_of_the_values() {
     let read = |value: &str| {
         let env = vars(&[("KIRI_PAGING", value)]);
         let mut warnings = Vec::new();
-        let chosen = variable::<Paging>(&env, "KIRI_PAGING")(&mut warnings);
+        let chosen = variable::<Paging>(&env, Env::is("KIRI_PAGING"))(&mut warnings);
         (chosen, warnings)
     };
     let origin = Origin::Environment("KIRI_PAGING");
@@ -953,7 +1000,10 @@ fn a_variable_takes_the_names_and_the_aliases_of_the_values() {
     // Empty is unset, and so is a variable that is not there.
     assert_eq!(read(""), (None, vec![]));
     let env = Environment::default();
-    assert_eq!(variable::<Paging>(&env, "KIRI_PAGING")(&mut vec![]), None);
+    assert_eq!(
+        variable::<Paging>(&env, Env::is("KIRI_PAGING"))(&mut vec![]),
+        None
+    );
     let warning = "KIRI_PAGING: `Auto` is not always, auto, never, 1 or 0; left out";
     assert_eq!(read("Auto"), (None, vec![warning.to_owned()]));
 }
@@ -1242,7 +1292,10 @@ fn kiri_diagrams_turns_diagrams_on_or_off() {
         "KIRI_DIAGRAMS",
         &[("on", true), ("off", false), ("1", true), ("0", false)],
         Config {
-            diagrams: Some(false),
+            diagrams: DiagramsFile {
+                enabled: Some(false),
+                ..DiagramsFile::default()
+            },
             ..Config::default()
         },
         (
@@ -1378,7 +1431,10 @@ fn the_settings_carry_the_values_of_the_choices() {
     let config = Config {
         front_matter: Some(FrontMatter::Off),
         table_rows: Some(TableRows::Lines),
-        diagrams: Some(false),
+        diagrams: DiagramsFile {
+            enabled: Some(false),
+            ..DiagramsFile::default()
+        },
         render_errors: Some(RenderErrors::Stderr),
         ..Config::default()
     };
@@ -1456,7 +1512,7 @@ fn the_theme_tells_where_it_comes_from() {
         Origin::Default
     );
     assert_eq!(origin(None, None, &env, &config), Origin::File);
-    env.kiri_theme = Some("env.toml".into());
+    env.variables.insert("KIRI_THEME", "env.toml".into());
     assert_eq!(
         origin(None, None, &env, &config),
         Origin::Environment("KIRI_THEME")

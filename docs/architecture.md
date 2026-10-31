@@ -573,8 +573,8 @@ the old path. The rules for the move:
 
 The later work that the rows name, in words:
 
-- **The config split:** `config.rs` is divided, and each setting gets an
-  owner.
+- **The config split (done):** `config.rs` is divided, and each setting is
+  declared once, with its owner, in `src/config/registry.rs`.
 - **The font database:** one font database, loaded by the platform and
   handed to the engines.
 - **The startup plan:** the decisions of `main.rs` are in
@@ -598,8 +598,9 @@ The later work that the rows name, in words:
 | `src/main.rs` | mixed | stays. Platform: the command line, opening files and standard input, the shells, loading, the file reload. State engine: the startup decisions, such as whether a run pages, are in `src/session/plan.rs`; `main.rs` reads the terminal and the files and passes the answers in. One route: `run` shows one file as the special case of several, with no header, and with reloading, following and the unnamed warnings for it alone |
 | `src/config/mod.rs` | platform | stays (was `src/config.rs`); the module's description and its public surface |
 | `src/config/environment.rs` | platform | stays. `Environment`, the table of the variables kiri reads, reading the process's variables, and the directories that `HOME` and the XDG variables give. Capability detection takes its variables (`TMUX`, `TMUX_PANE`, `NO_COLOR`, `COLORTERM`, `TERM_PROGRAM` and `VTE_VERSION`) as arguments, not `Environment`, in the terminal layer split |
-| `src/config/file.rs` | platform | stays. The configuration file: where it is, what it may set (`Config`, including the `[diagrams]` tables and their deserialisers) and `load` |
-| `src/config/resolve.rs` | platform | stays. Resolving a setting from the flags, the environment, the file and its default: `resolve`, `variable`, `choose`, `settings`, and loading the theme |
+| `src/config/file.rs` | platform | stays. The configuration file: where it is, reading it (`load`) and the deserialiser of the `[diagrams]` tables |
+| `src/config/registry.rs` | platform | new. The registry of settings: each setting once, with its key, the module that reads it, what a change of it needs, its medium and its scope. It generates `Config` (what the file sets), `Options`, `Choices`, `Settings` and `choose` |
+| `src/config/resolve.rs` | platform | stays. Resolving a setting from the flags, the environment, the file and its default: `resolve`, `variable`, the theme's source, `settings` and loading the theme |
 | `src/config/types.rs` | platform | stays. The setting types: `Setting`, `Origin`, `Named`, `ThemeSource`, and the types of the settings that are not the pager's, `Passthrough` among them: capability detection, the command line and `--doctor` read it, and capability detection takes its value, not `Environment` |
 | `src/session/settings.rs` | state engine | new. The setting types the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump` and `InitialLoad`), without the code that reads them from the flags, the environment and the file |
 | `src/config/tests.rs` | follows `config/` | stays |
@@ -801,7 +802,7 @@ file (`main.rs`, `pager/mod.rs`, `render/mod.rs`,
 | command-line option | `src/cli.rs`, new, made by one route; until then `Cli` in `src/main.rs` |
 | startup decision, such as whether a run pages | `src/session/plan.rs`, made by the startup plan; take what it needs from the terminal as values |
 | key or action | `src/session/commands.rs`, new, made by commands as data; until then `BINDINGS` in `src/pager/keys.rs` |
-| setting | no path yet, the config split makes the registry of setting keys, each with its owner, its effect and its medium; until then `src/config.rs`, named after its owner |
+| setting | its entry in `src/config/registry.rs`, which names its key, its owner, its effect and its medium, and the code of its owner |
 | use of a file, the network or a program | no path yet, loading and sessions makes the platform's work runner, and the trust policy a `Policy`; until then `src/images/background.rs`, `src/images/pipeline.rs` or `src/diagrams/external.rs` |
 | block type or input format | the typesetting engine's registry of block types and formats, no path yet (today `src/typeset/model.rs`, `src/typeset/parse/` and `src/typeset/layout/`); in reading mode a module per block type in `src/typeset/reading/page/`, made by reading mode's block modules; the blocks without one yet, such as paragraphs, stay in `page.rs` |
 | diagram language | `src/typeset/diagrams/`: a file and one entry in `language.rs`; a program that draws it is run by the platform |

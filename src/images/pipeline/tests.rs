@@ -21,7 +21,8 @@ fn settings(command: &[&str]) -> Settings {
     let mut settings = crate::config::Config::default();
     let command = command.iter().map(|arg| (*arg).to_owned()).collect();
     settings
-        .diagram_commands
+        .diagrams
+        .commands
         .insert("mermaid".to_owned(), command);
     let choices = crate::config::choose(&Default::default(), &Environment::default(), &settings);
     choices.with_theme(crate::typeset::theme::Theme::default())

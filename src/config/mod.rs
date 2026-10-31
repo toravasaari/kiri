@@ -5,10 +5,11 @@
 //! Everything here takes the environment as a value, so the rules can be
 //! tested without touching the process environment.
 //!
-//! The module is in four files: `environment.rs` (the variables and the
-//! directories), `file.rs` (the configuration file), `resolve.rs` (which
-//! value a setting gets) and `types.rs` (the setting types). The types the
-//! pager reads are in `src/session/settings.rs`.
+//! The module is in five files: `registry.rs` (each setting once, and the
+//! types and the rule it generates), `environment.rs` (the variables and
+//! the directories), `file.rs` (the configuration file), `resolve.rs`
+//! (which value a setting gets) and `types.rs` (the setting types). The
+//! types the pager reads are in `src/session/settings.rs`.
 //!
 //! What a setting does does not belong here: no code that uses the value,
 //! no I/O beyond reading the file and the environment, and no type that
@@ -21,11 +22,13 @@
 
 mod environment;
 mod file;
+mod registry;
 mod resolve;
 mod types;
 
 pub use environment::*;
 pub use file::*;
+pub use registry::*;
 pub use resolve::*;
 pub use types::*;
 

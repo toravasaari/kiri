@@ -265,7 +265,7 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     let limit = &choices.diagram_timeout;
     let seconds = format!("{} s", limit.value.as_secs_f64());
     row(out, &["Diagram time limit", &seconds, &from(limit.origin)])?;
-    let panel = &choices.diagram_panel;
+    let panel = &choices.diagram_background_panel;
     let on = panel.value.name();
     row(out, &["Diagram panels", on, &from(panel.origin)])?;
     let errors = &choices.render_errors;
