@@ -15,11 +15,11 @@ const CAPS: &[(&str, usize)] = &[
     ("src/main.rs", 2493),
     ("src/pager/mod.rs", 1918),
     ("src/config.rs", 1189),
-    ("src/render/mod.rs", 352),
+    ("src/render/mod.rs", 345),
     ("src/typeset/layout/mod.rs", 1368),
     ("src/typeset/reading/engine.rs", 1105),
     ("src/typeset/reading/page.rs", 2391),
-    ("src/images/mod.rs", 1680),
+    ("src/images/mod.rs", 934),
     ("src/diagrams/mod.rs", 428),
 ];
 
@@ -50,9 +50,7 @@ fn non_test_lines(source: &str) -> usize {
     let lines: Vec<&str> = source.lines().collect();
     lines
         .windows(2)
-        .position(|pair| {
-            pair[0].trim() == "#[cfg(test)]" && pair[1].trim_start().starts_with("mod tests")
-        })
+        .position(|pair| pair[0].trim() == "#[cfg(test)]" && pair[1].contains("mod tests"))
         .unwrap_or(lines.len())
 }
 
@@ -61,4 +59,6 @@ fn a_file_is_counted_above_its_test_module() {
     let with_tests = "fn a() {}\n\n#[cfg(test)]\nmod tests {\n    fn b() {}\n}\n";
     assert_eq!(non_test_lines(with_tests), 2);
     assert_eq!(non_test_lines("fn a() {}\n"), 1);
+    let restricted = "fn a() {}\n\n#[cfg(test)]\npub(super) mod tests {\n    fn b() {}\n}\n";
+    assert_eq!(non_test_lines(restricted), 2);
 }
