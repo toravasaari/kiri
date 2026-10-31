@@ -17,6 +17,7 @@ pub mod plan;
 pub mod prompt;
 pub mod search;
 pub mod settings;
+pub mod sources;
 pub mod state;
 pub mod status;
 pub(crate) mod step;
