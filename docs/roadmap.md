@@ -1380,8 +1380,6 @@ go.
 - A setting that turns links on or off whatever the terminal seems to
   support, such as `KIRI_HYPERLINKS`, for terminals and multiplexers
   where kiri guesses wrong. Inside tmux only tmux's answer counts (5.2.4).
-- Find out which command shortcuts other pagers and editors offer, such
-  as the `:` commands of `less` and vim, for `docs/inspiration.md`.
 - A side-by-side view: the Markdown source beside the rendered document,
   each part across from the other, so the source and what it becomes can
   be compared.

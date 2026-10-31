@@ -87,6 +87,13 @@ something well, kiri need not do it differently.
   where images do not work either, headings become ASCII art. It can open
   a URL or a GitHub repository.
 
+## Commands of other pagers and editors
+
+Still to be collected: the command shortcuts other pagers and editors
+offer, which kiri's own could follow. In `less`, `:e` opens another file
+and `:n` and `:p` go to the next and previous file named on the command
+line; vim's `:` commands are another set to look at.
+
 ## Other formats through pandoc
 
 [Pandoc](https://pandoc.org/) reads dozens of formats, among them
