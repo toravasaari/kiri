@@ -1,5 +1,8 @@
 # Roadmap
 
+kiri reads files to the user in the best and most understandable way the
+user's terminal allows.
+
 kiri grows in phases. Each phase leaves the project in a working state, and
 review and refactoring are part of every phase rather than a phase of their
 own. Later phases may be reordered or split as the work shows what matters.
@@ -248,7 +251,7 @@ Needs G5.1, G5.2 and G5.3.
 
 ### 4.4 Animation and video
 
-Needs G2.2, G7.3.2 for time and G7.3.3 for what it watches.
+Needs G2.2, G7.3.2 for time and G7.3.3 for watching.
 
 - Animated GIF, WebP and APNG, played by kitty itself.
 - Video (WebM, MP4, AVI and others) through ffmpeg when it is installed.
@@ -835,6 +838,24 @@ layout is kiri's own, on parley, with the fonts resvg already loads.
   says so; without a link selected on the screen it scrolls a line as
   before.
 
+### 4.16 Audio
+
+Needs G7.3.2 for time and G7.3.3 for watching.
+
+- An audio file (MP3, Ogg, FLAC, WAV and others) shown as a document:
+  its title, artist, length, format, chapters and cover art, read with
+  ffprobe when it is installed. It reads the same in the text layout.
+- A waveform of the whole file drawn as an image, with the playing
+  position marked on it.
+- Playback through mpv when it is installed, started, paused and moved
+  from the pager.
+- Lyrics or a transcript from an `.lrc` file of the same name shown
+  beside it: the line being played is marked and kept in view, and Enter
+  on a line moves playback there.
+- A live visualizer while it plays, such as spectrum bars or a level
+  meter, drawn with block characters in the text layout and in pixels
+  where the terminal shows images.
+
 ## Phase 5 – Beyond kitty
 
 kiri outside a plain kitty window: other terminals, kitty inside tmux, and
@@ -979,6 +1000,26 @@ Needs G1.10.1 for byte ranges and G7.3.1 for handing the terminal over.
 
 - An editor and kiri side by side in kitty with live reload, and a key to
   open the editor at the current position.
+
+### 5.7 Plugins
+
+Needs G5.3, G7.2.2, G7.3.1 and G7.3.3.
+
+Some ideas:
+
+- kiri and a plugin could talk through a data protocol: events go to the
+  plugin, and the plugin answers with commands, highlights, changes to
+  the status line, images and the like.
+- Plugins could be free of language: support for a language, such as Lua
+  or Python, would come from a language plugin.
+- Lua might be built in.
+- A plugin might be added with something like `kiri plugin add <git URL>`
+  and kept as a copy locked to a commit's SHA.
+- Plugins might not depend on each other, only on a protocol version and
+  on capabilities.
+- Candidates: an audio visualizer (4.16), a minimap (the document drawn
+  narrow beside it, with the part in view marked), the document styles
+  of other sites, such as GitLab or Read the Docs, and others.
 
 ## Groundwork
 
@@ -1404,6 +1445,15 @@ go.
   could be made ready in the background while the text is shown.
 - A setting that keeps tables and code blocks in reading mode to the
   column's width instead of the wider area (4.15.2).
+- A small animation while a page, an image or anything else loads: the
+  `kiri` badge at the left end of the status line moves its capital
+  letter along the name, `Kiri`, `kIri`, `kiRi`, `kirI`.
+- Books without DRM. Some ideas: EPUB with its chapters as the table of
+  contents, the reading place kept for each book and footnotes in a
+  panel; DjVu as scanned pages, perhaps drawn by `ddjvu` with its text
+  layer for search, as PDF (4.12.2) shows pages as images; Kindle
+  formats through Calibre's `ebook-convert`. Some EPUB 3 books, such as
+  children's books, carry sound.
 
 ## Bugs
 
