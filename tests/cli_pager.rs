@@ -2706,7 +2706,7 @@ fn a_diagram_in_text_stays_source_after_m_and_after_a_reload() {
 }
 
 #[test]
-fn reading_mode_is_told_for_a_diagram_alone_only_when_it_is_paged() {
+fn reading_mode_is_told_for_a_diagram_alone_paged_with_always() {
     let reading =
         "kiri: reading mode needs a terminal that draws images; showing the document as text\n";
     let mut typed = false;
@@ -2748,4 +2748,22 @@ fn one_image_left_by_a_broken_configuration_is_paged_as_a_file_alone() {
     let first = seen.split("\x1b[?2026h").nth(1).map(text_of).unwrap();
     assert!(first.contains(" pic.png "), "{seen:?}");
     assert!(!first.contains("1/1"), "{seen:?}");
+}
+
+#[test]
+fn reading_mode_is_not_told_for_a_diagram_alone_that_is_printed_in_a_terminal() {
+    // With paging on `auto`, the diagram fits the window and is printed.
+    let args = ["--mode", "ansi", "--reading", "flow.mmd"];
+    let (status, seen, stderr) = in_terminal_told(
+        "pager-reading-diagram-auto",
+        calls_when_drawing,
+        &args,
+        24,
+        None,
+        |_, _, _| {},
+    );
+    assert!(status.success(), "{seen:?}");
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert_eq!(stderr, "");
+    assert!(seen.contains("flowchart TD"), "{seen:?}");
 }

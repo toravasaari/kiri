@@ -249,9 +249,10 @@ pub fn paged_when_drawn(paged: bool, alone: bool, drawn: bool, paging: Paging) -
 
 /// Whether to tell that reading mode is not shown, when it is `asked` for:
 /// not for a file `alone` that is `bare`, an image, a diagram or text written
-/// as it is, and printed, which has no document for reading mode to show.
-pub fn tells_reading(asked: bool, alone: bool, bare: bool, paged: bool) -> bool {
-    asked && !(alone && bare && !paged)
+/// as it is, unless it is paged as an image is (see [`pages_alone`]): such a
+/// file is shown on its own, and reading mode is no part of showing it.
+pub fn tells_reading(asked: bool, alone: bool, bare: bool, as_image: bool) -> bool {
+    asked && !(alone && bare && !as_image)
 }
 
 /// Whether the warnings about the settings are told, given whether `files`

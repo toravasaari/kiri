@@ -771,8 +771,8 @@ fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure> {
             Shown::AsIs(_) | Shown::Image { .. } | Shown::Diagram { .. }
         )
     });
-    let asked = plan::tells_reading(context.reading && reading, lone, bare, paged);
-    // Once for all the files, before the pager opens, and in the pager.
+    let as_image = plan::pages_alone(settings.paging, terminal, &caps);
+    let asked = plan::tells_reading(context.reading && reading, lone, bare, as_image);
     let reading_warning = plan::reading_warning(asked, &caps);
     if let Some(warning) = &reading_warning {
         eprintln!("kiri: {warning}");
