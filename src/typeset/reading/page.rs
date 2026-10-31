@@ -2600,6 +2600,12 @@ mod tests {
 
     /// `markdown` laid out to scroll in an area `area` pixels wide.
     fn scrolling_in(markdown: &str, area: f32) -> Page {
+        scrolling_in_with(&Fonts::fixture(), markdown, area)
+    }
+
+    /// `markdown` laid out to scroll in an area `area` pixels wide, with
+    /// `fonts`, so that a test laying out many tables loads them once.
+    fn scrolling_in_with(fonts: &Fonts, markdown: &str, area: f32) -> Page {
         let document = parse(markdown);
         let blocks: Vec<&Block> = document.blocks.iter().collect();
         let frame = Frame {
@@ -2607,7 +2613,7 @@ mod tests {
             area,
             ..FRAME
         };
-        lay_out(&blocks, &LOOK, &Fonts::fixture(), (&Plain, &Plain), frame)
+        lay_out(&blocks, &LOOK, fonts, (&Plain, &Plain), frame)
     }
 
     #[test]
@@ -2668,6 +2674,7 @@ mod tests {
             "golf6",
             "hotel777",
         ];
+        let fonts = Fonts::fixture();
         for columns in 6..=8 {
             let head = words[..columns].join(" | ");
             let body: Vec<String> = words[..columns]
@@ -2681,7 +2688,7 @@ mod tests {
                 body.join(" | ")
             );
             for area in 672..1400 {
-                let page = scrolling_in(&table, area as f32);
+                let page = scrolling_in_with(&fonts, &table, area as f32);
                 for band in &page.bands {
                     // A band scrolls by more than what is rounding.
                     assert!(
@@ -2709,6 +2716,7 @@ mod tests {
             "hotel777",
         ];
         let mut cells = 0;
+        let fonts = Fonts::fixture();
         for columns in 6..=8 {
             let head = words[..columns].join(" | ");
             let body: Vec<String> = words[..columns]
@@ -2724,7 +2732,10 @@ mod tests {
             for area in 672..1400 {
                 // Where scrolling needs no band the words fit, and so they
                 // do when wrapping, which has the same room.
-                if !scrolling_in(&table, area as f32).bands.is_empty() {
+                if !scrolling_in_with(&fonts, &table, area as f32)
+                    .bands
+                    .is_empty()
+                {
                     continue;
                 }
                 for wide in [Wide::Scroll, Wide::Wrap] {
@@ -2735,7 +2746,7 @@ mod tests {
                         area: area as f32,
                         ..FRAME
                     };
-                    let page = lay_out(&blocks, &LOOK, &Fonts::fixture(), (&Plain, &Plain), frame);
+                    let page = lay_out(&blocks, &LOOK, &fonts, (&Plain, &Plain), frame);
                     for item in &page.items {
                         if let Shape::Text { paragraph, .. } = &item.shape {
                             cells += 1;
