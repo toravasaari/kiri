@@ -243,7 +243,7 @@ macro_rules! settings {
             /// all from the configuration file.
             pub diagram_no_search: BTreeSet<String>,
             /// What the user should know about settings that were left out.
-            pub warnings: Vec<String>,
+            pub warnings: Vec<crate::typeset::diagnostic::Diagnostic>,
         }
 
         /// What the options, the environment and the configuration file

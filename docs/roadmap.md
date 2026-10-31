@@ -1288,7 +1288,7 @@ Needs G7.2.1.
 
 #### G7.2 The pager's vocabulary
 
-- G7.2.1 One type for warnings, with where each came from, instead of
+- G7.2.1 (done) One type for warnings, with where each came from, instead of
   the five ways warnings travel now.
 - G7.2.2 (done) Commands and keys as data, each with its topic; the help panel
   built from them; Esc as one message that what is open answers.

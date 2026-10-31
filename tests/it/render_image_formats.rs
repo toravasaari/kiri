@@ -22,7 +22,11 @@ fn kitty_image_formats() {
 fn a_minimal_build_shows_alt_text_and_says_why() {
     let images = fixture_images("images-formats.md");
     assert_eq!(
-        images.warnings(),
+        images
+            .warnings()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
         [
             "images/pattern.bmp: BMP images are not supported in this build",
             "images/pattern.tif: TIFF images are not supported in this build",

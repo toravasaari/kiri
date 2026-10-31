@@ -14,8 +14,9 @@ use std::time::{Duration, Instant};
 use crate::present::keys::Key;
 use crate::present::kitty::graphics::ImageId;
 use crate::session::frame::{Frame, Layout};
-use crate::session::state::{Change, FRAME, Focus, POLL, Polled, State, Told, Warning};
+use crate::session::state::{Change, FRAME, Focus, POLL, Polled, State, Told};
 use crate::typeset::compare::Comparison;
+use crate::typeset::diagnostic::Diagnostic;
 
 /// What the pager knows of the run that does not change while it shows a
 /// document.
@@ -134,7 +135,7 @@ pub(crate) enum Reply {
     /// It was read, with these warnings about it, and how it differs from
     /// the one before when that is known. The loop keeps the document.
     Read {
-        warnings: Vec<Warning>,
+        warnings: Vec<Diagnostic>,
         changes: Option<Comparison>,
     },
 }

@@ -8,6 +8,7 @@ pub mod block;
 pub mod caps;
 pub mod color;
 pub mod compare;
+pub mod diagnostic;
 pub mod diagrams;
 pub mod images;
 pub mod input;

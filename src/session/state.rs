@@ -23,7 +23,7 @@ use crate::session::view::{Motion, View};
 use crate::session::{bands, changes, links, status};
 use crate::typeset::block::BlockInfo;
 use crate::typeset::compare::{Comparison, Fate};
-use crate::typeset::model::FrontMatterError;
+use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::style::{Line, Style};
 use std::rc::Rc;
 
@@ -58,26 +58,6 @@ pub enum Change {
 pub struct Look {
     pub modified: Option<SystemTime>,
     pub length: u64,
-}
-
-/// Something kiri found wrong with a document while it read it, which
-/// the pager tells about without stopping.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Warning {
-    /// The line of the file the trouble is at, counting from 1, when
-    /// known.
-    pub line: Option<usize>,
-    /// What is wrong, as one line of text.
-    pub message: String,
-}
-
-impl From<&FrontMatterError> for Warning {
-    fn from(error: &FrontMatterError) -> Self {
-        Self {
-            line: error.line,
-            message: format!("front matter: {}", error.message),
-        }
-    }
 }
 
 /// What the reader does in the pager besides scrolling, which stays when
@@ -118,7 +98,7 @@ pub(crate) struct State {
     /// tinted.
     pub(crate) changed: Option<Changed>,
     /// The warnings about the document shown.
-    pub(crate) warnings: Vec<Warning>,
+    pub(crate) warnings: Vec<Diagnostic>,
     /// When the warning line was last told, while it stays and fades.
     pub(crate) noticed: Option<Instant>,
     /// When the number of warnings last changed, while the number of the
@@ -391,7 +371,7 @@ impl State {
 
     /// Takes `warnings`, about the document as read at `now`, for the
     /// ones before; the number of them flashes when it differs.
-    pub(crate) fn warn(&mut self, warnings: Vec<Warning>, now: Instant) {
+    pub(crate) fn warn(&mut self, warnings: Vec<Diagnostic>, now: Instant) {
         if warnings.len() != self.warnings.len() {
             self.counted = Some(now);
         }

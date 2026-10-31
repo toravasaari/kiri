@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use crate::render::{FrontMatterStyle, Headings, RenderErrors, TableRows};
 use crate::term::Mode;
+use crate::typeset::diagnostic::{Code, Diagnostic};
 use crate::typeset::theme::{Paper, Theme};
 
 fn env(home: Option<&str>, xdg: Option<&str>) -> Environment {
@@ -322,8 +323,13 @@ fn rejects_unknown_keys_and_wrong_types() {
     assert!(error.contains("invalid type"), "{error}");
 }
 
+/// The text of each of `warnings`, as standard error tells them.
+fn texts(warnings: &[Diagnostic]) -> Vec<String> {
+    warnings.iter().map(ToString::to_string).collect()
+}
+
 /// No environment variable, for `resolve`.
-fn unset<T>(_: &mut Vec<String>) -> Option<Setting<T>> {
+fn unset<T>(_: &mut Vec<Diagnostic>) -> Option<Setting<T>> {
     None
 }
 
@@ -958,8 +964,8 @@ fn vars(vars: &[(&str, &str)]) -> Environment {
 #[test]
 fn a_setting_comes_from_the_flag_the_variable_the_file_or_the_default() {
     let flag = || Some(Setting::new(1, Origin::Flag("--n")));
-    let variable = |warnings: &mut Vec<String>| {
-        warnings.push("read".to_owned());
+    let variable = |warnings: &mut Vec<Diagnostic>| {
+        warnings.push(Diagnostic::new(Code::Config, "read"));
         Some(Setting::new(2, Origin::Environment("N")))
     };
     let mut warnings = Vec::new();
@@ -969,12 +975,12 @@ fn a_setting_comes_from_the_flag_the_variable_the_file_or_the_default() {
     assert!(warnings.is_empty(), "{warnings:?}");
     let chosen = resolve(None, variable, Some(3), 4, &mut warnings);
     assert_eq!(chosen, Setting::new(2, Origin::Environment("N")));
-    assert_eq!(warnings, ["read"]);
+    assert_eq!(texts(&warnings), ["read"]);
     let chosen = resolve(None, unset, Some(3), 4, &mut warnings);
     assert_eq!(chosen, Setting::new(3, Origin::File));
     let chosen = resolve(None, unset, None, 4, &mut warnings);
     assert_eq!(chosen, Setting::new(4, Origin::Default));
-    assert_eq!(warnings, ["read"]);
+    assert_eq!(texts(&warnings), ["read"]);
 }
 
 #[test]
@@ -1004,7 +1010,10 @@ fn a_variable_takes_the_names_and_the_aliases_of_the_values() {
         None
     );
     let warning = "KIRI_PAGING: `Auto` is not always, auto, never, 1 or 0; left out";
-    assert_eq!(read("Auto"), (None, vec![warning.to_owned()]));
+    assert_eq!(
+        read("Auto"),
+        (None, vec![Diagnostic::new(Code::Config, warning)])
+    );
 }
 
 #[test]
@@ -1066,7 +1075,7 @@ fn check_variable<T: Named + std::fmt::Debug>(
     assert_eq!(field(&choices("", &file)).origin, Origin::File);
     let chosen = choices(wrong, &file);
     assert_eq!(field(&chosen).origin, Origin::File);
-    assert_eq!(chosen.warnings, [warning]);
+    assert_eq!(texts(&chosen.warnings), [warning]);
     let chosen = choices(wrong, &Config::default());
     assert_eq!(field(&chosen).origin, Origin::Default);
 }
@@ -1358,7 +1367,7 @@ fn kiri_no_images_takes_a_switch_and_warns_about_any_other_value() {
         let choices = choose(value, Some(false));
         assert_eq!(choices.images, Setting::new(false, Origin::File), "{value}");
         let warning = format!("KIRI_NO_IMAGES: `{value}` is not on, off, 1 or 0; left out");
-        assert_eq!(choices.warnings, [warning], "{value}");
+        assert_eq!(texts(&choices.warnings), [warning], "{value}");
     }
     assert_eq!(choose("yes", None).images.origin, Origin::Default);
 }
@@ -1725,7 +1734,7 @@ fn the_width_comes_from_the_flag_the_variable_or_the_file() {
     let wrong = chosen("", &[("KIRI_WIDTH", "wide")], Options::default());
     assert_eq!(wrong.width, none);
     assert_eq!(
-        wrong.warnings,
+        texts(&wrong.warnings),
         ["KIRI_WIDTH: `wide` is not a whole number of cells; left out"]
     );
 }
@@ -1758,7 +1767,7 @@ fn the_mode_comes_from_the_flag_the_variable_or_the_file() {
     );
     let wrong = chosen("", &[("KIRI_MODE", "fancy")], Options::default());
     assert_eq!(
-        wrong.warnings,
+        texts(&wrong.warnings),
         ["KIRI_MODE: `fancy` is not auto, plain, ansi or kitty; left out"]
     );
 }
@@ -1780,7 +1789,7 @@ fn the_largest_image_comes_from_the_variable_or_the_file_within_1_to_100() {
     let wrong = chosen("", &[("KIRI_MAX_IMAGE_SIZE", "500")], Options::default());
     assert_eq!(wrong.max_image_size.origin, Origin::Default);
     let warning = "KIRI_MAX_IMAGE_SIZE: `500` is not a whole number of MB from 1 to 100; left out";
-    assert_eq!(wrong.warnings, [warning]);
+    assert_eq!(texts(&wrong.warnings), [warning]);
     let error = parse(
         "max_image_size = 500\n",
         Path::new("/c"),
@@ -1848,7 +1857,7 @@ fn the_diagram_timeout_and_panel_come_from_a_flag_or_a_variable() {
     assert!(choices.diagram_background_panel.value);
     let wrong = chosen("", &[("KIRI_DIAGRAM_TIMEOUT", "-1")], Options::default());
     let warning = "KIRI_DIAGRAM_TIMEOUT: `-1` is not a positive number of seconds; left out";
-    assert_eq!(wrong.warnings, [warning]);
+    assert_eq!(texts(&wrong.warnings), [warning]);
 }
 
 #[test]
