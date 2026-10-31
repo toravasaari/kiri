@@ -314,8 +314,11 @@ with its language, so the parser knows nothing about renderers and a
 diagram that cannot be drawn is shown as the code it already is. Whether
 it is drawn is decided when images are loaded. `src/typeset/images/key.rs`
 keys each image by an `ImageKey`, a URL or a block (its language, in lower
-case, and its source), with the number of the document it is in, so
-that documents shown together keep their own images, and
+case, and its source, and a fingerprint of how it is drawn: the page it is
+for, the formula colours, the panel and the largest size, so that a diagram
+drawn for a dark page is not the one a light page asks for), with the number
+of the document it is in, so that documents shown together keep their own
+images, and
 `src/typeset/images/plan.rs` collects the code blocks whose language a
 renderer draws besides the lone images. `src/load/mod.rs` hands all of a
 document's diagrams to the renderer at once, then
@@ -335,8 +338,8 @@ after the reduction, so the panel's copy is small too.
 A heading is drawn as an image the same way, where the terminal draws
 images but not large text, as kitty inside tmux: `ImageKey::Heading`
 holds its level, its words, each marked with the inline code or key it
-is in and whether it is emphasised, and the cell size it is drawn for,
-and `src/typeset/images/heading.rs` draws the text through the SVG renderer in
+is in and whether it is emphasised, the cell size it is drawn for and a
+fingerprint of the look of its level, and `src/typeset/images/heading.rs` draws the text through the SVG renderer in
 the system's sans-serif font, emphasis in italics, and inline code and
 keys in its monospace font on the background of inline code, at the size
 and in the colours that `render::heading_look` takes from the one look
