@@ -360,7 +360,7 @@ const DIFFERENCES: &[Difference] = &[
         status: Status::Drift,
         bug: Some("B17"),
         cell_where: "theme/mod.rs:377: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
-        pixel_where: "theme/look.rs:193: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
+        pixel_where: "theme/look.rs:190: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
         field: Field::HeadingSize,
@@ -370,7 +370,7 @@ const DIFFERENCES: &[Difference] = &[
         status: Status::Drift,
         bug: Some("B17"),
         cell_where: "theme/mod.rs:377: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
-        pixel_where: "theme/look.rs:193: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
+        pixel_where: "theme/look.rs:190: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
         field: Field::HeadingSize,
@@ -380,7 +380,7 @@ const DIFFERENCES: &[Difference] = &[
         status: Status::Drift,
         bug: Some("B17"),
         cell_where: "theme/mod.rs:377: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
-        pixel_where: "theme/look.rs:193: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
+        pixel_where: "theme/look.rs:190: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
         field: Field::HeadingSize,
@@ -390,7 +390,7 @@ const DIFFERENCES: &[Difference] = &[
         status: Status::Drift,
         bug: Some("B17"),
         cell_where: "theme/mod.rs:377: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
-        pixel_where: "theme/look.rs:193: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
+        pixel_where: "theme/look.rs:190: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
         field: Field::HeadingSize,
@@ -400,7 +400,7 @@ const DIFFERENCES: &[Difference] = &[
         status: Status::Drift,
         bug: Some("B17"),
         cell_where: "theme/mod.rs:377: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
-        pixel_where: "theme/look.rs:193: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
+        pixel_where: "theme/look.rs:190: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
         field: Field::HeadingSize,
@@ -410,7 +410,7 @@ const DIFFERENCES: &[Difference] = &[
         status: Status::Drift,
         bug: Some("B17"),
         cell_where: "theme/mod.rs:377: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
-        pixel_where: "theme/look.rs:193: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
+        pixel_where: "theme/look.rs:190: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
         field: Field::ListMarker,
@@ -440,7 +440,7 @@ const DIFFERENCES: &[Difference] = &[
         status: Status::Drift,
         bug: Some("B18"),
         cell_where: "layout/mod.rs:1088: a row style of five, by the `table_rows` setting",
-        pixel_where: "theme/look.rs:383, reading/page.rs:86: stripes on or off; any setting but Off is on",
+        pixel_where: "reading/look.rs:109, reading/page.rs:86: stripes on or off; any setting but Off is on",
     },
     Difference {
         field: Field::TableRows,
@@ -450,7 +450,7 @@ const DIFFERENCES: &[Difference] = &[
         status: Status::Drift,
         bug: Some("B18"),
         cell_where: "layout/mod.rs:1088: a row style of five, by the `table_rows` setting",
-        pixel_where: "theme/look.rs:383, reading/page.rs:86: stripes on or off; any setting but Off is on",
+        pixel_where: "reading/look.rs:109, reading/page.rs:86: stripes on or off; any setting but Off is on",
     },
     Difference {
         field: Field::TableRows,
@@ -460,7 +460,7 @@ const DIFFERENCES: &[Difference] = &[
         status: Status::Drift,
         bug: Some("B18"),
         cell_where: "layout/mod.rs:1088: a row style of five, by the `table_rows` setting",
-        pixel_where: "theme/look.rs:383, reading/page.rs:86: stripes on or off; any setting but Off is on",
+        pixel_where: "reading/look.rs:109, reading/page.rs:86: stripes on or off; any setting but Off is on",
     },
     Difference {
         field: Field::TableFrame,

@@ -152,6 +152,8 @@ terminals get Unicode's script characters, such as ² and ₂, when every
 character has one, and else the text as it is: e<sup>iπ</sup>.
 In reading mode (`--reading`) they are drawn smaller too, the 2 in H<sub>2</sub>O
 lowered below the line and the 2 in x<sup>2</sup> raised above it.
+A superscript right before a subscript, as in x<sup>2</sup><sub>i</sub>, keeps
+each at its own height in reading mode: the 2 raised, the i lowered.
 
 ### Marked text
 
