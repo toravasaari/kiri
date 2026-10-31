@@ -469,13 +469,13 @@ fn a_reload_keeps_the_block_at_the_top() {
 
 #[test]
 fn a_reload_at_the_end_goes_to_the_new_end() {
-    // Ten lines end with Line 8 at the top; twenty rows end with Row
-    // 18 there, not Row 8, as a document that grew is followed.
+    // Ten lines end with Line 9 at the top; twenty rows end with Row
+    // 19 there, not Row 9, as a document that grew is followed.
     let mut then = Then::new([Reloaded::Document(rows(20))]);
     let frames = show_reloading(&numbers(10), &mut then, &[b"G", b"r"]);
     assert_eq!(frames.len(), 4, "{frames:#?}");
-    assert!(at_top(&frames[1], "Line 8"), "{frames:#?}");
-    assert!(at_top(&frames[3], "Row 18"), "{frames:#?}");
+    assert!(at_top(&frames[1], "Line 9"), "{frames:#?}");
+    assert!(at_top(&frames[3], "Row 19"), "{frames:#?}");
 }
 
 #[test]

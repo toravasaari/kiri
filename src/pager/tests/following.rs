@@ -439,16 +439,17 @@ fn auto_following_moves_to_a_removal_as_the_setting_chooses() {
 
 #[test]
 fn auto_following_shows_a_change_at_the_end_on_the_last_page() {
+    // The last line of the last page, above the two rows of the margin.
     let new = numbers_changed(40, &[40]);
     let mut then = Then::new([Reloaded::Document(new)]);
     let frames = following_in(21, AUTO, &numbers(40), &mut then, &[b"r"], 1);
     let last = frames.last().unwrap();
-    assert_eq!(row_of(last, 21, "Line 40 changed"), Some(20), "{frames:#?}");
+    assert_eq!(row_of(last, 21, "Line 40 changed"), Some(18), "{frames:#?}");
     // A removal at the end, too.
     let mut then = Then::new([Reloaded::Document(numbers(39))]);
     let frames = following_in(21, AUTO, &numbers(40), &mut then, &[b"r"], 1);
     let last = frames.last().unwrap();
-    assert_eq!(row_of(last, 21, "Line 39"), Some(20), "{frames:#?}");
+    assert_eq!(row_of(last, 21, "Line 39"), Some(18), "{frames:#?}");
 }
 
 /// Whether the status line of `frame`, in a window of 6 rows, tells

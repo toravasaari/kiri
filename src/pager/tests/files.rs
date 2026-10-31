@@ -157,25 +157,25 @@ fn shift_page_down_and_shift_page_up_move_as_colon_n_and_colon_p_do() {
 
 #[test]
 fn colon_n_names_a_file_on_the_last_page_though_the_view_stops_short() {
-    // In 11 rows, the last page starts at b.md, the line 24, and also
-    // shows c.md, which starts on line 30.
+    // In 13 rows, with the margin below it, the last page starts at b.md,
+    // the line 24, and also shows c.md, which starts on line 30.
     let reads: &[&[u8]] = &[b":n", b":n", b":p", b":n", b"k"];
-    let mut terminal = Fake::new(40, 12, reads);
+    let mut terminal = Fake::new(40, 14, reads);
     show_files(
         &files(&[("a.md", 10), ("b.md", 1), ("c.md", 1)]),
         &mut terminal,
     );
     let frames = terminal.frames();
     assert_eq!(frames.len(), 6, "{frames:#?}");
-    let named = |frame: &str, name: &str| status_row(frame, 12).contains(&format!(" {name} "));
-    assert!(at_file(&frames[1], "b.md", 11), "{frames:#?}");
+    let named = |frame: &str, name: &str| status_row(frame, 14).contains(&format!(" {name} "));
+    assert!(at_file(&frames[1], "b.md", 13), "{frames:#?}");
     assert!(named(&frames[2], "c.md"), "{frames:#?}");
     // The view stays at b.md's header.
     assert!(
         unstyled(&frames[2]).contains("\x1b[2;1H▌ b.md\x1b"),
         "{frames:#?}"
     );
-    assert!(at_file(&frames[3], "b.md", 11), "{frames:#?}");
+    assert!(at_file(&frames[3], "b.md", 13), "{frames:#?}");
     assert!(named(&frames[4], "c.md"), "{frames:#?}");
     // Once the view moves, the file at its top again.
     assert!(named(&frames[5], "a.md"), "{frames:#?}");
@@ -187,8 +187,8 @@ fn colon_n_still_names_its_file_after_a_new_window_size() {
     // page starts higher up, and the view still stops short of c.md's
     // header.
     let reads: &[&[u8]] = &[b":n", b":n", b""];
-    let mut terminal = Fake::new(40, 12, reads);
-    terminal.sizes = [window(40, 12), window(40, 12), window(40, 14)].into();
+    let mut terminal = Fake::new(40, 14, reads);
+    terminal.sizes = [window(40, 14), window(40, 14), window(40, 16)].into();
     show_files(
         &files(&[("a.md", 10), ("b.md", 1), ("c.md", 1)]),
         &mut terminal,
@@ -197,8 +197,8 @@ fn colon_n_still_names_its_file_after_a_new_window_size() {
     assert_eq!(frames.len(), 4, "{frames:#?}");
     let named =
         |frame: &str, name: &str, rows| status_row(frame, rows).contains(&format!(" {name} "));
-    assert!(named(&frames[2], "c.md", 12), "{frames:#?}");
-    assert!(named(&frames[3], "c.md", 14), "{frames:#?}");
+    assert!(named(&frames[2], "c.md", 14), "{frames:#?}");
+    assert!(named(&frames[3], "c.md", 16), "{frames:#?}");
 }
 
 #[test]
@@ -206,15 +206,15 @@ fn a_key_after_a_new_window_size_makes_colon_n_forget_its_file() {
     // As above, then k: the view moves, so the status line names the
     // file above again.
     let reads: &[&[u8]] = &[b":n", b":n", b"", b"k"];
-    let mut terminal = Fake::new(40, 12, reads);
-    terminal.sizes = [window(40, 12), window(40, 12), window(40, 14)].into();
+    let mut terminal = Fake::new(40, 14, reads);
+    terminal.sizes = [window(40, 14), window(40, 14), window(40, 16)].into();
     show_files(
         &files(&[("a.md", 10), ("b.md", 1), ("c.md", 1)]),
         &mut terminal,
     );
     let frames = terminal.frames();
     assert_eq!(frames.len(), 5, "{frames:#?}");
-    let named = |frame: &str, name: &str| status_row(frame, 14).contains(&format!(" {name} "));
+    let named = |frame: &str, name: &str| status_row(frame, 16).contains(&format!(" {name} "));
     assert!(named(&frames[3], "c.md"), "{frames:#?}");
     assert!(!named(&frames[4], "c.md"), "{frames:#?}");
 }

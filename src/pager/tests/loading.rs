@@ -254,10 +254,11 @@ fn a_new_image_without_an_old_one_shows_its_alt_text_with_the_band_below_it() {
 #[test]
 fn an_image_that_comes_keeps_the_top_line_in_place() {
     // Ten rows for one: below the top line, and above it.
-    let short = crate::typeset::parse::parse("Line 1\n\nLine 2\n\n![an image](b.png)\n\nAfter\n");
+    let short =
+        crate::typeset::parse::parse("Line 1\n\nLine 2\n\nLine 3\n\n![an image](b.png)\n\nAfter\n");
     for (document, rows, keys, top) in [
         // At the end, which the view would follow down otherwise.
-        (short, 6, b"G".as_slice(), "Line 2"),
+        (short, 8, b"G".as_slice(), "Line 3"),
         (around(2, "b.png"), 4, b"jjjjjj", "After 1"),
     ] {
         let mut reload = red_then(filled(20, 200, [0, 0, 255, 255]));
