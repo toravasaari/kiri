@@ -1416,8 +1416,6 @@ go.
   in a release build, and one with a 276-byte URL at half size 124 ms.
   Packing only the last words again would be enough, as groups further
   back no longer change.
-- One or two empty rows after the end of a document in the pager, so
-  that its last line of text does not touch the status line.
 - A menu on the right mouse button, as tmux has one: choices for the
   place clicked, such as copying a code block or following a link. Inside
   tmux, how it goes with tmux's own right-click menu.
