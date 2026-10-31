@@ -984,6 +984,11 @@ or in other terminals, from the best to the plainest.
   right.
 - Strikethrough, `<mark>` and the colour of links, which are plain
   heading text in the images today.
+- Faster drawing: each word is parsed as an SVG of its own to measure it,
+  and the space is measured again for every heading, so a document with
+  a hundred headings parses hundreds of SVGs before it shows. Measuring a
+  heading's words in one SVG, and the space once per level, would be
+  faster.
 
 #### 5.3.2 chafa
 
@@ -1397,11 +1402,6 @@ go.
   (5.3.1) too. 5.3.1 makes it do so, but the flag is about a document's
   images and formulas, which one may want hidden while headings stay
   large.
-- Drawing headings as images (5.3.1) parses an SVG for each word to
-  measure it, and measures the space again for every heading: a document
-  with a hundred headings parses hundreds of SVGs before it shows.
-  Measuring a heading's words in one SVG, and the space once per level,
-  would be faster.
 - Finer spacing between the words of a heading at a fraction. A space
   can only grow by whole cells of the heading's scale, so a short heading
   such as "Level three" at 1 3/4 has one space about twice as wide as
