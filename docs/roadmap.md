@@ -1055,7 +1055,7 @@ Covered by G1.10.1.
   and reading mode; spacing as a table for each medium, with reading
   mode's GitHub values as the pixel table. Carries out the decisions on
   the differences G1.9.1 finds.
-- G1.8.2 Highlights as layers: one list of layers with a paint
+- G1.8.2 (done) Highlights as layers: one list of layers with a paint
   vocabulary and an order, which each layout paints in its own way, for
   the colouring after a reload, search matches, the selected link and
   the selected band. First tests for the cases that meet: a match on a
