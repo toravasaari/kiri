@@ -545,6 +545,24 @@ document from the start.
   `:p` at the start of the first `no previous file`, until the next key.
   A single document has no other file, so there `:` does nothing.
 
+#### 4.9.3 One file and several alike
+
+One file is shown as the special case of several (G6.5.1), and a few
+differences between the two were kept as they were. They are to be made
+alike:
+- A printed image alone tells the settings warnings, such as a wrong
+  `KIRI_PAGING`, as a document does; now it drops them.
+- `--reading` in plain output tells that it does nothing for text
+  written as it is, alone as among several; now only among several.
+- A named pipe reads its images from the current directory, alone as
+  among several; among several it now reads them from the pipe's
+  directory.
+- `auto` paging treats every file the same. Now a diagram alone that is
+  not drawn is paged when it is long, but several only with `always`.
+  This may change how `auto` behaves, so it needs a test of its own.
+- An error opening a file comes after the settings warnings, alone as
+  among several; alone it now comes before them.
+
 ### 4.10 More Markdown
 
 GitHub's Markdown first, then what is common elsewhere.
