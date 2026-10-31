@@ -580,15 +580,15 @@ pub fn lines(
     // The id names these pixels to the terminal, which keeps an image it
     // holds under the same id, so it must cover everything that changes
     // them: the blocks, the look (every colour, and the font size), the
-    // sizes, whether wide blocks wrap or scroll, and the pictures, by their
-    // pixels. The fonts and the
-    // code theme's name are not in it: the fonts are the same for a run,
-    // and the theme has so far always come with another colour in `Look`.
-    // An input to the pixels that does not, goes in here too.
+    // code theme (its tokens' colours can differ where the block's do not),
+    // the sizes, whether wide blocks wrap or scroll, and the pictures, by
+    // their pixels. The fonts are not in it: they are the same for a run,
+    // until the font database has a fingerprint. An input to the pixels
+    // that is not here yet goes in here too.
     let mut hasher = DefaultHasher::new();
     format!("{blocks:?}").hash(&mut hasher);
     format!("{look:?}").hash(&mut hasher);
-    (text.to_bits(), cell, columns, reading.wide).hash(&mut hasher);
+    (text.to_bits(), cell, columns, reading.wide, &code.theme).hash(&mut hasher);
     page.pictures.hash(&mut hasher);
     let placed: Vec<_> = page.blocks.clone();
     let loading = page.loading.clone();
@@ -1772,6 +1772,43 @@ mod tests {
         };
         assert_eq!(id(120), id(120));
         assert_ne!(id(120), id(60));
+    }
+
+    /// The page id of a code block that `theme` highlights, in a page
+    /// whose colours are the same for every theme.
+    fn page_of_code_in(theme: Option<&str>) -> u64 {
+        let caps = kitty(80);
+        let document = parse("```rust\nfn main() { let x = 1; }\n```\n");
+        let blocks: Vec<&Block> = document.blocks.iter().collect();
+        let code = CodeColors {
+            theme: theme.map(str::to_owned),
+            background: Some(Color::Rgb(0x20, 0x20, 0x20)),
+            text: Some(Color::Rgb(0xe0, 0xe0, 0xe0)),
+            label: None,
+        };
+        let reading = inputs(caps.clone()).reading.expect("reading mode");
+        let lines = lines(
+            &blocks,
+            &[],
+            &reading,
+            (
+                &Resolved::new(&Theme::default(), &caps),
+                &code,
+                (true, FrontMatterStyle::Code),
+            ),
+            (&Images::new(), true, 0),
+            &caps,
+            80,
+        );
+        page_id(&lines)
+    }
+
+    #[test]
+    fn the_code_theme_is_in_the_page_s_key() {
+        let ocean = page_of_code_in(Some("base16-ocean.dark"));
+        assert_eq!(ocean, page_of_code_in(Some("base16-ocean.dark")));
+        assert_ne!(ocean, page_of_code_in(Some("InspiredGitHub")));
+        assert_ne!(ocean, page_of_code_in(None));
     }
 
     #[test]
