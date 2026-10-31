@@ -8,8 +8,8 @@ use kiri::typeset::caps::Capabilities;
 use kiri::typeset::theme::{Paper, Theme};
 
 use crate::common::{
-    WIDTH, drawn, fixture_images_with, readable, render, render_fixture, sent, stub_diagram_images,
-    stub_diagrams, visible, with_images,
+    WIDTH, drawn, fixed_inputs, fixed_theme, fixture_images_with, readable, render, render_fixture,
+    sent, stub_diagram_images, stub_diagrams, visible, with_images,
 };
 
 const FLOWCHART: &str = "Before.\n\n```mermaid\nflowchart TD\n  A --> B\n```\n\nAfter.\n";
@@ -147,7 +147,7 @@ fn broken(caps: &Capabilities, theme: Theme, errors: RenderErrors) -> String {
         images: stub_diagram_images(BROKEN),
         theme,
         render_errors: errors,
-        ..Inputs::new(caps.clone())
+        ..fixed_inputs(caps.clone())
     };
     render(BROKEN, &inputs)
 }
@@ -158,7 +158,7 @@ const WHY: &str = "mermaid diagram could not be drawn: unclosed label";
 fn a_diagram_that_did_not_draw_tells_why_below_its_code() {
     let out = broken(
         &Capabilities::kitty(WIDTH),
-        Theme::default(),
+        fixed_theme(),
         RenderErrors::default(),
     );
     assert!(sent(&out).is_empty(), "{out:?}");
@@ -184,7 +184,7 @@ fn the_error_below_a_diagram_is_red_on_the_paper_pages() {
 fn the_error_below_a_diagram_is_plain_text_in_plain_output() {
     let out = broken(
         &Capabilities::plain(WIDTH),
-        Theme::default(),
+        fixed_theme(),
         RenderErrors::Both,
     );
     assert!(!out.contains('\x1b'), "{out:?}");
@@ -197,7 +197,7 @@ fn the_error_below_a_diagram_has_no_colour_without_colours() {
         color: false,
         ..Capabilities::kitty(WIDTH)
     };
-    let out = broken(&caps, Theme::default(), RenderErrors::Both);
+    let out = broken(&caps, fixed_theme(), RenderErrors::Both);
     assert!(out.contains("✗ mermaid diagram could not be"), "{out:?}");
     assert!(crate::common::colour_codes(&out).is_empty(), "{out:?}");
 }
@@ -210,7 +210,7 @@ fn the_setting_decides_whether_the_document_tells_why() {
         (RenderErrors::Stderr, false),
     ] {
         for caps in [Capabilities::kitty(200), Capabilities::plain(200)] {
-            let out = broken(&caps, Theme::default(), errors);
+            let out = broken(&caps, fixed_theme(), errors);
             assert_eq!(
                 out.matches(WHY).count(),
                 BROKEN_COUNT * usize::from(inline),
@@ -229,16 +229,12 @@ fn the_setting_decides_whether_the_document_tells_why() {
 
 #[test]
 fn the_error_below_a_diagram_wraps_in_a_narrow_window() {
-    let out = broken(
-        &Capabilities::plain(20),
-        Theme::default(),
-        RenderErrors::Both,
-    );
+    let out = broken(&Capabilities::plain(20), fixed_theme(), RenderErrors::Both);
     insta::assert_snapshot!(out);
     // Down to windows too narrow for a word.
     for width in 3..=12 {
         for caps in [Capabilities::kitty(width), Capabilities::plain(width)] {
-            let out = broken(&caps, Theme::default(), RenderErrors::Both);
+            let out = broken(&caps, fixed_theme(), RenderErrors::Both);
             assert_eq!(out.matches('✗').count(), BROKEN_COUNT, "{width}: {out:?}");
         }
     }
@@ -253,7 +249,7 @@ fn one_broken(caps: Capabilities, theme: Theme) -> (Vec<String>, Vec<String>) {
     let inputs = Inputs {
         images: stub_diagram_images(ONE_BROKEN),
         theme,
-        ..Inputs::new(caps)
+        ..fixed_inputs(caps)
     };
     let shown = crate::common::strip_own_sequences(&render(ONE_BROKEN, &inputs));
     let lines: Vec<String> = shown.lines().map(str::to_owned).collect();
@@ -267,7 +263,7 @@ fn one_broken(caps: Capabilities, theme: Theme) -> (Vec<String>, Vec<String>) {
 fn the_error_below_a_diagram_is_no_wider_than_the_code_in_its_box() {
     let cells = |line: &str| line.trim_end().chars().count();
     for width in 20..=110 {
-        let (code, error) = one_broken(Capabilities::kitty(width), Theme::default());
+        let (code, error) = one_broken(Capabilities::kitty(width), fixed_theme());
         // The box's lines reach its right edge, and its code starts a cell
         // in from its left edge.
         let edge = code[0].chars().count();
@@ -284,7 +280,7 @@ fn the_error_below_a_diagram_is_no_wider_than_the_code_in_its_box() {
 fn without_a_code_box_the_error_lines_up_with_the_code() {
     let no_padding = Theme {
         code_padding: false,
-        ..Theme::default()
+        ..fixed_theme()
     };
     let colourless = Capabilities {
         color: false,
@@ -292,8 +288,8 @@ fn without_a_code_box_the_error_lines_up_with_the_code() {
     };
     // The margin, and the indent of code without a box.
     for (caps, theme, indent) in [
-        (Capabilities::plain(WIDTH), Theme::default(), "    "),
-        (colourless, Theme::default(), "    "),
+        (Capabilities::plain(WIDTH), fixed_theme(), "    "),
+        (colourless, fixed_theme(), "    "),
         (Capabilities::plain(WIDTH), no_padding.clone(), "  "),
         (Capabilities::kitty(WIDTH), no_padding, "  "),
     ] {
@@ -326,7 +322,7 @@ fn an_error_of_several_lines_keeps_them_apart() {
     );
     let inputs = Inputs {
         images,
-        ..Inputs::new(Capabilities::plain(100))
+        ..fixed_inputs(Capabilities::plain(100))
     };
     let shown = render(ONE_BROKEN, &inputs);
     let lines: Vec<&str> = shown.lines().collect();

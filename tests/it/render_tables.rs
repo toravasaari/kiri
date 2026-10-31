@@ -4,7 +4,9 @@ use kiri::render::{Inputs, TableRows};
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::color::Color;
 
-use crate::common::{WIDTH, fixture, inputs, render, render_for, strip_own_sequences, visible};
+use crate::common::{
+    WIDTH, fixed_inputs, fixture, inputs, render, render_for, strip_own_sequences, visible,
+};
 use kiri::typeset::parse::csv::Separator;
 
 #[test]
@@ -16,7 +18,7 @@ fn inline_code_kept_together_in_a_narrow_table_cell() {
     let out = render(source, &inputs(&plain, &together));
     assert!(out.contains("│ see       │"), "{out}");
     assert!(out.contains("│ (`a b`).  │"), "{out}");
-    let out = render(source, &Inputs::new(plain));
+    let out = render(source, &fixed_inputs(plain));
     assert!(out.contains("│ see (`a   │"), "{out}");
 }
 
@@ -44,7 +46,7 @@ fn stacked_tables_nest_in_quotes_and_list_items() {
     // Eighteen cells inside the quote and the item: too few for the
     // borders, enough for a header and a value on one line.
     assert_eq!(
-        render(&source, &Inputs::new(Capabilities::plain(24))),
+        render(&source, &fixed_inputs(Capabilities::plain(24))),
         "  > City: Helsinki\n  > Notes: Capital\n  > ──────────────────\n  \
          > City: Oulu\n  > Notes: North\n\n  \
          - City: Helsinki\n    Notes: Capital\n    ──────────────────\n    \
@@ -56,7 +58,7 @@ fn stacked_tables_nest_in_quotes_and_list_items() {
 fn render_table_file(name: &str, separator: Separator, caps: Capabilities) -> String {
     let document = kiri::typeset::parse::csv::parse(&fixture(name), separator).unwrap();
     let mut out = Vec::new();
-    kiri::render::render(&document, &Inputs::new(caps), &mut out).unwrap();
+    kiri::render::render(&document, &fixed_inputs(caps), &mut out).unwrap();
     String::from_utf8(out).unwrap()
 }
 
@@ -96,7 +98,7 @@ fn a_note_is_muted_text_below_the_table() {
         .push(kiri::typeset::model::Block::Note(note.into()));
     let render = |caps: Capabilities| {
         let mut out = Vec::new();
-        kiri::render::render(&document, &Inputs::new(caps), &mut out).unwrap();
+        kiri::render::render(&document, &fixed_inputs(caps), &mut out).unwrap();
         String::from_utf8(out).unwrap()
     };
     let plain = render(Capabilities::plain(WIDTH));
@@ -134,7 +136,7 @@ const ROWS: &str =
 fn with_rows(caps: Capabilities, rows: TableRows) -> Inputs {
     Inputs {
         table_rows: rows,
-        ..Inputs::new(caps)
+        ..fixed_inputs(caps)
     }
 }
 
@@ -145,7 +147,7 @@ fn table_rows_are_striped_by_default_a_little_towards_the_text_colour() {
         (kitty_on((0, 0, 0), (200, 200, 200)), "48;2;12;12;12m"),
         (kitty_on((255, 255, 255), (31, 35, 40)), "48;2;242;242;242m"),
     ] {
-        let out = render(ROWS, &Inputs::new(caps));
+        let out = render(ROWS, &fixed_inputs(caps));
         let lines: Vec<&str> = out.lines().collect();
         // The second body row, Oulu, is striped; the others are not, and
         // no rules go between them.
@@ -172,7 +174,7 @@ fn zebra_draws_nothing_where_stripes_cannot_show() {
         no_color,
         no_truecolor,
     ] {
-        let out = render(ROWS, &Inputs::new(caps));
+        let out = render(ROWS, &fixed_inputs(caps));
         assert!(!out.contains("48;2;"), "{}", visible(&out));
         let out = strip_own_sequences(&out);
         assert!(out.contains(plain), "{out}");
@@ -195,7 +197,7 @@ fn table_rows_take_lines_or_nothing_as_asked() {
 fn inline_styles_keep_their_colours_on_a_striped_row() {
     let source = "| A | B |\n|---|---|\n| x | y |\n\
                   | `code` [link](https://example.com) <mark>marked</mark> | z |\n";
-    let inputs = Inputs::new(kitty_on((0, 0, 0), (200, 200, 200)));
+    let inputs = fixed_inputs(kitty_on((0, 0, 0), (200, 200, 200)));
     let striped = visible(&render(source, &inputs));
     let row = striped.lines().find(|line| line.contains("code")).unwrap();
     let alone = visible(&render(

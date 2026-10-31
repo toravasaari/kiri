@@ -5,7 +5,9 @@ use kiri::typeset::caps::Capabilities;
 use kiri::typeset::color::Color;
 use kiri::typeset::theme::{Paper, Theme};
 
-use crate::common::{WIDTH, inputs, render, render_fixture, strip_own_sequences, visible};
+use crate::common::{
+    WIDTH, fixed_inputs, fixed_theme, inputs, render, render_fixture, strip_own_sequences, visible,
+};
 
 const NOTE: &str = "> [!NOTE]\n> Read this.\n";
 
@@ -28,13 +30,13 @@ fn text(source: &str, caps: Capabilities, theme: &Theme) -> Vec<String> {
 
 #[test]
 fn plain_output_shows_the_title_in_a_quote() {
-    let lines = text(NOTE, Capabilities::plain(WIDTH), &Theme::default());
+    let lines = text(NOTE, Capabilities::plain(WIDTH), &fixed_theme());
     assert_eq!(lines, ["  > Note", "  > Read this."]);
 }
 
 #[test]
 fn kitty_shows_the_kinds_icon_before_the_title() {
-    let lines = text(NOTE, kitty(), &Theme::default());
+    let lines = text(NOTE, kitty(), &fixed_theme());
     // An Octicon from the font kitty bundles; it covers the first space.
     assert!(lines[0].starts_with("  ▎ \u{f449}  Note"), "{lines:#?}");
     assert!(lines[1].starts_with("  ▎ Read this."), "{lines:#?}");
@@ -57,7 +59,7 @@ fn other_terminals_get_no_icon() {
         background: Some(Color::Rgb(0, 0, 0)),
         ..Capabilities::ansi(WIDTH)
     };
-    let lines = text(NOTE, caps, &Theme::default());
+    let lines = text(NOTE, caps, &fixed_theme());
     assert!(lines[0].starts_with("  ▎ Note"), "{lines:#?}");
 }
 
@@ -66,7 +68,7 @@ fn a_title_of_its_own_replaces_the_kinds_name() {
     let lines = text(
         "> [!WARNING] Mind the gap\n> Text.\n",
         kitty(),
-        &Theme::default(),
+        &fixed_theme(),
     );
     assert!(
         lines[0].starts_with("  ▎ \u{f421}  Mind the gap"),
@@ -76,7 +78,7 @@ fn a_title_of_its_own_replaces_the_kinds_name() {
 
 #[test]
 fn the_tint_mixes_the_kinds_colour_into_the_background() {
-    let out = render(NOTE, &inputs(&kitty(), &Theme::default()));
+    let out = render(NOTE, &inputs(&kitty(), &fixed_theme()));
     // 15 % of GitHub's dark note blue, #4493f8, over black.
     assert!(out.contains("48;2;10;22;37"), "{out:?}");
     // The bar and the title are in the blue itself.
@@ -87,7 +89,7 @@ fn the_tint_mixes_the_kinds_colour_into_the_background() {
 fn inline_code_in_an_alert_takes_a_stronger_tint() {
     let out = render(
         "> [!NOTE]\n> Run `make`.\n",
-        &inputs(&kitty(), &Theme::default()),
+        &inputs(&kitty(), &fixed_theme()),
     );
     // 30 % of #4493f8 over black.
     assert!(out.contains("48;2;20;44;74m\u{a0}make"), "{out:?}");
@@ -119,7 +121,7 @@ fn no_tint_without_a_known_background_or_when_the_theme_turns_it_off() {
         background: None,
         ..kitty()
     };
-    let out = render(NOTE, &inputs(&unknown, &Theme::default()));
+    let out = render(NOTE, &inputs(&unknown, &fixed_theme()));
     assert!(!out.contains("48;2"), "{out:?}");
     let off = kiri::typeset::theme::parse("[alerts]\nbackground = \"none\"\n").unwrap();
     let out = render(NOTE, &inputs(&kitty(), &off));
@@ -151,7 +153,7 @@ fn light_kitty() -> Capabilities {
 
 #[test]
 fn a_tinted_alert_ends_with_a_blank_row_of_its_tint() {
-    let lines = text(NOTE, kitty(), &Theme::default());
+    let lines = text(NOTE, kitty(), &fixed_theme());
     assert_eq!(lines.len(), 3, "{lines:#?}");
     assert_eq!(lines[2].trim_end(), "  ▎", "{lines:#?}");
     assert_eq!(
@@ -176,13 +178,13 @@ fn a_light_page_tints_alerts_with_githubs_pale_backgrounds() {
         ("> [!WARNING]\n> x\n", "48;2;255;248;197"),
         ("> [!CAUTION]\n> x\n", "48;2;255;235;233"),
     ] {
-        let out = render(source, &inputs(&light_kitty(), &Theme::default()));
+        let out = render(source, &inputs(&light_kitty(), &fixed_theme()));
         assert!(out.contains(tint), "{source:?}: {out:?}");
     }
     // Inline code in an alert takes the same tint twice.
     let out = render(
         "> [!WARNING]\n> Run `make`.\n",
-        &inputs(&light_kitty(), &Theme::default()),
+        &inputs(&light_kitty(), &fixed_theme()),
     );
     assert!(out.contains("48;2;255;241;152m\u{a0}make"), "{out:?}");
 }
@@ -191,7 +193,7 @@ fn a_light_page_tints_alerts_with_githubs_pale_backgrounds() {
 fn a_warning_on_a_light_page_has_a_gold_bar_and_title() {
     let out = render(
         "> [!WARNING]\n> x\n",
-        &inputs(&light_kitty(), &Theme::default()),
+        &inputs(&light_kitty(), &fixed_theme()),
     );
     // GitHub's #9a6700 reads as brown on the pale yellow.
     assert!(!out.contains("38;2;154;103;0"), "{out:?}");
@@ -219,13 +221,16 @@ fn a_colour_the_theme_sets_is_mixed_with_a_light_page() {
 
 #[test]
 fn kitty_alerts() {
-    insta::assert_snapshot!(visible(&render_fixture("alerts.md", &Inputs::new(kitty()))));
+    insta::assert_snapshot!(visible(&render_fixture(
+        "alerts.md",
+        &fixed_inputs(kitty())
+    )));
 }
 
 #[test]
 fn a_long_title_wraps_under_itself_inside_the_block() {
     let source = "> [!NOTE] A title far too long to fit on one line of the block\n> x\n";
-    let lines = text(source, kitty(), &Theme::default());
+    let lines = text(source, kitty(), &fixed_theme());
     assert!(lines[0].starts_with("  ▎ \u{f449}  A title"), "{lines:#?}");
     // Continued under the title's text, past the icon.
     assert!(lines[1].starts_with("  ▎    "), "{lines:#?}");
@@ -267,7 +272,7 @@ fn blocks_inside_an_alert_keep_the_bar_and_fill_it_to_the_edge() {
                   > | a | b |\n> |---|---|\n> | 1 | 2 |\n>\n> > a quote\n>\n> ![alt](image.png)\n";
     let inputs = Inputs {
         images: crate::common::one_image("image.png", crate::common::quadrants(40, 40)),
-        ..Inputs::new(kitty())
+        ..fixed_inputs(kitty())
     };
     let widths = widths(source, &inputs);
     assert!(
@@ -276,7 +281,7 @@ fn blocks_inside_an_alert_keep_the_bar_and_fill_it_to_the_edge() {
     );
     let laid_out = kiri::typeset::layout::layout(&kiri::typeset::parse::parse(source), &inputs);
     assert!(laid_out.iter().any(|line| line.image.is_some()), "no image");
-    let lines = text(source, kitty(), &Theme::default());
+    let lines = text(source, kitty(), &fixed_theme());
     assert!(
         lines.iter().all(|line| line.starts_with("  ▎ ")),
         "{lines:#?}"
@@ -297,7 +302,7 @@ fn an_alert_inside_a_list_or_a_quote_fills_its_own_width() {
         "- item\n\n  > [!NOTE]\n  > Inside a list item.\n",
         "> outer\n>\n> > [!NOTE]\n> > Inside a quote.\n",
     ] {
-        let lines = text(source, kitty(), &Theme::default());
+        let lines = text(source, kitty(), &fixed_theme());
         let alert: Vec<&String> = lines.iter().filter(|line| line.contains('▎')).collect();
         assert_eq!(alert.len(), 3, "{lines:#?}");
         assert!(alert[0].contains("▎ \u{f449}  Note"), "{lines:#?}");
@@ -319,7 +324,7 @@ fn a_narrow_alert_stays_within_its_width() {
     };
     let widths = widths(
         "> [!IMPORTANT]\n> Several words that wrap.\n",
-        &Inputs::new(caps),
+        &fixed_inputs(caps),
     );
     assert!(widths.iter().all(|&w| w <= 12), "{widths:?}");
 }
@@ -330,9 +335,9 @@ fn no_color_leaves_the_bar_and_the_title_without_colours() {
         color: false,
         ..kitty()
     };
-    let out = render(NOTE, &inputs(&caps, &Theme::default()));
+    let out = render(NOTE, &inputs(&caps, &fixed_theme()));
     assert!(crate::common::colour_codes(&out).is_empty(), "{out:?}");
-    let lines = text(NOTE, caps, &Theme::default());
+    let lines = text(NOTE, caps, &fixed_theme());
     assert!(lines[0].starts_with("  ▎ \u{f449}  Note"), "{lines:#?}");
     assert!(lines[1].starts_with("  ▎ Read this."), "{lines:#?}");
 }
@@ -374,7 +379,7 @@ fn an_image_in_an_alert_lies_on_the_alert_s_tint() {
     // on the rest of the alert's lines, not the page.
     let inputs = Inputs {
         images: crate::common::one_image("a.png", crate::common::quadrants(40, 40)),
-        ..Inputs::new(kitty())
+        ..fixed_inputs(kitty())
     };
     let out = render("> [!NOTE]\n> ![a](a.png)\n", &inputs);
     assert_eq!(
@@ -391,7 +396,7 @@ fn an_image_in_an_alert_lies_on_the_alert_s_tint() {
 #[test]
 fn a_long_title_wraps_inside_the_block_without_styling_too() {
     let source = "> [!TIP] A title of its own\n> Text.\n";
-    let lines = text(source, Capabilities::plain(16), &Theme::default());
+    let lines = text(source, Capabilities::plain(16), &fixed_theme());
     assert!(
         lines.iter().all(|line| line.chars().count() <= 16),
         "{lines:?}"

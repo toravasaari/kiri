@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use crate::present::keys::Key;
 use crate::present::kitty::graphics::ImageId;
 use crate::session::frame::{Frame, Layout};
-use crate::session::state::{Change, Focus, Polled, State, Told};
+use crate::session::state::{Change, FRAME, Focus, POLL, Polled, State, Told};
 use crate::typeset::compare::Comparison;
 use crate::typeset::diagnostic::Diagnostic;
 
@@ -144,11 +144,9 @@ pub(crate) enum Reply {
 /// either asks for the next message, or ends the layout, which the loop
 /// then makes again: the ones that end it are those [`Effect::ends`] tells.
 pub(crate) enum Effect {
-    /// Wait for keys, at most [`FRAME`](crate::session::state::FRAME) when
-    /// `fading` or the frame has bands, and otherwise
-    /// [`POLL`](crate::session::state::POLL). The keys come back as
-    /// [`Msg::Input`].
-    Read { fading: bool },
+    /// Wait for keys, at most as long as [`Pager::wait`] says. The keys
+    /// come back as [`Msg::Input`].
+    Read,
     /// Look at the document, which comes back as [`Msg::Changed`].
     PollChange,
     /// Take what loads have come, which comes back as [`Msg::Loads`].
@@ -238,14 +236,21 @@ fn shown(pager: &mut Pager, now: Instant) -> Vec<Effect> {
     vec![
         Effect::Prefer(pager.preferred.clone()),
         Effect::Draw(frame, Some(at)),
-        wait(pager),
+        Effect::Read,
     ]
 }
 
-/// Waits for keys.
-fn wait(pager: &Pager) -> Effect {
-    Effect::Read {
-        fading: pager.layout.fades(pager.state, pager.now),
+impl Pager<'_, '_> {
+    /// How long the pager waits for keys from now, which is when it next
+    /// has something to do without any: a [`FRAME`] while something fades
+    /// or `bands` move, as each frame draws a step of it, and otherwise a
+    /// [`POLL`]. The loop waits this long, and a simulated one moves its
+    /// clock on by it.
+    pub(crate) fn wait(&self, bands: bool) -> Duration {
+        match bands || self.layout.fades(self.state, self.now) {
+            true => FRAME,
+            false => POLL,
+        }
     }
 }
 
@@ -380,7 +385,7 @@ fn window(pager: &mut Pager, resized: Option<Resized>, bands: bool) -> Vec<Effec
     } else if pager.pending.written {
         effects.push(Effect::Check);
     }
-    effects.push(wait(pager));
+    effects.push(Effect::Read);
     effects
 }
 

@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use rustix::process::Resource;
 
-use crate::common::{Scratch, command, fixtures, read_terminal, text};
+use crate::common::{Scratch, command, fixtures, read_terminal, read_terminal_quiet, text};
 
 /// The alternate screen, which the pager draws on.
 const ENTER: &str = "\x1b[?1049h";
@@ -137,6 +137,9 @@ struct Setup<'a> {
     /// terminal side and the scratch directory, whether or not kiri
     /// writes anything.
     meanwhile: Option<fn(&mut std::fs::File, &std::path::Path)>,
+    /// How long the terminal stays silent before `act` is called again
+    /// with nothing new, for a test that waits for nothing to happen.
+    quiet: Option<Duration>,
 }
 
 /// [`in_terminal_told`], set up as `setup` says.
@@ -223,7 +226,8 @@ fn in_terminal_seeing(
         input.write_all(document.as_bytes()).unwrap();
     }
     // kiri gets 10 s at most.
-    let seen = read_terminal(&mut terminal, &mut child, Duration::from_secs(10), act);
+    let limit = Duration::from_secs(10);
+    let seen = read_terminal_quiet(&mut terminal, &mut child, limit, setup.quiet, act);
     let status = child.wait().unwrap();
     let mut stderr = String::new();
     if let Some(mut told) = child.stderr.take() {
@@ -248,16 +252,6 @@ fn a_long_document_is_paged_until_q() {
     assert!(!seen.contains("Line 3"), "{seen:?}");
     assert!(seen.contains("\x1b[5;1H\x1b[0;1m kiri "), "{seen:?}");
     assert!(seen.contains(" long.md "), "{seen:?}");
-}
-
-#[test]
-fn keys_scroll_the_document() {
-    let (status, seen) = in_terminal("pager-keys", &["long.md"], 5, None, &[b"G", b"q"]);
-    assert!(status.success());
-    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
-    assert_eq!(frames.len(), 2, "{seen:?}");
-    assert!(!frames[0].contains("Line 10"), "{seen:?}");
-    assert!(frames[1].contains("Line 10"), "{seen:?}");
 }
 
 #[test]
@@ -1949,28 +1943,6 @@ fn r_reads_the_file_again() {
 }
 
 #[test]
-fn a_file_that_is_gone_stays_as_it_was_and_the_status_line_says_why() {
-    let remove = |dir: &std::path::Path| {
-        std::fs::remove_file(dir.join("long.md")).unwrap();
-        b"r" as &'static [u8]
-    };
-    let steps = [
-        Step {
-            frames: 1,
-            keys: &remove,
-        },
-        quit_after(2),
-    ];
-    let (status, seen) = in_steps("pager-reload-gone", &["long.md"], None, &steps);
-    assert!(status.success());
-    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
-    let last = frames.last().unwrap();
-    assert!(last.contains("Line 1"), "{seen:?}");
-    assert!(text_of(last).contains("No such file"), "{seen:?}");
-    assert!(!text_of(last).contains("reloaded"), "{seen:?}");
-}
-
-#[test]
 fn standard_input_and_several_files_reload_nothing() {
     let reload = Step {
         frames: 1,
@@ -2032,7 +2004,9 @@ fn follow_reads_the_file_again_when_it_changes_without_a_key() {
 }
 
 #[test]
-fn auto_follow_moves_the_view_to_a_change_in_the_file() {
+fn the_fa_flag_follows_on_auto_and_moves_the_view_to_a_change_in_the_file() {
+    // The simulated shell tests the view moving with `Follow::Auto`; this
+    // is that the flags mean it.
     let rewrite = |dir: &std::path::Path| {
         let text = long().replace("Line 9\n", "Line 9 changed\n");
         std::fs::write(dir.join("long.md"), text).unwrap();
@@ -2044,28 +2018,6 @@ fn auto_follow_moves_the_view_to_a_change_in_the_file() {
         assert!(!last.contains("Line 1 "), "{args:?}: {frames:?}");
         assert!(last.contains(" auto "), "{args:?}: {frames:?}");
     }
-}
-
-#[test]
-fn follow_reads_a_file_replaced_by_a_rename() {
-    // As editors save: a new file written beside it and moved over it.
-    let replace = |dir: &std::path::Path| {
-        std::fs::write(dir.join(".long.md.swp"), fresh()).unwrap();
-        std::fs::rename(dir.join(".long.md.swp"), dir.join("long.md")).unwrap();
-    };
-    let frames = following("pager-follow-rename", &["-f", "long.md"], &replace);
-    let last = frames.last().unwrap();
-    assert!(last.contains("Fresh 1"), "{frames:?}");
-    assert!(last.contains("reloaded"), "{frames:?}");
-}
-
-#[test]
-fn follow_keeps_a_file_that_is_gone_and_the_status_line_says_why() {
-    let remove = |dir: &std::path::Path| std::fs::remove_file(dir.join("long.md")).unwrap();
-    let frames = following("pager-follow-gone", &["-f", "long.md"], &remove);
-    let last = frames.last().unwrap();
-    assert!(last.contains("Line 1"), "{frames:?}");
-    assert!(last.contains("No such file"), "{frames:?}");
 }
 
 #[test]
@@ -2388,54 +2340,6 @@ fn printing_always_wraps() {
     assert_eq!(print("scroll"), print("wrap"));
 }
 
-#[test]
-fn m_loads_the_pictures_in_the_middle_of_text_that_reading_mode_shows() {
-    let prepare = |dir: &std::path::Path| {
-        crate::common::quadrants(8, 8)
-            .save(dir.join("p.png"))
-            .unwrap();
-        let document =
-            "A line with a badge <img src=\"p.png\" width=\"24\" alt=\"badge\"> in it.\n";
-        std::fs::write(dir.join("document.md"), document).unwrap();
-    };
-    let (mut typed, mut quit) = (false, false);
-    let (status, seen, stderr) = in_terminal_seeing(
-        "pager-m-inline",
-        prepare,
-        &["-p", "--mode", "kitty", "--width", "80", "document.md"],
-        10,
-        None,
-        Setup::default(),
-        |seen, terminal, _| {
-            let shown = text(seen);
-            if !typed && shown.contains("\x1b[?2026l") {
-                typed = true;
-                terminal.write_all(b"M").unwrap();
-            }
-            // Quit once the page with the picture is sent, which is when the
-            // picture has loaded and the page is laid out again.
-            if typed && !quit && shown.matches("\x1b_Ga=T,U=1").count() >= 2 {
-                terminal.write_all(b"q").unwrap();
-                quit = true;
-            }
-        },
-    );
-    assert!(status.success());
-    assert_eq!(stderr, "");
-    // The page without the picture when `M` turns reading mode on, and
-    // again with it when it has come: sent as two images, as it is two
-    // different pages.
-    let pages = seen.matches("\x1b_Ga=T,U=1").count();
-    assert_eq!(pages, 2, "{seen:?}");
-}
-
-/// Whether the synchronized update that carries the last picture in `shown`
-/// has ended, which is when its frame is complete.
-fn frame_closed_after_last_picture(shown: &str) -> bool {
-    let after = shown.rsplit("\x1b_Ga=T,U=1").next().unwrap_or("");
-    after.contains("\x1b[?2026l")
-}
-
 /// The ids of the images sent in `seen`, in order.
 fn sent_ids(seen: &str) -> Vec<String> {
     seen.split("\x1b_Ga=T,U=1,")
@@ -2448,60 +2352,6 @@ fn sent_ids(seen: &str) -> Vec<String> {
 }
 
 #[test]
-fn a_reload_after_m_keeps_the_pictures_m_loaded() {
-    let prepare = |dir: &std::path::Path| {
-        crate::common::quadrants(8, 8)
-            .save(dir.join("p.png"))
-            .unwrap();
-        let document =
-            "A line with a badge <img src=\"p.png\" width=\"24\" alt=\"badge\"> in it.\n";
-        std::fs::write(dir.join("document.md"), document).unwrap();
-    };
-    // Steps: `M`, once the first page is drawn; `r`, once the page with
-    // the picture is sent; `q`, once the reload has drawn again.
-    let (mut step, mut frames_at_r) = (0, 0);
-    let (status, seen, stderr) = in_terminal_seeing(
-        "pager-m-reload",
-        prepare,
-        &["-p", "--mode", "kitty", "--width", "80", "document.md"],
-        10,
-        None,
-        Setup::default(),
-        |seen, terminal, _| {
-            let shown = text(seen);
-            let frames = shown.matches("\x1b[?2026l").count();
-            let sent = shown.matches("\x1b_Ga=T,U=1").count();
-            match step {
-                0 if frames > 0 => {
-                    terminal.write_all(b"M").unwrap();
-                    step = 1;
-                }
-                // The picture's frame must have closed before `r`, or the frame
-                // count would miss it and the next chunk would count as a
-                // reload's frame.
-                1 if sent >= 2 && frame_closed_after_last_picture(&shown) => {
-                    terminal.write_all(b"r").unwrap();
-                    (step, frames_at_r) = (2, frames);
-                }
-                2 if frames > frames_at_r => {
-                    terminal.write_all(b"q").unwrap();
-                    step = 3;
-                }
-                _ => {}
-            }
-        },
-    );
-    assert!(status.success());
-    assert_eq!(stderr, "");
-    // The page without the picture, then with it; a reload leaves the
-    // page with the picture, as it is when `--reading` asked for it.
-    let ids = sent_ids(&seen);
-    assert!(ids.len() >= 2, "{ids:?}");
-    assert_ne!(ids[0], ids[1], "{ids:?}");
-    assert_eq!(ids.last(), Some(&ids[1]), "{ids:?}");
-}
-
-#[test]
 fn m_loads_no_images_when_images_are_off() {
     let prepare = |dir: &std::path::Path| {
         crate::common::quadrants(8, 8)
@@ -2510,32 +2360,43 @@ fn m_loads_no_images_when_images_are_off() {
         let document = "![block](p.png)\n\nA line with a badge <img src=\"p.png\" width=\"24\" alt=\"badge\"> in it.\n";
         std::fs::write(dir.join("document.md"), document).unwrap();
     };
-    let mut step = 0;
-    let (status, seen) = in_terminal_after(
-        "pager-m-no-images",
-        prepare,
-        &[
-            "-p",
-            "--no-images",
-            "--mode",
-            "kitty",
-            "--width",
-            "80",
-            "document.md",
-        ],
-        10,
-        None,
-        |frames, terminal, _| {
-            if frames > 0 && step == 0 {
-                step = 1;
+    // `M` once the first frame is drawn; `q` once its frame is drawn and
+    // the terminal has been silent for a moment, which is when a picture
+    // that was loading would have come: nothing loads, so nothing comes.
+    let (mut step, mut length) = (0, 0);
+    let act = |seen: &[u8], terminal: &mut std::fs::File, _: &std::process::Child| {
+        let shown = text(seen);
+        let frames = shown.matches("\x1b[?2026l").count();
+        let silent = seen.len() == length;
+        length = seen.len();
+        match step {
+            0 if frames > 0 => {
                 terminal.write_all(b"M").unwrap();
-                // Nothing should load, so nothing is waited for. A picture of
-                // eight pixels loads well within a second, if it were loaded.
-                std::thread::sleep(Duration::from_secs(1));
-                terminal.write_all(b"q").unwrap();
+                step = 1;
             }
-        },
-    );
+            1 if frames > 1 && silent => {
+                terminal.write_all(b"q").unwrap();
+                step = 2;
+            }
+            _ => {}
+        }
+    };
+    let args = [
+        "-p",
+        "--no-images",
+        "--mode",
+        "kitty",
+        "--width",
+        "80",
+        "document.md",
+    ];
+    let setup = Setup {
+        quiet: Some(Duration::from_millis(300)),
+        ..Setup::default()
+    };
+    let (status, seen, stderr) =
+        in_terminal_seeing("pager-m-no-images", prepare, &args, 10, None, setup, act);
+    assert_eq!(stderr, "");
     assert!(status.success());
     // Only the page of text, as it is with `--reading` and no images: the
     // pictures never load.

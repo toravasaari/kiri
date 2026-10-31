@@ -2,9 +2,8 @@
 //! `<summary>`, `<kbd>`, `<mark>`, `<sub>`, `<sup>` and `<br>`.
 
 use kiri::typeset::caps::Capabilities;
-use kiri::typeset::theme::Theme;
 
-use crate::common::{WIDTH, inputs, render, render_for, visible};
+use crate::common::{WIDTH, fixed_theme, inputs, render, render_for, visible};
 
 #[test]
 fn plain_html_tags() {
@@ -37,15 +36,9 @@ fn marked_text_takes_the_theme_colours() {
 #[test]
 fn details_are_open_under_a_bold_summary() {
     let source = "<details>\n<summary>Sum <mark>up</mark></summary>\n\nText.\n\n</details>\n";
-    let plain = render(
-        source,
-        &inputs(&Capabilities::plain(WIDTH), &Theme::default()),
-    );
+    let plain = render(source, &inputs(&Capabilities::plain(WIDTH), &fixed_theme()));
     assert_eq!(plain, "  ▼ Sum up\n\n  Text.\n");
-    let kitty = render(
-        source,
-        &inputs(&Capabilities::kitty(WIDTH), &Theme::default()),
-    );
+    let kitty = render(source, &inputs(&Capabilities::kitty(WIDTH), &fixed_theme()));
     assert!(
         kitty.starts_with("  \x1b[0;1m▼ Sum \x1b[0;1;30;43mup\x1b[0m\n\n  Text.\n"),
         "{kitty:?}"
@@ -56,10 +49,7 @@ fn details_are_open_under_a_bold_summary() {
 fn a_summary_with_line_breaks_stays_on_one_line() {
     let source = "<details>\n<summary>Two<br>lines, <mark>then <br> more</mark></summary>\n\n\
         Text.\n\n</details>\n";
-    let plain = render(
-        source,
-        &inputs(&Capabilities::plain(WIDTH), &Theme::default()),
-    );
+    let plain = render(source, &inputs(&Capabilities::plain(WIDTH), &fixed_theme()));
     assert_eq!(plain, "  ▼ Two lines, then more\n\n  Text.\n");
 }
 
@@ -67,7 +57,7 @@ fn a_summary_with_line_breaks_stays_on_one_line() {
 fn a_heading_in_details_is_drawn_as_at_the_top_level() {
     let source = "<details>\n<summary>S</summary>\n\n## Inside\n\n</details>\n\n## Outside\n";
     let caps = Capabilities::kitty(WIDTH);
-    let out = render(source, &inputs(&caps, &Theme::default()));
+    let out = render(source, &inputs(&caps, &fixed_theme()));
     let inside = out.replace("Outside", "Inside");
     assert!(
         inside.matches("\x1b[0;1;34m\x1b]66;s=2;Inside").count() == 2,
@@ -81,8 +71,7 @@ fn without_text_sizing(source: &str) -> [String; 2] {
         text_sizing: false,
         ..Capabilities::kitty(WIDTH)
     };
-    [Capabilities::plain(WIDTH), kitty]
-        .map(|caps| render(source, &inputs(&caps, &Theme::default())))
+    [Capabilities::plain(WIDTH), kitty].map(|caps| render(source, &inputs(&caps, &fixed_theme())))
 }
 
 #[test]
@@ -108,12 +97,7 @@ fn a_sub_or_sup_without_script_characters_is_plain_text() {
 
 #[test]
 fn with_text_sizing_sub_and_sup_are_two_thirds_of_the_size_around_them() {
-    let kitty = |source: &str| {
-        render(
-            source,
-            &inputs(&Capabilities::kitty(WIDTH), &Theme::default()),
-        )
-    };
+    let kitty = |source: &str| render(source, &inputs(&Capabilities::kitty(WIDTH), &fixed_theme()));
     // Three cells of text in two, a sup at the top and a sub at the bottom
     // of the row, whatever their characters.
     let out = kitty("x<sup>2</sup> E<sub>max</sub> e<sup>iπ</sup>\n");
@@ -131,12 +115,7 @@ fn with_text_sizing_sub_and_sup_are_two_thirds_of_the_size_around_them() {
 
 #[test]
 fn a_sub_or_sup_in_a_heading_shrinks_in_the_heading_s_rows() {
-    let kitty = |source: &str| {
-        render(
-            source,
-            &inputs(&Capabilities::kitty(WIDTH), &Theme::default()),
-        )
-    };
+    let kitty = |source: &str| render(source, &inputs(&Capabilities::kitty(WIDTH), &fixed_theme()));
     // An h1 is 3 · 5/6, so its sup is 3 · 5/9.
     let out = kitty("# x<sup>2</sup>\n");
     assert!(out.contains("\x1b]66;s=3:n=5:d=9:w=1;2\x1b\\"), "{out:?}");
@@ -158,7 +137,7 @@ fn a_sup_keeps_its_place_in_a_table_cell_a_link_and_emphasis() {
     let out = render(
         "| a | b |\n|---|---|\n| x<sup>2</sup> | y |\n\n\
          [x<sup>2</sup>](https://example.com) and *e<sup>n</sup>*\n",
-        &inputs(&caps, &Theme::default()),
+        &inputs(&caps, &fixed_theme()),
     );
     // The cell is measured with its sup, two cells, so the border after
     // it lines up with the header's.

@@ -1,10 +1,9 @@
 //! Pager frames: which lines are drawn where, as escape sequences.
 
-use crate::common::{WIDTH, visible};
+use crate::common::{WIDTH, fixed_inputs, visible};
 use kiri::images::Images;
 use kiri::present::encoder::Encoder;
 use kiri::present::output::{Page, Writer};
-use kiri::render::Inputs;
 use kiri::session::view::{Motion, View};
 use kiri::typeset::caps::Capabilities;
 
@@ -12,7 +11,7 @@ use kiri::typeset::caps::Capabilities;
 /// rows, after `motions`.
 fn frame(source: &str, caps: Capabilities, page: Page, rows: usize, motions: &[Motion]) -> String {
     let document = kiri::typeset::parse::parse(source);
-    let inputs = Inputs::new(caps);
+    let inputs = fixed_inputs(caps);
     let lines = kiri::typeset::layout::layout(&document, &inputs);
     let images = Images::new();
     let mut encoder = Encoder::new();

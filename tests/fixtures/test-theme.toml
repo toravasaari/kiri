@@ -1,0 +1,216 @@
+# The theme the snapshots of features are drawn with.
+#
+# A copy of the defaults in docs/theme.md as they were when it was made,
+# written out in full: a change to the built-in theme does not move the
+# snapshots of the features, which use this one. Change it only to change
+# what those snapshots show; the snapshots that are about the built-in
+# theme itself, in render_themes.rs, use that.
+
+# Maximum text width in cells; 0 means the full terminal width.
+max_width = 100
+
+# Cells kept free on both sides of paragraphs, lists, quotes, tables and
+# code blocks. Headings start at the edge; rules span the whole terminal.
+text_margin = 2
+
+# A colour painted behind the whole document, or none to let the
+# terminal's own (possibly transparent) background show.
+background = "none"
+# The colour of text that has no colour of its own, or none for the
+# terminal's.
+foreground = "none"
+# The colour of text kiri plays down: image alt text, raw HTML and link
+# targets written out. none dims it instead.
+muted = "none"
+
+link = "blue"
+inline_code = "magenta"
+# A colour, none, or code-block for the code block theme's background.
+inline_code_background = "code-block"
+# A space of background colour on each side of inline code.
+inline_code_padding = true
+# Inline code may wrap at its spaces; false moves it to the next line
+# instead, unless it is longer than a line. In a table, false keeps it
+# whole while the other columns keep room for their text. A heading drawn
+# as an image wraps it at its spaces either way.
+inline_code_wrap = true
+quote_bar = "bright-black"
+rule = "bright-black"
+list_marker = "bright-black"
+# Also the colour of the underline between rows with --table-rows underline.
+table_border = "bright-black"
+# How reading mode draws tables and front matter, nested tables included;
+# only reading mode reads it, as the text layout draws its own frame.
+# "frame": a rounded frame, lines between the columns and under the header
+# row, none between the rows, which the shading tells apart.
+# "grid": a line round every cell and square corners, as GitHub draws it.
+table_style = "frame"
+# Messages kiri writes into the document, such as why a diagram could
+# not be drawn, below its code.
+error = "red"
+
+# A box of background colour around code blocks, one cell and one line
+# wide. Without it, code starts at the margin and copies cleanly.
+code_padding = true
+
+# Code block colours, chosen by the terminal's background, or by a paper
+# theme. A token whose colour is hard to read on the code background
+# is made darker or lighter, in its own hue, to WCAG's 4.5:1 contrast.
+# Available: base16-eighties.dark, base16-mocha.dark, base16-ocean.dark,
+# base16-ocean.light, InspiredGitHub, Solarized (dark), Solarized (light).
+code_theme_dark = "base16-ocean.dark"
+code_theme_light = "InspiredGitHub"
+
+# The language of a code block, named in its top right corner on the
+# padding line above the code. It needs code_padding and colours.
+show_language_label = true
+# A colour, none, or code-block for halfway between the code block
+# theme's text and background.
+language_label = "code-block"
+
+# scale: size as a multiple of the normal font, from 0.5 to 7, such as 3
+#   or 1.5. kiri draws the nearest size it can; kiri --doctor shows it.
+#   A size above a whole number takes the rows of the next one: 1.01
+#   takes two rows, as 2 does.
+#   It needs kitty's text sizing protocol; other terminals show headings
+#   at normal size.
+# rule: draw a line under the heading, across the whole terminal width.
+# underline: none, single, double, curly, dotted or dashed. Styles other
+#   than single need a kitty-compatible terminal.
+# background: a colour filled across the whole width, or none.
+# indent: in normal-size cells, whatever the heading's scale.
+[h1]
+scale = 2.5
+color = "blue"
+bold = true
+italic = false
+rule = false
+underline = "none"
+background = "none"
+indent = 0
+
+[h2]
+scale = 2
+color = "blue"
+bold = true
+italic = false
+rule = false
+underline = "none"
+background = "none"
+indent = 0
+
+[h3]
+scale = 1.75
+color = "blue"
+bold = true
+italic = false
+rule = false
+underline = "none"
+background = "none"
+indent = 0
+
+[h4]
+scale = 1.5
+color = "blue"
+bold = true
+italic = false
+rule = false
+underline = "none"
+background = "none"
+indent = 0
+
+[h5]
+scale = 1.25
+color = "blue"
+bold = true
+italic = false
+rule = false
+underline = "none"
+background = "none"
+indent = 0
+
+[h6]
+scale = 1
+color = "blue"
+bold = true
+italic = false
+rule = false
+underline = "none"
+background = "none"
+indent = 0
+
+# Alert blocks: quotes that start with [!NOTE], [!TIP], [!IMPORTANT],
+# [!WARNING] or [!CAUTION].
+[alerts]
+# github: GitHub's colours for a dark or light background. terminal: the
+# terminal's blue, green, magenta, yellow and red.
+colors = "github"
+# tint: a background mixed from the page and the kind's colour, where
+# kiri knows both as RGB. none: only the bar and the title are coloured.
+background = "tint"
+# A colour for one kind, or auto for the one colors gives it.
+note = "auto"
+tip = "auto"
+important = "auto"
+warning = "auto"
+caution = "auto"
+
+# The pager's status line: a bar with a badge at its start. A colour, none,
+# or auto. With every colour auto, the bar is the page mixed with
+# bright-black, where kiri knows both as RGB, and the badge is in reverse
+# video; where it does not, the bar is in reverse video and the badge in
+# bold. An auto foreground is the page's.
+[status_line]
+background = "auto"
+foreground = "auto"
+badge_background = "auto"
+badge_foreground = "auto"
+
+# Search matches in the pager: every match shown, and the current one, the
+# match the reader is at, in bold. A colour, none, or auto. With both
+# colours of a kind auto, the text layout shows its matches in reverse
+# video, and reading mode, where the text is a picture, in a browser's
+# find colours: the other matches black on yellow (#ffff00) and the
+# current match black on orange (#ff9632). Otherwise auto and none keep
+# the text's own colour, and a colour set here is used in both modes.
+# Without colours, as with NO_COLOR, matches are in reverse video in both
+# whatever the theme says.
+[search]
+match_foreground = "auto"
+match_background = "auto"
+current_foreground = "auto"
+current_background = "auto"
+# After each jump to a match, the current match fades in three quarters
+# of a second from the text's own colours into the current match's; when
+# the search goes around an end, the match number on the status line
+# fades too, from the reverse of the bar's colours back into them. The
+# fade needs both ends as RGB, from the theme or from the colours the
+# terminal tells; without them, the current match is marked at once and
+# the match number stands apart from the bar, bold and reversed, for half
+# a second.
+
+# Marked text, HTML's <mark>: a colour or none. Without colours, as with
+# NO_COLOR, marked text is in reverse video whatever the theme says.
+# With colours, setting both to none draws no mark at all.
+[mark]
+foreground = "black"
+background = "yellow"
+
+# The header above each of several files: a band across the text, a row
+# above and below the name, with a bar down its left edge. background is
+# a colour, none, or auto: a little of the text colour mixed into the
+# page, where kiri knows the page as RGB; where it does not, the header
+# has no band. Without colours, as with NO_COLOR, the bar is in the text
+# colour and there is no band. Plain text, as in a pipe, gets the name
+# between arrows instead, such as ==> docs/spec.md <==.
+[file_header]
+background = "auto"
+bar = "blue"
+
+# Formulas drawn as images: text is their letters and lines, none for
+# the colour of the text around them; background is behind them, none
+# for the page. A palette colour needs a terminal that tells kiri its
+# palette; otherwise text is the text's colour and background is none.
+[formula]
+text = "none"
+background = "none"

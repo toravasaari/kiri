@@ -4,11 +4,10 @@ use image::{Rgba, RgbaImage};
 use kiri::images::{HeadingWord, ImageError, ImageKey, Images, Source};
 use kiri::render::{Headings, Inputs};
 use kiri::typeset::caps::Capabilities;
-use kiri::typeset::theme::Theme;
 
 use crate::common::{
-    WIDTH, drawn, example_theme, fixture, graphics_commands, inputs, readable, render,
-    render_fixture, strip_own_sequences, visible,
+    WIDTH, drawn, example_theme, fixed_inputs, fixed_theme, fixture, graphics_commands, inputs,
+    readable, render, render_fixture, strip_own_sequences, visible,
 };
 
 #[test]
@@ -45,7 +44,7 @@ fn heading_background_reaches_the_right_edge() {
         for terminal_width in [46, 47, 48, 49] {
             let inputs = Inputs {
                 theme: theme.clone(),
-                ..Inputs::new(Capabilities::kitty(terminal_width))
+                ..fixed_inputs(Capabilities::kitty(terminal_width))
             };
             let lines = kiri::typeset::layout::layout(&document, &inputs);
             for line in lines.iter().filter(|line| line.rows() > 1) {
@@ -94,7 +93,7 @@ fn nested_headings_are_not_indented() {
 
 #[test]
 fn empty_headings_disappear() {
-    let theme = Theme::default();
+    let theme = fixed_theme();
     let source = "Before\n\n#\n\n##\n\nAfter\n\n> #\n";
     for caps in [
         Capabilities::plain(WIDTH),
@@ -115,7 +114,7 @@ fn empty_headings_disappear() {
 fn a_heading_that_renders_nothing_disappears() {
     // An empty link shows nothing when links are clickable.
     let source = "Before\n\n# [](https://example.com)\n\nAfter\n";
-    let out = render(source, &Inputs::new(Capabilities::kitty(WIDTH)));
+    let out = render(source, &fixed_inputs(Capabilities::kitty(WIDTH)));
     assert_eq!(strip_own_sequences(&out), "  Before\n\n  After\n");
 }
 
@@ -163,7 +162,7 @@ fn heading_inputs(caps: Capabilities, text: &str, image: Source, headings: Headi
     Inputs {
         images,
         headings,
-        ..Inputs::new(caps)
+        ..fixed_inputs(caps)
     }
 }
 
@@ -327,7 +326,7 @@ fn a_heading_that_fits_writes_every_cell() {
 fn a_heading_without_its_image_is_text() {
     let source = &fixture("headings.md");
     let caps = no_text_sizing(80);
-    let text = render(source, &Inputs::new(caps.clone()));
+    let text = render(source, &fixed_inputs(caps.clone()));
     assert!(!text.contains('\u{10EEEE}'));
     // A heading image that failed, as one that no font draws.
     let mut images = Images::new();
@@ -341,7 +340,7 @@ fn a_heading_without_its_image_is_text() {
     );
     let inputs = Inputs {
         images,
-        ..Inputs::new(caps)
+        ..fixed_inputs(caps)
     };
     assert_eq!(render(source, &inputs), text);
 }
@@ -469,7 +468,7 @@ fn a_heading_with_code_shows_the_image_with_its_code() {
     images.insert(key, Ok(text_image(20, 2, &[(0, 8), (10, 20)])));
     let inputs = Inputs {
         images,
-        ..Inputs::new(no_text_sizing(80))
+        ..fixed_inputs(no_text_sizing(80))
     };
     let out = render("# Kiri `code`\n", &inputs);
     assert_eq!(drawn(&out), ["⟦row 0: 20 cells⟧", "⟦row 1: 20 cells⟧"]);
@@ -497,7 +496,7 @@ fn a_heading_wraps_inside_a_code_span() {
     images.insert(key, Ok(text_image(40, 2, &[(0, 8), (10, 25), (27, 40)])));
     let inputs = Inputs {
         images,
-        ..Inputs::new(no_text_sizing(25))
+        ..fixed_inputs(no_text_sizing(25))
     };
     let out = render("# Kiri `one two`\n", &inputs);
     let lines = [
@@ -528,7 +527,7 @@ fn text_glued_to_code_stays_on_its_line() {
     images.insert(key, Ok(text_image(21, 2, &[(0, 8), (9, 20), (20, 21)])));
     let inputs = Inputs {
         images,
-        ..Inputs::new(no_text_sizing(20))
+        ..fixed_inputs(no_text_sizing(20))
     };
     let out = render("# Kiri `code`,\n", &inputs);
     let lines = [

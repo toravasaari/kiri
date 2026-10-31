@@ -28,6 +28,22 @@ pub(crate) use testing::Scratch;
 
 pub const WIDTH: u16 = 48;
 
+/// The theme the snapshots of features are drawn with, from
+/// `tests/fixtures/test-theme.toml`: the defaults as they were when the
+/// file was made, so that a change to the built-in theme does not move
+/// those snapshots.
+pub fn fixed_theme() -> Theme {
+    kiri::typeset::theme::load(&fixtures().join("test-theme.toml")).expect("the test theme loads")
+}
+
+/// Inputs with `caps`, the [`fixed_theme`] and no images.
+pub fn fixed_inputs(caps: Capabilities) -> Inputs {
+    Inputs {
+        theme: fixed_theme(),
+        ..Inputs::new(caps)
+    }
+}
+
 /// Inputs with `caps` and `theme`, and no images.
 pub fn inputs(caps: &Capabilities, theme: &Theme) -> Inputs {
     Inputs {
@@ -36,11 +52,11 @@ pub fn inputs(caps: &Capabilities, theme: &Theme) -> Inputs {
     }
 }
 
-/// Inputs with `caps` and `images`, and the built-in theme.
+/// Inputs with `caps` and `images`, and the [`fixed_theme`].
 pub fn with_images(caps: &Capabilities, images: Images) -> Inputs {
     Inputs {
         images,
-        ..Inputs::new(caps.clone())
+        ..fixed_inputs(caps.clone())
     }
 }
 
@@ -58,9 +74,9 @@ pub fn render_fixture(name: &str, inputs: &Inputs) -> String {
 }
 
 /// The fixture document `name` rendered for `caps`, with the built-in
-/// theme and no images.
+/// [`fixed_theme`] and no images.
 pub fn render_for(name: &str, caps: Capabilities) -> String {
-    render_fixture(name, &Inputs::new(caps))
+    render_fixture(name, &fixed_inputs(caps))
 }
 
 /// The source of the fixture document `name`.
@@ -517,6 +533,20 @@ pub fn read_terminal(
     terminal: &mut File,
     child: &mut Child,
     limit: Duration,
+    act: impl FnMut(&[u8], &mut File, &Child),
+) -> Vec<u8> {
+    read_terminal_quiet(terminal, child, limit, None, act)
+}
+
+/// [`read_terminal`], where `act` is also called, with the same bytes as
+/// the time before, once nothing has been read for `quiet`. A test that
+/// waits for nothing to happen waits for that, and not for a time it
+/// guesses is long enough.
+pub fn read_terminal_quiet(
+    terminal: &mut File,
+    child: &mut Child,
+    limit: Duration,
+    quiet: Option<Duration>,
     mut act: impl FnMut(&[u8], &mut File, &Child),
 ) -> Vec<u8> {
     use rustix::event::{PollFd, PollFlags, Timespec, poll};
@@ -526,9 +556,18 @@ pub fn read_terminal(
     let deadline = Instant::now() + limit;
     loop {
         let left = deadline.checked_duration_since(Instant::now());
-        let timeout = left.map(|left| Timespec::try_from(left).unwrap());
+        let wait = match (left, quiet) {
+            (Some(left), Some(quiet)) => Some(left.min(quiet)),
+            (left, _) => left,
+        };
+        let timeout = wait.map(|wait| Timespec::try_from(wait).unwrap());
         let mut fds = [PollFd::new(&*terminal, PollFlags::IN)];
-        if left.is_none() || poll(&mut fds, timeout.as_ref()).unwrap() == 0 {
+        let ready = left.is_some() && poll(&mut fds, timeout.as_ref()).unwrap() != 0;
+        if !ready && left.is_some_and(|left| quiet.is_some_and(|quiet| quiet < left)) {
+            act(&seen, terminal, child);
+            continue;
+        }
+        if !ready {
             child.kill().unwrap();
             panic!("kiri did not finish: {:?}", text(&seen));
         }

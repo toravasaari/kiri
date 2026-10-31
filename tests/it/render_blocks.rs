@@ -1,11 +1,11 @@
 //! Paragraphs, lists, quotes, code and the space between blocks.
 
-use kiri::render::Inputs;
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::theme::Theme;
 
 use crate::common::{
-    WIDTH, example_theme, inputs, render, render_fixture, render_for, strip_own_sequences, visible,
+    WIDTH, example_theme, fixed_inputs, fixed_theme, inputs, render, render_fixture, render_for,
+    strip_own_sequences, visible,
 };
 
 #[test]
@@ -79,7 +79,7 @@ fn text_margin_narrows_everything_but_headings() {
 #[test]
 fn empty_blocks_get_no_separator() {
     let plain = Capabilities::plain(WIDTH);
-    let theme = Theme::default();
+    let theme = fixed_theme();
     let source = "```\n```\n\nBefore\n\n```\n```\n\nAfter\n";
     assert_eq!(
         render(source, &inputs(&plain, &theme)),
@@ -102,7 +102,7 @@ fn empty_blocks_get_no_separator() {
 fn blank_lines_in_quotes_end_at_the_bar() {
     let source = "> a\n>\n> > b\n> >\n> > c\n\n- item\n\n  > d\n  >\n  > e\n";
     for caps in [Capabilities::ansi(WIDTH), Capabilities::kitty(WIDTH)] {
-        let text = strip_own_sequences(&render(source, &Inputs::new(caps)));
+        let text = strip_own_sequences(&render(source, &fixed_inputs(caps)));
         let lines: Vec<&str> = text.lines().collect();
         assert!(lines.iter().all(|line| !line.ends_with(' ')), "{lines:#?}");
         assert!(lines.contains(&"  │"), "{lines:#?}");
@@ -125,7 +125,7 @@ fn blank_lines_in_quotes_end_at_the_bar() {
 fn empty_list_items_end_at_the_marker() {
     let source = "- a\n-\n- b\n\n1. a\n2.\n";
     for caps in [Capabilities::ansi(WIDTH), Capabilities::kitty(WIDTH)] {
-        let text = strip_own_sequences(&render(source, &Inputs::new(caps)));
+        let text = strip_own_sequences(&render(source, &fixed_inputs(caps)));
         let lines: Vec<&str> = text.lines().collect();
         assert!(lines.contains(&"  •"), "{lines:#?}");
         assert!(lines.contains(&"  2."), "{lines:#?}");
@@ -141,14 +141,14 @@ fn tiny_widths_do_not_underflow() {
     // Quotes nested until a code block's padding is wider than its room.
     let quotes = "> ".repeat(6);
     let source = format!("{quotes}```\n{quotes}code\n{quotes}```\n");
-    let out = render(&source, &Inputs::new(Capabilities::plain(10)));
+    let out = render(&source, &fixed_inputs(Capabilities::plain(10)));
     assert!(out.contains('c'), "{out:?}");
 }
 
 #[test]
 fn inline_code_keeps_its_spaces() {
     let source = "Run `git  commit   -m` now.\n";
-    let theme = Theme::default();
+    let theme = fixed_theme();
     assert_eq!(
         render(source, &inputs(&Capabilities::plain(WIDTH), &theme)),
         "  Run `git  commit   -m` now.\n"
@@ -168,7 +168,7 @@ fn inline_code_wraps_at_its_spaces_unless_the_theme_keeps_it_together() {
     let plain = Capabilities::plain(16);
     let source = "Type `git commit` here.\n";
     assert_eq!(
-        render(source, &Inputs::new(plain.clone())),
+        render(source, &fixed_inputs(plain.clone())),
         "  Type `git\n  commit`\n  here.\n"
     );
     let together = kiri::typeset::theme::parse("inline_code_wrap = false\n").unwrap();
@@ -186,7 +186,7 @@ fn inline_code_wraps_at_its_spaces_unless_the_theme_keeps_it_together() {
 
 #[test]
 fn no_margins_puts_text_and_code_at_the_edge() {
-    let theme = Theme::default().without_margins();
+    let theme = fixed_theme().without_margins();
     insta::assert_snapshot!(visible(&render_fixture(
         "elements.md",
         &inputs(&Capabilities::kitty(WIDTH), &theme)
@@ -204,7 +204,7 @@ fn code_lines(source: &str, caps: Capabilities, theme: &Theme) -> Vec<String> {
 fn code_blocks_name_their_language_in_the_top_right_corner() {
     let source = "```rust\nfn main() {}\n```\n";
     for caps in [Capabilities::ansi(WIDTH), Capabilities::kitty(WIDTH)] {
-        let lines = code_lines(source, caps, &Theme::default());
+        let lines = code_lines(source, caps, &fixed_theme());
         // One cell of padding after the name, as before the code.
         assert!(lines[0].ends_with(" rust "), "{lines:#?}");
         assert!(lines[0].trim_start().starts_with("rust"), "{lines:#?}");
@@ -217,7 +217,7 @@ fn code_blocks_name_their_language_in_the_top_right_corner() {
 #[test]
 fn the_language_label_is_left_out_without_padding_colour_or_room() {
     let kitty = Capabilities::kitty(WIDTH);
-    let theme = Theme::default();
+    let theme = fixed_theme();
     let hidden = kiri::typeset::theme::parse("show_language_label = false\n").unwrap();
     let no_color = Capabilities {
         color: false,
@@ -258,7 +258,7 @@ fn the_language_label_is_left_out_without_padding_colour_or_room() {
 #[test]
 fn the_language_label_fills_the_padding_line_whatever_the_name() {
     let kitty = Capabilities::kitty(WIDTH);
-    let theme = Theme::default();
+    let theme = fixed_theme();
     let block = |language: &str| format!("```{language}\ncode\n```\n");
     // Each of these takes two cells.
     let wide = code_lines(&block("日本語"), kitty.clone(), &theme);
@@ -294,7 +294,7 @@ fn the_language_label_takes_its_colour_from_the_code_theme_or_the_theme() {
     };
     // Halfway between base16-ocean.dark's text, #c0c5ce, and its
     // background, #2b303b.
-    let default = top(&Theme::default());
+    let default = top(&fixed_theme());
     assert!(default.contains("38;2;118;123;133;"), "{default:?}");
     let red = top(&kiri::typeset::theme::parse("language_label = \"red\"\n").unwrap());
     assert!(red.contains("\x1b[0;31;"), "{red:?}");
@@ -324,7 +324,7 @@ fn a_formula_in_a_line_is_text_as_written_in_every_terminal_layout() {
         Capabilities::ansi(WIDTH),
         Capabilities::kitty(WIDTH),
     ] {
-        let theme = Theme::default();
+        let theme = fixed_theme();
         let inputs = inputs(&caps, &theme);
         assert_eq!(render(formulas, &inputs), render(escaped, &inputs));
     }
@@ -333,10 +333,7 @@ fn a_formula_in_a_line_is_text_as_written_in_every_terminal_layout() {
 #[test]
 fn bullets_stop_at_the_square_from_the_third_level_on() {
     let source = "- a\n  - b\n    - c\n      - d\n        - e\n          - f\n";
-    let output = render(
-        source,
-        &inputs(&Capabilities::kitty(WIDTH), &Theme::default()),
-    );
+    let output = render(source, &inputs(&Capabilities::kitty(WIDTH), &fixed_theme()));
     let bullets: String = (output.lines())
         .filter_map(|line| line.chars().find(|c| "•◦▪".contains(*c)))
         .collect();

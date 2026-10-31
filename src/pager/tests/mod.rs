@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use super::*;
+use crate::session::state::{FRAME, POLL};
 use crate::typeset::color::Color;
 use crate::typeset::model::{Document, File};
 
@@ -14,6 +15,7 @@ mod loading;
 mod reading;
 mod reload;
 mod search;
+mod simulated;
 mod view;
 
 /// A terminal that gives the reads in `keys`, one a call, with the

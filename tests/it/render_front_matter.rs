@@ -3,12 +3,12 @@
 use kiri::render::{FrontMatterStyle, Inputs};
 use kiri::typeset::caps::Capabilities;
 
-use crate::common::{WIDTH, fixture, render, visible};
+use crate::common::{WIDTH, fixed_inputs, fixture, render, visible};
 
 fn styled(caps: Capabilities, style: FrontMatterStyle) -> Inputs {
     Inputs {
         front_matter: style,
-        ..Inputs::new(caps)
+        ..fixed_inputs(caps)
     }
 }
 
@@ -118,7 +118,7 @@ fn empty_front_matter_shows_nothing_in_the_table_style() {
 fn the_table_style_is_the_default() {
     let caps = Capabilities::plain(WIDTH);
     assert_eq!(
-        render(&fixture("front-matter.md"), &Inputs::new(caps.clone())),
+        render(&fixture("front-matter.md"), &fixed_inputs(caps.clone())),
         render_with("front-matter.md", caps, FrontMatterStyle::Table)
     );
 }
@@ -159,7 +159,7 @@ fn hidden_front_matter_shows_nothing() {
         let body = source.split_once("\n---\n").unwrap().1;
         assert_eq!(
             render(&source, &styled(caps.clone(), FrontMatterStyle::Hide)),
-            render(body, &Inputs::new(caps))
+            render(body, &fixed_inputs(caps))
         );
     }
 }

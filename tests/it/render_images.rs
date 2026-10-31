@@ -8,8 +8,8 @@ use kiri::typeset::caps::Capabilities;
 use kiri::typeset::theme::{Paper, Theme};
 
 use crate::common::{
-    WIDTH, colour_codes, drawn, example_theme, fixture_images, one_image, quadrants, readable,
-    render, render_fixture, sent, visible, with_images,
+    WIDTH, colour_codes, drawn, example_theme, fixed_inputs, fixed_theme, fixture_images,
+    one_image, quadrants, readable, render, render_fixture, sent, visible, with_images,
 };
 
 #[test]
@@ -148,7 +148,7 @@ fn images_sit_on_the_document_background() {
         &Inputs {
             images,
             theme: example_theme("opaque.toml"),
-            ..Inputs::new(Capabilities::kitty(WIDTH))
+            ..fixed_inputs(Capabilities::kitty(WIDTH))
         },
     );
     assert_eq!(drawn(&out), ["⟦row 0: 4 cells⟧", "⟦row 1: 4 cells⟧"]);
@@ -174,7 +174,7 @@ fn text_after_an_image_takes_the_paper_foreground_again() {
         &Inputs {
             images,
             theme: Theme::paper(Paper::Light),
-            ..Inputs::new(Capabilities::kitty(WIDTH))
+            ..fixed_inputs(Capabilities::kitty(WIDTH))
         },
     );
     assert_eq!(drawn(&out), ["⟦row 0: 4 cells⟧", "⟦row 1: 4 cells⟧"]);
@@ -194,13 +194,13 @@ fn no_color_draws_images_without_other_colours() {
         color: false,
         ..Capabilities::kitty(WIDTH)
     };
-    for theme in [Theme::default(), example_theme("opaque.toml")] {
+    for theme in [fixed_theme(), example_theme("opaque.toml")] {
         let out = render(
             "Text\n\n![p](p.png)\n",
             &Inputs {
                 images: one_image("p.png", quadrants(40, 30)),
                 theme: theme.clone(),
-                ..Inputs::new(caps.clone())
+                ..fixed_inputs(caps.clone())
             },
         );
         let sent = sent(&out);
