@@ -231,7 +231,7 @@ fn a_given_width_stays_when_the_window_changes() {
 }
 
 /// The terminal of [`known_colours`] with a background that shows as
-/// `16;32;48` in an SGR code.
+/// `17;33;49`, one shade off, in an SGR code.
 fn reported_background() -> Capabilities {
     let mut caps = known_colours();
     caps.background = Some(Color::Rgb(16, 32, 48));
@@ -243,7 +243,7 @@ fn b_paints_the_terminal_s_background_and_takes_it_away() {
     let inputs = Inputs::new(reported_background());
     let frames = frames_of(&numbers(3), inputs, &[b"B", b"B"], 0);
     assert_eq!(frames.len(), 3, "{frames:?}");
-    let painted = |frame: &str| frame.contains("48;2;16;32;48");
+    let painted = |frame: &str| frame.contains("48;2;17;33;49");
     assert!(!painted(&frames[0]), "{frames:?}");
     assert!(painted(&frames[1]), "{frames:?}");
     assert!(!painted(&frames[2]), "{frames:?}");
@@ -258,6 +258,6 @@ fn b_takes_away_the_theme_s_background_and_brings_it_back() {
     let painted = |frame: &str| frame.contains("48;2;1;2;3");
     assert!(painted(&frames[0]), "{frames:?}");
     assert!(!painted(&frames[1]), "{frames:?}");
-    assert!(!frames[1].contains("48;2;16;32;48"), "{frames:?}");
+    assert!(!frames[1].contains("48;2;17;33;49"), "{frames:?}");
     assert!(painted(&frames[2]), "{frames:?}");
 }

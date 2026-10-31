@@ -50,6 +50,10 @@ paging = "auto"
 # How a search in the pager treats case: "smart" or "literal".
 search_case = "smart"
 
+# Whether B in the pager paints the terminal's background one shade off;
+# see Background offset below.
+background_offset = true
+
 # Whether the pager follows a lone file, reading it again whenever it
 # changes: "on", "off" or "auto", which also moves the view to a change.
 follow = "off"
@@ -465,6 +469,15 @@ and matches case exactly when it has one: `kiri` finds `Kiri` too, but
 `Kiri` finds only `Kiri`. `search_case = "literal"` in the configuration
 file makes every search match case exactly. Only the configuration file
 sets this; there is no flag or environment variable for it.
+
+## Background offset
+
+`B` in the pager paints the page in the terminal's background colour when
+the theme has none. kitty shows its own background, which may be
+translucent or an image, through a cell painted in exactly that colour,
+so kiri paints it one shade off, such as `#010101` for black, which looks
+the same. `background_offset = false` in the configuration file paints
+the exact colour. Only the configuration file sets this.
 
 ## Front matter
 

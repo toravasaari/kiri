@@ -769,3 +769,28 @@ fn the_status_line_cuts_a_long_link_in_the_middle() {
     assert!(bar.contains("…"), "{bar:?}");
     assert!(bar.contains("/page.html"), "{bar:?}");
 }
+
+#[test]
+fn b_paints_the_rows_around_the_page_too() {
+    let mut caps = kitty();
+    caps.truecolor = true;
+    caps.background = Some(crate::typeset::color::Color::Rgb(16, 32, 48));
+    let mut terminal = Fake::new(80, 10, &[b"B"]);
+    let mut inputs = Inputs {
+        reading: Some(reading()),
+        ..Inputs::new(caps)
+    };
+    run_document(
+        &numbers(3),
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let frames = terminal.frames();
+    assert_eq!(frames.len(), 2, "{frames:?}");
+    // One shade off the terminal's, which kitty would show through.
+    let painted = "\x1b[0;48;2;17;33;49m\x1b[H\x1b[2J";
+    assert!(!frames[0].contains("48;2;17;33;49"), "{:?}", frames[0]);
+    // The whole screen, beside and below the page too.
+    assert!(frames[1].contains(painted), "{:?}", frames[1]);
+}

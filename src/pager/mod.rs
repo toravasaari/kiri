@@ -119,6 +119,8 @@ pub struct Options<'a, 'l> {
     pub width: Option<u16>,
     /// How a search treats case.
     pub case: SearchCase,
+    /// Whether `B` paints the terminal's background one shade off.
+    pub background_offset: bool,
     /// Where `r` gets the document again from; `None` when it cannot.
     pub reload: Option<&'a mut dyn Reload>,
     /// Whether the pager follows the document from the start: reads it
@@ -159,6 +161,7 @@ impl Options<'_, '_> {
         Options {
             width: None,
             case,
+            background_offset: true,
             reload: None,
             follow: settings::Follow::Off,
             jump: FollowJump::First,
@@ -210,6 +213,7 @@ fn page_through(
     let Options {
         width,
         case,
+        background_offset,
         reload,
         follow,
         jump,
@@ -220,7 +224,8 @@ fn page_through(
     } = options;
     let mut state = State::new(case);
     state.jump = jump;
-    state.background = Backgrounds::new(inputs.theme.background, inputs.caps.background);
+    let (theme, reported) = (inputs.theme.background, inputs.caps.background);
+    state.background = Backgrounds::new(theme, reported, background_offset);
     state.warn(warnings, terminal.now());
     if reload.is_some() {
         state.follow.mode = follow;

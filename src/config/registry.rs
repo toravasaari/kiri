@@ -361,6 +361,12 @@ settings! {
         key "search_case", owner "session::search", effect Paint, medium Cells, scope Pager,
         flag None, help None, env Env::NONE;
 
+        /// Whether `B` paints the terminal's background one shade off, which kitty
+        /// paints instead of showing its own background through.
+        background_offset: bool = true;
+        key "background_offset", owner "session::state", effect Layout, medium Both, scope Pager,
+        flag None, help None, env Env::NONE;
+
         /// Whether the pager follows a file, reading it again whenever it
         /// changes.
         follow: Follow = Follow::default();
