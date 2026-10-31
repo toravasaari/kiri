@@ -72,6 +72,28 @@ pub fn reading_warning(asked: bool, caps: &Capabilities) -> Option<String> {
     })
 }
 
+/// Whether a file shown on its own as an image is, an image file or a
+/// diagram file, goes to the pager on a terminal: only when paging is
+/// `always`, as for several such files. `terminal` tells whether the
+/// output is one.
+pub fn pages_alone(paging: Paging, terminal: bool, caps: &Capabilities) -> bool {
+    for_files(paging, true) == Paging::Always && terminal && caps.styling
+}
+
+/// Whether the images of a document may still load once the pager has
+/// opened, rather than before: in the background, or when the reader
+/// skips the wait for them. That is when the settings show images that
+/// `caps` can show and may page the document, as paging is `always` or
+/// `auto` and the output a terminal that takes escape sequences;
+/// [`surely_paged`] tells for `auto`.
+pub fn may_load_later(paging: Paging, images: bool, terminal: bool, caps: &Capabilities) -> bool {
+    matches!(paging, Paging::Always | Paging::Auto)
+        && terminal
+        && caps.styling
+        && images
+        && caps.draws_images()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,5 +188,40 @@ mod tests {
         );
         assert_eq!(reading_warning(true, &Capabilities::kitty(80)), None);
         assert_eq!(reading_warning(false, &Capabilities::ansi(80)), None);
+    }
+
+    #[test]
+    fn an_image_alone_is_paged_only_when_paging_is_always_on_a_terminal() {
+        let styled = Capabilities::ansi(80);
+        assert!(pages_alone(Paging::Always, true, &styled));
+        assert!(!pages_alone(Paging::Auto, true, &styled));
+        assert!(!pages_alone(Paging::Never, true, &styled));
+        assert!(!pages_alone(Paging::Always, false, &styled));
+        assert!(!pages_alone(Paging::Always, true, &Capabilities::plain(80)));
+    }
+
+    #[test]
+    fn images_load_after_the_pager_opens_when_the_pager_may_page_them() {
+        let kitty = Capabilities::kitty(80);
+        for paging in [Paging::Always, Paging::Auto] {
+            assert!(may_load_later(paging, true, true, &kitty), "{paging:?}");
+        }
+        assert!(!may_load_later(Paging::Never, true, true, &kitty));
+        assert!(!may_load_later(Paging::Auto, false, true, &kitty));
+        assert!(!may_load_later(Paging::Auto, true, false, &kitty));
+        // Without styling, or without images a terminal can draw, there is
+        // nothing to load later.
+        assert!(!may_load_later(
+            Paging::Auto,
+            true,
+            true,
+            &Capabilities::plain(80)
+        ));
+        assert!(!may_load_later(
+            Paging::Auto,
+            true,
+            true,
+            &Capabilities::ansi(80)
+        ));
     }
 }

@@ -426,7 +426,7 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
             let settings = settings.unwrap_or_else(|_| without_config(cli, &env));
             let passthrough = settings.passthrough;
             let caps = kiri::term::capabilities(context.mode, context.width, &env, passthrough);
-            if pages_alone(&settings, &caps) {
+            if plan::pages_alone(settings.paging, kiri::term::stdout_is_terminal(), &caps) {
                 for warning in &warnings {
                     eprintln!("kiri: {warning}");
                 }
@@ -464,7 +464,8 @@ fn run(cli: &Cli, file: Option<&Path>) -> Result<(), Failure> {
     }
     let passthrough = settings.passthrough;
     let caps = kiri::term::capabilities(context.mode, context.width, &env, passthrough);
-    if matches!(input, Input::Diagram(_)) && pages_alone(&settings, &caps) {
+    let terminal = kiri::term::stdout_is_terminal();
+    if matches!(input, Input::Diagram(_)) && plan::pages_alone(settings.paging, terminal, &caps) {
         let opened = Opened {
             path,
             file,
@@ -723,15 +724,6 @@ fn without_config(cli: &Cli, env: &Environment) -> Settings {
     choices.with_theme(Theme::default())
 }
 
-/// Whether a file shown on its own as an image is, an image file or a
-/// diagram file, goes to the pager for `settings` on a terminal with
-/// `caps`: only when paging is `always`, as for several such files.
-fn pages_alone(settings: &Settings, caps: &Capabilities) -> bool {
-    plan::for_files(settings.paging, true) == Paging::Always
-        && kiri::term::stdout_is_terminal()
-        && caps.styling
-}
-
 /// Shows the files `opened`, or why each could not be opened, as
 /// `run_files` shows them, with `settings`, whose paging is that for these
 /// files, and for a terminal with `caps`; documents are shown only when
@@ -809,7 +801,7 @@ fn show_files(
         }
     }
     // The documents' images load once the pager has opened.
-    let later = paged && may_load_later(&settings, &caps);
+    let later = paged && plan::may_load_later(settings.paging, settings.images, terminal, &caps);
     let Loaded {
         mut images,
         mut interrupt,
@@ -1568,7 +1560,12 @@ fn show_document(
     // Before the images are read, so that a file changed meanwhile counts
     // as changed.
     let stamps = Stamps::of(&parts);
-    let later = may_load_later(&settings, &caps);
+    let later = plan::may_load_later(
+        settings.paging,
+        settings.images,
+        kiri::term::stdout_is_terminal(),
+        &caps,
+    );
     let loaded = match later {
         true => Loaded::default(),
         false => load_told(context, &parts, &settings, &caps)?,
@@ -1581,20 +1578,6 @@ fn show_document(
         later: later.then_some(&parts),
     };
     print_document(context, shown, loaded, settings, caps, reading)
-}
-
-/// Whether the images of a document may still load once the pager has
-/// opened, rather than before: in the background, or when the reader
-/// skips the wait for them. That is when `settings` show images that
-/// `caps` can show and may page the document, as paging is `always` or
-/// `auto` and the output a terminal that takes escape sequences;
-/// [`surely_paged`] tells for `auto`.
-fn may_load_later(settings: &Settings, caps: &Capabilities) -> bool {
-    matches!(settings.paging, Paging::Always | Paging::Auto)
-        && kiri::term::stdout_is_terminal()
-        && caps.styling
-        && settings.images
-        && caps.draws_images()
 }
 
 /// The rows an image or diagram that has not loaded yet counts as, to
