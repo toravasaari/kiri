@@ -608,6 +608,8 @@ The later work that the rows name, in words:
 | `src/config/registry.rs` | platform | new. The registry of settings: each setting once, with its key, the module that reads it, what a change of it needs, its medium and its scope. It generates `Config` (what the file sets), `Options`, `Choices`, `Settings` and `choose` |
 | `src/config/resolve.rs` | platform | stays. Resolving a setting from the flags, the environment, the file and its default: `resolve`, `variable`, the theme's source, `settings` and loading the theme |
 | `src/config/types.rs` | platform | stays. The setting types: `Setting`, `Origin`, `Named`, `ThemeSource`, and the types of the settings that are not the pager's, `Passthrough` among them: capability detection, the command line and `--doctor` read it, and capability detection takes its value, not `Environment` |
+| `src/session/state.rs` | state engine | new. What the reader does in the pager besides scrolling: `State` with its parts, `Warning`, `Change` and `Look`, and its answers to keys and to time |
+| `src/session/frame.rs` | state engine | new. What the screen shows of one layout: `Layout`, `Status` and the `Frame` they make |
 | `src/session/layers.rs` | state engine | new. The highlights over the document as one list of layers, each a paint (a background mixed toward the text colour, colours, reverse video, a box, a frame) at an address in its layout's own terms: `Layer`, `Paint`, `At`, `stack`, which makes the list from the tint, the search and the selected link, and `paint`, which paints the text layout's lines and reading mode's pages with it. A highlight is a layer here, not a branch in the pager |
 | `src/session/settings.rs` | state engine | new. The setting types the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump` and `InitialLoad`), without the code that reads them from the flags, the environment and the file |
 | `src/config/tests.rs` | follows `config/` | stays |
@@ -679,7 +681,7 @@ The later work that the rows name, in words:
 | `src/diagrams/external.rs` | platform | stays |
 | `src/diagrams/external/tests.rs` | platform | stays |
 | `src/diagrams/find.rs` | platform | stays |
-| `src/pager/mod.rs` | mixed | stays. State engine: `State`, `Warning`, the key and tick handling, the frame. Platform: `page_through` and `show`, the loop, with the `Reload`, `InlineLoader`, `Loads` and `Terminal` it does its I/O through, and the load scheduling, `load_headings` and `prefer`, which use `Loads`; the order from `loading::nearest` goes in as values. The pager's loop |
+| `src/pager/mod.rs` | platform | stays. The state engine's part, `State`, `Warning`, the key and tick handling and the frame, is in `src/session/state.rs` and `src/session/frame.rs`. Platform: `page_through` and `show`, the loop, with the `Reload`, `InlineLoader`, `Loads` and `Terminal` it does its I/O through, and the load scheduling, `load_headings` and `prefer`, which use `Loads`; the order from `loading::nearest` goes in as values. The pager's loop |
 | `src/pager/tests/mod.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/files.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/following.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |

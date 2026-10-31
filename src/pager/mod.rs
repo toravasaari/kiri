@@ -18,38 +18,36 @@
 
 use std::io::{self, Write};
 use std::ops::Range;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use crate::images::{ImageError, ImageKey, Images, Loads, Part, Source};
 use crate::present::encoder::Encoder;
-use crate::present::keys::{Decoder, Key};
-use crate::present::kitty::graphics::ImageId;
+use crate::present::keys::Key;
 use crate::present::output::{self, Page, Writer};
 use crate::present::{cell_query, clipboard};
 use crate::render::Inputs;
-use crate::session::commands::{self, Action};
-use crate::session::fade::{
-    FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY, WARNING_STAY,
-};
+use crate::session::fade::Rgb;
 use crate::session::files::Files;
+use crate::session::frame::{Frame, Layout, Status};
 use crate::session::help::Placed;
-use crate::session::layers::{self, Highlights, Tint};
-use crate::session::prompt::{Edit, Prompt};
-use crate::session::search::{Marks, Search};
+use crate::session::search::Marks;
 use crate::session::settings::{self, FollowJump, SearchCase};
-use crate::session::view::{Motion, View};
-use crate::session::{bands, changes, help, links, loading, status, warnings};
+use crate::session::state::{
+    Change, Changed, FRAME, Focus, Follow, NEEDS_IMAGES, NOTHING_TO_FOLLOW, POLL, Polled, Pressed,
+    State, Told, Warning,
+};
+use crate::session::view::View;
+use crate::session::{changes, loading, status};
 use crate::term::{Screen, WindowSize};
 use crate::typeset::block::BlockInfo;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::compare::{Comparison, Fate, compare};
 use crate::typeset::images::size::cell_size;
 use crate::typeset::layout::{Content, Stream};
-use crate::typeset::model::{Document, File, FrontMatterError};
+use crate::typeset::model::{Document, File};
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page::Wide;
 use crate::typeset::style::{self, Line, Span, Style};
-use crate::typeset::wrap;
 
 /// The rows `lines` take on a terminal with `caps`.
 pub fn rows(lines: &[Line], caps: &Capabilities) -> usize {
@@ -104,45 +102,6 @@ pub trait Reload {
     /// Whether the document changed since it was last read, as the pager
     /// asks while it follows it.
     fn change(&mut self) -> Change;
-}
-
-/// Whether the document changed since it was last read.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Change {
-    Unchanged,
-    /// It changed, and looks as `Look` tells now.
-    Changed(Look),
-    /// It cannot be looked at, such as a file that is gone: why, as the
-    /// status line says it.
-    Gone(String),
-}
-
-/// What tells one version of a document from another without reading it:
-/// for a file, when it was last modified and its length.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Look {
-    pub modified: Option<SystemTime>,
-    pub length: u64,
-}
-
-/// Something kiri found wrong with a document while it read it, which
-/// the pager tells about without stopping.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Warning {
-    /// The line of the file the trouble is at, counting from 1, when
-    /// known.
-    pub line: Option<usize>,
-    /// What is wrong, as one line of text.
-    pub message: String,
-}
-
-impl From<&FrontMatterError> for Warning {
-    fn from(error: &FrontMatterError) -> Self {
-        Self {
-            line: error.line,
-            message: format!("front matter: {}", error.message),
-        }
-    }
 }
 
 /// What reloading the document came to.
@@ -616,19 +575,8 @@ fn follows(changes: &Comparison, old: &BlockInfo, new: &BlockInfo) -> bool {
         )
 }
 
-/// What the status line says when there is no file to follow.
-const NOTHING_TO_FOLLOW: &str = "nothing to follow";
-
 /// The rows of a window whose size the terminal does not tell.
 const DEFAULT_ROWS: u16 = 24;
-
-/// How long the pager waits for a key before it looks at the window size
-/// again.
-const POLL: Duration = Duration::from_millis(100);
-
-/// How long the pager waits for a key while a fade is under way, so that
-/// it draws a step of it each time.
-const FRAME: Duration = Duration::from_millis(50);
 
 /// Why the pager stopped showing one layout of the document.
 enum Outcome {
@@ -661,173 +609,6 @@ struct Origin<'r, 'l> {
     /// When the pager started, from when the bands below the images that
     /// load move.
     started: Instant,
-}
-
-/// Why `M` does not turn reading mode on.
-const NEEDS_IMAGES: &str = "reading mode needs a terminal that draws images";
-
-/// What a key did, besides what the pager does itself.
-enum Pressed {
-    Nothing,
-    Quit,
-    /// The reader asked for the document again.
-    Reload,
-    /// The reader changed how the document is followed.
-    Follow,
-    /// The reader asked for the screen and its images again.
-    Redraw,
-    /// The reader turned reading mode on or off.
-    Reading,
-    /// The reader scrolled a band sideways or selected another.
-    Bands,
-    /// The reader switched wide blocks between wrapping and scrolling.
-    Wide,
-    /// The reader asked for this to go on the clipboard.
-    Copy(String),
-}
-
-/// What the status line and the help panel show and how, apart from the
-/// position.
-struct Status<'a> {
-    /// What a lone document is called.
-    name: &'a str,
-    /// What stands in place of the name while images load: how many have
-    /// come of how many.
-    loading: Option<String>,
-    /// The files shown, each named after itself.
-    files: Files<'a>,
-    styles: status::Styles,
-    /// The window's columns.
-    width: u16,
-    /// Whether the window has a row for the status line besides the
-    /// document's.
-    bar: bool,
-    /// The help panel's style, and that of its notes.
-    panel: Style,
-    muted: Style,
-    /// The style of the warning line: the theme's error colour on the
-    /// page.
-    red: Style,
-    /// Whether the document is shown in reading mode.
-    reading: bool,
-}
-
-impl Status<'_> {
-    /// The status line for `view` in `state`, with the match number faded
-    /// by `fade` after the search went around an end and a message faded
-    /// out by `out`: the prompt while it is open.
-    ///
-    /// The mark for the document's warnings has its number flashing
-    /// while `counted` is a fade.
-    fn spans(
-        &self,
-        view: &View,
-        state: &State,
-        (fade, out, counted): (Option<Fade>, Option<Fade>, Option<Fade>),
-        link: Option<&str>,
-    ) -> Vec<Span> {
-        if !self.bar {
-            return Vec::new();
-        }
-        let width = usize::from(self.width);
-        match &state.prompt {
-            Some(prompt) => status::prompt('/', prompt.term(), width, &self.styles),
-            None if state.colon => status::prompt(':', "", width, &self.styles),
-            None => {
-                let flash = fade
-                    .filter(|_| state.jumped.is_some_and(|jump| jump.around))
-                    .map(|fade| self.styles.number(fade));
-                let fading = out.and_then(|out| self.styles.fading(out));
-                let found = state.found(flash, fading, link);
-                let file = state.file(&self.files, view.top());
-                let name = file.map_or(self.name, |file| self.files.name(file));
-                let name = self.loading.as_deref().unwrap_or(name);
-                let place = (file.filter(|_| self.files.several()))
-                    .map(|file| (file + 1, self.files.count()));
-                let position = view.position();
-                let tags = status::Tags {
-                    follow: state.follow.mode,
-                    reading: self.reading,
-                    warnings: (!state.warnings.is_empty()).then(|| status::Warned {
-                        count: state.warnings.len(),
-                        flash: counted.map(|fade| self.styles.number(fade)),
-                    }),
-                };
-                status::spans(name, place, position, tags, found, width, &self.styles)
-            }
-        }
-    }
-
-    /// The warning line over the last row of `view` at `now`, where the
-    /// document's warnings in `state` are told; it fades out into the
-    /// page with `rgb`'s colours after [`WARNING_STAY`].
-    fn notice(&self, view: &View, state: &State, now: Instant, rgb: Option<&Rgb>) -> Vec<Placed> {
-        let Some(at) = state.noticed else {
-            return Vec::new();
-        };
-        if !self.bar {
-            return Vec::new();
-        }
-        // The rest of the text, mixed towards the page; the muted style
-        // where the colours are not known.
-        let mixed = rgb.and_then(|rgb| {
-            let (text, page) = rgb.colors(&self.panel)?;
-            text.mix(page, 0.4)
-        });
-        let dim = match mixed {
-            Some(color) => Style {
-                fg: Some(color),
-                ..self.panel.clone()
-            },
-            None => self.muted.clone(),
-        };
-        let (mut red, mut dim) = (self.red.clone(), dim);
-        if let Some(faded) = now.saturating_duration_since(at).checked_sub(WARNING_STAY) {
-            let fade = Fade {
-                elapsed: faded,
-                rgb,
-            };
-            for style in [&mut red, &mut dim] {
-                let gone = rgb
-                    .and_then(|rgb| rgb.colors(style))
-                    .map(|(_, page)| Style {
-                        fg: Some(page),
-                        bg: Some(page),
-                        italic: true,
-                        ..style.clone()
-                    });
-                if let Some(faded) = gone.and_then(|gone| fade.mix(style, &gone)) {
-                    *style = faded;
-                }
-            }
-        }
-        let columns = usize::from(self.width);
-        let spans = warnings::spans(&state.warnings, columns, &red, &dim);
-        if spans.is_empty() {
-            return Vec::new();
-        }
-        let column = columns.saturating_sub(wrap::width(&spans));
-        vec![Placed {
-            row: view.rows(),
-            column: column.max(1),
-            spans,
-        }]
-    }
-
-    /// The help panel over `view`, when `open`.
-    fn panel(&self, view: &View, open: bool) -> Vec<Placed> {
-        if open {
-            help::panel(
-                usize::from(self.width),
-                view.rows(),
-                &self.panel,
-                &self.muted,
-                self.files.several(),
-            )
-        } else {
-            Vec::new()
-        }
-    }
 }
 
 /// Starts loading the heading images of `content` for the cells `inputs`
@@ -886,718 +667,22 @@ fn fit(
     }
 }
 
-/// What the reader does in the pager besides scrolling, which stays when
-/// the window changes size.
-#[derive(Debug)]
-struct State {
-    /// How a search treats case.
-    case: SearchCase,
-    /// Whether the help is open.
-    help: bool,
-    /// The search prompt, while it is open.
-    prompt: Option<Prompt>,
-    /// The last search.
-    search: Option<Search>,
-    /// The selected link.
-    links: links::Links,
-    /// Whether a jump to a match scrolled or selected a band, which is
-    /// shown anew once the key is done.
-    bands_moved: bool,
-    /// Whether the last search is shown; Escape hides it until `n` or
-    /// `N`.
-    shown: bool,
-    /// Whether the status line tells that the last search found nothing,
-    /// which it does until the next key.
-    nowhere: bool,
-    /// The last jump to a match, while its fade is under way.
-    jumped: Option<Jump>,
-    /// Whether a colon was typed, so that the next key gives a command.
-    colon: bool,
-    /// The last move to a file, while the view stays where it took it.
-    went: Option<Went>,
-    /// What the status line tells about the last key until the next one,
-    /// such as that there is no next file, or until it has faded out.
-    told: Option<Told>,
-    /// Following the document as it changes.
-    follow: Follow,
-    /// The lines of the change auto-follow went to, while they are
-    /// tinted.
-    changed: Option<Changed>,
-    /// The warnings about the document shown.
-    warnings: Vec<Warning>,
-    /// When the warning line was last told, while it stays and fades.
-    noticed: Option<Instant>,
-    /// When the number of warnings last changed, while the number of the
-    /// mark on the status line flashes.
-    counted: Option<Instant>,
-    /// Where the focus is, as the terminal last told.
-    focus: Focus,
-    /// The keys read, with what a read cut off waiting for the rest,
-    /// also when a layout ends between the two reads.
-    decoder: Decoder,
-    /// How far reading mode's bands are scrolled, and which is selected.
-    bands: bands::Bands,
-    /// The cells the terminal last answered, until `page_through` applies
-    /// them when `show` returns.
-    cell: Option<(u16, u16)>,
-}
-
-/// Where the focus is, as the terminal tells with focus reporting: under
-/// tmux, whether the pane is in the window shown.
-#[derive(Debug)]
-enum Focus {
-    /// Not told yet, as when kiri started in a pane not shown.
-    Unknown,
-    In,
-    /// Gone, with the images sent since, which tmux may have dropped.
-    Out(Vec<ImageId>),
-}
-
-/// The change auto-follow moved the view to.
-#[derive(Debug, Clone)]
-struct Changed {
-    at: Instant,
-    /// Its lines in the laid-out document.
-    lines: Range<usize>,
-}
-
-/// Following the document: reading it again whenever it changes.
-#[derive(Debug, Default)]
-struct Follow {
-    mode: settings::Follow,
-    /// How a change looked on the last poll, and when it was first seen
-    /// looking so. It is read once a poll at least [`POLL`] later finds it
-    /// looking the same, so that a file caught half written is not shown.
-    seen: Option<(Look, Instant)>,
-    /// Whether the document could not be looked at on the last poll, which
-    /// the status line told.
-    gone: bool,
-}
-
-/// What a poll of the document while it is followed calls for.
-#[derive(Debug, PartialEq, Eq)]
-enum Polled {
-    Nothing,
-    Reload,
-    /// The status line is to tell why the document cannot be looked at.
-    Gone(String),
-}
-
-impl Follow {
-    /// Whether the document is followed, on or auto.
-    fn on(&self) -> bool {
-        self.mode != settings::Follow::Off
-    }
-
-    /// What `change`, found on a poll at `now`, calls for.
-    fn poll(&mut self, change: Change, now: Instant) -> Polled {
-        let gone = std::mem::replace(&mut self.gone, false);
-        match change {
-            Change::Unchanged => {
-                self.seen = None;
-                Polled::Nothing
-            }
-            Change::Changed(look) => match self.seen {
-                Some((seen, at)) if seen == look => {
-                    match now.saturating_duration_since(at) >= POLL {
-                        true => Polled::Reload,
-                        false => Polled::Nothing,
-                    }
-                }
-                _ => {
-                    self.seen = Some((look, now));
-                    Polled::Nothing
-                }
-            },
-            Change::Gone(why) => {
-                self.seen = None;
-                self.gone = true;
-                match gone {
-                    true => Polled::Nothing,
-                    false => Polled::Gone(why),
-                }
-            }
-        }
-    }
-}
-
-/// A message on the status line.
-#[derive(Debug)]
-struct Told {
-    message: String,
-    /// When it was told, for a message that fades out.
-    fades: Option<Instant>,
-}
-
-impl Told {
-    /// `message`, which stays until the next key.
-    fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            fades: None,
-        }
-    }
-
-    /// `message`, told at `at`, which stays for [`STAY`] and then fades
-    /// out over [`FADE_OUT`], unless a key clears it before.
-    fn fading(message: impl Into<String>, at: Instant) -> Self {
-        Self {
-            fades: Some(at),
-            ..Self::new(message)
-        }
-    }
-}
-
-/// A move to the start of a file with `:n` or `:p`. The view may stop
-/// short of the start, at the last page, so the file the move went to is
-/// kept until the view moves on.
-#[derive(Debug, Clone, Copy)]
-struct Went {
-    file: usize,
-    /// The top of the view after the move.
-    top: usize,
-}
-
-/// A jump to a search match.
-#[derive(Debug, Clone, Copy)]
-struct Jump {
-    at: Instant,
-    /// Whether the search went around an end of the document to it.
-    around: bool,
-}
-
-impl State {
-    /// Nothing done yet, with searches that treat case as `case` says.
-    fn new(case: SearchCase) -> Self {
-        Self {
-            case,
-            help: false,
-            prompt: None,
-            search: None,
-            links: links::Links::default(),
-            bands_moved: false,
-            shown: false,
-            nowhere: false,
-            jumped: None,
-            colon: false,
-            went: None,
-            told: None,
-            follow: Follow::default(),
-            changed: None,
-            warnings: Vec::new(),
-            noticed: None,
-            counted: None,
-            focus: Focus::Unknown,
-            decoder: Decoder::default(),
-            bands: bands::Bands::default(),
-            cell: None,
-        }
-    }
-
-    /// Notes that the images `sent` went to the terminal, which tmux
-    /// may drop while the focus is gone.
-    fn sent(&mut self, sent: Vec<ImageId>) {
-        if let Focus::Out(away) = &mut self.focus {
-            away.extend(sent);
-        }
-    }
-
-    /// Takes `warnings`, about the document as read at `now`, for the
-    /// ones before; the number of them flashes when it differs.
-    fn warn(&mut self, warnings: Vec<Warning>, now: Instant) {
-        if warnings.len() != self.warnings.len() {
-            self.counted = Some(now);
-        }
-        self.noticed = (!warnings.is_empty()).then_some(now);
-        self.warnings = warnings;
-    }
-
-    /// Does what `key`, pressed at `now`, asks in `layout`, and tells what
-    /// is left for the pager to do.
-    fn press(&mut self, key: Key, now: Instant, layout: &mut Layout) -> Pressed {
-        match self.pressed(key, now, layout) {
-            Pressed::Nothing if std::mem::take(&mut self.bands_moved) => Pressed::Bands,
-            pressed => pressed,
-        }
-    }
-
-    fn pressed(&mut self, key: Key, now: Instant, layout: &mut Layout) -> Pressed {
-        let mut action = commands::action(key);
-        // A click and the sideways wheel act on the band under them, and
-        // never reach the help, the prompt or the colon.
-        if let Some(pointer) = action.filter(|action| action.is_pointer()) {
-            match self.pointed(pointer, layout) {
-                Ok(pressed) => return pressed,
-                Err(fallback) => action = Some(fallback),
-            }
-        }
-        // Any other mouse event does nothing at all.
-        if key == Key::Mouse {
-            return Pressed::Nothing;
-        }
-        self.nowhere = false;
-        self.told = None;
-        if action == Some(Action::Dismiss) {
-            self.dismiss();
-            return Pressed::Nothing;
-        }
-        // Any key closes the help and does nothing else, but Ctrl+C
-        // still quits.
-        if self.help && key != Key::Ctrl('c') {
-            self.help = false;
-            return Pressed::Nothing;
-        }
-        // While the prompt is open, keys edit it.
-        if let Some(prompt) = &mut self.prompt {
-            match prompt.edit(key) {
-                Edit::Typing => {}
-                Edit::Cancel => self.prompt = None,
-                Edit::Search(term) => {
-                    self.prompt = None;
-                    self.find(&term, now, layout);
-                }
-                // The last search again goes on to its next match, as n
-                // does.
-                Edit::Repeat => {
-                    self.prompt = None;
-                    self.step(Search::forward, now, layout);
-                }
-            }
-            return Pressed::Nothing;
-        }
-        // The key after a colon is a command's, and any other closes it.
-        // The commands move between files, so a lone document has none
-        // and its colon does nothing.
-        if std::mem::take(&mut self.colon) {
-            action = match key {
-                Key::Char(c) => commands::action(Key::Command(c)),
-                _ => return Pressed::Nothing,
-            };
-        } else if key == commands::COMMAND && layout.status.files.several() {
-            self.colon = true;
-            return Pressed::Nothing;
-        }
-        match action {
-            Some(Action::Quit) => return Pressed::Quit,
-            // Enter copies the link selected on the screen, and otherwise
-            // goes down a line.
-            Some(Action::Enter) => match self.link_on_screen(layout) {
-                Some(link) => {
-                    self.told = Some(Told::fading("link copied", now));
-                    return Pressed::Copy(link.url);
-                }
-                None => layout.view.scroll(Motion::Down(1)),
-            },
-            Some(Action::Move(motion)) => layout.view.scroll(motion),
-            // The help and the prompt need a row besides the status line's.
-            Some(Action::Help) => self.help = layout.status.bar,
-            Some(Action::Search) => self.prompt = layout.status.bar.then(Prompt::default),
-            Some(Action::Next) => self.step(Search::forward, now, layout),
-            Some(Action::Previous) => self.step(Search::backward, now, layout),
-            Some(Action::NextFile) => self.step_file(true, layout),
-            Some(Action::PreviousFile) => self.step_file(false, layout),
-            Some(Action::Reload) => return Pressed::Reload,
-            Some(Action::Redraw) => return Pressed::Redraw,
-            Some(Action::Follow) => return Pressed::Follow,
-            Some(Action::Reading) => return Pressed::Reading,
-            Some(Action::Wide) => return Pressed::Wide,
-            Some(Action::Sideways(step)) => {
-                if self.bands.scroll(layout.lines, layout.places, step) {
-                    return Pressed::Bands;
-                }
-            }
-            Some(Action::SelectLink { back }) => {
-                let visible = layout.view.visible();
-                let (lines, places) = (layout.lines, layout.places);
-                let scrolled =
-                    (self.links).select_scrolling(&mut self.bands, lines, places, visible, back);
-                self.bands_moved |= scrolled;
-            }
-            // Answered above, or in `pointed`.
-            Some(Action::Dismiss | Action::Click { .. } | Action::Wheel { .. }) | None => {}
-        }
-        Pressed::Nothing
-    }
-
-    /// Answers Escape: closes what is open, the innermost first, and when
-    /// nothing is open takes away the search's marks and the selected link.
-    /// The jump mark, the colouring after a reload and `went` stay.
-    fn dismiss(&mut self) {
-        if self.help {
-            self.help = false;
-        } else if self.prompt.take().is_none() && !std::mem::take(&mut self.colon) {
-            self.shown = false;
-            self.links.clear();
-        }
-    }
-
-    /// A click or a notch of the sideways wheel: the answer, or for the
-    /// wheel with Shift away from a band the wheel's action. While the
-    /// help or the prompt is open the mouse does nothing.
-    fn pointed(&mut self, action: Action, layout: &Layout) -> Result<Pressed, Action> {
-        let bands = |moved| match moved {
-            true => Pressed::Bands,
-            false => Pressed::Nothing,
-        };
-        match action {
-            _ if self.help || self.prompt.is_some() => Ok(Pressed::Nothing),
-            Action::Click { row } => {
-                let line = Self::row_line(row, layout);
-                Ok(bands(self.bands.click(layout.lines, layout.places, line)))
-            }
-            Action::Wheel { right, shift, row } => match self.bands.wheel(
-                layout.lines,
-                layout.places,
-                Self::row_line(row, layout),
-                right,
-            ) {
-                Some(moved) => Ok(bands(moved)),
-                None if shift && right => Err(Action::Move(Motion::Down(commands::WHEEL))),
-                None if shift => Err(Action::Move(Motion::Up(commands::WHEEL))),
-                None => Ok(Pressed::Nothing),
-            },
-            action => Err(action),
-        }
-    }
-
-    /// Moves to the start of the next file, or of the previous one.
-    fn step_file(&mut self, next: bool, layout: &mut Layout) {
-        let files = layout.status.files;
-        let top = layout.view.top();
-        let Some(file) = self.file(&files, top) else {
-            return;
-        };
-        match next {
-            true => self.go_to(files.next(file), "no next file", layout),
-            false => self.go_to(files.previous(file, top), "no previous file", layout),
-        }
-    }
-
-    /// The selected link, when it is on the screen and has an address to
-    /// copy.
-    fn link_on_screen(&self, layout: &Layout) -> Option<links::Found> {
-        let visible = layout.view.visible();
-        (self.links.selected_on(layout.lines, layout.places, visible))
-            .filter(|link| !link.url.is_empty())
-    }
-
-    /// The line of the document on row `row` of the window, counted from 1.
-    fn row_line(row: u16, layout: &Layout) -> Option<usize> {
-        layout.view.line_at(usize::from(row).checked_sub(1)?)
-    }
-
-    /// The file the reader is in, of `files`, with the view's top on the
-    /// line `top`: the one the last move to a file went to, or else the
-    /// one at the top.
-    fn file(&self, files: &Files, top: usize) -> Option<usize> {
-        self.went.map(|went| went.file).or_else(|| files.at(top))
-    }
-
-    /// Moves the view to the start of `file`, when there is one to go to,
-    /// and otherwise tells `none` on the status line.
-    fn go_to(&mut self, file: Option<usize>, none: &'static str, layout: &mut Layout) {
-        let Some(file) = file else {
-            self.told = Some(Told::new(none));
-            return;
-        };
-        layout.view.go_to(layout.status.files.start(file));
-        self.went = Some(Went {
-            file,
-            top: layout.view.top(),
-        });
-    }
-
-    /// Forgets the last move to a file once the view's top, now on the
-    /// line `top`, has moved from where the move took it.
-    fn moved(&mut self, top: usize) {
-        self.went = self.went.filter(|went| went.top == top);
-    }
-
-    /// Searches for `term` from the top of the view at `now`, and shows
-    /// the first match.
-    fn find(&mut self, term: &str, now: Instant, layout: &mut Layout) {
-        let search = Search::new(layout.lines, term, self.case, layout.view.top());
-        self.jumped = None;
-        let line = search.current().map(|found| found.line);
-        self.search = Some(search);
-        match line {
-            Some(line) => self.jump(line, now, false, layout),
-            None => self.nowhere = true,
-        }
-        self.shown = true;
-    }
-
-    /// Shows the match on line `line`, jumped to at `now`, `around` an
-    /// end of the document or not.
-    fn jump(&mut self, line: usize, now: Instant, around: bool, layout: &mut Layout) {
-        layout.view.reveal(line);
-        self.jumped = Some(Jump { at: now, around });
-        // A match in a band scrolls the band to it, and selects it.
-        let band = (self.search.as_ref().and_then(Search::current))
-            .and_then(|found| found.place.as_ref()?.band.clone());
-        if let Some((_, x)) = band
-            && self.bands.reveal(layout.lines, layout.places, line, x) == Some(true)
-        {
-            self.bands_moved = true;
-        }
-    }
-
-    /// Finds the last search again in `lines`, laid out anew, from the
-    /// line `top` of the view, closes the prompt when the window has no
-    /// status line, `bar`, to show it on, and moves the last move to a
-    /// file along with the view: it is only the new layout that put the
-    /// view's top on another line, not a key.
-    fn lay_out(&mut self, lines: &[Line], top: usize, bar: bool) {
-        if !bar {
-            self.prompt = None;
-        }
-        if let Some(went) = &mut self.went {
-            went.top = top;
-        }
-        if let Some(search) = &mut self.search {
-            *search = search.again(lines, self.case, top);
-        }
-    }
-
-    /// Moves the last search to another match by `step` at `now`, and
-    /// shows it.
-    fn step(
-        &mut self,
-        step: fn(&mut Search, Range<usize>) -> bool,
-        now: Instant,
-        layout: &mut Layout,
-    ) {
-        let Some(search) = &mut self.search else {
-            return;
-        };
-        let around = step(search, layout.view.visible());
-        match search.current().map(|found| found.line) {
-            Some(line) => self.jump(line, now, around, layout),
-            None => self.nowhere = true,
-        }
-        self.shown = true;
-    }
-
-    /// Ends a fade that is over at `now`, and a message that has faded
-    /// out.
-    fn tick(&mut self, now: Instant) {
-        self.jumped = self
-            .jumped
-            .filter(|jump| now.saturating_duration_since(jump.at) < FADE);
-        self.changed = self.changed.take().filter(|changed| {
-            now.saturating_duration_since(changed.at) < HIGHLIGHT_STAY + HIGHLIGHT_FADE
-        });
-        self.noticed = self
-            .noticed
-            .filter(|at| now.saturating_duration_since(*at) < WARNING_STAY + FADE);
-        self.counted = self
-            .counted
-            .filter(|at| now.saturating_duration_since(*at) < FADE);
-        self.told = self.told.take().filter(|told| {
-            told.fades
-                .is_none_or(|at| now.saturating_duration_since(at) < STAY + FADE_OUT)
-        });
-    }
-
-    /// The fade out of the message under way at `now`, mixing colours
-    /// with `rgb`.
-    fn fade_out<'a>(&self, now: Instant, rgb: Option<&'a Rgb>) -> Option<Fade<'a>> {
-        let at = self.told.as_ref()?.fades?;
-        let elapsed = now.saturating_duration_since(at).checked_sub(STAY)?;
-        Some(Fade { elapsed, rgb })
-    }
-
-    /// The tint at `now`, in `rgb`'s colours over `columns` cells: the
-    /// lines of the change, and how much of the text colour to mix into
-    /// their background: all of [`HIGHLIGHT_SHARE`]
-    /// while the tint stays, then less as it fades out.
-    fn tint<'a>(&self, now: Instant, rgb: &'a Rgb, columns: usize) -> Option<Tint<'a>> {
-        let changed = self.changed.as_ref()?;
-        let elapsed = now.saturating_duration_since(changed.at);
-        let left = match elapsed.checked_sub(HIGHLIGHT_STAY) {
-            None => 1.0,
-            Some(faded) => 1.0 - faded.as_secs_f32() / HIGHLIGHT_FADE.as_secs_f32(),
-        };
-        Some(Tint {
-            lines: changed.lines.clone(),
-            amount: HIGHLIGHT_SHARE * left.max(0.0),
-            rgb,
-            columns,
-        })
-    }
-
-    /// The flash of the warning count under way at `now`, mixing colours
-    /// with `rgb`.
-    fn count_fade<'a>(&self, now: Instant, rgb: Option<&'a Rgb>) -> Option<Fade<'a>> {
-        let at = self.counted?;
-        Some(Fade {
-            elapsed: now.saturating_duration_since(at),
-            rgb,
-        })
-    }
-
-    /// The fade under way at `now`, mixing colours with `rgb`.
-    fn fade<'a>(&self, now: Instant, rgb: Option<&'a Rgb>) -> Option<Fade<'a>> {
-        let jump = self.jumped?;
-        Some(Fade {
-            elapsed: now.saturating_duration_since(jump.at),
-            rgb,
-        })
-    }
-
-    /// `lines`, from line `first` of the document on, with the highlights
-    /// over them: the matches of the last search marked with `marks` while
-    /// it is shown, the current one faded by `fade`, the lines of `tint`
-    /// tinted and the selected `link`.
-    fn marked(
-        &self,
-        lines: &[Line],
-        first: usize,
-        marks: &Marks,
-        fade: Option<Fade>,
-        tint: Option<Tint>,
-        link: Option<&links::Found>,
-    ) -> Vec<Line> {
-        let highlights = Highlights {
-            tint,
-            search: self.search.as_ref().filter(|_| self.shown),
-            marks,
-            fade,
-            link,
-        };
-        layers::paint(lines, first, &layers::stack(&highlights, lines, first))
-    }
-
-    /// What the status line tells about the last key, in `fading` when
-    /// it is given, or else about the last search, with the match number
-    /// in `flash` when it is given.
-    fn found<'a>(
-        &'a self,
-        flash: Option<Style>,
-        fading: Option<Style>,
-        link: Option<&'a str>,
-    ) -> Option<status::Found<'a>> {
-        if let Some(told) = &self.told {
-            return Some(status::Found::Told {
-                message: &told.message,
-                fading,
-            });
-        }
-        // Where the selected link goes.
-        if let Some(url) = link {
-            return Some(status::Found::Link(url));
-        }
-        let search = self.search.as_ref()?;
-        if self.nowhere {
-            return Some(status::Found::Nowhere(search.term()));
-        }
-        if !self.shown {
-            return None;
-        }
-        let (current, total) = search.count()?;
-        Some(status::Found::At {
-            term: search.term(),
-            current,
-            total,
-            flash,
-        })
-    }
-}
-
-/// One layout of the document: its lines, how search matches in them are
-/// marked, the view of them and the status line below it.
-struct Layout<'a> {
-    lines: &'a [Line],
-    /// The blocks the lines come from.
-    places: &'a [Option<BlockInfo>],
-    marks: &'a Marks,
-    /// The colours a fade mixes, where they are known.
-    rgb: Option<&'a Rgb>,
-    /// The cells of the text area, which a tint spans.
-    columns: usize,
-    status: &'a Status<'a>,
-    view: &'a mut View,
-}
-
-/// What the screen shows: the lines in view, the status line and the help
-/// panel.
-#[derive(PartialEq)]
-struct Frame {
-    lines: Vec<Line>,
-    status: Vec<Span>,
-    panel: Vec<Placed>,
-    /// The warning line, drawn over the lines and under the panel.
-    notice: Vec<Placed>,
-}
-
-impl Frame {
-    /// Draws the frame above a status line on the row below `rows`.
-    fn draw(&self, rows: usize, writer: &mut Writer, out: &mut impl Write) -> io::Result<()> {
-        draw(
-            &self.lines,
-            rows,
-            &self.status,
-            &self.notice,
-            &self.panel,
-            writer,
-            out,
-        )
-    }
-}
-
-impl Layout<'_> {
-    /// What the screen shows in `state` at `now`.
-    fn frame(&self, state: &State, now: Instant) -> Frame {
-        let visible = self.view.visible();
-        let fade = state.fade(now, self.rgb);
-        let out = state.fade_out(now, self.rgb);
-        let link = (state.links).selected_on(self.lines, self.places, visible.clone());
-        Frame {
-            lines: state.marked(
-                &self.lines[visible.clone()],
-                visible.start,
-                self.marks,
-                fade,
-                self.rgb.and_then(|rgb| state.tint(now, rgb, self.columns)),
-                link.as_ref(),
-            ),
-            status: self.status.spans(
-                self.view,
-                state,
-                (fade, out, state.count_fade(now, self.rgb)),
-                link.as_ref().map(|link| link.url.as_str()),
-            ),
-            panel: self.status.panel(self.view, state.help),
-            notice: self.status.notice(self.view, state, now, self.rgb),
-        }
-    }
-
-    /// Whether something on the screen fades in `state` at `now`, so
-    /// that the pager draws it a step at a time.
-    fn fades(&self, state: &State, now: Instant) -> bool {
-        state.jumped.is_some()
-            || state.counted.is_some() && self.status.bar
-            || self.status.bar
-                && self.rgb.is_some()
-                && (state.noticed)
-                    .is_some_and(|at| now.saturating_duration_since(at) >= WARNING_STAY)
-            || state.changed.is_some() && self.rgb.is_some()
-            || self.status.bar
-                && (state.fade_out(now, self.rgb))
-                    .and_then(|out| self.status.styles.fading(out))
-                    .is_some()
-    }
-}
-
-/// Keeps the last cell size answer among the keys a read still has behind
-/// a key that ends the frame. The other keys behind it are dropped, but the
-/// answer says what the terminal is, so the next layout applies it.
-fn keep_last_answer(state: &mut State, rest: &[Key]) {
-    let last = rest.iter().rev().find_map(|key| match key {
-        Key::CellSize(width, height) => Some((*width, *height)),
-        _ => None,
-    });
-    state.cell = last.or(state.cell);
+/// Draws `frame` above a status line on the row below `rows`.
+fn draw_frame(
+    frame: &Frame,
+    rows: usize,
+    writer: &mut Writer,
+    out: &mut impl Write,
+) -> io::Result<()> {
+    draw(
+        &frame.lines,
+        rows,
+        &frame.status,
+        &frame.notice,
+        &frame.panel,
+        writer,
+        out,
+    )
 }
 
 /// Shows `layout` in `state` on `terminal`, whose window is of `size`, and
@@ -1621,7 +706,7 @@ fn show(
     let mut now = terminal.now();
     let mut shown = layout.frame(state, now);
     writer.at(now.saturating_duration_since(source.started));
-    shown.draw(layout.view.rows(), writer, terminal)?;
+    draw_frame(&shown, layout.view.rows(), writer, terminal)?;
     state.sent(writer.check(terminal)?);
     terminal.flush()?;
     loop {
@@ -1686,7 +771,7 @@ fn show(
             match state.press(key, now, layout) {
                 Pressed::Nothing => {}
                 Pressed::Quit => {
-                    keep_last_answer(state, keys.as_slice());
+                    state.keep_answer(keys.as_slice());
                     return Ok(Outcome::Quit);
                 }
                 Pressed::Reload if reload.is_none() => {
@@ -1695,12 +780,15 @@ fn show(
                 // The reader sees that the pager is busy before it is.
                 Pressed::Reload => {
                     state.told = Some(Told::new("reloading…"));
-                    layout
-                        .frame(state, now)
-                        .draw(layout.view.rows(), writer, terminal)?;
+                    draw_frame(
+                        &layout.frame(state, now),
+                        layout.view.rows(),
+                        writer,
+                        terminal,
+                    )?;
                     state.sent(writer.check(terminal)?);
                     terminal.flush()?;
-                    keep_last_answer(state, keys.as_slice());
+                    state.keep_answer(keys.as_slice());
                     return Ok(Outcome::Reload);
                 }
                 // As `less` repaints, also the images, which the
@@ -1710,14 +798,14 @@ fn show(
                     again = true;
                 }
                 Pressed::Reading => {
-                    keep_last_answer(state, keys.as_slice());
+                    state.keep_answer(keys.as_slice());
                     return Ok(Outcome::Reading);
                 }
                 // The keys after it in the same read still count, as
                 // they would read one by one.
                 Pressed::Bands => bands = true,
                 Pressed::Wide => {
-                    keep_last_answer(state, keys.as_slice());
+                    state.keep_answer(keys.as_slice());
                     return Ok(Outcome::Wide);
                 }
                 Pressed::Copy(text) => {
@@ -1777,7 +865,7 @@ fn show(
         if frame != shown || writer.has_bands() || again {
             shown = frame;
             writer.at(now.saturating_duration_since(source.started));
-            shown.draw(layout.view.rows(), writer, terminal)?;
+            draw_frame(&shown, layout.view.rows(), writer, terminal)?;
             written = true;
         }
         if written {

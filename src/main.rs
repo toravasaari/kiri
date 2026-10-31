@@ -27,12 +27,13 @@ use kiri::images::{
     Fonts, Format, ImageError, ImageKey, Images, Interrupted, Loaded, Loading, Loads, Part,
     Placeholder, Source, Stamps, reload_in_background,
 };
-use kiri::pager::{Change, Look, Reload, Reloaded, Warning};
+use kiri::pager::{Reload, Reloaded};
 use kiri::present::encoder::Encoder;
 use kiri::present::output::Page;
 use kiri::render::Inputs;
 use kiri::session::plan::{self, Load, Route};
 use kiri::session::settings::{Follow, Paging};
+use kiri::session::state::{Change, Look, Warning};
 use kiri::term::Interrupt;
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::input::Input;
@@ -1790,9 +1791,7 @@ fn list_emojis(cli: &Cli) -> Result<(), Failure> {
     }
     let env = Environment::from_process();
     let (warnings, settings) = settings(cli, &env);
-    for warning in &warnings {
-        eprintln!("kiri: {warning}");
-    }
+    (warnings.iter()).for_each(|warning| eprintln!("kiri: {warning}"));
     let settings = settings?;
     let caps = kiri::term::capabilities(settings.mode, settings.width, &env, settings.passthrough);
     let document = kiri::typeset::parse::parse(&kiri::list::emoji_document());

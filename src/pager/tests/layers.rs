@@ -6,6 +6,7 @@ use std::io::Read;
 use std::rc::Rc;
 
 use super::*;
+use crate::session::search::Search;
 use crate::session::status::Found;
 use crate::typeset::style::{Line, Span};
 

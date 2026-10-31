@@ -1,4 +1,5 @@
 use super::*;
+use crate::session::state::Look;
 
 /// The look of a version of a document, told apart by `length`.
 fn look(length: u64) -> Change {
