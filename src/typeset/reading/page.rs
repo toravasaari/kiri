@@ -19,6 +19,7 @@
 mod code;
 mod details;
 mod front_matter;
+mod heading;
 mod list;
 mod picture;
 mod quote;
@@ -1197,25 +1198,7 @@ impl<'a> Flow<'a> {
         let look = *self.look;
         let size = look.size;
         match block {
-            Block::Heading { level, content } => {
-                let index = usize::from(level.clamp(&1, &6) - 1);
-                let style = text::Look {
-                    size: size * HEADING_SIZES[index],
-                    line_height: HEADING_LINE_HEIGHT,
-                    weight: BOLD,
-                    color: look.headings[index],
-                    ..text::Look::PLAIN
-                };
-                let ink = self.ink(width);
-                let paragraph =
-                    text::lay_out(self.fonts, &runs(content, &look, ink), &style, width);
-                self.y += self.text(paragraph, x);
-                if *level <= 2 {
-                    self.y += (RULE_BELOW * style.size).round();
-                    self.rect(x, self.y, width, 1.0, look.border);
-                    self.y += 1.0;
-                }
-            }
+            Block::Heading { level, content } => self.heading(level, content, x, width),
             Block::Paragraph(content) => match Inline::lone_linked_image(content) {
                 Some((image, link)) => self.image(image, link, x, width),
                 None => {
