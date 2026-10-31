@@ -12,7 +12,7 @@ use resvg::tiny_skia;
 use resvg::usvg::{self, fontdb};
 
 use crate::images::ImageError;
-use crate::images::url::read_at_most;
+use crate::typeset::images::url::read_at_most;
 
 /// A parsed SVG document.
 #[derive(Clone)]

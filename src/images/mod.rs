@@ -25,7 +25,6 @@ mod background;
 mod pipeline;
 mod stamps;
 pub(crate) mod svg;
-pub(crate) mod url;
 mod warnings;
 
 use std::borrow::Cow;
@@ -55,7 +54,7 @@ pub use svg::{EMOJI, Fonts, SCRIPTS, Svg, installed};
 pub(crate) use crate::typeset::images::decode::{MAX_PIXELS, png_size};
 #[cfg(all(test, feature = "mermaid"))]
 pub(crate) use crate::typeset::images::drawn::decode_diagram;
-pub(crate) use url::read_at_most;
+pub(crate) use crate::typeset::images::url::read_at_most;
 
 pub(crate) use crate::typeset::images::error::size;
 pub use crate::typeset::images::{ImageError, ImageKey};

@@ -10,7 +10,7 @@ use base64::engine::DecodePaddingMode;
 use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig};
 use image::ImageFormat;
 
-use crate::images::ImageError;
+use crate::typeset::images::error::ImageError;
 
 /// Standard base64 that does not insist on the trailing `=`.
 const BASE64: GeneralPurpose = GeneralPurpose::new(
@@ -20,7 +20,7 @@ const BASE64: GeneralPurpose = GeneralPurpose::new(
 
 /// The local file that `url` names, a path or a `file:` URL, as `load_url`
 /// reads it; `None` for any other URL.
-pub(super) fn local_file(url: &str, base: &Path) -> Option<PathBuf> {
+pub(crate) fn local_file(url: &str, base: &Path) -> Option<PathBuf> {
     match scheme(url) {
         Some(scheme) if scheme.eq_ignore_ascii_case("file") => {
             let path = file_url_path(&url[scheme.len() + 1..])?;

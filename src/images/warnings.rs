@@ -1,8 +1,8 @@
 //! The warnings about images and diagrams that did not load.
 
-use super::url::scheme;
 use super::{ImageError, ImageKey, Source};
 use crate::typeset::diagnostic::{Code, Diagnostic};
+use crate::typeset::images::url::scheme;
 
 /// The warnings about `images`, as `Images::warnings_with` makes them.
 pub(super) fn warnings<'a>(

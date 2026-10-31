@@ -8,9 +8,9 @@ use std::path::Path;
 
 use image::ImageFormat;
 
-use crate::images::url::{data_url, file_url_path, local_path, read_at_most, scheme};
 use crate::images::{Fonts, ImageError, Source};
 use crate::typeset::images::decode::decode_named;
+use crate::typeset::images::url::{data_url, file_url_path, local_path, read_at_most, scheme};
 
 /// Loads the image at `url`: a `data:` URL, a local `file:` URL, or a path
 /// that is absolute or relative to `base`. Paths may use URL percent

@@ -73,11 +73,6 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[
         "the font database",
     ),
     (
-        "src/typeset/images/decode.rs",
-        "images::url",
-        "loading and sessions",
-    ),
-    (
         "src/typeset/images/drawn.rs",
         "images",
         "loading and sessions",

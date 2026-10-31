@@ -686,7 +686,7 @@ The later work that the rows name, in words:
 | `src/images/drawn/tests.rs` | typesetting | moved to `src/typeset/images/drawn/tests.rs` |
 | `src/images/heading.rs` | typesetting | moved to `src/typeset/images/heading.rs` |
 | `src/images/svg.rs` | mixed | stays. Typesetting: `Svg`, parsing and drawing, and `Fonts`, the database handed in. Platform: `Fonts::system`, which scans the system's fonts. The font database |
-| `src/images/url.rs` | mixed | stays. Typesetting: `data:` URLs and the reading of a URL's parts. Platform: `read_file`, `decode_file` and `load_url`, which open files, moved to `src/load/url.rs`. Loading and sessions |
+| `src/images/url.rs` | mixed | moved to `src/typeset/images/url.rs`: `data:` URLs and the reading of a URL's parts, which do no I/O. `read_file`, `decode_file` and `load_url`, which open files, moved to `src/load/url.rs`. Loading and sessions |
 | `src/images/background.rs` | platform | stays |
 | `src/images/pipeline.rs` | platform | stays |
 | `src/images/pipeline/tests.rs` | platform | stays |
