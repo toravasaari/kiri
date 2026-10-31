@@ -726,7 +726,33 @@ mod tests {
         let roadmap =
             std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/roadmap.md"))
                 .unwrap();
+        // Which bug decides which field, as the roadmap sorts them.
+        let decided_by = |d: &Difference| match (d.field, d.at) {
+            (Field::HeadingRule | Field::HeadingSize | Field::QuoteText, _) => "B17",
+            (Field::ListMarker, "depth 0 numbered task item") => "B17",
+            (Field::TableRows | Field::TableFrame, _) => "B18",
+            (field, at) => panic!("{field:?} at {at:?} is on no bug's list"),
+        };
         for d in DIFFERENCES {
+            // A table too narrow for its frame is stacked on purpose.
+            assert_eq!(
+                d.status == Status::Intended,
+                d.cell == "stacked",
+                "{:?} at {:?}: cell {:?}",
+                d.field,
+                d.at,
+                d.cell
+            );
+            if d.status == Status::Drift {
+                assert_eq!(
+                    d.bug,
+                    Some(decided_by(d)),
+                    "{:?} at {:?}: cell {:?}",
+                    d.field,
+                    d.at,
+                    d.cell
+                );
+            }
             match (d.status, d.bug) {
                 (Status::Drift, Some(bug)) => assert!(
                     roadmap.lines().any(|line| line
