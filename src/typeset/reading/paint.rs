@@ -100,6 +100,20 @@ impl Canvas {
                 }
             }
         }
+        for (range, background) in paragraph.backgrounds() {
+            let size = paragraph.look.size;
+            let lines = paragraph.lines();
+            for part in paragraph.boxes(range.clone()) {
+                let baseline = y + lines[part.line].baseline;
+                self.rect(
+                    x + part.left,
+                    baseline - CHIP_ABOVE * size,
+                    part.right - part.left,
+                    CHIP_HEIGHT * size,
+                    *background,
+                );
+            }
+        }
         self.glyphs_over(paragraph, x, y, None);
         self.marks(paragraph, x, y, marks);
     }
@@ -177,6 +191,9 @@ impl Canvas {
             {
                 continue;
             }
+            // The shaped run last drawn on this line, and how many of its
+            // glyphs the glyph runs so far took.
+            let mut taken = (usize::MAX, 0);
             for item in line.items() {
                 let glyphs = match item {
                     PositionedLayoutItem::GlyphRun(glyphs) => glyphs,
@@ -189,6 +206,22 @@ impl Canvas {
                     }
                 };
                 let run = glyphs.run();
+                // A glyph run is the part of a shaped run in one style: it
+                // skips the glyphs that earlier glyph runs of this shaped run
+                // took on the line, and takes the next `wanted`.
+                let wanted = glyphs.positioned_glyphs().count();
+                let skip = if taken.0 == run.index() { taken.1 } else { 0 };
+                taken = (run.index(), skip + wanted);
+                let clusters = clusters_after(run, skip, wanted);
+                // A subscript or superscript sits off the baseline, each
+                // glyph by its own text: a glyph run may hold both.
+                let drops: Vec<f32> = (clusters.iter())
+                    .flat_map(|cluster| {
+                        let drop = paragraph.drop_at(&cluster.text_range());
+                        cluster.glyphs().map(move |_| drop)
+                    })
+                    .collect();
+                let drop_of = |at: usize| drops.get(at).copied().unwrap_or(0.0);
                 let font = run.font();
                 let Ok(face) = FontRef::from_index(font.data.data(), font.index) else {
                     continue;
@@ -205,7 +238,8 @@ impl Canvas {
                 let mut path = PathBuilder::new();
                 let outlines = face.outline_glyphs();
                 let size = Size::new(run.font_size());
-                for glyph in glyphs.positioned_glyphs() {
+                for (at, glyph) in glyphs.positioned_glyphs().enumerate() {
+                    let y = y + drop_of(at);
                     let origin = (x + glyph.x, y + glyph.y);
                     if colr::draw(
                         &mut self.pixmap,
@@ -242,8 +276,15 @@ impl Canvas {
                 if glyphs.style().strikethrough.is_some() {
                     let metrics = run.font_metrics();
                     let thickness = metrics.strikethrough_size.max(1.0);
-                    let top = y + glyphs.baseline() - metrics.strikethrough_offset;
-                    self.rect(x + glyphs.offset(), top, glyphs.advance(), thickness, color);
+                    // One line for each stretch of equal drop.
+                    let stretches = stretches(paragraph, &clusters);
+                    let mut left = x + glyphs.offset();
+                    for (drop, width) in stretches {
+                        let top = y + drop + glyphs.baseline() - metrics.strikethrough_offset;
+                        let mask = over.map(|(_, mask)| mask);
+                        self.rect_masked((left, top, width, thickness), color, mask);
+                        left += width;
+                    }
                 }
             }
         }
@@ -291,6 +332,18 @@ impl Canvas {
     pub fn rect(&mut self, x: f32, y: f32, width: f32, height: f32, color: Brush) {
         if let Some(rect) = Rect::from_xywh(x, y, width, height) {
             (self.pixmap).fill_rect(rect, &paint(color, 255), Transform::identity(), None);
+        }
+    }
+
+    /// Fills a rectangle, `(x, y, width, height)`, where `mask` lets it.
+    fn rect_masked(
+        &mut self,
+        (x, y, width, height): (f32, f32, f32, f32),
+        color: Brush,
+        mask: Option<&tiny_skia::Mask>,
+    ) {
+        if let Some(rect) = Rect::from_xywh(x, y, width, height) {
+            (self.pixmap).fill_rect(rect, &paint(color, 255), Transform::identity(), mask);
         }
     }
 
@@ -557,13 +610,47 @@ impl OutlinePen for Pen<'_> {
     }
 }
 
+/// The stretches of `clusters` with the same drop, each with its drop and
+/// its width.
+fn stretches<B: parley::Brush>(
+    paragraph: &Paragraph,
+    clusters: &[parley::Cluster<'_, B>],
+) -> Vec<(f32, f32)> {
+    let mut stretches: Vec<(f32, f32)> = Vec::new();
+    for cluster in clusters {
+        let drop = paragraph.drop_at(&cluster.text_range());
+        match stretches.last_mut() {
+            Some((last, width)) if *last == drop => *width += cluster.advance(),
+            _ => stretches.push((drop, cluster.advance())),
+        }
+    }
+    stretches
+}
+
+/// The clusters of `run` that hold the `wanted` glyphs after its first `skip`.
+fn clusters_after<'a, B: parley::Brush>(
+    run: &parley::Run<'a, B>,
+    skip: usize,
+    wanted: usize,
+) -> Vec<parley::Cluster<'a, B>> {
+    let mut passed = 0;
+    let mut clusters = Vec::new();
+    for cluster in run.visual_clusters() {
+        if passed >= skip && passed < skip + wanted {
+            clusters.push(cluster);
+        }
+        passed += cluster.glyphs().count();
+    }
+    clusters
+}
+
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
 
     use super::*;
     use crate::typeset::reading::Fonts;
-    use crate::typeset::reading::text::{Look, Run, lay_out};
+    use crate::typeset::reading::text::{Look, Run, Script, lay_out};
 
     const INK: Brush = [0x20, 0xc0, 0x40];
     const CHIP: Brush = [0x40, 0x40, 0xa0];
@@ -624,6 +711,219 @@ mod tests {
         );
         // Text without code gets no chip.
         assert_eq!(count(&drawn(&[Run::new("Run")], Some(CHIP)), CHIP), 0);
+    }
+
+    /// The first and last row of `image` that have ink.
+    fn ink_rows(image: &RgbaImage) -> (u32, u32) {
+        let rows: Vec<u32> = (0..image.height())
+            .filter(|&y| {
+                (0..image.width()).any(|x| image.get_pixel(x, y).0 == [0x20, 0xc0, 0x40, 255])
+            })
+            .collect();
+        (rows[0], rows[rows.len() - 1])
+    }
+
+    #[test]
+    fn marked_text_is_drawn_on_its_background() {
+        let marked = Run {
+            background: Some(CHIP),
+            ..Run::new("found")
+        };
+        let image = drawn(&[Run::new("a "), marked], None);
+        assert!(
+            count(&image, CHIP) > 300,
+            "{} pixels of background",
+            count(&image, CHIP)
+        );
+        // The text over the box, not under it.
+        assert!(count(&image, INK) > 50);
+        assert_eq!(count(&drawn(&[Run::new("a found")], None), CHIP), 0);
+    }
+
+    #[test]
+    fn a_subscript_is_lowered_and_a_superscript_raised_and_both_are_smaller() {
+        let script = |drop| Run {
+            script: Some(Script { size: 0.8, drop }),
+            ..Run::new("xx")
+        };
+        let (top, bottom) = ink_rows(&drawn(&[Run::new("xx")], None));
+        let (sub_top, sub_bottom) = ink_rows(&drawn(&[script(0.2)], None));
+        let (sup_top, sup_bottom) = ink_rows(&drawn(&[script(-0.33)], None));
+        assert!(
+            sub_bottom > bottom,
+            "sub ends at {sub_bottom}, text at {bottom}"
+        );
+        assert!(
+            sup_bottom < bottom,
+            "sup ends at {sup_bottom}, text at {bottom}"
+        );
+        assert!(sup_top < top, "sup starts at {sup_top}, text at {top}");
+        assert!(
+            sub_bottom - sub_top < bottom - top,
+            "sub is {} high, text {}",
+            sub_bottom - sub_top,
+            bottom - top
+        );
+    }
+
+    /// The last row of `image` with ink in the columns `from..to`.
+    fn ink_bottom_in(image: &RgbaImage, from: u32, to: u32) -> u32 {
+        (0..image.height())
+            .rev()
+            .find(|&y| (from..to).any(|x| image.get_pixel(x, y).0 == [0x20, 0xc0, 0x40, 255]))
+            .expect("ink in the columns")
+    }
+
+    #[test]
+    fn a_superscript_beside_a_subscript_keeps_its_own_shift() {
+        let script = |text: &str, drop| Run {
+            script: Some(Script { size: 0.8, drop }),
+            ..Run::new(text)
+        };
+        let sup = drawn(&[Run::new("x"), script("ab", -0.33)], None);
+        let edge = (0..sup.width())
+            .rev()
+            .find(|&x| (0..sup.height()).any(|y| sup.get_pixel(x, y).0[3] > 0))
+            .unwrap()
+            + 2;
+        let both = drawn(
+            &[
+                Run::new("x"),
+                script("ab", -0.33),
+                script("cd", 0.2),
+                Run::new("x"),
+            ],
+            None,
+        );
+        // The leading `x` ends where the superscript starts.
+        let lone = drawn(&[Run::new("x")], None);
+        let start = (0..lone.width())
+            .rev()
+            .find(|&x| (0..lone.height()).any(|y| lone.get_pixel(x, y).0[3] > 0))
+            .unwrap()
+            + 2;
+        let (plain, high, low) = (
+            ink_bottom_in(&both, 0, start),
+            ink_bottom_in(&both, start, edge),
+            ink_bottom_in(&both, edge, both.width()),
+        );
+        assert!(high < plain, "sup ends at {high}, text at {plain}");
+        assert!(low > plain, "sub ends at {low}, text at {plain}");
+    }
+
+    #[test]
+    fn the_strike_of_a_subscript_beside_a_superscript_is_at_the_subscripts_height() {
+        let struck = |text: &str, drop| Run {
+            strike: true,
+            script: Some(Script { size: 0.8, drop }),
+            ..Run::new(text)
+        };
+        // After the `a`, the `x` and its strike are drawn as they are alone.
+        let rows = |image: &RgbaImage, from: u32| -> Vec<u32> {
+            (0..image.height())
+                .filter(|&y| (from..image.width()).any(|x| image.get_pixel(x, y).0[3] > 0))
+                .collect()
+        };
+        let alone = drawn(&[struck("x", 0.2)], None);
+        let first = drawn(&[struck("a", -0.33)], None);
+        let edge = (0..first.width())
+            .rev()
+            .find(|&x| (0..first.height()).any(|y| first.get_pixel(x, y).0[3] > 0))
+            .unwrap()
+            + 2;
+        let both = drawn(&[struck("a", -0.33), struck("x", 0.2)], None);
+        assert_eq!(
+            rows(&both, edge),
+            rows(&alone, 0),
+            "the subscript and its strike beside a superscript"
+        );
+    }
+
+    #[test]
+    fn the_strike_stops_at_the_end_of_its_own_text_in_a_run_of_other_styles() {
+        let struck = Run {
+            strike: true,
+            ..Run::new("bbbb")
+        };
+        let runs = [Run::new("aa "), struck, Run::new(" cccc dddd")];
+        // Wide enough for "aa bbbb " and no more: the line ends in a space.
+        let paragraph = lay_out(&Fonts::fixture(), &runs, &LOOK, 70.0);
+        let mut canvas = Canvas::new(420, 60);
+        canvas.text(&paragraph, 10.0, 3.0, None);
+        let image = canvas.into_image();
+        let right = (0..image.width())
+            .rev()
+            .find(|&x| (0..28).any(|y| image.get_pixel(x, y).0[3] > 0))
+            .unwrap();
+        // "aa " is 24.7 pixels and "bbbb" 40.6, from the text's left edge, 10.
+        assert!(right <= 76, "ink on the first line reaches column {right}");
+    }
+
+    #[test]
+    fn a_script_keeps_its_shift_beside_another_of_a_different_colour() {
+        // One glyph run for the shaping, two for the colours.
+        let script = |text: &str, drop, color| Run {
+            script: Some(Script { size: 0.8, drop }),
+            color: Some(color),
+            ..Run::new(text)
+        };
+        let (high, low): (Brush, Brush) = ([0xc0, 0xc0, 0x20], [0xc0, 0x20, 0x40]);
+        // The plain `x` in the ink colour is the line the scripts are measured by.
+        let image = drawn(
+            &[
+                Run::new("x"),
+                script("ab", -0.33, high),
+                script("cd", 0.2, low),
+            ],
+            None,
+        );
+        let bottom_of = |color: Brush| {
+            (0..image.height())
+                .rev()
+                .find(|&y| (0..image.width()).any(|x| image.get_pixel(x, y).0[..3] == color))
+                .unwrap()
+        };
+        let (plain, sup, sub) = (bottom_of(INK), bottom_of(high), bottom_of(low));
+        assert!(sup < plain, "sup ends at {sup}, text at {plain}");
+        assert!(sub > plain, "sub ends at {sub}, text at {plain}");
+    }
+
+    #[test]
+    fn a_mark_does_not_change_the_struck_text_outside_it() {
+        const RED: Brush = [0xc0, 0x20, 0x20];
+        const YELLOW: Brush = [0xff, 0xff, 0];
+        let struck = |text: &str| Run {
+            strike: true,
+            ..Run::new(text)
+        };
+        // Both words are struck, in one glyph run; the mark is on the second.
+        let runs = [struck("ss mm")];
+        let paragraph = lay_out(&Fonts::fixture(), &runs, &LOOK, 400.0);
+        let mark_left = paragraph.boxes(3..5)[0].left;
+        let draw = |marks: &[TextMark]| {
+            let mut canvas = Canvas::new(420, 30);
+            canvas.text_marked(&paragraph, 10.0, 3.0, None, marks);
+            canvas.into_image()
+        };
+        let plain = draw(&[]);
+        let mark = TextMark {
+            range: 3..5,
+            foreground: Some(RED),
+            background: Some(YELLOW),
+        };
+        let marked = draw(&[mark]);
+        let left_of_mark = (10.0 + mark_left).floor() as u32;
+        let differing = (0..left_of_mark)
+            .flat_map(|x| (0..30).map(move |y| (x, y)))
+            .filter(|&(x, y)| plain.get_pixel(x, y) != marked.get_pixel(x, y))
+            .count();
+        assert_eq!(differing, 0, "a mark changes the struck text outside it");
+        // Inside the mark the strike has the mark's colour.
+        assert!(
+            count(&marked, RED) > 20,
+            "{} pixels of red",
+            count(&marked, RED)
+        );
     }
 
     #[test]

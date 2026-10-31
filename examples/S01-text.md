@@ -150,6 +150,12 @@ on the 2<sup>nd</sup> try. With kitty's text sizing a `<sub>` or `<sup>`
 is drawn at two thirds of the size around it, lowered or raised; other
 terminals get Unicode's script characters, such as ² and ₂, when every
 character has one, and else the text as it is: e<sup>iπ</sup>.
+In reading mode (`--reading`) they are drawn smaller too, the 2 in H<sub>2</sub>O
+lowered below the line and the 2 in x<sup>2</sup> raised above it.
+A superscript right before a subscript, as in x<sup>2</sup><sub>i</sub>, keeps
+each at its own height in reading mode: the 2 raised, the i lowered. Struck, as
+in ~~x<sup>2</sup><sub>i</sub>~~, the line through each follows its script, so it
+steps down from the 2 to the i.
 
 ### Marked text
 
@@ -157,7 +163,8 @@ Some text is <mark>marked as found</mark>, as a highlighter would, even
 **<mark>in bold</mark>**. With the default theme the marked text is black
 on yellow, in your terminal's own palette colours. On the paper themes it
 is in greys: black on light grey on `--light`, white on dark grey on
-`--dark`. Without colours it is in reverse video.
+`--dark`. Without colours it is in reverse video. In reading mode
+(`--reading`) the marked text has the same colours, as a box behind it.
 
 ```sh
 kiri --light examples/S01-text.md

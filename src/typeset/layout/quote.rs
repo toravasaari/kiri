@@ -4,13 +4,13 @@ use crate::typeset::color::Color;
 use crate::typeset::layout::{Context, Layout};
 use crate::typeset::model::{AlertKind, Block};
 use crate::typeset::style::{Line, Span, Style, push};
-use crate::typeset::theme::{CodeBackground, Theme};
+use crate::typeset::theme::{InlineCode, Look};
 use crate::typeset::wrap::{width as width_of, wrap};
 
 impl Layout<'_> {
     pub(super) fn quote(&self, blocks: &[Block], width: usize, context: Context) -> Vec<Line> {
         let bar = if self.caps.styling { "│ " } else { "> " };
-        let bar_style = self.style(Style::fg(self.theme.quote_bar));
+        let bar_style = self.style(Style::fg(self.look.quote_bar));
         let inner = Context {
             nested: true,
             tight: false,
@@ -57,30 +57,33 @@ impl Layout<'_> {
         }
 
         let dark = self.dark();
-        let color = self.theme.alerts.color(kind, dark);
+        let color = self.look.alerts.color(kind, dark);
         let fill = Style {
             bg: self.tint(kind, color, false),
             ..Style::default()
         };
         // Inline code inside stands out with a stronger tint, unless the
         // theme gives inline code no background.
-        let theme;
+        let look;
         let code =
             (self.tint(kind, color, true)).filter(|_| self.inline_code_background().is_some());
         // GitHub's dark yellow reads as brown on its pale yellow: a warning
         // there has a gold bar and a darker gold title.
-        let (bar_color, color) = match self.theme.alerts.github_gold(kind, dark) {
+        let (bar_color, color) = match self.look.alerts.github_gold(kind, dark) {
             Some((bar, title)) => (Some(bar), Some(title)),
             None => (color, color),
         };
         let body = match code {
             Some(code) => {
-                theme = Theme {
-                    inline_code_background: CodeBackground::Color(Some(code)),
-                    ..self.theme.clone()
+                look = Look {
+                    inline_code: InlineCode {
+                        background: Some(code),
+                        ..self.look.inline_code.clone()
+                    },
+                    ..self.look.clone()
                 };
                 Layout {
-                    theme: &theme,
+                    look: &look,
                     ..*self
                 }
             }
@@ -163,10 +166,10 @@ impl Layout<'_> {
     /// of `color` is mixed into the page. `None` when a colour is not
     /// known as RGB, or the theme has no tints.
     fn tint(&self, kind: AlertKind, color: Option<Color>, strong: bool) -> Option<Color> {
-        if !self.theme.alerts.tint {
+        if !self.look.alerts.tint {
             return None;
         }
-        match self.theme.alerts.github_background(kind, self.dark()) {
+        match self.look.alerts.github_background(kind, self.dark()) {
             Some(pale) => {
                 let once = self.page()?.filter(pale)?;
                 if strong {

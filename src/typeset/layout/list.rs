@@ -6,8 +6,6 @@ use crate::typeset::layout::{Context, Layout};
 use crate::typeset::model::List;
 use crate::typeset::style::{Line, Span, Style};
 
-const BULLETS: [&str; 3] = ["•", "◦", "▪"];
-
 impl Layout<'_> {
     pub(super) fn list(&self, list: &List, width: usize, context: Context) -> Vec<Line> {
         // A styled bullet list shows a task's checkbox in place of the bullet.
@@ -19,13 +17,13 @@ impl Layout<'_> {
                     checkbox(checked, true).trim_end().into()
                 }
                 (None, _) if self.caps.styling => {
-                    BULLETS[context.list_depth % BULLETS.len()].into()
+                    self.look.cells.bullets.at(context.list_depth).into()
                 }
                 (None, _) => "-".into(),
             })
             .collect();
         let marker_width = markers.iter().map(|m| m.width()).max().unwrap_or(0) + 1;
-        let marker_style = self.style(Style::fg(self.theme.list_marker));
+        let marker_style = self.style(Style::fg(self.look.list_marker));
         let inner = Context {
             nested: true,
             list_depth: context.list_depth + 1,

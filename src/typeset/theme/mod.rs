@@ -8,9 +8,11 @@ use crate::typeset::model::AlertKind;
 use crate::typeset::size::{TextSize, VerticalAlign};
 
 mod file;
+mod look;
 mod paper;
 
 pub use file::{load, parse};
+pub use look::{Bullets, CellTable, GITHUB, HeadingLook, InlineCode, Look, PixelTable};
 pub use paper::Paper;
 
 /// The code block colour themes bundled with the highlighter.

@@ -20,7 +20,7 @@ pub(crate) fn summary(block: &Block, setup: &Setup) -> Vec<Fact> {
                 content: plain(content),
             };
             let lines = lines(&flat);
-            let colour = with_layout(&inputs, 0, |layout, _, _| layout.theme.rule);
+            let colour = with_layout(&inputs, 0, |layout, _, _| layout.look.rule);
             let rule = lines.iter().any(|line| {
                 let spans = || line.spans.iter().filter(|span| !span.text.is_empty());
                 spans().count() > 0
@@ -122,7 +122,7 @@ fn markers(block: &Block, lines: &[Line], inputs: &crate::render::Inputs) -> Vec
     if slots.is_empty() {
         return Vec::new();
     }
-    let colour = with_layout(inputs, 0, |layout, _, _| layout.theme.list_marker);
+    let colour = with_layout(inputs, 0, |layout, _, _| layout.look.list_marker);
     let mut read: Vec<(String, Option<String>)> = Vec::new();
     for line in lines {
         let mut spans = (line.spans.iter()).filter(|span| !is_frame(span));

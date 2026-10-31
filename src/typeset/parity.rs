@@ -8,8 +8,8 @@
 //! document of one block, so that what is compared is the block's own
 //! decisions and not where it falls on a page.
 //!
-//! A difference nobody has chosen is `Drift`; it stays on the list until
-//! the one-look step decides it. A difference that is meant is `Intended`.
+//! A difference nobody has chosen is `Drift`; it stays on the list, naming
+//! the roadmap bug that decides it. A difference that is meant is `Intended`.
 //! The test fails on a difference that is not on the list, and on a listed
 //! one that no block shows any more, so the list stays the truth.
 
@@ -308,10 +308,9 @@ pub fn marker_facts(slots: &[Slot], shown: &[(String, Option<String>)]) -> Vec<F
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
-    /// Nobody chose it; the one-look step decides.
+    /// Nobody chose it; a roadmap bug decides.
     Drift,
     /// Meant: the media differ on purpose.
-    #[expect(dead_code, reason = "no difference is decided as meant yet")]
     Intended,
 }
 
@@ -323,6 +322,9 @@ pub struct Difference {
     pub cell: &'static str,
     pub pixel: &'static str,
     pub status: Status,
+    /// The roadmap bug that decides a drift, such as `B17`; none for a
+    /// difference that is meant.
+    pub bug: Option<&'static str>,
     /// Where each layout decides it, and what it does.
     pub cell_where: &'static str,
     pub pixel_where: &'static str,
@@ -331,49 +333,14 @@ pub struct Difference {
 /// The differences the layouts have today, each shown by at least one block.
 const DIFFERENCES: &[Difference] = &[
     Difference {
-        field: Field::ListMarker,
-        at: "depth 3 bullet item",
-        cell: "•",
-        pixel: "▪",
-        status: Status::Drift,
-        cell_where: "layout/list.rs:22: BULLETS[list_depth % 3], so the fourth level starts over at •",
-        pixel_where: "reading/page.rs:2097: the three glyphs indexed by depth.min(2), so every level from the third is ▪",
-    },
-    Difference {
-        field: Field::ListMarker,
-        at: "depth 4 bullet item",
-        cell: "◦",
-        pixel: "▪",
-        status: Status::Drift,
-        cell_where: "layout/list.rs:22: BULLETS[list_depth % 3], so the fourth level starts over at •",
-        pixel_where: "reading/page.rs:2097: the three glyphs indexed by depth.min(2), so every level from the third is ▪",
-    },
-    Difference {
-        field: Field::ListMarker,
-        at: "depth 6 bullet item",
-        cell: "•",
-        pixel: "▪",
-        status: Status::Drift,
-        cell_where: "layout/list.rs:22: BULLETS[list_depth % 3], so a level past the third starts the cycle over",
-        pixel_where: "reading/page.rs:2097: the three glyphs indexed by depth.min(2), so every level from the third is ▪",
-    },
-    Difference {
-        field: Field::ListMarker,
-        at: "depth 7 bullet item",
-        cell: "◦",
-        pixel: "▪",
-        status: Status::Drift,
-        cell_where: "layout/list.rs:22: BULLETS[list_depth % 3], so a level past the third starts the cycle over",
-        pixel_where: "reading/page.rs:2097: the three glyphs indexed by depth.min(2), so every level from the third is ▪",
-    },
-    Difference {
         field: Field::HeadingRule,
         at: "level 1",
         cell: "false",
         pixel: "true",
         status: Status::Drift,
-        cell_where: "layout/mod.rs:760: the theme's `rule`, which the built-in theme has off for every level",
-        pixel_where: "reading/page.rs:1207: a rule when `level <= 2`, whatever the theme says",
+        bug: Some("B17"),
+        cell_where: "layout/mod.rs:756: the look's heading `rule`, which the built-in theme has off for every level",
+        pixel_where: "reading/page/heading.rs:24: a rule when `level` is within the look's `heading_rules`, 2, whatever the theme says",
     },
     Difference {
         field: Field::HeadingRule,
@@ -381,8 +348,9 @@ const DIFFERENCES: &[Difference] = &[
         cell: "false",
         pixel: "true",
         status: Status::Drift,
-        cell_where: "layout/mod.rs:760: the theme's `rule`, which the built-in theme has off for every level",
-        pixel_where: "reading/page.rs:1207: a rule when `level <= 2`, whatever the theme says",
+        bug: Some("B17"),
+        cell_where: "layout/mod.rs:756: the look's heading `rule`, which the built-in theme has off for every level",
+        pixel_where: "reading/page/heading.rs:24: a rule when `level` is within the look's `heading_rules`, 2, whatever the theme says",
     },
     Difference {
         field: Field::HeadingSize,
@@ -390,8 +358,9 @@ const DIFFERENCES: &[Difference] = &[
         cell: "2.50",
         pixel: "2.00",
         status: Status::Drift,
-        cell_where: "theme/mod.rs:375: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
-        pixel_where: "reading/page.rs:37: HEADING_SIZES, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
+        bug: Some("B17"),
+        cell_where: "theme/mod.rs:377: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
+        pixel_where: "theme/look.rs:190: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
         field: Field::HeadingSize,
@@ -399,8 +368,9 @@ const DIFFERENCES: &[Difference] = &[
         cell: "2.00",
         pixel: "1.50",
         status: Status::Drift,
-        cell_where: "theme/mod.rs:375: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
-        pixel_where: "reading/page.rs:37: HEADING_SIZES, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
+        bug: Some("B17"),
+        cell_where: "theme/mod.rs:377: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
+        pixel_where: "theme/look.rs:190: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
         field: Field::HeadingSize,
@@ -408,8 +378,9 @@ const DIFFERENCES: &[Difference] = &[
         cell: "1.75",
         pixel: "1.25",
         status: Status::Drift,
-        cell_where: "theme/mod.rs:375: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
-        pixel_where: "reading/page.rs:37: HEADING_SIZES, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
+        bug: Some("B17"),
+        cell_where: "theme/mod.rs:377: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
+        pixel_where: "theme/look.rs:190: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
         field: Field::HeadingSize,
@@ -417,8 +388,9 @@ const DIFFERENCES: &[Difference] = &[
         cell: "1.50",
         pixel: "1.00",
         status: Status::Drift,
-        cell_where: "theme/mod.rs:375: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
-        pixel_where: "reading/page.rs:37: HEADING_SIZES, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
+        bug: Some("B17"),
+        cell_where: "theme/mod.rs:377: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
+        pixel_where: "theme/look.rs:190: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
         field: Field::HeadingSize,
@@ -426,8 +398,9 @@ const DIFFERENCES: &[Difference] = &[
         cell: "1.25",
         pixel: "0.88",
         status: Status::Drift,
-        cell_where: "theme/mod.rs:375: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
-        pixel_where: "reading/page.rs:37: HEADING_SIZES, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
+        bug: Some("B17"),
+        cell_where: "theme/mod.rs:377: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
+        pixel_where: "theme/look.rs:190: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
         field: Field::HeadingSize,
@@ -435,8 +408,9 @@ const DIFFERENCES: &[Difference] = &[
         cell: "1.00",
         pixel: "0.85",
         status: Status::Drift,
-        cell_where: "theme/mod.rs:375: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
-        pixel_where: "reading/page.rs:37: HEADING_SIZES, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
+        bug: Some("B17"),
+        cell_where: "theme/mod.rs:377: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
+        pixel_where: "theme/look.rs:190: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
         field: Field::ListMarker,
@@ -444,8 +418,9 @@ const DIFFERENCES: &[Difference] = &[
         cell: "N.",
         pixel: "none",
         status: Status::Drift,
-        cell_where: "layout/list.rs:17,49: the number, and the box after it",
-        pixel_where: "reading/page.rs:2079: a task item gets its box and no number",
+        bug: Some("B17"),
+        cell_where: "layout/list.rs:15,46: the number, and the box after it",
+        pixel_where: "reading/page/list.rs:44: a task item gets its box and no number",
     },
     Difference {
         field: Field::QuoteText,
@@ -453,8 +428,9 @@ const DIFFERENCES: &[Difference] = &[
         cell: "own",
         pixel: "dimmed",
         status: Status::Drift,
-        cell_where: "layout/quote.rs:11: the bar only; the text keeps its own colour",
-        pixel_where: "reading/page.rs:1228: the text in the quote colour, the muted one",
+        bug: Some("B17"),
+        cell_where: "layout/quote.rs:12: the bar only; the text keeps its own colour",
+        pixel_where: "reading/page/quote.rs:21: the text in the quote colour, the muted one",
     },
     Difference {
         field: Field::TableRows,
@@ -462,8 +438,9 @@ const DIFFERENCES: &[Difference] = &[
         cell: "lines",
         pixel: "stripes",
         status: Status::Drift,
-        cell_where: "layout/mod.rs:1092: a row style of five, by the `table_rows` setting",
-        pixel_where: "reading/engine.rs:1037, reading/page.rs:1822: stripes on or off; any setting but Off is on",
+        bug: Some("B18"),
+        cell_where: "layout/mod.rs:1088: a row style of five, by the `table_rows` setting",
+        pixel_where: "reading/look.rs:109, reading/page.rs:86: stripes on or off; any setting but Off is on",
     },
     Difference {
         field: Field::TableRows,
@@ -471,8 +448,9 @@ const DIFFERENCES: &[Difference] = &[
         cell: "indent",
         pixel: "stripes",
         status: Status::Drift,
-        cell_where: "layout/mod.rs:1092: a row style of five, by the `table_rows` setting",
-        pixel_where: "reading/engine.rs:1037, reading/page.rs:1822: stripes on or off; any setting but Off is on",
+        bug: Some("B18"),
+        cell_where: "layout/mod.rs:1088: a row style of five, by the `table_rows` setting",
+        pixel_where: "reading/look.rs:109, reading/page.rs:86: stripes on or off; any setting but Off is on",
     },
     Difference {
         field: Field::TableRows,
@@ -480,8 +458,9 @@ const DIFFERENCES: &[Difference] = &[
         cell: "underline",
         pixel: "stripes",
         status: Status::Drift,
-        cell_where: "layout/mod.rs:1092: a row style of five, by the `table_rows` setting",
-        pixel_where: "reading/engine.rs:1037, reading/page.rs:1822: stripes on or off; any setting but Off is on",
+        bug: Some("B18"),
+        cell_where: "layout/mod.rs:1088: a row style of five, by the `table_rows` setting",
+        pixel_where: "reading/look.rs:109, reading/page.rs:86: stripes on or off; any setting but Off is on",
     },
     Difference {
         field: Field::TableFrame,
@@ -489,53 +468,29 @@ const DIFFERENCES: &[Difference] = &[
         cell: "frame",
         pixel: "grid",
         status: Status::Drift,
+        bug: Some("B18"),
         cell_where: "layout/table.rs:221: always a rounded box; `table_style` is not read",
-        pixel_where: "reading/page.rs:1862: the theme's `table_style`, a rounded frame or a grid",
+        pixel_where: "reading/page/table.rs:262: the look's `table_style`, a rounded frame or a grid",
     },
     Difference {
         field: Field::TableFrame,
         at: "Frame",
         cell: "stacked",
         pixel: "frame",
-        status: Status::Drift,
+        status: Status::Intended,
+        bug: None,
         cell_where: "layout/table.rs:212: a table whose words do not fit the width is stacked, with no frame",
-        pixel_where: "reading/page.rs:1862: a table is always drawn as a frame or a grid, its cells wrapping",
+        pixel_where: "reading/page/table.rs:262: a table is always drawn as a frame or a grid, its cells wrapping",
     },
     Difference {
         field: Field::TableFrame,
         at: "Grid",
         cell: "stacked",
         pixel: "grid",
-        status: Status::Drift,
+        status: Status::Intended,
+        bug: None,
         cell_where: "layout/table.rs:212: a table whose words do not fit the width is stacked, with no frame",
-        pixel_where: "reading/page.rs:1862: a table is always drawn as a frame or a grid, its cells wrapping",
-    },
-    Difference {
-        field: Field::InlineStyle,
-        at: "mark",
-        cell: "styled",
-        pixel: "unstyled",
-        status: Status::Drift,
-        cell_where: "layout/mod.rs:1196: the theme's mark colours, or reverse video",
-        pixel_where: "reading/page.rs:2350: the text as it is, with no colour, size or shift of its own",
-    },
-    Difference {
-        field: Field::InlineStyle,
-        at: "sub",
-        cell: "styled",
-        pixel: "unstyled",
-        status: Status::Drift,
-        cell_where: "layout/mod.rs:1212: subscript characters, or a smaller size where text sizing is",
-        pixel_where: "reading/page.rs:2350: the text as it is, with no colour, size or shift of its own",
-    },
-    Difference {
-        field: Field::InlineStyle,
-        at: "sup",
-        cell: "styled",
-        pixel: "unstyled",
-        status: Status::Drift,
-        cell_where: "layout/mod.rs:1213: superscript characters, or a smaller size where text sizing is",
-        pixel_where: "reading/page.rs:2350: the text as it is, with no colour, size or shift of its own",
+        pixel_where: "reading/page/table.rs:262: a table is always drawn as a frame or a grid, its cells wrapping",
     },
 ];
 
@@ -626,35 +581,51 @@ mod tests {
     }
 
     fn compare(paths: &[PathBuf]) -> Vec<Found> {
+        // One thread per document, and the findings joined in the order of
+        // the documents, so the report reads as it did one document at a time.
+        std::thread::scope(|scope| {
+            let threads: Vec<_> = paths
+                .iter()
+                .map(|path| scope.spawn(move || compare_document(path)))
+                .collect();
+            threads
+                .into_iter()
+                .flat_map(|thread| {
+                    // A panic keeps its message, as it did with no threads.
+                    thread
+                        .join()
+                        .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+                })
+                .collect()
+        })
+    }
+
+    fn compare_document(path: &Path) -> Vec<Found> {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut found = Vec::new();
-        for path in paths {
-            let source = std::fs::read_to_string(path).unwrap();
-            let name = path.strip_prefix(root).unwrap().display().to_string();
-            let Document { blocks, .. } = parse(&source);
-            for (number, block) in blocks.iter().enumerate() {
-                for setup in Setup::TABLES {
-                    let (cell, pixel) =
-                        (cell::summary(block, &setup), pixel::summary(block, &setup));
-                    // Only a table's facts change with the setup.
-                    let kept = |fact: &Fact| {
-                        setup.is_default()
-                            || matches!(fact.field, Field::TableRows | Field::TableFrame)
-                    };
-                    let (cell, pixel): (Vec<_>, Vec<_>) = (
-                        cell.into_iter().filter(kept).collect(),
-                        pixel.into_iter().filter(kept).collect(),
-                    );
-                    let label = format!("{name}#{number} ({})", kind(block));
-                    for (field, at, cell, pixel) in pair(&cell, &pixel) {
-                        found.push(Found {
-                            block: label.clone(),
-                            field,
-                            at,
-                            cell,
-                            pixel,
-                        });
-                    }
+        let source = std::fs::read_to_string(path).unwrap();
+        let name = path.strip_prefix(root).unwrap().display().to_string();
+        let Document { blocks, .. } = parse(&source);
+        for (number, block) in blocks.iter().enumerate() {
+            for setup in Setup::TABLES {
+                let (cell, pixel) = (cell::summary(block, &setup), pixel::summary(block, &setup));
+                // Only a table's facts change with the setup.
+                let kept = |fact: &Fact| {
+                    setup.is_default() || matches!(fact.field, Field::TableRows | Field::TableFrame)
+                };
+                let (cell, pixel): (Vec<_>, Vec<_>) = (
+                    cell.into_iter().filter(kept).collect(),
+                    pixel.into_iter().filter(kept).collect(),
+                );
+                let label = format!("{name}#{number} ({})", kind(block));
+                for (field, at, cell, pixel) in pair(&cell, &pixel) {
+                    found.push(Found {
+                        block: label.clone(),
+                        field,
+                        at,
+                        cell,
+                        pixel,
+                    });
                 }
             }
         }
@@ -752,21 +723,67 @@ mod tests {
                 .any(|d| d.field == field && d.at.starts_with(at) && d.status == Status::Drift)
         };
         for (field, at) in [
-            (Field::ListMarker, "depth 3 bullet"),
             (Field::HeadingRule, "level 1"),
             (Field::HeadingSize, "level 1"),
             (Field::ListMarker, "depth 0 numbered task"),
             (Field::QuoteText, "first paragraph"),
             (Field::TableRows, "Lines"),
             (Field::TableFrame, "Grid"),
-            (Field::InlineStyle, "mark"),
-            (Field::InlineStyle, "sub"),
-            (Field::InlineStyle, "sup"),
         ] {
             assert!(
                 drift(field, at),
                 "{field:?} at {at:?} is not a drift on the list"
             );
+        }
+    }
+
+    #[test]
+    fn a_drift_names_a_bug_the_roadmap_has_and_a_difference_that_is_meant_names_none() {
+        let roadmap =
+            std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/roadmap.md"))
+                .unwrap();
+        // Which bug decides which field, as the roadmap sorts them.
+        let decided_by = |d: &Difference| match (d.field, d.at) {
+            (Field::HeadingRule | Field::HeadingSize | Field::QuoteText, _) => "B17",
+            (Field::ListMarker, "depth 0 numbered task item") => "B17",
+            (Field::TableRows | Field::TableFrame, _) => "B18",
+            (field, at) => panic!("{field:?} at {at:?} is on no bug's list"),
+        };
+        for d in DIFFERENCES {
+            // A table too narrow for its frame is stacked on purpose.
+            assert_eq!(
+                d.status == Status::Intended,
+                d.cell == "stacked",
+                "{:?} at {:?}: cell {:?}",
+                d.field,
+                d.at,
+                d.cell
+            );
+            if d.status == Status::Drift {
+                assert_eq!(
+                    d.bug,
+                    Some(decided_by(d)),
+                    "{:?} at {:?}: cell {:?}",
+                    d.field,
+                    d.at,
+                    d.cell
+                );
+            }
+            match (d.status, d.bug) {
+                (Status::Drift, Some(bug)) => assert!(
+                    roadmap.lines().any(|line| line
+                        .strip_prefix("#### ")
+                        .is_some_and(|title| title.split(' ').next() == Some(bug))),
+                    "{:?} at {:?} names {bug}, which is no heading of the roadmap",
+                    d.field,
+                    d.at
+                ),
+                (Status::Intended, None) => {}
+                (status, bug) => panic!(
+                    "{:?} at {:?} is {status:?} and names {bug:?}",
+                    d.field, d.at
+                ),
+            }
         }
     }
 

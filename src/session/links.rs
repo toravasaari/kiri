@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
 
+use crate::session::bands::Bands;
 use crate::typeset::block::BlockInfo;
 use crate::typeset::reading::engine;
 use crate::typeset::style::{Line, Span};
@@ -90,6 +91,25 @@ impl Links {
         let changed = self.selected.as_ref() != Some(&shown[next].id);
         self.selected = Some(shown[next].id.clone());
         changed
+    }
+
+    /// As [`Links::select_next`], and a link in a band that shows none of
+    /// its cells scrolls `bands` to it, as a search match does: whether
+    /// a band was scrolled.
+    pub fn select_scrolling(
+        &mut self,
+        bands: &mut Bands,
+        lines: &[Line],
+        places: &[Option<BlockInfo>],
+        visible: Range<usize>,
+        back: bool,
+    ) -> bool {
+        self.select_next(lines, places, visible, back);
+        let target = self.target(lines, places).filter(Found::is_scrolled_out);
+        let Some((line, x)) = target.and_then(|found| found.band_at) else {
+            return false;
+        };
+        bands.reveal(lines, places, line, x) == Some(true)
     }
 
     /// The selected link whether or not a band shows its cells: where to

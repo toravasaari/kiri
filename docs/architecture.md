@@ -114,11 +114,14 @@ it; the layout's table has to use them too once it marks those blocks.
 The pager shows the same styled lines on the terminal's alternate screen.
 `src/session/view.rs` chooses the lines that fit in the window, a scaled
 line whole or not at all, and moves them, and when the window changes size
-it keeps the same block at the top; `src/pager/keys.rs` turns the bytes
-the terminal sends into keys and keys into moves; `src/session/prompt.rs`
-keeps the search term as it is typed, and `src/session/search.rs` finds it
-in the laid-out lines and splits a line where a match starts and ends, so
-the matches can be highlighted without a change to the writer;
+it keeps the same block at the top; `src/present/keys.rs` turns the bytes
+the terminal sends into keys; `src/session/commands.rs` holds the
+commands, each with its topic, keys, help text and action, and the keys
+are looked up there, and `src/session/help.rs` builds the help panel from
+them; `src/session/prompt.rs` keeps the search term as it is typed, and
+`src/session/search.rs` finds it in the laid-out lines and splits a line
+where a match starts and ends, so the matches can be highlighted without a
+change to the writer;
 `src/session/fade.rs` mixes the colours a match fades through after a jump,
 those of the status line's `reloaded` as it fades out, and those of the
 warning line;
@@ -329,8 +332,9 @@ is in and whether it is emphasised, and the cell size it is drawn for,
 and `src/typeset/images/heading.rs` draws the text through the SVG renderer in
 the system's sans-serif font, emphasis in italics, and inline code and
 keys in its monospace font on the background of inline code, at the size
-and in the colours that `render::heading_look` resolves from the theme
-and the terminal, as the text layout's inline code takes them, so
+and in the colours that `render::heading_look` takes from the one look
+(`src/typeset/theme/look.rs`), which is resolved from the theme and the
+terminal, as the text layout's inline code takes them, so
 `src/images/` knows nothing of themes. Other inline styles are drawn as
 the heading's text. Each word starts on a whole cell,
 and `Source::Text` tells the columns each word covers, so layout wraps a
@@ -495,10 +499,10 @@ writes as it is into a pipe.
 | Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J | `src/present/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows |
 | Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/present/kitty/query.rs` | Wiping the progress line; erasing the rows the text sizing tests drew |
 | Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term/screen.rs` | The pager's screen of its own |
-| Focus reporting | CSI ?1004h/l; CSI I, CSI O | `src/term/screen.rs`, `src/pager/keys.rs` | Telling the pager that its tmux pane is shown again |
-| Mouse reporting | CSI ?1000h/l, CSI ?1006h/l; CSI < … M/m, CSI M | `src/term/screen.rs`, `src/pager/keys.rs` | The wheel scrolling the pager, also inside tmux; in reading mode, a click selecting a band and the sideways wheel scrolling it |
+| Focus reporting | CSI ?1004h/l; CSI I, CSI O | `src/term/screen.rs`, `src/present/keys.rs` | Telling the pager that its tmux pane is shown again |
+| Mouse reporting | CSI ?1000h/l, CSI ?1006h/l; CSI < … M/m, CSI M | `src/term/screen.rs`, `src/present/keys.rs` | The wheel scrolling the pager, also inside tmux; in reading mode, a click selecting a band and the sideways wheel scrolling it |
 | Synchronized output | CSI ?2026h/l | `src/present/output.rs` | Pager frames without flicker |
-| Cell size query | CSI 16 t; the answer CSI 6 ; height ; width t | `src/present/kitty/query.rs`, `src/present/cell_query.rs`, `src/pager/keys.rs` | The cell size in pixels where the window size has none, and inside tmux, where the window's may be tmux's guess: asked at start, and by the pager when the window changes size, so that it follows a new font size |
+| Cell size query | CSI 16 t; the answer CSI 6 ; height ; width t | `src/present/kitty/query.rs`, `src/present/cell_query.rs`, `src/present/keys.rs` | The cell size in pixels where the window size has none, and inside tmux, where the window's may be tmux's guess: asked at start, and by the pager when the window changes size, so that it follows a new font size |
 | Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI c | `src/term/probe.rs` | Cursor position, foreground, background and palette colours, terminal version, end of the answers |
 | tmux passthrough | DCS `tmux;` … ST, with each ESC doubled | `src/term/tmux.rs` | kitty's graphics, the probe's graphics query, and the probe's and the pager's cell size queries, through tmux to the terminal outside |
 | Image checks | APC `_G` `a=p,U=1` and `a=d,d=i` with a placement id | `src/present/kitty/graphics.rs`, `src/term/check.rs` | Whether kitty behind tmux holds the images kiri sent |
@@ -684,7 +688,8 @@ The later work that the rows name, in words:
 | `src/pager/tests/reload.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/search.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/view.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
-| `src/pager/keys.rs` | mixed | stays. Terminal layer: `Key` and the `Decoder` that turns bytes into keys. State engine: `Action`, `BINDINGS` and `action`. The terminal layer split for the decoding, the pager's loop for the actions |
+| `src/pager/keys.rs` | terminal layer | moved to `src/present/keys.rs`: `Key` and the `Decoder` that turns bytes into keys. The lookup of a key's action is in `src/session/commands.rs` |
+| `src/session/commands.rs` | state engine | stays. `Action`, `COMMANDS` (topic, keys, help text, action and the settings that change it) and `action`; it reads `Key` from `src/present/keys.rs` |
 | `src/pager/bands.rs` | state engine | moved to `src/session/bands.rs` |
 | `src/pager/changes.rs` | state engine | moved to `src/session/changes.rs` |
 | `src/pager/fade.rs` | state engine | moved to `src/session/fade.rs` |
@@ -749,6 +754,8 @@ later and are test only.
 | `src/typeset/reading/page/details.rs` | new: `<details>` blocks and their summary |
 | `src/typeset/reading/page/heading.rs` | new: headings |
 | `src/typeset/reading/page/html.rs` | new: raw HTML, shown as its source |
+| `src/typeset/theme/look.rs` | new: the one look, resolved from the theme and the capabilities, which both layouts read: colours, heading styles, and a spacing table for each medium, in cells for the text layout and in pixels (GitHub's values) for reading mode |
+| `src/typeset/reading/look.rs` | new: reading mode's brushes, the one look resolved into the colours its page is drawn with (`page_look`). The path is for the maintainer to confirm |
 | `src/typeset/parity.rs` | new, test only: lays out blocks in both layouts and compares what each decided, against the list of known differences |
 | `src/typeset/layout/summary.rs` | new, test only: the cell layout's view of a block, for the parity test |
 | `src/typeset/reading/page/summary.rs` | new, test only: the pixel layout's view of a block, for the parity test |
@@ -771,8 +778,8 @@ The crossings in the list fall into these kinds:
 | typesetting uses `images`, `diagrams`, or the platform parts of `render` | loading and sessions; the terminal layer split for `render` |
 | typesetting uses the font loading in `images/svg.rs` | the font database |
 | typesetting uses `present::kitty::graphics` | a small change of its own, giving `caps.rs` the constant |
-| the terminal layer uses `term::tmux`, `render::loading`, `pager::keys` or `images` | the terminal layer split; loading and sessions |
-| the state engine uses `pager::keys` or `pager::Warning` | commands as data; the pager's loop |
+| the terminal layer uses `term::tmux`, `render::loading` or `images` | the terminal layer split; loading and sessions |
+| the state engine uses `pager::Warning` | the pager's loop |
 
 The test reads files by directory, so it does not see the crossings inside
 a mixed module, which are the pieces of a file such as `main.rs` or
@@ -801,7 +808,7 @@ file (`main.rs`, `pager/mod.rs`, `render/mod.rs`,
 |---|---|
 | command-line option | `src/cli.rs`, made by one route |
 | startup decision, such as whether a run pages | `src/session/plan.rs`, made by the startup plan; take what it needs from the terminal as values |
-| key or action | `src/session/commands.rs`, new, made by commands as data; until then `BINDINGS` in `src/pager/keys.rs` |
+| key or action | an entry in `COMMANDS` in `src/session/commands.rs`, and the pager's answer to its action |
 | setting | its entry in `src/config/registry.rs`, which names its key, its owner, its effect and its medium, and the code of its owner |
 | use of a file, the network or a program | no path yet, loading and sessions makes the platform's work runner, and the trust policy a `Policy`; until then `src/images/background.rs`, `src/images/pipeline.rs` or `src/diagrams/external.rs` |
 | block type or input format | the typesetting engine's registry of block types and formats, no path yet (today `src/typeset/model.rs`, `src/typeset/parse/` and `src/typeset/layout/`); in reading mode a module per block type in `src/typeset/reading/page/`, made by reading mode's block modules; the blocks without one yet, such as paragraphs, stay in `page.rs` |

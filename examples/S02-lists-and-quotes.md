@@ -47,6 +47,17 @@ just enough to show, unless you use a theme file, `--light` or `--dark`.
 
    - A list nested in a loose item.
 
+Bullets change with the level: a disc, a circle, then a square, and every
+level below the third keeps the square, as on GitHub. Here you should see
+`•`, `◦` and then four `▪`:
+
+- Level one
+  - Level two
+    - Level three
+      - Level four
+        - Level five
+          - Level six
+
 ## Task lists
 
 In a bullet list, a task item, written with a box in square brackets,

@@ -2,7 +2,7 @@
 //! when it is shown as source.
 
 use crate::typeset::model::{FrontMatter, Inline, Value};
-use crate::typeset::reading::page::{Cell, Flow, FrontMatterShown, Grid, LINE_HEIGHT};
+use crate::typeset::reading::page::{Cell, Flow, FrontMatterShown, Grid};
 
 impl Flow<'_> {
     /// Lays front matter out at `x` in `width` pixels: a table of its keys
@@ -14,7 +14,7 @@ impl Flow<'_> {
             return;
         }
         // A blank line above it, so that it does not touch the page's top.
-        self.y += LINE_HEIGHT * self.look.size;
+        self.y += self.look.spacing.line_height * self.look.size;
         match (&front_matter.value, self.front_matter) {
             (Some(Ok(Value::Map(entries))), FrontMatterShown::Table) => {
                 self.nested(&map_grid(entries, 1), x, width, true);

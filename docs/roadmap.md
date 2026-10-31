@@ -1050,7 +1050,7 @@ Covered by G1.10.1.
 
 #### G1.8 One look and layers
 
-- G1.8.1 One look, resolved from the theme in one place and read by both
+- G1.8.1 (done) One look, resolved from the theme in one place and read by both
   layouts, instead of decisions spread over the theme, the text layout
   and reading mode; spacing as a table for each medium, with reading
   mode's GitHub values as the pixel table. Carries out the decisions on
@@ -1290,7 +1290,7 @@ Needs G7.2.1.
 
 - G7.2.1 One type for warnings, with where each came from, instead of
   the five ways warnings travel now.
-- G7.2.2 Commands and keys as data, each with its topic; the help panel
+- G7.2.2 (done) Commands and keys as data, each with its topic; the help panel
   built from them; Esc as one message that what is open answers.
 - G7.2.3 The help as a document in a panel that scrolls, by topic,
   opening at the topic of what is in view (4.14.1).

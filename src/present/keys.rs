@@ -1,9 +1,9 @@
-//! Keys read from the terminal, and what each does in the pager. The
-//! bindings follow `less` for now.
+//! Keys read from the terminal, and the decoder that turns the bytes the
+//! terminal sends into them. What each key does is data in
+//! `src/session/commands.rs`.
 
 use crate::present::kitty::graphics::{self, ImageId};
 use crate::present::kitty::query;
-use crate::session::view::Motion;
 
 /// A key as the terminal sends it without kitty's keyboard protocol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,55 +68,6 @@ pub enum Key {
     /// A sequence the pager does not use.
     Other,
 }
-
-/// What a key asks the pager to do.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Action {
-    Move(Motion),
-    /// Opens the search prompt.
-    Search,
-    /// Moves to the next match of the last search.
-    Next,
-    /// Moves to the previous match of the last search.
-    Previous,
-    /// Stops showing the last search, which `n` takes up again.
-    Clear,
-    /// Moves to the start of the next file.
-    NextFile,
-    /// Moves to the start of the file the view is in, or of the one
-    /// before when the view is there already.
-    PreviousFile,
-    /// Reads the document again.
-    Reload,
-    /// Draws the screen again, with every image on it sent again.
-    Redraw,
-    /// Follows the document, from off to on to auto and back to off.
-    Follow,
-    /// Turns reading mode on or off.
-    Reading,
-    /// Scrolls a wide block sideways a little, left or right by the key.
-    Sideways,
-    /// Scrolls a wide block sideways by most of its width.
-    SidewaysFar,
-    /// Selects the next or the previous link on the screen.
-    SelectLink,
-    /// Switches wide blocks between wrapping and scrolling.
-    Wide,
-    Help,
-    Quit,
-}
-
-impl Action {
-    /// Whether the action moves between files, which only several files
-    /// have.
-    pub fn between_files(self) -> bool {
-        matches!(self, Action::NextFile | Action::PreviousFile)
-    }
-}
-
-/// The key that starts a command, as in `less`, with several files: the
-/// key after it is the command's, as [`Key::Command`].
-pub const COMMAND: Key = Key::Char(':');
 
 /// The keys in `input`, all of it: a sequence cut off at the end is taken
 /// as it is. A lone escape character is the Escape key, and one before a
@@ -326,199 +277,6 @@ fn character(input: &[u8]) -> Option<(Key, usize)> {
     Some(key)
 }
 
-/// The keys of one action, as the help shows them.
-#[derive(Debug)]
-pub struct Binding {
-    pub keys: &'static [Key],
-    /// The keys most people use, shortest first.
-    pub names: &'static str,
-    /// What the keys do.
-    pub what: &'static str,
-    pub action: Action,
-}
-
-/// Every key the pager knows, in the order the help lists them.
-pub const BINDINGS: &[Binding] = {
-    use Key::{Char, Ctrl};
-    use Motion::*;
-    &[
-        Binding {
-            keys: &[
-                Char('j'),
-                Char('e'),
-                Ctrl('e'),
-                Ctrl('n'),
-                Key::Enter,
-                Key::Down,
-            ],
-            names: "j ↓ Enter",
-            what: "down a line",
-            action: Action::Move(Down(1)),
-        },
-        Binding {
-            keys: &[
-                Char('k'),
-                Char('y'),
-                Ctrl('y'),
-                Ctrl('p'),
-                Ctrl('k'),
-                Key::Up,
-            ],
-            names: "k ↑",
-            what: "up a line",
-            action: Action::Move(Up(1)),
-        },
-        Binding {
-            keys: &[Char(' '), Char('f'), Ctrl('f'), Ctrl('v'), Key::PageDown],
-            names: "Space f PgDn",
-            what: "down a page",
-            action: Action::Move(PageDown),
-        },
-        Binding {
-            keys: &[Char('b'), Ctrl('b'), Key::PageUp],
-            names: "b PgUp",
-            what: "up a page",
-            action: Action::Move(PageUp),
-        },
-        Binding {
-            keys: &[Char('d'), Ctrl('d')],
-            names: "d",
-            what: "down half a page",
-            action: Action::Move(HalfPageDown),
-        },
-        Binding {
-            keys: &[Char('u'), Ctrl('u')],
-            names: "u",
-            what: "up half a page",
-            action: Action::Move(HalfPageUp),
-        },
-        Binding {
-            keys: &[Char('g'), Char('<'), Key::Home],
-            names: "g Home",
-            what: "top",
-            action: Action::Move(Start),
-        },
-        Binding {
-            keys: &[Char('G'), Char('>'), Key::End],
-            names: "G End",
-            what: "bottom",
-            action: Action::Move(End),
-        },
-        Binding {
-            keys: &[Key::Command('n'), Key::ShiftPageDown],
-            names: ":n Shift+PgDn",
-            what: "next file",
-            action: Action::NextFile,
-        },
-        Binding {
-            keys: &[Key::Command('p'), Key::ShiftPageUp],
-            names: ":p Shift+PgUp",
-            what: "previous file",
-            action: Action::PreviousFile,
-        },
-        Binding {
-            keys: &[Char('/')],
-            names: "/",
-            what: "search",
-            action: Action::Search,
-        },
-        Binding {
-            keys: &[Char('n')],
-            names: "n",
-            what: "next match",
-            action: Action::Next,
-        },
-        Binding {
-            keys: &[Char('N')],
-            names: "N",
-            what: "previous match",
-            action: Action::Previous,
-        },
-        Binding {
-            keys: &[Key::Escape],
-            names: "Esc",
-            what: "hide the search",
-            action: Action::Clear,
-        },
-        Binding {
-            keys: &[Char('r')],
-            names: "r",
-            what: "reload the file",
-            action: Action::Reload,
-        },
-        Binding {
-            keys: &[Ctrl('l')],
-            names: "Ctrl+L",
-            what: "redraw the screen",
-            action: Action::Redraw,
-        },
-        Binding {
-            keys: &[Char('F')],
-            names: "F",
-            what: "follow: on, auto, off",
-            action: Action::Follow,
-        },
-        Binding {
-            keys: &[Char('M')],
-            names: "M",
-            what: "reading mode: on, off",
-            action: Action::Reading,
-        },
-        Binding {
-            keys: &[Key::Left, Key::Right],
-            names: "← →",
-            what: "scroll a wide block",
-            action: Action::Sideways,
-        },
-        Binding {
-            keys: &[Char('H'), Char('L')],
-            names: "H L",
-            what: "scroll it by its width",
-            action: Action::SidewaysFar,
-        },
-        Binding {
-            keys: &[Ctrl('i'), Key::BackTab],
-            names: "Tab Shift+Tab",
-            what: "select a link, Enter copies it",
-            action: Action::SelectLink,
-        },
-        Binding {
-            keys: &[Char('W')],
-            names: "W",
-            what: "wide blocks: wrap, scroll",
-            action: Action::Wide,
-        },
-        Binding {
-            keys: &[Char('?'), Char('h')],
-            names: "? h",
-            what: "this help",
-            action: Action::Help,
-        },
-        Binding {
-            keys: &[Char('q'), Char('Q'), Ctrl('c')],
-            names: "q",
-            what: "quit",
-            action: Action::Quit,
-        },
-    ]
-};
-
-/// How many lines a notch of the mouse wheel moves.
-const WHEEL: usize = 3;
-
-/// What `key` does; `None` for a key without a binding. The wheel is no
-/// key the help lists.
-pub fn action(key: Key) -> Option<Action> {
-    match key {
-        Key::WheelUp => Some(Action::Move(Motion::Up(WHEEL))),
-        Key::WheelDown => Some(Action::Move(Motion::Down(WHEEL))),
-        key => BINDINGS
-            .iter()
-            .find(|binding| binding.keys.contains(&key))
-            .map(|binding| binding.action),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -576,10 +334,8 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_l_redraws_and_r_still_reloads() {
+    fn decodes_ctrl_l() {
         assert_eq!(decode(b"\x0c"), [Key::Ctrl('l')]);
-        assert_eq!(action(Key::Ctrl('l')), Some(Action::Redraw));
-        assert_eq!(action(Key::Char('r')), Some(Action::Reload));
     }
 
     #[test]
@@ -615,7 +371,6 @@ mod tests {
         let mut decoder = Decoder::default();
         assert_eq!(decoder.keys(b"\x1b[6;24"), []);
         assert_eq!(decoder.keys(b";10t"), [Key::CellSize(10, 24)]);
-        assert_eq!(action(Key::CellSize(10, 24)), None);
     }
 
     #[test]
@@ -638,8 +393,6 @@ mod tests {
     #[test]
     fn decodes_the_focus_coming_back() {
         assert_eq!(decode(b"\x1b[I\x1b[O"), [Key::FocusIn, Key::FocusOut]);
-        assert_eq!(action(Key::FocusIn), None);
-        assert_eq!(action(Key::FocusOut), None);
     }
 
     #[test]
@@ -720,7 +473,6 @@ mod tests {
         // Without SGR encoding the column and row could be read as
         // keys, as a space and a q here.
         assert_eq!(decode(b"\x1b[M#qq"), [Key::Mouse]);
-        assert_eq!(action(Key::Mouse), None);
     }
 
     #[test]
@@ -738,12 +490,6 @@ mod tests {
     }
 
     #[test]
-    fn the_wheel_moves_three_lines() {
-        assert_eq!(action(Key::WheelDown), Some(Action::Move(Motion::Down(3))));
-        assert_eq!(action(Key::WheelUp), Some(Action::Move(Motion::Up(3))));
-    }
-
-    #[test]
     fn a_lone_escape_is_the_escape_key() {
         assert_eq!(decode(b"\x1b"), [Key::Escape]);
     }
@@ -752,8 +498,6 @@ mod tests {
     fn escape_before_a_character_is_alt() {
         assert_eq!(decode(b"\x1bj"), [Key::Alt('j')]);
         assert_eq!(decode("\x1bä".as_bytes()), [Key::Alt('ä')]);
-        assert_eq!(action(Key::Alt('q')), None);
-        assert_eq!(action(Key::Alt('j')), None);
     }
 
     #[test]
@@ -834,140 +578,5 @@ mod tests {
     #[test]
     fn invalid_utf_8_is_skipped() {
         assert_eq!(decode(b"\xffj"), [Key::Other, Key::Char('j')]);
-    }
-
-    #[test]
-    fn keys_move_as_in_less() {
-        let moves = |keys: &[Key], motion| {
-            for &key in keys {
-                assert_eq!(action(key), Some(Action::Move(motion)), "{key:?}");
-            }
-        };
-        let down = [
-            Key::Char('j'),
-            Key::Char('e'),
-            Key::Ctrl('e'),
-            Key::Ctrl('n'),
-            Key::Enter,
-            Key::Down,
-        ];
-        moves(&down, Motion::Down(1));
-        let up = [
-            Key::Char('k'),
-            Key::Char('y'),
-            Key::Ctrl('y'),
-            Key::Ctrl('p'),
-            Key::Ctrl('k'),
-            Key::Up,
-        ];
-        moves(&up, Motion::Up(1));
-        let page_down = [
-            Key::Char(' '),
-            Key::Char('f'),
-            Key::Ctrl('f'),
-            Key::Ctrl('v'),
-            Key::PageDown,
-        ];
-        moves(&page_down, Motion::PageDown);
-        moves(
-            &[Key::Char('b'), Key::Ctrl('b'), Key::PageUp],
-            Motion::PageUp,
-        );
-        moves(&[Key::Char('d'), Key::Ctrl('d')], Motion::HalfPageDown);
-        moves(&[Key::Char('u'), Key::Ctrl('u')], Motion::HalfPageUp);
-        moves(&[Key::Char('g'), Key::Char('<'), Key::Home], Motion::Start);
-        moves(&[Key::Char('G'), Key::Char('>'), Key::End], Motion::End);
-    }
-
-    #[test]
-    fn question_mark_and_h_open_the_help() {
-        for key in [Key::Char('?'), Key::Char('h')] {
-            assert_eq!(action(key), Some(Action::Help), "{key:?}");
-        }
-    }
-
-    #[test]
-    fn the_help_names_keys_of_their_own_binding() {
-        for binding in BINDINGS {
-            for name in binding.names.split(' ') {
-                let key = match name {
-                    "↓" => Key::Down,
-                    "↑" => Key::Up,
-                    "←" => Key::Left,
-                    "→" => Key::Right,
-                    "Tab" => Key::Ctrl('i'),
-                    "Shift+Tab" => Key::BackTab,
-                    "Enter" => Key::Enter,
-                    "Esc" => Key::Escape,
-                    "Space" => Key::Char(' '),
-                    "PgDn" => Key::PageDown,
-                    "PgUp" => Key::PageUp,
-                    "Home" => Key::Home,
-                    "End" => Key::End,
-                    ":n" => Key::Command('n'),
-                    ":p" => Key::Command('p'),
-                    "Shift+PgDn" => Key::ShiftPageDown,
-                    "Shift+PgUp" => Key::ShiftPageUp,
-                    "Ctrl+L" => Key::Ctrl('l'),
-                    name if name.chars().count() == 1 => Key::Char(name.chars().next().unwrap()),
-                    name => panic!("unknown key name {name}"),
-                };
-                assert!(binding.keys.contains(&key), "{name} in {}", binding.names);
-            }
-        }
-        assert!(
-            BINDINGS
-                .iter()
-                .any(|binding| binding.action == Action::Help)
-        );
-        assert!(
-            BINDINGS
-                .iter()
-                .any(|binding| binding.action == Action::Quit)
-        );
-    }
-
-    #[test]
-    fn a_slash_searches_and_n_moves_between_matches() {
-        assert_eq!(action(Key::Char('/')), Some(Action::Search));
-        assert_eq!(action(Key::Char('n')), Some(Action::Next));
-        assert_eq!(action(Key::Char('N')), Some(Action::Previous));
-        assert_eq!(action(Key::Escape), Some(Action::Clear));
-    }
-
-    #[test]
-    fn colon_n_and_colon_p_move_between_files() {
-        assert_eq!(action(Key::Command('n')), Some(Action::NextFile));
-        assert_eq!(action(Key::Command('p')), Some(Action::PreviousFile));
-        // On their own, n and p are no commands.
-        assert_eq!(action(Key::Char('p')), None);
-        assert_eq!(action(COMMAND), None);
-        assert_eq!(action(Key::Command('x')), None);
-    }
-
-    #[test]
-    fn shift_page_down_and_shift_page_up_move_between_files() {
-        assert_eq!(action(Key::ShiftPageDown), Some(Action::NextFile));
-        assert_eq!(action(Key::ShiftPageUp), Some(Action::PreviousFile));
-    }
-
-    #[test]
-    fn r_reloads_and_capital_f_follows() {
-        assert_eq!(action(Key::Char('r')), Some(Action::Reload));
-        assert_eq!(action(Key::Char('F')), Some(Action::Follow));
-    }
-
-    #[test]
-    fn q_and_ctrl_c_quit() {
-        for key in [Key::Char('q'), Key::Char('Q'), Key::Ctrl('c')] {
-            assert_eq!(action(key), Some(Action::Quit), "{key:?}");
-        }
-    }
-
-    #[test]
-    fn other_keys_do_nothing() {
-        for key in [Key::Char('x'), Key::Other, Key::Ctrl('z')] {
-            assert_eq!(action(key), None, "{key:?}");
-        }
     }
 }

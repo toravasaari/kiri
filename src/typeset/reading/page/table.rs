@@ -2,10 +2,7 @@
 //! grids and the rows of a table are laid out.
 
 use crate::typeset::model::{Alignment, Inline, Table};
-use crate::typeset::reading::page::{
-    BOLD, CELL_ACROSS, CELL_DOWN, CODE_RADIUS, Cell, FITS, Flow, Grid, Ink, Shape, TableStyle,
-    Wide, runs,
-};
+use crate::typeset::reading::page::{Cell, FITS, Flow, Grid, Ink, Shape, TableStyle, Wide, runs};
 use crate::typeset::reading::text::{self, Paragraph};
 
 impl Flow<'_> {
@@ -36,7 +33,7 @@ impl Flow<'_> {
         let (least, most) = self.grid_widths(grid, ink);
         // Each column takes its padding and the border at its left; the
         // last border closes the table.
-        let extra = self.look.size * 2.0 * CELL_ACROSS + 1.0;
+        let extra = self.look.size * 2.0 * self.look.spacing.cell_across + 1.0;
         let room = room - columns as f32 * extra - 1.0;
         let (widths, forced) = share(&least, &most, room);
         // Whether to scroll: even the least widths are too wide for the
@@ -106,7 +103,7 @@ impl Flow<'_> {
             Cell::Table(inner) => {
                 let columns = inner.columns();
                 let (least, most) = self.grid_widths(inner, ink);
-                let extra = self.look.size * 2.0 * CELL_ACROSS + 1.0;
+                let extra = self.look.size * 2.0 * self.look.spacing.cell_across + 1.0;
                 let border = columns as f32 * extra + 1.0;
                 (
                     least.iter().sum::<f32>() + border,
@@ -115,7 +112,7 @@ impl Flow<'_> {
             }
             Cell::Stack(cells) => {
                 // The tables of a stack share their columns' widths.
-                let extra = self.look.size * 2.0 * CELL_ACROSS + 1.0;
+                let extra = self.look.size * 2.0 * self.look.spacing.cell_across + 1.0;
                 let tables = self.stack_columns(cells, ink).map(|(least, most)| {
                     let border = least.len() as f32 * extra + 1.0;
                     (
@@ -171,7 +168,7 @@ impl Flow<'_> {
         let bold = (grid.header_row && row == 0) || (grid.header_column && column == 0);
         let style = text::Look {
             size: self.look.size,
-            weight: if bold { BOLD } else { 400.0 },
+            weight: if bold { self.look.spacing.bold } else { 400.0 },
             color: self.look.text,
             wrap,
             align: match grid.alignments.get(column) {
@@ -190,7 +187,10 @@ impl Flow<'_> {
     #[expect(clippy::too_many_lines)]
     fn grid(&mut self, grid: &Grid, x: f32, widths: &[f32], wrap: text::Wrap) {
         let look = *self.look;
-        let (across, down) = (CELL_ACROSS * look.size, CELL_DOWN * look.size);
+        let (across, down) = (
+            look.spacing.cell_across * look.size,
+            look.spacing.cell_down * look.size,
+        );
         let columns = widths.len();
         let extra = 2.0 * across + 1.0;
         let table_width = widths.iter().sum::<f32>() + columns as f32 * extra + 1.0;
@@ -226,7 +226,7 @@ impl Flow<'_> {
             if let Some(color) = paint {
                 // In a frame the first row's top corners and the last row's
                 // bottom corners are round, as the frame is.
-                let round = CODE_RADIUS * look.size;
+                let round = look.spacing.code_radius * look.size;
                 let (first, last) = (row == 0, row + 1 == grid.rows.len());
                 let corner = |at: bool| {
                     if at && look.table_style == TableStyle::Frame {
@@ -282,7 +282,7 @@ impl Flow<'_> {
                         y: frame_top,
                         width: (table_width).round(),
                         height: bottom - frame_top,
-                        radius: CODE_RADIUS * look.size,
+                        radius: look.spacing.code_radius * look.size,
                         color: look.table_border,
                     },
                 );
@@ -336,7 +336,7 @@ impl Flow<'_> {
                 let shared = self
                     .stack_columns(cells, self.ink(width))
                     .map(|(least, most)| {
-                        let extra = self.look.size * 2.0 * CELL_ACROSS + 1.0;
+                        let extra = self.look.size * 2.0 * self.look.spacing.cell_across + 1.0;
                         let room = width - least.len() as f32 * extra - 1.0;
                         let (widths, forced) = share(&least, &most, room);
                         let wrap = match forced {
@@ -378,7 +378,7 @@ impl Flow<'_> {
         }
         let ink = self.ink(width);
         let (least, most) = self.grid_widths(grid, ink);
-        let extra = self.look.size * 2.0 * CELL_ACROSS + 1.0;
+        let extra = self.look.size * 2.0 * self.look.spacing.cell_across + 1.0;
         let room = width - columns as f32 * extra - 1.0;
         let (mut widths, forced) = share(&least, &most, room);
         let spare = room - widths.iter().sum::<f32>();

@@ -77,6 +77,33 @@ impl Bands {
         Some(changed)
     }
 
+    /// A click on line `line` of the window, if any: whether it changed
+    /// the selected band.
+    pub fn click(
+        &mut self,
+        lines: &[Line],
+        places: &[Option<BlockInfo>],
+        line: Option<usize>,
+    ) -> bool {
+        line.and_then(|line| self.select_at(lines, places, line)) == Some(true)
+    }
+
+    /// A notch of the sideways wheel, `right` or left, on line `line` of
+    /// the window, if any: selects the band that shows the line and
+    /// scrolls it. Whether that changed anything, or `None` when no band
+    /// is there.
+    pub fn wheel(
+        &mut self,
+        lines: &[Line],
+        places: &[Option<BlockInfo>],
+        line: Option<usize>,
+        right: bool,
+    ) -> Option<bool> {
+        let selected = self.select_at(lines, places, line?)?;
+        let step = if right { Step::Right } else { Step::Left };
+        Some(self.scroll(lines, places, step) || selected)
+    }
+
     /// Scrolls the band that shows line `line` so that the pixels `x` of
     /// its content are in view, and selects it: whether that changed the
     /// band, or `None` when no band shows the line.

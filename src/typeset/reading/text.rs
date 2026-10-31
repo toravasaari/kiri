@@ -95,6 +95,15 @@ impl PartialEq for InlinePicture {
     }
 }
 
+/// A subscript or a superscript: its size as a share of the text's, and how
+/// far it is moved down from the baseline, in font sizes of the text; a
+/// superscript is moved up, so by less than none.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Script {
+    pub size: f32,
+    pub drop: f32,
+}
+
 /// A piece of text in one style, or a picture in its place.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Run {
@@ -108,6 +117,11 @@ pub struct Run {
     pub strike: bool,
     /// Its own colour, such as a link's.
     pub color: Option<Brush>,
+    /// A box of colour behind it, as marked text has.
+    pub background: Option<Brush>,
+    /// Smaller and moved from the baseline, as a subscript or a
+    /// superscript is.
+    pub script: Option<Script>,
     /// Where it links to, when it is in a link.
     pub link: Option<Rc<str>>,
     /// A picture that stands here as a box on the line, sitting on its
@@ -160,6 +174,11 @@ pub struct Paragraph {
     text: String,
     /// The ranges of the text in inline code.
     code: Vec<Range<usize>>,
+    /// The ranges of the text on a background of its own, with its colour.
+    backgrounds: Vec<(Range<usize>, Brush)>,
+    /// The ranges of the text moved from the baseline, with how far down
+    /// in pixels; up when it is below nothing.
+    drops: Vec<(Range<usize>, f32)>,
     /// The ranges of the text in links, with where each links to.
     links: Vec<(Range<usize>, Rc<str>)>,
     /// The pictures in links: where each is in the text, its number among
@@ -191,6 +210,12 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
     let code: Vec<Range<usize>> = (runs.iter().zip(&ranges))
         .filter(|(run, _)| run.code)
         .map(|(_, range)| range.clone())
+        .collect();
+    let backgrounds: Vec<(Range<usize>, Brush)> = (runs.iter().zip(&ranges))
+        .filter_map(|(run, range)| Some((range.clone(), run.background?)))
+        .collect();
+    let drops: Vec<(Range<usize>, f32)> = (runs.iter().zip(&ranges))
+        .filter_map(|(run, range)| Some((range.clone(), run.script?.drop * look.size)))
         .collect();
     let pictures: Vec<InlinePicture> = runs.iter().filter_map(|run| run.picture.clone()).collect();
     let layout = fonts.with(|contexts| {
@@ -240,6 +265,12 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
             if run.strike {
                 builder.push(StyleProperty::Strikethrough(true), range.clone());
             }
+            if let Some(script) = run.script {
+                builder.push(
+                    StyleProperty::FontSize(look.size * script.size),
+                    range.clone(),
+                );
+            }
             if run.code {
                 builder.push(FontFamily::Source("monospace".into()), range.clone());
                 builder.push(
@@ -282,6 +313,8 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
         look: *look,
         text,
         code,
+        backgrounds,
+        drops,
         links,
         linked_pictures,
         pictures,
@@ -373,6 +406,20 @@ impl Paragraph {
                 _ => None,
             })
         })
+    }
+
+    /// The ranges of the text on a background of its own, such as marked
+    /// text, with its colour.
+    pub fn backgrounds(&self) -> &[(Range<usize>, Brush)] {
+        &self.backgrounds
+    }
+
+    /// How far down in pixels the text at `range` is moved from the
+    /// baseline: for a subscript, and up for a superscript.
+    pub(crate) fn drop_at(&self, range: &Range<usize>) -> f32 {
+        (self.drops.iter())
+            .find(|(drop, _)| drop.start <= range.start && range.end <= drop.end)
+            .map_or(0.0, |(_, drop)| *drop)
     }
 
     /// The ranges of the text in inline code.
