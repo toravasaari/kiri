@@ -31,6 +31,7 @@ use kiri::present::output::Page;
 use kiri::render::Inputs;
 use kiri::session::plan::{self, Load, Route};
 use kiri::session::settings::{Follow, Paging};
+use kiri::session::sources::Session;
 use kiri::session::state::Look;
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::diagnostic::{Code, Diagnostic};
@@ -728,13 +729,12 @@ fn page_files(
         files.push(kiri::typeset::model::File { name, document });
     }
     let one = files.len() == 1;
-    let (content, name) = match one {
-        true => (
-            kiri::typeset::layout::Content::Document(&files[0].document),
-            files[0].name.as_str(),
-        ),
-        // The pager's status line names each file after itself.
-        false => (kiri::typeset::layout::Content::Files(&files), ""),
+    // The pager's status line names a lone file, and each of several, after
+    // its source in the session.
+    let session = Session::new(files.iter().map(|file| file.name.as_str()));
+    let content = match one {
+        true => kiri::typeset::layout::Content::Document(&files[0].document),
+        false => kiri::typeset::layout::Content::Files(&files),
     };
     // The documents whose images load later, as parts that read images as
     // `inline_images` says.
@@ -849,7 +849,9 @@ fn page_files(
         }
     };
     let opening = (opening, start);
-    if let Some(result) = page(context, content, name, inputs, settings, options, opening) {
+    if let Some(result) = page(
+        context, content, session, inputs, settings, options, opening,
+    ) {
         // What the pager would have hidden.
         (drawn.iter().flatten()).for_each(|drawn| tell_drawn(drawn, failed));
         return shown(result);
@@ -1321,9 +1323,10 @@ impl<'a> Context<'a> {
     }
 }
 
-/// Shows `content` in the pager when the paging of `settings` asks for it
-/// and the output is a terminal that takes escape sequences, with the
-/// mouse taken if they say so; `None` when it is to be printed instead.
+/// Shows `content`, whose files are the sources of `session`, in the pager
+/// when the paging of `settings` asks for it and the output is a terminal
+/// that takes escape sequences, with the mouse taken if they say so; `None`
+/// when it is to be printed instead.
 /// `options` tell the pager how a search treats case and where `r` gets
 /// the document again from, if anywhere. The pager catches Ctrl-C itself;
 /// of `opening`, `caught` runs once its screen catches the signals, and
@@ -1331,7 +1334,7 @@ impl<'a> Context<'a> {
 fn page(
     context: &Context,
     content: kiri::typeset::layout::Content,
-    name: &str,
+    session: Session,
     inputs: &mut Inputs,
     settings: &Settings,
     options: kiri::pager::Options,
@@ -1371,7 +1374,7 @@ fn page(
     let result = kiri::pager::run(
         content,
         laid_out,
-        name,
+        session,
         inputs,
         kiri::pager::Options {
             width: context.width,
@@ -1379,7 +1382,8 @@ fn page(
             ..options
         },
         &mut screen,
-    );
+    )
+    .map(drop);
     loads.halt();
     screen.close_then(|| close_programs(&loads));
     // What the pager showed failed, as told before it opens when the

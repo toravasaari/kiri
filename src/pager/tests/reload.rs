@@ -1,4 +1,5 @@
 use super::*;
+use crate::session::sources::Version;
 use crate::typeset::diagnostic::{Code, Diagnostic};
 
 /// `document` shown with `then` to reload it, in a window of 60 × 6.
@@ -19,13 +20,46 @@ fn show_reloading_with(document: &Document, then: &mut Then, reads: &[&[u8]]) ->
     run(
         content,
         None,
-        "notes.md",
+        Session::new(["notes.md"]),
         &mut inputs,
         options,
         &mut terminal,
     )
     .unwrap();
     terminal.frames()
+}
+
+/// The session as it ended, when `document` was shown with `then` to
+/// reload it and the reader pressed `reads`.
+fn session_after(document: &Document, then: &mut Then, reads: &[&[u8]]) -> Session {
+    let mut terminal = Fake::new(60, 6, reads);
+    let mut inputs = Inputs::new(Capabilities::ansi(80));
+    let options = Options {
+        reload: Some(then),
+        ..Options::new(SearchCase::Smart)
+    };
+    let session = Session::new(["notes.md"]);
+    let content = Content::Document(document);
+    run(content, None, session, &mut inputs, options, &mut terminal).unwrap()
+}
+
+#[test]
+fn each_reload_that_reads_the_document_brings_its_source_to_the_next_version() {
+    let docs = [Reloaded::Document(rows(3)), Reloaded::Document(rows(4))];
+    let mut then = Then::new(docs);
+    let session = session_after(&numbers(10), &mut then, &[b"r", b"", b"r", b"", b"q"]);
+    assert_eq!(then.asked, 2);
+    let version = session.sources()[0].version();
+    assert_eq!(version, Version::FIRST.next().next(), "{session:?}");
+}
+
+#[test]
+fn a_reload_that_fails_leaves_the_version_of_its_source() {
+    let why = Reloaded::Failed("notes.md: No such file or directory".to_owned());
+    let mut then = Then::new([why]);
+    let session = session_after(&numbers(10), &mut then, &[b"r", b"", b"q"]);
+    assert_eq!(then.asked, 1);
+    assert_eq!(session.sources()[0].version(), Version::FIRST);
 }
 
 #[test]
@@ -330,7 +364,7 @@ fn warnings_given_at_the_start_show_the_mark_and_the_line_at_once() {
     run(
         content,
         None,
-        "notes.md",
+        Session::new(["notes.md"]),
         &mut inputs,
         options,
         &mut terminal,

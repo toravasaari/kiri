@@ -128,7 +128,10 @@ those of the status line's `reloaded` as it fades out, and those of the
 warning line;
 `src/session/files.rs` finds where each of several files starts from the
 blocks of the lines, so the status line names the file at the top of the
-view and `:n` and `:p` move from one file's start to another's;
+view and `:n` and `:p` move from one file's start to another's; the names
+and the count are those of the sources in the session
+(`src/session/sources.rs`), which `main.rs` makes from the files given and
+the pager's loop owns, and a reload brings the source's version forward;
 `src/session/status.rs` and `src/session/help.rs` make the status line and the
 help panel as styled spans, and `src/session/warnings.rs` the line of text
 above the status line that tells the first warning; `src/pager/mod.rs` draws each frame, row by

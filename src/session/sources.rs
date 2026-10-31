@@ -21,7 +21,7 @@ impl Version {
     /// The version a source has when it is read the first time.
     pub const FIRST: Version = Version(0);
 
-    fn next(self) -> Version {
+    pub(crate) fn next(self) -> Version {
         Version(self.0 + 1)
     }
 }

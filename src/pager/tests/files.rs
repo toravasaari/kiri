@@ -20,12 +20,41 @@ fn show_files(files: &[File], terminal: &mut Fake) {
     run(
         Content::Files(files),
         None,
-        "",
+        Session::new(files.iter().map(|file| file.name.as_str())),
         &mut inputs,
         Options::new(SearchCase::Smart),
         terminal,
     )
     .unwrap();
+}
+
+#[test]
+fn the_status_line_takes_the_names_and_the_count_from_the_session() {
+    // The documents carry other names than the session's sources, which
+    // are the ones shown.
+    let mut terminal = Fake::new(40, 6, &[b":n"]);
+    let mut inputs = Inputs::new(Capabilities::ansi(80));
+    let session = Session::new(["x.md", "y.md"]);
+    let files = two_files();
+    let options = Options::new(SearchCase::Smart);
+    run(
+        Content::Files(&files),
+        None,
+        session,
+        &mut inputs,
+        options,
+        &mut terminal,
+    )
+    .unwrap();
+    let frames = terminal.frames();
+    assert!(
+        status_row(&frames[0], 6).contains(" x.md 1/2 "),
+        "{frames:#?}"
+    );
+    assert!(
+        status_row(&frames[1], 6).contains(" y.md 2/2 "),
+        "{frames:#?}"
+    );
 }
 
 #[test]

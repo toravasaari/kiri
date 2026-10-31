@@ -34,14 +34,14 @@ use crate::session::settings::{self, FollowJump, SearchCase};
 use crate::session::state::{Backgrounds, Change, NOTHING_TO_FOLLOW, State, Told};
 use crate::session::step::{Effect, Msg, Pager, Reply, Resized, Run, step};
 use crate::session::view::View;
-use crate::session::{loading, status};
+use crate::session::{loading, sources::Session, status};
 use crate::term::{Screen, WindowSize};
 use crate::typeset::block::BlockInfo;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::compare::compare;
 use crate::typeset::images::size::cell_size;
 use crate::typeset::layout::{Content, Stream};
-use crate::typeset::model::{Document, File};
+use crate::typeset::model::Document;
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page::Wide;
 use crate::typeset::style::{self, Line, Span, Style};
@@ -176,24 +176,26 @@ impl Options<'_, '_> {
 /// Shows `content` on `terminal` until the reader quits, laid out with
 /// `inputs` for the window's size, or `options.width` columns when it is
 /// given.
-/// The status line calls a lone document `name`, and names each of
-/// several files after itself. `laid_out`, when given, is `content` laid
-/// out with `inputs` as they are now, used unless the window calls for
-/// another.
+/// The status line names a lone document and each of several files after
+/// their sources in `session`, which is given back as it ended. `laid_out`,
+/// when given, is `content` laid out with `inputs` as they are now, used
+/// unless the window calls for another.
 /// A search treats case as `options.case` says.
 pub fn run(
     content: Content,
     laid_out: Option<Stream>,
-    name: &str,
+    session: Session,
     inputs: &mut Inputs,
     mut options: Options,
     terminal: &mut impl Terminal,
-) -> io::Result<()> {
+) -> io::Result<Session> {
     if let Some(loads) = options.loads.take() {
-        return page_through(content, laid_out, name, inputs, options, loads, terminal);
+        return page_through(content, laid_out, session, inputs, options, loads, terminal);
     }
     let mut own = Loads::new();
-    let result = page_through(content, laid_out, name, inputs, options, &mut own, terminal);
+    let result = page_through(
+        content, laid_out, session, inputs, options, &mut own, terminal,
+    );
     own.halt();
     own.wait(crate::images::STOPPING);
     result
@@ -204,12 +206,12 @@ pub fn run(
 fn page_through(
     content: Content,
     laid_out: Option<Stream>,
-    name: &str,
+    session: Session,
     inputs: &mut Inputs,
     options: Options,
     loads: &mut Loads,
     terminal: &mut impl Terminal,
-) -> io::Result<()> {
+) -> io::Result<Session> {
     let Options {
         width,
         case,
@@ -246,7 +248,7 @@ fn page_through(
         // The cells the heading images were last loaded for.
         headed: cell_size(&inputs.caps),
         width,
-        name,
+        session,
         shell: Shell {
             // The reading mode that `M` turns to, on or off.
             other: reading.filter(|_| inputs.reading.is_none()),
@@ -266,7 +268,7 @@ fn page_through(
         },
     };
     while driver.round()? {}
-    Ok(())
+    Ok(driver.session)
 }
 
 /// What the loop reaches to carry out effects: the terminal, the inputs of
@@ -290,8 +292,7 @@ struct Driver<'a, 'r, 'l, T> {
     content: Content<'a>,
     /// The document as reloaded, once it has been.
     reloaded: Option<Document>,
-    /// A layout of the content that is still good, for the caps it was
-    /// made for.
+    /// A layout of the content that is still good, with the caps it is for.
     laid_out: Option<(Capabilities, Stream)>,
     state: State,
     view: Option<View>,
@@ -301,7 +302,7 @@ struct Driver<'a, 'r, 'l, T> {
     window_cell: Option<(u16, u16)>,
     headed: (u16, u16),
     width: Option<u16>,
-    name: &'a str,
+    session: Session,
 }
 
 /// How a layout ended.
@@ -317,10 +318,7 @@ struct Closed {
 /// What is laid out: the document as reloaded when it has been, and
 /// otherwise `content`.
 fn shown_content<'a>(content: Content<'a>, reloaded: &'a Option<Document>) -> Content<'a> {
-    match reloaded {
-        Some(document) => Content::Document(document),
-        None => content,
-    }
+    reloaded.as_ref().map_or(content, Content::Document)
 }
 
 impl<T: Terminal> Driver<'_, '_, '_, T> {
@@ -368,14 +366,15 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             self.state.bands.apply(&mut lines, &band_places);
         }
         self.state.lay_out(&lines, shown.top(), bar);
-        let shown_files: &[File] = match self.content {
-            Content::Document(_) => &[],
-            Content::Files(files) => files,
+        let sources = self.session.sources();
+        let (name, shown_files) = match self.content {
+            Content::Document(_) => (sources[0].name(), &[][..]),
+            Content::Files(_) => ("", sources),
         };
         let loading = (self.shell.source.loads.progress())
             .map(|(done, total)| format!("[rendering: {done}/{total}]"));
         let files = Files::new(shown_files, &lines, &blocks);
-        let status = status_for(self.name, loading, files, inputs, (self.size, bar));
+        let status = status_for(name, loading, files, inputs, (self.size, bar));
         let marks = Marks::new(&inputs.theme, &inputs.caps);
         let rgb = Rgb::new(&inputs.theme, &inputs.caps);
         let mut frame_layout = Layout {
@@ -410,6 +409,8 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         }
         if let Some(document) = closed.document {
             self.reloaded = Some(document);
+            // Only a lone file is read again, so its source is the first.
+            self.session.reload(self.session.sources()[0].id());
         }
         if closed.reuse {
             self.laid_out = Some((self.shell.inputs.caps.clone(), Stream { lines, blocks }));

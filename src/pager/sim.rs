@@ -32,6 +32,7 @@ use crate::images::{Arrival, ImageError, ImageKey, Images, Loads, Placeholder, S
 use crate::pager::{InlineLoader, Options, Reload, Reloaded, Terminal, run};
 use crate::render::Inputs;
 use crate::session::settings::{Follow, FollowJump, SearchCase};
+use crate::session::sources::Session;
 use crate::session::state::{Change, Look};
 use crate::term::WindowSize;
 use crate::typeset::caps::Capabilities;
@@ -327,11 +328,11 @@ impl Sim {
             }),
             ..Options::new(SearchCase::Smart)
         };
-        let name = shown.as_deref().unwrap_or("notes.md");
+        let session = Session::new([shown.as_deref().unwrap_or("notes.md")]);
         run(
             Content::Document(&document),
             None,
-            name,
+            session,
             &mut inputs,
             options,
             &mut terminal,
