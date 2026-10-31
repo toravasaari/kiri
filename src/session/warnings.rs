@@ -66,6 +66,13 @@ mod tests {
         }
     }
 
+    fn front_matter(line: Option<usize>, message: &str) -> Diagnostic {
+        Diagnostic::from(&crate::typeset::model::FrontMatterError {
+            line,
+            message: message.to_owned(),
+        })
+    }
+
     fn styles() -> (Style, Style) {
         let red = Style::fg(Some(crate::typeset::color::Color::Palette(1)));
         let dim = Style {
@@ -82,9 +89,9 @@ mod tests {
 
     #[test]
     fn the_line_names_the_file_line_when_it_is_known() {
-        let spans = shown(&[warning(Some(3), "front matter: bad")], 60);
+        let spans = shown(&[front_matter(Some(3), "bad")], 60);
         assert_eq!(text(&spans), "\u{26a0} [:3] front matter: bad");
-        let spans = shown(&[warning(None, "front matter: bad")], 60);
+        let spans = shown(&[front_matter(None, "bad")], 60);
         assert_eq!(text(&spans), "\u{26a0} front matter: bad");
     }
 

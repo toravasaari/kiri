@@ -76,6 +76,14 @@ fn warning(line: usize, message: &str) -> Diagnostic {
     }
 }
 
+/// A front matter warning at line `line`, as the parser's error makes it.
+fn front_matter(line: usize, message: &str) -> Diagnostic {
+    Diagnostic::from(&crate::typeset::model::FrontMatterError {
+        line: Some(line),
+        message: message.to_owned(),
+    })
+}
+
 #[test]
 fn a_reload_with_warnings_says_reloaded_and_marks_how_many() {
     let warned = Reloaded::Warned(rows(10), vec![warning(3, "bad"), warning(9, "worse")]);
@@ -161,7 +169,7 @@ fn warned_with(warnings: Vec<Diagnostic>) -> Reloaded {
 
 #[test]
 fn a_reload_with_warnings_shows_the_first_above_the_status_line_at_the_right_edge() {
-    let mut then = Then::new([warned_with(vec![warning(3, "front matter: bad")])]);
+    let mut then = Then::new([warned_with(vec![front_matter(3, "bad")])]);
     let frames = show_reloading(&numbers(10), &mut then, &[b"r"]);
     let (column, text) = warning_line(&frames[2]).unwrap_or_default();
     assert_eq!(text, "\u{26a0} [:3] front matter: bad", "{frames:#?}");
@@ -315,7 +323,7 @@ fn warnings_given_at_the_start_show_the_mark_and_the_line_at_once() {
     let mut inputs = Inputs::new(Capabilities::ansi(80));
     let document = numbers(10);
     let options = Options {
-        warnings: vec![warning(3, "front matter: bad")],
+        warnings: vec![front_matter(3, "bad")],
         ..Options::new(SearchCase::Smart)
     };
     let content = Content::Document(&document);
