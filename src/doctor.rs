@@ -96,16 +96,17 @@ fn write_report(facts: &Facts, out: &mut String) -> std::fmt::Result {
 }
 
 fn write_problems(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result {
-    let problems: Vec<_> = [&facts.config_error, &facts.theme_error]
+    let problems: Vec<String> = [&facts.config_error, &facts.theme_error]
         .into_iter()
         .flatten()
-        .chain(&facts.choices.warnings)
+        .cloned()
+        .chain(facts.choices.warnings.iter().map(ToString::to_string))
         .collect();
     if problems.is_empty() {
         return Ok(());
     }
     writeln!(out, "## Problems\n")?;
-    for problem in problems {
+    for problem in &problems {
         // A problem starts with what it is about: the path of a file, or
         // the name of an environment variable. A longer error, such as one
         // that shows the line in the file, goes in a code block of its own.

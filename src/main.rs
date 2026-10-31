@@ -313,7 +313,7 @@ fn image_reader(
 
 /// The settings for documents, from the command line, the environment and
 /// the configuration file, and warnings about them.
-fn settings(cli: &Cli, env: &Environment) -> (Vec<String>, Result<Settings, String>) {
+fn settings(cli: &Cli, env: &Environment) -> (Vec<Diagnostic>, Result<Settings, String>) {
     match kiri::config::load(env) {
         Ok(config) => kiri::config::settings(&options(cli), env, &config),
         Err(error) => (Vec::new(), Err(error)),

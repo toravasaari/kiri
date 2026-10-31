@@ -6,6 +6,7 @@ use std::path::Path;
 use super::environment::{Environment, directory};
 use super::registry::{Config, Options, Settings, choose};
 use super::types::{Env, Origin, Setting, ThemeSource, Value, is_name};
+use crate::typeset::diagnostic::{Code, Diagnostic};
 use crate::typeset::theme::{Paper, Theme};
 
 /// What a theme value is: a name when it has no path separator and no
@@ -67,7 +68,7 @@ pub(super) fn theme_source(
 ) -> Setting<ThemeSource> {
     let theme = (options.theme.clone()).map(|theme| theme.map(|theme| theme_value(&theme, env)));
     let name = "KIRI_THEME";
-    let variable = |_: &mut Vec<String>| {
+    let variable = |_: &mut Vec<Diagnostic>| {
         let path = env.get(name).filter(|path| !path.is_empty())?;
         let theme = theme_value(Path::new(path), env);
         Some(Setting::new(theme, Origin::Environment(name)))
@@ -87,10 +88,10 @@ pub(super) fn theme_source(
 /// say about a value it leaves out goes in `warnings`.
 pub(super) fn resolve<T>(
     flag: Option<Setting<T>>,
-    variable: impl FnOnce(&mut Vec<String>) -> Option<Setting<T>>,
+    variable: impl FnOnce(&mut Vec<Diagnostic>) -> Option<Setting<T>>,
     file: Option<T>,
     default: T,
-    warnings: &mut Vec<String>,
+    warnings: &mut Vec<Diagnostic>,
 ) -> Setting<T> {
     flag.or_else(|| variable(warnings))
         .or_else(|| file.map(|value| Setting::new(value, Origin::File)))
@@ -103,16 +104,19 @@ pub(super) fn resolve<T>(
 pub(super) fn variable<T: Value>(
     env: &Environment,
     var: Env,
-) -> impl FnOnce(&mut Vec<String>) -> Option<Setting<T>> {
+) -> impl FnOnce(&mut Vec<Diagnostic>) -> Option<Setting<T>> {
     move |warnings| {
         let name = var.name()?;
         let value = env.get(name).filter(|value| !value.is_empty())?;
         let chosen = value.to_str().and_then(T::from_text);
         if chosen.is_none() {
-            warnings.push(format!(
-                "{name}: `{}` is not {}; left out",
-                value.to_string_lossy(),
-                T::expected(),
+            warnings.push(Diagnostic::new(
+                Code::Config,
+                format!(
+                    "{name}: `{}` is not {}; left out",
+                    value.to_string_lossy(),
+                    T::expected(),
+                ),
             ));
         }
         let invert = |value: T| {
@@ -133,7 +137,7 @@ pub fn settings(
     options: &Options,
     env: &Environment,
     config: &Config,
-) -> (Vec<String>, Result<Settings, String>) {
+) -> (Vec<Diagnostic>, Result<Settings, String>) {
     let mut choices = choose(options, env, config);
     let warnings = std::mem::take(&mut choices.warnings);
     let settings = load_theme(&choices.theme.value).map(|theme| choices.with_theme(theme));
