@@ -8,9 +8,9 @@ use merman::{
     Engine, MermaidConfig, OperationControl, RenderOutput, RenderTarget, Renderer, SvgRequest,
 };
 
-use crate::diagrams::{Drawn, Theme};
 use crate::typeset::diagrams::error::DiagramError;
 use crate::typeset::diagrams::mermaid::{Colours, MERMAID, MERMAID_SITE, page};
+use crate::typeset::diagrams::request::{Drawn, Theme};
 
 /// merman's version. Cargo tells a crate only its own version, so a test
 /// keeps this one in step with `Cargo.lock`.

@@ -12,8 +12,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::diagrams::{
     BuiltIn, Command, DiagramError, Drawn, External, ExternalSettings, Renderer, Request, external,
-    find, render_one_by_one,
+    find,
 };
+use crate::typeset::diagrams::renderer::render_one_by_one;
 
 /// The renderers a run draws with: for each language, its external
 /// command when it has one, and otherwise the renderer built into kiri.

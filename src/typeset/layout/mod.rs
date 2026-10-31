@@ -925,7 +925,7 @@ impl Layout<'_> {
         }
         let language = language?;
         let key = ImageKey::block(language, code).in_document(self.document);
-        let align = match crate::diagrams::centred(language) {
+        let align = match crate::typeset::diagrams::names::centred(language) {
             true => Align::Centre,
             false => Align::Left,
         };
@@ -946,7 +946,7 @@ impl Layout<'_> {
             return Vec::new();
         };
         // The language as written, as the warning on standard error has it.
-        let noun = crate::diagrams::noun(language);
+        let noun = crate::typeset::diagrams::names::noun(language);
         let text = format!("✗ {noun} could not be drawn: {reason}");
         let style = self.style(Style::fg(self.look.error));
         let (indent, max) = self.below_code(width);

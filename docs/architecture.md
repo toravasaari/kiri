@@ -350,7 +350,9 @@ placeholders allow from any column, and the image stays one whatever the
 width. A heading whose image did not come is laid out as text, without a
 warning.
 
-Renderers live in `src/diagrams/`, outside `src/present/kitty/` and the parser.
+Renderers live in `src/typeset/diagrams/`, the trait and those built in, and
+`src/diagrams/`, the one that runs a program, outside `src/present/kitty/` and
+the parser.
 A renderer implements the `Renderer` trait: whether it draws a language,
 and a diagram's source and a `Theme`, for a light or a dark page, with
 the colour of the page's text for a formula, turned into an image file, SVG or raster, and the page its colours are for. It
@@ -690,13 +692,13 @@ The later work that the rows name, in words:
 | `src/images/pipeline/tests.rs` | platform | stays |
 | `src/images/stamps.rs` | platform | stays |
 | `src/images/warnings.rs` | typesetting | new. Makes the `Diagnostic`s for the images and diagrams that did not load, from `ImageKey` and `ImageError`. It stays in `src/images/` while those two do, and moves to `src/typeset/images/` with them |
-| `src/diagrams/mod.rs` | mixed | stays. Typesetting: `Request`, `Drawn`, `Theme`, `FormulaColors`, `INLINE_FORMULA`, `centred`, `dark_background`, `baseline_depth`, `noun`, `name`, `BuiltIn` and the `Renderer` trait. Platform: the external choice, which is `Renderers` with its `External` and `chosen`, and `render_all`'s parallel run through `render_in_parallel`, on threads, moved to `src/load/renderers.rs`. Loading and sessions |
+| `src/diagrams/mod.rs` | platform | stays. What it held for the typesetting engine moved to `src/typeset/diagrams/`: `Theme`, `FormulaColors`, `INLINE_FORMULA`, `Drawn` and `Request` to `request.rs`; the `Renderer` trait, `BuiltIn`, `NoRenderer` and `baseline_depth` to `renderer.rs`; `theme_name`, `display_name`, `extension`, `chosen_theme`, `dark_background`, `noun`, `name` and `centred` to `names.rs`. `Renderers` and `render_in_parallel` moved to `src/load/renderers.rs`. It declares `external` and `find`, and re-exports those items as `kiri::diagrams::…` |
 | `src/typeset/diagrams/error.rs` | typesetting | new. `DiagramError`, why a diagram could not be drawn, such as `no output file` or a renderer's own message; `src/diagrams/mod.rs` re-exports it, as it does `Language` |
 | `src/diagrams/language.rs` | typesetting | moved to `src/typeset/diagrams/language.rs` |
 | `src/diagrams/math.rs` | typesetting | moved to `src/typeset/diagrams/math.rs` |
 | `src/diagrams/mermaid/mod.rs` | typesetting | moved to `src/typeset/diagrams/mermaid/mod.rs` |
 | `src/diagrams/mermaid/merman.rs` | typesetting | moved to `src/typeset/diagrams/mermaid/merman.rs` |
-| `src/diagrams/external.rs` | platform | stays |
+| `src/diagrams/external.rs` | platform | stays. `Output`, what a command writes, which a language's configuration file depends on, moved to `src/typeset/diagrams/output.rs` |
 | `src/diagrams/external/tests.rs` | platform | stays |
 | `src/diagrams/find.rs` | platform | stays |
 | `src/pager/mod.rs` | platform | stays. The loop and the carrying out of effects: `page_through` and the `Driver` that lays the document out again and again, `show` and `carry`, which wait for a message, step the pager and do what its effects say, and `Shell::close`, which does what ends a layout, with the `Reload`, `InlineLoader`, `Loads` and `Terminal` it does its I/O through, and `load_headings` and `prefer`, which use `Loads`. The decisions, what a key, a poll, a resize, a load or a reload's result asks for, are in `src/session/step.rs`; `prefer` is told which lines are in view and gets the order from `loading::nearest` itself |
@@ -771,7 +773,11 @@ later and are test only.
 | `src/present/mod.rs` | new: the root of the terminal layer |
 | `src/session/mod.rs` | new: the root of the state engine |
 | `src/typeset/images/mod.rs` | new: declares `decode`, `drawn`, `heading` and `size`; the pure pieces of `images/mod.rs` arrive in it with loading and sessions |
-| `src/typeset/diagrams/mod.rs` | new: declares `error`, `language`, `math` and `mermaid`; the pure pieces of `diagrams/mod.rs` arrive in it with loading and sessions |
+| `src/typeset/diagrams/mod.rs` | new: declares `error`, `language`, `math`, `mermaid`, `names`, `output`, `renderer` and `request` |
+| `src/typeset/diagrams/request.rs` | new: `Theme`, `FormulaColors`, `INLINE_FORMULA`, `Drawn` and `Request`, what a renderer is spoken to in |
+| `src/typeset/diagrams/renderer.rs` | new: the `Renderer` trait with `render_one_by_one`, `BuiltIn`, `NoRenderer` and `baseline_depth` |
+| `src/typeset/diagrams/names.rs` | new: what kiri says of a language by its name: `theme_name`, `display_name`, `extension`, `chosen_theme`, `dark_background`, `noun`, `name` and `centred` |
+| `src/typeset/diagrams/output.rs` | new: `Output`, what an external command writes |
 | `src/typeset/reading/page/table.rs` | new: the tables of reading mode's flow, their columns, cells and nested grids |
 | `src/typeset/reading/page/code.rs` | new: code blocks, diagrams and the bands that a long one is cut into |
 | `src/typeset/reading/page/picture.rs` | new: images, diagrams and formulas placed in the flow |
