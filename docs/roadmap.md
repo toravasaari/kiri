@@ -1001,6 +1001,26 @@ Needs G1.10.1 for byte ranges and G7.3.1 for handing the terminal over.
 - An editor and kiri side by side in kitty with live reload, and a key to
   open the editor at the current position.
 
+### 5.7 Plugins
+
+Needs G5.3, G7.2.2, G7.3.1 and G7.3.3.
+
+Some ideas:
+
+- kiri and a plugin could talk through a data protocol: events go to the
+  plugin, and the plugin answers with commands, highlights, changes to
+  the status line, images and the like.
+- Plugins could be free of language: support for a language, such as Lua
+  or Python, would come from a language plugin.
+- Lua might be built in.
+- A plugin might be added with something like `kiri plugin add <git URL>`
+  and kept as a copy locked to a commit's SHA.
+- Plugins might not depend on each other, only on a protocol version and
+  on capabilities.
+- Candidates: an audio visualizer (4.16), a minimap (the document drawn
+  narrow beside it, with the part in view marked), the document styles
+  of other sites, such as GitLab or Read the Docs, and others.
+
 ## Groundwork
 
 What the parts build on, by area: changes inside the code that a feature
