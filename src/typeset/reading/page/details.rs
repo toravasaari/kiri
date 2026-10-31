@@ -1,7 +1,7 @@
 //! Details: the summary of a `<details>` block, and the blocks under it.
 
 use crate::typeset::model::{Block, Inline};
-use crate::typeset::reading::page::{BOLD, Flow, LINE_HEIGHT, runs};
+use crate::typeset::reading::page::{Flow, runs};
 use crate::typeset::reading::text;
 
 impl Flow<'_> {
@@ -25,8 +25,8 @@ impl Flow<'_> {
         content.extend_from_slice(summary);
         let style = text::Look {
             size: self.look.size,
-            line_height: LINE_HEIGHT,
-            weight: BOLD,
+            line_height: self.look.spacing.line_height,
+            weight: self.look.spacing.bold,
             color: self.look.text,
             ..text::Look::PLAIN
         };

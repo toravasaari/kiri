@@ -222,7 +222,12 @@ impl Line {
 /// Text in `style` played down: in `theme`'s muted colour, or dimmed when
 /// the theme has none.
 pub fn muted(theme: &Theme, style: Style) -> Style {
-    match theme.muted {
+    muted_in(theme.muted, style)
+}
+
+/// Text in `style` played down: in `muted`, or dimmed when there is none.
+pub fn muted_in(muted: Option<Color>, style: Style) -> Style {
+    match muted {
         Some(color) => Style {
             fg: Some(color),
             ..style

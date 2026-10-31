@@ -1,8 +1,7 @@
 //! Code blocks, diagrams and the bands that a long one is cut into.
 
 use crate::typeset::reading::page::{
-    BAR_ROOM, Band, CODE_LINE_HEIGHT, CODE_PADDING, CODE_RADIUS, FITS, Flow, LABEL_SIZE,
-    LINE_HEIGHT, Label, Picture, Shape, UNBOUNDED, Wide, push,
+    BAR_ROOM, Band, FITS, Flow, Label, Picture, Shape, UNBOUNDED, Wide, push,
 };
 use crate::typeset::reading::text::{self, Run};
 
@@ -34,7 +33,7 @@ impl Flow<'_> {
             self.y += 0.5 * self.look.size;
             let style = text::Look {
                 size: self.look.size,
-                line_height: LINE_HEIGHT,
+                line_height: self.look.spacing.line_height,
                 color: self.look.error,
                 ..text::Look::PLAIN
             };
@@ -49,10 +48,10 @@ impl Flow<'_> {
     pub(super) fn code(&mut self, language: Option<&str>, code: &str, x: f32, width: f32) {
         let look = *self.look;
         let size = look.size;
-        let padding = CODE_PADDING * size;
+        let padding = look.spacing.code_padding * size;
         let style = text::Look {
             size: size * text::CODE_SIZE,
-            line_height: CODE_LINE_HEIGHT,
+            line_height: look.spacing.code_line_height,
             color: look.code_text,
             mono: true,
             wrap: text::Wrap::Anywhere,
@@ -96,7 +95,7 @@ impl Flow<'_> {
                         y: top,
                         width: block_width,
                         height,
-                        radius: CODE_RADIUS * size,
+                        radius: look.spacing.code_radius * size,
                         color,
                     },
                 );
@@ -109,7 +108,7 @@ impl Flow<'_> {
                 // In the padding above the code, one line of its own
                 // height, so that a long first line never runs under it.
                 let style = text::Look {
-                    size: size * LABEL_SIZE,
+                    size: size * look.spacing.label_size,
                     line_height: 1.0,
                     color,
                     ..text::Look::PLAIN

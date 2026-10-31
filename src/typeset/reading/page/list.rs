@@ -1,9 +1,7 @@
 //! Lists: their items, markers and task boxes.
 
 use crate::typeset::model::List;
-use crate::typeset::reading::page::{
-    Flow, ITEM_GAP, LINE_HEIGHT, LIST_INDENT, Look, MARKER_GAP, Shape, block_margins,
-};
+use crate::typeset::reading::page::{Flow, Look, Shape, block_margins};
 use crate::typeset::reading::paint::Canvas;
 use crate::typeset::reading::text::{self, Run};
 
@@ -11,8 +9,12 @@ impl Flow<'_> {
     pub(super) fn list(&mut self, list: &List, x: f32, width: f32, depth: usize) {
         let look = *self.look;
         let size = look.size;
-        let indent = LIST_INDENT * size;
-        let gap = if list.tight { ITEM_GAP * size } else { size };
+        let indent = look.spacing.list_indent * size;
+        let gap = if list.tight {
+            look.spacing.item_gap * size
+        } else {
+            size
+        };
         for (number, item) in list.items.iter().enumerate() {
             if number > 0 {
                 self.y += gap;
@@ -37,8 +39,8 @@ impl Flow<'_> {
                 .unwrap_or(top + size);
             let bottom = inner.y;
             self.take(&mut inner);
-            self.y = bottom.max(top + LINE_HEIGHT * size);
-            let marker_right = x + indent - MARKER_GAP * size;
+            self.y = bottom.max(top + look.spacing.line_height * size);
+            let marker_right = x + indent - look.spacing.marker_gap * size;
             match item.checked {
                 Some(checked) => {
                     let box_size = (0.8 * size).round();
@@ -51,18 +53,18 @@ impl Flow<'_> {
                             y: box_y,
                             size: box_size,
                             checked,
-                            look,
+                            look: Box::new(look),
                         },
                     );
                 }
                 None => {
                     let marker = match list.start {
                         Some(start) => format!("{}.", start + number as u64),
-                        None => ["•", "◦", "▪"][depth.min(2)].to_owned(),
+                        None => look.spacing.bullets.at(depth).to_owned(),
                     };
                     let style = text::Look {
                         size,
-                        line_height: LINE_HEIGHT,
+                        line_height: look.spacing.line_height,
                         weight: 400.0,
                         color: look.marker,
                         ..text::Look::PLAIN

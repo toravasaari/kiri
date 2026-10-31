@@ -2,16 +2,12 @@
 
 use unicode_width::UnicodeWidthStr;
 
-use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
 use crate::typeset::layout::Layout;
 use crate::typeset::layout::highlight;
 use crate::typeset::style::{Line, Span, Style, push};
-use crate::typeset::theme::{CodeBackground, LabelColor, Theme};
+use crate::typeset::theme::LabelColor;
 use crate::typeset::wrap;
-
-/// What sets off code without a box, when code has padding.
-const PLAIN_INDENT: &str = "  ";
 
 impl Layout<'_> {
     pub(super) fn code_block(&self, language: Option<&str>, code: &str, width: usize) -> Vec<Line> {
@@ -21,9 +17,13 @@ impl Layout<'_> {
         } else {
             None
         };
-        let padding = self.theme.code_padding;
+        let padding = self.look.code.padding;
         let Some(highlighted) = highlighted else {
-            let indent = if padding { PLAIN_INDENT } else { "" };
+            let indent = if padding {
+                " ".repeat(self.look.cells.plain_code_indent)
+            } else {
+                String::new()
+            };
             return code
                 .lines()
                 .flat_map(|line| {
@@ -31,7 +31,7 @@ impl Layout<'_> {
                     wrap::split(&[Span::new(line, Style::default())], max)
                 })
                 .map(|mut spans| {
-                    spans.insert(0, Span::new(indent, Style::default()));
+                    spans.insert(0, Span::new(&indent, Style::default()));
                     Line::new(spans)
                 })
                 .collect();
@@ -71,7 +71,7 @@ impl Layout<'_> {
         let mut lines = Vec::new();
         if padding {
             let label = language
-                .filter(|_| self.theme.show_language_label)
+                .filter(|_| self.look.code.show_language_label)
                 .and_then(|language| self.language_label(language, &highlighted, width));
             lines.push(label.unwrap_or_else(|| padded(Vec::new())));
         }
@@ -102,7 +102,7 @@ impl Layout<'_> {
             ..Style::default()
         };
         let label = Style {
-            fg: match self.theme.language_label {
+            fg: match self.look.code.language_label {
                 LabelColor::CodeBlock => {
                     let text = highlight::foreground(self.code_theme()).flatten();
                     halfway(text, highlighted.background)
@@ -124,7 +124,7 @@ impl Layout<'_> {
     }
 
     pub(super) fn inline_code_background(&self) -> Option<Color> {
-        inline_code_background(self.theme, self.caps)
+        self.look.inline_code.background
     }
 
     /// Whether code blocks are highlighted, and in a box when they have
@@ -140,9 +140,9 @@ impl Layout<'_> {
     /// edge and are at most as wide as the code in it; below code without
     /// one, they start where the code does.
     pub(super) fn below_code(&self, width: usize) -> (usize, usize) {
-        let padding = self.theme.code_padding;
+        let padding = self.look.code.padding;
         let indent = match padding && !self.highlights_code() {
-            true => PLAIN_INDENT.len(),
+            true => self.look.cells.plain_code_indent,
             false => 0,
         };
         let inner = if padding {
@@ -158,8 +158,8 @@ impl Layout<'_> {
         let theme = self.highlights_code().then(|| self.code_theme().to_owned());
         let background = (theme.as_deref()).and_then(highlight::background).flatten();
         let text = highlight::foreground(self.code_theme()).flatten();
-        let label = match self.theme.language_label {
-            _ if !self.theme.show_language_label || !self.theme.code_padding => None,
+        let label = match self.look.code.language_label {
+            _ if !self.look.code.show_language_label || !self.look.code.padding => None,
             LabelColor::CodeBlock => halfway(text, background),
             LabelColor::Color(color) => color,
         };
@@ -173,9 +173,9 @@ impl Layout<'_> {
 
     pub(super) fn code_theme(&self) -> &str {
         if self.dark() {
-            &self.theme.code_theme_dark
+            &self.look.code.theme_dark
         } else {
-            &self.theme.code_theme_light
+            &self.look.code.theme_light
         }
     }
 }
@@ -189,20 +189,6 @@ pub struct CodeColors {
     pub background: Option<Color>,
     pub text: Option<Color>,
     pub label: Option<Color>,
-}
-
-/// The background of inline code in `theme` on a terminal with `caps`:
-/// the theme's colour, or the background of the code block colour theme
-/// for the page, dark unless the terminal tells otherwise.
-pub(crate) fn inline_code_background(theme: &Theme, caps: &Capabilities) -> Option<Color> {
-    let code_theme = match caps.dark_background.unwrap_or(true) {
-        true => &theme.code_theme_dark,
-        false => &theme.code_theme_light,
-    };
-    match theme.inline_code_background {
-        CodeBackground::CodeBlock => highlight::background(code_theme).flatten(),
-        CodeBackground::Color(color) => color,
-    }
 }
 
 /// The colour halfway between two RGB colours, rounded up; `a` when
