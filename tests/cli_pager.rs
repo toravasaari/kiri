@@ -2675,18 +2675,15 @@ fn calls_when_drawing(dir: &std::path::Path) {
     std::fs::rename(dir.join("diagram.mmd"), dir.join("flow.mmd")).unwrap();
 }
 
-/// Waits for a background load that would come, checks that the program
-/// that draws diagrams was not called, and quits.
-fn wait_and_quit(dir: &std::path::Path) -> &'static [u8] {
-    std::thread::sleep(Duration::from_millis(600));
-    // Reading mode sends pages as images, so the program is what shows it.
-    assert!(!dir.join("called").exists(), "the program was called");
-    b"q"
-}
-
-#[test]
-fn a_diagram_in_text_stays_source_after_m_and_after_a_reload() {
-    let args = ["--mode", "kitty", "--format", "text", "-p", "flow.mmd"];
+/// Whether the program that draws diagrams was called, in the window of
+/// `calls_when_drawing`, once `M` and `r` were typed and 600 ms went by.
+fn called_after_m_and_a_reload(name: &str, args: &[&str]) -> bool {
+    let called = std::cell::Cell::new(false);
+    let quit = |dir: &std::path::Path| {
+        std::thread::sleep(Duration::from_millis(600));
+        called.set(dir.join("called").exists());
+        b"q" as &'static [u8]
+    };
     let steps = [
         Step {
             frames: 1,
@@ -2697,12 +2694,22 @@ fn a_diagram_in_text_stays_source_after_m_and_after_a_reload() {
             keys: &|_| b"r",
         },
         Step {
-            frames: 4,
-            keys: &wait_and_quit,
+            frames: 3,
+            keys: &quit,
         },
     ];
-    let (status, seen) = in_steps_with("pager-text-diagram", calls_when_drawing, &args, &steps);
+    let (status, seen) = in_steps_with(name, calls_when_drawing, args, &steps);
     assert!(status.success(), "{seen:?}");
+    called.get()
+}
+
+#[test]
+fn a_diagram_in_text_stays_source_after_m_and_after_a_reload() {
+    // Where the program is called, the wait is long enough to see it.
+    let drawn = ["--mode", "kitty", "-p", "flow.mmd"];
+    assert!(called_after_m_and_a_reload("pager-diagram-called", &drawn));
+    let text = ["--mode", "kitty", "--format", "text", "-p", "flow.mmd"];
+    assert!(!called_after_m_and_a_reload("pager-text-diagram", &text));
 }
 
 #[test]

@@ -269,5 +269,8 @@ fn a_broken_configuration_leaves_one_image_that_is_printed_under_its_header() {
     let stdout = text(&out.stdout);
     assert!(!stdout.contains("Alpha"), "{stdout:?}");
     assert_eq!(sent(&stdout).len(), 1, "{stdout:?}");
-    assert!(stdout.contains("icon.png"), "{stdout:?}");
+    // The header comes before the image.
+    let header = stdout.find("icon.png");
+    assert!(header < stdout.find("\x1b_G"), "{stdout:?}");
+    assert!(header.is_some(), "{stdout:?}");
 }
