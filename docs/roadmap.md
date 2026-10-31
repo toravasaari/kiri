@@ -349,6 +349,10 @@ Following a link is done with G7.2.4.
   screen in the text as in reading mode (4.15.5), in reverse video, and
   a link in a heading drawn as an image cannot be selected. Following it
   is open.
+- Enter on a link selected with Tab in reading mode (4.15.5) opens it in
+  the browser, as a click on the link does in kitty, instead of copying
+  its URL. kiri would need a program to open it with, such as
+  `xdg-open` from a setting.
 
 #### 4.6.7 Copying
 
@@ -1432,10 +1436,6 @@ go.
   several files (4.9.2), heading anchors (4.10.1), the table of contents
   (4.6.5) and resolving links across a vault (4.13). Needs G7.2.3,
   G7.2.4 and G7.3.3.
-- Enter on a link selected with Tab in reading mode (4.15.5) opens it in
-  the browser, as a click on the link does in kitty, instead of copying
-  its URL. kiri would need a program to open it with, such as
-  `xdg-open` from a setting.
 - The current search match fading in reading mode as it does in the
   text layout. The marks are drawn into the page's images, so each step
   of the fade would draw and send the page again.
