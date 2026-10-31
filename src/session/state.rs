@@ -647,12 +647,11 @@ impl State {
         }
     }
 
-    /// The selected link, when it is on the screen and has an address to
-    /// copy.
+    /// The selected link, when it is on the screen. A link without an
+    /// address is never selected, so it always has one to copy.
     pub(crate) fn link_on_screen(&self, layout: &Layout) -> Option<links::Found> {
         let visible = layout.view.visible();
-        (self.links.selected_on(layout.lines, layout.places, visible))
-            .filter(|link| !link.url.is_empty())
+        self.links.selected_on(layout.lines, layout.places, visible)
     }
 
     /// The line of the document on row `row` of the window, counted from 1.
