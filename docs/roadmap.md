@@ -1478,12 +1478,16 @@ but the wrapper's tags show as source: CommonMark makes three HTML
 blocks of it. Markdown inside a `<div align="center">` set apart the same
 way is drawn too, and the `<div>` tags show as source.
 
-#### B3 The examples fit test draws no diagrams
+#### B3 The examples fit test draws no diagrams (fixed)
 
 The test that the example documents fit the window at every width,
 `the_visual_check_documents_fit_every_mode`, loads no diagram renderer,
 so it never draws a diagram. A drawn diagram, or the red error below one
 that fails, could reach past the window's edge without the test noticing.
+
+Fixed: the test draws Mermaid with a stand-in wider than any window it
+tries, and the diagram that fails to draw gets a reason long enough to
+wrap. Both fit; nothing had reached past the edge.
 
 #### B4 Gaps in a heading of wide characters
 
