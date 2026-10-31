@@ -606,6 +606,7 @@ The later work that the rows name, in words:
 | `src/lib.rs` | platform | stays; declares the three parts |
 | `src/main.rs` | mixed | stays. Platform: opening files and standard input, the shells, and the calls into `src/load.rs`. State engine: the startup decisions, such as whether a run pages, are in `src/session/plan.rs`; `main.rs` reads the terminal and the files and passes the answers in. One route: `run` shows one file as the special case of several, with no header, and with reloading, following and the unnamed warnings for it alone |
 | `src/load.rs` | platform | new. Loading a document's images and diagrams in the foreground, on threads and in the background, and reloading its file for the pager: the loads, `FileReload` and `look`. `main.rs` calls them. Its seed is the work runner that roadmap item G7.3.3 fills in |
+| `src/reports.rs` | platform | new. The reports kiri writes itself: `--doctor` and `--list-emojis`, rendered for a terminal or written as text, and `show_report`, which shows one through the same route as a file. Their content is made by `src/doctor.rs` and `src/list.rs` |
 | `src/cli.rs` | platform | new. The command line: the clap `Cli`, whose flags take their help from the settings registry, and `options()`, which turns the flags into settings |
 | `src/config/mod.rs` | platform | stays (was `src/config.rs`); the module's description and its public surface |
 | `src/config/environment.rs` | platform | stays. `Environment`, the table of the variables kiri reads, reading the process's variables, and the directories that `HOME` and the XDG variables give. Capability detection takes its variables (`TMUX`, `TMUX_PANE`, `NO_COLOR`, `COLORTERM`, `TERM_PROGRAM` and `VTE_VERSION`) as arguments, not `Environment`, in the terminal layer split |
@@ -622,7 +623,7 @@ The later work that the rows name, in words:
 | `src/session/settings.rs` | state engine | new. The setting types the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump` and `InitialLoad`), without the code that reads them from the flags, the environment and the file |
 | `src/config/tests.rs` | follows `config/` | stays |
 | `src/doctor.rs` | platform | stays (it searches `PATH` through `diagrams::find`) |
-| `src/list.rs` | platform | stays (the `--list-emojis` shell) |
+| `src/list.rs` | platform | stays (the content of `--list-emojis`, which `src/reports.rs` shows) |
 | `src/panics.rs` | platform | stays |
 | `src/testing.rs` | platform | stays (test support) |
 | `src/caps.rs` | typesetting | moved to `src/typeset/caps.rs` |
@@ -843,14 +844,15 @@ The paths marked new are for the maintainer to confirm.
 ### What `main.rs` is
 
 `src/main.rs` is the binary's entry point and, today, far more than the
-command line, which is `src/cli.rs`: it is some 1,500 lines with no unit
+command line, which is `src/cli.rs`: it is some 1,400 lines with no unit
 tests. Besides the command line it opens files and standard input; has one
 route, in which a single file is the special case of several; prints
 documents; starts the pager; hands the loading of images and diagrams and
-the reloading of files for the pager to `src/load.rs`; and runs `--doctor`
-and `--list-emojis`. The decisions it makes at start need no I/O,
-and they are in `src/session/plan.rs`. It does not belong to any one part,
-and is meant to shrink to wiring the others together.
+the reloading of files for the pager to `src/load.rs`; and calls
+`src/reports.rs` for `--doctor` and `--list-emojis`. The decisions it
+makes at start need no I/O, and they are in `src/session/plan.rs`. It does
+not belong to any one part, and is meant to shrink to wiring the others
+together.
 
 ## Builds
 
