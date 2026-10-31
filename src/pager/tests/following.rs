@@ -79,7 +79,7 @@ fn following_on(
 const AUTO: (settings::Follow, FollowJump) = (settings::Follow::Auto, FollowJump::First);
 
 /// `numbers(count)` with each line of `changed` written anew.
-fn numbers_changed(count: usize, changed: &[usize]) -> Document {
+pub(super) fn numbers_changed(count: usize, changed: &[usize]) -> Document {
     let source: String = (1..=count)
         .map(|n| match changed.contains(&n) {
             true => format!("Line {n} changed\n\n"),

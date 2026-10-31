@@ -8,6 +8,7 @@ mod commands;
 mod files;
 mod following;
 mod images;
+mod layers;
 mod links;
 mod loading;
 mod reading;

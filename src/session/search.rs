@@ -5,13 +5,11 @@
 use std::ops::Range;
 use std::rc::Rc;
 
-use crate::session::fade::Fade;
 use crate::session::settings::SearchCase;
 use crate::typeset::caps::Capabilities;
-use crate::typeset::color::Underline;
 use crate::typeset::reading::engine;
 use crate::typeset::reading::page::ItemRef;
-use crate::typeset::style::{self, ImageRow, Line, Span, Style};
+use crate::typeset::style::{self, ImageRow, Line, Style};
 use crate::typeset::theme::{SearchColor, Theme};
 
 /// Where a search term is.
@@ -200,137 +198,6 @@ impl Marks {
     }
 }
 
-/// `line` with the bytes of each of `matches` in its text, from left to
-/// right, styled with `marks`: as the current match where its flag is
-/// true, faded from the text's own style while a `fade` is under way. A span a
-/// match starts or ends in is split there. In text at a fraction the split
-/// moves out to the ends of the packed groups, so that the groups and the
-/// cells they take stay as they are; a group in two matches takes the
-/// first one's style. The spans `selected` names, the selected link's, are in
-/// reverse video where no match marks them.
-pub fn mark(
-    line: &Line,
-    matches: &[(Range<usize>, bool)],
-    marks: &Marks,
-    fade: Option<Fade>,
-    selected: Option<Range<usize>>,
-) -> Line {
-    let mut spans = Vec::new();
-    // Where the span starts in the line's text.
-    let mut start = 0;
-    for (at, span) in line.spans.iter().enumerate() {
-        let end = start + span.text.len();
-        // What the span looks like where no match marks it: in reverse
-        // video when it is of the selected link.
-        let plain = match &selected {
-            Some(link) if link.contains(&at) => Style {
-                reverse: true,
-                ..span.style.clone()
-            },
-            _ => span.style.clone(),
-        };
-        // Where the span may be cut, from its start: found once a match
-        // is in it.
-        let mut edges = None;
-        // The bytes of the span cut so far.
-        let mut cut = start;
-        let inside = matches
-            .iter()
-            .filter(|(bytes, _)| bytes.start < end && start < bytes.end);
-        for (bytes, current) in inside {
-            let (mut from, mut to) = (bytes.start.max(start) - start, bytes.end.min(end) - start);
-            let edges = edges.get_or_insert_with(|| self::edges(span));
-            if !edges.is_empty() {
-                from = edges
-                    .iter()
-                    .rev()
-                    .copied()
-                    .find(|&edge| edge <= from)
-                    .unwrap_or(0);
-                to = (edges.iter().copied().find(|&edge| edge >= to)).unwrap_or(span.text.len());
-            }
-            let (from, to) = ((start + from).max(cut), start + to);
-            if to <= from {
-                continue;
-            }
-            let style = match (current, fade) {
-                (false, _) => laid_over(&span.style, &marks.found),
-                (true, None) => laid_over(&span.style, &marks.current),
-                (true, Some(fade)) => {
-                    fade.step(&span.style, &laid_over(&span.style, &marks.current))
-                }
-            };
-            spans.extend(pieces(span, cut - start..from - start, &plain));
-            spans.extend(pieces(span, from - start..to - start, &style));
-            cut = to;
-        }
-        spans.extend(pieces(span, cut - start..end - start, &plain));
-        start = end;
-    }
-    spans.retain(|span| !span.text.is_empty());
-    Line {
-        spans,
-        ..line.clone()
-    }
-}
-
-/// Where `span` can be cut without changing how it is drawn, as bytes of
-/// its text: anywhere at a whole size, which has no edges, and only between
-/// packed groups at a fraction.
-fn edges(span: &Span) -> Vec<usize> {
-    if span.style.size.fraction().is_none() {
-        return Vec::new();
-    }
-    (span.style.size.groups(&span.text).iter())
-        .map(|group| at(span, group.text))
-        .chain([span.text.len()])
-        .collect()
-}
-
-/// Where `text`, a slice of `span`'s text, starts in it.
-fn at(span: &Span, text: &str) -> usize {
-    text.as_ptr() as usize - span.text.as_ptr() as usize
-}
-
-/// The bytes `bytes` of `span`'s text in `style`. A part of text at a
-/// fraction is one span for each of its groups, packed as it was in the
-/// whole text.
-fn pieces(span: &Span, bytes: Range<usize>, style: &Style) -> Vec<Span> {
-    if bytes == (0..span.text.len()) || span.style.size.fraction().is_none() {
-        let text = span.text[bytes].to_owned();
-        return vec![Span {
-            text,
-            style: style.clone(),
-        }];
-    }
-    (span.style.size.groups(&span.text).into_iter())
-        .filter(|group| bytes.contains(&at(span, group.text)))
-        .map(|group| Span {
-            text: group.text.to_owned(),
-            style: Style {
-                size: style.size.as_one_group(group.align),
-                ..style.clone()
-            },
-        })
-        .collect()
-}
-
-/// `style` with `mark` laid over it: its colours where it has them, its
-/// underline where it has one, and its bold and reverse video.
-fn laid_over(style: &Style, mark: &Style) -> Style {
-    Style {
-        bold: style.bold || mark.bold,
-        reverse: style.reverse || mark.reverse,
-        underline: match mark.underline {
-            Underline::None => style.underline,
-            underline => underline,
-        },
-        fg: mark.fg.or(style.fg),
-        bg: mark.bg.or(style.bg),
-        ..style.clone()
-    }
-}
-
 /// The colour `color` gives a match: none for the text's own.
 fn color(color: SearchColor) -> Option<crate::typeset::color::Color> {
     match color {
@@ -457,9 +324,8 @@ fn same(a: char, b: char, ignore_case: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session::fade::Rgb;
     use crate::typeset::color::Color;
-    use crate::typeset::size::{Fraction, HorizontalAlign, TextSize, VerticalAlign};
+    use crate::typeset::style::Span;
     use crate::typeset::theme::{Paper, SearchTheme};
 
     fn line(text: &str) -> Line {
@@ -597,17 +463,6 @@ mod tests {
         assert_eq!(found("three"), [at(4, 0..5)]);
         // A term across the end of a line is not found, as in text.
         assert_eq!(found("two three"), []);
-    }
-
-    #[test]
-    fn search_highlight_skips_an_image_match() {
-        let marks = Marks::new(&Theme::default(), &Capabilities::kitty(80));
-        let row = heading_row("Kiri heading", 0);
-        assert_eq!(mark(&row, &[(0..4, true)], &marks, None, None), row);
-        // Beside text before the image, such as a quote's bar.
-        let mut row = heading_row("Kiri", 0);
-        row.spans = vec![Span::new("> ", Style::default())];
-        assert_eq!(mark(&row, &[(2..6, false)], &marks, None, None), row);
     }
 
     #[test]
@@ -769,244 +624,6 @@ mod tests {
         assert_eq!(search.on(3), []);
     }
 
-    fn marks() -> Marks {
-        Marks {
-            found: Style {
-                reverse: true,
-                ..Style::default()
-            },
-            current: Style {
-                bold: true,
-                bg: Some(Color::Palette(3)),
-                ..Style::default()
-            },
-        }
-    }
-
-    #[test]
-    fn a_match_on_a_striped_table_row_stays_marked() {
-        // The stripe is a background; reverse video swaps it with the
-        // text colour, and a match colour takes its place.
-        let striped = Style {
-            bg: Some(Color::Rgb(16, 16, 16)),
-            ..Style::default()
-        };
-        let found = laid_over(&striped, &marks().found);
-        assert!(found.reverse);
-        assert_eq!(found.bg, striped.bg);
-        let current = laid_over(&striped, &marks().current);
-        assert_eq!(current.bg, Some(Color::Palette(3)));
-    }
-
-    #[test]
-    fn marking_splits_spans_where_matches_start_and_end() {
-        let bold = Style {
-            bold: true,
-            ..Style::default()
-        };
-        let source = Line::new(vec![
-            Span::new("a ki", Style::default()),
-            Span::new("ri b", bold.clone()),
-        ]);
-        let marked = mark(&source, &[(2..6, false)], &marks(), None, None);
-        let reverse = |style: &Style| Style {
-            reverse: true,
-            ..style.clone()
-        };
-        assert_eq!(
-            marked.spans,
-            [
-                Span::new("a ", Style::default()),
-                Span::new("ki", reverse(&Style::default())),
-                Span::new("ri", reverse(&bold)),
-                Span::new(" b", bold),
-            ]
-        );
-    }
-
-    #[test]
-    fn the_selected_link_is_reversed_except_where_a_match_marks_it() {
-        let link = Style {
-            link: Some("https://example.com".into()),
-            ..Style::default()
-        };
-        let reversed = Style {
-            reverse: true,
-            ..link.clone()
-        };
-        let source = Line::new(vec![
-            Span::new("a ", Style::default()),
-            Span::new("kiri link", link.clone()),
-            Span::new(" b", Style::default()),
-        ]);
-        // Matches in yellow, not in reverse video.
-        let marks = Marks {
-            found: Style {
-                bg: Some(Color::Palette(3)),
-                ..Style::default()
-            },
-            current: Style::default(),
-        };
-        let marked = mark(&source, &[(2..6, false)], &marks, None, Some(1..2));
-        let found = laid_over(&link, &marks.found);
-        assert!(!found.reverse);
-        assert_eq!(
-            marked.spans,
-            [
-                Span::new("a ", Style::default()),
-                Span::new("kiri", found),
-                Span::new(" link", reversed.clone()),
-                Span::new(" b", Style::default()),
-            ]
-        );
-        // Without a match the whole link is reversed, and only it.
-        let marked = mark(&source, &[], &marks, None, Some(1..2));
-        assert_eq!(
-            marked.spans,
-            [
-                Span::new("a ", Style::default()),
-                Span::new("kiri link", reversed),
-                Span::new(" b", Style::default()),
-            ]
-        );
-    }
-
-    #[test]
-    fn the_current_match_is_marked_apart_and_keeps_the_text_s_style() {
-        let link = Style {
-            italic: true,
-            fg: Some(Color::Palette(4)),
-            link: Some("https://example.com".into()),
-            ..Style::default()
-        };
-        let source = Line::new(vec![Span::new("kiri, kiri", link.clone())]);
-        let marked = mark(
-            &source,
-            &[(0..4, false), (6..10, true)],
-            &marks(),
-            None,
-            None,
-        );
-        assert_eq!(
-            marked.spans,
-            [
-                Span::new(
-                    "kiri",
-                    Style {
-                        reverse: true,
-                        ..link.clone()
-                    }
-                ),
-                Span::new(", ", link.clone()),
-                Span::new(
-                    "kiri",
-                    Style {
-                        bold: true,
-                        bg: Some(Color::Palette(3)),
-                        ..link
-                    }
-                ),
-            ]
-        );
-    }
-
-    #[test]
-    fn a_mark_in_text_at_a_fraction_keeps_its_groups() {
-        // Packing looks at the words around a group, so a piece cut out of
-        // the text could be packed apart from the rest.
-        let two_thirds =
-            TextSize::NORMAL.with_fraction(Fraction::new(2, 3).unwrap(), VerticalAlign::Top);
-        let style = Style {
-            size: two_thirds,
-            ..Style::default()
-        };
-        let text = "dceceddaae ba";
-        let source = Line::new(vec![Span::new(text, style.clone())]);
-        let groups = |line: &Line| -> Vec<(String, u8, HorizontalAlign)> {
-            (line.spans.iter())
-                .flat_map(|span| span.style.size.groups(&span.text))
-                .map(|group| (group.text.to_owned(), group.cells, group.align))
-                .collect()
-        };
-        for start in 0..text.len() {
-            for end in start + 1..=text.len() {
-                let marked = mark(&source, &[(start..end, false)], &marks(), None, None);
-                assert_eq!(groups(&marked), groups(&source), "{start}..{end}");
-            }
-        }
-    }
-
-    #[test]
-    fn a_mark_in_text_at_a_fraction_covers_whole_groups() {
-        // Half-size, this word takes three groups: fourteen letters, six
-        // and fourteen. Cutting a group would pack its pieces apart, each
-        // rounded up, and move the cells after them.
-        let half = TextSize::NORMAL.with_fraction(Fraction::new(1, 2).unwrap(), VerticalAlign::Top);
-        let style = Style {
-            size: half,
-            ..Style::default()
-        };
-        let text = "abcdefghijklmnopqrstuvwxyzabcdefgh";
-        let source = Line::new(vec![Span::new(text, style.clone())]);
-        let marked = mark(&source, &[(16..17, false)], &marks(), None, None);
-        let found: Vec<(&str, bool)> = (marked.spans.iter())
-            .map(|span| (span.text.as_str(), span.style.reverse))
-            .collect();
-        assert_eq!(
-            found,
-            [
-                ("abcdefghijklmn", false),
-                ("opqrst", true),
-                ("uvwxyzabcdefgh", false)
-            ]
-        );
-        assert_eq!(
-            crate::typeset::wrap::width(&marked.spans),
-            crate::typeset::wrap::width(&source.spans)
-        );
-        // Two matches in one group mark it once; one across groups marks
-        // both.
-        let marked = mark(
-            &source,
-            &[(0..1, true), (1..15, false)],
-            &marks(),
-            None,
-            None,
-        );
-        let texts: Vec<&str> = marked.spans.iter().map(|span| span.text.as_str()).collect();
-        assert_eq!(texts, ["abcdefghijklmn", "opqrst", "uvwxyzabcdefgh"]);
-        assert!(marked.spans[0].style.bold && marked.spans[1].style.reverse);
-    }
-
-    #[test]
-    fn marking_keeps_the_rest_of_the_line() {
-        let source = Line {
-            lead: vec![Span::new("> ", Style::default())],
-            trail: vec![Span::new("  ", Style::default())],
-            ..Line::new(vec![Span::new(
-                "Ä kiri",
-                Style {
-                    size: TextSize::new(2).unwrap(),
-                    ..Style::default()
-                },
-            )])
-        };
-        let marked = mark(&source, &[(3..7, true)], &marks(), None, None);
-        assert_eq!(
-            Line {
-                spans: Vec::new(),
-                ..marked.clone()
-            },
-            Line {
-                spans: Vec::new(),
-                ..source
-            }
-        );
-        let texts: Vec<&str> = marked.spans.iter().map(|span| span.text.as_str()).collect();
-        assert_eq!(texts, ["Ä ", "kiri"]);
-        assert_eq!(mark(&line("kiri"), &[], &marks(), None, None), line("kiri"));
-    }
-
     #[test]
     fn matches_are_in_reverse_video_and_the_current_one_bold_by_default() {
         let marks = Marks::new(&Theme::default(), &Capabilities::kitty(80));
@@ -1029,39 +646,6 @@ mod tests {
         let mut caps = Capabilities::kitty(80);
         caps.color = false;
         assert_eq!(Marks::new(&Theme::paper(Paper::Light), &caps), marks);
-    }
-
-    #[test]
-    fn the_current_match_fades_from_the_text_s_own_style() {
-        let source = Line::new(vec![Span::new("kiri", Style::default())]);
-        let mut caps = Capabilities::kitty(80);
-        caps.foreground = Some(Color::Rgb(200, 200, 200));
-        caps.background = Some(Color::Rgb(0, 0, 0));
-        caps.palette[3] = Some(Color::Rgb(200, 200, 0));
-        let known = Rgb::new(&Theme::default(), &caps).unwrap();
-        let at = |millis, rgb| {
-            let fade = Fade {
-                elapsed: std::time::Duration::from_millis(millis),
-                rgb,
-            };
-            let marked = mark(&source, &[(0..4, true)], &marks(), Some(fade), None);
-            let style = &marked.spans[0].style;
-            (style.fg, style.bg)
-        };
-        // From grey on black into grey on yellow.
-        let grey = Some(Color::Rgb(200, 200, 200));
-        assert_eq!(at(0, Some(&known)), (grey, Some(Color::Rgb(0, 0, 0))));
-        assert_eq!(at(375, Some(&known)), (grey, Some(Color::Rgb(100, 100, 0))));
-        assert_eq!(at(1000, Some(&known)), (None, Some(Color::Palette(3))));
-        // Without colours known as RGB, the mark at once.
-        assert_eq!(at(0, None), (None, Some(Color::Palette(3))));
-        // Other matches do not fade.
-        let fade = Fade {
-            elapsed: std::time::Duration::ZERO,
-            rgb: Some(&known),
-        };
-        let other = mark(&source, &[(0..4, false)], &marks(), Some(fade), None);
-        assert!(other.spans[0].style.reverse);
     }
 
     #[test]

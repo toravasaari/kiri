@@ -119,8 +119,9 @@ the terminal sends into keys; `src/session/commands.rs` holds the
 commands, each with its topic, keys, help text and action, and the keys
 are looked up there, and `src/session/help.rs` builds the help panel from
 them; `src/session/prompt.rs` keeps the search term as it is typed, and
-`src/session/search.rs` finds it in the laid-out lines and splits a line
-where a match starts and ends, so the matches can be highlighted without a
+`src/session/search.rs` finds it in the laid-out lines, and
+`src/session/layers.rs` lays the highlights over them, splitting a line where
+a match starts and ends, so the matches can be highlighted without a
 change to the writer;
 `src/session/fade.rs` mixes the colours a match fades through after a jump,
 those of the status line's `reloaded` as it fades out, and those of the
@@ -291,10 +292,11 @@ id while a band scrolls, and the status line says where it goes. In the
 text layout a link is the run of spans on one line that share a hyperlink
 address, and a link that wraps stays one link when the same link carries onto
 the next line. A link is numbered in the block it starts in, and the
-selected one is drawn in reverse video by `search::mark`; a link in a
-heading drawn as an image has no spans, so it is not there to select. Tab
-also reaches a link whose band is scrolled so that it is out of view, and
-scrolls the band to it as a search match does. Enter copies the selected
+selected one is drawn in reverse video by its layer in
+`src/session/layers.rs`; a link in a heading drawn as an image has no
+spans, so it is not there to select. Tab also reaches a link whose band
+is scrolled so that it is out of view, and scrolls the band to it as a
+search match does. Enter copies the selected
 link's URL with OSC 52 (`src/present/clipboard.rs`), wrapped in tmux's
 passthrough where the images are.
 `Reading` also holds a cache of the pictures scaled for the last layout,
@@ -592,9 +594,9 @@ The later work that the rows name, in words:
 - **The terminal layer split:** the presenter, the encoders, and the key and
   probe decoding that today sit in `term/`, `render/` and `pager/` are
   gathered in the terminal layer.
-- **Commands as data, layers, panels as documents, diagnostics, the trust
-  policy, reading mode's block modules:** later work that the map below
-  names, for the places that do not exist yet.
+- **Commands as data, the selected band as a layer, panels as documents,
+  diagnostics, the trust policy, reading mode's block modules:** later work
+  that the map below names, for the places that do not exist yet.
 
 | Module | Part | After the move |
 |---|---|---|
@@ -606,6 +608,7 @@ The later work that the rows name, in words:
 | `src/config/registry.rs` | platform | new. The registry of settings: each setting once, with its key, the module that reads it, what a change of it needs, its medium and its scope. It generates `Config` (what the file sets), `Options`, `Choices`, `Settings` and `choose` |
 | `src/config/resolve.rs` | platform | stays. Resolving a setting from the flags, the environment, the file and its default: `resolve`, `variable`, the theme's source, `settings` and loading the theme |
 | `src/config/types.rs` | platform | stays. The setting types: `Setting`, `Origin`, `Named`, `ThemeSource`, and the types of the settings that are not the pager's, `Passthrough` among them: capability detection, the command line and `--doctor` read it, and capability detection takes its value, not `Environment` |
+| `src/session/layers.rs` | state engine | new. The highlights over the document as one list of layers, each a paint (a background mixed toward the text colour, colours, reverse video, a box, a frame) at an address in its layout's own terms: `Layer`, `Paint`, `At`, `stack`, which makes the list from the tint, the search and the selected link, and `paint`, which paints the text layout's lines and reading mode's pages with it. A highlight is a layer here, not a branch in the pager |
 | `src/session/settings.rs` | state engine | new. The setting types the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump` and `InitialLoad`), without the code that reads them from the flags, the environment and the file |
 | `src/config/tests.rs` | follows `config/` | stays |
 | `src/doctor.rs` | platform | stays (it searches `PATH` through `diagrams::find`) |
@@ -698,7 +701,7 @@ The later work that the rows name, in words:
 | `src/pager/links.rs` | state engine | moved to `src/session/links.rs` |
 | `src/pager/loading.rs` | state engine | moved to `src/session/loading.rs` |
 | `src/pager/prompt.rs` | state engine | moved to `src/session/prompt.rs` |
-| `src/pager/search.rs` | state engine | moved to `src/session/search.rs` |
+| `src/pager/search.rs` | state engine | moved to `src/session/search.rs`; what lays the matches over the lines is in `src/session/layers.rs` |
 | `src/pager/status.rs` | state engine | moved to `src/session/status.rs` |
 | `src/pager/status/tests.rs` | state engine | moved to `src/session/status/tests.rs` |
 | `src/pager/tint.rs` | state engine | moved to `src/session/tint.rs` |
@@ -816,7 +819,7 @@ file (`main.rs`, `pager/mod.rs`, `render/mod.rs`,
 | image format | the decoder in `src/typeset/images/decode.rs` |
 | theme or look setting | `src/typeset/theme/` |
 | warning | a `Diagnostic` with a code of its own, no path yet, made by diagnostics; until then a `Warning` in `src/pager/mod.rs` |
-| highlight, or anything else that changes from frame to frame | a layer, no path yet, made by layers, in the state engine (`src/session/`) |
+| highlight, or anything else that changes from frame to frame | a layer in the list that `stack` makes in `src/session/layers.rs`: a paint and an address, and nothing new in `marked` |
 | panel, such as help or a file list | a document in the panel's look, no path yet, made by panels as documents, built in `src/session/` |
 | feature of the pager | a file of its own in `src/session/`, never a new branch in `src/pager/mod.rs` |
 | terminal feature | the I/O in `src/term/`, the bytes in the terminal layer (`src/present/`), and kitty's own sequences in `src/present/kitty/` |
