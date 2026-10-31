@@ -1455,6 +1455,11 @@ go.
   layer for search, as PDF (4.12.2) shows pages as images; Kindle
   formats through Calibre's `ebook-convert`. Some EPUB 3 books, such as
   children's books, carry sound.
+- Noticing at once when an image file that a document shows changes.
+  Today an image file is read again only when the document is reloaded,
+  so a diagram exported again beside a followed document shows only
+  after the document itself changes. Watching the local image files too
+  would show it at once. Needs G7.3.3.
 
 ## Bugs
 
