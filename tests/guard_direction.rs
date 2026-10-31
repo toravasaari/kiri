@@ -14,8 +14,9 @@
 //! branch is cut short; no such item is marked in `src/` today. Only the
 //! exact attribute `#[cfg(test)]` is recognised: `cfg(all(test, ..))` and
 //! `cfg(not(test))` are not, and none is used in `src/`. Files named
-//! `tests.rs` or `testing.rs`, and files under a `tests/` directory, are test
-//! code and are not read.
+//! `tests.rs` or `testing.rs`, files under a `tests/` directory, and files
+//! whose module is declared behind `#[cfg(test)]` are test code and are
+//! not read.
 //!
 //! The crossings that exist are listed in `EXCEPTIONS`, with the work that
 //! removes each. The list is complete: a crossing that is not listed fails
@@ -244,7 +245,10 @@ fn crossings(src: &Path) -> BTreeSet<(String, String)> {
     let mut found = BTreeSet::new();
     for file in files {
         let relative = file.strip_prefix(src).unwrap();
-        if is_test_file(relative) {
+        let name = module_path(relative).last().cloned().unwrap_or_default();
+        let for_tests =
+            parent_source(src, relative).is_some_and(|parent| declared_for_tests(&parent, &name));
+        if is_test_file(relative) || for_tests {
             continue;
         }
         let name = format!("src/{}", relative.display());
@@ -269,6 +273,39 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
             out.push(path);
         }
     }
+}
+
+/// Whether `parent` declares the module `name` behind `#[cfg(test)]`, as
+/// `#[cfg(test)] mod name;` on two lines: then its whole file is test code.
+fn declared_for_tests(parent: &str, name: &str) -> bool {
+    let lines: Vec<&str> = parent.lines().map(str::trim).collect();
+    lines.windows(2).any(|pair| {
+        pair[0] == "#[cfg(test)]"
+            && pair[1]
+                .strip_suffix(";")
+                .and_then(|line| line.rsplit_once("mod "))
+                .is_some_and(|(_, module)| module == name)
+    })
+}
+
+/// The source of the file that declares the module in `relative`: `x.rs` or
+/// `x/mod.rs` for `x/name.rs`, and `lib.rs` for a file at the top.
+fn parent_source(src: &Path, relative: &Path) -> Option<String> {
+    let mut dir = relative.parent()?.to_path_buf();
+    if relative.file_name()? == "mod.rs" {
+        dir = dir.parent()?.to_path_buf();
+    }
+    let candidates = if dir.as_os_str().is_empty() {
+        vec![src.join("lib.rs"), src.join("main.rs")]
+    } else {
+        vec![
+            src.join(dir.with_extension("rs")),
+            src.join(&dir).join("mod.rs"),
+        ]
+    };
+    candidates
+        .into_iter()
+        .find_map(|path| fs::read_to_string(path).ok())
 }
 
 fn is_test_file(relative: &Path) -> bool {
@@ -670,4 +707,12 @@ fn a_part_is_the_directory_of_a_file_and_a_path_is_its_module() {
     );
     assert_eq!(module_path(Path::new("pager/keys.rs")), ["pager", "keys"]);
     assert!(module_path(Path::new("lib.rs")).is_empty());
+}
+
+#[test]
+fn a_file_declared_behind_cfg_test_is_test_code() {
+    let parent = "pub mod layout;\n#[cfg(test)]\npub(crate) mod summary;\nmod quote;\n";
+    assert!(declared_for_tests(parent, "summary"));
+    assert!(!declared_for_tests(parent, "quote"));
+    assert!(!declared_for_tests(parent, "layout"));
 }
