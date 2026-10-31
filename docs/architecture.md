@@ -115,12 +115,13 @@ The pager shows the same styled lines on the terminal's alternate screen.
 `src/session/view.rs` chooses the lines that fit in the window, a scaled
 line whole or not at all, and moves them, and when the window changes size
 it keeps the same block at the top; `src/present/keys.rs` turns the bytes
-the terminal sends into keys, and `src/session/commands.rs` holds the
-commands, each with its topic, keys, help text and action, that the
-keys are looked up in and `src/session/help.rs` is built from; `src/session/prompt.rs`
-keeps the search term as it is typed, and `src/session/search.rs` finds it
-in the laid-out lines and splits a line where a match starts and ends, so
-the matches can be highlighted without a change to the writer;
+the terminal sends into keys; `src/session/commands.rs` holds the
+commands, each with its topic, keys, help text and action, and the keys
+are looked up there, and `src/session/help.rs` builds the help panel from
+them; `src/session/prompt.rs` keeps the search term as it is typed, and
+`src/session/search.rs` finds it in the laid-out lines and splits a line
+where a match starts and ends, so the matches can be highlighted without a
+change to the writer;
 `src/session/fade.rs` mixes the colours a match fades through after a jump,
 those of the status line's `reloaded` as it fades out, and those of the
 warning line;

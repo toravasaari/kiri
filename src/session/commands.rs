@@ -217,8 +217,8 @@ pub const COMMANDS: &[Command] = {
             "bottom",
             Move(End),
         ),
-        Command::also(Moving, &[Key::WheelUp], Move(Up(WHEEL))),
-        Command::also(Moving, &[Key::WheelDown], Move(Down(WHEEL))),
+        Command::also(Moving, &[Key::WheelUp], Move(Up(WHEEL))).setting(&["mouse"]),
+        Command::also(Moving, &[Key::WheelDown], Move(Down(WHEEL))).setting(&["mouse"]),
         Command::new(
             Files,
             &[Key::Command('n'), Key::ShiftPageDown],
