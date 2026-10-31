@@ -41,20 +41,20 @@ pub(super) fn theme_source(
 /// Whether images are shown and where that comes from, strongest first:
 /// the command line (`flag`, from `--images` or `--no-images`), then
 /// `KIRI_NO_IMAGES`, then the configuration file; on unless one turns them
-/// off. `KIRI_NO_IMAGES` turns them off when it is set to anything but an
-/// empty value or `0`, and `0` turns them on whatever the configuration
-/// file says.
-pub(super) fn images(
+/// off. `KIRI_NO_IMAGES` is a switch, which turns images off when it is `1`
+/// or `on` and on when it is `0` or `off`, whatever the configuration file
+/// says; empty is unset, and any other value is left out with a warning.
+fn images(
     flag: Option<Setting<bool>>,
     env: &Environment,
     config: &Config,
+    warnings: &mut Vec<String>,
 ) -> Setting<bool> {
-    let name = "KIRI_NO_IMAGES";
-    let variable = |_: &mut Vec<String>| {
-        let value = env.get(name).filter(|value| !value.is_empty())?;
-        Some(Setting::new(value == "0", Origin::Environment(name)))
+    let read = |warnings: &mut Vec<String>| {
+        let no_images = variable::<bool>(env, "KIRI_NO_IMAGES")(warnings)?;
+        Some(no_images.map(|no_images| !no_images))
     };
-    resolve(flag, variable, config.images, true, &mut Vec::new())
+    resolve(flag, read, config.images, true, warnings)
 }
 
 /// A setting and where it comes from, strongest first: the command line
@@ -325,7 +325,7 @@ pub fn choose(options: &Options, env: &Environment, config: &Config) -> Choices 
         theme: theme_source(options, env, config),
         paper: options.paper.as_ref().map(|paper| paper.value),
         margins: resolve(options.margins.clone(), unset, None, true, w),
-        images: images(options.images.clone(), env, config),
+        images: images(options.images.clone(), env, config, w),
         paging,
         search_case: resolve(None, unset, config.search_case, SearchCase::default(), w),
         follow: resolve(

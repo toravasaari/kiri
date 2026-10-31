@@ -198,6 +198,24 @@ fn kiri_no_images_turns_images_off_unless_empty_or_0() {
 }
 
 #[test]
+fn kiri_no_images_warns_about_a_value_that_is_not_a_switch() {
+    let dir = Scratch::new("kiri-no-images-wrong");
+    let document = images_document(&dir);
+    let out = command(&dir)
+        .env("KIRI_NO_IMAGES", "yes")
+        .args(["--mode", "kitty"])
+        .arg(&document)
+        .output()
+        .unwrap();
+    assert_images_on(&out);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("KIRI_NO_IMAGES: `yes` is not on, off, 1 or 0; left out"),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn the_configuration_file_can_turn_images_off() {
     let dir = Scratch::new("config-images");
     let document = images_document(&dir);

@@ -109,8 +109,11 @@ instead:
 
 1. `--images` turns them on, `-I` or `--no-images` off; the two cannot be
    given together
-2. `KIRI_NO_IMAGES`: any value but `0` turns images off, and `0` turns them
-   on whatever the configuration file says; an empty value counts as unset
+2. `KIRI_NO_IMAGES`: `1` (or `on`) turns images off, and `0` (or `off`)
+   turns them on whatever the configuration file says; an empty value
+   counts as unset, and any other value, such as `yes`, is left out with a
+   warning: `KIRI_NO_IMAGES=yes kiri doc.md` says
+   ``KIRI_NO_IMAGES: `yes` is not on, off, 1 or 0; left out``
 3. `images` in the configuration file
 
 With images off, kiri reads no image files and shows every image as its

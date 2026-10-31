@@ -545,9 +545,7 @@ fn the_files_tell_where_diagram_programs_work() {
 fn values_with_pipes_backticks_and_control_characters_stay_in_their_cells() {
     let dir = Scratch::new("doctor-escapes");
     let mut command = doctor(&dir, &[]);
-    command
-        .env("TERM", "x|y`z")
-        .env("KIRI_NO_IMAGES", "a|b``c\td");
+    command.env("TERM", "x|y`z").env("KIRI_THEME", "a|b``c\td");
     let out = command.output().unwrap();
     assert_succeeded(&out);
     let report = text(&out.stdout);
@@ -567,12 +565,9 @@ fn values_with_pipes_backticks_and_control_characters_stay_in_their_cells() {
     let terminal = line("Terminal ");
     assert!(terminal.contains("none, `TERM=x|y`z` "), "{terminal}");
     assert_eq!(terminal.matches('│').count(), 3, "{terminal}");
-    let images = line("Images ");
-    assert!(
-        images.contains("`KIRI_NO_IMAGES=a|b``c\\x09d` "),
-        "{images}"
-    );
-    assert_eq!(images.matches('│').count(), 4, "{images}");
+    let theme = line("Theme ");
+    assert!(theme.contains("`KIRI_THEME=a|b``c\\x09d` "), "{theme}");
+    assert_eq!(theme.matches('│').count(), 4, "{theme}");
 }
 
 #[test]

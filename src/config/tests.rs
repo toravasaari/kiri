@@ -1274,26 +1274,41 @@ fn kiri_render_errors_chooses_where_render_errors_go() {
 }
 
 #[test]
-fn kiri_no_images_turns_images_off_with_any_value_but_empty_or_0() {
-    let images = |value: &str, file: Option<bool>| {
+fn kiri_no_images_takes_a_switch_and_warns_about_any_other_value() {
+    let choose = |value: &str, file: Option<bool>| {
         let config = Config {
             images: file,
             ..Config::default()
         };
-        choose(
-            &Options::default(),
-            &vars(&[("KIRI_NO_IMAGES", value)]),
-            &config,
-        )
-        .images
+        let env = vars(&[("KIRI_NO_IMAGES", value)]);
+        choose(&Options::default(), &env, &config)
     };
     let variable = Origin::Environment("KIRI_NO_IMAGES");
-    for value in ["1", "yes", "false"] {
-        assert_eq!(images(value, Some(true)), Setting::new(false, variable));
+    // 1 and on turn images off, 0 and off turn them on, whatever the file
+    // says.
+    for value in ["1", "on"] {
+        let choices = choose(value, Some(true));
+        assert_eq!(choices.images, Setting::new(false, variable), "{value}");
+        assert!(choices.warnings.is_empty(), "{value}");
     }
-    assert_eq!(images("0", Some(false)), Setting::new(true, variable));
-    assert_eq!(images("", Some(false)), Setting::new(false, Origin::File));
-    assert_eq!(images("", None), Setting::new(true, Origin::Default));
+    for value in ["0", "off"] {
+        let choices = choose(value, Some(false));
+        assert_eq!(choices.images, Setting::new(true, variable), "{value}");
+        assert!(choices.warnings.is_empty(), "{value}");
+    }
+    // Empty is unset.
+    let choices = choose("", Some(false));
+    assert_eq!(choices.images, Setting::new(false, Origin::File));
+    assert!(choices.warnings.is_empty());
+    assert_eq!(choose("", None).images, Setting::new(true, Origin::Default));
+    // Any other value is left out, with a warning.
+    for value in ["yes", "false"] {
+        let choices = choose(value, Some(false));
+        assert_eq!(choices.images, Setting::new(false, Origin::File), "{value}");
+        let warning = format!("KIRI_NO_IMAGES: `{value}` is not on, off, 1 or 0; left out");
+        assert_eq!(choices.warnings, [warning], "{value}");
+    }
+    assert_eq!(choose("yes", None).images.origin, Origin::Default);
 }
 
 #[test]
