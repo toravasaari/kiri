@@ -11,18 +11,20 @@ use crate::typeset::reading::fonts::Fonts;
 use crate::typeset::reading::page::{
     Frame, FrontMatterShown, Ink, Look, Page, Plain, Shape, TableStyle, Wide, lay_out, runs,
 };
+use crate::typeset::theme::Look as Resolved;
 
 /// The facts of `block`, laid out alone in the pixel layout of `setup`.
 pub(crate) fn summary(block: &Block, setup: &Setup) -> Vec<Fact> {
     let caps = setup.caps();
-    let look = engine::look(
-        &setup.theme(),
+    let one = Resolved::new(&setup.theme(), &caps);
+    let look = engine::page_look(
+        &one,
         &CodeColors::default(),
         setup.table_rows != TableRows::Off,
         &caps,
     );
     let (cell_width, cell_height) = cell_size(&caps);
-    let area = Area::of(&caps, usize::from(caps.width));
+    let area = Area::of(&one, &caps, usize::from(caps.width));
     let fonts = Fonts::fixture();
     let page = lay_out(
         &[block],

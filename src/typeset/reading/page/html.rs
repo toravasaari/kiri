@@ -1,6 +1,6 @@
 //! Raw HTML, which is shown as its source until there is an HTML backend.
 
-use crate::typeset::reading::page::{CODE_LINE_HEIGHT, Flow};
+use crate::typeset::reading::page::Flow;
 use crate::typeset::reading::text::{self, Run};
 
 impl Flow<'_> {
@@ -12,7 +12,7 @@ impl Flow<'_> {
         // font and in lines of its own.
         let style = text::Look {
             size: size * text::CODE_SIZE,
-            line_height: CODE_LINE_HEIGHT,
+            line_height: look.spacing.code_line_height,
             color: look.quote,
             mono: true,
             wrap: text::Wrap::Anywhere,

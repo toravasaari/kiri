@@ -38,39 +38,10 @@ use crate::typeset::model::{AlertKind, Alignment, Block, Image, Inline};
 use crate::typeset::reading::fonts::Fonts;
 use crate::typeset::reading::paint::{Canvas, TextMark};
 use crate::typeset::reading::text::{self, Brush, InlinePicture, Paragraph, Run};
+use crate::typeset::theme::PixelTable;
 
 use self::list::task;
 
-/// The size of each heading level, `h1` first, in font sizes of the text,
-/// and the line height of headings.
-const HEADING_SIZES: [f32; 6] = [2.0, 1.5, 1.25, 1.0, 0.875, 0.85];
-const HEADING_LINE_HEIGHT: f32 = 1.25;
-/// The line height of text.
-const LINE_HEIGHT: f32 = 1.5;
-/// The weight of headings and of strong text.
-const BOLD: f32 = 600.0;
-/// How far list items are indented, and how far apart they are, in font
-/// sizes; how far a marker ends before its item's text.
-const LIST_INDENT: f32 = 2.0;
-const ITEM_GAP: f32 = 0.5;
-const MARKER_GAP: f32 = 0.5;
-/// How far a quote's text is indented, and how wide its bar is.
-const QUOTE_INDENT: f32 = 1.0;
-const QUOTE_BAR: f32 = 0.25;
-/// An alert's room above its title and below its text, the gap between its
-/// title and text, and the one between its icon and its title, in font
-/// sizes.
-const ALERT_PADDING: f32 = 0.5;
-const ALERT_TITLE_GAP: f32 = 0.25;
-const ICON_GAP: f32 = 0.5;
-/// How far below a large heading its rule is, in its own font sizes.
-const RULE_BELOW: f32 = 0.3;
-/// A code block's padding and the radius of its corners, in font sizes;
-/// its font size and line height, and its label's size.
-const CODE_PADDING: f32 = 1.0;
-const CODE_RADIUS: f32 = 0.375;
-const CODE_LINE_HEIGHT: f32 = 1.45;
-const LABEL_SIZE: f32 = 0.75;
 /// The room below a band's content for its scroll bar, in font sizes;
 /// how far its fades reach in from each edge; the scroll bar's thickness
 /// in pixels, and the selected one's.
@@ -83,11 +54,6 @@ const BAR_SELECTED: f32 = 6.0;
 const FITS: f32 = 0.5;
 /// A width no line of code reaches, for code laid out unbroken.
 const UNBOUNDED: f32 = 1.0e6;
-/// How far a table cell's text is from its borders, across and down, in
-/// font sizes.
-const CELL_ACROSS: f32 = 13.0 / 16.0;
-const CELL_DOWN: f32 = 6.0 / 16.0;
-
 /// How the page is drawn: its sizes and colours.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Look {
@@ -126,6 +92,8 @@ pub struct Look {
     pub opaque: bool,
     /// The colour of what could not be drawn, such as a diagram's error.
     pub error: Brush,
+    /// The spacing, GitHub's, by which blocks are laid out.
+    pub spacing: PixelTable,
     /// How alerts look, by kind: note, tip, important, warning, caution.
     pub alerts: [AlertLook; 5],
 }
@@ -739,7 +707,7 @@ enum Shape {
         y: f32,
         size: f32,
         checked: bool,
-        look: Look,
+        look: Box<Look>,
     },
 }
 
@@ -1209,7 +1177,7 @@ impl<'a> Flow<'a> {
                 }
             },
             Block::ThematicBreak => {
-                let height = (QUOTE_BAR * size).round().max(1.0);
+                let height = (look.spacing.quote_bar * size).round().max(1.0);
                 self.rect(x, self.y, width, height, look.border);
                 self.y += height;
             }
@@ -1250,7 +1218,7 @@ impl<'a> Flow<'a> {
     fn paragraph(&self, content: &[Inline], color: Brush, width: f32) -> Paragraph {
         let style = text::Look {
             size: self.look.size,
-            line_height: LINE_HEIGHT,
+            line_height: self.look.spacing.line_height,
             weight: 400.0,
             color,
             ..text::Look::PLAIN
@@ -1413,6 +1381,7 @@ mod tests {
     };
 
     const LOOK: Look = Look {
+        spacing: crate::typeset::theme::GITHUB,
         size: 16.0,
         text: [0xdd; 3],
         headings: [[0xee; 3]; 6],

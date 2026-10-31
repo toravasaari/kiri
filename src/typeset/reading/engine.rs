@@ -45,11 +45,8 @@ use crate::typeset::reading::page::{
 };
 use crate::typeset::reading::text::{Brush, Run};
 use crate::typeset::style::{Band, ImageRow, Line, Span, Style};
-use crate::typeset::theme::{SearchColor, TableStyle, Theme};
+use crate::typeset::theme::{Look as Resolved, SearchColor, TableStyle};
 
-/// The text's font size, as a share of the cell height: 16 pixels in rows
-/// of 20, as a browser sets text in rows of that height.
-const FONT_SIZE: f32 = 0.8;
 /// The widest the text is, in font sizes.
 const TEXT_WIDTH: f32 = 42.0;
 /// How much wider than the text the area is that tables and code may
@@ -58,9 +55,6 @@ const TEXT_WIDTH: f32 = 42.0;
 const AREA: f32 = 1.5;
 /// The cells kept free on each side of the area.
 const SIDE: u16 = 2;
-/// How much of the text colour a shaded table row mixes into the page, as
-/// in the text layout.
-const STRIPE: f32 = 0.06;
 /// The most rows a picture is shown at, as many as an image can cover.
 const MAX_ROWS: u16 = 297;
 /// The rows of one part of a page, the image drawn at a time.
@@ -149,11 +143,11 @@ pub struct Area {
 
 impl Area {
     /// The area in a window `width` cells wide on a terminal with `caps`.
-    pub fn of(caps: &Capabilities, width: usize) -> Self {
+    pub fn of(one: &Resolved, caps: &Capabilities, width: usize) -> Self {
         let (cell_width, cell_height) = cell_size(caps);
         let (cell_width, size) = (
             f32::from(cell_width),
-            (FONT_SIZE * f32::from(cell_height)).round(),
+            (one.pixels.font_size * f32::from(cell_height)).round(),
         );
         let window = u16::try_from(width).unwrap_or(u16::MAX);
         let room = window.saturating_sub(2 * SIDE).max(1);
@@ -326,13 +320,13 @@ impl Parts {
 /// gives a match, as the text layout lays them over its text; where the
 /// theme gives none, or there is no colour, the reverse, a box in the
 /// text's colour with the text in the page's.
-fn mark_colors(theme: &Theme, caps: &Capabilities, look: &Look) -> MarkColors {
+fn mark_colors(one: &Resolved, caps: &Capabilities, look: &Look) -> MarkColors {
     let dark = caps.dark_background != Some(false);
     let rgb_of = |color: Option<Color>| match color?.rgb_or_xterm(&caps.palette) {
         Color::Rgb(red, green, blue) => Some([red, green, blue]),
         Color::Palette(_) => None,
     };
-    let page = (rgb_of(theme.background).or_else(|| rgb_of(caps.background))).unwrap_or(if dark {
+    let page = (rgb_of(one.background).or_else(|| rgb_of(caps.background))).unwrap_or(if dark {
         [0; 3]
     } else {
         [0xff; 3]
@@ -351,7 +345,7 @@ fn mark_colors(theme: &Theme, caps: &Capabilities, look: &Look) -> MarkColors {
             (pick(foreground), pick(background))
         }
     };
-    let search = &theme.search;
+    let search = &one.search;
     MarkColors {
         found: colors(
             search.match_foreground,
@@ -541,17 +535,17 @@ pub fn lines(
     blocks: &[&Block],
     ids: &[BlockId],
     reading: &Reading,
-    (theme, code, (stripes, front_matter)): (&Theme, &CodeColors, (bool, FrontMatterStyle)),
+    (one, code, (stripes, front_matter)): (&Resolved, &CodeColors, (bool, FrontMatterStyle)),
     (images, inline_errors, document): (&Images, bool, usize),
     caps: &Capabilities,
     width: usize,
 ) -> Vec<Line> {
     let cell = cell_size(caps);
     let (cell_width, cell_height) = (f32::from(cell.0), f32::from(cell.1));
-    let look = look(theme, code, stripes, caps);
+    let look = page_look(one, code, stripes, caps);
     let Area {
         left, area, text, ..
-    } = Area::of(caps, width);
+    } = Area::of(one, caps, width);
     // The page covers the area, as tables and code may reach across it.
     let columns = area.clamp(1, caps.max_image_cells);
     let highlight = Syntect {
@@ -604,7 +598,7 @@ pub fn lines(
         cell,
         columns,
         rows,
-        marks: mark_colors(theme, caps, &look),
+        marks: mark_colors(one, caps, &look),
     });
     let address = Rc::as_ptr(&parts) as usize;
     let lead = Span::new(&" ".repeat(usize::from(left)), Style::default());
@@ -956,11 +950,11 @@ pub fn set_band(lines: &mut [Line], offset: u32, selected: bool) {
     }
 }
 
-/// How reading mode draws text in `theme` on a terminal with `caps`: its
+/// How reading mode draws text in `one` on a terminal with `caps`: its
 /// size from the cell height, and its colours from the theme, or from the
 /// terminal where the theme leaves them. Tables shade every second body
 /// row when `stripes` is set.
-pub fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities) -> Look {
+pub fn page_look(one: &Resolved, code: &CodeColors, stripes: bool, caps: &Capabilities) -> Look {
     let (_, cell_height) = cell_size(caps);
     let rgb = |color: Option<Color>| match color?.rgb_or_xterm(&caps.palette) {
         Color::Rgb(red, green, blue) => Some([red, green, blue]),
@@ -968,7 +962,7 @@ pub fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities
     };
     let dark = caps.dark_background != Some(false);
     let contrast = if dark { [0xff; 3] } else { [0; 3] };
-    let text = rgb(theme.foreground)
+    let text = rgb(one.foreground)
         .or_else(|| rgb(caps.foreground))
         .unwrap_or(contrast);
     // A palette colour the terminal did not report is xterm's, a guess.
@@ -976,13 +970,13 @@ pub fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities
         Color::Rgb(red, green, blue) => Some([red, green, blue]),
         Color::Palette(_) => None,
     };
-    let known = exact(theme.background.or(caps.background));
+    let known = exact(one.background.or(caps.background));
     let page =
-        rgb(theme.background.or(caps.background)).unwrap_or(if dark { [0; 3] } else { [0xff; 3] });
-    let muted = rgb(theme.muted).unwrap_or_else(|| mix(text, page, 0.6));
+        rgb(one.background.or(caps.background)).unwrap_or(if dark { [0; 3] } else { [0xff; 3] });
+    let muted = rgb(one.muted).unwrap_or_else(|| mix(text, page, 0.6));
     let border = mix(text, page, 0.25);
-    let headings = [1, 2, 3, 4, 5, 6].map(|level| rgb(theme.heading(level).color).unwrap_or(text));
-    let chip = match crate::typeset::layout::inline_code_background(theme, caps) {
+    let headings = [1, 2, 3, 4, 5, 6].map(|level| rgb(one.heading(level).color).unwrap_or(text));
+    let chip = match one.inline_code.background {
         Some(color) => rgb(Some(color)),
         None => None,
     };
@@ -993,17 +987,17 @@ pub fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities
     // They tint the page as a colour filter does, so on white they are
     // GitHub's, and the stronger one is that tint applied twice.
     let alert = |kind| {
-        let mut color = rgb(theme.alerts.color(kind, dark)).unwrap_or(text);
+        let mut color = rgb(one.alerts.color(kind, dark)).unwrap_or(text);
         let mut bar = color;
-        if let Some((gold, title)) = theme.alerts.github_gold(kind, dark) {
+        if let Some((gold, title)) = one.alerts.github_gold(kind, dark) {
             (bar, color) = (
                 rgb(Some(gold)).unwrap_or(bar),
                 rgb(Some(title)).unwrap_or(color),
             );
         }
-        let pale = theme.alerts.github_background(kind, dark);
+        let pale = one.alerts.github_background(kind, dark);
         let tint = |strong: bool| {
-            theme.alerts.tint.then(|| match pale {
+            one.alerts.tint.then(|| match pale {
                 Some(pale) if strong => filter(filter(page, pale), pale),
                 Some(pale) => filter(page, pale),
                 None => mix(color, page, if strong { 0.3 } else { 0.15 }),
@@ -1017,25 +1011,26 @@ pub fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities
         }
     };
     Look {
-        size: (FONT_SIZE * f32::from(cell_height)).round(),
+        spacing: one.pixels,
+        size: (one.pixels.font_size * f32::from(cell_height)).round(),
         text,
         headings,
-        link: rgb(theme.link).unwrap_or(text),
-        code: rgb(theme.inline_code).unwrap_or(text),
+        link: rgb(one.link).unwrap_or(text),
+        code: rgb(one.inline_code.color).unwrap_or(text),
         chip,
         quote: muted,
-        border: rgb(theme.rule).unwrap_or(border),
-        marker: rgb(theme.list_marker).unwrap_or(text),
+        border: rgb(one.rule).unwrap_or(border),
+        marker: rgb(one.list_marker).unwrap_or(text),
         code_block: rgb(code.background),
         code_text: rgb(code.text).unwrap_or(text),
         label: rgb(code.label),
-        error: rgb(theme.error).unwrap_or([0xf8, 0x51, 0x49]),
-        table_border: rgb(theme.table_border).unwrap_or(border),
-        table_style: match theme.table_style {
+        error: rgb(one.error).unwrap_or([0xf8, 0x51, 0x49]),
+        table_border: rgb(one.table_border).unwrap_or(border),
+        table_style: match one.table_style {
             TableStyle::Frame => page::TableStyle::Frame,
             TableStyle::Grid => page::TableStyle::Grid,
         },
-        stripe: stripes.then(|| mix(text, page, STRIPE)),
+        stripe: stripes.then(|| mix(text, page, one.pixels.stripe)),
         page,
         opaque: known.is_some(),
         alerts: [
@@ -1111,6 +1106,12 @@ mod tests {
     use crate::render::{Inputs, RenderErrors};
     use crate::typeset::layout;
     use crate::typeset::parse::parse;
+    use crate::typeset::theme::Theme;
+
+    /// `page_look` for a theme alone.
+    fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities) -> Look {
+        page_look(&Resolved::new(theme, caps), code, stripes, caps)
+    }
 
     /// A terminal with cells of 10 by 20 pixels, as the tests assume.
     fn kitty(width: u16) -> Capabilities {

@@ -45,17 +45,8 @@ use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page;
 use crate::typeset::size::{TextSize, VerticalAlign};
 use crate::typeset::style::{Band, Line, Spaces, Span, Style, push};
-use crate::typeset::theme::{BandColor, Theme};
+use crate::typeset::theme::{BandColor, Look};
 use crate::typeset::wrap::{width, wrap};
-
-/// How much of the text colour a striped table row mixes into the page.
-const STRIPE: f32 = 0.06;
-
-/// How much of the text colour the band of a file's header mixes into a
-/// dark page and a light one: as much on a light page would be a heavy
-/// grey.
-const BAND_DARK: f32 = 0.3;
-const BAND_LIGHT: f32 = 0.12;
 
 /// `document` laid out, without the table of its blocks, as [`file`] has
 /// it.
@@ -238,15 +229,16 @@ fn with_layout<T>(
     } else {
         theme
     };
+    let look = Look::new(theme, caps);
     let mut width = usize::from(caps.width);
-    if theme.max_width > 0 {
-        width = width.min(usize::from(theme.max_width));
+    if look.max_width > 0 {
+        width = width.min(usize::from(look.max_width));
     }
     let width = width.max(10);
     let layout = Layout {
         images,
         caps,
-        theme,
+        look: &look,
         front_matter: *front_matter,
         headings: *headings,
         table_rows: *table_rows,
@@ -261,7 +253,7 @@ fn with_layout<T>(
 
     // Everything but headings and thematic breaks keeps text_margin free
     // on both sides.
-    let margin = usize::from(theme.text_margin).min(width / 4);
+    let margin = usize::from(look.cells.text_margin).min(width / 4);
     lay_out(&layout, width, margin)
 }
 
@@ -312,7 +304,7 @@ struct Context {
 struct Layout<'a> {
     images: &'a Images,
     caps: &'a Capabilities,
-    theme: &'a Theme,
+    look: &'a Look,
     front_matter: FrontMatterStyle,
     headings: Headings,
     table_rows: TableRows,
@@ -398,7 +390,7 @@ impl Layout<'_> {
         let (lead, inner) = match self.reading {
             Some(_) => {
                 let window = usize::from(self.caps.width).max(width);
-                let area = super::reading::engine::Area::of(self.caps, window);
+                let area = super::reading::engine::Area::of(self.look, self.caps, window);
                 (usize::from(area.left), usize::from(area.column))
             }
             None => (margin, width - 2 * margin),
@@ -484,7 +476,7 @@ impl Layout<'_> {
             &ids,
             reading,
             (
-                self.theme,
+                self.look,
                 &self.code_colors(),
                 (self.table_rows != TableRows::Off, self.front_matter),
             ),
@@ -556,7 +548,7 @@ impl Layout<'_> {
             Block::Error(message) => {
                 let spans = [Span::new(
                     &format!("✗ {message}"),
-                    self.style(Style::fg(self.theme.error)),
+                    self.style(Style::fg(self.look.error)),
                 )];
                 wrap(&spans, width).into_iter().map(Line::new).collect()
             }
@@ -583,7 +575,7 @@ impl Layout<'_> {
             ..Style::default()
         };
         let bar = Style {
-            fg: self.theme.file_header.bar,
+            fg: self.look.file_header.bar,
             ..base.clone()
         };
         let indent = margin.max(2);
@@ -620,7 +612,7 @@ impl Layout<'_> {
     /// little of the text colour mixed into the page. `None` where the
     /// page is not known as RGB.
     fn band(&self) -> Option<Color> {
-        match self.theme.file_header.background {
+        match self.look.file_header.background {
             BandColor::Color(color) => color,
             BandColor::Auto => {
                 // Light text on a dark page, as most terminals have it.
@@ -628,8 +620,12 @@ impl Layout<'_> {
                     true => Color::Rgb(0xff, 0xff, 0xff),
                     false => Color::Rgb(0, 0, 0),
                 };
-                let amount = if self.dark() { BAND_DARK } else { BAND_LIGHT };
-                let text = self.theme.foreground.or(self.caps.foreground);
+                let amount = if self.dark() {
+                    self.look.cells.band_dark
+                } else {
+                    self.look.cells.band_light
+                };
+                let text = self.look.foreground.or(self.caps.foreground);
                 self.mixed_into_page(text.or(Some(contrast)), amount)
             }
         }
@@ -662,7 +658,7 @@ impl Layout<'_> {
     }
 
     fn heading(&self, level: u8, content: &[Inline], width: usize, context: Context) -> Vec<Line> {
-        let heading = self.theme.heading(level);
+        let heading = self.look.heading(level);
         let sized = self.caps.text_sizing && self.headings != Headings::Plain;
         let size = if sized && !context.nested {
             heading.size
@@ -952,7 +948,7 @@ impl Layout<'_> {
         // The language as written, as the warning on standard error has it.
         let noun = crate::diagrams::noun(language);
         let text = format!("✗ {noun} could not be drawn: {reason}");
-        let style = self.style(Style::fg(self.theme.error));
+        let style = self.style(Style::fg(self.look.error));
         let (indent, max) = self.below_code(width);
         // Each line of the reason wrapped on its own and keeping its indent,
         // such as a pointer to the column of a mistake in the line above.
@@ -1098,7 +1094,7 @@ impl Layout<'_> {
             // each cell's underline would take its own text colour.
             TableRows::Underline if self.caps.styling && self.caps.styled_underlines => {
                 table::Rows::Underline {
-                    color: self.theme.table_border.filter(|_| self.caps.color),
+                    color: self.look.table_border.filter(|_| self.caps.color),
                 }
             }
             TableRows::Underline => table::Rows::Plain,
@@ -1108,7 +1104,7 @@ impl Layout<'_> {
             },
         };
         table::Styles {
-            border: self.style(Style::fg(self.theme.table_border)),
+            border: self.style(Style::fg(self.look.table_border)),
             header,
             rows,
             base: None,
@@ -1124,14 +1120,17 @@ impl Layout<'_> {
         if !(self.caps.styling && self.caps.color && self.caps.truecolor) {
             return None;
         }
-        let text = self.theme.foreground.or(self.caps.foreground);
-        Some((self.mixed_into_page(text, STRIPE)?, self.page()?))
+        let text = self.look.foreground.or(self.caps.foreground);
+        Some((
+            self.mixed_into_page(text, self.look.cells.stripe)?,
+            self.page()?,
+        ))
     }
 
     /// The page's colour as RGB: the theme's background, or else the
     /// terminal's. `None` when it is not known.
     fn page(&self) -> Option<Color> {
-        let page = self.theme.background.or(self.caps.background)?;
+        let page = self.look.background.or(self.caps.background)?;
         page.rgb(&self.caps.palette)
     }
 
@@ -1150,7 +1149,7 @@ impl Layout<'_> {
     fn rule(&self, width: usize) -> Line {
         Line::new(vec![Span::new(
             &"─".repeat(width),
-            self.style(Style::fg(self.theme.rule)),
+            self.style(Style::fg(self.look.rule)),
         )])
     }
 
@@ -1194,7 +1193,7 @@ impl Layout<'_> {
             ),
             Inline::Formula { written, .. } => self.inlines(written, style, out),
             Inline::Mark(content) => {
-                let mark = self.theme.mark;
+                let mark = self.look.mark;
                 let style = if self.caps.color {
                     Style {
                         fg: mark.foreground.or(style.fg),
@@ -1268,7 +1267,7 @@ impl Layout<'_> {
         content: impl FnOnce(&Style, &mut Vec<Span>),
     ) {
         // Spaces in code are kept as written, so it copies as it is.
-        let spaces = if self.theme.inline_code_wrap {
+        let spaces = if self.look.inline_code.wrap {
             Spaces::Keep
         } else {
             Spaces::KeepTogether
@@ -1281,12 +1280,12 @@ impl Layout<'_> {
         if self.caps.styling && self.caps.color {
             let bg = self.inline_code_background().or(style.bg);
             let code_style = Style {
-                fg: self.theme.inline_code.or(style.fg),
+                fg: self.look.inline_code.color.or(style.fg),
                 bg,
                 ..style.clone()
             };
             // No-break spaces keep the padding attached to the code.
-            let padding = if self.theme.inline_code_padding && bg.is_some() {
+            let padding = if self.look.inline_code.padding && bg.is_some() {
                 "\u{a0}"
             } else {
                 ""
@@ -1306,7 +1305,7 @@ impl Layout<'_> {
         // the spans of one link have to share this one, also when the link
         // wraps.
         let link_style = self.style(Style {
-            fg: self.theme.link.or(style.fg),
+            fg: self.look.link.or(style.fg),
             underline: Underline::Single,
             link: self.caps.hyperlinks.then(|| Rc::from(url)),
             ..style.clone()
@@ -1321,7 +1320,7 @@ impl Layout<'_> {
 
     /// Text played down, as [`style::muted`](super::style::muted) has it.
     fn muted(&self, style: Style) -> Style {
-        self.style(super::style::muted(self.theme, style))
+        self.style(super::style::muted_in(self.look.muted, style))
     }
 
     /// Drops all styling when the terminal gets plain text.

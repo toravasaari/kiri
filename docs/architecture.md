@@ -326,8 +326,9 @@ is in and whether it is emphasised, and the cell size it is drawn for,
 and `src/typeset/images/heading.rs` draws the text through the SVG renderer in
 the system's sans-serif font, emphasis in italics, and inline code and
 keys in its monospace font on the background of inline code, at the size
-and in the colours that `render::heading_look` resolves from the theme
-and the terminal, as the text layout's inline code takes them, so
+and in the colours that `render::heading_look` takes from the one look
+(`src/typeset/theme/look.rs`), which is resolved from the theme and the
+terminal, as the text layout's inline code takes them, so
 `src/images/` knows nothing of themes. Other inline styles are drawn as
 the heading's text. Each word starts on a whole cell,
 and `Source::Text` tells the columns each word covers, so layout wraps a
@@ -741,6 +742,7 @@ later and are test only.
 | `src/typeset/reading/page/details.rs` | new: `<details>` blocks and their summary |
 | `src/typeset/reading/page/heading.rs` | new: headings |
 | `src/typeset/reading/page/html.rs` | new: raw HTML, shown as its source |
+| `src/typeset/theme/look.rs` | new: the one look, resolved from the theme and the capabilities, which both layouts read: colours, heading styles, and a spacing table for each medium, in cells for the text layout and in pixels (GitHub's values) for reading mode |
 | `src/typeset/parity.rs` | new, test only: lays out blocks in both layouts and compares what each decided, against the list of known differences |
 | `src/typeset/layout/summary.rs` | new, test only: the cell layout's view of a block, for the parity test |
 | `src/typeset/reading/page/summary.rs` | new, test only: the pixel layout's view of a block, for the parity test |

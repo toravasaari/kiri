@@ -7,10 +7,7 @@ use std::rc::Rc;
 
 use crate::typeset::model::{AlertKind, Block};
 use crate::typeset::reading::octicons;
-use crate::typeset::reading::page::{
-    ALERT_PADDING, ALERT_TITLE_GAP, BOLD, Flow, ICON_GAP, LINE_HEIGHT, Look, QUOTE_BAR,
-    QUOTE_INDENT, Shape,
-};
+use crate::typeset::reading::page::{Flow, Look, Shape};
 use crate::typeset::reading::text::{self, Run};
 
 impl Flow<'_> {
@@ -24,12 +21,12 @@ impl Flow<'_> {
             text: look.quote,
             ..look
         };
-        let indent = QUOTE_INDENT * size;
+        let indent = look.spacing.quote_indent * size;
         let mut inner = self.child(&quoted, top);
         inner.blocks(blocks, x + indent, width - indent, depth);
         self.take(&mut inner);
         self.y = inner.y;
-        let bar = (QUOTE_BAR * size).round().max(1.0);
+        let bar = (look.spacing.quote_bar * size).round().max(1.0);
         self.rect(x, top, bar, self.y - top, look.border);
     }
 
@@ -48,8 +45,8 @@ impl Flow<'_> {
         let look = *self.look;
         let size = look.size;
         let alert = look.alert(kind);
-        let bar = (QUOTE_BAR * size).round().max(1.0);
-        let pad = ALERT_PADDING * size;
+        let bar = (look.spacing.quote_bar * size).round().max(1.0);
+        let pad = look.spacing.alert_padding * size;
         let top = self.y;
         let (inner_x, inner_width) = (x + bar + size, width - bar - 2.0 * size);
         // Inline code in it has a chip of its own, if it has one at all.
@@ -60,11 +57,11 @@ impl Flow<'_> {
         let mut inner = self.child(&inside, top + pad);
         // The icon is a font size wide and tall, before the title.
         let icon_size = size.round();
-        let icon_room = icon_size + ICON_GAP * size;
+        let icon_room = icon_size + look.spacing.icon_gap * size;
         let style = text::Look {
             size,
-            line_height: LINE_HEIGHT,
-            weight: BOLD,
+            line_height: look.spacing.line_height,
+            weight: look.spacing.bold,
             color: alert.color,
             ..text::Look::PLAIN
         };
@@ -87,7 +84,7 @@ impl Flow<'_> {
             },
         );
         inner.y += inner.text(title, inner_x + icon_room);
-        inner.y += ALERT_TITLE_GAP * size;
+        inner.y += look.spacing.alert_title_gap * size;
         inner.blocks(blocks, inner_x, inner_width, depth);
         let bottom = inner.y + pad;
         if let Some(tint) = alert.tint {

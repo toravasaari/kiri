@@ -28,7 +28,7 @@ use crate::typeset::layout;
 use crate::typeset::model::{Block, Document, File, FrontMatter, FrontMatterError};
 use crate::typeset::reading::engine;
 use crate::typeset::style;
-use crate::typeset::theme::Theme;
+use crate::typeset::theme::{Look, Theme};
 
 /// Everything rendering takes besides the document. A new input gets a
 /// default in `new`, so callers that do not need it stay as they are.
@@ -141,26 +141,26 @@ pub fn heading_look(
     if no_images || !heading_images(headings, caps) {
         return None;
     }
-    let cell = size::cell_size(caps);
+    let (look, cell) = (Look::new(theme, caps), size::cell_size(caps));
     // Light text on a dark page, as most terminals have it.
     let contrast = match caps.dark_background {
         Some(true) | None => [0xff; 3],
         Some(false) => [0; 3],
     };
-    let text = rgb(theme.foreground, caps)
+    let text = rgb(look.foreground, caps)
         .or_else(|| rgb(caps.foreground, caps))
         .unwrap_or(contrast);
     let level = |level: u8| {
-        let heading = theme.heading(level);
+        let heading = look.heading(level);
         let color = if caps.color { heading.color } else { None };
         let color = rgb(color, caps).unwrap_or(text);
         LevelLook {
             rows: heading.size.scale(),
-            font_px: (heading.size.value() * f64::from(cell.1) / 1.2) as f32,
+            font_px: heading.image_font_px(cell.1),
             bold: heading.bold,
             italic: heading.italic,
             color,
-            code: code_look(theme, caps, heading.background, color),
+            code: code_look(&look, caps, heading.background, color),
         }
     };
     Some(HeadingLook {
@@ -184,7 +184,7 @@ fn rgb(color: Option<Color>, caps: &Capabilities) -> Option<[u8; 3]> {
 /// has one; in the heading's colour on the heading's background without
 /// colours.
 fn code_look(
-    theme: &Theme,
+    look: &Look,
     caps: &Capabilities,
     background: Option<Color>,
     color: [u8; 3],
@@ -196,11 +196,11 @@ fn code_look(
             padding: false,
         };
     }
-    let code_background = layout::inline_code_background(theme, caps);
+    let code_background = look.inline_code.background;
     CodeLook {
-        color: rgb(theme.inline_code, caps).unwrap_or(color),
+        color: rgb(look.inline_code.color, caps).unwrap_or(color),
         background: rgb(code_background, caps),
-        padding: theme.inline_code_padding && code_background.or(background).is_some(),
+        padding: look.inline_code.padding && code_background.or(background).is_some(),
     }
 }
 
