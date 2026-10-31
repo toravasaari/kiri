@@ -250,7 +250,7 @@ fn new_cell_pixels_send_the_image_again_and_delete_the_old_one() {
 
 #[test]
 fn a_new_cell_size_loads_the_heading_images_for_it() {
-    let key = |cell| crate::images::ImageKey::heading(1, "Kiri", cell);
+    let key = |cell, headings| kiri_heading(cell, headings);
     // Cells of 10 × 20 pixels, then of 8 × 16 when the font gets smaller,
     // or of the same size in a wider window. Without images, as
     // `--no-images` makes `auto` `sized`, nothing loads.
@@ -281,7 +281,7 @@ fn a_new_cell_size_loads_the_heading_images_for_it() {
             breaks: Vec::new(),
             ends: vec![10],
         };
-        inputs.images.insert(key((10, 20)), Ok(text));
+        inputs.images.insert(key((10, 20), headings), Ok(text));
         inputs.headings = headings;
         let mut background = Loads::new();
         run_document(
@@ -293,11 +293,11 @@ fn a_new_cell_size_loads_the_heading_images_for_it() {
             },
             &mut terminal,
         );
-        let wanted = key(after);
+        let wanted = key(after, headings);
         // Asked for once the window told the new cells: loading, or come.
         let asked = background.loading(&wanted)
             || inputs.images.placeholder(&wanted).is_some()
-            || (wanted != key((10, 20)) && inputs.images.get(&wanted).is_some());
+            || (wanted != key((10, 20), headings) && inputs.images.get(&wanted).is_some());
         let keys: Vec<_> = inputs.images.iter().map(|(key, _)| key.clone()).collect();
         assert_eq!(asked, loads, "{after:?} {headings:?}: {keys:?}");
         background.halt();
@@ -306,7 +306,7 @@ fn a_new_cell_size_loads_the_heading_images_for_it() {
 
 #[test]
 fn a_cell_size_answer_loads_the_heading_images_for_it() {
-    let key = |cell| crate::images::ImageKey::heading(1, "Kiri", cell);
+    let key = |cell| kiri_heading(cell, crate::render::Headings::Auto);
     // Inside tmux the window tells tmux's guess of 16 x 32 pixels a cell
     // before and after the font changes, and kitty's answer tells 8 × 16
     // instead of the 10 × 20 detection found.
@@ -581,7 +581,11 @@ fn a_narrower_window_rewraps_a_heading_image_without_a_new_image() {
         breaks: vec![30, 60],
         ends: vec![28, 58, 90],
     };
-    let key = crate::images::ImageKey::heading(1, "One two three", (10, 20));
+    let key = inputs.drawn(crate::images::ImageKey::heading(
+        1,
+        "One two three",
+        (10, 20),
+    ));
     inputs.images.insert(key, Ok(text));
     run_document(
         &crate::typeset::parse::parse("# One two three\n\nText\n"),
@@ -798,4 +802,18 @@ fn an_answer_cut_by_a_reload_is_not_taken_for_keys() {
     let frames = terminal.frames();
     assert_eq!(top_row(frames.last().unwrap()), "Line 1", "{frames:#?}");
     assert_eq!(then.asked, 1);
+}
+
+/// The key of the heading "Kiri" drawn for cells of `cell` pixels, as the
+/// layout of a window of kitty with those cells and `headings` looks it up.
+fn kiri_heading(cell: (u16, u16), headings: crate::render::Headings) -> crate::images::ImageKey {
+    let inputs = Inputs {
+        headings,
+        ..Inputs::new(Capabilities {
+            text_sizing: false,
+            cell_pixels: Some(cell),
+            ..Capabilities::kitty(60)
+        })
+    };
+    inputs.drawn(crate::images::ImageKey::heading(1, "Kiri", cell))
 }

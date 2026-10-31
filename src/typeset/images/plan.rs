@@ -112,7 +112,7 @@ impl Wanted<'_> {
                 level,
                 ref words,
                 cell,
-            } => ImageKey::heading_of(level, words.clone(), cell),
+            } => ImageKey::heading_of(level, words.clone(), cell).with_look(looks.heading(level)),
             Wanted::Diagram {
                 language,
                 ref source,

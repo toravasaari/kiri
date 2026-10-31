@@ -451,7 +451,11 @@ mod tests {
             breaks: vec![30, 60],
             ends: vec![28, 58, 90],
         };
-        let key = crate::typeset::images::ImageKey::heading(1, "One two three", (10, 20));
+        let key = inputs.drawn(crate::typeset::images::ImageKey::heading(
+            1,
+            "One two three",
+            (10, 20),
+        ));
         inputs.images.insert(key, Ok(text));
         let document = crate::typeset::parse::parse("# One two three\n");
         let lines = crate::typeset::layout::layout(&document, &inputs);

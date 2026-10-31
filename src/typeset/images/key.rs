@@ -24,12 +24,14 @@ pub enum ImageKey {
     },
     /// A heading drawn as an image: its level, its words with the inline
     /// code they are in, and the size in pixels of the cells it is drawn
-    /// for, as its words start on whole cells.
+    /// for, as its words start on whole cells, and a fingerprint of the
+    /// look of its level, as `level_look` has it; 0 for none.
     Heading {
         document: usize,
         level: u8,
         words: Vec<HeadingWord>,
         cell: (u16, u16),
+        look: u64,
     },
     /// A part of a page of reading mode's text, drawn when it is shown:
     /// the page, by a hash of what it shows and how, and the part's number
@@ -80,7 +82,8 @@ impl ImageKey {
     }
 
     /// The same image drawn as the fingerprint `look` says: of how a
-    /// diagram is drawn, for a block. Other keys are as they were.
+    /// diagram is drawn, for a block, or of the look of its level, for a
+    /// heading. Other keys are as they were.
     pub fn with_look(self, look: u64) -> Self {
         match self {
             ImageKey::Block {
@@ -92,6 +95,19 @@ impl ImageKey {
                 document,
                 language,
                 source,
+                look,
+            },
+            ImageKey::Heading {
+                document,
+                level,
+                words,
+                cell,
+                ..
+            } => ImageKey::Heading {
+                document,
+                level,
+                words,
+                cell,
                 look,
             },
             other => other,
@@ -113,6 +129,7 @@ impl ImageKey {
             level,
             words,
             cell,
+            look: 0,
         }
     }
 
@@ -132,12 +149,17 @@ impl ImageKey {
                 look,
             },
             ImageKey::Heading {
-                level, words, cell, ..
+                level,
+                words,
+                cell,
+                look,
+                ..
             } => ImageKey::Heading {
                 document,
                 level,
                 words,
                 cell,
+                look,
             },
             ImageKey::Page {
                 page,

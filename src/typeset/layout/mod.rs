@@ -36,9 +36,9 @@ use crate::render::{FrontMatterStyle, Headings, Inputs, RenderErrors, TableRows}
 use crate::typeset::block::{BlockId, Blocks};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::{Color, Underline};
-use crate::typeset::images::diagram_look_for;
 use crate::typeset::images::size::{self, Placement, Shows};
 use crate::typeset::images::{ImageError, ImageKey, Images, Placeholder, Source, heading_words};
+use crate::typeset::images::{Looks, diagram_look_for};
 use crate::typeset::layout::script::Script;
 use crate::typeset::layout::table::Cells;
 use crate::typeset::model::{Block, Document, File, Image, Inline, SourceLines, Table};
@@ -220,7 +220,10 @@ fn with_layout<T>(
     // as heading fills and the padding around inline code. The built-in
     // theme's greys follow the terminal's palette, which may hide them.
     let adjusted;
-    let diagrams = diagram_look_for(theme, caps, *diagram_panel);
+    let looks = Looks {
+        diagram: diagram_look_for(theme, caps, *diagram_panel),
+        headings: crate::render::heading_look(*headings, false, theme, caps),
+    };
     let theme = if !caps.color {
         adjusted = theme.clone().without_colors();
         &adjusted
@@ -250,7 +253,7 @@ fn with_layout<T>(
         // is.
         reading: reading.as_ref().filter(|_| caps.draws_images()),
         document: number,
-        diagrams,
+        looks,
         // The row below for the shell's prompt or the pager's status line.
         reserved: 1,
     };
@@ -318,8 +321,8 @@ struct Layout<'a> {
     /// The number of the document laid out among those shown together,
     /// which the keys of its images carry.
     document: usize,
-    /// The fingerprint of how diagrams are drawn, which their keys carry.
-    diagrams: u64,
+    /// What the keys of diagrams and headings name of how they are drawn.
+    looks: Looks,
     /// The rows of the window that an image file shown on its own leaves
     /// to others: the shell's prompt or the pager's status line below it,
     /// and the header above it.
@@ -477,7 +480,7 @@ impl Layout<'_> {
         // Reading mode sets its own width: the theme's widest text is for
         // text in the terminal's font.
         let window = usize::from(self.caps.width).max(width);
-        let shown = (self.document, self.diagrams);
+        let shown = (self.document, self.looks.diagram);
         let page = super::reading::engine::lines(
             &blocks,
             &ids,
@@ -519,7 +522,7 @@ impl Layout<'_> {
                 let mut lines = self.code_block(language, code, width);
                 lines.extend(self.render_error(language, code, width));
                 if let Some(language) = language {
-                    let key = ImageKey::diagram(language, code, self.diagrams, self.document);
+                    let key = ImageKey::diagram(language, code, self.looks.diagram, self.document);
                     self.loading_band(&key, width, &mut lines);
                 }
                 lines
@@ -785,7 +788,9 @@ impl Layout<'_> {
         }
         let cell = size::cell_size(self.caps);
         let words = heading_words(content);
-        let key = ImageKey::heading_of(level, words.clone(), cell).in_document(self.document);
+        let key = ImageKey::heading_of(level, words.clone(), cell)
+            .with_look(self.looks.heading(level))
+            .in_document(self.document);
         let Some(Ok(Source::Text {
             image,
             breaks,
@@ -931,7 +936,7 @@ impl Layout<'_> {
             return None;
         }
         let language = language?;
-        let key = ImageKey::diagram(language, code, self.diagrams, self.document);
+        let key = ImageKey::diagram(language, code, self.looks.diagram, self.document);
         let align = match crate::typeset::diagrams::names::centred(language) {
             true => Align::Centre,
             false => Align::Left,
@@ -948,7 +953,7 @@ impl Layout<'_> {
             Some(language) if self.render_errors.inline() && !self.images.is_empty() => language,
             _ => return Vec::new(),
         };
-        let key = ImageKey::diagram(language, code, self.diagrams, self.document);
+        let key = ImageKey::diagram(language, code, self.looks.diagram, self.document);
         let Some(Err(ImageError::Diagram { reason, .. })) = self.images.get(&key) else {
             return Vec::new();
         };

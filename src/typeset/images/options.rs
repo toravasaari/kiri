@@ -9,7 +9,7 @@ use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
 use crate::typeset::diagrams::renderer::{NoRenderer, Renderer};
 use crate::typeset::diagrams::request::{FormulaColors, Theme};
-use crate::typeset::images::heading::HeadingLook;
+use crate::typeset::images::heading::{HeadingLook, LevelLook};
 use crate::typeset::images::size::largest;
 use crate::typeset::model::Document;
 use crate::typeset::theme::Theme as PageTheme;
@@ -69,6 +69,24 @@ pub struct Looks {
     pub diagram: u64,
     /// How headings are drawn as images; `None` draws none.
     pub headings: Option<HeadingLook>,
+}
+
+impl Looks {
+    /// The fingerprint of the look of headings of `level`, as
+    /// [`level_look`] has it; 0 when headings are not drawn as images.
+    pub fn heading(&self, level: u8) -> u64 {
+        self.headings
+            .map_or(0, |look| level_look(look.level(level)))
+    }
+}
+
+/// A fingerprint of how headings of one level are drawn: the rows, the
+/// size, the style and the colours of its text and of its inline code. It
+/// holds for a run only.
+pub fn level_look(look: &LevelLook) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    format!("{look:?}").hash(&mut hasher);
+    hasher.finish().max(1)
 }
 
 impl LoadOptions<'_> {
@@ -237,5 +255,49 @@ mod tests {
             options.looks().diagram,
             diagram_look_for(&theme, &caps, false)
         );
+    }
+
+    fn levels(color: [u8; 3], italic: bool) -> Looks {
+        let code = crate::typeset::images::heading::CodeLook {
+            color: [9, 9, 9],
+            background: None,
+            padding: false,
+        };
+        let level = |color| LevelLook {
+            rows: 2,
+            font_px: 30.0,
+            bold: true,
+            italic,
+            color,
+            code,
+        };
+        let mut levels = [level([0; 3]); 6];
+        levels[0] = level(color);
+        Looks {
+            headings: Some(HeadingLook {
+                cell: (10, 20),
+                levels,
+            }),
+            ..Looks::default()
+        }
+    }
+
+    #[test]
+    fn the_look_of_a_heading_s_level_is_in_its_key() {
+        let key = |looks: &Looks, level| {
+            let wanted = Wanted::Heading {
+                level,
+                words: Vec::new(),
+                cell: (10, 20),
+            };
+            wanted.key(looks)
+        };
+        let red = levels([255, 0, 0], false);
+        assert_eq!(key(&red, 1), key(&levels([255, 0, 0], false), 1));
+        assert_ne!(key(&red, 1), key(&levels([0, 255, 0], false), 1));
+        assert_ne!(key(&red, 1), key(&levels([255, 0, 0], true), 1));
+        // The look of another level does not change it.
+        assert_eq!(key(&red, 2), key(&levels([0, 255, 0], false), 2));
+        assert_eq!(Looks::default().heading(1), 0);
     }
 }

@@ -341,15 +341,19 @@ pub fn render_image_on(
 mod tests {
     #[cfg(test)]
     impl Inputs {
-        /// `key` as the layout of these inputs makes it: a diagram's key with
-        /// the fingerprint of how diagrams are drawn for them.
+        /// `key` as the layout of these inputs makes it: a diagram's key
+        /// with the fingerprint of how diagrams are drawn for them, and a
+        /// heading's with that of the look of its level.
         pub(crate) fn drawn(&self, key: impl Into<ImageKey>) -> ImageKey {
-            let look = crate::typeset::images::diagram_look_for(
-                &self.theme,
-                &self.caps,
-                self.diagram_panel,
-            );
-            key.into().with_look(look)
+            let (theme, caps) = (&self.theme, &self.caps);
+            let looks = crate::typeset::images::Looks {
+                diagram: crate::typeset::images::diagram_look_for(theme, caps, self.diagram_panel),
+                headings: heading_look(self.headings, false, theme, caps),
+            };
+            match key.into() {
+                key @ ImageKey::Heading { level, .. } => key.with_look(looks.heading(level)),
+                key => key.with_look(looks.diagram),
+            }
         }
     }
 
