@@ -20,6 +20,7 @@ mod code;
 mod details;
 mod front_matter;
 mod heading;
+mod html;
 mod list;
 mod picture;
 mod quote;
@@ -1217,20 +1218,7 @@ impl<'a> Flow<'a> {
                 self.code_or_diagram(language.as_deref(), code, x, width);
             }
             Block::Table(table) => self.table(table, x),
-            Block::Html(html) => {
-                // Source, as the text layout shows it: muted, in the code's
-                // font and in lines of its own.
-                let style = text::Look {
-                    size: size * text::CODE_SIZE,
-                    line_height: CODE_LINE_HEIGHT,
-                    color: look.quote,
-                    mono: true,
-                    wrap: text::Wrap::Anywhere,
-                    ..text::Look::PLAIN
-                };
-                let paragraph = text::lay_out(self.fonts, &[Run::new(html)], &style, width);
-                self.y += self.text(paragraph, x);
-            }
+            Block::Html(html) => self.html(html, x, width),
             Block::Note(note) => {
                 let content = [Inline::Text(note.clone())];
                 let paragraph = self.paragraph(&content, look.quote, width);
