@@ -131,8 +131,8 @@ pub(crate) struct State {
     pub(crate) decoder: Decoder,
     /// How far reading mode's bands are scrolled, and which is selected.
     pub(crate) bands: bands::Bands,
-    /// The cells the terminal last answered, until `page_through` applies
-    /// them when `show` returns.
+    /// The cells the terminal last answered, until the step asks for them
+    /// to be set (`Effect::SetCells`).
     pub(crate) cell: Option<(u16, u16)>,
     /// What the next layout keeps from this one.
     pub(crate) next: Next,
@@ -408,10 +408,6 @@ impl State {
         layout: &mut Layout,
         run: &Run,
     ) -> Vec<Effect> {
-        self.pressed(key, now, layout, run)
-    }
-
-    fn pressed(&mut self, key: Key, now: Instant, layout: &mut Layout, run: &Run) -> Vec<Effect> {
         let mut action = commands::action(key);
         // A click and the sideways wheel act on the band under them, and
         // never reach the help, the prompt or the colon.
