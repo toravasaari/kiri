@@ -708,7 +708,7 @@ The later work that the rows name, in words:
 | `src/pager/tests/commands.rs` | follows `pager/mod.rs` | new; the pager's answers to its commands |
 | `src/pager/tests/layers.rs` | follows `pager/mod.rs` | new; how the highlights combine |
 | `src/pager/keys.rs` | terminal layer | moved to `src/present/keys.rs`: `Key` and the `Decoder` that turns bytes into keys. The lookup of a key's action is in `src/session/commands.rs` |
-| `src/session/commands.rs` | state engine | new. `Action`, `COMMANDS` (topic, keys, help text, action and the settings that change it) and `action`; it reads `Key` from `src/present/keys.rs` |
+| `src/session/commands.rs` | state engine | new. `Action`, `COMMANDS` (topic, keys, help text, action and the settings that change it), `action` and `hint`, the key the status line shows for an action; it reads `Key` from `src/present/keys.rs` |
 | `src/pager/bands.rs` | state engine | moved to `src/session/bands.rs` |
 | `src/pager/changes.rs` | state engine | moved to `src/session/changes.rs` |
 | `src/pager/fade.rs` | state engine | moved to `src/session/fade.rs` |
