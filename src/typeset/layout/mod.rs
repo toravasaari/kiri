@@ -1303,7 +1303,7 @@ impl Layout<'_> {
     fn link(&self, url: &str, content: &[Inline], style: &Style, out: &mut Vec<Span>) {
         // The pager joins a link that wraps over lines by its `Rc`, so all
         // the spans of one link have to share this one, also when the link
-        // wraps, and touching links to one address share one (`link_to`).
+        // wraps; touching links to one address share one `Rc` (`link_to`).
         let link_style = self.style(Style {
             fg: self.look.link.or(style.fg),
             underline: Underline::Single,

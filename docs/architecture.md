@@ -294,8 +294,8 @@ Shift+Tab, numbering them from the page's own list so that a link keeps its
 id while a band scrolls, and the status line says where it goes. In the
 text layout a link is the run of spans on one line that share a hyperlink
 address, and a link that wraps stays one link when the same link carries onto
-the next line; touching links to one address share one, so they stay one
-there too. A link is numbered in the block it starts in, and the
+the next line, which the pager tells by the link's `Rc`. Touching links to
+one address share one `Rc`, so they stay one link across a line break too. A link is numbered in the block it starts in, and the
 selected one is drawn in reverse video by its layer in
 `src/session/layers.rs`; a link in a heading drawn as an image has no
 spans, so it is not there to select. Tab also reaches a link whose band

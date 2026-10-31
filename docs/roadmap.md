@@ -1612,9 +1612,9 @@ Without the style change they stay one. Reading mode keeps them one. A
 mark that the layout kept for touching parts across a break would mend
 it.
 
-Fixed: the layout gives a link that touches one to the same address the
-same address value, so the pager joins them across a break as it joins
-a link that wraps.
+Fixed: a link that touches one to the same address reuses that link's
+`Rc`, so the pager joins the two across a break as it joins a link that
+wraps.
 
 #### B15 Tab stops at a link without an address (fixed)
 

@@ -241,10 +241,11 @@ pub fn text(spans: &[Span]) -> String {
     spans.iter().map(|span| span.text.as_str()).collect()
 }
 
-/// The address for a link to `url` that comes after `spans`: the last
-/// span's, when that is a link to the same address, as in
-/// `[a](u)**[b](u)**`, so that the two stay one where a line breaks
-/// between them, as the terminal shows them as one; else a new one.
+/// The `Rc` for a link to `url` that comes right after `spans`. When the
+/// last span is a link to `url` too, as in `[a](u)**[b](u)**`, it is that
+/// span's `Rc`: the pager joins a link across lines by its `Rc`
+/// (`text_links`), so the two stay one link where a line breaks between
+/// them, as the terminal shows them as one. Otherwise it is a new `Rc`.
 pub fn link_to(spans: &[Span], url: &str) -> Rc<str> {
     let before = spans.last().and_then(|span| span.style.link.clone());
     before
