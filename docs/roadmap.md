@@ -1,5 +1,8 @@
 # Roadmap
 
+kiri reads files to the user in the best and most understandable way the
+user's terminal allows.
+
 kiri grows in phases. Each phase leaves the project in a working state, and
 review and refactoring are part of every phase rather than a phase of their
 own. Later phases may be reordered or split as the work shows what matters.
