@@ -614,7 +614,7 @@ mod tests {
 
     #[test]
     fn a_link_in_a_heading_drawn_as_an_image_cannot_be_selected() {
-        use crate::images::{ImageKey, Source, heading_words};
+        use crate::typeset::images::{ImageKey, Source, heading_words};
         use crate::typeset::model::Block;
         let document = crate::typeset::parse::parse("# A [link](u1) here\n\nBody [other](u2)\n");
         let Block::Heading {

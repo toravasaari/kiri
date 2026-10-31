@@ -11,7 +11,7 @@ mod file;
 mod look;
 mod paper;
 
-pub use file::{load, parse};
+pub use file::parse;
 pub use look::{Bullets, CellTable, GITHUB, HeadingLook, InlineCode, Look, PixelTable};
 pub use paper::Paper;
 

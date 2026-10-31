@@ -32,12 +32,12 @@ use std::borrow::Cow;
 use std::ops::Range;
 use std::rc::Rc;
 
-use crate::images::{ImageError, ImageKey, Images, Placeholder, Source, heading_words};
 use crate::render::{FrontMatterStyle, Headings, Inputs, RenderErrors, TableRows};
 use crate::typeset::block::{BlockId, Blocks};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::{Color, Underline};
 use crate::typeset::images::size::{self, Placement, Shows};
+use crate::typeset::images::{ImageError, ImageKey, Images, Placeholder, Source, heading_words};
 use crate::typeset::layout::script::Script;
 use crate::typeset::layout::table::Cells;
 use crate::typeset::model::{Block, Document, File, Image, Inline, SourceLines, Table};
@@ -925,7 +925,7 @@ impl Layout<'_> {
         }
         let language = language?;
         let key = ImageKey::block(language, code).in_document(self.document);
-        let align = match crate::diagrams::centred(language) {
+        let align = match crate::typeset::diagrams::names::centred(language) {
             true => Align::Centre,
             false => Align::Left,
         };
@@ -946,7 +946,7 @@ impl Layout<'_> {
             return Vec::new();
         };
         // The language as written, as the warning on standard error has it.
-        let noun = crate::diagrams::noun(language);
+        let noun = crate::typeset::diagrams::names::noun(language);
         let text = format!("✗ {noun} could not be drawn: {reason}");
         let style = self.style(Style::fg(self.look.error));
         let (indent, max) = self.below_code(width);
@@ -1470,8 +1470,8 @@ mod tests {
     }
 
     /// The pixels of an image of `width` × `height`.
-    fn pixels(width: u32, height: u32) -> crate::images::Source {
-        crate::images::Source::Raster(::image::RgbaImage::new(width, height))
+    fn pixels(width: u32, height: u32) -> crate::typeset::images::Source {
+        crate::typeset::images::Source::Raster(::image::RgbaImage::new(width, height))
     }
 
     #[test]
@@ -1834,7 +1834,7 @@ mod tests {
 
     /// Inputs for kitty with cells of 10 × 20 pixels, a CSS pixel to a
     /// pixel, and `key` loaded as `image`.
-    fn loaded(key: impl Into<ImageKey>, image: crate::images::Source) -> Inputs {
+    fn loaded(key: impl Into<ImageKey>, image: crate::typeset::images::Source) -> Inputs {
         let mut inputs = Inputs::new(Capabilities {
             cell_pixels: Some((10, 20)),
             ..Capabilities::kitty(60)

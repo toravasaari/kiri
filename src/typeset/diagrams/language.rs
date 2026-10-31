@@ -2,9 +2,9 @@
 //! plain data, with a function where languages differ in what they do.
 //! A new language is one more entry in [`LANGUAGES`].
 
-use crate::diagrams::external::Output;
-use crate::diagrams::{Drawn, Request, Theme};
 use crate::typeset::diagrams::error::DiagramError;
+use crate::typeset::diagrams::output::Output;
+use crate::typeset::diagrams::request::{Drawn, Request, Theme};
 use crate::typeset::diagrams::{math, mermaid};
 
 /// A language kiri draws diagrams in.

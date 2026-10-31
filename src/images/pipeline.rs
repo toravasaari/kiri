@@ -7,16 +7,15 @@
 use std::collections::{BTreeMap, HashSet};
 
 use super::background::{Context, Job, What};
+use super::plan;
 use super::{
     Fonts, HeadingLook, ImageKey, Images, LoadOptions, Loads, Part, Placeholder, Stamps, Wanted,
     diagram_languages,
 };
-use super::{load_parts, plan};
 use crate::config::{self, Environment, Settings};
 use crate::diagrams::find::{self, Search};
-use crate::diagrams::{
-    Command, ExternalSettings, FormulaColors, NoRenderer, Renderer, Renderers, Theme,
-};
+use crate::diagrams::{Command, ExternalSettings, FormulaColors, NoRenderer, Renderer, Theme};
+use crate::load::{Renderers, load_parts};
 use crate::term::Interrupt;
 
 /// What loading the documents' images needs to know, resolved for the

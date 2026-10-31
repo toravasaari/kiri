@@ -149,7 +149,7 @@ pub fn load_theme(source: &ThemeSource) -> Result<Theme, String> {
     match source {
         ThemeSource::File(path)
         | ThemeSource::DefaultFile(path)
-        | ThemeSource::Named { path, .. } => crate::typeset::theme::load(path),
+        | ThemeSource::Named { path, .. } => crate::load::theme::load(path),
         ThemeSource::Unknown { message, .. } => Err(message.clone()),
         ThemeSource::BuiltIn => Ok(Theme::default()),
         ThemeSource::Paper(paper) => Ok(Theme::paper(*paper)),

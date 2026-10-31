@@ -33,7 +33,7 @@ pub const WIDTH: u16 = 48;
 /// file was made, so that a change to the built-in theme does not move
 /// those snapshots.
 pub fn fixed_theme() -> Theme {
-    kiri::typeset::theme::load(&fixtures().join("test-theme.toml")).expect("the test theme loads")
+    kiri::load::theme::load(&fixtures().join("test-theme.toml")).expect("the test theme loads")
 }
 
 /// Inputs with `caps`, the [`fixed_theme`] and no images.
@@ -88,7 +88,7 @@ pub fn example_theme(name: &str) -> Theme {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("examples/themes")
         .join(name);
-    kiri::typeset::theme::load(&path).expect("example theme loads")
+    kiri::load::theme::load(&path).expect("example theme loads")
 }
 
 /// Escape characters and no-break spaces made visible, so snapshots can be
@@ -190,7 +190,7 @@ pub fn fixture_images(name: &str) -> Images {
 /// diagrams.
 pub fn fixture_images_with(name: &str, options: &LoadOptions<'_>) -> Images {
     let document = kiri::typeset::parse::parse(&fixture(name));
-    let loaded = kiri::images::load_with(
+    let loaded = kiri::load::load_with(
         &document,
         &fixtures(),
         DEFAULT_MAX_FILE_SIZE,
@@ -251,7 +251,7 @@ pub fn stub_diagrams() -> LoadOptions<'static> {
 /// The images of `source`, a Markdown document, with its diagrams drawn
 /// by `StubDiagrams`.
 pub fn stub_diagram_images(source: &str) -> Images {
-    kiri::images::load_with(
+    kiri::load::load_with(
         &kiri::typeset::parse::parse(source),
         &fixtures(),
         DEFAULT_MAX_FILE_SIZE,

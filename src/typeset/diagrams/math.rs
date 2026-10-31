@@ -5,9 +5,9 @@ use ratex_layout::{LayoutOptions, layout, to_display_list, validate_layout};
 use ratex_svg::{SvgOptions, render_to_svg};
 use ratex_types::{Color, MathStyle};
 
-use crate::diagrams::{Drawn, Request, Theme};
 use crate::typeset::diagrams::error::DiagramError;
 use crate::typeset::diagrams::language::{self, BuiltInRenderer, Language, ThemeNames};
+use crate::typeset::diagrams::request::{Drawn, Request, Theme};
 
 /// Formulas.
 pub(super) const MATH: Language = Language {
@@ -33,7 +33,7 @@ pub(super) const MATH: Language = Language {
 
 /// A formula in the middle of text.
 pub(super) const MATH_INLINE: Language = Language {
-    name: crate::diagrams::INLINE_FORMULA,
+    name: crate::typeset::diagrams::request::INLINE_FORMULA,
     centred: false,
     ..MATH
 };
@@ -89,7 +89,8 @@ fn render(request: &Request) -> Result<Drawn, DiagramError> {
     let channel = |value: u8| f32::from(value) / 255.0;
     // A formula in the middle of text is in text style at the size of the
     // text; one of its own is larger, in display style.
-    let (style, size) = match request.language == crate::diagrams::INLINE_FORMULA {
+    let (style, size) = match request.language == crate::typeset::diagrams::request::INLINE_FORMULA
+    {
         true => (MathStyle::Text, INLINE_FONT_SIZE),
         false => (MathStyle::Display, BLOCK_FONT_SIZE),
     };
@@ -127,8 +128,9 @@ fn on_background(svg: &str, [red, green, blue]: [u8; 3]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diagrams::FormulaColors;
-    use crate::images::{DEFAULT_MAX_FILE_SIZE, Fonts, decode};
+    use crate::images::Fonts;
+    use crate::typeset::diagrams::request::FormulaColors;
+    use crate::typeset::images::{DEFAULT_MAX_FILE_SIZE, decode};
 
     fn drawn(source: &str, theme: Theme, color: Option<[u8; 3]>) -> Result<String, DiagramError> {
         let colors = FormulaColors {

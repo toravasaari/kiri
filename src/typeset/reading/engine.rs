@@ -27,14 +27,14 @@ use std::rc::Rc;
 
 use image::RgbaImage;
 
-use crate::diagrams::INLINE_FORMULA;
-use crate::images::{ImageError, ImageKey, Images, Placeholder, Source};
 use crate::render::FrontMatterStyle;
 use crate::render::loading;
 use crate::typeset::block::BlockId;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
+use crate::typeset::diagrams::{names, renderer, request::INLINE_FORMULA};
 use crate::typeset::images::size::{self as sizes, Placement, Shows, Size, Wanted, cell_size};
+use crate::typeset::images::{ImageError, ImageKey, Images, Placeholder, Source};
 use crate::typeset::layout::highlight;
 use crate::typeset::layout::{CodeColors, expand_tabs};
 use crate::typeset::model::{self, Block};
@@ -764,7 +764,7 @@ impl Gallery<'_> {
                 }
             }
             (Some(Err(ImageError::Diagram { reason, .. })), _) if language.is_some() => {
-                let noun = language.map(crate::diagrams::noun).unwrap_or_default();
+                let noun = language.map(names::noun).unwrap_or_default();
                 let message = format!("✗ {noun} could not be drawn: {reason}");
                 Picture::Failed(self.inline_errors.then_some(message))
             }
@@ -816,7 +816,7 @@ impl Pictures for Gallery<'_> {
             } => {
                 // The renderer tells how much of the image is below the
                 // formula's baseline.
-                let below = crate::diagrams::baseline_depth(INLINE_FORMULA, source);
+                let below = renderer::baseline_depth(INLINE_FORMULA, source);
                 let depth = below.map_or(0.0, |below| below as f32 * pixels.height() as f32);
                 Picture::Ready {
                     pixels,
@@ -990,9 +990,9 @@ fn rgb(color: Color, caps: &Capabilities) -> Option<Brush> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::images::ImageError;
     use crate::present::output;
     use crate::render::{Inputs, RenderErrors};
+    use crate::typeset::images::ImageError;
     use crate::typeset::layout;
     use crate::typeset::model::AlertKind;
     use crate::typeset::parse::parse;
