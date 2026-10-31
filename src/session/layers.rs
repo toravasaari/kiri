@@ -3,19 +3,21 @@
 //! branch in the pager.
 //!
 //! A [`Layer`] is a [`Paint`] at an [`At`]. The paint says what is painted
-//! in a vocabulary both layouts share: a lighter background, colours, reverse
-//! video, a box, a frame. The address says where, in the layout's own terms:
+//! in a vocabulary both layouts share: a background mixed toward the text colour,
+//! colours, reverse video, a box, a frame. The address says where, in the layout's own terms:
 //! lines, bytes of a line's text and spans in the text layout, glyph ranges
 //! and links of a page in reading mode. Positions that both layouts share
 //! are later work.
 //!
-//! The list goes from the bottom up: a layer is painted over those before
-//! it, each layout in its own way. A lighter background is mixed into the
-//! background text already has. A mark's colours cover what is under them.
-//! In the text layout reverse video, the selected link's, yields where a
-//! mark's colours cover the text, so that a match in a link stays a match;
-//! in reading mode the link's frame is drawn over the match's box. Two layers
-//! of colours or boxes do not cover the same text.
+//! The list goes from the bottom up, and each layout paints it in its own
+//! way. A background is mixed into the background the text already has,
+//! whatever its place in the list. In the text layout colours do not stack:
+//! where two layers of colours cover the same bytes, the earlier one in the
+//! list keeps them and the later one is dropped there, so a new highlight
+//! that must show over a match goes before the matches in [`stack`]. Reverse
+//! video, the selected link's, yields where colours cover the text, so that
+//! a match in a link stays a match. In reading mode a box goes under the
+//! glyphs, and the link's frame is drawn over the boxes.
 //!
 //! [`stack`] makes the list from what the pager knows, and [`paint`] paints
 //! the lines with it.
@@ -82,6 +84,22 @@ pub enum At {
 pub struct Layer<'a> {
     pub paint: Paint<'a>,
     pub at: At,
+}
+
+impl Layer<'_> {
+    /// Whether the paint is one that a layout paints at the address: the
+    /// pairs the painters below handle. A layer that does not fit is a
+    /// mistake in the layer, which no painter would show.
+    fn fits(&self) -> bool {
+        matches!(
+            (&self.paint, &self.at),
+            (Paint::Background { .. }, At::Lines(_))
+                | (Paint::Colours { .. }, At::Bytes { .. })
+                | (Paint::Reverse, At::Spans { .. })
+                | (Paint::Box { .. }, At::Glyphs { .. })
+                | (Paint::Frame, At::Link { .. })
+        )
+    }
 }
 
 /// How much to tint which lines, over how many cells, in what colours.
@@ -167,6 +185,11 @@ pub fn stack<'a>(highlights: &Highlights<'a>, lines: &[Line], first: usize) -> V
 
 /// `lines`, from line `first` of the document on, painted with `layers`.
 pub fn paint(lines: &[Line], first: usize, layers: &[Layer]) -> Vec<Line> {
+    debug_assert!(
+        layers.iter().all(Layer::fits),
+        "a layer whose paint does not fit its address is painted by no layout: {:?}",
+        layers.iter().find(|layer| !layer.fits())
+    );
     let mut painted: Vec<Line> = (first..)
         .zip(lines)
         .map(|(index, line)| paint_text(line, index, layers))
@@ -702,5 +725,38 @@ mod tests {
         let mut row = heading_row("Kiri", 0);
         row.spans = vec![Span::new("> ", Style::default())];
         assert_eq!(mark(&row, &[(2..6, false)], &marks, None, None), row);
+    }
+
+    #[test]
+    fn where_colours_overlap_the_earlier_layer_keeps_the_text() {
+        let first = Style {
+            bg: Some(Color::Palette(1)),
+            ..Style::default()
+        };
+        let second = Style {
+            bg: Some(Color::Palette(2)),
+            ..Style::default()
+        };
+        let layer = |style, bytes| Layer {
+            paint: Paint::Colours { style, fade: None },
+            at: At::Bytes { line: 0, bytes },
+        };
+        let layers = [layer(&first, 0..3), layer(&second, 2..4)];
+        let painted = paint(&[line("kiri")], 0, &layers);
+        // The later layer paints only what the earlier left.
+        assert_eq!(
+            painted[0].spans,
+            [Span::new("kir", first), Span::new("i", second),]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "paint does not fit its address")]
+    fn a_layer_whose_paint_does_not_fit_its_address_is_a_mistake() {
+        let layers = [Layer {
+            paint: Paint::Frame,
+            at: At::Lines(0..1),
+        }];
+        paint(&[line("kiri")], 0, &layers);
     }
 }
