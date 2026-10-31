@@ -32,9 +32,9 @@ use crate::session::help::Placed;
 use crate::session::search::Marks;
 use crate::session::settings::{self, FollowJump, SearchCase};
 use crate::session::state::{
-    Change, Changed, FRAME, NEEDS_IMAGES, NOTHING_TO_FOLLOW, POLL, Polled, State, Told, Warning,
+    Change, Changed, FRAME, NEEDS_IMAGES, NOTHING_TO_FOLLOW, POLL, State, Told, Warning,
 };
-use crate::session::step::{Effect, Msg, Pager, Pending, Run, step};
+use crate::session::step::{Effect, Msg, Pager, Run, step};
 use crate::session::view::View;
 use crate::session::{changes, loading, status};
 use crate::term::{Screen, WindowSize};
@@ -228,6 +228,8 @@ fn page_through(
         reload,
         loads,
         started: terminal.now(),
+        arrived: Vec::new(),
+        window: None,
     };
     let page = Page {
         background: inputs.theme.background,
@@ -402,15 +404,16 @@ fn page_through(
             status: &status,
             view: &mut shown,
         };
-        let outcome = show(
-            &mut frame_layout,
-            &mut state,
-            &mut writer,
-            terminal,
-            size,
-            inputs.caps.cell_pixels,
-            &mut source,
-        )?;
+        let run = Run {
+            can_reload: source.reload.is_some(),
+            tmux: writer.through_tmux(),
+            started: source.started,
+        };
+        let cells = inputs.caps.cell_pixels;
+        let ended = {
+            let mut pager = Pager::new(&mut state, &mut frame_layout, run, cells, terminal.now());
+            show(&mut pager, &mut writer, terminal, size, &mut source)?
+        };
         // An answer that came in the same read as a key that ended the frame
         // is applied first, so the outcome that key asks for uses the new
         // cells.
@@ -418,8 +421,8 @@ fn page_through(
             state.changed = None;
             inputs.caps.cell_pixels = Some(cell);
         }
-        match outcome {
-            Outcome::Quit => {
+        match ended {
+            Effect::Quit => {
                 // The caller waits for the programs, once the screen is
                 // left.
                 source.loads.halt();
@@ -427,7 +430,7 @@ fn page_through(
                 terminal.flush()?;
                 return Ok(());
             }
-            Outcome::Loaded(came) => {
+            Effect::Loaded => {
                 // The tinted lines move with the image that came.
                 if let Some(changed) = state.changed.take() {
                     let blocks = (lines.get(changed.lines).unwrap_or_default().iter())
@@ -435,13 +438,14 @@ fn page_through(
                         .collect();
                     tinted = Some((changed.at, blocks));
                 }
-                for (key, image) in came {
+                for (key, image) in source.arrived.drain(..) {
                     inputs.images.came(key, image);
                 }
                 keep_top = true;
                 view = Some(shown);
             }
-            Outcome::Resized(new) => {
+            Effect::Resized => {
+                let new = source.window;
                 // The lines laid out for the new size are others.
                 state.changed = None;
                 size = new;
@@ -458,7 +462,7 @@ fn page_through(
             }
             // Laid out again for the cells the terminal answered, as after
             // a resize.
-            Outcome::Cell(cell) => {
+            Effect::Cells(cell) => {
                 state.changed = None;
                 inputs.caps.cell_pixels = Some(cell);
                 view = Some(shown);
@@ -466,7 +470,7 @@ fn page_through(
             // Laid out again with wide blocks the other way, in reading
             // mode as it is and as `M` would turn it on, keeping the
             // block at the top as a resize does.
-            Outcome::Wide => {
+            Effect::Wide => {
                 for reading in [&mut inputs.reading, &mut other].into_iter().flatten() {
                     reading.wide = match reading.wide {
                         Wide::Wrap => Wide::Scroll,
@@ -477,14 +481,14 @@ fn page_through(
                 view = Some(shown);
             }
             // The same lines, with the band shown anew.
-            Outcome::Bands => {
+            Effect::Bands => {
                 laid_out = Some((inputs.caps.clone(), Stream { lines, blocks }));
                 keep_top = true;
                 view = Some(shown);
             }
             // Laid out again as after a resize, which keeps the block at
             // the top.
-            Outcome::Reading => {
+            Effect::Reading => {
                 if inputs.caps.draws_images() {
                     std::mem::swap(&mut inputs.reading, &mut other);
                     state.changed = None;
@@ -499,7 +503,7 @@ fn page_through(
                 }
                 view = Some(shown);
             }
-            Outcome::Reload => {
+            Effect::Reload => {
                 state.changed = None;
                 view = Some(shown);
                 state.follow.seen = None;
@@ -559,6 +563,7 @@ fn page_through(
                 state.warn(warnings, now);
                 state.told = Some(Told::fading("reloaded", now));
             }
+            _ => unreachable!("a layout ends with the effects that end it"),
         }
     }
 }
@@ -577,28 +582,6 @@ fn follows(changes: &Comparison, old: &BlockInfo, new: &BlockInfo) -> bool {
 /// The rows of a window whose size the terminal does not tell.
 const DEFAULT_ROWS: u16 = 24;
 
-/// Why the pager stopped showing one layout of the document.
-enum Outcome {
-    Quit,
-    /// The window is now of this size.
-    Resized(Option<WindowSize>),
-    /// The terminal answered that its cells are of this size, width and
-    /// height in pixels, which are not the ones in use.
-    Cell((u16, u16)),
-    /// The document is to be read again: the reader asked for it, and the
-    /// status line says it is being read, or it changed while followed.
-    Reload,
-    /// These images, loading in the background, came.
-    Loaded(Vec<(ImageKey, Result<Source, ImageError>)>),
-    /// Reading mode is to be turned on or off.
-    Reading,
-    /// A band is scrolled or selected otherwise: the same lines show it
-    /// anew.
-    Bands,
-    /// Wide blocks are to switch between wrapping and scrolling.
-    Wide,
-}
-
 /// Where the pager gets the document and its images again.
 struct Origin<'r, 'l> {
     /// Where `r` gets the document again from; `None` when it cannot.
@@ -608,6 +591,11 @@ struct Origin<'r, 'l> {
     /// When the pager started, from when the bands below the images that
     /// load move.
     started: Instant,
+    /// The loads that came and wait for the layout to end, as the images
+    /// are in use until then.
+    arrived: Vec<(ImageKey, Result<Source, ImageError>)>,
+    /// The size the window was last found to be of.
+    window: Option<WindowSize>,
 }
 
 /// Starts loading the heading images of `content` for the cells `inputs`
@@ -684,126 +672,99 @@ fn draw_frame(
     )
 }
 
-/// Shows `layout` in `state` on `terminal`, whose window is of `size`, and
-/// scrolls it until the reader quits or the window changes size, until
-/// the document is to be read again from `source`, if there is one to
-/// read it from, or until images loading there come.
-#[expect(clippy::too_many_lines)]
+/// Shows `pager`'s layout on `terminal`, whose window is of `size`, until
+/// the layout ends: it waits for a message, steps the pager with it and
+/// carries out the effects, one after the other, and tells the effect that
+/// ended it.
 fn show(
-    layout: &mut Layout,
-    state: &mut State,
+    pager: &mut Pager,
     writer: &mut Writer,
     terminal: &mut impl Terminal,
     size: Option<WindowSize>,
-    cell: Option<(u16, u16)>,
     source: &mut Origin,
-) -> io::Result<Outcome> {
-    let reload = &mut source.reload;
-    let run = Run {
-        can_reload: reload.is_some(),
-        tmux: writer.through_tmux(),
-    };
-    // The images loading start nearest to the lines in view.
-    let mut told = layout.view.visible();
-    prefer(source.loads, layout.lines, told.clone());
-    let mut now = terminal.now();
-    let mut shown = layout.frame(state, now);
-    writer.at(now.saturating_duration_since(source.started));
-    draw_frame(&shown, layout.view.rows(), writer, terminal)?;
-    state.sent(writer.check(terminal)?);
-    terminal.flush()?;
+) -> io::Result<Effect> {
+    let mut msg = Msg::Shown(terminal.now());
     loop {
-        let input = terminal.read(if layout.fades(state, now) || writer.has_bands() {
-            FRAME
-        } else {
-            POLL
-        })?;
-        // Nothing more came for a key the last read cut off.
-        let keys = if input.is_empty() {
-            state.decoder.flush()
-        } else {
-            state.decoder.keys(&input)
-        };
-        now = terminal.now();
-        state.tick(now);
-        let mut pager = Pager {
-            state: &mut *state,
-            layout: &mut *layout,
-            run,
-            pending: Pending::default(),
-        };
-        for effect in step(&mut pager, Msg::Keys(keys, now)) {
-            match effect {
-                Effect::Quit => return Ok(Outcome::Quit),
-                Effect::Reload => return Ok(Outcome::Reload),
-                Effect::Reading => return Ok(Outcome::Reading),
-                Effect::Wide => return Ok(Outcome::Wide),
-                Effect::Redraw => {}
-                Effect::Lose => writer.lost(),
-                Effect::LoseSome(sent) => writer.lost_some(&sent),
-                Effect::Resend(id) => writer.send_again(id, terminal)?,
-                Effect::Copy(text) => {
-                    clipboard::copy(&text, writer.through_tmux(), terminal)?;
-                    terminal.flush()?;
-                }
-                Effect::Present(frame) => {
-                    draw_frame(&frame, pager.layout.view.rows(), writer, terminal)?;
-                    pager.state.sent(writer.check(terminal)?);
-                    terminal.flush()?;
-                }
+        let mut next = None;
+        for effect in step(pager, msg) {
+            if effect.ends() {
+                return Ok(effect);
+            }
+            if let Some(reply) = carry(effect, pager, writer, terminal, size, source)? {
+                next = Some(reply);
             }
         }
-        let Pending {
-            again,
-            written,
-            bands,
-        } = pager.pending;
-        let mut written = written;
-        if let Some(new) = state.cell.take()
-            && Some(new) != cell
-        {
-            return Ok(Outcome::Cell(new));
+        msg = next.expect("an effect that asks for the next message");
+    }
+}
+
+/// Carries out `effect` for `pager` on `terminal`, and gives the message
+/// it asks for, if it does.
+fn carry(
+    effect: Effect,
+    pager: &mut Pager,
+    writer: &mut Writer,
+    terminal: &mut impl Terminal,
+    size: Option<WindowSize>,
+    source: &mut Origin,
+) -> io::Result<Option<Msg>> {
+    match effect {
+        Effect::Read { fading } => {
+            let wait = if fading || writer.has_bands() {
+                FRAME
+            } else {
+                POLL
+            };
+            let bytes = terminal.read(wait)?;
+            return Ok(Some(Msg::Input(bytes, terminal.now())));
         }
-        if state.follow.on()
-            && let Some(source) = reload.as_deref_mut()
-        {
-            match state.follow.poll(source.change(), now) {
-                Polled::Nothing => {}
-                Polled::Reload => return Ok(Outcome::Reload),
-                Polled::Gone(why) => state.told = Some(Told::new(why)),
+        Effect::PollChange => {
+            let reload = source.reload.as_deref_mut();
+            let change = reload.expect("a source to poll").change();
+            return Ok(Some(Msg::Changed(change)));
+        }
+        Effect::PollLoads => {
+            source.arrived.extend(source.loads.poll());
+            let came = !source.arrived.is_empty();
+            return Ok(Some(Msg::Loads { came }));
+        }
+        Effect::PollWindow => {
+            source.window = terminal.size();
+            let changed = source.window != size;
+            let bands = writer.has_bands();
+            return Ok(Some(Msg::Window { changed, bands }));
+        }
+        Effect::Prefer(visible) => prefer(source.loads, pager.layout.lines, visible),
+        Effect::Draw(frame, at) => {
+            if let Some(at) = at {
+                writer.at(at);
             }
-        }
-        if layout.view.visible() != told {
-            told = layout.view.visible();
-            prefer(source.loads, layout.lines, told.clone());
-        }
-        // The band selected scrolled away: the topmost on the screen takes
-        // its place.
-        let refreshed = (state.bands).refresh(layout.lines, layout.places, layout.view.visible());
-        if bands || refreshed {
-            return Ok(Outcome::Bands);
-        }
-        let came = source.loads.poll();
-        if !came.is_empty() {
-            return Ok(Outcome::Loaded(came));
-        }
-        let window = terminal.size();
-        if window != size {
-            return Ok(Outcome::Resized(window));
-        }
-        let frame = layout.frame(state, now);
-        // A band on the screen moves on with each frame drawn.
-        if frame != shown || writer.has_bands() || again {
-            shown = frame;
-            writer.at(now.saturating_duration_since(source.started));
-            draw_frame(&shown, layout.view.rows(), writer, terminal)?;
-            written = true;
-        }
-        if written {
-            state.sent(writer.check(terminal)?);
+            draw_frame(&frame, pager.layout.view.rows(), writer, terminal)?;
+            pager.state.sent(writer.check(terminal)?);
             terminal.flush()?;
         }
+        Effect::Check => {
+            pager.state.sent(writer.check(terminal)?);
+            terminal.flush()?;
+        }
+        Effect::Resend(id) => writer.send_again(id, terminal)?,
+        Effect::Lose => writer.lost(),
+        Effect::LoseSome(sent) => writer.lost_some(&sent),
+        Effect::Copy(text) => {
+            clipboard::copy(&text, writer.through_tmux(), terminal)?;
+            terminal.flush()?;
+        }
+        Effect::Redraw
+        | Effect::Quit
+        | Effect::Reload
+        | Effect::Reading
+        | Effect::Wide
+        | Effect::Cells(_)
+        | Effect::Bands
+        | Effect::Loaded
+        | Effect::Resized => unreachable!("an effect that ends the layout, or one a key makes"),
     }
+    Ok(None)
 }
 
 /// Tells `loads` to load the images of `lines` nearest to the lines
