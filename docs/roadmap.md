@@ -977,6 +977,13 @@ or in other terminals, from the best to the plainest.
   chooses, and `--no-images` turns them off. A long heading wraps at its
   words into lines of the one image. Inline code and keys look as in the
   text, and emphasis is in italics. Still to do: the terminal's own font.
+- Emoji in colour: today they come out in one colour, the heading's, and
+  flags as boxed letters, as resvg draws no colour emoji fonts.
+- Right-to-left scripts, such as Arabic or Hebrew, in the right order:
+  today each word is drawn right, but the words are placed from left to
+  right.
+- Strikethrough, `<mark>` and the colour of links, which are plain
+  heading text in the images today.
 
 #### 5.3.2 chafa
 
@@ -1391,15 +1398,6 @@ go.
   (5.3.1) too. 5.3.1 makes it do so, but the flag is about a document's
   images and formulas, which one may want hidden while headings stay
   large.
-- Emoji in headings drawn as images (5.3.1) come out in one colour, the
-  heading's, and flags as boxed letters, as resvg draws no colour emoji
-  fonts.
-- Headings drawn as images (5.3.1) in a right-to-left script, such as
-  Arabic or Hebrew, have their words in the wrong order: each word is
-  drawn right, but they are placed from left to right.
-- Headings drawn as images (5.3.1) show inline code, keys and emphasis
-  as the text does, but strikethrough, `<mark>` and the colour of links
-  are plain heading text in them.
 - Drawing headings as images (5.3.1) parses an SVG for each word to
   measure it, and measures the space again for every heading: a document
   with a hundred headings parses hundreds of SVGs before it shows.
