@@ -271,10 +271,11 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     let size = &choices.max_image_size;
     let mb = format!("{} MB", size.value.0);
     row(out, &["Largest image", &mb, &from(size.origin)])?;
-    let width = match (choices.width.value, facts.detection.window) {
-        (Some(_), _) => from(choices.width.origin),
-        (None, Some(_)) => "terminal".to_owned(),
-        (None, None) => from(Origin::Default),
+    let given = choices.width.value.is_some() || choices.width.origin != Origin::Default;
+    let width = match (given, facts.detection.window) {
+        (true, _) => from(choices.width.origin),
+        (false, Some(_)) => "terminal".to_owned(),
+        (false, None) => from(Origin::Default),
     };
     let cells = format!("{} cells", facts.detection.caps.width);
     row(out, &["Width", &cells, &width])?;

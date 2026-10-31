@@ -52,7 +52,7 @@ pub fn printing(wide: Option<&mut Wide>) {
     }
 }
 
-/// `caps` for a page: the paper from `--light` or `--dark` says whether
+/// `caps` for a page: the paper theme, when the theme is one, says whether
 /// the background is dark.
 pub fn on_page(mut caps: Capabilities, paper: Option<Paper>) -> Capabilities {
     if let Some(paper) = paper {

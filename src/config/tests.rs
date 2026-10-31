@@ -1472,6 +1472,27 @@ fn settings_keep_the_paper_and_its_theme() {
 }
 
 #[test]
+fn the_paper_comes_from_a_paper_theme_chosen_at_any_level() {
+    let (_scratch, mut env) = home_with_themes("paper-levels", &["mine"]);
+    let paper = |env: &Environment, theme: Option<&str>, config: &Config| {
+        let options = Options {
+            theme: theme.and_then(|name| flag(PathBuf::from(name), "--theme")),
+            ..no_options()
+        };
+        settings(&options, env, config).1.unwrap().paper
+    };
+    let none = Config::default();
+    assert_eq!(paper(&env, Some("dark"), &none), Some(Paper::Dark));
+    assert_eq!(paper(&env, None, &with_theme("light")), Some(Paper::Light));
+    assert_eq!(paper(&env, None, &none), None);
+    assert_eq!(paper(&env, Some("mine"), &none), None);
+    env.variables.insert("KIRI_THEME", "dark".into());
+    assert_eq!(paper(&env, None, &none), Some(Paper::Dark));
+    env.variables.insert("KIRI_THEME", "mine".into());
+    assert_eq!(paper(&env, None, &with_theme("dark")), None);
+}
+
+#[test]
 fn no_margins_applies_to_whichever_theme_is_chosen() {
     for paper in [None, Some(Paper::Light)] {
         let options = Options {
@@ -1932,7 +1953,8 @@ fn an_unknown_theme_name_is_an_error_listing_the_names() {
     assert_eq!(name, "minee");
     assert_eq!(
         message,
-        "theme `minee` is not one of the themes: dark, light, mine, yours"
+        "theme `minee` is not one of the themes: dark, light, mine, yours \
+         (a file in this directory is ./minee)"
     );
     assert_eq!(load_theme(&source), Err(message.clone()));
 }
@@ -1947,5 +1969,22 @@ fn a_theme_name_in_the_file_is_not_made_relative_to_the_file() {
     assert_eq!(
         parsed("theme = \"t.toml\"\n").theme,
         Some(PathBuf::from("/c/t.toml"))
+    );
+}
+
+#[test]
+fn a_width_of_0_is_the_terminals_width_at_every_level() {
+    // The flag is read by `main`, which asks `is_unset`; the tests in
+    // tests/cli_config.rs run it.
+    let width = |text: &str, env: &[(&str, &str)]| chosen(text, env, Options::default()).width;
+    // The origin stays, so that `--doctor` says where the 0 came from.
+    let none = |origin| Setting::new(None, origin);
+    let origin = Origin::Environment("KIRI_WIDTH");
+    assert_eq!(width("", &[("KIRI_WIDTH", "0")]), none(origin));
+    assert_eq!(width("width = 0\n", &[]), none(Origin::File));
+    // 0 in the file is a value, so a variable still beats it.
+    assert_eq!(
+        width("width = 0\n", &[("KIRI_WIDTH", "60")]).value,
+        Some(60)
     );
 }

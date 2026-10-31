@@ -25,7 +25,7 @@ use clap::error::ErrorKind;
 use clap::{CommandFactory, FromArgMatches, Parser};
 use kiri::config::{
     Environment, FrontMatter, Megabytes, Named, Options, Origin, Passthrough, Setting, Settings,
-    text,
+    Value, text,
 };
 use kiri::doctor::{Facts, Output};
 use kiri::images::{
@@ -2099,7 +2099,7 @@ fn list_emojis(cli: &Cli) -> Result<(), Failure> {
 /// What the command line asks for, each with the flag it comes from.
 fn options(cli: &Cli) -> Options {
     Options {
-        width: flag(cli.width.map(Some), "--width"),
+        width: flag(cli.width.map(Value::or_unset), "--width"),
         mode: flag(cli.mode, "--mode"),
         max_image_size: flag(cli.max_image_size, "--max-image-size"),
         diagram_timeout: flag(cli.diagram_timeout, "--diagram-timeout"),

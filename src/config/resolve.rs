@@ -10,7 +10,8 @@ use crate::typeset::theme::{Paper, Theme};
 
 /// What a theme value is: a name when it has no path separator and no
 /// `.toml` ending, which is `NAME.toml` in the themes directory, or else
-/// the built-in paper theme `light` or `dark`; anything else is a path.
+/// the built-in paper theme `light` or `dark`, and else `Unknown`. A value
+/// with a path separator or a `.toml` ending is a path.
 fn theme_value(value: &Path, env: &Environment) -> ThemeSource {
     let name = value.to_str().filter(|_| is_name(value));
     let Some(name) = name else {
@@ -42,7 +43,8 @@ fn theme_value(value: &Path, env: &Environment) -> ThemeSource {
             names.sort();
             names.dedup();
             let message = format!(
-                "theme `{name}` is not one of the themes: {}",
+                "theme `{name}` is not one of the themes: {} \
+                 (a file in this directory is ./{name})",
                 names.join(", ")
             );
             ThemeSource::Unknown {

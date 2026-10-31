@@ -92,8 +92,8 @@ impl<T> Setting<T> {
 /// separator, no `.toml` ending and no leading `~`.
 pub(super) fn is_name(value: &Path) -> bool {
     let text = value.to_string_lossy();
-    let path = text.contains(std::path::is_separator) || text.ends_with(".toml");
-    !(text.is_empty() || path || text.starts_with('~'))
+    let looks_like_path = text.contains(std::path::is_separator) || text.ends_with(".toml");
+    !(text.is_empty() || looks_like_path || text.starts_with('~'))
 }
 
 /// Where the theme comes from.
@@ -261,6 +261,18 @@ pub trait Value: Sized + Clone + PartialEq + 'static {
     fn inverted(self) -> Self {
         self
     }
+
+    /// Whether the value says the setting is left to its default, as a
+    /// width of 0 leaves it to the terminal.
+    fn is_unset(&self) -> bool {
+        false
+    }
+
+    /// The value, unless it leaves the setting to its default.
+    fn or_unset(self) -> Option<Self> {
+        let unset = self.is_unset();
+        (!unset).then_some(self)
+    }
 }
 
 /// The value of a setting that takes text, such as `--width`, for the
@@ -345,7 +357,7 @@ impl Value for bool {
 /// terminal's unless given.
 impl<T: Value> Value for Option<T> {
     fn from_text(text: &str) -> Option<Self> {
-        T::from_text(text).map(Some)
+        T::from_text(text).map(T::or_unset)
     }
 
     fn expected() -> String {
@@ -353,11 +365,12 @@ impl<T: Value> Value for Option<T> {
     }
 
     fn from_file<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        T::from_file(deserializer).map(Some)
+        let value = T::from_file(deserializer)?;
+        Ok(value.or_unset())
     }
 }
 
-/// A width in cells.
+/// A width in cells, where 0 is the terminal's own width.
 impl Value for u16 {
     fn from_text(text: &str) -> Option<Self> {
         text.parse().ok()
@@ -369,6 +382,10 @@ impl Value for u16 {
 
     fn from_file<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         u16::deserialize(deserializer)
+    }
+
+    fn is_unset(&self) -> bool {
+        *self == 0
     }
 }
 

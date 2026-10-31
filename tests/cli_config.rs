@@ -255,7 +255,8 @@ fn a_theme_name_is_a_file_in_the_themes_directory() {
     assert!(!out.status.success());
     assert_eq!(
         text(&out.stderr),
-        "kiri: theme `other` is not one of the themes: dark, light, mine\n"
+        "kiri: theme `other` is not one of the themes: dark, light, mine \
+         (a file in this directory is ./other)\n"
     );
     // A file called `dark.toml` there comes before the built-in dark.
     let dark = broken_theme(&themes.join("dark.toml"));
@@ -855,6 +856,30 @@ fn the_defaults_in_the_help_and_the_docs_are_the_settings_defaults() {
     let options =
         std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/options.md"))
             .unwrap();
+    assert!(options.contains("`auto` unless set"));
+    assert!(options.contains("10 MB unless set"));
     assert!(options.contains("in seconds; 20 unless set"));
     assert!(options.contains("lies on a panel; `on` unless set"));
+}
+
+/// A width of 0 is the terminal's own width, here the 80 cells of a pipe.
+#[test]
+fn a_width_of_0_is_the_terminals_width() {
+    let dir = Scratch::new("width-0");
+    let row = "| Width | 80 cells |";
+    let rows = [
+        doctor_row(&dir, "Width", &["--width", "0"], &[]),
+        doctor_row(&dir, "Width", &[], &[("KIRI_WIDTH", "0")]),
+    ];
+    assert!(
+        rows[0].starts_with(row) && rows[0].ends_with("| `--width` |"),
+        "{rows:?}"
+    );
+    assert!(
+        rows[1].starts_with(row) && rows[1].ends_with("| `KIRI_WIDTH=0` |"),
+        "{rows:?}"
+    );
+    write(&dir.join("config/kiri/config.toml"), "width = 0\n");
+    let file = doctor_row(&dir, "Width", &[], &[]);
+    assert!(file.starts_with(row), "{file}");
 }
