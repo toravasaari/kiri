@@ -256,7 +256,7 @@ fn a_theme_name_is_a_file_in_the_themes_directory() {
     assert_eq!(
         text(&out.stderr),
         "kiri: theme `other` is not one of the themes: dark, light, mine \
-         (a file in this directory is ./other)\n"
+         (for a file in this directory, write ./other)\n"
     );
     // A file called `dark.toml` there comes before the built-in dark.
     let dark = broken_theme(&themes.join("dark.toml"));

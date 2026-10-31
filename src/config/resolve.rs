@@ -44,7 +44,7 @@ fn theme_value(value: &Path, env: &Environment) -> ThemeSource {
             names.dedup();
             let message = format!(
                 "theme `{name}` is not one of the themes: {} \
-                 (a file in this directory is ./{name})",
+                 (for a file in this directory, write ./{name})",
                 names.join(", ")
             );
             ThemeSource::Unknown {

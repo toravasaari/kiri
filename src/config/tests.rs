@@ -1954,7 +1954,7 @@ fn an_unknown_theme_name_is_an_error_listing_the_names() {
     assert_eq!(
         message,
         "theme `minee` is not one of the themes: dark, light, mine, yours \
-         (a file in this directory is ./minee)"
+         (for a file in this directory, write ./minee)"
     );
     assert_eq!(load_theme(&source), Err(message.clone()));
 }

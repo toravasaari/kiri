@@ -184,7 +184,7 @@ kiri --theme mine doc.md        # ~/.config/kiri/themes/mine.toml
 KIRI_THEME=dark kiri doc.md     # the dark paper theme
 kiri --theme mien doc.md
 # kiri: theme `mien` is not one of the themes: dark, light, mine
-# (a file in this directory is ./mien)
+# (for a file in this directory, write ./mien)
 ```
 
 A name in the configuration file is not relative to the file; a path is,

@@ -1199,13 +1199,13 @@ Needs G3.4.1.
 
 ### G5 Settings
 
-#### G5.1 config.rs split
+#### G5.1 config.rs split (done)
 
 - `config.rs` split into environment, file and resolving, with the
   leftovers of the settings refactor: `ConfigToml` and `Config`, and
   `Choices` and `Settings`, copy each other.
 
-#### G5.2 Names and levels of settings
+#### G5.2 Names and levels of settings (done)
 
 - Internal names match the keys, such as `diagram_panel` for
   `background_panel`, and environment values are read the same way
