@@ -1973,14 +1973,16 @@ mod tests {
     }
 
     #[test]
-    fn a_page_is_opaque_in_the_colour_the_terminal_reports() {
+    fn a_page_stays_transparent_when_the_theme_has_no_background() {
+        // The terminal's background, which may be translucent or an
+        // image, shows through, as it does around the page.
         let caps = Capabilities {
             background: Some(Color::Rgb(9, 8, 7)),
             ..kitty(80)
         };
         let (part, band) = drawn_in(Theme::default(), caps);
         for image in [part, band] {
-            assert_eq!(image.get_pixel(0, 0).0, [9, 8, 7, 255]);
+            assert_eq!(image.get_pixel(0, 0).0[3], 0);
         }
     }
 

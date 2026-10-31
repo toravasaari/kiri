@@ -31,7 +31,7 @@ use crate::session::frame::{Frame, Layout, Status};
 use crate::session::help::Placed;
 use crate::session::search::Marks;
 use crate::session::settings::{self, FollowJump, SearchCase};
-use crate::session::state::{Change, NOTHING_TO_FOLLOW, State, Told};
+use crate::session::state::{Backgrounds, Change, NOTHING_TO_FOLLOW, State, Told};
 use crate::session::step::{Effect, Msg, Pager, Reply, Resized, Run, step};
 use crate::session::view::View;
 use crate::session::{loading, status};
@@ -220,6 +220,7 @@ fn page_through(
     } = options;
     let mut state = State::new(case);
     state.jump = jump;
+    state.background = Backgrounds::new(inputs.theme.background, inputs.caps.background);
     state.warn(warnings, terminal.now());
     if reload.is_some() {
         state.follow.mode = follow;
@@ -270,7 +271,9 @@ struct Shell<'a, 'r, 'l, T> {
     terminal: &'a mut T,
     source: Origin<'r, 'l>,
     encoder: Encoder,
-    /// The reading mode that `M` turns to, on or off.
+    /// The reading mode that `M` turns to, on or off. An exception, not a
+    /// model: a key's state goes in the state engine, which sends what to
+    /// set as an effect, as `B` does with `Effect::SetBackground`.
     other: Option<Reading>,
     inline: Option<InlineLoader<'r>>,
 }
@@ -511,6 +514,7 @@ impl<T: Terminal> Shell<'_, '_, '_, T> {
                 }
             }
             Effect::SwapReading => std::mem::swap(&mut inputs.reading, &mut self.other),
+            Effect::SetBackground(background) => inputs.theme.background = background,
             Effect::StartInline => {
                 if let Some(start) = self.inline.as_mut() {
                     start(content, &mut inputs.images, self.source.loads, &inputs.caps);

@@ -22,6 +22,7 @@ use crate::session::step::{Effect, Run};
 use crate::session::view::{Motion, View};
 use crate::session::{bands, changes, links, status};
 use crate::typeset::block::BlockInfo;
+use crate::typeset::color::Color;
 use crate::typeset::compare::{Comparison, Fate};
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::style::{Line, Style};
@@ -118,6 +119,34 @@ pub(crate) struct State {
     pub(crate) next: Next,
     /// Which change following on auto moves the view to.
     pub(crate) jump: FollowJump,
+    /// The page's background in use, and the one `B` turns to.
+    pub(crate) background: Backgrounds,
+}
+
+/// The page's background as `B` turns it on and off.
+#[derive(Debug, Default)]
+pub(crate) struct Backgrounds {
+    shown: Option<Color>,
+    other: Option<Color>,
+}
+
+impl Backgrounds {
+    /// For a theme whose background is `theme`, on a terminal whose
+    /// background is `terminal`: `B` takes the theme's away, and gives a
+    /// theme without one the terminal's.
+    pub(crate) fn new(theme: Option<Color>, terminal: Option<Color>) -> Self {
+        let other = if theme.is_some() { None } else { terminal };
+        Self {
+            shown: theme,
+            other,
+        }
+    }
+
+    /// Turns to the other background, and gives it.
+    fn flip(&mut self) -> Option<Color> {
+        std::mem::swap(&mut self.shown, &mut self.other);
+        self.shown
+    }
 }
 
 /// What the next layout keeps from the one before it.
@@ -285,6 +314,7 @@ impl State {
             cell: None,
             next: Next::default(),
             jump: FollowJump::First,
+            background: Backgrounds::default(),
         }
     }
 
@@ -471,6 +501,14 @@ impl State {
             Some(Action::Wide) => {
                 self.changed = None;
                 return vec![Effect::FlipWide, Effect::Relayout { reuse: false }];
+            }
+            Some(Action::Background) => {
+                self.changed = None;
+                let background = self.background.flip();
+                return vec![
+                    Effect::SetBackground(background),
+                    Effect::Relayout { reuse: false },
+                ];
             }
             Some(Action::Sideways(step)) => {
                 self.bands_moved |= self.bands.scroll(layout.lines, layout.places, step);

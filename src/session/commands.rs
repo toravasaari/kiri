@@ -55,6 +55,8 @@ pub(crate) enum Action {
     },
     /// Switches wide blocks between wrapping and scrolling.
     Wide,
+    /// Turns the page's background colour on or off.
+    Background,
     Help,
     Quit,
     /// The left button pressed on row `row` of the window, counted from 1.
@@ -146,8 +148,8 @@ pub const WHEEL: usize = 3;
 /// Every command the pager knows, in the order the help lists them.
 pub const COMMANDS: &[Command] = {
     use Action::{
-        Enter, Follow, Help, Move, Next, NextFile, Previous, PreviousFile, Quit, Reading, Redraw,
-        Reload, Search, SelectLink, Sideways, Wide,
+        Background, Enter, Follow, Help, Move, Next, NextFile, Previous, PreviousFile, Quit,
+        Reading, Redraw, Reload, Search, SelectLink, Sideways, Wide,
     };
     use Key::{Char, Ctrl};
     use Motion::*;
@@ -274,6 +276,7 @@ pub const COMMANDS: &[Command] = {
         ),
         Command::also(Links, &[Key::BackTab], SelectLink { back: true }),
         Command::new(View, &[Char('W')], "W", "wide blocks: wrap, scroll", Wide),
+        Command::new(View, &[Char('B')], "B", "background: on, off", Background),
         Command::new(HelpTopic, &[Char('?'), Char('h')], "? h", "this help", Help),
         Command::new(
             HelpTopic,

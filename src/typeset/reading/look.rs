@@ -32,7 +32,6 @@ pub fn page_look(one: &Look, code: &CodeColors, stripes: bool, caps: &Capabiliti
         Color::Rgb(red, green, blue) => Some([red, green, blue]),
         Color::Palette(_) => None,
     };
-    let known = exact(one.background.or(caps.background));
     let page =
         rgb(one.background.or(caps.background)).unwrap_or(if dark { [0; 3] } else { [0xff; 3] });
     let muted = rgb(one.muted).unwrap_or_else(|| mix(text, page, 0.6));
@@ -108,7 +107,9 @@ pub fn page_look(one: &Look, code: &CodeColors, stripes: bool, caps: &Capabiliti
         },
         stripe: stripes.then(|| mix(text, page, one.pixels.stripe)),
         page,
-        opaque: known.is_some(),
+        // The terminal's own background, which may be translucent or an
+        // image, shows through a page whose theme has none.
+        opaque: exact(one.background).is_some(),
         alerts: [
             AlertKind::Note,
             AlertKind::Tip,

@@ -15,6 +15,7 @@ use crate::present::keys::Key;
 use crate::present::kitty::graphics::ImageId;
 use crate::session::frame::{Frame, Layout};
 use crate::session::state::{Change, FRAME, Focus, POLL, Polled, State, Told};
+use crate::typeset::color::Color;
 use crate::typeset::compare::Comparison;
 use crate::typeset::diagnostic::Diagnostic;
 
@@ -181,6 +182,8 @@ pub(crate) enum Effect {
     /// Switch wide blocks between wrapping and scrolling, in reading mode
     /// as it is and as `M` would turn it on.
     FlipWide,
+    /// Set the page's background colour, or none for the terminal's own.
+    SetBackground(Option<Color>),
     /// Start loading what reading mode shows that the text does not.
     StartInline,
     /// Take in the images that loads brought.
@@ -202,6 +205,7 @@ impl Effect {
                 | Self::AskCells
                 | Self::SwapReading
                 | Self::FlipWide
+                | Self::SetBackground(_)
                 | Self::StartInline
                 | Self::Install
                 | Self::Reload

@@ -270,7 +270,11 @@ cannot be selected or copied there. A long code line or a wide table
 wraps; with `--wide scroll`, or `W` in the pager, it keeps its lines
 whole and scrolls sideways with the arrow keys. In the pager `/` marks
 the matches in the page, and Tab selects a link, which kitty opens as
-it does any link; Enter copies the selected link's address.
+it does any link; Enter copies the selected link's address. The
+terminal's background, also a translucent one or an image, shows through
+the page unless the theme has a background colour; `B` in the pager
+paints the page in the terminal's background colour, or takes the
+theme's away.
 
 Front matter that does not parse shows as `⚠ 1` on the status line,
 with the message above it for a few seconds.
