@@ -1636,6 +1636,53 @@ fn quit_after(frames: usize) -> Step<'static> {
     }
 }
 
+/// The text of `long.md` written anew: ten paragraphs of `Fresh`.
+fn fresh() -> String {
+    (1..=10).map(|n| format!("Fresh {n}\n\n")).collect()
+}
+
+/// kiri following `long.md` with `args` in a terminal of 5 rows, with
+/// `change` done to the scratch directory after the first frame and no
+/// key until the second, after which it quits. Returns the frames.
+fn following(name: &str, args: &[&str], change: &dyn Fn(&std::path::Path)) -> Vec<String> {
+    let changed = |dir: &std::path::Path| {
+        change(dir);
+        b"" as &'static [u8]
+    };
+    let steps = [
+        Step {
+            frames: 1,
+            keys: &changed,
+        },
+        quit_after(2),
+    ];
+    let (status, seen) = in_steps_with(name, |_| {}, args, &steps);
+    assert!(status.success());
+    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).map(text_of).collect();
+    assert!(frames[0].contains("Line 1"), "{seen:?}");
+    let follows = [" follow ", " auto "];
+    assert!(
+        follows.iter().any(|word| frames[0].contains(word)),
+        "{seen:?}"
+    );
+    frames
+}
+
+// The real file's look and the real clock are tested here; the simulated
+// twin is in `src/frontend/tests/follow.rs`.
+#[test]
+fn follow_reads_the_file_again_when_it_changes_without_a_key() {
+    let rewrite = |dir: &std::path::Path| std::fs::write(dir.join("long.md"), fresh()).unwrap();
+    for args in [&["--follow", "on", "long.md"][..], &["-f", "long.md"]] {
+        let frames = following("pager-follow", args, &rewrite);
+        let last = frames.last().unwrap();
+        assert!(last.contains("Fresh 1"), "{args:?}: {frames:?}");
+        assert!(last.contains("reloaded"), "{args:?}: {frames:?}");
+        // Without a key, the pager does not say it is reloading.
+        assert!(!frames.iter().any(|frame| frame.contains("reloading")));
+    }
+}
+
 #[test]
 fn follow_takes_on_off_or_auto_and_one_flag_of_them() {
     let dir = crate::common::Scratch::new("follow-values");
