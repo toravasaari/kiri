@@ -462,8 +462,8 @@ The programs run in process groups of their own, which Ctrl-C from the
 terminal does not reach, nor a signal sent to kiri alone. So one value,
 `Guard` in `src/frontend/loads.rs`, decides who catches SIGINT, SIGQUIT,
 SIGTERM and SIGHUP before the pager's screen does, for the whole run, and
-nothing else in the frontends calls `Interrupt::catch` from
-`src/term/interrupt.rs`. Without a program drawing and without keys read,
+nothing else in the frontends asks for `Platform::interrupt`, whose
+default calls `Interrupt::catch` from `src/term/interrupt.rs`. Without a program drawing and without keys read,
 nobody does and the signals end kiri at once. While kiri waits for loads
 that a program draws, or reads Space and Enter with Ctrl-C still a
 signal, the guard catches them: the loads stop, SIGINT first so that

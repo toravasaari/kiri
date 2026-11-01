@@ -24,8 +24,9 @@
 //! kept in memory, and a terminal that is the script's. The loads of images
 //! come as the script says ([`Sim::loads`]), on the virtual clock: the
 //! platform's loads run a `Runner` that runs nothing, and its waits move the
-//! clock, so nothing reads the real disk or runs a program, and no signal
-//! handler is installed.
+//! clock, so no load reads the real disk or runs a program, and no signal
+//! handler is installed. Only a reload's stamps still look at the image
+//! files' times on the real disk.
 //!
 //! This is the frontend of the tests and, like the real ones, belongs to the
 //! platform. What it does not do is what the terminal does: raw mode, the
@@ -138,7 +139,7 @@ struct World {
     start: Instant,
     elapsed: Cell<Duration>,
     disk: RefCell<Disk>,
-    /// The images a reload started loading: when each comes, and as what.
+    /// The images on their way: when each comes, and as what.
     coming: RefCell<Vec<Coming>>,
     /// What each load that starts comes to, as the script says.
     loading: RefCell<Script>,
