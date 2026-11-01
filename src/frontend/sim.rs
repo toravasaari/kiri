@@ -50,6 +50,7 @@ use crate::session::sources::Session;
 use crate::session::state::{Change, Look};
 use crate::term::{Mode, WindowSize};
 use crate::typeset::caps::Capabilities;
+use crate::typeset::input::Input;
 use crate::typeset::layout::Content;
 use crate::typeset::model::Document;
 use crate::typeset::reading::Fonts;
@@ -221,6 +222,9 @@ pub(crate) struct Sim {
     keyless: bool,
     /// What changes the settings that `kiri` runs with.
     changes: Vec<ChangeSettings>,
+    /// The input format the files are read as, as `--format` asks; by
+    /// their names when `None`.
+    format: Option<Input>,
 }
 
 impl Sim {
@@ -243,6 +247,7 @@ impl Sim {
             piped: false,
             keyless: false,
             changes: Vec::new(),
+            format: None,
         }
     }
 
@@ -360,6 +365,12 @@ impl Sim {
         self
     }
 
+    /// Reads the files as `format` says, as `--format` does.
+    pub(crate) fn format(mut self, format: Input) -> Self {
+        self.format = Some(format);
+        self
+    }
+
     /// Runs kiri on `files` (`-` for standard input) through the route, as
     /// `kiri <files>` does: [`plan::route`], then [`show_files`]. With
     /// caps that draw no images, as the loads of images read the real disk
@@ -393,6 +404,7 @@ impl Sim {
             piped,
             keyless,
             changes,
+            format,
             ..
         } = self;
         script.sort_by_key(|(at, _)| *at);
@@ -417,7 +429,7 @@ impl Sim {
         );
         let asked = Asked {
             files: &paths,
-            format: None,
+            format,
             follow,
         };
         let configured = Configured {
