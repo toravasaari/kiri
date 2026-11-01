@@ -2,4 +2,5 @@
 //! (`src/frontend/sim.rs`), through the same `Platform` the binary
 //! implements for the process.
 
+mod close;
 mod route;

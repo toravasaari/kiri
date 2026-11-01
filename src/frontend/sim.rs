@@ -38,6 +38,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::config::{Config, Environment, Options as Choices, Passthrough, Settings};
+use crate::frontend::pager::close;
 use crate::frontend::{Asked, Configured, Failure, Platform, Screen, show_files};
 use crate::images::{Arrival, ImageError, ImageKey, Images, Loads, Placeholder, Source};
 use crate::pager::{InlineLoader, Options, Reload, Reloaded, Terminal, run};
@@ -145,6 +146,8 @@ struct World {
     size: Cell<WindowSize>,
     /// How long each read of keys was asked to wait.
     waits: RefCell<Vec<Duration>>,
+    /// When the screen was left, on the real clock.
+    left: Cell<Option<Instant>>,
 }
 
 impl World {
@@ -164,6 +167,7 @@ impl World {
                 height: 0,
             }),
             waits: RefCell::new(Vec::new()),
+            left: Cell::new(None),
         }
     }
 
@@ -383,21 +387,18 @@ impl Sim {
         } = self;
         script.sort_by_key(|(at, _)| *at);
         let world = Rc::new(World::new(disk, columns, rows));
-        let env = Environment::default();
-        let mut settings = crate::config::choose(&Choices::default(), &env, &Config::default())
+        let terminal = SimTerminal::new(Rc::clone(&world), script);
+        let platform = SimPlatform {
+            stdin: RefCell::new(stdin.as_deref().map(|text| text.as_bytes().to_vec())),
+            piped,
+            ..SimPlatform::new(&world, caps, (!keyless).then_some(terminal))
+        };
+        let env = platform.environment();
+        let mut settings = crate::config::choose(&Choices::default(), env, &Config::default())
             .with_theme(fixed_theme());
         settings.follow = follow;
         settings.follow_jump = jump;
         changes.into_iter().for_each(|change| change(&mut settings));
-        let terminal = SimTerminal::new(Rc::clone(&world), script);
-        let platform = SimPlatform {
-            world: Rc::clone(&world),
-            env,
-            caps,
-            stdin: RefCell::new(stdin.as_deref().map(|text| text.as_bytes().to_vec())),
-            piped,
-            terminal: RefCell::new((!keyless).then_some(terminal)),
-        };
         let paths: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
         let route = plan::route(&paths, stdin.is_none());
         assert!(
@@ -437,7 +438,7 @@ impl Sim {
         let world = Rc::new(World::new(disk, columns, rows));
         let mut inputs = Inputs {
             theme: fixed_theme(),
-            ..Inputs::new(caps)
+            ..Inputs::new(caps.clone())
         };
         let document = match &shown {
             Some(path) => parse(&world.disk.borrow().read(path).expect("the file shown")),
@@ -450,7 +451,7 @@ impl Sim {
             brings,
             asked: 0,
         });
-        let mut terminal = SimTerminal::new(Rc::clone(&world), script);
+        let terminal = SimTerminal::new(Rc::clone(&world), script);
         let mut inline = Some(inline);
         let options = Options {
             reload: reload.as_mut().map(|reload| reload as &mut dyn Reload),
@@ -481,15 +482,20 @@ impl Sim {
             ..Options::new(SearchCase::Smart)
         };
         let session = Session::new([shown.as_deref().unwrap_or("notes.md")]);
+        let mut loads = Loads::new();
+        let mut screen: Box<dyn Screen> = Box::new(terminal);
         run(
             Content::Document(&document),
             None,
             session,
             &mut inputs,
             options,
-            &mut terminal,
+            &mut loads,
+            &mut screen,
         )
         .expect("the simulated terminal does not fail");
+        let platform = SimPlatform::new(&world, caps, None);
+        close(&platform, screen, &mut loads);
         world.ran(reload.map_or(0, |reload| reload.asked), None)
     }
 }
@@ -728,8 +734,34 @@ impl Terminal for SimTerminal {
     }
 }
 
+/// When [`close_over_screen`] started, left the screen, and returned, on
+/// the real clock.
+pub(crate) struct Closed {
+    pub(crate) started: Instant,
+    pub(crate) left: Instant,
+    pub(crate) returned: Instant,
+}
+
+/// Ends a pager with [`close`] over a simulated screen that nothing is
+/// shown on, with `loads` for its loads, and tells when the screen was left.
+pub(crate) fn close_over_screen(loads: &mut Loads) -> Closed {
+    let world = Rc::new(World::new(Disk::default(), 40, 5));
+    let platform = SimPlatform::new(&world, Capabilities::ansi(40), None);
+    let screen = Box::new(SimTerminal::new(Rc::clone(&world), Vec::new()));
+    let started = Instant::now();
+    close(&platform, screen, loads);
+    let returned = Instant::now();
+    let left = world.left.get().expect("close left the screen");
+    Closed {
+        started,
+        left,
+        returned,
+    }
+}
+
 impl Screen for SimTerminal {
     fn close_then(self: Box<Self>, after: Box<dyn FnOnce() + '_>) {
+        self.world.left.set(Some(Instant::now()));
         after();
     }
 }
@@ -774,6 +806,21 @@ struct SimPlatform {
     piped: bool,
     /// The one terminal, until the pager takes it; `None` without keys.
     terminal: RefCell<Option<SimTerminal>>,
+}
+
+impl SimPlatform {
+    /// The platform of `world`, with `caps` and the one `terminal`, and
+    /// standard input holding nothing.
+    fn new(world: &Rc<World>, caps: Capabilities, terminal: Option<SimTerminal>) -> Self {
+        SimPlatform {
+            world: Rc::clone(world),
+            env: Environment::default(),
+            caps,
+            stdin: RefCell::new(None),
+            piped: false,
+            terminal: RefCell::new(terminal),
+        }
+    }
 }
 
 impl Platform for SimPlatform {

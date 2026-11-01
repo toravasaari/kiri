@@ -28,7 +28,7 @@ use super::loads::{
 };
 use super::print::Held;
 use super::route::{Context, Show, tell_drawn, told, told_line};
-use super::{Failure, Screen, shown, tell};
+use super::{Failure, Platform, Screen, shown, tell};
 
 /// The pager's loop takes a terminal of a size it knows; the screen the
 /// platform opens is behind a box.
@@ -44,6 +44,16 @@ impl Terminal for Box<dyn Screen + '_> {
     fn now(&self) -> Instant {
         (**self).now()
     }
+}
+
+/// Ends the pager: stops what `loads` still load, leaves `screen` and
+/// restores the terminal, and then waits for the programs that drew them to
+/// end, with a line on standard error, a terminal, while that takes more
+/// than a second. The one place where the loads stop when the pager quits;
+/// the loop only stops them before it deletes the images.
+pub(super) fn close(platform: &dyn Platform, screen: Box<dyn Screen + '_>, loads: &mut Loads) {
+    loads.halt();
+    screen.close_then(Box::new(|| close_programs(platform, loads)));
 }
 
 /// What is left to decide when the pager opens.
@@ -399,14 +409,13 @@ fn page(
         inputs,
         crate::pager::Options {
             width: context.width,
-            loads: Some(&mut loads),
             ..options
         },
+        &mut loads,
         &mut screen,
     )
     .map(drop);
-    loads.halt();
-    screen.close_then(Box::new(|| close_programs(platform, &loads)));
+    close(platform, screen, &mut loads);
     // What the pager showed failed, as told before it opens when the
     // images load first: under each file's name among several.
     let stderr = inputs.render_errors.stderr();

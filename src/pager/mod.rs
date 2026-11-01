@@ -113,7 +113,7 @@ pub enum Reloaded {
 }
 
 /// What the pager is told besides the document.
-pub struct Options<'a, 'l> {
+pub struct Options<'a> {
     /// The columns the document is laid out in, when the window's are not
     /// to decide.
     pub width: Option<u16>,
@@ -131,13 +131,6 @@ pub struct Options<'a, 'l> {
     /// The warnings about the document as first read, which the pager
     /// tells as it does those of a reload.
     pub warnings: Vec<crate::typeset::diagnostic::Diagnostic>,
-    /// Where the images of a reload load in the background, when the
-    /// caller keeps them, so that it can wait for their programs once
-    /// the pager has left its screen; the pager only stops them.
-    /// Otherwise the pager keeps its own, and waits for their programs
-    /// itself before it returns, after it deleted the images but with
-    /// the screen still open.
-    pub loads: Option<&'l mut Loads>,
     /// The reading mode that `M` turns on, when the document is shown
     /// without it; `M` turns reading mode off when it is on.
     pub reading: Option<Reading>,
@@ -154,7 +147,7 @@ pub struct Options<'a, 'l> {
 pub type InlineLoader<'a> =
     Box<dyn FnMut(Content<'_>, &mut Images, &mut Loads, &Capabilities) + 'a>;
 
-impl Options<'_, '_> {
+impl Options<'_> {
     /// A window's width to decide the layout, searches that treat case as
     /// `case` says, and no way to reload.
     pub fn new(case: SearchCase) -> Self {
@@ -166,7 +159,6 @@ impl Options<'_, '_> {
             follow: settings::Follow::Off,
             jump: FollowJump::First,
             warnings: Vec::new(),
-            loads: None,
             reading: None,
             inline: None,
         }
@@ -182,28 +174,10 @@ impl Options<'_, '_> {
 /// unless the window calls for another. `session` must have a source for
 /// each file of `content`, or one at least for a document.
 /// A search treats case as `options.case` says.
+/// The images of reloads load in `loads`, which `q` stops without waiting
+/// for their programs: the caller waits for them once the pager has left
+/// its screen.
 pub fn run(
-    content: Content,
-    laid_out: Option<Stream>,
-    session: Session,
-    inputs: &mut Inputs,
-    mut options: Options,
-    terminal: &mut impl Terminal,
-) -> io::Result<Session> {
-    session.assert_fits(content);
-    if let Some(loads) = options.loads.take() {
-        return page_through(content, laid_out, session, inputs, options, loads, terminal);
-    }
-    let own = &mut Loads::new();
-    let result = page_through(content, laid_out, session, inputs, options, own, terminal);
-    own.halt();
-    own.wait(crate::images::STOPPING);
-    result
-}
-
-/// [`run`], with the images of reloads loading in `loads`, which `q`
-/// stops without waiting for their programs.
-fn page_through(
     content: Content,
     laid_out: Option<Stream>,
     session: Session,
@@ -212,6 +186,7 @@ fn page_through(
     loads: &mut Loads,
     terminal: &mut impl Terminal,
 ) -> io::Result<Session> {
+    session.assert_fits(content);
     let Options {
         width,
         case,
@@ -220,7 +195,6 @@ fn page_through(
         follow,
         jump,
         warnings,
-        loads: _,
         reading,
         inline,
     } = options;

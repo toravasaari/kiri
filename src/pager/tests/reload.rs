@@ -23,6 +23,7 @@ fn show_reloading_with(document: &Document, then: &mut Then, reads: &[&[u8]]) ->
         Session::new(["notes.md"]),
         &mut inputs,
         options,
+        &mut Loads::new(),
         &mut terminal,
     )
     .unwrap();
@@ -40,7 +41,16 @@ fn session_after(document: &Document, then: &mut Then, reads: &[&[u8]]) -> Sessi
     };
     let session = Session::new(["notes.md"]);
     let content = Content::Document(document);
-    run(content, None, session, &mut inputs, options, &mut terminal).unwrap()
+    run(
+        content,
+        None,
+        session,
+        &mut inputs,
+        options,
+        &mut Loads::new(),
+        &mut terminal,
+    )
+    .unwrap()
 }
 
 #[test]
@@ -367,6 +377,7 @@ fn warnings_given_at_the_start_show_the_mark_and_the_line_at_once() {
         Session::new(["notes.md"]),
         &mut inputs,
         options,
+        &mut Loads::new(),
         &mut terminal,
     )
     .unwrap();
