@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use super::*;
+use crate::session::sources::Session;
 use crate::session::state::{FRAME, POLL};
 use crate::typeset::color::Color;
 use crate::typeset::model::{Document, File};
@@ -131,7 +132,7 @@ fn run_document(
     run(
         Content::Document(document),
         None,
-        "notes.md",
+        Session::new(["notes.md"]),
         inputs,
         options,
         terminal,
@@ -166,7 +167,7 @@ fn show_laid_out(document: &Document, before: &Document, caps: Capabilities) -> 
     run(
         Content::Document(document),
         Some(stream),
-        "notes.md",
+        Session::new(["notes.md"]),
         &mut inputs,
         Options::new(SearchCase::Smart),
         &mut terminal,
