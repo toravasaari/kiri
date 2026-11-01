@@ -31,6 +31,8 @@ mod open;
 mod pager;
 mod print;
 mod route;
+#[cfg(test)]
+pub(crate) mod sim;
 
 pub use route::{show_document, show_files, shown};
 

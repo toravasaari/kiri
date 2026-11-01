@@ -17,7 +17,7 @@
 //! one sees a change as it does on a disk. Images that a reload brings
 //! come as the script says, as a background load would.
 //!
-//! This is the front end of the tests and, like `main.rs`, belongs to the
+//! This is the front end of the tests and, like the real ones, belongs to the
 //! platform. What it does not do is what the terminal does: raw mode, the
 //! alternate screen, signals and the probe. Those stay on a
 //! pseudo-terminal, in `tests/it/cli_tmux.rs` and the others.
