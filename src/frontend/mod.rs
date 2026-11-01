@@ -33,6 +33,8 @@ mod print;
 mod route;
 #[cfg(test)]
 pub(crate) mod sim;
+#[cfg(test)]
+mod tests;
 
 pub use route::{show_document, show_files, shown};
 
