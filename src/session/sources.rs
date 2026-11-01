@@ -206,7 +206,16 @@ mod tests {
     fn the_built_view_shows_every_source_in_order() {
         let session = Session::new(["a.md", "b.md"]);
         assert_eq!(session.view().shows(), ids(&session));
-        assert_eq!(session.view().id(), session.view().id());
+        assert_eq!(session.view().id(), ViewId(0));
+    }
+
+    #[test]
+    fn the_built_view_keeps_its_id_through_a_reload() {
+        let mut session = Session::new(["a.md"]);
+        let id = ids(&session)[0];
+        session.reload(id);
+        assert_eq!(session.view().id(), ViewId(0));
+        assert_eq!(session.view().shows(), [id]);
     }
 
     #[test]
