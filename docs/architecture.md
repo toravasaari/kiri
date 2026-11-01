@@ -540,7 +540,7 @@ kiri is one crate. Its code is in four parts, and every part is a module
 of the crate, not a crate of its own. Each of the three engine parts is
 one top-level module, `src/typeset/`, `src/present/` and `src/session/`,
 whose public surface is exported from its root and whose inside is
-private. The fourth part, the platform, is `src/main.rs`, the front ends in
+private. The fourth part, the platform, is `src/main.rs`, the frontends in
 `src/frontend/` and the rest of `src/` outside those three directories.
 
 ### The four parts
@@ -559,9 +559,9 @@ private. The fourth part, the platform, is `src/main.rs`, the front ends in
   of.
 - **The platform:** `src/main.rs`, `src/frontend/` and the rest of `src/`
   outside the three part directories. It owns all the I/O: the command line
-  and the settings files, the front ends (interactive and print), the work
+  and the settings files, the frontends (interactive and print), the work
   runner (threads, programs, watchers) and `term/`, where kiri talks to the
-  terminal. `main.rs` reads the command line and starts the front ends,
+  terminal. `main.rs` reads the command line and starts the frontends,
   which wire the parts together.
 
 Each part uses only the parts above it in this list: the typesetting
@@ -597,7 +597,7 @@ The later work that the rows name, in words:
   declared once, with its owner, in `src/config/registry.rs`.
 - **The font database:** one font database, loaded by the platform and
   handed to the engines.
-- **The startup plan:** the decisions of the front ends are in
+- **The startup plan:** the decisions of the frontends are in
   `session/plan.rs`, with what they ask of the terminal and the files
   passed in as values.
 - **The pager's loop:** the pager's state and its loop are split, the state
@@ -618,18 +618,18 @@ The later work that the rows name, in words:
 | Module | Part | After the move |
 |---|---|---|
 | `src/lib.rs` | platform | stays; declares the three parts |
-| `src/main.rs` | platform | stays, and shrinks to the entry point. It reads the command line (`src/cli.rs`), resolves the settings from it, the environment and the configuration file, hands them and the files to `src/frontend/` as `Asked` and `Configured`, and turns the `Failure` it gets back into an exit code; its `Real` is the `Platform` of the process. State engine: the startup decisions, such as whether a run pages, are in `src/session/plan.rs`; the front ends read the terminal and the files and pass the answers in |
+| `src/main.rs` | platform | stays, and shrinks to the entry point. It reads the command line (`src/cli.rs`), resolves the settings from it, the environment and the configuration file, hands them and the files to `src/frontend/` as `Asked` and `Configured`, and turns the `Failure` it gets back into an exit code; its `Real` is the `Platform` of the process. State engine: the startup decisions, such as whether a run pages, are in `src/session/plan.rs`; the frontends read the terminal and the files and pass the answers in |
 | `src/load.rs` | platform | moved to `src/frontend/loads.rs`, by way of `src/loading.rs`; the library's `src/load/` is a different module |
-| `src/frontend/mod.rs` | platform | new. The front ends' module: the `Platform` trait, through which they reach files, standard input and output, the environment and the terminal, and the `Screen` trait, the pager's screen; `Failure`, `Asked` (what the command line asks for) and `Configured` (the settings as `main.rs` resolved them), and what `main.rs` and `src/reports.rs` call: `show_files`, `show_document` and `shown`. `main.rs` implements `Platform` for the process (`Real`); the simulated front end does it in memory |
+| `src/frontend/mod.rs` | platform | new. The frontends' module: the `Platform` trait, through which they reach files, standard input and output, the environment and the terminal, and the `Screen` trait, the pager's screen; `Failure`, `Asked` (what the command line asks for) and `Configured` (the settings as `main.rs` resolved them), and what `main.rs` and `src/reports.rs` call: `show_files`, `show_document` and `shown`. `main.rs` implements `Platform` for the process (`Real`); the simulated frontend does it in memory |
 | `src/frontend/route.rs` | platform | new. The one route: `show_files` shows one file as the special case of several, with no header, and with reloading, following and the unnamed warnings for it alone; `show_given` chooses between the pager and print; `Context`, `Run` and `Show`; `show_document` shows a report kiri writes itself |
 | `src/frontend/open.rs` | platform | new. Opening a file, the README of a directory or standard input far enough to tell what it is (`Opened`), and `document`, which chooses the parser for its input format |
 | `src/frontend/given.rs` | platform | new. A file ready to show (`Given`, `Shown`, `Drawn`), and loading the images of the documents among the files given |
-| `src/frontend/pager.rs` | platform | new. The interactive front end: `page_files` gathers the files into one stream, loads their images first or in the background and runs the pager's loop on the terminal's screen, and prints them after all where it does not open |
-| `src/frontend/print.rs` | platform | new. The print front end: `print_files`, each file under its header as it comes, and `Held`, whose `check` makes sure kitty holds the images that were sent (the pager's print fallback uses it too) |
-| `src/frontend/loads.rs` | platform | moved from `src/load.rs`. Loading a document's images and diagrams in the foreground, on threads and in the background, and reloading its file for the pager: the loads and `FileReload`. The front ends call them. Its seed is the work runner that roadmap item G7.3.3 fills in |
-| `src/frontend/sim.rs` | platform | moved from `src/pager/sim.rs`; test support. The simulated front end: a terminal on a virtual clock, files in memory and background loads that come when a script says, which run the loop in `src/pager/mod.rs` through its `Terminal` and `Reload` traits, or the whole route through `SimPlatform`, its `Platform`, and give back the bytes written to the terminal and to standard error. It asks `Pager::wait` how long the pager waits for keys and moves the clock by that, so a test runs without a pseudo-terminal and without waiting. A screen model that reads the bytes, which knows kitty, comes later |
-| `src/frontend/tests/mod.rs`, `route.rs`, `paging.rs`, `settings.rs`, `stdin.rs`, `follow.rs`, `reload.rs`, `close.rs` | follows `frontend/` | new. The route's tests: `show_files` run in the simulated front end, for one file, several, standard input, a missing file, `r` and paging without keys; `paging.rs` has the paging and printing decisions, `settings.rs` the settings that change the route (paging, diagrams, reading mode); `stdin.rs` standard input; `follow.rs` following a file; `reload.rs` `r`; and `close`, which ends the pager: it leaves the screen first and then waits for the programs |
-| `src/load/mod.rs` | platform | new. The platform's loading for the engines: `load`, `load_with` and `load_parts`, which load the images a document wants, read their files and have the renderers draw its diagrams. A module of the library, beside the front ends' `src/frontend/loads.rs` |
+| `src/frontend/pager.rs` | platform | new. The interactive frontend: `page_files` gathers the files into one stream, loads their images first or in the background and runs the pager's loop on the terminal's screen, and prints them after all where it does not open |
+| `src/frontend/print.rs` | platform | new. The print frontend: `print_files`, each file under its header as it comes, and `Held`, whose `check` makes sure kitty holds the images that were sent (the pager's print fallback uses it too) |
+| `src/frontend/loads.rs` | platform | moved from `src/load.rs`. Loading a document's images and diagrams in the foreground, on threads and in the background, and reloading its file for the pager: the loads and `FileReload`. The frontends call them. Its seed is the work runner that roadmap item G7.3.3 fills in |
+| `src/frontend/sim.rs` | platform | moved from `src/pager/sim.rs`; test support. The simulated frontend: a terminal on a virtual clock, files in memory and background loads that come when a script says, which run the loop in `src/pager/mod.rs` through its `Terminal` and `Reload` traits, or the whole route through `SimPlatform`, its `Platform`, and give back the bytes written to the terminal and to standard error. It asks `Pager::wait` how long the pager waits for keys and moves the clock by that, so a test runs without a pseudo-terminal and without waiting. A screen model that reads the bytes, which knows kitty, comes later |
+| `src/frontend/tests/mod.rs`, `route.rs`, `paging.rs`, `settings.rs`, `stdin.rs`, `follow.rs`, `reload.rs`, `close.rs` | follows `frontend/` | new. The route's tests: `show_files` run in the simulated frontend, for one file, several, standard input, a missing file, `r` and paging without keys; `paging.rs` has the paging and printing decisions, `settings.rs` the settings that change the route (paging, diagrams, reading mode); `stdin.rs` standard input; `follow.rs` following a file; `reload.rs` `r`; and `close`, which ends the pager: it leaves the screen first and then waits for the programs |
+| `src/load/mod.rs` | platform | new. The platform's loading for the engines: `load`, `load_with` and `load_parts`, which load the images a document wants, read their files and have the renderers draw its diagrams. A module of the library, beside the frontends' `src/frontend/loads.rs` |
 | `src/load/url.rs` | platform | new. `load_url`, which reads the file a URL names or decodes a `data:` URL, with `decode_file` and `read_file`, which open the file |
 | `src/load/tests.rs` | follows `load/mod.rs` | new. The tests of loading, and the helpers (`fixtures`, `load_source`, `open`, `Stub`) that the other tests of images load with |
 | `src/load/renderers.rs` | platform | new. `Renderers`, which draws each language with its external command when it has one and with the built-in renderer otherwise, and `render_in_parallel`, which draws several diagrams at once on threads |
@@ -722,7 +722,7 @@ The later work that the rows name, in words:
 | `src/diagrams/external/tests.rs` | platform | stays |
 | `src/diagrams/find.rs` | platform | stays |
 | `src/pager/mod.rs` | platform | stays. The loop and the carrying out of effects: `run`, which takes the `Loads` of the reloads' images from its caller, and the `Driver` that lays the document out again and again, `show` and `carry`, which wait for a message, step the pager and do what its effects say, and `Tools::close`, which does what ends a layout, with the `Reload`, `InlineLoader`, `Loads` and `Terminal` it does its I/O through, and `load_headings` and `prefer`, which use `Loads`. The decisions, what a key, a poll, a resize, a load or a reload's result asks for, are in `src/session/step.rs`; `prefer` is told which lines are in view and gets the order from `loading::nearest` itself |
-| `src/pager/tests/simulated.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop. The pager's tests that run in the simulated front end instead of a pseudo-terminal |
+| `src/pager/tests/simulated.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop. The pager's tests that run in the simulated frontend instead of a pseudo-terminal |
 | `src/pager/tests/mod.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/files.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/following.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
@@ -784,7 +784,9 @@ directory go with it, and the table's paths are the final ones.
 The move created the first five of these files; they are not in the table above,
 because they had no path before it. Each declares the modules that moved into
 its directory and exports the public surface of its part. The files after
-them came with the split of the mixed modules (images and diagrams); the last
+them, the nine from `src/typeset/images/key.rs` to
+`src/typeset/diagrams/output.rs`, came with the split of the mixed modules
+(images and diagrams); the ones after those were new before it, and the last
 three came later and are test only.
 
 | New file | What it is |
@@ -875,6 +877,7 @@ file (`main.rs`, `frontend/mod.rs`, `pager/mod.rs`, `render/mod.rs`,
 | highlight, or anything else that changes from frame to frame | a layer in the list that `stack` makes in `src/session/layers.rs`: a paint and an address, and nothing new in `marked` |
 | panel, such as help or a file list | a document in the panel's look, no path yet, made by panels as documents, built in `src/session/` |
 | feature of the pager | a file of its own in `src/session/`, never a new branch in `src/pager/mod.rs` |
+| way to show the files given, such as a server | a file of its own in `src/frontend/`, as `pager.rs` and `print.rs` are, reaching the files, streams and terminal through `Platform`; never in `frontend/mod.rs` |
 | terminal feature | the I/O in `src/term/`, the bytes in the terminal layer (`src/present/`), and kitty's own sequences in `src/present/kitty/` |
 
 The paths marked new are for the maintainer to confirm.
@@ -884,7 +887,7 @@ The paths marked new are for the maintainer to confirm.
 `src/main.rs` is the binary's entry point: some 200 lines, with the
 command line in `src/cli.rs`. It implements `Platform` for the process
 (`Real`), reads the command line, resolves the
-settings and hands them to the front ends in `src/frontend/`, which open
+settings and hands them to the frontends in `src/frontend/`, which open
 files and standard input, have one route in which a single file is the
 special case of several, print documents, start the pager, and load the
 images and diagrams and reload files for the pager; and it calls
