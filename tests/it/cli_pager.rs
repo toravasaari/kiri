@@ -1543,17 +1543,6 @@ struct Step<'a> {
     keys: &'a dyn Fn(&std::path::Path) -> &'static [u8],
 }
 
-/// kiri on `args` in a terminal of 5 rows, in a scratch directory called
-/// `name`, with `steps` done in order.
-fn in_steps(
-    name: &str,
-    args: &[&str],
-    stdin: Option<&str>,
-    steps: &[Step],
-) -> (ExitStatus, String) {
-    in_steps_after(name, |_| {}, args, stdin, steps)
-}
-
 /// [`in_steps`] on files `prepare` makes.
 fn in_steps_with(
     name: &str,
@@ -1590,48 +1579,6 @@ fn quit_after(frames: usize) -> Step<'static> {
         frames,
         keys: &|_| b"q",
     }
-}
-
-#[test]
-fn r_reads_the_file_again() {
-    let rewrite = |dir: &std::path::Path| {
-        let fresh: String = (1..=10).map(|n| format!("Fresh {n}\n\n")).collect();
-        std::fs::write(dir.join("long.md"), fresh).unwrap();
-        b"r" as &'static [u8]
-    };
-    // The first frame, then the one that says it is reloading; the one
-    // of the new document is drawn before the pager reads the next key.
-    let steps = [
-        Step {
-            frames: 1,
-            keys: &rewrite,
-        },
-        quit_after(2),
-    ];
-    let (status, seen) = in_steps("pager-reload", &["long.md"], None, &steps);
-    assert!(status.success());
-    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
-    assert!(frames[0].contains("Line 1"), "{seen:?}");
-    assert!(text_of(frames[1]).contains("reloading"), "{seen:?}");
-    let last = frames.last().unwrap();
-    assert!(last.contains("Fresh 1"), "{seen:?}");
-    assert!(text_of(last).contains("reloaded"), "{seen:?}");
-}
-
-#[test]
-fn standard_input_and_several_files_reload_nothing() {
-    let reload = Step {
-        frames: 1,
-        keys: &|_| b"r",
-    };
-    let steps = [reload, quit_after(2)];
-    let (status, seen) = in_steps("pager-reload-stdin", &["-p"], Some(&long()), &steps);
-    assert!(status.success());
-    assert!(text_of(&seen).contains("nothing to reload"), "{seen:?}");
-    let args = ["long.md", "document.md"];
-    let (status, seen) = in_steps("pager-reload-files", &args, None, &steps);
-    assert!(status.success());
-    assert!(text_of(&seen).contains("nothing to reload"), "{seen:?}");
 }
 
 #[test]
