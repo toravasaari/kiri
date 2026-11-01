@@ -1099,7 +1099,8 @@ fn what_the_planner_wants_is_what_the_layout_draws() {
     };
     let document =
         crate::typeset::parse::parse("# Kiri\n\n![x](a.png)\n\n```mermaid\nflowchart TD\n```\n");
-    // As the frontend's planner asks for it, from the settings and the caps.
+    // As the frontend's planner asks for it, from the settings and the caps:
+    // this mirrors `frontend::loads::loading`, which it does not call.
     let loading = crate::images::Loading {
         env: &env,
         settings: &settings,
