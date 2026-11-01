@@ -1,4 +1,4 @@
-//! The route's paging and printing decisions in the simulated front end:
+//! The route's paging and printing decisions in the simulated frontend:
 //! whether a run pages or prints, what the pager shows of several files
 //! and of one that cannot be shown, and what standard error gets. The
 //! keys come at their times on the virtual clock.

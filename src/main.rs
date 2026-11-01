@@ -1,6 +1,6 @@
 //! The kiri binary: the platform's entry point. It reads the command line
 //! (`cli.rs`) and resolves the settings from it, the environment and the
-//! configuration file, and hands them to the front ends in the library
+//! configuration file, and hands them to the frontends in the library
 //! (`src/frontend/`), which show the files. It wires the parts of the
 //! library together and does the I/O that they must not do.
 //!

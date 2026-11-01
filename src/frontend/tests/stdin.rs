@@ -1,4 +1,4 @@
-//! Standard input in the simulated front end: printed unless paging is
+//! Standard input in the simulated frontend: printed unless paging is
 //! `always`, and printed as plain text on a terminal that draws no styling.
 
 use super::long;

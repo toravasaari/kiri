@@ -1,4 +1,4 @@
-//! Reloading in the simulated front end: `r` reads the shown file again
+//! Reloading in the simulated frontend: `r` reads the shown file again
 //! from the simulated disk, and standard input and several files have
 //! nothing to reload.
 

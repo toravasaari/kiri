@@ -1,4 +1,4 @@
-//! A simulated front end for the pager's tests: the terminal, the clock, the
+//! A simulated frontend for the pager's tests: the terminal, the clock, the
 //! files and the loads that the loop in `src/pager/mod.rs` reaches, all in
 //! memory, so that a test runs the pager as kiri runs it without a
 //! pseudo-terminal and without waiting on the wall clock.
@@ -24,7 +24,7 @@
 //! kept in memory, and a terminal that is the script's. The loads of images
 //! are not simulated yet, so the route runs only with caps that draw none.
 //!
-//! This is the front end of the tests and, like the real ones, belongs to the
+//! This is the frontend of the tests and, like the real ones, belongs to the
 //! platform. What it does not do is what the terminal does: raw mode, the
 //! alternate screen, signals and the probe. Those stay on a
 //! pseudo-terminal, in `tests/it/cli_tmux.rs` and the others.
@@ -830,7 +830,7 @@ impl Write for SimErr {
     }
 }
 
-/// What the front ends reach of the world, in memory: the simulated
+/// What the frontends reach of the world, in memory: the simulated
 /// disk, the streams of [`World`], and a terminal on the virtual clock.
 struct SimPlatform {
     world: Rc<World>,

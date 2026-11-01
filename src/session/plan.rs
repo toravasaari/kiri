@@ -1,6 +1,6 @@
 //! The startup plan: the decisions a run makes before it shows anything,
 //! such as whether a document is paged, and when its images load. They
-//! need no I/O. The front ends in `src/frontend/` read the terminal and the
+//! need no I/O. The frontends in `src/frontend/` read the terminal and the
 //! files through `Platform` (implemented for the process in `src/main.rs`)
 //! and pass the answers in as values.
 

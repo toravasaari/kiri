@@ -1,4 +1,4 @@
-//! The pager run in the simulated front end (`src/frontend/sim.rs`): a virtual
+//! The pager run in the simulated frontend (`src/frontend/sim.rs`): a virtual
 //! clock, files in memory and a script of keys and edits, in place of the
 //! pseudo-terminal tests that tested the pager and not the terminal. They
 //! look at the bytes the pager writes, as those did.

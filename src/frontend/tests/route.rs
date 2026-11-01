@@ -1,4 +1,4 @@
-//! The route, `show_files`, run in the simulated front end as `kiri
+//! The route, `show_files`, run in the simulated frontend as `kiri
 //! <files>` runs it: the files from the simulated disk, paged on its
 //! terminal or printed to its standard output, with what it tells on its
 //! standard error. The assertions look at the bytes, as the pager's

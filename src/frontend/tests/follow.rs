@@ -1,4 +1,4 @@
-//! Following a file in the simulated front end: a followed file is paged
+//! Following a file in the simulated frontend: a followed file is paged
 //! even when short, the pager reads it again when it changes without a key,
 //! and standard input and several files have nothing to follow. Which flag
 //! or variable sets which setting is `config`'s tests.

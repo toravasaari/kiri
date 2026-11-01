@@ -1,4 +1,4 @@
-//! The front ends' loading of a document's images and diagrams, and the
+//! The frontends' loading of a document's images and diagrams, and the
 //! reloading of its file for the pager. Images load in the foreground while
 //! the reader waits for the pager, on threads while the pager shows, and in
 //! the background when a reload finds images it does not have yet. A reload

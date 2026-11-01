@@ -1,4 +1,4 @@
-//! The front ends' tests: the route run in the simulated front end
+//! The frontends' tests: the route run in the simulated frontend
 //! (`src/frontend/sim.rs`), through the same `Platform` the binary
 //! implements for the process. One file for each topic: `route.rs` (one
 //! file, several, standard input, a missing file), `paging.rs` (paging

@@ -1,4 +1,4 @@
-//! The front ends: what shows the files that kiri is given, in the pager or
+//! The frontends: what shows the files that kiri is given, in the pager or
 //! printed. They open the files and standard input, load the images and
 //! diagrams the documents want, and run the pager's loop on the terminal.
 //! The binary hands them what the command line asked for, `Asked`, and the
@@ -34,7 +34,7 @@ mod route;
 
 pub use route::{show_document, show_files, shown};
 
-/// What the front ends reach of the world outside kiri: files, standard
+/// What the frontends reach of the world outside kiri: files, standard
 /// input and output, the environment and the terminal. The binary
 /// implements it for the process; `sim.rs` in memory, for the tests.
 pub trait Platform {
@@ -134,7 +134,7 @@ impl From<String> for Failure {
     }
 }
 
-/// What the command line asks the front end for.
+/// What the command line asks the frontend for.
 pub struct Asked<'a> {
     /// The files given; `-` is standard input.
     pub files: &'a [PathBuf],

@@ -1,4 +1,4 @@
-//! Settings that change the route, as the simulated front end gets them
+//! Settings that change the route, as the simulated frontend gets them
 //! resolved: paging from the flag, the variable or the file; diagrams off;
 //! reading mode on a terminal that draws no images. Which flag or variable
 //! sets which setting is `config`'s tests (`src/config/tests.rs`).
