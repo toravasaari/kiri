@@ -240,13 +240,14 @@ mod tests {
     }
 
     #[test]
-    fn ids_of_different_kinds_count_on_their_own_and_are_never_reused() {
-        let mut session = Session::new(["a.md"]);
-        let first = session.view().id();
-        let second = session.add_view(Vec::new());
-        assert_ne!(first, second);
-        let added = session.add_source("b.md".to_owned());
-        assert!(!ids(&session)[..1].contains(&added));
-        assert_eq!(session.sources().len(), 2);
+    fn a_new_source_or_view_gets_an_id_that_none_of_the_existing_have() {
+        let mut session = Session::new(["a.md", "b.md"]);
+        let sources = ids(&session);
+        let views: Vec<ViewId> = session.views.iter().map(View::id).collect();
+        let view = session.add_view(Vec::new());
+        assert!(!views.contains(&view), "{view:?} among {views:?}");
+        let added = session.add_source("c.md".to_owned());
+        assert!(!sources.contains(&added), "{added:?} among {sources:?}");
+        assert_eq!(session.sources().len(), 3);
     }
 }
