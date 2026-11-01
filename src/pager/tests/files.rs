@@ -29,7 +29,7 @@ fn show_files(files: &[File], terminal: &mut Fake) {
 }
 
 #[test]
-fn the_status_line_takes_the_names_and_the_count_from_the_session() {
+fn the_status_line_names_the_files_after_the_sources_of_the_session() {
     // The documents carry other names than the session's sources, which
     // are the ones shown.
     let mut terminal = Fake::new(40, 6, &[b":n"]);
