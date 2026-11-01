@@ -14,16 +14,13 @@
 
 use std::fmt::Display;
 use std::io::{self, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use crate::config::{Environment, Passthrough, Settings};
+use crate::config::{Environment, Passthrough};
 use crate::present::kitty::graphics::{Cells, ImageId};
-use crate::session::settings::Follow;
 use crate::session::state::Look;
 use crate::term::{Mode, WindowSize};
 use crate::typeset::caps::Capabilities;
-use crate::typeset::diagnostic::Diagnostic;
-use crate::typeset::input::Input;
 
 mod given;
 mod loads;
@@ -32,7 +29,8 @@ mod pager;
 mod print;
 mod route;
 
-pub use route::{show_document, show_files, shown};
+pub use pager::Screen;
+pub use route::{Asked, Configured, show_document, show_files, shown};
 
 /// What the frontends reach of the world outside kiri: files, standard
 /// input and output, the environment and the terminal. The binary
@@ -96,20 +94,6 @@ pub trait Platform {
     ) -> Option<Box<dyn Screen + '_>>;
 }
 
-/// The pager's screen: a [`crate::pager::Terminal`], with its clock, that
-/// is left at the end.
-pub trait Screen: crate::pager::Terminal {
-    /// Leaves the screen and restores the terminal, runs `after`, and then
-    /// ends kiri with a signal that asked it to end, if one came.
-    fn close_then(self: Box<Self>, after: Box<dyn FnOnce() + '_>);
-}
-
-impl<W: Write> Screen for crate::term::Screen<W> {
-    fn close_then(self: Box<Self>, after: Box<dyn FnOnce() + '_>) {
-        (*self).close_then(after);
-    }
-}
-
 /// Tells `line` on standard error as kiri's own, after `kiri: `, and panics
 /// should the write fail, as printing to standard error does.
 fn tell(platform: &dyn Platform, line: impl Display) {
@@ -132,26 +116,6 @@ impl From<String> for Failure {
     fn from(error: String) -> Self {
         Failure::Error(error)
     }
-}
-
-/// What the command line asks the frontend for.
-pub struct Asked<'a> {
-    /// The files given; `-` is standard input.
-    pub files: &'a [PathBuf],
-    /// The input format `--format` names.
-    pub format: Option<Input>,
-    /// How the command line asks to follow, `Off` when it does not.
-    pub follow: Follow,
-}
-
-/// The settings, as the binary resolved them from the command line, the
-/// environment and the configuration file.
-pub struct Configured {
-    /// Warnings about them.
-    pub warnings: Vec<Diagnostic>,
-    /// The settings; or why the configuration file could not be read,
-    /// with the settings without it.
-    pub settings: Result<Settings, (String, Settings)>,
 }
 
 #[cfg(test)]

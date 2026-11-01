@@ -7,7 +7,7 @@
 //! key does (`src/session/`).
 
 use std::cell::Cell;
-use std::io;
+use std::io::{self, Write};
 use std::time::{Duration, Instant};
 
 use crate::config::Settings;
@@ -30,7 +30,21 @@ use super::loads::{
 };
 use super::print::Held;
 use super::route::{Context, Show, tell_drawn, told, told_line};
-use super::{Failure, Platform, Screen, shown, tell};
+use super::{Failure, Platform, shown, tell};
+
+/// The pager's screen: a [`crate::pager::Terminal`], with its clock, that
+/// is left at the end.
+pub trait Screen: crate::pager::Terminal {
+    /// Leaves the screen and restores the terminal, runs `after`, and then
+    /// ends kiri with a signal that asked it to end, if one came.
+    fn close_then(self: Box<Self>, after: Box<dyn FnOnce() + '_>);
+}
+
+impl<W: Write> Screen for crate::term::Screen<W> {
+    fn close_then(self: Box<Self>, after: Box<dyn FnOnce() + '_>) {
+        (*self).close_then(after);
+    }
+}
 
 /// The pager's loop takes a terminal of a size it knows; the screen the
 /// platform opens is behind a box.
