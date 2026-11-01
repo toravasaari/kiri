@@ -3,8 +3,9 @@
 //! implements for the process. One file for each topic: `route.rs` (one
 //! file, several, standard input, a missing file), `paging.rs` (paging
 //! and printing), `settings.rs`, `stdin.rs`, `follow.rs`, `reload.rs`, and
-//! `close.rs` (how the pager ends) and `loads.rs` (the images that load in
-//! the background or before the pager opens).
+//! `close.rs` (how the pager ends), `loads.rs` (the images that load in the
+//! background or before the pager opens) and `wait.rs` (the wait for them,
+//! which the reader can skip).
 
 mod close;
 mod follow;
@@ -14,6 +15,7 @@ mod reload;
 mod route;
 mod settings;
 mod stdin;
+mod wait;
 
 use std::time::Duration;
 
