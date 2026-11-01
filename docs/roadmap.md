@@ -1698,6 +1698,18 @@ Both are older than the session work and were found in its final review.
   mode. Mending it: catch first, then open the key reader, and release the
   guard where there is no key reader.
 
+#### B20 Code blocks in a language GitHub knows by another name are not highlighted
+
+kiri looks a fence's language up among syntect's bundled grammars by name
+or file extension (`find_syntax_by_token` in
+`src/typeset/layout/highlight.rs`). A name that is neither stays plain
+code, though GitHub highlights it. Seen: `shell`, the common name for
+shell commands in READMEs; `sh` and `bash` work. Other names to check
+the same way are `zsh`, `console`, `shellsession`, and languages
+syntect's set may lack altogether, such as TypeScript and TOML. Mending
+it: an alias table from GitHub's names to the bundled grammars, and a
+test that the names the docs and examples use all highlight.
+
 ### Upstream bugs
 
 Bugs in projects kiri uses. kiri works around most of them until they
