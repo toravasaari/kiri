@@ -78,7 +78,7 @@ impl SourceFiles for Background {
     ) -> (Option<Look>, Reloaded) {
         self.asked += 1;
         if let Some(why) = self.afterwards.clone().filter(|_| self.asked > 1) {
-            return (None, Reloaded::Failed(why));
+            return (Some(READ), Reloaded::Failed(why));
         }
         for key in &self.aside {
             images.set_aside(key);
@@ -91,7 +91,7 @@ impl SourceFiles for Background {
             self.coming.planned.borrow_mut().push(key.clone());
             self.coming.outcomes.borrow_mut().insert(key, image);
         }
-        (None, Reloaded::Document(self.document.clone()))
+        (Some(READ), Reloaded::Document(self.document.clone()))
     }
 
     fn look(&mut self, _: &Path) -> Result<Look, String> {
@@ -355,6 +355,33 @@ fn auto_following_jumps_when_the_text_comes_and_not_when_the_image_does() {
     let jumped = top(&frames[2]);
     assert_ne!(jumped, top(&frames[0]), "{frames:#?}");
     assert_eq!(top(frames.last().unwrap()), jumped, "{frames:#?}");
+}
+
+#[test]
+fn auto_following_reads_once_when_the_file_never_changes() {
+    let before = numbers(30);
+    let mut changed: String = (1..=30).map(|n| format!("Line {n}\n\n")).collect();
+    changed = changed.replace("Line 20\n", "![changed](b.png)\n");
+    let mut reload = Background {
+        document: crate::typeset::parse::parse(&changed),
+        wanted: vec![(ImageKey::from("b.png"), filled(20, 200, [0, 0, 255, 255]))],
+        aside: Vec::new(),
+        coming: Default::default(),
+        fails: Vec::new(),
+        afterwards: None,
+        asked: 0,
+    };
+    let keys: [&[u8]; 8] = [b"r", b"", b"", b"", b"", b"", b"", b""];
+    loading_in(
+        8,
+        &before,
+        Vec::new(),
+        &mut reload,
+        &keys,
+        &[2],
+        settings::Follow::Auto,
+    );
+    assert_eq!(reload.asked, 1);
 }
 
 #[test]
@@ -684,7 +711,7 @@ impl SourceFiles for Gating {
         _: bool,
     ) -> (Option<Look>, Reloaded) {
         self.1.set(true);
-        (None, Reloaded::Document(self.0.clone()))
+        (Some(READ), Reloaded::Document(self.0.clone()))
     }
 
     fn look(&mut self, _: &Path) -> Result<Look, String> {
@@ -895,7 +922,7 @@ impl SourceFiles for Retrying {
             .outcomes
             .borrow_mut()
             .insert(self.key.clone(), failed);
-        (None, Reloaded::Document(self.document.clone()))
+        (Some(READ), Reloaded::Document(self.document.clone()))
     }
 
     fn look(&mut self, _: &Path) -> Result<Look, String> {
