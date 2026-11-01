@@ -1,35 +1,38 @@
-//! The loading of a document's images and diagrams, and the reloading of its
-//! file for the pager. Images load in the foreground while the reader waits
-//! for the pager, on threads while the pager shows, and in the background
-//! when a reload finds images it does not have yet. A reload reads the file
-//! again and tells the pager whether the file has changed since it was read.
+//! The front ends' loading of a document's images and diagrams, and the
+//! reloading of its file for the pager. Images load in the foreground while
+//! the reader waits for the pager, on threads while the pager shows, and in
+//! the background when a reload finds images it does not have yet. A reload
+//! reads the file again and tells the pager whether the file has changed
+//! since it was read.
 //!
 //! What does not belong here is the choice of what to show and when, which
-//! `main.rs` makes from the command line and the settings, and the state of
-//! a session. The functions here do the I/O and run the programs that draw
-//! diagrams; they take the settings and the terminal's capabilities as input.
+//! `route.rs` makes from the settings, and the state of a session. The
+//! functions here do the I/O and run the programs that draw diagrams; they
+//! take the settings and the terminal's capabilities as input.
 //!
 //! This is the seed of the platform's work runner. The session that roadmap
 //! item G7.3.3 adds will fill it in and replace the parts that do not fit it.
 
-use std::io::{self, Read};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use kiri::config::Settings;
-use kiri::images::{
+use crate::config::Settings;
+use crate::images::{
     Fonts, Format, Images, Interrupted, Loaded, Loading, Loads, Part, Source, Stamps,
     reload_in_background,
 };
-use kiri::pager::{Reload, Reloaded};
-use kiri::render::Inputs;
-use kiri::session::plan;
-use kiri::session::state::{Change, Look};
-use kiri::term::Interrupt;
-use kiri::typeset::caps::Capabilities;
-use kiri::typeset::input::Input;
-use kiri::typeset::model::Document;
+use crate::pager::{Reload, Reloaded};
+use crate::render::Inputs;
+use crate::session::plan;
+use crate::session::state::{Change, Look};
+use crate::term::Interrupt;
+use crate::typeset::caps::Capabilities;
+use crate::typeset::input::Input;
+use crate::typeset::model::Document;
 
-use crate::{Context, Failure, document};
+use super::open::document;
+use super::route::Context;
+use super::{Failure, Platform};
 
 /// The rows an image or diagram that has not loaded yet counts as, to
 /// tell whether a document is longer than the window before it loads.
@@ -43,17 +46,17 @@ pub(crate) const ROWS_UNLOADED: u16 = 3;
 /// until they start loading.
 pub(crate) fn surely_paged(
     context: &Context,
-    content: kiri::typeset::layout::Content,
+    content: crate::typeset::layout::Content,
     parts: &[Part],
     settings: &Settings,
     inputs: &mut Inputs,
 ) -> bool {
     let longer = plan::surely_paged(settings.paging, || {
         let loading = loading(context, settings, &inputs.caps);
-        kiri::images::measure_in_background(parts, &loading, &mut inputs.images, ROWS_UNLOADED);
-        let stream = kiri::typeset::layout::content(content, inputs);
-        let rows = kiri::pager::rows(&stream.lines, &inputs.caps);
-        let height = kiri::term::window_size(io::stdout()).map(|window| window.rows);
+        crate::images::measure_in_background(parts, &loading, &mut inputs.images, ROWS_UNLOADED);
+        let stream = crate::typeset::layout::content(content, inputs);
+        let rows = crate::pager::rows(&stream.lines, &inputs.caps);
+        let height = context.platform.window().map(|window| window.rows);
         plan::Measured { rows, height }
     });
     if !longer {
@@ -87,15 +90,15 @@ pub(crate) fn wait_or_skip(
     settings: &Settings,
     inputs: &mut Inputs,
 ) -> Option<Result<Waited, Failure>> {
-    if !kiri::term::stderr_is_terminal() {
+    if !context.platform.stderr_is_terminal() {
         return None;
     }
-    let mut keys = kiri::term::WaitKeys::open()?;
+    let mut keys = crate::term::WaitKeys::open()?;
     let interrupt = Interrupt::catch();
     let signal = || interrupt.as_ref().and_then(Interrupt::signal);
     let mut loads = Loads::new();
     let loading = loading(context, settings, &inputs.caps);
-    kiri::images::load_in_background(parts, &loading, &mut inputs.images, &mut loads);
+    crate::images::load_in_background(parts, &loading, &mut inputs.images, &mut loads);
     let images = &mut inputs.images;
     let poll = || {
         for (key, image) in loads.poll() {
@@ -104,13 +107,14 @@ pub(crate) fn wait_or_skip(
         loads.progress().filter(|_| signal().is_none())
     };
     let skip = |timeout| keys.skip(timeout);
-    let delay = kiri::term::progress::DELAY;
-    let skipped = kiri::term::progress::until_done_or_skipped(io::stderr(), delay, poll, skip);
+    let delay = crate::term::progress::DELAY;
+    let skipped =
+        crate::term::progress::until_done_or_skipped(context.platform.stderr(), delay, poll, skip);
     // The terminal as it was, before the pager or the shell takes it.
     drop(keys);
     if signal().is_some() {
         loads.halt();
-        loads.wait(kiri::images::STOPPING);
+        loads.wait(crate::images::STOPPING);
         let signal = interrupt.as_ref().and_then(Interrupt::release);
         return signal.map(|signal| Err(Failure::Signal(signal)));
     }
@@ -137,7 +141,7 @@ pub(crate) fn finish_loading(
         }
         if let Some(signal) = interrupt.and_then(Interrupt::signal) {
             loads.halt();
-            loads.wait(kiri::images::STOPPING);
+            loads.wait(crate::images::STOPPING);
             let signal = interrupt.and_then(Interrupt::release).unwrap_or(signal);
             return Err(Failure::Signal(signal));
         }
@@ -156,7 +160,7 @@ pub(crate) fn load_in_background(
     loads: &mut Loads,
 ) {
     let loading = loading(context, settings, &inputs.caps);
-    kiri::images::load_in_background(parts, &loading, &mut inputs.images, loads);
+    crate::images::load_in_background(parts, &loading, &mut inputs.images, loads);
 }
 
 /// The images of the documents in `parts`, loaded and drawn as
@@ -170,14 +174,14 @@ pub(crate) fn load_parts(
     let loading = loading(context, settings, caps);
     // Drawing diagrams can take seconds with an external program; a
     // terminal tells how far it has got.
-    let loaded = if kiri::term::stderr_is_terminal() {
-        use kiri::term::progress::{DELAY, while_working};
-        while_working(io::stderr(), DELAY, |progress| {
+    let loaded = if context.platform.stderr_is_terminal() {
+        use crate::term::progress::{DELAY, while_working};
+        while_working(context.platform.stderr(), DELAY, |progress| {
             let tell = |done, total| progress.update(done, total);
-            kiri::images::load_documents(parts, &loading, Some(&tell))
+            crate::images::load_documents(parts, &loading, Some(&tell))
         })
     } else {
-        kiri::images::load_documents(parts, &loading, None)
+        crate::images::load_documents(parts, &loading, None)
     };
     loaded.map_err(|Interrupted(signal)| Failure::Signal(signal))
 }
@@ -189,13 +193,13 @@ pub(crate) fn loading<'a>(
     caps: &Capabilities,
 ) -> Loading<'a> {
     Loading {
-        env: context.env,
+        env: context.platform.environment(),
         settings,
         max_file_size: context.max_file_size,
-        theme: kiri::diagrams::Theme::for_page(caps.dark_background),
-        formula: kiri::typeset::images::formula_colors(&settings.theme, caps),
-        largest: Some(kiri::typeset::images::size::largest(caps)),
-        headings: kiri::render::heading_look(
+        theme: crate::diagrams::Theme::for_page(caps.dark_background),
+        formula: crate::typeset::images::formula_colors(&settings.theme, caps),
+        largest: Some(crate::typeset::images::size::largest(caps)),
+        headings: crate::render::heading_look(
             settings.headings,
             !settings.images,
             &settings.theme,
@@ -222,16 +226,16 @@ pub(crate) fn part<'a>(
 
 /// Waits for the programs that drew `loads`, stopped, to end, with a line
 /// on standard error, a terminal, while that takes more than a second.
-pub(crate) fn close_programs(loads: &Loads) {
-    let limit = kiri::images::STOPPING;
+pub(crate) fn close_programs(platform: &dyn Platform, loads: &Loads) {
+    let limit = crate::images::STOPPING;
     let wait = |most| loads.wait(most);
-    if !kiri::term::stderr_is_terminal() {
+    if !platform.stderr_is_terminal() {
         wait(limit);
         return;
     }
     let text = "kiri: closing background programs…";
     let second = std::time::Duration::from_secs(1);
-    kiri::term::progress::while_waiting(io::stderr(), second, limit, text, wait);
+    crate::term::progress::while_waiting(platform.stderr(), second, limit, text, wait);
 }
 
 /// Reads the document from its file again for the pager, and loads the
@@ -259,9 +263,9 @@ impl Reload for FileReload<'_> {
     ) -> Reloaded {
         let (path, input) = (self.path.as_path(), self.input);
         // Before the file is read, so that a change meanwhile counts.
-        self.read = look(path).ok();
+        self.read = self.context.platform.look(path).ok();
         // The status line names the file already, so the reasons do not.
-        let source = match read_text(path) {
+        let source = match read_text(self.context.platform, path) {
             Ok(source) => source,
             Err(error) => return Reloaded::Failed(error),
         };
@@ -284,7 +288,7 @@ impl Reload for FileReload<'_> {
     }
 
     fn change(&mut self) -> Change {
-        match look(&self.path) {
+        match self.context.platform.look(&self.path) {
             Ok(look) if Some(look) == self.read => Change::Unchanged,
             Ok(look) => Change::Changed(look),
             Err(why) => Change::Gone(why),
@@ -292,21 +296,13 @@ impl Reload for FileReload<'_> {
     }
 }
 
-/// How the file at `path` looks now, looked up by its path, so that a file
-/// replaced by another, as an editor saves through a rename, counts as
-/// changed; why it cannot be looked at otherwise.
-pub(crate) fn look(path: &Path) -> Result<Look, String> {
-    let metadata = std::fs::metadata(path).map_err(|error| error.to_string())?;
-    Ok(Look {
-        modified: metadata.modified().ok(),
-        length: metadata.len(),
-    })
-}
-
 /// The text of the file at `path`, read whole; why it cannot be read
 /// otherwise.
-fn read_text(path: &Path) -> Result<String, String> {
-    let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
+fn read_text(platform: &dyn Platform, path: &Path) -> Result<String, String> {
+    let mut bytes = Vec::new();
+    (platform.open(path))
+        .and_then(|mut file| file.read_to_end(&mut bytes))
+        .map_err(|error| error.to_string())?;
     String::from_utf8(bytes).map_err(|_| "not UTF-8 text".to_owned())
 }
 
@@ -335,7 +331,7 @@ pub(crate) fn read_image_file(
         ));
     }
     let max_file_size = context.max_file_size;
-    kiri::images::read_image(reader, path, format, max_file_size, &Fonts::system()).map_err(
+    crate::images::read_image(reader, path, format, max_file_size, &Fonts::system()).map_err(
         |error| match error {
             error if error.names_file() => error.to_string(),
             error => format!("{}: {error}", path.display()),

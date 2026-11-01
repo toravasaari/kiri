@@ -1,10 +1,10 @@
-//! The pager run in the simulated shell (`src/pager/sim.rs`): a virtual
+//! The pager run in the simulated front end (`src/frontend/sim.rs`): a virtual
 //! clock, files in memory and a script of keys and edits, in place of the
 //! pseudo-terminal tests that tested the pager and not the terminal. They
 //! look at the bytes the pager writes, as those did.
 
 use super::*;
-use crate::pager::sim::Sim;
+use crate::frontend::sim::Sim;
 use crate::session::settings::Follow;
 
 /// A document longer than a window of 5 rows: `Line 1` to `Line 10`, one

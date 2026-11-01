@@ -556,12 +556,9 @@ fn quitting_leaves_the_programs_ending_to_the_caller() {
     loads.program(ImageKey::block("mermaid", "slow\n"), Duration::from_secs(2));
     let mut inputs = Inputs::new(Capabilities::kitty(80));
     let mut terminal = Fake::new(60, 6, &[b"q"]);
-    let options = Options {
-        loads: Some(&mut loads),
-        ..Options::new(SearchCase::Smart)
-    };
     let start = Instant::now();
-    run_document(&numbers(3), &mut inputs, options, &mut terminal);
+    let options = Options::new(SearchCase::Smart);
+    run_document_in(&numbers(3), &mut inputs, options, &mut loads, &mut terminal);
     // Back before the program ends, with the loads stopped.
     assert!(
         start.elapsed() < Duration::from_millis(300),
@@ -571,48 +568,6 @@ fn quitting_leaves_the_programs_ending_to_the_caller() {
     assert!(loads.is_empty());
     assert!(!loads.wait(Duration::ZERO));
     assert!(loads.wait(Duration::from_secs(5)));
-}
-
-/// Reloads the document as the first, with a program drawing a
-/// diagram that ends the second after it is told to stop.
-struct Drawing(Document, Duration);
-
-impl Reload for Drawing {
-    fn reload(&mut self, _: &mut Images, loads: &mut Loads, _: &Capabilities, _: bool) -> Reloaded {
-        loads.program(ImageKey::block("mermaid", "slow\n"), self.1);
-        Reloaded::Document(self.0.clone())
-    }
-
-    fn change(&mut self) -> Change {
-        Change::Unchanged
-    }
-}
-
-#[test]
-fn quitting_with_loads_of_its_own_waits_for_them_after_deleting_the_images() {
-    let ending = Duration::from_secs(1);
-    let (document, image) = pictured([255, 0, 0, 255]);
-    let mut drawing = Drawing(document.clone(), ending);
-    let mut terminal = Fake::new(60, 6, &[b"r", b"q"]);
-    // When each flush came.
-    let flushes: std::rc::Rc<std::cell::RefCell<Vec<Instant>>> = Default::default();
-    let noted = std::rc::Rc::clone(&flushes);
-    terminal.flushed = Some(Box::new(move || noted.borrow_mut().push(Instant::now())));
-    let options = Options {
-        reload: Some(&mut drawing),
-        ..Options::new(SearchCase::Smart)
-    };
-    let mut inputs = image;
-    let start = Instant::now();
-    run_document(&document, &mut inputs, options, &mut terminal);
-    let end = Instant::now();
-    // The program ended before `run` returned, and the images were
-    // deleted before it did.
-    assert!(end - start >= ending, "{:?}", end - start);
-    let deleted = *flushes.borrow().last().unwrap();
-    assert!(end - deleted >= ending / 2, "{:?}", end - deleted);
-    let out = String::from_utf8(terminal.out).unwrap();
-    assert!(until_quit(&out).1.contains("\x1b_Ga=d,"), "{out:?}");
 }
 
 #[test]

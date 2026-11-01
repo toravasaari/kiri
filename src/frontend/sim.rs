@@ -1,4 +1,4 @@
-//! A simulated shell for the pager's tests: the terminal, the clock, the
+//! A simulated front end for the pager's tests: the terminal, the clock, the
 //! files and the loads that the loop in `src/pager/mod.rs` reaches, all in
 //! memory, so that a test runs the pager as kiri runs it without a
 //! pseudo-terminal and without waiting on the wall clock.
@@ -17,24 +17,38 @@
 //! one sees a change as it does on a disk. Images that a reload brings
 //! come as the script says, as a background load would.
 //!
-//! This is the shell of the tests and, like `main.rs`, belongs to the
+//! [`Sim::run`] runs the pager alone, on a document it is given.
+//! [`Sim::kiri`] runs the route as `kiri <files>` does, through
+//! `SimPlatform`, which implements the [`Platform`] the binary implements
+//! for the process: the disk above, standard input and output and error
+//! kept in memory, and a terminal that is the script's. The loads of images
+//! are not simulated yet, so the route runs only with caps that draw none.
+//!
+//! This is the front end of the tests and, like the real ones, belongs to the
 //! platform. What it does not do is what the terminal does: raw mode, the
 //! alternate screen, signals and the probe. Those stay on a
 //! pseudo-terminal, in `tests/it/cli_tmux.rs` and the others.
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
-use std::io::{self, Write};
+use std::io::{self, Cursor, Read, Write};
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
+use crate::config::{Config, Environment, Options as Choices, Passthrough, Settings};
+use crate::frontend::pager::close;
+use crate::frontend::{Asked, Configured, Failure, Platform, Screen, show_files};
 use crate::images::{Arrival, ImageError, ImageKey, Images, Loads, Placeholder, Source};
 use crate::pager::{InlineLoader, Options, Reload, Reloaded, Terminal, run};
+use crate::present::kitty::graphics::{Cells, ImageId};
 use crate::render::Inputs;
+use crate::session::plan::{self, Route};
 use crate::session::settings::{Follow, FollowJump, SearchCase};
 use crate::session::sources::Session;
 use crate::session::state::{Change, Look};
-use crate::term::WindowSize;
+use crate::term::{Mode, WindowSize};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::layout::Content;
 use crate::typeset::model::Document;
@@ -86,6 +100,10 @@ impl Disk {
         })
     }
 
+    fn has(&self, path: &str) -> bool {
+        self.files.contains_key(path)
+    }
+
     fn read(&self, path: &str) -> Result<String, String> {
         let file = self
             .files
@@ -117,6 +135,56 @@ struct World {
     disk: RefCell<Disk>,
     /// The images a reload started loading: when each comes, and as what.
     coming: RefCell<Vec<Coming>>,
+    /// What was written to the terminal: the screen and standard output
+    /// are one stream, as they are on a terminal. Each write borrows it
+    /// for that call only, as the route holds two handles to it at once.
+    out: RefCell<Vec<u8>>,
+    /// What was written to standard error. Behind a lock and not a
+    /// `RefCell`: the platform's standard error is `Send`.
+    err: Arc<Mutex<Vec<u8>>>,
+    /// The window's size now.
+    size: Cell<WindowSize>,
+    /// How long each read of keys was asked to wait.
+    waits: RefCell<Vec<Duration>>,
+    /// When the screen was left, on the real clock.
+    left: Cell<Option<Instant>>,
+}
+
+impl World {
+    /// A world with `disk`, in a window of `columns` × `rows` cells.
+    fn new(disk: Disk, columns: u16, rows: u16) -> Self {
+        World {
+            start: Instant::now(),
+            elapsed: Cell::new(Duration::ZERO),
+            disk: RefCell::new(disk),
+            coming: RefCell::new(Vec::new()),
+            out: RefCell::new(Vec::new()),
+            err: Arc::default(),
+            size: Cell::new(WindowSize {
+                columns,
+                rows,
+                width: 0,
+                height: 0,
+            }),
+            waits: RefCell::new(Vec::new()),
+            left: Cell::new(None),
+        }
+    }
+
+    /// What a run came to.
+    fn ran(&self, reloads: usize, result: Option<Result<(), Failure>>) -> Ran {
+        let text = |bytes: Vec<u8>| String::from_utf8(bytes).expect("kiri writes UTF-8");
+        Ran {
+            out: text(self.out.take()),
+            err: text(std::mem::take(
+                &mut *self.err.lock().expect("no panic holds it"),
+            )),
+            waits: self.waits.take(),
+            elapsed: self.elapsed.get(),
+            reloads,
+            result,
+        }
+    }
 }
 
 struct Coming {
@@ -124,6 +192,9 @@ struct Coming {
     arrival: Arrival,
     image: Result<Source, ImageError>,
 }
+
+/// A change to the settings that [`Sim::kiri`] runs with.
+type ChangeSettings = Box<dyn FnOnce(&mut Settings)>;
 
 /// A script for the pager: the document, the terminal it runs on and what
 /// happens while it does.
@@ -142,6 +213,14 @@ pub(crate) struct Sim {
     reading: bool,
     /// The images the start of loading what reading mode shows brings.
     inline: Vec<(String, Duration, Source)>,
+    /// What standard input holds, when it is not a terminal.
+    stdin: Option<String>,
+    /// Whether standard output is a pipe and not a terminal.
+    piped: bool,
+    /// Whether there is no terminal to read keys from.
+    keyless: bool,
+    /// What changes the settings that `kiri` runs with.
+    changes: Vec<ChangeSettings>,
 }
 
 impl Sim {
@@ -160,6 +239,10 @@ impl Sim {
             brings: Vec::new(),
             reading: false,
             inline: Vec::new(),
+            stdin: None,
+            piped: false,
+            keyless: false,
+            changes: Vec::new(),
         }
     }
 
@@ -250,8 +333,108 @@ impl Sim {
         self.at(ms, Act::Resize(columns, rows))
     }
 
+    /// Standard input holding `text`; it is not a terminal.
+    pub(crate) fn stdin(mut self, text: &str) -> Self {
+        self.stdin = Some(text.to_owned());
+        self
+    }
+
+    /// Standard output is a pipe, not a terminal. The caps stay as given:
+    /// pass [`Sim::caps`] with plain ones for what `--mode auto` gets on a
+    /// pipe.
+    pub(crate) fn piped(mut self) -> Self {
+        self.piped = true;
+        self
+    }
+
+    /// No terminal to read keys from, as in the background.
+    pub(crate) fn no_keys(mut self) -> Self {
+        self.keyless = true;
+        self
+    }
+
+    /// The settings, from the defaults with [`fixed_theme`], changed by
+    /// `change`.
+    pub(crate) fn settings(mut self, change: impl FnOnce(&mut Settings) + 'static) -> Self {
+        self.changes.push(Box::new(change));
+        self
+    }
+
+    /// Runs kiri on `files` (`-` for standard input) through the route, as
+    /// `kiri <files>` does: [`plan::route`], then [`show_files`]. With
+    /// caps that draw no images, as the loads of images read the real disk
+    /// and run real programs.
+    pub(crate) fn kiri(self, files: &[&str]) -> Ran {
+        assert!(
+            !self.caps.draws_images(),
+            "kiri's loads read the real disk: the caps must not draw images"
+        );
+        assert!(
+            self.brings.is_empty() && self.inline.is_empty(),
+            "no images come to kiri's route: its loads are not simulated"
+        );
+        assert!(
+            self.shown.is_none(),
+            ".show is for Sim::run: kiri takes its files as arguments"
+        );
+        assert!(
+            !self.reading,
+            ".reading is for Sim::run: the route always has a reading mode"
+        );
+        let Sim {
+            columns,
+            rows,
+            caps,
+            follow,
+            jump,
+            disk,
+            mut script,
+            stdin,
+            piped,
+            keyless,
+            changes,
+            ..
+        } = self;
+        script.sort_by_key(|(at, _)| *at);
+        let world = Rc::new(World::new(disk, columns, rows));
+        let terminal = SimTerminal::new(Rc::clone(&world), script);
+        let platform = SimPlatform {
+            stdin: RefCell::new(stdin.as_deref().map(|text| text.as_bytes().to_vec())),
+            piped,
+            ..SimPlatform::new(&world, caps, (!keyless).then_some(terminal))
+        };
+        let env = platform.environment();
+        let mut settings = crate::config::choose(&Choices::default(), env, &Config::default())
+            .with_theme(fixed_theme());
+        settings.follow = follow;
+        settings.follow_jump = jump;
+        changes.into_iter().for_each(|change| change(&mut settings));
+        let paths: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
+        let route = plan::route(&paths, stdin.is_none());
+        assert!(
+            !matches!(route, Route::Missing | Route::RepeatedStdin),
+            "the command line is wrong: {route:?}"
+        );
+        let asked = Asked {
+            files: &paths,
+            format: None,
+            follow,
+        };
+        let configured = Configured {
+            warnings: Vec::new(),
+            settings: Ok(settings),
+        };
+        let result = show_files(&platform, &asked, route, configured);
+        world.ran(0, Some(result))
+    }
+
     /// Runs the pager through the script, and gives what it did.
     pub(crate) fn run(self) -> Ran {
+        assert!(
+            self.stdin.is_none() && !self.piped && !self.keyless && self.changes.is_empty(),
+            ".stdin, .piped, .no_keys and .settings are for Sim::kiri: \
+             run has its own terminal and settings"
+        );
         let Sim {
             columns,
             rows,
@@ -264,17 +447,13 @@ impl Sim {
             brings,
             reading,
             inline,
+            ..
         } = self;
         script.sort_by_key(|(at, _)| *at);
-        let world = Rc::new(World {
-            start: Instant::now(),
-            elapsed: Cell::new(Duration::ZERO),
-            disk: RefCell::new(disk),
-            coming: RefCell::new(Vec::new()),
-        });
+        let world = Rc::new(World::new(disk, columns, rows));
         let mut inputs = Inputs {
             theme: fixed_theme(),
-            ..Inputs::new(caps)
+            ..Inputs::new(caps.clone())
         };
         let document = match &shown {
             Some(path) => parse(&world.disk.borrow().read(path).expect("the file shown")),
@@ -287,18 +466,7 @@ impl Sim {
             brings,
             asked: 0,
         });
-        let mut terminal = SimTerminal {
-            world: Rc::clone(&world),
-            script: script.into(),
-            size: WindowSize {
-                columns,
-                rows,
-                width: 0,
-                height: 0,
-            },
-            out: Vec::new(),
-            waits: Vec::new(),
-        };
+        let terminal = SimTerminal::new(Rc::clone(&world), script);
         let mut inline = Some(inline);
         let options = Options {
             reload: reload.as_mut().map(|reload| reload as &mut dyn Reload),
@@ -329,21 +497,21 @@ impl Sim {
             ..Options::new(SearchCase::Smart)
         };
         let session = Session::new([shown.as_deref().unwrap_or("notes.md")]);
+        let mut loads = Loads::new();
+        let mut screen: Box<dyn Screen> = Box::new(terminal);
         run(
             Content::Document(&document),
             None,
             session,
             &mut inputs,
             options,
-            &mut terminal,
+            &mut loads,
+            &mut screen,
         )
         .expect("the simulated terminal does not fail");
-        Ran {
-            out: String::from_utf8(terminal.out).expect("the pager writes UTF-8"),
-            waits: terminal.waits,
-            elapsed: world.elapsed.get(),
-            reloads: reload.map_or(0, |reload| reload.asked),
-        }
+        let platform = SimPlatform::new(&world, caps, None);
+        close(&platform, screen, &mut loads);
+        world.ran(reload.map_or(0, |reload| reload.asked), None)
     }
 }
 
@@ -351,16 +519,21 @@ fn parse(text: &str) -> Document {
     crate::typeset::parse::parse(text)
 }
 
-/// What a run of the pager did.
+/// What a run of the pager, or of kiri, did.
 pub(crate) struct Ran {
-    /// Everything it wrote to the terminal.
+    /// Everything it wrote to the terminal, the screen and standard output.
     pub(crate) out: String,
+    /// Everything it wrote to standard error.
+    pub(crate) err: String,
     /// How long each read of keys was asked to wait.
     pub(crate) waits: Vec<Duration>,
     /// The time on the virtual clock when the pager quit.
     pub(crate) elapsed: Duration,
-    /// How many times the pager read the document again.
+    /// How many times the pager read the document again. Always 0 after
+    /// [`Sim::kiri`], whose reloads read the disk through `FileReload`.
     pub(crate) reloads: usize,
+    /// How kiri ended, after [`Sim::kiri`]; `None` for [`Sim::run`].
+    pub(crate) result: Option<Result<(), Failure>>,
 }
 
 impl Ran {
@@ -381,7 +554,7 @@ impl Ran {
 /// `text` without its escape sequences: a CSI sequence ends at its final
 /// byte, and an OSC, DCS, APC, SOS or PM string at BEL or the string
 /// terminator, with everything in it.
-fn plain(text: &str) -> String {
+pub(crate) fn plain(text: &str) -> String {
     let mut plain = String::new();
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
@@ -463,12 +636,16 @@ impl Reload for SimReload {
 struct SimTerminal {
     world: Rc<World>,
     script: std::collections::VecDeque<(Duration, Act)>,
-    size: WindowSize,
-    out: Vec<u8>,
-    waits: Vec<Duration>,
 }
 
 impl SimTerminal {
+    fn new(world: Rc<World>, script: Vec<(Duration, Act)>) -> Self {
+        SimTerminal {
+            world,
+            script: script.into(),
+        }
+    }
+
     /// Does what the script says is due at `at`, and gives the keys it
     /// types.
     fn happen(&mut self, act: Act) -> Vec<u8> {
@@ -497,11 +674,12 @@ impl SimTerminal {
                 disk.files.insert(to, file);
             }
             Act::Resize(columns, rows) => {
-                self.size = WindowSize {
+                let size = self.world.size.get();
+                self.world.size.set(WindowSize {
                     columns,
                     rows,
-                    ..self.size
-                };
+                    ..size
+                });
             }
         }
         Vec::new()
@@ -510,7 +688,7 @@ impl SimTerminal {
 
 impl Write for SimTerminal {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.out.extend_from_slice(buf);
+        self.world.out.borrow_mut().extend_from_slice(buf);
         Ok(buf.len())
     }
 
@@ -521,14 +699,14 @@ impl Write for SimTerminal {
 
 impl Terminal for SimTerminal {
     fn size(&self) -> Option<WindowSize> {
-        Some(self.size)
+        Some(self.world.size.get())
     }
 
     /// Lets the clock run for `timeout` or until keys come, with the
     /// script's edits and the images' arrivals happening as it passes
     /// their times. Out of script, the reader quits.
     fn read(&mut self, timeout: Duration) -> io::Result<Vec<u8>> {
-        self.waits.push(timeout);
+        self.world.waits.borrow_mut().push(timeout);
         let end = self.world.elapsed.get() + timeout;
         loop {
             let next_act = self.script.front().map(|(at, _)| *at);
@@ -572,6 +750,171 @@ impl Terminal for SimTerminal {
     }
 }
 
+/// When [`close_over_screen`] started, left the screen, and returned, on
+/// the real clock.
+pub(crate) struct Closed {
+    pub(crate) started: Instant,
+    pub(crate) left: Instant,
+    pub(crate) returned: Instant,
+}
+
+/// Ends a pager with [`close`] over a simulated screen that nothing is
+/// shown on, with `loads` for its loads, and tells when the screen was left.
+pub(crate) fn close_over_screen(loads: &mut Loads) -> Closed {
+    let world = Rc::new(World::new(Disk::default(), 40, 5));
+    let platform = SimPlatform::new(&world, Capabilities::ansi(40), None);
+    let screen = Box::new(SimTerminal::new(Rc::clone(&world), Vec::new()));
+    let started = Instant::now();
+    close(&platform, screen, loads);
+    let returned = Instant::now();
+    let left = world.left.get().expect("close left the screen");
+    Closed {
+        started,
+        left,
+        returned,
+    }
+}
+
+impl Screen for SimTerminal {
+    fn close_then(self: Box<Self>, after: Box<dyn FnOnce() + '_>) {
+        self.world.left.set(Some(Instant::now()));
+        after();
+    }
+}
+
+/// Standard output: the terminal's stream, one handle among several.
+struct SimOut(Rc<World>);
+
+impl Write for SimOut {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.out.borrow_mut().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Standard error.
+struct SimErr(Arc<Mutex<Vec<u8>>>);
+
+impl Write for SimErr {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        (self.0.lock().expect("no panic holds it")).extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// What the front ends reach of the world, in memory: the simulated
+/// disk, the streams of [`World`], and a terminal on the virtual clock.
+struct SimPlatform {
+    world: Rc<World>,
+    env: Environment,
+    caps: Capabilities,
+    /// What standard input holds, until it is read.
+    stdin: RefCell<Option<Vec<u8>>>,
+    /// Whether standard output is a pipe.
+    piped: bool,
+    /// The one terminal, until the pager takes it; `None` without keys.
+    terminal: RefCell<Option<SimTerminal>>,
+}
+
+impl SimPlatform {
+    /// The platform of `world`, with `caps` and the one `terminal`, and
+    /// standard input holding nothing.
+    fn new(world: &Rc<World>, caps: Capabilities, terminal: Option<SimTerminal>) -> Self {
+        SimPlatform {
+            world: Rc::clone(world),
+            env: Environment::default(),
+            caps,
+            stdin: RefCell::new(None),
+            piped: false,
+            terminal: RefCell::new(terminal),
+        }
+    }
+}
+
+impl Platform for SimPlatform {
+    fn is_dir(&self, _: &Path) -> bool {
+        false
+    }
+
+    fn is_file(&self, path: &Path) -> bool {
+        self.world.disk.borrow().has(&path.to_string_lossy())
+    }
+
+    fn look(&self, path: &Path) -> Result<Look, String> {
+        self.world.disk.borrow().look(&path.to_string_lossy())
+    }
+
+    fn open(&self, path: &Path) -> io::Result<Box<dyn Read>> {
+        match self.world.disk.borrow().read(&path.to_string_lossy()) {
+            Ok(text) => Ok(Box::new(Cursor::new(text.into_bytes()))),
+            Err(_) => Err(io::Error::from_raw_os_error(2)),
+        }
+    }
+
+    fn stdin(&self) -> Box<dyn Read> {
+        let bytes = self.stdin.borrow_mut().take().unwrap_or_default();
+        Box::new(Cursor::new(bytes))
+    }
+
+    fn stdout(&self) -> Box<dyn Write + '_> {
+        Box::new(SimOut(Rc::clone(&self.world)))
+    }
+
+    fn stderr(&self) -> Box<dyn Write + Send + '_> {
+        Box::new(SimErr(Arc::clone(&self.world.err)))
+    }
+
+    fn environment(&self) -> &Environment {
+        &self.env
+    }
+
+    fn reading_fonts(&self) -> Fonts {
+        Fonts::fixture()
+    }
+
+    fn stdout_is_terminal(&self) -> bool {
+        !self.piped
+    }
+
+    fn stderr_is_terminal(&self) -> bool {
+        false
+    }
+
+    fn capabilities(&self, _: Mode, width: Option<u16>, _: Passthrough) -> Capabilities {
+        let mut caps = self.caps.clone();
+        caps.width = width.unwrap_or(caps.width);
+        caps.height = self.window().map(|window| window.rows);
+        caps
+    }
+
+    fn window(&self) -> Option<WindowSize> {
+        Some(self.world.size.get())
+    }
+
+    fn lost_images(&self, _: &[(ImageId, Cells)]) -> Option<Vec<ImageId>> {
+        Some(Vec::new())
+    }
+
+    fn screen(
+        &self,
+        caught: Box<dyn FnOnce() + '_>,
+        _: bool,
+        _: bool,
+    ) -> Option<Box<dyn Screen + '_>> {
+        let terminal = self.terminal.borrow_mut().take()?;
+        caught();
+        Some(Box::new(terminal))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -592,5 +935,29 @@ mod tests {
     #[test]
     fn a_csi_sequence_ends_at_its_final_byte() {
         assert_eq!(plain("a\x1b[0;1mb\x1b[5;1Hc\x1b[?2026hd"), "abcd");
+    }
+
+    #[test]
+    #[should_panic(expected = ".stdin, .piped, .no_keys and .settings are for Sim::kiri")]
+    fn run_refuses_stdin() {
+        Sim::new(40, 5).stdin("x").keys(10, "q").run();
+    }
+
+    #[test]
+    #[should_panic(expected = ".stdin, .piped, .no_keys and .settings are for Sim::kiri")]
+    fn run_refuses_piped() {
+        Sim::new(40, 5).piped().run();
+    }
+
+    #[test]
+    #[should_panic(expected = ".stdin, .piped, .no_keys and .settings are for Sim::kiri")]
+    fn run_refuses_no_keys() {
+        Sim::new(40, 5).no_keys().run();
+    }
+
+    #[test]
+    #[should_panic(expected = ".stdin, .piped, .no_keys and .settings are for Sim::kiri")]
+    fn run_refuses_settings() {
+        Sim::new(40, 5).settings(|_| {}).run();
     }
 }

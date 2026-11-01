@@ -284,13 +284,11 @@ fn a_new_cell_size_loads_the_heading_images_for_it() {
         inputs.images.insert(key((10, 20), headings), Ok(text));
         inputs.headings = headings;
         let mut background = Loads::new();
-        run_document(
+        run_document_in(
             &crate::typeset::parse::parse("# Kiri\n\nText\n"),
             &mut inputs,
-            Options {
-                loads: Some(&mut background),
-                ..Options::new(SearchCase::Smart)
-            },
+            Options::new(SearchCase::Smart),
+            &mut background,
             &mut terminal,
         );
         let wanted = key(after, headings);
@@ -334,13 +332,11 @@ fn a_cell_size_answer_loads_the_heading_images_for_it() {
     inputs.images.insert(key((10, 20)), Ok(text));
     inputs.headings = crate::render::Headings::Auto;
     let mut background = Loads::new();
-    run_document(
+    run_document_in(
         &crate::typeset::parse::parse("# Kiri\n\nText\n"),
         &mut inputs,
-        Options {
-            loads: Some(&mut background),
-            ..Options::new(SearchCase::Smart)
-        },
+        Options::new(SearchCase::Smart),
+        &mut background,
         &mut terminal,
     );
     let wanted = key((8, 16));

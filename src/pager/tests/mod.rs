@@ -122,11 +122,27 @@ fn numbers(count: usize) -> Document {
 }
 
 /// Runs the pager on `document`, named `notes.md`, with `inputs` and
-/// `options`, on `terminal`.
+/// `options`, on `terminal`, with loads of its own, which are stopped and
+/// waited for once it returns.
 fn run_document(
     document: &Document,
     inputs: &mut Inputs,
-    options: Options<'_, '_>,
+    options: Options<'_>,
+    terminal: &mut Fake,
+) {
+    let mut loads = Loads::new();
+    run_document_in(document, inputs, options, &mut loads, terminal);
+    loads.halt();
+    loads.wait(crate::images::STOPPING);
+}
+
+/// [`run_document`], with the reloads' images loading in `loads`, which are
+/// left running for the caller.
+fn run_document_in(
+    document: &Document,
+    inputs: &mut Inputs,
+    options: Options<'_>,
+    loads: &mut Loads,
     terminal: &mut Fake,
 ) {
     run(
@@ -135,6 +151,7 @@ fn run_document(
         Session::new(["notes.md"]),
         inputs,
         options,
+        loads,
         terminal,
     )
     .unwrap();
@@ -170,6 +187,7 @@ fn show_laid_out(document: &Document, before: &Document, caps: Capabilities) -> 
         Session::new(["notes.md"]),
         &mut inputs,
         Options::new(SearchCase::Smart),
+        &mut Loads::new(),
         &mut terminal,
     )
     .unwrap();

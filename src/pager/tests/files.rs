@@ -23,6 +23,7 @@ fn show_files(files: &[File], terminal: &mut Fake) {
         Session::new(files.iter().map(|file| file.name.as_str())),
         &mut inputs,
         Options::new(SearchCase::Smart),
+        &mut Loads::new(),
         terminal,
     )
     .unwrap();
@@ -43,6 +44,7 @@ fn the_status_line_names_the_files_after_the_sources_of_the_session() {
         session,
         &mut inputs,
         options,
+        &mut Loads::new(),
         &mut terminal,
     )
     .unwrap();
@@ -71,6 +73,7 @@ fn a_session_with_fewer_sources_than_files_is_refused_at_the_start() {
         session,
         &mut inputs,
         options,
+        &mut Loads::new(),
         &mut terminal,
     );
 }
@@ -84,7 +87,15 @@ fn a_lone_document_with_an_empty_session_is_refused_at_the_start() {
     let session = Session::new(Vec::<String>::new());
     let document = numbers(3);
     let content = Content::Document(&document);
-    let _ = run(content, None, session, &mut inputs, options, &mut terminal);
+    let _ = run(
+        content,
+        None,
+        session,
+        &mut inputs,
+        options,
+        &mut Loads::new(),
+        &mut terminal,
+    );
 }
 
 #[test]

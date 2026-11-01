@@ -113,7 +113,7 @@ pub enum Reloaded {
 }
 
 /// What the pager is told besides the document.
-pub struct Options<'a, 'l> {
+pub struct Options<'a> {
     /// The columns the document is laid out in, when the window's are not
     /// to decide.
     pub width: Option<u16>,
@@ -131,13 +131,6 @@ pub struct Options<'a, 'l> {
     /// The warnings about the document as first read, which the pager
     /// tells as it does those of a reload.
     pub warnings: Vec<crate::typeset::diagnostic::Diagnostic>,
-    /// Where the images of a reload load in the background, when the
-    /// caller keeps them, so that it can wait for their programs once
-    /// the pager has left its screen; the pager only stops them.
-    /// Otherwise the pager keeps its own, and waits for their programs
-    /// itself before it returns, after it deleted the images but with
-    /// the screen still open.
-    pub loads: Option<&'l mut Loads>,
     /// The reading mode that `M` turns on, when the document is shown
     /// without it; `M` turns reading mode off when it is on.
     pub reading: Option<Reading>,
@@ -154,7 +147,7 @@ pub struct Options<'a, 'l> {
 pub type InlineLoader<'a> =
     Box<dyn FnMut(Content<'_>, &mut Images, &mut Loads, &Capabilities) + 'a>;
 
-impl Options<'_, '_> {
+impl Options<'_> {
     /// A window's width to decide the layout, searches that treat case as
     /// `case` says, and no way to reload.
     pub fn new(case: SearchCase) -> Self {
@@ -166,7 +159,6 @@ impl Options<'_, '_> {
             follow: settings::Follow::Off,
             jump: FollowJump::First,
             warnings: Vec::new(),
-            loads: None,
             reading: None,
             inline: None,
         }
@@ -182,28 +174,10 @@ impl Options<'_, '_> {
 /// unless the window calls for another. `session` must have a source for
 /// each file of `content`, or one at least for a document.
 /// A search treats case as `options.case` says.
+/// The images of reloads load in `loads`, which `q` stops without waiting
+/// for their programs: the caller waits for them once the pager has left
+/// its screen.
 pub fn run(
-    content: Content,
-    laid_out: Option<Stream>,
-    session: Session,
-    inputs: &mut Inputs,
-    mut options: Options,
-    terminal: &mut impl Terminal,
-) -> io::Result<Session> {
-    session.assert_fits(content);
-    if let Some(loads) = options.loads.take() {
-        return page_through(content, laid_out, session, inputs, options, loads, terminal);
-    }
-    let own = &mut Loads::new();
-    let result = page_through(content, laid_out, session, inputs, options, own, terminal);
-    own.halt();
-    own.wait(crate::images::STOPPING);
-    result
-}
-
-/// [`run`], with the images of reloads loading in `loads`, which `q`
-/// stops without waiting for their programs.
-fn page_through(
     content: Content,
     laid_out: Option<Stream>,
     session: Session,
@@ -212,6 +186,7 @@ fn page_through(
     loads: &mut Loads,
     terminal: &mut impl Terminal,
 ) -> io::Result<Session> {
+    session.assert_fits(content);
     let Options {
         width,
         case,
@@ -220,7 +195,6 @@ fn page_through(
         follow,
         jump,
         warnings,
-        loads: _,
         reading,
         inline,
     } = options;
@@ -249,7 +223,7 @@ fn page_through(
         headed: cell_size(&inputs.caps),
         width,
         session,
-        shell: Shell {
+        tools: Tools {
             // The reading mode that `M` turns to, on or off.
             other: reading.filter(|_| inputs.reading.is_none()),
             inputs,
@@ -273,7 +247,7 @@ fn page_through(
 
 /// What the loop reaches to carry out effects: the terminal, the inputs of
 /// the layout, the document's source and the loads.
-struct Shell<'a, 'r, 'l, T> {
+struct Tools<'a, 'r, 'l, T> {
     inputs: &'a mut Inputs,
     terminal: &'a mut T,
     source: Origin<'r, 'l>,
@@ -288,7 +262,7 @@ struct Shell<'a, 'r, 'l, T> {
 /// The loop: layouts of the document, one after the other, each shown until
 /// an effect ends it.
 struct Driver<'a, 'r, 'l, T> {
-    shell: Shell<'a, 'r, 'l, T>,
+    tools: Tools<'a, 'r, 'l, T>,
     content: Content<'a>,
     /// The document as reloaded, once it has been.
     reloaded: Option<Document>,
@@ -326,14 +300,14 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
     /// with another layout.
     fn round(&mut self) -> io::Result<bool> {
         self.refit();
-        let window = usize::from(self.shell.inputs.caps.height.unwrap_or(DEFAULT_ROWS));
+        let window = usize::from(self.tools.inputs.caps.height.unwrap_or(DEFAULT_ROWS));
         // The bottom row is the status line's, unless the document would
         // have no row left.
         let bar = window > 1;
         let rows = if bar { window - 1 } else { window };
         let Stream { mut lines, blocks } = self.stream(rows);
         let content = shown_content(self.content, &self.reloaded);
-        let inputs = &mut *self.shell.inputs;
+        let inputs = &mut *self.tools.inputs;
         let places: Vec<Option<BlockInfo>> = lines
             .iter()
             .map(|line| line.block.map(|id| blocks.get(id).clone()))
@@ -342,12 +316,12 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         self.state.bands.apply(&mut lines, &places);
         let band_places = places.clone();
         // The images the new lines do not place go with their first frame.
-        self.shell.encoder.keep(&lines, &inputs.caps);
+        self.tools.encoder.keep(&lines, &inputs.caps);
         let page = Page {
             background: inputs.theme.background,
             foreground: inputs.theme.foreground,
         };
-        let mut writer = Writer::new(&inputs.images, &inputs.caps, page, &mut self.shell.encoder);
+        let mut writer = Writer::new(&inputs.images, &inputs.caps, page, &mut self.tools.encoder);
         let heights: Vec<usize> = lines
             .iter()
             .map(|line| usize::from(writer.rows(line)))
@@ -357,7 +331,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             .is_some_and(|rgb| rgb.tinted(None, 0.0).is_some())
             && inputs.caps.styling
             && inputs.caps.truecolor;
-        let now = self.shell.terminal.now();
+        let now = self.tools.terminal.now();
         let mut shown =
             (self.state).view_for(self.view.take(), heights, places, rows, (tintable, now));
         // The topmost band on the screen is selected before the first
@@ -371,7 +345,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             Content::Document(_) => (sources[0].name(), &[][..]),
             Content::Files(_) => ("", sources),
         };
-        let loading = (self.shell.source.loads.progress())
+        let loading = (self.tools.source.loads.progress())
             .map(|(done, total)| format!("[rendering: {done}/{total}]"));
         let files = Files::new(shown_files, &lines, &blocks);
         let status = status_for(name, loading, files, inputs, (self.size, bar));
@@ -387,23 +361,23 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             view: &mut shown,
         };
         let run = Run {
-            can_reload: self.shell.source.reload.is_some(),
+            can_reload: self.tools.source.reload.is_some(),
             tmux: writer.through_tmux(),
-            started: self.shell.source.started,
+            started: self.tools.source.started,
             draws_images: inputs.caps.draws_images(),
-            reading: self.shell.other.is_some() || inputs.reading.is_some(),
-            inline: self.shell.inline.is_some(),
+            reading: self.tools.other.is_some() || inputs.reading.is_some(),
+            inline: self.tools.inline.is_some(),
         };
         let cells = inputs.caps.cell_pixels;
         let mut pager = Pager::new(&mut self.state, &mut frame_layout, run, cells, now);
         let ended = show(
             &mut pager,
             &mut writer,
-            self.shell.terminal,
+            self.tools.terminal,
             self.size,
-            &mut self.shell.source,
+            &mut self.tools.source,
         )?;
-        let closed = self.shell.close(&mut pager, content, ended)?;
+        let closed = self.tools.close(&mut pager, content, ended)?;
         if closed.quit {
             return Ok(false);
         }
@@ -413,9 +387,9 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             self.session.reload(self.session.sources()[0].id());
         }
         if closed.reuse {
-            self.laid_out = Some((self.shell.inputs.caps.clone(), Stream { lines, blocks }));
+            self.laid_out = Some((self.tools.inputs.caps.clone(), Stream { lines, blocks }));
         }
-        if let Some(new) = self.shell.source.window.take() {
+        if let Some(new) = self.tools.source.window.take() {
             self.size = new;
         }
         self.view = Some(shown);
@@ -425,7 +399,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
     /// The lines of the document for a window with `rows` for them: the
     /// layout kept when it is still good, and otherwise a new one.
     fn stream(&mut self, rows: usize) -> Stream {
-        let inputs = &*self.shell.inputs;
+        let inputs = &*self.tools.inputs;
         let content = shown_content(self.content, &self.reloaded);
         let mut stream = match self.laid_out.take() {
             Some((caps, stream)) if caps == inputs.caps => stream,
@@ -444,7 +418,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
     /// Fits the caps to the window, and loads the heading images again
     /// when the cells they were drawn for are not the ones now.
     fn refit(&mut self) {
-        let inputs = &mut *self.shell.inputs;
+        let inputs = &mut *self.tools.inputs;
         fit(
             &mut inputs.caps,
             self.size,
@@ -454,12 +428,12 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         if cell_size(&inputs.caps) != self.headed {
             self.headed = cell_size(&inputs.caps);
             let content = shown_content(self.content, &self.reloaded);
-            load_headings(content, inputs, self.shell.source.loads);
+            load_headings(content, inputs, self.tools.source.loads);
         }
     }
 }
 
-impl<T: Terminal> Shell<'_, '_, '_, T> {
+impl<T: Terminal> Tools<'_, '_, '_, T> {
     /// Carries out the effects that end a layout of `content`, which is
     /// what it showed, and those that follow what they find out.
     fn close(
@@ -858,7 +832,5 @@ pub fn draw(
     output::end_update(out)
 }
 
-#[cfg(test)]
-mod sim;
 #[cfg(test)]
 mod tests;
