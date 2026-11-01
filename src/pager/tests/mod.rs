@@ -1,9 +1,9 @@
 use std::collections::VecDeque;
 
 use super::*;
-use crate::images::{ImageError, ImageKey};
+use crate::images::{ImageError, ImageKey, Images};
 use crate::session::sources::Session;
-use crate::session::state::{FRAME, POLL};
+use crate::session::state::{Change, FRAME, POLL};
 use crate::typeset::color::Color;
 use crate::typeset::model::{Document, File};
 

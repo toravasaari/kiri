@@ -20,7 +20,8 @@ use std::io::{self, Write};
 use std::ops::Range;
 use std::time::{Duration, Instant};
 
-use crate::images::{Arrived, ImageKey, Images, Job, Loads, Placeholder};
+use crate::images::{Arrived, ImageKey, Job, Loads, Placeholder};
+use crate::load::watch::{Reload, Reloaded};
 use crate::present::encoder::Encoder;
 use crate::present::output::{self, Page, Writer};
 use crate::present::{cell_query, clipboard};
@@ -31,7 +32,7 @@ use crate::session::frame::{Frame, Layout, Status};
 use crate::session::help::Placed;
 use crate::session::search::Marks;
 use crate::session::settings::{self, FollowJump, SearchCase};
-use crate::session::state::{Backgrounds, Change, NOTHING_TO_FOLLOW, State, Told};
+use crate::session::state::{Backgrounds, NOTHING_TO_FOLLOW, State, Told};
 use crate::session::step::{Effect, Msg, Pager, Reply, Resized, Run, step};
 use crate::session::view::View;
 use crate::session::{loading, sources::Session, status};
@@ -75,42 +76,6 @@ impl<W: Write> Terminal for Screen<W> {
     fn read(&mut self, timeout: Duration) -> io::Result<Vec<u8>> {
         Screen::read(self, timeout)
     }
-}
-
-/// What the pager asks for the document again, as `r` does.
-pub trait Reload {
-    /// The document read again, with `images` brought up to date for it
-    /// as it is shown in a window with `caps`: it keeps at once what the
-    /// document still shows. What `images` held that the document no
-    /// longer shows, or that must load anew, is set aside in it, as
-    /// [`crate::images::reload_in_background`] does, which also stops in
-    /// `loads` the load of an image whose file changed again. It starts no
-    /// load: the pager does, for the images its planner wants and `images`
-    /// does not hold. `reading` says
-    /// whether reading mode is on now, which wants the images in the middle
-    /// of text too, whatever the document was opened with.
-    fn reload(
-        &mut self,
-        images: &mut Images,
-        loads: &mut Loads,
-        caps: &Capabilities,
-        reading: bool,
-    ) -> Reloaded;
-
-    /// Whether the document changed since it was last read, as the pager
-    /// asks while it follows it.
-    fn change(&mut self) -> Change;
-}
-
-/// What reloading the document came to.
-pub enum Reloaded {
-    Document(Document),
-    /// As `Document`, with warnings about it, the first of which the
-    /// pager shows.
-    Warned(Document, Vec<crate::typeset::diagnostic::Diagnostic>),
-    /// The document could not be read again: why, as the status line says
-    /// it.
-    Failed(String),
 }
 
 /// What the pager is told besides the document.

@@ -29,7 +29,7 @@ use crate::images::{
     Arrived, Fonts, Format, ImageError, ImageKey, Images, Loading, Loads, Part, Placeholder,
     Source, Stamps, reload_in_background,
 };
-use crate::pager::{Reload, Reloaded};
+use crate::load::watch::{Reload, Reloaded};
 use crate::render::Inputs;
 use crate::session::loading::Need;
 use crate::session::plan;

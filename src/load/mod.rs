@@ -23,6 +23,7 @@ pub(crate) mod queue;
 mod renderers;
 pub mod theme;
 pub(crate) mod url;
+pub mod watch;
 
 pub use renderers::Renderers;
 

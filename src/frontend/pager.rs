@@ -12,7 +12,8 @@ use std::time::{Duration, Instant};
 
 use crate::config::Settings;
 use crate::images::{ImageKey, Images, Loads, Part, Placeholder};
-use crate::pager::{Reload, Terminal};
+use crate::load::watch::Reload;
+use crate::pager::Terminal;
 use crate::render::Inputs;
 use crate::session::loading::images_wanted;
 use crate::session::plan::{self, Load};
