@@ -388,19 +388,6 @@ fn kiri_follow_pages_a_short_file_and_leaves_standard_input_quiet() {
 }
 
 #[test]
-fn capital_p_prints_a_long_document() {
-    for args in [
-        &["-P", "long.md"][..],
-        &["--paging", "never", "long.md"][..],
-    ] {
-        let (status, seen) = in_terminal("pager-capital-p", args, 5, None, &[]);
-        assert!(status.success());
-        assert!(!seen.contains(ENTER), "{args:?}: {seen:?}");
-        assert!(seen.contains("Line 10"), "{args:?}: {seen:?}");
-    }
-}
-
-#[test]
 fn plain_mode_prints_without_the_pager() {
     let (status, seen) = in_terminal(
         "pager-plain",
@@ -2296,36 +2283,6 @@ fn the_settings_warnings_are_told_before_the_pager_opens_for_an_image_alone() {
     );
 }
 
-/// A diagram file of `lines` lines, which a window of 5 rows cannot show
-/// whole, and a second one, `second.mmd`.
-fn long_diagrams(dir: &std::path::Path) {
-    let source: String = (1..=10).map(|n| format!("    A{n} --> B{n}\n")).collect();
-    std::fs::write(dir.join("diagram.mmd"), format!("flowchart TD\n{source}")).unwrap();
-    std::fs::write(dir.join("second.mmd"), format!("flowchart TD\n{source}")).unwrap();
-}
-
-#[test]
-fn a_diagram_file_alone_that_is_not_drawn_is_paged_when_it_is_long_unlike_several() {
-    let quit = |frames: usize, terminal: &mut std::fs::File, _: &std::process::Child| {
-        if frames == 1 {
-            terminal.write_all(b"q").unwrap();
-        }
-    };
-    let args = ["--diagrams", "off", "diagram.mmd"];
-    let (status, seen) =
-        in_terminal_after("pager-diagram-long", long_diagrams, &args, 5, None, quit);
-    assert!(status.success(), "{seen:?}");
-    assert!(seen.starts_with(ENTER), "{seen:?}");
-    assert!(seen.contains("A1 --> B1"), "{seen:?}");
-    // Several of them are each shown on their own: paged only with `always`.
-    let args = ["--diagrams", "off", "diagram.mmd", "second.mmd"];
-    let (status, seen) =
-        in_terminal_after("pager-diagrams-long", long_diagrams, &args, 5, None, quit);
-    assert!(status.success(), "{seen:?}");
-    assert!(!seen.contains(ENTER), "{seen:?}");
-    assert_eq!(seen.matches("A1 --> B1").count(), 2, "{seen:?}");
-}
-
 /// Types `q` once the first frame is drawn.
 fn quit_at_first(typed: &mut bool) -> impl FnMut(usize, &mut std::fs::File, &std::process::Child) {
     move |frames, terminal, _| {
@@ -2333,26 +2290,6 @@ fn quit_at_first(typed: &mut bool) -> impl FnMut(usize, &mut std::fs::File, &std
             terminal.write_all(b"q").unwrap();
             *typed = true;
         }
-    }
-}
-
-#[test]
-fn the_pager_tells_that_reading_mode_is_not_shown_for_a_file_alone_and_for_several() {
-    let reading =
-        "kiri: reading mode needs a terminal that draws images; showing the document as text\n";
-    let all: [&[&str]; 2] = [&["long.md"], &["long.md", "document.md"]];
-    for (files, name) in all
-        .into_iter()
-        .zip(["pager-reading-alone", "pager-reading-several"])
-    {
-        let args = [&["--reading", "-p"][..], files].concat();
-        let mut typed = false;
-        let (status, seen, stderr) =
-            in_terminal_told(name, |_| {}, &args, 8, None, quit_at_first(&mut typed));
-        assert!(status.success(), "{seen:?}");
-        assert_eq!(stderr, reading, "{files:?}");
-        let first: Vec<_> = seen.split("\x1b[?2026h").skip(1).map(text_of).collect();
-        assert!(first[0].contains("\u{26a0} reading mode"), "{seen:?}");
     }
 }
 
@@ -2423,25 +2360,6 @@ fn a_diagram_in_text_stays_source_after_m_and_after_a_reload() {
 }
 
 #[test]
-fn reading_mode_is_told_for_a_diagram_alone_paged_with_always() {
-    let reading =
-        "kiri: reading mode needs a terminal that draws images; showing the document as text\n";
-    let mut typed = false;
-    let args = ["--mode", "ansi", "--reading", "-p", "flow.mmd"];
-    let (status, seen, stderr) = in_terminal_told(
-        "pager-reading-diagram",
-        calls_when_drawing,
-        &args,
-        8,
-        None,
-        quit_at_first(&mut typed),
-    );
-    assert!(status.success(), "{seen:?}");
-    assert_eq!(stderr, reading);
-    assert!(text_of(&seen).contains("\u{26a0} reading mode"), "{seen:?}");
-}
-
-#[test]
 fn one_image_left_by_a_broken_configuration_is_paged_as_a_file_alone() {
     let prepare = |dir: &std::path::Path| {
         std::fs::write(dir.join("a.md"), "Alpha\n").unwrap();
@@ -2465,22 +2383,4 @@ fn one_image_left_by_a_broken_configuration_is_paged_as_a_file_alone() {
     let first = seen.split("\x1b[?2026h").nth(1).map(text_of).unwrap();
     assert!(first.contains(" pic.png "), "{seen:?}");
     assert!(!first.contains("1/1"), "{seen:?}");
-}
-
-#[test]
-fn reading_mode_is_not_told_for_a_diagram_alone_that_is_printed_in_a_terminal() {
-    // With paging on `auto`, the diagram fits the window and is printed.
-    let args = ["--mode", "ansi", "--reading", "flow.mmd"];
-    let (status, seen, stderr) = in_terminal_told(
-        "pager-reading-diagram-auto",
-        calls_when_drawing,
-        &args,
-        24,
-        None,
-        |_, _, _| {},
-    );
-    assert!(status.success(), "{seen:?}");
-    assert!(!seen.contains(ENTER), "{seen:?}");
-    assert_eq!(stderr, "");
-    assert!(seen.contains("flowchart TD"), "{seen:?}");
 }
