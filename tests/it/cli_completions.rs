@@ -74,3 +74,20 @@ fn it_conflicts_with_files_and_reports() {
         );
     }
 }
+
+/// A closed pipe takes no more, which is no failure, as with a document.
+/// The reader is dropped before kiri starts, so there is no race with the
+/// script being smaller than a pipe's buffer.
+#[test]
+fn a_closed_pipe_is_not_an_error() {
+    let dir = Scratch::new("completions-closed");
+    let (reader, writer) = std::io::pipe().unwrap();
+    drop(reader);
+    let out = command(&dir)
+        .args(["--completions", "bash"])
+        .stdout(writer)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(text(&out.stderr).is_empty(), "{}", text(&out.stderr));
+}

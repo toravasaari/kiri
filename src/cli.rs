@@ -14,7 +14,7 @@ use kiri::config::{
     FrontMatter, Megabytes, Named, Options, Origin, Passthrough, Setting, Value, help_text,
     long_help_text, text,
 };
-use kiri::frontend::Failure;
+use kiri::frontend::{Failure, shown};
 use kiri::render::{Headings, RenderErrors, TableRows};
 use kiri::session::settings::{Follow, FollowJump, InitialLoad, Paging};
 use kiri::term::Mode;
@@ -225,7 +225,7 @@ pub fn completions(
     let name = "kiri";
     *command = std::mem::take(command).name(name).bin_name(name);
     // clap_complete panics when a write fails, as in a closed pipe, so the
-    // script is written once, and a failure of that is an error.
+    // script is written once; a closed pipe is no failure, as with a document.
     let mut script = Vec::new();
     match shell {
         Completions::Bash => clap_complete::generate(BuiltIn::Bash, command, name, &mut script),
@@ -239,8 +239,7 @@ pub fn completions(
             clap_complete::generate(clap_complete_nushell::Nushell, command, name, &mut script)
         }
     }
-    out.write_all(&script)
-        .map_err(|error| Failure::Error(error.to_string()))
+    shown(out.write_all(&script).and_then(|()| out.flush()))
 }
 
 /// The `--format` value.
