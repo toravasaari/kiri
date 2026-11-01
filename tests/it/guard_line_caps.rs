@@ -14,15 +14,15 @@ use std::path::Path;
 /// instead (docs/architecture.md, "Where a new thing goes").
 const CAPS: &[(&str, usize)] = &[
     // `main` and `Real`, the process's `Platform`, are all that is left of
-    // the binary; the front ends are in `src/frontend/`.
-    ("src/main.rs", 225),
-    // The interface of the front ends, so that it does not become the next
-    // hub: a new front end goes in a file of its own.
+    // the binary; the frontends are in `src/frontend/`.
+    ("src/main.rs", 205),
+    // The interface of the frontends, so that it does not become the next
+    // hub: a new frontend goes in a file of its own.
     ("src/frontend/mod.rs", 156),
     ("src/pager/mod.rs", 834),
-    ("src/render/mod.rs", 345),
-    ("src/typeset/layout/mod.rs", 1366),
-    ("src/typeset/reading/engine.rs", 989),
+    ("src/render/mod.rs", 339),
+    ("src/typeset/layout/mod.rs", 1353),
+    ("src/typeset/reading/engine.rs", 949),
     ("src/typeset/reading/page.rs", 1398),
     ("src/images/mod.rs", 48),
     ("src/diagrams/mod.rs", 35),
