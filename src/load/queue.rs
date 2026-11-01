@@ -29,12 +29,8 @@ pub struct Loads {
     running: HashMap<ImageKey, Running>,
     /// The number of the next load.
     next: u64,
-    /// The jobs waiting, of every reload, and the programs outside kiri
-    /// drawing for them.
-    queue: Arc<Queue>,
-    /// The threads to start for the jobs held until the order is told,
-    /// while it is not.
-    held: Option<usize>,
+    /// What runs the loads started: threads, or as a test's script says.
+    runner: Box<dyn Runner>,
     /// How many loads have come since the loads were last all done, and
     /// of how many.
     done: usize,
@@ -51,10 +47,47 @@ struct Running {
 
 /// A load that has come.
 #[derive(Debug)]
-struct Done {
+pub(crate) struct Done {
     id: u64,
     key: ImageKey,
     image: Result<Source, ImageError>,
+}
+
+/// Where the loads that [`Loads::reconcile`] starts run: on threads of
+/// their own ([`Threads`]), or as a test's script says.
+pub(crate) trait Runner: std::fmt::Debug {
+    /// Runs `jobs`, newly started, each sending what it came to on `done`
+    /// unless its stop flag is set by then.
+    fn run(&mut self, jobs: Vec<Queued>, done: &Sender<Done>);
+    /// Holds the jobs run from now on until `prefer`.
+    fn hold(&mut self);
+    /// Runs the waiting jobs that `first` names before the others, in its
+    /// order, and starts what is held.
+    fn prefer(&mut self, first: HashMap<ImageKey, usize>);
+    /// Waits for the programs outside kiri to end, for at most `limit`;
+    /// whether they have.
+    fn wait(&self, limit: Duration) -> bool;
+}
+
+/// Runs the loads on threads of their own: the jobs wait in a queue that
+/// the threads take from, with the programs outside kiri drawing for them
+/// limited.
+#[derive(Debug, Default)]
+struct Threads {
+    /// The jobs waiting, of every reload, and the programs outside kiri
+    /// drawing for them.
+    queue: Arc<Queue>,
+    /// The threads to start for the jobs held until the order is told,
+    /// while it is not.
+    held: Option<Held>,
+}
+
+/// The jobs held: how many threads their start takes, and where they
+/// send what they come to.
+#[derive(Debug, Default)]
+struct Held {
+    threads: usize,
+    done: Option<Sender<Done>>,
 }
 
 /// An image to load, as owned data, so that a thread of its own can load
@@ -167,10 +200,29 @@ struct Waiting {
 }
 
 /// A job waiting, with the number and the stop flag of its load.
-struct Queued {
+pub(crate) struct Queued {
     job: Job,
     id: u64,
     stop: Arc<AtomicBool>,
+}
+
+impl Queued {
+    /// The key of the image the job loads.
+    #[cfg(test)]
+    pub(crate) fn key(&self) -> &ImageKey {
+        &self.job.key
+    }
+
+    /// The load as a test's script brings it, to come on `done`.
+    #[cfg(test)]
+    pub(crate) fn arrival(&self, done: &Sender<Done>) -> Arrival {
+        Arrival {
+            sender: done.clone(),
+            id: self.id,
+            key: self.job.key.clone(),
+            stop: Arc::clone(&self.stop),
+        }
+    }
 }
 
 impl std::fmt::Debug for Queued {
@@ -229,16 +281,20 @@ impl Default for Loads {
 }
 
 impl Loads {
-    /// No loads.
+    /// No loads, to run on threads.
     pub fn new() -> Self {
+        Self::with(Box::<Threads>::default())
+    }
+
+    /// No loads, to run as `runner` says.
+    pub(crate) fn with(runner: Box<dyn Runner>) -> Self {
         let (sender, receiver) = mpsc::channel();
         Self {
             sender,
             receiver,
             running: HashMap::new(),
             next: 0,
-            queue: Arc::default(),
-            held: None,
+            runner,
             done: 0,
             total: 0,
         }
@@ -362,13 +418,13 @@ impl Loads {
     /// Waits for the programs outside kiri that draw to end, for at most
     /// `limit`; whether they have.
     pub fn wait(&self, limit: Duration) -> bool {
-        self.queue.programs.wait_for_none(limit)
+        self.runner.wait(limit)
     }
 
     /// Holds the jobs started from now on until [`Loads::prefer`] tells
     /// which go first, so that the first ones do not start before.
     pub fn hold(&mut self) {
-        self.held.get_or_insert(0);
+        self.runner.hold();
     }
 
     /// Loads the images `keys`, of those still waiting, before the
@@ -378,29 +434,16 @@ impl Loads {
         let first = (keys.into_iter().enumerate())
             .map(|(at, key)| (key, at))
             .collect();
-        self.queue
-            .waiting
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .first = first;
-        if let Some(threads) = self.held.take() {
-            self.spawn(threads);
-        }
+        self.runner.prefer(first);
     }
 
-    /// Gives each of `jobs` the number and the stop flag of a new load, and
-    /// starts the threads to load them, or counts them while the loads are
-    /// held.
+    /// Gives each of `jobs` the number and the stop flag of a new load,
+    /// and has the runner run them.
     fn begin(&mut self, jobs: Vec<Job>) {
         if jobs.is_empty() {
             return;
         }
-        // As many threads as programs may draw at once, and one more for
-        // the jobs that need none while they do.
-        let programs = jobs.iter().filter(|job| job.program).count();
-        let threads =
-            programs.min(crate::diagrams::external::AT_ONCE) + usize::from(programs < jobs.len());
-        let mut waiting = self.queue.waiting.lock().unwrap_or_else(|e| e.into_inner());
+        let mut queued = Vec::with_capacity(jobs.len());
         for job in jobs {
             let stop = Arc::new(AtomicBool::new(false));
             let id = self.next;
@@ -411,34 +454,9 @@ impl Loads {
             };
             self.running.insert(job.key.clone(), running);
             self.total += 1;
-            waiting.jobs.push(Queued { job, id, stop });
+            queued.push(Queued { job, id, stop });
         }
-        drop(waiting);
-        match &mut self.held {
-            Some(held) => *held += threads,
-            None => self.spawn(threads),
-        }
-    }
-
-    /// Starts `threads` threads to load the jobs waiting.
-    fn spawn(&mut self, threads: usize) {
-        let mut started = 0;
-        for _ in 0..threads {
-            // As large a stack as the main thread's, for a renderer built
-            // into kiri.
-            let thread = std::thread::Builder::new().stack_size(8 << 20);
-            let (queue, sender) = (Arc::clone(&self.queue), self.sender.clone());
-            if thread.spawn(move || queue.work(&sender)).is_err() {
-                break;
-            }
-            started += 1;
-        }
-        // Without a thread of its own, the work is done here, as it would
-        // be without loading in the background; none was asked for when
-        // nothing new waits.
-        if threads > 0 && started == 0 {
-            self.queue.work(&self.sender);
-        }
+        self.runner.run(queued, &self.sender);
     }
 
     /// Has a program draw the diagram `key`, which ends `ending` after it
@@ -446,7 +464,7 @@ impl Loads {
     #[cfg(test)]
     pub(crate) fn program(&mut self, key: ImageKey, ending: Duration) {
         let job = Job {
-            key,
+            key: key.clone(),
             what: What::Diagram {
                 language: "mermaid".to_owned(),
                 source: "slow\n".to_owned(),
@@ -458,11 +476,9 @@ impl Loads {
         };
         self.reconcile(self.adding(vec![Wanted::Again(job)]));
         // At once, also while the loads are held.
-        if let Some(threads) = self.held.take() {
-            self.spawn(threads);
-        }
+        self.prefer([key]);
         let start = Instant::now();
-        while *self.queue.programs.running.lock().unwrap() == 0 && start.elapsed() < STOPPING {
+        while self.wait(Duration::ZERO) && start.elapsed() < STOPPING {
             std::thread::sleep(Duration::from_millis(5));
         }
     }
@@ -618,6 +634,73 @@ fn context(renderer: impl Renderer + Send + Sync + 'static) -> Context {
         panel: true,
         largest: None,
         max_file_size: crate::images::DEFAULT_MAX_FILE_SIZE,
+    }
+}
+
+impl Runner for Threads {
+    fn run(&mut self, jobs: Vec<Queued>, done: &Sender<Done>) {
+        // As many threads as programs may draw at once, and one more for
+        // the jobs that need none while they do.
+        let programs = jobs.iter().filter(|queued| queued.job.program).count();
+        let threads =
+            programs.min(crate::diagrams::external::AT_ONCE) + usize::from(programs < jobs.len());
+        let mut waiting = self.queue.waiting.lock().unwrap_or_else(|e| e.into_inner());
+        waiting.jobs.extend(jobs);
+        drop(waiting);
+        match &mut self.held {
+            Some(held) => {
+                held.threads += threads;
+                held.done.get_or_insert_with(|| done.clone());
+            }
+            None => self.spawn(threads, done),
+        }
+    }
+
+    fn hold(&mut self) {
+        self.held.get_or_insert_with(Held::default);
+    }
+
+    fn prefer(&mut self, first: HashMap<ImageKey, usize>) {
+        self.queue
+            .waiting
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .first = first;
+        if let Some(Held {
+            threads,
+            done: Some(done),
+        }) = self.held.take()
+        {
+            self.spawn(threads, &done);
+        }
+    }
+
+    fn wait(&self, limit: Duration) -> bool {
+        self.queue.programs.wait_for_none(limit)
+    }
+}
+
+impl Threads {
+    /// Starts `threads` threads to load the jobs waiting, which send what
+    /// they come to on `done`.
+    fn spawn(&mut self, threads: usize, done: &Sender<Done>) {
+        let mut started = 0;
+        for _ in 0..threads {
+            // As large a stack as the main thread's, for a renderer built
+            // into kiri.
+            let thread = std::thread::Builder::new().stack_size(8 << 20);
+            let (queue, sender) = (Arc::clone(&self.queue), done.clone());
+            if thread.spawn(move || queue.work(&sender)).is_err() {
+                break;
+            }
+            started += 1;
+        }
+        // Without a thread of its own, the work is done here, as it would
+        // be without loading in the background; none was asked for when
+        // nothing new waits.
+        if threads > 0 && started == 0 {
+            self.queue.work(done);
+        }
     }
 }
 
@@ -890,10 +973,11 @@ mod tests {
         assert!(a.stopped());
         assert!(loads.is_empty());
         assert_eq!(loads.progress(), None);
-        // Nothing is started or held for later.
+        // Nothing is left to start once the order is told.
         loads.hold();
         loads.reconcile(Vec::new());
-        assert_eq!(loads.held, Some(0));
+        loads.prefer(Vec::new());
+        assert_eq!(gated.started(), ["x"]);
     }
 
     #[test]
@@ -912,6 +996,116 @@ mod tests {
         loads.reconcile(wanted);
         assert!(!b.stopped());
         assert_eq!(loads.progress(), Some((0, 3)));
+    }
+
+    /// A runner that runs nothing, and keeps what it is told.
+    #[derive(Debug, Default, Clone)]
+    struct Recorder {
+        told: Arc<Mutex<Vec<String>>>,
+        jobs: Arc<Mutex<Vec<Queued>>>,
+        done: Arc<Mutex<Option<Sender<Done>>>>,
+    }
+
+    impl Recorder {
+        fn told(&self) -> Vec<String> {
+            self.told.lock().unwrap().clone()
+        }
+    }
+
+    impl Runner for Recorder {
+        fn run(&mut self, jobs: Vec<Queued>, done: &Sender<Done>) {
+            let keys: Vec<String> = jobs.iter().map(|queued| queued.key().to_string()).collect();
+            self.told
+                .lock()
+                .unwrap()
+                .push(format!("run {}", keys.join(" ")));
+            self.jobs.lock().unwrap().extend(jobs);
+            *self.done.lock().unwrap() = Some(done.clone());
+        }
+
+        fn hold(&mut self) {
+            self.told.lock().unwrap().push("hold".to_owned());
+        }
+
+        fn prefer(&mut self, first: HashMap<ImageKey, usize>) {
+            let mut first: Vec<_> = first.into_iter().map(|(key, at)| (at, key)).collect();
+            first.sort_by_key(|(at, _)| *at);
+            let keys: Vec<String> = first.iter().map(|(_, key)| key.to_string()).collect();
+            self.told
+                .lock()
+                .unwrap()
+                .push(format!("prefer {}", keys.join(" ")));
+        }
+
+        fn wait(&self, _: Duration) -> bool {
+            self.told.lock().unwrap().push("wait".to_owned());
+            true
+        }
+    }
+
+    #[test]
+    fn the_runner_gets_the_new_jobs_in_the_order_of_the_list_and_never_none() {
+        let recorder = Recorder::default();
+        let mut loads = Loads::with(Box::new(recorder.clone()));
+        let wanted = vec![
+            Wanted::Missing(Job::file("b.png")),
+            Wanted::Again(Job::file("a.png")),
+            Wanted::Kept("k.png".into()),
+        ];
+        loads.reconcile(wanted);
+        assert_eq!(recorder.told(), ["run b.png a.png"]);
+        assert!(loads.loading(&"b.png".into()));
+        assert_eq!(loads.progress(), Some((0, 2)));
+        // Nothing new: the loads under way carry on, and halting is not
+        // a job.
+        loads.reconcile(vec![Wanted::Missing(Job::file("b.png"))]);
+        loads.halt();
+        assert_eq!(recorder.told(), ["run b.png a.png"]);
+        assert!(loads.is_empty());
+    }
+
+    #[test]
+    fn the_runner_is_told_to_hold_to_prefer_and_to_wait() {
+        let recorder = Recorder::default();
+        let mut loads = Loads::with(Box::new(recorder.clone()));
+        loads.hold();
+        loads.prefer(["c.png".into(), "a.png".into()]);
+        assert!(loads.wait(Duration::ZERO));
+        assert_eq!(recorder.told(), ["hold", "prefer c.png a.png", "wait"]);
+    }
+
+    #[test]
+    fn a_result_of_a_load_the_runner_ran_comes_only_while_the_load_is_wanted() {
+        let recorder = Recorder::default();
+        let mut loads = Loads::with(Box::new(recorder.clone()));
+        loads.reconcile(vec![Wanted::Missing(Job::file("a.png"))]);
+        loads.reconcile(vec![Wanted::Again(Job::file("a.png"))]);
+        let jobs = recorder.jobs.lock().unwrap();
+        let [old, new] = &jobs[..] else {
+            panic!("{jobs:?}")
+        };
+        // The runner is given a stop flag of each, and the old one is set.
+        assert!(old.stop.load(Ordering::SeqCst));
+        assert!(!new.stop.load(Ordering::SeqCst));
+        assert_ne!(old.id, new.id);
+        let done = recorder.done.lock().unwrap().clone().expect("a sender");
+        let send = |queued: &Queued, image| {
+            let key = queued.job.key.clone();
+            done.send(Done {
+                id: queued.id,
+                key,
+                image,
+            })
+            .unwrap();
+        };
+        send(old, Ok(Source::Raster(image::RgbaImage::new(9, 9))));
+        send(new, square());
+        let came = loads.poll();
+        assert!(
+            matches!(&came[..], [(_, Ok(image))] if image.size() == (2, 2)),
+            "{came:?}"
+        );
+        assert!(loads.is_empty());
     }
 
     /// Starts `jobs` in `loads`, each giving way to a load of its image
@@ -1052,7 +1246,7 @@ mod tests {
             "{:?}",
             start.elapsed()
         );
-        assert_eq!(*loads.queue.programs.running.lock().unwrap(), 1);
+        assert!(!loads.wait(Duration::ZERO));
     }
 
     #[test]
@@ -1161,24 +1355,13 @@ mod tests {
             context: Arc::new(context(Panicking(Arc::clone(&started)))),
         };
         start(&mut loads, vec![job]);
-        let running = || {
-            *loads
-                .queue
-                .programs
-                .running
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-        };
         let start = Instant::now();
         while !started.load(Ordering::SeqCst) && start.elapsed() < Duration::from_secs(2) {
             std::thread::sleep(Duration::from_millis(10));
         }
         assert!(started.load(Ordering::SeqCst));
         // The thread unwinds after the renderer panicked.
-        while running() > 0 && start.elapsed() < Duration::from_secs(2) {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        assert_eq!(running(), 0);
+        assert!(loads.wait(Duration::from_secs(2)));
     }
 
     /// Panics on a diagram that says `boom`, and draws others as an empty
