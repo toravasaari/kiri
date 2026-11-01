@@ -83,7 +83,7 @@ pub trait Platform {
     /// The window's size, as standard output's terminal tells it.
     fn window(&self) -> Option<WindowSize>;
     /// Which of the images `sent` the terminal lost, as
-    /// [`crate::term::lost_images`] asks it; `None` when it did not
+    /// the terminal layer's `lost_images` asks it; `None` when it did not
     /// answer.
     fn lost_images(&self, sent: &[(ImageId, Cells)]) -> Option<Vec<ImageId>>;
     /// The pager's screen, `None` without a terminal to read keys from.
@@ -110,8 +110,8 @@ impl<W: Write> Screen for crate::term::Screen<W> {
     }
 }
 
-/// Tells `line` on standard error as kiri's own, after `kiri: `, as
-/// `eprintln!` does, and as it, panics should the write fail.
+/// Tells `line` on standard error as kiri's own, after `kiri: `, and panics
+/// should the write fail, as printing to standard error does.
 fn tell(platform: &dyn Platform, line: impl Display) {
     let line = format!("kiri: {line}\n");
     (platform.stderr().write_all(line.as_bytes())).expect("failed printing to stderr");
