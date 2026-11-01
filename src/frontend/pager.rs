@@ -25,7 +25,7 @@ use crate::typeset::model::{Block, Document};
 
 use super::given::{Given, Shown, image_file};
 use super::loads::{
-    FileReload, ROWS_UNLOADED, close_programs, finish_loading, load_parts, loading, part,
+    FileReload, Guard, ROWS_UNLOADED, close_programs, finish_loading, load_parts, loading, part,
     surely_paged, wait_or_skip, without_path,
 };
 use super::print::Held;
@@ -65,6 +65,8 @@ pub(super) struct Opening<'a> {
     pub(super) reading_warning: Option<Diagnostic>,
     /// Where the pager reads the document again from.
     pub(super) reload: Option<FileReload<'a>>,
+    /// Who catches the signals until the pager's screen does.
+    pub(super) guard: Guard,
 }
 
 /// The warnings about `images` of `parts`, documents among `files`, under
@@ -94,8 +96,8 @@ fn told_files(
 /// A file that failed is in the pager's stream under its header, with why.
 /// Why a file failed, and a warning about a file, are told before the
 /// pager opens, and why the diagram of a diagram file was not drawn after
-/// it closes; all of them are noted in `failed`. `caught` runs once the
-/// pager's screen catches the signals. With `opening.later`, the images of
+/// it closes; all of them are noted in `failed`. The guard of `opening`
+/// goes once the pager's screen catches the signals. With `opening.later`, the images of
 /// the documents load in the background once the pager has opened; should
 /// it not open, they load before the files are printed.
 #[expect(clippy::too_many_lines)]
@@ -104,7 +106,6 @@ pub(super) fn page_files(
     given: Vec<Given>,
     inputs: &mut Inputs,
     opening: Opening,
-    caught: impl FnOnce(),
 ) -> Result<(), Failure> {
     let Show {
         context,
@@ -117,6 +118,7 @@ pub(super) fn page_files(
         later,
         reading_warning,
         reload: mut reloader,
+        mut guard,
     } = opening;
     let mut files = Vec::new();
     // What is told about each file before it is shown.
@@ -194,9 +196,7 @@ pub(super) fn page_files(
     };
     let mut parts = parts_of(context.reading);
     // With paging on auto, the images load first unless the files are
-    // longer than the window without them; the guard then goes once the
-    // pager's screen catches the signals.
-    let mut guard = None;
+    // longer than the window without them.
     // Waiting, the reader can open the pager before they have all come,
     // and the rest then load in the background.
     let mut still = None;
@@ -206,34 +206,33 @@ pub(super) fn page_files(
             settings.initial_load,
         )
     });
-    let waited =
-        match (load == Some(Load::Wait)).then(|| wait_or_skip(context, &parts, settings, inputs)) {
-            Some(Some(waited)) => Some(waited?),
-            _ => None,
-        };
-    if let Some(waited) = waited {
+    let waited = match (load == Some(Load::Wait))
+        .then(|| wait_or_skip(context, &parts, settings, inputs, &mut guard))
+    {
+        Some(Some(waited)) => Some(waited?),
+        _ => None,
+    };
+    if let Some(loads) = waited {
         let told = told_files(&inputs.images, &parts, &files, show);
         for (warned, told) in warnings.iter_mut().zip(told) {
             warned.extend(told);
         }
-        guard = waited.interrupt;
         // The pager decides as it was told: with three rows for each
         // image that has not come.
-        for key in waited.loads.iter().flat_map(Loads::keys) {
+        for key in loads.iter().flat_map(Loads::keys) {
             inputs
                 .images
                 .wait(key.clone(), Placeholder::Rows(ROWS_UNLOADED));
         }
-        still = waited.loads;
+        still = loads;
         parts.clear();
     } else if matches!(load, Some(Load::Now | Load::Wait)) {
-        let loaded = load_parts(context, &parts, settings, &inputs.caps)?;
-        let told = told_files(&loaded.images, &parts, &files, show);
+        let images = load_parts(context, &parts, settings, &inputs.caps, &mut guard)?;
+        let told = told_files(&images, &parts, &files, show);
         for (warned, told) in warnings.iter_mut().zip(told) {
             warned.extend(told);
         }
-        inputs.images.extend(loaded.images);
-        guard = loaded.interrupt;
+        inputs.images.extend(images);
         parts.clear();
     }
     let tell_before = |number: usize| {
@@ -248,8 +247,7 @@ pub(super) fn page_files(
     let opening = || {
         (0..files.len()).for_each(tell_before);
         told_before.set(true);
-        caught();
-        drop(guard.take());
+        guard.caught();
     };
     // Several files, and an image file, are not read again, and there is
     // nothing to follow, which the pager says only when the command line
@@ -297,24 +295,21 @@ pub(super) fn page_files(
         return shown(result);
     }
     // Printed after all, so the images load first, and what they tell is
-    // told at each document's place; the guard lives on as it does when
-    // they loaded before.
-    let (images_told, _interrupt) = match (parts.is_empty(), still.take()) {
+    // told at each document's place; the guard lives on to the end, as it
+    // does when they loaded before.
+    let images_told = match (parts.is_empty(), still.take()) {
         (false, _) => {
-            let loaded = load_parts(context, &parts, settings, &inputs.caps)?;
-            let told = told_files(&loaded.images, &parts, &files, show);
-            inputs.images.extend(loaded.images);
-            (told, loaded.interrupt)
+            let images = load_parts(context, &parts, settings, &inputs.caps, &mut guard)?;
+            let told = told_files(&images, &parts, &files, show);
+            inputs.images.extend(images);
+            told
         }
         // What the reader skipped comes first.
         (true, Some(still)) => {
-            let came = finish_loading(still, &mut inputs.images, guard.as_ref())?;
-            (
-                told_files(&came, &parts_of(context.reading), &files, show),
-                None,
-            )
+            let came = finish_loading(still, &mut inputs.images, &mut guard)?;
+            told_files(&came, &parts_of(context.reading), &files, show)
         }
-        (true, None) => (vec![Vec::new(); files.len()], None),
+        (true, None) => vec![Vec::new(); files.len()],
     };
     plan::printing(inputs.reading.as_mut().map(|reading| &mut reading.wide));
     let mut out = crate::term::wrapped(platform.stdout(), &inputs.caps);

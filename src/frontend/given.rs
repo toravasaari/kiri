@@ -10,7 +10,7 @@ use std::io::Read;
 use std::path::PathBuf;
 
 use crate::config::Settings;
-use crate::images::{Format, ImageError, ImageKey, Part, Source};
+use crate::images::{Format, ImageError, ImageKey, Images, Part, Source};
 use crate::session::plan;
 use crate::session::state::Look;
 use crate::typeset::caps::Capabilities;
@@ -18,7 +18,7 @@ use crate::typeset::diagnostic::{Code, Diagnostic};
 use crate::typeset::input::Input;
 use crate::typeset::model::{Block, Document};
 
-use super::loads::{Loaded, load_parts, part, read_image_file};
+use super::loads::{Guard, load_parts, part, read_image_file};
 use super::open::{Content, Opened, document, image_reader};
 use super::route::{Context, Run};
 use super::{Failure, tell};
@@ -187,9 +187,10 @@ pub(super) fn load_given(
     settings: &Settings,
     caps: &Capabilities,
     documents: bool,
-) -> Result<Loaded, Failure> {
+    guard: &mut Guard,
+) -> Result<Images, Failure> {
     if !caps.draws_images() {
-        return Ok(Loaded::default());
+        return Ok(Images::new());
     }
     let parts: Vec<Part> = (given.iter().enumerate())
         .filter_map(|(number, given)| {
@@ -207,7 +208,7 @@ pub(super) fn load_given(
             })
         })
         .collect();
-    load_parts(context, &parts, settings, caps)
+    load_parts(context, &parts, settings, caps, guard)
 }
 
 /// The diagram file `given`, numbered `number` among the files shown,

@@ -122,3 +122,23 @@ fn the_line_of_a_wait_for_diagrams_counts_only_them() {
         format!("\r\x1b[2K{line}\r\x1b[2K")
     );
 }
+
+#[test]
+fn stopping_a_guard_stops_the_loads_and_gives_the_signal_as_the_failure() {
+    let (mut loads, arrivals) = expecting(&["a.png", "b.png"]);
+    let guard = Guard::default();
+    let failure = guard.stop(&mut loads, 2);
+    assert!(matches!(failure, Failure::Signal(2)), "{failure:?}");
+    assert!(arrivals.iter().all(|arrival| arrival.stopped()));
+    assert!(loads.is_empty());
+}
+
+#[test]
+fn a_guard_that_catches_nothing_has_no_signal_to_give_and_nothing_to_release() {
+    let mut guard = Guard::default();
+    assert_eq!(guard.signal(), None);
+    assert_eq!(guard.release(), None);
+    // The screen's catching it is no harm either.
+    guard.caught();
+    assert_eq!(guard.signal(), None);
+}

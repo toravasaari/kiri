@@ -1,10 +1,15 @@
 //! The frontends' loading of a document's images and diagrams, and the
-//! reloading of its file for the pager. Images load in the foreground while
-//! the reader waits for the pager, on threads while the pager shows, and in
-//! the background when the pager finds images it does not hold, which its
-//! planner (`src/frontend/pager.rs`) tells it a document wants. A reload
-//! reads the file again, brings the images up to date for it, and tells the
-//! pager whether the file has changed since it was read.
+//! reloading of its file for the pager. Images load through the queue of
+//! `src/load/queue.rs` before the pager opens, in the foreground, while the
+//! reader waits, and on threads while the pager shows, and in the
+//! background when the pager finds images it does not hold, which its
+//! planner (`src/frontend/pager.rs`) tells it a document wants. The waits
+//! before the pager share one loop. A reload reads the file again, brings
+//! the images up to date for it, and tells the pager whether the file has
+//! changed since it was read.
+//!
+//! [`Guard`] is the one owner of Ctrl-C and the other signals that would
+//! end kiri, from the first load until the pager's screen catches them.
 //!
 //! What does not belong here is the choice of what to show and when, which
 //! `route.rs` makes from the settings, and the state of a session. The
@@ -72,14 +77,60 @@ pub(crate) fn surely_paged(
     longer
 }
 
-/// What waiting for the images before the pager opens came to.
-pub(crate) struct Waited {
-    /// The guard that caught the signals meanwhile, to go once the
-    /// pager's screen catches them.
-    pub(crate) interrupt: Option<Interrupt>,
-    /// The loads still under way, when the reader opened the pager
-    /// before all had come.
-    pub(crate) loads: Option<Loads>,
+/// Who catches the signals that would end kiri, Ctrl-C (SIGINT), Ctrl-\
+/// (SIGQUIT), SIGTERM and SIGHUP, before the pager's screen catches them:
+/// the one place that decides it, for a whole run.
+///
+/// - Nobody while no program outside kiri draws and no wait reads keys:
+///   they end kiri at once.
+/// - An [`Interrupt`] while kiri waits for loads that a program draws, or
+///   reads Space and Enter with Ctrl-C still a signal: a signal stops the
+///   loads and their programs, within `STOPPING`, and kiri then ends by it.
+/// - The same `Interrupt` released once nothing kiri must stop runs, so a
+///   signal ends kiri at once again; it keeps its handlers, without which
+///   the signals would do nothing while the documents are printed.
+/// - Held, not released, while the loads the reader skipped go on into the
+///   pager.
+/// - Gone once the pager's screen catches the signals ([`Guard::caught`]),
+///   before its terminal is raw; in raw mode Ctrl-C is the key `\x03`,
+///   which quits, and `term::Screen` ends kiri by a signal from elsewhere
+///   once the terminal is restored.
+#[derive(Debug, Default)]
+pub(crate) struct Guard(Option<Interrupt>);
+
+impl Guard {
+    /// Catches the signals from now on, for a wait: anew, so that a guard
+    /// released by an earlier load catches them again. The new handlers
+    /// are set before the old ones go, so that no signal falls between.
+    fn catch(&mut self) {
+        if let Some(new) = Interrupt::catch() {
+            self.0 = Some(new);
+        }
+    }
+
+    /// The signal that came, if one did.
+    fn signal(&self) -> Option<i32> {
+        self.0.as_ref().and_then(Interrupt::signal)
+    }
+
+    /// Makes the signals end kiri at once again, keeping the handlers; the
+    /// signal that came before, if one did.
+    fn release(&self) -> Option<i32> {
+        self.0.as_ref().and_then(Interrupt::release)
+    }
+
+    /// Stops `loads` and waits at most `STOPPING` for their programs, makes
+    /// the signals end kiri again, and gives the failure of `signal`.
+    fn stop(&self, loads: &mut Loads, signal: i32) -> Failure {
+        loads.halt();
+        loads.wait(crate::images::STOPPING);
+        Failure::Signal(self.release().unwrap_or(signal))
+    }
+
+    /// The pager's screen catches the signals now; the guard goes.
+    pub(crate) fn caught(&mut self) {
+        self.0 = None;
+    }
 }
 
 /// What the progress line counts while [`wait`] waits.
@@ -159,9 +210,11 @@ fn wait(
 /// the pager, with the progress line on standard error, a terminal, and
 /// the hint that Space opens the pager now: until they have all come, or
 /// until the reader presses Space or Enter, which leaves the rest loading
-/// in the background. Other keys go unheeded. Ctrl-C, SIGTERM, SIGHUP and
-/// Ctrl-\ stop the programs meanwhile, as when the images load first,
-/// and are then the failure. `None` without a terminal to read keys
+/// in the background, for the loads then under way. Other keys go
+/// unheeded. Ctrl-C, SIGTERM, SIGHUP and Ctrl-\ stop the programs
+/// meanwhile, as when the images load first, and are then the failure.
+/// `guard` catches them, and is held when the reader skipped, for the
+/// pager's screen to take over. `None` without a terminal to read keys
 /// from, or without the line to tell of them, standard error not being
 /// a terminal, where nothing has started.
 pub(crate) fn wait_or_skip(
@@ -169,13 +222,13 @@ pub(crate) fn wait_or_skip(
     parts: &[Part],
     settings: &Settings,
     inputs: &mut Inputs,
-) -> Option<Result<Waited, Failure>> {
+    guard: &mut Guard,
+) -> Option<Result<Option<Loads>, Failure>> {
     if !context.platform.stderr_is_terminal() {
         return None;
     }
     let mut keys = WaitKeys::open()?;
-    let interrupt = Interrupt::catch();
-    let signal = || interrupt.as_ref().and_then(Interrupt::signal);
+    guard.catch();
     let mut loads = Loads::new();
     let loading = loading(context, settings, &inputs.caps);
     crate::images::load_in_background(parts, &loading, &mut inputs.images, &mut loads);
@@ -183,29 +236,26 @@ pub(crate) fn wait_or_skip(
     let came = |key, image| images.insert(key, image);
     let line = Line::Skippable(&mut keys);
     let out = (context.platform.stderr(), DELAY);
-    let over = wait(out, &mut loads, came, line, signal);
+    let over = wait(out, &mut loads, came, line, || guard.signal());
     // The terminal as it was, before the pager or the shell takes it.
     drop(keys);
-    if let Over::Signal(signal) = over {
-        loads.halt();
-        loads.wait(crate::images::STOPPING);
-        let signal = interrupt
-            .as_ref()
-            .and_then(Interrupt::release)
-            .unwrap_or(signal);
-        return Some(Err(Failure::Signal(signal)));
-    }
-    let loads = matches!(over, Over::Skipped).then_some(loads);
-    Some(Ok(Waited { interrupt, loads }))
+    Some(match over {
+        Over::Signal(signal) => Err(guard.stop(&mut loads, signal)),
+        Over::Skipped => Ok(Some(loads)),
+        Over::Done => match guard.release() {
+            Some(signal) => Err(Failure::Signal(signal)),
+            None => Ok(None),
+        },
+    })
 }
 
 /// Waits for what `loads` load to come into `images`, and gives what
-/// came. A signal that `interrupt` caught meanwhile stops them, and is
-/// the failure.
+/// came. A signal that `guard` caught meanwhile stops them, and is the
+/// failure; once they have come, the signals end kiri again.
 pub(crate) fn finish_loading(
     mut loads: Loads,
     images: &mut Images,
-    interrupt: Option<&Interrupt>,
+    guard: &mut Guard,
 ) -> Result<Images, Failure> {
     let mut came = Images::new();
     let over = wait(
@@ -216,50 +266,40 @@ pub(crate) fn finish_loading(
             came.insert(key, image);
         },
         Line::Quiet,
-        || interrupt.and_then(Interrupt::signal),
+        || guard.signal(),
     );
-    if let Over::Signal(signal) = over {
-        loads.halt();
-        loads.wait(crate::images::STOPPING);
-        let signal = interrupt.and_then(Interrupt::release).unwrap_or(signal);
-        return Err(Failure::Signal(signal));
+    match over {
+        Over::Signal(signal) => Err(guard.stop(&mut loads, signal)),
+        Over::Skipped | Over::Done => match guard.release() {
+            Some(signal) => Err(Failure::Signal(signal)),
+            None => Ok(came),
+        },
     }
-    Ok(came)
-}
-
-/// A document's images, and the guard that caught the signals while
-/// programs drew its diagrams, if any did.
-#[derive(Debug, Default)]
-pub(crate) struct Loaded {
-    pub(crate) images: Images,
-    /// Keeps the signals that the programs were stopped by from ending
-    /// kiri by surprise later: it lives until something else catches them,
-    /// such as the pager's screen, or until kiri ends.
-    pub(crate) interrupt: Option<Interrupt>,
 }
 
 /// The images of the documents in `parts`, loaded through the queue as
 /// the pager's loads are, whatever the settings say about images, in the
 /// order of the documents. When programs draw any of their diagrams,
-/// Ctrl-C, SIGTERM, SIGHUP and Ctrl-\ stop them meanwhile, and are then
-/// the failure. A terminal tells how far the diagrams have got.
+/// `guard` catches Ctrl-C, SIGTERM, SIGHUP and Ctrl-\, which stop them
+/// meanwhile and are then the failure; it is released when they have
+/// come. A terminal tells how far the diagrams have got.
 pub(crate) fn load_parts(
     context: &Context,
     parts: &[Part],
     settings: &Settings,
     caps: &Capabilities,
-) -> Result<Loaded, Failure> {
+    guard: &mut Guard,
+) -> Result<Images, Failure> {
     let loading = loading(context, settings, caps);
     let jobs = crate::images::jobs(parts, &loading);
     if jobs.is_empty() {
-        return Ok(Loaded::default());
+        return Ok(Images::new());
     }
     // Only while a program draws one of the documents' diagrams: they
     // otherwise end kiri at once, as without diagrams.
-    let interrupt = match jobs.iter().any(|job| job.program) {
-        true => Interrupt::catch(),
-        false => None,
-    };
+    if jobs.iter().any(|job| job.program) {
+        guard.catch();
+    }
     let mut loads = Loads::new();
     loads.want(
         &jobs,
@@ -280,18 +320,12 @@ pub(crate) fn load_parts(
             came.insert(key, image);
         },
         Line::Diagrams(diagrams.collect()),
-        || interrupt.as_ref().and_then(Interrupt::signal),
+        || guard.signal(),
     );
     if let Over::Signal(signal) = over {
-        loads.halt();
-        loads.wait(crate::images::STOPPING);
-        let signal = interrupt
-            .as_ref()
-            .and_then(Interrupt::release)
-            .unwrap_or(signal);
-        return Err(Failure::Signal(signal));
+        return Err(guard.stop(&mut loads, signal));
     }
-    if let Some(signal) = interrupt.as_ref().and_then(Interrupt::release) {
+    if let Some(signal) = guard.release() {
         return Err(Failure::Signal(signal));
     }
     // In the order of the documents, as they were planned and not as they
@@ -302,7 +336,7 @@ pub(crate) fn load_parts(
             images.insert(job.key, image);
         }
     }
-    Ok(Loaded { images, interrupt })
+    Ok(images)
 }
 
 /// What loading images needs to know, for a window with `caps`.

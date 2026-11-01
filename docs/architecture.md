@@ -459,20 +459,29 @@ pager, and the mode, with any key typed meanwhile, is gone before the
 pager or the shell takes the terminal.
 
 The programs run in process groups of their own, which Ctrl-C from the
-terminal does not reach, nor a signal sent to kiri alone. So when the
-document has a diagram that a program draws, `src/term/interrupt.rs`
-catches SIGINT, SIGQUIT, SIGTERM and SIGHUP while its images load:
-`External` stops the programs, SIGINT first so that `mmdc` can close its
-browser, removes their files, and kiri then ends by the signal that came.
-Without such a diagram, and once the images are loaded, the signals end
-kiri as before, and the pager catches them itself, from before its
-terminal is raw until it has been restored, or until its screen fails to
-open, when they end kiri again while the document is printed. A signal
-that was ignored when kiri started, as under `nohup`, stays ignored in
-both. A new diagram language is a new entry in `LANGUAGES` in
-`src/typeset/diagrams/language.rs`, in a module of its own as Mermaid's is, with
-a default command, a built-in renderer or both; the rest follows from the
-entry.
+terminal does not reach, nor a signal sent to kiri alone. So one value,
+`Guard` in `src/frontend/loads.rs`, decides who catches SIGINT, SIGQUIT,
+SIGTERM and SIGHUP before the pager's screen does, for the whole run, and
+nothing else in the frontends calls `Interrupt::catch` from
+`src/term/interrupt.rs`. Without a program drawing and without keys read,
+nobody does and the signals end kiri at once. While kiri waits for loads
+that a program draws, or reads Space and Enter with Ctrl-C still a
+signal, the guard catches them: the loads stop, SIGINT first so that
+`mmdc` can close its browser, their files are removed, and kiri then ends
+by the signal that came. Once the loads have come, the guard is released,
+so a signal ends kiri at once again, though it keeps its handlers, without
+which the signals would do nothing while the documents are printed. It is
+held while the loads the reader skipped go on into the pager, and gone
+when the pager's screen catches the signals, from before its terminal is
+raw until it has been restored, or until the screen fails to open, when
+they end kiri again while the document is printed. In raw mode Ctrl-C is
+the key `^C`, which quits. A signal that was ignored when kiri started, as
+under `nohup`, stays ignored in all of it. When a diagram file drawn by a
+program and documents waited for load together, there is still one
+guard, so Ctrl-C stops the programs of both. A new diagram language is a
+new entry in `LANGUAGES` in `src/typeset/diagrams/language.rs`, in a
+module of its own as Mermaid's is, with a default command, a built-in
+renderer or both; the rest follows from the entry.
 
 ## Terminal capabilities
 
@@ -649,7 +658,7 @@ The later work that the rows name, in words:
 | `src/frontend/given.rs` | platform | new. A file ready to show (`Given`, `Shown`, `Drawn`), and loading the images of the documents among the files given |
 | `src/frontend/pager.rs` | platform | new. The interactive frontend: `page_files` gathers the files into one stream, loads their images first or in the background and runs the pager's loop on the terminal's screen, and prints them after all where it does not open |
 | `src/frontend/print.rs` | platform | new. The print frontend: `print_files`, each file under its header as it comes, and `Held`, whose `check` makes sure kitty holds the images that were sent (the pager's print fallback uses it too) |
-| `src/frontend/loads.rs` | platform | moved from `src/load.rs`. Loading a document's images and diagrams in the foreground, on threads and in the background, and reloading its file for the pager: the loads, and `FileReload`, which reads the file again and brings the images up to date for it but starts no load. The frontends call them. Its seed is the work runner that roadmap item G7.3.3 fills in |
+| `src/frontend/loads.rs` | platform | moved from `src/load.rs`. Loading a document's images and diagrams: before the pager through the queue of `src/load/queue.rs` and one wait loop (`load_parts`, `wait_or_skip`, `finish_loading`), which the progress line of `src/term/progress.rs` follows, and `Guard`, the one value that catches Ctrl-C and the other signals before the pager's screen does; on threads and in the background; and reloading its file for the pager: the loads, and `FileReload`, which reads the file again and brings the images up to date for it but starts no load. The frontends call them. Its seed is the work runner that roadmap item G7.3.3 fills in |
 | `src/frontend/sim.rs` | platform | moved from `src/pager/sim.rs`; test support. The simulated frontend: a terminal on a virtual clock, files in memory and background loads, run by a `Runner` of its own, that come when a script says, wanted by a planner the script gives (what a reload brings, and the pictures `M` shows), which run the loop in `src/pager/mod.rs` through its `Terminal` and `Reload` traits, or the whole route through `SimPlatform`, its `Platform`, and give back the bytes written to the terminal and to standard error. It asks `Pager::wait` how long the pager waits for keys and moves the clock by that, so a test runs without a pseudo-terminal and without waiting. A screen model that reads the bytes, which knows kitty, comes later |
 | `src/frontend/tests/mod.rs`, `route.rs`, `paging.rs`, `settings.rs`, `stdin.rs`, `follow.rs`, `reload.rs`, `close.rs` | follows `frontend/` | new. The route's tests: `show_files` run in the simulated frontend, for one file, several, standard input, a missing file, `r` and paging without keys; `paging.rs` has the paging and printing decisions, `settings.rs` the settings that change the route (paging, diagrams, reading mode); `stdin.rs` standard input; `follow.rs` following a file; `reload.rs` `r`; and `close`, which ends the pager: it leaves the screen first and then waits for the programs |
 | `src/load/mod.rs` | platform | new. The platform's loading for the engines: `load`, `load_with` and `load_parts`, which load the images a document wants, read their files and have the renderers draw its diagrams. A module of the library, beside the frontends' `src/frontend/loads.rs` |
