@@ -141,9 +141,9 @@ impl Options<'_> {
 /// unless the window calls for another. `session` must have a source for
 /// each file of `content`, or one at least for a document.
 /// A search treats case as `options.case` says.
-/// The images of reloads load in `loads`, which `q` stops without waiting
-/// for their programs: the caller waits for them once the pager has left
-/// its screen.
+/// The images the planner wants, and the loads the caller hands over in
+/// `loads`, load there; `q` stops them without waiting for their programs:
+/// the caller waits for them once the pager has left its screen.
 pub fn run(
     content: Content,
     laid_out: Option<Stream>,

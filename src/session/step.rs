@@ -45,7 +45,8 @@ pub(crate) struct Pager<'a, 'b> {
     /// The cells, width and height in pixels, that this layout was made
     /// for.
     pub(crate) cells: Option<(u16, u16)>,
-    /// The time of the last message that has one.
+    /// The time of the turn: when the layout was shown, or when the last
+    /// read of keys ended. A reread does not move it.
     now: Instant,
     /// The frame last drawn.
     shown: Option<Rc<Frame>>,

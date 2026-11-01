@@ -378,7 +378,8 @@ pub(super) fn page_files(
 /// `options` tell the pager how a search treats case and where `r` gets
 /// the document again from, if anywhere. The pager catches Ctrl-C itself;
 /// of `opening`, `caught` runs once its screen catches the signals, and
-/// then `start`, which may start loading images in the background.
+/// then `start`, which hands the pager the loads the reader skipped, if
+/// any; the pager's loop starts the rest after its first layout.
 fn page(
     context: &Context,
     content: crate::typeset::layout::Content,

@@ -178,7 +178,7 @@ pub(super) enum Drawn {
 }
 
 /// The images of the documents among `given`, loaded and drawn as
-/// `load_images` loads them, keyed by the number of each among them. The
+/// `load_parts` loads them, keyed by the number of each among them. The
 /// diagram of a diagram file is drawn also with images off, as it is on
 /// its own, and text has none.
 pub(super) fn load_given(

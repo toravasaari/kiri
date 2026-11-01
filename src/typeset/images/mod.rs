@@ -3,7 +3,8 @@
 //! images a document wants, with the store of what was loaded.
 //!
 //! The functions that read files and run the renderers are in `src/load/`,
-//! the platform's part; the loads that run on threads are in `src/images/`.
+//! the platform's part; the loads that run on threads are in
+//! `src/load/queue.rs`.
 
 pub(crate) mod decode;
 pub(crate) mod drawn;
