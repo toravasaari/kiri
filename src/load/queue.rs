@@ -1,7 +1,8 @@
-//! Loading images on threads of their own, as the pager does after a
-//! reload: the document shows at once, and each image comes as it is
-//! ready. A load that a newer reload no longer wants stops, and one that
-//! it still wants carries on.
+//! The loads in the background: the document shows at once, and each
+//! image comes as it is ready. `Loads::reconcile` is the one way to start
+//! and stop them, for every entry point of `src/images/pipeline.rs`: a load
+//! that is no longer wanted stops, and one that still is carries on. A
+//! `Runner` runs what starts, on threads (`Threads`) or as a test says.
 
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
@@ -153,6 +154,7 @@ pub(crate) struct Job {
     /// diagram's source or a heading's words.
     pub(crate) fetch: Option<Fetch>,
     pub(crate) compute: What,
+    /// Whether a program outside kiri draws it (a program place).
     pub(crate) program: bool,
     pub(crate) context: Arc<Context>,
 }
@@ -214,7 +216,8 @@ impl Wanted {
     }
 }
 
-/// What loading the jobs of one reload needs, besides each job.
+/// What loading the jobs of one call of an entry point needs, besides each
+/// job.
 pub(crate) struct Context {
     pub(crate) renderer: Box<dyn Renderer + Send + Sync>,
     pub(crate) theme: Theme,
@@ -368,6 +371,9 @@ impl Loads {
         if let Some(running) = self.running.remove(key) {
             running.stop.store(true, Ordering::SeqCst);
             self.total -= 1;
+        }
+        if self.running.is_empty() {
+            (self.done, self.total) = (0, 0);
         }
     }
 
@@ -1013,6 +1019,30 @@ mod tests {
             "{arrived:?}"
         );
         assert!(loads.is_empty());
+    }
+
+    #[test]
+    fn expecting_an_image_counts_from_nothing_when_it_empties_the_loads_as_reconciling_does() {
+        let count = |again: bool| {
+            let mut loads = Loads::new();
+            let a = loads.expect("a.png");
+            let b = loads.expect("b.png");
+            b.come(square());
+            assert_eq!(loads.poll().len(), 1);
+            assert_eq!(loads.progress(), Some((1, 2)));
+            // The only load left is replaced by a new one.
+            let _new = match again {
+                true => {
+                    loads.reconcile(loads.adding(vec![Wanted::Again(Job::file("a.png"))]));
+                    None
+                }
+                false => Some(loads.expect("a.png")),
+            };
+            assert!(a.stopped());
+            loads.progress()
+        };
+        assert_eq!(count(true), Some((0, 1)));
+        assert_eq!(count(false), Some((0, 1)));
     }
 
     #[test]
