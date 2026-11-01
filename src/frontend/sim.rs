@@ -339,7 +339,9 @@ impl Sim {
         self
     }
 
-    /// Standard output is a pipe, not a terminal.
+    /// Standard output is a pipe, not a terminal. The caps stay as given:
+    /// pass [`Sim::caps`] with plain ones for what `--mode auto` gets on a
+    /// pipe.
     pub(crate) fn piped(mut self) -> Self {
         self.piped = true;
         self
@@ -370,6 +372,14 @@ impl Sim {
         assert!(
             self.brings.is_empty() && self.inline.is_empty(),
             "no images come to kiri's route: its loads are not simulated"
+        );
+        assert!(
+            self.shown.is_none(),
+            ".show is for Sim::run: kiri takes its files as arguments"
+        );
+        assert!(
+            !self.reading,
+            ".reading is for Sim::run: the route always has a reading mode"
         );
         let Sim {
             columns,
@@ -514,7 +524,8 @@ pub(crate) struct Ran {
     pub(crate) waits: Vec<Duration>,
     /// The time on the virtual clock when the pager quit.
     pub(crate) elapsed: Duration,
-    /// How many times the pager read the document again.
+    /// How many times the pager read the document again. Always 0 after
+    /// [`Sim::kiri`], whose reloads read the disk through `FileReload`.
     pub(crate) reloads: usize,
     /// How kiri ended, after [`Sim::kiri`]; `None` for [`Sim::run`].
     pub(crate) result: Option<Result<(), Failure>>,
