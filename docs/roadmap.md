@@ -59,6 +59,12 @@ Refactoring and small fixes that are not bugs go there too.
   about a fifth smaller.
 - Shell completions and a man page, generated from the command-line
   definition.
+  `kiri --completions <shell>` writes the completion script for bash,
+  zsh, fish, elvish, powershell and nushell. Some ideas for the rest: the
+  shells Ion, Tcsh and Xonsh, which `clap_complete` does not cover (the
+  young crate `carapace-rs-clap` might; not checked), and dynamic
+  completion, where the shell asks kiri while completing, for values such
+  as theme names.
 - Third-party notices with the release binaries for the dependencies
   compiled in, among them merman's ELK layout (EPL-2.0), the KaTeX font
   data of its math (OFL-1.1), and the CSS crates it brings, cssparser,
