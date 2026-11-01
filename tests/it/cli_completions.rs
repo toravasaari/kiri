@@ -36,9 +36,8 @@ fn the_bash_script_names_flags_and_values() {
     let script = text(&out.stdout);
     assert!(script.contains("--paging"), "{script}");
     assert!(script.contains("--completions"), "{script}");
-    for value in ["always", "auto", "never"] {
-        assert!(script.contains(value), "{value}");
-    }
+    // The word list of the --paging arm, not any other `auto` in the script.
+    assert!(script.contains("\"always auto never\""), "{script}");
 }
 
 /// An unknown shell is a usage error that lists the six names.
