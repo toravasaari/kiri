@@ -1,19 +1,10 @@
 //! Standard input in the simulated front end: printed unless paging is
 //! `always`, and printed as plain text on a terminal that draws no styling.
 
+use super::long;
 use crate::frontend::sim::{Sim, plain};
 use crate::session::settings::Paging;
 use crate::typeset::caps::Capabilities;
-
-/// `count` paragraphs of one row each, `Line 1` to `Line count`.
-fn paragraphs(count: usize) -> String {
-    (1..=count).map(|n| format!("Line {n}\n\n")).collect()
-}
-
-/// A document longer than a window of 5 rows.
-fn long() -> String {
-    paragraphs(10)
-}
 
 #[test]
 fn plain_mode_prints_without_the_pager() {

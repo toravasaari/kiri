@@ -3,18 +3,9 @@
 //! reading mode on a terminal that draws no images. Which flag or variable
 //! sets which setting is `config`'s tests (`src/config/tests.rs`).
 
+use super::{long, paragraphs};
 use crate::frontend::sim::{Sim, plain};
 use crate::session::settings::Paging;
-
-/// `count` paragraphs of one row each, `Line 1` to `Line count`.
-fn paragraphs(count: usize) -> String {
-    (1..=count).map(|n| format!("Line {n}\n\n")).collect()
-}
-
-/// A document longer than a window of 5 rows.
-fn long() -> String {
-    paragraphs(10)
-}
 
 /// What kiri tells when reading mode is asked for on a terminal that does
 /// not draw images.

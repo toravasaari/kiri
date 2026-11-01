@@ -4,20 +4,10 @@
 //! standard error. The assertions look at the bytes, as the pager's
 //! simulated tests do.
 
+use super::{fresh, long};
 use crate::frontend::Failure;
 use crate::frontend::sim::{Sim, plain};
 use crate::session::settings::Paging;
-
-/// A document longer than a window of 5 rows: `Line 1` to `Line 10`, one
-/// row each and a blank row between.
-fn long() -> String {
-    (1..=10).map(|n| format!("Line {n}\n\n")).collect()
-}
-
-/// The text of `long.md` written anew: ten paragraphs of `Fresh`.
-fn fresh() -> String {
-    (1..=10).map(|n| format!("Fresh {n}\n\n")).collect()
-}
 
 /// A window of 40 × 5 with `long.md` on its disk.
 fn on_long() -> Sim {

@@ -3,23 +3,9 @@
 //! and standard input and several files have nothing to follow. Which flag
 //! or variable sets which setting is `config`'s tests.
 
+use super::{fresh, long, paragraphs};
 use crate::frontend::sim::{Sim, plain};
 use crate::session::settings::{Follow, FollowJump, Paging};
-
-/// `count` paragraphs of one row each, `Line 1` to `Line count`.
-fn paragraphs(count: usize) -> String {
-    (1..=count).map(|n| format!("Line {n}\n\n")).collect()
-}
-
-/// A document longer than a window of 5 rows.
-fn long() -> String {
-    paragraphs(10)
-}
-
-/// The text of `long.md` written anew: ten paragraphs of `Fresh`.
-fn fresh() -> String {
-    (1..=10).map(|n| format!("Fresh {n}\n\n")).collect()
-}
 
 #[test]
 fn following_pages_a_short_file() {

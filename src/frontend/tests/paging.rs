@@ -3,20 +3,11 @@
 //! and of one that cannot be shown, and what standard error gets. The
 //! keys come at their times on the virtual clock.
 
+use super::{long, paragraphs};
 use crate::frontend::Failure;
 use crate::frontend::sim::{Sim, plain};
 use crate::session::settings::Paging;
 use crate::typeset::input::Input;
-
-/// `count` paragraphs of one row each, `Line 1` to `Line count`.
-fn paragraphs(count: usize) -> String {
-    (1..=count).map(|n| format!("Line {n}\n\n")).collect()
-}
-
-/// A document longer than a window of 5 rows.
-fn long() -> String {
-    paragraphs(10)
-}
 
 /// `front-matter-invalid.md`, whose front matter kiri warns about.
 const INVALID: &str = include_str!("../../../tests/fixtures/front-matter-invalid.md");
