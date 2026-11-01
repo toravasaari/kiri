@@ -32,7 +32,27 @@ use super::loads::{FileReload, Guard, part};
 use super::open::{Content, STDIN, open};
 use super::pager::{Opening, page_files};
 use super::print::print_files;
-use super::{Asked, Configured, Failure, Platform, tell};
+use super::{Failure, Platform, tell};
+
+/// What the command line asks the frontend for.
+pub struct Asked<'a> {
+    /// The files given; `-` is standard input.
+    pub files: &'a [PathBuf],
+    /// The input format `--format` names.
+    pub format: Option<Input>,
+    /// How the command line asks to follow, `Off` when it does not.
+    pub follow: Follow,
+}
+
+/// The settings, as the binary resolved them from the command line, the
+/// environment and the configuration file.
+pub struct Configured {
+    /// Warnings about them.
+    pub warnings: Vec<Diagnostic>,
+    /// The settings; or why the configuration file could not be read,
+    /// with the settings without it.
+    pub settings: Result<Settings, (String, Settings)>,
+}
 
 /// Shows the files that `route` names: one file, the README of a directory,
 /// standard input, or several files, one after another, each under a header

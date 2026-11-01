@@ -33,6 +33,7 @@ fn a_quiet_wait_gives_each_image_as_it_comes_and_ends_when_nothing_loads() {
     let mut came = HashSet::new();
     let over = wait(
         (std::io::sink(), DELAY),
+        &mut Waiting,
         &mut loads,
         |key, image| {
             assert!(image.is_ok());
@@ -53,6 +54,7 @@ fn a_wait_ends_by_the_signal_and_stops_nothing() {
     let (mut loads, arrivals) = expecting(&["a.png"]);
     let over = wait(
         (std::io::sink(), DELAY),
+        &mut Waiting,
         &mut loads,
         |_, _| {},
         Line::Quiet,
@@ -70,6 +72,7 @@ fn what_came_before_the_signal_is_given_before_the_wait_ends() {
     let mut came = Vec::new();
     let over = wait(
         (std::io::sink(), DELAY),
+        &mut Waiting,
         &mut loads,
         |key, _| came.push(key),
         Line::Quiet,
@@ -85,6 +88,7 @@ fn a_wait_with_nothing_loading_ends_at_once() {
     let mut loads = Loads::new();
     let over = wait(
         (std::io::sink(), DELAY),
+        &mut Waiting,
         &mut loads,
         |_, _| {},
         Line::Quiet,
@@ -104,6 +108,7 @@ fn the_line_of_a_wait_for_diagrams_counts_only_them() {
     let line = Line::Diagrams(HashSet::from([ImageKey::from("diagram")]));
     let over = wait(
         (&mut out, Duration::ZERO),
+        &mut Waiting,
         &mut loads,
         // The diagram comes after the picture has been given, so that the
         // line shows the picture's arrival, and not the diagram's.
@@ -150,12 +155,12 @@ fn a_guard_that_catches_nothing_has_no_signal_to_give_and_nothing_to_release() {
 fn sighup_after_finish_loading() {
     let (loads, arrivals) = expecting(&["a.png"]);
     let mut guard = Guard::default();
-    guard.catch();
+    guard.catch(crate::term::Interrupt::catch());
     for arrival in arrivals {
         arrival.come(square());
     }
     let mut images = Images::new();
-    assert!(finish_loading(loads, &mut images, &mut guard).is_ok());
+    assert!(finish_loading(&mut Waiting, loads, &mut images, &mut guard).is_ok());
     signal_hook::low_level::raise(signal_hook::consts::SIGHUP).unwrap();
 }
 
@@ -188,10 +193,10 @@ fn a_signal_after_a_finished_wait_ends_kiri() {
 fn sighup_before_finish_loading() {
     let (loads, _arrivals) = expecting(&["a.png"]);
     let mut guard = Guard::default();
-    guard.catch();
+    guard.catch(crate::term::Interrupt::catch());
     signal_hook::low_level::raise(signal_hook::consts::SIGHUP).unwrap();
     let mut images = Images::new();
-    let failure = finish_loading(loads, &mut images, &mut guard).unwrap_err();
+    let failure = finish_loading(&mut Waiting, loads, &mut images, &mut guard).unwrap_err();
     assert!(matches!(failure, Failure::Signal(1)), "{failure:?}");
     // Released by the stop, so the next one ends the process.
     signal_hook::low_level::raise(signal_hook::consts::SIGHUP).unwrap();
@@ -221,14 +226,15 @@ fn a_key_typed_ahead_does_not_skip_a_wait_with_nothing_to_load() {
     // As the old wait looked at the loads before it read a key: what the
     // reader typed before the wait started is flushed with the keys, not
     // taken for a skip of work that is over.
-    let (mut keys, _terminal) = WaitKeys::typed_ahead(b" ");
+    let (keys, _terminal) = WaitKeys::typed_ahead(b" ");
     let mut loads = Loads::new();
     let out = (std::io::sink(), DELAY);
     let over = wait(
         out,
+        &mut Reading(keys),
         &mut loads,
         |_, _| {},
-        Line::Skippable(&mut keys),
+        Line::Skippable,
         || None,
     );
     assert!(matches!(over, Over::Done));
