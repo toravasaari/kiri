@@ -62,6 +62,10 @@ Run everything through `make` so local runs match CI:
   `target/` is under 100 GB. `make check` runs it after a passing run; it
   skips itself in a container or without `cargo-sweep`.
 - `make fmt` formats the code.
+- Run `make check` in the foreground. A job started in the background of
+  a non-interactive shell, as `( make check & )` or `nohup make check`,
+  inherits SIGINT as ignored, and a few tests of signals and stopping
+  programs then fail although the code is fine.
 - `make release` builds the optimised binary, `target/release/kiri`.
 - `cargo run -- <file.md>` renders a document in the current terminal.
 - A build outside the main checkout, such as a scratch copy for a review,
