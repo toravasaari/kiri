@@ -23,13 +23,9 @@ Thumbs.db
 .superpowers/
 docs/superpowers/
 
-# Personal agent settings. CLAUDE.local.md would also stop Claude Code from
-# reading AGENTS.md, which it only loads when no CLAUDE*.md exists.
-.claude/settings.local.json
+# Claude Code's settings and skills are personal. CLAUDE.local.md would also
+# stop Claude Code from reading AGENTS.md, which it only loads when no
+# CLAUDE*.md exists. Shared skills live in .agents/skills/, and .claude/skills/
+# links to them.
+.claude/
 CLAUDE.local.md
-
-# The jba skill is a personal tool of the maintainer, kept out of the tree.
-.claude/skills/jba/
-
-# The askareet skill is a personal tool of the maintainer, kept out of the tree.
-.claude/skills/askareet/
