@@ -27,6 +27,8 @@ pub use check::lost_images;
 pub use detect::{CellSize, Detection, Mode, capabilities, examine, no_color};
 pub use interrupt::{Interrupt, end_by};
 pub use keys::WaitKeys;
+#[cfg(test)]
+pub(crate) use keys::skips;
 pub use screen::Screen;
 pub use window::{WindowSize, window_size};
 

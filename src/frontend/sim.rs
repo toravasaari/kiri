@@ -22,11 +22,14 @@
 //! `SimPlatform`, which implements the [`Platform`] the binary implements
 //! for the process: the disk above, standard input and output and error
 //! kept in memory, and a terminal that is the script's. The loads of images
-//! are not simulated yet, so the route runs only with caps that draw none.
+//! come as the script says ([`Sim::loads`]), on the virtual clock: the
+//! platform's loads run a `Runner` that runs nothing, and its waits move the
+//! clock, so nothing reads the real disk or runs a program, and no signal
+//! handler is installed.
 //!
 //! This is the frontend of the tests and, like the real ones, belongs to the
 //! platform. What it does not do is what the terminal does: raw mode, the
-//! alternate screen, signals and the probe. Those stay on a
+//! alternate screen, signals, programs that draw, and the probe. Those stay on a
 //! pseudo-terminal, in `tests/it/cli_tmux.rs` and the others.
 
 use std::cell::{Cell, RefCell};
@@ -39,7 +42,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::config::{Config, Environment, Options as Choices, Passthrough, Settings};
 use crate::frontend::pager::close;
-use crate::frontend::{Asked, Configured, Failure, Platform, Screen, show_files};
+use crate::frontend::{Asked, Configured, Failure, Pause, Platform, Screen, show_files};
 use crate::images::{ImageError, ImageKey, Images, Loads, Source};
 use crate::load::queue::{Done, Job, Queued, Runner};
 use crate::pager::{Options, Reload, Reloaded, Terminal, run};
@@ -137,6 +140,8 @@ struct World {
     disk: RefCell<Disk>,
     /// The images a reload started loading: when each comes, and as what.
     coming: RefCell<Vec<Coming>>,
+    /// What each load that starts comes to, as the script says.
+    loading: RefCell<Script>,
     /// What was written to the terminal: the screen and standard output
     /// are one stream, as they are on a terminal. Each write borrows it
     /// for that call only, as the route holds two handles to it at once.
@@ -150,6 +155,9 @@ struct World {
     waits: RefCell<Vec<Duration>>,
     /// When the screen was left, on the real clock.
     left: Cell<Option<Instant>>,
+    /// How much had been written to standard error when the screen was
+    /// left.
+    told_before_leaving: Cell<Option<usize>>,
 }
 
 impl World {
@@ -160,6 +168,7 @@ impl World {
             elapsed: Cell::new(Duration::ZERO),
             disk: RefCell::new(disk),
             coming: RefCell::new(Vec::new()),
+            loading: RefCell::new(Script::new()),
             out: RefCell::new(Vec::new()),
             err: Arc::default(),
             size: Cell::new(WindowSize {
@@ -170,12 +179,42 @@ impl World {
             }),
             waits: RefCell::new(Vec::new()),
             left: Cell::new(None),
+            told_before_leaving: Cell::new(None),
+        }
+    }
+
+    /// The clock moves on to `at`, if that is later, and the images due by
+    /// then come.
+    fn arrive(&self, at: Duration) {
+        self.elapsed.set(self.elapsed.get().max(at));
+        let due: Vec<Coming> = {
+            let mut coming = self.coming.borrow_mut();
+            let (due, later) = std::mem::take(&mut *coming)
+                .into_iter()
+                .partition(|coming| coming.at <= at);
+            *coming = later;
+            due
+        };
+        for coming in due {
+            coming.arrival.come(coming.image);
+        }
+    }
+
+    /// Lets the clock run for `most` or until an image comes, which it
+    /// does as it passes its time.
+    fn pass(&self, most: Duration) {
+        let end = self.elapsed.get() + most;
+        let next = (self.coming.borrow().iter()).map(|coming| coming.at).min();
+        match next.filter(|at| *at <= end) {
+            Some(at) => self.arrive(at),
+            None => self.elapsed.set(end),
         }
     }
 
     /// What a run came to.
     fn ran(&self, reloads: usize, result: Option<Result<(), Failure>>) -> Ran {
         let text = |bytes: Vec<u8>| String::from_utf8(bytes).expect("kiri writes UTF-8");
+        let before_leaving = self.told_before_leaving.get();
         Ran {
             out: text(self.out.take()),
             err: text(std::mem::take(
@@ -185,6 +224,7 @@ impl World {
             elapsed: self.elapsed.get(),
             reloads,
             result,
+            before_leaving,
         }
     }
 }
@@ -200,24 +240,24 @@ struct Coming {
 type Script = HashMap<ImageKey, VecDeque<(Duration, Result<Source, ImageError>)>>;
 
 /// Runs the loads as the script says: each comes on the virtual clock, in
-/// [`World::coming`], and one the script says nothing of never comes.
+/// [`World::coming`], and one the script says nothing of never comes. The
+/// script is by the url of an image, whatever the document it is in.
 struct SimRunner {
     world: Rc<World>,
-    script: Script,
 }
 
 impl std::fmt::Debug for SimRunner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SimRunner")
-            .field("script", &self.script.keys())
-            .finish_non_exhaustive()
+        f.debug_struct("SimRunner").finish_non_exhaustive()
     }
 }
 
 impl Runner for SimRunner {
     fn run(&mut self, jobs: Vec<Queued>, done: &std::sync::mpsc::Sender<Done>) {
         for queued in jobs {
-            let next = (self.script.get_mut(queued.key())).and_then(VecDeque::pop_front);
+            let key = queued.key().clone().in_document(0);
+            let next =
+                (self.world.loading.borrow_mut().get_mut(&key)).and_then(VecDeque::pop_front);
             let Some((after, image)) = next else {
                 continue;
             };
@@ -258,6 +298,11 @@ pub(crate) struct Sim {
     reading: bool,
     /// The images the start of loading what reading mode shows brings.
     inline: Vec<(String, Duration, Source)>,
+    /// The loads that kiri's route starts: for each url, what each load
+    /// comes to, and after how long.
+    loads: Vec<(String, Duration, Result<Source, ImageError>)>,
+    /// Whether standard error is a terminal, which shows the progress line.
+    stderr_terminal: bool,
     /// What standard input holds, when it is not a terminal.
     stdin: Option<String>,
     /// Whether standard output is a pipe and not a terminal.
@@ -287,6 +332,8 @@ impl Sim {
             brings: Vec::new(),
             reading: false,
             inline: Vec::new(),
+            loads: Vec::new(),
+            stderr_terminal: false,
             stdin: None,
             piped: false,
             keyless: false,
@@ -382,6 +429,27 @@ impl Sim {
         self.at(ms, Act::Resize(columns, rows))
     }
 
+    /// Has the next load of the image at `url` that kiri's route starts
+    /// come `after` it started, as `image`; one load for each call, in the
+    /// order they start. A load the script says nothing of never comes,
+    /// and a wait for it ends the test.
+    pub(crate) fn loads(
+        mut self,
+        url: &str,
+        after: Duration,
+        image: Result<Source, ImageError>,
+    ) -> Self {
+        self.loads.push((url.to_owned(), after, image));
+        self
+    }
+
+    /// Standard error is a terminal, so that the progress line of a wait
+    /// shows there, and Space can skip it.
+    pub(crate) fn stderr_terminal(mut self) -> Self {
+        self.stderr_terminal = true;
+        self
+    }
+
     /// Standard input holding `text`; it is not a terminal.
     pub(crate) fn stdin(mut self, text: &str) -> Self {
         self.stdin = Some(text.to_owned());
@@ -416,17 +484,14 @@ impl Sim {
     }
 
     /// Runs kiri on `files` (`-` for standard input) through the route, as
-    /// `kiri <files>` does: [`plan::route`], then [`show_files`]. With
-    /// caps that draw no images, as the loads of images read the real disk
-    /// and run real programs.
+    /// `kiri <files>` does: [`plan::route`], then [`show_files`]. Its loads
+    /// of images are the script's ([`Sim::loads`]): nothing reads the real
+    /// disk or runs a program.
     pub(crate) fn kiri(self, files: &[&str]) -> Ran {
         assert!(
-            !self.caps.draws_images(),
-            "kiri's loads read the real disk: the caps must not draw images"
-        );
-        assert!(
             self.brings.is_empty() && self.inline.is_empty(),
-            "no images come to kiri's route: its loads are not simulated"
+            ".reload_brings and .inline_brings are for Sim::run: \
+             kiri's route takes its loads from .loads"
         );
         assert!(
             self.shown.is_none(),
@@ -444,6 +509,8 @@ impl Sim {
             jump,
             disk,
             mut script,
+            loads,
+            stderr_terminal,
             stdin,
             piped,
             keyless,
@@ -453,10 +520,15 @@ impl Sim {
         } = self;
         script.sort_by_key(|(at, _)| *at);
         let world = Rc::new(World::new(disk, columns, rows));
+        for (url, after, image) in loads {
+            let key = ImageKey::from(url.as_str());
+            (world.loading.borrow_mut().entry(key).or_default()).push_back((after, image));
+        }
         let terminal = SimTerminal::new(Rc::clone(&world), script);
         let platform = SimPlatform {
             stdin: RefCell::new(stdin.as_deref().map(|text| text.as_bytes().to_vec())),
             piped,
+            stderr_terminal,
             ..SimPlatform::new(&world, caps, (!keyless).then_some(terminal))
         };
         let env = platform.environment();
@@ -487,9 +559,14 @@ impl Sim {
     /// Runs the pager through the script, and gives what it did.
     pub(crate) fn run(self) -> Ran {
         assert!(
-            self.stdin.is_none() && !self.piped && !self.keyless && self.changes.is_empty(),
-            ".stdin, .piped, .no_keys and .settings are for Sim::kiri: \
-             run has its own terminal and settings"
+            self.stdin.is_none()
+                && !self.piped
+                && !self.keyless
+                && self.changes.is_empty()
+                && self.loads.is_empty()
+                && !self.stderr_terminal,
+            ".stdin, .piped, .no_keys and .settings are for Sim::kiri, as are \
+             .loads and .stderr_terminal: run has its own terminal and settings"
         );
         let Sim {
             columns,
@@ -508,10 +585,9 @@ impl Sim {
         script.sort_by_key(|(at, _)| *at);
         let world = Rc::new(World::new(disk, columns, rows));
         // What each image comes to, in the order it starts loading.
-        let mut loading = Script::new();
-        let mut script_of = |key: &str, after, image| {
+        let script_of = |key: &str, after, image| {
             let key = ImageKey::from(key);
-            loading.entry(key).or_default().push_back((after, image));
+            (world.loading.borrow_mut().entry(key).or_default()).push_back((after, image));
         };
         let brought: Vec<String> = brings.iter().map(|(key, ..)| key.clone()).collect();
         for (key, after, image) in brings {
@@ -563,7 +639,6 @@ impl Sim {
         let session = Session::new([shown.as_deref().unwrap_or("notes.md")]);
         let runner = SimRunner {
             world: Rc::clone(&world),
-            script: loading,
         };
         let mut loads = Loads::with(Box::new(runner));
         let mut screen: Box<dyn Screen> = Box::new(terminal);
@@ -602,6 +677,9 @@ pub(crate) struct Ran {
     pub(crate) reloads: usize,
     /// How kiri ended, after [`Sim::kiri`]; `None` for [`Sim::run`].
     pub(crate) result: Option<Result<(), Failure>>,
+    /// How much of `err` was written before the pager left its screen;
+    /// `None` when it never opened.
+    before_leaving: Option<usize>,
 }
 
 impl Ran {
@@ -611,6 +689,18 @@ impl Ran {
     pub(crate) fn quiet(self) -> Self {
         assert_eq!(self.err, "", "standard error is not empty");
         self
+    }
+
+    /// What was told on standard error while the pager showed or before
+    /// it opened: all of `err` when it never opened.
+    pub(crate) fn told_before_the_pager_left(&self) -> &str {
+        &self.err[..self.before_leaving.unwrap_or(self.err.len())]
+    }
+
+    /// What was told on standard error once the pager had left its screen,
+    /// where it stays on the terminal; nothing when it never opened.
+    pub(crate) fn told_after_the_pager_left(&self) -> &str {
+        &self.err[self.before_leaving.unwrap_or(self.err.len())..]
     }
 
     /// The frames drawn, each from the start of its synchronized update to
@@ -752,6 +842,36 @@ impl SimTerminal {
     }
 }
 
+impl SimTerminal {
+    /// Lets the clock run for `timeout` or until keys come, as the script
+    /// and the arrivals say, and gives the keys typed; `None` once nothing
+    /// more happens, with the clock where it stopped.
+    fn pass(&mut self, timeout: Duration) -> Option<Vec<u8>> {
+        let end = self.world.elapsed.get() + timeout;
+        loop {
+            let next_act = self.script.front().map(|(at, _)| *at);
+            let next_image = (self.world.coming.borrow().iter())
+                .map(|coming| coming.at)
+                .min();
+            let at = [next_act, next_image].into_iter().flatten().min()?;
+            if at > end {
+                self.world.elapsed.set(end);
+                return Some(Vec::new());
+            }
+            // What is due arrives, the images first.
+            self.world.arrive(at);
+            let mut keys = Vec::new();
+            while self.script.front().is_some_and(|(when, _)| *when <= at) {
+                let (_, act) = self.script.pop_front().expect("a step that is due");
+                keys.extend(self.happen(act));
+            }
+            if !keys.is_empty() {
+                return Some(keys);
+            }
+        }
+    }
+}
+
 impl Write for SimTerminal {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.world.out.borrow_mut().extend_from_slice(buf);
@@ -773,42 +893,8 @@ impl Terminal for SimTerminal {
     /// their times. Out of script, the reader quits.
     fn read(&mut self, timeout: Duration) -> io::Result<Vec<u8>> {
         self.world.waits.borrow_mut().push(timeout);
-        let end = self.world.elapsed.get() + timeout;
-        loop {
-            let next_act = self.script.front().map(|(at, _)| *at);
-            let next_image = (self.world.coming.borrow().iter())
-                .map(|coming| coming.at)
-                .min();
-            let Some(at) = [next_act, next_image].into_iter().flatten().min() else {
-                // Nothing more will happen: the reader quits.
-                return Ok(b"\x03".to_vec());
-            };
-            if at > end {
-                self.world.elapsed.set(end);
-                return Ok(Vec::new());
-            }
-            self.world.elapsed.set(self.world.elapsed.get().max(at));
-            // What is due arrives, the images first.
-            let due: Vec<Coming> = {
-                let mut coming = self.world.coming.borrow_mut();
-                let (due, later) = std::mem::take(&mut *coming)
-                    .into_iter()
-                    .partition(|coming| coming.at <= at);
-                *coming = later;
-                due
-            };
-            for coming in due {
-                coming.arrival.come(coming.image);
-            }
-            let mut keys = Vec::new();
-            while self.script.front().is_some_and(|(when, _)| *when <= at) {
-                let (_, act) = self.script.pop_front().expect("a step that is due");
-                keys.extend(self.happen(act));
-            }
-            if !keys.is_empty() {
-                return Ok(keys);
-            }
-        }
+        // Nothing more will happen: the reader quits.
+        Ok(self.pass(timeout).unwrap_or_else(|| b"\x03".to_vec()))
     }
 
     fn now(&self) -> Instant {
@@ -844,7 +930,53 @@ pub(crate) fn close_over_screen(loads: &mut Loads) -> Closed {
 impl Screen for SimTerminal {
     fn close_then(self: Box<Self>, after: Box<dyn FnOnce() + '_>) {
         self.world.left.set(Some(Instant::now()));
+        let told = self.world.err.lock().expect("no panic holds it").len();
+        self.world.told_before_leaving.set(Some(told));
         after();
+    }
+}
+
+/// What kiri's waits for loads wait with in the simulated frontend: the
+/// virtual clock moves to the next arrival, or by the time asked, and with
+/// keys the script's keys are read from the one terminal, which the pager
+/// takes later.
+struct SimPause<'a> {
+    platform: &'a SimPlatform,
+    keys: bool,
+}
+
+impl Pause for SimPause<'_> {
+    fn until(&mut self, loads: &mut Loads, most: Duration) -> bool {
+        let world = &self.platform.world;
+        let mut terminal = self.platform.terminal.borrow_mut();
+        let terminal = terminal.as_mut().filter(|_| self.keys);
+        let comes = !world.coming.borrow().is_empty();
+        let types = terminal
+            .as_ref()
+            .is_some_and(|terminal| !terminal.script.is_empty());
+        assert!(
+            comes || types,
+            "the wait for {:?} would never end: the script brings no load and types no key",
+            loads.keys().collect::<Vec<_>>()
+        );
+        let Some(terminal) = terminal else {
+            world.pass(most);
+            return false;
+        };
+        // Arrivals and keys alike pass the time on the one clock.
+        match terminal.pass(most) {
+            Some(typed) => crate::term::skips(&typed),
+            None => {
+                world.pass(most);
+                false
+            }
+        }
+    }
+
+    /// The virtual clock has no time to wait for a line to show: it shows
+    /// at once.
+    fn delay(&self) -> Duration {
+        Duration::ZERO
     }
 }
 
@@ -886,6 +1018,8 @@ struct SimPlatform {
     stdin: RefCell<Option<Vec<u8>>>,
     /// Whether standard output is a pipe.
     piped: bool,
+    /// Whether standard error is a terminal.
+    stderr_terminal: bool,
     /// The one terminal, until the pager takes it; `None` without keys.
     terminal: RefCell<Option<SimTerminal>>,
 }
@@ -900,6 +1034,7 @@ impl SimPlatform {
             caps,
             stdin: RefCell::new(None),
             piped: false,
+            stderr_terminal: false,
             terminal: RefCell::new(terminal),
         }
     }
@@ -951,7 +1086,7 @@ impl Platform for SimPlatform {
     }
 
     fn stderr_is_terminal(&self) -> bool {
-        false
+        self.stderr_terminal
     }
 
     fn capabilities(&self, _: Mode, width: Option<u16>, _: Passthrough) -> Capabilities {
@@ -967,6 +1102,23 @@ impl Platform for SimPlatform {
 
     fn lost_images(&self, _: &[(ImageId, Cells)]) -> Option<Vec<ImageId>> {
         Some(Vec::new())
+    }
+
+    /// The loads run as the script says, on the virtual clock.
+    fn loads(&self) -> Loads {
+        let world = Rc::clone(&self.world);
+        Loads::with(Box::new(SimRunner { world }))
+    }
+
+    fn pause(&self, keys: bool) -> Option<Box<dyn Pause + '_>> {
+        // Without a terminal there are no keys to read, as for the real one.
+        if keys && self.terminal.borrow().is_none() {
+            return None;
+        }
+        Some(Box::new(SimPause {
+            platform: self,
+            keys,
+        }))
     }
 
     /// None: no signal handler in the test process; Ctrl-C stays on the
@@ -1009,6 +1161,92 @@ mod tests {
         assert_eq!(plain("a\x1b[0;1mb\x1b[5;1Hc\x1b[?2026hd"), "abcd");
     }
 
+    /// A window of 40 × 12 on kitty, with `doc.md` holding `Above`, the
+    /// image `a.png` and `Below`, paged, with its image loading in the
+    /// background.
+    fn pictured() -> Sim {
+        Sim::new(40, 12)
+            .caps(Capabilities::kitty(40))
+            .file("doc.md", "Above\n\n![a](a.png)\n\nBelow\n")
+            .settings(|settings| {
+                settings.paging = crate::session::settings::Paging::Always;
+                settings.initial_load = crate::session::settings::InitialLoad::Background;
+            })
+    }
+
+    fn red() -> Result<Source, ImageError> {
+        let pixel = image::Rgba([255, 0, 0, 255]);
+        Ok(Source::Raster(image::RgbaImage::from_pixel(20, 20, pixel)))
+    }
+
+    #[test]
+    fn a_load_the_script_brings_to_the_route_comes_on_the_virtual_clock() {
+        let ran = pictured()
+            .loads("a.png", Duration::from_millis(300), red())
+            .keys(2000, "q")
+            .kiri(&["doc.md"]);
+        assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+        // The band that stands for the picture, and then the picture, sent
+        // once it has come.
+        let (before, after) = ran.out.split_at(ran.out.find("\x1b_Ga=T").expect("sent"));
+        assert!(before.contains("\x1b_Ga=t"), "{before:?}");
+        assert_eq!(after.matches("\x1b_Ga=T").count(), 1, "{after:?}");
+        assert!(
+            ran.elapsed >= Duration::from_millis(300),
+            "{:?}",
+            ran.elapsed
+        );
+        assert_eq!(ran.err, "");
+    }
+
+    #[test]
+    fn what_is_told_is_split_at_the_time_the_pager_left_its_screen() {
+        let missing = Err(ImageError::Missing("a.png".into()));
+        let ran = pictured()
+            .loads("a.png", Duration::from_millis(300), missing)
+            .keys(2000, "q")
+            .kiri(&["doc.md"]);
+        assert_eq!(ran.told_before_the_pager_left(), "");
+        assert_eq!(
+            ran.told_after_the_pager_left(),
+            "kiri: a.png: file not found\n"
+        );
+        // Printed, it is all told, and nothing after.
+        let ran = Sim::new(40, 12).file("doc.md", "A\n").kiri(&["doc.md"]);
+        assert_eq!(ran.told_after_the_pager_left(), "");
+    }
+
+    #[test]
+    #[should_panic(expected = "would never end")]
+    fn a_wait_for_a_load_the_script_says_nothing_of_ends_the_test() {
+        let _ = pictured()
+            .settings(|settings| {
+                settings.initial_load = crate::session::settings::InitialLoad::Wait;
+            })
+            .stderr_terminal()
+            .kiri(&["doc.md"]);
+    }
+
+    #[test]
+    fn the_progress_line_shows_on_a_standard_error_that_is_a_terminal() {
+        let ran = pictured()
+            .settings(|settings| {
+                settings.initial_load = crate::session::settings::InitialLoad::Wait;
+            })
+            .loads("a.png", Duration::from_millis(300), red())
+            .stderr_terminal()
+            .keys(2000, "q")
+            .kiri(&["doc.md"]);
+        assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+        let line = crate::term::progress::line(0, 1);
+        let hint = crate::term::progress::HINT;
+        assert_eq!(
+            ran.err,
+            format!("\r\x1b[2K{line}{hint}\r\x1b[2K"),
+            "shown, and wiped"
+        );
+    }
+
     #[test]
     #[should_panic(expected = ".stdin, .piped, .no_keys and .settings are for Sim::kiri")]
     fn run_refuses_stdin() {
@@ -1031,5 +1269,18 @@ mod tests {
     #[should_panic(expected = ".stdin, .piped, .no_keys and .settings are for Sim::kiri")]
     fn run_refuses_settings() {
         Sim::new(40, 5).settings(|_| {}).run();
+    }
+
+    #[test]
+    #[should_panic(expected = "as are .loads and .stderr_terminal")]
+    fn run_refuses_loads() {
+        let image = Err(ImageError::Remote);
+        Sim::new(40, 5).loads("a.png", Duration::ZERO, image).run();
+    }
+
+    #[test]
+    #[should_panic(expected = "as are .loads and .stderr_terminal")]
+    fn run_refuses_stderr_terminal() {
+        Sim::new(40, 5).stderr_terminal().run();
     }
 }

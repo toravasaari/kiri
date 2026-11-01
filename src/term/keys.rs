@@ -78,7 +78,7 @@ impl Drop for WaitKeys {
 
 /// Whether `bytes`, read at once, hold Space or Enter typed as a key
 /// rather than inside an escape sequence, such as an answer to a query.
-fn skips(bytes: &[u8]) -> bool {
+pub(crate) fn skips(bytes: &[u8]) -> bool {
     bytes.first() != Some(&ESC)
         && bytes
             .iter()
