@@ -174,16 +174,18 @@ fn a_signal_after_a_finished_wait_ends_kiri() {
         .stdin(Stdio::null())
         .output()
         .unwrap();
-    assert_eq!(output.status.signal(), Some(libc::SIGHUP), "{output:?}");
-    // A name that finds no test is not killed by anything.
+    // A name that finds no test runs nothing, and is not killed by anything.
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("running 1 test"), "{stdout}");
+    assert_eq!(output.status.signal(), Some(libc::SIGHUP), "{output:?}");
 }
 
-/// Run on its own by [`a_signal_while_the_wait_runs_is_the_failure_and_the_next_ends_kiri`].
+/// Run on its own by
+/// [`a_signal_before_the_wait_is_the_failure_and_the_next_ends_kiri`]: the
+/// signal is caught before the wait, and its first look finds it.
 #[test]
 #[ignore = "run in a process of its own"]
-fn sighup_during_finish_loading() {
+fn sighup_before_finish_loading() {
     let (loads, _arrivals) = expecting(&["a.png"]);
     let mut guard = Guard::default();
     guard.catch();
@@ -196,22 +198,22 @@ fn sighup_during_finish_loading() {
 }
 
 #[test]
-fn a_signal_while_the_wait_runs_is_the_failure_and_the_next_ends_kiri() {
+fn a_signal_before_the_wait_is_the_failure_and_the_next_ends_kiri() {
     use std::os::unix::process::ExitStatusExt;
     use std::process::{Command, Stdio};
 
     let output = Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            "frontend::loads::tests::sighup_during_finish_loading",
+            "frontend::loads::tests::sighup_before_finish_loading",
         ])
         .args(["--ignored", "--test-threads", "1"])
         .stdin(Stdio::null())
         .output()
         .unwrap();
-    assert_eq!(output.status.signal(), Some(libc::SIGHUP), "{output:?}");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("running 1 test"), "{stdout}");
+    assert_eq!(output.status.signal(), Some(libc::SIGHUP), "{output:?}");
 }
 
 #[test]
