@@ -74,11 +74,11 @@ fn a_reload_that_fails_leaves_the_version_of_its_source() {
 }
 
 /// How a file looked at a reload, told apart by `length`.
-fn looked_at(length: u64) -> Option<Look> {
-    Some(Look {
+fn look_of(length: u64) -> Look {
+    Look {
         modified: None,
         length,
-    })
+    }
 }
 
 /// The look the session has of the file of its only source.
@@ -89,20 +89,20 @@ fn session_look(session: &Session) -> Option<Option<Look>> {
 #[test]
 fn a_reload_that_reads_the_document_gives_its_source_the_look_it_was_fetched_at() {
     let mut then = Then::new([Reloaded::Document(rows(3))]);
-    then.read = looked_at(7);
+    then.looked = look_of(7);
     let session = session_after(&numbers(10), &mut then, &[b"r", b"", b"q"]);
     assert_eq!(session.sources()[0].version(), Version::FIRST.next());
-    assert_eq!(session_look(&session), Some(looked_at(7)));
+    assert_eq!(session_look(&session), Some(Some(look_of(7))));
 }
 
 #[test]
 fn a_reload_that_fails_gives_its_source_the_look_and_leaves_the_version() {
     let why = Reloaded::Failed("notes.md: not UTF-8 text".to_owned());
     let mut then = Then::new([why]);
-    then.read = looked_at(7);
+    then.looked = look_of(7);
     let session = session_after(&numbers(10), &mut then, &[b"r", b"", b"q"]);
     assert_eq!(session.sources()[0].version(), Version::FIRST);
-    assert_eq!(session_look(&session), Some(looked_at(7)));
+    assert_eq!(session_look(&session), Some(Some(look_of(7))));
 }
 
 #[test]

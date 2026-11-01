@@ -20,6 +20,7 @@ use crate::images::Stamps;
 use crate::render::Inputs;
 use crate::session::plan::{self, Route};
 use crate::session::settings::{Follow, Paging};
+use crate::session::state::Look;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::input::Input;
@@ -266,25 +267,26 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
 }
 
 /// The reading of `given` again from its file, when it is a document alone
-/// read from a regular file; its images' stamps are taken now.
+/// read from a regular file, with how the file looked when it was read; its
+/// images' stamps are taken now.
 pub(super) fn reloading<'a>(
     given: &Given,
     context: &'a Context<'a>,
     settings: &'a Settings,
-) -> Option<FileReload<'a>> {
+) -> Option<(FileReload<'a>, Option<Look>)> {
     let (input, look) = given.reload?;
     let (Shown::Document { document, .. }, Some(path)) = (&given.shown, given.file.clone()) else {
         return None;
     };
     let stamps = Stamps::of(&[part(document, Some(&path), context.reading)]);
-    Some(FileReload {
+    let reload = FileReload {
         context,
         settings,
         path,
         input,
         stamps,
-        read: look,
-    })
+    };
+    Some((reload, look))
 }
 
 /// `warning` about the file `name`, as told: named among several files.

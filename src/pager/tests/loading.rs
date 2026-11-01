@@ -93,8 +93,8 @@ impl Reload for Background {
         (None, Reloaded::Document(self.document.clone()))
     }
 
-    fn change(&mut self) -> Change {
-        Change::Unchanged
+    fn look(&mut self, _: &Path) -> Result<Look, String> {
+        Ok(READ)
     }
 }
 
@@ -685,8 +685,8 @@ impl Reload for Gating {
         (None, Reloaded::Document(self.0.clone()))
     }
 
-    fn change(&mut self) -> Change {
-        Change::Unchanged
+    fn look(&mut self, _: &Path) -> Result<Look, String> {
+        Ok(READ)
     }
 }
 
@@ -895,8 +895,8 @@ impl Reload for Retrying {
         (None, Reloaded::Document(self.document.clone()))
     }
 
-    fn change(&mut self) -> Change {
-        Change::Unchanged
+    fn look(&mut self, _: &Path) -> Result<Look, String> {
+        Ok(READ)
     }
 }
 

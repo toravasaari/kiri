@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::path::Path;
 
 use super::*;
 use crate::images::{ImageError, ImageKey, Images};
@@ -226,14 +227,18 @@ fn show_laid_out(document: &Document, before: &Document, caps: Capabilities) -> 
 
 /// What the pager gets when it asks for the document again: the
 /// outcomes in `then`, one a call, and how many times it asked; and
-/// when it asks whether the document changed, the answers in
-/// `changes`, one a call, and unchanged after them.
+/// when it looks at the file, what `changes` says, one a call, and
+/// unchanged after them: a look as the file had when it was last
+/// read, another look, or a file that is gone.
 struct Then {
     then: VecDeque<Reloaded>,
     asked: usize,
     changes: VecDeque<Change>,
-    /// How the file looked when it was last read, which each reload gives.
-    read: Option<Look>,
+    /// How the file looks, as `Unchanged` looks.
+    read: Look,
+    /// The look that was last given, which the next reload gives as how the
+    /// file looked when it was read.
+    looked: Look,
 }
 
 impl Then {
@@ -242,7 +247,8 @@ impl Then {
             then: then.into_iter().collect(),
             asked: 0,
             changes: VecDeque::new(),
-            read: Some(READ),
+            read: READ,
+            looked: READ,
         }
     }
 
@@ -269,11 +275,18 @@ impl Reload for Then {
     ) -> (Option<Look>, Reloaded) {
         self.asked += 1;
         let outcome = self.then.pop_front().expect("an outcome for each reload");
-        (self.read, outcome)
+        self.read = self.looked;
+        (Some(self.read), outcome)
     }
 
-    fn change(&mut self) -> Change {
-        self.changes.pop_front().unwrap_or(Change::Unchanged)
+    fn look(&mut self, _: &Path) -> Result<Look, String> {
+        let look = match self.changes.pop_front().unwrap_or(Change::Unchanged) {
+            Change::Unchanged => Ok(self.read),
+            Change::Changed(look) => Ok(look),
+            Change::Gone(why) => Err(why),
+        };
+        self.looked = look.clone().unwrap_or(self.looked);
+        look
     }
 }
 

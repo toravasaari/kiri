@@ -53,7 +53,7 @@ use crate::render::Inputs;
 use crate::session::plan::{self, Route};
 use crate::session::settings::{Follow, FollowJump, SearchCase};
 use crate::session::sources::{Session, SourceFile};
-use crate::session::state::{Change, Look};
+use crate::session::state::Look;
 use crate::term::{Mode, WindowSize};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::input::Input;
@@ -614,7 +614,6 @@ impl Sim {
         let mut reload = shown.as_ref().map(|path| SimReload {
             world: Rc::clone(&world),
             path: path.clone(),
-            read: world.disk.borrow().look(path).ok(),
             asked: Rc::clone(&asked),
         });
         let terminal = SimTerminal::new(Rc::clone(&world), script);
@@ -760,8 +759,6 @@ pub(crate) fn plain(text: &str) -> String {
 struct SimReload {
     world: Rc<World>,
     path: String,
-    /// How the file looked when it was last read.
-    read: Option<Look>,
     /// How many times the pager asked for the file again, which the
     /// planner reads too.
     asked: Rc<Cell<usize>>,
@@ -777,20 +774,16 @@ impl Reload for SimReload {
     ) -> (Option<Look>, Reloaded) {
         self.asked.set(self.asked.get() + 1);
         // Before the file is read, so that a change meanwhile counts.
-        self.read = self.world.disk.borrow().look(&self.path).ok();
+        let read = self.world.disk.borrow().look(&self.path).ok();
         let text = match self.world.disk.borrow().read(&self.path) {
             Ok(text) => text,
-            Err(why) => return (self.read, Reloaded::Failed(why)),
+            Err(why) => return (read, Reloaded::Failed(why)),
         };
-        (self.read, Reloaded::Document(parse(&text)))
+        (read, Reloaded::Document(parse(&text)))
     }
 
-    fn change(&mut self) -> Change {
-        match self.world.disk.borrow().look(&self.path) {
-            Ok(look) if Some(look) == self.read => Change::Unchanged,
-            Ok(look) => Change::Changed(look),
-            Err(why) => Change::Gone(why),
-        }
+    fn look(&mut self, path: &Path) -> Result<Look, String> {
+        self.world.disk.borrow().look(&path.to_string_lossy())
     }
 }
 

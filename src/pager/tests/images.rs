@@ -56,8 +56,8 @@ impl Reload for Repaint {
         (None, Reloaded::Document(self.document.clone()))
     }
 
-    fn change(&mut self) -> Change {
-        Change::Unchanged
+    fn look(&mut self, _: &Path) -> Result<Look, String> {
+        Ok(READ)
     }
 }
 
@@ -386,8 +386,8 @@ impl Reload for NoteCells<'_> {
         (None, Reloaded::Document(self.document.clone()))
     }
 
-    fn change(&mut self) -> Change {
-        Change::Unchanged
+    fn look(&mut self, _: &Path) -> Result<Look, String> {
+        Ok(READ)
     }
 }
 

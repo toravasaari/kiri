@@ -33,7 +33,7 @@ use crate::load::watch::{Reload, Reloaded};
 use crate::render::Inputs;
 use crate::session::loading::Need;
 use crate::session::plan;
-use crate::session::state::{Change, Look};
+use crate::session::state::Look;
 use crate::term::progress::{DELAY, Step, until_over};
 use crate::term::{Interrupt, WaitKeys};
 use crate::typeset::caps::Capabilities;
@@ -456,9 +456,6 @@ pub(crate) struct FileReload<'a> {
     pub(crate) input: Input,
     /// When the files behind the images were last changed.
     pub(crate) stamps: Stamps,
-    /// How the file looked when it was last read, when it could be
-    /// looked at.
-    pub(crate) read: Option<Look>,
 }
 
 impl Reload for FileReload<'_> {
@@ -472,7 +469,6 @@ impl Reload for FileReload<'_> {
         let (path, input) = (self.path.as_path(), self.input);
         // Before the file is read, so that a change meanwhile counts.
         let read = self.context.platform.look(path).ok();
-        self.read = read;
         // The status line names the file already, so the reasons do not.
         let source = match read_text(self.context.platform, path) {
             Ok(source) => source,
@@ -497,12 +493,8 @@ impl Reload for FileReload<'_> {
         (read, reloaded)
     }
 
-    fn change(&mut self) -> Change {
-        match self.context.platform.look(&self.path) {
-            Ok(look) if Some(look) == self.read => Change::Unchanged,
-            Ok(look) => Change::Changed(look),
-            Err(why) => Change::Gone(why),
-        }
+    fn look(&mut self, path: &Path) -> Result<Look, String> {
+        self.context.platform.look(path)
     }
 }
 

@@ -21,7 +21,7 @@ use std::ops::Range;
 use std::time::{Duration, Instant};
 
 use crate::images::{Arrived, ImageKey, Job, Loads, Placeholder};
-use crate::load::watch::{Reload, Reloaded};
+use crate::load::watch::{Reload, Reloaded, Watcher};
 use crate::present::encoder::Encoder;
 use crate::present::output::{self, Page, Writer};
 use crate::present::{cell_query, clipboard};
@@ -198,6 +198,7 @@ pub fn run(
                 reload,
                 loads,
                 started: terminal.now(),
+                watcher: Watcher::default(),
                 arrived: Vec::new(),
                 window: None,
                 planner,
@@ -355,7 +356,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             &mut writer,
             self.tools.terminal,
             self.size,
-            &mut self.tools.source,
+            (&mut self.tools.source, &self.session),
         )?;
         let closed = self.tools.close(&mut pager, content, ended)?;
         if closed.quit {
@@ -604,6 +605,8 @@ struct Origin<'r, 'l> {
     arrived: Vec<Arrived>,
     /// The size the window was found to be of, when it changed.
     window: Option<Option<WindowSize>>,
+    /// When each watch of the session was last looked at.
+    watcher: Watcher,
     /// What gives the jobs of the images the shown content wants.
     planner: Option<Planner<'r>>,
     /// Those jobs, in the order of the documents: the images that are
@@ -691,7 +694,7 @@ fn show(
     writer: &mut Writer,
     terminal: &mut impl Terminal,
     size: Option<WindowSize>,
-    source: &mut Origin,
+    (source, session): (&mut Origin, &Session),
 ) -> io::Result<Vec<Effect>> {
     let mut msg = Msg::Shown(terminal.now());
     loop {
@@ -701,7 +704,8 @@ fn show(
             if effect.ends() {
                 return Ok(std::iter::once(effect).chain(effects).collect());
             }
-            if let Some(reply) = carry(effect, pager, writer, terminal, (size, &mut *source))? {
+            let tools = (size, &mut *source, session);
+            if let Some(reply) = carry(effect, pager, writer, terminal, tools)? {
                 next = Some(reply);
             }
         }
@@ -716,17 +720,18 @@ fn carry(
     pager: &mut Pager,
     writer: &mut Writer,
     terminal: &mut impl Terminal,
-    (size, source): (Option<WindowSize>, &mut Origin),
+    (size, source, session): (Option<WindowSize>, &mut Origin, &Session),
 ) -> io::Result<Option<Msg>> {
     match effect {
         Effect::Read => {
             let bytes = terminal.read(pager.wait(writer.has_bands()))?;
             return Ok(Some(Msg::Input(bytes, terminal.now())));
         }
-        Effect::PollChange => {
-            let reload = source.reload.as_deref_mut();
-            let change = reload.expect("a source to poll").change();
-            return Ok(Some(Msg::Changed(change)));
+        Effect::PollWatches => {
+            let watches = session.watches(pager.state.follow.on());
+            let reload = source.reload.as_deref_mut().expect("a source to poll");
+            let looks = (source.watcher).due(&watches, pager.now(), |path| reload.look(path));
+            return Ok(Some(Msg::Changed(looks)));
         }
         Effect::PollLoads => {
             // Held or loading, whatever is planned: only the order moves.
