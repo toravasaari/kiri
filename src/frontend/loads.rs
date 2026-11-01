@@ -14,19 +14,21 @@
 //! This is the seed of the platform's work runner. The session that roadmap
 //! item G7.3.3 adds will fill it in and replace the parts that do not fit it.
 
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use crate::config::Settings;
 use crate::images::{
-    Arrived, Fonts, Format, Images, Interrupted, Loaded, Loading, Loads, Part, Placeholder, Source,
-    Stamps, reload_in_background,
+    Arrived, Fonts, Format, ImageError, ImageKey, Images, Interrupted, Loaded, Loading, Loads,
+    Part, Placeholder, Source, Stamps, reload_in_background,
 };
 use crate::pager::{Reload, Reloaded};
 use crate::render::Inputs;
 use crate::session::plan;
 use crate::session::state::{Change, Look};
-use crate::term::Interrupt;
+use crate::term::progress::{DELAY, Step, until_over};
+use crate::term::{Interrupt, WaitKeys};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::input::Input;
 use crate::typeset::model::Document;
@@ -78,6 +80,71 @@ pub(crate) struct Waited {
     pub(crate) loads: Option<Loads>,
 }
 
+/// What the progress line counts while [`wait`] waits.
+enum Line<'k> {
+    /// Nothing is shown, as the wait finishes what the reader skipped.
+    Quiet,
+    /// Every load, with the hint, while `keys` may skip the rest.
+    Skippable(&'k mut WaitKeys),
+}
+
+/// How a [`wait`] ended.
+enum Over {
+    /// Nothing loads any more.
+    Done,
+    /// The reader pressed Space or Enter; the rest loads on.
+    Skipped,
+    /// A signal came; the loads are not stopped yet.
+    Signal(i32),
+}
+
+/// Waits for what `loads` load, giving each image to `came` as it comes,
+/// until nothing loads, `signal` tells of one, or with [`Line::Skippable`]
+/// the reader presses Space or Enter. The line is wiped before it
+/// returns. `wait` stops nothing itself, and the caller owns the keys: it
+/// drops them, so that the terminal is as it was, before it stops the
+/// loads on a signal.
+fn wait(
+    out: impl Write,
+    loads: &mut Loads,
+    mut came: impl FnMut(ImageKey, Result<Source, ImageError>),
+    mut line: Line,
+    signal: impl Fn() -> Option<i32>,
+) -> Over {
+    let hint = matches!(line, Line::Skippable(_));
+    let mut over = Over::Done;
+    let step = |most: Duration| {
+        match &mut line {
+            // What comes while it waits for a key stays in the loads.
+            Line::Skippable(keys) => {
+                if keys.skip(most) {
+                    over = Over::Skipped;
+                    return Step::Skipped;
+                }
+            }
+            Line::Quiet => {
+                if !most.is_zero() {
+                    loads.wait_by(Instant::now() + most);
+                }
+            }
+        }
+        for Arrived { key, image, .. } in loads.poll() {
+            came(key, image);
+        }
+        if let Some(signal) = signal() {
+            over = Over::Signal(signal);
+            return Step::Over;
+        }
+        match (loads.progress(), hint) {
+            (None, _) => Step::Over,
+            (Some((done, total)), true) => Step::Working(done, total),
+            (Some(_), false) => Step::Working(0, 0),
+        }
+    };
+    until_over(out, DELAY, hint, step);
+    over
+}
+
 /// Loads the images of `parts` into `inputs` while the reader waits for
 /// the pager, with the progress line on standard error, a terminal, and
 /// the hint that Space opens the pager now: until they have all come, or
@@ -96,32 +163,28 @@ pub(crate) fn wait_or_skip(
     if !context.platform.stderr_is_terminal() {
         return None;
     }
-    let mut keys = crate::term::WaitKeys::open()?;
+    let mut keys = WaitKeys::open()?;
     let interrupt = Interrupt::catch();
     let signal = || interrupt.as_ref().and_then(Interrupt::signal);
     let mut loads = Loads::new();
     let loading = loading(context, settings, &inputs.caps);
     crate::images::load_in_background(parts, &loading, &mut inputs.images, &mut loads);
     let images = &mut inputs.images;
-    let poll = || {
-        for Arrived { key, image, .. } in loads.poll() {
-            images.insert(key, image);
-        }
-        loads.progress().filter(|_| signal().is_none())
-    };
-    let skip = |timeout| keys.skip(timeout);
-    let delay = crate::term::progress::DELAY;
-    let skipped =
-        crate::term::progress::until_done_or_skipped(context.platform.stderr(), delay, poll, skip);
+    let came = |key, image| images.insert(key, image);
+    let line = Line::Skippable(&mut keys);
+    let over = wait(context.platform.stderr(), &mut loads, came, line, signal);
     // The terminal as it was, before the pager or the shell takes it.
     drop(keys);
-    if signal().is_some() {
+    if let Over::Signal(signal) = over {
         loads.halt();
         loads.wait(crate::images::STOPPING);
-        let signal = interrupt.as_ref().and_then(Interrupt::release);
-        return signal.map(|signal| Err(Failure::Signal(signal)));
+        let signal = interrupt
+            .as_ref()
+            .and_then(Interrupt::release)
+            .unwrap_or(signal);
+        return Some(Err(Failure::Signal(signal)));
     }
-    let loads = skipped.then_some(loads);
+    let loads = matches!(over, Over::Skipped).then_some(loads);
     Some(Ok(Waited { interrupt, loads }))
 }
 
@@ -134,22 +197,23 @@ pub(crate) fn finish_loading(
     interrupt: Option<&Interrupt>,
 ) -> Result<Images, Failure> {
     let mut came = Images::new();
-    loop {
-        for Arrived { key, image, .. } in loads.poll() {
+    let over = wait(
+        std::io::sink(),
+        &mut loads,
+        |key, image| {
             images.insert(key.clone(), image.clone());
             came.insert(key, image);
-        }
-        if loads.is_empty() {
-            return Ok(came);
-        }
-        if let Some(signal) = interrupt.and_then(Interrupt::signal) {
-            loads.halt();
-            loads.wait(crate::images::STOPPING);
-            let signal = interrupt.and_then(Interrupt::release).unwrap_or(signal);
-            return Err(Failure::Signal(signal));
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        },
+        Line::Quiet,
+        || interrupt.and_then(Interrupt::signal),
+    );
+    if let Over::Signal(signal) = over {
+        loads.halt();
+        loads.wait(crate::images::STOPPING);
+        let signal = interrupt.and_then(Interrupt::release).unwrap_or(signal);
+        return Err(Failure::Signal(signal));
     }
+    Ok(came)
 }
 
 /// The images of the documents in `parts`, loaded and drawn as
@@ -164,7 +228,7 @@ pub(crate) fn load_parts(
     // Drawing diagrams can take seconds with an external program; a
     // terminal tells how far it has got.
     let loaded = if context.platform.stderr_is_terminal() {
-        use crate::term::progress::{DELAY, while_working};
+        use crate::term::progress::while_working;
         while_working(context.platform.stderr(), DELAY, |progress| {
             let tell = |done, total| progress.update(done, total);
             crate::images::load_documents(parts, &loading, Some(&tell))
@@ -327,3 +391,6 @@ pub(crate) fn read_image_file(
         },
     )
 }
+
+#[cfg(test)]
+mod tests;

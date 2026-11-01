@@ -127,40 +127,57 @@ pub fn while_waiting(
 /// pager before the work is over.
 pub const HINT: &str = " (space: open now)";
 
-/// How long [`until_done_or_skipped`] waits for a key before it asks
+/// How long [`until_over`] waits for a key or a load before it asks
 /// again how far the work has got.
 const STEP: Duration = Duration::from_millis(50);
 
-/// Waits until `poll` tells that the work is over, `None`, or `skip`,
-/// which waits for a key at most the time it is given, tells that the
-/// reader pressed Space or Enter. Meanwhile `poll` tells how far the work
-/// has got, done of total, which the line shows on `out`, a terminal, with
-/// [`HINT`], once `delay` has passed; it is wiped before this returns.
-/// Whether the reader skipped the rest of the wait.
-pub fn until_done_or_skipped(
+/// What one step of a wait came to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    /// Under way: done of total loads counted.
+    Working(usize, usize),
+    /// Nothing is loading any more, or a signal came.
+    Over,
+    /// The reader pressed Space or Enter.
+    Skipped,
+}
+
+/// Waits with `step`, which waits at most the time it is given, as long as
+/// it says the work is under way. Once `delay` has passed, the line
+/// `kiri: loading images done/total…` shows on `out`, a terminal, while
+/// total is above 0, with [`HINT`] after it when `hint`, and changes as the
+/// work goes on; it is wiped before this returns. Whether the reader
+/// skipped the rest of the wait.
+///
+/// The first call of `step` is given no time to wait, each later one
+/// [`STEP`]: it looks, the line shows, and then it waits.
+pub fn until_over(
     mut out: impl Write,
     delay: Duration,
-    mut poll: impl FnMut() -> Option<(usize, usize)>,
-    mut skip: impl FnMut(Duration) -> bool,
+    hint: bool,
+    mut step: impl FnMut(Duration) -> Step,
 ) -> bool {
     let start = Instant::now();
     let mut shown = None;
+    let mut most = Duration::ZERO;
     let skipped = loop {
-        let Some((done, total)) = poll() else {
-            break false;
-        };
-        if start.elapsed() >= delay && total > 0 {
-            let text = format!("{}{HINT}", line(done, total));
-            if shown.as_ref() != Some(&text) {
-                // At the start of the line, over what was there.
-                let _ = write!(out, "\r\x1b[2K{text}");
-                let _ = out.flush();
-                shown = Some(text);
+        match step(most) {
+            Step::Over => break false,
+            Step::Skipped => break true,
+            Step::Working(done, total) => {
+                if start.elapsed() >= delay && total > 0 {
+                    let hint = if hint { HINT } else { "" };
+                    let text = format!("{}{hint}", line(done, total));
+                    if shown.as_ref() != Some(&text) {
+                        // At the start of the line, over what was there.
+                        let _ = write!(out, "\r\x1b[2K{text}");
+                        let _ = out.flush();
+                        shown = Some(text);
+                    }
+                }
             }
         }
-        if skip(STEP) {
-            break true;
-        }
+        most = STEP;
     };
     if shown.is_some() {
         let _ = write!(out, "\r\x1b[2K");
@@ -303,18 +320,25 @@ mod tests {
         (wait, given)
     }
 
-    /// `polls` for [`until_done_or_skipped`], in turn, and then `None`.
-    fn polled(polls: &[(usize, usize)]) -> impl FnMut() -> Option<(usize, usize)> + '_ {
-        let mut polls = polls.iter().copied();
-        move || polls.next()
+    /// `steps` for [`until_over`], in turn, then `Over`, and the times it
+    /// was given.
+    fn stepping(steps: &[Step]) -> (impl FnMut(Duration) -> Step + '_, Arc<Mutex<Vec<Duration>>>) {
+        let given = Arc::new(Mutex::new(Vec::new()));
+        let noted = Arc::clone(&given);
+        let mut steps = steps.iter().copied();
+        let step = move |most| {
+            noted.lock().unwrap().push(most);
+            steps.next().unwrap_or(Step::Over)
+        };
+        (step, given)
     }
 
     #[test]
     fn a_skippable_wait_over_in_time_shows_nothing() {
         let out = Shared::default();
         let hour = Duration::from_secs(3600);
-        let skipped =
-            until_done_or_skipped(out.clone(), hour, polled(&[(0, 2), (1, 2)]), |_| false);
+        let (step, _) = stepping(&[Step::Working(0, 2), Step::Working(1, 2)]);
+        let skipped = until_over(out.clone(), hour, true, step);
         assert!(!skipped);
         assert_eq!(out.text(), "");
     }
@@ -322,8 +346,12 @@ mod tests {
     #[test]
     fn a_skippable_wait_shows_its_count_and_the_hint_and_wipes_it() {
         let out = Shared::default();
-        let polls = polled(&[(0, 2), (0, 2), (1, 2)]);
-        let skipped = until_done_or_skipped(out.clone(), Duration::ZERO, polls, |_| false);
+        let (step, _) = stepping(&[
+            Step::Working(0, 2),
+            Step::Working(0, 2),
+            Step::Working(1, 2),
+        ]);
+        let skipped = until_over(out.clone(), Duration::ZERO, true, step);
         assert!(!skipped);
         assert_eq!(
             out.text(),
@@ -334,18 +362,55 @@ mod tests {
     #[test]
     fn space_or_enter_ends_a_skippable_wait_before_the_work_is_over() {
         let out = Shared::default();
-        let mut keys = [false, true].into_iter();
-        let skip = move |_| keys.next().unwrap_or(false);
-        let polls = polled(&[(0, 3), (1, 3), (2, 3)]);
-        assert!(until_done_or_skipped(
-            out.clone(),
-            Duration::ZERO,
-            polls,
-            skip
-        ));
+        let (step, _) = stepping(&[
+            Step::Working(0, 3),
+            Step::Working(1, 3),
+            Step::Skipped,
+            Step::Working(2, 3),
+        ]);
+        assert!(until_over(out.clone(), Duration::ZERO, true, step));
         assert!(out.text().contains(&line(1, 3)), "{:?}", out.text());
         assert!(!out.text().contains(&line(2, 3)), "{:?}", out.text());
         assert!(out.text().ends_with(WIPE), "{:?}", out.text());
+    }
+
+    #[test]
+    fn the_first_step_is_given_no_time_and_each_later_one_a_step() {
+        let (step, given) = stepping(&[Step::Working(0, 1), Step::Working(0, 1)]);
+        until_over(Shared::default(), Duration::ZERO, false, step);
+        assert_eq!(
+            *given.lock().unwrap(),
+            [Duration::ZERO, STEP, STEP],
+            "two steps under way, and the one that ends the wait"
+        );
+    }
+
+    #[test]
+    fn a_wait_without_the_hint_shows_nothing_for_work_done_in_time() {
+        let out = Shared::default();
+        let hour = Duration::from_secs(3600);
+        let (step, _) = stepping(&[Step::Working(0, 2), Step::Working(1, 2)]);
+        assert!(!until_over(out.clone(), hour, false, step));
+        assert_eq!(out.text(), "");
+    }
+
+    #[test]
+    fn a_wait_without_the_hint_shows_the_count_once_the_delay_has_passed_and_wipes_it() {
+        let out = Shared::default();
+        let (step, _) = stepping(&[Step::Working(0, 3), Step::Working(2, 3)]);
+        until_over(out.clone(), Duration::ZERO, false, step);
+        assert_eq!(
+            out.text(),
+            format!("{WIPE}{}{WIPE}{}{WIPE}", line(0, 3), line(2, 3))
+        );
+    }
+
+    #[test]
+    fn a_wait_shows_nothing_while_no_loads_are_counted() {
+        let out = Shared::default();
+        let (step, _) = stepping(&[Step::Working(0, 0), Step::Working(0, 0)]);
+        until_over(out.clone(), Duration::ZERO, true, step);
+        assert_eq!(out.text(), "");
     }
 
     #[test]
