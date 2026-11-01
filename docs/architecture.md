@@ -438,14 +438,20 @@ was loaded at. Other images are kept as they are. What is loaded loads
 in the background, `src/load/queue.rs`, on threads of their own,
 with at most four programs drawing at once, also when reloads overlap;
 while four draw, an image file loads before the diagrams waiting for a
-program. Each load has a stop flag of its own, which `External` looks at
-besides the one for signals.
+program. Each load has a stop flag of its own, which `External` looks at;
+a signal or `q` sets them all.
 
 `src/images/pipeline.rs` builds the renderers from the settings and the
-environment, given as values, and loads a document's images with them;
-`src/frontend/loads.rs` hands it `src/term/progress.rs`, which tells on the
+environment, given as values, and the jobs that load a document's images
+with them; it starts none. The images that load before the pager, which
+print and the pager's first load wait for, go through the same queue:
+`src/frontend/loads.rs` gives the jobs to `Loads::want`, waits in one loop
+that also serves the wait below, and puts the images in the order of the
+document, not the order they came in, so that the warnings come in the
+document's order. The loop tells `src/term/progress.rs`, which shows on the
 terminal how far loading has got when it takes long, and another caller
-may tell it elsewhere. Where the pager surely opens and standard error
+may tell it elsewhere; the line counts the diagrams for the load first, and
+every load for the wait. Where the pager surely opens and standard error
 is a terminal, the wait loads in the background instead, while
 `src/term/keys.rs` reads keys with the terminal in a mode that keeps
 Ctrl-C a signal; Space or Enter hands the loads still under way to the
@@ -453,20 +459,29 @@ pager, and the mode, with any key typed meanwhile, is gone before the
 pager or the shell takes the terminal.
 
 The programs run in process groups of their own, which Ctrl-C from the
-terminal does not reach, nor a signal sent to kiri alone. So when the
-document has a diagram that a program draws, `src/term/interrupt.rs`
-catches SIGINT, SIGQUIT, SIGTERM and SIGHUP while its images load:
-`External` stops the programs, SIGINT first so that `mmdc` can close its
-browser, removes their files, and kiri then ends by the signal that came.
-Without such a diagram, and once the images are loaded, the signals end
-kiri as before, and the pager catches them itself, from before its
-terminal is raw until it has been restored, or until its screen fails to
-open, when they end kiri again while the document is printed. A signal
-that was ignored when kiri started, as under `nohup`, stays ignored in
-both. A new diagram language is a new entry in `LANGUAGES` in
-`src/typeset/diagrams/language.rs`, in a module of its own as Mermaid's is, with
-a default command, a built-in renderer or both; the rest follows from the
-entry.
+terminal does not reach, nor a signal sent to kiri alone. So one value,
+`Guard` in `src/frontend/loads.rs`, decides who catches SIGINT, SIGQUIT,
+SIGTERM and SIGHUP before the pager's screen does, for the whole run, and
+nothing else in the frontends calls `Interrupt::catch` from
+`src/term/interrupt.rs`. Without a program drawing and without keys read,
+nobody does and the signals end kiri at once. While kiri waits for loads
+that a program draws, or reads Space and Enter with Ctrl-C still a
+signal, the guard catches them: the loads stop, SIGINT first so that
+`mmdc` can close its browser, their files are removed, and kiri then ends
+by the signal that came. Once the loads have come, the guard is released,
+so a signal ends kiri at once again, though it keeps its handlers, without
+which the signals would do nothing while the documents are printed. It is
+held while the loads the reader skipped go on into the pager, and gone
+when the pager's screen catches the signals, from before its terminal is
+raw until it has been restored, or until the screen fails to open, when
+they end kiri again while the document is printed. In raw mode Ctrl-C is
+the key `^C`, which quits. A signal that was ignored when kiri started, as
+under `nohup`, stays ignored in all of it. When a diagram file drawn by a
+program and documents waited for load together, there is still one
+guard, so Ctrl-C stops the programs of both. A new diagram language is a
+new entry in `LANGUAGES` in `src/typeset/diagrams/language.rs`, in a
+module of its own as Mermaid's is, with a default command, a built-in
+renderer or both; the rest follows from the entry.
 
 ## Terminal capabilities
 
@@ -643,14 +658,14 @@ The later work that the rows name, in words:
 | `src/frontend/given.rs` | platform | new. A file ready to show (`Given`, `Shown`, `Drawn`), and loading the images of the documents among the files given |
 | `src/frontend/pager.rs` | platform | new. The interactive frontend: `page_files` gathers the files into one stream, loads their images first or in the background and runs the pager's loop on the terminal's screen, and prints them after all where it does not open |
 | `src/frontend/print.rs` | platform | new. The print frontend: `print_files`, each file under its header as it comes, and `Held`, whose `check` makes sure kitty holds the images that were sent (the pager's print fallback uses it too) |
-| `src/frontend/loads.rs` | platform | moved from `src/load.rs`. Loading a document's images and diagrams in the foreground, on threads and in the background, and reloading its file for the pager: the loads, and `FileReload`, which reads the file again and brings the images up to date for it but starts no load. The frontends call them. Its seed is the work runner that roadmap item G7.3.3 fills in |
+| `src/frontend/loads.rs` | platform | moved from `src/load.rs`. Loading a document's images and diagrams: before the pager through the queue of `src/load/queue.rs` and one wait loop (`load_parts`, `wait_or_skip`, `finish_loading`), which the progress line of `src/term/progress.rs` follows, and `Guard`, the one value that catches Ctrl-C and the other signals before the pager's screen does; on threads and in the background; and reloading its file for the pager: the loads, and `FileReload`, which reads the file again and brings the images up to date for it but starts no load. The frontends call them. Its seed is the work runner that roadmap item G7.3.3 fills in |
 | `src/frontend/sim.rs` | platform | moved from `src/pager/sim.rs`; test support. The simulated frontend: a terminal on a virtual clock, files in memory and background loads, run by a `Runner` of its own, that come when a script says, wanted by a planner the script gives (what a reload brings, and the pictures `M` shows), which run the loop in `src/pager/mod.rs` through its `Terminal` and `Reload` traits, or the whole route through `SimPlatform`, its `Platform`, and give back the bytes written to the terminal and to standard error. It asks `Pager::wait` how long the pager waits for keys and moves the clock by that, so a test runs without a pseudo-terminal and without waiting. A screen model that reads the bytes, which knows kitty, comes later |
 | `src/frontend/tests/mod.rs`, `route.rs`, `paging.rs`, `settings.rs`, `stdin.rs`, `follow.rs`, `reload.rs`, `close.rs` | follows `frontend/` | new. The route's tests: `show_files` run in the simulated frontend, for one file, several, standard input, a missing file, `r` and paging without keys; `paging.rs` has the paging and printing decisions, `settings.rs` the settings that change the route (paging, diagrams, reading mode); `stdin.rs` standard input; `follow.rs` following a file; `reload.rs` `r`; and `close`, which ends the pager: it leaves the screen first and then waits for the programs |
 | `src/load/mod.rs` | platform | new. The platform's loading for the engines: `load`, `load_with` and `load_parts`, which load the images a document wants, read their files and have the renderers draw its diagrams. A module of the library, beside the frontends' `src/frontend/loads.rs` |
 | `src/load/url.rs` | platform | new. `fetch_url`, which reads the file a URL names, with how the file looked (`Fetched`), or the bytes of a `data:` URL, with `read_file`, which opens the file; and `load_url`, which decodes what `fetch_url` read |
 | `src/load/tests.rs` | follows `load/mod.rs` | new. The tests of loading, and the helpers (`fixtures`, `load_source`, `open`, `Stub`) that the other tests of images load with |
 | `src/load/renderers.rs` | platform | new. `Renderers`, which draws each language with its external command when it has one and with the built-in renderer otherwise, and `render_in_parallel`, which draws several diagrams at once on threads |
-| `src/load/queue.rs` | platform | moved from `src/images/background.rs`. The loads in the background: `Loads`, which the pager polls and which starts and stops the loads through one call, `reconcile`, given the images wanted, whose order in the list is the order they load in, and `want`, which the pager calls with a version's jobs and which of them `session/loading.rs` says are kept or missing (`Wanted`: kept, missing, or to load again, with their `Job`, which holds what is fetched first and what is computed from it), and gives what came as `Arrived`, with the look of the file it was read from, the stop flag and number of each load, so that a result of a load that was stopped or replaced is dropped, and the `Runner` that runs the loads started: `Threads`, with the jobs waiting, the threads that load them and the places of the programs outside kiri that draw, or a test's, as the simulated frontend's script says. Tero decided on 2026-10-31 that the queue and the jobs share this one file |
+| `src/load/queue.rs` | platform | moved from `src/images/background.rs`. The loads in the background: `Loads`, which the pager polls and which starts and stops the loads through one call, `reconcile`, given the images wanted, whose order in the list is the order they load in, and `want`, which the pager calls with a version's jobs and which of them `session/loading.rs` says are kept or missing (`Wanted`: kept, missing, or to load again, with their `Job`, which holds what is fetched first and what is computed from it), and gives what came as `Arrived`, with the look of the file it was read from (`wait_by` waits until one comes or a deadline passes, so that a wait without keys wakes when a load does rather than after a fixed sleep), the stop flag and number of each load, so that a result of a load that was stopped or replaced is dropped, and the `Runner` that runs the loads started: `Threads`, with the jobs waiting, the threads that load them and the places of the programs outside kiri that draw, or a test's, as the simulated frontend's script says. Tero decided on 2026-10-31 that the queue and the jobs share this one file |
 | `src/load/theme.rs` | platform | new. `load`, which reads a theme file and has `typeset::theme::parse` turn its text into a theme; `config::load_theme` calls it |
 | `src/reports.rs` | platform | new. The reports kiri writes itself: `--doctor` and `--list-emojis`, rendered for a terminal or written as text, and, through `frontend::show_document`, shows one through the same route as a file. Their content is made by `src/doctor.rs` and `src/list.rs` |
 | `src/cli.rs` | platform | new. The command line: the clap `Cli`, whose flags take their help from the settings registry, and `options()`, which turns the flags into settings |
@@ -726,7 +741,7 @@ The later work that the rows name, in words:
 | `src/images/svg.rs` | mixed | stays. Typesetting: `Svg`, parsing and drawing, and `Fonts`, the database handed in. Platform: `Fonts::system`, which scans the system's fonts. The font database |
 | `src/images/url.rs` | typesetting | moved to `src/typeset/images/url.rs`: `data:` URLs and the reading of a URL's parts, which do no I/O. `read_file`, `decode_file` and `load_url`, which open files, moved to `src/load/url.rs`, where `decode_file` has since been split between `fetch_url` and `load_url` |
 | `src/images/background.rs` | platform | moved to `src/load/queue.rs` |
-| `src/images/pipeline.rs` | platform | stays. Builds the renderers from the settings and the jobs of the images a document wants (`jobs`, which starts none, with the headings and the pictures in text among them), and brings the images up to date for a reload (`reload_in_background`, which sets aside what it cannot keep and stops the load of an image whose file changed, and starts nothing). The pager gives the jobs to `Loads::want` in `src/load/queue.rs`; only the wait before the pager opens (`load_in_background`) reconciles on its own. `planned_keys` tells the keys of the images that would load, which the frontend stands boxes in for to count the document's rows before they do |
+| `src/images/pipeline.rs` | platform | stays. Builds the renderers from the settings and the jobs of the images a document wants (`jobs`, which starts none, with the headings and the pictures in text among them), and brings the images up to date for a reload (`reload_in_background`, which sets aside what it cannot keep and stops the load of an image whose file changed, and starts nothing). It no longer loads anything in the foreground, nor catches signals: `load_documents`, `Loaded` and `Interrupted` are gone, and `src/frontend/loads.rs` gives the jobs to `Loads::want` in `src/load/queue.rs`, as the pager does; only the wait before the pager opens (`load_in_background`) reconciles on its own. `planned_keys` tells the keys of the images that would load, which the frontend stands boxes in for to count the document's rows before they do |
 | `src/images/pipeline/tests.rs` | platform | stays |
 | `src/images/stamps.rs` | platform | stays |
 | `src/images/warnings.rs` | typesetting | moved to `src/typeset/images/warnings.rs`. Makes the `Diagnostic`s for the images and diagrams that did not load, from `ImageKey` and `ImageError` |
@@ -781,7 +796,7 @@ The later work that the rows name, in words:
 | `src/term/window.rs` | mixed | stays. Platform: `window_size`, the ioctl. Terminal layer: `WindowSize`. The terminal layer split |
 | `src/term/screen.rs` | platform | stays |
 | `src/term/screen/tests.rs` | platform | stays |
-| `src/term/progress.rs` | platform | stays |
+| `src/term/progress.rs` | platform | stays. The progress line `kiri: loading images 2/5…` for the one wait loop of `src/frontend/loads.rs`, `until_over`, with or without the hint that Space opens the pager, and the line of `while_waiting`. The line no longer has a thread of its own: `while_working` is gone |
 | `src/term/interrupt.rs` | platform | stays |
 | `src/term/keys.rs` | platform | stays |
 | `src/term/pty.rs` | platform | stays (test support) |

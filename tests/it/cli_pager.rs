@@ -1251,6 +1251,61 @@ fn ctrl_c_while_the_images_load_ends_kiri_as_before() {
 }
 
 #[test]
+fn ctrl_c_stops_the_program_of_the_documents_loading_after_a_diagram_file_was_drawn() {
+    use std::os::unix::process::ExitStatusExt;
+
+    // The diagram file is drawn at once; the program that draws the
+    // document's diagram notes its process and never draws.
+    let prepare = |dir: &std::path::Path| {
+        let pid = dir.join("pid");
+        let script = format!(
+            "if grep -q LR \"$1\"; then\n\
+             echo $$ > '{0}.new'\nmv '{0}.new' '{0}'\nexec sleep 60\nfi\n\
+             echo '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\"/>' > \"$2\"\n",
+            pid.display()
+        );
+        std::fs::write(dir.join("render.sh"), script).unwrap();
+        let config = format!(
+            "[diagrams.mermaid]\ncommand = [\"/bin/sh\", \"{}\", \"{{input}}\", \"{{output}}\"]\n",
+            dir.join("render.sh").display()
+        );
+        crate::common::write(&dir.join("config/kiri/config.toml"), &config);
+        std::fs::write(dir.join("flow.mmd"), "flowchart TD\n").unwrap();
+        let document = "```mermaid\nflowchart LR\n```\n\nBelow\n";
+        std::fs::write(dir.join("diagram.md"), document).unwrap();
+    };
+    let (pid, mut typed) = (std::cell::Cell::new(None), false);
+    let act = |seen: &str, terminal: &mut std::fs::File, dir: &std::path::Path| {
+        let noted = std::fs::read_to_string(dir.join("pid")).ok();
+        pid.set(
+            pid.get()
+                .or(noted.and_then(|noted| noted.trim().parse().ok())),
+        );
+        if !typed && pid.get().is_some() && seen.contains(HINT) {
+            terminal.write_all(b"\x03").unwrap();
+            typed = true;
+        }
+    };
+    let args = ["--mode", "kitty", "-p", "flow.mmd", "diagram.md"];
+    let (status, seen) = watching("pager-ctrl-c-two-loads", prepare, &args, act);
+    let pid = rustix::process::Pid::from_raw(pid.get().expect("the program to have run")).unwrap();
+    // Gone within five seconds, once whoever takes it in has reaped it; if
+    // not, it is stopped here so that it does not outlive the test.
+    let start = std::time::Instant::now();
+    let mut gone = false;
+    while !gone && start.elapsed() < Duration::from_secs(5) {
+        gone = rustix::process::test_kill_process(pid).is_err();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    if !gone {
+        let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
+    }
+    assert_eq!(status.signal(), Some(libc::SIGINT), "{seen:?}");
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert!(gone, "{pid:?} still runs");
+}
+
+#[test]
 fn the_hint_shows_only_where_the_pager_surely_opens() {
     // The document, whether it fits a window of 12 rows, and the options.
     for (long, args, hint) in [

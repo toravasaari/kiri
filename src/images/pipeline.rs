@@ -1,23 +1,22 @@
-//! Loading the images of a run's documents: the renderers that the
-//! settings choose for their diagrams, a guard against the signals that
-//! would end kiri while programs outside it draw them, and the images.
-//! The caller tells how far drawing has got where it likes, such as on a
-//! line of the terminal.
+//! The jobs that load the images of a run's documents, with the renderers
+//! that the settings choose for their diagrams, and the bringing of the
+//! images up to date for a reload. Nothing here loads: the jobs run in the
+//! queue of `src/load/queue.rs`, which the frontends start and wait for,
+//! and which stops them when a signal that the frontend caught asks it to.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use super::plan;
 use super::{
-    Fonts, HeadingLook, ImageKey, Images, Job, LoadOptions, Loads, Looks, Part, Placeholder,
-    Stamps, Wanted, diagram_languages, diagram_look,
+    HeadingLook, ImageKey, Images, Job, Loads, Looks, Part, Placeholder, Stamps, Wanted,
+    diagram_look,
 };
 use crate::config::{self, Environment, Settings};
 use crate::diagrams::find::{self, Search};
 use crate::diagrams::{Command, ExternalSettings, FormulaColors, NoRenderer, Renderer, Theme};
+use crate::load::Renderers;
 use crate::load::queue::{Context, Fetch, Wanted as Entry, What};
-use crate::load::{Renderers, load_parts};
-use crate::term::Interrupt;
 
 /// What loading the documents' images needs to know, resolved for the
 /// run.
@@ -56,43 +55,10 @@ impl Loading<'_> {
     }
 }
 
-/// A document's images, and the guard that caught the signals while
-/// programs drew its diagrams, if any did.
-#[derive(Debug, Default)]
-pub struct Loaded {
-    pub images: Images,
-    /// Keeps the signals that the programs were stopped by from ending
-    /// kiri by surprise later: it lives until something else catches them,
-    /// such as the pager's screen, or until kiri ends.
-    pub interrupt: Option<Interrupt>,
-}
-
-/// A signal, such as Ctrl-C's, came while programs drew diagrams. They
-/// have stopped and their files are gone; kiri is to end by the signal.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Interrupted(pub i32);
-
-/// The images of the documents in `parts`, and their diagrams drawn
-/// when the settings want them, as `loading` says, all in one map;
-/// `progress` is told how many diagrams are drawn of how many. When
-/// programs draw any of their diagrams, Ctrl-C, SIGTERM, SIGHUP and
-/// Ctrl-\ stop them meanwhile, and are then the outcome.
-pub fn load_documents(
-    parts: &[Part<'_>],
-    loading: &Loading,
-    progress: Option<&(dyn Fn(usize, usize) + Sync)>,
-) -> Result<Loaded, Interrupted> {
-    let (images, interrupt) = load_kept(parts, loading, progress);
-    if let Some(signal) = interrupt.as_ref().and_then(Interrupt::release) {
-        return Err(Interrupted(signal));
-    }
-    Ok(Loaded { images, interrupt })
-}
-
-/// `load_documents` again, for documents that may have changed, into
-/// `images`, which holds what was loaded before: it keeps what it can take
-/// from there and sets the rest aside, but starts no load. What it cannot
-/// take is an image it does not hold, a diagram that failed, and an image
+/// Brings `images`, which holds what was loaded before, up to date for
+/// documents that may have changed: it keeps what it can take from there
+/// and sets the rest aside, but starts no load. What it cannot take is an
+/// image it does not hold, a diagram that failed, and an image
 /// from a local file whose modification time is not the one `stamps` hold;
 /// the caller loads those, as [`jobs`] and [`Loads::want`] have it. A load
 /// of an image whose file changed again stops here, so that it starts anew
@@ -291,38 +257,6 @@ fn context(loading: &Loading, renderers: Option<Renderers>) -> Context {
     }
 }
 
-/// The images of `parts`, loaded as `load_documents` loads them, and the
-/// guard that caught the signals while programs drew diagrams, if any
-/// did.
-fn load_kept(
-    parts: &[Part<'_>],
-    loading: &Loading,
-    progress: Option<&(dyn Fn(usize, usize) + Sync)>,
-) -> (Images, Option<Interrupt>) {
-    let (renderers, interrupt) = match loading.settings.diagrams {
-        true => {
-            let (renderers, interrupt) = renderers(parts, loading);
-            (Some(renderers), interrupt)
-        }
-        false => (None, None),
-    };
-    let options = LoadOptions {
-        renderer: match &renderers {
-            Some(renderers) => renderers,
-            None => &NoRenderer,
-        },
-        theme: loading.theme,
-        formula: loading.formula,
-        progress,
-        panel: loading.settings.diagram_background_panel,
-        largest: loading.largest,
-        headings: loading.headings,
-        ..LoadOptions::default()
-    };
-    let (size, fonts) = (loading.max_file_size, &Fonts::system());
-    (load_parts(parts, size, fonts, &options), interrupt)
-}
-
 /// The commands the settings choose for diagrams, and how they run,
 /// without a flag to stop them.
 fn chosen(loading: &Loading) -> (BTreeMap<String, Command>, ExternalSettings) {
@@ -339,23 +273,6 @@ fn chosen(loading: &Loading) -> (BTreeMap<String, Command>, ExternalSettings) {
         ..ExternalSettings::new(config::temp_directory(env))
     };
     (commands, external)
-}
-
-/// The renderers the settings choose for the diagrams of the documents in
-/// `parts`, and a guard that catches the signals while programs draw any
-/// of them.
-fn renderers(parts: &[Part<'_>], loading: &Loading) -> (Renderers, Option<Interrupt>) {
-    let (commands, mut external) = chosen(loading);
-    let renderers = Renderers::new(commands.clone(), external.clone());
-    // Only while a program draws one of the documents' diagrams: they
-    // otherwise end kiri at once, as without diagrams.
-    let languages = (parts.iter()).flat_map(|part| diagram_languages(part.document, &renderers));
-    if !renderers.runs_programs_for(languages) {
-        return (renderers, None);
-    }
-    let interrupt = Interrupt::catch();
-    external.stop = interrupt.as_ref().map(Interrupt::flag);
-    (Renderers::new(commands, external), interrupt)
 }
 
 #[cfg(test)]

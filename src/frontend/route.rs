@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use crate::config::Settings;
-use crate::images::{Loaded, Stamps};
+use crate::images::Stamps;
 use crate::render::Inputs;
 use crate::session::plan::{self, Route};
 use crate::session::settings::{Follow, Paging};
@@ -28,7 +28,7 @@ use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page::Wide;
 
 use super::given::{Drawn, Given, Shown, drawn, given_from, load_given, read_whole};
-use super::loads::{FileReload, part};
+use super::loads::{FileReload, Guard, part};
 use super::open::{Content, STDIN, open};
 use super::pager::{Opening, page_files};
 use super::print::print_files;
@@ -185,10 +185,10 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
         (given.first().filter(|_| lone)).and_then(|given| reloading(given, context, &settings));
     // The documents' images load once the pager has opened.
     let later = paged && plan::may_load_later(settings.paging, settings.images, terminal, &caps);
-    let Loaded {
-        mut images,
-        mut interrupt,
-    } = load_given(context, &given, &settings, &caps, !later)?;
+    // Who catches the signals until the pager's screen does: the one guard
+    // of the run, which lives on to the end when the files are printed.
+    let mut guard = Guard::default();
+    let mut images = load_given(context, &given, &settings, &caps, !later, &mut guard)?;
     for (number, file) in given.iter_mut().enumerate() {
         file.drawn = self::drawn(number, file, &mut images, &settings, &caps);
     }
@@ -229,13 +229,13 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
         failed,
     };
     if paged {
-        let caught = || drop(interrupt.take());
         let opening = Opening {
             later,
             reading_warning,
             reload,
+            guard,
         };
-        page_files(&show, given, &mut inputs, opening, caught)?;
+        page_files(&show, given, &mut inputs, opening)?;
     } else {
         shown(print_files(&show, given, &mut inputs))?;
     }
