@@ -854,7 +854,7 @@ is the record of them.
 
 New code goes where this map puts it. When the map has no place for it,
 that is a question for the maintainer, not a reason to add it to a hub
-file (`main.rs`, `pager/mod.rs`, `render/mod.rs`,
+file (`main.rs`, `frontend/mod.rs`, `pager/mod.rs`, `render/mod.rs`,
 `typeset/layout/mod.rs`, `typeset/reading/engine.rs`,
 `typeset/reading/page.rs`, `images/mod.rs` and `diagrams/mod.rs`).
 **No path yet** means that the work named creates the place; until then, ask.

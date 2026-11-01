@@ -12,10 +12,13 @@ use std::path::Path;
 /// collects code of several parts, so new code goes to the part's own file
 /// instead (docs/architecture.md, "Where a new thing goes").
 const CAPS: &[(&str, usize)] = &[
-    // Room for small additions until the session (roadmap G7.3.3) takes
-    // the loading and the opening of files out of it.
-    ("src/main.rs", 500),
-    ("src/pager/mod.rs", 860),
+    // `main` and `Real`, the process's `Platform`, are all that is left of
+    // the binary; the front ends are in `src/frontend/`.
+    ("src/main.rs", 225),
+    // The interface of the front ends, so that it does not become the next
+    // hub: a new front end goes in a file of its own.
+    ("src/frontend/mod.rs", 156),
+    ("src/pager/mod.rs", 834),
     ("src/render/mod.rs", 345),
     ("src/typeset/layout/mod.rs", 1366),
     ("src/typeset/reading/engine.rs", 989),

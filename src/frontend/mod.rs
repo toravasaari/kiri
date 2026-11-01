@@ -31,10 +31,6 @@ mod open;
 mod pager;
 mod print;
 mod route;
-#[cfg(test)]
-pub(crate) mod sim;
-#[cfg(test)]
-mod tests;
 
 pub use route::{show_document, show_files, shown};
 
@@ -157,3 +153,9 @@ pub struct Configured {
     /// with the settings without it.
     pub settings: Result<Settings, (String, Settings)>,
 }
+
+#[cfg(test)]
+pub(crate) mod sim;
+
+#[cfg(test)]
+mod tests;
