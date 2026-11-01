@@ -619,14 +619,14 @@ The later work that the rows name, in words:
 |---|---|---|
 | `src/lib.rs` | platform | stays; declares the three parts |
 | `src/main.rs` | platform | stays, and shrinks to the entry point. It reads the command line (`src/cli.rs`), resolves the settings from it, the environment and the configuration file, hands them and the files to `src/frontend/` as `Asked` and `Configured`, and turns the `Failure` it gets back into an exit code; its `Real` is the `Platform` of the process. State engine: the startup decisions, such as whether a run pages, are in `src/session/plan.rs`; the front ends read the terminal and the files and pass the answers in |
-| `src/loading.rs` | platform | moved to `src/frontend/loads.rs` |
+| `src/load.rs` | platform | moved to `src/frontend/loads.rs`, by way of `src/loading.rs`; the library's `src/load/` is a different module |
 | `src/frontend/mod.rs` | platform | new. The front ends' module: the `Platform` trait, through which they reach files, standard input and output, the environment and the terminal, and the `Screen` trait, the pager's screen; `Failure`, `Asked` (what the command line asks for) and `Configured` (the settings as `main.rs` resolved them), and what `main.rs` and `src/reports.rs` call: `show_files`, `show_document` and `shown`. `main.rs` implements `Platform` for the process (`Real`); the simulated front end does it in memory |
 | `src/frontend/route.rs` | platform | new. The one route: `show_files` shows one file as the special case of several, with no header, and with reloading, following and the unnamed warnings for it alone; `show_given` chooses between the pager and print; `Context`, `Run` and `Show`; `show_document` shows a report kiri writes itself |
 | `src/frontend/open.rs` | platform | new. Opening a file, the README of a directory or standard input far enough to tell what it is (`Opened`), and `document`, which chooses the parser for its input format |
 | `src/frontend/given.rs` | platform | new. A file ready to show (`Given`, `Shown`, `Drawn`), and loading the images of the documents among the files given |
 | `src/frontend/pager.rs` | platform | new. The interactive front end: `page_files` gathers the files into one stream, loads their images first or in the background and runs the pager's loop on the terminal's screen, and prints them after all where it does not open |
 | `src/frontend/print.rs` | platform | new. The print front end: `print_files`, each file under its header as it comes, and `Held`, whose `check` makes sure kitty holds the images that were sent (the pager's print fallback uses it too) |
-| `src/frontend/loads.rs` | platform | moved from `src/loading.rs`. Loading a document's images and diagrams in the foreground, on threads and in the background, and reloading its file for the pager: the loads and `FileReload`. The front ends call them. Its seed is the work runner that roadmap item G7.3.3 fills in |
+| `src/frontend/loads.rs` | platform | moved from `src/load.rs`. Loading a document's images and diagrams in the foreground, on threads and in the background, and reloading its file for the pager: the loads and `FileReload`. The front ends call them. Its seed is the work runner that roadmap item G7.3.3 fills in |
 | `src/frontend/sim.rs` | platform | moved from `src/pager/sim.rs`; test support. The simulated front end: a terminal on a virtual clock, files in memory and background loads that come when a script says, which run the loop in `src/pager/mod.rs` through its `Terminal` and `Reload` traits, or the whole route through `SimPlatform`, its `Platform`, and give back the bytes written to the terminal and to standard error. It asks `Pager::wait` how long the pager waits for keys and moves the clock by that, so a test runs without a pseudo-terminal and without waiting. A screen model that reads the bytes, which knows kitty, comes later |
 | `src/frontend/tests/mod.rs`, `route.rs`, `paging.rs`, `settings.rs`, `stdin.rs`, `follow.rs`, `reload.rs`, `close.rs` | follows `frontend/` | new. The route's tests: `show_files` run in the simulated front end, for one file, several, standard input, a missing file, `r` and paging without keys; `paging.rs` has the paging and printing decisions, `settings.rs` the settings that change the route (paging, diagrams, reading mode); `stdin.rs` standard input; `follow.rs` following a file; `reload.rs` `r`; and `close`, which ends the pager: it leaves the screen first and then waits for the programs |
 | `src/load/mod.rs` | platform | new. The platform's loading for the engines: `load`, `load_with` and `load_parts`, which load the images a document wants, read their files and have the renderers draw its diagrams. A module of the library, beside the front ends' `src/frontend/loads.rs` |
@@ -783,8 +783,9 @@ directory go with it, and the table's paths are the final ones.
 
 The move created the first five of these files; they are not in the table above,
 because they had no path before it. Each declares the modules that moved into
-its directory and exports the public surface of its part. The last three came
-later and are test only.
+its directory and exports the public surface of its part. The files after
+them came with the split of the mixed modules (images and diagrams); the last
+three came later and are test only.
 
 | New file | What it is |
 |---|---|
@@ -792,12 +793,12 @@ later and are test only.
 | `src/present/mod.rs` | new: the root of the terminal layer |
 | `src/session/mod.rs` | new: the root of the state engine |
 | `src/typeset/images/mod.rs` | new: declares `decode`, `drawn`, `error`, `heading`, `key`, `options`, `plan`, `size`, `store`, `url` and `warnings`, and exports the types of images: `ImageKey`, `ImageError`, `Images`, `Placeholder`, `LoadOptions` and `Part` |
+| `src/typeset/diagrams/mod.rs` | new: declares `error`, `language`, `math`, `mermaid`, `names`, `output`, `renderer` and `request` |
 | `src/typeset/images/key.rs` | new: `ImageKey`, what an image is made from, the key into `Images` |
 | `src/typeset/images/error.rs` | new: `ImageError`, why an image could not be loaded, and `size`, a size limit in words |
 | `src/typeset/images/store.rs` | new: `Images`, every image of a document by its key, loaded or not, and `Placeholder`, what stands in for one that is loading |
 | `src/typeset/images/options.rs` | new: `LoadOptions`, how a document's images are loaded and its diagrams drawn, and `Part`, one of the documents shown together |
 | `src/typeset/images/plan.rs` | new: the plan of which images a document wants: `plan`, `Wanted`, `collect_blocks`, `inline_images`, `shown_urls` and `diagram_languages` |
-| `src/typeset/diagrams/mod.rs` | new: declares `error`, `language`, `math`, `mermaid`, `names`, `output`, `renderer` and `request` |
 | `src/typeset/diagrams/request.rs` | new: `Theme`, `FormulaColors`, `INLINE_FORMULA`, `Drawn` and `Request`, what a renderer is spoken to in |
 | `src/typeset/diagrams/renderer.rs` | new: the `Renderer` trait with `render_one_by_one`, `BuiltIn`, `NoRenderer` and `baseline_depth` |
 | `src/typeset/diagrams/names.rs` | new: what kiri says of a language by its name: `theme_name`, `display_name`, `extension`, `chosen_theme`, `dark_background`, `noun`, `name` and `centred` |
