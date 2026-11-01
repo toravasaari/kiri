@@ -255,6 +255,7 @@ Needs G2.2, G7.3.2 for time and G7.3.3 for watching.
 
 - Animated GIF, WebP and APNG, played by kitty itself.
 - Video (WebM, MP4, AVI and others) through ffmpeg when it is installed.
+- asciinema recordings (`.cast`).
 
 ### 4.5 Links
 
