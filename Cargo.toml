@@ -1,5 +1,5 @@
 [package]
-name = "kiri-md"
+name = "kiri-the-reader"
 version = "0.1.0"
 edition = "2024"
 description = "Markdown reader for the kitty terminal"

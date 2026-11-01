@@ -98,8 +98,8 @@ fn the_script_registers_kiri() {
     assert!(out.status.success(), "{}", text(&out.stderr));
     let script = text(&out.stdout);
     assert!(script.contains("complete -F _kiri"), "{script}");
-    assert!(!script.contains("kiri-md"), "{script}");
-    assert!(!script.contains("kiri__md"), "{script}");
+    assert!(!script.contains("kiri-the-reader"), "{script}");
+    assert!(!script.contains("kiri__the__reader"), "{script}");
 }
 
 /// `kiri --version` tells the program's name and its version.
