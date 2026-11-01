@@ -570,3 +570,207 @@ fn the_inline_pictures_load_when_asked_for_and_only_those_that_are_missing() {
     load_inline_in_background(&parts, &loading, &mut images, &mut loads);
     assert!(loads.is_empty());
 }
+
+/// What the loads of the entry points below are given: no program draws
+/// anything, and a heading is drawn in cells of 10 × 20 pixels.
+fn plain_loading<'a>(env: &'a Environment, settings: &'a Settings) -> Loading<'a> {
+    Loading {
+        env,
+        settings,
+        max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
+        theme: Theme::Light,
+        formula: FormulaColors::default(),
+        largest: None,
+        headings: None,
+    }
+}
+
+fn heading_look() -> HeadingLook {
+    let level = crate::images::LevelLook {
+        rows: 2,
+        font_px: 30.0,
+        bold: true,
+        italic: false,
+        color: [0x20, 0x60, 0xd0],
+        code: crate::images::CodeLook {
+            color: [0xe0, 0x20, 0xe0],
+            background: None,
+            padding: true,
+        },
+    };
+    HeadingLook {
+        cell: (10, 20),
+        levels: [level; 6],
+    }
+}
+
+fn square() -> Result<Source, ImageError> {
+    Ok(Source::Raster(image::RgbaImage::new(2, 2)))
+}
+
+/// The key of the heading `# Kiri`, drawn as `heading_look` says.
+fn heading_key() -> ImageKey {
+    let document = crate::typeset::parse::parse("# Kiri\n");
+    let parts = alone(&document, Path::new("."));
+    let (mut images, mut loads) = (Images::new(), Loads::new());
+    load_headings_in_background(&parts, &heading_look(), &mut images, &mut loads);
+    loads.keys().next().expect("a heading loading").clone()
+}
+
+#[test]
+fn loading_in_the_background_leaves_the_loads_of_other_images_under_way() {
+    let scratch = Scratch::new("pipeline-leaves-others");
+    write_png(&scratch.join("a.png"), 4, 2, 1000);
+    let settings = settings(&["/bin/false"]);
+    let env = Environment::default();
+    let loading = plain_loading(&env, &settings);
+    let document = crate::typeset::parse::parse("![x](a.png)\n");
+    let parts = alone(&document, &scratch);
+    let (mut images, mut loads) = (Images::new(), Loads::new());
+    let other = loads.expect("other.png");
+    load_in_background(&parts, &loading, &mut images, &mut loads);
+    assert!(loads.loading(&"other.png".into()));
+    assert!(!other.stopped());
+    assert!(loads.loading(&"a.png".into()));
+    assert_eq!(loads.progress(), Some((0, 2)));
+    until(&mut loads, &"a.png".into());
+    // The other load, still under way, comes as it was started.
+    other.come(square());
+    assert_eq!(loads.poll().len(), 1);
+    assert!(loads.is_empty());
+}
+
+#[test]
+fn loading_in_the_background_starts_an_image_under_way_anew_and_drops_the_old_result() {
+    let scratch = Scratch::new("pipeline-restarts");
+    write_png(&scratch.join("a.png"), 4, 2, 1000);
+    let settings = settings(&["/bin/false"]);
+    let env = Environment::default();
+    let loading = plain_loading(&env, &settings);
+    let document = crate::typeset::parse::parse("![x](a.png)\n");
+    let parts = alone(&document, &scratch);
+    let (mut images, mut loads) = (Images::new(), Loads::new());
+    let old = loads.expect("a.png");
+    load_in_background(&parts, &loading, &mut images, &mut loads);
+    assert!(old.stopped());
+    assert!(loads.loading(&"a.png".into()));
+    assert_eq!(loads.progress(), Some((0, 1)));
+    // What the stopped load brings is dropped; the new one's is not.
+    old.come(Ok(Source::Raster(image::RgbaImage::new(9, 9))));
+    let came = until(&mut loads, &"a.png".into());
+    assert!(
+        matches!(&came[..], [(_, Ok(image))] if image.size() == (4, 2)),
+        "{came:?}"
+    );
+}
+
+#[test]
+fn loading_headings_in_the_background_leaves_other_loads_and_those_of_the_headings_alone() {
+    let document = crate::typeset::parse::parse("# Kiri\n");
+    let parts = alone(&document, Path::new("."));
+    let key = heading_key();
+    let (mut images, mut loads) = (Images::new(), Loads::new());
+    let other = loads.expect("other.png");
+    let heading = loads.expect(key.clone());
+    load_headings_in_background(&parts, &heading_look(), &mut images, &mut loads);
+    // Neither is stopped, and the heading, loading already, is not started.
+    assert!(!other.stopped());
+    assert!(!heading.stopped());
+    assert_eq!(loads.progress(), Some((0, 2)));
+    heading.come(square());
+    assert_eq!(loads.poll().len(), 1);
+    assert!(!loads.loading(&key));
+    // Asked again with nothing held for it, it starts, beside the other.
+    load_headings_in_background(&parts, &heading_look(), &mut images, &mut loads);
+    assert!(!other.stopped());
+    assert!(loads.loading(&"other.png".into()));
+    assert!(loads.loading(&key));
+    assert_eq!(loads.progress(), Some((1, 3)));
+    let came = until(&mut loads, &key);
+    assert!(matches!(&came[..], [(_, Ok(_))]), "{came:?}");
+    assert!(loads.loading(&"other.png".into()));
+    assert!(!other.stopped());
+}
+
+#[test]
+fn loading_the_inline_pictures_leaves_other_loads_and_those_under_way_alone() {
+    let scratch = Scratch::new("pipeline-inline-leaves");
+    write_png(&scratch.join("a.png"), 4, 2, 1000);
+    let settings = settings(&["/bin/false"]);
+    let env = Environment::default();
+    let loading = plain_loading(&env, &settings);
+    let document = crate::typeset::parse::parse("Text ![a](a.png) in a line.\n");
+    let parts = alone(&document, &scratch);
+    let (mut images, mut loads) = (Images::new(), Loads::new());
+    let other = loads.expect("other.png");
+    let under_way = loads.expect("a.png");
+    load_inline_in_background(&parts, &loading, &mut images, &mut loads);
+    assert!(!other.stopped());
+    assert!(!under_way.stopped());
+    assert_eq!(loads.progress(), Some((0, 2)));
+    // The load under way is the one that comes.
+    under_way.come(Ok(Source::Raster(image::RgbaImage::new(5, 5))));
+    let came = loads.poll();
+    assert!(
+        matches!(&came[..], [(_, Ok(image))] if image.size() == (5, 5)),
+        "{came:?}"
+    );
+    // Not loaded, nor loading: it starts beside the other.
+    load_inline_in_background(&parts, &loading, &mut images, &mut loads);
+    assert!(!other.stopped());
+    assert!(loads.loading(&"a.png".into()));
+    until(&mut loads, &"a.png".into());
+    assert!(loads.loading(&"other.png".into()));
+}
+
+#[test]
+fn a_reload_carries_on_a_load_under_way_of_an_image_still_shown_and_stops_the_rest() {
+    let scratch = Scratch::new("pipeline-reload-expect");
+    write_png(&scratch.join("a.png"), 4, 2, 1000);
+    let settings = settings(&["/bin/false"]);
+    let env = Environment::default();
+    let loading = plain_loading(&env, &settings);
+    let document = crate::typeset::parse::parse("![x](a.png)\n");
+    let parts = alone(&document, &scratch);
+    let (mut images, mut stamps, mut loads) = (Images::new(), Stamps::of(&parts), Loads::new());
+    let shown = loads.expect("a.png");
+    let gone = loads.expect("gone.png");
+    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    assert!(!shown.stopped());
+    assert!(gone.stopped());
+    assert_eq!(loads.keys().collect::<Vec<_>>(), [&ImageKey::from("a.png")]);
+    assert_eq!(loads.progress(), Some((0, 1)));
+    // The load that was under way is the one that comes.
+    shown.come(Ok(Source::Raster(image::RgbaImage::new(7, 7))));
+    let came = loads.poll();
+    assert!(
+        matches!(&came[..], [(_, Ok(image))] if image.size() == (7, 7)),
+        "{came:?}"
+    );
+    assert!(loads.is_empty());
+}
+
+#[test]
+fn a_reload_starts_a_load_under_way_anew_when_its_file_changed_again() {
+    let scratch = Scratch::new("pipeline-reload-again");
+    write_png(&scratch.join("a.png"), 4, 2, 1000);
+    let settings = settings(&["/bin/false"]);
+    let env = Environment::default();
+    let loading = plain_loading(&env, &settings);
+    let document = crate::typeset::parse::parse("![x](a.png)\n");
+    let parts = alone(&document, &scratch);
+    let mut stamps = Stamps::of(&parts);
+    let mut images = load_documents(&parts, &loading, None).unwrap().images;
+    write_png(&scratch.join("a.png"), 6, 3, 2000);
+    let mut loads = Loads::new();
+    let old = loads.expect("a.png");
+    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    assert!(old.stopped());
+    assert_eq!(loads.progress(), Some((0, 1)));
+    old.come(Ok(Source::Raster(image::RgbaImage::new(7, 7))));
+    let came = until(&mut loads, &"a.png".into());
+    assert!(
+        matches!(&came[..], [(_, Ok(image))] if image.size() == (6, 3)),
+        "{came:?}"
+    );
+}

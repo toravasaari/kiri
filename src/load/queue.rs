@@ -80,13 +80,63 @@ pub(crate) enum What {
     },
 }
 
-/// One image to load: its key, what it is, and whether a program outside
-/// kiri draws it.
-#[derive(Debug)]
+/// One image to load: its key, what it is, whether a program outside
+/// kiri draws it, and what loading it needs besides, which the jobs of one
+/// call share.
 pub(crate) struct Job {
     pub(crate) key: ImageKey,
     pub(crate) what: What,
     pub(crate) program: bool,
+    pub(crate) context: Arc<Context>,
+}
+
+impl Job {
+    /// The job of the image file `url`, relative to a directory that does
+    /// not exist, so that it fails to load at once, as a reload builds it
+    /// with a plain context.
+    #[cfg(test)]
+    pub(crate) fn file(url: &str) -> Job {
+        Job {
+            key: url.into(),
+            what: What::Url {
+                url: url.to_owned(),
+                base: PathBuf::from("/nonexistent"),
+            },
+            program: false,
+            context: Arc::new(context(crate::diagrams::NoRenderer)),
+        }
+    }
+}
+
+impl std::fmt::Debug for Job {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Job")
+            .field("key", &self.key)
+            .field("what", &self.what)
+            .field("program", &self.program)
+            .finish_non_exhaustive()
+    }
+}
+
+/// An image wanted, as [`Loads::reconcile`] takes it.
+pub(crate) enum Wanted {
+    /// Wanted, with nothing to start: a load of it under way carries on.
+    Kept(ImageKey),
+    /// To load, unless a load of it is under way, which carries on.
+    Missing(Job),
+    /// To load anew: a load of it under way stops, and what it brings is
+    /// dropped.
+    Again(Job),
+}
+
+impl Wanted {
+    /// The key of the image.
+    fn key(&self) -> &ImageKey {
+        match self {
+            Wanted::Kept(key) => key,
+            Wanted::Missing(job) | Wanted::Again(job) => &job.key,
+        }
+    }
 }
 
 /// What loading the jobs of one reload needs, besides each job.
@@ -116,13 +166,11 @@ struct Waiting {
     first: HashMap<ImageKey, usize>,
 }
 
-/// A job waiting, with the number and the stop flag of its load and
-/// what loading the jobs of its reload needs.
+/// A job waiting, with the number and the stop flag of its load.
 struct Queued {
     job: Job,
     id: u64,
     stop: Arc<AtomicBool>,
-    context: Arc<Context>,
 }
 
 impl std::fmt::Debug for Queued {
@@ -217,20 +265,61 @@ impl Loads {
         (!self.running.is_empty()).then_some((self.done, self.total))
     }
 
-    /// Stops the loads of the images that `keep` does not want.
-    pub fn keep(&mut self, keep: impl Fn(&ImageKey) -> bool) {
+    /// Stops the load of the image `key`, if one is under way.
+    fn stop_one(&mut self, key: &ImageKey) {
+        if let Some(running) = self.running.remove(key) {
+            running.stop.store(true, Ordering::SeqCst);
+            self.total -= 1;
+        }
+    }
+
+    /// Starts and stops the loads so that those of `wanted` are under way,
+    /// and no others: the loads of the images that no entry names stop,
+    /// those that are `Kept` or `Missing` and under way carry on, and those
+    /// that are `Again` start anew, the one under way giving way. The new
+    /// ones wait behind the jobs that wait, in the order of the list.
+    pub(crate) fn reconcile(&mut self, wanted: Vec<Wanted>) {
+        let named: HashSet<ImageKey> = wanted.iter().map(|entry| entry.key().clone()).collect();
         let before = self.running.len();
         self.running.retain(|key, running| {
-            let kept = keep(key);
+            let kept = named.contains(key);
             if !kept {
                 running.stop.store(true, Ordering::SeqCst);
             }
             kept
         });
         self.total -= before - self.running.len();
+        let mut jobs = Vec::new();
+        for entry in wanted {
+            match entry {
+                Wanted::Kept(_) => {}
+                Wanted::Missing(job) => {
+                    if !self.running.contains_key(&job.key) {
+                        jobs.push(job);
+                    }
+                }
+                Wanted::Again(job) => {
+                    self.stop_one(&job.key);
+                    jobs.push(job);
+                }
+            }
+        }
         if self.running.is_empty() {
             (self.done, self.total) = (0, 0);
         }
+        self.begin(jobs);
+    }
+
+    /// `wanted`, and a `Kept` entry for every load under way that it does
+    /// not name, so that reconciling stops none of them.
+    pub(crate) fn adding(&self, mut wanted: Vec<Wanted>) -> Vec<Wanted> {
+        let named: HashSet<&ImageKey> = wanted.iter().map(Wanted::key).collect();
+        let kept: Vec<Wanted> = (self.running.keys())
+            .filter(|key| !named.contains(key))
+            .map(|key| Wanted::Kept(key.clone()))
+            .collect();
+        wanted.extend(kept);
+        wanted
     }
 
     /// The images that have come since the last call, each once; those
@@ -267,7 +356,7 @@ impl Loads {
     /// programs to end: [`Loads::wait`] does, such as once the pager has
     /// left its screen.
     pub fn halt(&mut self) {
-        self.keep(|_| false);
+        self.reconcile(Vec::new());
     }
 
     /// Waits for the programs outside kiri that draw to end, for at most
@@ -299,20 +388,18 @@ impl Loads {
         }
     }
 
-    /// Loads `jobs` in the background as `settings` say; a load of the
-    /// same image under way gives way to its job.
-    pub(crate) fn start(&mut self, jobs: Vec<Job>, context: Context) {
+    /// Gives each of `jobs` the number and the stop flag of a new load, and
+    /// starts the threads to load them, or counts them while the loads are
+    /// held.
+    fn begin(&mut self, jobs: Vec<Job>) {
         if jobs.is_empty() {
             return;
         }
-        let keys: HashSet<&ImageKey> = jobs.iter().map(|job| &job.key).collect();
-        self.keep(|key| !keys.contains(key));
         // As many threads as programs may draw at once, and one more for
         // the jobs that need none while they do.
         let programs = jobs.iter().filter(|job| job.program).count();
         let threads =
             programs.min(crate::diagrams::external::AT_ONCE) + usize::from(programs < jobs.len());
-        let context = Arc::new(context);
         let mut waiting = self.queue.waiting.lock().unwrap_or_else(|e| e.into_inner());
         for job in jobs {
             let stop = Arc::new(AtomicBool::new(false));
@@ -324,13 +411,7 @@ impl Loads {
             };
             self.running.insert(job.key.clone(), running);
             self.total += 1;
-            let context = Arc::clone(&context);
-            waiting.jobs.push(Queued {
-                job,
-                id,
-                stop,
-                context,
-            });
+            waiting.jobs.push(Queued { job, id, stop });
         }
         drop(waiting);
         match &mut self.held {
@@ -373,16 +454,9 @@ impl Loads {
                 by_line: true,
             },
             program: true,
+            context: Arc::new(context(tests::Slow(ending))),
         };
-        let context = Context {
-            renderer: Box::new(tests::Slow(ending)),
-            theme: Theme::Light,
-            formula: FormulaColors::default(),
-            panel: true,
-            largest: None,
-            max_file_size: crate::images::DEFAULT_MAX_FILE_SIZE,
-        };
-        self.start(vec![job], context);
+        self.reconcile(self.adding(vec![Wanted::Again(job)]));
         // At once, also while the loads are held.
         if let Some(threads) = self.held.take() {
             self.spawn(threads);
@@ -398,23 +472,22 @@ impl Loads {
     /// diagrams drawn as `look` says are.
     #[cfg(test)]
     pub(crate) fn gated(&mut self, names: &[&str], gated: &Gated, look: u64) {
+        let context = Arc::new(context(gated.clone()));
         let jobs = (names.iter())
             .map(|name| {
-                let job = diagram(name, false);
-                Job {
-                    key: job.key.with_look(look),
-                    ..job
-                }
+                let job = diagram(name, false, &context);
+                let key = job.key.with_look(look);
+                Wanted::Again(Job { key, ..job })
             })
             .collect();
-        self.start(jobs, context(gated.clone()));
+        self.reconcile(self.adding(jobs));
     }
 
     /// Takes the image `key` as loading, to come when the test says.
     #[cfg(test)]
     pub(crate) fn expect(&mut self, key: impl Into<ImageKey>) -> Arrival {
         let key = key.into();
-        self.keep(|loading| *loading != key);
+        self.stop_one(&key);
         let id = self.next;
         self.next += 1;
         let stop = Arc::new(AtomicBool::new(false));
@@ -517,9 +590,10 @@ impl Renderer for Gated {
     }
 }
 
-/// A job for the diagram `source`, which a program draws or not.
+/// A job for the diagram `source`, which a program draws or not, loaded as
+/// `context` says.
 #[cfg(test)]
-fn diagram(source: &str, program: bool) -> Job {
+fn diagram(source: &str, program: bool, context: &Arc<Context>) -> Job {
     let source = format!("{source}\n");
     Job {
         key: ImageKey::block("mermaid", &source),
@@ -530,6 +604,7 @@ fn diagram(source: &str, program: bool) -> Job {
             by_line: true,
         },
         program,
+        context: Arc::clone(context),
     }
 }
 
@@ -552,14 +627,9 @@ impl Queue {
     fn work(&self, sender: &Sender<Done>) {
         let fonts = Fonts::system();
         while let Some((queued, place)) = self.take() {
-            let Queued {
-                job,
-                id,
-                stop,
-                context,
-            } = queued;
+            let Queued { job, id, stop } = queued;
             // A renderer or decoder that panics fails this load alone.
-            let loaded = crate::panics::catch(|| load(&context, &job.what, &stop, &fonts));
+            let loaded = crate::panics::catch(|| load(&job.context, &job.what, &stop, &fonts));
             drop(place);
             let image = loaded.unwrap_or_else(|panic| Err(crashed(&job.what, panic.as_ref())));
             if stop.load(Ordering::SeqCst) {
@@ -704,6 +774,153 @@ mod tests {
         }
     }
 
+    /// What `loads` has come to, polled until `count` images have, for at
+    /// most two seconds.
+    fn arrivals(loads: &mut Loads, count: usize) -> Vec<(ImageKey, Result<Source, ImageError>)> {
+        let start = Instant::now();
+        let mut arrived = Vec::new();
+        while arrived.len() < count && start.elapsed() < Duration::from_secs(2) {
+            arrived.extend(loads.poll());
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        arrived
+    }
+
+    /// The number of the load of the image `key`, which is under way.
+    fn id_of(loads: &Loads, key: &str) -> u64 {
+        loads.running[&ImageKey::from(key)].id
+    }
+
+    #[test]
+    fn reconciling_keeps_what_is_kept_and_stops_the_load_that_no_entry_names() {
+        let mut loads = Loads::new();
+        let a = loads.expect("a.png");
+        let b = loads.expect("b.png");
+        let id = id_of(&loads, "a.png");
+        loads.reconcile(vec![Wanted::Kept("a.png".into())]);
+        assert!(!a.stopped());
+        assert!(b.stopped());
+        assert!(loads.loading(&"a.png".into()));
+        assert!(!loads.loading(&"b.png".into()));
+        assert_eq!(id_of(&loads, "a.png"), id);
+        assert_eq!(loads.progress(), Some((0, 1)));
+        // What the load that stopped brings is dropped.
+        b.come(square());
+        assert!(loads.poll().is_empty());
+        a.come(square());
+        assert_eq!(loads.poll().len(), 1);
+        assert_eq!(loads.progress(), None);
+    }
+
+    #[test]
+    fn a_missing_image_loads_unless_a_load_of_it_is_under_way() {
+        let mut loads = Loads::new();
+        let a = loads.expect("a.png");
+        let id = id_of(&loads, "a.png");
+        let wanted = vec![
+            Wanted::Missing(Job::file("a.png")),
+            Wanted::Missing(Job::file("m.png")),
+        ];
+        loads.reconcile(wanted);
+        // The load under way carries on, as the same one.
+        assert!(!a.stopped());
+        assert_eq!(id_of(&loads, "a.png"), id);
+        assert!(loads.loading(&"m.png".into()));
+        assert_eq!(loads.progress(), Some((0, 2)));
+        a.come(square());
+        let arrived = arrivals(&mut loads, 2);
+        assert_eq!(arrived.len(), 2, "{arrived:?}");
+        let by = |key: &str| {
+            arrived
+                .iter()
+                .find(|(came, _)| *came == ImageKey::from(key))
+        };
+        assert!(matches!(by("a.png"), Some((_, Ok(_)))), "{arrived:?}");
+        assert!(matches!(by("m.png"), Some((_, Err(_)))), "{arrived:?}");
+        assert!(loads.is_empty());
+    }
+
+    #[test]
+    fn an_image_to_load_again_replaces_the_load_under_way_and_drops_what_it_brings() {
+        let mut loads = Loads::new();
+        let old = loads.expect("a.png");
+        let id = id_of(&loads, "a.png");
+        loads.reconcile(vec![Wanted::Again(Job::file("a.png"))]);
+        assert!(old.stopped());
+        assert_ne!(id_of(&loads, "a.png"), id);
+        assert_eq!(loads.progress(), Some((0, 1)));
+        // The older result is dropped; the file's, which is missing, comes.
+        old.come(square());
+        let arrived = arrivals(&mut loads, 1);
+        assert!(matches!(&arrived[..], [(_, Err(_))]), "{arrived:?}");
+        assert!(loads.is_empty());
+    }
+
+    #[test]
+    fn the_total_follows_what_reconciling_starts_and_stops() {
+        let mut loads = Loads::new();
+        let a = loads.expect("a.png");
+        let b = loads.expect("b.png");
+        assert_eq!(loads.progress(), Some((0, 2)));
+        let wanted = vec![
+            Wanted::Kept("a.png".into()),
+            Wanted::Again(Job::file("b.png")),
+            Wanted::Missing(Job::file("c.png")),
+        ];
+        loads.reconcile(wanted);
+        assert!(b.stopped());
+        assert!(!a.stopped());
+        assert_eq!(loads.progress(), Some((0, 3)));
+        loads.reconcile(vec![Wanted::Kept("a.png".into())]);
+        assert_eq!(loads.progress(), Some((0, 1)));
+        loads.reconcile(Vec::new());
+        assert!(a.stopped());
+        assert!(loads.is_empty());
+        assert_eq!(loads.progress(), None);
+    }
+
+    #[test]
+    fn reconciling_nothing_stops_every_load_and_starts_none() {
+        let gated = Gated::default();
+        let mut loads = Loads::new();
+        let a = loads.expect("a.png");
+        loads.gated(&["x"], &gated, 0);
+        assert_eq!(gated.until(1), ["x"]);
+        loads.reconcile(Vec::new());
+        assert!(a.stopped());
+        assert!(loads.is_empty());
+        assert_eq!(loads.progress(), None);
+        // Nothing is started or held for later.
+        loads.hold();
+        loads.reconcile(Vec::new());
+        assert_eq!(loads.held, Some(0));
+    }
+
+    #[test]
+    fn adding_names_the_loads_under_way_so_that_reconciling_stops_none_of_them() {
+        let mut loads = Loads::new();
+        let a = loads.expect("a.png");
+        let b = loads.expect("b.png");
+        let wanted = loads.adding(vec![Wanted::Again(Job::file("a.png"))]);
+        // `a.png` is named already.
+        assert_eq!(wanted.len(), 2);
+        loads.reconcile(wanted);
+        assert!(a.stopped());
+        assert!(!b.stopped());
+        assert_eq!(loads.progress(), Some((0, 2)));
+        let wanted = loads.adding(vec![Wanted::Missing(Job::file("m.png"))]);
+        loads.reconcile(wanted);
+        assert!(!b.stopped());
+        assert_eq!(loads.progress(), Some((0, 3)));
+    }
+
+    /// Starts `jobs` in `loads`, each giving way to a load of its image
+    /// under way, and stopping no other load.
+    fn start(loads: &mut Loads, jobs: Vec<Job>) {
+        let jobs = jobs.into_iter().map(Wanted::Again).collect();
+        loads.reconcile(loads.adding(jobs));
+    }
+
     /// Polls `loads` until the image `key` comes, for at most two
     /// seconds; whether it came.
     fn came(loads: &mut Loads, key: &ImageKey) -> bool {
@@ -721,8 +938,13 @@ mod tests {
     fn an_image_file_passes_diagrams_waiting_for_a_program() {
         let gated = Gated::default();
         let mut loads = Loads::new();
-        let programs = |names: &[&str]| names.iter().map(|name| diagram(name, true)).collect();
-        loads.start(programs(&["a1", "a2", "a3", "a4"]), context(gated.clone()));
+        let context = Arc::new(context(gated.clone()));
+        let programs = |names: &[&str]| {
+            (names.iter())
+                .map(|name| diagram(name, true, &context))
+                .collect()
+        };
+        start(&mut loads, programs(&["a1", "a2", "a3", "a4"]));
         assert_eq!(gated.until(4).len(), 4);
         // A reload while the four draw, as many as may at once.
         let file = Job {
@@ -732,10 +954,11 @@ mod tests {
                 base: PathBuf::from("/nonexistent"),
             },
             program: false,
+            context: Arc::clone(&context),
         };
         let mut jobs: Vec<Job> = programs(&["b1", "b2", "b3", "b4"]);
         jobs.push(file);
-        loads.start(jobs, context(gated.clone()));
+        start(&mut loads, jobs);
         assert!(came(&mut loads, &"missing.png".into()));
         assert_eq!(gated.started().len(), 4);
         gated.open.store(true, Ordering::SeqCst);
@@ -873,7 +1096,12 @@ mod tests {
         let c = loads.expect("c.png");
         assert_eq!(loads.progress(), Some((1, 3)));
         // A load no longer wanted no longer counts.
-        loads.keep(|key| *key != ImageKey::from("c.png"));
+        let rest = (loads
+            .keys()
+            .filter(|key| **key != ImageKey::from("c.png"))
+            .cloned())
+        .collect::<Vec<_>>();
+        loads.reconcile(rest.into_iter().map(Wanted::Kept).collect());
         assert_eq!(loads.progress(), Some((1, 2)));
         c.come(square());
         b.come(square());
@@ -930,16 +1158,9 @@ mod tests {
                 by_line: true,
             },
             program: true,
+            context: Arc::new(context(Panicking(Arc::clone(&started)))),
         };
-        let context = Context {
-            renderer: Box::new(Panicking(Arc::clone(&started))),
-            theme: Theme::Light,
-            formula: FormulaColors::default(),
-            panel: true,
-            largest: None,
-            max_file_size: crate::images::DEFAULT_MAX_FILE_SIZE,
-        };
-        loads.start(vec![job], context);
+        start(&mut loads, vec![job]);
         let running = || {
             *loads
                 .queue
@@ -999,6 +1220,7 @@ mod tests {
     #[test]
     fn a_load_that_panics_fails_and_the_others_still_load() {
         let mut loads = Loads::new();
+        let context = Arc::new(context(Boom));
         let job = |source: &str| Job {
             key: ImageKey::block("mermaid", source),
             what: What::Diagram {
@@ -1008,17 +1230,10 @@ mod tests {
                 by_line: true,
             },
             program: false,
-        };
-        let context = Context {
-            renderer: Box::new(Boom),
-            theme: Theme::Light,
-            formula: FormulaColors::default(),
-            panel: true,
-            largest: None,
-            max_file_size: crate::images::DEFAULT_MAX_FILE_SIZE,
+            context: Arc::clone(&context),
         };
         // One thread, as no program draws: the second job waits for it.
-        loads.start(vec![job("boom\n"), job("fine\n")], context);
+        start(&mut loads, vec![job("boom\n"), job("fine\n")]);
         let mut came = Vec::new();
         let start = Instant::now();
         while came.len() < 2 && start.elapsed() < Duration::from_secs(5) {
