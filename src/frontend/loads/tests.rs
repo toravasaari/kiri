@@ -32,7 +32,7 @@ fn a_quiet_wait_gives_each_image_as_it_comes_and_ends_when_nothing_loads() {
     });
     let mut came = HashSet::new();
     let over = wait(
-        std::io::sink(),
+        (std::io::sink(), DELAY),
         &mut loads,
         |key, image| {
             assert!(image.is_ok());
@@ -52,7 +52,7 @@ fn a_quiet_wait_gives_each_image_as_it_comes_and_ends_when_nothing_loads() {
 fn a_wait_ends_by_the_signal_and_stops_nothing() {
     let (mut loads, arrivals) = expecting(&["a.png"]);
     let over = wait(
-        std::io::sink(),
+        (std::io::sink(), DELAY),
         &mut loads,
         |_, _| {},
         Line::Quiet,
@@ -69,7 +69,7 @@ fn what_came_before_the_signal_is_given_before_the_wait_ends() {
     arrivals.remove(0).come(square());
     let mut came = Vec::new();
     let over = wait(
-        std::io::sink(),
+        (std::io::sink(), DELAY),
         &mut loads,
         |key, _| came.push(key),
         Line::Quiet,
@@ -83,6 +83,42 @@ fn what_came_before_the_signal_is_given_before_the_wait_ends() {
 #[test]
 fn a_wait_with_nothing_loading_ends_at_once() {
     let mut loads = Loads::new();
-    let over = wait(std::io::sink(), &mut loads, |_, _| {}, Line::Quiet, || None);
+    let over = wait(
+        (std::io::sink(), DELAY),
+        &mut loads,
+        |_, _| {},
+        Line::Quiet,
+        || None,
+    );
     assert!(matches!(over, Over::Done));
+}
+
+#[test]
+fn the_line_of_a_wait_for_diagrams_counts_only_them() {
+    let (mut loads, mut arrivals) = expecting(&["picture.png", "diagram"]);
+    let diagram = arrivals.pop().unwrap();
+    let picture = arrivals.pop().unwrap();
+    picture.come(square());
+    let mut diagram = Some(diagram);
+    let mut out = Vec::new();
+    let line = Line::Diagrams(HashSet::from([ImageKey::from("diagram")]));
+    let over = wait(
+        (&mut out, Duration::ZERO),
+        &mut loads,
+        // The diagram comes after the picture has been given, so that the
+        // line shows the picture's arrival, and not the diagram's.
+        |key, _| {
+            if key == ImageKey::from("picture.png") {
+                diagram.take().unwrap().come(square());
+            }
+        },
+        line,
+        || None,
+    );
+    assert!(matches!(over, Over::Done));
+    let line = crate::term::progress::line(0, 1);
+    assert_eq!(
+        String::from_utf8(out).unwrap(),
+        format!("\r\x1b[2K{line}\r\x1b[2K")
+    );
 }

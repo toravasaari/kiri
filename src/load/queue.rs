@@ -152,6 +152,11 @@ pub struct Job {
 }
 
 impl Job {
+    /// Whether it draws a code block as a diagram.
+    pub fn draws_diagram(&self) -> bool {
+        matches!(self.compute, What::Diagram { .. })
+    }
+
     /// The job of the image file `url`, relative to a directory that does
     /// not exist, so that it fails to load at once, as a reload builds it
     /// with a plain context.

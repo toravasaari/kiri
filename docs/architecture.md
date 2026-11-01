@@ -438,14 +438,20 @@ was loaded at. Other images are kept as they are. What is loaded loads
 in the background, `src/load/queue.rs`, on threads of their own,
 with at most four programs drawing at once, also when reloads overlap;
 while four draw, an image file loads before the diagrams waiting for a
-program. Each load has a stop flag of its own, which `External` looks at
-besides the one for signals.
+program. Each load has a stop flag of its own, which `External` looks at;
+a signal or `q` sets them all.
 
 `src/images/pipeline.rs` builds the renderers from the settings and the
-environment, given as values, and loads a document's images with them;
-`src/frontend/loads.rs` hands it `src/term/progress.rs`, which tells on the
+environment, given as values, and the jobs that load a document's images
+with them; it starts none. The images that load before the pager, which
+print and the pager's first load wait for, go through the same queue:
+`src/frontend/loads.rs` gives the jobs to `Loads::want`, waits in one loop
+that also serves the wait below, and puts the images in the order of the
+document, not the order they came in, so that the warnings come in the
+document's order. The loop tells `src/term/progress.rs`, which shows on the
 terminal how far loading has got when it takes long, and another caller
-may tell it elsewhere. Where the pager surely opens and standard error
+may tell it elsewhere; the line counts the diagrams for the load first, and
+every load for the wait. Where the pager surely opens and standard error
 is a terminal, the wait loads in the background instead, while
 `src/term/keys.rs` reads keys with the terminal in a mode that keeps
 Ctrl-C a signal; Space or Enter hands the loads still under way to the
@@ -726,7 +732,7 @@ The later work that the rows name, in words:
 | `src/images/svg.rs` | mixed | stays. Typesetting: `Svg`, parsing and drawing, and `Fonts`, the database handed in. Platform: `Fonts::system`, which scans the system's fonts. The font database |
 | `src/images/url.rs` | typesetting | moved to `src/typeset/images/url.rs`: `data:` URLs and the reading of a URL's parts, which do no I/O. `read_file`, `decode_file` and `load_url`, which open files, moved to `src/load/url.rs`, where `decode_file` has since been split between `fetch_url` and `load_url` |
 | `src/images/background.rs` | platform | moved to `src/load/queue.rs` |
-| `src/images/pipeline.rs` | platform | stays. Builds the renderers from the settings and the jobs of the images a document wants (`jobs`, which starts none, with the headings and the pictures in text among them), and brings the images up to date for a reload (`reload_in_background`, which sets aside what it cannot keep and stops the load of an image whose file changed, and starts nothing). The pager gives the jobs to `Loads::want` in `src/load/queue.rs`; only the wait before the pager opens (`load_in_background`) reconciles on its own. `planned_keys` tells the keys of the images that would load, which the frontend stands boxes in for to count the document's rows before they do |
+| `src/images/pipeline.rs` | platform | stays. Builds the renderers from the settings and the jobs of the images a document wants (`jobs`, which starts none, with the headings and the pictures in text among them), and brings the images up to date for a reload (`reload_in_background`, which sets aside what it cannot keep and stops the load of an image whose file changed, and starts nothing). It no longer loads anything in the foreground, nor catches signals: `load_documents`, `Loaded` and `Interrupted` are gone, and `src/frontend/loads.rs` gives the jobs to `Loads::want` in `src/load/queue.rs`, as the pager does; only the wait before the pager opens (`load_in_background`) reconciles on its own. `planned_keys` tells the keys of the images that would load, which the frontend stands boxes in for to count the document's rows before they do |
 | `src/images/pipeline/tests.rs` | platform | stays |
 | `src/images/stamps.rs` | platform | stays |
 | `src/images/warnings.rs` | typesetting | moved to `src/typeset/images/warnings.rs`. Makes the `Diagnostic`s for the images and diagrams that did not load, from `ImageKey` and `ImageError` |
@@ -781,7 +787,7 @@ The later work that the rows name, in words:
 | `src/term/window.rs` | mixed | stays. Platform: `window_size`, the ioctl. Terminal layer: `WindowSize`. The terminal layer split |
 | `src/term/screen.rs` | platform | stays |
 | `src/term/screen/tests.rs` | platform | stays |
-| `src/term/progress.rs` | platform | stays |
+| `src/term/progress.rs` | platform | stays. The progress line `kiri: loading images 2/5…` for the one wait loop of `src/frontend/loads.rs`, `until_over`, with or without the hint that Space opens the pager, and the line of `while_waiting`. The line no longer has a thread of its own: `while_working` is gone |
 | `src/term/interrupt.rs` | platform | stays |
 | `src/term/keys.rs` | platform | stays |
 | `src/term/pty.rs` | platform | stays (test support) |

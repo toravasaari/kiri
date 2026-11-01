@@ -10,7 +10,7 @@ use std::io::Read;
 use std::path::PathBuf;
 
 use crate::config::Settings;
-use crate::images::{Format, ImageError, ImageKey, Loaded, Part, Source};
+use crate::images::{Format, ImageError, ImageKey, Part, Source};
 use crate::session::plan;
 use crate::session::state::Look;
 use crate::typeset::caps::Capabilities;
@@ -18,7 +18,7 @@ use crate::typeset::diagnostic::{Code, Diagnostic};
 use crate::typeset::input::Input;
 use crate::typeset::model::{Block, Document};
 
-use super::loads::{load_parts, part, read_image_file};
+use super::loads::{Loaded, load_parts, part, read_image_file};
 use super::open::{Content, Opened, document, image_reader};
 use super::route::{Context, Run};
 use super::{Failure, tell};

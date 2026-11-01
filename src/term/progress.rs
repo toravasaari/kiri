@@ -3,103 +3,14 @@
 //! reader to wonder: with mermaid-cli, a second or more per diagram.
 
 use std::io::Write;
-use std::sync::{Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 /// How long drawing may take before the line shows.
 pub const DELAY: Duration = Duration::from_millis(500);
 
-/// How far the work has got: `done` of `total`, and whether it is over.
-#[derive(Debug, Default)]
-struct State {
-    done: usize,
-    total: usize,
-    finished: bool,
-}
-
-/// What the work tells the line.
-#[derive(Debug, Default)]
-pub struct Progress {
-    state: Mutex<State>,
-    changed: Condvar,
-}
-
-impl Progress {
-    /// `done` of `total` images have loaded.
-    pub fn update(&self, done: usize, total: usize) {
-        let mut state = self.lock();
-        state.done = done;
-        state.total = total;
-        self.changed.notify_all();
-    }
-
-    fn finish(&self) {
-        self.lock().finished = true;
-        self.changed.notify_all();
-    }
-
-    fn lock(&self) -> MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(|error| error.into_inner())
-    }
-
-    /// Writes the line to `out` from when `delay` has passed until the
-    /// work is finished, and then wipes it.
-    fn show(&self, out: &mut impl Write, delay: Duration) {
-        let start = Instant::now();
-        let mut shown = None;
-        let mut state = self.lock();
-        while !state.finished {
-            let waited = start.elapsed();
-            if waited < delay {
-                state = (self.changed.wait_timeout(state, delay - waited))
-                    .unwrap_or_else(|error| error.into_inner())
-                    .0;
-                continue;
-            }
-            let text = (state.total > 0).then(|| line(state.done, state.total));
-            if text.is_some() && text != shown {
-                drop(state);
-                // At the start of the line, over what was there.
-                let _ = write!(out, "\r\x1b[2K{}", text.as_deref().unwrap_or(""));
-                let _ = out.flush();
-                shown = text;
-                state = self.lock();
-                continue;
-            }
-            state = (self.changed.wait(state)).unwrap_or_else(|error| error.into_inner());
-        }
-        drop(state);
-        if shown.is_some() {
-            let _ = write!(out, "\r\x1b[2K");
-            let _ = out.flush();
-        }
-    }
-}
-
 /// The line for `done` of `total` images.
 pub fn line(done: usize, total: usize) -> String {
     format!("kiri: loading images {done}/{total}…")
-}
-
-/// Runs `work`, which tells a `Progress` how far it has got. Once it has
-/// run for `delay`, the line shows on `out`, a terminal, and changes as
-/// the work goes on; it is wiped before `work` returns.
-pub fn while_working<T>(
-    mut out: impl Write + Send,
-    delay: Duration,
-    work: impl FnOnce(&Progress) -> T,
-) -> T {
-    let progress = Progress::default();
-    std::thread::scope(|scope| {
-        let shower = scope.spawn(|| progress.show(&mut out, delay));
-        // Finished also when `work` panics: the scope waits for the line's
-        // thread before it passes the panic on.
-        let finish = Finish(&progress);
-        let result = work(&progress);
-        drop(finish);
-        let _ = shower.join();
-        result
-    })
 }
 
 /// Waits with `wait`, which waits at most the time it is given and tells
@@ -186,18 +97,9 @@ pub fn until_over(
     skipped
 }
 
-/// Tells the line that the work is over when dropped.
-struct Finish<'a>(&'a Progress);
-
-impl Drop for Finish<'_> {
-    fn drop(&mut self) {
-        self.0.finish();
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     use super::*;
 
@@ -208,19 +110,6 @@ mod tests {
     impl Shared {
         fn text(&self) -> String {
             String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
-        }
-
-        /// Waits until the output has `text` in it, for at most 5 s.
-        fn wait_for(&self, text: &str) {
-            let start = Instant::now();
-            while !self.text().contains(text) {
-                assert!(
-                    start.elapsed() < Duration::from_secs(5),
-                    "{:?}",
-                    self.text()
-                );
-                std::thread::sleep(Duration::from_millis(5));
-            }
         }
     }
 
@@ -239,71 +128,6 @@ mod tests {
     #[test]
     fn the_line_counts_the_images() {
         assert_eq!(line(2, 5), "kiri: loading images 2/5…");
-    }
-
-    #[test]
-    fn shows_nothing_for_work_done_in_time() {
-        let out = Shared::default();
-        let result = while_working(out.clone(), Duration::from_secs(3600), |progress| {
-            progress.update(0, 2);
-            progress.update(1, 2);
-            progress.update(2, 2);
-            "done"
-        });
-        assert_eq!(result, "done");
-        assert_eq!(out.text(), "");
-    }
-
-    #[test]
-    fn shows_the_count_once_the_delay_has_passed_and_wipes_it() {
-        let out = Shared::default();
-        while_working(out.clone(), Duration::ZERO, |progress| {
-            progress.update(0, 3);
-            out.wait_for("0/3");
-            progress.update(2, 3);
-            out.wait_for("2/3");
-        });
-        let text = out.text();
-        assert!(
-            text.starts_with(&format!("{WIPE}{}", line(0, 3))),
-            "{text:?}"
-        );
-        assert!(text.contains(&format!("{WIPE}{}", line(2, 3))), "{text:?}");
-        assert!(text.ends_with(&format!("…{WIPE}")), "{text:?}");
-    }
-
-    #[test]
-    fn work_that_panics_ends_the_line_and_passes_the_panic_on() {
-        let out = Shared::default();
-        let (sender, receiver) = std::sync::mpsc::channel();
-        let shown = out.clone();
-        // In a thread of its own, so that a hang fails the test.
-        std::thread::spawn(move || {
-            let result = std::panic::catch_unwind(|| {
-                while_working(shown.clone(), Duration::ZERO, |progress| {
-                    progress.update(0, 1);
-                    shown.wait_for("0/1");
-                    panic!("drawing failed");
-                })
-            });
-            let _ = sender.send(result.is_err());
-        });
-        let panicked = receiver.recv_timeout(Duration::from_secs(5));
-        assert_eq!(panicked, Ok(true));
-        assert!(
-            out.text().ends_with(&format!("…{WIPE}")),
-            "{:?}",
-            out.text()
-        );
-    }
-
-    #[test]
-    fn shows_nothing_without_diagrams() {
-        let out = Shared::default();
-        while_working(out.clone(), Duration::ZERO, |_| {
-            std::thread::sleep(Duration::from_millis(50));
-        });
-        assert_eq!(out.text(), "");
     }
 
     /// A wait that is over after `takes`, on a clock it keeps itself, and

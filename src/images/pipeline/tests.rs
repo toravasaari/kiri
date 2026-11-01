@@ -2,6 +2,7 @@ use std::path::Path;
 
 use super::*;
 use crate::images::{Arrived, ImageError, Source};
+use crate::session::loading::Need;
 use crate::testing::Scratch;
 use crate::typeset::model::Document;
 
@@ -36,6 +37,33 @@ fn want(parts: &[Part<'_>], loading: &Loading, images: &Images, loads: &mut Load
     let keys: Vec<ImageKey> = jobs.iter().map(|job| job.key.clone()).collect();
     let held = |key: &ImageKey| images.get(key).is_some();
     loads.want(&jobs, crate::session::loading::wanted(&keys, &[], held));
+}
+
+/// The images of `parts` as the foreground load before the pager loads
+/// them: the jobs run through `Loads::want`, waited for until nothing
+/// loads, and inserted in the order of the documents. It mirrors
+/// `frontend::loads::load_parts`.
+fn loaded(parts: &[Part<'_>], loading: &Loading) -> Images {
+    let jobs = jobs(parts, loading);
+    let mut loads = Loads::new();
+    loads.want(
+        &jobs,
+        (0..jobs.len()).map(|at| (at, Need::Missing)).collect(),
+    );
+    let mut came = std::collections::HashMap::new();
+    while !loads.is_empty() {
+        loads.wait_by(std::time::Instant::now() + std::time::Duration::from_secs(1));
+        for Arrived { key, image, .. } in loads.poll() {
+            came.insert(key, image);
+        }
+    }
+    let mut images = Images::new();
+    for job in jobs {
+        if let Some(image) = came.remove(&job.key) {
+            images.insert(job.key, image);
+        }
+    }
+    images
 }
 
 /// What the pager does for a reload: [`reload_in_background`] brings
@@ -87,11 +115,13 @@ fn a_program_s_diagram_is_reduced_to_the_largest_size_it_can_be_shown_at() {
         largest: Some((15, 100)),
         headings: None,
     };
-    let loaded = load_documents(&alone(&document, &scratch), &loading, None).unwrap();
-    assert!(loaded.interrupt.is_some());
+    let parts = alone(&document, &scratch);
+    // A program draws a diagram, so the foreground load catches the signals.
+    assert!(jobs(&parts, &loading).iter().any(|job| job.program));
+    let images = loaded(&parts, &loading);
     let key = crate::images::ImageKey::block("mermaid", "flowchart TD\n")
         .with_look(loading.looks().diagram);
-    match loaded.images.get(&key) {
+    match images.get(&key) {
         Some(Ok(Source::Dense { image, css })) => {
             assert_eq!((image.dimensions(), *css), ((15, 8), (20, 10)));
         }
@@ -114,9 +144,9 @@ fn no_diagrams_are_drawn_when_they_are_off() {
         headings: None,
     };
     let parts = alone(&document, Path::new(""));
-    let loaded = load_documents(&parts, &loading, None).unwrap();
-    assert!(loaded.images.is_empty());
-    assert!(loaded.interrupt.is_none());
+    let images = loaded(&parts, &loading);
+    assert!(images.is_empty());
+    assert!(!jobs(&parts, &loading).iter().any(|job| job.program));
 }
 
 /// A PNG of `width` × `height` pixels at `path`, last modified
@@ -155,7 +185,7 @@ fn a_reload_loads_an_image_file_again_only_when_its_modification_time_changed() 
     let document = crate::typeset::parse::parse("![x](a.png)\n");
     let parts = alone(&document, &scratch);
     let mut stamps = Stamps::of(&parts);
-    let mut images = load_documents(&parts, &loading, None).unwrap().images;
+    let mut images = loaded(&parts, &loading);
     assert_eq!(size_of(&images, "a.png"), (4, 2));
 
     // Other content, the same time: the file is taken as it was.
@@ -195,7 +225,7 @@ fn a_reload_in_reading_mode_loads_an_image_in_the_text_again_when_its_file_chang
         ..alone(&document, &scratch)[0]
     }];
     let mut stamps = Stamps::of(&parts);
-    let mut images = load_documents(&parts, &loading, None).unwrap().images;
+    let mut images = loaded(&parts, &loading);
     assert_eq!(size_of(&images, "a.png"), (4, 2));
 
     // The same time: the file is taken as it was.
@@ -233,7 +263,7 @@ fn a_reload_after_reading_mode_came_on_keeps_an_image_in_the_text_whose_file_did
     // Opened as text, then `M` loads what reading mode shows in the text.
     let text = alone(&document, &scratch);
     let mut stamps = Stamps::of(&text);
-    let mut images = load_documents(&text, &loading, None).unwrap().images;
+    let mut images = loaded(&text, &loading);
     let mut loads = Loads::new();
     want(&reading(&text), &loading, &images, &mut loads);
     let came = until(&mut loads, &"a.png".into());
@@ -265,7 +295,7 @@ fn a_reload_loads_an_image_whose_file_was_missing_when_it_appears() {
     let document = crate::typeset::parse::parse("![x](a.png)\n");
     let parts = alone(&document, &scratch);
     let mut stamps = Stamps::of(&parts);
-    let mut images = load_documents(&parts, &loading, None).unwrap().images;
+    let mut images = loaded(&parts, &loading);
     assert!(matches!(images.get(&"a.png".into()), Some(Err(_))));
     write_png(&scratch.join("a.png"), 4, 2, 1000);
     let mut loads = Loads::new();
@@ -324,8 +354,7 @@ fn a_reload_loads_a_diagram_that_failed_again_and_an_image_file_that_failed_it_d
         crate::typeset::parse::parse("![x](missing.png)\n\n```mermaid\nflowchart TD\n```\n");
     let parts = alone(&document, &scratch);
     let mut stamps = Stamps::of(&parts);
-    let loaded = load_documents(&parts, &loading, None).unwrap();
-    let mut images = loaded.images;
+    let mut images = loaded(&parts, &loading);
     let diagram = ImageKey::block("mermaid", "flowchart TD\n").with_look(loading.looks().diagram);
     let missing = ImageKey::from("missing.png");
     assert!(matches!(images.get(&diagram), Some(Err(_))), "{images:?}");
@@ -409,7 +438,7 @@ fn a_reload_in_the_background_keeps_what_it_has_and_loads_the_rest() {
     let before = crate::typeset::parse::parse("![x](a.png)\n");
     let parts = alone(&before, &scratch);
     let mut stamps = Stamps::of(&parts);
-    let mut images = load_documents(&parts, &loading, None).unwrap().images;
+    let mut images = loaded(&parts, &loading);
     let document = crate::typeset::parse::parse("![x](a.png)\n\n```mermaid\none\n```\n");
     let parts = alone(&document, &scratch);
     let mut loads = Loads::new();
@@ -524,7 +553,7 @@ fn a_reload_in_the_background_loads_a_changed_file_again_and_sets_the_old_image_
     let before = crate::typeset::parse::parse("![x](a.png)\n\n![y](b.png)\n");
     let parts = alone(&before, &scratch);
     let mut stamps = Stamps::of(&parts);
-    let mut images = load_documents(&parts, &loading, None).unwrap().images;
+    let mut images = loaded(&parts, &loading);
     write_png(&scratch.join("a.png"), 6, 3, 2000);
     let document = crate::typeset::parse::parse("![x](a.png)\n");
     let parts = alone(&document, &scratch);
@@ -621,7 +650,7 @@ fn the_inline_pictures_load_when_asked_for_and_only_those_that_are_missing() {
     let document = crate::typeset::parse::parse("![alone](f.png)\n\nText ![a](a.png) in a line.\n");
     let parts = alone(&document, &scratch);
     // Without reading mode the lone image is all there is to load.
-    let mut images = load_documents(&parts, &loading, None).unwrap().images;
+    let mut images = loaded(&parts, &loading);
     assert!(images.get(&"f.png".into()).is_some());
     assert!(images.get(&"a.png".into()).is_none());
     let mut loads = Loads::new();
@@ -841,7 +870,7 @@ fn a_reload_starts_a_load_under_way_anew_when_its_file_changed_again() {
     let document = crate::typeset::parse::parse("![x](a.png)\n");
     let parts = alone(&document, &scratch);
     let mut stamps = Stamps::of(&parts);
-    let mut images = load_documents(&parts, &loading, None).unwrap().images;
+    let mut images = loaded(&parts, &loading);
     write_png(&scratch.join("a.png"), 6, 3, 2000);
     let mut loads = Loads::new();
     let old = loads.expect("a.png");
@@ -891,7 +920,7 @@ fn a_reload_carries_on_a_load_under_way_of_an_image_it_holds() {
     let document = crate::typeset::parse::parse("![x](a.png)\n");
     let parts = alone(&document, &scratch);
     let mut stamps = Stamps::of(&parts);
-    let mut images = load_documents(&parts, &loading, None).unwrap().images;
+    let mut images = loaded(&parts, &loading);
     let mut loads = Loads::new();
     let under_way = loads.expect("a.png");
     reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);

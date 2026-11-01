@@ -14,17 +14,19 @@
 //! This is the seed of the platform's work runner. The session that roadmap
 //! item G7.3.3 adds will fill it in and replace the parts that do not fit it.
 
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::config::Settings;
 use crate::images::{
-    Arrived, Fonts, Format, ImageError, ImageKey, Images, Interrupted, Loaded, Loading, Loads,
-    Part, Placeholder, Source, Stamps, reload_in_background,
+    Arrived, Fonts, Format, ImageError, ImageKey, Images, Loading, Loads, Part, Placeholder,
+    Source, Stamps, reload_in_background,
 };
 use crate::pager::{Reload, Reloaded};
 use crate::render::Inputs;
+use crate::session::loading::Need;
 use crate::session::plan;
 use crate::session::state::{Change, Look};
 use crate::term::progress::{DELAY, Step, until_over};
@@ -84,6 +86,9 @@ pub(crate) struct Waited {
 enum Line<'k> {
     /// Nothing is shown, as the wait finishes what the reader skipped.
     Quiet,
+    /// The diagrams among the loads, by key: the line of the images
+    /// loaded first, which counts only them.
+    Diagrams(HashSet<ImageKey>),
     /// Every load, with the hint, while `keys` may skip the rest.
     Skippable(&'k mut WaitKeys),
 }
@@ -101,11 +106,11 @@ enum Over {
 /// Waits for what `loads` load, giving each image to `came` as it comes,
 /// until nothing loads, `signal` tells of one, or with [`Line::Skippable`]
 /// the reader presses Space or Enter. The line is wiped before it
-/// returns. `wait` stops nothing itself, and the caller owns the keys: it
+/// returns; it shows after `delay`. `wait` stops nothing itself, and the caller owns the keys: it
 /// drops them, so that the terminal is as it was, before it stops the
 /// loads on a signal.
 fn wait(
-    out: impl Write,
+    (out, delay): (impl Write, Duration),
     loads: &mut Loads,
     mut came: impl FnMut(ImageKey, Result<Source, ImageError>),
     mut line: Line,
@@ -113,6 +118,7 @@ fn wait(
 ) -> Over {
     let hint = matches!(line, Line::Skippable(_));
     let mut over = Over::Done;
+    let mut diagrams = 0;
     let step = |most: Duration| {
         match &mut line {
             // What comes while it waits for a key stays in the loads.
@@ -122,26 +128,30 @@ fn wait(
                     return Step::Skipped;
                 }
             }
-            Line::Quiet => {
+            Line::Quiet | Line::Diagrams(_) => {
                 if !most.is_zero() {
                     loads.wait_by(Instant::now() + most);
                 }
             }
         }
         for Arrived { key, image, .. } in loads.poll() {
+            if let Line::Diagrams(keys) = &line {
+                diagrams += usize::from(keys.contains(&key));
+            }
             came(key, image);
         }
         if let Some(signal) = signal() {
             over = Over::Signal(signal);
             return Step::Over;
         }
-        match (loads.progress(), hint) {
+        match (loads.progress(), &line) {
             (None, _) => Step::Over,
-            (Some((done, total)), true) => Step::Working(done, total),
-            (Some(_), false) => Step::Working(0, 0),
+            (Some((done, total)), Line::Skippable(_)) => Step::Working(done, total),
+            (Some(_), Line::Diagrams(keys)) => Step::Working(diagrams, keys.len()),
+            (Some(_), Line::Quiet) => Step::Working(0, 0),
         }
     };
-    until_over(out, DELAY, hint, step);
+    until_over(out, delay, hint, step);
     over
 }
 
@@ -172,7 +182,8 @@ pub(crate) fn wait_or_skip(
     let images = &mut inputs.images;
     let came = |key, image| images.insert(key, image);
     let line = Line::Skippable(&mut keys);
-    let over = wait(context.platform.stderr(), &mut loads, came, line, signal);
+    let out = (context.platform.stderr(), DELAY);
+    let over = wait(out, &mut loads, came, line, signal);
     // The terminal as it was, before the pager or the shell takes it.
     drop(keys);
     if let Over::Signal(signal) = over {
@@ -198,7 +209,7 @@ pub(crate) fn finish_loading(
 ) -> Result<Images, Failure> {
     let mut came = Images::new();
     let over = wait(
-        std::io::sink(),
+        (std::io::sink(), DELAY),
         &mut loads,
         |key, image| {
             images.insert(key.clone(), image.clone());
@@ -216,8 +227,22 @@ pub(crate) fn finish_loading(
     Ok(came)
 }
 
-/// The images of the documents in `parts`, loaded and drawn as
-/// `load_images` loads them, whatever the settings say about images.
+/// A document's images, and the guard that caught the signals while
+/// programs drew its diagrams, if any did.
+#[derive(Debug, Default)]
+pub(crate) struct Loaded {
+    pub(crate) images: Images,
+    /// Keeps the signals that the programs were stopped by from ending
+    /// kiri by surprise later: it lives until something else catches them,
+    /// such as the pager's screen, or until kiri ends.
+    pub(crate) interrupt: Option<Interrupt>,
+}
+
+/// The images of the documents in `parts`, loaded through the queue as
+/// the pager's loads are, whatever the settings say about images, in the
+/// order of the documents. When programs draw any of their diagrams,
+/// Ctrl-C, SIGTERM, SIGHUP and Ctrl-\ stop them meanwhile, and are then
+/// the failure. A terminal tells how far the diagrams have got.
 pub(crate) fn load_parts(
     context: &Context,
     parts: &[Part],
@@ -225,18 +250,59 @@ pub(crate) fn load_parts(
     caps: &Capabilities,
 ) -> Result<Loaded, Failure> {
     let loading = loading(context, settings, caps);
+    let jobs = crate::images::jobs(parts, &loading);
+    if jobs.is_empty() {
+        return Ok(Loaded::default());
+    }
+    // Only while a program draws one of the documents' diagrams: they
+    // otherwise end kiri at once, as without diagrams.
+    let interrupt = match jobs.iter().any(|job| job.program) {
+        true => Interrupt::catch(),
+        false => None,
+    };
+    let mut loads = Loads::new();
+    loads.want(
+        &jobs,
+        (0..jobs.len()).map(|at| (at, Need::Missing)).collect(),
+    );
     // Drawing diagrams can take seconds with an external program; a
     // terminal tells how far it has got.
-    let loaded = if context.platform.stderr_is_terminal() {
-        use crate::term::progress::while_working;
-        while_working(context.platform.stderr(), DELAY, |progress| {
-            let tell = |done, total| progress.update(done, total);
-            crate::images::load_documents(parts, &loading, Some(&tell))
-        })
-    } else {
-        crate::images::load_documents(parts, &loading, None)
+    let diagrams = (jobs.iter().filter(|job| job.draws_diagram())).map(|job| job.key.clone());
+    let out: Box<dyn Write + Send + '_> = match context.platform.stderr_is_terminal() {
+        true => context.platform.stderr(),
+        false => Box::new(std::io::sink()),
     };
-    loaded.map_err(|Interrupted(signal)| Failure::Signal(signal))
+    let mut came = HashMap::new();
+    let over = wait(
+        (out, DELAY),
+        &mut loads,
+        |key, image| {
+            came.insert(key, image);
+        },
+        Line::Diagrams(diagrams.collect()),
+        || interrupt.as_ref().and_then(Interrupt::signal),
+    );
+    if let Over::Signal(signal) = over {
+        loads.halt();
+        loads.wait(crate::images::STOPPING);
+        let signal = interrupt
+            .as_ref()
+            .and_then(Interrupt::release)
+            .unwrap_or(signal);
+        return Err(Failure::Signal(signal));
+    }
+    if let Some(signal) = interrupt.as_ref().and_then(Interrupt::release) {
+        return Err(Failure::Signal(signal));
+    }
+    // In the order of the documents, as they were planned and not as they
+    // came.
+    let mut images = Images::new();
+    for job in jobs {
+        if let Some(image) = came.remove(&job.key) {
+            images.insert(job.key, image);
+        }
+    }
+    Ok(Loaded { images, interrupt })
 }
 
 /// What loading images needs to know, for a window with `caps`.

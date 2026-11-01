@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use crate::config::Settings;
-use crate::images::{Loaded, Stamps};
+use crate::images::Stamps;
 use crate::render::Inputs;
 use crate::session::plan::{self, Route};
 use crate::session::settings::{Follow, Paging};
@@ -28,7 +28,7 @@ use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page::Wide;
 
 use super::given::{Drawn, Given, Shown, drawn, given_from, load_given, read_whole};
-use super::loads::{FileReload, part};
+use super::loads::{FileReload, Loaded, part};
 use super::open::{Content, STDIN, open};
 use super::pager::{Opening, page_files};
 use super::print::print_files;
