@@ -5,7 +5,7 @@
 //!
 //! What does not belong here is the content of a report, which the library
 //! makes (`kiri::doctor` and `kiri::list`), nor the showing of a document,
-//! which goes through the same route as a file in `main.rs`.
+//! which goes through the same route as a file, `frontend::show_document`.
 //!
 //! A new report that kiri writes itself goes here, with its content in the
 //! library.
