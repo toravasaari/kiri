@@ -482,7 +482,7 @@ tmux passes OSC 8 links on (the `hyperlinks` terminal feature), and turns
 are then drawn exactly when tmux passes them, whatever the terminal
 answers: `TERM_PROGRAM` and `VTE_VERSION` inherited from outside tmux say
 nothing about tmux. The capabilities then say `tmux_passthrough`, and
-the writer the output goes through (`term::output`, and the pager's
+the writer the output goes through (`term::wrapped`, and the pager's
 screen) wraps each graphics sequence on its way out, so the renderers
 write the same bytes inside tmux as outside it.
 
@@ -618,9 +618,9 @@ The later work that the rows name, in words:
 | Module | Part | After the move |
 |---|---|---|
 | `src/lib.rs` | platform | stays; declares the three parts |
-| `src/main.rs` | platform | stays, and shrinks to the entry point. It reads the command line (`src/cli.rs`), resolves the settings from it, the environment and the configuration file, hands them and the files to `src/frontend/` as `Asked` and `Configured`, and turns the `Failure` it gets back into an exit code. State engine: the startup decisions, such as whether a run pages, are in `src/session/plan.rs`; the front ends read the terminal and the files and pass the answers in |
+| `src/main.rs` | platform | stays, and shrinks to the entry point. It reads the command line (`src/cli.rs`), resolves the settings from it, the environment and the configuration file, hands them and the files to `src/frontend/` as `Asked` and `Configured`, and turns the `Failure` it gets back into an exit code; its `Real` is the `Platform` of the process. State engine: the startup decisions, such as whether a run pages, are in `src/session/plan.rs`; the front ends read the terminal and the files and pass the answers in |
 | `src/loading.rs` | platform | moved to `src/frontend/loads.rs` |
-| `src/frontend/mod.rs` | platform | new. The front ends' module: `Failure`, `Asked` (what the command line asks for) and `Configured` (the settings as `main.rs` resolved them), and what `main.rs` and `src/reports.rs` call: `show_files`, `show_document` and `shown` |
+| `src/frontend/mod.rs` | platform | new. The front ends' module: the `Platform` trait, through which they reach files, standard input and output, the environment and the terminal, and the `Screen` trait, the pager's screen; `Failure`, `Asked` (what the command line asks for) and `Configured` (the settings as `main.rs` resolved them), and what `main.rs` and `src/reports.rs` call: `show_files`, `show_document` and `shown`. `main.rs` implements `Platform` for the process (`Real`); the simulated front end does it in memory |
 | `src/frontend/route.rs` | platform | new. The one route: `show_files` shows one file as the special case of several, with no header, and with reloading, following and the unnamed warnings for it alone; `show_given` chooses between the pager and print; `Context`, `Run` and `Show`; `show_document` shows a report kiri writes itself |
 | `src/frontend/open.rs` | platform | new. Opening a file, the README of a directory or standard input far enough to tell what it is (`Opened`), and `document`, which chooses the parser for its input format |
 | `src/frontend/given.rs` | platform | new. A file ready to show (`Given`, `Shown`, `Drawn`), and loading the images of the documents among the files given |

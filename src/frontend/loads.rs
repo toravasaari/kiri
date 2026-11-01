@@ -13,7 +13,7 @@
 //! This is the seed of the platform's work runner. The session that roadmap
 //! item G7.3.3 adds will fill it in and replace the parts that do not fit it.
 
-use std::io::{self, Read};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::config::Settings;
@@ -30,9 +30,9 @@ use crate::typeset::caps::Capabilities;
 use crate::typeset::input::Input;
 use crate::typeset::model::Document;
 
-use super::Failure;
 use super::open::document;
 use super::route::Context;
+use super::{Failure, Platform};
 
 /// The rows an image or diagram that has not loaded yet counts as, to
 /// tell whether a document is longer than the window before it loads.
@@ -56,7 +56,7 @@ pub(crate) fn surely_paged(
         crate::images::measure_in_background(parts, &loading, &mut inputs.images, ROWS_UNLOADED);
         let stream = crate::typeset::layout::content(content, inputs);
         let rows = crate::pager::rows(&stream.lines, &inputs.caps);
-        let height = crate::term::window_size(io::stdout()).map(|window| window.rows);
+        let height = context.platform.window().map(|window| window.rows);
         plan::Measured { rows, height }
     });
     if !longer {
@@ -90,7 +90,7 @@ pub(crate) fn wait_or_skip(
     settings: &Settings,
     inputs: &mut Inputs,
 ) -> Option<Result<Waited, Failure>> {
-    if !crate::term::stderr_is_terminal() {
+    if !context.platform.stderr_is_terminal() {
         return None;
     }
     let mut keys = crate::term::WaitKeys::open()?;
@@ -108,7 +108,8 @@ pub(crate) fn wait_or_skip(
     };
     let skip = |timeout| keys.skip(timeout);
     let delay = crate::term::progress::DELAY;
-    let skipped = crate::term::progress::until_done_or_skipped(io::stderr(), delay, poll, skip);
+    let skipped =
+        crate::term::progress::until_done_or_skipped(context.platform.stderr(), delay, poll, skip);
     // The terminal as it was, before the pager or the shell takes it.
     drop(keys);
     if signal().is_some() {
@@ -173,9 +174,9 @@ pub(crate) fn load_parts(
     let loading = loading(context, settings, caps);
     // Drawing diagrams can take seconds with an external program; a
     // terminal tells how far it has got.
-    let loaded = if crate::term::stderr_is_terminal() {
+    let loaded = if context.platform.stderr_is_terminal() {
         use crate::term::progress::{DELAY, while_working};
-        while_working(io::stderr(), DELAY, |progress| {
+        while_working(context.platform.stderr(), DELAY, |progress| {
             let tell = |done, total| progress.update(done, total);
             crate::images::load_documents(parts, &loading, Some(&tell))
         })
@@ -192,7 +193,7 @@ pub(crate) fn loading<'a>(
     caps: &Capabilities,
 ) -> Loading<'a> {
     Loading {
-        env: context.env,
+        env: context.platform.environment(),
         settings,
         max_file_size: context.max_file_size,
         theme: crate::diagrams::Theme::for_page(caps.dark_background),
@@ -225,16 +226,16 @@ pub(crate) fn part<'a>(
 
 /// Waits for the programs that drew `loads`, stopped, to end, with a line
 /// on standard error, a terminal, while that takes more than a second.
-pub(crate) fn close_programs(loads: &Loads) {
+pub(crate) fn close_programs(platform: &dyn Platform, loads: &Loads) {
     let limit = crate::images::STOPPING;
     let wait = |most| loads.wait(most);
-    if !crate::term::stderr_is_terminal() {
+    if !platform.stderr_is_terminal() {
         wait(limit);
         return;
     }
     let text = "kiri: closing background programs…";
     let second = std::time::Duration::from_secs(1);
-    crate::term::progress::while_waiting(io::stderr(), second, limit, text, wait);
+    crate::term::progress::while_waiting(platform.stderr(), second, limit, text, wait);
 }
 
 /// Reads the document from its file again for the pager, and loads the
@@ -262,9 +263,9 @@ impl Reload for FileReload<'_> {
     ) -> Reloaded {
         let (path, input) = (self.path.as_path(), self.input);
         // Before the file is read, so that a change meanwhile counts.
-        self.read = look(path).ok();
+        self.read = self.context.platform.look(path).ok();
         // The status line names the file already, so the reasons do not.
-        let source = match read_text(path) {
+        let source = match read_text(self.context.platform, path) {
             Ok(source) => source,
             Err(error) => return Reloaded::Failed(error),
         };
@@ -287,7 +288,7 @@ impl Reload for FileReload<'_> {
     }
 
     fn change(&mut self) -> Change {
-        match look(&self.path) {
+        match self.context.platform.look(&self.path) {
             Ok(look) if Some(look) == self.read => Change::Unchanged,
             Ok(look) => Change::Changed(look),
             Err(why) => Change::Gone(why),
@@ -295,21 +296,13 @@ impl Reload for FileReload<'_> {
     }
 }
 
-/// How the file at `path` looks now, looked up by its path, so that a file
-/// replaced by another, as an editor saves through a rename, counts as
-/// changed; why it cannot be looked at otherwise.
-pub(crate) fn look(path: &Path) -> Result<Look, String> {
-    let metadata = std::fs::metadata(path).map_err(|error| error.to_string())?;
-    Ok(Look {
-        modified: metadata.modified().ok(),
-        length: metadata.len(),
-    })
-}
-
 /// The text of the file at `path`, read whole; why it cannot be read
 /// otherwise.
-fn read_text(path: &Path) -> Result<String, String> {
-    let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
+fn read_text(platform: &dyn Platform, path: &Path) -> Result<String, String> {
+    let mut bytes = Vec::new();
+    (platform.open(path))
+        .and_then(|mut file| file.read_to_end(&mut bytes))
+        .map_err(|error| error.to_string())?;
     String::from_utf8(bytes).map_err(|_| "not UTF-8 text".to_owned())
 }
 

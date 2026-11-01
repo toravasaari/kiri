@@ -8,14 +8,16 @@
 
 use std::cell::Cell;
 use std::io;
+use std::time::{Duration, Instant};
 
 use crate::config::Settings;
 use crate::images::{ImageKey, Images, Loads, Part, Placeholder};
-use crate::pager::Reload;
+use crate::pager::{Reload, Terminal};
 use crate::render::Inputs;
 use crate::session::plan::{self, Load};
 use crate::session::settings::Paging;
 use crate::session::sources::Session;
+use crate::term::WindowSize;
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::model::{Block, Document};
 
@@ -24,9 +26,25 @@ use super::loads::{
     FileReload, ROWS_UNLOADED, close_programs, finish_loading, load_in_background, load_parts,
     loading, part, surely_paged, wait_or_skip, without_path,
 };
-use super::print::held;
+use super::print::Held;
 use super::route::{Context, Show, tell_drawn, told, told_line};
-use super::{Failure, shown};
+use super::{Failure, Screen, shown, tell};
+
+/// The pager's loop takes a terminal of a size it knows; the screen the
+/// platform opens is behind a box.
+impl Terminal for Box<dyn Screen + '_> {
+    fn size(&self) -> Option<WindowSize> {
+        (**self).size()
+    }
+
+    fn read(&mut self, timeout: Duration) -> io::Result<Vec<u8>> {
+        (**self).read(timeout)
+    }
+
+    fn now(&self) -> Instant {
+        (**self).now()
+    }
+}
 
 /// What is left to decide when the pager opens.
 pub(super) struct Opening<'a> {
@@ -82,6 +100,7 @@ pub(super) fn page_files(
         lone,
         failed,
     } = *show;
+    let platform = context.platform;
     let Opening {
         later,
         reading_warning,
@@ -208,10 +227,10 @@ pub(super) fn page_files(
     }
     let tell_before = |number: usize| {
         for warning in &warnings[number] {
-            eprintln!("kiri: {warning}");
+            tell(platform, warning);
         }
         if let Some(error) = &errors[number] {
-            told(failed, error.clone());
+            told(platform, failed, error.clone());
         }
     };
     let told_before = Cell::new(false);
@@ -269,7 +288,7 @@ pub(super) fn page_files(
         context, content, session, inputs, settings, options, opening,
     ) {
         // What the pager would have hidden.
-        (drawn.iter().flatten()).for_each(|drawn| tell_drawn(drawn, failed));
+        (drawn.iter().flatten()).for_each(|drawn| tell_drawn(platform, drawn, failed));
         return shown(result);
     }
     // Printed after all, so the images load first, and what they tell is
@@ -293,16 +312,15 @@ pub(super) fn page_files(
         (true, None) => (vec![Vec::new(); files.len()], None),
     };
     plan::printing(inputs.reading.as_mut().map(|reading| &mut reading.wide));
-    let mut out = crate::term::output(&inputs.caps);
+    let mut out = crate::term::wrapped(platform.stdout(), &inputs.caps);
     let mut apart = false;
-    // Whether kitty did not answer the check of a file's images.
-    let silent = Cell::new(false);
+    let held = Held::new(platform);
     for (number, file) in files.iter().enumerate() {
         if !told_before.get() {
             tell_before(number);
         }
         for warning in &images_told[number] {
-            eprintln!("kiri: {warning}");
+            tell(platform, warning);
         }
         if errors[number].is_some() {
             continue;
@@ -311,12 +329,10 @@ pub(super) fn page_files(
             true => crate::render::render(&file.document, inputs, &mut out),
             false => crate::render::render_file(file, number, apart, inputs, &mut out),
         };
-        shown(
-            rendered.and_then(|sent| held(sent, &inputs.images, &inputs.caps, &silent, &mut out)),
-        )?;
+        shown(rendered.and_then(|sent| held.check(sent, &inputs.images, &inputs.caps, &mut out)))?;
         apart = true;
         if let Some(drawn) = &drawn[number] {
-            tell_drawn(drawn, failed);
+            tell_drawn(platform, drawn, failed);
         }
     }
     Ok(())
@@ -340,27 +356,33 @@ fn page(
     (caught, start): (impl FnOnce(), impl FnOnce(&mut Inputs, &mut Loads)),
 ) -> Option<io::Result<()>> {
     let paging = settings.paging;
-    let terminal = crate::term::stdout_is_terminal() && inputs.caps.styling;
+    let platform = context.platform;
+    let terminal = platform.stdout_is_terminal() && inputs.caps.styling;
     if !terminal || paging == Paging::Never {
         return None;
     }
     let stream = crate::typeset::layout::content(content, inputs);
     let rows = crate::pager::rows(&stream.lines, &inputs.caps);
-    let height = crate::term::window_size(io::stdout()).map(|window| window.rows);
+    let height = platform.window().map(|window| window.rows);
     if !plan::pages(paging, terminal, rows, height) {
         return None;
     }
     // The screen catches the signals before the terminal is raw; the
     // guard, which would otherwise end kiri with the terminal raw, goes
     // then.
-    let Some(mut screen) =
-        crate::term::Screen::open(caught, inputs.caps.tmux_passthrough, settings.mouse)
-    else {
+    let Some(mut screen) = platform.screen(
+        Box::new(caught),
+        inputs.caps.tmux_passthrough,
+        settings.mouse,
+    ) else {
         // Without a terminal to read keys from, as in the background, the
         // document is printed, and the signals still end kiri; only a
         // reader who asked for the pager is told.
         if paging == Paging::Always {
-            eprintln!("kiri: no terminal to read keys from, so the document is printed");
+            tell(
+                platform,
+                "no terminal to read keys from, so the document is printed",
+            );
         }
         return None;
     };
@@ -384,7 +406,7 @@ fn page(
     )
     .map(drop);
     loads.halt();
-    screen.close_then(|| close_programs(&loads));
+    screen.close_then(Box::new(|| close_programs(platform, &loads)));
     // What the pager showed failed, as told before it opens when the
     // images load first: under each file's name among several.
     let stderr = inputs.render_errors.stderr();
@@ -393,7 +415,7 @@ fn page(
             crate::typeset::layout::Content::Files(files) => warning.in_file(&files[number].name),
             crate::typeset::layout::Content::Document(_) => warning,
         };
-        eprintln!("kiri: {warning}");
+        tell(platform, warning);
     }
     Some(result)
 }

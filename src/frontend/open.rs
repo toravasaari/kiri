@@ -6,7 +6,6 @@
 //! decides, nor the guess of its format from its bytes
 //! (`src/typeset/input.rs`).
 
-use std::fs::File;
 use std::io::{self, Cursor, Read};
 use std::path::{Path, PathBuf};
 
@@ -19,7 +18,7 @@ use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::input::Input;
 use crate::typeset::model::Document;
 
-use super::loads::look;
+use super::Platform;
 
 /// What errors and warnings call standard input. Without an extension, so
 /// that the content tells what standard input is, as for such a file.
@@ -41,8 +40,9 @@ pub(super) struct Opened {
 impl Opened {
     /// Whether it is a document read from a regular file, which can be read
     /// again: not an image or a diagram, nor a pipe given by its path.
-    pub(super) fn reloadable(&self) -> bool {
-        !plan::shown_alone(self.input) && (self.file.as_deref()).is_some_and(Path::is_file)
+    pub(super) fn reloadable(&self, platform: &dyn Platform) -> bool {
+        !plan::shown_alone(self.input)
+            && (self.file.as_deref()).is_some_and(|file| platform.is_file(file))
     }
 }
 
@@ -62,18 +62,22 @@ pub(super) enum Content {
 /// Opens the file at `path`, the README of a directory there, or standard
 /// input without one, and tells what it is: an image is read only as far
 /// as that takes, and any other file whole, as text.
-pub(super) fn open(format: Option<Input>, path: Option<&Path>) -> Result<Opened, String> {
+pub(super) fn open(
+    platform: &dyn Platform,
+    format: Option<Input>,
+    path: Option<&Path>,
+) -> Result<Opened, String> {
     let file = match path {
-        Some(dir) if dir.is_dir() => Some(readme(dir)?),
+        Some(dir) if platform.is_dir(dir) => Some(readme(platform, dir)?),
         path => path.map(Path::to_owned),
     };
     let path = file.clone().unwrap_or_else(|| PathBuf::from(STDIN));
     // Before the file is read, so that a change meanwhile counts.
-    let look = file.as_deref().and_then(|file| look(file).ok());
+    let look = file.as_deref().and_then(|file| platform.look(file).ok());
     let failed = |error: io::Error| format!("{}: {error}", path.display());
     let mut reader: Box<dyn Read> = match &file {
-        Some(file) => Box::new(File::open(file).map_err(failed)?),
-        None => Box::new(io::stdin().lock()),
+        Some(file) => platform.open(file).map_err(failed)?,
+        None => platform.stdin(),
     };
     let mut head = Vec::new();
     (&mut reader)
@@ -121,13 +125,14 @@ pub(super) fn open(format: Option<Input>, path: Option<&Path>) -> Result<Opened,
 /// The image that starts with `head` and goes on in `rest`, or, once
 /// `rest` is closed, in `file` opened again from its start.
 pub(super) fn image_reader(
+    platform: &dyn Platform,
     file: Option<&Path>,
     head: Vec<u8>,
     rest: Option<Box<dyn Read>>,
 ) -> io::Result<Box<dyn Read>> {
     Ok(match (rest, file) {
         (Some(rest), _) => Box::new(Cursor::new(head).chain(rest)),
-        (None, Some(file)) => Box::new(File::open(file)?),
+        (None, Some(file)) => platform.open(file)?,
         (None, None) => unreachable!("standard input is never closed"),
     })
 }
@@ -164,10 +169,10 @@ pub(super) fn document(
 }
 
 /// The README the directory `dir` shows: `README.md`, or else `README`.
-pub(super) fn readme(dir: &Path) -> Result<PathBuf, String> {
+pub(super) fn readme(platform: &dyn Platform, dir: &Path) -> Result<PathBuf, String> {
     ["README.md", "README"]
         .iter()
         .map(|name| dir.join(name))
-        .find(|path| path.is_file())
+        .find(|path| platform.is_file(path))
         .ok_or_else(|| format!("{}: no README.md or README", dir.display()))
 }

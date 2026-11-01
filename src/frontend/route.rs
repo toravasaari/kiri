@@ -15,7 +15,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use crate::config::{Environment, Settings};
+use crate::config::Settings;
 use crate::images::{Loaded, Stamps};
 use crate::render::Inputs;
 use crate::session::plan::{self, Route};
@@ -29,17 +29,22 @@ use crate::typeset::reading::page::Wide;
 
 use super::given::{Drawn, Given, Shown, drawn, given_from, load_given, read_whole};
 use super::loads::{FileReload, part};
-use super::open::{Content, Opened, STDIN, open};
+use super::open::{Content, STDIN, open};
 use super::pager::{Opening, page_files};
 use super::print::print_files;
-use super::{Asked, Configured, Failure};
+use super::{Asked, Configured, Failure, Platform, tell};
 
 /// Shows the files that `route` names: one file, the README of a directory,
 /// standard input, or several files, one after another, each under a header
 /// that names it. A file that cannot be shown is told about at its place
 /// among the others, which are still shown; kiri then fails. One file has
 /// no header, and the pager reads it again when it changes.
-pub fn show_files(asked: &Asked, route: Route, configured: Configured) -> Result<(), Failure> {
+pub fn show_files(
+    platform: &dyn Platform,
+    asked: &Asked,
+    route: Route,
+    configured: Configured,
+) -> Result<(), Failure> {
     let lone = route.is_alone();
     let paths: Vec<Option<&Path>> = match route {
         Route::Stdin => vec![None],
@@ -49,7 +54,7 @@ pub fn show_files(asked: &Asked, route: Route, configured: Configured) -> Result
     };
     let mut opened = Vec::new();
     for path in paths {
-        opened.push(match open(asked.format, path) {
+        opened.push(match open(platform, asked.format, path) {
             // Nothing else is shown, so nothing is told before it.
             Err(error) if lone => return Err(error.into()),
             Ok(mut file) => {
@@ -57,7 +62,7 @@ pub fn show_files(asked: &Asked, route: Route, configured: Configured) -> Result
                 // open, so a regular file is closed until it is shown.
                 if let Content::Image { rest, .. } = &mut file.content
                     && !lone
-                    && (file.file.as_deref()).is_some_and(Path::is_file)
+                    && (file.file.as_deref()).is_some_and(|file| platform.is_file(file))
                 {
                     *rest = None;
                 }
@@ -69,13 +74,12 @@ pub fn show_files(asked: &Asked, route: Route, configured: Configured) -> Result
             )),
         });
     }
-    let env = Environment::from_process();
     let shown = || opened.iter().flatten();
     let files = plan::Files {
         route,
         images_only: shown().all(|file| matches!(file.content, Content::Image { .. })),
         alone: shown().all(|file| plan::shown_alone(file.input)),
-        reloadable: shown().any(Opened::reloadable),
+        reloadable: shown().any(|file| file.reloadable(platform)),
         text: shown().any(|file| file.input == Input::Text),
     };
     let Configured { warnings, settings } = configured;
@@ -87,18 +91,18 @@ pub fn show_files(asked: &Asked, route: Route, configured: Configured) -> Result
     };
     settings.paging = plan::paging(settings.paging, &files, settings.follow);
     settings.diagrams = plan::diagrams(settings.diagrams, &files);
-    let context = Context::new(&env, asked.follow, &settings);
-    let caps = crate::term::capabilities(context.mode, context.width, &env, settings.passthrough);
+    let context = Context::new(platform, asked.follow, &settings);
+    let caps = platform.capabilities(context.mode, context.width, settings.passthrough);
     let caps = plan::on_page(caps, settings.paper);
-    let would_page = plan::pages_alone(settings.paging, crate::term::stdout_is_terminal(), &caps);
+    let would_page = plan::pages_alone(settings.paging, platform.stdout_is_terminal(), &caps);
     if plan::tells_warnings(&files, would_page) {
         for warning in &warnings {
-            eprintln!("kiri: {warning}");
+            tell(platform, warning);
         }
     }
     let failed = Cell::new(false);
     if let Some(error) = broken.filter(|_| !files.images_only) {
-        told(&failed, error);
+        told(platform, &failed, error);
     }
     let run = Run {
         context: &context,
@@ -156,7 +160,7 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
         failed,
         ..
     } = run;
-    let terminal = crate::term::stdout_is_terminal() && caps.styling;
+    let terminal = context.platform.stdout_is_terminal() && caps.styling;
     // In the pager, the files are one stream, read whole before it opens.
     let mut paged = terminal && settings.paging != Paging::Never;
     if paged {
@@ -168,7 +172,7 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
     if given.iter().all(Given::is_failed) {
         for given in &given {
             if let Shown::Failed(error) = &given.shown {
-                told(failed, error.clone());
+                told(context.platform, failed, error.clone());
             }
         }
         if failed.get() {
@@ -205,7 +209,7 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
     let asked = plan::tells_reading(context.reading && reading, lone, bare, as_image);
     let reading_warning = plan::reading_warning(asked, &caps);
     if let Some(warning) = &reading_warning {
-        eprintln!("kiri: {warning}");
+        tell(context.platform, warning);
     }
     let mut inputs = Inputs {
         images,
@@ -282,18 +286,18 @@ pub fn shown(result: io::Result<()>) -> Result<(), Failure> {
 }
 
 /// Tells `error`, with which kiri is to fail, as `failed` then holds.
-pub(super) fn told(failed: &Cell<bool>, error: String) {
-    eprintln!("kiri: {error}");
+pub(super) fn told(platform: &dyn Platform, failed: &Cell<bool>, error: String) {
+    tell(platform, error);
     failed.set(true);
 }
 
 /// Tells `drawn`, after its diagram file is shown, and notes in `failed`
 /// whether kiri is to fail for it.
-pub(super) fn tell_drawn(drawn: &Drawn, failed: &Cell<bool>) {
+pub(super) fn tell_drawn(platform: &dyn Platform, drawn: &Drawn, failed: &Cell<bool>) {
     match drawn {
-        Drawn::Failed(error) => told(failed, error.to_string()),
+        Drawn::Failed(error) => told(platform, failed, error.to_string()),
         Drawn::Told => failed.set(true),
-        Drawn::Hint(hint) => eprintln!("kiri: {hint}"),
+        Drawn::Hint(hint) => tell(platform, hint),
         Drawn::Done => {}
     }
 }
@@ -301,9 +305,8 @@ pub(super) fn tell_drawn(drawn: &Drawn, failed: &Cell<bool>) {
 /// What a run of kiri takes from its command line and its environment
 /// below `show_files`, resolved.
 pub(super) struct Context<'a> {
-    /// The environment, which tells where to look for a program that
-    /// draws diagrams, among others.
-    pub(super) env: &'a Environment,
+    /// The files, streams, environment and terminal it works with.
+    pub(super) platform: &'a dyn Platform,
     pub(super) mode: crate::term::Mode,
     /// The width in cells that `--width` asks for.
     pub(super) width: Option<u16>,
@@ -320,9 +323,9 @@ pub(super) struct Context<'a> {
 }
 
 impl<'a> Context<'a> {
-    pub(super) fn new(env: &'a Environment, follow: Follow, settings: &Settings) -> Self {
+    pub(super) fn new(platform: &'a dyn Platform, follow: Follow, settings: &Settings) -> Self {
         Context {
-            env,
+            platform,
             mode: settings.mode,
             width: settings.width,
             max_file_size: settings.max_image_size.0 * crate::images::MB,
@@ -337,7 +340,7 @@ impl<'a> Context<'a> {
     pub(super) fn reading_mode(&self) -> Reading {
         Reading {
             pictures: Default::default(),
-            fonts: Rc::new(crate::typeset::reading::Fonts::system()),
+            fonts: Rc::new(self.platform.reading_fonts()),
             wide: self.wide,
         }
     }
@@ -346,7 +349,7 @@ impl<'a> Context<'a> {
 /// Shows `document`, called `name`, as a report that kiri writes itself
 /// is shown, not a file: on its own, with nothing to read again.
 pub fn show_document(
-    env: &Environment,
+    platform: &dyn Platform,
     follow: Follow,
     name: &str,
     document: Document,
@@ -358,7 +361,7 @@ pub fn show_document(
         images: true,
     };
     let given = Given::new(name.to_owned(), PathBuf::from(name), shown);
-    let context = Context::new(env, follow, &settings);
+    let context = Context::new(platform, follow, &settings);
     let failed = Cell::new(false);
     let run = Run {
         context: &context,

@@ -1,7 +1,7 @@
 //! The terminal itself: finding out what it can do, its window and the
 //! pager's screen. All of kiri's terminal I/O happens here.
 
-use std::io::{StdoutLock, Write};
+use std::io::Write;
 use std::os::fd::AsFd;
 use std::time::Duration;
 
@@ -30,13 +30,8 @@ pub use keys::WaitKeys;
 pub use screen::Screen;
 pub use window::{WindowSize, window_size};
 
-/// Standard output for rendering with `caps`, which wraps kitty's
-/// graphics for tmux when they say so.
-pub fn output(caps: &Capabilities) -> tmux::Wrapping<StdoutLock<'static>> {
-    wrapped(std::io::stdout().lock(), caps)
-}
-
-/// `out` for rendering with `caps`, as [`output`] is for standard output.
+/// `out` for rendering with `caps`, which wraps kitty's graphics for tmux
+/// when they say so.
 pub fn wrapped<W: Write>(out: W, caps: &Capabilities) -> tmux::Wrapping<W> {
     tmux::Wrapping::new(out, caps.tmux_passthrough)
 }

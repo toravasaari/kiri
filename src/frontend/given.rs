@@ -18,26 +18,28 @@ use crate::typeset::diagnostic::{Code, Diagnostic};
 use crate::typeset::input::Input;
 use crate::typeset::model::{Block, Document};
 
-use super::Failure;
 use super::loads::{load_parts, part, read_image_file};
 use super::open::{Content, Opened, document, image_reader};
 use super::route::{Context, Run};
+use super::{Failure, tell};
 
 /// The file `opened`, ready to show; `None` for text that is not shown, as
 /// the configuration file could not be read.
 pub(super) fn given_from(run: &Run, opened: Opened) -> Option<Given> {
     let (settings, caps, lone) = (&run.settings, &run.caps, run.lone);
-    let reload = (lone && opened.reloadable()).then_some((opened.input, opened.look));
+    let reload =
+        (lone && opened.reloadable(run.context.platform)).then_some((opened.input, opened.look));
     // A pipe given by its path is read to its end already, so the images
     // of a document alone from one are relative to the current directory.
     let alone = plan::shown_alone(opened.input);
-    let file = (opened.file).filter(|file| alone || !lone || file.is_file());
+    let platform = run.context.platform;
+    let file = (opened.file).filter(|file| alone || !lone || platform.is_file(file));
     let name = opened.path.display().to_string();
     let mut warnings = Vec::new();
     let warn = |warning: Diagnostic| {
         // On standard error at once for a file alone, and in the pager too.
         if lone {
-            eprintln!("kiri: {warning}");
+            tell(platform, &warning);
         }
         warnings.push(warning);
     };
@@ -79,7 +81,7 @@ pub(super) fn given_from(run: &Run, opened: Opened) -> Option<Given> {
 pub(super) fn read_whole(context: &Context, caps: &Capabilities, mut given: Given) -> Given {
     given.shown = match std::mem::replace(&mut given.shown, Shown::AsIs(String::new())) {
         Shown::Image { format, head, rest } => {
-            let image = image_reader(given.file.as_deref(), head, rest)
+            let image = image_reader(context.platform, given.file.as_deref(), head, rest)
                 .map_err(|error| format!("{}: {error}", given.path.display()))
                 .and_then(|reader| read_image_file(context, caps, &given.path, format, reader));
             match image {
