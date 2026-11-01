@@ -53,8 +53,8 @@ gets the file as it is instead, from `src/frontend/print.rs`.
 
 The document can also come from standard input, which errors call
 `<stdin>`, or from a directory, which stands for its README. Both are
-resolved in `src/frontend/open.rs`, before `src/typeset/input.rs` looks at the bytes, so
-an image piped in is shown on its own as well.
+resolved in `src/frontend/open.rs`, before `src/typeset/input.rs` looks at
+the bytes, so an image piped in is shown on its own as well.
 
 Several files on the command line are shown one after another, each under
 a header that names it. Each is read as it would be on its own, and a file
@@ -130,29 +130,29 @@ warning line;
 blocks of the lines, so the status line names the file at the top of the
 view and `:n` and `:p` move from one file's start to another's; the names
 and the count are those of the sources in the session
-(`src/session/sources.rs`), which `src/frontend/pager.rs` makes from the files given and
-the pager's loop owns, and a reload brings the source's version forward;
-`src/session/status.rs` and `src/session/help.rs` make the status line and the
-help panel as styled spans, and `src/session/warnings.rs` the line of text
-above the status line that tells the first warning; `src/pager/mod.rs` draws each frame, row by
-row through the backend's writer, and lays the document out again when the
-window changes size or when `r` reloads it. For that the pager is given a
-`Reload`, as it is given a `Terminal` for keys: it asks the `Reload` for the
-document and the images again, and keeps its place by the block at the
-top: it compares the old document with the new one, and follows the block
-at the top to the block that stayed or changed from it, so a block added
-above the view does not move it. When the block at the top is gone, the
-view goes to the next block that is still there. A view at the end of the
-document goes to the new end, so a document that grew shows what was
-added. Following on auto then moves the view to a change:
-`src/session/changes.rs` finds the runs of lines whose blocks changed or
-were added, and the place of a removal with neither beside it, and chooses
-one as the follow jump setting says, and `src/session/tint.rs` gives the
-lines of that change a lighter background for a moment, fading out
-through `src/session/fade.rs`. While the pager follows the
-document, it asks the `Reload` on each poll for keys whether the document
-changed, and reads it again once a change still looks the same 100 ms, a
-poll's time, after it was first seen, so that a file caught half written
+(`src/session/sources.rs`), which `src/frontend/pager.rs` makes from the
+files given and the pager's loop owns, and a reload brings the source's
+version forward; `src/session/status.rs` and `src/session/help.rs` make the
+status line and the help panel as styled spans, and
+`src/session/warnings.rs` the line of text above the status line that tells
+the first warning; `src/pager/mod.rs` draws each frame, row by row through
+the backend's writer, and lays the document out again when the window
+changes size or when `r` reloads it. For that the pager is given a `Reload`,
+as it is given a `Terminal` for keys: it asks the `Reload` for the document
+and the images again, and keeps its place by the block at the top: it
+compares the old document with the new one, and follows the block at the top
+to the block that stayed or changed from it, so a block added above the view
+does not move it. When the block at the top is gone, the view goes to the
+next block that is still there. A view at the end of the document goes to
+the new end, so a document that grew shows what was added. Following on auto
+then moves the view to a change: `src/session/changes.rs` finds the runs of
+lines whose blocks changed or were added, and the place of a removal with
+neither beside it, and chooses one as the follow jump setting says, and
+`src/session/tint.rs` gives the lines of that change a lighter background
+for a moment, fading out through `src/session/fade.rs`. While the pager
+follows the document, it asks the `Reload` on each poll for keys whether the
+document changed, and reads it again once a change still looks the same 100
+ms, a poll's time, after it was first seen, so that a file caught half written
 is not shown. The terminal itself, the alternate screen, raw mode and
 reading keys from the controlling terminal, is opened in
 `src/term/screen.rs`.
@@ -183,16 +183,16 @@ the view does not move, and the tint of auto-follow's change stays on
 its blocks; auto-follow jumped already when the text came. A newer
 reload stops the loads whose images the new document no longer shows,
 and `q`, or a signal, stops the programs that draw. `close_programs` in
-`src/frontend/loads.rs` waits for them to end once the pager has left its screen,
-with `kiri: closing background programs…` on standard error while that
+`src/frontend/loads.rs` waits for them to end once the pager has left its
+screen, with `kiri: closing background programs…` on standard error while that
 takes more than a second, but not for merman, which cannot stop. `Images`
 notes which outcomes came in the background; once the pager has left its
 screen, `src/frontend/pager.rs` writes the warnings of those that failed and are
 still shown, as it does before the pager opens for images loaded first.
 
 With `initial_load = "background"`, the initial load goes the same way when
-the pager surely opens. With paging on `auto`, `src/frontend/loads.rs` tells that
-by laying the documents out with a box of three rows,
+the pager surely opens. With paging on `auto`, `src/frontend/loads.rs` tells
+that by laying the documents out with a box of three rows,
 `Placeholder::Rows`, for each image not loaded yet; a document that fits
 loads its images first, as with `wait`. Otherwise it opens the screen and
 then starts every image of the documents loading in the pager's `Loads`,
@@ -558,11 +558,11 @@ private. The fourth part, the platform, is `src/main.rs`, the front ends in
   and its decisions, and the components and panels that the pager is made
   of.
 - **The platform:** `src/main.rs`, `src/frontend/` and the rest of `src/`
-  outside the three part directories. It owns all the I/O: the command line and the settings
-  files, the front ends (interactive and print), the work runner (threads,
-  programs, watchers) and `term/`, where kiri talks to the terminal.
-  `main.rs` reads the command line and starts the front ends, which wire
-  the parts together.
+  outside the three part directories. It owns all the I/O: the command line
+  and the settings files, the front ends (interactive and print), the work
+  runner (threads, programs, watchers) and `term/`, where kiri talks to the
+  terminal. `main.rs` reads the command line and starts the front ends,
+  which wire the parts together.
 
 Each part uses only the parts above it in this list: the typesetting
 engine uses none of the others, the terminal layer uses the typesetting
@@ -625,7 +625,7 @@ The later work that the rows name, in words:
 | `src/frontend/open.rs` | platform | new. Opening a file, the README of a directory or standard input far enough to tell what it is (`Opened`), and `document`, which chooses the parser for its input format |
 | `src/frontend/given.rs` | platform | new. A file ready to show (`Given`, `Shown`, `Drawn`), and loading the images of the documents among the files given |
 | `src/frontend/pager.rs` | platform | new. The interactive front end: `page_files` gathers the files into one stream, loads their images first or in the background and runs the pager's loop on the terminal's screen, and prints them after all where it does not open |
-| `src/frontend/print.rs` | platform | new. The print front end: `print_files`, each file under its header as it comes, and `held`, which makes sure kitty holds the images that were sent |
+| `src/frontend/print.rs` | platform | new. The print front end: `print_files`, each file under its header as it comes, and `Held`, whose `check` makes sure kitty holds the images that were sent (the pager's print fallback uses it too) |
 | `src/frontend/loads.rs` | platform | moved from `src/loading.rs`. Loading a document's images and diagrams in the foreground, on threads and in the background, and reloading its file for the pager: the loads and `FileReload`. The front ends call them. Its seed is the work runner that roadmap item G7.3.3 fills in |
 | `src/frontend/sim.rs` | platform | moved from `src/pager/sim.rs`; test support. The simulated front end: a terminal on a virtual clock, files in memory and background loads that come when a script says, which run the loop in `src/pager/mod.rs` through its `Terminal` and `Reload` traits, or the whole route through `SimPlatform`, its `Platform`, and give back the bytes written to the terminal and to standard error. It asks `Pager::wait` how long the pager waits for keys and moves the clock by that, so a test runs without a pseudo-terminal and without waiting. A screen model that reads the bytes, which knows kitty, comes later |
 | `src/frontend/tests/mod.rs`, `route.rs`, `close.rs` | follows `frontend/` | new. The route's tests: `show_files` run in the simulated front end, for one file, several, standard input, a missing file, `r` and paging without keys; and `close`, which ends the pager: it leaves the screen first and then waits for the programs |
@@ -839,9 +839,9 @@ The crossings in the list fall into these kinds:
 
 The test reads files by directory, so it does not see the crossings inside
 a mixed module, which are the pieces of a file such as
-`render/loading.rs` or `term/detect.rs` that reach another part. They are in the table below,
-with the work that removes each. The test does not hold them, so this table
-is the record of them.
+`render/loading.rs` or `term/detect.rs` that reach another part. They are in
+the table below, with the work that removes each. The test does not hold
+them, so this table is the record of them.
 
 | Crossing inside a mixed module, not seen by the test | Removed by |
 |---|---|
@@ -880,8 +880,9 @@ The paths marked new are for the maintainer to confirm.
 
 ### What `main.rs` is
 
-`src/main.rs` is the binary's entry point: some 110 lines, with the
-command line in `src/cli.rs`. It reads the command line, resolves the
+`src/main.rs` is the binary's entry point: some 200 lines, with the
+command line in `src/cli.rs`. It implements `Platform` for the process
+(`Real`), reads the command line, resolves the
 settings and hands them to the front ends in `src/frontend/`, which open
 files and standard input, have one route in which a single file is the
 special case of several, print documents, start the pager, and load the
