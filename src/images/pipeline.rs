@@ -9,13 +9,13 @@ use std::sync::Arc;
 
 use super::plan;
 use super::{
-    Fonts, HeadingLook, ImageKey, Images, LoadOptions, Loads, Looks, Part, Placeholder, Stamps,
-    Wanted, diagram_languages, diagram_look,
+    Fonts, HeadingLook, ImageKey, Images, Job, LoadOptions, Loads, Looks, Part, Placeholder,
+    Stamps, Wanted, diagram_languages, diagram_look,
 };
 use crate::config::{self, Environment, Settings};
 use crate::diagrams::find::{self, Search};
 use crate::diagrams::{Command, ExternalSettings, FormulaColors, NoRenderer, Renderer, Theme};
-use crate::load::queue::{Context, Fetch, Job, Wanted as Entry, What};
+use crate::load::queue::{Context, Fetch, Wanted as Entry, What};
 use crate::load::{Renderers, load_parts};
 use crate::term::Interrupt;
 
@@ -154,6 +154,32 @@ pub fn reload_in_background(
     *images = kept;
 }
 
+/// The jobs that load the images of `parts`, as a load in the background
+/// does them, in the order of the documents: their images, diagrams and
+/// headings, and those in the middle of text for a part that reads them.
+/// Nothing starts: the caller says which of them load, as
+/// [`Loads::want`] does.
+pub fn jobs(parts: &[Part<'_>], loading: &Loading) -> Vec<Job> {
+    let renderers = background_renderers(loading);
+    let renderer: &dyn Renderer = match &renderers {
+        Some(renderers) => renderers,
+        None => &NoRenderer,
+    };
+    let looks = loading.looks();
+    let (wanted, _) = plan(parts, renderer, &looks, None);
+    let programs = programs(&wanted, renderers.as_ref());
+    let context = Arc::new(context(loading, renderers));
+    let jobs = wanted
+        .into_iter()
+        .zip(programs)
+        .map(|((index, image), program)| {
+            let part = &parts[index];
+            let key = image.key(&looks).in_document(part.number);
+            job(part, key, image, program, &context, loading)
+        });
+    jobs.collect()
+}
+
 /// Starts loading every image of `parts` in the background in `loads`,
 /// as a reload loads a new one, for the documents shown first: each has
 /// nothing that tells its size standing in for it in `images` until it
@@ -167,26 +193,12 @@ pub fn load_in_background(
     images: &mut Images,
     loads: &mut Loads,
 ) {
-    let renderers = background_renderers(loading);
-    let renderer: &dyn Renderer = match &renderers {
-        Some(renderers) => renderers,
-        None => &NoRenderer,
-    };
-    let looks = loading.looks();
-    let (wanted, _) = plan(parts, renderer, &looks, None);
-    let programs = programs(&wanted, renderers.as_ref());
-    let context = Arc::new(context(loading, renderers));
-    let mut jobs = Vec::new();
-    for ((index, image), program) in wanted.into_iter().zip(programs) {
-        let part = &parts[index];
-        let key = image.key(&looks).in_document(part.number);
-        images.wait(key.clone(), Placeholder::Unsized);
-        images.shown.push(key.clone());
-        jobs.push(Entry::Again(job(
-            part, key, image, program, &context, loading,
-        )));
+    let jobs = jobs(parts, loading);
+    for job in &jobs {
+        images.wait(job.key.clone(), Placeholder::Unsized);
+        images.shown.push(job.key.clone());
     }
-    loads.reconcile(loads.adding(jobs));
+    loads.reconcile(loads.adding(jobs.into_iter().map(Entry::Again).collect()));
 }
 
 /// Starts loading the heading images of `parts`, drawn as `look` says,

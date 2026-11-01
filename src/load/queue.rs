@@ -17,6 +17,7 @@ use crate::images::{
     Fonts, HeadingWord, ImageError, ImageKey, LevelLook, LoadOptions, Source, draw_heading,
 };
 use crate::load::url::{Fetched, fetch_url};
+use crate::session::loading::Need;
 use crate::session::state::Look;
 use crate::typeset::images::decode::decode_named;
 use crate::typeset::images::drawn::finish_diagram;
@@ -148,7 +149,8 @@ pub(crate) enum What {
 /// One image to load: its key, what is read before computing it, what it
 /// is, whether a program outside kiri draws it, and what loading it needs
 /// besides, which the jobs of one call share.
-pub(crate) struct Job {
+#[derive(Clone)]
+pub struct Job {
     pub(crate) key: ImageKey,
     /// What is read first; `None` when the job holds all it needs, as a
     /// diagram's source or a heading's words.
@@ -434,6 +436,24 @@ impl Loads {
             (self.done, self.total) = (0, 0);
         }
         self.begin(jobs);
+    }
+
+    /// Starts and stops the loads so that those of the images `wanted`
+    /// names are under way: each is a place in `jobs` and what it needs.
+    /// An image that is `Kept`, or `Missing` with a load of it under way,
+    /// carries on; a `Missing` one with none starts, from a copy of its
+    /// job; and the loads of the images that `wanted` does not name stop.
+    /// The images of `jobs` that `wanted` leaves out are not wanted.
+    pub fn want(&mut self, jobs: &[Job], wanted: Vec<(usize, Need)>) {
+        let entries = (wanted.into_iter())
+            .map(|(at, need)| match need {
+                Need::Missing if !self.running.contains_key(&jobs[at].key) => {
+                    Wanted::Missing(jobs[at].clone())
+                }
+                Need::Kept | Need::Missing => Wanted::Kept(jobs[at].key.clone()),
+            })
+            .collect();
+        self.reconcile(entries);
     }
 
     /// `wanted`, and a `Kept` entry for every load under way that it does
@@ -992,6 +1012,51 @@ mod tests {
         a.come(square());
         assert_eq!(loads.poll().len(), 1);
         assert_eq!(loads.progress(), None);
+    }
+
+    #[test]
+    fn wanting_keeps_loads_under_way_starts_the_missing_and_stops_the_rest() {
+        let mut loads = Loads::new();
+        let (under_way, other, gone) = (
+            loads.expect("under-way.png"),
+            loads.expect("other.png"),
+            loads.expect("gone.png"),
+        );
+        let id = id_of(&loads, "under-way.png");
+        let jobs = [
+            Job::file("held.png"),
+            Job::file("under-way.png"),
+            Job::file("new.png"),
+            Job::file("other.png"),
+        ];
+        let wanted = vec![
+            (0, Need::Kept),
+            (1, Need::Missing),
+            (2, Need::Missing),
+            (3, Need::Kept),
+        ];
+        loads.want(&jobs, wanted);
+        // A load under way carries on whether it is kept or missing, with
+        // the number it had; the one that nothing names stops.
+        assert!(!under_way.stopped() && !other.stopped());
+        assert!(gone.stopped());
+        assert_eq!(id_of(&loads, "under-way.png"), id);
+        assert!(loads.loading(&"other.png".into()));
+        assert!(!loads.loading(&"gone.png".into()));
+        // What is kept and not under way does not start; what is missing
+        // does.
+        assert!(!loads.loading(&"held.png".into()));
+        assert!(loads.loading(&"new.png".into()));
+        assert_eq!(loads.progress(), Some((0, 3)));
+    }
+
+    #[test]
+    fn wanting_nothing_stops_every_load() {
+        let mut loads = Loads::new();
+        let a = loads.expect("a.png");
+        loads.want(&[Job::file("a.png")], Vec::new());
+        assert!(a.stopped());
+        assert!(loads.is_empty());
     }
 
     #[test]

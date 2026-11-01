@@ -863,3 +863,44 @@ fn a_reload_carries_on_a_load_under_way_of_an_image_it_holds() {
     assert!(!under_way.stopped());
     assert!(loads.loading(&"a.png".into()));
 }
+
+#[test]
+fn the_jobs_of_the_parts_are_their_heading_image_and_diagram_in_the_order_of_the_documents() {
+    let settings = settings(&["/bin/false"]);
+    let env = Environment::default();
+    let loading = Loading {
+        headings: Some(heading_look()),
+        ..plain_loading(&env, &settings)
+    };
+    let document = crate::typeset::parse::parse(MEASURED);
+    let parts = alone(&document, Path::new("."));
+    let jobs = jobs(&parts, &loading);
+    let keys: Vec<ImageKey> = jobs.iter().map(|job| job.key.clone()).collect();
+    assert_eq!(keys, planned_keys(&parts, &loading));
+    assert_eq!(keys.len(), 3, "{keys:?}");
+    assert!(matches!(jobs[0].compute, What::Heading { .. }), "{jobs:?}");
+    assert!(jobs[0].fetch.is_none());
+    assert!(matches!(jobs[1].compute, What::Decode), "{jobs:?}");
+    assert!(jobs[1].fetch.is_some());
+    assert!(matches!(jobs[2].compute, What::Diagram { .. }), "{jobs:?}");
+    // Nothing started, and no heading without a look.
+    let without = plain_loading(&env, &settings);
+    assert_eq!(super::jobs(&parts, &without).len(), 2);
+}
+
+#[test]
+fn the_jobs_of_a_part_include_the_pictures_in_text_only_when_it_reads_them() {
+    let settings = settings(&["/bin/false"]);
+    let env = Environment::default();
+    let loading = plain_loading(&env, &settings);
+    let document = crate::typeset::parse::parse("![alone](f.png)\n\nText ![a](a.png) in a line.\n");
+    let mut parts = alone(&document, Path::new("."));
+    let keys = |parts: &[Part]| -> Vec<String> {
+        (jobs(parts, &loading).iter())
+            .map(|job| job.key.to_string())
+            .collect()
+    };
+    assert_eq!(keys(&parts), ["f.png"]);
+    parts[0].inline_images = true;
+    assert_eq!(keys(&parts), ["f.png", "a.png"]);
+}

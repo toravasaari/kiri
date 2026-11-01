@@ -30,7 +30,7 @@ pub(crate) mod svg;
 
 #[cfg(test)]
 pub(crate) use crate::load::queue::{Arrival, Gated};
-pub use crate::load::queue::{Arrived, Loads, STOPPING};
+pub use crate::load::queue::{Arrived, Job, Loads, STOPPING};
 pub use crate::typeset::images::{
     CodeLook, DEFAULT_MAX_FILE_SIZE, Format, HeadingLook, HeadingWord, ImageError, ImageKey,
     Images, LevelLook, LoadOptions, Looks, MB, Part, Placeholder, Source, decode,
@@ -38,8 +38,8 @@ pub use crate::typeset::images::{
 };
 pub(crate) use crate::typeset::images::{Wanted, plan};
 pub use pipeline::{
-    Interrupted, Loaded, Loading, load_documents, load_headings_in_background, load_in_background,
-    load_inline_in_background, planned_keys, reload_in_background,
+    Interrupted, Loaded, Loading, jobs, load_documents, load_headings_in_background,
+    load_in_background, load_inline_in_background, planned_keys, reload_in_background,
 };
 pub use stamps::Stamps;
 pub use svg::{EMOJI, Fonts, SCRIPTS, Svg, installed};
