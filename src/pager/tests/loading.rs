@@ -680,7 +680,10 @@ fn started_in(reads: &[&[u8]], first: usize, open: usize) -> Vec<String> {
     let hooked = gated.clone();
     terminal.hook = Some(Box::new(move |read| {
         if read == first {
-            hooked.until(1);
+            // The jobs are told their order before the frame is drawn, not
+            // only at the first poll after the wait for keys.
+            let started = hooked.until(1);
+            assert!(!started.is_empty(), "no load started by read {first}");
         } else if read == open {
             hooked.open.store(true, std::sync::atomic::Ordering::SeqCst);
             hooked.until(3);

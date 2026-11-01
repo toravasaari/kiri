@@ -216,6 +216,20 @@ impl Wanted {
     }
 }
 
+/// `wanted` with only the last entry of each key, each at its own place: a
+/// later entry wins over an earlier one, as a newer job of a key wins over
+/// a load of it under way.
+fn last_per_key(wanted: Vec<Wanted>) -> Vec<Wanted> {
+    let mut seen = HashSet::new();
+    let mut last: Vec<Wanted> = wanted
+        .into_iter()
+        .rev()
+        .filter(|entry| seen.insert(entry.key().clone()))
+        .collect();
+    last.reverse();
+    last
+}
+
 /// What loading the jobs of one call of an entry point needs, besides each
 /// job.
 pub(crate) struct Context {
@@ -382,7 +396,15 @@ impl Loads {
     /// those that are `Kept` or `Missing` and under way carry on, and those
     /// that are `Again` start anew, the one under way giving way. The new
     /// ones wait behind the jobs that wait, in the order of the list.
+    ///
+    /// A key is named once. Nobody relies on more: in a debug build a list
+    /// that names a key twice panics, and in a release build only the last
+    /// entry of the key counts, at its place; the earlier jobs are dropped
+    /// unstarted.
     pub(crate) fn reconcile(&mut self, wanted: Vec<Wanted>) {
+        let count = wanted.len();
+        let wanted = last_per_key(wanted);
+        debug_assert!(wanted.len() == count, "a reconcile list names a key twice");
         let named: HashSet<ImageKey> = wanted.iter().map(|entry| entry.key().clone()).collect();
         let before = self.running.len();
         self.running.retain(|key, running| {
@@ -1019,6 +1041,64 @@ mod tests {
             "{arrived:?}"
         );
         assert!(loads.is_empty());
+    }
+
+    /// The entries as (kind, key), to compare lists with.
+    fn shape(wanted: &[Wanted]) -> Vec<(&'static str, String)> {
+        let kind = |entry: &Wanted| match entry {
+            Wanted::Kept(_) => "kept",
+            Wanted::Missing(_) => "missing",
+            Wanted::Again(_) => "again",
+        };
+        (wanted.iter())
+            .map(|entry| (kind(entry), entry.key().to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn the_last_entry_of_a_key_stays_at_its_own_place() {
+        let wanted = vec![
+            Wanted::Missing(Job::file("a.png")),
+            Wanted::Missing(Job::file("b.png")),
+            Wanted::Again(Job::file("a.png")),
+            Wanted::Kept("c.png".into()),
+        ];
+        let kept = last_per_key(wanted);
+        assert_eq!(
+            shape(&kept),
+            [
+                ("missing", "b.png".to_string()),
+                ("again", "a.png".to_string()),
+                ("kept", "c.png".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_list_without_a_key_twice_is_left_as_it_is() {
+        let wanted = vec![
+            Wanted::Kept("b.png".into()),
+            Wanted::Missing(Job::file("a.png")),
+        ];
+        let kept = last_per_key(wanted);
+        assert_eq!(
+            shape(&kept),
+            [
+                ("kept", "b.png".to_string()),
+                ("missing", "a.png".to_string()),
+            ]
+        );
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "twice")]
+    fn reconciling_a_list_that_names_a_key_twice_is_a_mistake_of_the_caller() {
+        let mut loads = Loads::new();
+        loads.reconcile(vec![
+            Wanted::Missing(Job::file("a.png")),
+            Wanted::Missing(Job::file("a.png")),
+        ]);
     }
 
     #[test]
