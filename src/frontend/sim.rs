@@ -469,7 +469,6 @@ impl Sim {
         self
     }
 
-    /// No terminal to read keys from, as in the background.
     /// Has the signal arrive, caught for real, in the very read of keys
     /// that skips the wait before the pager. For a process of its own.
     pub(crate) fn raising_on_skip(mut self, signal: i32) -> Self {
@@ -477,6 +476,7 @@ impl Sim {
         self
     }
 
+    /// No terminal to read keys from, as in the background.
     pub(crate) fn no_keys(mut self) -> Self {
         self.keyless = true;
         self
