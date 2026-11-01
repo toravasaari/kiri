@@ -24,6 +24,9 @@ use kiri::typeset::reading::page::Wide;
 /// Render a Markdown document, or show an image, in the terminal.
 #[derive(Parser)]
 #[command(
+    // The program's name, not the package's: --version and the completion
+    // scripts tell it.
+    name = "kiri",
     version,
     // Longer lines are hard to read, also in a wide terminal.
     max_term_width = 100,
@@ -221,9 +224,7 @@ pub fn completions(
     shell: Completions,
     out: &mut dyn Write,
 ) -> Result<(), Failure> {
-    // The package is called kiri-md, but the program is kiri.
-    let name = "kiri";
-    *command = std::mem::take(command).name(name).bin_name(name);
+    let name = command.get_name().to_owned();
     // clap_complete panics when a write fails, as in a closed pipe, so the
     // script is written once; a closed pipe is no failure, as with a document.
     let mut script = Vec::new();

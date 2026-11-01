@@ -90,3 +90,23 @@ fn a_closed_pipe_is_not_an_error() {
     assert!(out.status.success(), "{}", text(&out.stderr));
     assert!(text(&out.stderr).is_empty(), "{}", text(&out.stderr));
 }
+
+/// The scripts are for the program `kiri`, not for the package's name.
+#[test]
+fn the_script_registers_kiri() {
+    let out = run(&["--completions", "bash"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let script = text(&out.stdout);
+    assert!(script.contains("complete -F _kiri"), "{script}");
+    assert!(!script.contains("kiri-md"), "{script}");
+    assert!(!script.contains("kiri__md"), "{script}");
+}
+
+/// `kiri --version` tells the program's name and its version.
+#[test]
+fn the_version_is_kiri_and_its_number() {
+    let out = run(&["--version"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    let expected = format!("kiri {}\n", env!("CARGO_PKG_VERSION"));
+    assert_eq!(text(&out.stdout), expected);
+}
