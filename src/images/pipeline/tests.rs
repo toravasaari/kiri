@@ -786,3 +786,28 @@ fn a_reload_starts_a_load_under_way_anew_when_its_file_changed_again() {
         "{came:?}"
     );
 }
+
+/// A document with a heading, an image file and a diagram, and a loading
+/// that draws the heading as an image.
+const MEASURED: &str = "# Kiri\n\n![x](a.png)\n\n```mermaid\none\n```\n";
+
+#[test]
+fn the_images_planned_for_paging_are_those_loading_in_the_background_waits_for() {
+    let scratch = Scratch::new("pipeline-measured");
+    write_png(&scratch.join("a.png"), 4, 2, 1000);
+    let settings = settings(&["/bin/false"]);
+    let env = Environment::default();
+    let loading = Loading {
+        headings: Some(heading_look()),
+        ..plain_loading(&env, &settings)
+    };
+    let document = crate::typeset::parse::parse(MEASURED);
+    let parts = alone(&document, &scratch);
+    let planned = planned_keys(&parts, &loading);
+    let mut waited = Images::new();
+    let mut loads = Loads::new();
+    load_in_background(&parts, &loading, &mut waited, &mut loads);
+    loads.halt();
+    assert_eq!(waited.shown.len(), 3, "a heading, an image and a diagram");
+    assert_eq!(planned, waited.shown);
+}

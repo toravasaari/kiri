@@ -287,27 +287,17 @@ pub fn load_inline_in_background(
     loads.reconcile(loads.adding(jobs));
 }
 
-/// Stands in for every image of `parts` that [`load_in_background`] would
-/// load with a box of `rows` rows in `images`, to tell how tall the
-/// documents are before their images load, such as whether they are
-/// longer than the window.
-pub fn measure_in_background(
-    parts: &[Part<'_>],
-    loading: &Loading,
-    images: &mut Images,
-    rows: u16,
-) {
+/// The keys of the images of `parts` that [`load_in_background`] would
+/// load, in the order of the documents, to tell how tall the documents are
+/// before their images load, such as whether they are longer than the
+/// window: the caller stands a box in for each.
+pub fn planned_keys(parts: &[Part<'_>], loading: &Loading) -> Vec<ImageKey> {
     let renderers = background_renderers(loading);
     let renderer: &dyn Renderer = match &renderers {
         Some(renderers) => renderers,
         None => &NoRenderer,
     };
-    let looks = loading.looks();
-    let (wanted, _) = plan(parts, renderer, &looks, None);
-    for (index, image) in wanted {
-        let key = image.key(&looks).in_document(parts[index].number);
-        images.wait(key, Placeholder::Rows(rows));
-    }
+    crate::typeset::images::plan::keys(parts, renderer, &loading.looks())
 }
 
 /// The renderers the settings choose for drawing diagrams in the

@@ -709,7 +709,7 @@ The later work that the rows name, in words:
 | `src/images/svg.rs` | mixed | stays. Typesetting: `Svg`, parsing and drawing, and `Fonts`, the database handed in. Platform: `Fonts::system`, which scans the system's fonts. The font database |
 | `src/images/url.rs` | typesetting | moved to `src/typeset/images/url.rs`: `data:` URLs and the reading of a URL's parts, which do no I/O. `read_file`, `decode_file` and `load_url`, which open files, moved to `src/load/url.rs`, where `decode_file` has since become part of `fetch_url` |
 | `src/images/background.rs` | platform | moved to `src/load/queue.rs` |
-| `src/images/pipeline.rs` | platform | stays |
+| `src/images/pipeline.rs` | platform | stays. Builds the renderers from the settings and the jobs of the images a document wants, and hands them to `Loads::reconcile` in `src/load/queue.rs`: a reload, the first load, the headings and the pictures in text each make their list of what is wanted. `planned_keys` tells the keys of the images that would load, which the frontend stands boxes in for to count the document's rows before they do |
 | `src/images/pipeline/tests.rs` | platform | stays |
 | `src/images/stamps.rs` | platform | stays |
 | `src/images/warnings.rs` | typesetting | moved to `src/typeset/images/warnings.rs`. Makes the `Diagnostic`s for the images and diagrams that did not load, from `ImageKey` and `ImageError` |
@@ -801,7 +801,7 @@ three came later and are test only.
 | `src/typeset/images/error.rs` | new: `ImageError`, why an image could not be loaded, and `size`, a size limit in words |
 | `src/typeset/images/store.rs` | new: `Images`, every image of a document by its key, loaded or not, and `Placeholder`, what stands in for one that is loading |
 | `src/typeset/images/options.rs` | new: `LoadOptions`, how a document's images are loaded and its diagrams drawn, and `Part`, one of the documents shown together |
-| `src/typeset/images/plan.rs` | new: the plan of which images a document wants: `plan`, `Wanted`, `collect_blocks`, `inline_images`, `shown_urls` and `diagram_languages` |
+| `src/typeset/images/plan.rs` | new: the plan of which images a document wants: `plan`, `Wanted`, `collect_blocks`, `inline_images`, `shown_urls`, `keys` and `diagram_languages` |
 | `src/typeset/diagrams/request.rs` | new: `Theme`, `FormulaColors`, `INLINE_FORMULA`, `Drawn` and `Request`, what a renderer is spoken to in |
 | `src/typeset/diagrams/renderer.rs` | new: the `Renderer` trait with `render_one_by_one`, `BuiltIn`, `NoRenderer` and `baseline_depth` |
 | `src/typeset/diagrams/names.rs` | new: what kiri says of a language by its name: `theme_name`, `display_name`, `extension`, `chosen_theme`, `dark_background`, `noun`, `name` and `centred` |

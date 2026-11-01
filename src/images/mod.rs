@@ -39,7 +39,7 @@ pub use crate::typeset::images::{
 pub(crate) use crate::typeset::images::{Wanted, plan};
 pub use pipeline::{
     Interrupted, Loaded, Loading, load_documents, load_headings_in_background, load_in_background,
-    load_inline_in_background, measure_in_background, reload_in_background,
+    load_inline_in_background, planned_keys, reload_in_background,
 };
 pub use stamps::Stamps;
 pub use svg::{EMOJI, Fonts, SCRIPTS, Svg, installed};
