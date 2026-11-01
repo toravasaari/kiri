@@ -99,12 +99,14 @@ pub(crate) fn surely_paged(
 pub(crate) struct Guard(Option<Interrupt>);
 
 impl Guard {
-    /// Catches the signals from now on, for a wait: anew, so that a guard
-    /// released by an earlier load catches them again. The new handlers
-    /// are set before the old ones go, so that no signal falls between.
-    fn catch(&mut self) {
-        if let Some(new) = Interrupt::catch() {
-            self.0 = Some(new);
+    /// Catches the signals from now on, for a wait, with the `new` handlers
+    /// that the platform's [`Platform::interrupt`] gave: anew, so that a
+    /// guard released by an earlier load catches them again. The new
+    /// handlers are set before the old ones go, so that no signal falls
+    /// between; with none given, the old ones stay.
+    fn catch(&mut self, new: Option<Interrupt>) {
+        if new.is_some() {
+            self.0 = new;
         }
     }
 
@@ -133,15 +135,66 @@ impl Guard {
     }
 }
 
+/// What a wait of [`wait`] waits with: for a load of the loads to come, or
+/// with keys, for the reader too. The platform gives it
+/// ([`Platform::pause`]), so that a test's wait runs on its virtual clock.
+pub trait Pause {
+    /// Waits at most `most` for a load of `loads` to come, which then stays
+    /// for [`Loads::poll`], or with keys for the reader; whether the reader
+    /// pressed Space or Enter. Other keys go unheeded.
+    fn until(&mut self, loads: &mut Loads, most: Duration) -> bool;
+
+    /// How long the wait goes on before its progress line shows.
+    fn delay(&self) -> Duration {
+        DELAY
+    }
+}
+
+/// The wait of a run on a terminal: for the loads, on the clock of the
+/// process.
+struct Waiting;
+
+impl Pause for Waiting {
+    fn until(&mut self, loads: &mut Loads, most: Duration) -> bool {
+        loads.wait_by(Instant::now() + most);
+        false
+    }
+}
+
+/// The wait for the loads and for Space or Enter, as long as the
+/// controlling terminal reads keys; it sets it back as it was when dropped.
+struct Reading(WaitKeys);
+
+impl Pause for Reading {
+    fn until(&mut self, _: &mut Loads, most: Duration) -> bool {
+        self.0.skip(most)
+    }
+}
+
+/// The pause a process has, for [`Platform::pause`]: with `keys`, the one
+/// that reads Space and Enter, `None` without a terminal to read them from.
+pub(super) fn pausing(keys: bool) -> Option<Box<dyn Pause>> {
+    match keys {
+        true => Some(Box::new(Reading(WaitKeys::open()?))),
+        false => Some(Box::new(Waiting)),
+    }
+}
+
+/// The pause of a wait for loads alone: the platform's, or the process's
+/// own should it have none.
+pub(crate) fn waiting(platform: &dyn Platform) -> Box<dyn Pause + '_> {
+    (platform.pause(false)).unwrap_or_else(|| Box::new(Waiting))
+}
+
 /// What the progress line counts while [`wait`] waits.
-enum Line<'k> {
+enum Line {
     /// Nothing is shown, as the wait finishes what the reader skipped.
     Quiet,
     /// The diagrams among the loads, by key: the line of the images
     /// loaded first, which counts only them.
     Diagrams(HashSet<ImageKey>),
-    /// Every load, with the hint, while `keys` may skip the rest.
-    Skippable(&'k mut WaitKeys),
+    /// Every load, with the hint, while the pause may skip the rest.
+    Skippable,
 }
 
 /// How a [`wait`] ended.
@@ -154,38 +207,31 @@ enum Over {
     Signal(i32),
 }
 
-/// Waits for what `loads` load, giving each image to `came` as it comes,
-/// until nothing loads, `signal` tells of one, or with [`Line::Skippable`]
-/// the reader presses Space or Enter. The line is wiped before it
-/// returns; it shows after `delay`. `wait` stops nothing itself, and the
-/// caller owns the keys: it drops them, so that the terminal is as it was,
-/// before it stops the loads on a signal.
+/// Waits with `pause` for what `loads` load, giving each image to `came` as
+/// it comes, until nothing loads, `signal` tells of one, or with
+/// [`Line::Skippable`] the reader presses Space or Enter. The line is
+/// wiped before it returns; it shows after `delay`. `wait` stops nothing
+/// itself, and the caller owns the pause: it drops it, so that a terminal
+/// that was read for keys is as it was, before it stops the loads on a
+/// signal.
 fn wait(
     (out, delay): (impl Write, Duration),
+    pause: &mut dyn Pause,
     loads: &mut Loads,
     mut came: impl FnMut(ImageKey, Result<Source, ImageError>),
-    mut line: Line,
+    line: Line,
     signal: impl Fn() -> Option<i32>,
 ) -> Over {
-    let hint = matches!(line, Line::Skippable(_));
+    let hint = matches!(line, Line::Skippable);
     let mut over = Over::Done;
     let mut diagrams = 0;
     let step = |most: Duration| {
-        match &mut line {
-            // The first look reads no key, as the loads may be over
-            // already; what comes while it waits for one stays in the
-            // loads.
-            Line::Skippable(keys) => {
-                if !most.is_zero() && keys.skip(most) {
-                    over = Over::Skipped;
-                    return Step::Skipped;
-                }
-            }
-            Line::Quiet | Line::Diagrams(_) => {
-                if !most.is_zero() {
-                    loads.wait_by(Instant::now() + most);
-                }
-            }
+        // The first look waits for nothing, as the loads may be over
+        // already; what comes while the pause reads a key stays in the
+        // loads.
+        if !most.is_zero() && pause.until(loads, most) {
+            over = Over::Skipped;
+            return Step::Skipped;
         }
         for Arrived { key, image, .. } in loads.poll() {
             if let Line::Diagrams(keys) = &line {
@@ -199,7 +245,7 @@ fn wait(
         }
         match (loads.progress(), &line) {
             (None, _) => Step::Over,
-            (Some((done, total)), Line::Skippable(_)) => Step::Working(done, total),
+            (Some((done, total)), Line::Skippable) => Step::Working(done, total),
             (Some(_), Line::Diagrams(keys)) => Step::Working(diagrams, keys.len()),
             (Some(_), Line::Quiet) => Step::Working(0, 0),
         }
@@ -229,18 +275,20 @@ pub(crate) fn wait_or_skip(
     if !context.platform.stderr_is_terminal() {
         return None;
     }
-    let mut keys = WaitKeys::open()?;
-    guard.catch();
-    let mut loads = Loads::new();
+    let platform = context.platform;
+    let mut pause = platform.pause(true)?;
+    guard.catch(platform.interrupt());
+    let mut loads = platform.loads();
     let loading = loading(context, settings, &inputs.caps);
     crate::images::load_in_background(parts, &loading, &mut inputs.images, &mut loads);
     let images = &mut inputs.images;
     let came = |key, image| images.insert(key, image);
-    let line = Line::Skippable(&mut keys);
-    let out = (context.platform.stderr(), DELAY);
-    let over = wait(out, &mut loads, came, line, || guard.signal());
+    let out = (platform.stderr(), pause.delay());
+    let over = wait(out, &mut *pause, &mut loads, came, Line::Skippable, || {
+        guard.signal()
+    });
     // The terminal as it was, before the pager or the shell takes it.
-    drop(keys);
+    drop(pause);
     Some(match over {
         Over::Signal(signal) => Err(guard.stop(&mut loads, signal)),
         Over::Skipped => Ok(Some(loads)),
@@ -255,6 +303,7 @@ pub(crate) fn wait_or_skip(
 /// came. A signal that `guard` caught meanwhile stops them, and is the
 /// failure; once they have come, the signals end kiri again.
 pub(crate) fn finish_loading(
+    pause: &mut dyn Pause,
     mut loads: Loads,
     images: &mut Images,
     guard: &mut Guard,
@@ -262,6 +311,7 @@ pub(crate) fn finish_loading(
     let mut came = Images::new();
     let over = wait(
         (std::io::sink(), DELAY),
+        pause,
         &mut loads,
         |key, image| {
             images.insert(key.clone(), image.clone());
@@ -299,10 +349,11 @@ pub(crate) fn load_parts(
     }
     // Only while a program draws one of the documents' diagrams: they
     // otherwise end kiri at once, as without diagrams.
+    let platform = context.platform;
     if jobs.iter().any(|job| job.program) {
-        guard.catch();
+        guard.catch(platform.interrupt());
     }
-    let mut loads = Loads::new();
+    let mut loads = platform.loads();
     loads.want(
         &jobs,
         (0..jobs.len()).map(|at| (at, Need::Missing)).collect(),
@@ -310,13 +361,15 @@ pub(crate) fn load_parts(
     // Drawing diagrams can take seconds with an external program; a
     // terminal tells how far it has got.
     let diagrams = (jobs.iter().filter(|job| job.draws_diagram())).map(|job| job.key.clone());
-    let out: Box<dyn Write + Send + '_> = match context.platform.stderr_is_terminal() {
-        true => context.platform.stderr(),
+    let out: Box<dyn Write + Send + '_> = match platform.stderr_is_terminal() {
+        true => platform.stderr(),
         false => Box::new(std::io::sink()),
     };
+    let mut pause = waiting(platform);
     let mut came = HashMap::new();
     let over = wait(
-        (out, DELAY),
+        (out, pause.delay()),
+        &mut *pause,
         &mut loads,
         |key, image| {
             came.insert(key, image);

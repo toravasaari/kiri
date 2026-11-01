@@ -17,9 +17,10 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 
 use crate::config::{Environment, Passthrough};
+use crate::images::Loads;
 use crate::present::kitty::graphics::{Cells, ImageId};
 use crate::session::state::Look;
-use crate::term::{Mode, WindowSize};
+use crate::term::{Interrupt, Mode, WindowSize};
 use crate::typeset::caps::Capabilities;
 
 mod given;
@@ -29,6 +30,7 @@ mod pager;
 mod print;
 mod route;
 
+pub use loads::Pause;
 pub use pager::Screen;
 pub use route::{Asked, Configured, show_document, show_files, shown};
 
@@ -84,6 +86,21 @@ pub trait Platform {
     /// the terminal layer's `lost_images` asks it; `None` when it did not
     /// answer.
     fn lost_images(&self, sent: &[(ImageId, Cells)]) -> Option<Vec<ImageId>>;
+    /// No loads, to run the images' loads of a run: on threads of their
+    /// own, in the process.
+    fn loads(&self) -> Loads {
+        Loads::new()
+    }
+    /// The catching of Ctrl-C and the other signals that end kiri, `None`
+    /// when they cannot be caught or are ignored.
+    fn interrupt(&self) -> Option<Interrupt> {
+        Interrupt::catch()
+    }
+    /// What a wait for loads waits with: with `keys`, for Space and Enter
+    /// too, `None` without a terminal to read them from.
+    fn pause(&self, keys: bool) -> Option<Box<dyn Pause + '_>> {
+        loads::pausing(keys)
+    }
     /// The pager's screen, `None` without a terminal to read keys from.
     /// `caught` runs once the screen catches the signals.
     fn screen(

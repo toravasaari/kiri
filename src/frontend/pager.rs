@@ -26,7 +26,7 @@ use crate::typeset::model::{Block, Document};
 use super::given::{Given, Shown, image_file};
 use super::loads::{
     FileReload, Guard, ROWS_UNLOADED, close_programs, finish_loading, load_parts, loading, part,
-    surely_paged, wait_or_skip, without_path,
+    surely_paged, wait_or_skip, waiting, without_path,
 };
 use super::print::Held;
 use super::route::{Context, Show, tell_drawn, told, told_line};
@@ -320,7 +320,12 @@ pub(super) fn page_files(
         }
         // What the reader skipped comes first.
         (true, Some(still)) => {
-            let came = finish_loading(still, &mut inputs.images, &mut guard)?;
+            let came = finish_loading(
+                &mut *waiting(platform),
+                still,
+                &mut inputs.images,
+                &mut guard,
+            )?;
             told_files(&came, &parts_of(context.reading), &files, show)
         }
         (true, None) => vec![Vec::new(); files.len()],
@@ -402,7 +407,7 @@ fn page(
     };
     // The images that still load when the pager quits, which it stops;
     // their programs may take a moment to end.
-    let mut loads = Loads::new();
+    let mut loads = platform.loads();
     start(&mut loads);
     // The layout before knew nothing of the images that load.
     let laid_out = (!inputs.images.loading()).then_some(stream);

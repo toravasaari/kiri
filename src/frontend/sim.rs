@@ -969,6 +969,12 @@ impl Platform for SimPlatform {
         Some(Vec::new())
     }
 
+    /// None: no signal handler in the test process; Ctrl-C stays on the
+    /// pseudo-terminal.
+    fn interrupt(&self) -> Option<crate::term::Interrupt> {
+        None
+    }
+
     fn screen(
         &self,
         caught: Box<dyn FnOnce() + '_>,
