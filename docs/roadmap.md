@@ -1371,7 +1371,7 @@ Needs G7.2.1.
   clock and files in memory, instead of most pseudo-terminal tests;
   with it, a fixed test theme and real terminals' probe answers as
   fixtures. Done but for moving the tests: 7 of the pager's 85
-  pseudo-terminal tests run in the simulated front end, and the rest need
+  pseudo-terminal tests run in the simulated frontend, and the rest need
   `main.rs`'s wiring, so they move with G7.3.3.
 - G7.3.3 A session that holds the sources, their versions and the views;
   the images it wants and what it watches replace the background loads'
