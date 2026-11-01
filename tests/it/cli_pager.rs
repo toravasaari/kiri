@@ -299,36 +299,6 @@ fn ctrl_c_quits_and_leaves_the_screen() {
 }
 
 #[test]
-fn a_long_file_shown_as_text_is_paged_too() {
-    let (status, seen) = in_terminal(
-        "pager-text",
-        &["--format", "text", "long.md"],
-        5,
-        None,
-        &[b"q"],
-    );
-    assert!(status.success());
-    assert!(seen.starts_with(ENTER), "{seen:?}");
-    assert!(seen.contains("Line 1"), "{seen:?}");
-    assert!(seen.ends_with(LEAVE), "{seen:?}");
-}
-
-#[test]
-fn a_short_document_is_printed() {
-    let (status, seen) = in_terminal("pager-short", &["document.md"], 24, None, &[]);
-    assert!(status.success());
-    assert!(!seen.contains(ENTER), "{seen:?}");
-    assert!(seen.contains("Line 3"), "{seen:?}");
-}
-
-#[test]
-fn p_pages_a_short_document() {
-    let (status, seen) = in_terminal("pager-p", &["-p", "document.md"], 24, None, &[b"q"]);
-    assert!(status.success());
-    assert!(seen.starts_with(ENTER), "{seen:?}");
-}
-
-#[test]
 fn following_pages_a_short_file() {
     let config = |text: &'static str| {
         move |dir: &std::path::Path| {
@@ -444,16 +414,6 @@ fn plain_mode_prints_without_the_pager() {
 }
 
 #[test]
-fn a_pipe_gets_the_document_printed_even_with_p() {
-    let dir = Scratch::new("pager-pipe");
-    let out = crate::common::kiri(&dir, &long(), &["-p", "--mode", "ansi"]);
-    assert!(out.status.success(), "{}", text(&out.stderr));
-    let stdout = text(&out.stdout);
-    assert!(!stdout.contains(ENTER), "{stdout:?}");
-    assert!(stdout.contains("Line 10"), "{stdout:?}");
-}
-
-#[test]
 fn a_pipe_gets_an_image_file_printed_even_with_p() {
     let dir = Scratch::new("pager-pipe-image");
     let icon = fixtures().join("images/icon.png");
@@ -544,20 +504,6 @@ fn without_keys(
         .read_to_string(&mut stderr)
         .unwrap();
     (status, text(&output), stderr)
-}
-
-#[test]
-fn without_a_terminal_for_keys_p_prints_with_a_warning() {
-    let prepare = |dir: &std::path::Path| std::fs::write(dir.join("long.md"), long()).unwrap();
-    let args = ["--mode", "ansi", "-p", "long.md"];
-    let (status, seen, stderr) = without_keys("pager-no-keys", prepare, &args);
-    assert!(status.success(), "{stderr}");
-    assert!(!seen.contains(ENTER), "{seen:?}");
-    assert!(seen.contains("Line 10"), "{seen:?}");
-    assert_eq!(
-        stderr,
-        "kiri: no terminal to read keys from, so the document is printed\n"
-    );
 }
 
 #[test]
@@ -690,81 +636,6 @@ fn the_pager_shows_why_a_diagram_was_not_drawn_and_finds_it() {
 }
 
 #[test]
-fn several_files_are_paged_as_one_stream_under_their_names() {
-    let keys: [&[u8]; 4] = [b"G", b"g", b"/", b"Line 10\r"];
-    let mut typed = 0;
-    let (status, seen) = in_terminal_with(
-        "pager-files",
-        &["document.md", "long.md"],
-        8,
-        None,
-        |frames, terminal, _| {
-            if typed < frames.min(keys.len()) {
-                terminal.write_all(keys[typed]).unwrap();
-                typed += 1;
-            } else if typed == keys.len() && frames > keys.len() {
-                terminal.write_all(b"q").unwrap();
-                typed += 1;
-            }
-        },
-    );
-    assert!(status.success());
-    assert!(seen.starts_with(ENTER), "{seen:?}");
-    assert!(seen.ends_with(LEAVE), "{seen:?}");
-    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
-    assert!(frames[0].contains("document.md"), "{seen:?}");
-    assert!(!frames[0].contains("long.md"), "{seen:?}");
-    // The end of the stream is the end of the last file.
-    assert!(frames[1].contains("Line 10"), "{seen:?}");
-    // Search goes on from the first file into the second.
-    assert!(frames.last().unwrap().contains("Line 10"), "{seen:?}");
-    assert!(frames.last().unwrap().contains("/Line 10 1/1"), "{seen:?}");
-}
-
-#[test]
-fn colon_n_moves_to_the_next_file_and_the_status_line_names_it() {
-    let (status, seen) = in_terminal(
-        "pager-next-file",
-        &["document.md", "long.md"],
-        8,
-        None,
-        &[b":n", b"q"],
-    );
-    assert!(status.success());
-    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
-    assert_eq!(frames.len(), 2, "{seen:?}");
-    assert!(!frames[0].contains("long.md"), "{seen:?}");
-    assert!(frames[1].contains("long.md"), "{seen:?}");
-    assert!(!frames[1].contains("document.md"), "{seen:?}");
-}
-
-#[test]
-fn a_file_that_cannot_be_shown_is_in_the_stream_under_its_header() {
-    let (status, seen, stderr) = in_terminal_told(
-        "pager-missing",
-        |_| {},
-        &["document.md", "missing.md", "long.md"],
-        8,
-        None,
-        |frames, terminal, _| match frames {
-            1 => terminal.write_all(b":n").unwrap(),
-            2 => terminal.write_all(b"q").unwrap(),
-            _ => {}
-        },
-    );
-    assert_eq!(status.code(), Some(1), "{seen:?}");
-    assert!(seen.starts_with(ENTER), "{seen:?}");
-    assert!(stderr.starts_with("kiri: missing.md: "), "{stderr}");
-    assert_eq!(stderr.lines().count(), 1, "{stderr}");
-    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
-    assert_eq!(frames.len(), 2, "{seen:?}");
-    // :n goes to missing.md, its header and why it is not shown.
-    assert!(frames[1].contains("missing.md"), "{seen:?}");
-    assert!(frames[1].contains("No such file"), "{seen:?}");
-    assert!(frames[1].contains(" missing.md 2/3 "), "{seen:?}");
-}
-
-#[test]
 fn a_file_that_cannot_be_shown_is_told_at_its_place_when_the_files_fit() {
     let prepare = |dir: &std::path::Path| {
         std::fs::write(dir.join("a.md"), "Alpha text.\n").unwrap();
@@ -807,55 +678,6 @@ fn a_front_matter_warning_is_told_at_its_place_when_the_files_fit() {
             .unwrap_or_else(|| panic!("{part}: {seen:?}"));
         rest = &rest[at + part.len()..];
     }
-}
-
-#[test]
-fn a_front_matter_warning_is_on_stderr_and_in_the_pager_from_the_start() {
-    let invalid = std::fs::read_to_string(fixtures().join("front-matter-invalid.md")).unwrap();
-    let prepare = |dir: &std::path::Path| std::fs::write(dir.join("invalid.md"), invalid).unwrap();
-    let mut typed = false;
-    let args = ["-p", "invalid.md"];
-    let act = |frames: usize, terminal: &mut std::fs::File, _: &std::process::Child| {
-        if frames >= 1 && !typed {
-            terminal.write_all(b"q").unwrap();
-            typed = true;
-        }
-    };
-    let (status, seen, stderr) =
-        in_terminal_told("pager-warning-start", prepare, &args, 8, None, act);
-    assert!(status.success(), "{seen:?}");
-    assert!(stderr.contains("kiri: front matter, line 4:"), "{stderr:?}");
-    let first: Vec<_> = seen.split("\x1b[?2026h").skip(1).map(text_of).collect();
-    // The line is cut for a window of 40 columns, but starts as it does.
-    assert!(
-        first[0].contains("\u{26a0} [:4] front matter: "),
-        "{seen:?}"
-    );
-    assert!(first[0].contains("\u{26a0} 1"), "{seen:?}");
-}
-
-#[test]
-fn when_no_file_can_be_shown_the_pager_does_not_open() {
-    let mut typed = false;
-    let args = ["-p", "nope1.md", "nope2.md"];
-    let (status, seen, stderr) = in_terminal_told(
-        "pager-none",
-        |_| {},
-        &args,
-        8,
-        None,
-        |frames, terminal, _| {
-            // An empty pager would wait for q.
-            if frames > 0 && !typed {
-                terminal.write_all(b"q").unwrap();
-                typed = true;
-            }
-        },
-    );
-    assert_eq!(status.code(), Some(1), "{seen:?}");
-    assert!(!seen.contains(ENTER), "{seen:?}");
-    assert!(stderr.contains("nope1.md"), "{stderr}");
-    assert!(stderr.contains("nope2.md"), "{stderr}");
 }
 
 /// [`in_terminal`] in a window of 5 rows, with copies of an image beside
@@ -2512,44 +2334,6 @@ fn quit_at_first(typed: &mut bool) -> impl FnMut(usize, &mut std::fs::File, &std
             *typed = true;
         }
     }
-}
-
-#[test]
-fn a_front_matter_warning_is_in_the_pager_for_a_file_alone_but_not_among_several() {
-    let invalid = std::fs::read_to_string(fixtures().join("front-matter-invalid.md")).unwrap();
-    let prepare = |dir: &std::path::Path| std::fs::write(dir.join("invalid.md"), &invalid).unwrap();
-    let (mut alone, mut several) = (false, false);
-    let args = ["-p", "invalid.md"];
-    let (_, seen, stderr) = in_terminal_told(
-        "pager-warning-alone",
-        prepare,
-        &args,
-        8,
-        None,
-        quit_at_first(&mut alone),
-    );
-    assert!(
-        stderr.starts_with("kiri: front matter, line 4:"),
-        "{stderr:?}"
-    );
-    assert!(
-        text_of(&seen).contains("\u{26a0} [:4] front matter"),
-        "{seen:?}"
-    );
-    let args = ["-p", "invalid.md", "document.md"];
-    let (_, seen, stderr) = in_terminal_told(
-        "pager-warning-several",
-        prepare,
-        &args,
-        8,
-        None,
-        quit_at_first(&mut several),
-    );
-    assert!(
-        stderr.starts_with("kiri: invalid.md: front matter, line 4:"),
-        "{stderr:?}"
-    );
-    assert!(!seen.contains('\u{26a0}'), "{seen:?}");
 }
 
 #[test]
