@@ -46,13 +46,13 @@ use crate::frontend::pager::close;
 use crate::frontend::{Asked, Configured, Failure, Pause, Platform, Screen, show_files};
 use crate::images::{ImageError, ImageKey, Images, Loads, Source};
 use crate::load::queue::{Done, Job, Queued, Runner};
-use crate::load::watch::{Reload, Reloaded};
+use crate::load::watch::{Reloaded, SourceFiles};
 use crate::pager::{Options, Terminal, run};
 use crate::present::kitty::graphics::{Cells, ImageId};
 use crate::render::Inputs;
 use crate::session::plan::{self, Route};
 use crate::session::settings::{Follow, FollowJump, SearchCase};
-use crate::session::sources::{Session, SourceFile};
+use crate::session::sources::{Reread, Session, SourceFile};
 use crate::session::state::Look;
 use crate::term::{Mode, WindowSize};
 use crate::typeset::caps::Capabilities;
@@ -611,14 +611,13 @@ impl Sim {
         // asks for: the first reload makes what it brings wanted.
         let asked = Rc::new(Cell::new(0));
         let reloads = Rc::clone(&asked);
-        let mut reload = shown.as_ref().map(|path| SimReload {
+        let mut files = shown.as_ref().map(|_| SimFiles {
             world: Rc::clone(&world),
-            path: path.clone(),
             asked: Rc::clone(&asked),
         });
         let terminal = SimTerminal::new(Rc::clone(&world), script);
         let options = Options {
-            reload: reload.as_mut().map(|reload| reload as &mut dyn Reload),
+            files: files.as_mut().map(|files| files as &mut dyn SourceFiles),
             follow,
             jump,
             reading: reading.then(|| Reading {
@@ -679,7 +678,7 @@ pub(crate) struct Ran {
     /// The time on the virtual clock when the pager quit.
     pub(crate) elapsed: Duration,
     /// How many times the pager read the document again. Always 0 after
-    /// [`Sim::kiri`], whose reloads read the disk through `FileReload`.
+    /// [`Sim::kiri`], whose reloads read the disk through `PlatformFiles`.
     pub(crate) reloads: usize,
     /// How kiri ended, after [`Sim::kiri`]; `None` for [`Sim::run`].
     pub(crate) result: Option<Result<(), Failure>>,
@@ -755,35 +754,36 @@ pub(crate) fn plain(text: &str) -> String {
     plain
 }
 
-/// Where the pager gets the shown file again from: the simulated disk.
-struct SimReload {
+/// The files behind the pager's sources: the simulated disk.
+struct SimFiles {
     world: Rc<World>,
-    path: String,
     /// How many times the pager asked for the file again, which the
     /// planner reads too.
     asked: Rc<Cell<usize>>,
 }
 
-impl Reload for SimReload {
-    fn reload(
+impl SourceFiles for SimFiles {
+    fn look(&mut self, path: &Path) -> Result<Look, String> {
+        self.world.disk.borrow().look(&path.to_string_lossy())
+    }
+
+    fn reread(
         &mut self,
+        job: &Reread,
         _images: &mut Images,
         _loads: &mut Loads,
         _caps: &Capabilities,
         _reading: bool,
     ) -> (Option<Look>, Reloaded) {
         self.asked.set(self.asked.get() + 1);
+        let path = job.path.to_string_lossy();
         // Before the file is read, so that a change meanwhile counts.
-        let read = self.world.disk.borrow().look(&self.path).ok();
-        let text = match self.world.disk.borrow().read(&self.path) {
+        let read = self.world.disk.borrow().look(&path).ok();
+        let text = match self.world.disk.borrow().read(&path) {
             Ok(text) => text,
             Err(why) => return (read, Reloaded::Failed(why)),
         };
         (read, Reloaded::Document(parse(&text)))
-    }
-
-    fn look(&mut self, path: &Path) -> Result<Look, String> {
-        self.world.disk.borrow().look(&path.to_string_lossy())
     }
 }
 

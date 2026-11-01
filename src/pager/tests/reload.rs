@@ -14,7 +14,7 @@ fn show_reloading_with(document: &Document, then: &mut Then, reads: &[&[u8]]) ->
     let mut terminal = Fake::new(60, 6, reads);
     let mut inputs = Inputs::new(Capabilities::ansi(80));
     let options = Options {
-        reload: Some(then),
+        files: Some(then),
         ..Options::new(SearchCase::Smart)
     };
     let content = Content::Document(document);
@@ -37,7 +37,7 @@ fn session_after(document: &Document, then: &mut Then, reads: &[&[u8]]) -> Sessi
     let mut terminal = Fake::new(60, 6, reads);
     let mut inputs = Inputs::new(Capabilities::ansi(80));
     let options = Options {
-        reload: Some(then),
+        files: Some(then),
         ..Options::new(SearchCase::Smart)
     };
     let session = session_for(&options);
@@ -71,6 +71,19 @@ fn a_reload_that_fails_leaves_the_version_of_its_source() {
     let session = session_after(&numbers(10), &mut then, &[b"r", b"", b"q"]);
     assert_eq!(then.asked, 1);
     assert_eq!(session.sources()[0].version(), Version::FIRST);
+}
+
+#[test]
+fn a_reload_reads_the_job_the_session_describes() {
+    let docs = [Reloaded::Document(rows(3)), Reloaded::Document(rows(4))];
+    let mut then = Then::new(docs);
+    let session = session_after(&numbers(10), &mut then, &[b"r", b"", b"r", b"", b"q"]);
+    let job = Reread {
+        source: session.sources()[0].id(),
+        path: "notes.md".into(),
+        input: Input::Markdown,
+    };
+    assert_eq!(then.jobs, [job.clone(), job]);
 }
 
 /// How a file looked at a reload, told apart by `length`.

@@ -12,7 +12,7 @@ fn written(
         document,
         &mut inputs,
         Options {
-            reload: then.map(|then| then as &mut dyn Reload),
+            files: then.map(|then| then as &mut dyn SourceFiles),
             ..Options::new(SearchCase::Smart)
         },
         terminal,
@@ -44,9 +44,10 @@ struct Repaint {
     rgba: [u8; 4],
 }
 
-impl Reload for Repaint {
-    fn reload(
+impl SourceFiles for Repaint {
+    fn reread(
         &mut self,
+        _: &Reread,
         images: &mut Images,
         _: &mut Loads,
         _: &Capabilities,
@@ -70,12 +71,12 @@ fn repainted(document: &Document, before: [u8; 4], after: [u8; 4]) -> String {
         document: document.clone(),
         rgba: after,
     };
-    let reload: &mut dyn Reload = &mut repaint;
+    let reload: &mut dyn SourceFiles = &mut repaint;
     run_document(
         document,
         &mut inputs,
         Options {
-            reload: Some(reload),
+            files: Some(reload),
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
@@ -186,13 +187,13 @@ fn twins_reloaded(after: &str, rgba: [u8; 4]) -> String {
         document: crate::typeset::parse::parse(after),
         rgba,
     };
-    let reload: &mut dyn Reload = &mut repaint;
+    let reload: &mut dyn SourceFiles = &mut repaint;
     let mut terminal = Fake::new(60, 6, &[b"r"]);
     run_document(
         &document,
         &mut inputs,
         Options {
-            reload: Some(reload),
+            files: Some(reload),
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
@@ -374,9 +375,10 @@ struct NoteCells<'a> {
     cells: &'a std::cell::RefCell<Vec<Option<(u16, u16)>>>,
 }
 
-impl Reload for NoteCells<'_> {
-    fn reload(
+impl SourceFiles for NoteCells<'_> {
+    fn reread(
         &mut self,
+        _: &Reread,
         _: &mut Images,
         _: &mut Loads,
         caps: &Capabilities,
@@ -410,7 +412,7 @@ fn r_after_a_cell_size_answer_reloads_for_the_new_cells() {
         &document,
         &mut inputs,
         Options {
-            reload: Some(&mut then),
+            files: Some(&mut then),
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
@@ -437,7 +439,7 @@ fn an_answer_after_r_in_one_read_reloads_for_the_new_cells() {
         &document,
         &mut inputs,
         Options {
-            reload: Some(&mut then),
+            files: Some(&mut then),
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
@@ -785,13 +787,13 @@ fn repainted_while_away(keys: &[&[u8]]) -> (String, Vec<u32>) {
         document: document.clone(),
         rgba: [0, 0, 255, 255],
     };
-    let reload: &mut dyn Reload = &mut repaint;
+    let reload: &mut dyn SourceFiles = &mut repaint;
     let mut terminal = Fake::new(60, 6, keys);
     run_document(
         &document,
         &mut inputs,
         Options {
-            reload: Some(reload),
+            files: Some(reload),
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
@@ -816,7 +818,7 @@ fn an_answer_cut_by_a_reload_is_not_taken_for_keys() {
         &document,
         &mut inputs,
         Options {
-            reload: Some(&mut then),
+            files: Some(&mut then),
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,

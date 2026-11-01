@@ -33,7 +33,7 @@ const READ: Look = Look {
 /// read it again.
 fn session_for(options: &Options) -> Session {
     let mut session = Session::new(["notes.md"]);
-    if options.reload.is_some() {
+    if options.files.is_some() {
         let (path, input, look) = ("notes.md".into(), Input::Markdown, Some(READ));
         session.read_from(session.sources()[0].id(), SourceFile { path, input, look });
     }
@@ -239,6 +239,8 @@ struct Then {
     /// The look that was last given, which the next reload gives as how the
     /// file looked when it was read.
     looked: Look,
+    /// The jobs it was given to read again, one a reload.
+    jobs: Vec<Reread>,
 }
 
 impl Then {
@@ -249,6 +251,7 @@ impl Then {
             changes: VecDeque::new(),
             read: READ,
             looked: READ,
+            jobs: Vec::new(),
         }
     }
 
@@ -265,15 +268,17 @@ impl Then {
     }
 }
 
-impl Reload for Then {
-    fn reload(
+impl SourceFiles for Then {
+    fn reread(
         &mut self,
+        job: &Reread,
         _: &mut Images,
         _: &mut Loads,
         _: &Capabilities,
         _: bool,
     ) -> (Option<Look>, Reloaded) {
         self.asked += 1;
+        self.jobs.push(job.clone());
         let outcome = self.then.pop_front().expect("an outcome for each reload");
         self.read = self.looked;
         (Some(self.read), outcome)
@@ -348,7 +353,7 @@ fn reloading_in(
         document,
         &mut inputs,
         Options {
-            reload: Some(then),
+            files: Some(then),
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,

@@ -340,7 +340,7 @@ fn planned_for(keys: &[&[u8]]) -> Vec<Asked> {
     let mut then = Then::new([Reloaded::Document(numbers(5))]);
     let options = Options {
         reading: Some(reading()),
-        reload: Some(&mut then),
+        files: Some(&mut then),
         planner: Some(Box::new(|content, caps, reading| {
             let Content::Document(document) = content else {
                 unreachable!("a document is shown");

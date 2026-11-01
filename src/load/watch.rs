@@ -2,8 +2,8 @@
 //! look at it, and when to look.
 //!
 //! The pager's loop (`src/pager/mod.rs`) reaches the file only through
-//! [`Reload`], which the frontends implement for the platform's files and
-//! the simulated frontend for its disk. The session says what is watched
+//! [`SourceFiles`], which the frontends implement for the platform's files
+//! and the simulated frontend for its disk. The session says what is watched
 //! (`Session::watches`, in `src/session/sources.rs`) and the [`Watcher`]
 //! decides when each watch is looked at, so that the model keeps no clock.
 
@@ -12,37 +12,39 @@ use std::path::Path;
 use std::time::Instant;
 
 use crate::images::{Images, Loads};
-use crate::session::sources::{Looked, Watch, Watched};
+use crate::session::sources::{Looked, Reread, Watch, Watched};
 use crate::session::state::{Change, Look};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::model::Document;
 
-/// What the pager asks for the document again, as `r` does.
-pub trait Reload {
-    /// The document read again, with `images` brought up to date for it
-    /// as it is shown in a window with `caps`: it keeps at once what the
-    /// document still shows. What `images` held that the document no
-    /// longer shows, or that must load anew, is set aside in it, as
-    /// [`crate::images::reload_in_background`] does, which also stops in
-    /// `loads` the load of an image whose file changed again. It starts no
-    /// load: the pager does, for the images its planner wants and `images`
-    /// does not hold. `reading` says
-    /// whether reading mode is on now, which wants the images in the middle
-    /// of text too, whatever the document was opened with.
-    /// It also gives how the file looked when it was read, which is before
-    /// it was, so that a change made meanwhile counts; `None` when it
-    /// could not be looked at.
-    fn reload(
+/// The files behind a session's sources, as the pager's loop reaches them.
+pub trait SourceFiles {
+    /// How the file at `path` looks now, as the pager asks while it follows
+    /// it; why it cannot be looked at otherwise.
+    fn look(&mut self, path: &Path) -> Result<Look, String>;
+
+    /// Runs `job`, the reading of a source again: the file is looked at
+    /// first, which is before it is read, so that a change made meanwhile
+    /// counts, and then its text is read and parsed, with `images` brought
+    /// up to date for the document as it is shown in a window with `caps`:
+    /// it keeps at once what the document still shows. What `images` held
+    /// that the document no longer shows, or that must load anew, is set
+    /// aside in it, as [`crate::images::reload_in_background`] does, which
+    /// also stops in `loads` the load of an image whose file changed again.
+    /// It starts no load: the pager does, for the images its planner wants
+    /// and `images` does not hold. `reading` says whether reading mode is on
+    /// now, which wants the images in the middle of text too, whatever the
+    /// document was opened with.
+    /// Gives the look, `None` when the file could not be looked at, and
+    /// what the reread came to.
+    fn reread(
         &mut self,
+        job: &Reread,
         images: &mut Images,
         loads: &mut Loads,
         caps: &Capabilities,
         reading: bool,
     ) -> (Option<Look>, Reloaded);
-
-    /// How the file at `path` looks now, as the pager asks while it follows
-    /// it; why it cannot be looked at otherwise.
-    fn look(&mut self, path: &Path) -> Result<Look, String>;
 }
 
 /// What reloading the document came to.
