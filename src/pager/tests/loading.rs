@@ -67,9 +67,10 @@ struct Background {
     asked: usize,
 }
 
-impl Reload for Background {
-    fn reload(
+impl SourceFiles for Background {
+    fn reread(
         &mut self,
+        _: &Reread,
         images: &mut Images,
         _: &mut Loads,
         _: &Capabilities,
@@ -150,7 +151,7 @@ fn loading_with(
         }
     }));
     let options = Options {
-        reload: Some(reload),
+        files: Some(reload),
         follow,
         ..Options::new(SearchCase::Smart)
     };
@@ -468,7 +469,7 @@ fn quitting_stops_the_loads_before_it_deletes_the_images() {
         }
     }));
     let options = Options {
-        reload: Some(&mut reload),
+        files: Some(&mut reload),
         ..Options::new(SearchCase::Smart)
     };
     let document = around(2, "a.png");
@@ -673,9 +674,10 @@ fn no_band_is_placed_under_the_help_panel() {
 /// at a time.
 struct Gating(Document, std::rc::Rc<std::cell::Cell<bool>>);
 
-impl Reload for Gating {
-    fn reload(
+impl SourceFiles for Gating {
+    fn reread(
         &mut self,
+        _: &Reread,
         _: &mut Images,
         _: &mut Loads,
         _: &Capabilities,
@@ -748,7 +750,7 @@ fn started_in(reads: &[&[u8]], first: usize, open: usize) -> Vec<String> {
         &numbers(40),
         &mut inputs,
         Options {
-            reload: Some(&mut gating),
+            files: Some(&mut gating),
             planner: Some(planner),
             ..Options::new(SearchCase::Smart)
         },
@@ -850,7 +852,7 @@ fn a_changed_diagram_loads_with_its_old_drawing_dimmed_under_the_layouts_look() 
     let mut terminal = Fake::new(60, 12, &[b"r", b"", b"q"]);
     let coming = reload.coming.clone();
     let options = Options {
-        reload: Some(&mut reload),
+        files: Some(&mut reload),
         ..Options::new(SearchCase::Smart)
     };
     let before = crate::typeset::parse::parse(&diagram("flowchart TD\n"));
@@ -872,9 +874,10 @@ struct Retrying {
     coming: Coming,
 }
 
-impl Reload for Retrying {
-    fn reload(
+impl SourceFiles for Retrying {
+    fn reread(
         &mut self,
+        _: &Reread,
         images: &mut Images,
         _: &mut Loads,
         _: &Capabilities,
@@ -928,7 +931,7 @@ fn a_diagram_that_failed_in_the_background_loads_again_only_when_the_document_is
     }));
     let mut inputs = Inputs::new(Capabilities::kitty(80));
     let options = Options {
-        reload: Some(&mut reload),
+        files: Some(&mut reload),
         ..Options::new(SearchCase::Smart)
     };
     run_coming(&document, &mut inputs, options, &coming, &mut terminal);

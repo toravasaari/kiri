@@ -4,9 +4,10 @@
 //! reader waits, and on threads while the pager shows, and in the
 //! background when the pager finds images it does not hold, which its
 //! planner (`src/frontend/pager.rs`) tells it a document wants. The waits
-//! before the pager share one loop. A reload reads the file again, brings
-//! the images up to date for it, and tells the pager how the file looks
-//! now, which the pager compares with how it looked when it was read.
+//! before the pager share one loop. A reread, the job the session describes
+//! for a source with a file, looks at the file, reads it again, brings the
+//! images up to date for it, and tells the pager how the file looked, which
+//! the pager compares with how it looked when it was read before.
 //!
 //! [`Guard`] is the one owner of Ctrl-C and the other signals that would
 //! end kiri, from the first load until the pager's screen catches them.
@@ -21,7 +22,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crate::config::Settings;
@@ -29,15 +30,15 @@ use crate::images::{
     Arrived, Fonts, Format, ImageError, ImageKey, Images, Loading, Loads, Part, Placeholder,
     Source, Stamps, reload_in_background,
 };
-use crate::load::watch::{Reload, Reloaded};
+use crate::load::watch::{Reloaded, SourceFiles};
 use crate::render::Inputs;
 use crate::session::loading::Need;
 use crate::session::plan;
+use crate::session::sources::Reread;
 use crate::session::state::Look;
 use crate::term::progress::{DELAY, Step, until_over};
 use crate::term::{Interrupt, WaitKeys};
 use crate::typeset::caps::Capabilities;
-use crate::typeset::input::Input;
 use crate::typeset::model::Document;
 
 use super::open::document;
@@ -446,29 +447,32 @@ pub(crate) fn close_programs(platform: &dyn Platform, loads: &Loads) {
     crate::term::progress::while_waiting(platform.stderr(), second, limit, text, wait);
 }
 
-/// Reads the document from its file again for the pager, and brings the
-/// images it has up to date; the pager loads the ones it does not have.
-pub(crate) struct FileReload<'a> {
+/// The files behind the pager's sources, which it reads again and looks at:
+/// the documents are read again and the images brought up to date for them;
+/// the pager loads the ones it does not have.
+pub(crate) struct PlatformFiles<'a> {
     pub(crate) context: &'a Context<'a>,
     pub(crate) settings: &'a Settings,
-    /// The regular file the document was read from, as `input`.
-    pub(crate) path: PathBuf,
-    pub(crate) input: Input,
     /// When the files behind the images were last changed.
     pub(crate) stamps: Stamps,
 }
 
-impl Reload for FileReload<'_> {
-    fn reload(
+impl SourceFiles for PlatformFiles<'_> {
+    fn look(&mut self, path: &Path) -> Result<Look, String> {
+        self.context.platform.look(path)
+    }
+
+    fn reread(
         &mut self,
+        job: &Reread,
         images: &mut Images,
         loads: &mut Loads,
         caps: &Capabilities,
         reading: bool,
     ) -> (Option<Look>, Reloaded) {
-        let (path, input) = (self.path.as_path(), self.input);
+        let (path, input) = (job.path.as_path(), job.input);
         // Before the file is read, so that a change meanwhile counts.
-        let read = self.context.platform.look(path).ok();
+        let read = self.look(path).ok();
         // The status line names the file already, so the reasons do not.
         let source = match read_text(self.context.platform, path) {
             Ok(source) => source,
@@ -491,10 +495,6 @@ impl Reload for FileReload<'_> {
             false => Reloaded::Warned(document, warnings),
         };
         (read, reloaded)
-    }
-
-    fn look(&mut self, path: &Path) -> Result<Look, String> {
-        self.context.platform.look(path)
     }
 }
 

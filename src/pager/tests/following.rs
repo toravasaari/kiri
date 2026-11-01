@@ -66,7 +66,7 @@ fn following_on(
         document,
         &mut inputs,
         Options {
-            reload: Some(then),
+            files: Some(then),
             follow,
             jump,
             ..Options::new(SearchCase::Smart)
@@ -529,7 +529,7 @@ fn following_waits_a_poll_s_time_for_a_change_to_look_the_same_while_keys_come_f
     let mut inputs = Inputs::new(Capabilities::ansi(80));
     let document = numbers(10);
     let options = Options {
-        reload: Some(&mut then),
+        files: Some(&mut then),
         follow: settings::Follow::On,
         ..Options::new(SearchCase::Smart)
     };
@@ -552,7 +552,7 @@ fn a_followed_file_is_looked_at_once_a_poll_however_many_keys_come() {
     let mut inputs = Inputs::new(Capabilities::ansi(80));
     let document = numbers(10);
     let options = Options {
-        reload: Some(&mut then),
+        files: Some(&mut then),
         follow: settings::Follow::On,
         ..Options::new(SearchCase::Smart)
     };

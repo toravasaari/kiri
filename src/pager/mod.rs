@@ -21,7 +21,7 @@ use std::ops::Range;
 use std::time::{Duration, Instant};
 
 use crate::images::{Arrived, ImageKey, Job, Loads, Placeholder};
-use crate::load::watch::{Reload, Reloaded, Watcher};
+use crate::load::watch::{Reloaded, SourceFiles, Watcher};
 use crate::present::encoder::Encoder;
 use crate::present::output::{self, Page, Writer};
 use crate::present::{cell_query, clipboard};
@@ -32,6 +32,7 @@ use crate::session::frame::{Frame, Layout, Status};
 use crate::session::help::Placed;
 use crate::session::search::Marks;
 use crate::session::settings::{self, FollowJump, SearchCase};
+use crate::session::sources::{Reread, SourceId};
 use crate::session::state::{Backgrounds, Look, NOTHING_TO_FOLLOW, State, Told};
 use crate::session::step::{Effect, Msg, Pager, Reply, Resized, Run, step};
 use crate::session::view::View;
@@ -87,8 +88,9 @@ pub struct Options<'a> {
     pub case: SearchCase,
     /// Whether `B` paints the terminal's background one shade off.
     pub background_offset: bool,
-    /// Where `r` gets the document again from; `None` when it cannot.
-    pub reload: Option<&'a mut dyn Reload>,
+    /// The files behind the session's sources, which the pager reads again
+    /// and looks at; `None` when no source has one.
+    pub files: Option<&'a mut dyn SourceFiles>,
     /// Whether the pager follows the document from the start: reads it
     /// again whenever it changes.
     pub follow: settings::Follow,
@@ -114,13 +116,13 @@ pub type Planner<'a> = Box<dyn FnMut(Content<'_>, &Capabilities, bool) -> Vec<Jo
 
 impl Options<'_> {
     /// A window's width to decide the layout, searches that treat case as
-    /// `case` says, and no way to reload.
+    /// `case` says, and no files to read again.
     pub fn new(case: SearchCase) -> Self {
         Options {
             width: None,
             case,
             background_offset: true,
-            reload: None,
+            files: None,
             follow: settings::Follow::Off,
             jump: FollowJump::First,
             warnings: Vec::new(),
@@ -156,7 +158,7 @@ pub fn run(
         width,
         case,
         background_offset,
-        reload,
+        files,
         follow,
         jump,
         warnings,
@@ -164,7 +166,7 @@ pub fn run(
         planner,
     } = options;
     assert!(
-        session.reread().is_none() || reload.is_some(),
+        session.reread().is_none() || files.is_some(),
         "a session with a file to read comes with a way to read it"
     );
     let mut state = State::new(case);
@@ -195,7 +197,7 @@ pub fn run(
             other: reading.filter(|_| inputs.reading.is_none()),
             inputs,
             source: Origin {
-                reload,
+                files,
                 loads,
                 started: terminal.now(),
                 watcher: Watcher::default(),
@@ -255,9 +257,9 @@ struct Closed {
     reuse: bool,
     /// The document read again, if it was.
     document: Option<Document>,
-    /// How the file looked when it was fetched, if it was read again, or
-    /// tried to: `None` when it could not be looked at.
-    look: Option<Option<Look>>,
+    /// The source that was read again, or tried to, and how its file
+    /// looked when it was fetched: `None` when it could not be looked at.
+    reread: Option<(SourceId, Option<Look>)>,
 }
 
 /// What is laid out: the document as reloaded when it has been, and
@@ -343,8 +345,9 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             status: &status,
             view: &mut shown,
         };
+        let job = self.session.reread();
         let run = Run {
-            can_reload: self.session.reread().is_some(),
+            can_reload: job.is_some(),
             tmux: writer.through_tmux(),
             started: self.tools.source.started,
             draws_images: inputs.caps.draws_images(),
@@ -358,11 +361,11 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             self.size,
             (&mut self.tools.source, &self.session),
         )?;
-        let closed = self.tools.close(&mut pager, content, ended)?;
+        let closed = self.tools.close(&mut pager, content, ended, job.as_ref())?;
         if closed.quit {
             return Ok(false);
         }
-        self.reread(closed.document, closed.look);
+        self.reread(closed.document, closed.reread);
         if closed.reuse {
             self.laid_out = Some((self.tools.inputs.caps.clone(), Stream { lines, blocks }));
         }
@@ -374,20 +377,18 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
     }
 
     /// The reread of the layout that closed came to `document`, if it read
-    /// one, and the file looked as `look` says, if it was tried at all: the
-    /// source takes the next version, or only the look.
-    fn reread(&mut self, document: Option<Document>, look: Option<Option<Look>>) {
-        // Only a lone file is read again, and its source is the one the
-        // session has a file for.
-        let (Some(look), Some(job)) = (look, self.session.reread()) else {
+    /// one, and the file looked as `reread` says, if it was tried at all:
+    /// the source takes the next version, or only the look.
+    fn reread(&mut self, document: Option<Document>, reread: Option<(SourceId, Option<Look>)>) {
+        let Some((source, look)) = reread else {
             return;
         };
         match document {
             Some(document) => {
                 self.reloaded = Some(document);
-                self.session.reload(job.source, look);
+                self.session.reload(source, look);
             }
-            None => self.session.looked(job.source, look),
+            None => self.session.looked(source, look),
         }
     }
 
@@ -429,12 +430,14 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
 
 impl<T: Terminal> Tools<'_, '_, '_, T> {
     /// Carries out the effects that end a layout of `content`, which is
-    /// what it showed, and those that follow what they find out.
+    /// what it showed, and those that follow what they find out; `job` is
+    /// what the session has to read again.
     fn close(
         &mut self,
         pager: &mut Pager,
         content: Content,
         mut effects: Vec<Effect>,
+        job: Option<&Reread>,
     ) -> io::Result<Closed> {
         let mut closed = Closed::default();
         loop {
@@ -455,7 +458,8 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
                         return Ok(closed);
                     }
                     Effect::Reload => {
-                        let (reply, now) = self.reload(content, &mut closed);
+                        let job = job.expect("a source to read again");
+                        let (reply, now) = self.reread(content, job, &mut closed);
                         onward = Some(step(pager, Msg::Reloaded(reply, now)));
                         break;
                     }
@@ -493,23 +497,24 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
         Ok(())
     }
 
-    /// Reads the document again, and brings the images up to date for it:
-    /// what came of it, and when. `closed` gets the document if it was
-    /// read, and the look of its file.
-    fn reload(&mut self, content: Content, closed: &mut Closed) -> (Reply, Instant) {
-        // The reload may change the pixels of the images.
+    /// Runs `job`, which reads the document again and brings the images up
+    /// to date for it: what came of it, and when. `closed` gets the
+    /// document if it was read, and the look of its file.
+    fn reread(&mut self, content: Content, job: &Reread, closed: &mut Closed) -> (Reply, Instant) {
+        // The reread may change the pixels of the images.
         self.encoder.changed();
         let inputs = &mut *self.inputs;
-        let reload = (self.source.reload.as_deref_mut()).expect("a source to reload from");
+        let files = (self.source.files.as_deref_mut()).expect("files to read the source from");
         let now = self.terminal.now();
         let before = inputs.images.take_placeholders();
-        let (look, reloaded_now) = reload.reload(
+        let (look, reloaded_now) = files.reread(
+            job,
             &mut inputs.images,
             self.source.loads,
             &inputs.caps,
             inputs.reading.is_some(),
         );
-        closed.look = Some(look);
+        closed.reread = Some((job.source, look));
         let replaced = inputs.images.take_replaced();
         let (document, warnings) = match reloaded_now {
             Reloaded::Document(document) => (document, Vec::new()),
@@ -593,8 +598,8 @@ const DEFAULT_ROWS: u16 = 24;
 
 /// Where the pager gets the document and its images again.
 struct Origin<'r, 'l> {
-    /// Where `r` gets the document again from; `None` when it cannot.
-    reload: Option<&'r mut dyn Reload>,
+    /// The files behind the sources; `None` when no source has one.
+    files: Option<&'r mut dyn SourceFiles>,
     /// The images loading in the background after a reload.
     loads: &'l mut Loads,
     /// When the pager started, from when the bands below the images that
@@ -729,8 +734,8 @@ fn carry(
         }
         Effect::PollWatches => {
             let watches = session.watches(pager.state.follow.on());
-            let reload = source.reload.as_deref_mut().expect("a source to poll");
-            let looks = (source.watcher).due(&watches, pager.now(), |path| reload.look(path));
+            let files = source.files.as_deref_mut().expect("files to poll");
+            let looks = (source.watcher).due(&watches, pager.now(), |path| files.look(path));
             return Ok(Some(Msg::Changed(looks)));
         }
         Effect::PollLoads => {
