@@ -39,6 +39,8 @@ pub struct Loads {
     /// of how many.
     done: usize,
     total: usize,
+    /// What [`Loads::wait_by`] took from the channel, for [`Loads::poll`].
+    pending: Vec<Done>,
 }
 
 /// A load under way.
@@ -359,6 +361,7 @@ impl Loads {
             runner,
             done: 0,
             total: 0,
+            pending: Vec::new(),
         }
     }
 
@@ -478,7 +481,9 @@ impl Loads {
     /// whose loads were stopped, or replaced by a newer one, are left out.
     pub fn poll(&mut self) -> Vec<Arrived> {
         let mut came = Vec::new();
-        while let Ok(done) = self.receiver.try_recv() {
+        let mut dones = std::mem::take(&mut self.pending);
+        dones.extend(self.receiver.try_iter());
+        for done in dones {
             if self
                 .running
                 .get(&done.key)
@@ -496,6 +501,25 @@ impl Loads {
             (self.done, self.total) = (0, 0);
         }
         came
+    }
+
+    /// Waits until a load comes or `deadline` passes, whichever is first;
+    /// whether one came. What came stays for [`Loads::poll`], which gives it
+    /// as it gives the rest; a result of a load that was stopped or replaced
+    /// may wake it, and is then dropped there.
+    pub fn wait_by(&mut self, deadline: Instant) -> bool {
+        if !self.pending.is_empty() {
+            return true;
+        }
+        let wait = deadline.saturating_duration_since(Instant::now());
+        // The loads hold a sender themselves, so the channel does not end.
+        match self.receiver.recv_timeout(wait) {
+            Ok(done) => {
+                self.pending.push(done);
+                true
+            }
+            Err(_) => false,
+        }
     }
 
     /// Stops every load, and waits for the programs outside kiri that
@@ -1793,6 +1817,67 @@ mod tests {
         }
         assert_eq!(came[1].key, ImageKey::block("mermaid", "fine\n"));
         assert!(came[1].image.is_ok(), "{came:?}");
+        assert!(loads.is_empty());
+    }
+
+    #[test]
+    fn a_load_that_comes_wakes_the_wait_well_before_its_deadline_and_poll_gives_it() {
+        let mut loads = Loads::new();
+        let a = loads.expect("a.png");
+        let start = Instant::now();
+        let producer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(20));
+            a.come(square());
+        });
+        let came = loads.wait_by(start + Duration::from_secs(10));
+        let waited = start.elapsed();
+        producer.join().unwrap();
+        assert!(came);
+        assert!(waited < Duration::from_secs(5), "{waited:?}");
+        let arrived = loads.poll();
+        assert!(
+            matches!(&arrived[..], [Arrived { key, image: Ok(_), .. }] if *key == "a.png".into()),
+            "{arrived:?}"
+        );
+        assert!(loads.is_empty());
+        assert!(loads.poll().is_empty());
+    }
+
+    #[test]
+    fn a_wait_with_nothing_coming_ends_at_its_deadline() {
+        let mut loads = Loads::new();
+        let _a = loads.expect("a.png");
+        let wait = Duration::from_millis(60);
+        let start = Instant::now();
+        assert!(!loads.wait_by(start + wait));
+        assert!(start.elapsed() >= wait, "{:?}", start.elapsed());
+        // What is still loading stays so.
+        assert!(loads.loading(&"a.png".into()));
+        assert!(loads.poll().is_empty());
+    }
+
+    #[test]
+    fn a_load_that_came_before_the_wait_ends_it_at_once_and_a_deadline_gone_still_looks() {
+        let mut loads = Loads::new();
+        let a = loads.expect("a.png");
+        a.come(square());
+        let gone = Instant::now();
+        assert!(loads.wait_by(gone));
+        // Asked again before `poll`, what came is still there.
+        assert!(loads.wait_by(gone));
+        assert_eq!(loads.poll().len(), 1);
+        assert!(!loads.wait_by(gone));
+    }
+
+    #[test]
+    fn the_result_of_a_load_that_was_stopped_wakes_the_wait_and_poll_drops_it() {
+        let mut loads = Loads::new();
+        let a = loads.expect("a.png");
+        loads.reconcile(Vec::new());
+        assert!(a.stopped());
+        a.come(square());
+        assert!(loads.wait_by(Instant::now() + Duration::from_secs(10)));
+        assert!(loads.poll().is_empty());
         assert!(loads.is_empty());
     }
 
