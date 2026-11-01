@@ -549,6 +549,14 @@ pub(crate) struct Ran {
 }
 
 impl Ran {
+    /// Asserts that nothing was written to standard error, and gives the
+    /// run back. A test that expects a warning reads `err` instead.
+    #[track_caller]
+    pub(crate) fn quiet(self) -> Self {
+        assert_eq!(self.err, "", "standard error is not empty");
+        self
+    }
+
     /// The frames drawn, each from the start of its synchronized update to
     /// the next one, as text with its escape sequences.
     pub(crate) fn frames(&self) -> Vec<&str> {

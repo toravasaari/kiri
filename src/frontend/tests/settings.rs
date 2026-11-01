@@ -17,7 +17,8 @@ fn capital_p_prints_a_long_document() {
     let ran = Sim::new(40, 5)
         .file("long.md", &long())
         .settings(|settings| settings.paging = Paging::Never)
-        .kiri(&["long.md"]);
+        .kiri(&["long.md"])
+        .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     assert!(ran.frames().is_empty(), "not paged: {:?}", ran.out);
     assert!(plain(&ran.out).contains("Line 10"), "{:?}", ran.out);
@@ -31,7 +32,8 @@ fn a_diagram_file_alone_that_is_not_drawn_is_paged_when_it_is_long_unlike_severa
         .file("diagram.mmd", &source)
         .settings(|settings| settings.diagrams = false)
         .keys(10, "q")
-        .kiri(&["diagram.mmd"]);
+        .kiri(&["diagram.mmd"])
+        .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     assert!(!ran.frames().is_empty(), "paged: {:?}", ran.out);
     assert!(ran.texts()[0].contains("A1 --> B1"), "{:?}", ran.texts());
@@ -41,7 +43,8 @@ fn a_diagram_file_alone_that_is_not_drawn_is_paged_when_it_is_long_unlike_severa
         .file("diagram.mmd", &source)
         .file("second.mmd", &source)
         .settings(|settings| settings.diagrams = false)
-        .kiri(&["diagram.mmd", "second.mmd"]);
+        .kiri(&["diagram.mmd", "second.mmd"])
+        .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     assert!(ran.frames().is_empty(), "not paged: {:?}", ran.out);
     assert_eq!(

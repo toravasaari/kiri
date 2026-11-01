@@ -13,7 +13,8 @@ fn r_reads_the_file_again() {
         .write(50, "long.md", &fresh())
         .keys(100, "r")
         .keys(200, "q")
-        .kiri(&["long.md"]);
+        .kiri(&["long.md"])
+        .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     let texts = ran.texts();
     assert!(texts[0].contains("Line 1"), "{texts:?}");
@@ -34,7 +35,8 @@ fn standard_input_and_several_files_reload_nothing() {
         .settings(|settings| settings.paging = Paging::Always)
         .keys(10, "r")
         .keys(20, "q")
-        .kiri(&["-"]);
+        .kiri(&["-"])
+        .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     assert!(
         ran.texts()
@@ -49,7 +51,8 @@ fn standard_input_and_several_files_reload_nothing() {
         .file("document.md", &paragraphs(3))
         .keys(10, "r")
         .keys(20, "q")
-        .kiri(&["long.md", "document.md"]);
+        .kiri(&["long.md", "document.md"])
+        .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     assert!(
         ran.texts()

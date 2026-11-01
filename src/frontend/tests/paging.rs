@@ -42,7 +42,8 @@ fn p_pages_a_short_document() {
         .file("document.md", &paragraphs(3))
         .settings(|settings| settings.paging = Paging::Always)
         .keys(10, "q")
-        .kiri(&["document.md"]);
+        .kiri(&["document.md"])
+        .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     assert!(!ran.frames().is_empty(), "paged: {:?}", ran.out);
 }
@@ -111,7 +112,8 @@ fn colon_n_moves_to_the_next_file_and_the_status_line_names_it() {
         .file("long.md", &long())
         .keys(10, ":n")
         .keys(20, "q")
-        .kiri(&["document.md", "long.md"]);
+        .kiri(&["document.md", "long.md"])
+        .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     let texts = ran.texts();
     assert_eq!(texts.len(), 2, "{texts:?}");

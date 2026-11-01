@@ -16,7 +16,8 @@ fn following_pages_a_short_file() {
             .file("document.md", &paragraphs(3))
             .follow(follow, FollowJump::First)
             .keys(10, "q")
-            .kiri(&["document.md"]);
+            .kiri(&["document.md"])
+            .quiet();
         assert!(
             matches!(ran.result, Some(Ok(()))),
             "{follow:?}: {:?}",
@@ -30,7 +31,8 @@ fn following_pages_a_short_file() {
         .file("document.md", &paragraphs(3))
         .settings(|settings| settings.follow = Follow::On)
         .keys(10, "q")
-        .kiri(&["document.md"]);
+        .kiri(&["document.md"])
+        .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     assert!(!ran.frames().is_empty(), "{:?}", ran.out);
     assert!(ran.texts()[0].contains(" follow "), "{:?}", ran.texts());
@@ -43,7 +45,8 @@ fn following_still_prints_with_paging_never() {
         .file("document.md", &paragraphs(3))
         .follow(Follow::On, FollowJump::First)
         .settings(|settings| settings.paging = Paging::Never)
-        .kiri(&["document.md"]);
+        .kiri(&["document.md"])
+        .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     assert!(ran.frames().is_empty(), "{:?}", ran.out);
     assert!(plain(&ran.out).contains("Line 3"), "{:?}", ran.out);
@@ -54,7 +57,8 @@ fn following_still_prints_with_paging_never() {
             settings.paging = Paging::Never;
             settings.follow = Follow::On;
         })
-        .kiri(&["document.md"]);
+        .kiri(&["document.md"])
+        .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     assert!(ran.frames().is_empty(), "{:?}", ran.out);
     assert!(plain(&ran.out).contains("Line 3"), "{:?}", ran.out);
@@ -67,7 +71,8 @@ fn kiri_follow_pages_a_short_file_and_leaves_standard_input_quiet() {
         .file("document.md", &paragraphs(3))
         .settings(|settings| settings.follow = Follow::On)
         .keys(10, "q")
-        .kiri(&["document.md"]);
+        .kiri(&["document.md"])
+        .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     assert!(!ran.frames().is_empty(), "{:?}", ran.out);
     assert!(ran.texts()[0].contains(" follow "), "{:?}", ran.texts());
@@ -79,7 +84,8 @@ fn kiri_follow_pages_a_short_file_and_leaves_standard_input_quiet() {
             settings.paging = Paging::Always;
         })
         .keys(10, "q")
-        .kiri(&["-"]);
+        .kiri(&["-"])
+        .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     let texts = ran.texts();
     assert!(texts[0].contains("Line 1"), "{texts:?}");
@@ -97,7 +103,8 @@ fn follow_reads_the_file_again_when_it_changes_without_a_key() {
         .follow(Follow::On, FollowJump::First)
         .write(50, "long.md", &fresh())
         .keys(3000, "q")
-        .kiri(&["long.md"]);
+        .kiri(&["long.md"])
+        .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     let texts = ran.texts();
     assert!(texts[0].contains("Line 1"), "{texts:?}");
@@ -122,7 +129,8 @@ fn the_fa_flag_follows_on_auto_and_moves_the_view_to_a_change_in_the_file() {
         .follow(Follow::Auto, FollowJump::First)
         .write(50, "long.md", &changed)
         .keys(3000, "q")
-        .kiri(&["long.md"]);
+        .kiri(&["long.md"])
+        .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     let texts = ran.texts();
     let last = texts.last().expect("a frame");
@@ -138,7 +146,8 @@ fn standard_input_and_several_files_have_nothing_to_follow() {
         .follow(Follow::On, FollowJump::First)
         .settings(|settings| settings.paging = Paging::Always)
         .keys(10, "q")
-        .kiri(&["-"]);
+        .kiri(&["-"])
+        .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     assert!(
         ran.texts()
@@ -153,7 +162,8 @@ fn standard_input_and_several_files_have_nothing_to_follow() {
         .file("document.md", &paragraphs(3))
         .follow(Follow::On, FollowJump::First)
         .keys(10, "q")
-        .kiri(&["long.md", "document.md"]);
+        .kiri(&["long.md", "document.md"])
+        .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     assert!(
         ran.texts()
@@ -168,7 +178,8 @@ fn standard_input_and_several_files_have_nothing_to_follow() {
         .follow(Follow::Auto, FollowJump::First)
         .settings(|settings| settings.paging = Paging::Always)
         .keys(10, "q")
-        .kiri(&["-"]);
+        .kiri(&["-"])
+        .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     assert!(
         ran.texts()
@@ -188,7 +199,8 @@ fn following_from_the_configuration_file_is_quiet_where_there_is_nothing_to_foll
             settings.follow = Follow::On;
         })
         .keys(10, "q")
-        .kiri(&["-"]);
+        .kiri(&["-"])
+        .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     let texts = ran.texts();
     assert!(texts[0].contains("Line 1"), "{texts:?}");
@@ -202,7 +214,8 @@ fn following_from_the_configuration_file_is_quiet_where_there_is_nothing_to_foll
         .file("document.md", &paragraphs(3))
         .settings(|settings| settings.follow = Follow::On)
         .keys(10, "q")
-        .kiri(&["long.md", "document.md"]);
+        .kiri(&["long.md", "document.md"])
+        .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     let texts = ran.texts();
     assert!(texts[0].contains("long.md 1/2"), "{texts:?}");
