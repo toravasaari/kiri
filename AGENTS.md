@@ -107,7 +107,7 @@ The network is strict there: crates.io and rustup work, GitHub does not.
   where to see it.
 - Visual output still needs a look in a real kitty window. Say so when you
   could not do that check. For a first look, the render-check skill
-  (`.claude/skills/render-check/`) screenshots documents rendered in kitty
+  (`.agents/skills/render-check/`) screenshots documents rendered in kitty
   on a virtual display.
 
 ## Review

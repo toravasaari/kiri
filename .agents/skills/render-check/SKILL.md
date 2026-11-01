@@ -16,8 +16,8 @@ user's consent.
 From the repository root:
 
 ```sh
-.claude/skills/render-check/render-check.sh tests/fixtures/images.md
-.claude/skills/render-check/render-check.sh --out DIR a.md b.md -- --mode ansi
+.agents/skills/render-check/render-check.sh tests/fixtures/images.md
+.agents/skills/render-check/render-check.sh --out DIR a.md b.md -- --mode ansi
 ```
 
 - It builds `target/debug/kiri` first, unless `--kiri PATH` is given.
