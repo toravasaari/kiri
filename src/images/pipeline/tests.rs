@@ -277,6 +277,39 @@ fn a_reload_keeps_an_image_that_has_no_file() {
     ));
 }
 
+#[test]
+fn a_reload_loads_a_diagram_that_failed_again_and_an_image_file_that_failed_it_does_not() {
+    let scratch = Scratch::new("pipeline-failed-diagram");
+    let settings = settings(&["/bin/false"]);
+    let loading = Loading {
+        env: &Environment::default(),
+        settings: &settings,
+        max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
+        theme: Theme::Light,
+        formula: FormulaColors::default(),
+        largest: None,
+        headings: None,
+    };
+    let document =
+        crate::typeset::parse::parse("![x](missing.png)\n\n```mermaid\nflowchart TD\n```\n");
+    let parts = alone(&document, &scratch);
+    let mut stamps = Stamps::of(&parts);
+    let loaded = load_documents(&parts, &loading, None).unwrap();
+    let mut images = loaded.images;
+    let diagram = ImageKey::block("mermaid", "flowchart TD\n").with_look(loading.looks().diagram);
+    let missing = ImageKey::from("missing.png");
+    assert!(matches!(images.get(&diagram), Some(Err(_))), "{images:?}");
+    assert!(matches!(images.get(&missing), Some(Err(_))), "{images:?}");
+    let mut loads = Loads::new();
+    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    // The diagram is drawn anew, and the failed image file, which did not
+    // change, is not read again.
+    assert!(loads.loading(&diagram));
+    assert!(images.get(&diagram).is_none());
+    assert!(!loads.loading(&missing));
+    assert!(matches!(images.get(&missing), Some(Err(_))), "{images:?}");
+}
+
 /// The settings and environment for a run whose Mermaid diagrams the
 /// shell script `script` draws, with its files in `scratch`.
 fn scripted(scratch: &Scratch, script: &str) -> (Settings, Environment) {

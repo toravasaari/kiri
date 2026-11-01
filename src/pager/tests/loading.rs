@@ -808,3 +808,79 @@ fn a_changed_diagram_loads_with_its_old_drawing_dimmed_under_the_layouts_look() 
         "{shown:?}"
     );
 }
+
+/// Reloads the document as the first, as a reload that plans the diagram
+/// `key` does: a diagram that failed is left out of what is kept and loads
+/// anew, and one that is neither held nor loading loads. Each load that
+/// starts is counted in `runs`, and comes as the first of `coming` says.
+struct Retrying {
+    document: Document,
+    key: ImageKey,
+    coming: Coming,
+    runs: std::rc::Rc<std::cell::Cell<usize>>,
+}
+
+impl Reload for Retrying {
+    fn reload(
+        &mut self,
+        images: &mut Images,
+        loads: &mut Loads,
+        _: &Capabilities,
+        _: bool,
+    ) -> Reloaded {
+        if matches!(images.get(&self.key), Some(Err(_))) {
+            images.set_aside(&self.key);
+        }
+        if images.get(&self.key).is_none() && !loads.loading(&self.key) {
+            self.runs.set(self.runs.get() + 1);
+            let arrival = loads.expect(self.key.clone());
+            let failed = Err(ImageError::Missing("x.mmd".into()));
+            self.coming.borrow_mut().push((arrival, failed));
+        }
+        Reloaded::Document(self.document.clone())
+    }
+
+    fn change(&mut self) -> Change {
+        Change::Unchanged
+    }
+}
+
+#[test]
+fn a_diagram_that_failed_in_the_background_loads_again_only_when_the_document_is_read_again() {
+    let source = "```mermaid\nx\n```\n\nAfter\n";
+    let document = crate::typeset::parse::parse(source);
+    let runs: std::rc::Rc<std::cell::Cell<usize>> = Default::default();
+    let mut reload = Retrying {
+        document: document.clone(),
+        key: ImageKey::block("mermaid", "x\n"),
+        coming: Default::default(),
+        runs: std::rc::Rc::clone(&runs),
+    };
+    // The first load comes, failed, at read 1; then the reader scrolls,
+    // and at read 6 the document is read again.
+    let reads: &[&[u8]] = &[b"r", b"", b"G", b"gg", b"j", b"", b"r", b"", b""];
+    let mut terminal = Fake::new(60, 10, reads);
+    let (coming, seen) = (std::rc::Rc::clone(&reload.coming), runs.clone());
+    let counted: std::rc::Rc<std::cell::RefCell<Vec<usize>>> = Default::default();
+    let note = std::rc::Rc::clone(&counted);
+    terminal.hook = Some(Box::new(move |read| {
+        if read == 1 {
+            let (arrival, image) = coming.borrow_mut().remove(0);
+            arrival.come(image);
+        }
+        note.borrow_mut().push(seen.get());
+    }));
+    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    let options = Options {
+        reload: Some(&mut reload),
+        ..Options::new(SearchCase::Smart)
+    };
+    run_document(&document, &mut inputs, options, &mut terminal);
+    // Run once by the first reload and not again while the document stays
+    // as it was read; twice once it is read again.
+    let counted = counted.borrow();
+    assert_eq!(counted[0], 0, "{counted:?}");
+    assert!(counted[1..=6].iter().all(|&runs| runs == 1), "{counted:?}");
+    assert!(counted[7..].iter().all(|&runs| runs == 2), "{counted:?}");
+    assert_eq!(runs.get(), 2);
+}
