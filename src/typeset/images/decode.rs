@@ -8,7 +8,8 @@ use image::{ImageFormat, RgbaImage};
 use kiri_tr_image_utils::DecodeError;
 
 use crate::images::svg::{Fonts, Svg, decode_svg, looks_like_svg};
-use crate::images::{ImageError, url};
+use crate::typeset::images::ImageError;
+use crate::typeset::images::url;
 
 /// The most pixels kiri decodes in one image: 64 megapixels, 256 MiB as
 /// RGBA. A photo from a phone has about 12.
@@ -247,7 +248,7 @@ fn format_name(format: ImageFormat) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::images::tests::{fixture, fixtures, rgba};
+    use crate::load::tests::{fixture, fixtures, rgba};
 
     fn raster(name: &str) -> RgbaImage {
         match fixture(name) {

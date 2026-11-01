@@ -1,6 +1,5 @@
-//! The theme file: TOML that changes the defaults.
-
-use std::path::Path;
+//! The theme file: TOML that changes the defaults. This file parses its
+//! text; reading the file is `src/load/theme.rs`.
 
 use serde::Deserialize;
 
@@ -10,18 +9,6 @@ use crate::typeset::theme::{
     AlertColor, AlertColors, AlertTheme, BandColor, CODE_THEMES, CodeBackground, HeadingTheme,
     LabelColor, SearchColor, StatusColor, TableStyle, Theme,
 };
-
-/// Reads a theme file. Keys it leaves out keep their default values, but
-/// it is the user's theme, not the built-in one.
-pub fn load(path: &Path) -> Result<Theme, String> {
-    let text =
-        std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
-    let theme = parse(&text).map_err(|error| format!("{}: {error}", path.display()))?;
-    Ok(Theme {
-        built_in: false,
-        ..theme
-    })
-}
 
 #[expect(clippy::too_many_lines)]
 pub fn parse(text: &str) -> Result<Theme, String> {

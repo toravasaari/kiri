@@ -4,8 +4,9 @@
 use std::collections::HashMap;
 use std::time::SystemTime;
 
-use super::url::local_file;
-use super::{ImageError, ImageKey, Images, Part, Source, shown_urls};
+use super::{ImageError, ImageKey, Images, Part, Source};
+use crate::typeset::images::plan::shown_urls;
+use crate::typeset::images::url::local_file;
 
 /// The modification time of the file behind each image of the documents
 /// shown, when the image was last loaded: `None` for a file that could

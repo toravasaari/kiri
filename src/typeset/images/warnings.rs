@@ -1,11 +1,13 @@
 //! The warnings about images and diagrams that did not load.
 
-use super::url::scheme;
-use super::{ImageError, ImageKey, Source};
 use crate::typeset::diagnostic::{Code, Diagnostic};
+use crate::typeset::images::decode::Source;
+use crate::typeset::images::error::ImageError;
+use crate::typeset::images::key::ImageKey;
+use crate::typeset::images::url::scheme;
 
 /// The warnings about `images`, as `Images::warnings_with` makes them.
-pub(super) fn warnings<'a>(
+pub(crate) fn warnings<'a>(
     images: impl Iterator<Item = (&'a ImageKey, &'a Result<Source, ImageError>)>,
     render_errors: bool,
 ) -> Vec<Diagnostic> {

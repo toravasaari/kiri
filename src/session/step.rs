@@ -7,14 +7,14 @@
 //! the message, and what an effect finds out comes back as the next
 //! message. So a test can drive it without a terminal.
 
-use std::ops::Range;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use crate::present::keys::Key;
 use crate::present::kitty::graphics::ImageId;
 use crate::session::frame::{Frame, Layout};
-use crate::session::state::{Change, FRAME, Focus, POLL, Polled, State, Told};
+use crate::session::sources::Looked;
+use crate::session::state::{FRAME, Focus, POLL, Polled, State, Told};
 use crate::typeset::color::Color;
 use crate::typeset::compare::Comparison;
 use crate::typeset::diagnostic::Diagnostic;
@@ -34,11 +34,6 @@ pub(crate) struct Run {
     pub(crate) started: Instant,
     /// Whether the terminal draws images, which reading mode needs.
     pub(crate) draws_images: bool,
-    /// Whether there is a reading mode to turn on or off.
-    pub(crate) reading: bool,
-    /// Whether turning reading mode on starts loading what it shows that
-    /// the text does not.
-    pub(crate) inline: bool,
 }
 
 /// A pager showing one layout of the document: the state that stays from
@@ -50,13 +45,11 @@ pub(crate) struct Pager<'a, 'b> {
     /// The cells, width and height in pixels, that this layout was made
     /// for.
     pub(crate) cells: Option<(u16, u16)>,
-    /// The time of the last message that has one.
+    /// The time of the turn: when the layout was shown, or when the last
+    /// read of keys ended. A reread does not move it.
     now: Instant,
     /// The frame last drawn.
     shown: Option<Rc<Frame>>,
-    /// The lines in view when the loads were last told to start nearest
-    /// to them.
-    preferred: Range<usize>,
     /// What the keys of the last read asked, until the turn is over.
     pending: Pending,
 }
@@ -78,7 +71,6 @@ impl<'a, 'b> Pager<'a, 'b> {
             cells,
             now,
             shown: None,
-            preferred: 0..0,
             pending: Pending::default(),
         }
     }
@@ -103,9 +95,9 @@ pub(crate) enum Msg {
     /// The bytes of the keys that a read gave, none when the wait ran out,
     /// at `now`.
     Input(Vec<u8>, Instant),
-    /// What the poll of the document found, which [`Effect::PollChange`]
-    /// asked for.
-    Changed(Change),
+    /// What the looks at the watches that were due found, none when nothing
+    /// was due, which [`Effect::PollWatches`] asked for.
+    Changed(Vec<Looked>),
     /// Whether loads came, which [`Effect::PollLoads`] asked for.
     Loads { came: bool },
     /// Whether the window changed size, which [`Effect::PollWindow`] asked
@@ -148,14 +140,13 @@ pub(crate) enum Effect {
     /// Wait for keys, at most as long as [`Pager::wait`] says. The keys
     /// come back as [`Msg::Input`].
     Read,
-    /// Look at the document, which comes back as [`Msg::Changed`].
-    PollChange,
+    /// Look at what the session watches, those watches that are due, which
+    /// comes back as [`Msg::Changed`].
+    PollWatches,
     /// Take what loads have come, which comes back as [`Msg::Loads`].
     PollLoads,
     /// Look at the window's size, which comes back as [`Msg::Window`].
     PollWindow,
-    /// Start the loads of the images nearest to these lines first.
-    Prefer(Range<usize>),
     /// Draw the frame, at this time since the start unless that is not
     /// asked, then check the images sent and flush.
     Draw(Rc<Frame>, Option<Duration>),
@@ -184,10 +175,6 @@ pub(crate) enum Effect {
     FlipWide,
     /// Set the page's background colour, or none for the terminal's own.
     SetBackground(Option<Color>),
-    /// Start loading what reading mode shows that the text does not.
-    StartInline,
-    /// Take in the images that loads brought.
-    Install,
     /// Read the document again; what it came to is [`Msg::Reloaded`].
     Reload,
     /// Make the layout again, with the same lines when `reuse`.
@@ -206,8 +193,6 @@ impl Effect {
                 | Self::SwapReading
                 | Self::FlipWide
                 | Self::SetBackground(_)
-                | Self::StartInline
-                | Self::Install
                 | Self::Reload
                 | Self::Relayout { .. }
         )
@@ -219,7 +204,7 @@ pub(crate) fn step(pager: &mut Pager, msg: Msg) -> Vec<Effect> {
     match msg {
         Msg::Shown(now) => shown(pager, now),
         Msg::Input(bytes, now) => input(pager, &bytes, now),
-        Msg::Changed(change) => changed(pager, change),
+        Msg::Changed(looks) => changed(pager, looks),
         Msg::Loads { came } => match came {
             true => loaded(pager),
             false => vec![Effect::PollWindow],
@@ -229,22 +214,22 @@ pub(crate) fn step(pager: &mut Pager, msg: Msg) -> Vec<Effect> {
     }
 }
 
-/// The first turn of a layout: the images in view load first, and the
-/// frame is drawn.
+/// The first turn of a layout: the frame is drawn.
 fn shown(pager: &mut Pager, now: Instant) -> Vec<Effect> {
     pager.now = now;
-    pager.preferred = pager.layout.view.visible();
     let frame = Rc::new(pager.layout.frame(pager.state, now));
     pager.shown = Some(Rc::clone(&frame));
     let at = now.saturating_duration_since(pager.run.started);
-    vec![
-        Effect::Prefer(pager.preferred.clone()),
-        Effect::Draw(frame, Some(at)),
-        Effect::Read,
-    ]
+    vec![Effect::Draw(frame, Some(at)), Effect::Read]
 }
 
 impl Pager<'_, '_> {
+    /// The time of the turn: when the layout was shown, or when the last
+    /// read of keys ended.
+    pub(crate) fn now(&self) -> Instant {
+        self.now
+    }
+
     /// How long the pager waits for keys from now, which is when it next
     /// has something to do without any: a [`FRAME`] while something fades
     /// or `bands` move, as each frame draws a step of it, and otherwise a
@@ -281,7 +266,7 @@ fn finish(pager: &mut Pager, mut effects: Vec<Effect>) -> Vec<Effect> {
 }
 
 /// A read's turn: its keys, then the cells the terminal answered, and on
-/// to the poll of the document.
+/// to the look at what is watched.
 fn input(pager: &mut Pager, bytes: &[u8], now: Instant) -> Vec<Effect> {
     pager.now = now;
     // Nothing more came for a key the last read cut off.
@@ -302,16 +287,21 @@ fn input(pager: &mut Pager, bytes: &[u8], now: Instant) -> Vec<Effect> {
         effects.push(Effect::SetCells(new));
         effects.push(Effect::Relayout { reuse: false });
     } else if pager.state.follow.on() && pager.run.can_reload {
-        effects.push(Effect::PollChange);
+        effects.push(Effect::PollWatches);
     } else {
         settle(pager, &mut effects);
     }
     effects
 }
 
-/// The poll of the document found `change`.
-fn changed(pager: &mut Pager, change: Change) -> Vec<Effect> {
+/// The looks at the watches that were due found `looks`. With none, as
+/// the watch was looked at a moment ago, the debounce is left as it is.
+fn changed(pager: &mut Pager, looks: Vec<Looked>) -> Vec<Effect> {
     let mut effects = Vec::new();
+    let Some(Looked { change, .. }) = looks.into_iter().next() else {
+        settle(pager, &mut effects);
+        return effects;
+    };
     match pager.state.follow.poll(change, pager.now) {
         Polled::Nothing => settle(pager, &mut effects),
         Polled::Reload => return finish(pager, vec![Effect::Reload]),
@@ -323,14 +313,9 @@ fn changed(pager: &mut Pager, change: Change) -> Vec<Effect> {
     effects
 }
 
-/// Goes on from the poll of the document: the loads of the images in
-/// view, the bands, and then the loads that came.
+/// Goes on from the look at the watches: the bands, and then the loads
+/// that came.
 fn settle(pager: &mut Pager, effects: &mut Vec<Effect>) {
-    let visible = pager.layout.view.visible();
-    if visible != pager.preferred {
-        pager.preferred = visible.clone();
-        effects.push(Effect::Prefer(visible));
-    }
     // The band selected scrolled away: the topmost on the screen takes its
     // place.
     let layout = &*pager.layout;
@@ -345,7 +330,7 @@ fn settle(pager: &mut Pager, effects: &mut Vec<Effect>) {
 }
 
 /// Images that were loading came: the tinted lines move with them, and the
-/// next layout keeps its top line.
+/// next layout, which takes them in first, keeps its top line.
 fn loaded(pager: &mut Pager) -> Vec<Effect> {
     if let Some(changed) = pager.state.changed.take() {
         let places = pager.layout.places.get(changed.lines).unwrap_or_default();
@@ -353,10 +338,7 @@ fn loaded(pager: &mut Pager) -> Vec<Effect> {
         pager.state.next.tinted = Some((changed.at, blocks));
     }
     pager.state.next.keep_top = true;
-    finish(
-        pager,
-        vec![Effect::Install, Effect::Relayout { reuse: false }],
-    )
+    finish(pager, vec![Effect::Relayout { reuse: false }])
 }
 
 /// The last turn: if the window changed size the layout ends, and

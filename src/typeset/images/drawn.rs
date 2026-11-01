@@ -4,11 +4,12 @@
 
 use image::RgbaImage;
 
-use crate::diagrams::{DiagramError, Drawn, Theme};
-use crate::images::LoadOptions;
 use crate::images::svg::{Fonts, decode_svg, looks_like_svg};
-use crate::images::{ImageError, Source};
+use crate::typeset::diagrams::error::DiagramError;
+use crate::typeset::diagrams::request::{Drawn, Theme};
+use crate::typeset::images::LoadOptions;
 use crate::typeset::images::decode::{decode_raster, scale};
+use crate::typeset::images::{ImageError, Source};
 
 /// The diagram `source` in `language`, which starts on `line`, as
 /// `diagrams` drew it, decoded by its content as an image file is.
@@ -22,7 +23,7 @@ pub(crate) fn finish_diagram(
     options: &LoadOptions<'_>,
 ) -> Result<Source, ImageError> {
     let failed = |reason: DiagramError| ImageError::Diagram {
-        name: crate::diagrams::name(language, source, line, options.by_line),
+        name: crate::typeset::diagrams::names::name(language, source, line, options.by_line),
         reason,
     };
     let drawn = drawn.map_err(failed)?;
@@ -38,7 +39,7 @@ pub(crate) fn finish_diagram(
         _ if !options.panel => None,
         (Theme::Dark, Theme::Light) => Some(LIGHT_PANEL),
         (Theme::Light, Theme::Dark) => {
-            let language = crate::diagrams::dark_background(language);
+            let language = crate::typeset::diagrams::names::dark_background(language);
             Some(drawn.background.or(language).unwrap_or(DARK_PANEL))
         }
         (Theme::Light, Theme::Light) | (Theme::Dark, Theme::Dark) => None,

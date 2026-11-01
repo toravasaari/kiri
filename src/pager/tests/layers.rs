@@ -41,7 +41,7 @@ fn followed(old: &Document, new: Document, keys: &[&[u8]]) -> Vec<String> {
         old,
         &mut inputs,
         Options {
-            reload: Some(&mut then),
+            files: Some(&mut then),
             follow: settings::Follow::Auto,
             jump: FollowJump::First,
             ..Options::new(SearchCase::Smart)

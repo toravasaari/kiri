@@ -355,6 +355,7 @@ fn following_tells_where_it_comes_from() {
     write_config(&dir, "follow = \"on\"\n");
     let row = "| Follow | on | configuration file |";
     check_row(&dir, &[], &[], row);
+    check_row(&dir, &["-f"], &[], "| Follow | on | `-f` |");
     check_row(&dir, &["-F"], &[], "| Follow | off | `-F` |");
     let row = "| Follow | off | `KIRI_FOLLOW=0` |";
     check_row(&dir, &[], &[("KIRI_FOLLOW", "0")], row);

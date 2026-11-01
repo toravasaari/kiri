@@ -22,6 +22,7 @@ use std::sync::{Arc, Once};
 use std::time::{Duration, Instant};
 
 use super::{DiagramError, Drawn, Renderer, Request};
+use crate::typeset::diagrams::output::Output;
 
 /// How long a program may take to draw one diagram before kiri stops it,
 /// unless the configuration file says otherwise.
@@ -497,15 +498,6 @@ fn smaller_scale(image: &[u8], scale: u32) -> Option<u32> {
 fn config(language: &str, output: Output) -> Option<(String, &'static str)> {
     let file = super::language(language)?.config?;
     Some(((file.text)(output), file.extension))
-}
-
-/// What a command writes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Output {
-    /// SVG, or a raster image at one pixel to the CSS pixel.
-    Svg,
-    /// A raster image at [`SCALE`], when the command takes `{scale}`.
-    Raster,
 }
 
 /// The file in each directory for a diagram's files that names the machine

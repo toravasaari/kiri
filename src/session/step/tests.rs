@@ -9,8 +9,8 @@ use crate::session::files::Files;
 use crate::session::frame::{Layout, Status};
 use crate::session::search::Marks;
 use crate::session::settings::{self, SearchCase};
-use crate::session::state::Changed;
-use crate::session::state::Look;
+use crate::session::sources::{Session, Watched};
+use crate::session::state::{Change, Changed, Look};
 use crate::session::status;
 use crate::session::view::View;
 use crate::typeset::block::{BlockInfo, Blocks};
@@ -31,8 +31,6 @@ fn run(now: Instant) -> Run {
         tmux: false,
         started: now,
         draws_images: true,
-        reading: true,
-        inline: true,
     }
 }
 
@@ -99,10 +97,9 @@ fn kinds(effects: &[Effect]) -> Vec<&'static str> {
         .iter()
         .map(|effect| match effect {
             Effect::Read => "read",
-            Effect::PollChange => "poll change",
+            Effect::PollWatches => "poll watches",
             Effect::PollLoads => "poll loads",
             Effect::PollWindow => "poll window",
-            Effect::Prefer(_) => "prefer",
             Effect::Draw(..) => "draw",
             Effect::Check => "check",
             Effect::Resend(_) => "resend",
@@ -115,8 +112,6 @@ fn kinds(effects: &[Effect]) -> Vec<&'static str> {
             Effect::SwapReading => "swap reading",
             Effect::FlipWide => "flip wide",
             Effect::SetBackground(_) => "set background",
-            Effect::StartInline => "start inline",
-            Effect::Install => "install",
             Effect::Reload => "reload",
             Effect::Relayout { reuse: false } => "relayout",
             Effect::Relayout { reuse: true } => "relayout, same lines",
@@ -149,16 +144,12 @@ fn the_pager_waits_a_poll_when_idle_and_a_frame_while_something_fades() {
 }
 
 #[test]
-fn the_first_turn_loads_what_is_in_view_first_draws_and_waits() {
+fn the_first_turn_draws_and_waits() {
     let now = Instant::now();
     let mut state = State::new(SearchCase::Smart);
     with_pager(30, 5, &mut state, run(now), now, |pager| {
         let effects = step(pager, Msg::Shown(now));
-        assert_eq!(kinds(&effects), ["prefer", "draw", "read"]);
-        let Effect::Prefer(visible) = &effects[0] else {
-            panic!("the loads are told where the view is");
-        };
-        assert_eq!(*visible, 0..5);
+        assert_eq!(kinds(&effects), ["draw", "read"]);
     });
 }
 
@@ -170,7 +161,7 @@ fn a_key_that_scrolls_draws_a_new_frame_and_waits() {
         step(pager, Msg::Shown(now));
         // Each stage of the turn asks for what it needs next.
         let later = now + Duration::from_millis(100);
-        assert_eq!(kinds(&typed(pager, "j", later)), ["prefer", "poll loads"]);
+        assert_eq!(kinds(&typed(pager, "j", later)), ["poll loads"]);
         let effects = step(pager, Msg::Loads { came: false });
         assert_eq!(kinds(&effects), ["poll window"]);
         let effects = step(
@@ -273,19 +264,23 @@ fn a_reload_that_worked_keeps_what_it_found_for_the_next_layout() {
 }
 
 #[test]
-fn a_following_pager_polls_the_document_and_reads_it_again_when_it_settled() {
+fn a_following_pager_looks_at_the_watches_and_reads_again_when_it_settled() {
     let now = Instant::now();
     let mut state = State::new(SearchCase::Smart);
     state.follow.mode = settings::Follow::On;
-    let look = Change::Changed(Look {
-        modified: None,
-        length: 7,
-    });
+    let what = Watched::Source(Session::new(["a.md"]).sources()[0].id());
+    let look = || {
+        let change = Change::Changed(Look {
+            modified: None,
+            length: 7,
+        });
+        vec![Looked { what, change }]
+    };
     with_pager(30, 5, &mut state, run(now), now, |pager| {
         step(pager, Msg::Shown(now));
-        assert_eq!(kinds(&typed(pager, "", now)), ["poll change"]);
+        assert_eq!(kinds(&typed(pager, "", now)), ["poll watches"]);
         // Seen once, it is not read yet, in case it is half written.
-        let effects = step(pager, Msg::Changed(look.clone()));
+        let effects = step(pager, Msg::Changed(look()));
         assert_eq!(kinds(&effects), ["poll loads"]);
         step(pager, Msg::Loads { came: false });
         step(
@@ -296,11 +291,38 @@ fn a_following_pager_polls_the_document_and_reads_it_again_when_it_settled() {
             },
         );
         let later = now + Duration::from_millis(150);
-        assert_eq!(kinds(&typed(pager, "", later)), ["poll change"]);
-        let effects = step(pager, Msg::Changed(look));
+        assert_eq!(kinds(&typed(pager, "", later)), ["poll watches"]);
+        let effects = step(pager, Msg::Changed(look()));
         assert_eq!(kinds(&effects), ["reload"]);
     });
     assert!(state.follow.seen.is_none());
+}
+
+#[test]
+fn a_turn_without_a_look_leaves_what_the_debounce_has_seen() {
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    state.follow.mode = settings::Follow::On;
+    let what = Watched::Source(Session::new(["a.md"]).sources()[0].id());
+    let look = Look {
+        modified: None,
+        length: 7,
+    };
+    with_pager(30, 5, &mut state, run(now), now, |pager| {
+        step(pager, Msg::Shown(now));
+        assert_eq!(kinds(&typed(pager, "", now)), ["poll watches"]);
+        let change = Change::Changed(look);
+        step(pager, Msg::Changed(vec![Looked { what, change }]));
+        // Nothing was due on the next turn: it goes on to the loads, and
+        // the change is still the one seen, not forgotten.
+        let later = now + Duration::from_millis(5);
+        assert_eq!(kinds(&typed(pager, "", later)), ["poll watches"]);
+        assert_eq!(
+            kinds(&step(pager, Msg::Changed(Vec::new()))),
+            ["poll loads"]
+        );
+    });
+    assert_eq!(state.follow.seen, Some((look, now)));
 }
 
 #[test]
@@ -341,28 +363,25 @@ fn a_cell_answer_that_differs_lays_out_again_for_the_new_cells() {
 }
 
 #[test]
-fn loads_that_came_install_and_keep_the_top_line() {
+fn loads_that_came_lay_out_again_and_keep_the_top_line() {
     let now = Instant::now();
     let mut state = State::new(SearchCase::Smart);
     with_pager(30, 5, &mut state, run(now), now, |pager| {
         step(pager, Msg::Shown(now));
         let effects = step(pager, Msg::Loads { came: true });
-        assert_eq!(kinds(&effects), ["install", "relayout"]);
+        assert_eq!(kinds(&effects), ["relayout"]);
     });
     assert!(state.next.keep_top);
 }
 
 #[test]
-fn m_swaps_reading_mode_and_starts_its_loads_when_it_turns_on() {
+fn m_swaps_reading_mode_and_lays_out_again() {
     let now = Instant::now();
     let mut state = State::new(SearchCase::Smart);
     with_pager(30, 5, &mut state, run(now), now, |pager| {
         step(pager, Msg::Shown(now));
         let effects = typed(pager, "M", now);
-        assert_eq!(
-            kinds(&effects),
-            ["swap reading", "start inline", "relayout"]
-        );
+        assert_eq!(kinds(&effects), ["swap reading", "relayout"]);
     });
 }
 

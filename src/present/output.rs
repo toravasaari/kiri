@@ -6,17 +6,18 @@ use std::io::{self, Write};
 use std::ops::Range;
 use std::time::Duration;
 
-use crate::images::Images;
 use crate::present::encoder::Encoder;
 use crate::present::kitty;
 use crate::present::kitty::graphics;
 use crate::render::loading::{self, Ink};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::{Color, Underline};
+use crate::typeset::images::Images;
 use crate::typeset::images::size::cell_size;
 use crate::typeset::reading::engine::RowLink;
 use crate::typeset::size::TextSize;
 use crate::typeset::style::{ImageRow, Line, Span, Style};
+use crate::typeset::theme::Theme;
 use crate::typeset::wrap::width;
 
 /// The colours of the page the document is drawn on. `None` leaves the
@@ -27,6 +28,16 @@ pub struct Page {
     pub background: Option<Color>,
     /// For text that has no colour of its own.
     pub foreground: Option<Color>,
+}
+
+impl Page {
+    /// The page of `theme`: its background and text colours.
+    pub fn of(theme: &Theme) -> Self {
+        Page {
+            background: theme.background,
+            foreground: theme.foreground,
+        }
+    }
 }
 
 /// Moves the cursor to `row` and `column`, counted from 1 at the top left.

@@ -8,9 +8,9 @@ use merman::{
     Engine, MermaidConfig, OperationControl, RenderOutput, RenderTarget, Renderer, SvgRequest,
 };
 
-use crate::diagrams::{Drawn, Theme};
 use crate::typeset::diagrams::error::DiagramError;
 use crate::typeset::diagrams::mermaid::{Colours, MERMAID, MERMAID_SITE, page};
+use crate::typeset::diagrams::request::{Drawn, Theme};
 
 /// merman's version. Cargo tells a crate only its own version, so a test
 /// keeps this one in step with `Cargo.lock`.
@@ -156,7 +156,9 @@ fn attribute_values<'a>(svg: &'a str, start: &'a str) -> impl Iterator<Item = &'
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::images::{DEFAULT_MAX_FILE_SIZE, Fonts, Source, decode, decode_diagram};
+    use crate::images::Fonts;
+    use crate::typeset::images::drawn::decode_diagram;
+    use crate::typeset::images::{DEFAULT_MAX_FILE_SIZE, Source, decode};
     use resvg::usvg;
 
     const FLOWCHART: &str = "flowchart TD\n    A[Start] --> B[Done]\n";
@@ -353,7 +355,7 @@ mod tests {
         // fonts, such as DejaVu Sans here, and centres this label so close
         // to the left edge that its first letter falls outside the drawing.
         // kiri grows each diagram to show all of its text
-        // (`images::decode_diagram`). When this test fails, merman has
+        // (`typeset::images::drawn::decode_diagram`). When this test fails, merman has
         // fixed the fault, and the growing can go unless another renderer
         // needs it.
         let source = "stateDiagram-v2\n    [*] --> Parsed\n\

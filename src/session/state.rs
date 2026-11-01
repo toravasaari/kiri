@@ -56,6 +56,18 @@ pub enum Change {
     Gone(String),
 }
 
+impl Change {
+    /// How a look at the document, `now`, differs from `since`, the look of
+    /// the version that was read.
+    pub fn between(since: Option<Look>, now: Result<Look, String>) -> Change {
+        match now {
+            Ok(look) if Some(look) == since => Change::Unchanged,
+            Ok(look) => Change::Changed(look),
+            Err(why) => Change::Gone(why),
+        }
+    }
+}
+
 /// What tells one version of a document from another without reading it:
 /// for a file, when it was last modified and its length.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -518,7 +530,7 @@ impl State {
             // have lost.
             Some(Action::Redraw) => return vec![Effect::Lose],
             Some(Action::Follow) => self.cycle_follow(run),
-            Some(Action::Reading) => return self.reading(layout, run),
+            Some(Action::Reading) => return self.reading(run),
             Some(Action::Wide) => {
                 self.changed = None;
                 return vec![Effect::FlipWide, Effect::Relayout { reuse: false }];
@@ -562,20 +574,15 @@ impl State {
         vec![Effect::Draw(Rc::new(frame), None), Effect::Reload]
     }
 
-    /// Answers `M`: reading mode goes on or off, and when on, what it
-    /// shows that the text does not starts loading.
-    fn reading(&mut self, layout: &Layout, run: &Run) -> Vec<Effect> {
+    /// Answers `M`: reading mode goes on or off. The loop loads what it
+    /// shows that the text does not once it lays the document out again.
+    fn reading(&mut self, run: &Run) -> Vec<Effect> {
         if !run.draws_images {
             self.told = Some(Told::new(NEEDS_IMAGES));
             return vec![Effect::Relayout { reuse: false }];
         }
         self.changed = None;
-        let mut effects = vec![Effect::SwapReading];
-        if run.reading && !layout.status.reading && run.inline {
-            effects.push(Effect::StartInline);
-        }
-        effects.push(Effect::Relayout { reuse: false });
-        effects
+        vec![Effect::SwapReading, Effect::Relayout { reuse: false }]
     }
 
     /// Answers `f`: the next way of following the document, or nothing to
@@ -916,5 +923,45 @@ mod tests {
         assert_eq!(none.flip(), Some(Color::Rgb(1, 1, 1)));
         assert_eq!(none.flip(), None);
         assert_eq!(none.flip(), Some(Color::Rgb(1, 1, 1)));
+    }
+
+    fn looks(length: u64) -> Look {
+        Look {
+            modified: None,
+            length,
+        }
+    }
+
+    #[test]
+    fn a_look_that_is_the_one_of_the_version_read_is_no_change() {
+        let change = Change::between(Some(looks(3)), Ok(looks(3)));
+        assert_eq!(change, Change::Unchanged);
+    }
+
+    #[test]
+    fn another_look_is_a_change_with_that_look() {
+        let change = Change::between(Some(looks(3)), Ok(looks(4)));
+        assert_eq!(change, Change::Changed(looks(4)));
+        let later = Look {
+            modified: Some(SystemTime::UNIX_EPOCH),
+            length: 3,
+        };
+        let change = Change::between(Some(looks(3)), Ok(later));
+        assert_eq!(change, Change::Changed(later));
+    }
+
+    #[test]
+    fn a_look_after_one_that_could_not_be_taken_is_a_change() {
+        let change = Change::between(None, Ok(looks(3)));
+        assert_eq!(change, Change::Changed(looks(3)));
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_looked_at_is_gone_whatever_it_looked_like() {
+        let why = "No such file or directory".to_owned();
+        for since in [None, Some(looks(3))] {
+            let change = Change::between(since, Err(why.clone()));
+            assert_eq!(change, Change::Gone(why.clone()));
+        }
     }
 }

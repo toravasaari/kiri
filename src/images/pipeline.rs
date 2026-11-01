@@ -1,23 +1,22 @@
-//! Loading the images of a run's documents: the renderers that the
-//! settings choose for their diagrams, a guard against the signals that
-//! would end kiri while programs outside it draw them, and the images.
-//! The caller tells how far drawing has got where it likes, such as on a
-//! line of the terminal.
+//! The jobs that load the images of a run's documents, with the renderers
+//! that the settings choose for their diagrams, and the bringing of the
+//! images up to date for a reload. Nothing here loads: the jobs run in the
+//! queue of `src/load/queue.rs`, which the frontends start and wait for,
+//! and which stops them when a signal that the frontend caught asks it to.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
-use super::background::{Context, Job, What};
+use super::plan;
 use super::{
-    Fonts, HeadingLook, ImageKey, Images, LoadOptions, Loads, Part, Placeholder, Stamps, Wanted,
-    diagram_languages,
+    HeadingLook, ImageKey, Images, Job, Loads, Looks, Part, Placeholder, Stamps, Wanted,
+    diagram_look,
 };
-use super::{load_parts, plan};
 use crate::config::{self, Environment, Settings};
 use crate::diagrams::find::{self, Search};
-use crate::diagrams::{
-    Command, ExternalSettings, FormulaColors, NoRenderer, Renderer, Renderers, Theme,
-};
-use crate::term::Interrupt;
+use crate::diagrams::{Command, ExternalSettings, FormulaColors, NoRenderer, Renderer, Theme};
+use crate::load::Renderers;
+use crate::load::queue::{Context, Fetch, Wanted as Entry, What};
 
 /// What loading the documents' images needs to know, resolved for the
 /// run.
@@ -41,51 +40,31 @@ pub struct Loading<'a> {
     pub headings: Option<HeadingLook>,
 }
 
-/// A document's images, and the guard that caught the signals while
-/// programs drew its diagrams, if any did.
-#[derive(Debug, Default)]
-pub struct Loaded {
-    pub images: Images,
-    /// Keeps the signals that the programs were stopped by from ending
-    /// kiri by surprise later: it lives until something else catches them,
-    /// such as the pager's screen, or until kiri ends.
-    pub interrupt: Option<Interrupt>,
-}
-
-/// A signal, such as Ctrl-C's, came while programs drew diagrams. They
-/// have stopped and their files are gone; kiri is to end by the signal.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Interrupted(pub i32);
-
-/// The images of the documents in `parts`, and their diagrams drawn
-/// when the settings want them, as `loading` says, all in one map;
-/// `progress` is told how many diagrams are drawn of how many. When
-/// programs draw any of their diagrams, Ctrl-C, SIGTERM, SIGHUP and
-/// Ctrl-\ stop them meanwhile, and are then the outcome.
-pub fn load_documents(
-    parts: &[Part<'_>],
-    loading: &Loading,
-    progress: Option<&(dyn Fn(usize, usize) + Sync)>,
-) -> Result<Loaded, Interrupted> {
-    let (images, interrupt) = load_kept(parts, loading, progress);
-    if let Some(signal) = interrupt.as_ref().and_then(Interrupt::release) {
-        return Err(Interrupted(signal));
+impl Loading<'_> {
+    /// What the keys of the images loaded this way name of how they are
+    /// drawn.
+    fn looks(&self) -> Looks {
+        Looks {
+            diagram: diagram_look(
+                self.theme,
+                self.formula,
+                self.settings.diagram_background_panel,
+            ),
+            headings: self.headings,
+        }
     }
-    Ok(Loaded { images, interrupt })
 }
 
-/// `load_documents` again, for documents that may have changed, into
-/// `images`, which holds what was loaded before, with what it cannot
-/// take from there loading in the background in `loads`: an image it
-/// does not hold, a diagram that failed, and an image from a local file
-/// whose modification time is not the one `stamps` hold. A load of the
-/// same image that `loads` has under way carries on, unless the image's
-/// file changed again; the loads of images the documents no longer show
+/// Brings `images`, which holds what was loaded before, up to date for
+/// documents that may have changed: it keeps what it can take from there
+/// and sets the rest aside, but starts no load. What it cannot take is an
+/// image it does not hold, a diagram that failed, and an image
+/// from a local file whose modification time is not the one `stamps` hold;
+/// the caller loads those, as [`jobs`] and [`Loads::want`] have it. A load
+/// of an image whose file changed again stops here, so that it starts anew
+/// there; the other loads under way are left to the caller to keep or
 /// stop. What `images` held that the documents no longer show, or that
 /// loads anew, is set aside in it for [`Images::take_replaced`].
-///
-/// The signals are not caught: the caller, such as the pager, catches
-/// them, and drops or stops `loads` when one comes.
 pub fn reload_in_background(
     parts: &[Part<'_>],
     loading: &Loading,
@@ -101,40 +80,55 @@ pub fn reload_in_background(
     };
     // Whether a failure came in the background stays with what is kept.
     let late = std::mem::take(&mut images.late);
-    let headings = loading.headings.map(|look| look.cell);
-    let (wanted, have) = plan(parts, renderer, headings, Some(images));
-    let shown: Vec<ImageKey> = (wanted.iter())
-        .map(|(index, image)| image.key().in_document(parts[*index].number))
-        .collect();
-    let keys: HashSet<&ImageKey> = shown.iter().collect();
-    loads.keep(|key| keys.contains(key));
+    let looks = loading.looks();
+    let (wanted, have) = plan(parts, renderer, &looks, Some(images));
     let mut kept = Images::new();
-    let mut jobs = Vec::new();
     for ((index, image), have) in wanted.into_iter().zip(have) {
-        let part = &parts[index];
-        let key = image.key().in_document(part.number);
-        if let Some(have) = have {
-            match late.contains(&key) {
-                true => kept.came(key, have),
-                false => kept.insert(key, have),
-            }
+        let key = image.key(&looks).in_document(parts[index].number);
+        let Some(have) = have else {
             continue;
+        };
+        match late.contains(&key) {
+            true => kept.came(key, have),
+            false => kept.insert(key, have),
         }
-        let again = changed.iter().any(|(changed, _)| *changed == key);
-        if loads.loading(&key) && !again {
-            continue;
-        }
-        jobs.push(job(part, key, image, renderers.as_ref(), loading));
     }
     // What the documents no longer show, and what changed under them.
     let gone = std::mem::take(images).by_key.into_iter();
+    let changed_keys: Vec<ImageKey> = changed.iter().map(|(key, _)| key.clone()).collect();
     let changed = (changed.into_iter()).filter_map(|(key, image)| Some((key, image?)));
     kept.replaced = (gone.chain(changed))
         .filter_map(|(key, image)| Some((key, image.ok()?)))
         .collect();
-    loads.start(jobs, context(loading, renderers));
-    kept.shown = shown;
+    let under_way = loads.keys().filter(|key| !changed_keys.contains(key));
+    loads.reconcile(under_way.cloned().map(Entry::Kept).collect());
     *images = kept;
+}
+
+/// The jobs that load the images of `parts`, as a load in the background
+/// does them, in the order of the documents: their images, diagrams and
+/// headings, and those in the middle of text for a part that reads them.
+/// Nothing starts: the caller says which of them load, as
+/// [`Loads::want`] does.
+pub fn jobs(parts: &[Part<'_>], loading: &Loading) -> Vec<Job> {
+    let renderers = background_renderers(loading);
+    let renderer: &dyn Renderer = match &renderers {
+        Some(renderers) => renderers,
+        None => &NoRenderer,
+    };
+    let looks = loading.looks();
+    let (wanted, _) = plan(parts, renderer, &looks, None);
+    let programs = programs(&wanted, renderers.as_ref());
+    let context = Arc::new(context(loading, renderers));
+    let jobs = wanted
+        .into_iter()
+        .zip(programs)
+        .map(|((index, image), program)| {
+            let part = &parts[index];
+            let key = image.key(&looks).in_document(part.number);
+            job(part, key, image, program, &context, loading)
+        });
+    jobs.collect()
 }
 
 /// Starts loading every image of `parts` in the background in `loads`,
@@ -150,144 +144,25 @@ pub fn load_in_background(
     images: &mut Images,
     loads: &mut Loads,
 ) {
+    let jobs = jobs(parts, loading);
+    for job in &jobs {
+        images.wait(job.key.clone(), Placeholder::Unsized);
+        images.shown.push(job.key.clone());
+    }
+    loads.reconcile(loads.adding(jobs.into_iter().map(Entry::Again).collect()));
+}
+
+/// The keys of the images of `parts` that [`load_in_background`] would
+/// load, in the order of the documents, to tell how tall the documents are
+/// before their images load, such as whether they are longer than the
+/// window: the caller stands a box in for each.
+pub fn planned_keys(parts: &[Part<'_>], loading: &Loading) -> Vec<ImageKey> {
     let renderers = background_renderers(loading);
     let renderer: &dyn Renderer = match &renderers {
         Some(renderers) => renderers,
         None => &NoRenderer,
     };
-    let (wanted, _) = plan(
-        parts,
-        renderer,
-        loading.headings.map(|look| look.cell),
-        None,
-    );
-    let mut jobs = Vec::new();
-    for (index, image) in wanted {
-        let part = &parts[index];
-        let key = image.key().in_document(part.number);
-        images.wait(key.clone(), Placeholder::Unsized);
-        images.shown.push(key.clone());
-        jobs.push(job(part, key, image, renderers.as_ref(), loading));
-    }
-    loads.start(jobs, context(loading, renderers));
-}
-
-/// Starts loading the heading images of `parts`, drawn as `look` says,
-/// that `images` neither holds nor is loading, in the background in
-/// `loads`, as after a change of the cell size: each heading shows as
-/// text until its image comes. What else `images` holds stays.
-pub fn load_headings_in_background(
-    parts: &[Part<'_>],
-    look: &HeadingLook,
-    images: &mut Images,
-    loads: &mut Loads,
-) {
-    let (wanted, _) = plan(parts, &NoRenderer, Some(look.cell), None);
-    let mut jobs = Vec::new();
-    for (index, image) in wanted {
-        let key = image.key().in_document(parts[index].number);
-        let Wanted::Heading { level, words, cell } = image else {
-            continue;
-        };
-        if images.get(&key).is_some() || loads.loading(&key) {
-            continue;
-        }
-        images.wait(key.clone(), Placeholder::Unsized);
-        let what = What::Heading {
-            words,
-            look: *look.level(level),
-            cell,
-        };
-        jobs.push(Job {
-            key,
-            what,
-            program: false,
-        });
-    }
-    if jobs.is_empty() {
-        return;
-    }
-    // A heading needs nothing of what draws diagrams.
-    let context = Context {
-        renderer: Box::new(NoRenderer),
-        theme: Theme::Light,
-        formula: FormulaColors::default(),
-        panel: false,
-        largest: None,
-        max_file_size: 0,
-    };
-    loads.start(jobs, context);
-}
-
-/// Starts loading the images in the middle of the text of `parts`, which
-/// reading mode shows and the other layouts do not, that `images` neither
-/// holds nor is loading, in the background in `loads`: each shows as its
-/// alt text, or its source for a formula, until it comes. What else
-/// `images` holds stays.
-///
-/// The signals are not caught, as for [`reload_in_background`].
-pub fn load_inline_in_background(
-    parts: &[Part<'_>],
-    loading: &Loading,
-    images: &mut Images,
-    loads: &mut Loads,
-) {
-    let parts: Vec<Part> = (parts.iter())
-        .map(|part| Part {
-            inline_images: true,
-            ..*part
-        })
-        .collect();
-    let renderers = background_renderers(loading);
-    let renderer: &dyn Renderer = match &renderers {
-        Some(renderers) => renderers,
-        None => &NoRenderer,
-    };
-    let (wanted, _) = plan(
-        &parts,
-        renderer,
-        loading.headings.map(|look| look.cell),
-        None,
-    );
-    let mut jobs = Vec::new();
-    for (index, image) in wanted {
-        let part = &parts[index];
-        let key = image.key().in_document(part.number);
-        if images.get(&key).is_some() || loads.loading(&key) {
-            continue;
-        }
-        images.wait(key.clone(), Placeholder::Unsized);
-        images.shown.push(key.clone());
-        jobs.push(job(part, key, image, renderers.as_ref(), loading));
-    }
-    loads.start(jobs, context(loading, renderers));
-}
-
-/// Stands in for every image of `parts` that [`load_in_background`] would
-/// load with a box of `rows` rows in `images`, to tell how tall the
-/// documents are before their images load, such as whether they are
-/// longer than the window.
-pub fn measure_in_background(
-    parts: &[Part<'_>],
-    loading: &Loading,
-    images: &mut Images,
-    rows: u16,
-) {
-    let renderers = background_renderers(loading);
-    let renderer: &dyn Renderer = match &renderers {
-        Some(renderers) => renderers,
-        None => &NoRenderer,
-    };
-    let (wanted, _) = plan(
-        parts,
-        renderer,
-        loading.headings.map(|look| look.cell),
-        None,
-    );
-    for (index, image) in wanted {
-        let key = image.key().in_document(parts[index].number);
-        images.wait(key, Placeholder::Rows(rows));
-    }
+    crate::typeset::images::plan::keys(parts, renderer, &loading.looks())
 }
 
 /// The renderers the settings choose for drawing diagrams in the
@@ -299,16 +174,30 @@ fn background_renderers(loading: &Loading) -> Option<Renderers> {
     })
 }
 
+/// Whether a program outside kiri draws each of the images `wanted`, with
+/// `renderers`; asked before they move into the context of the jobs.
+fn programs(wanted: &[(usize, Wanted<'_>)], renderers: Option<&Renderers>) -> Vec<bool> {
+    let program = |image: &Wanted<'_>| match image {
+        Wanted::Diagram { language, .. } => {
+            renderers.is_some_and(|renderers| renderers.runs_programs_for([*language]))
+        }
+        Wanted::Heading { .. } | Wanted::Url(_) => false,
+    };
+    wanted.iter().map(|(_, image)| program(image)).collect()
+}
+
 /// The job that loads `image` of `part`, keyed `key`, in the background,
-/// with `renderers` for a diagram, and a heading drawn as `loading` says.
+/// as `context` says, with a heading drawn as `loading` says. `program`
+/// tells whether a program outside kiri draws it.
 fn job(
     part: &Part<'_>,
     key: ImageKey,
     image: Wanted<'_>,
-    renderers: Option<&Renderers>,
+    program: bool,
+    context: &Arc<Context>,
     loading: &Loading,
 ) -> Job {
-    let (what, program) = match image {
+    let (fetch, compute) = match image {
         Wanted::Heading { level, words, .. } => {
             let look = loading
                 .headings
@@ -318,35 +207,37 @@ fn job(
                 look: *look.level(level),
                 cell: look.cell,
             };
-            (what, false)
+            (None, what)
         }
         Wanted::Url(url) => {
-            let base = part.base.to_path_buf();
-            (
-                What::Url {
-                    url: url.to_owned(),
-                    base,
-                },
-                false,
-            )
+            let fetch = Fetch::Url {
+                url: url.to_owned(),
+                base: part.base.to_path_buf(),
+            };
+            (Some(fetch), What::Decode)
         }
         Wanted::Diagram {
             language,
             source,
             line,
         } => {
-            let program =
-                renderers.is_some_and(|renderers| renderers.runs_programs_for([language]));
             let what = What::Diagram {
                 language: language.to_owned(),
                 source: source.into_owned(),
                 line,
                 by_line: part.by_line,
             };
-            (what, program)
+            (None, what)
         }
     };
-    Job { key, what, program }
+    let context = Arc::clone(context);
+    Job {
+        key,
+        fetch,
+        compute,
+        program,
+        context,
+    }
 }
 
 /// What the jobs of a load in the background need, as `loading` says,
@@ -366,38 +257,6 @@ fn context(loading: &Loading, renderers: Option<Renderers>) -> Context {
     }
 }
 
-/// The images of `parts`, loaded as `load_documents` loads them, and the
-/// guard that caught the signals while programs drew diagrams, if any
-/// did.
-fn load_kept(
-    parts: &[Part<'_>],
-    loading: &Loading,
-    progress: Option<&(dyn Fn(usize, usize) + Sync)>,
-) -> (Images, Option<Interrupt>) {
-    let (renderers, interrupt) = match loading.settings.diagrams {
-        true => {
-            let (renderers, interrupt) = renderers(parts, loading);
-            (Some(renderers), interrupt)
-        }
-        false => (None, None),
-    };
-    let options = LoadOptions {
-        renderer: match &renderers {
-            Some(renderers) => renderers,
-            None => &NoRenderer,
-        },
-        theme: loading.theme,
-        formula: loading.formula,
-        progress,
-        panel: loading.settings.diagram_background_panel,
-        largest: loading.largest,
-        headings: loading.headings,
-        ..LoadOptions::default()
-    };
-    let (size, fonts) = (loading.max_file_size, &Fonts::system());
-    (load_parts(parts, size, fonts, &options), interrupt)
-}
-
 /// The commands the settings choose for diagrams, and how they run,
 /// without a flag to stop them.
 fn chosen(loading: &Loading) -> (BTreeMap<String, Command>, ExternalSettings) {
@@ -414,23 +273,6 @@ fn chosen(loading: &Loading) -> (BTreeMap<String, Command>, ExternalSettings) {
         ..ExternalSettings::new(config::temp_directory(env))
     };
     (commands, external)
-}
-
-/// The renderers the settings choose for the diagrams of the documents in
-/// `parts`, and a guard that catches the signals while programs draw any
-/// of them.
-fn renderers(parts: &[Part<'_>], loading: &Loading) -> (Renderers, Option<Interrupt>) {
-    let (commands, mut external) = chosen(loading);
-    let renderers = Renderers::new(commands.clone(), external.clone());
-    // Only while a program draws one of the documents' diagrams: they
-    // otherwise end kiri at once, as without diagrams.
-    let languages = (parts.iter()).flat_map(|part| diagram_languages(part.document, &renderers));
-    if !renderers.runs_programs_for(languages) {
-        return (renderers, None);
-    }
-    let interrupt = Interrupt::catch();
-    external.stop = interrupt.as_ref().map(Interrupt::flag);
-    (Renderers::new(commands, external), interrupt)
 }
 
 #[cfg(test)]

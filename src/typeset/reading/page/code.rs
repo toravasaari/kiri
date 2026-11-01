@@ -20,7 +20,7 @@ impl Flow<'_> {
             Some(language) => self.pictures.diagram(language, code, (width, f32::MAX)),
             None => Picture::None,
         };
-        let centred = language.is_some_and(crate::diagrams::centred);
+        let centred = language.is_some_and(crate::typeset::diagrams::names::centred);
         let failed = match &picture {
             Picture::Failed(message) => message.clone(),
             _ => None,

@@ -343,7 +343,7 @@ mod tests {
     /// Row `row` of a heading `text` shown as an image of two rows.
     fn heading_row(text: &str, row: u16) -> Line {
         let placement = crate::typeset::images::size::Placement {
-            key: crate::images::ImageKey::heading(1, text, (10, 20)),
+            key: crate::typeset::images::ImageKey::heading(1, text, (10, 20)),
             size: crate::typeset::images::size::Size {
                 width: 100,
                 height: 40,
@@ -446,12 +446,16 @@ mod tests {
             ..Capabilities::kitty(30)
         });
         let image = image::RgbaImage::from_pixel(900, 40, image::Rgba([200, 30, 30, 255]));
-        let text = crate::images::Source::Text {
+        let text = crate::typeset::images::Source::Text {
             image,
             breaks: vec![30, 60],
             ends: vec![28, 58, 90],
         };
-        let key = crate::images::ImageKey::heading(1, "One two three", (10, 20));
+        let key = inputs.drawn(crate::typeset::images::ImageKey::heading(
+            1,
+            "One two three",
+            (10, 20),
+        ));
         inputs.images.insert(key, Ok(text));
         let document = crate::typeset::parse::parse("# One two three\n");
         let lines = crate::typeset::layout::layout(&document, &inputs);

@@ -118,7 +118,7 @@ fn a_link_in_a_heading_drawn_as_an_image_is_skipped_by_tab() {
         text_sizing: false,
         ..kitty()
     });
-    let key = ImageKey::heading_of(*level, words, (10, 20)).in_document(0);
+    let key = inputs.drawn(ImageKey::heading_of(*level, words, (10, 20)).in_document(0));
     let image = image::RgbaImage::from_pixel(u32::from(count) * 40, 20, image::Rgba([9; 4]));
     let text = Source::Text {
         image,

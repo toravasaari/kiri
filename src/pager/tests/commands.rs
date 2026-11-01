@@ -23,9 +23,10 @@ fn files_shown(files: &[File], reads: &[&[u8]]) -> Vec<String> {
     run(
         Content::Files(files),
         None,
-        "",
+        Session::new(files.iter().map(|file| file.name.as_str())),
         &mut inputs,
         Options::new(SearchCase::Smart),
+        &mut Loads::new(),
         &mut terminal,
     )
     .unwrap();

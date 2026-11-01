@@ -27,25 +27,26 @@ use std::rc::Rc;
 
 use image::RgbaImage;
 
-use crate::diagrams::INLINE_FORMULA;
-use crate::images::{ImageError, ImageKey, Images, Placeholder, Source};
 use crate::render::FrontMatterStyle;
 use crate::render::loading;
 use crate::typeset::block::BlockId;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
+use crate::typeset::diagrams::{names, renderer, request::INLINE_FORMULA};
 use crate::typeset::images::size::{self as sizes, Placement, Shows, Size, Wanted, cell_size};
+use crate::typeset::images::{ImageError, ImageKey, Images, Placeholder, Source};
 use crate::typeset::layout::highlight;
 use crate::typeset::layout::{CodeColors, expand_tabs};
 use crate::typeset::model::{self, Block};
+use crate::typeset::reading::look::mark_colors;
 use crate::typeset::reading::page::{
-    self, Frame, FrontMatterShown, Highlight, Hit, ItemRef, LinkPlace, Look, MarkColors, Overlay,
-    Page, Picture, Pictures, Plain, Wide,
+    self, Frame, FrontMatterShown, Highlight, Hit, ItemRef, LinkPlace, MarkColors, Overlay, Page,
+    Picture, Pictures, Plain, Wide,
 };
 use crate::typeset::reading::text::{Brush, Run};
 use crate::typeset::reading::{Fonts, page_look};
 use crate::typeset::style::{Band, ImageRow, Line, Span, Style};
-use crate::typeset::theme::{Look as Resolved, SearchColor};
+use crate::typeset::theme::Look as Resolved;
 
 /// The widest the text is, in font sizes.
 const TEXT_WIDTH: f32 = 42.0;
@@ -316,50 +317,6 @@ impl Parts {
     }
 }
 
-/// The colours a search's marks have in reading mode: those the theme
-/// gives a match, as the text layout lays them over its text; where the
-/// theme gives none, or there is no colour, the reverse, a box in the
-/// text's colour with the text in the page's.
-fn mark_colors(one: &Resolved, caps: &Capabilities, look: &Look) -> MarkColors {
-    let dark = caps.dark_background != Some(false);
-    let rgb_of = |color: Option<Color>| match color?.rgb_or_xterm(&caps.palette) {
-        Color::Rgb(red, green, blue) => Some([red, green, blue]),
-        Color::Palette(_) => None,
-    };
-    let page = (rgb_of(one.background).or_else(|| rgb_of(caps.background))).unwrap_or(if dark {
-        [0; 3]
-    } else {
-        [0xff; 3]
-    });
-    let reverse = (Some(page), Some(look.text));
-    // `auto` is what a browser's find gives where the text layout has
-    // reverse video: black on yellow, and black on orange for the current.
-    let colors = |foreground, background, browser: (Brush, Brush)| match (foreground, background) {
-        _ if !caps.color => reverse,
-        (SearchColor::Auto, SearchColor::Auto) => (Some(browser.0), Some(browser.1)),
-        (foreground, background) => {
-            let pick = |color| match color {
-                SearchColor::Color(color) => rgb_of(color),
-                SearchColor::Auto => None,
-            };
-            (pick(foreground), pick(background))
-        }
-    };
-    let search = &one.search;
-    MarkColors {
-        found: colors(
-            search.match_foreground,
-            search.match_background,
-            ([0, 0, 0], [0xff, 0xff, 0x00]),
-        ),
-        current: colors(
-            search.current_foreground,
-            search.current_background,
-            ([0, 0, 0], [0xff, 0x96, 0x32]),
-        ),
-    }
-}
-
 /// The rows of one page of reading mode on `lines`, as the pager lays an
 /// overlay over them.
 pub struct PageRows {
@@ -536,7 +493,7 @@ pub fn lines(
     ids: &[BlockId],
     reading: &Reading,
     (one, code, (stripes, front_matter)): (&Resolved, &CodeColors, (bool, FrontMatterStyle)),
-    (images, inline_errors, document): (&Images, bool, usize),
+    (images, inline_errors, (document, diagrams)): (&Images, bool, (usize, u64)),
     caps: &Capabilities,
     width: usize,
 ) -> Vec<Line> {
@@ -555,6 +512,7 @@ pub fn lines(
     let gallery = Gallery {
         images,
         document,
+        diagrams,
         cell,
         inline_errors,
         keys: RefCell::new(Vec::new()),
@@ -580,15 +538,15 @@ pub fn lines(
     // The id names these pixels to the terminal, which keeps an image it
     // holds under the same id, so it must cover everything that changes
     // them: the blocks, the look (every colour, and the font size), the
-    // sizes, whether wide blocks wrap or scroll, and the pictures, by their
-    // pixels. The fonts and the
-    // code theme's name are not in it: the fonts are the same for a run,
-    // and the theme has so far always come with another colour in `Look`.
-    // An input to the pixels that does not, goes in here too.
+    // code theme (its tokens' colours can differ where the block's do not),
+    // the sizes, whether wide blocks wrap or scroll, and the pictures, by
+    // their pixels. The fonts are not in it: they are the same for a run,
+    // until the font database has a fingerprint. An input to the pixels
+    // that is not here yet goes in here too.
     let mut hasher = DefaultHasher::new();
     format!("{blocks:?}").hash(&mut hasher);
     format!("{look:?}").hash(&mut hasher);
-    (text.to_bits(), cell, columns, reading.wide).hash(&mut hasher);
+    (text.to_bits(), cell, columns, reading.wide, &code.theme).hash(&mut hasher);
     page.pictures.hash(&mut hasher);
     let placed: Vec<_> = page.blocks.clone();
     let loading = page.loading.clone();
@@ -712,6 +670,8 @@ struct Gallery<'a> {
     /// The number of the document among those shown together, which the
     /// keys of its images carry.
     document: usize,
+    /// The fingerprint of how diagrams are drawn, which their keys carry.
+    diagrams: u64,
     cell: (u16, u16),
     /// Whether a diagram that could not be drawn tells why below its code.
     inline_errors: bool,
@@ -764,7 +724,7 @@ impl Gallery<'_> {
                 }
             }
             (Some(Err(ImageError::Diagram { reason, .. })), _) if language.is_some() => {
-                let noun = language.map(crate::diagrams::noun).unwrap_or_default();
+                let noun = language.map(names::noun).unwrap_or_default();
                 let message = format!("✗ {noun} could not be drawn: {reason}");
                 Picture::Failed(self.inline_errors.then_some(message))
             }
@@ -805,7 +765,7 @@ fn ready(pixels: RgbaImage, loading: Option<usize>) -> Picture {
 
 impl Pictures for Gallery<'_> {
     fn formula(&self, source: &str, room: (f32, f32)) -> Picture {
-        let key = ImageKey::block(INLINE_FORMULA, source).in_document(self.document);
+        let key = ImageKey::diagram(INLINE_FORMULA, source, self.diagrams, self.document);
         let picture = self.picture(key, Wanted::default(), room, Some(INLINE_FORMULA));
         match picture {
             Picture::Ready {
@@ -816,7 +776,7 @@ impl Pictures for Gallery<'_> {
             } => {
                 // The renderer tells how much of the image is below the
                 // formula's baseline.
-                let below = crate::diagrams::baseline_depth(INLINE_FORMULA, source);
+                let below = renderer::baseline_depth(INLINE_FORMULA, source);
                 let depth = below.map_or(0.0, |below| below as f32 * pixels.height() as f32);
                 Picture::Ready {
                     pixels,
@@ -844,7 +804,7 @@ impl Pictures for Gallery<'_> {
         if self.images.is_empty() && !self.images.loading() {
             return Picture::None;
         }
-        let key = ImageKey::block(language, code).in_document(self.document);
+        let key = ImageKey::diagram(language, code, self.diagrams, self.document);
         self.picture(key, Wanted::default(), room, Some(language))
     }
 }
@@ -990,12 +950,13 @@ fn rgb(color: Color, caps: &Capabilities) -> Option<Brush> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::images::ImageError;
     use crate::present::output;
     use crate::render::{Inputs, RenderErrors};
+    use crate::typeset::images::ImageError;
     use crate::typeset::layout;
     use crate::typeset::model::AlertKind;
     use crate::typeset::parse::parse;
+    use crate::typeset::reading::page::Look;
     use crate::typeset::theme::{TableStyle, Theme};
 
     /// A page's look for a theme alone.
@@ -1209,10 +1170,8 @@ mod tests {
     #[test]
     fn a_formula_in_the_middle_of_text_is_a_box_in_its_line() {
         let mut inputs = inputs(kitty(80));
-        inputs.images.insert(
-            ImageKey::block("math-inline", "x^2\n"),
-            Ok(raster(20, 10, [0, 255, 0])),
-        );
+        let key = inputs.drawn(ImageKey::block("math-inline", "x^2\n"));
+        inputs.images.insert(key, Ok(raster(20, 10, [0, 255, 0])));
         let lines = layout::layout(&parse("Let $x^2$ be one.\n"), &inputs);
         let greens = first_part(&lines)
             .pixels()
@@ -1234,6 +1193,7 @@ mod tests {
         // own baseline reaches below it.
         let lowest = |source: &str, key: ImageKey| {
             let mut inputs = inputs(kitty(80));
+            let key = inputs.drawn(key);
             inputs.images.insert(key, Ok(raster(20, 20, [0, 255, 0])));
             let lines = layout::layout(&parse(source), &inputs);
             let part = first_part(&lines);
@@ -1686,10 +1646,10 @@ mod tests {
     #[test]
     fn a_formula_is_centred_in_the_column_and_a_failed_diagram_says_why() {
         let mut inputs = inputs(kitty(80));
-        inputs.images.insert(
-            ImageKey::block("math", "x\n"),
-            Ok(raster(100, 40, [255, 255, 255])),
-        );
+        let key = inputs.drawn(ImageKey::block("math", "x\n"));
+        inputs
+            .images
+            .insert(key, Ok(raster(100, 40, [255, 255, 255])));
         let lines = layout::layout(&parse("```math\nx\n```\n"), &inputs);
         let part = first_part(&lines);
         // (672 - 100) / 2 = 286.
@@ -1707,9 +1667,8 @@ mod tests {
                 name: "diagram".into(),
                 reason: "no program".into(),
             };
-            inputs
-                .images
-                .insert(ImageKey::block("mermaid", "graph\n"), Err(error));
+            let key = inputs.drawn(ImageKey::block("mermaid", "graph\n"));
+            inputs.images.insert(key, Err(error));
             layout::layout(&parse("```mermaid\ngraph\n```\n"), &inputs).len()
         };
         assert!(failed(RenderErrors::Both) > failed(RenderErrors::Stderr));
@@ -1772,6 +1731,66 @@ mod tests {
         };
         assert_eq!(id(120), id(120));
         assert_ne!(id(120), id(60));
+    }
+
+    /// The page id of a code block that `theme` highlights, in a page
+    /// whose colours are the same for every theme.
+    fn page_of_code_in(theme: Option<&str>) -> u64 {
+        page_id(&code_lines_in(theme, Wide::Wrap))
+    }
+
+    /// The lines of a code block that `theme` highlights, which a line
+    /// wider than the area makes a band when `wide` scrolls.
+    fn code_lines_in(theme: Option<&str>, wide: Wide) -> Vec<Line> {
+        let caps = kitty(80);
+        let long = "a".repeat(200);
+        let document = parse(&format!("```rust\nfn main() {{ let {long} = 1; }}\n```\n"));
+        let blocks: Vec<&Block> = document.blocks.iter().collect();
+        let code = CodeColors {
+            theme: theme.map(str::to_owned),
+            background: Some(Color::Rgb(0x20, 0x20, 0x20)),
+            text: Some(Color::Rgb(0xe0, 0xe0, 0xe0)),
+            label: None,
+        };
+        let mut reading = inputs(caps.clone()).reading.expect("reading mode");
+        reading.wide = wide;
+        lines(
+            &blocks,
+            &[],
+            &reading,
+            (
+                &Resolved::new(&Theme::default(), &caps),
+                &code,
+                (true, FrontMatterStyle::Code),
+            ),
+            (&Images::new(), true, (0, 0)),
+            &caps,
+            80,
+        )
+    }
+
+    #[test]
+    fn the_code_theme_is_in_the_page_s_key() {
+        let ocean = page_of_code_in(Some("base16-ocean.dark"));
+        assert_eq!(ocean, page_of_code_in(Some("base16-ocean.dark")));
+        assert_ne!(ocean, page_of_code_in(Some("InspiredGitHub")));
+        assert_ne!(ocean, page_of_code_in(None));
+    }
+
+    #[test]
+    fn the_code_theme_is_in_a_band_s_key() {
+        let band = |theme| {
+            let lines = code_lines_in(theme, Wide::Scroll);
+            (lines.iter())
+                .find_map(|line| match line.image.as_ref()?.placement.key {
+                    ImageKey::Band { page, .. } => Some(page),
+                    _ => None,
+                })
+                .expect("a band")
+        };
+        let ocean = band(Some("base16-ocean.dark"));
+        assert_eq!(ocean, band(Some("base16-ocean.dark")));
+        assert_ne!(ocean, band(Some("InspiredGitHub")));
     }
 
     #[test]

@@ -12,7 +12,7 @@ fn written(
         document,
         &mut inputs,
         Options {
-            reload: then.map(|then| then as &mut dyn Reload),
+            files: then.map(|then| then as &mut dyn SourceFiles),
             ..Options::new(SearchCase::Smart)
         },
         terminal,
@@ -44,20 +44,21 @@ struct Repaint {
     rgba: [u8; 4],
 }
 
-impl Reload for Repaint {
-    fn reload(
+impl SourceFiles for Repaint {
+    fn reread(
         &mut self,
+        _: &Reread,
         images: &mut Images,
         _: &mut Loads,
         _: &Capabilities,
         _: bool,
-    ) -> Reloaded {
+    ) -> (Option<Look>, Reloaded) {
         images.insert("square.png", Ok(square(self.rgba)));
-        Reloaded::Document(self.document.clone())
+        (Some(READ), Reloaded::Document(self.document.clone()))
     }
 
-    fn change(&mut self) -> Change {
-        Change::Unchanged
+    fn look(&mut self, _: &Path) -> Result<Look, String> {
+        Ok(READ)
     }
 }
 
@@ -70,12 +71,12 @@ fn repainted(document: &Document, before: [u8; 4], after: [u8; 4]) -> String {
         document: document.clone(),
         rgba: after,
     };
-    let reload: &mut dyn Reload = &mut repaint;
+    let reload: &mut dyn SourceFiles = &mut repaint;
     run_document(
         document,
         &mut inputs,
         Options {
-            reload: Some(reload),
+            files: Some(reload),
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
@@ -186,13 +187,13 @@ fn twins_reloaded(after: &str, rgba: [u8; 4]) -> String {
         document: crate::typeset::parse::parse(after),
         rgba,
     };
-    let reload: &mut dyn Reload = &mut repaint;
+    let reload: &mut dyn SourceFiles = &mut repaint;
     let mut terminal = Fake::new(60, 6, &[b"r"]);
     run_document(
         &document,
         &mut inputs,
         Options {
-            reload: Some(reload),
+            files: Some(reload),
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
@@ -250,7 +251,7 @@ fn new_cell_pixels_send_the_image_again_and_delete_the_old_one() {
 
 #[test]
 fn a_new_cell_size_loads_the_heading_images_for_it() {
-    let key = |cell| crate::images::ImageKey::heading(1, "Kiri", cell);
+    let key = |cell, headings| kiri_heading(cell, headings);
     // Cells of 10 × 20 pixels, then of 8 × 16 when the font gets smaller,
     // or of the same size in a wider window. Without images, as
     // `--no-images` makes `auto` `sized`, nothing loads.
@@ -281,23 +282,31 @@ fn a_new_cell_size_loads_the_heading_images_for_it() {
             breaks: Vec::new(),
             ends: vec![10],
         };
-        inputs.images.insert(key((10, 20)), Ok(text));
+        inputs.images.insert(key((10, 20), headings), Ok(text));
         inputs.headings = headings;
         let mut background = Loads::new();
-        run_document(
+        let (settings, env) = (plain_settings(), crate::config::Environment::default());
+        let options = Options {
+            planner: Some(heading_planner(
+                headings,
+                inputs.theme.clone(),
+                &settings,
+                &env,
+            )),
+            ..Options::new(SearchCase::Smart)
+        };
+        run_document_in(
             &crate::typeset::parse::parse("# Kiri\n\nText\n"),
             &mut inputs,
-            Options {
-                loads: Some(&mut background),
-                ..Options::new(SearchCase::Smart)
-            },
+            options,
+            &mut background,
             &mut terminal,
         );
-        let wanted = key(after);
+        let wanted = key(after, headings);
         // Asked for once the window told the new cells: loading, or come.
         let asked = background.loading(&wanted)
             || inputs.images.placeholder(&wanted).is_some()
-            || (wanted != key((10, 20)) && inputs.images.get(&wanted).is_some());
+            || (wanted != key((10, 20), headings) && inputs.images.get(&wanted).is_some());
         let keys: Vec<_> = inputs.images.iter().map(|(key, _)| key.clone()).collect();
         assert_eq!(asked, loads, "{after:?} {headings:?}: {keys:?}");
         background.halt();
@@ -306,7 +315,7 @@ fn a_new_cell_size_loads_the_heading_images_for_it() {
 
 #[test]
 fn a_cell_size_answer_loads_the_heading_images_for_it() {
-    let key = |cell| crate::images::ImageKey::heading(1, "Kiri", cell);
+    let key = |cell| kiri_heading(cell, crate::render::Headings::Auto);
     // Inside tmux the window tells tmux's guess of 16 x 32 pixels a cell
     // before and after the font changes, and kitty's answer tells 8 × 16
     // instead of the 10 × 20 detection found.
@@ -334,13 +343,21 @@ fn a_cell_size_answer_loads_the_heading_images_for_it() {
     inputs.images.insert(key((10, 20)), Ok(text));
     inputs.headings = crate::render::Headings::Auto;
     let mut background = Loads::new();
-    run_document(
+    let (settings, env) = (plain_settings(), crate::config::Environment::default());
+    let options = Options {
+        planner: Some(heading_planner(
+            crate::render::Headings::Auto,
+            inputs.theme.clone(),
+            &settings,
+            &env,
+        )),
+        ..Options::new(SearchCase::Smart)
+    };
+    run_document_in(
         &crate::typeset::parse::parse("# Kiri\n\nText\n"),
         &mut inputs,
-        Options {
-            loads: Some(&mut background),
-            ..Options::new(SearchCase::Smart)
-        },
+        options,
+        &mut background,
         &mut terminal,
     );
     let wanted = key((8, 16));
@@ -358,14 +375,21 @@ struct NoteCells<'a> {
     cells: &'a std::cell::RefCell<Vec<Option<(u16, u16)>>>,
 }
 
-impl Reload for NoteCells<'_> {
-    fn reload(&mut self, _: &mut Images, _: &mut Loads, caps: &Capabilities, _: bool) -> Reloaded {
+impl SourceFiles for NoteCells<'_> {
+    fn reread(
+        &mut self,
+        _: &Reread,
+        _: &mut Images,
+        _: &mut Loads,
+        caps: &Capabilities,
+        _: bool,
+    ) -> (Option<Look>, Reloaded) {
         self.cells.borrow_mut().push(caps.cell_pixels);
-        Reloaded::Document(self.document.clone())
+        (Some(READ), Reloaded::Document(self.document.clone()))
     }
 
-    fn change(&mut self) -> Change {
-        Change::Unchanged
+    fn look(&mut self, _: &Path) -> Result<Look, String> {
+        Ok(READ)
     }
 }
 
@@ -388,7 +412,7 @@ fn r_after_a_cell_size_answer_reloads_for_the_new_cells() {
         &document,
         &mut inputs,
         Options {
-            reload: Some(&mut then),
+            files: Some(&mut then),
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
@@ -415,7 +439,7 @@ fn an_answer_after_r_in_one_read_reloads_for_the_new_cells() {
         &document,
         &mut inputs,
         Options {
-            reload: Some(&mut then),
+            files: Some(&mut then),
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
@@ -581,7 +605,11 @@ fn a_narrower_window_rewraps_a_heading_image_without_a_new_image() {
         breaks: vec![30, 60],
         ends: vec![28, 58, 90],
     };
-    let key = crate::images::ImageKey::heading(1, "One two three", (10, 20));
+    let key = inputs.drawn(crate::images::ImageKey::heading(
+        1,
+        "One two three",
+        (10, 20),
+    ));
     inputs.images.insert(key, Ok(text));
     run_document(
         &crate::typeset::parse::parse("# One two three\n\nText\n"),
@@ -759,13 +787,13 @@ fn repainted_while_away(keys: &[&[u8]]) -> (String, Vec<u32>) {
         document: document.clone(),
         rgba: [0, 0, 255, 255],
     };
-    let reload: &mut dyn Reload = &mut repaint;
+    let reload: &mut dyn SourceFiles = &mut repaint;
     let mut terminal = Fake::new(60, 6, keys);
     run_document(
         &document,
         &mut inputs,
         Options {
-            reload: Some(reload),
+            files: Some(reload),
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
@@ -790,7 +818,7 @@ fn an_answer_cut_by_a_reload_is_not_taken_for_keys() {
         &document,
         &mut inputs,
         Options {
-            reload: Some(&mut then),
+            files: Some(&mut then),
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
@@ -798,4 +826,50 @@ fn an_answer_cut_by_a_reload_is_not_taken_for_keys() {
     let frames = terminal.frames();
     assert_eq!(top_row(frames.last().unwrap()), "Line 1", "{frames:#?}");
     assert_eq!(then.asked, 1);
+}
+
+/// A planner that wants the heading images of the document shown, drawn as
+/// `headings` says for the cells of the terminal it is asked for.
+fn heading_planner<'a>(
+    headings: crate::render::Headings,
+    theme: crate::typeset::theme::Theme,
+    settings: &'a crate::config::Settings,
+    env: &'a crate::config::Environment,
+) -> crate::pager::Planner<'a> {
+    Box::new(move |content, caps, _| {
+        let Content::Document(document) = content else {
+            return Vec::new();
+        };
+        let part = crate::images::Part {
+            document,
+            number: 0,
+            base: std::path::Path::new(""),
+            by_line: true,
+            inline_images: false,
+        };
+        let loading = crate::images::Loading {
+            env,
+            settings,
+            max_file_size: crate::images::DEFAULT_MAX_FILE_SIZE,
+            theme: crate::diagrams::Theme::Light,
+            formula: crate::diagrams::FormulaColors::default(),
+            largest: None,
+            headings: crate::render::heading_look(headings, false, &theme, caps),
+        };
+        crate::images::jobs(&[part], &loading)
+    })
+}
+
+/// The key of the heading "Kiri" drawn for cells of `cell` pixels, as the
+/// layout of a window of kitty with those cells and `headings` looks it up.
+fn kiri_heading(cell: (u16, u16), headings: crate::render::Headings) -> crate::images::ImageKey {
+    let inputs = Inputs {
+        headings,
+        ..Inputs::new(Capabilities {
+            text_sizing: false,
+            cell_pixels: Some(cell),
+            ..Capabilities::kitty(60)
+        })
+    };
+    inputs.drawn(crate::images::ImageKey::heading(1, "Kiri", cell))
 }

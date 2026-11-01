@@ -88,26 +88,6 @@ fn in_terminal_told(
     in_terminal_run(name, prepare, args, rows, stdin, Setup::default(), act)
 }
 
-/// [`in_terminal_after`], with the environment variables `env` set for
-/// kiri.
-fn in_terminal_env(
-    name: &str,
-    env: &[(&str, &str)],
-    args: &[&str],
-    rows: u16,
-    stdin: Option<&str>,
-    act: impl FnMut(usize, &mut std::fs::File, &std::process::Child),
-) -> (ExitStatus, String) {
-    let setup = Setup {
-        both: false,
-        env,
-        ..Setup::default()
-    };
-    let (status, seen, stderr) = in_terminal_run(name, |_| {}, args, rows, stdin, setup, act);
-    assert_eq!(stderr, "");
-    (status, seen)
-}
-
 /// [`in_terminal_after`], with what kiri writes to standard error also on
 /// the terminal, among what it writes to standard output.
 fn in_terminal_both(
@@ -299,161 +279,6 @@ fn ctrl_c_quits_and_leaves_the_screen() {
 }
 
 #[test]
-fn a_long_file_shown_as_text_is_paged_too() {
-    let (status, seen) = in_terminal(
-        "pager-text",
-        &["--format", "text", "long.md"],
-        5,
-        None,
-        &[b"q"],
-    );
-    assert!(status.success());
-    assert!(seen.starts_with(ENTER), "{seen:?}");
-    assert!(seen.contains("Line 1"), "{seen:?}");
-    assert!(seen.ends_with(LEAVE), "{seen:?}");
-}
-
-#[test]
-fn a_short_document_is_printed() {
-    let (status, seen) = in_terminal("pager-short", &["document.md"], 24, None, &[]);
-    assert!(status.success());
-    assert!(!seen.contains(ENTER), "{seen:?}");
-    assert!(seen.contains("Line 3"), "{seen:?}");
-}
-
-#[test]
-fn p_pages_a_short_document() {
-    let (status, seen) = in_terminal("pager-p", &["-p", "document.md"], 24, None, &[b"q"]);
-    assert!(status.success());
-    assert!(seen.starts_with(ENTER), "{seen:?}");
-}
-
-#[test]
-fn following_pages_a_short_file() {
-    let config = |text: &'static str| {
-        move |dir: &std::path::Path| {
-            if !text.is_empty() {
-                crate::common::write(&dir.join("config/kiri/config.toml"), text);
-            }
-        }
-    };
-    for (args, file, word) in [
-        (&["-f", "document.md"][..], "", " follow "),
-        (&["--follow", "on", "document.md"][..], "", " follow "),
-        (&["--fa", "document.md"][..], "", " auto "),
-        (&["--follow", "auto", "document.md"][..], "", " auto "),
-        (&["document.md"][..], "follow = \"on\"\n", " follow "),
-        (
-            &["--paging", "auto", "-f", "document.md"][..],
-            "",
-            " follow ",
-        ),
-    ] {
-        let (status, seen) = in_terminal_after(
-            "pager-follow-short",
-            config(file),
-            args,
-            24,
-            None,
-            |frames, terminal, _| {
-                if frames == 1 {
-                    terminal.write_all(b"q").unwrap();
-                }
-            },
-        );
-        assert!(status.success(), "{args:?} {file:?}");
-        assert!(seen.starts_with(ENTER), "{args:?} {file:?}: {seen:?}");
-        assert!(text_of(&seen).contains(word), "{args:?} {file:?}: {seen:?}");
-    }
-}
-
-#[test]
-fn following_still_prints_with_paging_never() {
-    for (args, file) in [
-        (&["-f", "-P", "document.md"][..], ""),
-        (&["-f", "document.md"][..], "paging = \"never\"\n"),
-        (
-            &["document.md"][..],
-            "paging = \"never\"\nfollow = \"on\"\n",
-        ),
-    ] {
-        let prepare = |dir: &std::path::Path| {
-            if !file.is_empty() {
-                crate::common::write(&dir.join("config/kiri/config.toml"), file);
-            }
-        };
-        let (status, seen) =
-            in_terminal_after("pager-follow-never", prepare, args, 24, None, |_, _, _| {});
-        assert!(status.success(), "{args:?} {file:?}");
-        assert!(!seen.contains(ENTER), "{args:?} {file:?}: {seen:?}");
-        assert!(seen.contains("Line 3"), "{args:?} {file:?}: {seen:?}");
-    }
-}
-
-#[test]
-fn kiri_follow_pages_a_short_file_and_leaves_standard_input_quiet() {
-    let env = [("KIRI_FOLLOW", "on")];
-    let quit = |frames: usize, terminal: &mut std::fs::File, _: &std::process::Child| {
-        if frames == 1 {
-            terminal.write_all(b"q").unwrap();
-        }
-    };
-    let args = ["document.md"];
-    let (status, seen) = in_terminal_env("pager-follow-variable", &env, &args, 24, None, quit);
-    assert!(status.success());
-    assert!(seen.starts_with(ENTER), "{seen:?}");
-    assert!(text_of(&seen).contains(" follow "), "{seen:?}");
-    let stdin = Some(long());
-    let (status, seen) = in_terminal_env(
-        "pager-follow-variable-stdin",
-        &env,
-        &["-p"],
-        5,
-        stdin.as_deref(),
-        quit,
-    );
-    assert!(status.success());
-    assert!(text_of(&seen).contains("Line 1"), "{seen:?}");
-    assert!(!text_of(&seen).contains("follow"), "{seen:?}");
-}
-
-#[test]
-fn capital_p_prints_a_long_document() {
-    for args in [
-        &["-P", "long.md"][..],
-        &["--paging", "never", "long.md"][..],
-    ] {
-        let (status, seen) = in_terminal("pager-capital-p", args, 5, None, &[]);
-        assert!(status.success());
-        assert!(!seen.contains(ENTER), "{args:?}: {seen:?}");
-        assert!(seen.contains("Line 10"), "{args:?}: {seen:?}");
-    }
-}
-
-#[test]
-fn plain_mode_prints_without_the_pager() {
-    let (status, seen) = in_terminal(
-        "pager-plain",
-        &["-p", "--mode", "plain", "-"],
-        5,
-        Some(&long()),
-        &[],
-    );
-    assert!(status.success());
-    assert!(!seen.contains('\x1b'), "{seen:?}");
-}
-
-#[test]
-fn a_pipe_gets_the_document_printed_even_with_p() {
-    let dir = Scratch::new("pager-pipe");
-    let out = crate::common::kiri(&dir, &long(), &["-p", "--mode", "ansi"]);
-    assert!(out.status.success(), "{}", text(&out.stderr));
-    let stdout = text(&out.stdout);
-    assert!(!stdout.contains(ENTER), "{stdout:?}");
-    assert!(stdout.contains("Line 10"), "{stdout:?}");
-}
-
-#[test]
 fn a_pipe_gets_an_image_file_printed_even_with_p() {
     let dir = Scratch::new("pager-pipe-image");
     let icon = fixtures().join("images/icon.png");
@@ -464,17 +289,6 @@ fn a_pipe_gets_an_image_file_printed_even_with_p() {
     assert_eq!(stdout.matches("\x1b_Ga=T,").count(), 1, "{stdout:?}");
     let without = crate::common::kiri_on(&dir, &icon, &["--mode", "kitty"]);
     assert_eq!(stdout, text(&without.stdout));
-}
-
-#[test]
-fn a_piped_document_is_printed_unless_paging_is_always() {
-    let (status, seen) = in_terminal("pager-stdin-auto", &["-"], 5, Some(&long()), &[]);
-    assert!(status.success());
-    assert!(!seen.contains(ENTER), "{seen:?}");
-    assert!(seen.contains("Line 10"), "{seen:?}");
-    let (status, seen) = in_terminal("pager-stdin-p", &["-p", "-"], 5, Some(&long()), &[b"q"]);
-    assert!(status.success());
-    assert!(seen.starts_with(ENTER), "{seen:?}");
 }
 
 #[test]
@@ -544,20 +358,6 @@ fn without_keys(
         .read_to_string(&mut stderr)
         .unwrap();
     (status, text(&output), stderr)
-}
-
-#[test]
-fn without_a_terminal_for_keys_p_prints_with_a_warning() {
-    let prepare = |dir: &std::path::Path| std::fs::write(dir.join("long.md"), long()).unwrap();
-    let args = ["--mode", "ansi", "-p", "long.md"];
-    let (status, seen, stderr) = without_keys("pager-no-keys", prepare, &args);
-    assert!(status.success(), "{stderr}");
-    assert!(!seen.contains(ENTER), "{seen:?}");
-    assert!(seen.contains("Line 10"), "{seen:?}");
-    assert_eq!(
-        stderr,
-        "kiri: no terminal to read keys from, so the document is printed\n"
-    );
 }
 
 #[test]
@@ -690,81 +490,6 @@ fn the_pager_shows_why_a_diagram_was_not_drawn_and_finds_it() {
 }
 
 #[test]
-fn several_files_are_paged_as_one_stream_under_their_names() {
-    let keys: [&[u8]; 4] = [b"G", b"g", b"/", b"Line 10\r"];
-    let mut typed = 0;
-    let (status, seen) = in_terminal_with(
-        "pager-files",
-        &["document.md", "long.md"],
-        8,
-        None,
-        |frames, terminal, _| {
-            if typed < frames.min(keys.len()) {
-                terminal.write_all(keys[typed]).unwrap();
-                typed += 1;
-            } else if typed == keys.len() && frames > keys.len() {
-                terminal.write_all(b"q").unwrap();
-                typed += 1;
-            }
-        },
-    );
-    assert!(status.success());
-    assert!(seen.starts_with(ENTER), "{seen:?}");
-    assert!(seen.ends_with(LEAVE), "{seen:?}");
-    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
-    assert!(frames[0].contains("document.md"), "{seen:?}");
-    assert!(!frames[0].contains("long.md"), "{seen:?}");
-    // The end of the stream is the end of the last file.
-    assert!(frames[1].contains("Line 10"), "{seen:?}");
-    // Search goes on from the first file into the second.
-    assert!(frames.last().unwrap().contains("Line 10"), "{seen:?}");
-    assert!(frames.last().unwrap().contains("/Line 10 1/1"), "{seen:?}");
-}
-
-#[test]
-fn colon_n_moves_to_the_next_file_and_the_status_line_names_it() {
-    let (status, seen) = in_terminal(
-        "pager-next-file",
-        &["document.md", "long.md"],
-        8,
-        None,
-        &[b":n", b"q"],
-    );
-    assert!(status.success());
-    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
-    assert_eq!(frames.len(), 2, "{seen:?}");
-    assert!(!frames[0].contains("long.md"), "{seen:?}");
-    assert!(frames[1].contains("long.md"), "{seen:?}");
-    assert!(!frames[1].contains("document.md"), "{seen:?}");
-}
-
-#[test]
-fn a_file_that_cannot_be_shown_is_in_the_stream_under_its_header() {
-    let (status, seen, stderr) = in_terminal_told(
-        "pager-missing",
-        |_| {},
-        &["document.md", "missing.md", "long.md"],
-        8,
-        None,
-        |frames, terminal, _| match frames {
-            1 => terminal.write_all(b":n").unwrap(),
-            2 => terminal.write_all(b"q").unwrap(),
-            _ => {}
-        },
-    );
-    assert_eq!(status.code(), Some(1), "{seen:?}");
-    assert!(seen.starts_with(ENTER), "{seen:?}");
-    assert!(stderr.starts_with("kiri: missing.md: "), "{stderr}");
-    assert_eq!(stderr.lines().count(), 1, "{stderr}");
-    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
-    assert_eq!(frames.len(), 2, "{seen:?}");
-    // :n goes to missing.md, its header and why it is not shown.
-    assert!(frames[1].contains("missing.md"), "{seen:?}");
-    assert!(frames[1].contains("No such file"), "{seen:?}");
-    assert!(frames[1].contains(" missing.md 2/3 "), "{seen:?}");
-}
-
-#[test]
 fn a_file_that_cannot_be_shown_is_told_at_its_place_when_the_files_fit() {
     let prepare = |dir: &std::path::Path| {
         std::fs::write(dir.join("a.md"), "Alpha text.\n").unwrap();
@@ -807,55 +532,6 @@ fn a_front_matter_warning_is_told_at_its_place_when_the_files_fit() {
             .unwrap_or_else(|| panic!("{part}: {seen:?}"));
         rest = &rest[at + part.len()..];
     }
-}
-
-#[test]
-fn a_front_matter_warning_is_on_stderr_and_in_the_pager_from_the_start() {
-    let invalid = std::fs::read_to_string(fixtures().join("front-matter-invalid.md")).unwrap();
-    let prepare = |dir: &std::path::Path| std::fs::write(dir.join("invalid.md"), invalid).unwrap();
-    let mut typed = false;
-    let args = ["-p", "invalid.md"];
-    let act = |frames: usize, terminal: &mut std::fs::File, _: &std::process::Child| {
-        if frames >= 1 && !typed {
-            terminal.write_all(b"q").unwrap();
-            typed = true;
-        }
-    };
-    let (status, seen, stderr) =
-        in_terminal_told("pager-warning-start", prepare, &args, 8, None, act);
-    assert!(status.success(), "{seen:?}");
-    assert!(stderr.contains("kiri: front matter, line 4:"), "{stderr:?}");
-    let first: Vec<_> = seen.split("\x1b[?2026h").skip(1).map(text_of).collect();
-    // The line is cut for a window of 40 columns, but starts as it does.
-    assert!(
-        first[0].contains("\u{26a0} [:4] front matter: "),
-        "{seen:?}"
-    );
-    assert!(first[0].contains("\u{26a0} 1"), "{seen:?}");
-}
-
-#[test]
-fn when_no_file_can_be_shown_the_pager_does_not_open() {
-    let mut typed = false;
-    let args = ["-p", "nope1.md", "nope2.md"];
-    let (status, seen, stderr) = in_terminal_told(
-        "pager-none",
-        |_| {},
-        &args,
-        8,
-        None,
-        |frames, terminal, _| {
-            // An empty pager would wait for q.
-            if frames > 0 && !typed {
-                terminal.write_all(b"q").unwrap();
-                typed = true;
-            }
-        },
-    );
-    assert_eq!(status.code(), Some(1), "{seen:?}");
-    assert!(!seen.contains(ENTER), "{seen:?}");
-    assert!(stderr.contains("nope1.md"), "{stderr}");
-    assert!(stderr.contains("nope2.md"), "{stderr}");
 }
 
 /// [`in_terminal`] in a window of 5 rows, with copies of an image beside
@@ -1575,6 +1251,61 @@ fn ctrl_c_while_the_images_load_ends_kiri_as_before() {
 }
 
 #[test]
+fn ctrl_c_stops_the_program_of_the_documents_loading_after_a_diagram_file_was_drawn() {
+    use std::os::unix::process::ExitStatusExt;
+
+    // The diagram file is drawn at once; the program that draws the
+    // document's diagram notes its process and never draws.
+    let prepare = |dir: &std::path::Path| {
+        let pid = dir.join("pid");
+        let script = format!(
+            "if grep -q LR \"$1\"; then\n\
+             echo $$ > '{0}.new'\nmv '{0}.new' '{0}'\nexec sleep 60\nfi\n\
+             echo '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\"/>' > \"$2\"\n",
+            pid.display()
+        );
+        std::fs::write(dir.join("render.sh"), script).unwrap();
+        let config = format!(
+            "[diagrams.mermaid]\ncommand = [\"/bin/sh\", \"{}\", \"{{input}}\", \"{{output}}\"]\n",
+            dir.join("render.sh").display()
+        );
+        crate::common::write(&dir.join("config/kiri/config.toml"), &config);
+        std::fs::write(dir.join("flow.mmd"), "flowchart TD\n").unwrap();
+        let document = "```mermaid\nflowchart LR\n```\n\nBelow\n";
+        std::fs::write(dir.join("diagram.md"), document).unwrap();
+    };
+    let (pid, mut typed) = (std::cell::Cell::new(None), false);
+    let act = |seen: &str, terminal: &mut std::fs::File, dir: &std::path::Path| {
+        let noted = std::fs::read_to_string(dir.join("pid")).ok();
+        pid.set(
+            pid.get()
+                .or(noted.and_then(|noted| noted.trim().parse().ok())),
+        );
+        if !typed && pid.get().is_some() && seen.contains(HINT) {
+            terminal.write_all(b"\x03").unwrap();
+            typed = true;
+        }
+    };
+    let args = ["--mode", "kitty", "-p", "flow.mmd", "diagram.md"];
+    let (status, seen) = watching("pager-ctrl-c-two-loads", prepare, &args, act);
+    let pid = rustix::process::Pid::from_raw(pid.get().expect("the program to have run")).unwrap();
+    // Gone within five seconds, once whoever takes it in has reaped it; if
+    // not, it is stopped here so that it does not outlive the test.
+    let start = std::time::Instant::now();
+    let mut gone = false;
+    while !gone && start.elapsed() < Duration::from_secs(5) {
+        gone = rustix::process::test_kill_process(pid).is_err();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    if !gone {
+        let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
+    }
+    assert_eq!(status.signal(), Some(libc::SIGINT), "{seen:?}");
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert!(gone, "{pid:?} still runs");
+}
+
+#[test]
 fn the_hint_shows_only_where_the_pager_surely_opens() {
     // The document, whether it fits a window of 12 rows, and the options.
     for (long, args, hint) in [
@@ -1867,17 +1598,6 @@ struct Step<'a> {
     keys: &'a dyn Fn(&std::path::Path) -> &'static [u8],
 }
 
-/// kiri on `args` in a terminal of 5 rows, in a scratch directory called
-/// `name`, with `steps` done in order.
-fn in_steps(
-    name: &str,
-    args: &[&str],
-    stdin: Option<&str>,
-    steps: &[Step],
-) -> (ExitStatus, String) {
-    in_steps_after(name, |_| {}, args, stdin, steps)
-}
-
 /// [`in_steps`] on files `prepare` makes.
 fn in_steps_with(
     name: &str,
@@ -1916,48 +1636,6 @@ fn quit_after(frames: usize) -> Step<'static> {
     }
 }
 
-#[test]
-fn r_reads_the_file_again() {
-    let rewrite = |dir: &std::path::Path| {
-        let fresh: String = (1..=10).map(|n| format!("Fresh {n}\n\n")).collect();
-        std::fs::write(dir.join("long.md"), fresh).unwrap();
-        b"r" as &'static [u8]
-    };
-    // The first frame, then the one that says it is reloading; the one
-    // of the new document is drawn before the pager reads the next key.
-    let steps = [
-        Step {
-            frames: 1,
-            keys: &rewrite,
-        },
-        quit_after(2),
-    ];
-    let (status, seen) = in_steps("pager-reload", &["long.md"], None, &steps);
-    assert!(status.success());
-    let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).collect();
-    assert!(frames[0].contains("Line 1"), "{seen:?}");
-    assert!(text_of(frames[1]).contains("reloading"), "{seen:?}");
-    let last = frames.last().unwrap();
-    assert!(last.contains("Fresh 1"), "{seen:?}");
-    assert!(text_of(last).contains("reloaded"), "{seen:?}");
-}
-
-#[test]
-fn standard_input_and_several_files_reload_nothing() {
-    let reload = Step {
-        frames: 1,
-        keys: &|_| b"r",
-    };
-    let steps = [reload, quit_after(2)];
-    let (status, seen) = in_steps("pager-reload-stdin", &["-p"], Some(&long()), &steps);
-    assert!(status.success());
-    assert!(text_of(&seen).contains("nothing to reload"), "{seen:?}");
-    let args = ["long.md", "document.md"];
-    let (status, seen) = in_steps("pager-reload-files", &args, None, &steps);
-    assert!(status.success());
-    assert!(text_of(&seen).contains("nothing to reload"), "{seen:?}");
-}
-
 /// The text of `long.md` written anew: ten paragraphs of `Fresh`.
 fn fresh() -> String {
     (1..=10).map(|n| format!("Fresh {n}\n\n")).collect()
@@ -1978,7 +1656,7 @@ fn following(name: &str, args: &[&str], change: &dyn Fn(&std::path::Path)) -> Ve
         },
         quit_after(2),
     ];
-    let (status, seen) = in_steps(name, args, None, &steps);
+    let (status, seen) = in_steps_with(name, |_| {}, args, &steps);
     assert!(status.success());
     let frames: Vec<_> = seen.split("\x1b[?2026h").skip(1).map(text_of).collect();
     assert!(frames[0].contains("Line 1"), "{seen:?}");
@@ -1990,6 +1668,8 @@ fn following(name: &str, args: &[&str], change: &dyn Fn(&std::path::Path)) -> Ve
     frames
 }
 
+// The real file's look and the real clock are tested here; the simulated
+// twin is in `src/frontend/tests/follow.rs`.
 #[test]
 fn follow_reads_the_file_again_when_it_changes_without_a_key() {
     let rewrite = |dir: &std::path::Path| std::fs::write(dir.join("long.md"), fresh()).unwrap();
@@ -2001,63 +1681,6 @@ fn follow_reads_the_file_again_when_it_changes_without_a_key() {
         // Without a key, the pager does not say it is reloading.
         assert!(!frames.iter().any(|frame| frame.contains("reloading")));
     }
-}
-
-#[test]
-fn the_fa_flag_follows_on_auto_and_moves_the_view_to_a_change_in_the_file() {
-    // The simulated shell tests the view moving with `Follow::Auto`; this
-    // is that the flags mean it.
-    let rewrite = |dir: &std::path::Path| {
-        let text = long().replace("Line 9\n", "Line 9 changed\n");
-        std::fs::write(dir.join("long.md"), text).unwrap();
-    };
-    for args in [&["--follow", "auto", "long.md"][..], &["--fa", "long.md"]] {
-        let frames = following("pager-follow-auto", args, &rewrite);
-        let last = frames.last().unwrap();
-        assert!(last.contains("Line 9 changed"), "{args:?}: {frames:?}");
-        assert!(!last.contains("Line 1 "), "{args:?}: {frames:?}");
-        assert!(last.contains(" auto "), "{args:?}: {frames:?}");
-    }
-}
-
-#[test]
-fn standard_input_and_several_files_have_nothing_to_follow() {
-    let steps = [quit_after(1)];
-    let args = ["-p", "--follow", "on"];
-    let (status, seen) = in_steps("pager-follow-stdin", &args, Some(&long()), &steps);
-    assert!(status.success());
-    assert!(text_of(&seen).contains("nothing to follow"), "{seen:?}");
-    let args = ["-f", "long.md", "document.md"];
-    let (status, seen) = in_steps("pager-follow-files", &args, None, &steps);
-    assert!(status.success());
-    assert!(text_of(&seen).contains("nothing to follow"), "{seen:?}");
-    let args = ["-p", "--fa"];
-    let (status, seen) = in_steps("pager-follow-auto-stdin", &args, Some(&long()), &steps);
-    assert!(status.success());
-    assert!(text_of(&seen).contains("nothing to follow"), "{seen:?}");
-}
-
-#[test]
-fn following_from_the_configuration_file_is_quiet_where_there_is_nothing_to_follow() {
-    let follow = |dir: &std::path::Path| {
-        crate::common::write(&dir.join("config/kiri/config.toml"), "follow = \"on\"\n");
-    };
-    let steps = [quit_after(1)];
-    let (status, seen) = in_steps_after(
-        "pager-follow-config-stdin",
-        follow,
-        &["-p"],
-        Some(&long()),
-        &steps,
-    );
-    assert!(status.success());
-    assert!(text_of(&seen).contains("Line 1"), "{seen:?}");
-    assert!(!text_of(&seen).contains("nothing to follow"), "{seen:?}");
-    let args = ["long.md", "document.md"];
-    let (status, seen) = in_steps_with("pager-follow-config-files", follow, &args, &steps);
-    assert!(status.success());
-    assert!(text_of(&seen).contains("long.md 1/2"), "{seen:?}");
-    assert!(!text_of(&seen).contains("nothing to follow"), "{seen:?}");
 }
 
 #[test]
@@ -2161,6 +1784,38 @@ fn a_reload_shows_an_image_whose_file_changed_and_keeps_the_others() {
     assert!(seen.contains("[image: a]"), "{seen:?}");
     assert_eq!(seen.matches("\x1b_Ga=t,").count(), 1, "{seen:?}");
     assert!(seen.contains("\x1b_Ga=p,"), "{seen:?}");
+}
+
+#[test]
+fn a_reload_loads_an_image_it_adds_to_the_document() {
+    let long_ago = std::time::UNIX_EPOCH + Duration::from_secs(1000);
+    let prepare = |dir: &std::path::Path| {
+        png(&dir.join("a.png"), 16, long_ago);
+        std::fs::write(dir.join("images.md"), format!("![a](a.png)\n\n{}", long())).unwrap();
+    };
+    // The document gains an image that was not in it.
+    let change = |dir: &std::path::Path| {
+        png(&dir.join("c.png"), 32, long_ago);
+        let document = format!("![a](a.png)\n\n![c](c.png)\n\n{}", long());
+        std::fs::write(dir.join("images.md"), document).unwrap();
+        b"r" as &'static [u8]
+    };
+    let steps = [
+        Step {
+            frames: 1,
+            keys: &change,
+        },
+        // The frame that says it is reloading, the reload's, and the one
+        // where `c.png` came.
+        quit_after(4),
+    ];
+    let args = ["--mode", "kitty", "images.md"];
+    let (status, seen) = in_steps_with("pager-reload-adds-image", prepare, &args, &steps);
+    assert!(status.success());
+    // `a.png` stays as it was; `c.png` shows its alt text while it loads
+    // and is sent once it has come.
+    assert_eq!(sent_widths(&seen), ["s=20", "s=40"], "{seen:?}");
+    assert!(seen.contains("[image: c]"), "{seen:?}");
 }
 
 /// Writes `document` into the named pipe at `path` once a reader opens it,
@@ -2403,6 +2058,55 @@ fn m_loads_no_images_when_images_are_off() {
     assert_eq!(sent_ids(&seen).len(), 1, "{seen:?}");
 }
 
+#[test]
+fn m_on_a_lone_file_loads_the_pictures_in_its_text() {
+    let prepare = |dir: &std::path::Path| {
+        crate::common::quadrants(8, 8)
+            .save(dir.join("p.png"))
+            .unwrap();
+        let document =
+            "A line with a badge <img src=\"p.png\" width=\"24\" alt=\"badge\"> in it.\n";
+        std::fs::write(dir.join("document.md"), document).unwrap();
+    };
+    // `M` once the first frame is drawn; `q` once the picture has come:
+    // its page is sent, and the terminal is silent for a moment.
+    let (mut step, mut length) = (0, 0);
+    let act = |seen: &[u8], terminal: &mut std::fs::File, _: &std::process::Child| {
+        let frames = text(seen).matches("\x1b[?2026l").count();
+        let silent = seen.len() == length;
+        length = seen.len();
+        match step {
+            0 if frames > 0 => {
+                terminal.write_all(b"M").unwrap();
+                step = 1;
+            }
+            1 if frames > 1 && silent && sent_ids(&text(seen)).len() >= 2 => {
+                terminal.write_all(b"q").unwrap();
+                step = 2;
+            }
+            _ => {}
+        }
+    };
+    let args = ["-p", "--mode", "kitty", "--width", "80", "document.md"];
+    let setup = Setup {
+        quiet: Some(Duration::from_millis(300)),
+        ..Setup::default()
+    };
+    let (status, seen, stderr) = in_terminal_seeing(
+        "pager-m-loads-pictures",
+        prepare,
+        &args,
+        10,
+        None,
+        setup,
+        act,
+    );
+    assert_eq!(stderr, "");
+    assert!(status.success());
+    // The page while the badge still loads, and then the page with the picture in it.
+    assert_eq!(sent_ids(&seen).len(), 2, "{seen:?}");
+}
+
 /// kiri with `args` in a terminal of 12 rows, quitting once the images
 /// have come, in a scratch directory with `missing.md`, which shows an
 /// image that is not there, and `plain.md`. Returns what it wrote on
@@ -2474,36 +2178,6 @@ fn the_settings_warnings_are_told_before_the_pager_opens_for_an_image_alone() {
     );
 }
 
-/// A diagram file of `lines` lines, which a window of 5 rows cannot show
-/// whole, and a second one, `second.mmd`.
-fn long_diagrams(dir: &std::path::Path) {
-    let source: String = (1..=10).map(|n| format!("    A{n} --> B{n}\n")).collect();
-    std::fs::write(dir.join("diagram.mmd"), format!("flowchart TD\n{source}")).unwrap();
-    std::fs::write(dir.join("second.mmd"), format!("flowchart TD\n{source}")).unwrap();
-}
-
-#[test]
-fn a_diagram_file_alone_that_is_not_drawn_is_paged_when_it_is_long_unlike_several() {
-    let quit = |frames: usize, terminal: &mut std::fs::File, _: &std::process::Child| {
-        if frames == 1 {
-            terminal.write_all(b"q").unwrap();
-        }
-    };
-    let args = ["--diagrams", "off", "diagram.mmd"];
-    let (status, seen) =
-        in_terminal_after("pager-diagram-long", long_diagrams, &args, 5, None, quit);
-    assert!(status.success(), "{seen:?}");
-    assert!(seen.starts_with(ENTER), "{seen:?}");
-    assert!(seen.contains("A1 --> B1"), "{seen:?}");
-    // Several of them are each shown on their own: paged only with `always`.
-    let args = ["--diagrams", "off", "diagram.mmd", "second.mmd"];
-    let (status, seen) =
-        in_terminal_after("pager-diagrams-long", long_diagrams, &args, 5, None, quit);
-    assert!(status.success(), "{seen:?}");
-    assert!(!seen.contains(ENTER), "{seen:?}");
-    assert_eq!(seen.matches("A1 --> B1").count(), 2, "{seen:?}");
-}
-
 /// Types `q` once the first frame is drawn.
 fn quit_at_first(typed: &mut bool) -> impl FnMut(usize, &mut std::fs::File, &std::process::Child) {
     move |frames, terminal, _| {
@@ -2511,64 +2185,6 @@ fn quit_at_first(typed: &mut bool) -> impl FnMut(usize, &mut std::fs::File, &std
             terminal.write_all(b"q").unwrap();
             *typed = true;
         }
-    }
-}
-
-#[test]
-fn a_front_matter_warning_is_in_the_pager_for_a_file_alone_but_not_among_several() {
-    let invalid = std::fs::read_to_string(fixtures().join("front-matter-invalid.md")).unwrap();
-    let prepare = |dir: &std::path::Path| std::fs::write(dir.join("invalid.md"), &invalid).unwrap();
-    let (mut alone, mut several) = (false, false);
-    let args = ["-p", "invalid.md"];
-    let (_, seen, stderr) = in_terminal_told(
-        "pager-warning-alone",
-        prepare,
-        &args,
-        8,
-        None,
-        quit_at_first(&mut alone),
-    );
-    assert!(
-        stderr.starts_with("kiri: front matter, line 4:"),
-        "{stderr:?}"
-    );
-    assert!(
-        text_of(&seen).contains("\u{26a0} [:4] front matter"),
-        "{seen:?}"
-    );
-    let args = ["-p", "invalid.md", "document.md"];
-    let (_, seen, stderr) = in_terminal_told(
-        "pager-warning-several",
-        prepare,
-        &args,
-        8,
-        None,
-        quit_at_first(&mut several),
-    );
-    assert!(
-        stderr.starts_with("kiri: invalid.md: front matter, line 4:"),
-        "{stderr:?}"
-    );
-    assert!(!seen.contains('\u{26a0}'), "{seen:?}");
-}
-
-#[test]
-fn the_pager_tells_that_reading_mode_is_not_shown_for_a_file_alone_and_for_several() {
-    let reading =
-        "kiri: reading mode needs a terminal that draws images; showing the document as text\n";
-    let all: [&[&str]; 2] = [&["long.md"], &["long.md", "document.md"]];
-    for (files, name) in all
-        .into_iter()
-        .zip(["pager-reading-alone", "pager-reading-several"])
-    {
-        let args = [&["--reading", "-p"][..], files].concat();
-        let mut typed = false;
-        let (status, seen, stderr) =
-            in_terminal_told(name, |_| {}, &args, 8, None, quit_at_first(&mut typed));
-        assert!(status.success(), "{seen:?}");
-        assert_eq!(stderr, reading, "{files:?}");
-        let first: Vec<_> = seen.split("\x1b[?2026h").skip(1).map(text_of).collect();
-        assert!(first[0].contains("\u{26a0} reading mode"), "{seen:?}");
     }
 }
 
@@ -2639,25 +2255,6 @@ fn a_diagram_in_text_stays_source_after_m_and_after_a_reload() {
 }
 
 #[test]
-fn reading_mode_is_told_for_a_diagram_alone_paged_with_always() {
-    let reading =
-        "kiri: reading mode needs a terminal that draws images; showing the document as text\n";
-    let mut typed = false;
-    let args = ["--mode", "ansi", "--reading", "-p", "flow.mmd"];
-    let (status, seen, stderr) = in_terminal_told(
-        "pager-reading-diagram",
-        calls_when_drawing,
-        &args,
-        8,
-        None,
-        quit_at_first(&mut typed),
-    );
-    assert!(status.success(), "{seen:?}");
-    assert_eq!(stderr, reading);
-    assert!(text_of(&seen).contains("\u{26a0} reading mode"), "{seen:?}");
-}
-
-#[test]
 fn one_image_left_by_a_broken_configuration_is_paged_as_a_file_alone() {
     let prepare = |dir: &std::path::Path| {
         std::fs::write(dir.join("a.md"), "Alpha\n").unwrap();
@@ -2684,19 +2281,14 @@ fn one_image_left_by_a_broken_configuration_is_paged_as_a_file_alone() {
 }
 
 #[test]
-fn reading_mode_is_not_told_for_a_diagram_alone_that_is_printed_in_a_terminal() {
-    // With paging on `auto`, the diagram fits the window and is printed.
-    let args = ["--mode", "ansi", "--reading", "flow.mmd"];
-    let (status, seen, stderr) = in_terminal_told(
-        "pager-reading-diagram-auto",
-        calls_when_drawing,
-        &args,
-        24,
-        None,
-        |_, _, _| {},
-    );
-    assert!(status.success(), "{seen:?}");
-    assert!(!seen.contains(ENTER), "{seen:?}");
-    assert_eq!(stderr, "");
-    assert!(seen.contains("flowchart TD"), "{seen:?}");
+fn standard_input_and_several_files_have_nothing_to_follow() {
+    let steps = [quit_after(1)];
+    let args = ["-p", "--follow", "on", "-"];
+    let (status, seen) = in_steps_after("pager-follow-stdin", |_| {}, &args, Some(&long()), &steps);
+    assert!(status.success());
+    assert!(text_of(&seen).contains("nothing to follow"), "{seen:?}");
+    let args = ["-f", "long.md", "document.md"];
+    let (status, seen) = in_steps_with("pager-follow-files", |_| {}, &args, &steps);
+    assert!(status.success());
+    assert!(text_of(&seen).contains("nothing to follow"), "{seen:?}");
 }

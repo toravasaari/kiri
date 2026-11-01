@@ -20,12 +20,82 @@ fn show_files(files: &[File], terminal: &mut Fake) {
     run(
         Content::Files(files),
         None,
-        "",
+        Session::new(files.iter().map(|file| file.name.as_str())),
         &mut inputs,
         Options::new(SearchCase::Smart),
+        &mut Loads::new(),
         terminal,
     )
     .unwrap();
+}
+
+#[test]
+fn the_status_line_names_the_files_after_the_sources_of_the_session() {
+    // The documents carry other names than the session's sources, which
+    // are the ones shown.
+    let mut terminal = Fake::new(40, 6, &[b":n"]);
+    let mut inputs = Inputs::new(Capabilities::ansi(80));
+    let session = Session::new(["x.md", "y.md"]);
+    let files = two_files();
+    let options = Options::new(SearchCase::Smart);
+    run(
+        Content::Files(&files),
+        None,
+        session,
+        &mut inputs,
+        options,
+        &mut Loads::new(),
+        &mut terminal,
+    )
+    .unwrap();
+    let frames = terminal.frames();
+    assert!(
+        status_row(&frames[0], 6).contains(" x.md 1/2 "),
+        "{frames:#?}"
+    );
+    assert!(
+        status_row(&frames[1], 6).contains(" y.md 2/2 "),
+        "{frames:#?}"
+    );
+}
+
+#[test]
+#[should_panic(expected = "the session has 1 sources but the content has 2 files")]
+fn a_session_with_fewer_sources_than_files_is_refused_at_the_start() {
+    let mut terminal = Fake::new(40, 6, &[b"jjjjjjjjjj"]);
+    let mut inputs = Inputs::new(Capabilities::ansi(80));
+    let files = two_files();
+    let options = Options::new(SearchCase::Smart);
+    let session = Session::new(["only.md"]);
+    let _ = run(
+        Content::Files(&files),
+        None,
+        session,
+        &mut inputs,
+        options,
+        &mut Loads::new(),
+        &mut terminal,
+    );
+}
+
+#[test]
+#[should_panic(expected = "a lone document needs a source in the session")]
+fn a_lone_document_with_an_empty_session_is_refused_at_the_start() {
+    let mut terminal = Fake::new(40, 6, &[b"q"]);
+    let mut inputs = Inputs::new(Capabilities::ansi(80));
+    let options = Options::new(SearchCase::Smart);
+    let session = Session::new(Vec::<String>::new());
+    let document = numbers(3);
+    let content = Content::Document(&document);
+    let _ = run(
+        content,
+        None,
+        session,
+        &mut inputs,
+        options,
+        &mut Loads::new(),
+        &mut terminal,
+    );
 }
 
 #[test]

@@ -2,22 +2,23 @@
 //! starts in the laid-out lines, which one a line is in, and where `:n`
 //! and `:p` go.
 
+use crate::session::sources::Source;
 use crate::typeset::block::Blocks;
-use crate::typeset::model::File;
 use crate::typeset::style::Line;
 
 /// The files of a stream, found from the blocks their lines come from.
-/// A lone document is no file, so it has none.
+/// Their names and their number are the session's sources'. A lone document
+/// is no file, so it has none.
 #[derive(Debug, Clone, Copy)]
 pub struct Files<'a> {
-    files: &'a [File],
+    files: &'a [Source],
     lines: &'a [Line],
     blocks: &'a Blocks,
 }
 
 impl<'a> Files<'a> {
-    /// `files`, laid out as `lines`, which come from `blocks`.
-    pub fn new(files: &'a [File], lines: &'a [Line], blocks: &'a Blocks) -> Self {
+    /// The sources `files`, laid out as `lines`, which come from `blocks`.
+    pub fn new(files: &'a [Source], lines: &'a [Line], blocks: &'a Blocks) -> Self {
         Self {
             files,
             lines,
@@ -45,7 +46,7 @@ impl<'a> Files<'a> {
 
     /// The name of the file numbered `file`, counted from 0.
     pub fn name(&self, file: usize) -> &'a str {
-        &self.files[file].name
+        self.files[file].name()
     }
 
     /// The line the file numbered `file` starts on, the first of its
@@ -86,18 +87,12 @@ impl<'a> Files<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::sources::Session;
     use crate::typeset::block::Blocks;
-    use crate::typeset::model::Document;
     use crate::typeset::style::Line;
 
-    fn named(names: &[&str]) -> Vec<File> {
-        names
-            .iter()
-            .map(|name| File {
-                name: (*name).to_owned(),
-                document: Document::new(Vec::new()),
-            })
-            .collect()
+    fn named(names: &[&str]) -> Session {
+        Session::new(names.iter().copied())
     }
 
     /// Lines as the files start on `starts`, in a stream of `count` lines:
@@ -123,7 +118,7 @@ mod tests {
     fn a_line_is_in_the_last_file_that_starts_above_it() {
         let shown = named(&["a.md", "b.md", "c.md"]);
         let (lines, blocks) = stream(&[0, 10, 12], 14);
-        let files = Files::new(&shown, &lines, &blocks);
+        let files = Files::new(shown.sources(), &lines, &blocks);
         let at = |line| files.at(line).map(|file| files.name(file));
         assert_eq!(at(0), Some("a.md"));
         assert_eq!(at(9), Some("a.md"));
@@ -142,7 +137,7 @@ mod tests {
         for line in [3, 5, 7, 9] {
             lines[line].block = None;
         }
-        let files = Files::new(&shown, &lines, &blocks);
+        let files = Files::new(shown.sources(), &lines, &blocks);
         assert_eq!(files.at(3), Some(0));
         assert_eq!(files.at(5), Some(0));
         assert_eq!(files.at(7), Some(1));
@@ -170,7 +165,7 @@ mod tests {
     fn colon_n_goes_to_the_next_file_until_the_last() {
         let shown = named(&["a.md", "b.md"]);
         let (lines, blocks) = stream(&[0, 10], 14);
-        let files = Files::new(&shown, &lines, &blocks);
+        let files = Files::new(shown.sources(), &lines, &blocks);
         assert!(files.several());
         assert_eq!(files.next(0), Some(1));
         assert_eq!(files.next(1), None);
@@ -180,7 +175,7 @@ mod tests {
     fn colon_p_goes_to_the_start_of_the_file_and_then_the_one_before() {
         let shown = named(&["a.md", "b.md"]);
         let (lines, blocks) = stream(&[0, 10], 14);
-        let files = Files::new(&shown, &lines, &blocks);
+        let files = Files::new(shown.sources(), &lines, &blocks);
         assert_eq!(files.previous(1, 15), Some(1));
         assert_eq!(files.previous(1, 10), Some(0));
         // Short of the start of the file, as on the last page.

@@ -614,7 +614,7 @@ mod tests {
 
     #[test]
     fn a_link_in_a_heading_drawn_as_an_image_cannot_be_selected() {
-        use crate::images::{ImageKey, Source, heading_words};
+        use crate::typeset::images::{ImageKey, Source, heading_words};
         use crate::typeset::model::Block;
         let document = crate::typeset::parse::parse("# A [link](u1) here\n\nBody [other](u2)\n");
         let Block::Heading {
@@ -631,7 +631,7 @@ mod tests {
             cell_pixels: Some((10, 20)),
             ..Capabilities::kitty(40)
         });
-        let key = ImageKey::heading_of(*level, words, (10, 20)).in_document(0);
+        let key = inputs.drawn(ImageKey::heading_of(*level, words, (10, 20)).in_document(0));
         let image = image::RgbaImage::from_pixel(u32::from(count) * 40, 20, image::Rgba([9; 4]));
         let text = Source::Text {
             image,

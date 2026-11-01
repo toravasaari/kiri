@@ -12,8 +12,8 @@
 //! A browser then shows that size, enlarged if need be, and kiri does too;
 //! the text width still bounds it.
 
-use crate::images::{ImageKey, Source};
 use crate::typeset::caps::Capabilities;
+use crate::typeset::images::{ImageKey, Source};
 use crate::typeset::model::Length;
 
 /// The cell size assumed when the terminal does not report one.

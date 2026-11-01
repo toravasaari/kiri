@@ -1,8 +1,12 @@
 use std::collections::VecDeque;
+use std::path::Path;
 
 use super::*;
-use crate::session::state::{FRAME, POLL};
+use crate::images::{ImageError, ImageKey, Images};
+use crate::session::sources::{Session, SourceFile};
+use crate::session::state::{Change, FRAME, Look, POLL};
 use crate::typeset::color::Color;
+use crate::typeset::input::Input;
 use crate::typeset::model::{Document, File};
 
 mod commands;
@@ -17,6 +21,24 @@ mod reload;
 mod search;
 mod simulated;
 mod view;
+
+/// How the file behind `notes.md` looked when it was read, for a pager
+/// that can read it again.
+const READ: Look = Look {
+    modified: None,
+    length: 0,
+};
+
+/// The session of `notes.md`, read from a file when `options` has a way to
+/// read it again.
+fn session_for(options: &Options) -> Session {
+    let mut session = Session::new(["notes.md"]);
+    if options.files.is_some() {
+        let (path, input, look) = ("notes.md".into(), Input::Markdown, Some(READ));
+        session.read_from(session.sources()[0].id(), SourceFile { path, input, look });
+    }
+    session
+}
 
 /// A terminal that gives the reads in `keys`, one a call, with the
 /// window sizes in `sizes` after each read, and keeps what is written.
@@ -120,20 +142,47 @@ fn numbers(count: usize) -> Document {
     crate::typeset::parse::parse(&source)
 }
 
+/// The settings of a run with nothing chosen.
+fn plain_settings() -> crate::config::Settings {
+    let choices = crate::config::choose(
+        &Default::default(),
+        &crate::config::Environment::default(),
+        &crate::config::Config::default(),
+    );
+    choices.with_theme(crate::typeset::theme::Theme::default())
+}
+
 /// Runs the pager on `document`, named `notes.md`, with `inputs` and
-/// `options`, on `terminal`.
+/// `options`, on `terminal`, with loads of its own, which are stopped and
+/// waited for once it returns.
 fn run_document(
     document: &Document,
     inputs: &mut Inputs,
-    options: Options<'_, '_>,
+    options: Options<'_>,
+    terminal: &mut Fake,
+) {
+    let mut loads = Loads::new();
+    run_document_in(document, inputs, options, &mut loads, terminal);
+    loads.halt();
+    loads.wait(crate::images::STOPPING);
+}
+
+/// [`run_document`], with the reloads' images loading in `loads`, which are
+/// left running for the caller.
+fn run_document_in(
+    document: &Document,
+    inputs: &mut Inputs,
+    options: Options<'_>,
+    loads: &mut Loads,
     terminal: &mut Fake,
 ) {
     run(
         Content::Document(document),
         None,
-        "notes.md",
+        session_for(&options),
         inputs,
         options,
+        loads,
         terminal,
     )
     .unwrap();
@@ -166,9 +215,10 @@ fn show_laid_out(document: &Document, before: &Document, caps: Capabilities) -> 
     run(
         Content::Document(document),
         Some(stream),
-        "notes.md",
+        Session::new(["notes.md"]),
         &mut inputs,
         Options::new(SearchCase::Smart),
+        &mut Loads::new(),
         &mut terminal,
     )
     .unwrap();
@@ -177,12 +227,20 @@ fn show_laid_out(document: &Document, before: &Document, caps: Capabilities) -> 
 
 /// What the pager gets when it asks for the document again: the
 /// outcomes in `then`, one a call, and how many times it asked; and
-/// when it asks whether the document changed, the answers in
-/// `changes`, one a call, and unchanged after them.
+/// when it looks at the file, what `changes` says, one a call, and
+/// unchanged after them: a look as the file had when it was last
+/// read, another look, or a file that is gone.
 struct Then {
     then: VecDeque<Reloaded>,
     asked: usize,
     changes: VecDeque<Change>,
+    /// How the file looks, as `Unchanged` looks.
+    read: Look,
+    /// The look that was last given, which the next reload gives as how the
+    /// file looked when it was read.
+    looked: Look,
+    /// The jobs it was given to read again, one a reload.
+    jobs: Vec<Reread>,
 }
 
 impl Then {
@@ -191,6 +249,9 @@ impl Then {
             then: then.into_iter().collect(),
             asked: 0,
             changes: VecDeque::new(),
+            read: READ,
+            looked: READ,
+            jobs: Vec::new(),
         }
     }
 
@@ -207,14 +268,30 @@ impl Then {
     }
 }
 
-impl Reload for Then {
-    fn reload(&mut self, _: &mut Images, _: &mut Loads, _: &Capabilities, _: bool) -> Reloaded {
+impl SourceFiles for Then {
+    fn reread(
+        &mut self,
+        job: &Reread,
+        _: &mut Images,
+        _: &mut Loads,
+        _: &Capabilities,
+        _: bool,
+    ) -> (Option<Look>, Reloaded) {
         self.asked += 1;
-        self.then.pop_front().expect("an outcome for each reload")
+        self.jobs.push(job.clone());
+        let outcome = self.then.pop_front().expect("an outcome for each reload");
+        self.read = self.looked;
+        (Some(self.read), outcome)
     }
 
-    fn change(&mut self) -> Change {
-        self.changes.pop_front().unwrap_or(Change::Unchanged)
+    fn look(&mut self, _: &Path) -> Result<Look, String> {
+        let look = match self.changes.pop_front().unwrap_or(Change::Unchanged) {
+            Change::Unchanged => Ok(self.read),
+            Change::Changed(look) => Ok(look),
+            Change::Gone(why) => Err(why),
+        };
+        self.looked = look.clone().unwrap_or(self.looked);
+        look
     }
 }
 
@@ -276,7 +353,7 @@ fn reloading_in(
         document,
         &mut inputs,
         Options {
-            reload: Some(then),
+            files: Some(then),
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,

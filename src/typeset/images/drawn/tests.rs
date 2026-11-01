@@ -2,10 +2,12 @@ use std::io;
 
 use image::ImageFormat;
 
-use crate::diagrams::{Renderer, Request};
-use crate::images::tests::{Stub, fixtures, load_source, rgba, with_stub};
-use crate::images::{DEFAULT_MAX_FILE_SIZE, ImageKey, decode, load_with};
+use crate::load::load_with;
+use crate::load::tests::{Stub, fixtures, load_source, rgba, with_stub};
+use crate::typeset::diagrams::renderer::Renderer;
+use crate::typeset::diagrams::request::Request;
 use crate::typeset::images::drawn::*;
+use crate::typeset::images::{DEFAULT_MAX_FILE_SIZE, ImageKey, decode};
 
 #[test]
 fn a_diagram_that_fails_is_a_warning_naming_it() {
@@ -137,16 +139,15 @@ fn a_diagram_for_the_other_page_lies_on_a_panel_of_its_background() {
         }
     }
     let drawn = |page, own, background, panel| {
-        let images = load_source(
-            "```dot\ndigraph {}\n```\n",
-            &LoadOptions {
-                renderer: &Themed(own, background),
-                theme: page,
-                panel,
-                ..LoadOptions::default()
-            },
-        );
-        match images.get(&ImageKey::block("dot", "digraph {}\n")) {
+        let options = LoadOptions {
+            renderer: &Themed(own, background),
+            theme: page,
+            panel,
+            ..LoadOptions::default()
+        };
+        let images = load_source("```dot\ndigraph {}\n```\n", &options);
+        match images.get(&ImageKey::block("dot", "digraph {}\n").with_look(options.looks().diagram))
+        {
             Some(Ok(Source::Svg(svg))) => svg.clone(),
             other => panic!("{other:?}"),
         }
@@ -223,16 +224,15 @@ fn drawn_within(
     page: Theme,
     largest: Option<(u32, u32)>,
 ) -> Result<Source, ImageError> {
-    let images = load_source(
-        "```dot\ndigraph {}\n```\n",
-        &LoadOptions {
-            renderer,
-            theme: page,
-            largest,
-            ..LoadOptions::default()
-        },
-    );
-    (images.get(&ImageKey::block("dot", "digraph {}\n")).cloned()).expect("the diagram")
+    let options = LoadOptions {
+        renderer,
+        theme: page,
+        largest,
+        ..LoadOptions::default()
+    };
+    let images = load_source("```dot\ndigraph {}\n```\n", &options);
+    let key = ImageKey::block("dot", "digraph {}\n").with_look(options.looks().diagram);
+    (images.get(&key).cloned()).expect("the diagram")
 }
 
 #[test]

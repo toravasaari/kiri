@@ -272,6 +272,11 @@ pub fn follow(cli: &Cli) -> Option<Setting<Follow>> {
         .or(flag(cli.follow_off.then_some(Follow::Off), "-F"))
 }
 
+/// How the command line asks to follow the file, `Off` when it does not.
+pub fn followed(cli: &Cli) -> Follow {
+    follow(cli).map_or(Follow::Off, |follow| follow.value)
+}
+
 /// `value`, when the command line gives it, from the flag `name`: the
 /// flag's long name, or its short one where it has no long one, as clap
 /// does not tell which of them the user gave.

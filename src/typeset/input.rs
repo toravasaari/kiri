@@ -7,7 +7,7 @@ use std::path::Path;
 
 use image::ImageFormat;
 
-use crate::images::Format;
+use crate::typeset::images::Format;
 use crate::typeset::parse::csv::Separator;
 
 /// How many bytes from the start of a file `detect` looks at.
@@ -98,7 +98,7 @@ pub fn language(path: &Path) -> Option<String> {
 /// The diagram language whose files have the extension `name`, which is
 /// also how `--format` names them.
 fn diagram_file(name: &str) -> Option<&'static str> {
-    (crate::diagrams::LANGUAGES.iter())
+    (crate::typeset::diagrams::language::LANGUAGES.iter())
         .find(|language| (language.file_extensions.iter()).any(|e| name.eq_ignore_ascii_case(e)))
         .map(|language| language.name)
 }
@@ -106,7 +106,7 @@ fn diagram_file(name: &str) -> Option<&'static str> {
 /// The diagram language `name` names, as a code block does, for
 /// `--format`.
 fn diagram_language(name: &str) -> Option<&'static str> {
-    crate::diagrams::language(name).map(|language| language.name)
+    crate::typeset::diagrams::language::language(name).map(|language| language.name)
 }
 
 /// The table `name`, an extension or a `--format` value, names: `csv` is

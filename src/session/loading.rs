@@ -2,20 +2,23 @@
 //! in the background, chosen by what their blocks showed before: a block
 //! that changed shows its old image dimmed, and any other block, such as
 //! one that stayed while its image file changed, shows as it does without
-//! its image. The images nearest to the view load first.
+//! its image. The images nearest to the view load first, and the module
+//! also says which of the images a version wants load, in what order.
 
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
-use crate::images::{ImageKey, Images, Placeholder, Source};
+use crate::typeset::caps::Capabilities;
 use crate::typeset::compare::{self, Comparison, Fate};
+use crate::typeset::images::{ImageKey, Images, Placeholder, Source};
 use crate::typeset::model::{Block, Document, Inline};
 use crate::typeset::style::Line;
 
 /// The key of the image `block` shows, when it may show one: the image of
 /// a paragraph of only an image, or the diagram a code block may be drawn
-/// as. Only a lone document is reloaded, so the key is of the first.
-fn key_of(block: &Block) -> Option<ImageKey> {
+/// as, drawn as the fingerprint `look` says. Only a lone document is
+/// reloaded, so the key is of the first.
+fn key_of(block: &Block, look: u64) -> Option<ImageKey> {
     match block {
         Block::Paragraph(content) => {
             Inline::lone_image(content).map(|image| ImageKey::from(image.url.as_str()))
@@ -24,7 +27,7 @@ fn key_of(block: &Block) -> Option<ImageKey> {
             language: Some(language),
             code,
             ..
-        } => Some(ImageKey::block(language, code)),
+        } => Some(ImageKey::block(language, code).with_look(look)),
         _ => None,
     }
 }
@@ -56,6 +59,75 @@ pub fn nearest(lines: &[Line], visible: Range<usize>) -> Vec<ImageKey> {
         .collect()
 }
 
+/// What reconciling does with an image a version wants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Need {
+    /// Held already, loaded or failed: nothing starts, and a load of it
+    /// under way carries on.
+    Kept,
+    /// Not held: it loads, unless a load of it is under way.
+    Missing,
+}
+
+/// The images a version wants, `planned` in plan order, each by its place
+/// there with its need, in the order they are to load: those among
+/// `first` in its order, then the others in plan order. One that `held`
+/// says is held is kept, so a diagram that failed is not drawn again until
+/// a new version plans it without its outcome. A key planned twice counts
+/// once, at its first place.
+pub fn wanted<'k>(
+    planned: impl IntoIterator<Item = &'k ImageKey>,
+    first: &[ImageKey],
+    held: impl Fn(&ImageKey) -> bool,
+) -> Vec<(usize, Need)> {
+    let planned: Vec<&ImageKey> = planned.into_iter().collect();
+    let mut place: HashMap<&ImageKey, usize> = HashMap::new();
+    for (at, key) in planned.iter().enumerate() {
+        place.entry(key).or_insert(at);
+    }
+    let mut taken = vec![false; planned.len()];
+    let mut order = Vec::with_capacity(planned.len());
+    for key in first {
+        if let Some(&at) = place.get(key)
+            && !std::mem::replace(&mut taken[at], true)
+        {
+            order.push(at);
+        }
+    }
+    let rest = (0..planned.len()).filter(|&at| place[planned[at]] == at && !taken[at]);
+    order.extend(rest);
+    (order.into_iter())
+        .map(|at| match held(planned[at]) {
+            true => (at, Need::Kept),
+            false => (at, Need::Missing),
+        })
+        .collect()
+}
+
+/// The images of `planned` that start loading and have nothing to stand
+/// in for them yet: those `images` neither holds nor has a placeholder
+/// for, a box to measure with (`Placeholder::Rows`) counting as none.
+pub fn starting<'k>(
+    planned: impl IntoIterator<Item = &'k ImageKey>,
+    images: &Images,
+) -> Vec<ImageKey> {
+    let mut seen = HashSet::new();
+    (planned.into_iter())
+        .filter(|key| images.get(key).is_none())
+        .filter(
+            |key| !matches!(images.placeholder(key), Some(p) if !matches!(p, Placeholder::Rows(_))),
+        )
+        .filter(|key| seen.insert(*key))
+        .cloned()
+        .collect()
+}
+
+/// Whether the images of a run load at all: when the settings show images
+/// (`--no-images` turns them off) and the terminal draws them.
+pub fn images_wanted(images: bool, caps: &Capabilities) -> bool {
+    images && caps.draws_images()
+}
+
 /// The images reloading `old` as `new` left, which `changes` tells
 /// apart, by what they are now and what they were before the reload.
 pub struct Reloaded<'a> {
@@ -69,9 +141,25 @@ pub struct Reloaded<'a> {
     pub replaced: &'a HashMap<ImageKey, Source>,
     /// The images the new document has at once.
     pub images: &'a Images,
+    /// The fingerprint of how its diagrams are drawn, which their keys
+    /// carry.
+    pub diagram_look: u64,
 }
 
 impl Reloaded<'_> {
+    /// What stands in for each of the images `keys` while it loads, as
+    /// [`Self::placeholder`] has it.
+    pub fn placeholders(
+        &self,
+        keys: impl Iterator<Item = ImageKey>,
+    ) -> Vec<(ImageKey, Placeholder)> {
+        (keys.map(|key| {
+            let placeholder = self.placeholder(&key);
+            (key, placeholder)
+        }))
+        .collect()
+    }
+
     /// What stands in for the image `key` while it loads: what stood in
     /// for it before, if it was loading then; the old image of the block
     /// it changed from, dimmed; and otherwise nothing that tells a size,
@@ -82,7 +170,8 @@ impl Reloaded<'_> {
             return before.clone();
         }
         let new = compare::blocks(self.new);
-        let Some((path, _)) = (new.iter()).find(|(_, block)| key_of(block).as_ref() == Some(key))
+        let Some((path, _)) =
+            (new.iter()).find(|(_, block)| key_of(block, self.diagram_look).as_ref() == Some(key))
         else {
             return Placeholder::Unsized;
         };
@@ -91,7 +180,7 @@ impl Reloaded<'_> {
                 let old = compare::blocks(self.old);
                 let old_key = (old.iter())
                     .find(|(path, _)| path == was)
-                    .and_then(|(_, block)| key_of(block));
+                    .and_then(|(_, block)| key_of(block, self.diagram_look));
                 (old_key.and_then(|old| self.old_image(&old))).unwrap_or(Placeholder::Unsized)
             }
             Some(Fate::Stayed { .. } | Fate::Added) | None => Placeholder::Unsized,
@@ -145,6 +234,7 @@ mod tests {
             before: &before,
             replaced: &replaced,
             images: &Images::new(),
+            diagram_look: 0,
         };
         reloaded.placeholder(&key.into())
     }
@@ -208,9 +298,35 @@ mod tests {
             before: &HashMap::new(),
             replaced: &replaced,
             images: &Images::new(),
+            diagram_look: 0,
         };
         let shown = reloaded.placeholder(&ImageKey::block("mermaid", "flowchart LR\n"));
         assert!(matches!(shown, Placeholder::Dimmed(image) if image.size() == (6, 6)));
+    }
+
+    #[test]
+    fn a_diagram_with_a_look_shows_its_old_drawing_dimmed() {
+        let key = |code| ImageKey::block("mermaid", code).with_look(42);
+        let (old_doc, new_doc) = (
+            parse("```mermaid\nflowchart TD\n```\n"),
+            parse("```mermaid\nflowchart LR\n```\n"),
+        );
+        let changes = compare(&old_doc, &new_doc);
+        let replaced = HashMap::from([(key("flowchart TD\n"), square(6))]);
+        let reloaded = Reloaded {
+            old: &old_doc,
+            new: &new_doc,
+            changes: &changes,
+            before: &HashMap::new(),
+            replaced: &replaced,
+            images: &Images::new(),
+            diagram_look: 42,
+        };
+        let shown = reloaded.placeholder(&key("flowchart LR\n"));
+        assert!(
+            matches!(&shown, Placeholder::Dimmed(image) if image.size() == (6, 6)),
+            "{shown:?}"
+        );
     }
 
     #[test]
@@ -254,5 +370,84 @@ mod tests {
             matches!(&followed, Placeholder::Dimmed(image) if image.size() == (3, 3)),
             "{followed:?}"
         );
+    }
+
+    fn keys(urls: &[&str]) -> Vec<ImageKey> {
+        urls.iter().map(|url| ImageKey::from(*url)).collect()
+    }
+
+    /// `wanted` of `planned` with `first`, where `held` are held, as
+    /// (url, need) in the order they load.
+    fn order(planned: &[&str], first: &[&str], held: &[&str]) -> Vec<(String, Need)> {
+        let planned = keys(planned);
+        let held = keys(held);
+        let wanted = wanted(&planned, &keys(first), |key| held.contains(key));
+        (wanted.into_iter())
+            .map(|(at, need)| (planned[at].to_string(), need))
+            .collect()
+    }
+
+    #[test]
+    fn the_images_near_the_view_load_first_and_the_others_in_plan_order() {
+        let order = order(&["a", "b", "c", "d"], &["c", "a"], &[]);
+        let urls: Vec<&str> = order.iter().map(|(url, _)| url.as_str()).collect();
+        assert_eq!(urls, ["c", "a", "b", "d"]);
+        assert!(order.iter().all(|(_, need)| *need == Need::Missing));
+    }
+
+    #[test]
+    fn with_nothing_near_the_view_the_plan_order_stands() {
+        let order = order(&["a", "b", "c"], &[], &[]);
+        let places: Vec<&str> = order.iter().map(|(url, _)| url.as_str()).collect();
+        assert_eq!(places, ["a", "b", "c"]);
+        // Keys that are not planned are left out.
+        let order = self::order(&["a", "b"], &["z", "b"], &[]);
+        let places: Vec<&str> = order.iter().map(|(url, _)| url.as_str()).collect();
+        assert_eq!(places, ["b", "a"]);
+    }
+
+    #[test]
+    fn what_is_held_is_kept_whatever_came_of_it_and_the_rest_is_missing() {
+        // The planner is not told how an image fared: a failure is held.
+        let order = order(&["a", "b", "c"], &["b"], &["b", "c"]);
+        assert_eq!(
+            order,
+            [
+                ("b".to_owned(), Need::Kept),
+                ("a".to_owned(), Need::Missing),
+                ("c".to_owned(), Need::Kept),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_key_planned_twice_counts_once_at_its_first_place() {
+        let planned = keys(&["a", "b", "a"]);
+        let wanted = wanted(&planned, &[], |_| false);
+        assert_eq!(wanted, [(0, Need::Missing), (1, Need::Missing)]);
+        let wanted = super::wanted(&planned, &keys(&["a"]), |_| false);
+        assert_eq!(wanted, [(0, Need::Missing), (1, Need::Missing)]);
+    }
+
+    #[test]
+    fn what_starts_is_what_is_neither_held_nor_stood_in_for_by_more_than_a_box() {
+        let mut images = Images::new();
+        images.insert("held", Ok(square(2)));
+        images.insert("failed", Err(crate::typeset::images::ImageError::Remote));
+        images.wait("unsized".into(), Placeholder::Unsized);
+        images.wait("dimmed".into(), Placeholder::Dimmed(square(2)));
+        images.wait("rows".into(), Placeholder::Rows(3));
+        let planned = keys(&["held", "failed", "unsized", "dimmed", "rows", "new", "new"]);
+        let starting = starting(&planned, &images);
+        // A box to measure with counts as nothing; a new key once.
+        assert_eq!(starting, keys(&["rows", "new"]));
+    }
+
+    #[test]
+    fn images_are_wanted_when_the_settings_show_them_and_the_terminal_draws_them() {
+        let draws = Capabilities::kitty(80);
+        assert!(images_wanted(true, &draws));
+        assert!(!images_wanted(false, &draws));
+        assert!(!images_wanted(true, &Capabilities::ansi(80)));
     }
 }

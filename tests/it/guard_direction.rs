@@ -44,78 +44,25 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[
         "term::tmux",
         "the terminal layer split",
     ),
-    ("src/present/encoder.rs", "images", "loading and sessions"),
     (
         "src/present/encoder.rs",
         "render::loading",
         "the terminal layer split",
     ),
-    ("src/present/output.rs", "images", "loading and sessions"),
     (
         "src/present/output.rs",
         "render::loading",
         "the terminal layer split",
     ),
-    ("src/session/loading.rs", "images", "loading and sessions"),
     (
         "src/typeset/caps.rs",
         "present::kitty::graphics",
         "giving caps.rs the constant, a small change of its own",
     ),
     (
-        "src/typeset/diagrams/language.rs",
-        "diagrams",
-        "loading and sessions",
-    ),
-    (
-        "src/typeset/diagrams/language.rs",
-        "diagrams::external",
-        "loading and sessions",
-    ),
-    (
-        "src/typeset/diagrams/math.rs",
-        "diagrams",
-        "loading and sessions",
-    ),
-    (
-        "src/typeset/diagrams/mermaid/merman.rs",
-        "diagrams",
-        "loading and sessions",
-    ),
-    (
-        "src/typeset/diagrams/mermaid/mod.rs",
-        "diagrams",
-        "loading and sessions",
-    ),
-    (
-        "src/typeset/diagrams/mermaid/mod.rs",
-        "diagrams::external",
-        "loading and sessions",
-    ),
-    (
-        "src/typeset/images/decode.rs",
-        "images",
-        "loading and sessions",
-    ),
-    (
         "src/typeset/images/decode.rs",
         "images::svg",
         "the font database",
-    ),
-    (
-        "src/typeset/images/decode.rs",
-        "images::url",
-        "loading and sessions",
-    ),
-    (
-        "src/typeset/images/drawn.rs",
-        "diagrams",
-        "loading and sessions",
-    ),
-    (
-        "src/typeset/images/drawn.rs",
-        "images",
-        "loading and sessions",
     ),
     (
         "src/typeset/images/drawn.rs",
@@ -124,21 +71,9 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[
     ),
     (
         "src/typeset/images/heading.rs",
-        "images",
-        "loading and sessions",
-    ),
-    (
-        "src/typeset/images/heading.rs",
         "images::svg",
         "the font database",
     ),
-    (
-        "src/typeset/images/size.rs",
-        "images",
-        "loading and sessions",
-    ),
-    ("src/typeset/input.rs", "diagrams", "loading and sessions"),
-    ("src/typeset/input.rs", "images", "loading and sessions"),
     (
         "src/typeset/layout/front_matter.rs",
         "render",
@@ -146,28 +81,8 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[
     ),
     (
         "src/typeset/layout/mod.rs",
-        "diagrams",
-        "loading and sessions",
-    ),
-    (
-        "src/typeset/layout/mod.rs",
-        "images",
-        "loading and sessions",
-    ),
-    (
-        "src/typeset/layout/mod.rs",
         "render",
         "the terminal layer split",
-    ),
-    (
-        "src/typeset/reading/engine.rs",
-        "diagrams",
-        "loading and sessions",
-    ),
-    (
-        "src/typeset/reading/engine.rs",
-        "images",
-        "loading and sessions",
     ),
     (
         "src/typeset/reading/engine.rs",
@@ -184,12 +99,6 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[
         "images",
         "the font database",
     ),
-    (
-        "src/typeset/reading/page/code.rs",
-        "diagrams",
-        "loading and sessions",
-    ),
-    ("src/typeset/style.rs", "images", "loading and sessions"),
 ];
 
 #[test]

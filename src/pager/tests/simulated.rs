@@ -1,10 +1,10 @@
-//! The pager run in the simulated shell (`src/pager/sim.rs`): a virtual
+//! The pager run in the simulated frontend (`src/frontend/sim.rs`): a virtual
 //! clock, files in memory and a script of keys and edits, in place of the
 //! pseudo-terminal tests that tested the pager and not the terminal. They
 //! look at the bytes the pager writes, as those did.
 
 use super::*;
-use crate::pager::sim::Sim;
+use crate::frontend::sim::Sim;
 use crate::session::settings::Follow;
 
 /// A document longer than a window of 5 rows: `Line 1` to `Line 10`, one
@@ -266,4 +266,27 @@ fn a_reload_after_m_keeps_the_pictures_m_loaded() {
     assert!(ids.len() >= 2, "{ids:?}");
     assert_ne!(ids[0], ids[1], "{ids:?}");
     assert_eq!(ids.last(), Some(&ids[1]), "{ids:?}");
+}
+
+#[test]
+fn m_on_again_loads_a_picture_it_holds_no_second_time() {
+    // The script has one outcome for the picture: a second load of it
+    // would never come, and the page would show without it.
+    let ran = badge()
+        .keys(10, "M")
+        .keys(200, "M")
+        .keys(300, "M")
+        .keys(1000, "q")
+        .run();
+    let ids = pages(&ran.out);
+    // Without the picture, with it; reading mode off and on again shows
+    // those two pages again.
+    assert!(ids.len() >= 2, "{ids:?}");
+    assert_ne!(ids[0], ids[1], "{ids:?}");
+    assert_eq!(ids.last(), Some(&ids[1]), "{ids:?}");
+    // Nothing is loading at the end: a second load of it would show in
+    // the status line.
+    let texts = ran.texts();
+    let last = texts.last().expect("a frame");
+    assert!(!last.contains("rendering"), "{last:?}");
 }

@@ -6,9 +6,9 @@
 #[cfg(feature = "mermaid")]
 mod merman;
 
-use crate::diagrams::Theme;
-use crate::diagrams::external::Output;
 use crate::typeset::diagrams::language::{BuiltInRenderer, ConfigFile, Language, ThemeNames};
+use crate::typeset::diagrams::output::Output;
+use crate::typeset::diagrams::request::Theme;
 
 /// Mermaid.
 pub(super) const MERMAID: Language = Language {

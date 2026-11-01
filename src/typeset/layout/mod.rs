@@ -32,12 +32,13 @@ use std::borrow::Cow;
 use std::ops::Range;
 use std::rc::Rc;
 
-use crate::images::{ImageError, ImageKey, Images, Placeholder, Source, heading_words};
 use crate::render::{FrontMatterStyle, Headings, Inputs, RenderErrors, TableRows};
 use crate::typeset::block::{BlockId, Blocks};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::{Color, Underline};
 use crate::typeset::images::size::{self, Placement, Shows};
+use crate::typeset::images::{ImageError, ImageKey, Images, Placeholder, Source, heading_words};
+use crate::typeset::images::{Looks, diagram_look_for};
 use crate::typeset::layout::script::Script;
 use crate::typeset::layout::table::Cells;
 use crate::typeset::model::{Block, Document, File, Image, Inline, SourceLines, Table};
@@ -213,11 +214,16 @@ fn with_layout<T>(
         table_rows,
         render_errors,
         reading,
+        diagram_panel,
     } = inputs;
     // Without colours, the layout leaves out what only shows a colour, such
     // as heading fills and the padding around inline code. The built-in
     // theme's greys follow the terminal's palette, which may hide them.
     let adjusted;
+    let looks = Looks {
+        diagram: diagram_look_for(theme, caps, *diagram_panel),
+        headings: crate::render::heading_look(*headings, false, theme, caps),
+    };
     let theme = if !caps.color {
         adjusted = theme.clone().without_colors();
         &adjusted
@@ -247,6 +253,7 @@ fn with_layout<T>(
         // is.
         reading: reading.as_ref().filter(|_| caps.draws_images()),
         document: number,
+        looks,
         // The row below for the shell's prompt or the pager's status line.
         reserved: 1,
     };
@@ -314,6 +321,8 @@ struct Layout<'a> {
     /// The number of the document laid out among those shown together,
     /// which the keys of its images carry.
     document: usize,
+    /// What the keys of diagrams and headings name of how they are drawn.
+    looks: Looks,
     /// The rows of the window that an image file shown on its own leaves
     /// to others: the shell's prompt or the pager's status line below it,
     /// and the header above it.
@@ -471,6 +480,7 @@ impl Layout<'_> {
         // Reading mode sets its own width: the theme's widest text is for
         // text in the terminal's font.
         let window = usize::from(self.caps.width).max(width);
+        let shown = (self.document, self.looks.diagram);
         let page = super::reading::engine::lines(
             &blocks,
             &ids,
@@ -480,7 +490,7 @@ impl Layout<'_> {
                 &self.code_colors(),
                 (self.table_rows != TableRows::Off, self.front_matter),
             ),
-            (self.images, self.render_errors.inline(), self.document),
+            (self.images, self.render_errors.inline(), shown),
             self.caps,
             window,
         );
@@ -512,7 +522,7 @@ impl Layout<'_> {
                 let mut lines = self.code_block(language, code, width);
                 lines.extend(self.render_error(language, code, width));
                 if let Some(language) = language {
-                    let key = ImageKey::block(language, code).in_document(self.document);
+                    let key = ImageKey::diagram(language, code, self.looks.diagram, self.document);
                     self.loading_band(&key, width, &mut lines);
                 }
                 lines
@@ -778,7 +788,9 @@ impl Layout<'_> {
         }
         let cell = size::cell_size(self.caps);
         let words = heading_words(content);
-        let key = ImageKey::heading_of(level, words.clone(), cell).in_document(self.document);
+        let key = ImageKey::heading_of(level, words.clone(), cell)
+            .with_look(self.looks.heading(level))
+            .in_document(self.document);
         let Some(Ok(Source::Text {
             image,
             breaks,
@@ -924,8 +936,8 @@ impl Layout<'_> {
             return None;
         }
         let language = language?;
-        let key = ImageKey::block(language, code).in_document(self.document);
-        let align = match crate::diagrams::centred(language) {
+        let key = ImageKey::diagram(language, code, self.looks.diagram, self.document);
+        let align = match crate::typeset::diagrams::names::centred(language) {
             true => Align::Centre,
             false => Align::Left,
         };
@@ -941,12 +953,12 @@ impl Layout<'_> {
             Some(language) if self.render_errors.inline() && !self.images.is_empty() => language,
             _ => return Vec::new(),
         };
-        let key = ImageKey::block(language, code).in_document(self.document);
+        let key = ImageKey::diagram(language, code, self.looks.diagram, self.document);
         let Some(Err(ImageError::Diagram { reason, .. })) = self.images.get(&key) else {
             return Vec::new();
         };
         // The language as written, as the warning on standard error has it.
-        let noun = crate::diagrams::noun(language);
+        let noun = crate::typeset::diagrams::names::noun(language);
         let text = format!("✗ {noun} could not be drawn: {reason}");
         let style = self.style(Style::fg(self.look.error));
         let (indent, max) = self.below_code(width);
@@ -1234,7 +1246,7 @@ impl Layout<'_> {
     /// plain text and every character has one, or else as it is. A script
     /// inside it is drawn as part of it.
     fn script(&self, script: Script, content: &[Inline], style: &Style, out: &mut Vec<Span>) {
-        let content = without_scripts(content);
+        let content = script::without_scripts(content);
         if self.caps.text_sizing {
             let align = match script {
                 Script::Sup => VerticalAlign::Top,
@@ -1342,31 +1354,6 @@ pub(crate) fn image_rows(placement: Placement) -> Vec<Line> {
         .collect()
 }
 
-/// `content` with every sub- and superscript in it replaced by its own
-/// content.
-fn without_scripts(content: &[Inline]) -> Vec<Inline> {
-    let mut out = Vec::new();
-    for inline in content {
-        out.push(match inline {
-            Inline::Subscript(inner) | Inline::Superscript(inner) => {
-                out.extend(without_scripts(inner));
-                continue;
-            }
-            Inline::Emphasis(inner) => Inline::Emphasis(without_scripts(inner)),
-            Inline::Strong(inner) => Inline::Strong(without_scripts(inner)),
-            Inline::Strikethrough(inner) => Inline::Strikethrough(without_scripts(inner)),
-            Inline::Kbd(inner) => Inline::Kbd(without_scripts(inner)),
-            Inline::Mark(inner) => Inline::Mark(without_scripts(inner)),
-            Inline::Link { url, content } => Inline::Link {
-                url: url.clone(),
-                content: without_scripts(content),
-            },
-            inline => inline.clone(),
-        });
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1465,13 +1452,14 @@ mod tests {
             cell_pixels: Some((10, 20)),
             ..Capabilities::kitty(60)
         });
-        inputs.images.wait(key.into(), placeholder);
+        let key = inputs.drawn(key);
+        inputs.images.wait(key, placeholder);
         inputs
     }
 
     /// The pixels of an image of `width` × `height`.
-    fn pixels(width: u32, height: u32) -> crate::images::Source {
-        crate::images::Source::Raster(::image::RgbaImage::new(width, height))
+    fn pixels(width: u32, height: u32) -> crate::typeset::images::Source {
+        crate::typeset::images::Source::Raster(::image::RgbaImage::new(width, height))
     }
 
     #[test]
@@ -1834,11 +1822,12 @@ mod tests {
 
     /// Inputs for kitty with cells of 10 × 20 pixels, a CSS pixel to a
     /// pixel, and `key` loaded as `image`.
-    fn loaded(key: impl Into<ImageKey>, image: crate::images::Source) -> Inputs {
+    fn loaded(key: impl Into<ImageKey>, image: crate::typeset::images::Source) -> Inputs {
         let mut inputs = Inputs::new(Capabilities {
             cell_pixels: Some((10, 20)),
             ..Capabilities::kitty(60)
         });
+        let key = inputs.drawn(key);
         inputs.images.insert(key, Ok(image));
         inputs
     }
