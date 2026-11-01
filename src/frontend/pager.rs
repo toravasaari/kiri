@@ -97,9 +97,9 @@ fn told_files(
 /// Why a file failed, and a warning about a file, are told before the
 /// pager opens, and why the diagram of a diagram file was not drawn after
 /// it closes; all of them are noted in `failed`. The guard of `opening`
-/// goes once the pager's screen catches the signals. With `opening.later`, the images of
-/// the documents load in the background once the pager has opened; should
-/// it not open, they load before the files are printed.
+/// goes once the pager's screen catches the signals. With `opening.later`,
+/// the images of the documents load in the background once the pager has
+/// opened; should it not open, they load before the files are printed.
 #[expect(clippy::too_many_lines)]
 pub(super) fn page_files(
     show: &Show,

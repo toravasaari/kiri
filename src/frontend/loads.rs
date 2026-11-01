@@ -157,9 +157,9 @@ enum Over {
 /// Waits for what `loads` load, giving each image to `came` as it comes,
 /// until nothing loads, `signal` tells of one, or with [`Line::Skippable`]
 /// the reader presses Space or Enter. The line is wiped before it
-/// returns; it shows after `delay`. `wait` stops nothing itself, and the caller owns the keys: it
-/// drops them, so that the terminal is as it was, before it stops the
-/// loads on a signal.
+/// returns; it shows after `delay`. `wait` stops nothing itself, and the
+/// caller owns the keys: it drops them, so that the terminal is as it was,
+/// before it stops the loads on a signal.
 fn wait(
     (out, delay): (impl Write, Duration),
     loads: &mut Loads,
