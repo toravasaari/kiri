@@ -3,10 +3,18 @@
 //! each with an id, a name and a version that a reload brings forward, and
 //! its views, of which one is built: the sources it shows.
 //!
-//! Only the ids and the names are here. The documents and their layout stay
-//! where they are for now, and nothing is read: the platform makes the
-//! session from the files it was given.
+//! A source read from a lone regular file also knows that file and how it
+//! looked when its version was read ([`SourceFile`]), so the session can say
+//! what is to be read again ([`Session::reread`]) and what is watched
+//! ([`Session::watches`]). The documents and their layout stay where they
+//! are for now, and nothing is read or looked at here: the platform makes
+//! the session from the files it was given, and looks at the watches.
 
+use std::path::PathBuf;
+use std::time::Duration;
+
+use crate::session::state::{Change, Look, POLL};
+use crate::typeset::input::Input;
 use crate::typeset::layout::Content;
 
 /// A source in a session. Ids come from the session, in the order the
@@ -33,12 +41,55 @@ impl Version {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ViewId(u32);
 
+/// The file a source is read from: a lone regular file, which can be read
+/// again and watched. Its look is that of the file when the source's
+/// version was read, taken before the read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceFile {
+    pub path: PathBuf,
+    pub input: Input,
+    pub look: Option<Look>,
+}
+
+/// What a subscription watches. One kind for now; the configuration file
+/// and the theme add theirs when the pager takes them in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Watched {
+    Source(SourceId),
+}
+
+/// A subscription: look at `path` at most every `every`, and tell how it
+/// differs from `since`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Watch {
+    pub what: Watched,
+    pub path: PathBuf,
+    pub every: Duration,
+    pub since: Option<Look>,
+}
+
+/// What a look at a watch found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Looked {
+    pub what: Watched,
+    pub change: Change,
+}
+
+/// The job of reading a source again: fetch the file, compute the document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reread {
+    pub source: SourceId,
+    pub path: PathBuf,
+    pub input: Input,
+}
+
 /// Where a document comes from: one file, or standard input.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Source {
     id: SourceId,
     name: String,
     version: Version,
+    file: Option<SourceFile>,
 }
 
 impl Source {
@@ -54,6 +105,11 @@ impl Source {
     /// The version of the document now.
     pub fn version(&self) -> Version {
         self.version
+    }
+
+    /// The file the source is read from, when it is a lone regular file.
+    pub fn file(&self) -> Option<&SourceFile> {
+        self.file.as_ref()
     }
 }
 
@@ -113,6 +169,7 @@ impl Session {
             id,
             name,
             version: Version::FIRST,
+            file: None,
         });
         id
     }
@@ -132,6 +189,10 @@ impl Session {
     /// The source `id`, if the session has it.
     pub fn source(&self, id: SourceId) -> Option<&Source> {
         self.sources.iter().find(|source| source.id == id)
+    }
+
+    fn source_mut(&mut self, id: SourceId) -> Option<&mut Source> {
+        self.sources.iter_mut().find(|source| source.id == id)
     }
 
     /// Panics unless the sources are those of `content`: one for each of
@@ -156,12 +217,64 @@ impl Session {
         self.views.first().expect("a session has a view")
     }
 
-    /// Brings the source `id` to its next version, which is returned; the
-    /// other sources keep theirs. `None` when there is no such source.
-    pub fn reload(&mut self, id: SourceId) -> Option<Version> {
-        let source = self.sources.iter_mut().find(|source| source.id == id)?;
+    /// The source `id` is read from `file`. The frontend says so for a lone
+    /// regular file only.
+    pub fn read_from(&mut self, id: SourceId, file: SourceFile) {
+        if let Some(source) = self.source_mut(id) {
+            source.file = Some(file);
+        }
+    }
+
+    /// The job of reading the shown source again: the first source with a
+    /// file, which only a lone file has; `None` when nothing can be read
+    /// again.
+    pub fn reread(&self) -> Option<Reread> {
+        self.sources.iter().find_map(|source| {
+            let file = source.file.as_ref()?;
+            Some(Reread {
+                source: source.id,
+                path: file.path.clone(),
+                input: file.input,
+            })
+        })
+    }
+
+    /// A reread read the document: brings the source `id` to its next
+    /// version, which is returned, with `look`, how its file looked when it
+    /// was fetched; the other sources keep theirs. `None` when there is no
+    /// such source.
+    pub fn reload(&mut self, id: SourceId, look: Option<Look>) -> Option<Version> {
+        let source = self.source_mut(id)?;
         source.version = source.version.next();
+        if let Some(file) = &mut source.file {
+            file.look = look;
+        }
         Some(source.version)
+    }
+
+    /// A reread failed: the source `id` keeps its version and takes `look`,
+    /// how its file looked when the reread fetched it, so that the file is
+    /// read again only when it changes again.
+    pub fn looked(&mut self, id: SourceId, look: Option<Look>) {
+        let file = self.source_mut(id).and_then(|source| source.file.as_mut());
+        if let Some(file) = file {
+            file.look = look;
+        }
+    }
+
+    /// The subscriptions: each source with a file, while `following`, every
+    /// [`POLL`], since the look of its version.
+    pub fn watches(&self, following: bool) -> Vec<Watch> {
+        let files = self.sources.iter().filter_map(|source| {
+            let file = source.file.as_ref()?;
+            Some(Watch {
+                what: Watched::Source(source.id),
+                path: file.path.clone(),
+                every: POLL,
+                since: file.look,
+            })
+        });
+        files.filter(|_| following).collect()
     }
 }
 
@@ -196,7 +309,7 @@ mod tests {
     fn ids_are_stable_and_found_again() {
         let mut session = Session::new(["a.md", "b.md"]);
         let before = ids(&session);
-        session.reload(before[0]);
+        session.reload(before[0], None);
         assert_eq!(ids(&session), before);
         assert_eq!(session.source(before[1]).unwrap().name(), "b.md");
         assert_eq!(session.source(SourceId(99)), None);
@@ -213,7 +326,7 @@ mod tests {
     fn the_built_view_keeps_its_id_through_a_reload() {
         let mut session = Session::new(["a.md"]);
         let id = ids(&session)[0];
-        session.reload(id);
+        session.reload(id, None);
         assert_eq!(session.view().id(), ViewId(0));
         assert_eq!(session.view().shows(), [id]);
     }
@@ -224,10 +337,10 @@ mod tests {
         let [a, b] = ids(&session)[..] else {
             unreachable!()
         };
-        assert_eq!(session.reload(b), Some(Version(1)));
+        assert_eq!(session.reload(b, None), Some(Version(1)));
         assert_eq!(session.source(a).unwrap().version(), Version::FIRST);
         assert_eq!(session.source(b).unwrap().version(), Version(1));
-        assert_eq!(session.reload(b), Some(Version(2)));
+        assert_eq!(session.reload(b, None), Some(Version(2)));
         assert_eq!(session.source(a).unwrap().version(), Version::FIRST);
     }
 
@@ -235,7 +348,7 @@ mod tests {
     fn reloading_a_source_the_session_lacks_changes_nothing() {
         let mut session = Session::new(["a.md"]);
         let before = session.clone();
-        assert_eq!(session.reload(SourceId(7)), None);
+        assert_eq!(session.reload(SourceId(7), None), None);
         assert_eq!(session, before);
     }
 
@@ -249,5 +362,120 @@ mod tests {
         let added = session.add_source("c.md".to_owned());
         assert!(!sources.contains(&added), "{added:?} among {sources:?}");
         assert_eq!(session.sources().len(), 3);
+    }
+
+    fn file(path: &str, length: u64) -> SourceFile {
+        SourceFile {
+            path: PathBuf::from(path),
+            input: Input::Markdown,
+            look: Some(look(length)),
+        }
+    }
+
+    fn look(length: u64) -> Look {
+        Look {
+            modified: None,
+            length,
+        }
+    }
+
+    #[test]
+    fn a_source_has_the_file_it_is_read_from_and_the_others_have_none() {
+        let mut session = Session::new(["a.md", "b.md"]);
+        let [a, b] = ids(&session)[..] else {
+            unreachable!()
+        };
+        assert_eq!(session.source(a).unwrap().file(), None);
+        session.read_from(a, file("a.md", 3));
+        assert_eq!(session.source(a).unwrap().file(), Some(&file("a.md", 3)));
+        assert_eq!(session.source(b).unwrap().file(), None);
+    }
+
+    #[test]
+    fn a_reread_is_the_job_of_the_first_source_with_a_file() {
+        let mut session = Session::new(["a.md", "b.md"]);
+        let [a, b] = ids(&session)[..] else {
+            unreachable!()
+        };
+        assert_eq!(session.reread(), None);
+        session.read_from(b, file("b.md", 1));
+        let job = |source, path: &str| {
+            Some(Reread {
+                source,
+                path: PathBuf::from(path),
+                input: Input::Markdown,
+            })
+        };
+        assert_eq!(session.reread(), job(b, "b.md"));
+        session.read_from(a, file("a.md", 1));
+        assert_eq!(session.reread(), job(a, "a.md"));
+    }
+
+    #[test]
+    fn a_reload_takes_the_look_the_reread_was_fetched_at_with_the_next_version() {
+        let mut session = Session::new(["a.md"]);
+        let id = ids(&session)[0];
+        session.read_from(id, file("a.md", 1));
+        assert_eq!(session.reload(id, Some(look(2))), Some(Version(1)));
+        let source = session.source(id).unwrap();
+        assert_eq!(source.file().map(|file| file.look), Some(Some(look(2))));
+        assert_eq!(source.version(), Version(1));
+        // A file that could not be looked at has no look.
+        session.reload(id, None);
+        let source = session.source(id).unwrap();
+        assert_eq!(source.file().map(|file| file.look), Some(None));
+    }
+
+    #[test]
+    fn a_failed_reread_takes_the_look_and_keeps_the_version() {
+        let mut session = Session::new(["a.md", "b.md"]);
+        let [a, b] = ids(&session)[..] else {
+            unreachable!()
+        };
+        session.read_from(a, file("a.md", 1));
+        session.read_from(b, file("b.md", 1));
+        session.looked(a, Some(look(5)));
+        let looks = |id| session.source(id).unwrap().file().map(|file| file.look);
+        assert_eq!(session.source(a).unwrap().version(), Version::FIRST);
+        assert_eq!(looks(a), Some(Some(look(5))));
+        assert_eq!(looks(b), Some(Some(look(1))));
+    }
+
+    #[test]
+    fn a_source_without_a_file_takes_no_look() {
+        let mut session = Session::new(["a.md"]);
+        let id = ids(&session)[0];
+        session.looked(id, Some(look(5)));
+        assert_eq!(session.reload(id, Some(look(5))), Some(Version(1)));
+        assert_eq!(session.source(id).unwrap().file(), None);
+    }
+
+    #[test]
+    fn a_followed_source_with_a_file_is_watched_every_poll_since_its_look() {
+        let mut session = Session::new(["a.md", "b.md"]);
+        let [a, _] = ids(&session)[..] else {
+            unreachable!()
+        };
+        session.read_from(a, file("a.md", 4));
+        let watches = session.watches(true);
+        let expected = Watch {
+            what: Watched::Source(a),
+            path: PathBuf::from("a.md"),
+            every: POLL,
+            since: Some(look(4)),
+        };
+        assert_eq!(watches, [expected]);
+        // The look of the version moves the watch's `since` along.
+        session.reload(a, Some(look(9)));
+        assert_eq!(session.watches(true)[0].since, Some(look(9)));
+    }
+
+    #[test]
+    fn nothing_is_watched_unless_followed_or_without_a_file() {
+        let mut session = Session::new(["a.md"]);
+        assert_eq!(session.watches(true), []);
+        let id = ids(&session)[0];
+        session.read_from(id, file("a.md", 4));
+        assert_eq!(session.watches(false), []);
     }
 }

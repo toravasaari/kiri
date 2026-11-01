@@ -20,6 +20,7 @@ use crate::images::Stamps;
 use crate::render::Inputs;
 use crate::session::plan::{self, Route};
 use crate::session::settings::{Follow, Paging};
+use crate::session::sources::SourceFile;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::input::Input;
@@ -28,7 +29,7 @@ use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page::Wide;
 
 use super::given::{Drawn, Given, Shown, drawn, given_from, load_given, read_whole};
-use super::loads::{FileReload, Guard, part};
+use super::loads::{Guard, part};
 use super::open::{Content, STDIN, open};
 use super::pager::{Opening, page_files};
 use super::print::print_files;
@@ -201,8 +202,7 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
     }
     // Before the images are read, so that a file changed meanwhile counts
     // as changed.
-    let reload =
-        (given.first().filter(|_| lone)).and_then(|given| reloading(given, context, &settings));
+    let file = (given.first().filter(|_| lone)).and_then(|given| source_file(given, context));
     // The documents' images load once the pager has opened.
     let later = paged && plan::may_load_later(settings.paging, settings.images, terminal, &caps);
     // Who catches the signals until the pager's screen does: the one guard
@@ -252,7 +252,7 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
         let opening = Opening {
             later,
             reading_warning,
-            reload,
+            file,
             guard,
         };
         page_files(&show, given, &mut inputs, opening)?;
@@ -265,26 +265,16 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
     }
 }
 
-/// The reading of `given` again from its file, when it is a document alone
-/// read from a regular file; its images' stamps are taken now.
-pub(super) fn reloading<'a>(
-    given: &Given,
-    context: &'a Context<'a>,
-    settings: &'a Settings,
-) -> Option<FileReload<'a>> {
+/// The file `given` is read from, when it is a document alone read from a
+/// regular file, with how the file looked when it was read, which the
+/// session has to read it again; with its images' stamps, taken now.
+pub(super) fn source_file(given: &Given, context: &Context) -> Option<(SourceFile, Stamps)> {
     let (input, look) = given.reload?;
     let (Shown::Document { document, .. }, Some(path)) = (&given.shown, given.file.clone()) else {
         return None;
     };
     let stamps = Stamps::of(&[part(document, Some(&path), context.reading)]);
-    Some(FileReload {
-        context,
-        settings,
-        path,
-        input,
-        stamps,
-        read: look,
-    })
+    Some((SourceFile { path, input, look }, stamps))
 }
 
 /// `warning` about the file `name`, as told: named among several files.

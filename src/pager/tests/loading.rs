@@ -67,17 +67,18 @@ struct Background {
     asked: usize,
 }
 
-impl Reload for Background {
-    fn reload(
+impl SourceFiles for Background {
+    fn reread(
         &mut self,
+        _: &Reread,
         images: &mut Images,
         _: &mut Loads,
         _: &Capabilities,
         _: bool,
-    ) -> Reloaded {
+    ) -> (Option<Look>, Reloaded) {
         self.asked += 1;
         if let Some(why) = self.afterwards.clone().filter(|_| self.asked > 1) {
-            return Reloaded::Failed(why);
+            return (Some(READ), Reloaded::Failed(why));
         }
         for key in &self.aside {
             images.set_aside(key);
@@ -90,11 +91,11 @@ impl Reload for Background {
             self.coming.planned.borrow_mut().push(key.clone());
             self.coming.outcomes.borrow_mut().insert(key, image);
         }
-        Reloaded::Document(self.document.clone())
+        (Some(READ), Reloaded::Document(self.document.clone()))
     }
 
-    fn change(&mut self) -> Change {
-        Change::Unchanged
+    fn look(&mut self, _: &Path) -> Result<Look, String> {
+        Ok(READ)
     }
 }
 
@@ -150,7 +151,7 @@ fn loading_with(
         }
     }));
     let options = Options {
-        reload: Some(reload),
+        files: Some(reload),
         follow,
         ..Options::new(SearchCase::Smart)
     };
@@ -357,6 +358,33 @@ fn auto_following_jumps_when_the_text_comes_and_not_when_the_image_does() {
 }
 
 #[test]
+fn auto_following_reads_once_when_the_file_never_changes() {
+    let before = numbers(30);
+    let mut changed: String = (1..=30).map(|n| format!("Line {n}\n\n")).collect();
+    changed = changed.replace("Line 20\n", "![changed](b.png)\n");
+    let mut reload = Background {
+        document: crate::typeset::parse::parse(&changed),
+        wanted: vec![(ImageKey::from("b.png"), filled(20, 200, [0, 0, 255, 255]))],
+        aside: Vec::new(),
+        coming: Default::default(),
+        fails: Vec::new(),
+        afterwards: None,
+        asked: 0,
+    };
+    let keys: [&[u8]; 8] = [b"r", b"", b"", b"", b"", b"", b"", b""];
+    loading_in(
+        8,
+        &before,
+        Vec::new(),
+        &mut reload,
+        &keys,
+        &[2],
+        settings::Follow::Auto,
+    );
+    assert_eq!(reload.asked, 1);
+}
+
+#[test]
 fn the_status_line_counts_the_images_that_came_until_all_have() {
     let mut reload = Background {
         document: crate::typeset::parse::parse("![a](a.png)\n\n![b](b.png)\n"),
@@ -468,7 +496,7 @@ fn quitting_stops_the_loads_before_it_deletes_the_images() {
         }
     }));
     let options = Options {
-        reload: Some(&mut reload),
+        files: Some(&mut reload),
         ..Options::new(SearchCase::Smart)
     };
     let document = around(2, "a.png");
@@ -673,14 +701,21 @@ fn no_band_is_placed_under_the_help_panel() {
 /// at a time.
 struct Gating(Document, std::rc::Rc<std::cell::Cell<bool>>);
 
-impl Reload for Gating {
-    fn reload(&mut self, _: &mut Images, _: &mut Loads, _: &Capabilities, _: bool) -> Reloaded {
+impl SourceFiles for Gating {
+    fn reread(
+        &mut self,
+        _: &Reread,
+        _: &mut Images,
+        _: &mut Loads,
+        _: &Capabilities,
+        _: bool,
+    ) -> (Option<Look>, Reloaded) {
         self.1.set(true);
-        Reloaded::Document(self.0.clone())
+        (Some(READ), Reloaded::Document(self.0.clone()))
     }
 
-    fn change(&mut self) -> Change {
-        Change::Unchanged
+    fn look(&mut self, _: &Path) -> Result<Look, String> {
+        Ok(READ)
     }
 }
 
@@ -742,7 +777,7 @@ fn started_in(reads: &[&[u8]], first: usize, open: usize) -> Vec<String> {
         &numbers(40),
         &mut inputs,
         Options {
-            reload: Some(&mut gating),
+            files: Some(&mut gating),
             planner: Some(planner),
             ..Options::new(SearchCase::Smart)
         },
@@ -844,7 +879,7 @@ fn a_changed_diagram_loads_with_its_old_drawing_dimmed_under_the_layouts_look() 
     let mut terminal = Fake::new(60, 12, &[b"r", b"", b"q"]);
     let coming = reload.coming.clone();
     let options = Options {
-        reload: Some(&mut reload),
+        files: Some(&mut reload),
         ..Options::new(SearchCase::Smart)
     };
     let before = crate::typeset::parse::parse(&diagram("flowchart TD\n"));
@@ -866,14 +901,15 @@ struct Retrying {
     coming: Coming,
 }
 
-impl Reload for Retrying {
-    fn reload(
+impl SourceFiles for Retrying {
+    fn reread(
         &mut self,
+        _: &Reread,
         images: &mut Images,
         _: &mut Loads,
         _: &Capabilities,
         _: bool,
-    ) -> Reloaded {
+    ) -> (Option<Look>, Reloaded) {
         if matches!(images.get(&self.key), Some(Err(_))) {
             images.set_aside(&self.key);
         }
@@ -886,11 +922,11 @@ impl Reload for Retrying {
             .outcomes
             .borrow_mut()
             .insert(self.key.clone(), failed);
-        Reloaded::Document(self.document.clone())
+        (Some(READ), Reloaded::Document(self.document.clone()))
     }
 
-    fn change(&mut self) -> Change {
-        Change::Unchanged
+    fn look(&mut self, _: &Path) -> Result<Look, String> {
+        Ok(READ)
     }
 }
 
@@ -922,7 +958,7 @@ fn a_diagram_that_failed_in_the_background_loads_again_only_when_the_document_is
     }));
     let mut inputs = Inputs::new(Capabilities::kitty(80));
     let options = Options {
-        reload: Some(&mut reload),
+        files: Some(&mut reload),
         ..Options::new(SearchCase::Smart)
     };
     run_coming(&document, &mut inputs, options, &coming, &mut terminal);

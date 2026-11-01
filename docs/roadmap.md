@@ -59,6 +59,12 @@ Refactoring and small fixes that are not bugs go there too.
   about a fifth smaller.
 - Shell completions and a man page, generated from the command-line
   definition.
+  `kiri --completions <shell>` writes the completion script for bash,
+  zsh, fish, elvish, powershell and nushell. Some ideas for the rest: the
+  shells Ion, Tcsh and Xonsh, which `clap_complete` does not cover (the
+  young crate `carapace-rs-clap` might; not checked), and dynamic
+  completion, where the shell asks kiri while completing, for values such
+  as theme names.
 - Third-party notices with the release binaries for the dependencies
   compiled in, among them merman's ELK layout (EPL-2.0), the KaTeX font
   data of its math (OFL-1.1), and the CSS crates it brings, cssparser,
@@ -255,6 +261,7 @@ Needs G2.2, G7.3.2 for time and G7.3.3 for watching.
 
 - Animated GIF, WebP and APNG, played by kitty itself.
 - Video (WebM, MP4, AVI and others) through ffmpeg when it is installed.
+- asciinema recordings (`.cast`).
 
 ### 4.5 Links
 
@@ -1205,7 +1212,10 @@ Needs G2.6.2.
 
 - G2.5.1 Image keys that name every input, a test first for each: the
   diagram's page colour and a formula's colours, the heading's look, and
-  the code theme and fonts in reading mode's page key.
+  the code theme and fonts in reading mode's page key. Done except the
+  fonts, which come with G2.5.2, and the size a diagram is reduced to,
+  which is left out of the key because a resize would drop every diagram
+  until the wanted keys reload them.
 - G2.5.2 One font database, loaded once by the platform and given to
   what draws, with its fingerprint in the keys that depend on it.
 
@@ -1376,7 +1386,11 @@ Needs G7.2.1.
 - G7.3.3 A session that holds the sources, their versions and the views;
   the images it wants and what it watches replace the background loads'
   six entries and follow mode's polling, with one watcher for the
-  document, its images, the config and the theme.
+  document, its images, the config and the theme. Done but for what
+  needs the later items: the session, the work runner (`src/load/queue.rs`),
+  the wanted keys, the frontends in `src/frontend/` and one watcher for the
+  followed file are in. The config, the theme and the image files are not
+  watched yet (4.6.9, and noticing image files at once, in the extras).
 - G7.3.4 The pager's core rules as named functions with tests: finding a
   place, bringing it into view, the status line's place and the stack of
   panels.
@@ -1665,6 +1679,24 @@ Reading mode knows only stripes, on or off: the text layout's `lines`,
 there. `indent` and `underline` are about the text layout's wrapped
 lines and can stay its own; `lines` could draw lines between the rows
 in reading mode too. `table_style` works only in reading mode.
+
+#### B19 Two gaps in catching signals before the pager opens
+
+Both are older than the session work and were found in its final review.
+
+- When the reader skips the wait for the loads with Space or Enter, the
+  signal guard stays held until the pager's screen takes over. The pager
+  lays the whole document out in between. A SIGINT, SIGTERM or SIGHUP that
+  comes in then is noted, nobody reads it, and it is thrown away: the pager
+  opens and kiri ends with status 0 after `q`. Mending it: in the closure
+  that runs when the screen has caught the signals (`opening` in
+  `src/frontend/pager.rs`), raise the signal the guard noted before
+  dropping the guard.
+- `wait_or_skip` switches the terminal to non-canonical mode without echo
+  before the guard catches the signals. A signal in the few microseconds
+  between ends kiri by its default action and leaves the terminal in that
+  mode. Mending it: catch first, then open the key reader, and release the
+  guard where there is no key reader.
 
 ### Upstream bugs
 

@@ -4,9 +4,11 @@
 //! reader waits, and on threads while the pager shows, and in the
 //! background when the pager finds images it does not hold, which its
 //! planner (`src/frontend/pager.rs`) tells it a document wants. The waits
-//! before the pager share one loop. A reload reads the file again, brings
-//! the images up to date for it, and tells the pager whether the file has
-//! changed since it was read.
+//! before the pager share one loop. A reread, the job the session describes
+//! for a source with a file, looks at the file, reads it again, brings the
+//! images up to date for it, and tells how the file looked before it was
+//! read, which the session keeps, so that following compares later looks
+//! with it.
 //!
 //! [`Guard`] is the one owner of Ctrl-C and the other signals that would
 //! end kiri, from the first load until the pager's screen catches them.
@@ -21,7 +23,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crate::config::Settings;
@@ -29,15 +31,15 @@ use crate::images::{
     Arrived, Fonts, Format, ImageError, ImageKey, Images, Loading, Loads, Part, Placeholder,
     Source, Stamps, reload_in_background,
 };
-use crate::pager::{Reload, Reloaded};
+use crate::load::watch::{Reloaded, SourceFiles};
 use crate::render::Inputs;
 use crate::session::loading::Need;
 use crate::session::plan;
-use crate::session::state::{Change, Look};
+use crate::session::sources::Reread;
+use crate::session::state::Look;
 use crate::term::progress::{DELAY, Step, until_over};
 use crate::term::{Interrupt, WaitKeys};
 use crate::typeset::caps::Capabilities;
-use crate::typeset::input::Input;
 use crate::typeset::model::Document;
 
 use super::open::document;
@@ -291,7 +293,11 @@ pub(crate) fn wait_or_skip(
     drop(pause);
     Some(match over {
         Over::Signal(signal) => Err(guard.stop(&mut loads, signal)),
-        Over::Skipped => Ok(Some(loads)),
+        // A signal that came in the read that skipped is not lost.
+        Over::Skipped => match guard.signal() {
+            Some(signal) => Err(guard.stop(&mut loads, signal)),
+            None => Ok(Some(loads)),
+        },
         Over::Done => match guard.release() {
             Some(signal) => Err(Failure::Signal(signal)),
             None => Ok(None),
@@ -446,61 +452,54 @@ pub(crate) fn close_programs(platform: &dyn Platform, loads: &Loads) {
     crate::term::progress::while_waiting(platform.stderr(), second, limit, text, wait);
 }
 
-/// Reads the document from its file again for the pager, and brings the
-/// images it has up to date; the pager loads the ones it does not have.
-pub(crate) struct FileReload<'a> {
+/// The files behind the pager's sources, which it reads again and looks at:
+/// the documents are read again and the images brought up to date for them;
+/// the pager loads the ones it does not have.
+pub(crate) struct PlatformFiles<'a> {
     pub(crate) context: &'a Context<'a>,
     pub(crate) settings: &'a Settings,
-    /// The regular file the document was read from, as `input`.
-    pub(crate) path: PathBuf,
-    pub(crate) input: Input,
     /// When the files behind the images were last changed.
     pub(crate) stamps: Stamps,
-    /// How the file looked when it was last read, when it could be
-    /// looked at.
-    pub(crate) read: Option<Look>,
 }
 
-impl Reload for FileReload<'_> {
-    fn reload(
+impl SourceFiles for PlatformFiles<'_> {
+    fn look(&mut self, path: &Path) -> Result<Look, String> {
+        self.context.platform.look(path)
+    }
+
+    fn reread(
         &mut self,
+        job: &Reread,
         images: &mut Images,
         loads: &mut Loads,
         caps: &Capabilities,
         reading: bool,
-    ) -> Reloaded {
-        let (path, input) = (self.path.as_path(), self.input);
+    ) -> (Option<Look>, Reloaded) {
+        let (path, input) = (job.path.as_path(), job.input);
         // Before the file is read, so that a change meanwhile counts.
-        self.read = self.context.platform.look(path).ok();
+        let read = self.look(path).ok();
         // The status line names the file already, so the reasons do not.
         let source = match read_text(self.context.platform, path) {
             Ok(source) => source,
-            Err(error) => return Reloaded::Failed(error),
+            Err(error) => return (read, Reloaded::Failed(error)),
         };
         let mut warnings = Vec::new();
         let warn = |warning| warnings.push(warning);
         let document = match document(input, &source, path, self.settings, caps, warn) {
             Ok(Some(document)) => document,
-            Ok(None) => return Reloaded::Failed("cannot be shown".to_owned()),
-            Err(error) => return Reloaded::Failed(without_path(error, path)),
+            Ok(None) => return (read, Reloaded::Failed("cannot be shown".to_owned())),
+            Err(error) => return (read, Reloaded::Failed(without_path(error, path))),
         };
         if crate::session::loading::images_wanted(self.settings.images, caps) {
             let parts = [part(&document, Some(path), reading)];
             let loading = loading(self.context, self.settings, caps);
             reload_in_background(&parts, &loading, images, &mut self.stamps, loads);
         }
-        match warnings.is_empty() {
+        let reloaded = match warnings.is_empty() {
             true => Reloaded::Document(document),
             false => Reloaded::Warned(document, warnings),
-        }
-    }
-
-    fn change(&mut self) -> Change {
-        match self.context.platform.look(&self.path) {
-            Ok(look) if Some(look) == self.read => Change::Unchanged,
-            Ok(look) => Change::Changed(look),
-            Err(why) => Change::Gone(why),
-        }
+        };
+        (read, reloaded)
     }
 }
 

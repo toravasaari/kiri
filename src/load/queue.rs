@@ -870,7 +870,7 @@ impl Queue {
 
     /// The next job to load, and the place of its program among the
     /// [`Programs`] if a program draws it: the first that waits, in the
-    /// order [`Loads::prefer`] told, or while no program may start, the
+    /// order [`Runner::prefer`] told, or while no program may start, the
     /// first that needs none. Waits while every job that waits needs a
     /// program and none may start; `None` once no job that was not
     /// stopped waits.

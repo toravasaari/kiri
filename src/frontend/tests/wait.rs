@@ -141,3 +141,41 @@ fn the_hint_shows_only_where_the_pager_surely_opens() {
         assert_eq!(ran.err.contains("loading images"), hint, "{paging:?}");
     }
 }
+
+/// Run on its own by [`a_signal_in_the_read_that_skips_the_wait_is_the_failure`]:
+/// SIGHUP arrives in the very read of keys in which the reader presses
+/// Space.
+#[test]
+#[ignore = "run in a process of its own"]
+fn sighup_as_the_wait_is_skipped() {
+    let sim = paged(on_kitty(12), InitialLoad::Wait).stderr_terminal();
+    let sim = red(sim.file("doc.md", &pictured("a.png")), "a.png", AFTER);
+    let ran = (sim.raising_on_skip(signal_hook::consts::SIGHUP))
+        .keys(200, " ")
+        .keys(3000, "q")
+        .kiri(&["doc.md"]);
+    assert!(
+        matches!(ran.result, Some(Err(crate::frontend::Failure::Signal(1)))),
+        "{:?}",
+        ran.result
+    );
+}
+
+#[test]
+fn a_signal_in_the_read_that_skips_the_wait_is_the_failure() {
+    use std::process::{Command, Stdio};
+
+    // A process of its own, as the signals reach the whole test binary.
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "frontend::tests::wait::sighup_as_the_wait_is_skipped",
+        ])
+        .args(["--ignored", "--test-threads", "1"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("running 1 test"), "{stdout}");
+    assert!(output.status.success(), "{stdout}");
+}

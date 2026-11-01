@@ -137,9 +137,11 @@ status line and the help panel as styled spans, and
 `src/session/warnings.rs` the line of text above the status line that tells
 the first warning; `src/pager/mod.rs` draws each frame, row by row through
 the backend's writer, and lays the document out again when the window
-changes size or when `r` reloads it. For that the pager is given a `Reload`,
-as it is given a `Terminal` for keys: it asks the `Reload` for the document
-and the images again, and keeps its place by the block at the top: it
+changes size or when `r` reloads it. For that the pager is given `SourceFiles`,
+as it is given a `Terminal` for keys: the loop builds the job of reading the
+source again from the session (`Session::reread`: the file's path and how to
+read it, `Reread`), and `SourceFiles` runs it, which gives the document and
+the images again. The pager keeps its place by the block at the top: it
 compares the old document with the new one, and follows the block at the top
 to the block that stayed or changed from it, so a block added above the view
 does not move it. When the block at the top is gone, the view goes to the
@@ -150,15 +152,22 @@ lines whose blocks changed or were added, and the place of a removal with
 neither beside it, and chooses one as the follow jump setting says, and
 `src/session/tint.rs` gives the lines of that change a lighter background
 for a moment, fading out through `src/session/fade.rs`. While the pager
-follows the document, it asks the `Reload` on each poll for keys whether the
-document changed, and reads it again once a change still looks the same 100
-ms, a poll's time, after it was first seen, so that a file caught half written
-is not shown. The terminal itself, the alternate screen, raw mode and
-reading keys from the controlling terminal, is opened in
-`src/term/screen.rs`.
+follows the document, the session says what is watched (`Session::watches`:
+the file, every 100 ms, a poll's time, since how it looked when it was read),
+and the loop's `Watcher` looks at it through `SourceFiles` once a poll's time is
+over since the last look, not on every turn: a key that comes before the poll's
+time is over, or a step of a fade, does not look at the file again. It reads the
+document again once a change still looks the same a poll's time after it was
+first seen, so that a file caught half written is not shown. The terminal
+itself, the alternate screen, raw mode and reading keys from the controlling
+terminal, is opened in `src/term/screen.rs`.
 
-A reload shows the new text at once: the `Reload` keeps the images the
-document still shows and sets the others aside, and the pager loads what
+A reload shows the new text at once. `SourceFiles` looks at the file, which is
+before it reads it, so that a change made meanwhile counts, then reads and
+parses it, keeps the images the document still shows and sets the others
+aside; the session then takes the look and the next version of the source,
+or, when it could not be read or shown, only the look, so that following does
+not read it again until it changes again; `r` still does. The pager loads what
 the new document wants and does not hold in the background, in its
 `Loads`, which it polls beside the follow poll. What a document wants is
 asked of the frontend's planner (`Planner`, in `src/pager/mod.rs`): the
@@ -336,9 +345,9 @@ the panel, so that a diagram drawn for a dark page is not the one a light page
 asks for), with the number of the document it is in, so that documents shown
 together keep their own images, and `src/typeset/images/plan.rs` collects the
 code blocks whose language a renderer draws besides the lone images.
-`src/load/mod.rs` hands all of a document's diagrams to the renderer at once,
-then `src/typeset/images/drawn.rs` decodes each image it gets back by its
-content, as it decodes an image file, so sizing, the width limit and redrawing
+Each diagram is a job of its own in the queue of `src/load/queue.rs`, drawn by
+its renderer, then `src/typeset/images/drawn.rs` decodes each image it gets
+back by its content, as it decodes an image file, so sizing, the width limit and redrawing
 after a window resize work as for any image. An SVG is decoded as an SVG file
 is; a raster image, such as the PNG of a browser's drawing, becomes
 `Source::Dense`, pixels with their size in CSS pixels, so that it is sized in
@@ -638,8 +647,10 @@ The later work that the rows name, in words:
 - **Loading and sessions:** the platform reads, fetches and runs, and the
   engines draw from the data it gives them. Its first step is done: the
   mixed modules are split into pure pieces in the typesetting engine and
-  the platform's pieces in `src/load/`. The work runner and the sessions
-  are left.
+  the platform's pieces in `src/load/`. The work runner is the queue in
+  `src/load/queue.rs` with the watcher in `src/load/watch.rs`, and the
+  session is `src/session/sources.rs`. Watching the configuration, the theme
+  and the image files, and the trust policy, are still to come.
 - **The terminal layer split:** the presenter, the encoders, and the key and
   probe decoding that today sit in `term/`, `render/` and `pager/` are
   gathered in the terminal layer.
@@ -653,13 +664,14 @@ The later work that the rows name, in words:
 | `src/main.rs` | platform | stays, and shrinks to the entry point. It reads the command line (`src/cli.rs`), resolves the settings from it, the environment and the configuration file, hands them and the files to `src/frontend/` as `Asked` and `Configured`, and turns the `Failure` it gets back into an exit code; its `Real` is the `Platform` of the process. State engine: the startup decisions, such as whether a run pages, are in `src/session/plan.rs`; the frontends read the terminal and the files and pass the answers in |
 | `src/load.rs` | platform | moved to `src/frontend/loads.rs`, by way of `src/loading.rs`; the library's `src/load/` is a different module |
 | `src/frontend/mod.rs` | platform | new. The frontends' module: the `Platform` trait, through which they reach files, standard input and output, the environment and the terminal, and also the loads of images (`loads`), the catching of the signals (`interrupt`) and what a wait for loads waits with (`pause`, a `Pause`), each with a default for the process; and `Failure`; `Screen` (in `pager.rs`), `Asked` and `Configured` (in `route.rs`) and what `main.rs` and `src/reports.rs` call, `show_files`, `show_document` and `shown`, are re-exported from the files that hold them. `main.rs` implements `Platform` for the process (`Real`); the simulated frontend does it in memory |
-| `src/frontend/route.rs` | platform | new. The one route: `show_files` shows one file as the special case of several, with no header, and with reloading, following and the unnamed warnings for it alone; `show_given` chooses between the pager and print; `Context`, `Run` and `Show`; `Asked`, what the command line asks for, and `Configured`, the settings as `main.rs` resolved them; `show_document` shows a report kiri writes itself |
+| `src/frontend/route.rs` | platform | new. The one route: `show_files` shows one file as the special case of several, with no header, and with reloading, following and the unnamed warnings for it alone; `show_given` chooses between the pager and print; `Context`, `Run` and `Show`; `Asked`, what the command line asks for, and `Configured`, the settings as `main.rs` resolved them; `show_document` shows a report kiri writes itself; `source_file` gives the session the file a lone document was read from, with how it looked, and the stamps of its images, taken before they load so that a file changed meanwhile counts |
 | `src/frontend/open.rs` | platform | new. Opening a file, the README of a directory or standard input far enough to tell what it is (`Opened`), and `document`, which chooses the parser for its input format |
 | `src/frontend/given.rs` | platform | new. A file ready to show (`Given`, `Shown`, `Drawn`), and loading the images of the documents among the files given |
 | `src/frontend/pager.rs` | platform | new. The interactive frontend: the `Screen` trait, the pager's screen, which the platform opens; `page_files` gathers the files into one stream, loads their images first or in the background and runs the pager's loop on the terminal's screen, and prints them after all where it does not open |
 | `src/frontend/print.rs` | platform | new. The print frontend: `print_files`, each file under its header as it comes, and `Held`, whose `check` makes sure kitty holds the images that were sent (the pager's print fallback uses it too) |
-| `src/frontend/loads.rs` | platform | moved from `src/load.rs`. Loading a document's images and diagrams: before the pager through the queue of `src/load/queue.rs` and one wait loop (`load_parts`, `wait_or_skip`, `finish_loading`), which the progress line of `src/term/progress.rs` follows, `Pause`, what a wait waits with (for the loads, and for Space and Enter on a terminal), which the platform gives, and `Guard`, the one value that catches Ctrl-C and the other signals before the pager's screen does; on threads and in the background; and reloading its file for the pager: the loads, and `FileReload`, which reads the file again and brings the images up to date for it but starts no load. The frontends call them. Its seed is the work runner that roadmap item G7.3.3 fills in |
-| `src/frontend/sim.rs` | platform | moved from `src/pager/sim.rs`; test support. The simulated frontend: a terminal on a virtual clock, files in memory and loads, run by a `Runner` of its own, that come when a script says (the pager's, and the route's: the images that load before the pager opens, through the platform's `loads`, `pause` and `interrupt`, which the sim answers with a virtual clock, its keys and no signal handler), wanted by a planner the script gives (what a reload brings, and the pictures `M` shows), which run the loop in `src/pager/mod.rs` through its `Terminal` and `Reload` traits, or the whole route through `SimPlatform`, its `Platform`, and give back the bytes written to the terminal and to standard error. It asks `Pager::wait` how long the pager waits for keys and moves the clock by that, so a test runs without a pseudo-terminal and without waiting. What stays on the pty is what only a real terminal or process shows: raw mode and the alternate screen, signals (Ctrl-C while the images load, `q` stopping a program that draws) and the programs themselves; the sim's pictures stand in for diagrams, whose renderers are not there without the default features. A screen model that reads the bytes, which knows kitty, comes later |
+| `src/frontend/loads.rs` | platform | moved from `src/load.rs`. Loading a document's images and diagrams: before the pager through the queue of `src/load/queue.rs` and one wait loop (`load_parts`, `wait_or_skip`, `finish_loading`), which the progress line of `src/term/progress.rs` follows, `Pause`, what a wait waits with (for the loads, and for Space and Enter on a terminal), which the platform gives, and `Guard`, the one value that catches Ctrl-C and the other signals before the pager's screen does; on threads and in the background; and reading its file again for the pager: the loads, and `PlatformFiles`, which runs the session's `Reread` job (looks at the file, reads it again and brings the images up to date for it, with the stamps of the image files taken before they first loaded) but starts no load. The frontends call them |
+| `src/frontend/loads/tests.rs` | follows `frontend/loads.rs` | new. The tests of the wait loop (`wait_or_skip`, its progress line) and of `Guard`, with each signal case run in a child process |
+| `src/frontend/sim.rs` | platform | moved from `src/pager/sim.rs`; test support. The simulated frontend: a terminal on a virtual clock, files in memory and loads, run by a `Runner` of its own, that come when a script says (the pager's, and the route's: the images that load before the pager opens, through the platform's `loads`, `pause` and `interrupt`, which the sim answers with a virtual clock, its keys and no signal handler), wanted by a planner the script gives (what a reload brings, and the pictures `M` shows), which run the loop in `src/pager/mod.rs` through its `Terminal` and `SourceFiles` traits, or the whole route through `SimPlatform`, its `Platform`, and give back the bytes written to the terminal and to standard error. It asks `Pager::wait` how long the pager waits for keys and moves the clock by that, so a test runs without a pseudo-terminal and without waiting. What stays on the pty is what only a real terminal or process shows: raw mode and the alternate screen, signals (Ctrl-C while the images load, `q` stopping a program that draws) and the programs themselves; the sim's pictures stand in for diagrams, whose renderers are not there without the default features. A screen model that reads the bytes, which knows kitty, comes later |
 | `src/frontend/tests/mod.rs`, `route.rs`, `paging.rs`, `settings.rs`, `stdin.rs`, `follow.rs`, `reload.rs`, `loads.rs`, `wait.rs`, `close.rs` | follows `frontend/` | new. The route's tests: `show_files` run in the simulated frontend, for one file, several, standard input, a missing file, `r` and paging without keys; `paging.rs` has the paging and printing decisions, `settings.rs` the settings that change the route (paging, diagrams, reading mode); `stdin.rs` standard input; `follow.rs` following a file; `reload.rs` `r`; `loads.rs` the images that load in the background or before the pager opens, scripted as pictures, which are the twins of the pty tests that run a program for a diagram; `wait.rs` the wait for them, with its progress line and hint and the Space or Enter that opens the pager before they come; and `close`, which ends the pager: it leaves the screen first and then waits for the programs |
 | `src/load/mod.rs` | platform | new. The platform's loading for the engines: `load`, `load_with` and `load_parts`, which load the images a document wants, read their files and have the renderers draw its diagrams. A module of the library, beside the frontends' `src/frontend/loads.rs` |
 | `src/load/url.rs` | platform | new. `fetch_url`, which reads the file a URL names, with how the file looked (`Fetched`), or the bytes of a `data:` URL, with `read_file`, which opens the file; and `load_url`, which decodes what `fetch_url` read |
@@ -667,6 +679,7 @@ The later work that the rows name, in words:
 | `src/load/renderers.rs` | platform | new. `Renderers`, which draws each language with its external command when it has one and with the built-in renderer otherwise, and `render_in_parallel`, which draws several diagrams at once on threads |
 | `src/load/queue.rs` | platform | moved from `src/images/background.rs`. The loads in the background: `Loads`, which the pager polls and which starts and stops the loads through one call, `reconcile`, given the images wanted, whose order in the list is the order they load in, and `want`, which the pager calls with a version's jobs and which of them `session/loading.rs` says are kept or missing (`Wanted`: kept, missing, or to load again, with their `Job`, which holds what is fetched first and what is computed from it), and gives what came as `Arrived`, with the look of the file it was read from (`wait_by` waits until one comes or a deadline passes, so that a wait without keys wakes when a load does rather than after a fixed sleep), the stop flag and number of each load, so that a result of a load that was stopped or replaced is dropped, and the `Runner` that runs the loads started: `Threads`, with the jobs waiting, the threads that load them and the places of the programs outside kiri that draw, or a test's, as the simulated frontend's script says. Tero decided on 2026-10-31 that the queue and the jobs share this one file |
 | `src/load/theme.rs` | platform | new. `load`, which reads a theme file and has `typeset::theme::parse` turn its text into a theme; `config::load_theme` calls it |
+| `src/load/watch.rs` | platform | new. What the pager asks of the file behind its document: `SourceFiles`, which runs the session's job of reading a source again, with the images brought up to date for it, and tells how the file looked when it did, and how a file looks now, `Reloaded`, what a reread came to (the document, the document with warnings, or why it failed), and the `Watcher`, which keeps when each of the session's watches was last looked at and looks at those that are due, so that a watch is looked at at most once its period, as the loop's turns come faster. `Reloaded` and a `Reload` trait, which held the file's path itself, were in `src/pager/mod.rs`; `PlatformFiles` and the simulated frontend's `SimFiles` implement `SourceFiles` |
 | `src/reports.rs` | platform | new. The reports kiri writes itself: `--doctor` and `--list-emojis`, rendered for a terminal or written as text, and, through `frontend::show_document`, shows one through the same route as a file. Their content is made by `src/doctor.rs` and `src/list.rs` |
 | `src/cli.rs` | platform | new. The command line: the clap `Cli`, whose flags take their help from the settings registry, and `options()`, which turns the flags into settings |
 | `src/config/mod.rs` | platform | stays (was `src/config.rs`); the module's description and its public surface |
@@ -676,13 +689,13 @@ The later work that the rows name, in words:
 | `src/config/resolve.rs` | platform | stays. Resolving a setting from the flags, the environment, the file and its default: `resolve`, `variable`, the theme's source, `settings` and loading the theme |
 | `src/config/types.rs` | platform | stays. The setting types: `Setting`, `Origin`, `Named`, `ThemeSource`, and the types of the settings that are not the pager's, `Passthrough` among them: capability detection, the command line and `--doctor` read it, and capability detection takes its value, not `Environment` |
 | `src/typeset/diagnostic.rs` | typesetting | new. `Diagnostic`, one type for what kiri tells without stopping: its code, the document it belongs to, the image or diagram it is about, its line and its text. Whoever finds the trouble makes one; standard error and the pager's warning line turn it into text |
-| `src/session/step.rs` | state engine | new. The pager's step: `step(&mut Pager, Msg) -> Vec<Effect>`. `Msg` is what comes in (keys read, a poll's answer, a reload's result) and `Effect` what goes out (draw, poll, reload, quit, lay out again). It does no I/O and reads no clock; the loop in `src/pager/mod.rs` carries the effects out and sends back what they found. Its tests drive it without a terminal |
+| `src/session/step.rs` | state engine | new. The pager's step: `step(&mut Pager, Msg) -> Vec<Effect>`. `Msg` is what comes in (keys read, what the looks at the watches found, a reload's result) and `Effect` what goes out (draw, poll, reload, quit, lay out again). `Effect::PollWatches` is the point in a turn, after the keys, where the loop delivers what the session's watches found; the model says when, the loop's `Watcher` says which and how often. It does no I/O and reads no clock; the loop in `src/pager/mod.rs` carries the effects out and sends back what they found. Its tests drive it without a terminal |
 | `src/session/step/tests.rs` | state engine | new; the step driven without a terminal |
 | `src/session/state.rs` | state engine | new. What the reader does in the pager besides scrolling: `State` with its parts, `Change` and `Look`, and its answers to keys and to time |
 | `src/session/frame.rs` | state engine | new. What the screen shows of one layout: `Layout`, `Status` and the `Frame` they make |
 | `src/session/layers.rs` | state engine | new. The highlights over the document as one list of layers, each a paint (a background mixed toward the text colour, colours, reverse video, a box, a frame) at an address in its layout's own terms: `Layer`, `Paint`, `At`, `stack`, which makes the list from the tint, the search and the selected link, and `paint`, which paints the text layout's lines and reading mode's pages with it. A highlight is a layer here, not a branch in the pager |
 | `src/session/settings.rs` | state engine | new. The setting types the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump` and `InitialLoad`), without the code that reads them from the flags, the environment and the file |
-| `src/session/sources.rs` | state engine | new. The session: `Session`, which holds a `Source` for each file given (a lone file and standard input are a session of one) with its `SourceId`, its name and its `Version`, which a reload brings forward, and the `View` that is built, with its `ViewId` and the `SourceId`s it shows. Ids come from the session and are not used twice. The documents and their layout are not in it yet; the pager reads the names and the count of its files from it. The file is not `session.rs` because clippy's `module_inception` forbids a module named like its parent |
+| `src/session/sources.rs` | state engine | new. The session: `Session`, which holds a `Source` for each file given (a lone file and standard input are a session of one) with its `SourceId`, its name and its `Version`, which a reload brings forward, and, for a lone regular file, the file it is read from and how it looked when that version was read (`SourceFile`), from which the session says what a reload reads again (`reread`, a `Reread`) and what is watched (`watches`, a `Watch` for each source with a file while it is followed, every `POLL`, since that look), and the `View` that is built, with its `ViewId` and the `SourceId`s it shows. Ids come from the session and are not used twice. The documents and their layout are not in it yet; the pager reads the names and the count of its files from it, and whether there is a file to reload or follow. The file is not `session.rs` because clippy's `module_inception` forbids a module named like its parent |
 | `src/config/tests.rs` | follows `config/` | stays |
 | `src/doctor.rs` | platform | stays (it searches `PATH` through `diagrams::find`) |
 | `src/list.rs` | platform | stays (the content of `--list-emojis`, which `src/reports.rs` shows) |
@@ -741,7 +754,7 @@ The later work that the rows name, in words:
 | `src/images/svg.rs` | mixed | stays. Typesetting: `Svg`, parsing and drawing, and `Fonts`, the database handed in. Platform: `Fonts::system`, which scans the system's fonts. The font database |
 | `src/images/url.rs` | typesetting | moved to `src/typeset/images/url.rs`: `data:` URLs and the reading of a URL's parts, which do no I/O. `read_file`, `decode_file` and `load_url`, which open files, moved to `src/load/url.rs`, where `decode_file` has since been split between `fetch_url` and `load_url` |
 | `src/images/background.rs` | platform | moved to `src/load/queue.rs` |
-| `src/images/pipeline.rs` | platform | stays. Builds the renderers from the settings and the jobs of the images a document wants (`jobs`, which starts none, with the headings and the pictures in text among them), and brings the images up to date for a reload (`reload_in_background`, which sets aside what it cannot keep and stops the load of an image whose file changed, and starts nothing). It no longer loads anything in the foreground, nor catches signals: `load_documents`, `Loaded` and `Interrupted` are gone, and `src/frontend/loads.rs` gives the jobs to `Loads::want` in `src/load/queue.rs`, as the pager does; only the wait before the pager opens (`load_in_background`) reconciles on its own. `planned_keys` tells the keys of the images that would load, which the frontend stands boxes in for to count the document's rows before they do |
+| `src/images/pipeline.rs` | platform | stays. Builds the renderers from the settings and the jobs of the images a document wants (`jobs`, which starts none, with the headings and the pictures in text among them), and brings the images up to date for a reload (`reload_in_background`, which sets aside what it cannot keep and stops the load of an image whose file changed, and starts nothing). It no longer loads anything in the foreground, nor catches signals: `load_documents`, `Loaded` and `Interrupted` are gone, and `src/frontend/loads.rs` gives the jobs to `Loads::want` in `src/load/queue.rs`, as the pager does; only the wait before the pager opens (`load_in_background`) starts loads on its own. `planned_keys` tells the keys of the images that would load, which the frontend stands boxes in for to count the document's rows before they do |
 | `src/images/pipeline/tests.rs` | platform | stays |
 | `src/images/stamps.rs` | platform | stays |
 | `src/images/warnings.rs` | typesetting | moved to `src/typeset/images/warnings.rs`. Makes the `Diagnostic`s for the images and diagrams that did not load, from `ImageKey` and `ImageError` |
@@ -754,7 +767,7 @@ The later work that the rows name, in words:
 | `src/diagrams/external.rs` | platform | stays. `Output`, what a command writes, which a language's configuration file depends on, moved to `src/typeset/diagrams/output.rs` |
 | `src/diagrams/external/tests.rs` | platform | stays |
 | `src/diagrams/find.rs` | platform | stays |
-| `src/pager/mod.rs` | platform | stays. The loop and the carrying out of effects: `run`, which takes the `Loads` of the reloads' images from its caller, and the `Driver` that lays the document out again and again, `show` and `carry`, which wait for a message, step the pager and do what its effects say, and `Tools::close`, which does what ends a layout, with the `Reload`, `Planner`, `Loads` and `Terminal` it does its I/O through. `Origin::plan` asks the frontend's planner for the jobs of the images the shown content wants, again only when the document is read again, reading mode turns on or off, or the cells change, and `Origin::want` gives them to `Loads::want` after each layout, in the order `loading::wanted` and `loading::nearest` say, and at each poll to tell the order again. The decisions, what a key, a poll, a resize, a load or a reload's result asks for, are in `src/session/step.rs` |
+| `src/pager/mod.rs` | platform | stays. The loop and the carrying out of effects: `run`, which takes the `Loads` of the reloads' images from its caller, and the `Driver` that lays the document out again and again, `show` and `carry`, which wait for a message, step the pager and do what its effects say, and `Tools::close`, which does what ends a layout, with the `SourceFiles` (in `src/load/watch.rs`), `Planner`, `Loads` and `Terminal` it does its I/O through. `Origin::plan` asks the frontend's planner for the jobs of the images the shown content wants, again only when the document is read again, reading mode turns on or off, or the cells change, and `Origin::want` gives them to `Loads::want` after each layout, in the order `loading::wanted` and `loading::nearest` say, and at each poll to tell the order again. `carry` answers `Effect::PollWatches` by asking the session for its watches and the `Watcher` in `Origin` for the looks that are due. `Effect::Reload` ends a layout: `Driver::round` builds the `Reread` job from the session and `Tools::reread` runs it at once through `SourceFiles`, in the loop and not in `Loads`; the result carries the look the file was fetched at, and the session takes the next version of the source (`Session::reload`) or, when the file could not be read, only the look (`Session::looked`). The decisions, what a key, a poll, a resize, a load or a reload's result asks for, are in `src/session/step.rs` |
 | `src/pager/tests/simulated.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop. The pager's tests that run in the simulated frontend instead of a pseudo-terminal |
 | `src/pager/tests/mod.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/files.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
@@ -926,7 +939,10 @@ special case of several, print documents, start the pager, and load the
 images and diagrams and reload files for the pager; and it calls
 `src/reports.rs` for `--doctor` and `--list-emojis`. The decisions made at
 start need no I/O, and they are in `src/session/plan.rs`. It is meant to
-stay as little as this.
+stay as little as this. The settings, and so the configuration file, are
+read before the files are opened. Before the frontends moved, the files, and
+all of standard input, were read first; the order shows only when
+`KIRI_CONFIG` names standard input.
 
 ## Builds
 

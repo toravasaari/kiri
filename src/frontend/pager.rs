@@ -11,13 +11,14 @@ use std::io::{self, Write};
 use std::time::{Duration, Instant};
 
 use crate::config::Settings;
-use crate::images::{ImageKey, Images, Loads, Part, Placeholder};
-use crate::pager::{Reload, Terminal};
+use crate::images::{ImageKey, Images, Loads, Part, Placeholder, Stamps};
+use crate::load::watch::SourceFiles;
+use crate::pager::Terminal;
 use crate::render::Inputs;
 use crate::session::loading::images_wanted;
 use crate::session::plan::{self, Load};
 use crate::session::settings::Paging;
-use crate::session::sources::Session;
+use crate::session::sources::{Session, SourceFile};
 use crate::term::WindowSize;
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::layout::Content;
@@ -25,7 +26,7 @@ use crate::typeset::model::{Block, Document};
 
 use super::given::{Given, Shown, image_file};
 use super::loads::{
-    FileReload, Guard, ROWS_UNLOADED, close_programs, finish_loading, load_parts, loading, part,
+    Guard, PlatformFiles, ROWS_UNLOADED, close_programs, finish_loading, load_parts, loading, part,
     surely_paged, wait_or_skip, waiting, without_path,
 };
 use super::print::Held;
@@ -73,12 +74,13 @@ pub(super) fn close(platform: &dyn Platform, screen: Box<dyn Screen + '_>, loads
 }
 
 /// What is left to decide when the pager opens.
-pub(super) struct Opening<'a> {
+pub(super) struct Opening {
     /// Whether the documents' images load once the pager has opened.
     pub(super) later: bool,
     pub(super) reading_warning: Option<Diagnostic>,
-    /// Where the pager reads the document again from.
-    pub(super) reload: Option<FileReload<'a>>,
+    /// The file the document is read from, with the stamps of its images,
+    /// when the pager can read it again.
+    pub(super) file: Option<(SourceFile, Stamps)>,
     /// Who catches the signals until the pager's screen does.
     pub(super) guard: Guard,
 }
@@ -131,7 +133,7 @@ pub(super) fn page_files(
     let Opening {
         later,
         reading_warning,
-        reload: mut reloader,
+        file,
         mut guard,
     } = opening;
     let mut files = Vec::new();
@@ -193,7 +195,17 @@ pub(super) fn page_files(
     let one = files.len() == 1;
     // The pager's status line names a lone file, and each of several, after
     // its source in the session.
-    let session = Session::new(files.iter().map(|file| file.name.as_str()));
+    let mut session = Session::new(files.iter().map(|file| file.name.as_str()));
+    // Only a lone file is read again, and it is the first.
+    let mut source_files = None;
+    if let Some((file, stamps)) = file {
+        session.read_from(session.sources()[0].id(), file);
+        source_files = Some(PlatformFiles {
+            context,
+            settings,
+            stamps,
+        });
+    }
     let content = match one {
         true => Content::Document(&files[0].document),
         false => Content::Files(&files),
@@ -267,13 +279,15 @@ pub(super) fn page_files(
     // nothing to follow, which the pager says only when the command line
     // asked to follow.
     let options = crate::pager::Options {
-        follow: match reloader {
+        follow: match source_files {
             Some(_) => settings.follow,
             None => context.follow,
         },
         jump: settings.follow_jump,
         warnings: (warned_of.into_iter()).chain(reading_warning).collect(),
-        reload: reloader.as_mut().map(|reload| reload as &mut dyn Reload),
+        files: source_files
+            .as_mut()
+            .map(|files| files as &mut dyn SourceFiles),
         reading: Some(context.reading_mode()),
         // The images the documents want: those that load when the pager
         // opens, when `M` turns reading mode on, and for the document as
@@ -364,7 +378,8 @@ pub(super) fn page_files(
 /// `options` tell the pager how a search treats case and where `r` gets
 /// the document again from, if anywhere. The pager catches Ctrl-C itself;
 /// of `opening`, `caught` runs once its screen catches the signals, and
-/// then `start`, which may start loading images in the background.
+/// then `start`, which hands the pager the loads the reader skipped, if
+/// any; the pager's loop starts the rest after its first layout.
 fn page(
     context: &Context,
     content: crate::typeset::layout::Content,

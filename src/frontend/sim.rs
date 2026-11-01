@@ -46,13 +46,14 @@ use crate::frontend::pager::close;
 use crate::frontend::{Asked, Configured, Failure, Pause, Platform, Screen, show_files};
 use crate::images::{ImageError, ImageKey, Images, Loads, Source};
 use crate::load::queue::{Done, Job, Queued, Runner};
-use crate::pager::{Options, Reload, Reloaded, Terminal, run};
+use crate::load::watch::{Reloaded, SourceFiles};
+use crate::pager::{Options, Terminal, run};
 use crate::present::kitty::graphics::{Cells, ImageId};
 use crate::render::Inputs;
 use crate::session::plan::{self, Route};
 use crate::session::settings::{Follow, FollowJump, SearchCase};
-use crate::session::sources::Session;
-use crate::session::state::{Change, Look};
+use crate::session::sources::{Reread, Session, SourceFile};
+use crate::session::state::Look;
 use crate::term::{Mode, WindowSize};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::input::Input;
@@ -310,6 +311,8 @@ pub(crate) struct Sim {
     piped: bool,
     /// Whether there is no terminal to read keys from.
     keyless: bool,
+    /// The signal that arrives as the reader skips the wait.
+    raising: Option<i32>,
     /// What changes the settings that `kiri` runs with.
     changes: Vec<ChangeSettings>,
     /// The input format the files are read as, as `--format` asks; by
@@ -338,6 +341,7 @@ impl Sim {
             stdin: None,
             piped: false,
             keyless: false,
+            raising: None,
             changes: Vec::new(),
             format: None,
         }
@@ -465,6 +469,13 @@ impl Sim {
         self
     }
 
+    /// Has the signal arrive, caught for real, in the very read of keys
+    /// that skips the wait before the pager. For a process of its own.
+    pub(crate) fn raising_on_skip(mut self, signal: i32) -> Self {
+        self.raising = Some(signal);
+        self
+    }
+
     /// No terminal to read keys from, as in the background.
     pub(crate) fn no_keys(mut self) -> Self {
         self.keyless = true;
@@ -515,6 +526,7 @@ impl Sim {
             stdin,
             piped,
             keyless,
+            raising,
             changes,
             format,
             ..
@@ -530,6 +542,7 @@ impl Sim {
             stdin: RefCell::new(stdin.as_deref().map(|text| text.as_bytes().to_vec())),
             piped,
             stderr_terminal,
+            raising,
             ..SimPlatform::new(&world, caps, (!keyless).then_some(terminal))
         };
         let env = platform.environment();
@@ -610,15 +623,13 @@ impl Sim {
         // asks for: the first reload makes what it brings wanted.
         let asked = Rc::new(Cell::new(0));
         let reloads = Rc::clone(&asked);
-        let mut reload = shown.as_ref().map(|path| SimReload {
+        let mut files = shown.as_ref().map(|_| SimFiles {
             world: Rc::clone(&world),
-            path: path.clone(),
-            read: world.disk.borrow().look(path).ok(),
             asked: Rc::clone(&asked),
         });
         let terminal = SimTerminal::new(Rc::clone(&world), script);
         let options = Options {
-            reload: reload.as_mut().map(|reload| reload as &mut dyn Reload),
+            files: files.as_mut().map(|files| files as &mut dyn SourceFiles),
             follow,
             jump,
             reading: reading.then(|| Reading {
@@ -637,7 +648,12 @@ impl Sim {
             })),
             ..Options::new(SearchCase::Smart)
         };
-        let session = Session::new([shown.as_deref().unwrap_or("notes.md")]);
+        let mut session = Session::new([shown.as_deref().unwrap_or("notes.md")]);
+        if let Some(path) = &shown {
+            let look = world.disk.borrow().look(path).ok();
+            let (path, input) = (PathBuf::from(path), Input::Markdown);
+            session.read_from(session.sources()[0].id(), SourceFile { path, input, look });
+        }
         let runner = SimRunner {
             world: Rc::clone(&world),
         };
@@ -674,7 +690,7 @@ pub(crate) struct Ran {
     /// The time on the virtual clock when the pager quit.
     pub(crate) elapsed: Duration,
     /// How many times the pager read the document again. Always 0 after
-    /// [`Sim::kiri`], whose reloads read the disk through `FileReload`.
+    /// [`Sim::kiri`], whose reloads read the disk through `PlatformFiles`.
     pub(crate) reloads: usize,
     /// How kiri ended, after [`Sim::kiri`]; `None` for [`Sim::run`].
     pub(crate) result: Option<Result<(), Failure>>,
@@ -750,41 +766,36 @@ pub(crate) fn plain(text: &str) -> String {
     plain
 }
 
-/// Where the pager gets the shown file again from: the simulated disk.
-struct SimReload {
+/// The files behind the pager's sources: the simulated disk.
+struct SimFiles {
     world: Rc<World>,
-    path: String,
-    /// How the file looked when it was last read.
-    read: Option<Look>,
     /// How many times the pager asked for the file again, which the
     /// planner reads too.
     asked: Rc<Cell<usize>>,
 }
 
-impl Reload for SimReload {
-    fn reload(
+impl SourceFiles for SimFiles {
+    fn look(&mut self, path: &Path) -> Result<Look, String> {
+        self.world.disk.borrow().look(&path.to_string_lossy())
+    }
+
+    fn reread(
         &mut self,
+        job: &Reread,
         _images: &mut Images,
         _loads: &mut Loads,
         _caps: &Capabilities,
         _reading: bool,
-    ) -> Reloaded {
+    ) -> (Option<Look>, Reloaded) {
         self.asked.set(self.asked.get() + 1);
+        let path = job.path.to_string_lossy();
         // Before the file is read, so that a change meanwhile counts.
-        self.read = self.world.disk.borrow().look(&self.path).ok();
-        let text = match self.world.disk.borrow().read(&self.path) {
+        let read = self.world.disk.borrow().look(&path).ok();
+        let text = match self.world.disk.borrow().read(&path) {
             Ok(text) => text,
-            Err(why) => return Reloaded::Failed(why),
+            Err(why) => return (read, Reloaded::Failed(why)),
         };
-        Reloaded::Document(parse(&text))
-    }
-
-    fn change(&mut self) -> Change {
-        match self.world.disk.borrow().look(&self.path) {
-            Ok(look) if Some(look) == self.read => Change::Unchanged,
-            Ok(look) => Change::Changed(look),
-            Err(why) => Change::Gone(why),
-        }
+        (read, Reloaded::Document(parse(&text)))
     }
 }
 
@@ -966,7 +977,13 @@ impl Pause for SimPause<'_> {
         };
         // Arrivals and keys alike pass the time on the one clock.
         match terminal.pass(most) {
-            Some(typed) => crate::term::skips(&typed),
+            Some(typed) => {
+                let skips = crate::term::skips(&typed);
+                if let Some(signal) = self.platform.raising.filter(|_| skips) {
+                    signal_hook::low_level::raise(signal).unwrap();
+                }
+                skips
+            }
             None => {
                 world.pass(most);
                 false
@@ -1021,6 +1038,8 @@ struct SimPlatform {
     piped: bool,
     /// Whether standard error is a terminal.
     stderr_terminal: bool,
+    /// The signal that arrives as the reader skips a wait.
+    raising: Option<i32>,
     /// The one terminal, until the pager takes it; `None` without keys.
     terminal: RefCell<Option<SimTerminal>>,
 }
@@ -1036,6 +1055,7 @@ impl SimPlatform {
             stdin: RefCell::new(None),
             piped: false,
             stderr_terminal: false,
+            raising: None,
             terminal: RefCell::new(terminal),
         }
     }
@@ -1123,9 +1143,10 @@ impl Platform for SimPlatform {
     }
 
     /// None: no signal handler in the test process; Ctrl-C stays on the
-    /// pseudo-terminal.
+    /// pseudo-terminal. Except where a script raises a signal, which a
+    /// process of its own catches for real.
     fn interrupt(&self) -> Option<crate::term::Interrupt> {
-        None
+        self.raising.and_then(|_| crate::term::Interrupt::catch())
     }
 
     fn screen(
