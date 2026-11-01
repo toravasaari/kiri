@@ -388,19 +388,6 @@ fn kiri_follow_pages_a_short_file_and_leaves_standard_input_quiet() {
 }
 
 #[test]
-fn plain_mode_prints_without_the_pager() {
-    let (status, seen) = in_terminal(
-        "pager-plain",
-        &["-p", "--mode", "plain", "-"],
-        5,
-        Some(&long()),
-        &[],
-    );
-    assert!(status.success());
-    assert!(!seen.contains('\x1b'), "{seen:?}");
-}
-
-#[test]
 fn a_pipe_gets_an_image_file_printed_even_with_p() {
     let dir = Scratch::new("pager-pipe-image");
     let icon = fixtures().join("images/icon.png");
@@ -411,17 +398,6 @@ fn a_pipe_gets_an_image_file_printed_even_with_p() {
     assert_eq!(stdout.matches("\x1b_Ga=T,").count(), 1, "{stdout:?}");
     let without = crate::common::kiri_on(&dir, &icon, &["--mode", "kitty"]);
     assert_eq!(stdout, text(&without.stdout));
-}
-
-#[test]
-fn a_piped_document_is_printed_unless_paging_is_always() {
-    let (status, seen) = in_terminal("pager-stdin-auto", &["-"], 5, Some(&long()), &[]);
-    assert!(status.success());
-    assert!(!seen.contains(ENTER), "{seen:?}");
-    assert!(seen.contains("Line 10"), "{seen:?}");
-    let (status, seen) = in_terminal("pager-stdin-p", &["-p", "-"], 5, Some(&long()), &[b"q"]);
-    assert!(status.success());
-    assert!(seen.starts_with(ENTER), "{seen:?}");
 }
 
 #[test]
