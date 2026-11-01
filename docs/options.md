@@ -38,7 +38,7 @@ These are the options kiri takes on the command line.
 
 ## Completion
 
-`kiri --completions SHELL` writes a script that lets the shell complete kiri's options and their values, so `kiri --paging a` and Tab gives `always auto`. It knows the options and their fixed values, not theme names.
+`kiri --completions SHELL` writes a script that lets the shell complete kiri's options and their values, so `kiri --paging a` and Tab gives `always auto`. Options with a fixed list of values, such as `--paging`, complete those values; the other options complete file names.
 
 For bash, put this in `~/.bashrc`:
 
