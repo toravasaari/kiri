@@ -66,7 +66,10 @@ impl Watcher {
     /// Looks, with `look`, at each of `watches` that is due at `now`: one
     /// not looked at before, or looked at `every` ago or longer, and gives
     /// what each look found. Forgets the watches that are not in `watches`,
-    /// so that one that comes back is looked at at once.
+    /// so that one that comes back is looked at as one never looked at. The
+    /// loop asks only while the file is followed, so a watch it has not been
+    /// asked about for a while is not forgotten there: it comes back at the
+    /// end of the period of its last look.
     pub fn due(
         &mut self,
         watches: &[Watch],
@@ -178,7 +181,9 @@ mod tests {
     }
 
     #[test]
-    fn a_watch_that_leaves_the_list_is_looked_at_at_once_when_it_comes_back() {
+    fn a_watch_missing_from_a_list_is_forgotten_and_is_due_when_it_comes_back() {
+        // What the watcher does with the lists it is given; the loop gives
+        // a list only while following.
         let (watches, [a, _]) = two();
         let (mut watcher, mut calls) = (Watcher::default(), Vec::new());
         let start = Instant::now();

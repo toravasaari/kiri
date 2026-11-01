@@ -5,8 +5,8 @@
 //! background when the pager finds images it does not hold, which its
 //! planner (`src/frontend/pager.rs`) tells it a document wants. The waits
 //! before the pager share one loop. A reload reads the file again, brings
-//! the images up to date for it, and tells the pager whether the file has
-//! changed since it was read.
+//! the images up to date for it, and tells the pager how the file looks
+//! now, which the pager compares with how it looked when it was read.
 //!
 //! [`Guard`] is the one owner of Ctrl-C and the other signals that would
 //! end kiri, from the first load until the pager's screen catches them.

@@ -223,7 +223,8 @@ fn shown(pager: &mut Pager, now: Instant) -> Vec<Effect> {
 }
 
 impl Pager<'_, '_> {
-    /// The time of the last message that has one.
+    /// The time of the turn: when the layout was shown, or when the last
+    /// read of keys ended.
     pub(crate) fn now(&self) -> Instant {
         self.now
     }
