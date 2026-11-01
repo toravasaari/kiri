@@ -811,3 +811,22 @@ fn the_images_planned_for_paging_are_those_loading_in_the_background_waits_for()
     assert_eq!(waited.shown.len(), 3, "a heading, an image and a diagram");
     assert_eq!(planned, waited.shown);
 }
+
+#[test]
+fn a_reload_carries_on_a_load_under_way_of_an_image_it_holds() {
+    let scratch = Scratch::new("pipeline-reload-held");
+    write_png(&scratch.join("a.png"), 4, 2, 1000);
+    let settings = settings(&["/bin/false"]);
+    let env = Environment::default();
+    let loading = plain_loading(&env, &settings);
+    let document = crate::typeset::parse::parse("![x](a.png)\n");
+    let parts = alone(&document, &scratch);
+    let mut stamps = Stamps::of(&parts);
+    let mut images = load_documents(&parts, &loading, None).unwrap().images;
+    let mut loads = Loads::new();
+    let under_way = loads.expect("a.png");
+    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    assert_eq!(size_of(&images, "a.png"), (4, 2));
+    assert!(!under_way.stopped());
+    assert!(loads.loading(&"a.png".into()));
+}
